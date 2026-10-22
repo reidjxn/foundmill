@@ -7,12 +7,13 @@
  * the cycle comes back with a decision (Continue turns into "Respond · 1") or a customer (gold). The first cycle runs
  * on its own once the deck is on screen, unless the visitor prefers reduced motion.
  */
-import { useEffect, useMemo, useReducer, useRef, useState } from "react";
-import { ArrowRight, ArrowUp, Check, Inbox as InboxIcon, Pause, Play, Star, ThumbsUp, Trophy } from "lucide-react";
+import { useEffect, useMemo, useReducer, useRef, useState, type ReactNode } from "react";
+import { ArrowRight, Check, Inbox as InboxIcon, Pause, Play, Star, ThumbsUp, Trophy } from "lucide-react";
 import {
   Avatar,
   AvatarStack,
   Button,
+  Callout,
   Chip,
   ContinueButton,
   BusinessLogo,
@@ -23,6 +24,7 @@ import {
   RunwayChip,
   StopAllAgents,
   TeamOrbit,
+  Term,
   cn,
   kitBarGradient,
   kitStyle,
@@ -41,6 +43,17 @@ const DECK_CYCLE_MS_REDUCED = 900;
 const FEED_MAX = 6;
 /** A second click this soon after Continue is a double click, not a request to pause the cycle it just started. */
 const PAUSE_GRACE_MS = 800;
+/**
+ * The callout under Continue: the same single-step Callout (Dugout firstrun/Coachmark) and the same words as the app's
+ * first-Continue callout (docs/UX_AUDIT_AND_PLAN.md §5.1, §7.1, apps/web/components/shell/BusinessShell.tsx
+ * FIRST_CONTINUE_CALLOUT), so the loop is taught with one voice. The landing page has no GuidanceProvider, so guidance
+ * reads as on there; the tour is never marked anywhere (no account), and the deck shows it until the visitor presses
+ * Continue. Its target is the deck's own Continue (a wrapper the deck marks `data-coachmark="deck-continue"`), never
+ * the one the How-it-works beat draws.
+ */
+export const DECK_CALLOUT = { tourId: "deck-continue", targetId: "deck-continue", title: "This is how you move forward", body: "Press it when you have answered what needs you." } as const;
+/** The callout's sentence as one line, for copy that quotes it. */
+export const CONTINUE_CALLOUT = `${DECK_CALLOUT.title}. ${DECK_CALLOUT.body}`;
 
 export function CycleDeck({ onOpenJourney }: { onOpenJourney?: () => void }) {
   const business = useExample();
@@ -120,15 +133,19 @@ export function CycleDeck({ onOpenJourney }: { onOpenJourney?: () => void }) {
           <span className="flex-1" />
           <RunwayChip date={today} runwayMonths={deck.runwayMonths} estimate />
           <ModeChip mode="assisted" />
-          <ContinueButton
-            ref={continueRef}
-            state={continueStateFor(state)}
-            pulseKey={state.phase === "idle" ? undefined : `${state.phase}-${state.cycle}`}
-            onContinue={() => start(true)}
-            onPause={stop}
-            onRespond={() => decisionRef.current?.focus()}
-            onGoToJourney={openWin}
-          />
+          {/* The callout's anchor: ContinueButton marks its button data-coachmark="continue", as the app's does, and the
+              How-it-works beat draws another one; the wrapper's own id keeps the deck's callout on the deck's button. */}
+          <span className="inline-flex shrink-0" data-coachmark={DECK_CALLOUT.targetId} data-testid="deck-continue">
+            <ContinueButton
+              ref={continueRef}
+              state={continueStateFor(state)}
+              pulseKey={state.phase === "idle" ? undefined : `${state.phase}-${state.cycle}`}
+              onContinue={() => start(true)}
+              onPause={stop}
+              onRespond={() => decisionRef.current?.focus()}
+              onGoToJourney={openWin}
+            />
+          </span>
           <StopAllAgents onConfirm={stop} runningCount={working ? cycleTasks(state.cycle).tasks : 0} />
         </div>
         <ProcessingStrip segments={segments} active={working} label={working ? `Cycle ${state.cycle} running` : "No cycle running"} />
@@ -147,16 +164,10 @@ export function CycleDeck({ onOpenJourney }: { onOpenJourney?: () => void }) {
         </div>
       </div>
 
-      {state.phase === "idle" && !state.pressed && (autoRan || reduced) ? <PressHint /> : null}
-    </div>
-  );
-}
-
-function PressHint() {
-  return (
-    <div aria-hidden className="pointer-events-none absolute right-3 top-16 z-10 flex animate-rise-in flex-col items-end">
-      <Icon icon={ArrowUp} size={16} className="mr-26 animate-bounce text-primary" />
-      <span className="rounded-chip border border-subtle bg-panel-alt px-2.5 py-1 text-small text-primary shadow-overlay">Press Continue to run the next cycle</span>
+      {/* The callout under Continue once the deck has run a cycle by itself and the visitor has not pressed it yet. A
+          tutoring surface, so the Coachmark keeps it off when guidance is off (a signed-in page's provider), like the
+          app's coach marks; "Got it" closes it, pressing Continue takes it away for good. */}
+      {state.phase === "idle" && !state.pressed && (autoRan || reduced) ? <Callout tourId={DECK_CALLOUT.tourId} targetId={DECK_CALLOUT.targetId} title={DECK_CALLOUT.title} body={DECK_CALLOUT.body} side="bottom" align="end" /> : null}
     </div>
   );
 }
@@ -173,7 +184,7 @@ function InboxColumn({ business, state, decisionRef, onDecide, onOpenWin }: { bu
         <Icon icon={InboxIcon} size="inline" className="text-secondary" />
         <span className="t-label">Inbox</span>
         <span className="flex-1" />
-        {state.phase === "decision" ? <Chip tone="bad">1 needs you</Chip> : state.phase === "win" ? <Chip tone="gold">Customer won</Chip> : null}
+        {state.phase === "decision" ? <Chip tone="bad">1 needs your answer</Chip> : state.phase === "win" ? <Chip tone="gold">Customer won</Chip> : null}
       </div>
       <div className="flex min-h-0 flex-1 flex-col gap-1 overflow-hidden p-2">
         {state.phase === "processing" ? (
@@ -306,10 +317,12 @@ function LiveColumn({ business, feed, state, progress, paused, onTogglePaused, c
         ))}
       </ul>
       <div className="flex shrink-0 flex-col gap-1.5 border-t border-subtle px-3 py-3">
-        <span className="t-label">This cycle</span>
+        <span className="t-label">
+          This <Term id="cycle">cycle</Term>
+        </span>
         <dl className="flex flex-col gap-1.5">
           <DeckStat label="Tasks done" value={`${done} of ${t.tasks}`} />
-          <DeckStat label="Pull requests merged" value={String(Math.min(t.prs, Math.floor(progress * t.prs)))} />
+          <DeckStat label={<><Term id="pull_request">Pull requests</Term> merged</>} value={String(Math.min(t.prs, Math.floor(progress * t.prs)))} />
           <DeckStat label="Agent spend" value={exampleMoney(business, Math.round(progress * t.tasks * business.deck.costPerTaskMinor))} estimate />
         </dl>
       </div>
@@ -317,7 +330,7 @@ function LiveColumn({ business, feed, state, progress, paused, onTogglePaused, c
   );
 }
 
-function DeckStat({ label, value, estimate }: { label: string; value: string; estimate?: boolean }) {
+function DeckStat({ label, value, estimate }: { label: ReactNode; value: string; estimate?: boolean }) {
   return (
     <div className="flex items-center gap-2 text-small">
       <dt className="flex-1 text-secondary">{label}</dt>

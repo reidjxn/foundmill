@@ -8,6 +8,7 @@ import { LIMITS } from "@foundmill/config";
 import { stableHash } from "@foundmill/models";
 import type { ExhibitKind } from "@foundmill/shared";
 import type { NamedQueryId } from "./exhibits";
+import { ESTIMATE } from "./labels";
 import type { MetricsSnapshot } from "./metrics";
 
 export interface InsightThresholds {
@@ -44,14 +45,14 @@ export function computeInsights(s: MetricsSnapshot, thresholds: InsightThreshold
     out.push({
       kind: "runway_crossing",
       key: `insight:runway:${threshold}:${stableHash({ runway: s.runwayMonths, cash: s.cashMinor, burn: s.netBurnMonthlyMinor })}`,
-      title: "Runway below a warning line",
+      title: "Months of cash left fell below a warning line",
       facts: {
         runway_months: s.runwayMonths,
         threshold_months: threshold,
         cash_minor: s.cashMinor,
         currency: s.currency,
         net_burn_monthly_minor: s.netBurnMonthlyMinor,
-        label: "Estimate",
+        label: ESTIMATE,
       },
       exhibit: { kind: "table", spec_ref: "cash_position" },
       blocksContinue: s.runwayMonths < LIMITS.runwayBlockMonths,
@@ -78,7 +79,7 @@ export function computeInsights(s: MetricsSnapshot, thresholds: InsightThreshold
         spend_last_7d_minor: c.recentSpendMinor,
         customers_last_7d: c.recentCustomers,
         currency: s.currency,
-        label: "Estimate",
+        label: ESTIMATE,
       },
       exhibit: { kind: "chart", spec_ref: "channel_cpa" },
       blocksContinue: false,

@@ -10,8 +10,8 @@
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient, type InfiniteData } from "@tanstack/react-query";
 import { Inbox as InboxIcon, RefreshCw } from "lucide-react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Button, EmptyState, Kbd, useToast } from "@foundmill/dugout";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { Button, EmptyState, Kbd, useGuided, useToast } from "@foundmill/dugout";
 import type { DeptColourToken } from "@foundmill/shared";
 import { humanSender } from "@foundmill/widgets/shared/note-tags";
 import { routes } from "@foundmill/widgets/shared/routes";
@@ -26,6 +26,7 @@ import { useShellChrome } from "@/components/shell/chrome";
 import { ErrorPanel } from "@/components/shell/ErrorPanel";
 import { RefreshFailedNotice, loadFailed, refreshFailed } from "@/components/shell/QueryStates";
 import { InboxList, type InboxListRow } from "./InboxList";
+import { InboxTour } from "./InboxTour";
 import { ReadingPane } from "./ReadingPane";
 import { INBOX_TAB_LABELS, OLDER_PAGE_REUSE_MS, REFRESH_DEBOUNCE_MS, agentIndex, inboxTabs, itemIdFromPath, mergeFirstPage, neighbourId, parseInboxTab, refreshGate, rowModel, type InboxTab } from "./logic";
 
@@ -37,14 +38,21 @@ export const INBOX_LIST_WIDTH = 380;
 const PAGE = 50;
 type InboxPage = RouterOutputs["inbox"]["list"];
 
-const EMPTY_TEXT: Record<InboxTab, string> = {
-  all: "Notes from the team arrive here after each cycle. Press R to pull one now.",
+/** The empty line per tab (UX plan §5.1: the loop, stated where it is needed). The R hint is added for operators only. */
+export const EMPTY_TEXT: Record<InboxTab, string> = {
+  all: "Your team works in cycles: rounds of work whose notes land here. Press Continue to start one.",
   respond: "Nothing waits for an answer. Continue is free to run.",
   customers: "Won customers appear here with their Customer Update.",
   updates: "Updates, milestones and reports from the team land here.",
   messages: "Messages from other founders on LIVE arrive here.",
   archive: "Decided and archived notes are kept here.",
 };
+
+/** Refresh's tooltip: one quick note from the team, which is not a cycle (UX plan B17). */
+export const REFRESH_HINT = "Ask the team for one quick note (does not start a cycle)";
+
+/** "One note at a time: wait 3 s.": the gate toast while Refresh settles (UX plan B17). */
+export const refreshWaitTitle = (waitMs: number): string => `One note at a time: wait ${Math.max(1, Math.ceil(waitMs / 1000))} s.`;
 
 export interface InboxScreenProps {
   /** Initial selection from the route; the pathname is the source of truth afterwards. */
@@ -59,6 +67,8 @@ export function InboxScreen({ itemId: routeItemId }: InboxScreenProps) {
   const pathname = usePathname();
   const search = useSearchParams();
   const { toast } = useToast();
+  // Key caps and "press R" hints are for operators: shown only while guidance is off (UX plan §7.9).
+  const guided = useGuided();
   const live = data.business.gameMode === "live";
   const tab = parseInboxTab(search.get("tab"), live);
   const selectedId = itemIdFromPath(pathname) ?? routeItemId ?? null;
@@ -168,7 +178,7 @@ export function InboxScreen({ itemId: routeItemId }: InboxScreenProps) {
     const gate = refreshGate(lastRefresh.current, Date.now());
     if (!gate.allowed || refresh.isPending) {
       setWaitMs(gate.waitMs);
-      toast({ id: "inbox-refresh-wait", title: "One note at a time", description: `Refresh settles for ${Math.ceil(gate.waitMs / 1000)} s so the team never invents events.`, tone: "info", duration: 2000 });
+      toast({ id: "inbox-refresh-wait", title: refreshWaitTitle(gate.waitMs), tone: "info", duration: 2000 });
       return;
     }
     lastRefresh.current = Date.now();
@@ -185,13 +195,22 @@ export function InboxScreen({ itemId: routeItemId }: InboxScreenProps) {
   const canRefresh = access.canChange;
   const trailing = useMemo(
     () => canRefresh ? (
-      <Button size="sm" variant="ghost" icon={RefreshCw} onClick={onRefresh} loading={refresh.isPending} aria-disabled={waitMs > 0 || undefined} data-testid="inbox-refresh" data-wait-ms={waitMs > 0 ? waitMs : undefined} title={waitMs > 0 ? `Settling for ${Math.ceil(waitMs / 1000)} s` : "Pull one new note"}>
+      <Button size="sm" variant="ghost" icon={RefreshCw} onClick={onRefresh} loading={refresh.isPending} aria-disabled={waitMs > 0 || undefined} data-testid="inbox-refresh" data-wait-ms={waitMs > 0 ? waitMs : undefined} title={waitMs > 0 ? `One note at a time: wait ${Math.ceil(waitMs / 1000)} s` : REFRESH_HINT}>
         {waitMs > 0 && !refresh.isPending ? `Refreshed · ${Math.ceil(waitMs / 1000)}s` : "Refresh"}
-        <Kbd>R</Kbd>
+        {guided ? null : <Kbd>R</Kbd>}
       </Button>
     ) : undefined,
-    [onRefresh, refresh.isPending, waitMs, canRefresh],
+    [onRefresh, refresh.isPending, waitMs, canRefresh, guided],
   );
+  // The empty line, with the key hints only for operators (guidance off); viewers cannot refresh, so no R for them.
+  const emptyText: ReactNode = useMemo(() => {
+    if (guided || tab !== "all" || !canRefresh) return EMPTY_TEXT[tab];
+    return (
+      <>
+        {EMPTY_TEXT[tab]} <Kbd>R</Kbd> pulls one new note.
+      </>
+    );
+  }, [guided, tab, canRefresh]);
   useShellChrome({ title: "Inbox", tabs: { tabs, activeId: tab, onChange: (id) => router.push(id === "all" ? routes.inbox(businessId) : `${routes.inbox(businessId)}?tab=${id}`), trailing, "aria-label": "Inbox tabs" } }, [tabs, tab, trailing, businessId]);
 
   // A failed refetch keeps the loaded list on screen (with a quiet notice); only a first load that failed shows the panel.
@@ -199,21 +218,29 @@ export function InboxScreen({ itemId: routeItemId }: InboxScreenProps) {
 
   return (
     <div className="flex h-full min-h-0" data-testid="inbox-screen" data-tab={tab} data-selected={selectedId ?? undefined}>
-      <aside className="flex min-h-0 shrink-0 flex-col border-r border-subtle bg-panel" style={{ width: INBOX_LIST_WIDTH }} aria-label={`${INBOX_TAB_LABELS[tab]} notes`} data-testid="inbox-pane">
+      <aside className="flex min-h-0 shrink-0 flex-col border-r border-subtle bg-panel" style={{ width: INBOX_LIST_WIDTH }} aria-label={`${INBOX_TAB_LABELS[tab]} notes`} data-testid="inbox-pane" data-coachmark="inbox-pane">
         {refreshFailed(listQ) ? <RefreshFailedNotice query={listQ} /> : null}
-        <InboxList rows={rows} selectedId={selectedId} onSelect={select} onPrefetch={prefetchNote} loading={listQ.isLoading} hasMore={!!listQ.hasNextPage} loadingMore={listQ.isFetchingNextPage} onLoadMore={() => void listQ.fetchNextPage()} emptyText={EMPTY_TEXT[tab]} founderName={founderName} />
+        <InboxList rows={rows} selectedId={selectedId} onSelect={select} onPrefetch={prefetchNote} loading={listQ.isLoading} hasMore={!!listQ.hasNextPage} loadingMore={listQ.isFetchingNextPage} onLoadMore={() => void listQ.fetchNextPage()} emptyText={emptyText} founderName={founderName} />
       </aside>
-      <section className="flex min-h-0 min-w-0 flex-1 flex-col" aria-label="Reading pane" data-testid="reading-pane">
+      <section className="flex min-h-0 min-w-0 flex-1 flex-col" aria-label="Reading pane" data-testid="reading-pane" data-coachmark="reading-pane">
         {selectedId ? (
           <ReadingPane key={selectedId} itemId={selectedId} onArchived={() => select(neighbourId(ids.filter((i) => i !== selectedId), null, "next"))} />
         ) : (
           <EmptyState icon={InboxIcon} title="Select a note" className="my-auto" data-testid="reading-pane-empty">
             <span>
-              Pick a note on the left, or move with <Kbd>J</Kbd> and <Kbd>K</Kbd>. <Kbd>R</Kbd> pulls one new note.
+              Pick a note on the left.
+              {guided ? null : (
+                <>
+                  {" "}
+                  Move with <Kbd>J</Kbd> and <Kbd>K</Kbd>{canRefresh ? <>; <Kbd>R</Kbd> pulls one new note</> : null}.
+                </>
+              )}
             </span>
           </EmptyState>
         )}
       </section>
+      {/* The first-visit tour (once per account, guidance on). */}
+      <InboxTour />
     </div>
   );
 }

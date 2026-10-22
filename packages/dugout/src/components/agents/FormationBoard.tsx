@@ -5,6 +5,9 @@ import { CHANNEL_LINES, type ChannelKey, type ChannelLine } from "@foundmill/sha
 import { cn } from "../../lib/cn";
 import { usePrefersReducedMotion } from "../../lib/reducedMotion";
 import { HoverCard, HoverCardContent, HoverCardTrigger } from "../foundation/HoverCard";
+import { Tooltip } from "../foundation/Tooltip";
+import { Term } from "../guidance/Term";
+import { isKeyboardFocus, trackKeyboardFocus } from "../guidance/keyboardFocus";
 import { ChannelProfileCard } from "./ChannelProfileCard";
 import { Icon } from "../foundation/Icon";
 import { ChannelToken } from "./ChannelToken";
@@ -96,6 +99,8 @@ export function FormationBoard({ channels, onToggle, onOpenChannel, onPause, kit
   const [announce, setAnnounce] = useState("");
   const dragRef = useRef<DragState | null>(null);
   const order = useMemo(() => entranceOrder(channels), [channels]);
+  // The hover cards open on keyboard focus only; the tracker must be listening before the key that brings focus here.
+  useEffect(trackKeyboardFocus, []);
 
   // Entrance: after a short beat, channels join the board one by one; anything enabled later is on the board at once.
   useEffect(() => {
@@ -236,7 +241,9 @@ export function FormationBoard({ channels, onToggle, onOpenChannel, onPause, kit
       >
         {hoverCards ? (
           <HoverCard open={dragging ? false : undefined}>
-            <HoverCardTrigger asChild>
+            {/* Focus moved by script (O opening the profile, Esc giving focus back to the token) must not open the card:
+                its layer would take the next Esc away from the profile (guidance/keyboardFocus.ts). Tab and hover still do. */}
+            <HoverCardTrigger asChild onFocus={(e) => !isKeyboardFocus() && e.preventDefault()}>
               <span className="inline-flex">{token}</span>
             </HoverCardTrigger>
             <HoverCardContent side="right" className="w-80">
@@ -389,22 +396,24 @@ export function FormationBoard({ channels, onToggle, onOpenChannel, onPause, kit
               );
             })}
 
-            {/* Ghosts: where each channel that is not running would light up. */}
+            {/* Ghosts: where each channel that is not running would light up. Hovering one says what it is and how to
+                start it; nothing opens while a token is being dragged over it. */}
             {ghosts.map((g) => (
-              <span
-                key={g.key}
-                aria-hidden
-                data-ghost={g.key}
-                className="pointer-events-none absolute -ml-4 -mt-4 grid size-8 place-items-center rounded-full border border-dashed"
-                data-target={drag?.moved && drag.key === g.key ? true : undefined}
-                style={
-                  drag?.moved && drag.key === g.key
-                    ? { left: `${g.left}%`, top: `${g.top}%`, borderStyle: "solid", borderColor: FAMILY_ACCENT[g.line], backgroundColor: mix(FAMILY_ACCENT[g.line], 22), color: "var(--white)" }
-                    : { left: `${g.left}%`, top: `${g.top}%`, borderColor: mix(FAMILY_ACCENT[g.line], 38), backgroundColor: mix(FAMILY_ACCENT[g.line], 6), color: mix(FAMILY_ACCENT[g.line], 55) }
-                }
-              >
-                <Icon icon={CHANNEL_ICONS[g.key]} size={14} />
-              </span>
+              <Tooltip key={g.key} content={`${channelLabel(g.key)} · not running · drag it onto the board to start`} open={drag ? false : undefined}>
+                <span
+                  aria-hidden
+                  data-ghost={g.key}
+                  className="absolute -ml-4 -mt-4 grid size-8 place-items-center rounded-full border border-dashed"
+                  data-target={drag?.moved && drag.key === g.key ? true : undefined}
+                  style={
+                    drag?.moved && drag.key === g.key
+                      ? { left: `${g.left}%`, top: `${g.top}%`, borderStyle: "solid", borderColor: FAMILY_ACCENT[g.line], backgroundColor: mix(FAMILY_ACCENT[g.line], 22), color: "var(--white)" }
+                      : { left: `${g.left}%`, top: `${g.top}%`, borderColor: mix(FAMILY_ACCENT[g.line], 38), backgroundColor: mix(FAMILY_ACCENT[g.line], 6), color: mix(FAMILY_ACCENT[g.line], 55) }
+                  }
+                >
+                  <Icon icon={CHANNEL_ICONS[g.key]} size={14} />
+                </span>
+              </Tooltip>
             ))}
 
             {/* The hub: how many channels are running, in the brand colour, with a slow sweep. */}
@@ -473,7 +482,10 @@ export function FormationBoard({ channels, onToggle, onOpenChannel, onPause, kit
             )}
           </div>
 
-          <p className="text-small text-secondary">Closer to the center means a stronger fit. Rings mark the bands: Excellent 16–20, Good 11–15, Fair 6–10, Weak 1–5. A moving line is a running channel; a dashed one is paused.</p>
+          {/* The key under the board: the board's name and fit are the defined words; the four bands are the rating ramp's own words (ScaleLabel). */}
+          <p className="text-small text-secondary" data-board-key="">
+            On the <Term id="channel_board">Channel Board</Term>, rings mark the <Term id="fit">fit</Term> bands: {FIT_RINGS.map((r) => `${r.band} ${r.range}`).join(", ")}. A moving line is a running channel; a dashed one is paused.
+          </p>
         </section>
       </LayoutGroup>
     </MotionConfig>

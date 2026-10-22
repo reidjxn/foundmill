@@ -65,7 +65,7 @@ export function DayDigest({ summary, highlights = [], currency, onOpenJourney, r
             {[
               ["Revenue", formatMoney({ amountMinor: p?.revenueMinor ?? 0, currency }, { compact: true })],
               ["Spend", formatMoney({ amountMinor: p?.spendMinor ?? 0, currency }, { compact: true })],
-              ["Agent hours", formatNumber(p?.totalHours ?? 0, { maxDigits: 1 })],
+              ["Hours of team work", formatNumber(p?.totalHours ?? 0, { maxDigits: 1 })],
               ["Tasks done", formatNumber(p?.tasksDone ?? 0, { digits: 0 })],
             ].map(([k, v]) => (
               <div key={k}>
@@ -125,9 +125,9 @@ export function DayDigest({ summary, highlights = [], currency, onOpenJourney, r
           ) : null}
           {roundup.length > 0 ? <MatchdayRoundupTable rows={roundup} day={summary.day} onOpenReplay={(id) => onOpenJourney?.(id)} onOpenEntity={onOpenEntity} entityKinds={entityKinds} /> : null}
         </div>
-        <aside className="flex flex-col gap-2" aria-label="Agent hours by department">
+        <aside className="flex flex-col gap-2" aria-label="Hours of team work by department">
           <span className="t-data">Team</span>
-          {depts.length === 0 ? <span className="text-small text-secondary">No agent work recorded.</span> : null}
+          {depts.length === 0 ? <span className="text-small text-secondary">No team work recorded.</span> : null}
           {depts.map((d) => (
             <div key={d.id} className="flex items-center gap-2 text-small">
               <span aria-hidden className={cn("inline-block size-1.5 shrink-0 rounded-full", DEPT_BG[d.dept])} />

@@ -10,6 +10,17 @@ const props = { businessId: BUSINESS_ID, departmentId: "d-dev" };
 const responses = () => ({ "dev.prs.list": prsResponse, "team.agents.list": agentsResponse });
 
 describe("PullRequestsScreen", () => {
+  it("guidance on: what a pull request is, in the intro, and both tables open on their Simple view (UX plan §7.12)", async () => {
+    const fake = createFakeSource({ responses: responses() });
+    renderScreen(fake, <PullRequestsScreen {...props} />, {}, { guidance: "on" });
+    const open = await screen.findByRole("grid", { name: "Open pull requests" });
+    const explainer = document.querySelector("[data-explainer='development/pull-requests']") as HTMLElement;
+    expect(within(explainer).getByText("A bundle of finished code waiting for review.")).toBeTruthy();
+    expect(screen.getAllByRole("button", { name: /^View: Simple/ })).toHaveLength(2);
+    expect(within(open).getAllByRole("columnheader").map((h) => h.textContent)).toEqual(["Pull request", "Merge queue", "Agent", "Preview", "Actions"]);
+    expect(screen.getByRole("button", { name: "Open pull requests" }).className).toContain("term-link");
+  });
+
   it("lists open PRs with their merge-queue status and the merged PRs with links", async () => {
     const fake = createFakeSource({ responses: responses() });
     renderScreen(fake, <PullRequestsScreen {...props} />);
@@ -22,6 +33,9 @@ describe("PullRequestsScreen", () => {
     expect(within(open).queryByText("Deploying…")).toBeNull();
     expect(within(open).getByRole("link", { name: "Pike" })).toBeTruthy();
     expect(screen.getByTestId("pr-counts").textContent).toBe("1 in review · 1 in the merge queue");
+    // Guidance off: no intro, and the title is plain text, not a defined word.
+    expect(document.querySelector("[data-explainer]")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Open pull requests" })).toBeNull();
 
     const merged = screen.getByRole("grid", { name: "Merged pull requests" });
     expect(within(merged).getByRole("link", { name: "#41" }).getAttribute("href")).toBe(mergedPrs[0]!.url);

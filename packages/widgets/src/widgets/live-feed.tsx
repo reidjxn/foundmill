@@ -53,7 +53,7 @@ const EVENT_TITLE: Readonly<Record<string, string>> = {
   "lead.created": "New lead",
   "campaign.launched": "Campaign launched",
   "channel.threshold_breached": "A channel went over its limit",
-  "runway.threshold_crossed": "Runway warning",
+  "runway.threshold_crossed": "Cash running low",
   "bank.balance_updated": "Bank balance updated",
   "credential.expiring": "A connection needs renewing",
   "training.completed": "Training finished",
@@ -65,14 +65,14 @@ const EVENT_TITLE: Readonly<Record<string, string>> = {
   "negotiation.message": "New negotiation message",
   "decision.made": "Decision made",
   "idea.committed": "Business started",
-  "spec.proposal_created": "Specification change proposed",
-  "spec.version_published": "Specification published",
+  "spec.proposal_created": "Product spec change proposed",
+  "spec.version_published": "Product spec published",
   "source.added": "Source added",
   "source.scored": "Source scored",
   "foundations.progressed": "Foundations updated",
   "conversation.message_posted": "New message",
 };
-const CYCLE_OUTCOME: Readonly<Record<string, string>> = { completed: "completed", time_box: "reached its time box", waiting: "is waiting on you", stopped: "stopped", failed: "failed" };
+const CYCLE_OUTCOME: Readonly<Record<string, string>> = { completed: "completed", time_box: "reached its time limit", waiting: "is waiting on you", stopped: "stopped", failed: "failed" };
 const own = (map: Readonly<Record<string, string>>, key: string | undefined): string | undefined => (key !== undefined && Object.hasOwn(map, key) ? map[key] : undefined);
 
 /** Plain, specific words for each event (DESIGN §10); colour always comes with an icon and a word. */
@@ -99,7 +99,7 @@ export function describeEvent(e: WidgetEvent): Described {
       return { title: `Payment received${money(p.amount) ? ` · ${money(p.amount)}` : ""}`, description: str(p.productRef), icon: Coins, tone: "good", statusWord: p.firstPayment ? "First" : undefined };
     case "customer.converted": {
       const kind = str(p.kind);
-      return { title: own(CONVERSION_TITLE, kind) ?? "New conversion", description: money(p.amount), icon: kind === "payment" ? Trophy : kind === "signup" ? UserPlus : Rocket, tone: "good", statusWord: kind === "payment" ? "Win" : undefined };
+      return { title: own(CONVERSION_TITLE, kind) ?? "Someone took the next step", description: money(p.amount), icon: kind === "payment" ? Trophy : kind === "signup" ? UserPlus : Rocket, tone: "good", statusWord: kind === "payment" ? "Win" : undefined };
     }
     case "lead.replied":
       return { title: "A lead replied", description: str(p.sentiment), icon: MessageSquare, tone: p.sentiment === "negative" ? "warn" : "info" };
@@ -176,6 +176,7 @@ function LiveFeedWidget({ settings }: WidgetProps<LiveFeedSettings>) {
   return (
     <WidgetFrame
       title="Live feed"
+      help="Everything that happens in the business, newest first. A cycle is one round of work that ends with notes in your Inbox; the business mode is how much the team may do on its own."
       data-widget="live_feed"
       queries={[tasks]}
       empty={tasks.data && events.length === 0 ? { icon: Radio, text: "Events appear here the moment agents start working. Press Continue to begin a cycle." } : null}

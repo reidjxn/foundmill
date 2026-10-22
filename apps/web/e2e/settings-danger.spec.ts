@@ -20,6 +20,14 @@ test.describe("settings › danger zone", () => {
     const bid = await openBusiness(page, "settings/danger");
     const screen = settingsScreen(page);
     await expect(screen.getByTestId("danger-zone")).toBeVisible({ timeout: LONG });
+    // Archive and delete each carry their consequence, cost and reversibility under the button (UX plan §6.2, principle 6).
+    const archiveLine = screen.getByTestId("archive-consequence");
+    await expect(archiveLine).toContainText("Restore it from Your businesses.");
+    await expect(archiveLine).toContainText("No cost");
+    await expect(archiveLine.locator("[data-consequence-reversible]")).toHaveAttribute("data-consequence-reversible", "true");
+    const deleteLine = screen.getByTestId("delete-consequence");
+    await expect(deleteLine).toContainText("Not reversible");
+    await expect(deleteLine.locator("[data-consequence-reversible]")).toHaveAttribute("data-consequence-reversible", "false");
     const downloading = page.waitForEvent("download", { timeout: LONG });
     await screen.getByTestId("export-everything").click();
     const download = await downloading;
@@ -41,10 +49,16 @@ test.describe("settings › danger zone", () => {
     test.setTimeout(240_000);
     const name = `Archive ${Date.now().toString(36)}`;
     const bid = await commitThrowaway(page, name);
+    // Take charge moves on to the new business's Home by itself; let that land first, or the goto below is cut short by it.
+    await page.waitForURL(new RegExp(`/b/${bid}/home`), { timeout: LONG });
+    await expect(page.getByTestId("kitbar-business-name")).toHaveText(name, { timeout: LONG });
+    await page.waitForLoadState("networkidle", { timeout: LONG });
     const screen = await openSettings(page, "danger", bid);
     await expect(screen.getByTestId("danger-zone")).toBeVisible({ timeout: LONG });
     await expect(screen.getByTestId("danger-zone")).toContainText("Your businesses › Archived businesses");
     await screen.getByRole("button", { name: `Archive ${name}` }).click();
+    // The dialog repeats the consequence line before the choice.
+    await expect(page.getByRole("dialog").locator("[data-consequence]")).toContainText("Reversible");
     await page.getByRole("dialog").getByRole("button", { name: "Archive" }).click();
 
     // Off to Your businesses, where the owner finds it.

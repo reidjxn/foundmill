@@ -59,6 +59,39 @@ jobs:
           path: docs/VOCAB_SWEEP.md
           if-no-files-found: ignore
 
+  plain-language:
+    name: Plain-language linter (undefined jargon and developer notes in user-facing text)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      # The scan reuses the banned-terms extractor (TypeScript compiler API from the root devDependencies) and reads the
+      # tiers from packages/shared/src/terms.ts PLAIN_LANGUAGE_TIERS.
+      - run: pnpm install --frozen-lockfile
+      - name: Plain-language self-test
+        run: node --test scripts/plain-language.test.mjs
+      # Gate 2 (docs/UX_AUDIT_AND_PLAN.md §10) fails the job: a replace-tier word or a developer note anywhere, a
+      # replace-tier plain-allow in text a founder reads, or more than 300 undefined define-tier words in the UI roots.
+      - name: Plain-language gate
+        run: node scripts/plain-language.mjs --gate --summary
+      # The full sweep (every define-tier word, agent-facing packages included) is a report for the next sweep.
+      - name: Plain-language sweep (report)
+        if: ${{ !cancelled() }}
+        continue-on-error: true
+        run: node scripts/plain-language.mjs --sweep docs/PLAIN_LANGUAGE_SWEEP.md --summary
+      - name: Upload the plain-language sweep
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: plain-language-sweep
+          path: docs/PLAIN_LANGUAGE_SWEEP.md
+          if-no-files-found: ignore
+
   checks:
     name: Typecheck, lint, unit tests
     runs-on: ubuntu-latest

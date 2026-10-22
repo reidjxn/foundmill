@@ -8,7 +8,7 @@
  */
 import { useState } from "react";
 import { Check, MessageSquareText } from "lucide-react";
-import { Button, Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, Panel, StatusPill, Textarea, useFormatters, type StatusTone } from "@foundmill/dugout";
+import { Button, Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, Panel, StatusPill, Term, Textarea, useFormatters, type StatusTone } from "@foundmill/dugout";
 import { useBusinessEvents, useWidgetQuery } from "@foundmill/widgets";
 import { InlineError, useAction } from "./shared";
 import type { SignoffView, SignoffViews } from "./types";
@@ -81,13 +81,17 @@ export function SignoffBanner({ kind, signoffs, canWrite, onDecided }: SignoffBa
   };
   const line =
     view.status === "approved"
-      ? `You approved ${words.the}${view.specVersion ? ` as version ${view.specVersion}` : ""}${view.decidedAt ? ` on ${formatDate(view.decidedAt)}` : ""}. Later changes arrive as proposals you accept.`
+      ? `You approved ${words.the}${view.specVersion ? ` as version ${view.specVersion}` : ""}${view.decidedAt ? ` on ${formatDate(view.decidedAt)}` : ""}. Later changes arrive as suggested edits you accept.`
       : view.status === "changes_requested"
         ? `You asked for changes${view.notes ? `: “${view.notes.length > 140 ? `${view.notes.slice(0, 140)}…` : view.notes}”` : ""}. The Product lead revises ${words.the}; approve it here once it reads right.`
         : `Round ${view.round}: read ${words.the} and approve it, or ask for changes in your own words. Building starts when the specification and the roadmap are both signed off.`;
   return (
     <Panel
-      title={words.title}
+      title={
+        <>
+          {words.title.replace(/ sign-off$/, "")} <Term id="sign_off">sign-off</Term>
+        </>
+      }
       span={12}
       data-testid="signoff-banner"
       data-signoff-kind={kind}

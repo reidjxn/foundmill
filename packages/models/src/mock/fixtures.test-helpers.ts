@@ -39,7 +39,7 @@ export const COMPOSER_INPUT = {
     { metric: "customers_week", value: 7, source: "journeys.weekly" },
   ],
   named_queries: [
-    { id: "q_mrr_12w", title: "MRR last twelve weeks", kind: "chart" },
+    { id: "q_mrr_12w", title: "Monthly recurring revenue, last twelve weeks", kind: "chart" },
     { id: "q_customer_card", title: "Customer card", kind: "entity_card" },
   ],
   manifest: MANIFEST,

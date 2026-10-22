@@ -114,14 +114,14 @@ const ACTIVITY: readonly ActivityLine[] = [
   { who: "Pip", dept: "dept-3", text: "published the devlog 'What broke in 1,000 AI-played runs'" },
   { who: "Verity", dept: "dept-5", text: "trimmed the GitHub app to read code and write issues and checks" },
   { who: "Harbor", dept: "dept-8", text: "hired Sprite, a card-game playtester, from a template" },
-  { who: "Flare", dept: "dept-3", text: "put events on the board at a fit of 16" },
+  { who: "Flare", dept: "dept-3", text: "put events on the board, scored 16 of 20" },
   { who: "Vex", dept: "dept-2", text: "reproduced a Unity WebGL crash 3 times out of 3, replay attached" },
   { who: "Echo", dept: "dept-1", text: "turned nine studio interviews into the Windows builds spec" },
   { who: "Moss", dept: "dept-3", text: "answered 14 playtesting questions across four Discord servers" },
-  { who: "Tern", dept: "dept-8", text: "trained Vex on 60 Unity WebGL crash logs: 52 triaged correctly" },
+  { who: "Tern", dept: "dept-8", text: "trained Vex on 60 Unity WebGL crash logs: 52 sorted correctly" },
   { who: "Seal", dept: "dept-5", text: "drafted confidentiality terms for unreleased builds" },
   { who: "Flare", dept: "dept-3", text: "priced a booth at Copperline Indie Fest in Denver, Nov 14–15" },
-  { who: "Quinn", dept: "dept-1", text: "wrote the acceptance tests for the localization playtest" },
+  { who: "Quinn", dept: "dept-1", text: "wrote the tests that say when the localization playtest is done" },
   { who: "Bolt", dept: "dept-2", text: "opened pull request #318 with every eval threshold green" },
 ];
 
@@ -201,7 +201,7 @@ const CHANNELS: ExampleBusiness["channels"] = {
   seed: "glitchwick",
   fits: FITS,
   recommended: ["content", "social", "events", "seo"],
-  why: "{channel} is scored for a tool small studios find in devlogs, Discord servers and game jams, then recommend to other studios. The first signal comes within a cycle and the cost per studio stays inside the runway budget.",
+  why: "{channel} is scored for a tool small studios find in devlogs, Discord servers and game jams, then recommend to other studios. The first signal comes within one round of work, and the cost per studio stays inside the budget.",
 };
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -280,7 +280,7 @@ const CUSTOMER_UPDATE: ExampleCustomerUpdate = {
   commentary: [
     { text: "Pip's devlog 'What broke in 1,000 AI-played runs' brings Rosa Delgado in from r/gamedev on a {weekday:2026-09-24} night.", highlight: true },
     { text: "She asks in Glitchwick's Discord whether Godot web exports work. Moss replies with a sample replay ten minutes later." },
-    { text: "On {weekday:2026-09-26} she installs the GitHub app on the Tidewright repository and starts the 14-day trial." },
+    { text: "On {weekday:2026-09-26} she installs the GitHub app on Tidewright's code and starts the 14-day trial." },
     { text: "On the third night, Rune's nightly playtest finds a crash: loading a save made just after a relic triggers. It lands in GitHub with a replay of the 20 seconds before it.", highlight: true },
     { text: `Rosa ships the fix the next morning. A week later, with the Steam Next Fest demo locked, [[ent:${KETTLEBIRD.entityId}|${KETTLEBIRD.name}]] moves to the Indie plan.`, highlight: true },
   ],
@@ -295,9 +295,11 @@ const CUSTOMER_UPDATE: ExampleCustomerUpdate = {
 const MILESTONES: ExampleBusiness["milestones"] = [
   { key: "customer_1", label: "First paying studio", description: "The first studio pays for nightly playtests.", achievedAt: "2024-11-08T12:00:00", customerName: "Gravelmoth Games", ...usd(2900), shareable: true },
   { key: "first_team_plan", label: "First Team plan", description: "A studio pays a year of the Team plan up front, for all three of its games.", achievedAt: "2024-12-26T12:00:00", customerName: "Hollow Pine Games", ...usd(149_000), shareable: true },
+  // plain-allow: MRR is spelled out in the description on the same line.
   { key: "mrr_1k", label: "$1K MRR", description: "Monthly recurring revenue crosses $1,000.", achievedAt: "2025-03-20T12:00:00", shareable: true },
   { key: "customer_100", label: "100 studios", description: "One hundred studios pay for Glitchwick.", achievedAt: "2025-09-25T12:00:00", shareable: true },
   { key: "github_marketplace", label: "On GitHub Marketplace", description: "Studios install Glitchwick from GitHub Marketplace.", achievedAt: "2026-01-10T12:00:00", shareable: true },
+  // plain-allow: MRR is spelled out in the description on the same line.
   { key: "mrr_10k", label: "$10K MRR", description: "Monthly recurring revenue crosses $10,000.", achievedAt: "2026-09-18T12:00:00", shareable: true },
 ];
 
@@ -309,7 +311,7 @@ const INBOX_NOTE: ExampleInboxNote = {
   /** When the note arrived: today on the example business. */
   paragraphs: [
     "Jams are where Glitchwick meets studios early: 4 of the last 12 Team plans first saw us at one. The Slow Turns Jam (Nov 6–9, turn-based and puzzle games) offers us its tools sponsor slot: our name on the jam page and a free nightly playtest for every entry.",
-    "The slot is $1,200, above the $500 cap you set for new spend, so it waits for you. Playtests for about 600 entries add $260 in runs (Estimate). The runway stays at 16 months either way.",
+    "The slot is $1,200, above the $500 cap you set for new spend, so it waits for you. Playtests for about 600 entries add $260 in runs (Estimate). Either way, the cash lasts 16 months.",
   ],
   costMinor: 120_000,
   fit: "16 of 20",
@@ -317,7 +319,7 @@ const INBOX_NOTE: ExampleInboxNote = {
   options: [
     { id: "approve", label: "Sponsor", recommended: true, consequence: "Flare confirms the slot; Pip writes the post. You pay the $1,200 invoice.", costMinor: 120_000, reversible: false },
     { id: "playtests", label: "Free playtests only", consequence: "Moss offers playtests in the jam's Discord: $260 in runs (Estimate), no slot.", costMinor: 26_000, reversible: true },
-    { id: "later", label: "Not this chapter", consequence: "No sponsorship this chapter; Flare asks about the next jam.", costMinor: null, reversible: true },
+    { id: "later", label: "Not now", consequence: "No sponsorship for now; Flare asks about the next jam.", costMinor: null, reversible: true },
   ],
 };
 
@@ -333,13 +335,13 @@ const LEADS: readonly ExampleLead[] = [
     role: "Lead developer",
     model: "Sonnet",
     stars: { current: 4, potential: 5 },
-    remit: "Agents build the playtester itself: sandboxes for web and desktop builds, the play loop, replays, the pull request check and the 120-bug eval every change must pass.",
+    remit: "Agents build the playtester itself: safe test machines for web and desktop builds, the play loop, replays and the 120-bug eval every change must pass. A pull request is a studio's proposed code change; Glitchwick plays each one before it merges.",
     now: "Posting replays on pull request reviews",
     training: "Version 6 promoted: the eval runs before every merge",
-    skills: [skill("sandboxes", "Sandbox orchestration", "craft", 17, 1, 19), skill("evals", "Eval design", "craft", 17, 3, 19), skill("planning", "Planning", "judgement", 14, 1, 16), skill("routing", "Model routing", "judgement", 15, 4, 18), skill("reliability", "Reliability", "execution", 15, 1, 17), skill("cost", "Cost efficiency", "execution", 16, 5, 18)],
+    skills: [skill("sandboxes", "Test machine setup", "craft", 17, 1, 19), skill("evals", "Eval design", "craft", 17, 3, 19), skill("planning", "Planning", "judgement", 14, 1, 16), skill("routing", "Model routing", "judgement", 15, 4, 18), skill("reliability", "Reliability", "execution", 15, 1, 17), skill("cost", "Cost efficiency", "execution", 16, 5, 18)],
     traits: [
       { id: "evals_first", label: "Runs the eval before every merge", tone: "good" },
-      { id: "small_prs", label: "Small pull requests", tone: "good" },
+      { id: "small_prs", label: "Small, easy-to-review changes", tone: "good" },
       { id: "large_model", label: "Reaches for the large model", tone: "warn" },
     ],
   },
@@ -350,10 +352,10 @@ const LEADS: readonly ExampleLead[] = [
     role: "Product lead",
     model: "Opus",
     stars: { current: 3.5, potential: 4.5 },
-    remit: "A vision, a living specification and a roadmap shaped by how small studios build, test and ship their games.",
+    remit: "A vision, a living description of the product and a roadmap shaped by how small studios build, test and ship their games.",
     now: "Reviewing the Windows builds spec with Bolt",
     training: "Version 3 promoted: studio interview synthesis",
-    skills: [skill("research", "Research synthesis", "craft", 16, 2, 18), skill("spec", "Specification writing", "craft", 15, 1, 17), skill("prioritize", "Prioritization", "judgement", 16, 1, 18), skill("no", "Saying no", "judgement", 15, 2, 17), skill("pace", "Pace", "execution", 14, 0, 16), skill("reliability", "Reliability", "execution", 15, 1, 17)],
+    skills: [skill("research", "Research synthesis", "craft", 16, 2, 18), skill("spec", "Product writing", "craft", 15, 1, 17), skill("prioritize", "Prioritization", "judgement", 16, 1, 18), skill("no", "Saying no", "judgement", 15, 2, 17), skill("pace", "Pace", "execution", 14, 0, 16), skill("reliability", "Reliability", "execution", 15, 1, 17)],
     traits: [
       { id: "verbatim", label: "Quotes developers word for word", tone: "good" },
       { id: "cuts", label: "Cuts scope before adding it", tone: "good" },
@@ -367,10 +369,10 @@ const LEADS: readonly ExampleLead[] = [
     role: "Distribution Strategist",
     model: "Sonnet",
     stars: { current: 3, potential: 4.5 },
-    remit: "Fifteen channels scored for fit. Devlogs, Discord communities, r/gamedev, itch.io jams and the GitHub Marketplace listing come first, inside the caps you set.",
+    remit: "Fifteen channels scored for how well they suit Glitchwick. Devlogs, Discord communities, r/gamedev, itch.io jams and the GitHub Marketplace listing come first, inside the caps you set.",
     now: "Testing copy for the GitHub Marketplace listing",
     training: "Version 3 promoted: devlogs that lead with a replay",
-    skills: [skill("fit", "Channel fit", "craft", 17, 1, 19), skill("copy", "Copywriting", "craft", 15, 2, 17), skill("experiments", "Experiment design", "judgement", 15, 1, 18), skill("budget", "Budget discipline", "judgement", 16, 0, 17), skill("attribution", "Attribution", "execution", 13, 2, 16), skill("speed", "Speed to test", "execution", 16, 1, 17)],
+    skills: [skill("fit", "Channel scoring", "craft", 17, 1, 19), skill("copy", "Copywriting", "craft", 15, 2, 17), skill("experiments", "Experiment design", "judgement", 15, 1, 18), skill("budget", "Budget discipline", "judgement", 16, 0, 17), skill("attribution", "Source tracking", "execution", 13, 2, 16), skill("speed", "Speed to test", "execution", 16, 1, 17)],
     traits: [
       { id: "real_bugs", label: "Leads with a real bug, not a claim", tone: "good" },
       { id: "caps", label: "Never exceeds a spend cap", tone: "good" },
@@ -384,10 +386,10 @@ const LEADS: readonly ExampleLead[] = [
     role: "Finance lead",
     model: "Opus",
     stars: { current: 4, potential: 4.5 },
-    remit: "Cash, burn, runway, gross margin and cost per playtest run on a reconciled ledger. Anything that is not a real figure is labeled Forecast or Estimate.",
+    remit: "Cash, months of cash left and cost per playtest run, with the books reconciled. Gross margin is the share of each plan left after GPU costs. A figure that is not measured carries a label: Estimate means worked out, Forecast means projected.",
     now: "Checking margin with routing on: 73%, Estimate",
     training: "Version 5 promoted: gross margin per plan",
-    skills: [skill("reconcile", "Reconciliation", "craft", 18, 1, 19), skill("forecast", "Forecasting", "craft", 14, 2, 17), skill("cash", "Cash discipline", "judgement", 17, 0, 18), skill("unit", "Unit economics", "judgement", 16, 3, 18), skill("reporting", "Reporting clarity", "execution", 15, 1, 17), skill("audit", "Audit trail", "execution", 18, 0, 19)],
+    skills: [skill("reconcile", "Reconciliation", "craft", 18, 1, 19), skill("forecast", "Forecasting", "craft", 14, 2, 17), skill("cash", "Cash discipline", "judgement", 17, 0, 18), skill("unit", "Profit per sale", "judgement", 16, 3, 18), skill("reporting", "Reporting clarity", "execution", 15, 1, 17), skill("audit", "Audit trail", "execution", 18, 0, 19)],
     traits: [
       { id: "labels", label: "Labels every estimate", tone: "good" },
       { id: "margin", label: "Flags margin under the floor", tone: "good" },

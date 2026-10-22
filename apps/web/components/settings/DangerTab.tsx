@@ -9,12 +9,12 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Archive, Download, Trash2, TriangleAlert, Undo2 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
-import { Button, Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, Field, Icon, Input, Panel, StatusPill, useDateFormat } from "@foundmill/dugout";
+import { Button, ConsequenceLine, Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, Field, Icon, Input, Panel, StatusPill, useDateFormat } from "@foundmill/dugout";
 import { formatDate } from "@/lib/format";
 import { errorMessage, trpcErrorCode, trpcPathPrefix } from "@/lib/trpc";
 import { useTRPC } from "@/lib/trpc-react";
 import { useBusiness } from "@/components/shell/business-context";
-import { ARCHIVED_HREF, DELETION_DELAY_DAYS, exportToast, saveExport, type ExportedArchive } from "./danger";
+import { ARCHIVED_HREF, DANGER_CONSEQUENCES, DELETION_DELAY_DAYS, exportToast, saveExport, type ExportedArchive } from "./danger";
 import { Hint, useSettingsToast } from "./shared";
 
 export function DangerTab() {
@@ -107,6 +107,7 @@ export function DangerTab() {
               Archive {data.business.name}
             </Button>
           </div>
+          <ConsequenceLine {...DANGER_CONSEQUENCES.archive} data-testid="archive-consequence" />
         </div>
         <div className="flex flex-col gap-2 border-t border-line pt-4">
           <span className="t-display-sm text-status-bad">Delete permanently</span>
@@ -128,6 +129,7 @@ export function DangerTab() {
               {!isOwner ? <StatusPill tone="neutral">Owner only</StatusPill> : null}
             </div>
           )}
+          {scheduled ? null : <ConsequenceLine {...DANGER_CONSEQUENCES.delete} data-testid="delete-consequence" />}
         </div>
         <Hint>Archive and delete are audited with your account; an Inbox note confirms each step.</Hint>
       </div>
@@ -137,6 +139,7 @@ export function DangerTab() {
           <DialogHeader>
             <DialogTitle>Archive {data.business.name}?</DialogTitle>
             <DialogDescription>All agents stop within 30 seconds. The business leaves your list until an owner restores it from Your businesses › Archived businesses.</DialogDescription>
+            <ConsequenceLine {...DANGER_CONSEQUENCES.archive} />
           </DialogHeader>
           <DialogFooter>
             <Button variant="ghost" onClick={() => setConfirmArchive(false)}>
@@ -154,6 +157,7 @@ export function DangerTab() {
           <DialogHeader>
             <DialogTitle>Delete {data.business.name} permanently?</DialogTitle>
             <DialogDescription>Type the business name to continue. You will be asked to sign in again, then deletion runs in {DELETION_DELAY_DAYS} days unless an owner cancels it here, in Settings › Danger zone.</DialogDescription>
+            <ConsequenceLine {...DANGER_CONSEQUENCES.delete} />
           </DialogHeader>
           <DialogBody>
             <Field htmlFor="delete-confirm" label="Business name">

@@ -28,6 +28,7 @@ import {
   EVENT_TYPES,
   EventType,
   GameMode,
+  GUIDANCE_OFF_SOURCES,
   InboxItemType,
   MatchdayLevel,
   Money,
@@ -1236,6 +1237,72 @@ const productResearchDrafted = declareEvent(
 );
 
 // ---------------------------------------------------------------------------------------------------
+// The guided layer's product signals (docs/UX_AUDIT_AND_PLAN.md §11)
+// ---------------------------------------------------------------------------------------------------
+
+/** A tour id as the preferences store it (`toursDone` keys: "home", "inbox", "first-continue", ...). */
+const TourId = z.string().trim().min(1).max(120);
+/** A screen id as `explainersSeen` stores it ("finance/runway", "team/agents", ...). */
+const ScreenId = z.string().trim().min(1).max(120);
+/** A TERMS id (packages/shared/src/terms.ts), never the display word, so a business glossary never splits the count. */
+const TermId = z.string().regex(/^[a-z][a-z0-9_]*$/).max(64);
+const GUIDANCE_DOC_TAIL =
+  " Written by founder.preferences.signal into the business the founder was in (the envelope's actor is the founder); for metrics only, never narrated, and on the business stream walled to the readers of Settings.";
+
+const guidanceTourCompleted = declareEvent(
+  "guidance.tour_completed",
+  z.object({
+    tourId: TourId,
+    /** How many steps the tour showed (targets missing on the page are skipped, so this can be fewer than defined). */
+    steps: z.number().int().positive().max(20),
+  }),
+  { doc: "A founder finished a first-visit tour (Home, Inbox, a department tab, a one-step callout) by reaching its last step." + GUIDANCE_DOC_TAIL, consumers: ["metrics"], narratable: false },
+);
+
+const guidanceTourSkipped = declareEvent(
+  "guidance.tour_skipped",
+  z.object({
+    tourId: TourId,
+    /** The step the founder left on, 1-based. */
+    atStep: z.number().int().positive().max(20),
+    steps: z.number().int().positive().max(20),
+  }),
+  { doc: "A founder left a tour before its last step (Skip tour or Esc), with the step they left on." + GUIDANCE_DOC_TAIL, consumers: ["metrics"], narratable: false },
+);
+
+const guidanceExplainerDismissed = declareEvent(
+  "guidance.explainer_dismissed",
+  z.object({ screenId: ScreenId }),
+  { doc: "A founder pressed Got it on a screen's explainer, which collapses it to one line for their account." + GUIDANCE_DOC_TAIL, consumers: ["metrics"], narratable: false },
+);
+
+const guidanceTermOpened = declareEvent(
+  "guidance.term_opened",
+  z.object({
+    termId: TermId,
+    /** The screen it was opened on, when the client knows it ("home", "finance/runway"). */
+    screenId: ScreenId.nullable().default(null),
+  }),
+  {
+    doc: "A founder opened a defined word's definition card (a Term, an InfoTip with a definition). A term opened by more than 20% of new accounts is a candidate for an in-sentence definition (§11)." + GUIDANCE_DOC_TAIL,
+    consumers: ["metrics"],
+    narratable: false,
+  },
+);
+
+const guidanceTurnedOff = declareEvent(
+  "guidance.turned_off",
+  z.object({
+    /** Where the switch was flipped. */
+    from: z.enum(GUIDANCE_OFF_SOURCES),
+    /** How much of the guided layer the founder had been through: tours done and explainers seen at that moment. */
+    toursDone: Count,
+    explainersSeen: Count,
+  }),
+  { doc: "A founder turned guidance off (Explain things as I go). The automatic default for Exited and Operator profiles is not this event: it happens before any business exists." + GUIDANCE_DOC_TAIL, consumers: ["metrics"], narratable: false },
+);
+
+// ---------------------------------------------------------------------------------------------------
 // Founder ↔ agent conversations (audit-conversation §4)
 // ---------------------------------------------------------------------------------------------------
 
@@ -1421,6 +1488,11 @@ export const EVENTS = {
   "product.signoff_decided": productSignoffDecided,
   "distribution.started": distributionStarted,
   "product.research_drafted": productResearchDrafted,
+  "guidance.tour_completed": guidanceTourCompleted,
+  "guidance.tour_skipped": guidanceTourSkipped,
+  "guidance.explainer_dismissed": guidanceExplainerDismissed,
+  "guidance.term_opened": guidanceTermOpened,
+  "guidance.turned_off": guidanceTurnedOff,
 } as const satisfies { readonly [K in EventTypeT]: EventDeclaration<K> };
 
 export type EventsRegistry = typeof EVENTS;

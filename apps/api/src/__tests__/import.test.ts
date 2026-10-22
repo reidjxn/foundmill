@@ -74,6 +74,9 @@ describe("import.start / import.status — Door B (BUILD §11.1, AC-11.1.5)", ()
     expect(report.summary).toMatch(/nothing has been read yet/);
     expect(report.firstDecisions.filter((d) => d.recommended)).toHaveLength(1);
     expect(report.firstDecisions.find((d) => d.id === "roadmap")?.label).toMatch(/open issues/);
+    // The recommended first decision says why, from the founder's seat (UX plan §7.19); the others say nothing.
+    expect(report.firstDecisions.find((d) => d.recommended)?.because).toMatch(/^Recommended because every department works from the Specification/);
+    expect(report.firstDecisions.filter((d) => !d.recommended).every((d) => d.because === undefined)).toBe(true);
     // Same inputs → the same report (AC: deterministic mock), on a second status call and from the pure builder.
     const again = await user.import.status({ jobId: started.job.id });
     expect(again.report).toEqual(report);

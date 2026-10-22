@@ -7,7 +7,7 @@
  */
 import { useId, useMemo, useState } from "react";
 import { Building2, Download, ExternalLink, Landmark, Search, Users } from "lucide-react";
-import { Button, Chip, DataTable, EntityLink, Field, Input, KeyValueList, MiniTable, MoneyInput, Panel, SimpleSelect, Timeline, useFormatters, type DataTableColumn, type RowAction, type SavedView, type TimelineEvent } from "@foundmill/dugout";
+import { Button, Chip, DataTable, EmptyState, EntityLink, Explainer, Field, Input, KeyValueList, MiniTable, MoneyInput, Panel, SimpleSelect, Term, Timeline, useFormatters, useTerm, type DataTableColumn, type RowAction, type SavedView, type TimelineEvent } from "@foundmill/dugout";
 import { moduleTabHref, useDepartments } from "@foundmill/widgets/shared/departments";
 import { routes } from "@foundmill/widgets/shared/routes";
 import { useWidgetData, useWidgetQuery } from "@foundmill/widgets/data";
@@ -16,12 +16,14 @@ import type { ModuleScreenProps } from "../registry";
 import { INCORPORATION_STATUS_WORD, ROUTE_META, entityTypeLabel, formatAddress, jurisdictionName, officerRows, readSteps, type OfficerRow } from "./legal-data";
 import { DateText } from "../dates";
 import { fitColumns, fitToGrow, type ColumnFit } from "../fit";
-import { ENTITY_STATUS_PILL, Fact, InlineError, Pill, Screen, fitTableHeight, fmtMoney, humanise, useAction, useCurrency, useLegalStatus, useNow } from "./shared";
+import { ENTITY_STATUS_PILL, Fact, InlineError, LEGAL_EXPLAINER, Pill, SIMPLE_VIEW_ID, Screen, fitTableHeight, fmtMoney, humanise, useAction, useCurrency, useDefaultViewId, useLegalStatus, useNow } from "./shared";
 import type { IncorporationRow, LookupResult, OfficersResponse } from "./types";
 
 const OFFICERS_INPUT = { role: "officer", limit: 200 } as const;
 
 export const OFFICER_VIEWS: SavedView[] = [
+  // Simple (UX plan §7.10): who, in what role, since when; it opens first while guidance is on.
+  { id: SIMPLE_VIEW_ID, name: "Simple", builtIn: true, columns: ["name", "role", "appointedOn"], sort: [{ id: "name", desc: false }], filters: [] },
   { id: "all", name: "All officers", builtIn: true, columns: ["name", "role", "appointedOn", "crm"], sort: [{ id: "name", desc: false }], filters: [] },
   { id: "directors", name: "Directors", builtIn: true, columns: ["name", "role", "appointedOn", "crm"], sort: [{ id: "name", desc: false }], filters: [{ id: "f-dir", field: "role", op: "contains", value: "director" }] },
   { id: "unlinked", name: "Not in CRM yet", builtIn: true, columns: ["name", "role", "appointedOn"], sort: [{ id: "name", desc: false }], filters: [{ id: "f-crm", field: "crm", op: "eq", value: "no" }] },
@@ -89,11 +91,14 @@ export function EntityScreen({ businessId }: ModuleScreenProps) {
   const { navigate } = useWidgetData();
   const departments = useDepartments();
   const id = useId();
+  // A Term renders a button, which must not sit inside the <label>: the definition goes in the Field's help tip.
+  const jurisdictionTerm = useTerm("jurisdiction");
   const status = useLegalStatus();
   const officers = useWidgetQuery<OfficersResponse>("crm.roles.byRole", OFFICERS_INPUT);
   const action = useAction();
-  // Saved per person, business and table (audit #204): they come back after a reload.
-  const savedViews = useSavedViews("legal.entity.officers", OFFICER_VIEWS, { defaultViewId: "all" });
+  // Saved per person, business and table (audit #204): they come back after a reload. Simple opens first while guidance is on.
+  const defaultViewId = useDefaultViewId("all");
+  const savedViews = useSavedViews("legal.entity.officers", OFFICER_VIEWS, { defaultViewId });
   const [country, setCountry] = useState<"gb" | "se" | "other">("gb");
   const [regNo, setRegNo] = useState("");
   const [jurisdictionCode, setJurisdictionCode] = useState("");
@@ -177,7 +182,7 @@ export function EntityScreen({ businessId }: ModuleScreenProps) {
     ? [
         { label: "Legal name", value: <span className="t-body-strong text-primary">{entity.legalName}</span> },
         { label: "Status", value: <Pill {...ENTITY_STATUS_PILL[entity.status]} /> },
-        { label: "Jurisdiction", value: jurisdictionName(entity.jurisdiction) || "—" },
+        { label: <Term id="jurisdiction">Jurisdiction</Term>, value: jurisdictionName(entity.jurisdiction) || "—" },
         { label: "Entity type", value: entityTypeLabel(entity.entityType) || "—" },
         { label: "Registration number", value: entity.regNo ?? "—", mono: true },
         { label: "Formed", value: entity.formedAt ? formatDate(entity.formedAt) : "Not yet formed" },
@@ -195,9 +200,16 @@ export function EntityScreen({ businessId }: ModuleScreenProps) {
         loading={loading}
         error={status.error ? status.error.message : undefined}
         onRetry={status.refetch}
-        empty={noEntity ? { icon: Building2, title: "No legal entity yet", children: "Import an existing company on the right, or start an incorporation on the Incorporate tab; the entity's facts appear here.", action: { label: "Incorporate", icon: Landmark, onClick: () => navigate(moduleTabHref(businessId, departments.data, "legal", "incorporate")) } } : undefined}
         footer={entity ? <span>Legal name and address feed the contract templates and the generated policies. Officers are CRM people with the officer role.</span> : undefined}
       >
+        {/* The department's intro while guidance is on (UX plan §7.10): first-timers meet this tab before any entity
+            exists, so the empty state sits under it in the body rather than in place of it. */}
+        <Explainer {...LEGAL_EXPLAINER} className="mb-3" />
+        {noEntity ? (
+          <EmptyState icon={Building2} title="No legal entity yet" action={{ label: "Incorporate", icon: Landmark, onClick: () => navigate(moduleTabHref(businessId, departments.data, "legal", "incorporate")) }} className="py-6">
+            Import an existing company on the right, or start an incorporation on the Incorporate tab; the entity's facts appear here.
+          </EmptyState>
+        ) : null}
         {entity ? <KeyValueList aria-label="Entity facts" items={facts} layout="grid" /> : null}
         {missingDetails ? (
           <form
@@ -242,7 +254,7 @@ export function EntityScreen({ businessId }: ModuleScreenProps) {
             <SimpleSelect id={`${id}-country`} options={COUNTRY_OPTIONS} value={country} onValueChange={(v) => setCountry(v as "gb" | "se" | "other")} aria-label="Country" />
           </Field>
           {country === "other" ? (
-            <Field htmlFor={`${id}-jcode`} label="Jurisdiction code" hint="OpenCorporates code, e.g. de, fr, no, dk, fi, ee">
+            <Field htmlFor={`${id}-jcode`} label="Jurisdiction code" help={jurisdictionTerm?.short} helpLearn={jurisdictionTerm?.learn} hint="OpenCorporates code, e.g. de, fr, no, dk, fi, ee">
               <Input id={`${id}-jcode`} value={jurisdictionCode} onChange={(e) => setJurisdictionCode(e.target.value)} placeholder="de" maxLength={10} />
             </Field>
           ) : null}
@@ -323,10 +335,10 @@ export function EntityScreen({ businessId }: ModuleScreenProps) {
         onRetry={officers.refetch}
         empty={!loading && !officers.isLoading && rows.length === 0 ? { icon: Users, children: "Officers appear once a company is imported or formed; each becomes a CRM person with the officer role." } : undefined}
         meta={rows.length ? `${rows.length} officer${rows.length === 1 ? "" : "s"}` : undefined}
-        footer={<span>Right-click an officer to open them in the CRM.</span>}
+        footer={<span>Use the … button or right-click an officer to open them in the CRM.</span>}
       >
         <div className="min-w-0">
-          <DataTable<OfficerRow> aria-label="Officers" data={rows} columns={columns} getRowId={(r) => r.key} {...savedViews} defaultViewId="all" height={fitTableHeight(rows.length, { minRows: 3, maxRows: 10 })} exportFileName="officers" rowActions={officerActions} onRowOpen={(r) => r.entityId && navigate(routes.crm(businessId, r.entityId))} />
+          <DataTable<OfficerRow> aria-label="Officers" data={rows} columns={columns} getRowId={(r) => r.key} {...savedViews} defaultViewId={defaultViewId} height={fitTableHeight(rows.length, { minRows: 3, maxRows: 10 })} exportFileName="officers" rowActions={officerActions} onRowOpen={(r) => r.entityId && navigate(routes.crm(businessId, r.entityId))} />
         </div>
       </Panel>
 

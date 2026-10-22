@@ -5,7 +5,7 @@
  */
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { CircleAlert, CircleDashed, CirclePause } from "lucide-react";
-import { Avatar, EntityLink, MODEL_LABELS, PageGrid, StatusPill, agentStatusTone, cn, formatRelative, type EntityDetails, type IconComponent, type SquadRow } from "@foundmill/dugout";
+import { Avatar, EntityLink, MODEL_LABELS, PageGrid, StatusPill, agentStatusTone, cn, formatRelative, useGuided, type EntityDetails, type IconComponent, type SquadRow } from "@foundmill/dugout";
 import { type AgentStatus, type DeptColourToken, type MembershipRole } from "@foundmill/shared/constants";
 import { SECTIONS } from "@foundmill/shared/permissions";
 import { moduleTabHref } from "@foundmill/widgets/shared/departments";
@@ -53,6 +53,19 @@ export function Screen({ name, children, className }: { name: string; children: 
       {children}
     </PageGrid>
   );
+}
+
+/* ---------- Tables ---------- */
+
+/** The built-in "Simple" saved view every team table carries: its four most important columns (UX plan §7.10). */
+export const SIMPLE_VIEW_ID = "simple";
+
+/**
+ * The view a table opens on before the person picks one: "Simple" while guidance is on, the screen's general view
+ * otherwise (DESIGN §8 Guidance). A view the person left open (stored per table) still wins (saved-views.ts).
+ */
+export function useDefaultViewId(general: string): string {
+  return useGuided() ? SIMPLE_VIEW_ID : general;
 }
 
 /* ---------- Mutations ---------- */
@@ -214,12 +227,12 @@ export const STATUS_WORD: Record<AgentStatus, string> = { healthy: "Healthy", de
 export const STATUS_ORDER: readonly AgentStatus[] = ["failing", "injured", "degraded", "paused", "idle", "healthy"];
 
 export const STATUS_DESCRIPTION: Record<AgentStatus, string> = {
-  failing: "Loop detected or repeated errors. It rests (10 minutes, longer after each failure in a row), then the next cycle gives it work again.",
+  failing: "Loop detected or repeated errors. It rests (10 minutes, longer after each failure in a row), then it is given work again.",
   injured: "A credential expired or a rate limit hit. Back once the integration is reconnected.",
   degraded: "Error rate above 10% over the last day. Still working, watch the next tasks.",
-  paused: "Paused by Stop all agents, a revoked key, used-up credits or the agent's wage cap. Resume agents in the top bar; a wage cap lifts next month or when you raise it.",
-  idle: "No task assigned. The Chief of Staff routes work on the next cycle.",
-  healthy: "Heartbeat on time, errors low, budget available.",
+  paused: "Paused by Stop all agents, a revoked key, the prepaid AI balance running out, or its wage cap. A wage cap is the most an agent may cost a month; it lifts next month or when you raise it. Resume agents in the top bar.",
+  idle: "No task assigned. New work comes when the team next plans.",
+  healthy: "Active recently, few failed sessions, budget available.",
 };
 
 export interface AgentStatusWordPillProps {
@@ -355,11 +368,18 @@ export function withLiveStatus(agents: readonly AgentRow[] | undefined, override
 
 /* ---------- AgentRow → SquadRow (dugout squad cells) ---------- */
 
-export function skillRating(agent: Pick<AgentRow, "rating" | "skills">): number {
-  if (typeof agent.rating === "number" && Number.isFinite(agent.rating)) return agent.rating;
+/**
+ * The agent's rating on the one scale the product uses (founder, Oct 20, 2026): the API's `rating20`
+ * (`team.agents.list`: the 1–20 mean of its displayed skills to one decimal, as the profile header computes it), else
+ * the same mean worked out from the skills on the row, else the deprecated 1–10 `rating` doubled (an older payload
+ * with no skills). Nothing at all reads 0, which the cell shows as "—".
+ */
+export function skillRating(agent: Pick<AgentRow, "rating" | "rating20" | "skills">): number {
+  if (typeof agent.rating20 === "number" && Number.isFinite(agent.rating20) && agent.rating20 > 0) return Math.round(agent.rating20 * 10) / 10;
   const skills = agent.skills ?? [];
-  if (!skills.length) return 0;
-  return Math.round((skills.reduce((s, k) => s + k.displayed, 0) / skills.length) * 5) / 10;
+  if (skills.length) return Math.round((skills.reduce((s, k) => s + k.displayed, 0) / skills.length) * 10) / 10;
+  if (typeof agent.rating === "number" && Number.isFinite(agent.rating) && agent.rating > 0) return Math.round(agent.rating * 2 * 10) / 10;
+  return 0;
 }
 
 /** `currency`: the business's own, for an agent stored without one. */
@@ -453,7 +473,8 @@ export function agentEntity(businessId: string, agent: AgentRow, currency: strin
     chips: [{ label: STATUS_WORD[agent.status], tone: agentStatusTone(agent.status).tone }, { label: MODEL_LABELS[agent.modelKey] ?? agent.modelKey }],
     facts: [
       { label: "Departments", value: (agent.departments ?? []).map((d) => d.name).join(", ") || "—" },
-      { label: "Wage (Estimate)", value: `${formatMoney({ amountMinor: wage, currency: agent.wage?.currency ?? agent.currency ?? currency }, { compact: true })}/mo` },
+      // Metered model, sandbox and tool spend: US dollars, whatever currency the business keeps its books in (C19).
+      { label: "AI cost (USD)", value: `${formatMoney({ amountMinor: wage, currency: agent.wage?.currency ?? agent.currency ?? currency }, { compact: true })}/mo · Estimate` },
       { label: "Current task", value: agent.currentTask?.title ?? "None" },
     ],
     verbs: ["open_profile", "message"],

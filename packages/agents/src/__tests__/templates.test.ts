@@ -204,4 +204,13 @@ describe("agent templates (BUILD §9.1, §9.2, §11.6, §11.7, §11.10)", () => 
     expect(listTemplates({ taskKind: "specialist", family: "specialist" }).length).toBe(SPECIALIST_TEMPLATES.length);
     expect(listTemplates({ taskKind: "specialist" }).map((t) => t.key)).toContain("operations_lead");
   });
+
+  // Goals and playbook render on the profile ("What I do"), so they name what the founder can act on, not plumbing.
+  it("the Chief of Staff and Distribution strategist profiles carry no plumbing words", () => {
+    const PLUMBING = /\bstarters?\b|\bengine workflows?\b|channel engines|rate limits?|pending events|through tools|\bbranch(es)?\b/i;
+    for (const key of ["chief_of_staff", "distribution_strategist"]) {
+      const t = getTemplate(key);
+      for (const text of [t.description, ...t.instructions.goals, ...t.instructions.playbook]) expect(text, `${key}: ${text}`).not.toMatch(PLUMBING);
+    }
+  });
 });

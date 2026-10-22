@@ -6,7 +6,7 @@
  */
 import { createContext, useCallback, useContext, useRef, useState, type ReactNode } from "react";
 import { ExternalLink, Info, ShieldCheck } from "lucide-react";
-import { Button, Chip, PageGrid, StatusPill, cn, formatMoney, type ButtonProps, type StatusTone } from "@foundmill/dugout";
+import { Button, Chip, PageGrid, StatusPill, cn, formatMoney, useGuided, type ButtonProps, type StatusTone } from "@foundmill/dugout";
 import { useWidgetData, useWidgetQuery, type QueryState } from "@foundmill/widgets/data";
 import { plainWords, type CalendarStatus } from "./legal-data";
 import type { ContractStatus, IncorporationStatus, IncorporationStatusResponse, LegalEntityStatus } from "./types";
@@ -138,7 +138,7 @@ export const ENTITY_STATUS_PILL: Record<LegalEntityStatus, { tone: StatusTone; w
 export const INCORPORATION_PILL: Record<IncorporationStatus, { tone: StatusTone; word: string }> = {
   draft: { tone: "neutral", word: "Draft" },
   in_progress: { tone: "info", word: "Preparing" },
-  awaiting_founder: { tone: "warn", word: "Waiting for you" },
+  awaiting_founder: { tone: "warn", word: "Needs your go-ahead" },
   submitted: { tone: "info", word: "Submitted" },
   complete: { tone: "good", word: "Complete" },
   abandoned: { tone: "bad", word: "Abandoned" },
@@ -178,6 +178,25 @@ export function fitTableHeight(rows: number, opts: { minRows?: number; maxRows?:
   const { minRows = 4, maxRows = 18, rowHeight = 28 } = opts;
   return 41 + Math.min(maxRows, Math.max(minRows, rows)) * rowHeight;
 }
+
+/** The built-in "Simple" saved view every table carries: its four most important columns (UX plan §7.10). */
+export const SIMPLE_VIEW_ID = "simple";
+
+/**
+ * The view a table opens on before the person picks one: "Simple" while guidance is on, the screen's general view
+ * otherwise. A view the person left open (stored per table) still wins; this only fills the gap (saved-views.ts).
+ */
+export function useDefaultViewId(general: string): string {
+  return useGuided() ? SIMPLE_VIEW_ID : general;
+}
+
+/** The department's intro, on its first tab while guidance is on (UX plan §7.10). */
+export const LEGAL_EXPLAINER = {
+  screenId: "legal/entity",
+  purpose: "The company itself: where it is registered, what it must file, what it has signed.",
+  action: "Import an existing company or start an incorporation; the legal lead fills the compliance calendar from it.",
+  watchFor: "Information, not legal advice. Signing, filing and paying are always yours.",
+} as const;
 
 /* ---------- Money ---------- */
 

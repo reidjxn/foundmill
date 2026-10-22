@@ -6,7 +6,7 @@
  */
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { CheckCheck, FileDiff, FolderOpen, X } from "lucide-react";
-import { Chip, DataTable, EntityLink, Panel, StatusPill, useEntityLinkContext, type DataTableColumn, type SavedView } from "@foundmill/dugout";
+import { Chip, DataTable, EntityLink, Explainer, Panel, StatusPill, Term, useEntityLinkContext, type DataTableColumn, type SavedView } from "@foundmill/dugout";
 import { PROPOSAL_STATUSES, SEVERITIES } from "@foundmill/shared";
 import { moduleHref, routes, useBusinessEvents, useDepartments, useWidgetData, useWidgetQuery } from "@foundmill/widgets";
 import { useSavedViews } from "@foundmill/widgets/shared/saved-views";
@@ -14,12 +14,15 @@ import type { ModuleScreenProps } from "../registry";
 import { ProposalDetail } from "./changes/ProposalDetail";
 import { PROPOSAL_STATUS_PILL, SEVERITY_CHIP, decisionProgress, impactLines } from "./changes/hunks";
 import { isWebUri } from "./sources/kinds";
-import { InlineError, Screen, useAction, useAgentNames } from "./shared";
+import { useCanWrite } from "../env";
+import { InlineError, SIMPLE_VIEW_ID, Screen, useAction, useAgentNames, useDefaultViewId } from "./shared";
 import type { ProposalRow, ProposalWithHunks, ProposalsListResponse, RoadmapResponse, SourceRow, SourcesListResponse, SpecGetResponse, SpecVersionRow } from "./types";
 import { DateText } from "../dates";
 
 export const PROPOSAL_VIEWS: SavedView[] = [
   // The list sits in a third of the screen: the Open view keeps to what fits (the rest is in the detail and in All).
+  // Simple (UX plan §7.10): the open proposals with how serious each is; it opens first while guidance is on.
+  { id: SIMPLE_VIEW_ID, name: "Simple", builtIn: true, columns: ["title", "severity"], sort: [{ id: "createdAt", desc: true }], filters: [{ id: "f-simple", field: "status", op: "eq", value: "open" }] },
   { id: "open", name: "Open", builtIn: true, columns: ["title", "severity"], sort: [{ id: "createdAt", desc: true }], filters: [{ id: "f-open", field: "status", op: "eq", value: "open" }] },
   { id: "all", name: "All", builtIn: true, columns: ["title", "status", "severity", "proposedBy", "evidence", "impact", "createdAt", "resolvedAt"], sort: [{ id: "createdAt", desc: true }], filters: [] },
   { id: "decided", name: "Decided", builtIn: true, columns: ["title", "status", "severity", "proposedBy", "resolvedAt"], sort: [{ id: "resolvedAt", desc: true }], filters: [{ id: "f-decided", field: "status", op: "neq", value: "open" }] },
@@ -41,9 +44,12 @@ function ProposerCell({ id }: { id: string | null }) {
   return <EntityLink entity={{ id, kind: "agent", name: agents.get(id) ?? ctx.resolve?.(id)?.name ?? "An agent" }} hoverCard={false} />;
 }
 
+/** The span-4 panel body at 1280 px; the Simple and Open views (title + severity + the 44 px "…" column) fit inside it. */
+export const PROPOSAL_LIST_BUDGET = 324;
+
 export function proposalColumns(currency: string): DataTableColumn<ProposalRow>[] {
   return [
-    { accessorKey: "title", header: "Proposal", size: 190, cell: ({ row }) => <span className="text-body-strong text-primary">{row.original.title || "Untitled proposal"}</span>, meta: { locked: true } },
+    { accessorKey: "title", header: "Proposal", size: 146, cell: ({ row }) => <span className="text-body-strong text-primary">{row.original.title || "Untitled proposal"}</span>, meta: { locked: true } },
     {
       accessorKey: "status",
       header: "Status",
@@ -80,6 +86,16 @@ export function proposalColumns(currency: string): DataTableColumn<ProposalRow>[
   ];
 }
 
+/** What a proposal is, in one line under the title while guidance is on (UX plan §7.11). */
+export const CHANGES_LEDE = "An agent suggests an edit; nothing changes until you accept it.";
+/** The tab's intro while guidance is on: the lede, what to do, what to watch for (the Explainer, UX plan §6.2). */
+export const CHANGES_EXPLAINER = {
+  screenId: "product/changes",
+  purpose: CHANGES_LEDE,
+  action: "Open a proposal, read its reasons and evidence, then accept or reject each change.",
+  watchFor: "Legal, safety and security proposals arrive at once; the rest are batched daily.",
+} as const;
+
 export function ChangesScreen({ businessId }: ModuleScreenProps) {
   const { navigate, currency } = useWidgetData();
   const list = useWidgetQuery<ProposalsListResponse>("product.proposals.list", { limit: 200 });
@@ -89,9 +105,12 @@ export function ChangesScreen({ businessId }: ModuleScreenProps) {
   const versions = useWidgetQuery<SpecVersionRow[]>("product.spec.versions", undefined);
   const departments = useDepartments();
   const action = useAction();
+  // Viewers, advisors and example viewers read proposals; the accept and reject actions are not offered to them.
+  const canWrite = useCanWrite("product");
   const [selectedId, setSelectedId] = useState<string | null>(() => proposalFromLocation());
-  // Saved per person, business and table (audit #204): they come back after a reload.
-  const savedViews = useSavedViews("product.changes", PROPOSAL_VIEWS, { defaultViewId: "open" });
+  // Saved per person, business and table (audit #204): they come back after a reload. Simple opens first while guidance is on.
+  const defaultViewId = useDefaultViewId("open");
+  const savedViews = useSavedViews("product.changes", PROPOSAL_VIEWS, { defaultViewId });
   const detail = useWidgetQuery<ProposalWithHunks>("product.proposals.get", selectedId ? { proposalId: selectedId } : undefined, { enabled: selectedId !== null });
 
   const refetchAll = useCallback(() => {
@@ -122,12 +141,24 @@ export function ChangesScreen({ businessId }: ModuleScreenProps) {
   return (
     <Screen name="product/changes">
       <Panel
-        title="Change proposals"
+        title={<>Change <Term id="proposal">proposals</Term></>}
         span={4}
         loading={list.isLoading}
         error={list.error ? list.error.message : undefined}
         onRetry={list.refetch}
-        empty={list.data && rows.length === 0 ? { icon: FileDiff, title: "No proposals yet", children: "The Source Watcher raises a proposal when a new interview, issue, competitor move or legal note touches the spec. Each arrives as a red Inbox decision and lands here with its diff." } : undefined}
+        empty={
+          list.data && rows.length === 0
+            ? {
+                icon: FileDiff,
+                title: "No proposals yet",
+                children: (
+                  <>
+                    The <Term id="source_watcher">Source Watcher</Term> raises a proposal when a new interview, issue, competitor move or legal note touches the spec. Each arrives as a red Inbox decision and lands here with its diff.
+                  </>
+                ),
+              }
+            : undefined
+        }
         footer={
           <>
             <span className="tabular-nums">{openCount} open · low-severity proposals are batched daily; legal, safety and security ones arrive at once</span>
@@ -137,12 +168,14 @@ export function ChangesScreen({ businessId }: ModuleScreenProps) {
         }
         flush
       >
+        {/* What a proposal is, in the tab's intro while guidance is on (UX plan §7.11). */}
+        <Explainer {...CHANGES_EXPLAINER} className="m-panel-pad mb-2" />
         <DataTable<ProposalRow>
           aria-label="Change proposals"
           data={rows}
           columns={columns}
           {...savedViews}
-          defaultViewId="open"
+          defaultViewId={defaultViewId}
           height={520}
           defaultDensity="comfortable"
           exportFileName="change-proposals"
@@ -151,8 +184,12 @@ export function ChangesScreen({ businessId }: ModuleScreenProps) {
           rowClassName={(row) => (row.id === selectedId ? "bg-panel-alt" : undefined)}
           rowActions={(row) => [
             { id: "open", label: "Open proposal", icon: FolderOpen, onSelect: (r) => setSelectedId(r.id) },
-            { id: "accept", label: "Accept all changes", icon: CheckCheck, disabled: row.status !== "open", separatorBefore: true, onSelect: (r) => void action.run("product.proposals.acceptAll", { proposalId: r.id }, { key: "acceptAll", then: refetchAll }) },
-            { id: "reject", label: "Reject proposal", icon: X, variant: "danger", disabled: row.status !== "open", onSelect: (r) => void action.run("product.proposals.reject", { proposalId: r.id }, { key: "reject", then: refetchAll }) },
+            ...(canWrite
+              ? [
+                  { id: "accept", label: "Accept all changes", icon: CheckCheck, disabled: row.status !== "open", separatorBefore: true, onSelect: (r: ProposalRow) => void action.run("product.proposals.acceptAll", { proposalId: r.id }, { key: "acceptAll", then: refetchAll }) },
+                  { id: "reject", label: "Reject proposal", icon: X, variant: "danger" as const, disabled: row.status !== "open", onSelect: (r: ProposalRow) => void action.run("product.proposals.reject", { proposalId: r.id }, { key: "reject", then: refetchAll }) },
+                ]
+              : []),
           ]}
         />
       </Panel>

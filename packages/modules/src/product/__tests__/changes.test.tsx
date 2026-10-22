@@ -1,7 +1,8 @@
 import "./setup";
 import { describe, expect, it } from "vitest";
-import { act, fireEvent, screen, within } from "@testing-library/react";
-import { ChangesScreen } from "../ChangesScreen";
+import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
+import { ChangesScreen, PROPOSAL_LIST_BUDGET, PROPOSAL_VIEWS, proposalColumns } from "../ChangesScreen";
+import { SIMPLE_VIEW_ID } from "../shared";
 import { createFakeSource, renderScreen } from "./fake-source";
 import { BID, HUNK, PROPOSAL, dataResponses, emptyResponses, proposalAnnual, proposals } from "./fixtures";
 
@@ -9,6 +10,18 @@ const departments = [{ id: "d1", name: "Product", slug: "product", colourToken: 
 const responses = { ...dataResponses, "department.list": departments };
 
 describe("ChangesScreen", () => {
+  it("guidance on: the intro says what a proposal is, the list opens on Simple and the words are defined (UX plan §7.11)", () => {
+    const fake = createFakeSource({ businessId: BID, responses });
+    renderScreen(fake, <ChangesScreen businessId={BID} departmentId="d1" />, {}, { guidance: "on" });
+    const explainer = document.querySelector("[data-explainer='product/changes']") as HTMLElement;
+    expect(within(explainer).getByText("An agent suggests an edit; nothing changes until you accept it.")).toBeTruthy();
+    expect(screen.getByRole("button", { name: /^View: Simple/ })).toBeTruthy();
+    const table = screen.getByRole("grid", { name: "Change proposals" });
+    expect(within(table).getByText("Offer an annual plan")).toBeTruthy();
+    expect(within(table).queryByText("Drop SSO from Next")).toBeNull(); // Simple keeps to the open ones too
+    expect(screen.getByRole("button", { name: "proposals" }).className).toContain("term-link");
+  });
+
   it("lists proposals in the Open view and shows the selected one with rationale, evidence, impact estimates and hunks", () => {
     const fake = createFakeSource({ businessId: BID, responses });
     renderScreen(fake, <ChangesScreen businessId={BID} departmentId="d1" />);
@@ -68,9 +81,9 @@ describe("ChangesScreen", () => {
     renderScreen(fake, <ChangesScreen businessId={BID} departmentId="d1" />);
     // The Features block gained an acceptance line after the proposal; the Pricing hunk's "ours" is the live block.
     const features = screen.getByRole("region", { name: /^Change 2:/ });
-    expect(within(features).getByText(/This block changed after the proposal was drafted/)).toBeTruthy();
+    expect(within(features).getByText(/This paragraph changed after the proposal was drafted/)).toBeTruthy();
     expect(within(features).getAllByText(/Acceptance: a reminder is sent 3 days after due date/).length).toBeGreaterThan(0);
-    expect(within(screen.getByRole("region", { name: /^Change 1:/ })).queryByText(/This block changed after/)).toBeNull();
+    expect(within(screen.getByRole("region", { name: /^Change 1:/ })).queryByText(/This paragraph changed after/)).toBeNull();
   });
 
   it("accepts all or rejects the whole proposal from the header and the right-click verbs", async () => {
@@ -85,6 +98,35 @@ describe("ChangesScreen", () => {
     });
     expect(fake.mutations.at(-1)).toEqual({ path: "product.proposals.reject", input: { proposalId: PROPOSAL.annual } });
     expect(fake.refetches["product.proposals.list"]).toBe(2);
+  });
+
+  it("a viewer or example viewer reads proposals but cannot decide them: the buttons are disabled with the host's reason and the row menu has no verbs", async () => {
+    const reason = "This is an example business: look around, then start your own.";
+    const fake = createFakeSource({ businessId: BID, responses });
+    renderScreen(fake, <ChangesScreen businessId={BID} departmentId="d1" />, { canWrite: () => false, readOnly: reason });
+    for (const name of ["Accept all", "Reject proposal", "Accept change", "Reject change", "Save as edited"]) {
+      const buttons = screen.getAllByRole("button", { name });
+      for (const b of buttons) {
+        expect((b as HTMLButtonElement).disabled).toBe(true);
+        expect(b.getAttribute("title")).toBe(reason);
+      }
+    }
+    fireEvent.click(screen.getAllByRole("button", { name: "Accept all" })[0]!);
+    fireEvent.contextMenu(within(screen.getByRole("grid", { name: "Change proposals" })).getByText("Offer an annual plan"));
+    const menu = await screen.findByRole("menu");
+    expect(within(menu).getByRole("menuitem", { name: "Open proposal" })).toBeTruthy();
+    expect(within(menu).queryByRole("menuitem", { name: "Accept all changes" })).toBeNull();
+    expect(within(menu).queryByRole("menuitem", { name: "Reject proposal" })).toBeNull();
+    await waitFor(() => expect(fake.mutations).toEqual([]));
+  });
+
+  it("the Simple and Open views fit the span-4 panel at 1280 px with the row-actions column (no clipping)", () => {
+    const sizes = new Map(proposalColumns("USD").map((c) => [("accessorKey" in c ? c.accessorKey : c.id) as string, c.size ?? 0]));
+    for (const id of [SIMPLE_VIEW_ID, "open"]) {
+      const view = PROPOSAL_VIEWS.find((v) => v.id === id)!;
+      const width = view.columns!.reduce((sum, col) => sum + (sizes.get(col) ?? 0), 0) + 44;
+      expect(width).toBeLessThanOrEqual(PROPOSAL_LIST_BUDGET);
+    }
   });
 
   it("shows the result and the published version for a settled proposal, with no hunk controls", () => {

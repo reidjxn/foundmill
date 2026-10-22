@@ -1,14 +1,21 @@
 "use client";
 /**
  * /new/ideate — the Ideation Studio (BUILD §11.1 Door A; AC-11.1.2, AC-11.1.3). The brief and its generate control
- * (DIRECTION #14: the light slab "Draft concepts" / "Surprise me within my constraints"; while running the dark slab with
+ * (DIRECTION #14: the light slab "Draft concepts" / "Draft 6–12 ideas for me"; while running the dark slab with
  * the real count "2 of 12" and Stop beside it) → idea.draft, streamed (audit P2): the live run under the brief (steps,
  * one bar segment per concept, elapsed and time left, the slate's names) and the concepts named as the slate arrives,
  * each card filling its place the moment it is saved ("Just in"); existing cards stay visible (dimmed) meanwhile.
- * Steering chips ("Cheaper to start", "B2B instead", "More defensible") prefill the brief for the next set. Cards are 6–12 ConceptCards (Dugout profile cards: the initials mark
- * until a logo is chosen at Commit, stars, ten AttributeBars with evidence hover, citation count). Actions: Shortlist
- * (local), Merge / Fork / Ask (idea.*, each a new version; Ask is the Research agent's desk as a sheet, with starters and
- * quick replies), Discard (idea.discard; Restore in the tray and the notice's Undo are idea.restore). Shortlisted and
+ * Three example briefs sit above the textarea until the first card exists (an `ExampleToggle` group, "Try an example
+ * brief", UX plan §6.2): a chip fills the brief and tags the textarea Example until the founder edits it, the chosen
+ * chip again clears it, and nothing is drafted until Draft is pressed; the control then reads "Draft 6–12 ideas from
+ * this example". The empty-brief control reads "Draft 6–12 ideas for me" (A7). Steering chips ("Cheaper to start",
+ * "B2B instead", "More defensible") prefill the brief for the next set. Cards are 6–12 ConceptCards (Dugout profile cards: the initials mark until a logo is chosen at Commit,
+ * stars, ten attribute bars with evidence hover and a definition on every label, citation count), with the
+ * "How to read a card" Explainer over the deck while guidance is on (screen `ideate-cards`; "Got it" is remembered per
+ * account in `explainers_seen`). Key caps (the generate control's ⌘↵, the compare shortcuts tip) show only while
+ * guidance is off: an operator's affordance, the keys work either way (UX plan §5.9). Actions: Shortlist (local), Merge /
+ * "More like this" (a variant) / Ask (idea.*, each a new version; Ask is the Research agent's desk as a sheet, with
+ * starters and quick replies), Discard (idea.discard; Restore in the tray and the notice's Undo are idea.restore). Shortlisted and
  * restored cards older than the loaded pages are read by id (idea.listByIds) so they stay pinned and counted. Select
  * 2–4 cards → Compare. History opens every version. ⌘/Ctrl+Enter drafts from anywhere on the page.
  *
@@ -19,7 +26,7 @@ import { ArrowRight, Bookmark, CircleAlert, CircleCheck, Columns3, FileText, His
 import { useRouter } from "next/navigation";
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { ARCHETYPES, ARCHETYPE_LABELS, type Archetype } from "@foundmill/shared";
-import { Button, Chip, BusinessLogo, ConceptCard, EmptyState, GenerateControl, IconButton, JustInTag, Kbd, Panel, SimpleSelect, Skeleton, SkeletonText, StatusPill, Textarea, Tooltip, cn, landedCardClass, useToast, useDateFormat, type ConceptAction, type QuickReplyItem } from "@foundmill/dugout";
+import { Button, Chip, BusinessLogo, ConceptCard, EmptyState, ExampleFrame, ExampleToggle, Explainer, GenerateControl, IconButton, InfoTip, JustInTag, Kbd, Panel, SimpleSelect, Skeleton, SkeletonText, StatusPill, Term, Textarea, Tooltip, cn, landedCardClass, useGuided, useToast, useDateFormat, type ConceptAction, type QuickReplyItem } from "@foundmill/dugout";
 import { useKeyboardMap } from "@/lib/keys";
 import { formatDayMonth } from "@/lib/format";
 import { errorMessage, trpcPathPrefix } from "@/lib/trpc";
@@ -41,7 +48,46 @@ export interface IdeationStudioProps {
   constraints?: string[];
 }
 
-const SURPRISE = "surprise me within my constraints";
+/**
+ * Three example briefs above the textarea while the deck is empty (docs/UX_AUDIT_AND_PLAN.md §7.5, A7; §6.2
+ * ExampleToggle): a chip fills the brief with its sentence; nothing is drafted until Draft is pressed. Hidden once a
+ * card exists, and when guidance is off.
+ */
+export const EXAMPLE_BRIEFS: readonly string[] = ["Help independent tutors send parents a weekly recap", "A subscription for refillable skincare", "AI playtesters for indie games"];
+
+/** The group's lead label. */
+export const EXAMPLE_BRIEF_LABEL = "Try an example brief";
+
+/** The briefs as the toggle's options: the sentence is both the chip and the id. */
+export const EXAMPLE_BRIEF_OPTIONS: readonly { id: string; label: string }[] = EXAMPLE_BRIEFS.map((text) => ({ id: text, label: text }));
+
+/** The generate control's label with an empty brief: what will happen, in the founder's words (A7). */
+export const DRAFT_FOR_ME = "Draft 6–12 ideas for me";
+
+/** The generate control's label while an example brief is in, untouched: the example is drafted from, never by itself. */
+export const DRAFT_FROM_EXAMPLE = "Draft 6–12 ideas from this example";
+
+/** What the generate control says: for an empty brief, from an example brief, or from the founder's own words. */
+export function generateLabel(prompt: string, exampleIn: boolean): string {
+  if (!prompt.trim()) return DRAFT_FOR_ME;
+  return exampleIn ? DRAFT_FROM_EXAMPLE : "Draft concepts";
+}
+
+/** True while the brief is exactly the example the founder chose: an edit, however small, makes it theirs. */
+export function exampleBriefIn(prompt: string, example: string | null): boolean {
+  return example !== null && prompt === example;
+}
+
+/**
+ * "How to read a card" over the deck (UX plan §7.5, A6): the Explainer for the `ideate-cards` screen. What a card is,
+ * what to do with it, and which way the numbers read; "Got it" is kept per account in `explainers_seen`.
+ */
+export const HOW_TO_READ_CARD = {
+  screenId: "ideate-cards",
+  purpose: "Each card is one business idea the Ideation agent drafted within your profile, rated on ten attributes.",
+  action: "Shortlist the ones you like, ask the Research agent about any card, then pick 2–4 to compare them.",
+  watchFor: "Every bar runs 1–20 and higher is always the better side; hover a label for what it measures. Stars are how strong the idea is now and could get.",
+} as const;
 
 /** Steer the next set (DIRECTION #14): each chip adds one sentence to the brief; nothing is drafted until you press Draft. */
 export const STEERING_CHIPS: readonly { id: string; label: string; text: string }[] = [
@@ -63,7 +109,8 @@ type DraftInput = { prompt: string; archetypeHint?: Archetype };
  * every card stays reachable however large the deck grows, and the Studio paints quickly.
  */
 const DECK_PAGE = 48;
-const ARCHETYPE_OPTIONS = [{ value: "any", label: "Any archetype" }, ...ARCHETYPES.map((a) => ({ value: a, label: ARCHETYPE_LABELS[a] }))];
+/** The archetype hint's options: "Any" first (the label beside the select is the defined word, `Term` archetype). */
+const ARCHETYPE_OPTIONS = [{ value: "any", label: "Any (optional)" }, ...ARCHETYPES.map((a) => ({ value: a, label: ARCHETYPE_LABELS[a] }))];
 
 type DialogKind = "ask" | "fork" | "merge" | "history" | null;
 
@@ -92,6 +139,8 @@ export function IdeationStudio({ viewer, profileLine, constraints = [] }: Ideati
   const titleOf = useCallback((id: string) => [...deck, ...studio.discarded.map((d) => d.idea)].find((i) => i.id === id)?.title, [deck, studio.discarded]);
 
   const [prompt, setPrompt] = useState("");
+  // The example brief the founder chose, while the brief still reads exactly that (an edit makes the brief theirs).
+  const [example, setExample] = useState<string | null>(null);
   const [archetypeHint, setArchetypeHint] = useState<string>("any");
   const [selection, setSelection] = useState<string[]>([]);
   const [dialog, setDialog] = useState<DialogKind>(null);
@@ -183,6 +232,8 @@ export function IdeationStudio({ viewer, profileLine, constraints = [] }: Ideati
     e?.preventDefault();
     if (running) return;
     const p = prompt.trim();
+    // Drafted from, the example brief is the founder's brief from here on.
+    setExample(null);
     updateStudio((s) => ({ ...s, lastPrompt: p }));
     await draft.start({ prompt: p, archetypeHint: archetypeHint === "any" ? undefined : (archetypeHint as Archetype) });
   }
@@ -203,6 +254,11 @@ export function IdeationStudio({ viewer, profileLine, constraints = [] }: Ideati
   useEffect(() => {
     if (/Mac|iPhone|iPad/i.test(navigator.platform || navigator.userAgent)) setModKey("⌘");
   }, []);
+  // Key caps (the generate control's ⌘↵, the compare shortcuts tip) are an operator's affordance: shown only while
+  // guidance is off; the keys work regardless (UX plan §5.9). The Explainer reads the switch itself.
+  const guided = useGuided();
+  // The example brief is tutoring (UX plan §6.2): in only while guidance is on, and only while untouched.
+  const exampleIn = guided && exampleBriefIn(prompt, example);
 
   function onAction(action: ConceptAction, id: string) {
     const idea = deck.find((i) => i.id === id);
@@ -319,9 +375,53 @@ export function IdeationStudio({ viewer, profileLine, constraints = [] }: Ideati
               <p className="mt-2 max-w-reading text-body text-secondary">A concept, a problem, a market, or nothing at all. The Ideation agent drafts six to twelve cards and rates each on ten attributes, with the reasoning behind every rating. Ask the Research agent about any card to question its market, competitors or pricing.</p>
             </div>
           ) : null}
-          <Textarea id="ideation-prompt" aria-label="Brief" value={prompt} onChange={(e) => setPrompt(e.target.value)} rows={showHero ? 4 : 2} maxLength={4000} placeholder={`Leave empty to ${SURPRISE}.`} disabled={busy} autoGrow className={showHero ? "min-h-20" : "min-h-14"} />
+          {/* Example briefs while the deck is empty (A7, §6.2): a chip fills the brief and tags it; the founder still presses Draft. */}
+          {deck.length === 0 && !ideasQ.isLoading ? (
+            <ExampleToggle
+              options={EXAMPLE_BRIEF_OPTIONS}
+              label={EXAMPLE_BRIEF_LABEL}
+              value={exampleIn ? example : null}
+              disabled={busy}
+              onFill={(id) => {
+                const text = id ?? "";
+                setPrompt(text);
+                setExample(text);
+                requestAnimationFrame(() => document.getElementById("ideation-prompt")?.focus());
+              }}
+              onClear={() => {
+                setPrompt("");
+                setExample(null);
+              }}
+              data-testid="example-briefs"
+            />
+          ) : null}
+          {(() => {
+            const textarea = (
+              <Textarea
+                id="ideation-prompt"
+                aria-label="Brief"
+                value={prompt}
+                onChange={(e) => {
+                  setPrompt(e.target.value);
+                  setExample(null);
+                }}
+                rows={showHero ? 4 : 2}
+                maxLength={4000}
+                placeholder="A problem you have seen, a market you know, or nothing at all."
+                disabled={busy}
+                autoGrow
+                className={showHero ? "min-h-20" : "min-h-14"}
+              />
+            );
+            // The brief wears the Example chip and the dashed edge while it is the example, untouched.
+            return exampleIn ? <ExampleFrame data-testid="brief-example">{textarea}</ExampleFrame> : textarea;
+          })()}
           <div className="flex flex-wrap items-center gap-2">
-            <SimpleSelect aria-label="Archetype hint" value={archetypeHint} onValueChange={setArchetypeHint} options={ARCHETYPE_OPTIONS} controlSize="sm" className="w-52" disabled={busy} />
+            {/* The defined word beside the select (A7, §7.5): "Kind of business" is what a founder reads; the card says it is the archetype. */}
+            <span className="t-data" data-testid="archetype-hint-label">
+              <Term id="archetype">Kind of business</Term>
+            </span>
+            <SimpleSelect aria-label="Kind of business" value={archetypeHint} onValueChange={setArchetypeHint} options={ARCHETYPE_OPTIONS} controlSize="sm" className="w-48" disabled={busy} />
             {constraints.length > 0 ? (
               <div className="flex flex-wrap items-center gap-1.5" aria-label="Your constraints">
                 <span className="t-data">Within</span>
@@ -361,13 +461,13 @@ export function IdeationStudio({ viewer, profileLine, constraints = [] }: Ideati
             )}
             <GenerateControl
               type="submit"
-              label={prompt.trim() ? "Draft concepts" : "Surprise me within my constraints"}
+              label={generateLabel(prompt, exampleIn)}
               runningLabel="Drafting concepts"
               running={busy}
               progress={busy && runTotal ? runDrafted / runTotal : undefined}
               count={busy && runTotal ? `${runDrafted} of ${runTotal}${run?.total === null ? "+" : ""}` : undefined}
               onStop={draft.stop}
-              kbd={`${modKey} ↵`}
+              kbd={guided ? undefined : `${modKey} ↵`}
               aria-keyshortcuts="Meta+Enter Control+Enter"
               data-testid="generate-button"
               wrapperClassName="ml-auto"
@@ -420,6 +520,7 @@ export function IdeationStudio({ viewer, profileLine, constraints = [] }: Ideati
         ) : (
           <>
             {notice && deck.length === 0 ? <NoticeLine notice={notice} onDismiss={() => setNotice(null)} className="mb-3" /> : null}
+            {deck.length > 0 ? <Explainer {...HOW_TO_READ_CARD} className="mb-3" data-testid="how-to-read-card" /> : null}
             {deck.length > 0 ? (
               <div className="mb-3 flex flex-wrap items-center gap-x-3 gap-y-2">
                 <span className="t-label tabular-nums" data-testid="deck-count">
@@ -431,8 +532,18 @@ export function IdeationStudio({ viewer, profileLine, constraints = [] }: Ideati
                   </Chip>
                 ) : null}
                 {notice ? <NoticeLine notice={notice} onDismiss={() => setNotice(null)} /> : null}
-                <span className="ml-auto flex items-center gap-2 text-small text-secondary">
-                  Tick 2–4 cards, then <Kbd>Space</Kbd> or Compare · <Kbd>Esc</Kbd> clears
+                <span className="ml-auto flex items-center gap-1.5 text-small text-secondary" data-testid="compare-hint">
+                  Pick 2–4 cards to compare them
+                  {/* The key caps behind a tip (A19): an operator's affordance, so only while guidance is off; the keys work either way. */}
+                  {guided ? null : (
+                    <span data-testid="compare-kbd-tip">
+                      <InfoTip always label="Keyboard shortcuts for comparing">
+                        <span className="flex items-center gap-1.5">
+                          <Kbd>Space</Kbd> compares the picked cards · <Kbd>Esc</Kbd> clears the pick
+                        </span>
+                      </InfoTip>
+                    </span>
+                  )}
                 </span>
               </div>
             ) : null}
@@ -557,7 +668,7 @@ const DeckCard = memo(function DeckCard({ idea, fresh, dimmed, selected, shortli
       <div className="mt-1.5 flex items-center gap-1.5">
         <Tooltip content="Every version of this card">
           <Button size="sm" variant="ghost" icon={History} onClick={() => onOpenHistory(idea.id)} data-testid="history-button">
-            History{concept.version && concept.version > 1 ? ` · v${concept.version}` : ""}
+            History{concept.version && concept.version > 1 ? ` · version ${concept.version}` : ""}
           </Button>
         </Tooltip>
         {fresh ? <JustInTag /> : null}

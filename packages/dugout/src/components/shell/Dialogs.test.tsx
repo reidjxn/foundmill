@@ -143,6 +143,6 @@ describe("ProfileHeader", () => {
     expect(screen.queryByText("Hidden")).toBeNull();
     expect(screen.getByText("Estimate")).toBeTruthy();
     expect(screen.getByText("sonnet")).toBeTruthy();
-    expect(screen.getByRole("img", { name: "Ability: 3 of 5, potential 4.5" })).toBeTruthy();
+    expect(screen.getByRole("img", { name: "Ability: 3 of 5, could reach 4.5" })).toBeTruthy();
   });
 });

@@ -172,7 +172,7 @@ describe("the credits gate (SEC2 S2)", () => {
 describe("chapter title rules", () => {
   const facts: QuarterFacts = { quarter: "2026-Q3", label: "Q3 2026", from: "2026-07-01", to: "2026-09-30", signups: 12, activations: 4, customersWon: 3, milestones: ["First customer"], decisionsMade: 2, events: 40, inboxItems: 9 };
   it("accepts 3–6 word titles without hype or invented numbers", () => {
-    expect(titleAcceptable("Points On The Board", facts)).toBe(true);
+    expect(titleAcceptable("First customers won", facts)).toBe(true);
     expect(titleAcceptable("Three customers and twelve signups", facts)).toBe(true);
     expect(titleAcceptable("Won", facts)).toBe(false);
     expect(titleAcceptable("A revolutionary quarter for us", facts)).toBe(false);
@@ -180,9 +180,14 @@ describe("chapter title rules", () => {
     expect(titleAcceptable("Three customers won in Q3.", facts)).toBe(false);
   });
   it("the provisional title is deterministic and grounded", () => {
-    expect(provisionalTitle(facts)).toMatchObject({ title: "A Chapter Of Firsts", mood: "breakthrough" });
-    expect(provisionalTitle({ ...facts, milestones: [] }).title).toBe("Points On The Board");
-    expect(provisionalTitle({ ...facts, milestones: [], customersWon: 0, signups: 0, activations: 0, decisionsMade: 0, events: 0 }).title).toBe("A Quiet Opening Chapter");
+    expect(provisionalTitle(facts)).toMatchObject({ title: "A chapter of firsts", mood: "breakthrough" });
+    expect(provisionalTitle({ ...facts, milestones: [] }).title).toBe("First customers won");
+    expect(provisionalTitle({ ...facts, milestones: [], customersWon: 0, signups: 0, activations: 0, decisionsMade: 0, events: 0 }).title).toBe("A quiet opening chapter");
     expect(titleAcceptable(provisionalTitle(facts).title, facts)).toBe(true);
+    const quiet = { ...facts, milestones: [], customersWon: 0, signups: 0, activations: 0, decisionsMade: 0, events: 0 };
+    expect(provisionalTitle({ ...quiet, signups: 2 }).title).toBe("First names through the door");
+    expect(provisionalTitle({ ...quiet, events: 5 }).title).toBe("Building the foundations");
+    // Sentence case (DESIGN §4, §10): only the first word is capitalized.
+    for (const f of [facts, { ...facts, milestones: [] }, { ...quiet, signups: 2 }, { ...quiet, events: 5 }, quiet]) expect(provisionalTitle(f).title.split(" ").slice(1).every((w) => w === w.toLowerCase())).toBe(true);
   });
 });

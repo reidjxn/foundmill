@@ -304,7 +304,7 @@ export interface ImportLink {
 }
 
 /** What the Board's import decision reads from a report: the live report, or the snapshot on the foundations row. */
-export type ScoutingReportLike = Pick<ScoutingReport, "summary"> & { firstDecisions: Pick<ScoutingReport["firstDecisions"][number], "id" | "label" | "consequence" | "recommended" | "reversible" | "actions">[] };
+export type ScoutingReportLike = Pick<ScoutingReport, "summary"> & { firstDecisions: Pick<ScoutingReport["firstDecisions"][number], "id" | "label" | "consequence" | "because" | "recommended" | "reversible" | "actions">[] };
 
 /**
  * Rebuild the Import job's state and report (deterministic in the job token) for the commit to snapshot. The sources

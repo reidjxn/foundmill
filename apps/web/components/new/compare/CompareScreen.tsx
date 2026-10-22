@@ -8,7 +8,7 @@ import { useMutation } from "@tanstack/react-query";
 import { ArrowLeft, ArrowRight, Columns3, GitMerge, Trophy } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useRef } from "react";
-import { Button, Chip, ConceptCompare, EmptyState, Markdown, Panel, Skeleton, SkeletonRows, StatusPill, cn, useToast } from "@foundmill/dugout";
+import { Button, Chip, ConceptCompare, EmptyState, Markdown, Panel, ReassuranceLine, Skeleton, SkeletonRows, StatusPill, cn, useToast } from "@foundmill/dugout";
 import { errorMessage } from "@/lib/trpc";
 import { useTRPC } from "@/lib/trpc-react";
 import { LinkButton } from "../LinkButton";
@@ -68,7 +68,7 @@ function CompareBody({ ids, viewer }: { ids: string[]; viewer: { email: string |
     return (
       <StudioFrame step="compare" title="Compare concepts" lede="Side-by-side attributes, a radar and the agent verdict." viewer={viewer} actions={back}>
         <EmptyState icon={Columns3} title="Pick two to four cards first" action={{ label: "Open the studio", onClick: () => router.push("/new/ideate") }}>
-          Tick the compare box on each card in the Ideation Studio, then press Compare.
+          Pick two to four cards in the Ideation Studio (the Compare toggle on each card), then press Compare.
         </EmptyState>
       </StudioFrame>
     );
@@ -141,8 +141,10 @@ function CompareBody({ ids, viewer }: { ids: string[]; viewer: { email: string |
                     );
                   })}
               </ol>
-              <div className="mt-3">
+              <div className="mt-3 flex flex-col items-start gap-1.5">
                 <StatusPill tone="info">Verdict, not a decision</StatusPill>
+                {/* Reassurance under the ranking (§7.5): tutoring, so only while guidance is on; the pill above is the information. */}
+                <ReassuranceLine data-testid="compare-reassurance">Nothing is committed until you take charge.</ReassuranceLine>
               </div>
             </Panel>
           </div>

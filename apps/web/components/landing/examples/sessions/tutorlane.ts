@@ -270,7 +270,7 @@ const DRIVE_RECAPS: MockTaskScript = {
     "+}",
   ], true),
   notes: [
-    "Reading the Drive connector's watch API before touching the pipeline.",
+    "Reading the Drive connector's watch API before touching the recap code.",
     "A new recording in the tutor's Lessons folder starts a recap on its own.",
     "Each lesson splits into topics, so the notes follow the order it was taught in.",
     "Long lessons missed the hour: they were transcribed in one piece. Splitting them into 5-minute chunks.",

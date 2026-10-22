@@ -60,6 +60,9 @@ describe("StudioFrame (first-run trail)", () => {
     );
     expect(IMPORT_STEPS.map((s) => s.id)).toEqual(["profile", "new", "import", "commit"]);
     expect(STUDIO_STEPS.map((s) => s.id)).toEqual(["profile", "new", "ideate", "compare", "commit"]);
+    // The words say what each step is for (A9); the ids stay.
+    expect(STUDIO_STEPS.map((s) => s.label)).toEqual(["Your profile", "Start", "Ideas", "Compare (optional)", "Launch"]);
+    expect(IMPORT_STEPS.map((s) => s.label)).toEqual(["Your profile", "Start", "Import", "Launch"]);
     expect(screen.getByTestId("studio-frame").querySelector('[data-step-item="import"]')?.getAttribute("data-state")).toBe("active");
   });
 

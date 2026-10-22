@@ -4,23 +4,41 @@ import { DevelopmentChart, chartDomain } from "./DevelopmentChart";
 import { HealthBadge, healthSummary } from "./HealthBadge";
 import { HIERARCHY_LAYOUT, HIERARCHY_MIN_NODE_WIDTH, HierarchyChart, fitHierarchyLayout, layoutHierarchy } from "./HierarchyChart";
 import { mockDevelopmentSeries, mockHierarchy, mockPositionRoles, mockTraits } from "./mock";
-import { PositionMap, positionLevelFor } from "./PositionMap";
+import { POSITION_LEVEL_LABELS, POSITION_MAP_TITLE, PositionMap, positionLevelFor, positionLevelValue } from "./PositionMap";
 import { TraitChips } from "./TraitChips";
 
 describe("PositionMap", () => {
-  it("tints by level with the word, sorts Natural first and marks the current role", () => {
+  it("tints by level with the band word, sorts Excellent first and marks the current role", () => {
     const onSelect = vi.fn();
     render(<PositionMap roles={mockPositionRoles()} currentRoleId="frontend" onSelect={onSelect} />);
-    const items = within(screen.getByRole("list", { name: "Position map" })).getAllByRole("listitem");
+    const items = within(screen.getByRole("list", { name: POSITION_MAP_TITLE })).getAllByRole("listitem");
     expect(items[0]!.dataset.level).toBe("natural");
     expect(items[items.length - 1]!.dataset.level).toBe("unconvincing");
     expect(items[0]!.getAttribute("aria-current")).toBe("true");
-    fireEvent.click(screen.getByRole("button", { name: "Data engineer: Unconvincing, 5 of 20" }));
+    // The levels read as the product's band words (founder, Oct 20, 2026); the enum keys keep their names.
+    expect(POSITION_LEVEL_LABELS).toEqual({ natural: "Excellent", accomplished: "Good", competent: "Average", unconvincing: "Poor" });
+    expect(within(screen.getByRole("list", { name: "Legend" })).getAllByRole("listitem").map((li) => li.textContent)).toEqual(["Excellent", "Good", "Average", "Poor"]);
+    fireEvent.click(screen.getByRole("button", { name: "Data engineer: Poor, 5 of 20" }));
     expect(onSelect).toHaveBeenCalledWith(expect.objectContaining({ id: "data" }));
+    expect(screen.queryByText(/Natural|Accomplished|Competent|Unconvincing/)).toBeNull();
     expect(positionLevelFor(16)).toBe("natural");
     expect(positionLevelFor(11)).toBe("accomplished");
     expect(positionLevelFor(6)).toBe("competent");
     expect(positionLevelFor(5)).toBe("unconvincing");
+  });
+
+  it("writes each cell's band word as a compact ScaleLabel in the cell's tint, from the fit or from the level's own band", () => {
+    render(<PositionMap roles={mockPositionRoles()} />);
+    const items = within(screen.getByRole("list", { name: POSITION_MAP_TITLE })).getAllByRole("listitem");
+    const labels = items.map((li) => li.querySelector("[data-scale-label]") as HTMLElement);
+    expect(labels.every((l) => l !== null && !l.className.includes("chip-plate"))).toBe(true);
+    expect(labels[0]!.textContent).toBe("Excellent");
+    expect(labels[0]!.getAttribute("data-tone")).toBe("rating-4");
+    expect(labels[labels.length - 1]!.textContent).toBe("Poor");
+    // A role classified without a fit figure, or whose figure disagrees with its level, reads the level's word.
+    expect(positionLevelValue({ level: "natural", rating: 17 })).toBe(17);
+    expect(positionLevelValue({ level: "accomplished" })).toBe(13);
+    expect(positionLevelValue({ level: "unconvincing", rating: 14 })).toBe(3);
   });
 });
 
@@ -52,7 +70,7 @@ describe("HealthBadge", () => {
     const now = new Date("2026-10-07T09:00:00Z");
     expect(healthSummary("injured", { expectedReturnAt: "2026-10-07T12:00:00Z" }, now)).toContain("Expected back in 3 hr");
     expect(healthSummary("injured", {}, now)).toContain("Reconnect");
-    expect(healthSummary("degraded", { loopDetected: true, errorRate: 0.123, lastHeartbeatAt: "2026-10-07T08:59:00Z" }, now)).toBe("Loop detected on the last session · Error rate 12.3% over 24 h · Last heartbeat 1 min ago");
+    expect(healthSummary("degraded", { loopDetected: true, errorRate: 0.123, lastHeartbeatAt: "2026-10-07T08:59:00Z" }, now)).toBe("Loop detected on the last session · Failed sessions 12.3% over 24 h · Last active 1 min ago");
     render(<HealthBadge status="injured" details={{ expectedReturnAt: "2026-10-07T12:00:00Z" }} now={now} inline />);
     expect(screen.getByText("Down")).toBeTruthy();
     // Once beside the pill, once in the inline summary.

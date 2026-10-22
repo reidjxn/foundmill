@@ -14,6 +14,7 @@ import { Button } from "../foundation/Button";
 import { Icon, type IconComponent } from "../foundation/Icon";
 import { Input } from "../foundation/Input";
 import { Kbd } from "../foundation/Kbd";
+import { useGuided } from "../guidance/GuidanceProvider";
 import { FALLBACK_QUICK_REPLIES, settleQuickReplies, type QuickReplyItem } from "./types";
 
 export type QuickReplyKeyModifier = "none" | "alt";
@@ -87,8 +88,9 @@ export interface QuickRepliesProps {
 
 /**
  * Quick replies (DIRECTION #6, SPEC "Quick replies"): always 2–4 when the founder is expected to respond, numbered 1–4
- * with a key cap, the likeliest brand-tinted, rising in 40 ms apart; labels wrap to two lines and are never cut. A
- * ghost Write reveals a one-line field (Enter sends, Escape closes): typing is optional, never required.
+ * with a key cap, the likeliest brand-tinted, rising in 40 ms apart; labels wrap to two lines and are never cut, and a
+ * reply's `description` is a small second line under the label ("This answers the note"). A ghost Write reveals a
+ * one-line field (Enter sends, Escape closes): typing is optional, never required.
  */
 export function QuickReplies({
   replies,
@@ -188,6 +190,9 @@ export function QuickReplies({
     }
   };
 
+  // The 1–4 (or ⌥1–4) key caps are an operator's affordance: they render only while guidance is off (UX plan §7.7,
+  // the DecisionBar's rule). The keys work either way, and aria-keyshortcuts names them in both states.
+  const showKeys = !useGuided();
   const keyLabel = (n: number) =>
     keyModifier === "alt" ? (mac ? `⌥${n}` : `Alt+${n}`) : String(n);
   const writeWord = writeLabel ?? "Write";
@@ -212,9 +217,11 @@ export function QuickReplies({
               data-quick-reply={reply.id}
               onClick={() => choose(reply)}
             >
-              <Kbd size="md" aria-hidden className={cn(likely && "text-primary")}>
-                {keyLabel(i + 1)}
-              </Kbd>
+              {showKeys ? (
+                <Kbd size="md" aria-hidden className={cn(likely && "text-primary")}>
+                  {keyLabel(i + 1)}
+                </Kbd>
+              ) : null}
               {kindIcon ? (
                 <Icon
                   icon={kindIcon}
@@ -222,7 +229,15 @@ export function QuickReplies({
                   className={likely ? "text-kit-lift" : "text-tertiary"}
                 />
               ) : null}
-              <span className="min-w-0 text-balance">{reply.label}</span>
+              <span className="flex min-w-0 flex-col items-start gap-0.5">
+                <span className="min-w-0 text-balance">{reply.label}</span>
+                {reply.description ? (
+                  // The second line (Button's `btn-desc`, small text) sits under the label, not under the key cap.
+                  <span className="btn-desc text-pretty" data-quick-reply-description="">
+                    {reply.description}
+                  </span>
+                ) : null}
+              </span>
             </Button>
           );
         })}

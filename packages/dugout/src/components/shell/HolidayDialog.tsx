@@ -11,6 +11,7 @@ import { Input } from "../foundation/Input";
 import { Field, fieldDescribedBy } from "../foundation/Label";
 import { RadioGroup, RadioOption } from "../foundation/RadioGroup";
 import { Textarea } from "../foundation/Textarea";
+import { Term } from "../guidance/Term";
 
 /** Plain words for the shared decision types (the Chief of Staff's authority while the founder is away). */
 export const DECISION_TYPE_LABELS: Record<DecisionType, string> = {
@@ -30,10 +31,10 @@ export const GATED_DECISION_TYPES: readonly DecisionType[] = ["sign_contracts"];
 export const HOLIDAY_WAKE_EVENTS = ["kill_switch", "credential_failure", "legal_deadline", "runway_warning", "customer_won", "hard_gate_queued", "agent_failing"] as const;
 export type HolidayWakeEvent = (typeof HOLIDAY_WAKE_EVENTS)[number];
 export const HOLIDAY_WAKE_EVENT_LABELS: Record<HolidayWakeEvent, string> = {
-  kill_switch: "Kill switch pressed",
+  kill_switch: "Stop all agents was pressed",
   credential_failure: "A credential fails",
   legal_deadline: "A legal deadline is near",
-  runway_warning: "Runway warning",
+  runway_warning: "Cash is running low",
   customer_won: "A customer is won",
   hard_gate_queued: "A hard-gated item is queued",
   agent_failing: "An agent is failing",
@@ -165,7 +166,7 @@ export function HolidayDialog({ open, onOpenChange, currency, today = new Date()
       <DialogContent size="lg" data-testid="holiday-dialog">
         <DialogHeader>
           <DialogTitle>Go on vacation</DialogTitle>
-          <DialogDescription>The business runs in Automated mode and Continue runs itself every 4 agent-hours. Hard gates still wait for you.</DialogDescription>
+          <DialogDescription>The business runs in Automated mode and Continue runs itself every 4 hours of team work. <Term id="hard_gate">Hard gates</Term> still wait for you.</DialogDescription>
         </DialogHeader>
         <DialogBody className="flex flex-col gap-4">
           <fieldset className="flex flex-col gap-2">
@@ -180,7 +181,7 @@ export function HolidayDialog({ open, onOpenChange, currency, today = new Date()
               <RadioOption id={`${id}-condition`} value="condition" label="A condition" description="The Chief of Staff ends the vacation when it is met." />
               {untilKind === "condition" ? (
                 <div className="ml-6">
-                  <Textarea value={condition} onChange={(e) => setCondition(e.target.value)} rows={2} placeholder="e.g. when the launch ships or runway drops under 8 months" aria-label="Condition" aria-invalid={!!untilError} data-testid="holiday-condition" />
+                  <Textarea value={condition} onChange={(e) => setCondition(e.target.value)} rows={2} placeholder="e.g. when the launch ships or cash covers less than 8 months" aria-label="Condition" aria-invalid={!!untilError} data-testid="holiday-condition" />
                 </div>
               ) : null}
               <RadioOption id={`${id}-return`} value="return" label="Until I return" description="Press Come back in the top bar." />
@@ -193,7 +194,9 @@ export function HolidayDialog({ open, onOpenChange, currency, today = new Date()
           </fieldset>
 
           <fieldset className="flex flex-col gap-1.5">
-            <legend className="t-label mb-1">Chief of Staff may decide</legend>
+            <legend className="t-label mb-1">
+              <Term id="chief_of_staff">Chief of Staff</Term> may decide
+            </legend>
             <div className="grid grid-cols-2 gap-x-4 gap-y-1.5">
               {DECISION_TYPES.map((t) => {
                 const gated = GATED_DECISION_TYPES.includes(t);

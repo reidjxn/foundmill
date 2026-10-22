@@ -1,10 +1,12 @@
 "use client";
 /**
  * The frame every widget renders inside: a Dugout Panel with the three states the gallery requires (loading skeleton,
- * empty state, error state with retry) and a provenance footer. Widgets never draw a spinner (DESIGN §7).
+ * empty state, error state with retry) and a provenance footer. Widgets never draw a spinner (DESIGN §7). In guided
+ * mode an empty widget collapses to its icon and its one line (UX plan §7.8): the plate hugs that row instead of
+ * standing as tall as its cell, and the cell keeps its place on the grid (DESIGN §2: structure never moves).
  */
 import { Children, Fragment, cloneElement, isValidElement, type ReactNode } from "react";
-import { Panel, type EmptyStateProps, type IconComponent, type PanelMenu } from "@foundmill/dugout";
+import { Panel, useGuided, type EmptyStateProps, type IconComponent, type PanelMenu } from "@foundmill/dugout";
 import { useGlossary, type QueryState } from "../data";
 import { usePinToHomeMenu, useWidgetInstance } from "./pin";
 
@@ -27,12 +29,21 @@ export interface WidgetFrameProps {
   empty?: WidgetEmpty | null | false;
   actions?: ReactNode;
   footer?: ReactNode;
+  /**
+   * One sentence about the widget, as the panel's InfoTip after its title (UX plan §6.2, §8.2): where a widget defines
+   * the jargon it shows ("Runway is how many months your cash lasts at today's spending"). Hidden when guidance is off.
+   */
+  help?: ReactNode;
+  /** A "Learn more" target for `help` (a route slug or URL). */
+  helpLearn?: string;
   menu?: PanelMenu;
   flush?: boolean;
   bodyClassName?: string;
   className?: string;
   children?: ReactNode;
   "data-widget"?: string;
+  /** A tour's anchor (Coachmark targets `[data-coachmark=…]`), forwarded to the panel root like `data-widget`. */
+  "data-coachmark"?: string;
 }
 
 /** Fold several query states into one loading/error pair plus a refetch-all. */
@@ -49,6 +60,12 @@ export function combineQueries(queries: readonly QueryState<unknown>[]): { isLoa
  * founder's resize, a long feed, a wide-to-narrow reflow), so it never paints under the footer or past the panel.
  */
 export const WIDGET_BODY_CLASS = "flex min-h-0 flex-col overflow-y-auto overflow-x-hidden";
+
+/**
+ * The collapsed empty state (guided mode): the EmptyState laid out as one row, the icon disc, the line and its button
+ * side by side at the panel's padding, instead of a centred column with tall padding. Later classes win (cn merges).
+ */
+export const COLLAPSED_EMPTY_CLASS = "flex-row items-center justify-start gap-3 px-panel-pad py-3 text-left";
 
 /**
  * A caption in the business's words: strings are renamed, and so is the text inside plain elements (`<span>…</span>`) and
@@ -68,7 +85,7 @@ function errorText(error: Error | string): string {
   return error.message && error.message.length < 160 ? error.message : "The data for this panel could not be loaded.";
 }
 
-export function WidgetFrame({ title, queries = [], loading, error, onRetry, empty, actions, footer, menu, flush, bodyClassName, className, children, ...rest }: WidgetFrameProps) {
+export function WidgetFrame({ title, queries = [], loading, error, onRetry, empty, actions, footer, help, helpLearn, menu, flush, bodyClassName, className, children, ...rest }: WidgetFrameProps) {
   // Captions in the business's words (Settings › Glossary): a string title and the text of a footer are renamed.
   const g = useGlossary();
   // Away from Home (a department screen) the caret menu offers Pin to Home for this widget (audit #394).
@@ -78,7 +95,12 @@ export function WidgetFrame({ title, queries = [], loading, error, onRetry, empt
   const isLoading = loading ?? combined.isLoading;
   const err = error ?? combined.error;
   const retry = onRetry ?? (queries.length ? combined.refetch : undefined);
-  const emptyProps = !isLoading && !err && empty ? { icon: empty.icon, title: empty.title, action: empty.action, children: empty.text } : undefined;
+  // Guided mode (the default): an empty widget is its icon and one line in a row on a plate that hugs them, not a tall
+  // empty plate; guidance off keeps the centred empty state filling the cell.
+  const guided = useGuided();
+  const isEmpty = !isLoading && !err && !!empty;
+  const collapsed = guided && isEmpty;
+  const emptyProps = isEmpty ? { icon: empty.icon, title: empty.title, action: empty.action, children: empty.text, ...(collapsed ? { compact: true, className: COLLAPSED_EMPTY_CLASS } : {}) } : undefined;
   return (
     <Panel
       title={typeof title === "string" ? g(title) : title}
@@ -89,10 +111,14 @@ export function WidgetFrame({ title, queries = [], loading, error, onRetry, empt
       onRetry={retry}
       empty={emptyProps}
       footer={glossNode(footer, g)}
+      help={help ? glossNode(help, g) : undefined}
+      helpLearn={helpLearn}
       flush={flush}
       bodyClassName={bodyClassName ?? WIDGET_BODY_CLASS}
-      className={className ? `h-full ${className}` : "h-full"}
+      className={collapsed ? (className ? `h-auto ${className}` : "h-auto") : className ? `h-full ${className}` : "h-full"}
       data-widget={rest["data-widget"]}
+      data-coachmark={rest["data-coachmark"]}
+      data-empty={collapsed ? "collapsed" : undefined}
     >
       {children}
     </Panel>

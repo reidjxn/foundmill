@@ -56,10 +56,13 @@ describe("departmentForTemplate (AC-14)", () => {
 });
 
 describe("healthSummary (TPD-08)", () => {
-  it("an all-idle team is not 'everyone is working'", () => {
-    expect(healthSummary([{ status: "idle" }, { status: "idle" }])).toEqual({ text: "No agent is working right now", tone: "neutral" });
-    expect(healthSummary([{ status: "healthy" }, { status: "healthy" }])).toEqual({ text: "Everyone is working", tone: "good" });
-    expect(healthSummary([{ status: "healthy" }, { status: "idle" }, { status: "idle" }])).toEqual({ text: "1 of 3 working", tone: "good" });
+  const task = { id: "t1", title: "Ship the export" };
+  it("counts the agents with a task as working, the rule Home's team strip uses; health alone is not working", () => {
+    expect(healthSummary([{ status: "idle", currentTask: null }, { status: "idle", currentTask: null }])).toEqual({ text: "No agent is working right now", tone: "neutral" });
+    // Two healthy agents with nothing to do are not "everyone is working".
+    expect(healthSummary([{ status: "healthy", currentTask: null }, { status: "healthy" }])).toEqual({ text: "No agent is working right now", tone: "neutral" });
+    expect(healthSummary([{ status: "healthy", currentTask: task }, { status: "degraded", currentTask: task }])).toEqual({ text: "Everyone is working", tone: "good" });
+    expect(healthSummary([{ status: "healthy", currentTask: task }, { status: "healthy", currentTask: null }, { status: "idle", currentTask: null }])).toEqual({ text: "1 of 3 working", tone: "good" });
   });
 });
 

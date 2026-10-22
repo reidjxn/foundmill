@@ -19,8 +19,9 @@ export interface ModelPickerProps {
 }
 
 /**
- * Model selection (BUILD §11.10 Training "Model" tab): Opus / Sonnet / Haiku with the predicted skill and wage deltas
- * (estimates), locked options with the reason, and warnings (Chief of Staff downgrade). A radio group.
+ * Model selection (BUILD §11.10 Training "Model" tab): Opus / Sonnet / Haiku with the predicted skill change and the
+ * change in cost per month (estimates), locked options with the reason, and warnings (Chief of Staff downgrade). A
+ * radio group.
  */
 export function ModelPicker({ options, value, onChange, disabled, className }: ModelPickerProps) {
   const id = useId();
@@ -68,10 +69,10 @@ export function ModelPicker({ options, value, onChange, disabled, className }: M
             </div>
             <dl className="grid shrink-0 grid-cols-2 items-baseline gap-x-2 gap-y-0.5 text-right text-small tabular-nums">
               <dt className="t-data">Skills</dt>
-              <dd className={cn(o.skillDelta !== null && o.skillDelta > 0 ? "text-status-good" : o.skillDelta !== null && o.skillDelta < 0 ? "text-status-bad" : "text-secondary")} title={o.skillDelta === null && !checked ? "Measured by the retest that runs after the change" : undefined}>
+              <dd className={cn(o.skillDelta !== null && o.skillDelta > 0 ? "text-status-good" : o.skillDelta !== null && o.skillDelta < 0 ? "text-status-bad" : "text-secondary")} title={o.skillDelta === null && !checked ? "Measured when its skills are re-tested on the new model" : undefined}>
                 {checked || o.skillDelta === null ? "—" : formatDelta(o.skillDelta)}
               </dd>
-              <dt className="t-data">Wage</dt>
+              <dt className="t-data">Cost per month</dt>
               <dd className={cn(o.wageDelta.amountMinor < 0 ? "text-status-good" : o.wageDelta.amountMinor > 0 ? "text-status-warn" : "text-secondary")}>{checked ? "—" : `${formatMoneyDelta(o.wageDelta)}/mo`}</dd>
               <dd className="col-span-2 justify-self-end pt-1">{checked ? null : <ProvenanceChip kind="estimate" />}</dd>
             </dl>

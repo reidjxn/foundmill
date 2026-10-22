@@ -47,7 +47,7 @@ describe("EntityLink", () => {
       </EntityLinkProvider>,
     );
     await user.hover(screen.getByRole("link", { name: "Nordic Beauty AB" }));
-    const card = await screen.findByText("Pipeline", {}, { timeout: 1500 });
+    const card = await screen.findByText("Open deals", {}, { timeout: 1500 });
     expect(card).toBeTruthy();
     expect(screen.getByText("€48,000")).toBeTruthy();
     expect(screen.getByText("Organization")).toBeTruthy();

@@ -17,7 +17,7 @@ export function createAnthropicConnector(options: LiveConnectorOptions = {}): Co
   const { secrets, fetch, now } = resolveLiveOptions(options);
 
   const clientFor = (apiKey: string | undefined): Anthropic => {
-    if (!apiKey) throw new ConfigError(ANTHROPIC_KEY, "ANTHROPIC_API_KEY or a BYOK credential", "set the platform key or connect a founder key");
+    if (!apiKey) throw new ConfigError(ANTHROPIC_KEY, "ANTHROPIC_API_KEY or the founder's own Anthropic key", "set the platform key or connect a founder key");
     return new Anthropic({ apiKey, maxRetries: 1, timeout: 20_000, fetch });
   };
   const keyFor = (ctx: ToolContext) => ctx.credential?.secret ?? secrets.anthropicApiKey;

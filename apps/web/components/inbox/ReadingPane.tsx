@@ -11,30 +11,43 @@
  * (`confirmation`), after a reload, from another tab or device, never from what this page remembers (audit OL-01).
  * Answered items show what was chosen, the plan's progress and follow-up links. Won customers open their Customer
  * Update (the replay). An agent's request to make a gated call (audit FR-01) shows the agent, the task, the call and its
- * amount above the DecisionBar's Approve and Reject, with an optional reason.
+ * amount above the DecisionBar's Approve and Reject, with an optional reason. While guidance is on, the exhibit and
+ * the Decided panel start folded under "Show the numbers" / "Show what happened" (UX plan B19), so the note, the
+ * conversation and the decision bar read as one story; a Decided panel that still asks for the go-ahead, or one for a
+ * decision just taken here, opens as it always did. The guided layer (UX plan §6.2, §7.9): the note body's defined
+ * terms get their definition on hover (Markdown `terms`), the header's status word and "Your decision" carry an
+ * InfoTip, the metric strip's captions and the Customer Update title are Terms, and the first decision an account
+ * ever meets shows one Callout on the first option ("Each option says what it costs and whether you can undo it").
  */
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Archive, ArrowRight, CirclePause, ExternalLink, EyeOff, Play, ShieldAlert, Trophy } from "lucide-react";
+import { Archive, ArrowRight, ChevronDown, ChevronRight, CirclePause, ExternalLink, EyeOff, Play, ShieldAlert, Trophy } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   Avatar,
   Button,
+  Callout,
   Chip,
   DecisionBar,
   DeptChip,
   EntityLink,
+  InfoTip,
   KeyValueList,
   Markdown,
   Panel,
   StatusPill,
   StatusStrip,
+  Term,
+  Tooltip,
   formatRelative,
   isTypingTarget,
   useFormatters,
+  useGuided,
+  useTerm,
   useToast,
   type DecisionAnswer,
   type DecisionOption,
+  type MetricTileProps,
 } from "@foundmill/dugout";
 import type { DeptColourToken, EntityKind } from "@foundmill/shared";
 import { humanSender, NETWORK_SENDER } from "@foundmill/widgets/shared/note-tags";
@@ -58,10 +71,11 @@ import { ApprovalPanel } from "./ApprovalPanel";
 import { ConfirmPlanDialog } from "./ConfirmPlanDialog";
 import { SIGNOFF_NOTES_ID, SignoffPanel } from "./SignoffPanel";
 import { Exhibit } from "./Exhibit";
+import { readExhibit } from "./exhibits";
 import { NoteTagChip } from "./InboxList";
 import {
+  actionStatusWord,
   agentIndex,
-  answerLabel,
   answeredFrom,
   askChip,
   confirmationLines,
@@ -73,6 +87,7 @@ import {
   goAheadState,
   hasAgentDesk,
   headerDates,
+  HOLDS_CONTINUE_HINT,
   noteOpener,
   headerTag,
   hiddenNotice,
@@ -94,6 +109,75 @@ type DecideResult = RouterOutputs["inbox"]["decide"];
 
 const DAY_MS = 86_400_000;
 const dayKey = (d: Date): string => d.toISOString().slice(0, 10);
+
+/** The one-step tour on the first decision an account meets (UX plan §7.9 DecisionBar), marked done once per account. */
+export const FIRST_DECISION_TOUR = "first-decision";
+/** The `data-coachmark` value the pane puts on the DecisionBar's first option, where the callout points. */
+export const FIRST_DECISION_TARGET = "first-decision-option";
+export const FIRST_DECISION_TITLE = "Each option says what it costs and whether you can undo it";
+export const FIRST_DECISION_BODY = "The recommended one is marked.";
+
+/** The metric strip captions that are defined terms (TERMS ids), so the caption carries the definition on hover. */
+export const STRIP_TERM_IDS: Readonly<Record<string, string>> = { Runway: "runway", MRR: "mrr", "Net burn": "net_burn" };
+
+/** The strip's tiles with each defined caption wrapped in a Term (a label the glossary renamed is left as it is). */
+export function tilesWithTerms(tiles: readonly MetricTileProps[]): MetricTileProps[] {
+  return tiles.map((t) => (typeof t.label === "string" && STRIP_TERM_IDS[t.label] ? { ...t, label: <Term id={STRIP_TERM_IDS[t.label]!}>{t.label}</Term> } : t));
+}
+
+/** What the header's status word means, in one sentence, and the term whose "Learn more" explains it. */
+export function statusWordTip(word: string): { termId: string; text: string } | null {
+  if (word === "Needs your answer") return { termId: "cycle", text: "The team cannot carry on with this until you answer; the next cycle waits for it." };
+  if (word === "Needs your go-ahead") return { termId: "hard_gate", text: "You chose; the plan is written and nothing in it runs until you say go." };
+  return null;
+}
+
+/** An InfoTip beside the header's status word (hidden when guidance is off, like every InfoTip). */
+function StatusWordTip({ word }: { word: string }) {
+  const tip = statusWordTip(word);
+  const def = useTerm(tip?.termId ?? "");
+  if (!tip) return null;
+  return (
+    <InfoTip label={word} learn={def?.learn} side="bottom">
+      {tip.text}
+    </InfoTip>
+  );
+}
+
+/** Why this decision is the founder's: a hard gate's definition for an agent's request or a sign-off, the plain reason otherwise. */
+export const YOUR_DECISION_TIP = "This is yours to decide: the team carries on once you pick one, and nothing runs before that.";
+
+function YourDecisionTip({ gated }: { gated: boolean }) {
+  const hardGate = useTerm("hard_gate");
+  return (
+    <InfoTip label="Your decision" kind="why" learn={hardGate?.learn} side="top" className="-my-1.5">
+      {gated && hardGate ? hardGate.short : YOUR_DECISION_TIP}
+    </InfoTip>
+  );
+}
+
+/**
+ * "Holds Continue": one tab stop that carries its consequence as its description, so keyboard and screen-reader users
+ * get the sentence the tooltip shows on hover. Information, not tutoring: shown whatever the guidance setting. The
+ * tooltip trigger is a wrapper span, not the Chip: a Chip handed the trigger's onClick turns into a pressable button.
+ */
+export function HoldsContinueChip() {
+  const hintId = useId();
+  return (
+    <>
+      <Tooltip content={HOLDS_CONTINUE_HINT}>
+        <span tabIndex={0} aria-describedby={hintId} className="inline-flex max-w-full rounded-sm focus-ring" data-testid="holds-continue">
+          <Chip tone="neutral" icon={CirclePause}>
+            Holds Continue
+          </Chip>
+        </span>
+      </Tooltip>
+      <span id={hintId} className="sr-only">
+        {HOLDS_CONTINUE_HINT}
+      </span>
+    </>
+  );
+}
 
 export interface ReadingPaneProps {
   itemId: string;
@@ -147,6 +231,8 @@ interface BodyProps {
 function ReadingPaneBody({ data, currency, departments, onArchived }: BodyProps) {
   const { item, decisions, plan: storedPlan, confirmation, fromAgent, entities, approval, signoff } = data;
   const { businessId, data: biz, access } = useBusiness();
+  // Guidance on: the numbers and the decided plan fold away until asked for (UX plan B19).
+  const guided = useGuided();
   // A person's note: the founder's own ("You"), or someone else's, never "You".
   const sender = humanSender(item.fromUserId, biz.membership.userId);
   const senderName = sender === "self" ? "You" : sender === "other" ? NETWORK_SENDER : "Team";
@@ -182,14 +268,16 @@ function ReadingPaneBody({ data, currency, departments, onArchived }: BodyProps)
   const channelsQ = useQuery(trpc.distribution.channels.list.queryOptions({ businessId }, { enabled: needs.has("channels"), staleTime: 60_000, retry: false }));
   const tiles = useMemo(
     () =>
-      statusStripTiles(item.statusStrip, {
-        finance: financeQ.data ?? null,
-        trailingRevenueMinor: trailingRevenue,
-        conversions: ribbonQ.data?.conversions ?? null,
-        tasks: tasksQ.data?.items ?? null,
-        channelsEnabled: channelsQ.data ? channelsQ.data.channels.filter((c) => c.enabled).length : null,
-        glossary,
-      }).map((t) => ({ ...t, loading: (needs.has("finance") && (financeQ.isLoading || (wantsRevenue && pnlQ.isLoading))) || (needs.has("conversions") && ribbonQ.isLoading) || (needs.has("tasks") && tasksQ.isLoading) || (needs.has("channels") && channelsQ.isLoading) })),
+      tilesWithTerms(
+        statusStripTiles(item.statusStrip, {
+          finance: financeQ.data ?? null,
+          trailingRevenueMinor: trailingRevenue,
+          conversions: ribbonQ.data?.conversions ?? null,
+          tasks: tasksQ.data?.items ?? null,
+          channelsEnabled: channelsQ.data ? channelsQ.data.channels.filter((c) => c.enabled).length : null,
+          glossary,
+        }),
+      ).map((t) => ({ ...t, loading: (needs.has("finance") && (financeQ.isLoading || (wantsRevenue && pnlQ.isLoading))) || (needs.has("conversions") && ribbonQ.isLoading) || (needs.has("tasks") && tasksQ.isLoading) || (needs.has("channels") && channelsQ.isLoading) })),
     [item.statusStrip, financeQ.data, financeQ.isLoading, trailingRevenue, wantsRevenue, pnlQ.isLoading, ribbonQ.data, ribbonQ.isLoading, tasksQ.data, tasksQ.isLoading, channelsQ.data, channelsQ.isLoading, needs, glossary],
   );
 
@@ -356,6 +444,19 @@ function ReadingPaneBody({ data, currency, departments, onArchived }: BodyProps)
   const relatedEntities = entities.map((e) => ({ id: e.id, kind: e.kind as EntityKind, name: e.displayName, href: entityHref(businessId, e, (id) => agents.has(id)) }));
   // Parts of the note the reader's section permissions hide (inbox.get masks them on the server).
   const hidden = hiddenNotice(item.redacted);
+  // No exhibit, no region (and no fold): the body's gap never holds an empty slot.
+  const hasExhibit = useMemo(() => readExhibit(item.exhibit).kind !== "none", [item.exhibit]);
+  // The header's status word, with its tip while the note still asks for something.
+  const tag = headerTag(item.type, isAnswered, item.blocksContinue, pendingConfirmation);
+
+  // The first decision an account meets: one callout on the first option (the DecisionBar's buttons carry
+  // `data-option-id`; the pane marks the first as the callout's target, since the bar has no hook of its own).
+  const barRef = useRef<HTMLDivElement>(null);
+  const showCallout = options.length >= 2 && !isAnswered && !readOnly && item.state !== "archived";
+  useEffect(() => {
+    if (!showCallout) return;
+    barRef.current?.querySelector<HTMLElement>("[data-option-id]")?.setAttribute("data-coachmark", FIRST_DECISION_TARGET);
+  }, [showCallout, options]);
 
   return (
     <article className="flex min-h-0 flex-1 flex-col" data-testid="inbox-item" data-item-id={item.id} data-type={item.type} data-state={isAnswered ? "answered" : item.state}>
@@ -388,11 +489,10 @@ function ReadingPaneBody({ data, currency, departments, onArchived }: BodyProps)
           </p>
         </div>
         <div className="ml-auto flex flex-wrap items-center justify-end gap-1.5">
-          <NoteTagChip tag={headerTag(item.type, isAnswered, item.blocksContinue, pendingConfirmation)} size="header" testId="type-pill" />
+          <NoteTagChip tag={tag} size="header" testId="type-pill" />
+          <StatusWordTip word={tag.word} />
           {item.blocksContinue && !isAnswered ? (
-            <Chip tone="neutral" icon={CirclePause} title="Continue waits until you answer this note">
-              Blocks Continue
-            </Chip>
+            <HoldsContinueChip />
           ) : null}
           {item.state !== "archived" && (isAnswered || !options.length) ? <Button size="sm" variant="ghost" icon={Archive} onClick={() => archive.mutate({ businessId, itemId: item.id })} loading={archive.isPending} data-testid="archive-item">Archive</Button> : null}
         </div>
@@ -424,7 +524,7 @@ function ReadingPaneBody({ data, currency, departments, onArchived }: BodyProps)
         </div>
 
         {won ? (
-          <Panel title="Customer Update" span={12} actions={<Chip tone="gold">Win</Chip>} data-testid="customer-update">
+          <Panel title={<Term id="customer_update">Customer Update</Term>} span={12} actions={<Chip tone="gold">Win</Chip>} data-testid="customer-update">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <p className="text-body text-secondary">The replay shows the first touch, who was involved, the win moment and the debrief.</p>
               <Button variant="gold" icon={Play} onClick={openReplay} disabled={!journeyId} loading={journeysQ.isLoading} data-testid="open-replay">
@@ -442,15 +542,21 @@ function ReadingPaneBody({ data, currency, departments, onArchived }: BodyProps)
 
         {tiles.length ? <StatusStrip tiles={tiles} data-testid="status-strip" /> : null}
 
-        <Exhibit exhibit={item.exhibit} entityIds={item.entityIds} fromAgentId={item.fromAgentId} currency={currency} />
+        {hasExhibit ? (
+          <Folded folded={guided} show="Show the numbers" hide="Hide the numbers" testId="exhibit-fold">
+            <Exhibit exhibit={item.exhibit} entityIds={item.entityIds} fromAgentId={item.fromAgentId} currency={currency} />
+          </Folded>
+        ) : null}
 
         {isAnswered || plan ? (
-          <Panel title="Decided" span={12} actions={planLine ? <StatusPill tone={planLine.tone}>{planLine.word}</StatusPill> : undefined} footer={planLine ? <span>{planLine.detail}</span> : undefined} data-testid="answered-panel">
+          // A decision just taken here, or a plan still waiting for the go-ahead, stays open: there is something to see or do.
+          <Folded folded={guided && !result && !pendingConfirmation} show="Show what happened" hide="Hide what happened" testId="answered-panel">
+          <Panel title="Decided" span={12} actions={planLine ? <StatusPill tone={planLine.tone}>{planLine.word}</StatusPill> : undefined} footer={planLine ? <span>{planLine.detail}</span> : undefined} data-testid="decided-panel">
             <div className="flex flex-col gap-3">
               <KeyValueList
                 items={[
                   { label: attribution?.label ?? "Your answer", value: answered?.optionId ? options.find((o) => o.id === answered.optionId)?.label ?? answered.optionId : answered?.text ? <q>{answered.text}</q> : "Recorded" },
-                  ...(attribution && !attribution.mine ? [{ label: "Decided by", value: <span data-testid="decided-by">{attribution.by}{attribution.decidedAt && hydrated ? ` · ${formatDateTime(attribution.decidedAt)}` : ""}</span> }] : []),
+                  ...(attribution && !attribution.mine ? [{ label: "Decided by", value: <span data-testid="decided-by">{attribution.by === "the Chief of Staff" ? <>the <Term id="chief_of_staff">Chief of Staff</Term></> : attribution.by}{attribution.decidedAt && hydrated ? ` · ${formatDateTime(attribution.decidedAt)}` : ""}</span> }] : []),
                   ...(plan ? [{ label: "Plan", value: <Markdown variant="body">{plan.summaryMd || "No actions"}</Markdown> }] : []),
                 ]}
               />
@@ -460,7 +566,7 @@ function ReadingPaneBody({ data, currency, departments, onArchived }: BodyProps)
                     const chip = askChip(plan, a);
                     return (
                       <li key={a.id} className="flex items-center gap-2" data-action-status={a.status}>
-                        <StatusPill tone={a.status === "done" ? "good" : a.status === "failed" || a.status === "denied" ? "bad" : a.status === "awaiting_approval" || a.status === "pending" ? "warn" : "info"}>{a.status.replace(/_/g, " ")}</StatusPill>
+                        <StatusPill tone={a.status === "done" ? "good" : a.status === "failed" || a.status === "denied" ? "bad" : a.status === "awaiting_approval" || a.status === "pending" ? "warn" : "info"}>{actionStatusWord(a.status)}</StatusPill>
                         <span className="truncate">{confirmationLines([{ action: { type: a.type, params: a.params as Record<string, unknown> | null }, outcome: a.policyOutcome ?? "allow" }], currency)[0]?.label}</span>
                         {chip ? <Chip tone={chip.tone} data-testid="ask-chip">{chip.word}</Chip> : null}
                       </li>
@@ -497,6 +603,7 @@ function ReadingPaneBody({ data, currency, departments, onArchived }: BodyProps)
               </div>
             </div>
           </Panel>
+          </Folded>
         ) : null}
 
         {showDesk ? (
@@ -519,6 +626,7 @@ function ReadingPaneBody({ data, currency, departments, onArchived }: BodyProps)
       {/* decision bar */}
       {options.length >= 2 ? (
         <DecisionBar
+          ref={barRef}
           options={options}
           onChoose={onChoose}
           onAsk={showDesk ? () => desk.current?.openWrite() : undefined}
@@ -529,6 +637,14 @@ function ReadingPaneBody({ data, currency, departments, onArchived }: BodyProps)
           executing={decide.isPending || confirm.isPending}
           answered={answered}
           hotkeys={false}
+          // The shell's keyboard map owns 1–4 here; the caps say so to operators (guidance off hides nothing else).
+          keyHints
+          heading={
+            <span className="inline-flex items-center gap-1">
+              Your decision
+              <YourDecisionTip gated={!!approval || !!signoff} />
+            </span>
+          }
           note={
             readOnly && !isAnswered ? (
               <span className="inline-flex items-center gap-1 text-small text-secondary" data-testid="decision-read-only">
@@ -536,13 +652,14 @@ function ReadingPaneBody({ data, currency, departments, onArchived }: BodyProps)
               </span>
             ) : pastDeadline && !isAnswered ? (
               <span className="inline-flex items-center gap-1 text-small text-status-warn" data-testid="past-deadline">
-                This decision is past its deadline. The team is still waiting for your call, and Continue waits too.
+                This decision is past its deadline. The team still needs your answer, and Continue waits too.
               </span>
             ) : undefined
           }
           data-testid="decision-bar"
         />
       ) : null}
+      {showCallout ? <Callout tourId={FIRST_DECISION_TOUR} targetId={FIRST_DECISION_TARGET} title={FIRST_DECISION_TITLE} body={FIRST_DECISION_BODY} side="top" /> : null}
 
       <ConfirmPlanDialog open={confirmOpen && pendingConfirmation} onOpenChange={setConfirmOpen} lines={lines} summary={plan?.summaryMd ?? ""} loading={confirm.isPending} onConfirm={() => plan && confirm.mutate({ businessId, planId: plan.id })} />
       {decide.isError || confirm.isError ? (
@@ -556,13 +673,53 @@ function ReadingPaneBody({ data, currency, departments, onArchived }: BodyProps)
 
 export { ConfirmPlanDialog, type ConfirmPlanDialogProps } from "./ConfirmPlanDialog";
 
-/** The note body in the reading style. Dugout's Markdown keeps its own props, so the test id lives on this wrapper. */
-export function InboxNote({ bodyMd }: { bodyMd: string }) {
+export interface FoldedProps {
+  /** Start folded (guidance on, nothing the reader has to act on). Read once, when the region mounts, so an answer given here never folds it. */
+  folded: boolean;
+  /** The ghost button's words while folded ("Show the numbers") and while open ("Hide the numbers"). */
+  show: string;
+  hide: string;
+  /** The wrapper's test id; the button carries `<testId>-toggle`. */
+  testId?: string;
+  children: ReactNode;
+}
+
+/**
+ * A region that starts folded under a ghost disclosure while guidance is on (UX plan B19): the button sits exactly
+ * where the content sits (DOM order unchanged), and opening it draws the content in place. Not folded: the content as
+ * is, no button. The design system has no shared disclosure primitive (Explainer collapses itself; nothing else folds
+ * a region), so the pane keeps this one: a ghost Button with aria-expanded / aria-controls over a region in place.
+ */
+export function Folded({ folded, show, hide, testId, children }: FoldedProps) {
+  const [foldable] = useState(folded);
+  const [open, setOpen] = useState(false);
+  const bodyId = useId();
+  if (!foldable) return <div data-testid={testId}>{children}</div>;
+  return (
+    <div data-testid={testId} data-folded={!open || undefined}>
+      <Button size="sm" variant="ghost" icon={open ? ChevronDown : ChevronRight} aria-expanded={open} aria-controls={bodyId} onClick={() => setOpen((o) => !o)} data-testid={testId ? `${testId}-toggle` : undefined}>
+        {open ? hide : show}
+      </Button>
+      {open ? (
+        <div id={bodyId} className="mt-2">
+          {children}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+/**
+ * The note body in the reading style, with the first mention of each defined term carrying its definition on hover
+ * (Markdown `terms`; off while guidance is off). Dugout's Markdown keeps its own props, so the test id lives on this
+ * wrapper.
+ */
+export const InboxNote = memo(function InboxNote({ bodyMd }: { bodyMd: string }) {
   return (
     <div data-testid="inbox-note">
-      <Markdown variant="reading" className="t-reading">
+      <Markdown variant="reading" className="t-reading" terms>
         {bodyMd}
       </Markdown>
     </div>
   );
-}
+});

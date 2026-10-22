@@ -18,7 +18,7 @@
  * answers with the business the first commit created (`alreadyCommitted: true`), read back from that commit's audit row.
  */
 import { randomUUID } from "node:crypto";
-import { departmentTabs, getArchetypeSeed, getTemplate } from "@foundmill/agents";
+import { departmentTabs, getArchetypeSeed, getTemplate, prompts } from "@foundmill/agents";
 import { initialModelBilling } from "@foundmill/config";
 import { assertBusinessAllowance, autopilotChangedPayload, creditsUsedUp, includedCreditsFor, periodOf, repos, type Business, type Db, type DbTx, type InboxItem } from "@foundmill/db";
 import { writeEventRow } from "./events";
@@ -97,10 +97,14 @@ export const BOARD_FIRST_DECISION_LINE = "The team has started on the basics; th
  * Board item). Posted when the build starts (both sign-offs approved; services/signoff.ts `startBuilding`), from the
  * report snapshotted on the foundations row.
  */
-export function importBoardDecisionFromReport(name: string, report: ScoutingReportLike | null, sourceCount: number): { subject: string; bodyMd: string; options: { id: string; label: string; recommended: boolean; consequence: string; costMinor: number; reversible: boolean; actions?: OptionAction[] }[] } | null {
+/** The report the Board item is built from; a first decision may say why it is recommended (`because`, UX plan §7.19). */
+export type ImportReportLike = ScoutingReportLike;
+
+export function importBoardDecisionFromReport(name: string, report: ImportReportLike | null, sourceCount: number): { subject: string; bodyMd: string; options: { id: string; label: string; recommended: boolean; consequence: string; because?: string; costMinor: number; reversible: boolean; actions?: OptionAction[] }[] } | null {
   if (!report || report.firstDecisions.length < 2) return null;
-  // Each option carries what choosing it runs, so the click never parses its words (audit IAE-20).
-  const options = report.firstDecisions.slice(0, 4).map((d) => ({ id: d.id.slice(0, 40), label: d.label.slice(0, 120), recommended: d.recommended, consequence: d.consequence, costMinor: 0, reversible: d.reversible, ...(d.actions?.length ? { actions: d.actions } : {}) }));
+  // Each option carries what choosing it runs, so the click never parses its words (audit IAE-20), and the report's
+  // reason for recommending it ("because", UX plan §7.19) travels with it when the report wrote one.
+  const options = report.firstDecisions.slice(0, 4).map((d) => ({ id: d.id.slice(0, 40), label: d.label.slice(0, 120), recommended: d.recommended, consequence: d.consequence, ...(d.because?.trim() ? { because: d.because.trim().slice(0, 400) } : {}), costMinor: 0, reversible: d.reversible, ...(d.actions?.length ? { actions: d.actions } : {}) }));
   if (options.filter((o) => o.recommended).length !== 1) options.forEach((o, i) => (o.recommended = i === 0));
   return {
     subject: "Where should the team start with what you imported?",
@@ -121,7 +125,8 @@ export function importBoardDecision(name: string, link: ImportLink): ReturnType<
 }
 
 /**
- * The Chief of Staff's welcome note at Take charge (non-blocking): the team is hired, the Product lead is drafting the
+ * The Chief of Staff's welcome note at Take charge (non-blocking): who the Chief of Staff is and what is always the
+ * founder's (the house rules' founder line, UX plan §7.19), the team is hired, the Product lead is drafting the
  * foundations, two sign-off notes follow, and nothing is spent on distribution until the founder starts it.
  */
 export function welcomeNote(input: { agents: number; departments: number; productLeadName: string | null; door: "ideation" | "import" }): { subject: string; bodyMd: string } {
@@ -130,6 +135,7 @@ export function welcomeNote(input: { agents: number; departments: number; produc
   return {
     subject: "Your team is drafting the product foundations",
     bodyMd: [
+      prompts.HOUSE_RULES_FOUNDER_LINE,
       `The team is hired: ${input.agents} agents in ${input.departments} departments.`,
       `${who} is drafting the vision, the specification and the roadmap from ${from}; you will get two notes asking you to sign off each. Building starts when both are approved.`,
       "Nothing is spent on distribution until you start it from Distribution › Board.",
@@ -192,7 +198,7 @@ export async function commitIdea(db: Db, temporal: TemporalService, userId: stri
       currency,
     });
     const businessId = business.id;
-    await repos.memberships.add(tx, businessId, { userId, role: "owner" });
+    await repos.memberships.add(tx, businessId, { userId, role: "owner", source: "founder" });
     // "Run on autopilot": on from the first minute, audited like turning it on in Settings.
     if (input.autopilot) {
       const on = await repos.autopilot.set(tx, businessId, { enabled: true });

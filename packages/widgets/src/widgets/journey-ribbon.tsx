@@ -15,6 +15,7 @@ import {
   JourneyRibbon,
   ProvenanceChip,
   RIBBON_DEFAULT_HEIGHT,
+  Term,
   ZOOM_LEVELS,
   indexDailyRows,
   summariseDay,
@@ -207,12 +208,27 @@ function JourneyRibbonWidget({ settings, updateSettings }: WidgetProps<JourneyRi
       title="Journey"
       data-widget="journey_ribbon"
       queries={[ribbon, departments]}
-      empty={empty ? { icon: Route, text: "Your journey starts on day one. Press Continue to run the first cycle." } : null}
+      // The loop, stated where it is needed (UX plan §5.1, §7.8): what a cycle is, in the sentence, "cycle" a defined word.
+      empty={
+        empty
+          ? {
+              icon: Route,
+              text: (
+                <>
+                  Your journey starts on day one. Press Continue to run the first <Term id="cycle">cycle</Term>: the team works for a while, then reports back in the Inbox.
+                </>
+              ),
+            }
+          : null
+      }
       flush
       actions={
         <>
+          {/* The Forecast and Estimate chips keep their dashed look; each opens its definition on hover and focus whether
+              guidance is on or off (ProvenanceChip → ProvenanceTip reads TERMS.forecast / TERMS.estimate): the "Term
+              always" of UX plan §7.8. */}
           {cone.length > 0 ? <ProvenanceChip kind="forecast" /> : null}
-          {runwayMonths !== null ? <ProvenanceChip kind="estimate" title="Runway horizon is an estimate" /> : null}
+          {runwayMonths !== null ? <ProvenanceChip kind="estimate" aria-label="Runway horizon is an estimate" /> : null}
         </>
       }
     >
@@ -265,7 +281,7 @@ function JourneyRibbonWidget({ settings, updateSettings }: WidgetProps<JourneyRi
 export const journeyRibbonWidget = registerWidget<JourneyRibbonSettings>({
   key: "journey_ribbon",
   title: "Journey Ribbon",
-  description: "Revenue per day, new signups, paying customers, agent hours and milestones on one timeline, from day one to the forecast.",
+  description: "Revenue per day, new signups, paying customers, hours of team work and milestones on one timeline, from day one to the forecast.",
   icon: "route",
   surfaces: ["home"],
   defaultSize: { w: 12, h: 16, minW: 6, minH: 12, maxH: 24 },

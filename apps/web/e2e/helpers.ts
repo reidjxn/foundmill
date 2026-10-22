@@ -33,6 +33,21 @@ export async function signIn(page: Page): Promise<void> {
   if (/\/onboarding/.test(page.url())) await completeProfile(page);
 }
 
+/**
+ * Signs in as another account through the dev bypass (`/auth/dev?as=<uuid>`, development and test only): the dev-as
+ * cookie makes every bearer the web sends `dev:<uuid>`, which the api and the stream map to that account. Lands on
+ * `next` (default New business), or on /onboarding when the account has no founder profile yet: the caller completes
+ * it with its own answers (completeProfile writes the seed owner's). The account is the browser context's until it
+ * closes, or until a plain `signIn` (whose /auth/dev clears the choice).
+ */
+export async function signInAs(page: Page, userId: string, next = "/new"): Promise<void> {
+  expect(userId, "signInAs needs an account id (a UUID)").toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i);
+  await page.goto(`/auth/dev?as=${encodeURIComponent(userId)}&next=${encodeURIComponent(next)}`);
+  await page.waitForURL((u) => !u.pathname.startsWith("/auth/dev"), { timeout: LONG });
+  const cookies = await page.context().cookies();
+  expect(cookies.find((c) => c.name === "fm_dev_as")?.value, "/auth/dev?as= set the dev-as cookie (development and test only)").toBe(userId.toLowerCase());
+}
+
 /** Signs in and opens the seeded Northwind Skincare Home (the AppShell is visible on return). */
 export async function openBusiness(page: Page, path = "home"): Promise<string> {
   await signIn(page);
@@ -127,6 +142,10 @@ export async function completeProfile(page: Page): Promise<void> {
   await page.getByLabel(/What the team calls you/).fill("Playwright Founder");
   await page.getByLabel("First-time founder").check();
   await page.getByLabel("Full time").check();
+  // The profile is two passes (UX plan §7.3): budget, markets, constraints and risk sit behind the collapsed "Add
+  // detail" panel for a first-time founder; open it before filling them.
+  const toggle = page.getByTestId("profile-detail-toggle");
+  if ((await toggle.getAttribute("aria-expanded")) !== "true") await toggle.click();
   await page.getByLabel(/Budget you can commit/).fill("25k");
   // The chip input and its suggestions list share the "Target markets" label prefix; the textbox is the field.
   const markets = page.getByRole("textbox", { name: "Target markets" });
@@ -245,6 +264,27 @@ export function inboxRow(page: Page, subject: string | RegExp): Locator {
   return page.getByTestId("inbox-list").getByRole("option").filter({ hasText: subject }).first();
 }
 
+/**
+ * A first-visit tour card or a one-step callout (the Coachmark stamps `data-coachmark` and `data-tour` on its card; its
+ * ring and its targets carry only one of the two).
+ */
+export const COACHMARK_CARD = "[data-coachmark][data-tour]";
+
+/**
+ * Closes every tour card and callout showing now: Skip tour on a tour, Got it on a callout. Either marks it done for the
+ * whole dev account (tours.spec.ts resets them before it asserts them). A card is a `role="dialog"` popover, and an
+ * open dialog holds the Inbox's number keys (ReadingPane), so a spec that decides from the keyboard closes them first.
+ */
+export async function dismissCoachmarks(page: Page): Promise<void> {
+  const cards = page.locator(COACHMARK_CARD);
+  for (let i = 0; i < 5 && (await cards.count()) > 0; i++) {
+    const card = cards.first();
+    const tour = await card.getAttribute("data-tour");
+    await card.getByRole("button", { name: /^(Skip tour|Got it)$/ }).click();
+    await expect(page.locator(`[data-coachmark][data-tour="${tour}"]`)).toHaveCount(0, { timeout: LONG });
+  }
+}
+
 /** Opens the note from the Inbox list and approves it with the keyboard (1 = the recommended option). */
 export async function approveFromInbox(page: Page, bid: string, subject: string): Promise<void> {
   await page.goto(`/b/${bid}/inbox`);
@@ -258,8 +298,15 @@ export async function approveFromInbox(page: Page, bid: string, subject: string)
   await expect(page.getByTestId("signoff-panel")).toBeVisible({ timeout: LONG });
   await expect(page.getByTestId("decision-bar")).toHaveAttribute("data-state", "open");
   // The number keys decide the note from the page (the shell's main content), not from the list row that opened it.
-  await page.getByTestId("shell-content").focus();
-  await page.keyboard.press("1");
+  // On the account's first Inbox visit the Inbox tour opens, and once it closes the first-decision callout can follow
+  // (UX plan §6.2, §7.9; each waits for the other): an open card holds the keys, so close what shows, then press, and
+  // try again if a card opened in between. A second press after the decision landed does nothing (the bar is locked).
+  await expect(async () => {
+    await dismissCoachmarks(page);
+    await page.getByTestId("shell-content").focus();
+    await page.keyboard.press("1");
+    await expect(item).toHaveAttribute("data-state", "answered", { timeout: 10_000 });
+  }).toPass({ timeout: LONG * 2 });
   await expect(item).toHaveAttribute("data-state", "answered", { timeout: LONG });
   await expect(page.getByTestId("answered-panel")).toBeVisible({ timeout: LONG });
 }

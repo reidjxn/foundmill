@@ -1,10 +1,12 @@
 /**
- * Mock Inbox Composer (BUILD §11.3, §12.2).
+ * Mock Inbox Composer (BUILD §11.3, §12.2; voice guide docs/UX_AUDIT_AND_PLAN.md §8.1).
  *
- * Writes one note in the voice of the from-agent: fact → why it matters → ask, 60–180 words, entity mentions only from
- * the manifest, 2–4 options with exactly one recommended, exhibit only from the named queries, and NO number that is
- * not present in the inputs (numbers are only ever copied from metric values, event payloads and option costs; every
- * template sentence is digit-free).
+ * Writes one note in the voice of the from-agent: the business stake first, then what happened, then the ask. Under
+ * 180 words and never padded (a clear 40-word note beats a padded 60-word one), entity mentions only from the manifest,
+ * 2–4 options with exactly one recommended and a "because" on it, exhibit only from the named queries, and NO number
+ * that is not present in the inputs (numbers are only ever copied from metric values, event payloads and option
+ * costs; every template sentence is digit-free). It is what mock-mode testers read, so it names no plumbing: no policy,
+ * caps, named queries, exhibits, engines or hard gates, and no developer notes.
  */
 import { CHANNEL_KEYS, DEFAULT_BUSINESS_CURRENCY, EXHIBIT_KINDS, INBOX_ITEM_TYPES, type ChannelKey, type ExhibitKind, type InboxItemType } from "@foundmill/shared";
 import type { ComposerOption, ComposerOutput } from "../schemas";
@@ -47,6 +49,9 @@ const TYPE_BY_EVENT: Array<[RegExp, InboxItemType]> = [
 
 const DECISION_TYPES = new Set<InboxItemType>(["decision", "customer_won", "warning"]);
 
+/** The longest a note may run (BUILD §12.2's ceiling); there is no floor and no padding. */
+export const COMPOSER_MAX_WORDS = 180;
+
 export function generateInboxComposer(ctx: MockContext): ComposerOutput {
   const { rng } = ctx;
   const events = readEvents(ctx);
@@ -69,31 +74,24 @@ export function generateInboxComposer(ctx: MockContext): ComposerOutput {
   // or a data-change insight: write from it, never a "nothing new" filler note.
   const grounded = events.length === 0 ? readGrounded(ctx) : undefined;
 
-  // --- fact → why → ask -------------------------------------------------------------------------------------------
+  // --- the stake, the fact, the ask -------------------------------------------------------------------------------
   const fact = grounded ? groundedFact(grounded) : factSentence(type, primary, who, channel, taskTitle, amount, businessName, rng);
   const why = grounded
     ? grounded.kind === "decision"
-      ? "It is the most useful call while the team waits for news; each option below says what changes and whether it can be undone."
+      ? "It is the most useful call while the team waits for news; each option says what changes for you and whether it can be undone."
       : "It is a real change in the numbers rather than an event, so I have kept to the figures behind it."
     : whySentence(type, metrics, channel, rng);
   const ask = askSentence(type, rng);
   const brief = briefSentence(ctx);
 
   const sentences = [fact, why, brief, ask].filter((s): s is string => Boolean(s));
-  const fillers = rng.shuffle(FILLERS[type] ?? FILLERS.update ?? GENERIC_FILLERS);
-  let body = sentences.join(" ");
-  let fi = 0;
-  while (wordCount(body) < 60 && fi < fillers.length) body += ` ${fillers[fi++]}`;
-  while (wordCount(body) < 60) body += ` ${rng.pick(GENERIC_FILLERS)}`;
-  body = trimToWords(body, 180);
-
-  const paragraphs = splitParagraphs(body);
-  const bodyMd = paragraphs.join("\n\n");
+  const body = trimToWords(sentences.join(" "), COMPOSER_MAX_WORDS);
+  const bodyMd = splitParagraphs(body).join("\n\n");
 
   // --- decision --------------------------------------------------------------------------------------------------
   const decision = DECISION_TYPES.has(type) || readOptions(ctx).length >= 2 ? buildDecision(ctx, type, channel, rng) : null;
 
-  // --- exhibit ---------------------------------------------------------------------------------------------------
+  // --- the chart or table under the note -------------------------------------------------------------------------
   const exhibit = chooseExhibit(type, queries, channel, rng);
 
   const subject = truncate(grounded ? grounded.title : subjectLine(type, who ? plainName(subjectEntity, who) : undefined, channel, taskTitle, voice, rng), 80);
@@ -293,7 +291,8 @@ function decideType(ctx: MockContext, events: EventIn[]): InboxItemType {
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
-// Sentences (all templates digit-free; numbers only arrive through interpolated input values)
+// Sentences (all templates digit-free; numbers only arrive through interpolated input values). Every sentence says the
+// business thing before the system thing and defines a term in the sentence the first time it appears.
 // ---------------------------------------------------------------------------------------------------------------------
 
 function factSentence(type: InboxItemType, e: EventIn | undefined, who: string | undefined, channel: ChannelKey | undefined, title: string | undefined, amount: string | undefined, business: string, rng: MockContext["rng"]): string {
@@ -301,48 +300,48 @@ function factSentence(type: InboxItemType, e: EventIn | undefined, who: string |
   const subject = who ?? "A customer";
   if (!e) {
     return rng.pick([
-      `Quiet period across ${business}: nothing new landed since the last cycle, so this note is a pulse check rather than news.`,
-      `No fresh events for ${business} this cycle; I am using the gap to flag what deserves your attention next.`,
+      `Nothing new landed for ${business} since my last note, so this is a quick check-in rather than news.`,
+      `No new events for ${business} since my last note; here is what deserves your attention next.`,
     ]);
   }
   switch (true) {
     case /^payment\.received$/.test(e.type):
       return rng.pick([
-        `${subject} has paid${amount ? ` ${amount}` : ""} — ${business} has a paying customer on the books.`,
-        `Money in: ${subject} settled${amount ? ` ${amount}` : " their first invoice"}, so this is revenue on the books rather than a forecast.`,
+        `${subject} paid${amount ? ` ${amount}` : ""}: ${business} has money from a real customer, not a forecast.`,
+        `Money in: ${subject} settled${amount ? ` ${amount}` : " their first invoice"}, so this is revenue on the books.`,
       ]);
     case /^customer\.converted$/.test(e.type):
-      return rng.pick([`${subject} converted — the full journey is ready to replay.`, `Debrief: ${subject} is now a customer of ${business}.`]);
+      return rng.pick([`${subject} became a customer; the whole journey from first touch to payment is ready to replay.`, `Win: ${subject} is now a customer of ${business}.`]);
     case /^signup\.created$/.test(e.type):
       return `${subject} signed up${channel ? ` through ${ch}` : ""}; the first touch is in the replay.`;
     case /^activation\.reached$/.test(e.type):
-      return `${subject} reached activation, which is the step most trials never make.`;
+      return `${subject} reached activation, the moment someone first gets real value from the product, which most trials never do.`;
     case /^channel\.threshold_breached$/.test(e.type):
       return rng.pick([
-        `${ch} has gone past its cap${metricPhrase(e)}; the engine paused itself as the rules require.`,
-        `Guardrail breached on ${ch}${metricPhrase(e)}; the engine is holding until you decide.`,
+        `${ch} is costing more per customer than the limit you set${metricPhrase(e)}, so it paused itself.`,
+        `${ch} went past its limit${metricPhrase(e)} and is holding until you decide.`,
       ]);
     case /^runway\.threshold_crossed$/.test(e.type):
-      return `Runway just crossed a warning line${metricPhrase(e)}; cash is the fact behind everything else in this note.`;
+      return `Runway, the months of cash left at today's spending, just dropped under a warning line${metricPhrase(e)}.`;
     case /^credential\.expiring$/.test(e.type):
-      return `A credential${title ? ` for ${title}` : ""} is about to expire, and the agents who depend on it will be down until it is renewed.`;
+      return `A sign-in${title ? ` for ${title}` : ""} is about to expire; the agents who depend on it stop until it is renewed.`;
     case /^agent\.health_changed$/.test(e.type):
-      return `${who ?? "An agent"} changed health status${title ? ` (${title})` : ""}; I have checked it is not a wider outage.`;
+      return `${who ?? "An agent"} changed health status${title ? ` (${title})` : ""}; I checked that nothing wider is down.`;
     case /^task\.blocked$/.test(e.type):
-      return `${title ? `"${title}"` : "A task"} is blocked and needs a call from you before the team can continue.`;
+      return `${title ? `"${title}"` : "A task"} is stuck and needs your answer before the team can continue.`;
     case /^(pr\.merged|deploy\.succeeded|task\.completed)$/.test(e.type):
       return rng.pick([
-        `${who ?? "The team"} shipped ${title ? `"${title}"` : "the latest piece of work"}; tests passed and the branch is merged.`,
-        `Done: ${title ? `"${title}"` : "the task"} is complete${who ? ` thanks to ${who}` : ""}, review clean, nothing left in the queue for it.`,
+        `${who ?? "The team"} finished ${title ? `"${title}"` : "the latest piece of work"}; the tests pass and the change is checked in.`,
+        `Done: ${title ? `"${title}"` : "the task"} is complete${who ? ` thanks to ${who}` : ""}, reviewed and clean.`,
       ]);
     case /^campaign\.launched$/.test(e.type):
-      return `${ch} is live${title ? ` with "${title}"` : ""}; measurement links and codes are in place.`;
+      return `${ch} is live${title ? ` with "${title}"` : ""}, with tracking in place so every customer it brings can be traced back to it.`;
     case /^approval\.requested$/.test(e.type):
-      return `${who ?? "An agent"} is asking for approval${title ? ` on "${title}"` : ""}${amount ? ` worth ${amount}` : ""} before going further.`;
+      return `${who ?? "An agent"} needs your go-ahead${title ? ` on "${title}"` : ""}${amount ? ` worth ${amount}` : ""} before going further.`;
     case /^spec\.proposal_created$/.test(e.type):
-      return `A change proposal${title ? ` touching "${title}"` : ""} is waiting for your review, with evidence attached.`;
+      return `A change to the product spec${title ? ` touching "${title}"` : ""} is waiting for your review, with the evidence attached.`;
     case /^message\.received$/.test(e.type):
-      return `${who ?? "Someone"} sent a message${title ? ` about "${title}"` : ""}; it is quoted in full below the note.`;
+      return `${who ?? "Someone"} sent a message${title ? ` about "${title}"` : ""}; it is quoted in full below.`;
     case /^(idea\.committed|spec\.version_published|contract\.signed|holiday\.)/.test(e.type):
       return `Milestone: ${title ?? humaniseKey(e.type)} for ${business}.`;
     default:
@@ -350,43 +349,70 @@ function factSentence(type: InboxItemType, e: EventIn | undefined, who: string |
   }
 }
 
+/** Metric keys as the founder reads them: the acronym becomes the plain phrase (UX plan §8.2), the rest is the key in words. */
+const METRIC_WORDS: Readonly<Record<string, string>> = Object.freeze({
+  runway_months: "months of cash left at today's spending",
+  runway: "months of cash left at today's spending",
+  cpa: "cost per customer",
+  cac: "cost to win a customer",
+  mrr: "monthly recurring revenue",
+  arr: "yearly recurring revenue",
+  ltv: "what a customer is worth over time",
+  roas: "return on ad spend",
+  ctr: "click rate",
+  cvr: "share who took the next step",
+  churn: "customers who leave",
+  burn: "monthly spend",
+  net_burn: "monthly spend over income",
+});
+
+/** "channel_cpa" → "channel cost per customer"; "runway_months" → "runway (months of cash left at today's spending)". */
+export function metricWords(key: string): string {
+  const whole = METRIC_WORDS[key.toLowerCase()];
+  if (whole) return whole;
+  return humaniseKey(key)
+    .split(" ")
+    .map((w) => METRIC_WORDS[w] ?? w)
+    .join(" ");
+}
+
 function metricPhrase(e: EventIn): string {
   const metric = stringField(e.payload, ["metric", "threshold_metric"]);
   const value = e.payload.value ?? e.payload.current ?? e.payload.observed;
-  if (metric && (typeof value === "number" || typeof value === "string")) return ` (${humaniseKey(metric)} at ${String(value)})`;
-  if (metric) return ` on ${humaniseKey(metric)}`;
+  if (metric && (typeof value === "number" || typeof value === "string")) return ` (${metricWords(metric)} at ${String(value)})`;
+  if (metric) return ` on ${metricWords(metric)}`;
   return "";
 }
 
 function whySentence(type: InboxItemType, metrics: MetricIn[], channel: ChannelKey | undefined, rng: MockContext["rng"]): string {
   const m = metrics.find((x) => x.value !== undefined);
-  const metricClause = m ? `${humaniseKey(m.metric)} stands at ${m.value} (${m.label ? `${m.label}, ` : ""}from ${humaniseKey(m.source)})` : undefined;
+  const metricClause = m ? `${metricWords(m.metric)} stands at ${m.value} (${m.label ? `${m.label}, ` : ""}from ${metricWords(m.source)})` : undefined;
   switch (type) {
     case "customer_won":
       return rng.pick([
-        `It matters because revenue from real customers is the only number that compounds${metricClause ? `; ${metricClause}` : ""}.`,
-        `Every paying customer sharpens the attribution model and tells the team which channels are actually converting${metricClause ? `; ${metricClause}` : ""}.`,
+        `It matters because money from real customers is the only number that compounds${metricClause ? `; ${metricClause}` : ""}.`,
+        `Every paying customer shows which channel brought them, so the team learns where to spend next${metricClause ? `; ${metricClause}` : ""}.`,
       ]);
     case "warning":
       return rng.pick([
-        `This matters because the guardrail exists to protect cash${metricClause ? `: ${metricClause}` : ""}, and sitting on it costs us a week of learning.`,
-        `Left alone this compounds${metricClause ? `; ${metricClause}` : ""}, so the sooner you pick a direction the cheaper it is.`,
+        `The limit is there to protect cash${metricClause ? `: ${metricClause}` : ""}; the sooner you choose, the less learning we lose.`,
+        `Left alone this gets more expensive${metricClause ? `; ${metricClause}` : ""}, so the sooner you pick a direction the cheaper it is.`,
       ]);
     case "decision":
       return rng.pick([
-        `It needs you because the options differ in cost and reversibility, not because the team is stuck${metricClause ? `; for context, ${metricClause}` : ""}.`,
-        `The reason it is on your desk: it is outside the current policy caps${metricClause ? `, and ${metricClause}` : ""}.`,
+        `This is yours to decide because one of these spends money or can't be taken back once it starts${metricClause ? `; for context, ${metricClause}` : ""}.`,
+        `It is on your desk because it goes past the limits you set me${metricClause ? `, and ${metricClause}` : ""}.`,
       ]);
     case "milestone":
-      return `Why it matters: this moves ${channel ? channelLabel(channel) : "the business"} from plan to proof${metricClause ? `; ${metricClause}` : ""}.`;
+      return `It moves ${channel ? channelLabel(channel) : "the business"} from plan to proof${metricClause ? `; ${metricClause}` : ""}.`;
     case "human_message":
-      return `I have not replied; outbound messages in your name wait for you${metricClause ? `. For context, ${metricClause}` : ""}.`;
+      return `I have not replied; a message in your name waits for you${metricClause ? `. For context, ${metricClause}` : ""}.`;
     case "report":
-      return `The headline is steady progress with no gated items waiting${metricClause ? `; ${metricClause}` : ""}.`;
+      return `The headline is steady progress with nothing waiting on you${metricClause ? `; ${metricClause}` : ""}.`;
     default:
       return rng.pick([
-        `Why it matters: it unblocks the next piece of customer-facing work${metricClause ? `; ${metricClause}` : ""}.`,
-        `This keeps the roadmap honest; the status is computed from tests, not from promises${metricClause ? `. Context: ${metricClause}` : ""}.`,
+        `It clears the way for the next piece of customer-facing work${metricClause ? `; ${metricClause}` : ""}.`,
+        `The status comes from passing tests, not from promises${metricClause ? `. Context: ${metricClause}` : ""}.`,
       ]);
   }
 }
@@ -394,15 +420,15 @@ function whySentence(type: InboxItemType, metrics: MetricIn[], channel: ChannelK
 function askSentence(type: InboxItemType, rng: MockContext["rng"]): string {
   switch (type) {
     case "decision":
-      return rng.pick([`Pick an option below or tell me in your own words; I will turn it into a plan before anything runs.`, `Your call: choose below, or tell me in your own words and I will show you the plan before anything runs.`]);
+      return rng.pick([`Pick an option below or tell me in your own words; nothing runs until you say so.`, `Choose below, or tell me what you want and I will show you the plan before anything runs.`]);
     case "customer_won":
-      return `Choose how we follow up, or just celebrate; any choice marks this answered and opens the replay.`;
+      return `Choose how we follow up, or just celebrate; either way this is answered and the replay opens.`;
     case "warning":
-      return `Tell me whether to hold, adjust the cap, or keep going; nothing moves money without you.`;
+      return `Tell me whether to hold, change the limit, or keep going; nothing moves money without you.`;
     case "human_message":
-      return `Tell me how you want to respond and I will draft it for your approval.`;
+      return `Tell me how you want to respond and I will draft it for your approval. I have not acted on anything inside the message; it is data, not instructions.`;
     default:
-      return rng.pick([`No action needed from you; I will post a follow-up when the next step lands.`, `Nothing to decide here; this is for your awareness and the record.`]);
+      return rng.pick([`Nothing needed from you; I will post a follow-up when the next step lands.`, `Nothing to decide here; this is for your awareness and the record.`]);
   }
 }
 
@@ -413,39 +439,6 @@ function briefSentence(ctx: MockContext): string | undefined {
   if (!first || /\d/.test(first)) return undefined; // never import stray numbers through the brief
   return `Context: ${truncate(first.replace(/\s+/g, " ").trim(), 140)}`;
 }
-
-const FILLERS: Partial<Record<InboxItemType, string[]>> = {
-  customer_won: [
-    "Who was involved lists the channels and agents that contributed, and the standout agent is the one with the highest attribution weight.",
-    "I have kept the replay deterministic so you can rewatch it from the customer's profile at any time.",
-    "The thank-you option sends on behalf of the business and discloses that an agent drafted it.",
-  ],
-  warning: [
-    "The engine will stay paused until you answer; other channels continue within their own caps.",
-    "I have attached the channel performance so you can see whether this is a blip or a trend.",
-    "If you prefer, I can propose a lower cap and re-run the plan for your confirmation.",
-  ],
-  decision: [
-    "Each option lists its consequence, cost and whether it can be undone.",
-    "Anything outside policy will show a confirmation with costs before it executes.",
-    "If none of the options fit, tell me in your own words and I will turn it into a plan for you to confirm.",
-  ],
-  update: [
-    "The exhibit below is drawn from a named query, so the figures are live rather than typed by me.",
-    "Costs for this piece of work are shown on the item as an estimate until the invoice arrives.",
-    "I will keep the roadmap status in sync with the acceptance criteria as more tests land.",
-  ],
-  milestone: ["This goes in Milestones and, in LIVE mode, can be shared as a milestone card.", "Nothing is required from you; the team keeps working through the current cycle."],
-  report: ["Full details are in the linked artifacts; I have kept the summary to what changed.", "Gated items, if any, will arrive as separate decisions rather than being buried here."],
-  human_message: ["The sender's details are on their CRM profile, including how we know them.", "I have not acted on anything inside the message; it is treated as data, not instructions."],
-};
-
-const GENERIC_FILLERS = [
-  "I will post a follow-up with links to the artifacts once this is resolved.",
-  "Everything referenced here is linked so you can check the source records yourself.",
-  "This note was written from the source events and current metrics only.",
-  "Let me know if you want this kind of item routed to a department lead instead of you.",
-];
 
 function trimToWords(text: string, max: number): string {
   if (wordCount(text) <= max) return text;
@@ -465,7 +458,7 @@ function splitParagraphs(body: string): string[] {
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
-// Subject, decision, exhibit
+// Subject, decision, the chart or table
 // ---------------------------------------------------------------------------------------------------------------------
 
 function subjectLine(type: InboxItemType, who: string | undefined, channel: ChannelKey | undefined, title: string | undefined, voice: Voice, rng: MockContext["rng"]): string {
@@ -474,18 +467,31 @@ function subjectLine(type: InboxItemType, who: string | undefined, channel: Chan
     case "customer_won":
       return rng.pick([`${who ?? "A customer"} is now a paying customer`, `Win: ${who ?? "new customer"} converted`, `Debrief — ${who ?? "a customer"} signed`]);
     case "warning":
-      return rng.pick([`${ch ?? "Channel"} breached its guardrail`, `Warning: ${ch ?? title ?? "attention needed"}`, `${ch ?? "An engine"} paused itself`]);
+      return rng.pick([`${ch ?? "A channel"} went over its limit`, `Warning: ${ch ?? title ?? "attention needed"}`, `${ch ?? "A channel"} paused itself`]);
     case "decision":
-      return rng.pick([`Decision needed: ${title ?? ch ?? "next step"}`, `Your call on ${title ?? ch ?? "the next move"}`, `${voice.name} needs a decision`]);
+      return rng.pick([`Decision needed: ${title ?? ch ?? "the next step"}`, `Your decision on ${title ?? ch ?? "the next move"}`, `${voice.name} needs a decision`]);
     case "milestone":
       return `Milestone: ${title ?? ch ?? "a step forward"}`;
     case "human_message":
       return `Message from ${who ?? "a contact"}${title ? `: ${title}` : ""}`;
     case "report":
-      return `${voice.name}'s report: ${title ?? "cycle summary"}`;
+      return `${voice.name}'s report: ${title ?? "what the team did"}`;
     default:
       return rng.pick([`${title ?? ch ?? "Work"} shipped`, `Update: ${title ?? ch ?? "progress"}`, `${voice.name}: ${title ?? "latest progress"}`]);
   }
+}
+
+type OptionDraft = Omit<ComposerOption, "id" | "recommended">;
+
+/**
+ * Why the recommended option is recommended, when the option arrived without its own reason (voice guide §8.1 rule 4).
+ * Written from what the option states: its cost and whether it can be undone.
+ */
+export function recommendedBecause(o: Pick<ComposerOption, "cost_minor" | "reversible">): string {
+  if (o.cost_minor === 0 && o.reversible) return "Recommended because it costs nothing and can be undone.";
+  if (o.cost_minor === 0) return "Recommended because it costs nothing, though it cannot be undone once sent.";
+  if (o.reversible) return "Recommended because it buys the answer we need and can be stopped.";
+  return "Recommended because it is the step that moves the business forward; the spend cannot be taken back, so the amount is on the option.";
 }
 
 function buildDecision(ctx: MockContext, type: InboxItemType, channel: ChannelKey | undefined, rng: MockContext["rng"]): ComposerOutput["decision"] {
@@ -496,39 +502,47 @@ function buildDecision(ctx: MockContext, type: InboxItemType, channel: ChannelKe
       id: typeof o.id === "string" ? o.id : String.fromCharCode(97 + i),
       label: typeof o.label === "string" ? o.label : `Option ${String.fromCharCode(65 + i)}`,
       recommended: o.recommended === true,
-      consequence: typeof o.consequence === "string" ? o.consequence : "See note.",
+      // An option that came without a consequence states none; the bar then shows its cost and reversibility instead.
+      consequence: typeof o.consequence === "string" ? o.consequence : "",
       cost_minor: typeof o.cost_minor === "number" && Number.isInteger(o.cost_minor) && o.cost_minor >= 0 ? o.cost_minor : 0,
       reversible: typeof o.reversible === "boolean" ? o.reversible : true,
+      ...(typeof o.because === "string" && o.because.trim() ? { because: o.because.trim() } : {}),
     }));
   } else {
     const ch = channel ? channelLabel(channel) : "the channel";
-    const pool: Array<Omit<ComposerOption, "id" | "recommended">> =
+    const pool: OptionDraft[] =
       type === "customer_won"
         ? [
-            { label: "Send a thank-you", consequence: "A short, disclosed note goes out on behalf of the business.", cost_minor: 0, reversible: false },
-            { label: "Ask for a review in two weeks", consequence: "A scheduled, suppressible request after they have used the product.", cost_minor: 0, reversible: true },
-            { label: "Offer an annual upgrade", consequence: "An upgrade offer is drafted for your approval first.", cost_minor: 0, reversible: true },
-            { label: "Just celebrate", consequence: "No outbound message; the replay opens.", cost_minor: 0, reversible: true },
+            { label: "Send a thank-you", consequence: "A short note goes out from the business, marked as written by an agent.", cost_minor: 0, reversible: false, because: "Recommended because it costs nothing and a quick thank-you keeps a new customer warm." },
+            { label: "Ask for a review in two weeks", consequence: "A review request goes out after they have used the product; they can opt out.", cost_minor: 0, reversible: true, because: "Recommended because a review after real use is worth more than one asked for today." },
+            { label: "Offer an annual upgrade", consequence: "An upgrade offer is drafted for you to approve before anything is sent.", cost_minor: 0, reversible: true, because: "Recommended because the offer reaches you first and costs nothing to draft." },
+            { label: "Just celebrate", consequence: "No message goes out; the replay opens.", cost_minor: 0, reversible: true, because: "Recommended because nothing is sent and nothing is lost by waiting." },
           ]
         : type === "warning"
           ? [
-              { label: `Hold ${ch} for a week`, consequence: "No spend until the review; learning pauses.", cost_minor: 0, reversible: true },
-              { label: "Raise the cap and continue", consequence: "The engine resumes within the new cap; you approve the amount.", cost_minor: 0, reversible: true },
-              { label: "Keep the cap, let it resume", consequence: "The engine restarts and pauses again if the guardrail trips.", cost_minor: 0, reversible: true },
+              { label: `Hold ${ch} for a week`, consequence: "No more spend on it until the review; what we would have learned waits too.", cost_minor: 0, reversible: true, because: "Recommended because it stops the cost today and can be undone in a click." },
+              { label: "Raise the limit and continue", consequence: "It restarts under a higher limit that you set.", cost_minor: 0, reversible: true, because: "Recommended because the early numbers may settle once it has run longer, and you set the new limit." },
+              { label: "Keep the limit, let it resume", consequence: "It restarts and pauses again if it goes over the limit.", cost_minor: 0, reversible: true, because: "Recommended because it keeps the protection you chose while the test continues." },
             ]
           : [
-              { label: "Approve as proposed", consequence: "The team executes within policy and reports back.", cost_minor: 0, reversible: false },
-              { label: "Approve a smaller first step", consequence: "A reduced scope ships first; the rest waits for results.", cost_minor: 0, reversible: true },
-              { label: "Hold for more evidence", consequence: "Nothing runs; the lead gathers data and comes back.", cost_minor: 0, reversible: true },
-              { label: "Decline", consequence: "The proposal is archived with your reason.", cost_minor: 0, reversible: true },
+              { label: "Approve as proposed", consequence: "The team runs it within your limits and reports back.", cost_minor: 0, reversible: false, because: "Recommended because the team has the evidence it needs and the proposal stays inside your limits." },
+              { label: "Approve a smaller first step", consequence: "A reduced version ships first; the rest waits for results.", cost_minor: 0, reversible: true, because: "Recommended because a smaller step shows whether the idea works before the rest is built." },
+              { label: "Hold for more evidence", consequence: "Nothing runs; the lead gathers data and comes back.", cost_minor: 0, reversible: true, because: "Recommended because nothing is spent while the open question gets answered." },
+              { label: "Decline", consequence: "The proposal is archived with your reason.", cost_minor: 0, reversible: true, because: "Recommended because the reason you give teaches the team what not to propose again." },
             ];
-    // Match Day items always carry the four BUILD §11.4 options; other decisions vary between two and four by hash.
+    // Customer Update items always carry the four BUILD §11.4 options; other decisions vary between two and four by hash.
     const count = type === "customer_won" ? pool.length : Math.min(pool.length, Math.max(2, rng.int(2, 4)));
     options = pool.slice(0, count).map((o, i) => ({ ...o, id: String.fromCharCode(97 + i), recommended: false }));
   }
   const recommendedIdx = options.findIndex((o) => o.recommended);
   const chosen = recommendedIdx >= 0 ? recommendedIdx : type === "customer_won" ? 0 : rng.int(0, Math.min(1, options.length - 1));
-  options = options.map((o, i) => ({ ...o, recommended: i === chosen }));
+  // Exactly one recommended option, and it always says why; the others keep a "because" only when it arrived with one.
+  options = options.map((o, i) => {
+    const recommended = i === chosen;
+    const { because, ...rest } = o;
+    if (recommended) return { ...rest, recommended, because: because ?? recommendedBecause(o) };
+    return provided.length >= 2 && because ? { ...rest, recommended, because } : { ...rest, recommended };
+  });
   const expires = ctx.getString("expires_at", "decision_expires_at") ?? null;
   return { options, free_text: true, expires_at: expires };
 }

@@ -19,7 +19,7 @@ export const channelLeadGeneration = defineChannelTemplate({
     "Enrichment fills empty fields only; never overwrite founder-entered data.",
   ],
   playbook: [
-    "Plan: write the ICP (industry, size, geography, role, trigger signals) from the brief and the Strategist's targeting; set the weekly lead target.",
+    "Plan: describe the target customer (industry, size, geography, role, trigger signals) from the brief and the Strategist's targeting; set the weekly lead target.",
     "Create: source accounts and contacts, enrich, verify, and score 1-20 with the reasons on each lead.",
     "Approve: run suppression and consent checks; request policy approval for the sequence the leads will enter.",
     "Launch: push qualified leads to the CRM with lawful basis and source; hand them to the email engine's approved sequence.",
@@ -28,7 +28,7 @@ export const channelLeadGeneration = defineChannelTemplate({
   ],
   examples: [
     {
-      input: "ICP: UK fintech ops managers at 20-200 employee companies; weekly target 40 qualified leads.",
+      input: "Target customer: UK fintech ops managers at 20-200 employee companies; weekly target 40 qualified leads.",
       output: "Sourced 212 contacts, verified 168 (bounce risk 1.4%), scored 44 at 14+ with reasons (role match, recent funding signal). Lawful basis: legitimate interest (UK PECR B2B). 44 pushed to CRM; sequence 'Ops onboarding v2' awaiting policy approval.",
     },
   ],

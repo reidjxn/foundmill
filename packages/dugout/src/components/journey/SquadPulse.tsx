@@ -53,8 +53,9 @@ const HOURS = Array.from({ length: 24 }, (_, h) => h);
 const HOUR_LABEL_EVERY = 3;
 
 /**
- * Home's squad pulse (BUILD §11.2, DESIGN §9): a 7 × 24 heatmap of agent activity, each cell in the leading
- * department's colour at activity alpha. Hover (or focus) lists the hours per department; arrow keys move the focus.
+ * Home's team pulse (BUILD §11.2, DESIGN §9): a 7 × 24 heatmap of agent activity, each cell in the leading
+ * department's colour at activity alpha. Hover (or focus) lists the hours of team work per department; arrow keys move
+ * the focus. "Hours of team work", never "agent-hours", wherever a person reads it (UX plan B16).
  */
 export function SquadPulse({ departments, days, cells, onSelect, className }: SquadPulseProps) {
   const { grid, max } = useMemo(() => buildPulseGrid(departments, cells), [departments, cells]);
@@ -77,7 +78,7 @@ export function SquadPulse({ departments, days, cells, onSelect, className }: Sq
   };
   return (
     <div className={cn("flex flex-col gap-2", className)} data-squad-pulse>
-      <div ref={gridRef} role="grid" aria-label={`Team pulse: ${formatNumber(total, { maxDigits: 0 })} agent hours over the last 7 days, by hour and department`} aria-rowcount={7} aria-colcount={24} className="flex flex-col gap-px" onKeyDown={onKeyDown}>
+      <div ref={gridRef} role="grid" aria-label={`Team pulse: ${formatNumber(total, { maxDigits: 0 })} hours of team work over the last 7 days, by hour and department`} aria-rowcount={7} aria-colcount={24} className="flex flex-col gap-px" onKeyDown={onKeyDown}>
         {/* Every third hour carries a visible label whose box spans its own hour and the two after it (3 columns plus
             their 2 gaps, the same width as 3 cells below), so "12 AM" or "00:00" fits inside it at 1280 px. The other
             hours keep a screen-reader-only header, so each of the 24 columns still has one. */}
@@ -101,7 +102,7 @@ export function SquadPulse({ departments, days, cells, onSelect, className }: Sq
             </span>
             {row.map((cell) => {
               const alpha = cell.total <= 0 || max <= 0 ? 0 : 0.15 + 0.85 * Math.min(1, cell.total / max);
-              const label = `${days[d] ? formatDate(days[d] as string, "weekdayDayMonth") : `Day ${d + 1}`}, ${formatHourOfDay(cell.hour)} — ${cell.total > 0 ? `${formatNumber(cell.total, { maxDigits: 1 })} agent hours` : "no activity"}`;
+              const label = `${days[d] ? formatDate(days[d] as string, "weekdayDayMonth") : `Day ${d + 1}`}, ${formatHourOfDay(cell.hour)} — ${cell.total > 0 ? `${formatNumber(cell.total, { maxDigits: 1 })} hours of team work` : "no activity"}`;
               const isFocus = focus.d === d && focus.h === cell.hour;
               return (
                 <Tooltip

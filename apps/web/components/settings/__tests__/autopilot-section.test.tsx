@@ -76,13 +76,13 @@ describe("Autopilot section", () => {
     await waitFor(() => expect(saved).toHaveBeenCalledWith("Autopilot is on", undefined));
   });
 
-  it("says Waiting for you, in plain words, when an Inbox item needs the founder", async () => {
-    current = status({ enabled: true, state: "waiting", label: "Waiting for you", detail: "Waiting for you: 2 Inbox items need your decision. Autopilot never decides for you.", waitingFor: "inbox", nextAt: "2026-10-14T15:45:00.000Z", cyclesToday: 2 });
+  it("says Needs your answer, in plain words, when an Inbox item needs the founder", async () => {
+    current = status({ enabled: true, state: "waiting", label: "Needs your answer", detail: "2 notes in the Inbox need your answer. Autopilot never answers them for you.", waitingFor: "inbox", nextAt: "2026-10-14T15:45:00.000Z", cyclesToday: 2 });
     renderSection();
     const chip = await screen.findByTestId("autopilot-chip");
     expect(chip.getAttribute("data-autopilot-state")).toBe("waiting");
-    expect(chip.textContent).toContain("Waiting for you");
-    expect(screen.getByTestId("autopilot-detail").textContent).toContain("Autopilot never decides for you");
+    expect(chip.textContent).toContain("Needs your answer");
+    expect(screen.getByTestId("autopilot-detail").textContent).toContain("2 notes in the Inbox need your answer. Autopilot never answers them for you.");
     // The next cycle is a forecast and says so.
     expect(chip.querySelector("[data-provenance='estimate']")).toBeTruthy();
     expect(screen.getByTestId("autopilot-today").textContent).toContain("2 of 6 cycles today");

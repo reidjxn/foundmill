@@ -25,7 +25,8 @@ import { generateMockSessionEvents, mockSessionSeed } from "./mock";
 import { reduceSessionEvents } from "./progress";
 import { TerminalView, needsReplay } from "./TerminalView";
 import { SpecialistTile, defaultSpecialistView, specialistEmptyCopy } from "./SpecialistTile";
-import { isInteractiveTarget, sessionPill } from "./TileFrame";
+import { STRONGEST_MODEL_LABEL, isInteractiveTarget, sessionPill } from "./TileFrame";
+import { GuidanceProvider } from "../guidance/GuidanceProvider";
 import type { StdoutChunk } from "./types";
 
 const START = "2026-10-07T09:00:00Z";
@@ -76,7 +77,7 @@ describe("AgentTile", () => {
     await user.click(screen.getByRole("tab", { name: "Plan" }));
     expect(onViewChange).toHaveBeenCalledWith("plan");
     expect(screen.getByText("Write Playwright tests")).toBeTruthy();
-    expect(screen.getByText(/Acceptance tests: 3 of 3 passing/)).toBeTruthy();
+    expect(document.querySelector("[data-plan-tests]")?.textContent).toMatch(/Acceptance tests: 3 of 3 passing/);
     const planTab = screen.getByRole("tab", { name: "Plan" });
     planTab.focus();
     fireEvent.keyDown(screen.getByRole("tablist"), { key: "ArrowLeft" });
@@ -96,13 +97,45 @@ describe("AgentTile", () => {
     const toolbar = screen.getByRole("toolbar", { name: /Controls for Juno/ });
     await user.click(within(toolbar).getByRole("button", { name: "Pause" }));
     expect(controls.onPause).toHaveBeenCalledWith("session-1");
-    await user.click(within(toolbar).getByRole("button", { name: "Upgrade to Opus" }));
+    await user.click(within(toolbar).getByRole("button", { name: STRONGEST_MODEL_LABEL }));
     expect(controls.onUpgradeModel).toHaveBeenCalledWith("session-1");
+    expect(STRONGEST_MODEL_LABEL).toBe("Use the strongest model");
     await user.click(within(toolbar).getByRole("button", { name: "Stop and discard" }));
     expect(controls.onStop).toHaveBeenCalledWith("session-1");
     await user.click(within(toolbar).getByRole("button", { name: /Nudge Juno/ }));
     await user.click(await screen.findByRole("menuitem", { name: /Focus on tests/ }));
     expect(controls.onShout).toHaveBeenCalledWith("session-1", { preset: "focus_on_tests", text: "Focus on tests" });
+  });
+
+  it("while guidance is on, a visible '…' in the header opens the same actions as a menu (UX plan §7.12, D6)", async () => {
+    const user = userEvent.setup();
+    const controls = { onPause: vi.fn(), onResume: vi.fn(), onShout: vi.fn(), onReassign: vi.fn(), onUpgradeModel: vi.fn(), onStop: vi.fn(), onOpenInClaudeCode: vi.fn() };
+    const { container } = render(<AgentTile session={session} now={NOW} terminalRenderer="plain" controls={controls} />);
+    const more = screen.getByRole("button", { name: "More actions for Juno" });
+    expect(container.querySelector("[data-tile-header] [data-tile-actions]")).toBe(more);
+    await user.click(more);
+    const menu = await screen.findByRole("menu");
+    expect(within(menu).getByRole("menuitem", { name: "Pause" })).toBeTruthy();
+    expect(within(menu).getByRole("menuitem", { name: "Reassign" })).toBeTruthy();
+    expect(within(menu).getByRole("menuitem", { name: "Open in Claude Code" })).toBeTruthy();
+    expect(within(menu).getByRole("menuitem", { name: "Stop and discard" })).toBeTruthy();
+    // Nudges live in a sub-menu with the five presets (opened on hover or ArrowRight, as every sub-menu is).
+    expect(within(menu).getByRole("menuitem", { name: /^Nudge/ }).getAttribute("aria-haspopup")).toBe("menu");
+    await user.click(within(menu).getByRole("menuitem", { name: STRONGEST_MODEL_LABEL }));
+    expect(controls.onUpgradeModel).toHaveBeenCalledWith("session-1");
+  });
+
+  it("hides the '…' when guidance is off and when the tile has no controls; the hover toolbar stays", () => {
+    const { unmount } = render(
+      <GuidanceProvider value={{ guidance: "off" }}>
+        <AgentTile session={session} now={NOW} terminalRenderer="plain" controls={{ onPause: vi.fn() }} />
+      </GuidanceProvider>,
+    );
+    expect(screen.queryByRole("button", { name: "More actions for Juno" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Pause" })).toBeTruthy();
+    unmount();
+    render(<AgentTile session={session} now={NOW} terminalRenderer="plain" />);
+    expect(screen.queryByRole("button", { name: "More actions for Juno" })).toBeNull();
   });
 
   it("sends a custom nudge from the dialog", async () => {
@@ -121,7 +154,7 @@ describe("AgentTile", () => {
     const paused = { ...session, status: "paused" as const, agent: { ...session.agent, model: "opus" as const } };
     render(<AgentTile session={paused} now={NOW} terminalRenderer="plain" controls={{ onPause: vi.fn(), onResume: vi.fn(), onUpgradeModel: vi.fn() }} />);
     expect(screen.getByRole("button", { name: "Resume" })).toBeTruthy();
-    expect(screen.queryByRole("button", { name: "Upgrade to Opus" })).toBeNull();
+    expect(screen.queryByRole("button", { name: STRONGEST_MODEL_LABEL })).toBeNull();
     expect(screen.getByText("Paused")).toBeTruthy();
   });
 
@@ -225,7 +258,7 @@ describe("SpecialistTile empty views", () => {
     expect(screen.getByText("Paused · no supplier records yet")).toBeTruthy();
     expect(screen.queryByText(/no RFQs sent/)).toBeNull();
     expect(screen.getByText("Review the second carton proof against the labelling checklist.")).toBeTruthy();
-    expect(screen.queryByText(/funnel fills as RFQs go out/)).toBeNull();
+    expect(screen.queryByText(/fills as requests for quotes go out/)).toBeNull();
     await user.click(screen.getByRole("tab", { name: "Samples" }));
     expect(screen.getByText("Paused · no samples requested")).toBeTruthy();
   });

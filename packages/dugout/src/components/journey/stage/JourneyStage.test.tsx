@@ -36,7 +36,7 @@ describe("JourneyStage", () => {
     expect(container.querySelector("[data-rail-panel='attribution']")).toBeTruthy();
     await user.click(screen.getByRole("tab", { name: "xC curve" }));
     expect(container.querySelector("[data-rail-panel='xc']")).toBeTruthy();
-    expect(screen.getByRole("img", { name: /Expected conversion over the journey/ })).toBeTruthy();
+    expect(screen.getByRole("img", { name: /Chance of converting over the journey/ })).toBeTruthy();
     fireEvent.keyDown(screen.getByRole("tablist", { name: "Stat panels" }), { key: "ArrowRight" });
     expect(container.querySelector("[data-rail-panel='attribution']")).toBeTruthy();
     await user.click(screen.getByRole("button", { name: "Win moment" }));

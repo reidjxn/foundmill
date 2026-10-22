@@ -204,11 +204,11 @@ export function describeConnectorContract(title: string, opts: ContractSuiteOpti
     }
 
     for (const wh of opts.webhooks ?? []) {
-      describe(`webhook ${wh.name}`, () => {
+      describe(`inbound event ${wh.name}`, () => {
         const webhook = () => {
           const list = connector.webhooks ?? [];
           const w = list[wh.index ?? 0];
-          if (!w) throw new Error(`${connector.key} has no webhook at index ${wh.index ?? 0}`);
+          if (!w) throw new Error(`${connector.key} has no inbound event handler at index ${wh.index ?? 0}`);
           return w;
         };
         it("has a mount path scoped by business", () => {

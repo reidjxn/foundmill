@@ -1,13 +1,14 @@
 "use client";
 /**
- * The Ideation Studio's dialogs (BUILD §11.1 actions, AC-11.1.3): Ask a question, Fork, Merge and the version History.
+ * The Ideation Studio's dialogs (BUILD §11.1 actions, AC-11.1.3): Ask a question, "Draft a variant" (the API's fork),
+ * Merge and the version History.
  * Each is a controlled Dialog; the studio owns the mutations and passes `busy` / `error` in.
  */
 import { ArrowLeft, ArrowRight, GitFork, GitMerge, History, MessageCircleQuestionMark } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { RETRY_REPLY_ID, deskFailureOf, failureQuickReplies, failureReply } from "@/components/conversation/logic";
-import { AgentDesk, Button, Checkbox, Chip, BusinessLogo, ConceptCard, Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, Field, Input, Markdown, SkeletonText, StatusPill, Textarea, cn, currentQuickReplies, stripEntityMarkup, useFormatters, type DeskMessage, type DeskPersona, type QuickReplyItem } from "@foundmill/dugout";
-import { qaBubbles, qaOf, toConcept, versionActionLabel, versionToConcept, type IdeaLike, type IdeaVersionLike } from "./concepts";
+import { AgentDesk, Button, Checkbox, Chip, BusinessLogo, ConceptCard, Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, Field, Input, Markdown, SkeletonText, StatusPill, Term, Textarea, cn, currentQuickReplies, stripEntityMarkup, useFormatters, type DeskMessage, type DeskPersona, type QuickReplyItem } from "@foundmill/dugout";
+import { attributeTerm, attributeTermId, qaBubbles, qaOf, toConcept, versionActionLabel, versionToConcept, type IdeaLike, type IdeaVersionLike } from "./concepts";
 
 /* ---------- Ask ---------- */
 
@@ -133,8 +134,12 @@ export function AskDialog({ idea, open, onOpenChange, persona, starters, onAsk, 
         <span className="inline-flex flex-wrap items-center gap-1.5" data-testid="ask-version">
           <Chip icon={History}>Saved as version {latest.version}</Chip>
           {(latest.changes ?? []).map((c) => (
-            <Chip key={c.key} tone={c.to > c.from ? "good" : "warn"}>
-              {c.label} {c.from} → {c.to}
+            <Chip key={c.key} tone={c.to > c.from ? "good" : "warn"} data-attribute-change={c.key}>
+              {/* The attribute is a defined word (A6): its sentence says what it measures and which way it reads. */}
+              <Term id={attributeTermId(c.key)} definition={attributeTerm(c.key)}>
+                {c.label}
+              </Term>{" "}
+              {c.from} → {c.to}
             </Chip>
           ))}
         </span>
@@ -192,12 +197,16 @@ export interface ForkDialogProps {
   error?: string | null;
 }
 
+/**
+ * "More like this" on a card: a variant with its own history (the API's `idea.fork`; the founder never reads "fork",
+ * A14). The default name carries "(variant)", which Commit drops from the business name.
+ */
 export function ForkDialog({ idea, open, onOpenChange, onFork, busy, error }: ForkDialogProps) {
   const [title, setTitle] = useState("");
   const [pitch, setPitch] = useState("");
   useEffect(() => {
     if (open && idea) {
-      setTitle(`${idea.current?.title ?? idea.title} (fork)`.slice(0, 120));
+      setTitle(`${idea.current?.title ?? idea.title} (variant)`.slice(0, 120));
       setPitch(idea.current?.pitch ?? idea.pitch);
     }
   }, [open, idea]);
@@ -211,15 +220,15 @@ export function ForkDialog({ idea, open, onOpenChange, onFork, busy, error }: Fo
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent size="lg" aria-describedby="fork-description" data-testid="fork-dialog">
         <DialogHeader>
-          <DialogTitle>Fork {idea?.title ?? "concept"}</DialogTitle>
-          <DialogDescription id="fork-description">A fork is a new card with its own history. The original keeps a "forked" version pointing at it.</DialogDescription>
+          <DialogTitle>Draft a variant of {idea?.title ?? "this concept"}</DialogTitle>
+          <DialogDescription id="fork-description">A variant is a new card with its own history; the original's history links to it.</DialogDescription>
         </DialogHeader>
         <form onSubmit={submit}>
           <DialogBody className="flex flex-col gap-3">
             <Field htmlFor="fork-title" label="Name" required>
               <Input id="fork-title" value={title} onChange={(e) => setTitle(e.target.value)} maxLength={120} autoFocus />
             </Field>
-            <Field htmlFor="fork-pitch" label="Pitch" hint="Change the angle, the audience or the mechanism. Attributes carry over and the Research agent re-grounds them on Ask.">
+            <Field htmlFor="fork-pitch" label="Pitch" hint="Change the angle, the audience or the mechanism. The ratings carry over; ask the Research agent to check them again.">
               <Textarea id="fork-pitch" value={pitch} onChange={(e) => setPitch(e.target.value)} rows={5} maxLength={4000} />
             </Field>
             {error ? (
@@ -233,7 +242,7 @@ export function ForkDialog({ idea, open, onOpenChange, onFork, busy, error }: Fo
               Cancel
             </Button>
             <Button variant="primary" type="submit" icon={GitFork} loading={busy} disabled={!valid}>
-              Create fork
+              Draft it
             </Button>
           </DialogFooter>
         </form>
@@ -380,7 +389,7 @@ export function HistoryDialog({ idea, versions, loading, open, onOpenChange, onO
                   {ordered.map((v, i) => (
                     <li key={v.id}>
                       <button type="button" onClick={() => setIndex(i)} aria-current={i === index ? "true" : undefined} className={cn("flex w-full items-center gap-3 px-3 py-2 text-left hover:bg-white/4", i === index && "bg-panel-alt")} data-version={v.version}>
-                        <Chip mono>v{v.version}</Chip>
+                        <Chip>Version {v.version}</Chip>
                         <span className="text-body-strong">{versionActionLabel(v.action)}</span>
                         <span className="ml-auto text-small text-secondary tabular-nums">{formatDateTime(v.createdAt)}</span>
                       </button>
@@ -393,12 +402,12 @@ export function HistoryDialog({ idea, versions, loading, open, onOpenChange, onO
                     <ul className="flex flex-col gap-1 text-body">
                       {lineage.forkedFrom ? (
                         <li>
-                          Forked from <LineageLink id={lineage.forkedFrom} label={linkOf(lineage.forkedFrom)} onOpen={onOpenIdea} />
+                          Variant of <LineageLink id={lineage.forkedFrom} label={linkOf(lineage.forkedFrom)} onOpen={onOpenIdea} />
                         </li>
                       ) : null}
                       {lineage.forkedTo ? (
                         <li>
-                          Forked to <LineageLink id={lineage.forkedTo} label={linkOf(lineage.forkedTo)} onOpen={onOpenIdea} />
+                          Variant: <LineageLink id={lineage.forkedTo} label={linkOf(lineage.forkedTo)} onOpen={onOpenIdea} />
                         </li>
                       ) : null}
                       {lineage.mergedFrom.length ? (

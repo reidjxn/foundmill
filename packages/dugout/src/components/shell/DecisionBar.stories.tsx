@@ -1,12 +1,13 @@
 import { useState } from "react";
 import type { Meta, StoryObj } from "@storybook/react-vite";
+import { GuidanceProvider } from "../guidance/GuidanceProvider";
 import { DecisionBar, type DecisionAnswer } from "./DecisionBar";
 import { REORDER_OPTIONS } from "./fixtures";
 
 const meta = {
   title: "Shell/DecisionBar",
   component: DecisionBar,
-  parameters: { layout: "fullscreen", docs: { description: { component: "Sticky at the bottom of the reading pane, at least 64 px, glass (surface 2 at 86% over a 16 px blur) with a top light line and an upward shadow. Left: “Your call” and the deadline (above the options in a narrow pane). 2–4 options on an even grid of two-line buttons, each with its own consequence line; the recommended one is primary with a thumbs-up and a Recommended tag. Options wrap and the bar grows — nothing truncates or overlaps. Hover or focus shows consequence, cost and reversibility; 1–4 choose. With `onAsk`, “Ask <agent>” opens the conversation in place of the free-text box; without it, free text + Execute compiles a Plan (BUILD §11.3)." } } },
+  parameters: { layout: "fullscreen", docs: { description: { component: "Sticky at the bottom of the reading pane, at least 64 px, glass (surface 2 at 86% over a 16 px blur) with a top light line and an upward shadow. Left: “Your decision” with “Pick one. Nothing runs until you do.” beside it on the same line while guidance is on, and the deadline (above the options in a narrow pane). 2–4 options on an even grid of two-line buttons, each with its own consequence line and, when the agent said why, a small “because” line; the recommended one is primary with a thumbs-up and a Recommended tag. Options wrap and the bar grows — nothing truncates or overlaps. Hover or focus shows consequence, cost and reversibility (“Not stated” for a part the option left out); 1–4 choose, and their key caps show only while guidance is off. With `onAsk`, “Ask <agent>” opens the conversation in place of the free-text box; without it, free text + Execute compiles a Plan (BUILD §11.3)." } } },
   args: { options: REORDER_OPTIONS, onChoose: () => {}, onExecute: () => {} },
   decorators: [
     (Story) => (
@@ -51,7 +52,31 @@ export const Executing: Story = { args: { executing: true } };
 export const Disabled: Story = { args: { disabled: true, note: "Only the owner can decide this" } };
 /** DIRECTION #7: “Ask Juno” replaces the free-text box; typing is optional, never required. */
 export const WithAsk: Story = { name: "Ask instead of typing", args: { onExecute: undefined, onAsk: () => {}, askLabel: "Ask Juno", deadline: "Expires in 5 days", keyHints: true } };
-/** The 1280 window: the reading pane is 668 px, “Your call” moves above the options and they wrap. */
+/** Guidance off (Settings › Preferences, or an Exited / Operator profile): no guided line, key caps on the options. */
+export const GuidanceOff: Story = {
+  name: "Guidance off (operator)",
+  args: { deadline: "Expires in 5 days" },
+  decorators: [
+    (Story) => (
+      <GuidanceProvider value={{ guidance: "off" }}>
+        <Story />
+      </GuidanceProvider>
+    ),
+  ],
+};
+/** The agent said why: a small “because” line under each consequence (UX plan §8.1 “Say why the recommendation is recommended”). */
+export const WithBecause: Story = {
+  name: "With a because line",
+  args: {
+    deadline: "Expires in 2 days",
+    options: [
+      { ...REORDER_OPTIONS[0]!, because: "Recommended because it keeps the fall bundle on sale and the unit price is the lowest quoted." },
+      { ...REORDER_OPTIONS[2]!, because: "Free and reversible, but the serum sells out in 11 days." },
+      REORDER_OPTIONS[3]!,
+    ],
+  },
+};
+/** The 1280 window: the reading pane is 668 px, “Your decision” moves above the options and they wrap. */
 export const NarrowPane: Story = {
   name: "Reading pane at 1280",
   args: { deadline: "Expires in 5 days" },

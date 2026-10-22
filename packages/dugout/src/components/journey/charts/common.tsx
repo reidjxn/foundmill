@@ -4,6 +4,7 @@ import { ParentSize } from "@visx/responsive";
 import type { DeptColourToken } from "@foundmill/shared";
 import { cn } from "../../../lib/cn";
 import { formatCompact } from "../../../lib/format";
+import { Term } from "../../guidance/Term";
 
 /** Series colours: tokens only. */
 export type SeriesTone = "kit" | "kit-secondary" | "good" | "warn" | "bad" | "info" | "gold" | "secondary" | "link" | DeptColourToken;
@@ -200,7 +201,11 @@ export function ChartLegend({ items, className }: { items: LegendItem[]; classNa
           <span aria-hidden className={cn("inline-block w-3.5 rounded-full", TONE_TEXT[it.tone], it.dashed ? "h-0 border-t-2 border-dashed border-current" : "h-0.5 bg-current")} />
           <span>{it.label}</span>
           {/* A dashed line is not measured: say so, unless its label already does. */}
-          {it.dashed && !/forecast|estimate|plan/i.test(it.label) ? <span className="est-chip">Forecast</span> : null}
+          {it.dashed && !/forecast|estimate|plan/i.test(it.label) ? (
+            <Term id="forecast" always className="est-chip">
+              Forecast
+            </Term>
+          ) : null}
         </li>
       ))}
     </ul>

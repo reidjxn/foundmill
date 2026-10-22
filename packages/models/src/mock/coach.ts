@@ -15,15 +15,15 @@ interface SkillResult {
 }
 
 const PLAYS: Array<{ re: RegExp; field: Field; addition: string }> = [
-  { re: /test/i, field: "playbook", addition: "Write the failing acceptance test before the implementation; run the full suite before reporting done." },
+  { re: /test/i, field: "playbook", addition: "Write a failing test for what counts as done before the implementation; run the full suite before reporting done." },
   { re: /debug/i, field: "playbook", addition: "Reproduce the problem with a minimal failing test before changing code; record the root cause in the task log." },
   { re: /plan|scope/i, field: "rules", addition: "Before starting, list the steps and the files you expect to touch; stop and ask the lead if the scope grows beyond them." },
   { re: /priorit/i, field: "goals", addition: "Prefer the task that unblocks a customer or a teammate over the task that is most interesting." },
   { re: /risk|ask/i, field: "rules", addition: "When an action is irreversible, external or costs money, ask the lead first and state exactly what you would do." },
-  { re: /speed/i, field: "playbook", addition: "Prefer the smallest change that passes the acceptance tests; defer polish to a follow-up task." },
+  { re: /speed/i, field: "playbook", addition: "Prefer the smallest change that passes the tests for what counts as done; defer polish to a follow-up task." },
   { re: /reliab/i, field: "playbook", addition: "Run typecheck, lint and tests before every handover; never report done with a failing check." },
   { re: /tool/i, field: "playbook", addition: "Read the tool description and examples before the first call; batch independent calls; never retry the same call with the same arguments more than twice." },
-  { re: /cost/i, field: "rules", addition: "Use the cheapest model and the fewest calls that meet the acceptance criteria; rely on the cached brief instead of re-reading it." },
+  { re: /cost/i, field: "rules", addition: "Use the cheapest model and the fewest calls that meet what counts as done; rely on the cached brief instead of re-reading it." },
   { re: /communic/i, field: "tone", addition: "Lead with the fact, then why it matters, then the ask. One short paragraph per phase report." },
   { re: /copy|writ/i, field: "tone", addition: "Plain and specific, one idea per sentence; every claim traces to a source record id and nothing is invented." },
   { re: /personali|segment/i, field: "playbook", addition: "Segment by observed behavior first, declared attributes second; personalize with facts from the CRM profile only." },
@@ -60,15 +60,15 @@ export function generateCoach(ctx: MockContext): CoachOutput {
       after,
       expected_gain: ctx.rng.int(1, 3),
       rationale: result
-        ? `${skill}: tested ${result.tested ?? "n/a"}${result.proven !== undefined ? `, proven ${result.proven}` : ""}${gap !== undefined && gap < 0 ? "; live results trail the tests, so the playbook needs a concrete step" : "; a concrete instruction turns the intent into a habit"}. Estimate.`
-        : `${skill} is a focus skill with no recent results; the edit adds a concrete, checkable step. Estimate.`,
+        ? `${skill}: tested ${result.tested ?? "not yet"}${result.proven !== undefined ? `, proven ${result.proven}` : ""}${gap !== undefined && gap < 0 ? "; live results trail the tests, so the instructions need a concrete step" : "; a concrete instruction turns the intent into a habit"}. The gain is an estimate until the next training run confirms it.`
+        : `${skill} is a focus skill with no recent results; the edit adds a concrete, checkable step. The gain is an estimate until the next training run confirms it.`,
     });
   }
 
   const summary =
     edits.length === 0
-      ? "No safe edits proposed: every candidate would have touched a house rule, so the instructions stay as they are."
-      : `${edits.length} edit${edits.length === 1 ? "" : "s"} targeting ${edits.map((e) => e.skill).join(", ")}; expected gains are estimates until the next training run confirms them. House rules are untouched.`;
+      ? "No edits proposed: each candidate would have loosened one of the rules every agent follows, so the instructions stay as they are."
+      : `${edits.length} edit${edits.length === 1 ? "" : "s"} targeting ${edits.map((e) => e.skill).join(", ")}; expected gains are estimates until the next training run confirms them. Every rule still applies.`;
   return { summary, edits };
 }
 

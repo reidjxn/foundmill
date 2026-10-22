@@ -40,7 +40,7 @@ export interface ImportSource {
 }
 
 export const IMPORT_SOURCES: readonly ImportSource[] = [
-  { key: "github", label: "GitHub", group: "Code and documents", description: "Repo-scoped read through the GitHub App once you take charge: the import reads the file tree, and agents read further as they work. Never pushes.", input: "repo", placeholder: "owner/repository", connectorKey: "github", readOnly: true, consent: "Read access to one repository. Write is a separate consent later." },
+  { key: "github", label: "GitHub", group: "Code and documents", description: "Reads the code you name through the GitHub App once you take charge: the import reads the list of files, and agents read further as they work. Never changes it.", input: "repo", placeholder: "owner/name", connectorKey: "github", readOnly: true, consent: "Read access to that code only. Changing it is a separate consent later." },
   { key: "google_drive", label: "Google Drive", group: "Code and documents", description: "Decks, plans and spreadsheets in a folder you choose.", input: "none", connectorKey: "google_drive", readOnly: true, consent: "Read access to one folder." },
   { key: "notion", label: "Notion", group: "Work tracking", description: "Wiki pages and databases: specs, roadmaps, meeting notes.", input: "none", connectorKey: "notion", readOnly: true, consent: "Read access to the pages you share." },
   { key: "linear", label: "Linear", group: "Work tracking", description: "Issues, projects and cycles: your backlog.", input: "none", connectorKey: "linear", readOnly: true, consent: "Read access to one workspace." },
@@ -48,7 +48,7 @@ export const IMPORT_SOURCES: readonly ImportSource[] = [
   { key: "website", label: "Website", group: "Code and documents", description: "Your public site: positioning, pricing, pages.", input: "url", placeholder: "https://example.com", connectorKey: "web", readOnly: true, consent: "Public pages only; robots.txt is respected." },
   { key: "stripe", label: "Stripe", group: "Revenue and money", description: "Customers, subscriptions, invoices: real revenue history.", input: "none", connectorKey: "stripe", readOnly: true, consent: "Read-only Stripe Connect. Payouts and transfers are never available to agents." },
   { key: "shopify", label: "Shopify", group: "Revenue and money", description: "Orders, products and customers from your store.", input: "none", connectorKey: "shopify", readOnly: true, consent: "Read access to orders, products, customers." },
-  { key: "bank", label: "Bank (open banking)", group: "Revenue and money", description: "Balances and transactions for cash and runway. Read only.", input: "none", connectorKey: "tink", readOnly: true, consent: "Account information only; no payment initiation exists." },
+  { key: "bank", label: "Bank (open banking)", group: "Revenue and money", description: "Balances and transactions, for cash and how long it lasts. Read only.", input: "none", connectorKey: "tink", readOnly: true, consent: "Account information only; no payment initiation exists." },
   { key: "registry", label: "Company registry", group: "Identity", description: "Legal name, officers, filing deadlines from the public register.", input: "regno", placeholder: "Registration number", connectorKey: "opencorporates", readOnly: true, consent: "Public record lookup." },
 ];
 
@@ -75,7 +75,7 @@ export function validateSourceValue(source: ImportSource, value: string): string
   const v = value.trim();
   switch (source.input) {
     case "repo":
-      if (!v) return "Enter the repository as owner/name.";
+      if (!v) return "Enter it as owner/name.";
       if (!REPO_RE.test(v.replace(/^https?:\/\/github\.com\//, "").replace(/\.git$/, ""))) return "Use owner/name, for example acme/ledgerly.";
       return null;
     case "url": {

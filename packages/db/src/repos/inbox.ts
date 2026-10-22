@@ -7,10 +7,10 @@
  * business's own words (Settings › Glossary, AC-11.13.6): `applyGlossary` runs on its subject, body and decision
  * options here, the one place every composed and templated note passes through.
  */
-import { EXHIBIT_KINDS, INBOX_ITEM_TYPES, INBOX_STATES, OptionAction, ValidationError, applyGlossary, type InboxItemType, type InboxState } from "@foundmill/shared";
+import { ENTITY_MARKUP_RE, EXHIBIT_KINDS, INBOX_ITEM_TYPES, INBOX_STATES, OptionAction, ValidationError, applyGlossary, type InboxItemType, type InboxState } from "@foundmill/shared";
 import { and, asc, desc, eq, getTableColumns, inArray, isNotNull, isNull, notInArray, or, sql, type SQL } from "drizzle-orm";
 import { z } from "zod";
-import { agents, businesses, composerBuffer, DECIDED_BY_KINDS, decisions, entities, events, inboxItemReads, inboxItems, plans, type ComposerBufferRow, type Decision, type InboxItem } from "../schema";
+import { agents, businesses, composerBuffer, DECIDED_BY_KINDS, decisions, entities, events, inboxItemReads, inboxItems, memberships, plans, type ComposerBufferRow, type Decision, type InboxItem } from "../schema";
 import { Currency, Id, MinorAmount, one, PageInput, parseInput, timeKeyset, toPage, type Executor, type Page } from "./_shared";
 
 // --- Composer output schema (BUILD §11.3) ------------------------------------------------------------------------------
@@ -22,6 +22,11 @@ export const ComposerOption = z.object({
   consequence: z.string(),
   cost_minor: z.number().int().nonnegative(),
   reversible: z.boolean(),
+  /**
+   * Why this option is recommended, or why it is on the list, in the agent's words ("Recommended because it is free and
+   * reversible."; UX plan §7.19). One sentence; the DecisionBar shows it under the consequence.
+   */
+  because: z.string().max(400).optional(),
   /** What choosing it runs, written with the option (the Board's and the Import report's options; audit IAE-20). */
   actions: z.array(OptionAction).min(1).max(8).optional(),
 });
@@ -80,6 +85,32 @@ async function businessGlossary(db: Executor, businessId: string): Promise<Recor
 /** A rename never breaks the shape's limits: a longer word trims the text at the limit with an ellipsis. */
 const clampText = (text: string, max: number) => (text.length <= max ? text : `${text.slice(0, max - 1).trimEnd()}…`);
 
+/** `[[ent:<uuid>|Name]]` → `Name`: an option's label and "because" are plain lines, never linked. */
+const withoutEntityMarkup = (text: string) => text.replace(new RegExp(ENTITY_MARKUP_RE.source, "g"), "$2");
+
+/**
+ * The decision options' plain lines, before validation: entity markup reduced to its name and the label (120) and
+ * "because" (400) clamped to the stored shape's limits. A model writes these, and neither composer path bounds them,
+ * so a 450-character "because" would otherwise fail the whole note (review F36). An empty "because" is dropped. Anything
+ * that is not an option of the expected shape is left for the schema to refuse.
+ */
+export function withPlainOptionLines(item: ComposerItem): ComposerItem {
+  const decision = item.decision;
+  if (!decision || !Array.isArray(decision.options)) return item;
+  const options = decision.options.map((o) => {
+    if (!o || typeof o !== "object") return o;
+    const next = { ...o };
+    if (typeof o.label === "string") next.label = clampText(withoutEntityMarkup(o.label), 120);
+    if (typeof o.because === "string") {
+      const because = withoutEntityMarkup(o.because).replace(/\s+/g, " ").trim();
+      if (because) next.because = clampText(because, 400);
+      else delete next.because;
+    }
+    return next;
+  });
+  return { ...item, decision: { ...decision, options } };
+}
+
 /** The note in the business's own words: subject, body and decision options (ids, costs and flags unchanged). */
 export function inBusinessWords(v: ParsedComposerItem, glossary: Record<string, string>): ParsedComposerItem {
   const g = (text: string) => applyGlossary(text, glossary);
@@ -87,7 +118,17 @@ export function inBusinessWords(v: ParsedComposerItem, glossary: Record<string, 
     ...v,
     subject: clampText(g(v.subject), 80),
     body_md: g(v.body_md),
-    decision: v.decision ? { ...v.decision, options: v.decision.options.map((opt) => ({ ...opt, label: clampText(g(opt.label), 120), consequence: g(opt.consequence) })) } : null,
+    decision: v.decision
+      ? {
+          ...v.decision,
+          options: v.decision.options.map((opt) => ({
+            ...opt,
+            label: clampText(g(opt.label), 120),
+            consequence: g(opt.consequence),
+            ...(opt.because !== undefined ? { because: clampText(g(opt.because), 400) } : {}),
+          })),
+        }
+      : null,
   };
 }
 
@@ -245,7 +286,7 @@ export const inboxRepo = {
    * renames nouns with the business glossary (a person's own message is theirs and is stored as written).
    */
   async createItem(db: Executor, businessId: string, item: ComposerItem, options: CreateItemOptions = {}): Promise<InboxItem> {
-    const parsed = parseInput(ComposerItem, item, "composer item");
+    const parsed = parseInput(ComposerItem, withPlainOptionLines(item), "composer item");
     const o = parseInput(CreateItemOptions, options, "inbox item options");
     await assertOwnedIds(db, businessId, parsed);
     const v = parsed.type === "human_message" ? parsed : inBusinessWords(parsed, await businessGlossary(db, businessId));
@@ -285,6 +326,22 @@ export const inboxRepo = {
    * viewers and advisors the Inbox policy keeps from writing notes included. Without a `userId` the system read it for
    * the whole business (the Chief of Staff deciding a win on vacation): the stored state becomes `read`.
    */
+  /**
+   * True once a founder opened a note an agent wrote: the first-week checklist's "read a note from an agent"
+   * (docs/UX_AUDIT_AND_PLAN.md §6.2). Only a read receipt (0048) by an owner or admin of the business counts, never an
+   * example viewer's. A note's state does not: a sign-off approved from the Product tab answers its note unopened, and
+   * the Chief of Staff reads and answers notes on vacation (review F38). One id at most is loaded.
+   */
+  async anyAgentNoteOpened(db: Executor, businessId: string): Promise<boolean> {
+    const openedByFounder = sql`exists (select 1 from ${inboxItemReads} join ${memberships} on ${memberships.businessId} = ${inboxItemReads.businessId} and ${memberships.userId} = ${inboxItemReads.userId} where ${inboxItemReads.inboxItemId} = ${inboxItems.id} and ${memberships.role} in ('owner', 'admin') and ${memberships.source} <> 'example')`;
+    const rows = await db
+      .select({ id: inboxItems.id })
+      .from(inboxItems)
+      .where(and(eq(inboxItems.businessId, businessId), isNotNull(inboxItems.fromAgentId), openedByFounder))
+      .limit(1);
+    return rows.length > 0;
+  },
+
   async markRead(db: Executor, businessId: string, itemId: string, userId?: string | null): Promise<InboxItem> {
     const item = await inboxRepo.get(db, businessId, itemId);
     if (item.state !== "unread") return inboxRepo.get(db, businessId, itemId, userId);

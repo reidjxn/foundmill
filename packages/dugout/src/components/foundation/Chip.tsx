@@ -2,6 +2,7 @@ import { forwardRef, type HTMLAttributes, type ReactNode } from "react";
 import { Calculator, TrendingUp, X } from "lucide-react";
 import type { DeptColourToken } from "@foundmill/shared";
 import { cn } from "../../lib/cn";
+import { ProvenanceTip } from "../guidance/ProvenanceTip";
 import { Icon, type IconComponent } from "./Icon";
 import { FitText } from "./FitText";
 
@@ -120,7 +121,7 @@ export const Chip = forwardRef<HTMLSpanElement, ChipProps>(function Chip(
 
 export type ProvenanceKind = "forecast" | "estimate";
 
-export interface ProvenanceChipProps extends Omit<ChipProps, "children" | "tone" | "icon"> {
+export interface ProvenanceChipProps extends Omit<ChipProps, "children" | "tone" | "icon" | "onClick"> {
   kind: ProvenanceKind;
   /**
    * "chip" (default): the dashed 18 px chip, the word in full in the data style. "word": the word alone in text-3,
@@ -131,25 +132,36 @@ export interface ProvenanceChipProps extends Omit<ChipProps, "children" | "tone"
   showIcon?: boolean;
 }
 
+/** The one-sentence meaning behind the word, when the definitions map has no entry for it. */
+export const PROVENANCE_SENTENCE: Record<ProvenanceKind, string> = {
+  forecast: "A projected value, not a measurement.",
+  estimate: "An estimated value, not a measurement.",
+};
+
 /**
  * DESIGN §8: every non-real number carries "Forecast" or "Estimate". A dashed edge always means "not measured". Keep
- * it at least 4 px from its figure. Server-safe.
+ * it at least 4 px from its figure. The word is a focusable button whose meaning opens as a real tooltip on hover and
+ * focus, or as the definition card when the definitions map holds `estimate` / `forecast` (ProvenanceTip, the
+ * client piece; finding D3 replaced the native title). The chip itself is server-safe.
  */
 export function ProvenanceChip({ kind, appearance = "chip", showIcon, className, mono: _mono, dot: _dot, fit: _fit, onRemove: _onRemove, removeLabel: _removeLabel, selected: _selected, ...rest }: ProvenanceChipProps) {
+  // plain-allow: this chip is the definition; ProvenanceTip opens the word's meaning on hover and focus.
   const word = kind === "forecast" ? "Forecast" : "Estimate";
-  const title = kind === "forecast" ? "A projected value, not a measurement" : "An estimated value, not a measurement";
-  if (appearance === "word") {
-    return (
-      <span title={title} data-provenance={kind} className={cn("text-tertiary", className)} {...rest}>
+  const chip =
+    appearance === "word" ? (
+      <button type="button" data-provenance={kind} data-appearance="word" className={cn("inline cursor-help rounded-xs text-tertiary", className)} {...rest}>
         {word}
-      </span>
+      </button>
+    ) : (
+      <button type="button" data-provenance={kind} data-appearance="chip" className={cn("est-chip cursor-help", className)} {...rest}>
+        {showIcon ? <Icon icon={kind === "forecast" ? TrendingUp : Calculator} size={11} /> : null}
+        <span>{word}</span>
+      </button>
     );
-  }
   return (
-    <span title={title} data-provenance={kind} className={cn("est-chip", className)} {...rest}>
-      {showIcon ? <Icon icon={kind === "forecast" ? TrendingUp : Calculator} size={11} /> : null}
-      <span>{word}</span>
-    </span>
+    <ProvenanceTip kind={kind} sentence={PROVENANCE_SENTENCE[kind]}>
+      {chip}
+    </ProvenanceTip>
   );
 }
 

@@ -59,7 +59,7 @@ export function defineChannelTemplate(init: ChannelTemplateInit): AgentTemplate 
     `Core metric: ${meta.coreMetric}. I run the full loop — Plan → Create → Approve → Launch → Measure → Learn → Report — and report attributed results to the Inbox with record ids.`,
     kit
       ? "This channel runs in offline tracking by default: I prepare every material and a founder task; the founder books and signs."
-      : "Inputs: the channel share of the distribution budget, the brief, the customer profile, suppression and consent lists, results from links, codes and webhooks.",
+      : "Inputs: the channel share of the distribution budget, the brief, the customer profile, suppression and consent lists, results from links, codes and notifications from connected tools.",
     `Never does: ${init.neverDoes.join("; ")}.`,
   ].join(" ");
 

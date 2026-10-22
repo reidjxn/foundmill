@@ -43,8 +43,11 @@ function cap(s: string): string {
 }
 
 /** Six deterministic name suggestions from the concept title, pitch and archetype. */
+/** The suffix a variant's default name carries ("Ledgerly (variant)"; older cards read "(fork)"), dropped from a business name. */
+export const VARIANT_SUFFIX_RE = /\s*\((fork|variant)\)\s*$/i;
+
 export function nameSuggestions(title: string, pitch: string, archetype: Archetype | null): string[] {
-  const base = title.trim().replace(/\s*\(fork\)\s*$/i, "").replace(/\s*×\s*.*$/, "").trim();
+  const base = title.trim().replace(VARIANT_SUFFIX_RE, "").replace(/\s*×\s*.*$/, "").trim();
   const rng = createRng(`names:${base}:${archetype ?? ""}`);
   const kws = keywordsOf(pitch).filter((k) => !base.toLowerCase().includes(k));
   const first = base.split(/\s+/)[0] ?? base;
@@ -94,9 +97,14 @@ export interface DomainCheck {
 
 export const DOMAIN_STATUS_WORDS: Record<DomainStatus, string> = { available: "Available", taken: "Taken", unknown: "Couldn't check" };
 
-/** The chip beside an answer: "Registry", "DNS (Estimate)" or "Mock". */
+/** The DNS chip's tooltip: what "Estimate" means on a domain answer (UX plan §8.1, define on first use). */
+export const DNS_ESTIMATE_HINT = "Estimate: a DNS lookup only suggests whether a domain is free; the registry has the final word.";
+
+/** The chip beside an answer: "Domain registry", "DNS lookup (Estimate)" or "Mock" (the acronym gets its word, A12). */
 export function domainProvenanceWord(provenance: DomainProvenance): string {
-  return provenance === "DNS" ? "DNS (Estimate)" : provenance;
+  if (provenance === "DNS") return "DNS lookup (Estimate)";
+  if (provenance === "Registry") return "Domain registry";
+  return provenance;
 }
 
 /** Under the list, always: what an answer is and is not. */
@@ -131,6 +139,9 @@ export const KNOWN_MARKS = ["apple", "stripe", "shopify", "notion", "linear", "s
 
 /** What a quick-screen result says: about the list of known marks it was checked against, never about a registry. */
 export const TRADEMARK_STATUS_WORDS: Record<TrademarkStatus, string> = { clear: "No known conflict", similar: "Close to a known mark", conflict: "Matches a known mark" };
+
+/** Each registry with its acronym expanded on first use ("USPTO, the US trademark office"), A12. */
+export const TRADEMARK_REGISTRY_WORDS: Record<TrademarkRegistry, string> = { USPTO: "USPTO, the US trademark office", EUIPO: "EUIPO, the EU trademark office" };
 
 /**
  * The USPTO / EUIPO quick screen: the name's words against `KNOWN_MARKS`, deterministic. A word that is a known mark is
@@ -223,6 +234,8 @@ export interface ModeCard<V extends string> {
   label: string;
   tagline: string;
   details: string[];
+  /** One concrete day in this mode ("Example: drafts the pricing page and publishes it; asks before paying for a domain."). */
+  example?: string;
 }
 
 export const GAME_MODE_CARDS: ModeCard<GameMode>[] = [
@@ -230,10 +243,33 @@ export const GAME_MODE_CARDS: ModeCard<GameMode>[] = [
   { value: "live", label: "Live", tagline: "Public profile, leaderboards, communities.", details: ["Your logo and milestones appear in the network", "Numbers you mark private stay private"] },
 ];
 
+/**
+ * The three business modes, each with the business thing first and one example of a day in it (docs/UX_AUDIT_AND_PLAN.md
+ * §7.6): the landing page's sentence about routine work, with "caps" said as "your limits".
+ */
 export const BUSINESS_MODE_CARDS: ModeCard<BusinessMode>[] = [
-  { value: "augmented", label: "Augmented", tagline: "Agents prepare, you execute.", details: ["Every external action asks first", "Best when you want to learn the ropes"] },
-  { value: "assisted", label: "Assisted", tagline: "Agents act inside limits; you decide the rest.", details: ["Spend under the cap runs without asking", "Money, signatures and identity always ask"] },
-  { value: "automated", label: "Automated", tagline: "The Chief of Staff runs the day.", details: ["You review outcomes, not actions", "Hard gates still stop at you"] },
+  {
+    value: "augmented",
+    label: "Augmented",
+    tagline: "Agents prepare, you execute.",
+    details: ["Every external action asks you first", "Best when you want to learn the ropes"],
+    example: "Example: drafts the pricing page and hands it to you to publish; nothing goes out until you send it.",
+  },
+  {
+    value: "assisted",
+    label: "Assisted",
+    tagline: "Agents act within your limits; you decide the rest.",
+    details: ["Routine work runs within your limits; contracts and new spend ask first", "Money, signatures and identity always ask"],
+    example: "Example: drafts the pricing page and publishes it; asks before paying for a domain.",
+  },
+  {
+    value: "automated",
+    label: "Automated",
+    tagline: "The team runs the day.",
+    // plain-allow: CommitScreen, where the mode cards show, defines "hard gate" with a Term (the autopilot hint).
+    details: ["You review outcomes, not actions", "Hard gates still stop at you"],
+    example: "Example: publishes the pricing page and pays for the domain within your limit; asks before signing a contract.",
+  },
 ];
 
 /** Default spend cap per business mode, in minor units of the founder's currency (labelled an estimate in the UI). */
@@ -281,7 +317,7 @@ export interface CommitForm {
 
 export function initialCommitForm(idea: { title: string; archetype: Archetype | null }, kit: Kit, currency: string): CommitForm {
   return {
-    name: idea.title.replace(/\s*\(fork\)\s*$/i, "").trim(),
+    name: idea.title.replace(VARIANT_SUFFIX_RE, "").trim(),
     kit,
     logo: null,
     gameMode: "personal",

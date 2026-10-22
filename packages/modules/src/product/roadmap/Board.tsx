@@ -29,8 +29,8 @@ export interface BoardProps {
 }
 
 const HORIZON_HINT: Record<RoadmapHorizon, string> = {
-  now: "The team works on these this cycle.",
-  next: "Queued; the Chief of Staff pulls from here when Now empties.",
+  now: "The team is working on these now.",
+  next: "Queued; picked up as soon as Now has room.",
   later: "Direction, not commitment. Dates here are estimates.",
 };
 
@@ -127,7 +127,7 @@ function Card({ item, index, count, blocks, dependencies, titleById, moving, onM
                   key={b.id}
                   type="button"
                   onClick={() => onOpenBlock(b.id)}
-                  title={`Open "${blockTitle(b)}" in the Specification`}
+                  title={`Open the linked paragraph "${blockTitle(b)}"`}
                   data-linked-block={b.id}
                   className="flex w-full min-w-0 items-start gap-1.5 rounded-sm px-1 py-0.5 text-left text-small text-secondary transition-colors duration-micro ease-dugout hover:bg-white/4 hover:text-primary focus-visible:outline-2 focus-visible:outline-link"
                 >
@@ -173,7 +173,7 @@ function Card({ item, index, count, blocks, dependencies, titleById, moving, onM
         </ContextMenuItem>
         <ContextMenuSeparator />
         <ContextMenuItem disabled={linked.length === 0} onSelect={() => linked[0] && onOpenBlock(linked[0].id)}>
-          <Icon icon={FileText} size="inline" /> Open spec block
+          <Icon icon={FileText} size="inline" /> Open linked paragraph
         </ContextMenuItem>
         <ContextMenuItem onSelect={onOpenTasks}>
           <Icon icon={Workflow} size="inline" /> Open tasks in Development

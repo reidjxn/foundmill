@@ -22,6 +22,11 @@ test("pressing a quick reply sends its id and the option it names", async ({ pag
   const chip = (await goWith.count()) > 0 ? goWith.first() : replies.first();
   const chipId = await chip.getAttribute("data-quick-reply");
   const choosesOption = /Go with:/.test(await chip.innerText());
+  // A "Go with: …" chip says it decides the note on a small second line under its label, never in the label (UX plan B20).
+  if (choosesOption) {
+    await expect(chip.locator("[data-quick-reply-description]")).toHaveText("This answers the note");
+    expect(await chip.innerText()).toMatch(/Go with:[^·]*\n?This answers the note$/);
+  } else await expect(chip.locator("[data-quick-reply-description]")).toHaveCount(0);
 
   let sent: Request | null = null;
   await page.route(/\/trpc\/[^?]*agent\.conversation\.send/, async (route) => {

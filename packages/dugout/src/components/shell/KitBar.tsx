@@ -63,6 +63,13 @@ export interface KitBarProps extends Omit<HTMLAttributes<HTMLElement>, "title"> 
   /** Shown as a second chip when LIVE; omitted in Personal mode. */
   gameMode?: GameMode;
   continueButton: ContinueButtonProps;
+  /**
+   * Something else in Continue's slot (the Example frame's primary "Start your own"): rendered in place of the
+   * ContinueButton, inside a box that keeps Continue's height and minimum width so nothing beside it moves.
+   */
+  continueSlot?: ReactNode;
+  /** A small badge after the business name (the Example frame's neutral "Example" chip). */
+  businessBadge?: ReactNode;
   stopAll: StopAllAgentsProps;
   /** Logo + name become a button (go Home). */
   onHome?: () => void;
@@ -108,12 +115,15 @@ export function kitBarGradient(kit: Kit): string {
  * 38 %, a fixed specular streak, a light top edge, a kit-lift line under it and the brand's light cast onto the canvas).
  * Left: the 32 px logo tile and the business name (with `businessMenu`, the business switcher: a chevron after the
  * name, the tooltip "Switch business"), back/forward, a hairline, the screen title. Then the universal search
- * and, right: date + runway, the business-mode chip, Continue, Stop all agents — all glass, 34 px. Nothing is clipped at
- * 1280: the search gives way first (its placeholder shortens, then only the icon remains); then, while the bar still
- * cannot hold everything whole or the screen title would lose its room, the chips compact one step at a time
- * (KitBarFit: dates drop the year, the vacation caption shortens to "Until Oct 21" and then its icon, LIVE and the mode
- * show their icons, the date leaves the runway chip); a long business name or screen title wraps to two lines and steps
- * its size down (FitText) before it would ever truncate.
+ * and, right: date + runway, the business-mode chip, Continue, Stop all agents — all glass, 34 px. At the widest step
+ * the mode and runway chips carry a second phrase ("Assisted · asks before spending", "Not known yet · connect a
+ * bank"), the first thing to go as soon as the search is below its whole width (KitBarFit `chips-brief`). Nothing is
+ * clipped at 1280: the search gives way next (its placeholder shortens, then only the icon remains; its ⌘K cap is a
+ * control hint and stays whatever the guidance setting); then, while the bar still cannot hold everything whole or the
+ * screen title would lose its room, the chips compact one step at a time (KitBarFit: dates drop the year, the vacation
+ * caption shortens to "Until Oct 21" and then its icon, LIVE and the mode show their icons, the date leaves the runway
+ * chip); a long business name or screen title wraps to two lines and steps its size down (FitText) before it would
+ * ever truncate.
  */
 export const KitBar = forwardRef<HTMLElement, KitBarProps>(function KitBar(
   {
@@ -135,6 +145,8 @@ export const KitBar = forwardRef<HTMLElement, KitBarProps>(function KitBar(
     onModeClick,
     gameMode,
     continueButton,
+    continueSlot,
+    businessBadge,
     stopAll,
     onHome,
     businessMenu,
@@ -152,6 +164,11 @@ export const KitBar = forwardRef<HTMLElement, KitBarProps>(function KitBar(
       <FitText minPx={KITBAR_NAME_MIN_PX} lines={2} className="t-display-sm leading-tight" data-testid="kitbar-business-name">
         {businessName}
       </FitText>
+      {businessBadge ? (
+        <span className="flex shrink-0 items-center" data-testid="kitbar-business-badge">
+          {businessBadge}
+        </span>
+      ) : null}
     </span>
   );
   const holiday = continueButton.state.kind === "holiday";
@@ -162,6 +179,8 @@ export const KitBar = forwardRef<HTMLElement, KitBarProps>(function KitBar(
     <header
       ref={ref}
       data-testid="kit-bar"
+      // A coach-mark anchor for the whole bar (Continue carries its own, data-coachmark="continue").
+      data-coachmark="top-bar"
       className={cn("kitbar-slab z-10 flex h-kitbar shrink-0 items-center gap-2 px-3 text-kit-on-primary", className)}
       style={{ ...kitStyle(kit), ...style }}
       {...rest}
@@ -226,7 +245,13 @@ export const KitBar = forwardRef<HTMLElement, KitBarProps>(function KitBar(
         <RunwayChip date={date} runwayMonths={runwayMonths} words={runwayWords} cash={cash} estimate={runwayEstimate} onClick={onRunwayClick} />
         {gameMode === "live" ? <GameModeChip mode="live" /> : null}
         <ModeChip mode={businessMode} holiday={holiday} onClick={onModeClick} />
-        <ContinueButton {...continueButton} className={cn("h-kitbar-chip rounded-track", continueButton.className)} />
+        {continueSlot ? (
+          <div className="flex h-kitbar-chip min-w-continue-min shrink-0 items-stretch" data-testid="kitbar-continue-slot">
+            {continueSlot}
+          </div>
+        ) : (
+          <ContinueButton {...continueButton} className={cn("h-kitbar-chip rounded-track", continueButton.className)} />
+        )}
         <StopAllAgents {...stopAll} />
       </div>
     </header>

@@ -5,8 +5,9 @@
  * - a Content-Security-Policy that names where scripts, styles, images, fonts, frames and connections may come from.
  *   Connections go to the app's own services only: the API, the event stream, the spec editor's collaboration server, the
  *   ingest service (Simulate) and Supabase (sign-in). The policy has no nonce: a nonce makes every page dynamic, and the
- *   landing page is static. Next.js's own inline bootstrap scripts need `'unsafe-inline'`; the rest of the policy (no
- *   remote script hosts, no `object`, a fixed `base-uri` and `form-action`) is what limits an injected tag;
+ *   landing page is static (the root layout reads no cookie for it). Next.js's own inline bootstrap scripts and the
+ *   root layout's text-size head script (components/providers/text-size-cookie.ts) need `'unsafe-inline'`; the rest of
+ *   the policy (no remote script hosts, no `object`, a fixed `base-uri` and `form-action`) is what limits an injected tag;
  * - nosniff, a strict-origin-when-cross-origin referrer policy and a Permissions-Policy that turns off every device API
  *   the app never uses; HSTS for the HTTPS deployments (browsers ignore it over http://localhost).
  */

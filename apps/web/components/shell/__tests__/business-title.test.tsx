@@ -77,7 +77,7 @@ describe("BusinessTitle", () => {
     const { queryClient, client, view } = setup();
     pathname = `/b/${BID}/crm/${ENTITY}/activity`;
     render(view("Northwind Skincare"));
-    expect(document.title).toBe("Activity · CRM · Northwind Skincare · Foundmill");
+    expect(document.title).toBe("Activity · Contacts · Northwind Skincare · Foundmill");
     const trpc = createTRPCOptionsProxy<AppRouter>({ client, queryClient });
     await act(async () => {
       queryClient.setQueryData(trpc.crm.entity.get.queryKey({ businessId: BID, entityId: ENTITY }), { entity: { displayName: "Acme Ltd" } } as never);

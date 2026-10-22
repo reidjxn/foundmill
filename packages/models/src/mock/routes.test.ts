@@ -76,7 +76,7 @@ describe("chief of staff cycle plan (BUILD §12.4)", () => {
     const idle = await client.complete({ route: "chiefOfStaff", messages: promptWith({ business_name: "Acme", max_agents: 3, open_tasks: [], roadmap_without_tasks: [{ id: "r1", title: "Pricing experiment", horizon: "now" }], agents: AGENTS }), schema: CyclePlanOutput });
     expect(idle.json.departments).toEqual([]);
     expect(idle.json.summary).toMatch(/1 roadmap item has no tasks yet/);
-    expect(idle.json.summary).toMatch(/Development › Plan/);
+    expect(idle.json.summary).toMatch(/plan them from the Plan tab/);
     expect(idle.json.summary).not.toMatch(/everything open is blocked/);
   });
 
@@ -159,7 +159,7 @@ describe("coach (BUILD §12.6, AC-11.10.4)", () => {
     expect(r.json.edits.length).toBeLessThanOrEqual(3);
     expect(r.json.edits.map((e) => e.skill)).toEqual(["Testing", "Communication"]);
     expect(r.json.edits[0]).toMatchObject({ field: "playbook", before: "Read the task" });
-    expect(r.json.edits[0]!.after).toMatch(/failing acceptance test/);
+    expect(r.json.edits[0]!.after).toMatch(/failing test for what counts as done/);
     expect(r.json.edits[1]!.field).toBe("tone");
     for (const e of r.json.edits) expect(e.after).not.toMatch(/move money|ignore (club|house) rules/i);
   });

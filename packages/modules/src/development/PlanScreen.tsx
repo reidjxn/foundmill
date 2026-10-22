@@ -5,8 +5,8 @@
  * a goal).
  */
 import { useId, useMemo, useState } from "react";
-import { ArrowUpCircle, Bot, ExternalLink, ListTree, Network, Pause, Play, Radio, Square } from "lucide-react";
-import { Avatar, Button, Chip, DataTable, EntityLink, Field, GenerateControl, KeyValueList, Panel, ProgressRing, ProvenanceChip, TASK_STATUS_META, TaskGraph, Textarea, SimpleSelect, type DataTableColumn, type RowAction, type SavedView } from "@foundmill/dugout";
+import { ArrowUpCircle, Bot, ChevronRight, ExternalLink, ListTree, Network, Pause, Play, Radio, Square } from "lucide-react";
+import { Avatar, Button, Chip, DataTable, EntityLink, Field, GenerateControl, KeyValueList, Panel, ProgressRing, ProvenanceChip, STRONGEST_MODEL_LABEL, TASK_STATUS_META, TaskGraph, Term, Textarea, SimpleSelect, useTerm, type DataTableColumn, type RowAction, type SavedView } from "@foundmill/dugout";
 import type { TaskStatus } from "@foundmill/shared";
 import { routes } from "@foundmill/widgets/shared/routes";
 import { useBusinessEvents, useWidgetData, useWidgetQuery } from "@foundmill/widgets/data";
@@ -17,7 +17,7 @@ import { fitColumns, fitToGrow, humanise, plural, type ColumnFit } from "../fit"
 import type { ModuleScreenProps } from "../registry";
 import { OpenInClaudeCodeDialog, ReassignDialog, StopDialog } from "./dialogs";
 import { useDevScreenOptions } from "./options";
-import { InlineError, Screen, TaskStatusPill, agentBranch, agentHref, progressValue, toDate, toTileAgent, useAction, useAgentIndex, useAgents, useDevDepartment } from "./shared";
+import { InlineError, SIMPLE_VIEW_ID, Screen, TaskStatusPill, agentBranch, agentHref, progressValue, toDate, toTileAgent, useAction, useAgentIndex, useAgents, useDefaultViewId, useDevDepartment } from "./shared";
 import { toGraphNodes } from "./TrainingGroundScreen";
 import type { AgentRow, PlanResponse, RoadmapListResponse, TaskRow, TasksListResponse } from "./types";
 
@@ -33,6 +33,8 @@ export interface PlanRow extends TaskRow {
 export const PLAN_VIEWS: SavedView[] = [
   // Every built-in view fits the Plan panel at 1280 (668 px) with its columns at their minimum widths (PLAN_FIT), so no
   // column hides past the panel's edge; Started, Depends on and Priority stay in the column chooser and other views.
+  // Simple (UX plan §7.10): Task, Status, Agent, Progress; the table opens on it while guidance is on.
+  { id: SIMPLE_VIEW_ID, name: "Simple", builtIn: true, columns: ["title", "status", "agentName", "progressNumber"], sort: [{ id: "priority", desc: true }], filters: [] },
   { id: "all", name: "All tasks", builtIn: true, columns: ["title", "status", "kind", "agentName", "progressNumber"], sort: [{ id: "priority", desc: true }], filters: [] },
   { id: "ready", name: "Ready to start", builtIn: true, columns: ["title", "agentName", "dependsOn", "priority"], sort: [{ id: "priority", desc: true }], filters: [{ id: "f-ready", field: "status", op: "in", value: ["ready", "planned"] }] },
   { id: "in-progress", name: "In progress", builtIn: true, columns: ["title", "status", "agentName", "progressNumber", "startedDate"], sort: [{ id: "startedDate", desc: true }], filters: [{ id: "f-live", field: "status", op: "in", value: ["running", "paused", "blocked", "review", "merging"] }] },
@@ -88,8 +90,9 @@ export function PlanScreen({ businessId, departmentId }: ModuleScreenProps) {
   const agentIndex = useAgentIndex(agents.data?.agents);
   const action = useAction();
   const planner = useAction();
-  // Saved per person, business and table (audit #204): they come back after a reload.
-  const savedViews = useSavedViews("development.plan", PLAN_VIEWS, { defaultViewId: "all" });
+  // Saved per person, business and table (audit #204): they come back after a reload. Simple opens first while guidance is on.
+  const defaultViewId = useDefaultViewId("all");
+  const savedViews = useSavedViews("development.plan", PLAN_VIEWS, { defaultViewId });
   useBusinessEvents(() => tasks.refetch(), ["task.started", "task.completed", "task.blocked", "pr.merged", "product.signoff_decided"]);
   // Building starts when the founder has signed off the specification and the roadmap (founder, 2026-10-18).
   const stage = useBusinessStage();
@@ -104,6 +107,8 @@ export function PlanScreen({ businessId, departmentId }: ModuleScreenProps) {
 
   // Planner trigger.
   const id = useId();
+  // A Term renders a button, which must not sit inside the <label>: the definition goes in the Field's help tip.
+  const roadmapTerm = useTerm("roadmap");
   const [roadmapItemId, setRoadmapItemId] = useState<string>("");
   const [goal, setGoal] = useState("");
   const [planned, setPlanned] = useState<PlanResponse | null>(null);
@@ -139,7 +144,7 @@ export function PlanScreen({ businessId, departmentId }: ModuleScreenProps) {
             </span>
             {row.original.priority && row.original.priority >= 10 ? (
               <Chip tone="warn" className="shrink-0">
-                Hard
+                High priority
               </Chip>
             ) : null}
           </span>
@@ -193,7 +198,7 @@ export function PlanScreen({ businessId, departmentId }: ModuleScreenProps) {
       { id: "pause", label: "Pause", icon: Pause, disabled: !live, onSelect: (r) => void runTask("dev.tasks.pause", r) },
       { id: "resume", label: "Resume", icon: Play, disabled: row.status !== "paused", onSelect: (r) => void runTask("dev.tasks.resume", r) },
       { id: "reassign", label: "Reassign", icon: Bot, disabled: over, onSelect: (r) => setReassign(r) },
-      { id: "upgrade", label: "Upgrade to Opus", icon: ArrowUpCircle, disabled: over || row.agent?.modelKey === "opus", onSelect: (r) => void runTask("dev.tasks.upgradeModel", r) },
+      { id: "upgrade", label: STRONGEST_MODEL_LABEL, icon: ArrowUpCircle, disabled: over || row.agent?.modelKey === "opus", onSelect: (r) => void runTask("dev.tasks.upgradeModel", r) },
       { id: "claude", label: "Open in Claude Code", icon: ExternalLink, onSelect: (r) => setClaudeCode(r), separatorBefore: true },
       { id: "stop", label: "Stop and discard", icon: Square, variant: "danger", disabled: over || row.status === "stopped", onSelect: (r) => setStop(r) },
     ];
@@ -234,7 +239,7 @@ export function PlanScreen({ businessId, departmentId }: ModuleScreenProps) {
   return (
     <Screen name="development/plan">
       {stage.stage === "awaiting_signoff" || stage.stage === "drafting" ? (
-        <Panel span={12} title="Building starts on your sign-off" data-testid="plan-stage-banner" data-product-stage={stage.stage}>
+        <Panel span={12} title="Building starts on your sign-off" help="The specification is the written description of what the product is and does. Your sign-off is your yes on it and the roadmap, which lets the team build from them." data-testid="plan-stage-banner" data-product-stage={stage.stage}>
           <p className="text-body text-secondary">
             {stage.stage === "drafting" ? "The specification and roadmap are being drafted. " : "Building starts when the specification and the roadmap are signed off. "}
             <button type="button" className="text-link hover:underline focus-visible:outline-2 focus-visible:outline-link" onClick={() => navigate(routes.inbox(businessId))}>
@@ -245,7 +250,7 @@ export function PlanScreen({ businessId, departmentId }: ModuleScreenProps) {
       ) : null}
       <Panel
         span={8}
-        title="Task graph"
+        title={<Term id="task_graph">Task graph</Term>}
         flush
         loading={tasks.isLoading}
         error={tasks.error ? tasks.error.message : undefined}
@@ -255,29 +260,45 @@ export function PlanScreen({ businessId, departmentId }: ModuleScreenProps) {
             {(counts.running ?? 0) + (counts.paused ?? 0) + (counts.blocked ?? 0) + (counts.review ?? 0) + (counts.merging ?? 0)} in progress · {counts.ready ?? 0} ready · {counts.done ?? 0} done
           </span>
         }
-        footer={action.error ? <InlineError error={action.error} /> : <span>Right-click a task for Start, Pause, Reassign, Upgrade, Stop and Open in Claude Code. Enter shows its dependencies.</span>}
+        footer={action.error ? <InlineError error={action.error} /> : <span>Use the … button or right-click a task for Start, Pause, Reassign, {STRONGEST_MODEL_LABEL.toLowerCase()}, Stop and Open in Claude Code. Enter shows its dependencies.</span>}
       >
         <div className="min-w-0">
           <DataTable<PlanRow>
             data={rows}
             columns={columns}
             {...savedViews}
-            defaultViewId="all"
+            defaultViewId={defaultViewId}
             rowActions={rowActions}
             onRowOpen={(r) => setSelectedId(r.id)}
             onRowClick={(r) => setSelectedId(r.id)}
             selectedIds={selected ? [selected.id] : []}
             height={520}
             exportFileName="tasks"
-            empty={{ icon: ListTree, children: "No tasks yet. Pick a roadmap item or write an objective on the right and the Planner builds the task graph." }}
+            empty={{
+              icon: ListTree,
+              children: (
+                <>
+                  No tasks yet. Pick a roadmap item or write an objective on the right and the <Term id="planner">Planner</Term> plans the tasks.
+                </>
+              ),
+            }}
             aria-label="Tasks"
           />
         </div>
       </Panel>
 
-      <Panel span={4} title="Plan from the roadmap" glow="brand" footer={<span className="inline-flex items-center gap-1">Planner cost is metered per run <ProvenanceChip kind="estimate" /></span>}>
+      <Panel
+        span={4}
+        title="Plan from the roadmap"
+        glow="brand"
+        footer={
+          <span className="inline-flex items-center gap-1">
+            <Term id="planner">Planner</Term> cost is metered per run <ProvenanceChip kind="estimate" />
+          </span>
+        }
+      >
         <div className="flex flex-col gap-3">
-          <Field htmlFor={`${id}-roadmap`} label="Roadmap item">
+          <Field htmlFor={`${id}-roadmap`} label="Roadmap item" help={roadmapTerm?.short} helpLearn={roadmapTerm?.learn}>
             <SimpleSelect id={`${id}-roadmap`} aria-label="Roadmap item" options={roadmapOptions} value={roadmapItemId || undefined} onValueChange={setRoadmapItemId} placeholder={roadmap.isLoading ? "Loading roadmap…" : roadmapOptions.length ? "Choose an item" : "No roadmap items yet"} disabled={!roadmapOptions.length} />
           </Field>
           <Field htmlFor={`${id}-goal`} label="Objective" hint="Optional with a roadmap item; required without one. Sent to the Planner as its goal.">
@@ -285,7 +306,7 @@ export function PlanScreen({ businessId, departmentId }: ModuleScreenProps) {
           </Field>
           <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
             {/* A real model call (the Planner): the generate control, running while the plan is drafted. */}
-            <GenerateControl size="md" label="Build task graph" runningLabel="Planning the tasks" running={planner.pending === "plan"} disabled={!canPlan} onGenerate={runPlan} />
+            <GenerateControl size="md" label="Plan the tasks" runningLabel="Planning the tasks" running={planner.pending === "plan"} disabled={!canPlan} onGenerate={runPlan} />
             {planned ? (
               <span className="text-small text-secondary tabular-nums" role="status">
                 Planned {plural(planned.tasks.length, "task")}
@@ -299,6 +320,7 @@ export function PlanScreen({ businessId, departmentId }: ModuleScreenProps) {
       <Panel
         span={12}
         title={selected ? `Dependencies · ${selected.title}` : "Dependencies"}
+        help="What must finish before a task can start, and what that task unblocks when it is done."
         flush
         empty={!selected ? { icon: Network, children: "Select a task (click or Enter) to see what it depends on and what it unblocks." } : undefined}
         actions={
@@ -321,13 +343,28 @@ export function PlanScreen({ businessId, departmentId }: ModuleScreenProps) {
                   { label: "Status", value: <TaskStatusPill status={selected.status} /> },
                   { label: "Agent", value: selected.agentName },
                   { label: "Kind", value: kindLabel(selected.kind) },
-                  { label: "Branch", value: selected.kind === "code" ? agentBranch(selected.id) : "—", mono: true },
                   { label: "Depends on", value: selected.dependsOn.length ? selected.dependsOn.join(", ") : "Nothing" },
                   { label: "Unblocks", value: selected.blocks.length ? selected.blocks.join(", ") : "Nothing" },
-                  { label: "File scope", value: selected.fileScope?.length ? selected.fileScope.join(", ") : "Not set", mono: !!selected.fileScope?.length },
-                  { label: "Acceptance", value: selected.acceptance?.length ? `${selected.acceptance.length} criteria` : "None recorded" },
+                  { label: <Term id="acceptance">Acceptance</Term>, value: selected.acceptance?.length ? `${selected.acceptance.length} criteria` : "None recorded" },
                 ]}
               />
+              {/* The plumbing (branch, file scope) behind a disclosure: the business facts above read first (UX plan §7.12). */}
+              <details className="group/detail mt-2 text-small" data-testid="task-technical">
+                <summary className="flex w-fit cursor-pointer list-none items-center gap-1 rounded-sm text-secondary transition-colors duration-hover ease-out hover:text-primary [&::-webkit-details-marker]:hidden">
+                  <ChevronRight size={14} aria-hidden className="transition-transform duration-overlay ease-out group-open/detail:rotate-90" />
+                  Technical
+                </summary>
+                <div className="mt-1.5">
+                  <KeyValueList
+                    layout="stacked"
+                    dense
+                    items={[
+                      { label: <Term id="branch">Branch</Term>, value: selected.kind === "code" ? agentBranch(selected.id) : "—", mono: true },
+                      { label: "File scope", value: selected.fileScope?.length ? selected.fileScope.join(", ") : "Not set", mono: !!selected.fileScope?.length },
+                    ]}
+                  />
+                </div>
+              </details>
               <div className="mt-3 flex flex-wrap gap-2">
                 <Button size="sm" icon={Play} disabled={!(selected.status === "planned" || selected.status === "ready") || !selected.assigneeAgentId} loading={action.pending === `dev.tasks.start:${selected.id}`} onClick={() => void runTask("dev.tasks.start", selected)}>
                   Start

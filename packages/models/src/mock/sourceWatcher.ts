@@ -99,7 +99,7 @@ export function generateSourceProposal(ctx: MockContext): unknown {
   const sections = blocks.slice(0, 4).map((b) => b.section);
   return {
     title: truncate(`${sections.join(", ") || "Spec"}: what ${source.title || "the new source"} changes`, 80),
-    rationale_md: `${truncate(lines[0] ?? source.title ?? "The source", 200)} The proposal adds this to ${sections.join(", ") || "the spec"} and leaves the rest of each block as it reads now.`,
+    rationale_md: `${truncate(lines[0] ?? source.title ?? "The source", 200)} This change adds it to ${sections.join(", ") || "the spec"} and leaves the rest of each block as it reads now.`,
     hunks,
     impact: { dates: null, tasks: sections.map((s) => `Review ${s.toLowerCase()} after the change`), cost_text: null },
     notify: sections.some((s) => /pricing|customer|value/i.test(s)) ? ["distribution"] : ["development"],

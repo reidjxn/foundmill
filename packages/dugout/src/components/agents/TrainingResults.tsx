@@ -49,6 +49,14 @@ export function summariseTraining(results: readonly TrainingSkillResult[]): Trai
   return { improved, dropped, unchanged, untested, bigDrops, meanDelta: scored ? Math.round((sum / scored) * 100) / 100 : 0 };
 }
 
+/**
+ * The Coach's explanation in the product's words: the model's "House rules are untouched" reads "Every rule still
+ * applies" (UX plan §7.15); the source prompt is corrected separately, this keeps older runs honest.
+ */
+export function coachWords(explanation: string): string {
+  return explanation.replace(/\bHouse rules (?:are|remain|stay) untouched\b/g, "Every rule still applies");
+}
+
 export interface TrainingResultsProps {
   results: readonly TrainingSkillResult[];
   coachExplanation: string;
@@ -161,7 +169,7 @@ export function TrainingResults({ results, coachExplanation, candidateVersion, l
         </div>
         <div className="flex flex-col gap-3 p-panel-pad">
           <h3 className="t-data">Coach</h3>
-          <p className="t-reading text-primary">{coachExplanation}</p>
+          <p className="t-reading text-primary">{coachWords(coachExplanation)}</p>
           {summary.bigDrops.length > 0 ? (
             <p className="flex items-start gap-1.5 text-small text-status-bad">
               <Icon icon={TrendingDown} size="inline" className="mt-0.5" />
@@ -194,7 +202,7 @@ export function TrainingResults({ results, coachExplanation, candidateVersion, l
         </div>
       </div>
       <footer className="flex items-center justify-end gap-2 border-t border-line px-panel-pad py-2">
-        <span className="mr-auto text-small text-secondary">The live version keeps working until you promote.</span>
+        <span className="mr-auto text-small text-secondary">The live version keeps working until you promote. Every rule still applies.</span>
         <Button variant="ghost" icon={Trash2} onClick={onDiscard} loading={discarding} disabled={promoting}>
           Discard
         </Button>

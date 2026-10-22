@@ -9,7 +9,7 @@ import { useQuery } from "@tanstack/react-query";
 import { ArrowRight, Building2, Database, Download, GitMerge, Search, Shield, Sparkles, UserRound, UserRoundPlus } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
-import { Avatar, Button, Chip, DataTable, ENTITY_KIND_ICONS, EntityLink, FilterChips, Icon, Input, Kbd, Panel, Popover, PopoverAnchor, PopoverContent, StatusPill, formatRelative, type DataTableColumn, type FilterChipValue, type RowAction, type SavedView } from "@foundmill/dugout";
+import { Avatar, Button, Chip, DataTable, ENTITY_KIND_ICONS, EntityLink, FilterChips, Icon, Input, Kbd, Panel, Popover, PopoverAnchor, PopoverContent, StatusPill, Term, formatRelative, type DataTableColumn, type FilterChipValue, type RowAction, type SavedView } from "@foundmill/dugout";
 import type { EntityKind } from "@foundmill/shared";
 import { routes } from "@foundmill/widgets/shared/routes";
 import { useTRPC } from "@/lib/trpc-react";
@@ -45,7 +45,8 @@ export function CrmScreen() {
   const canCreate = access.canWrite("crm");
   const trpc = useTRPC();
   const router = useRouter();
-  useShellChrome({ title: "CRM" });
+  // "Contacts" is the word a first-timer expects (founder decision 2026-10-20, item 1); operators find CRM in the palette.
+  useShellChrome({ title: "Contacts" });
 
   // --- search box state ---------------------------------------------------------------------------------------------
   const [raw, setRaw] = useState("");
@@ -343,7 +344,7 @@ export function CrmScreen() {
             <li className="flex items-start gap-2">
               <Icon icon={Shield} size="inline" className="mt-0.5 text-secondary" />
               <span>
-                Lawful basis and source per person. <button type="button" className="text-link hover:underline" onClick={() => setActiveViewId("data-duties")}>Review people without one</button>.
+                <Term id="lawful_basis">Lawful basis</Term> and source per person. <button type="button" className="text-link hover:underline" onClick={() => setActiveViewId("data-duties")}>Review people without one</button>.
               </span>
             </li>
             <li className="flex items-start gap-2">

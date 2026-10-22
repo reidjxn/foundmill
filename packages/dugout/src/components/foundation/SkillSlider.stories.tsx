@@ -2,7 +2,8 @@ import { useState } from "react";
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { cn } from "../../lib/cn";
 import { ratingClass } from "../../lib/rating";
-import { RatingBandPill, SkillSlider } from "./SkillSlider";
+import { ScaleLabel } from "../guidance/ScaleLabel";
+import { RatingBandPill, SKILL_SCALE_LEGEND, SkillSlider } from "./SkillSlider";
 
 const meta = {
   title: "Foundation/SkillSlider",
@@ -48,6 +49,43 @@ export const ProfileSkills: Story = {
     <div className="surface-panel flex w-full flex-col gap-3 p-4 text-body">
       {SKILLS.map(([n, h, v]) => (
         <Row key={n} name={n} hint={h} initial={v} />
+      ))}
+    </div>
+  ),
+};
+
+function AnchoredRow({ name, hint, initial }: { name: string; hint: string; initial: number }) {
+  const [v, setV] = useState(initial);
+  return (
+    <div className="grid grid-cols-12 items-end gap-4">
+      <div className="col-span-3 min-w-0">
+        <div className="font-medium">{name}</div>
+        <div className="text-small text-tertiary">{hint}</div>
+      </div>
+      <SkillSlider value={v} onValueChange={setV} anchors aria-label={`${name} rating`} anchorsLabel={`${name}: level`} className="col-span-6" />
+      <span className={cn("col-span-1 t-display-md pb-2 text-right", ratingClass(v))}>{v}</span>
+      <div className="col-span-2 flex items-center pb-2">
+        <ScaleLabel value={v} />
+      </div>
+    </div>
+  );
+}
+
+/**
+ * With `anchors` (UX plan §7.3, A2): the legend once above the rows, then a four-word picker over every bar. A word
+ * sets the number (None 3, Some 8, Solid 13, Expert 18); moving the slider keeps the word in step; the band word
+ * (ScaleLabel) carries the meaning beside the figure.
+ */
+export const WithAnchors: Story = {
+  name: "With anchors (the founder profile)",
+  render: () => (
+    <div className="surface-panel flex w-full flex-col gap-4 p-4 text-body">
+      <div className="flex flex-col gap-1">
+        <p className="text-small text-secondary">{SKILL_SCALE_LEGEND}</p>
+        <p className="text-small text-secondary">Be honest: the team hires to cover what you don't have.</p>
+      </div>
+      {SKILLS.map(([n, h, v]) => (
+        <AnchoredRow key={n} name={n} hint={h} initial={v} />
       ))}
     </div>
   ),

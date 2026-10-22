@@ -20,7 +20,7 @@ import { Coins, CreditCard, X } from "lucide-react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import { APP_NAME, CREDITS_CURRENCY, includedCreditsMinor, PRICE_TBA_LABEL, tierIncludedCreditPlaces, TIERS, type TierKey } from "@foundmill/config";
-import { Button, Chip, IconButton, KeyValueList, MiniTable, ProvenanceChip, SimpleSelect, StatusPill, formatCompact, useDateFormat, type DateFormatPrefs, type StatusTone } from "@foundmill/dugout";
+import { Button, Chip, IconButton, KeyValueList, MiniTable, ProvenanceChip, SimpleSelect, StatusPill, Term, formatCompact, useDateFormat, type DateFormatPrefs, type StatusTone } from "@foundmill/dugout";
 import { PLAN_TIERS } from "@foundmill/shared/constants";
 import { formatMoney, formatMonthYear, formatNumber, plainWords, plural } from "@/lib/format";
 import { errorMessage, type RouterOutputs } from "@/lib/trpc";
@@ -265,7 +265,7 @@ export function BillingTab() {
         ) : null}
       </SettingsSection>
 
-      <SettingsSection title="Credits" meta={CREDITS_CURRENCY} loading={plan.isLoading}>
+      <SettingsSection title={<Term id="credits">Credits</Term>} meta={CREDITS_CURRENCY} loading={plan.isLoading}>
         <div className="flex flex-wrap items-center gap-3">
           <SimpleSelect aria-label="Top-up amount" controlSize="sm" value={amount} onValueChange={setAmount} options={topUpOptions.map((a) => ({ value: String(a), label: money(a) }))} className="w-40" />
           <Button variant="primary" icon={Coins} disabled={!isOwner || p?.topUp.available === false} loading={topUp.isPending} onClick={() => topUp.mutate({ businessId, amountMinor: Number(amount), currency: CREDITS_CURRENCY })} data-testid="top-up">
@@ -291,7 +291,7 @@ export function BillingTab() {
               caption={`By agent · ${periodLabel(usage.data.period, datePrefs)} · Estimate`}
               columns={[
                 { id: "agent", header: "Agent", cell: (r) => <span title={r.name ?? "Platform"}>{r.name ?? "Platform"}</span> },
-                { id: "tokens", header: "Tokens", numeric: true, cell: (r) => formatCompact(r.tokens) },
+                { id: "tokens", header: <Term id="tokens">Tokens</Term>, numeric: true, cell: (r) => formatCompact(r.tokens) },
                 { id: "calls", header: "Tool calls", numeric: true, cell: (r) => formatNumber(r.toolCalls) },
                 { id: "cost", header: "Cost", numeric: true, cell: (r) => formatMoney({ amountMinor: r.costMinor, currency }) },
               ]}

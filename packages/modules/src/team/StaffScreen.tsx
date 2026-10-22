@@ -13,7 +13,7 @@ import { useWidgetData, useWidgetQuery } from "@foundmill/widgets/data";
 import { useSavedViews } from "@foundmill/widgets/shared/saved-views";
 import { fitColumns, fitToGrow, plural, type ColumnFit } from "../fit";
 import type { ModuleScreenProps } from "../registry";
-import { DECISION_LABELS, InlineError, ROLE_LABELS, STAFF_SECTIONS, Screen, memberEntity, memberName, permissionSummary, readMe, sectionLabel, useAction, useHumans, useMe, useNow, type Me } from "./shared";
+import { DECISION_LABELS, InlineError, ROLE_LABELS, STAFF_SECTIONS, Screen, memberEntity, memberName, permissionSummary, readMe, sectionLabel, SIMPLE_VIEW_ID, useAction, useDefaultViewId, useHumans, useMe, useNow, type Me } from "./shared";
 import type { MembershipRow, ResponsibilitiesResponse, SectionPermission } from "./types";
 
 export interface StaffRow {
@@ -33,6 +33,8 @@ export interface StaffRow {
 }
 
 export const STAFF_VIEWS: SavedView[] = [
+  // Simple (UX plan §7.10): who they are, their role, what they can open and what they approve; first while guidance is on.
+  { id: SIMPLE_VIEW_ID, name: "Simple", builtIn: true, columns: ["name", "role", "sections", "approves"], sort: [{ id: "role", desc: false }], filters: [] },
   { id: "all", name: "All staff", builtIn: true, columns: ["name", "role", "sections", "approves", "joined"], sort: [{ id: "role", desc: false }], filters: [] },
   { id: "admins", name: "Owners and admins", builtIn: true, columns: ["name", "role", "sections", "approves"], sort: [{ id: "role", desc: false }], filters: [{ id: "role-admins", field: "role", op: "in", value: ["owner", "admin"] }] },
   { id: "approvers", name: "Approvers", builtIn: true, columns: ["name", "role", "approves"], sort: [{ id: "approves", desc: true }], filters: [{ id: "approves-any", field: "approves", op: "gt", value: 0 }] },
@@ -86,6 +88,18 @@ export function toStaffRows(members: readonly MembershipRow[] | undefined, respo
 }
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+/**
+ * What Invite sends (the same api as Settings › Members, `team.humans.invite`, which takes the sign-in email or the
+ * account ID): the account ID when one is typed, else the email, or null while neither is valid.
+ */
+export function inviteTarget(email: string, accountId: string): { userId: string; email?: string } | { email: string } | null {
+  const id = accountId.trim();
+  const mail = email.trim();
+  if (id) return UUID.test(id) ? { userId: id, ...(EMAIL.test(mail) ? { email: mail } : {}) } : null;
+  return EMAIL.test(mail) ? { email: mail } : null;
+}
 
 /* ---------- Dialogs ---------- */
 
@@ -127,7 +141,10 @@ export interface InviteDialogProps {
   onInvited: (membership: MembershipRow) => void;
 }
 
-/** Invite by Supabase user id (the e-mail invitation itself is sent by the web app's auth flow). */
+/**
+ * Invite by the email the person signs in with, or by their account ID as the fallback (C18: one flow, email first,
+ * the same `team.humans.invite` Settings › Members uses). No invitation email is sent: the person already has an account.
+ */
 export function InviteDialog({ open, onOpenChange, onInvited }: InviteDialogProps) {
   const id = useId();
   const action = useAction();
@@ -145,11 +162,12 @@ export function InviteDialog({ open, onOpenChange, onInvited }: InviteDialogProp
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- reset per opening
   }, [open]);
-  const validId = UUID.test(userId.trim());
+  const target = inviteTarget(email, userId);
+  const badEmail = email.trim().length > 0 && !EMAIL.test(email.trim());
+  const badId = userId.trim().length > 0 && !UUID.test(userId.trim());
   const confirm = async () => {
-    const input: Record<string, unknown> = { userId: userId.trim(), role, sectionPermissions: perms };
-    if (email.trim()) input.email = email.trim();
-    const m = await action.run<MembershipRow>("team.humans.invite", input, { key: "invite" });
+    if (!target) return;
+    const m = await action.run<MembershipRow>("team.humans.invite", { ...target, role, sectionPermissions: perms }, { key: "invite" });
     if (m) {
       onInvited(m);
       onOpenChange(false);
@@ -161,14 +179,14 @@ export function InviteDialog({ open, onOpenChange, onInvited }: InviteDialogProp
       <DialogContent size="lg" aria-describedby={`${id}-desc`} data-testid="invite-dialog">
         <DialogHeader>
           <DialogTitle>Invite staff</DialogTitle>
-          <DialogDescription id={`${id}-desc`}>A person with a {APP_NAME} account joins this business with a role and, where needed, per-section permissions. Ownership is never granted by invitation: an owner grants it from Role and permissions.</DialogDescription>
+          <DialogDescription id={`${id}-desc`}>Someone who already has a {APP_NAME} account joins this business with a role and, where needed, per-section permissions. They sign in with their own email; no invitation email is sent. Ownership is never granted by invitation: an owner grants it from Role and permissions.</DialogDescription>
         </DialogHeader>
         <DialogBody className="flex flex-col gap-3">
-          <Field htmlFor={`${id}-user`} label="Account id" required hint="Find it in Settings › Members or on the person's profile." error={userId && !validId ? "That is not an account id; it has 36 letters, digits and dashes." : undefined}>
-            <Input id={`${id}-user`} value={userId} onChange={(e) => setUserId(e.target.value)} placeholder="Paste the account id" className="font-mono text-mono" aria-invalid={!!userId && !validId} />
+          <Field htmlFor={`${id}-email`} label="Sign-in email" hint="The email they sign in to their account with." error={badEmail ? "That is not an email address." : undefined}>
+            <Input id={`${id}-email`} type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="name@company.com" aria-invalid={badEmail} />
           </Field>
-          <Field htmlFor={`${id}-email`} label="E-mail" hint="Shown next to the name until the CRM entity is linked.">
-            <Input id={`${id}-email`} type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="name@company.com" />
+          <Field htmlFor={`${id}-user`} label="Or add by account ID" hint="Shown on their founder profile and in Settings › Preferences." error={badId ? "That is not an account ID; it has 36 letters, digits and dashes." : undefined}>
+            <Input id={`${id}-user`} value={userId} onChange={(e) => setUserId(e.target.value)} placeholder="00000000-0000-…" className="font-mono text-mono" aria-invalid={badId} />
           </Field>
           <Field htmlFor={`${id}-role`} label="Role" required>
             <SimpleSelect id={`${id}-role`} aria-label="Role" options={INVITABLE_ROLES.map((r) => ({ value: r, label: ROLE_LABELS[r] }))} value={role} onValueChange={(v) => setRole(v as MembershipRole)} />
@@ -180,7 +198,7 @@ export function InviteDialog({ open, onOpenChange, onInvited }: InviteDialogProp
           <Button variant="ghost" onClick={() => onOpenChange(false)}>
             Cancel
           </Button>
-          <Button variant="primary" icon={UserRoundPlus} disabled={!validId} loading={action.pending !== null} onClick={() => void confirm()} data-testid="invite-confirm">
+          <Button variant="primary" icon={UserRoundPlus} disabled={!target} loading={action.pending !== null} onClick={() => void confirm()} data-testid="invite-confirm">
             Invite
           </Button>
         </DialogFooter>
@@ -306,7 +324,8 @@ export function StaffScreen({ businessId }: ModuleScreenProps) {
   const me = useMemo(() => readMe(meQuery.data, businessId), [meQuery.data, businessId]);
   const rows = useMemo(() => toStaffRows(humans.data, responsibilities.data, me), [humans.data, responsibilities.data, me]);
   // Saved per person, business and table (audit #204): they come back after a reload.
-  const savedViews = useSavedViews("team.staff", STAFF_VIEWS, { defaultViewId: "all" });
+  const defaultViewId = useDefaultViewId("all");
+  const savedViews = useSavedViews("team.staff", STAFF_VIEWS, { defaultViewId });
   const [invite, setInvite] = useState(false);
   const [edit, setEdit] = useState<StaffRow | null>(null);
   const [remove, setRemove] = useState<StaffRow | null>(null);
@@ -412,7 +431,7 @@ export function StaffScreen({ businessId }: ModuleScreenProps) {
       >
         <div className="min-w-0">
           {/* The table is as tall as its rows (up to the window), so one person is not a screen of empty rows. */}
-          <DataTable<StaffRow> aria-label="Staff" data={rows} columns={columns} {...savedViews} defaultViewId="all" rowActions={rowActions} onRowOpen={(row) => setEdit(row)} height={Math.min(typeof window === "undefined" ? 480 : Math.max(320, window.innerHeight - 264), Math.max(1, rows.length) * ROW_PX + 42)} exportFileName="staff" className="border-0" />
+          <DataTable<StaffRow> aria-label="Staff" data={rows} columns={columns} {...savedViews} defaultViewId={defaultViewId} rowActions={rowActions} onRowOpen={(row) => setEdit(row)} height={Math.min(typeof window === "undefined" ? 480 : Math.max(320, window.innerHeight - 264), Math.max(1, rows.length) * ROW_PX + 42)} exportFileName="staff" className="border-0" />
         </div>
         {onlyMe ? (
           <EmptyState icon={Users} title="Only you so far" tone="kit" className="border-t border-line-faint" action={canAdmin ? { label: "Invite staff", icon: UserRoundPlus, onClick: () => setInvite(true) } : undefined}>

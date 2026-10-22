@@ -108,6 +108,17 @@ export interface FinanceOverview {
   forecasts: Partial<Record<string, ForecastRecord | null>>;
 }
 
+/* business.firstWeek.get: one done flag per first-week item (UX plan §6.2 FirstWeekChecklist), read-only. */
+export interface FirstWeekResponse {
+  specificationSignedOff: boolean;
+  roadmapSignedOff: boolean;
+  cycleCompleted: boolean;
+  noteRead: boolean;
+  conversationReplySent: boolean;
+  distributionStarted: boolean;
+  bankOrStripeConnected: boolean;
+}
+
 /* inbox.list */
 export interface InboxItemRow {
   id: string;

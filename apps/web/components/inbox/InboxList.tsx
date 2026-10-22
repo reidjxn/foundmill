@@ -5,10 +5,10 @@
  * "Milestone", "Update"…) before a one-line preview. A won customer keeps the gold left edge.
  */
 import { Inbox } from "lucide-react";
-import { NETWORK_SENDER, NOTE_TAG_ICONS } from "@foundmill/widgets/shared/note-tags";
-import { useEffect, useRef } from "react";
+import { NETWORK_SENDER, NOTE_TAG_ICONS, noteTagLegend } from "@foundmill/widgets/shared/note-tags";
+import { useEffect, useRef, type ReactNode } from "react";
 import { APP_NAME } from "@foundmill/config";
-import { Avatar, Button, Chip, EmptyState, Skeleton, VirtualList, formatRelative, useFormatters, type ChipTone, type IconComponent, type VirtualListHandle } from "@foundmill/dugout";
+import { Avatar, Button, Chip, EmptyState, Skeleton, Tooltip, VirtualList, formatRelative, useFormatters, type ChipTone, type IconComponent, type VirtualListHandle } from "@foundmill/dugout";
 import type { DeptColourToken } from "@foundmill/shared";
 import { useHydrated } from "@/lib/today";
 import type { InboxRowModel, NoteTag, TagIcon } from "./logic";
@@ -16,13 +16,22 @@ import type { InboxRowModel, NoteTag, TagIcon } from "./logic";
 /** Lucide glyph per tag (the word carries the meaning; the icon and the tone repeat it). Shared with Home's preview. */
 export const TAG_ICONS: Record<TagIcon, IconComponent> = NOTE_TAG_ICONS;
 
-/** The tag as a chip: icon + word, the tone a second signal, never the only one. */
+/**
+ * The tag as a chip: icon + word, the tone a second signal, never the only one. Its tooltip is the legend sentence for
+ * the kind ("Customer: A new paying customer, with its Customer Update"; UX plan B21), so no tag is a bare word.
+ * The tooltip's trigger is a plain span around the chip: the trigger hands its child an onClick, which turns a Chip
+ * into a button, and the row around it is already a button (a button inside a button is invalid HTML).
+ */
 export function NoteTagChip({ tag, size = "row", testId }: { tag: NoteTag; size?: "row" | "header"; testId?: string }) {
   const tone: ChipTone = tag.tone;
   return (
-    <Chip tone={tone} icon={TAG_ICONS[tag.icon]} className={size === "row" ? "h-badge shrink-0" : "shrink-0"} data-row-tag={tag.word} data-testid={testId}>
-      {tag.word}
-    </Chip>
+    <Tooltip content={noteTagLegend(tag)}>
+      <span className="inline-flex max-w-full shrink-0">
+        <Chip tone={tone} icon={TAG_ICONS[tag.icon]} className={size === "row" ? "h-badge shrink-0" : "shrink-0"} data-row-tag={tag.word} data-tag-legend={noteTagLegend(tag)} data-testid={testId}>
+          {tag.word}
+        </Chip>
+      </span>
+    </Tooltip>
   );
 }
 
@@ -54,7 +63,8 @@ export interface InboxListProps {
   hasMore: boolean;
   loadingMore?: boolean;
   onLoadMore: () => void;
-  emptyText: string;
+  /** The empty line: what will appear and how to make it happen (DESIGN §10); the screen adds key caps for operators. */
+  emptyText: ReactNode;
   /** The founder's name, for the initials on the founder's own notes. */
   founderName?: string;
 }
@@ -127,7 +137,7 @@ export function InboxList({ rows, selectedId, onSelect, onPrefetch, loading, has
                 row.won ? "row-edge-gold" : "",
                 selected ? (row.won ? "bg-panel-alt" : "row-selected") : "",
               ].join(" ")}
-              aria-label={`${row.subject}. ${row.tag.word}${row.needsAnswer && row.tag.word !== "Respond" ? ", needs an answer" : ""}${row.won ? ", customer won" : ""}`}
+              aria-label={`${row.subject}. ${row.tag.word}${row.needsAnswer && row.tag.word !== "Respond" ? ", needs your answer" : ""}${row.won ? ", customer won" : ""}`}
             >
               <span className="shrink-0 pt-0.5">
                 {row.agent ? <Avatar size={32} name={row.agent.name} agent={{ seed: row.agent.seed, dept: row.agent.dept }} /> : <Avatar size={32} name={row.fromUser ? (founderName ?? "You") : row.fromPerson ? NETWORK_SENDER : APP_NAME} />}

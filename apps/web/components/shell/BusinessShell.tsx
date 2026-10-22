@@ -10,22 +10,24 @@
  * - date + runway chip from finance.overview, business-mode chip → Settings › Mode;
  * - NeedsLargerWindow below 1280 (AppShell measures the window itself); G-then-letter chords (AppShell);
  * - providers for everything below: business context, WidgetDataProvider, ModuleEnv, EntityLink, keyboard registry,
- *   screen chrome.
+ *   screen chrome, and the definitions in this business's own words (`GuidanceTermsProvider` over the layout's
+ *   GuidanceHost: the glossary comes from `business.get`, which the shell already holds).
  */
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { ArrowRight } from "lucide-react";
 import dynamic from "next/dynamic";
 import { usePathname, useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState, useTransition, type ReactNode } from "react";
-import { AppShell, Avatar, EntityLinkProvider, ShellLinkProvider, useToast, type PaletteItem, type ProcessingSegment, type SearchQuery, type SidebarItem } from "@foundmill/dugout";
+import { AppShell, Avatar, Button, Callout, Chip, EntityLinkProvider, GuidanceTermsProvider, ShellLinkProvider, Tooltip, useToast, type PaletteItem, type ProcessingSegment, type SearchQuery, type SidebarItem } from "@foundmill/dugout";
 import { ModuleEnvProvider, type ModuleEnv } from "@foundmill/modules/env";
 import { readWidgetEvent, type WidgetEvent } from "@foundmill/widgets/data";
 import { routes } from "@foundmill/widgets/shared/routes";
-import { runwayWords } from "@foundmill/widgets/shared/runway";
+import { runwayFigure, runwayWords } from "@foundmill/widgets/shared/runway";
 import { agentsStoppedView } from "@/lib/agents-stopped";
 import { SIDEBAR_COLLAPSED_PREFIX } from "@/lib/auth/constants";
 import { rememberLastBusiness } from "@/lib/auth/last-business";
 import { accountRoutes } from "@/lib/account-routes";
-import { readOnlyReason } from "@/lib/access";
+import { EXAMPLE_CHIP_TOOLTIP, readOnlyReason, type Access } from "@/lib/access";
 import { awayReportId, computeContinueState, journeyHref, respondHref, unviewedWin } from "@/lib/continue-state";
 import { CYCLE_EVENT_TYPES, cycleFromSnapshot, initialCycle, nextPulseKey, reduceCycleEvent, setPaused, type CycleEvent, type CycleStatus } from "@/lib/cycle";
 import type { AgentSummary } from "@/lib/entity-links";
@@ -36,7 +38,7 @@ import { shellQueryInputs } from "@/lib/shell-queries";
 import { useBusinessLogoSrc, useBusinessLogos } from "@/components/logo/useBusinessLogo";
 import { KeyboardRegistryProvider, createKeyboardRegistry, useRegisteredShortcuts } from "@/lib/keys";
 import { publicPaletteItems, publicSearchText } from "@/lib/public-search";
-import { entityPaletteItems, filterLocal, localPaletteItems, searchInputFor } from "@/lib/search";
+import { entityPaletteItems, filterLocal, helpPaletteItems, localPaletteItems, searchInputFor } from "@/lib/search";
 import { SIDEBAR_BRAND, SIDEBAR_IDS, activeSidebarId, buildSidebarItems, orderedVisibleDepartments } from "@/lib/sidebar";
 import { signOut } from "@/lib/auth/sign-out";
 import { useStreamSubscription } from "@/lib/stream-client";
@@ -49,6 +51,7 @@ import { WidgetDataHost } from "@/lib/widget-data";
 import { SpecUserProvider, specUserName } from "@/components/spec/spec-user";
 import { AgentDeskHost, prefetchAgentDesk, type AgentDeskApi } from "@/components/conversation/DeskHost";
 import { useNetworkBadge } from "@/components/live/signals";
+import { termsFor } from "@/components/providers/GuidanceHost";
 import { agentOfAskItem, askPaletteItems, askQuestion, generatePaletteItems, paletteAgents } from "@/components/conversation/palette";
 import { BusinessProvider, makeBusinessContext, type BusinessGet, type DepartmentList } from "./business-context";
 import { switcherBusinesses } from "./business-switcher";
@@ -101,7 +104,7 @@ const SpecEditor = dynamic(() => import("@/components/spec/SpecEditor").then((m)
 
 /** Events after which the shell refetches a router's queries (or one procedure group's, as a dotted path). */
 export const INVALIDATE_ON_EVENT: Record<string, readonly string[]> = {
-  // An Inbox item that blocks Continue (or the decision that clears it) moves the Autopilot chip: Waiting for you.
+  // An Inbox item that blocks Continue (or the decision that clears it) moves the Autopilot chip: Needs your answer.
   "inbox.item_created": ["inbox", "business.autopilot"],
   // Another member archived an item or confirmed its plan (audit RUI-09).
   "inbox.item_updated": ["inbox", "plan"],
@@ -170,10 +173,78 @@ type ContinueResult = RouterOutputs["business"]["continue"];
 
 /** The toast one press of Continue earns (BUILD §9.4): what happened, and where the new note is in local mode. */
 export function describeContinue(result: ContinueResult): { title: string; description: string; tone: "info" | "good" | "warn"; itemId: string | null } {
-  if (result.action === "already_running") return { title: "A cycle is already running", description: "The team is still working; the strip shows where.", tone: "info", itemId: null };
+  if (result.action === "already_running") return { title: "A cycle is already running", description: "The team is still working; the strip under the top bar shows where.", tone: "info", itemId: null };
   if (result.action === "resumed") return { title: "Cycle resumed", description: "Paused tasks pick up where they stopped.", tone: "good", itemId: null };
   if (result.mode === "local" && result.item) return { title: "One new note", description: result.item.subject, tone: "info", itemId: result.item.id };
-  return { title: "Cycle started", description: "The Chief of Staff is planning the next cycle.", tone: "info", itemId: null };
+  return { title: "Cycle started", description: "The team is at work. What they finish and what they need from you come back as notes in the Inbox.", tone: "info", itemId: null };
+}
+
+/**
+ * The first-Continue callout (UX plan §7.7): "This is how you move forward", under Continue, until the first cycle
+ * the founder starts has completed. Commit starts cycle 1 by itself (services/commit.ts), so the cycle a founder's
+ * press starts is the second one; a business with two finished cycles has moved forward on its own. Never for a role
+ * that cannot press Continue (viewers, advisors, the read-only demo). The Coachmark itself also waits while a cycle
+ * is processing or a dialog is open, and never replays once "Got it" marked the tour done.
+ */
+export function wantsFirstContinueCallout(cycle: { completedCount: number }, canChange: boolean): boolean {
+  return canChange && cycle.completedCount <= 1;
+}
+
+export const FIRST_CONTINUE_CALLOUT = { tourId: "first-continue", targetId: "continue", title: "This is how you move forward", body: "Press it when you have answered what needs you." } as const;
+
+/**
+ * The Example frame (docs/UX_AUDIT_AND_PLAN.md §12 item 5): what the shell changes for an example viewer (a read-only
+ * walk around a seeded demo business, `lib/access.ts isExampleViewer`). The neutral "Example" chip sits beside the
+ * business name; Stop all agents is hidden (nothing here is theirs to stop); the first-Continue callout gives way to
+ * one that points at "Start your own", the primary action in Continue's slot (its own tour id, so the real
+ * first-Continue callout still teaches the loop on the founder's own business later). Every write stays refused with
+ * the example wording (`readOnlyReason`), and the first-week checklist, the next step and the tours stay: they teach
+ * here too. Pure: the shell reads it and the unit tests pin it.
+ */
+export interface ExampleFrame {
+  /** The "Example" chip beside the name, with `EXAMPLE_CHIP_TOOLTIP`. */
+  chip: boolean;
+  /** Stop all agents is hidden (not merely refused). */
+  stopAllHidden: boolean;
+  /** The callout under Continue's slot: the Start-your-own one in the example, the first-Continue one otherwise. */
+  callout: typeof EXAMPLE_START_CALLOUT | typeof FIRST_CONTINUE_CALLOUT | null;
+}
+
+export const EXAMPLE_START_CALLOUT = { tourId: "example-start", targetId: "start-your-own", title: "This is an example", body: "When you are ready, start your own business here." } as const;
+
+export function exampleFrame(access: Pick<Access, "isExample" | "canChange">, cycle: { completedCount: number }): ExampleFrame {
+  if (access.isExample) return { chip: true, stopAllHidden: true, callout: EXAMPLE_START_CALLOUT };
+  return { chip: false, stopAllHidden: false, callout: wantsFirstContinueCallout(cycle, access.canChange) ? FIRST_CONTINUE_CALLOUT : null };
+}
+
+/**
+ * The Example frame's badge after the business name (KitBar `businessBadge`): the neutral "Example" chip. Its tooltip
+ * explains the frame; pointer moves stop at the chip so the switcher's own "Switch business" tooltip does not open over
+ * it.
+ */
+function ExampleBadge() {
+  return (
+    <Tooltip content={EXAMPLE_CHIP_TOOLTIP} side="bottom">
+      <Chip className="shrink-0 text-kit-on-primary" data-testid="example-chip" onPointerMove={(e) => e.stopPropagation()}>
+        Example
+      </Chip>
+    </Tooltip>
+  );
+}
+
+/** Where "Start your own" goes from an example business: the three doors on /new. */
+export const START_YOUR_OWN_HREF = "/new";
+
+/**
+ * The Example frame's primary action in Continue's slot (KitBar `continueSlot`): "Start your own", at Continue's size,
+ * anchoring the Start-your-own callout (`data-coachmark="start-your-own"`, tour id `example-start`).
+ */
+function StartYourOwnButton({ onStart }: { onStart: () => void }) {
+  return (
+    <Button variant="primary" iconRight={ArrowRight} className="h-kitbar-chip rounded-track min-w-continue-min" data-coachmark="start-your-own" data-testid="start-your-own" onClick={onStart}>
+      Start your own
+    </Button>
+  );
 }
 
 export function BusinessShell(props: BusinessShellProps) {
@@ -328,7 +399,10 @@ function ShellInner({ businessId, initialBusiness, initialDepartments, viewer, c
       const state = computeContinueState({ blocking: inboxQ.data?.blocking ?? data.blockingItems ?? 0, items: inboxQ.data?.items, holiday: data.holiday, cycle });
       // "On vacation until Oct 21" is the founder's own day, known only in the browser (see `today`): until then the
       // caption reads "On vacation", so the server's UTC day never mismatches the browser's on hydration.
-      return state.kind === "holiday" && today === null ? { ...state, until: null } : state;
+      if (state.kind === "holiday" && today === null) return { ...state, until: null };
+      // The running cycle's number travels with the state ("The team is working · cycle 3").
+      if (state.kind === "processing" && cycle.cycleNumber) return { ...state, cycle: cycle.cycleNumber };
+      return state;
     },
     [inboxQ.data?.blocking, inboxQ.data?.items, data.blockingItems, data.holiday, cycle, today],
   );
@@ -349,7 +423,7 @@ function ShellInner({ businessId, initialBusiness, initialDepartments, viewer, c
         awaitingAwayReport.current = true;
         void invalidate(["business", "inbox"]);
         router.push(routes.inbox(businessId));
-        toast({ title: "Welcome back", description: "The Chief of Staff handed the business back to you. “While you were away” opens here as soon as it is written.", tone: "good" });
+        toast({ title: "Welcome back", description: "You are back in charge. “While you were away” opens here as soon as it is written.", tone: "good" });
       },
       onError: (err) => toast({ title: "Could not end the vacation", description: errorMessage(err), tone: "bad" }),
     }),
@@ -475,6 +549,11 @@ function ShellInner({ businessId, initialBusiness, initialDepartments, viewer, c
     () => localPaletteItems({ businessId, departments, inboxItems: inboxQ.data?.items, live, canEditLayout, businesses, access }),
     [businessId, departments, inboxQ.data?.items, live, canEditLayout, businesses, access],
   );
+  // The Help group: the defined terms in the business's own words, and the keyboard shortcuts (the shell opens them).
+  const helpItems = useMemo(() => helpPaletteItems(businessId, business.glossary), [businessId, business.glossary]);
+  // The definitions renamed by this business's glossary ("clients" in every term), computed here from what the shell
+  // holds rather than by the account's host watching the query cache (perf audit item 3).
+  const glossaryTerms = useMemo(() => termsFor(businessId, business.glossary ?? null), [businessId, business.glossary]);
   // A LIVE business also searches the public profiles ("On Foundmill"): founders and businesses found by name.
   const publicText = live && debounced ? publicSearchText(debounced.q) : null;
   const publicQ = useQuery(trpc.live.people.search.queryOptions({ q: publicText ?? "--", limit: 5 }, { enabled: publicText !== null, staleTime: 15_000, retry: false }));
@@ -551,9 +630,10 @@ function ShellInner({ businessId, initialBusiness, initialDepartments, viewer, c
   const onMessageAgent = useCallback((a: AgentSummary) => deskApi.current?.open({ kind: "agent", id: a.id }, { persona: { name: a.name, role: a.role ?? "", avatarSeed: String(a.avatarSeed ?? a.id), dept: a.dept ?? "dept-1" }, text: null }), []);
   const entityLinks = useEntityResolver({ businessId, agents: agentSummaries, canReadCrm: access.canRead("crm"), navigate, onMessageAgent });
   // "Reconnecting…" / "Live updates paused" once the business's channel has been down a few seconds (audit RES-11).
+  // Nothing is lost: the team's work and notes are on the server; only this screen may be behind.
   const connectionState = useConnectionNotice(businessId);
   const connection = useMemo(
-    () => (connectionState ? { state: connectionState, detail: connectionState === "reconnecting" ? "The live connection dropped. What you see may be out of date; the Inbox and Continue refresh every 30 s until it is back." : "Live updates are paused. What you see may be out of date; the Inbox and Continue refresh every 30 s." } : null),
+    () => (connectionState ? { state: connectionState, detail: connectionState === "reconnecting" ? "The live connection dropped. Nothing is lost. What you see may be out of date; the Inbox and Continue refresh every 30 s until it is back." : "Live updates are paused. Nothing is lost. What you see may be out of date; the Inbox and Continue refresh every 30 s." } : null),
     [connectionState],
   );
   // Switch business: the pick is remembered at once and the other business opens in a transition, so this one stays
@@ -571,7 +651,7 @@ function ShellInner({ businessId, initialBusiness, initialDepartments, viewer, c
   );
   const businessMenu = useMemo(
     () => ({
-      businesses: switcherBusinesses(businessesData?.businesses, { id: businessId, name: business.name, kitPrimary: data.kit.primary, logoSrc, isDemo: business.isDemo, role: data.role }, businessLogos),
+      businesses: switcherBusinesses(businessesData?.businesses, { id: businessId, name: business.name, kitPrimary: data.kit.primary, logoSrc, isDemo: business.isDemo, role: data.role, isExample: access.isExample }, businessLogos),
       loading: wantBusinesses && businessesLoading,
       error: businessesFailed ? "Could not load your other businesses." : null,
       onRetry: () => void refetchBusinesses(),
@@ -582,7 +662,7 @@ function ShellInner({ businessId, initialBusiness, initialDepartments, viewer, c
       onProfile: () => router.push(accountRoutes.profile),
       pendingBusinessId: switching ? switchingTo : null,
     }),
-    [businessesData, businessesLoading, businessesFailed, refetchBusinesses, businessId, business.name, business.isDemo, data.kit.primary, data.role, logoSrc, businessLogos, wantBusinesses, openBusiness, router, switching, switchingTo],
+    [businessesData, businessesLoading, businessesFailed, refetchBusinesses, businessId, business.name, business.isDemo, data.kit.primary, data.role, access.isExample, logoSrc, businessLogos, wantBusinesses, openBusiness, router, switching, switchingTo],
   );
 
   const financeDept = useMemo(() => visibleDepartments.find((d) => d.moduleKeys.includes("finance")), [visibleDepartments]);
@@ -594,8 +674,11 @@ function ShellInner({ businessId, initialBusiness, initialDepartments, viewer, c
   }, [financeDept, router, businessId]);
 
   const stopAllError = stopAll.error ? errorMessage(stopAll.error) : undefined;
+  // The Example frame (UX plan §12 item 5): the chip beside the name, Stop all agents hidden, the Start-your-own callout.
+  const frame = exampleFrame(access, cycle);
 
   return (
+    <GuidanceTermsProvider terms={glossaryTerms}>
     <BusinessProvider value={businessCtx}>
       <WidgetDataHost businessId={businessId} glossary={business.glossary ?? {}} gameMode={business.gameMode} currency={currency} timeZone={business.timeZone ?? null}>
         <ModuleEnvProvider value={moduleEnv}>
@@ -607,6 +690,9 @@ function ShellInner({ businessId, initialBusiness, initialDepartments, viewer, c
                 businessMode={business.businessMode}
                 kit={data.kit}
                 logoSrc={logoSrc}
+                // The Example frame: the "Example" chip after the name, and "Start your own" in Continue's slot.
+                businessBadge={frame.chip ? <ExampleBadge /> : undefined}
+                continueSlot={frame.chip ? <StartYourOwnButton onStart={() => router.push(START_YOUR_OWN_HREF)} /> : undefined}
                 businessName={business.name}
                 screenTitle={chrome.title ?? "Home"}
                 sidebar={{ items: sidebarItems, activeId, collapsed, onCollapsedChange, brand: SIDEBAR_BRAND }}
@@ -616,10 +702,12 @@ function ShellInner({ businessId, initialBusiness, initialDepartments, viewer, c
                 connection={connection}
                 continueButton={{
                   state: continueState,
+                  cycleNumber: cycle.cycleNumber,
                   pulseKey,
                   // Pending, not disabled: Continue keeps keyboard focus while its own request is in flight.
                   pending: refreshInbox.isPending || endHoliday.isPending || continueCycle.isPending || pauseCycle.isPending,
-                  // Viewers and advisors follow the business; they do not run cycles (audit RUI-05).
+                  // Viewers and advisors follow the business; they do not run cycles (audit RUI-05). In the Example
+                  // frame "Start your own" takes the slot (`continueSlot`) and Continue's shortcut stays disabled.
                   disabled: !access.canChange,
                   onContinue,
                   onRespond,
@@ -631,10 +719,12 @@ function ShellInner({ businessId, initialBusiness, initialDepartments, viewer, c
                   canStop: access.isAdmin,
                   onConfirm: () => stopAll.mutateAsync({ businessId, reason: "kill_switch" }).then(() => undefined),
                   runningCount: cycle.activeAgentIds.length,
-                  disabled: stopAll.isPending || resumeAll.isPending,
+                  disabled: stopAll.isPending || resumeAll.isPending || frame.stopAllHidden,
                   stopped: stopped ? { ...stopped, onResume: () => resumeAll.mutateAsync({ businessId }).then(() => undefined) } : null,
+                  // Hidden in the Example frame: nothing there is the viewer's to stop (the trigger keeps its slot's width rule: it is gone, not blank).
+                  className: frame.stopAllHidden ? "hidden" : undefined,
                 }}
-                processing={{ segments, active: cycle.running }}
+                processing={{ segments, active: cycle.running, cycleNumber: cycle.cycleNumber }}
                 tabs={chrome.tabs}
                 breadcrumbs={chrome.breadcrumbs}
                 rightRail={chrome.rightRail}
@@ -650,12 +740,15 @@ function ShellInner({ businessId, initialBusiness, initialDepartments, viewer, c
                   ask: askItems,
                   generate: generateItems,
                   onAsk,
+                  helpItems,
                   placeholder: "Search, ask an agent or generate…",
                 }}
                 // The business's day, known only in the browser (null on the server, so hydration never disagrees).
                 date={today}
-                runwayMonths={financeQ.data?.runway.months ?? null}
-                // Without a figure the chip says what Home's tiles say ("No limit", "Not known yet") with the reason.
+                // A balance below zero shows its words, never a negative figure (runway.ts).
+                runwayMonths={runwayFigure(financeQ.data)}
+                // Without a figure the chip says what Home's tiles say ("No limit", "Not known yet", "Cash is below
+                // zero") with the reason.
                 runwayWords={runwayWords(financeQ.data)}
                 // A cash figure only when a bank account backs it (no account reads "Not known yet", never "Cash £0").
                 cash={financeQ.data && financeQ.data.cash.accounts > 0 ? { amountMinor: financeQ.data.cash.amountMinor, currency: financeQ.data.cash.currency } : undefined}
@@ -673,6 +766,8 @@ function ShellInner({ businessId, initialBusiness, initialDepartments, viewer, c
                 data-business-id={businessId}
               >
                 {stopAllError ? <p className="sr-only" role="alert">{stopAllError}</p> : null}
+                {/* The first-Continue callout, anchored to the top bar's button (ContinueButton marks it data-coachmark="continue"); in the Example frame the Start-your-own one, anchored to its button (data-coachmark="start-your-own"). */}
+                {frame.callout ? <Callout tourId={frame.callout.tourId} targetId={frame.callout.targetId} title={frame.callout.title} body={frame.callout.body} side="bottom" /> : null}
                 <AgentDeskHost apiRef={deskApi}>{children}</AgentDeskHost>
               </AppShell>
             </ShellLinkProvider>
@@ -681,5 +776,6 @@ function ShellInner({ businessId, initialBusiness, initialDepartments, viewer, c
         </ModuleEnvProvider>
       </WidgetDataHost>
     </BusinessProvider>
+    </GuidanceTermsProvider>
   );
 }

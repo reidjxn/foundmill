@@ -30,7 +30,7 @@ describe("agent voice (audit-conversation §3)", () => {
     expect(voiceRegister("lead", getTemplate("finance_lead").instructions.tone)).toBe("numerate");
     expect(voiceRegister("lead", getTemplate("operations_lead").instructions.tone)).toBe("practical");
     expect(voiceRegister("utility", "Silent. JSON only.")).toBe("silent");
-    expect(getTemplate("backend_engineer").voice.thinking).toContain("Checking the branch…");
+    expect(getTemplate("backend_engineer").voice.thinking).toContain("Checking my changes…");
     expect(chiefOfStaff.voice.thinking).toContain("Looking across the team…");
     expect(getTemplate("backend_engineer").voice).not.toEqual(chiefOfStaff.voice);
     expect(DEFAULT_VOICE.greeting.length).toBeGreaterThan(2);

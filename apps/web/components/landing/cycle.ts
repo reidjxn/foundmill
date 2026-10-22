@@ -57,7 +57,8 @@ export function initialCycleState(business: ExampleBusiness): CycleState {
     current: null,
     pressed: false,
     inbox: [
-      { id: `note-${start}`, title: `Cycle ${start} note`, detail: `${t.tasks} tasks done across ${t.departments} departments, ${t.prs} pull requests merged.`, from: business.chief, tone: "note" },
+      // plain-allow: "cycle" is defined where these lines show (CycleDeck's <Term id="cycle">).
+      { id: `note-${start}`, title: `Cycle ${start} note`, detail: `${t.tasks} tasks done across ${t.departments} departments, ${t.prs} code changes checked in.`, from: business.chief, tone: "note" },
       { id: "decided-earlier", title: earlier.title, detail: earlier.detail, from: earlier.from, tone: "decided" },
     ],
   };
@@ -77,6 +78,7 @@ export function cycleReducer(business: ExampleBusiness, state: CycleState, actio
       const t = cycleTasks(state.cycle);
       // Two lines in the deck's Inbox column, so the customer's name is never cut off.
       const result = outcome.kind === "win" ? `New customer: ${outcome.customer}.` : "1 decision for you.";
+      // plain-allow: "cycle" is defined where these lines show (CycleDeck's <Term id="cycle">).
       const note: InboxItem = { id: `note-${state.cycle}`, title: `Cycle ${state.cycle} note`, detail: `${t.tasks} tasks done across ${t.departments} departments. ${result}`, from: business.chief, tone: "note" };
       return { ...state, phase: outcome.kind, current: outcome, next: state.next + 1, inbox: push(state.inbox, note) };
     }
@@ -95,6 +97,7 @@ export function cycleReducer(business: ExampleBusiness, state: CycleState, actio
     }
     case "stopAll": {
       if (state.phase !== "processing") return state;
+      // plain-allow: "cycle" is defined where these lines show (CycleDeck's <Term id="cycle">).
       const item: InboxItem = { id: `stopped-${state.cycle}`, title: `You stopped cycle ${state.cycle}`, detail: "Every agent paused where it was. Continue picks up from there.", from: business.chief, tone: "note" };
       return { ...state, phase: "idle", cycle: state.cycle - 1, inbox: push(state.inbox, item) };
     }
@@ -119,12 +122,15 @@ export function continueStateFor(state: CycleState): ContinueState {
 export function cycleStatusText(state: CycleState): string {
   switch (state.phase) {
     case "idle":
+      // plain-allow: "cycle" is defined where these lines show (CycleDeck's <Term id="cycle">).
       return `Ready for cycle ${state.cycle + 1}`;
     case "processing":
+      // plain-allow: "cycle" is defined where these lines show (CycleDeck's <Term id="cycle">).
       return `Cycle ${state.cycle} running · ${cycleTasks(state.cycle).tasks} tasks across ${cycleTasks(state.cycle).departments} departments`;
     case "decision":
       return "One decision is waiting for you";
     case "win":
+      // plain-allow: "cycle" is defined where these lines show (CycleDeck's <Term id="cycle">).
       return "A customer was won this cycle";
   }
 }

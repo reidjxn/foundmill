@@ -472,6 +472,11 @@
   inherits: false;
 }
 
+/* The Explainer's columns (guidance/Explainer.tsx): as many as fit at --explainer-col each, sharing the rest. */
+@utility grid-cols-explainer {
+  grid-template-columns: repeat(auto-fit, minmax(var(--explainer-col), 1fr));
+}
+
 /* Duration utilities for the named token durations → duration-press, duration-hover, duration-overlay, duration-slide,
    duration-view, duration-pulse, duration-draw, duration-shimmer, duration-breathe; aliases duration-micro (= hover),
    duration-hover-card and duration-panel (= overlay), duration-ribbon (= draw). */
@@ -522,7 +527,9 @@
     background-color: var(--canvas);
     color: var(--text-1);
     font-family: var(--font-body);
-    font-size: var(--fs-body);
+    /* The rem base (13 px) is its own token: comfortable text (data-text="comfortable") grows the body type on
+       <body> below without moving rem-based spacing, control heights or the shell's structure. */
+    font-size: var(--fs-root);
     line-height: var(--lh-body);
     font-weight: var(--fw-body);
     -webkit-font-smoothing: antialiased;
@@ -539,6 +546,8 @@
       radial-gradient(1200px 420px at 50% -120px, color-mix(in oklab, var(--kit-lift) 7%, transparent), transparent 70%) no-repeat,
       var(--canvas);
     color: var(--text-1);
+    font-size: var(--fs-body);
+    line-height: var(--lh-body);
     overflow-x: hidden;
   }
   ::selection {
@@ -841,6 +850,37 @@
 /* An unverified mention: dotted, so it never reads as a verified link. */
 @utility entity-link-dotted {
   text-decoration-style: dotted;
+}
+/* A defined word (guidance `Term`, UX plan §6.2): the text's own colour with the entity link's geometry (1 px at 40 %,
+   offset 0.24em) drawn dotted, so "dotted = something to learn, not a link" while dashed keeps meaning "not measured".
+   Full strength on hover, keyboard focus and while its definition card is open. A help cursor, never a pointer: the
+   word is not a link. */
+@utility term-link {
+  appearance: none;
+  background: none;
+  border: 0;
+  padding: 0;
+  margin: 0;
+  font: inherit;
+  text-align: inherit;
+  color: inherit;
+  cursor: help;
+  text-decoration-line: underline;
+  text-decoration-style: dotted;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 0.24em;
+  text-decoration-color: color-mix(in oklab, currentColor 40%, transparent);
+  text-decoration-skip-ink: auto;
+  border-radius: 2px;
+  transition: text-decoration-color var(--dur-hover) var(--ease-out);
+  &:hover,
+  &:focus-visible,
+  &[data-state="open"] {
+    color: inherit;
+    text-decoration-line: underline;
+    text-decoration-style: dotted;
+    text-decoration-color: currentColor;
+  }
 }
 
 /* ---------- Surfaces ---------- */

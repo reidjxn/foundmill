@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { EVENT_TYPES, isPersonAddressedEvent, PERSON_ADDRESSED_EVENT_TYPES, ValidationError } from "@foundmill/shared";
+import { EVENT_TYPES, GUIDANCE_EVENT_TYPES, isPersonAddressedEvent, PERSON_ADDRESSED_EVENT_TYPES, ValidationError } from "@foundmill/shared";
 import {
   DECLARED_EVENT_TYPES,
   EVENTS,
@@ -188,6 +188,25 @@ describe("event catalogue", () => {
     expect(bad({ subject: "" })).toThrow(ValidationError);
     expect(bad({ body: "x".repeat(4001) })).toThrow(ValidationError);
     expect(bad({ toAgentId: "not-an-id" })).toThrow(ValidationError);
+  });
+
+  it("guidance.*: the guided layer's product signals, for metrics only, never narrated (UX plan §11)", () => {
+    for (const t of GUIDANCE_EVENT_TYPES) {
+      expect(EVENTS[t].narratable, t).toBe(false);
+      expect(EVENTS[t].consumers, t).toEqual(["metrics"]);
+    }
+    // Tours by id, with the step a founder left on.
+    expect(parsePayload("guidance.tour_skipped", { tourId: "inbox", atStep: 2, steps: 4 })).toEqual({ tourId: "inbox", atStep: 2, steps: 4 });
+    expect(() => parsePayload("guidance.tour_completed", { tourId: "", steps: 4 })).toThrow(ValidationError);
+    expect(() => parsePayload("guidance.tour_skipped", { tourId: "home", atStep: 0, steps: 4 })).toThrow(ValidationError);
+    // A term by its TERMS id, never by the display word a glossary may rename; the screen defaults to null.
+    expect(parsePayload("guidance.term_opened", { termId: "net_burn" })).toEqual({ termId: "net_burn", screenId: null });
+    expect(() => parsePayload("guidance.term_opened", { termId: "Net burn" })).toThrow(ValidationError);
+    expect(parsePayload("guidance.explainer_dismissed", { screenId: "finance/runway" })).toEqual({ screenId: "finance/runway" });
+    // The switch: where it was flipped and how far the founder had come; counts never negative.
+    expect(parsePayload("guidance.turned_off", { from: "tour", toursDone: 1, explainersSeen: 0 })).toEqual({ from: "tour", toursDone: 1, explainersSeen: 0 });
+    expect(() => parsePayload("guidance.turned_off", { from: "profile", toursDone: 0, explainersSeen: 0 })).toThrow(ValidationError);
+    expect(() => parsePayload("guidance.turned_off", { from: "settings", toursDone: -1, explainersSeen: 0 })).toThrow(ValidationError);
   });
 
   it("declareEvent refuses a type outside EVENT_TYPES at runtime", () => {

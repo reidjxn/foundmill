@@ -32,6 +32,26 @@ describe("EntityScreen", () => {
     expect(fake.queried.get("crm.roles.byRole")).toEqual({ role: "officer", limit: 200 });
   });
 
+  it("guidance on: the department's intro sits in the Legal entity panel, above the facts or the empty state, and Jurisdiction is defined (UX plan §7.10, §7.16)", () => {
+    const fake = createFakeSource({ businessId: BID, responses: dataResponses });
+    const { unmount } = renderScreen(fake, <EntityScreen {...props} />, {}, { guidance: "on" });
+    const facts = screen.getByRole("region", { name: "Legal entity" });
+    const explainer = facts.querySelector("[data-explainer='legal/entity']") as HTMLElement;
+    expect(within(explainer).getByText("The company itself: where it is registered, what it must file, what it has signed.")).toBeTruthy();
+    expect(within(explainer).getByText("Information, not legal advice. Signing, filing and paying are always yours.")).toBeTruthy();
+    expect(within(facts).getAllByRole("button", { name: "Jurisdiction" })[0]!.className).toContain("term-link");
+    expect(screen.getByRole("button", { name: /^View: Simple/ })).toBeTruthy();
+    unmount();
+    // Before an entity exists the empty state sits under the intro, never in place of it.
+    const empty = createFakeSource({ businessId: BID, responses: emptyResponses });
+    renderScreen(empty, <EntityScreen {...props} />, {}, { guidance: "on" });
+    const panel = screen.getByRole("region", { name: "Legal entity" });
+    expect(panel.querySelector("[data-explainer='legal/entity']")).toBeTruthy();
+    expect(within(panel).getByText("No legal entity yet")).toBeTruthy();
+    // A Term is a button: it never sits inside a form label (the definition is the Field's help tip instead).
+    expect(document.querySelector("label button")).toBeNull();
+  });
+
   it("opens the CRM from the right-click verb and on Enter", async () => {
     const user = userEvent.setup();
     const fake = createFakeSource({ businessId: BID, responses: dataResponses });

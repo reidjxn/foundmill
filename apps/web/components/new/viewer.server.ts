@@ -10,6 +10,7 @@
 import { serverApi } from "@/lib/trpc-server";
 import { errorMessage, type RouterOutputs } from "@/lib/trpc";
 import { formatNumber } from "@/lib/format";
+import { EXPERIENCE_OPTIONS, TIME_OPTIONS } from "@/components/onboarding/profile-form";
 
 export type FounderProfileGet = RouterOutputs["founder"]["profile"]["get"];
 
@@ -38,17 +39,22 @@ export async function loadStudioViewer(): Promise<StudioViewerResult> {
   }
 }
 
-/** The one-line profile summary shown under studio titles ("First-time founder · full time · EUR 25,000 · EU, UK"). */
+/**
+ * The one-line profile summary shown under studio titles ("First-time founder · evenings and weekends · EUR 25,000 ·
+ * EU, UK"). Experience and time read as the option labels the founder picked (`EXPERIENCE_OPTIONS`, `TIME_OPTIONS`),
+ * never as a humanized key (A16); a key the lists do not know falls back to its words.
+ */
 export function profileLineOf(profile: StudioViewer["profile"]): string | null {
   if (!profile) return null;
   const parts: string[] = [];
-  if (profile.experience) parts.push(humanise(profile.experience));
-  if (profile.timeCommitment) parts.push(humanise(profile.timeCommitment).toLowerCase());
+  if (profile.experience) parts.push(EXPERIENCE_OPTIONS.find((o) => o.value === profile.experience)?.label ?? humanise(profile.experience));
+  if (profile.timeCommitment) parts.push((TIME_OPTIONS.find((o) => o.value === profile.timeCommitment)?.label ?? humanise(profile.timeCommitment)).toLowerCase());
   if (typeof profile.budgetMinor === "number") parts.push(`${profile.currency} ${formatNumber(profile.budgetMinor / 100, { maximumFractionDigits: 0 })}`);
   if (profile.targetMarkets?.length) parts.push(profile.targetMarkets.slice(0, 3).join(", "));
   return parts.length ? parts.join(" · ") : null;
 }
 
+/** Last resort for a stored key the option lists do not know: its words, capitalized. */
 function humanise(key: string): string {
   const s = key.replace(/_/g, " ").replace(/-/g, " ").trim();
   return s ? s[0]!.toUpperCase() + s.slice(1) : s;

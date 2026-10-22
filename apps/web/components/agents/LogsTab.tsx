@@ -9,7 +9,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { Play, ScrollText } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { AGENT_SESSION_EVENT_KINDS, AgentTile, Chip, DataTable, EmptyState, ModelChip, Panel, SessionScrubber, StatusPill, eventsUntil, formatDuration, formatMoney, formatTokens, reduceSessionEvents, useFormatters, type AgentSessionEvent, type DataTableColumn, type SavedView, type ScrubberSpeed, type SessionSeed } from "@foundmill/dugout";
+import { AGENT_SESSION_EVENT_KINDS, AgentTile, Chip, DataTable, EmptyState, ModelChip, Panel, SessionScrubber, StatusPill, Term, eventsUntil, formatDuration, formatMoney, formatTokens, reduceSessionEvents, useFormatters, type AgentSessionEvent, type DataTableColumn, type SavedView, type ScrubberSpeed, type SessionSeed } from "@foundmill/dugout";
 import Link from "next/link";
 import { routes } from "@foundmill/widgets/shared/routes";
 import { useBusiness } from "@/components/shell/business-context";
@@ -127,7 +127,17 @@ export function LogsTab({ businessId, profile }: TabProps) {
 
   return (
     <div className="grid grid-cols-12 gap-gutter p-gutter" data-testid="agent-logs">
-      <Panel title="Sessions" span={12} flush empty={rows.length === 0 ? { icon: ScrollText, children: "Every session this agent runs is listed here with its replay. Sessions start when Continue dispatches a task to it." } : undefined} footer="Click a session to replay it below. Live sessions stream as they run.">
+      <Panel
+        title={<Term id="session">Sessions</Term>}
+        span={12}
+        flush
+        empty={rows.length === 0 ? { icon: ScrollText, children: "Every session this agent runs is listed here with its replay. Sessions start when Continue dispatches a task to it." } : undefined}
+        footer={
+          <span>
+            Click a session to replay it below. Live sessions stream as they run. <Term id="tokens">Tokens</Term> are the units AI usage is metered in; each session's cost is drawn from your <Term id="credits">credits</Term>.
+          </span>
+        }
+      >
         <DataTable<SessionRow> aria-label="Sessions" data={rows} columns={columns} {...savedViews} defaultViewId="recent" onRowClick={(r) => setSelectedId(r.id)} onRowOpen={(r) => setSelectedId(r.id)} selectedIds={selectedId ? [selectedId] : []} height={Math.min(360, Math.max(160, rows.length * 28 + 48))} exportFileName={`${profile.agent.name}-sessions`} className="border-0" />
       </Panel>
       {selected ? <ReplayPanel businessId={businessId} profile={profile} session={selected} taskHref={selected.taskId ? taskPlanHref(businessId, departments, selected.taskId) : undefined} /> : null}

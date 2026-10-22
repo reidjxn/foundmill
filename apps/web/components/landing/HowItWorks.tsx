@@ -1,35 +1,57 @@
 "use client";
 /**
- * How it works: three steps, each shown with the product part it uses. The Ideation Studio's concept cards, the
- * logo and brand colours picker (it works: pick one and the brand bar follows), and the Chief of Staff's cycle plan.
+ * How it works: four steps, each shown with the product part it uses. The Ideation Studio's concept cards, the
+ * logo and brand colours picker (it works: pick one and the brand bar follows), the Chief of Staff's cycle plan, and
+ * day one as it really runs (docs/UX_AUDIT_AND_PLAN.md §7.1): the foundations drafting panel with its authors, the two
+ * sign-off notes tagged Respond in the Inbox, then Continue.
  */
 import { useMemo, useState, type ReactNode } from "react";
-import { Flag, Lightbulb, Play, type LucideIcon } from "lucide-react";
-import { Avatar, BusinessLogo, Chip, ConceptCard, Icon, ProvenanceChip, cn, kitBarGradient, kitStyle, type Kit } from "@foundmill/dugout";
+import { Flag, Lightbulb, LoaderCircle, Play, Sunrise, type LucideIcon } from "lucide-react";
+import { Avatar, AvatarStack, BusinessLogo, Chip, ConceptCard, ContinueButton, DRAFTING_LINE, Icon, ProgressRing, ProvenanceChip, StatusPill, Term, cn, kitBarGradient, kitStyle, type Kit } from "@foundmill/dugout";
+import { NOTE_TAG_ICONS, RESPOND_TAG } from "@foundmill/widgets/shared/note-tags";
 import { useExample } from "./examples/context";
 import { departmentOf, exampleMoney, leadOf } from "./examples/helpers";
 import { Glass, Reveal, Section, SectionHeading } from "./parts";
+
+/** The two notes day one sends, word for word (packages/agents foundations.ts `SPEC_SIGNOFF_SUBJECT`, `ROADMAP_SIGNOFF_SUBJECT`). */
+export const FIRST_DAY_SIGNOFFS = ["Sign off the product specification", "Sign off the product roadmap"] as const;
+/** The drafting panel's title as the app shows it (Dugout `FoundationsStatus`: the heading and its Drafting pill). */
+export const FIRST_DAY_PANEL_TITLE = "Vision, specification and roadmap · Drafting";
+/** One sentence on day one (docs/UX_AUDIT_AND_PLAN.md §7.1). */
+export const FIRST_DAY_SENTENCE = "The team drafts; you sign off; then they build. Nothing is spent until you approve it.";
 
 export function HowItWorks() {
   return (
     <Section id="how">
       <SectionHeading id="how" eyebrow="How it works" title="From an idea to a running business, one cycle at a time." lede="You do not manage prompts. You run a business: set the direction, approve what matters, and let the team carry the rest." />
-      <ol className="grid grid-cols-3 gap-6">
-        <Step n="01" icon={Lightbulb} title="Shape the idea" text="Start from a sentence, or import what already exists: your repository, documents, trackers, revenue and company registry. Concepts are drafted around your skills, time and money, and rated for fit." delay={0}>
+      {/* Two by two: each step's product part keeps the width it has in the app (a concept card, the brand picker). */}
+      <ol className="grid grid-cols-2 gap-6">
+        <Step n="01" icon={Lightbulb} title="Shape the idea" text={
+            <>
+              Start from a sentence, or import what already exists: your <Term id="repository">repository</Term>, documents, trackers, revenue and company registry. Concepts are drafted around your skills, time and money, and rated for <Term id="fit">fit</Term>.
+            </>
+          } delay={0}>
           <ConceptStack />
         </Step>
         <Step n="02" icon={Flag} title="Make it yours" text="Name it, choose a logo and brand colors, and decide how hands-on you want to be. Committing creates the departments, hires the team and drafts the first roadmap." delay={90}>
           <BrandPicker />
         </Step>
-        <Step n="03" icon={Play} title="Press Continue" text="Each cycle the Chief of Staff plans the work, agents do it in sandboxes, and your Inbox gets a short note with anything that needs your decision." delay={180}>
+        <Step n="03" icon={Play} title="Press Continue" text={
+            <>
+              Each <Term id="cycle">cycle</Term> the <Term id="chief_of_staff">Chief of Staff</Term> plans the work, agents do it in <Term id="sandbox">sandboxes</Term>, and your Inbox gets a short note with anything that needs your decision.
+            </>
+          } delay={180}>
           <CyclePlan />
+        </Step>
+        <Step n="04" icon={Sunrise} title="Your first day" text={FIRST_DAY_SENTENCE} delay={270}>
+          <FirstDay />
         </Step>
       </ol>
     </Section>
   );
 }
 
-function Step({ n, icon, title, text, children, delay }: { n: string; icon: LucideIcon; title: string; text: string; children: ReactNode; delay: number }) {
+function Step({ n, icon, title, text, children, delay }: { n: string; icon: LucideIcon; title: string; text: ReactNode; children: ReactNode; delay: number }) {
   return (
     <Reveal as="li" delay={delay}>
       <Glass className="flex h-full flex-col overflow-hidden">
@@ -46,7 +68,9 @@ function Step({ n, icon, title, text, children, delay }: { n: string; icon: Luci
             </span>
             <span className="t-label tabular-nums">Step {n}</span>
           </span>
-          <h3 className="t-display-md text-primary">{title}</h3>
+          <h3 className="t-display-md text-primary" data-testid="step-title">
+            {title}
+          </h3>
           <p className="text-body text-secondary">{text}</p>
         </div>
       </Glass>
@@ -154,6 +178,69 @@ function CyclePlan() {
         </span>
         <ProvenanceChip kind="estimate" />
       </span>
+    </div>
+  );
+}
+
+/**
+ * Day one, in the order it happens (docs/UX_AUDIT_AND_PLAN.md §7.1; the founder's decision of Oct 20, 2026 keeps the
+ * first Continue red until both notes are answered): the foundations drafting panel as Home shows it, with the agents
+ * writing it named; the two sign-off notes in the Inbox, each tagged Respond with the product's own tag; then Continue,
+ * which starts the building. It is the sequence, not the deck: nothing here is pressed, so Continue is inert.
+ */
+function FirstDay() {
+  const business = useExample();
+  // The Product lead writes the foundations (packages/agents foundations.ts); the Chief of Staff plans the first cycle.
+  const product = business.leads.find((l) => departmentOf(business, l.department).module === "product") ?? business.leads[0]!;
+  const dept = departmentOf(business, product.department).dept;
+  const chief = business.chief;
+  const planned = business.howItWorks.firstCyclePlan.reduce((s, p) => s + p.tasks, 0);
+  return (
+    <div className="flex size-full flex-col gap-2.5 p-4">
+      <section aria-label={FIRST_DAY_PANEL_TITLE} className="flex flex-col rounded-panel border border-subtle bg-panel/80">
+        <div className="flex h-panel-header items-center gap-2 border-b border-subtle px-3">
+          <span className="t-title text-primary">
+            Vision, <Term id="specification">specification</Term> and roadmap
+          </span>
+          <span className="flex-1" />
+          <StatusPill tone="info" icon={LoaderCircle} pulse>
+            Drafting
+          </StatusPill>
+        </div>
+        <div className="flex items-start gap-3 px-3 py-2.5">
+          <span className="mt-0.5 shrink-0" aria-hidden>
+            <ProgressRing indeterminate size={20} strokeWidth={2} tone="kit" label="Drafting" />
+          </span>
+          <div className="flex min-w-0 flex-1 flex-col gap-1.5">
+            <p className="t-body-strong text-primary">{DRAFTING_LINE}</p>
+            <p className="flex items-start gap-2 text-small text-secondary">
+              <AvatarStack size={20} className="mt-px shrink-0" items={[{ name: product.name, agent: { seed: product.seed, dept } }, { name: chief.name, agent: { seed: chief.seed, dept: chief.dept } }]} />
+              <span>
+                {product.name}, {product.role}, writes it from your idea and your profile. {chief.name}, Chief of Staff, plans the first cycle from the roadmap.
+              </span>
+            </p>
+          </div>
+        </div>
+      </section>
+      <ul aria-label="Inbox" className="flex flex-col rounded-panel border border-subtle bg-panel/80">
+        {FIRST_DAY_SIGNOFFS.map((subject) => (
+          <li key={subject} className="flex items-center gap-2.5 border-b border-subtle/50 px-3 py-2 last:border-b-0">
+            <Avatar size={24} name={product.name} agent={{ seed: product.seed, dept }} />
+            <span className="t-body-strong min-w-0 flex-1 text-primary">{subject}</span>
+            <Chip tone={RESPOND_TAG.tone} icon={NOTE_TAG_ICONS[RESPOND_TAG.icon]} className="h-badge shrink-0">
+              {RESPOND_TAG.word}
+            </Chip>
+          </li>
+        ))}
+      </ul>
+      <div className="mt-auto flex items-center gap-3">
+        <span className="sr-only">Then press Continue.</span>
+        {/* The product's own button, shown and not pressable: the deck above is where a visitor presses it. */}
+        <span inert className="inline-flex">
+          <ContinueButton state={{ kind: "idle" }} />
+        </span>
+        <span className="text-small text-secondary tabular-nums">Building starts: {planned} tasks planned</span>
+      </div>
     </div>
   );
 }

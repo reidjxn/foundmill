@@ -2,13 +2,13 @@
 /**
  * Legal › Incorporate (BUILD §11.11): the jurisdiction recommender ("For your business, we recommend X or Y" with up
  * to six cards stamped with the date checked, always captioned "Information, not legal or tax advice"), the route
- * chooser (Stripe Atlas / Companies House / document pack) that starts the supervised session, and the session panel with the
- * workflow's status steps. The final review, submit and payment are founder-only buttons that only open the external
+ * chooser (Stripe Atlas / Companies House / document pack) whose "Prepare the paperwork" starts the supervised session,
+ * and the Progress panel with the workflow's status steps. The final review, submit and payment are founder-only buttons that only open the external
  * page (AC-11.11.4); "I submitted" records the founder's click.
  */
 import { useId, useMemo, useState } from "react";
 import { Building2, Check, CheckCircle2, Circle, CircleDashed, Compass, FileStack, Landmark, MonitorPlay, Play, Send, UserRound, XCircle } from "lucide-react";
-import { Button, Chip, Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, Field, Input, Panel, ProvenanceChip, RadioCard, RadioGroup, SimpleSelect, StarRating, Timeline, cn, useFormatters, type IconComponent, type TimelineEvent } from "@foundmill/dugout";
+import { Button, Chip, Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, Field, Input, Panel, ProvenanceChip, RadioCard, RadioGroup, SimpleSelect, StarRating, Timeline, cn, useFormatters, useTerm, type IconComponent, type TimelineEvent } from "@foundmill/dugout";
 import { INCORPORATION_ROUTES, type IncorporationRoute } from "@foundmill/shared/constants";
 import { routes } from "@foundmill/widgets/shared/routes";
 import { useWidgetData } from "@foundmill/widgets/data";
@@ -114,6 +114,8 @@ export function IncorporateScreen({ businessId }: ModuleScreenProps) {
   const currency = useCurrency();
   const { navigate } = useWidgetData();
   const id = useId();
+  // A Term renders a button, which must not sit inside the <label>: the definition goes in the Field's help tip.
+  const jurisdictionTerm = useTerm("jurisdiction");
   const status = useLegalStatus();
   const recommend = useAction();
   const start = useAction();
@@ -204,6 +206,7 @@ export function IncorporateScreen({ businessId }: ModuleScreenProps) {
     <Screen name="legal/incorporate">
       <Panel
         title="Where to incorporate"
+        help="The jurisdiction is the country or state whose law the company lives under; it sets what you file, what you pay and who can invest."
         span={12}
         actions={<InformationNotice />}
         footer={
@@ -273,7 +276,7 @@ export function IncorporateScreen({ businessId }: ModuleScreenProps) {
             })}
           </RadioGroup>
           <div className="grid grid-cols-2 gap-3">
-            <Field htmlFor={`${id}-jur`} label="Jurisdiction">
+            <Field htmlFor={`${id}-jur`} label="Jurisdiction" help={jurisdictionTerm?.short} helpLearn={jurisdictionTerm?.learn}>
               <Input id={`${id}-jur`} value={jurisdiction} onChange={(e) => onJurisdiction(e.target.value)} disabled={active} maxLength={40} />
             </Field>
             <Field htmlFor={`${id}-type`} label="Entity type" hint={ROUTE_META[route].entityTypes.join(" / ")}>
@@ -283,25 +286,26 @@ export function IncorporateScreen({ businessId }: ModuleScreenProps) {
           <Field htmlFor={`${id}-name`} label="Legal name" hint="As it will appear on the register">
             <Input id={`${id}-name`} value={legalName} onChange={(e) => setLegalName(e.target.value)} disabled={active} maxLength={200} placeholder={entity?.legalName ?? "Northwind Skincare, Inc."} />
           </Field>
+          {/* What the button does comes before the button (UX plan §7.16, C17). */}
+          <p className="t-small text-secondary">Preparing the paperwork only drafts the documents. You sign in, verify your identity, review, submit and pay yourself; the team never handles passwords, identity documents or CAPTCHAs.</p>
           <div className="flex items-center gap-2">
             <Button type="submit" variant="primary" icon={Landmark} disabled={!canStart} loading={start.pending !== null}>
-              Start supervised session
+              Prepare the paperwork
             </Button>
             {active ? <Chip tone="info">An incorporation is in progress</Chip> : null}
             {!active && entity && entity.status === "active" ? <span className="t-small text-secondary">{entity.legalName} is already registered; start another only for a new company.</span> : null}
           </div>
           <InlineError error={start.error} />
-          <p className="t-small text-secondary">Starting prepares documents only. You sign in, verify your identity, review, submit and pay yourself; the team never handles passwords, identity documents or CAPTCHAs.</p>
         </form>
       </Panel>
 
       <Panel
-        title="Supervised session"
+        title="Progress"
         span={8}
         loading={status.isLoading}
         error={status.error ? status.error.message : undefined}
         onRetry={status.refetch}
-        empty={!status.isLoading && !incorporation ? { icon: MonitorPlay, children: "Start a route on the left; the session's steps, the live view and your takeover button appear here." } : undefined}
+        empty={!status.isLoading && !incorporation ? { icon: MonitorPlay, children: "Choose a route on the left and prepare the paperwork; the steps, the live view and your takeover button appear here." } : undefined}
         actions={incorporation ? <Pill {...INCORPORATION_PILL[incorporation.status]} /> : undefined}
         footer={incorporation ? <span>{routeMeta.who}</span> : undefined}
       >

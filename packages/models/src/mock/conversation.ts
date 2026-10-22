@@ -271,7 +271,7 @@ function answer(question: string, s: SubjectIn, task: TaskIn | null, next: TaskI
   }
   if (/\bnext\b/.test(q)) {
     if (next) return { bubbles: [`Next is ${next.title}.`, task ? `I'll start it once ${task.title} is done.` : "I can start it when you're ready."], reaction: "noted", missing: false };
-    return { bubbles: [task ? `Finishing ${task.title} first.` : "Nothing is queued for me yet.", "The next task comes from the plan for the cycle."], reaction: "noted", missing: false };
+    return { bubbles: [task ? `Finishing ${task.title} first.` : "Nothing is queued for me yet.", "The next task comes from the team's plan when you press Continue."], reaction: "noted", missing: false };
   }
   if (/\bhow'?s\b|\bhow\s+is\b|\bgoing\b|progress|status|where\s+are\s+you|working\s+on|up\s+to/.test(q)) {
     if (task) {

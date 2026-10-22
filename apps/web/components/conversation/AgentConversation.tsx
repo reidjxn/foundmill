@@ -48,6 +48,7 @@ import {
   sayOf,
   streamingIdOf,
   voiceAck,
+  withChoiceSublines,
   withPlanId,
   withSent,
   withoutChoices,
@@ -518,7 +519,8 @@ export const AgentConversation = forwardRef<AgentConversationHandle, AgentConver
     const ids = new Set(deskMessagesOf(view, alias.current).map((m) => m.id));
     setLocal((l) => (l.some((m) => ids.has(m.id)) ? l.filter((m) => !ids.has(m.id)) : l));
   }, [view]);
-  const starters = useMemo(() => (view ? (decided ? view.starters.filter((q) => q.kind !== "choose_option") : view.starters) : []), [view, decided]);
+  // The starters carry their sublines too ("This answers the note" on Go with, the pause consequence on Take a break).
+  const starters = useMemo(() => (view ? withChoiceSublines(decided ? view.starters.filter((q) => q.kind !== "choose_option") : view.starters) : []), [view, decided]);
   // Decided from the DecisionBar (or another tab): the server's view drops "Go with" too, so read it again once.
   useEffect(() => {
     if (decided) void queryClient.invalidateQueries({ queryKey: key });

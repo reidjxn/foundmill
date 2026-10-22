@@ -1,13 +1,14 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
-import { act, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { GuidanceProvider } from "../guidance/GuidanceProvider";
 import { GridCell, PageGrid, snapSpan, spanClass } from "./PageGrid";
 import { Panel } from "./Panel";
 import { preloadPanelMenu } from "./PanelMenuButton";
 import { ProcessingStrip, processingStatusText, segmentState } from "./ProcessingStrip";
-import { RUNWAY_UNKNOWN_WORDS, RunwayChip, formatRunway, runwayTone } from "./RunwayChip";
+import { RUNWAY_TOOLTIP_LEAD, RUNWAY_UNKNOWN_WORDS, RunwayChip, formatRunway, runwayTone, runwayTooltipLead, runwayTooltipLines } from "./RunwayChip";
 import { RightRail } from "./RightRail";
 import { NORTHWIND_SEGMENTS } from "./fixtures";
 
@@ -115,6 +116,43 @@ describe("Panel", () => {
     expect(screen.getByText("Aug 6 – Nov 8, 2026").className).toContain("t-mono");
   });
 
+  it("carries a help tip after the meta, named for the panel, that hides when guidance is off", async () => {
+    const { rerender } = render(
+      <Panel title="Cash and runway" meta="Last 30 days" help="How long the money lasts at today's spending.">
+        x
+      </Panel>,
+    );
+    const tip = screen.getByRole("button", { name: "About Cash and runway" });
+    const header = screen.getByRole("region", { name: "Cash and runway" }).querySelector("[data-panel-header]")!;
+    expect(header.contains(tip)).toBe(true);
+    expect(screen.getByText("Last 30 days").nextElementSibling).toBe(tip);
+    // Focus opens the tip only when a key brought it (guidance/keyboardFocus.ts): the Tab, then the focus it causes.
+    fireEvent.keyDown(document.body, { key: "Tab" });
+    tip.focus();
+    expect((await screen.findByRole("tooltip")).textContent).toContain("How long the money lasts");
+    rerender(
+      <GuidanceProvider value={{ guidance: "off" }}>
+        <Panel title="Cash and runway" help="How long the money lasts at today's spending.">
+          x
+        </Panel>
+      </GuidanceProvider>,
+    );
+    expect(screen.queryByRole("button", { name: "About Cash and runway" })).toBeNull();
+    rerender(
+      <Panel title={<span>Cash</span>} help="A sentence.">
+        x
+      </Panel>,
+    );
+    expect(screen.getByRole("button", { name: "About this panel" })).toBeTruthy();
+    // A node title (a Term) names its tip through helpLabel.
+    rerender(
+      <Panel title={<span>Autopilot</span>} helpLabel="Autopilot" help="A sentence.">
+        x
+      </Panel>,
+    );
+    expect(screen.getByRole("button", { name: "About Autopilot" })).toBeTruthy();
+  });
+
   it("lights the panel from its corner in a department colour or the brand", () => {
     const { rerender } = render(<Panel title="Product" glow="dept-1">x</Panel>);
     let section = screen.getByRole("region", { name: "Product" });
@@ -152,7 +190,10 @@ describe("PageGrid", () => {
 describe("ProcessingStrip", () => {
   it("reports the working departments and shimmers only when active", () => {
     expect(processingStatusText(NORTHWIND_SEGMENTS, false)).toBe("No cycle running");
-    expect(processingStatusText(NORTHWIND_SEGMENTS, true)).toBe("Cycle running: Product, Formulation Lab, Distribution, Operations");
+    expect(processingStatusText(NORTHWIND_SEGMENTS, true)).toBe("Product, Formulation Lab, Distribution and Operations are working");
+    expect(processingStatusText(NORTHWIND_SEGMENTS, true, 3)).toBe("Product, Formulation Lab, Distribution and Operations are working on cycle 3");
+    expect(processingStatusText(NORTHWIND_SEGMENTS.slice(0, 1), true, 3)).toBe("Product is working on cycle 3");
+    expect(processingStatusText(NORTHWIND_SEGMENTS.map((s) => ({ ...s, active: false })), true, 2)).toBe("The team is working on cycle 2");
     const { rerender } = render(<ProcessingStrip segments={NORTHWIND_SEGMENTS} active />);
     const strip = screen.getByRole("status");
     expect(strip.getAttribute("aria-label")).toContain("Formulation Lab");
@@ -170,6 +211,12 @@ describe("ProcessingStrip", () => {
 });
 
 describe("RunwayChip", () => {
+  it("leads its tooltip with the definitions map's sentence for runway, or the built-in line outside the app", () => {
+    expect(runwayTooltipLead(undefined)).toBe(RUNWAY_TOOLTIP_LEAD);
+    expect(runwayTooltipLead({ word: "Runway", short: "How many months your cash lasts at today's spending." })).toBe("Runway: how many months your cash lasts at today's spending");
+    expect(runwayTooltipLines({ runwayMonths: 11, lead: "Runway: x" })[0]).toBe("Runway: x");
+    expect(runwayTooltipLines({ runwayMonths: 11 })[0]).toBe(RUNWAY_TOOLTIP_LEAD);
+  });
   it("follows the runway horizon rule and labels the estimate", () => {
     expect(runwayTone(12)).toBe("neutral");
     expect(runwayTone(8.9)).toBe("warn");

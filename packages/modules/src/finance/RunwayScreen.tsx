@@ -3,16 +3,21 @@
  * Finance › Runway (BUILD §11.8): the driver-based forecast in Base, Upside and Downside scenarios, every value
  * captioned Forecast; drivers are edited here and saved as a new forecast version through `finance.forecast.update`
  * (which also raises the runway threshold events); warnings at 12, 9 and 6 months, red and blocking under 3.
+ *
+ * "Show me an example" on the Drivers panel (UX plan §6.2 ExampleToggle, Phase 3) fills the driver form with an
+ * example scenario (`EXAMPLE_DRIVERS`) inside the dashed Example frame, with the runway those drivers give under it;
+ * the real drafts, the chart and the warnings are untouched, Save and Reset wait, and "Hide the example" shows the
+ * real values again. Guidance off: no toggle, no example.
  */
 import { useEffect, useId, useMemo, useState } from "react";
 import { AlertTriangle, HelpCircle, Inbox, Save, TrendingUp, Undo2 } from "lucide-react";
-import { Button, Chip, Field, Input, KeyValueList, LineChart, MoneyInput, Panel, ProvenanceChip, SegmentedControl, StatusPill, useFormatters, type LineSeries, type SeriesTone } from "@foundmill/dugout";
+import { Button, Chip, ExampleFrame, ExampleToggle, Field, Input, KeyValueList, LineChart, MoneyInput, Panel, ProvenanceChip, SegmentedControl, StatusPill, Term, useFormatters, useGuided, type LineSeries, type SeriesTone } from "@foundmill/dugout";
 import { routes } from "@foundmill/widgets/shared/routes";
 import { useWidgetData, useWidgetQuery } from "@foundmill/widgets/data";
 import { usePinToHomeMenu } from "@foundmill/widgets/shared/pin";
 import type { ModuleScreenProps } from "../registry";
 import { FORECAST_SCENARIOS, type FinanceOverview, type ForecastDrivers, type ForecastRow, type ForecastScenario, type PnlResponse } from "./types";
-import { runwayWords } from "@foundmill/widgets/shared/runway";
+import { runwayFigure, runwayWords } from "@foundmill/widgets/shared/runway";
 import { RUNWAY_BLOCK_MONTHS, driversHint, forecastStartMonth, formatMonth, monthKey, monthStart, pnlTotals, projectForecast, readDrivers, runwayTone, runwayWarnings, runwayWord, scenarioRunway, seedDrivers, type ScenarioRunway } from "./metrics";
 import { InlineError, Screen, fmtAxisMoney, fmtMoney, fmtMonths, parseAmount, toDate, useAction, useCurrency, useNow } from "./shared";
 
@@ -32,7 +37,8 @@ export function scenarioHint(scenario: ForecastScenario, drivers: ForecastDriver
 export function runwayText(r: ScenarioRunway): { pill: string; tone: "good" | "warn" | "bad" | "neutral"; figure: string; caption: string | null } {
   switch (r.kind) {
     case "unknown":
-      return { pill: "Runway not known yet", tone: "neutral", figure: r.value, caption: r.caption };
+      // A balance below zero is not unknown: the figure's words are the judgment, so the pill repeats them, in red.
+      return r.value === "Cash is below zero" ? { pill: r.value, tone: "bad", figure: r.value, caption: r.caption } : { pill: "Runway not known yet", tone: "neutral", figure: r.value, caption: r.caption };
     case "months":
       return { pill: runwayWord(r.months), tone: runwayTone(r.months), figure: fmtMonths(r.months), caption: null };
     case "no_limit":
@@ -50,6 +56,16 @@ export const DRIVER_FIELDS: readonly { key: keyof ForecastDrivers; label: string
   { key: "costGrowthPct", label: "Cost growth", kind: "percent", hint: "Month on month" },
   { key: "horizonMonths", label: "Horizon", kind: "months", hint: "Projected, 1 to 60" },
 ];
+
+/**
+ * The example scenario "Show me an example" fills the drivers with (UX plan §6.2, Phase 3), in the business's own
+ * currency: 30,000 in the bank, 4,000 a month coming in and growing 5%, 7,500 a month going out and growing 1%, over
+ * 24 months. Cash lasts about eleven months, so the 12-month warning has something to point at. Never saved.
+ */
+export const EXAMPLE_DRIVERS: ForecastDrivers = { startingCashMinor: 3_000_000, monthlyRevenueMinor: 400_000, revenueGrowthPct: 5, monthlyCostsMinor: 750_000, costGrowthPct: 1, horizonMonths: 24 };
+
+/** Under the example's form: the example is a lesson, not a forecast of this business. */
+export const EXAMPLE_DRIVERS_LINE = "An example is never saved. Hide it to get your own drivers back.";
 
 /** Latest stored forecast per scenario (the list is ordered scenario asc, createdAt desc). */
 export function latestByScenario(rows: readonly ForecastRow[] | undefined): Partial<Record<ForecastScenario, ForecastRow>> {
@@ -114,16 +130,23 @@ export function RunwayScreen({ businessId }: ModuleScreenProps) {
   const stored = useMemo(() => latestByScenario(list.data), [list.data]);
   const storedDrivers = useMemo(() => Object.fromEntries(FORECAST_SCENARIOS.map((s) => [s, readDrivers(stored[s]?.drivers, seedDrivers(s, seeds))])) as Record<ForecastScenario, ForecastDrivers>, [stored, seeds]);
   // Without a bank (or with too little history) there is nothing to seed drivers from: runway is "Not known yet",
-  // the same words as Home's status strip, until the founder saves or types a forecast of their own.
+  // the same words as Home's status strip, until the founder saves or types a forecast of their own. A balance below
+  // zero has no runway to count either ("Cash is below zero"): `runwayFigure` is null, and the words stand in.
   const unknownRunway = useMemo(() => {
     const words = runwayWords(overview.data);
-    return words && words.value !== "No limit" ? words : null;
+    return words && runwayFigure(overview.data) === null && words.value !== "No limit" ? words : null;
   }, [overview.data]);
 
   const [drafts, setDrafts] = useState<Record<ForecastScenario, ForecastDrivers>>(storedDrivers);
   const [dirty, setDirty] = useState<Set<ForecastScenario>>(new Set());
   const [typing, setTyping] = useState<FieldText>({});
   const [scenario, setScenario] = useState<ForecastScenario>("base");
+  // The example scenario in the driver form (UX plan §6.2): tutoring, so in only while guidance is on. The drafts,
+  // the chart and the warnings never read it; hiding it shows the real values again, untouched.
+  const guided = useGuided();
+  const [example, setExample] = useState(false);
+  const exampleOn = guided && example;
+  const exampleRunway = useMemo<ScenarioRunway>(() => scenarioRunway(projectForecast(EXAMPLE_DRIVERS, thisMonth), EXAMPLE_DRIVERS, null), [thisMonth]);
   useEffect(() => {
     // Stored or seeded drivers replace drafts the founder has not touched.
     setDrafts((d) => Object.fromEntries(FORECAST_SCENARIOS.map((s) => [s, dirty.has(s) ? d[s] : storedDrivers[s]])) as Record<ForecastScenario, ForecastDrivers>);
@@ -207,7 +230,7 @@ export function RunwayScreen({ businessId }: ModuleScreenProps) {
   return (
     <Screen name="finance/runway">
       <Panel
-        title="Cash forecast"
+        title={<>Cash <Term id="forecast" always>forecast</Term></>}
         menu={pinMenu}
         span={8}
         loading={loading}
@@ -222,7 +245,7 @@ export function RunwayScreen({ businessId }: ModuleScreenProps) {
       >
         <LineChart label="Cash forecast by scenario" series={series} height={320} yFormat={(v) => fmtAxisMoney(v, cur)} zeroBased={false} markX={monthStart(now, 0)} markLabel="Now" />
       </Panel>
-      <Panel title="Runway warnings" span={4} loading={loading} error={error ? error.message : undefined} actions={<ProvenanceChip kind="forecast" />} footer={<span>Warnings at 12, 9 and 6 months; under {RUNWAY_BLOCK_MONTHS} months is red and blocks Continue until acknowledged in the Inbox.</span>}>
+      <Panel title={<><Term id="runway">Runway</Term> warnings</>} span={4} loading={loading} error={error ? error.message : undefined} actions={<ProvenanceChip kind="forecast" />} footer={<span>Warnings at 12, 9 and 6 months; under {RUNWAY_BLOCK_MONTHS} months is red and blocks Continue until acknowledged in the Inbox.</span>}>
         <ul className="flex flex-col gap-3" aria-label="Runway by scenario">
           {FORECAST_SCENARIOS.map((s) => {
             const months = projections[s].runwayMonths;
@@ -257,47 +280,64 @@ export function RunwayScreen({ businessId }: ModuleScreenProps) {
       </Panel>
       <Panel
         title="Drivers"
+        help="The figures the forecast is worked out from: change one and the lines above move; save a scenario to keep it."
         span={12}
         loading={loading}
         actions={
-          <SegmentedControl<ForecastScenario>
-            aria-label="Scenario"
-            size="sm"
-            value={scenario}
-            onValueChange={setScenario}
-            options={FORECAST_SCENARIOS.map((s) => ({ value: s, label: dirty.has(s) ? `${SCENARIO_META[s].label} · unsaved` : SCENARIO_META[s].label, title: scenarioHint(s, drafts[s]) }))}
-          />
+          <>
+            <ExampleToggle shown={exampleOn} onToggle={setExample} disabled={Boolean(action.pending)} data-testid="runway-example-toggle" />
+            <SegmentedControl<ForecastScenario>
+              aria-label="Scenario"
+              size="sm"
+              value={scenario}
+              onValueChange={setScenario}
+              options={FORECAST_SCENARIOS.map((s) => ({ value: s, label: dirty.has(s) ? `${SCENARIO_META[s].label} · unsaved` : SCENARIO_META[s].label, title: scenarioHint(s, drafts[s]) }))}
+            />
+          </>
         }
-        footer={<span>{scenarioHint(scenario, draft)} Saving creates a new forecast version; the previous one is kept for the audit trail.</span>}
+        footer={exampleOn ? <span>Example: {driversHint(EXAMPLE_DRIVERS)}. {EXAMPLE_DRIVERS_LINE}</span> : <span>{scenarioHint(scenario, draft)} Saving creates a new forecast version; the previous one is kept for the audit trail.</span>}
       >
         <form
           className="flex flex-col gap-3"
           aria-label={`${SCENARIO_META[scenario].label} drivers`}
+          data-example={exampleOn ? "" : undefined}
           onSubmit={(e) => {
             e.preventDefault();
+            // An example is never saved (the button waits; Enter in a field lands here).
+            if (exampleOn) return;
             void save(scenario);
           }}
         >
-          <div className="grid grid-cols-6 gap-gutter">
-            {DRIVER_FIELDS.map((f) => (
-              <Field key={f.key} htmlFor={`${id}-${scenario}-${f.key}`} label={f.label} hint={f.hint}>
-                {f.kind === "money" ? (
-                  <MoneyInput id={`${id}-${scenario}-${f.key}`} controlSize="lg" currency={cur} value={typing[scenario]?.[f.key] ?? toField(draft, f.key, f.kind)} onValueChange={(raw) => typeDriver(f.key, f.kind, raw)} onBlur={() => clearTyping(scenario, f.key)} />
-                ) : (
-                  <Input id={`${id}-${scenario}-${f.key}`} inputMode={f.kind === "months" ? "numeric" : "decimal"} controlSize="lg" className="tabular-nums" value={typing[scenario]?.[f.key] ?? toField(draft, f.key, f.kind)} suffix={f.kind === "percent" ? "%" : "months"} onChange={(e) => typeDriver(f.key, f.kind, e.target.value)} onBlur={() => clearTyping(scenario, f.key)} />
-                )}
-              </Field>
-            ))}
-          </div>
+          {(() => {
+            // While the example is in, the fields show its figures and take no typing; the drafts underneath are untouched.
+            const shownDrivers = exampleOn ? EXAMPLE_DRIVERS : draft;
+            const fields = (
+              <div className="grid grid-cols-6 gap-gutter">
+                {DRIVER_FIELDS.map((f) => {
+                  const value = exampleOn ? toField(shownDrivers, f.key, f.kind) : (typing[scenario]?.[f.key] ?? toField(shownDrivers, f.key, f.kind));
+                  return (
+                    <Field key={f.key} htmlFor={`${id}-${scenario}-${f.key}`} label={f.label} hint={f.hint}>
+                      {f.kind === "money" ? (
+                        <MoneyInput id={`${id}-${scenario}-${f.key}`} controlSize="lg" currency={cur} value={value} readOnly={exampleOn} onValueChange={(raw) => !exampleOn && typeDriver(f.key, f.kind, raw)} onBlur={() => clearTyping(scenario, f.key)} />
+                      ) : (
+                        <Input id={`${id}-${scenario}-${f.key}`} inputMode={f.kind === "months" ? "numeric" : "decimal"} controlSize="lg" className="tabular-nums" value={value} readOnly={exampleOn} suffix={f.kind === "percent" ? "%" : "months"} onChange={(e) => !exampleOn && typeDriver(f.key, f.kind, e.target.value)} onBlur={() => clearTyping(scenario, f.key)} />
+                      )}
+                    </Field>
+                  );
+                })}
+              </div>
+            );
+            return exampleOn ? <ExampleFrame data-testid="runway-example">{fields}</ExampleFrame> : fields;
+          })()}
           <div className="flex items-center gap-2">
-            <Button type="submit" variant="primary" icon={Save} loading={action.pending === `save-${scenario}`} disabled={!dirty.has(scenario) && !!stored[scenario]}>
+            <Button type="submit" variant="primary" icon={Save} loading={action.pending === `save-${scenario}`} disabled={exampleOn || (!dirty.has(scenario) && !!stored[scenario])}>
               Save {SCENARIO_META[scenario].label} forecast
             </Button>
-            <Button type="button" variant="ghost" icon={Undo2} disabled={!dirty.has(scenario)} onClick={reset}>
+            <Button type="button" variant="ghost" icon={Undo2} disabled={exampleOn || !dirty.has(scenario)} onClick={reset}>
               Reset
             </Button>
             <span className="flex items-center gap-1 text-small text-secondary tabular-nums" data-driver-runway>
-              {SCENARIO_META[scenario].label} runway with these drivers: {runwayText(runways[scenario]).figure.replace(/^Beyond/, "beyond")} <ProvenanceChip kind="forecast" />
+              {exampleOn ? "Example" : SCENARIO_META[scenario].label} runway with these drivers: {runwayText(exampleOn ? exampleRunway : runways[scenario]).figure.replace(/^Beyond/, "beyond")} <ProvenanceChip kind="forecast" />
             </span>
             <InlineError error={action.error} className="ml-auto" />
           </div>

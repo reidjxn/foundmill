@@ -16,7 +16,15 @@ test.describe("live sessions", () => {
     await page.goto(href.replace(/\/d\/([^/]+)\/.*$/, "/d/$1/training-ground"));
     await expect(page.getByTestId("module-screen")).toHaveAttribute("data-module", "development/training-ground", { timeout: LONG });
     const tiles = page.locator("[data-tile-id]");
-    await expect(tiles.first(), "the seed has agents working").toBeVisible({ timeout: LONG });
+    await expect(tiles.first(), "the seed has agents working").toBeVisible({ timeout: LONG});
+
+    // Guidance on (the product default): the department's intro sits in the panel's body above the tiles, and every
+    // tile carries a visible "…" so hovering is never the only way to its controls (UX plan §7.10, §7.12).
+    const explainer = page.locator("[data-explainer='development/live-sessions']");
+    await expect(explainer).toBeVisible();
+    await expect(explainer).toContainText("Each tile is one agent on one task.");
+    expect(await explainer.evaluate((el) => !!el.closest("[data-panel-body]"))).toBe(true);
+    expect(await page.locator("[data-tile-actions]").count()).toBe(await tiles.count());
 
     // Northwind runs in GBP: no tile shows a cost in euros.
     await expect(page.getByRole("region", { name: "Agent tiles" })).not.toContainText("€");
@@ -36,11 +44,18 @@ test.describe("live sessions", () => {
     // A started session no worker has picked up says Queued and is counted apart from running ones (SOAK-08).
     const queuedTiles = await page.locator("[data-tile-queued]").count();
     if (queuedTiles) await expect(page.getByTestId("ground-counts")).toContainText(`${queuedTiles} queued`);
-    // Elapsed time ticks while a session runs, without new events (VSOAK2-X1).
-    const clock = page.locator("[data-testid=tile-footer] [title=Elapsed]").first();
-    if (await clock.count()) {
-      const before = await clock.textContent();
-      await expect.poll(async () => clock.textContent(), { timeout: 70_000, message: "the elapsed clock moves on its own" }).not.toBe(before);
+    // Elapsed time ticks while a session runs, without new events (VSOAK2-X1). The clock's resolution follows the
+    // session's age (formatDuration: seconds, then minutes, then hours once past a day), so only a clock under a day old
+    // can visibly move within the poll; a seeded session older than that shows "1d 4h" and is checked for shape only
+    // (the per-second tick itself is unit-tested in packages/modules training-ground.test.tsx).
+    const clocks = page.locator("[data-testid=tile-footer] [title=Elapsed]");
+    const clockTexts = (await clocks.allTextContents()).map((t) => t.trim());
+    for (const t of clockTexts) expect(t, "an elapsed clock reads as a duration").toMatch(/^(\d+s|\d+m \d{2}s|\d+h \d{2}m|\d+d \d+h)$/);
+    const fine = clockTexts.findIndex((t) => !/d /.test(t));
+    if (fine >= 0) {
+      const clock = clocks.nth(fine);
+      const before = clockTexts[fine];
+      await expect.poll(async () => (await clock.textContent())?.trim(), { timeout: 70_000, message: "the elapsed clock moves on its own" }).not.toBe(before);
     }
 
     // Focus the first tile: it takes two thirds of the grid, the replay strip and Nudge appear under it.

@@ -2,7 +2,7 @@
 /**
  * The keyboard map (BUILD §5.5):
  * Space = Continue (unless a control has focus: then Space is the control's) · R = refresh Inbox · G then letter = go to
- * section (G H Home, G I Inbox, G C CRM; departments keep their stored letter, or get one from their name,
+ * section (G H Home, G I Inbox, G C Contacts (the CRM); departments keep their stored letter, or get one from their name,
  * de-duplicated) · / or Cmd-K = search · J/K = next/prev inbox item · 1–4 = choose decision option · E = edit layout ·
  * Esc = close overlay.
  *
@@ -299,7 +299,8 @@ export const KEYBOARD_SHORTCUTS: readonly KeyboardShortcut[] = [
   { id: "search-cmd", keys: ["⌘K"], label: "Search (Ctrl-K on Windows and Linux)", group: "Navigation" },
   { id: "go-home", keys: ["G", "H"], label: "Go to Home", group: "Navigation" },
   { id: "go-inbox", keys: ["G", "I"], label: "Go to Inbox", group: "Navigation" },
-  { id: "go-crm", keys: ["G", "C"], label: "Go to CRM", group: "Navigation" },
+  // "Contacts" is the sidebar's word (founder decision 2026-10-20, item 1); operators still know it as the CRM.
+  { id: "go-crm", keys: ["G", "C"], label: "Go to Contacts (CRM)", group: "Navigation" },
   { id: "refresh", keys: ["R"], label: "Refresh Inbox: one new note", group: "Inbox" },
   { id: "next", keys: ["J"], label: "Next inbox item", group: "Inbox" },
   { id: "prev", keys: ["K"], label: "Previous inbox item", group: "Inbox" },

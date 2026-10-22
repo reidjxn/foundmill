@@ -107,6 +107,16 @@ export const conversationsRepo = {
   },
 
   /** The latest `limit` messages of a thread, oldest first (what the desk renders and the model reads). */
+  /** True once the founder wrote to any agent: the first-week checklist's "talk to an agent" (docs/UX_AUDIT_AND_PLAN.md §6.2). */
+  async anyFounderMessage(db: Executor, businessId: string): Promise<boolean> {
+    const rows = await db
+      .select({ id: agentMessages.id })
+      .from(agentMessages)
+      .where(and(eq(agentMessages.businessId, businessId), eq(agentMessages.authorKind, "founder")))
+      .limit(1);
+    return rows.length > 0;
+  },
+
   async listMessages(db: Executor, businessId: string, threadId: string, options: { limit?: number } = {}): Promise<AgentMessage[]> {
     const limit = Math.max(1, Math.min(200, options.limit ?? 50));
     const rows = await db

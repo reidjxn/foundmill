@@ -28,6 +28,14 @@ describe("wageBillRows", () => {
 });
 
 describe("WageBillScreen", () => {
+  it("guidance on: the team-cost tile says what it covers in plain words (no tool calls or sandbox time)", () => {
+    const fake = createFakeSource({ businessId: BID, responses: dataResponses });
+    renderScreen(fake, <WageBillScreen {...props} />, {}, { guidance: "on" });
+    const strip = screen.getByRole("region", { name: "Payroll summary" });
+    expect(within(strip).getByText("What the agents' work cost this month: their thinking, the computers they work on, the services they use and training.")).toBeTruthy();
+    expect(strip.textContent).not.toMatch(/tool calls|sandbox time/);
+  });
+
   it("renders the summary tiles, the team table with caps and output per euro, and the staff panel", () => {
     const fake = createFakeSource({ businessId: BID, responses: dataResponses });
     renderScreen(fake, <WageBillScreen {...props} />);
@@ -115,10 +123,13 @@ describe("WageBillScreen", () => {
     const fake = createFakeSource({ businessId: BID, currency: "GBP", responses: { ...dataResponses, "finance.wages": { ...wages, currency: "USD" } } });
     renderScreen(fake, <WageBillScreen {...props} />);
     const strip = screen.getByRole("region", { name: "Payroll summary" });
-    expect(within(strip).getByText("Team payroll").parentElement!.parentElement!.textContent).toContain("$545.00");
+    // Metered in US dollars: the tile says what the figure is instead of calling it payroll in another currency (C21).
+    expect(within(strip).getByText("AI usage cost (USD)").parentElement!.parentElement!.textContent).toContain("$545.00");
+    expect(within(strip).queryByText("Team payroll")).toBeNull();
     expect(within(strip).getByText("Human payroll").parentElement!.parentElement!.textContent).toContain("£16K");
     // Never added across currencies: both parts, each in its own currency.
     expect(within(strip).getByText("Total payroll").parentElement!.parentElement!.textContent).toContain("$545 + £16K");
+    expect(screen.getByText(/AI usage metered in US dollars at list prices/)).toBeTruthy();
     const table = screen.getByRole("grid", { name: "Team payroll" });
     expect(within(table).getByText("$420.00")).toBeTruthy();
     // Atlas's wage cap caps metered cost, so it is in US dollars too and its share is shown.

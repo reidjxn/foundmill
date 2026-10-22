@@ -26,9 +26,9 @@ describe("decisionAttribution (RUI-11)", () => {
 });
 
 describe("planStatusLine names who confirms (RUI-11)", () => {
-  it("says 'your' to the person it waits for and names them to everyone else", () => {
+  it("says 'your' to the person it waits for and names them to everyone else, in the go-ahead family of words (UX plan B7)", () => {
     const plan = { status: "pending_confirmation", actions: [{ type: "set_budget", params: null }] };
-    expect(planStatusLine(plan)?.word).toBe("Awaiting your confirmation");
-    expect(planStatusLine(plan, "Ada Lovelace")?.word).toBe("Awaiting confirmation from Ada Lovelace");
+    expect(planStatusLine(plan)?.word).toBe("Needs your go-ahead");
+    expect(planStatusLine(plan, "Ada Lovelace")?.word).toBe("Needs Ada Lovelace's go-ahead");
   });
 });

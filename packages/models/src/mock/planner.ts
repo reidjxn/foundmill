@@ -43,10 +43,10 @@ export function generatePlanner(ctx: MockContext): TaskGraphOutput {
 
     const design: PlannedTask = {
       id: `t${base}.1`,
-      title: truncate(`Define scope and acceptance for ${item.title}`, 80),
-      goal: `Turn "${item.title}" into a written scope with acceptance criteria and test expectations${item.description ? `: ${truncate(item.description, 160)}` : ""}.`,
+      title: truncate(`Define scope and what counts as done for ${item.title}`, 80),
+      goal: `Turn "${item.title}" into a written scope that says what counts as done, with test expectations${item.description ? `: ${truncate(item.description, 160)}` : ""}.`,
       kind: "research",
-      acceptance_criteria: [`A spec block for ${item.title} lists the user-visible behavior`, "Acceptance criteria are testable and agreed by the lead", "Open questions are listed with owners"],
+      acceptance_criteria: [`A spec block for ${item.title} lists the user-visible behavior`, "What counts as done is testable and agreed by the lead", "Open questions are listed with owners"],
       test_expectations: ["No code; review by the department lead"],
       file_scope_hints: ["docs/", "spec blocks"],
       depends_on: [],
@@ -57,9 +57,9 @@ export function generatePlanner(ctx: MockContext): TaskGraphOutput {
     const implement: PlannedTask = {
       id: `t${base}.2`,
       title: truncate(`Implement ${item.title}`, 80),
-      goal: `Build ${item.title} on branch agent/t${base}.2 so the acceptance criteria pass.`,
+      goal: `Build ${item.title} in a separate copy of the code until everything that counts as done passes.`,
       kind,
-      acceptance_criteria: [`The behavior described for ${item.title} works end to end in mock mode`, "Typecheck and lint pass", ui ? "The screen uses design-system components and tokens only" : "Repository functions take businessId first and RLS is respected"],
+      acceptance_criteria: [`The behavior described for ${item.title} works end to end against the test connectors`, "Typecheck and lint pass", ui ? "The screen uses design-system components and tokens only" : "Data functions take businessId first, so one business never sees another's data"],
       test_expectations: ["Unit tests cover the new module and its edge cases", ui ? "A Playwright test exercises the screen" : "Contract tests run against fixtures"],
       file_scope_hints: scope,
       depends_on: [design.id],
@@ -70,9 +70,9 @@ export function generatePlanner(ctx: MockContext): TaskGraphOutput {
     const verify: PlannedTask = {
       id: `t${base}.3`,
       title: truncate(`Verify and review ${item.title}`, 80),
-      goal: `Run the acceptance tests for ${item.title}, review the diff, and prepare the PR for the merge queue.`,
+      goal: `Run the tests for what counts as done on ${item.title}, review the changes, and get them ready to add to the product.`,
       kind: "code",
-      acceptance_criteria: ["All acceptance tests pass in CI", "Review agent approves with no critical findings", "Changelog entry written"],
+      acceptance_criteria: ["Every test for what counts as done passes in the automated checks", "Review agent approves with no critical findings", "Changelog entry written"],
       test_expectations: ["Full test suite green", "Preview deployment reachable"],
       file_scope_hints: scope,
       depends_on: [implement.id],

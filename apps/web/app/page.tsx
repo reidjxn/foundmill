@@ -12,6 +12,10 @@ import { LandingPage } from "@/components/landing/LandingPage";
 import { calendarDay } from "@/components/landing/examples/helpers";
 
 export const revalidate = 3600;
+// The root layout reads the session and the text-size cookie (app/layout.tsx), which would render every visit on demand:
+// forced static, those reads come back empty here, which is what a signed-out visitor has anyway (proxy.ts never serves
+// this page to a signed-in founder).
+export const dynamic = "force-static";
 
 export default function IndexPage() {
   return <LandingPage renderDay={calendarDay(new Date(), "utc")} />;

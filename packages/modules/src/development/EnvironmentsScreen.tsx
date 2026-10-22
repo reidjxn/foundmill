@@ -16,7 +16,7 @@ import { RelativeDateText } from "../dates";
 import { fitColumns, fitToGrow, humanise, type ColumnFit } from "../fit";
 import type { ModuleScreenProps } from "../registry";
 import { useDevScreenOptions } from "./options";
-import { Screen, agentBranch, shortSha, toDate, useAgentIndex, useAgents, useDevDepartment } from "./shared";
+import { SIMPLE_VIEW_ID, Screen, agentBranch, shortSha, toDate, useAgentIndex, useAgents, useDefaultViewId, useDevDepartment } from "./shared";
 import type { AgentRow, PrsListResponse, TaskRow, TasksListResponse } from "./types";
 
 export type Environment = "preview" | "staging" | "production";
@@ -85,6 +85,8 @@ export function emptyEnvironmentColumns(rows: readonly EnvironmentRow[]): Set<st
 }
 
 export const ENVIRONMENT_VIEWS: SavedView[] = [
+  // Simple (UX plan §7.10): the task, whether its preview is up, and where; it opens first while guidance is on.
+  { id: SIMPLE_VIEW_ID, name: "Simple", builtIn: true, columns: ["title", "environment", "state", "url"], sort: [{ id: "deployedAt", desc: true }], filters: [] },
   { id: "all", name: "All environments", builtIn: true, columns: ["branch", "title", "environment", "state", "agentName", "url", "provider", "commitSha", "deployedAt"], sort: [{ id: "deployedAt", desc: true }], filters: [] },
   { id: "live", name: "Live previews", builtIn: true, columns: ["branch", "title", "agentName", "url", "deployedAt"], sort: [{ id: "deployedAt", desc: true }], filters: [{ id: "f-live", field: "state", op: "eq", value: "Live" }] },
   { id: "awaiting", name: "Awaiting deployment", builtIn: true, columns: ["branch", "title", "agentName"], sort: [], filters: [{ id: "f-await", field: "state", op: "eq", value: "Awaiting deployment" }] },
@@ -209,8 +211,9 @@ export function EnvironmentsScreen({ businessId, departmentId }: ModuleScreenPro
   const prs = useWidgetQuery<PrsListResponse>("dev.prs.list", {});
   const agents = useAgents();
   const agentIndex = useAgentIndex(agents.data?.agents);
-  // Saved per person, business and table (audit #204): they come back after a reload.
-  const savedViews = useSavedViews("development.environments", ENVIRONMENT_VIEWS, { defaultViewId: "all" });
+  // Saved per person, business and table (audit #204): they come back after a reload. Simple opens first while guidance is on.
+  const defaultViewId = useDefaultViewId("all");
+  const savedViews = useSavedViews("development.environments", ENVIRONMENT_VIEWS, { defaultViewId });
   const [deployments, setDeployments] = useState<Deployment[]>([]);
   useBusinessEvents(
     (event) => {
@@ -236,7 +239,7 @@ export function EnvironmentsScreen({ businessId, departmentId }: ModuleScreenPro
         accessorFn: (r) => r.branchName,
         header: "Branch",
         size: sizes.branch,
-        meta: { locked: true, csv: (r) => r.branch },
+        meta: { locked: true, csv: (r) => r.branch, term: "branch" },
         cell: ({ row }) => (
           <span className="flex min-w-0 items-center gap-1.5 font-mono text-mono" title={row.original.branch === row.original.branchName ? undefined : `Branch ${row.original.branch}`} data-branch={row.original.branch}>
             <GitBranch size={12} aria-hidden className="shrink-0 text-tertiary" />
@@ -333,7 +336,7 @@ export function EnvironmentsScreen({ businessId, departmentId }: ModuleScreenPro
         footer={<span>Every agent branch gets its own preview deployment once its tests pass; the URL, provider and commit appear with the first one. Production releases show on the Journey.</span>}
       >
         <div className="min-w-0">
-          <DataTable<EnvironmentRow> data={rows} columns={columns} {...savedViews} defaultViewId="all" rowActions={rowActions} onRowOpen={(r) => r.url && window.open(r.url, "_blank", "noopener")} height={Math.min(520, Math.max(4, rows.length) * 28 + 42)} hideEmptyColumns exportFileName="environments" empty={{ icon: Boxes, children: "Environments appear here as code tasks start: one preview deployment per agent branch.", action: { label: "Go to Plan", onClick: () => navigate(routes.department(businessId, deptSlug, "plan")) } }} aria-label="Environments" className="border-0" />
+          <DataTable<EnvironmentRow> data={rows} columns={columns} {...savedViews} defaultViewId={defaultViewId} rowActions={rowActions} onRowOpen={(r) => r.url && window.open(r.url, "_blank", "noopener")} height={Math.min(520, Math.max(4, rows.length) * 28 + 42)} hideEmptyColumns exportFileName="environments" empty={{ icon: Boxes, children: "Environments appear here as code tasks start: one preview deployment per agent branch.", action: { label: "Go to Plan", onClick: () => navigate(routes.department(businessId, deptSlug, "plan")) } }} aria-label="Environments" className="border-0" />
         </div>
       </Panel>
     </Screen>

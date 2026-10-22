@@ -168,7 +168,7 @@ function sectionDoc(section: string, b: Brief): TiptapDoc {
   if (key.includes("feature"))
     return doc(
       text(`The first release is the smallest product that delivers the value proposition end to end.${b.seeds.length ? ` It also absorbs ${b.seeds.length} open issues from the imported backlog.` : ""}`),
-      ...FEATURES(b).flatMap((f) => [heading(f.title), text(f.story), lead("Acceptance criteria:", f.criteria.join("; ") + ".")] as TiptapBlock[]),
+      ...FEATURES(b).flatMap((f) => [heading(f.title), text(f.story), lead("Done when:", f.criteria.join("; ") + ".")] as TiptapBlock[]),
       ...(b.seeds.length ? [heading("From the imported backlog"), bullets(b.seeds.map((s) => `${s.title} (${s.source})`))] : []),
     );
   if (key.includes("non-functional") || key.includes("nonfunctional"))
@@ -183,7 +183,7 @@ function sectionDoc(section: string, b: Brief): TiptapDoc {
     const target = Math.round((ns.range[0] + ns.range[1]) / 2);
     return doc(lead("North star:", `${ns.metric}. ${ns.definition}`), bullets([`Target: ${target} ${ns.unit} by the end of the second chapter (Forecast)`, "Activation rate of new accounts in their first week", "Cost per paying customer by channel"]));
   }
-  if (key.includes("risk")) return doc(bullets([...b.risks.slice(0, 4), "Cash: spending before the first paying customer shortens the runway, so every spend above the approval threshold waits for the founder"]));
+  if (key.includes("risk")) return doc(bullets([...b.risks.slice(0, 4), "Cash: spending before the first paying customer shortens how long the cash lasts, so every spend above the approval threshold waits for the founder"]));
   if (key.includes("onboarding") || key.includes("activation")) return doc(text("Activation is the first time a new user completes the core workflow."), bullets(["Ask for the minimum at sign-up", "Show progress towards the first result", "Nudge once by email if the user stops halfway"]));
   if (key.includes("retention")) return doc(bullets(["The weekly summary brings users back", "Saved work makes the second session faster than the first", "Streaks are never used to pressure the user"]));
   if (key.includes("supply")) return doc(text("Supply is recruited by hand first, then through referrals."), bullets(["Verified profiles before the first listing goes live", "Fair, visible fees"]));
@@ -284,9 +284,9 @@ export function generateFoundations(ctx: MockContext): FoundationsOutput {
       problem: truncate(`${sentenceCase(b.audience)} lose time and money doing this by hand, and the tools they have were built for someone else. ${b.risks[0] ?? ""}`.trim(), 1000),
       why_now: truncate(`AI agents can now do the repetitive part of the work reliably and cheaply, so a small team can serve this market well.${b.imported && b.exists.length ? ` ${b.name} is not starting from zero: the founder pointed the import at ${b.exists.length} existing source${b.exists.length === 1 ? "" : "s"}.` : ""}`, 1000),
       principles: [
-        { title: "First customer before scale", detail: "Every piece of work in the first chapter must move a real customer closer to paying." },
+        { title: "First customer before scale", detail: "A chapter is a quarter of the business's life; every piece of work in the first one must move a real customer closer to paying." },
         { title: "Agents act, the founder decides", detail: "The team does the work inside clear limits; spending, signing and anything irreversible waits for the founder." },
-        { title: "Every number has a source or a label", detail: "Facts cite where they came from; anything else says Estimate or Forecast." },
+        { title: "Every number has a source or a label", detail: "Facts cite where they came from. Estimate means worked out, not measured; Forecast means a projection of what could happen. Every other number says one or the other." },
         { title: "Small, measured steps", detail: "Ship the smallest useful change, measure it, then widen." },
       ],
       north_star: { metric: ns.metric, definition: ns.definition, target: `${target} ${ns.unit} by the end of the second chapter (Forecast)`, label: "Forecast" },

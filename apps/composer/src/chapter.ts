@@ -114,14 +114,14 @@ export function titleAcceptable(title: string, facts: QuarterFacts): boolean {
 }
 const f = (n: number) => String(n);
 
-/** Deterministic, digit-free fallback grounded in the facts (labelled `provisional`). */
+/** Deterministic, digit-free fallback grounded in the facts (labelled `provisional`), in sentence case (DESIGN §4, §10). */
 export function provisionalTitle(facts: QuarterFacts): Pick<ChapterTitleOutput, "title" | "subtitle" | "mood"> {
   const hasTrophy = facts.milestones.length > 0;
-  if (facts.customersWon > 0 && hasTrophy) return { title: "A Chapter Of Firsts", subtitle: `${facts.customersWon} customers won and ${facts.milestones.length} milestones in ${facts.label}.`, mood: "breakthrough" };
-  if (facts.customersWon > 0) return { title: "Points On The Board", subtitle: `${facts.customersWon} customers won in ${facts.label}.`, mood: "rising" };
-  if (facts.signups > 0 || facts.activations > 0) return { title: "First Names In The Pipeline", subtitle: `${facts.signups} signups and ${facts.activations} activations in ${facts.label}.`, mood: "rising" };
-  if (facts.decisionsMade > 0 || facts.events > 0) return { title: "Building Through The Lines", subtitle: `${facts.decisionsMade} decisions made in ${facts.label}.`, mood: "steady" };
-  return { title: "A Quiet Opening Chapter", subtitle: `No customer activity recorded in ${facts.label}.`, mood: "steady" };
+  if (facts.customersWon > 0 && hasTrophy) return { title: "A chapter of firsts", subtitle: `${facts.customersWon} customers won and ${facts.milestones.length} milestones in ${facts.label}.`, mood: "breakthrough" };
+  if (facts.customersWon > 0) return { title: "First customers won", subtitle: `${facts.customersWon} customers won in ${facts.label}.`, mood: "rising" };
+  if (facts.signups > 0 || facts.activations > 0) return { title: "First names through the door", subtitle: `${facts.signups} signups and ${facts.activations} activations in ${facts.label}.`, mood: "rising" };
+  if (facts.decisionsMade > 0 || facts.events > 0) return { title: "Building the foundations", subtitle: `${facts.decisionsMade} decisions made in ${facts.label}.`, mood: "steady" };
+  return { title: "A quiet opening chapter", subtitle: `No customer activity recorded in ${facts.label}.`, mood: "steady" };
 }
 
 export async function composeChapterTitle(deps: { db: Db; models: ModelClient; log: ModelLogger }, businessId: string, quarter: string): Promise<ChapterTitleResult> {

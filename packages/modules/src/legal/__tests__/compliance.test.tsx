@@ -38,6 +38,17 @@ describe("ComplianceScreen", () => {
     expect(fake.queried.get("legal.compliance.list")).toEqual({ pendingOnly: false, days: 365 });
   });
 
+  it("guidance on: opens on the Simple view (Deadline, Due, Days left, Status), defines 'filing' in the footer and lines the tiles with plain words (UX plan §7.10, §7.16)", () => {
+    const fake = createFakeSource({ businessId: BID, responses: dataResponses });
+    renderScreen(fake, <ComplianceScreen {...props} />, {}, { guidance: "on" });
+    const grid = screen.getByRole("grid", { name: "Deadlines" });
+    expect(screen.getByRole("button", { name: /^View: Simple/ })).toBeTruthy();
+    expect(within(grid).getAllByRole("columnheader").map((h) => h.textContent)).toEqual(["Deadline", "Due", "Days left", "Status", "Actions"]);
+    expect(within(grid).getAllByRole("row")).toHaveLength(5); // header + 4 open, as the Open view shows
+    expect(screen.getByRole("button", { name: "filing" }).className).toContain("term-link");
+    expect(document.querySelectorAll("[data-plain-line]")).toHaveLength(4);
+  });
+
   it("switches to the twelve-month calendar from the toggle, the sub-view and the right-click verb", async () => {
     const user = userEvent.setup();
     const fake = createFakeSource({ businessId: BID, responses: dataResponses });

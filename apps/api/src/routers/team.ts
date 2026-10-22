@@ -57,9 +57,10 @@ export const teamRouter = router({
 
   agents: router({
     /**
-     * Squad table rows (BUILD §11.9): agent, role, departments, status, current task, skills, model, wage, and what the
-     * Tools, Health and Performance views show: the live version's tool grants, the form (last five session outcomes,
-     * oldest first), the latest update (its latest session), the health behind the status (the last
+     * Squad table rows (BUILD §11.9): agent, role, departments, status, current task, skills, the rating (`rating20`,
+     * the 1–20 mean of the skills to one decimal; `rating` is its deprecated 1–10 form, kept one release), model, wage,
+     * and what the Tools, Health and Performance views show: the live version's tool grants, the form (last five
+     * session outcomes, oldest first), the latest update (its latest session), the health behind the status (the last
      * `agent.health_changed`: reason, signals, expected return; heartbeat and error rate from its sessions) and whether
      * it is the business's Chief of Staff (the one agent that cannot be released or cloned).
      */
@@ -84,7 +85,12 @@ export const teamRouter = router({
         const chiefId = agents.items.find((a) => a.layer === "assistant" && !a.archivedAt)?.id ?? null;
         const rows = agents.items.map((a) => {
           const skills = skillsByAgent.get(a.id) ?? [];
-          const rating = skills.length ? Math.round((skills.reduce((s, k) => s + k.displayed, 0) / skills.length) * 5) / 10 : null;
+          // One rating scale everywhere (founder, Oct 20, 2026): `rating20` is the 1–20 mean of the displayed skills
+          // to one decimal, what the Team table and the profile header show. `rating` is the same mean on a 1–10 scale,
+          // deprecated and kept for one release so older clients keep working; read `rating20`.
+          const mean = skills.length ? skills.reduce((s, k) => s + k.displayed, 0) / skills.length : null;
+          const rating20 = mean === null ? null : Math.round(mean * 10) / 10;
+          const rating = mean === null ? null : Math.round(mean * 5) / 10;
           const seen = activity.get(a.id);
           const last = health.get(a.id);
           const changed = last ? (last.payload as { to?: string; reason?: string; signals?: { loopDetected?: boolean; credentialExpired?: boolean; rateLimited?: boolean }; expectedReturnAt?: string | null }) : null;
@@ -96,6 +102,8 @@ export const teamRouter = router({
             departments: departments.filter((d) => a.departmentIds.includes(d.id)).map((d) => ({ id: d.id, name: d.name, colourToken: d.colourToken })),
             currentTask: running.items.find((t) => t.assigneeAgentId === a.id) ?? null,
             skills,
+            rating20,
+            /** @deprecated The 1–10 form of `rating20`; dropped next release. */
             rating,
             wage: { costMinor: wages.find((w) => w.agentId === a.id)?.costMinor ?? 0, currency: CREDITS_CURRENCY, capMinor: a.wageCapMinor, period, label: "Estimate" as const },
             chiefOfStaff: a.id === chiefId,

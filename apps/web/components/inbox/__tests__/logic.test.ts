@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { confirmPlanDescription } from "../ConfirmPlanDialog";
-import { signoffNeedsNotes } from "../logic";
+import { NOTHING_RUNS, becauseWords, confirmPlanDescription, lineReasons, plainReason, reasonSentence } from "../ConfirmPlanDialog";
+import { HOLDS_CONTINUE_HINT, actionStatusWord, signoffNeedsNotes } from "../logic";
 import {
   REFRESH_DEBOUNCE_MS,
   agentIndex,
@@ -97,9 +97,12 @@ describe("rows (DESIGN §9)", () => {
     expect(rowModel({ ...base, type: "milestone", state: "read", blocksContinue: false }).tag).toMatchObject({ word: "Milestone", icon: "milestone" });
     expect(rowModel({ ...base, type: "warning", state: "read", blocksContinue: true }).tag.word).toBe("Respond");
     expect(headerTag("customer_won", false, true)).toMatchObject({ word: "Customer won", tone: "gold" });
-    expect(headerTag("decision", false, true)).toMatchObject({ word: "Needs your call", tone: "bad" });
+    // Two families only (UX plan B7): "answer" for an open note, "go-ahead" for a plan that waits; never "your call".
+    expect(headerTag("decision", false, true)).toMatchObject({ word: "Needs your answer", tone: "bad" });
+    expect(headerTag("warning", false, true)).toMatchObject({ word: "Needs your answer", tone: "bad", icon: "respond" });
     expect(headerTag("decision", true, true)).toMatchObject({ word: "Decided" });
     expect(headerTag("update", false, false)).toMatchObject({ word: "Update" });
+    expect(HOLDS_CONTINUE_HINT).toBe("The team waits for this answer before its next round of work");
   });
   it("an answered note whose plan waits for the go-ahead still asks: Respond in the list, Needs your go-ahead on the note", () => {
     const waiting = rowModel({ ...base, type: "decision", state: "answered", blocksContinue: false, awaitingConfirmation: true });
@@ -155,6 +158,12 @@ describe("decisions", () => {
     expect(opts[2]!.cost).toBeNull();
     expect(toDecisionOptions(null, "EUR")).toEqual([]);
     expect(toDecisionOptions({ options: "nope" }, "EUR")).toEqual([]);
+  });
+  it("carries the Composer's 'because' line when the agent wrote one, and nothing when it is blank", () => {
+    const opts = toDecisionOptions({ options: [{ id: "a", label: "Approve", because: " Recommended because it is free and reversible. " }, { id: "b", label: "Wait", because: "  " }, { id: "c", label: "Ask", because: 7 }] }, "EUR");
+    expect(opts[0]!.because).toBe("Recommended because it is free and reversible.");
+    expect("because" in opts[1]!).toBe(false);
+    expect("because" in opts[2]!).toBe(false);
   });
   it("free text defaults on; a passed expires_at is a deadline, not a lock", () => {
     expect(freeTextAllowed(decision)).toBe(true);
@@ -284,9 +293,23 @@ describe("status strip (AC-11.3.6: numbers come from live queries, never the not
     );
     expect(tiles[0]).toMatchObject({ label: "Cash", value: { amountMinor: 1_250_000, currency: "EUR" }, provenance: { source: "Bank accounts" } });
     expect(tiles[1]).toMatchObject({ label: "Runway", value: "No limit", provenance: { source: "The cash forecast" } });
-    expect(tiles[2]).toMatchObject({ label: "Customers", value: "1,101", provenance: { source: "Customer conversions" } });
+    expect(tiles[2]).toMatchObject({ label: "Customers", value: "1,101", provenance: { source: "Signups, activations and payments" } });
     expect(tiles[3]).toMatchObject({ label: "Due in", value: "9 days", provenance: { source: "The filing calendar" } });
     expect(tiles.some((t) => t.value === null)).toBe(false);
+  });
+  it("runway reads the shared words: a balance below zero says so (with Estimate), never 'No limit' or a negative figure (UX plan B8)", () => {
+    const strip = [{ metric: "runway", source: "forecasts" }];
+    const below = statusStripTiles(strip, { finance: { ...finance, cash: { ...finance.cash, amountMinor: -42_000 }, runway: { months: -3 }, burn: { netBurnMinor: 0, grossBurnMinor: 5_000 } }, now });
+    expect(below[0]).toMatchObject({ label: "Runway", value: "Cash is below zero", caption: "The bank balance is negative, so there is no runway to count", estimate: "estimate" });
+    expect(below[0]!.value).not.toBe("No limit");
+    // Cash-flow positive with no figure: "No limit" and no Estimate tag (the words are the fact).
+    const positive = statusStripTiles(strip, { finance: { ...finance, runway: { months: null }, burn: { netBurnMinor: -1_000, grossBurnMinor: 5_000 } }, now });
+    expect(positive[0]).toMatchObject({ label: "Runway", value: "No limit", caption: "Cash-flow positive, so no limit yet" });
+    expect(positive[0]!.estimate).toBeUndefined();
+    // Too little history: "Not known yet"; a real figure stays a figure.
+    const short = statusStripTiles(strip, { finance: { ...finance, runway: { months: null } }, now });
+    expect(short[0]).toMatchObject({ label: "Runway", value: "Not known yet", caption: "Needs three months of bank history" });
+    expect(statusStripTiles(strip, { finance, now })[0]).toMatchObject({ value: 12.5, unit: "months", estimate: "estimate" });
   });
   it("parses free-form metrics: money before other figures, estimates flagged, grouping added", () => {
     expect(parseFreeMetric("Revenue 30d £57,552.75")).toEqual({ label: "Revenue 30 days", value: "£57,552.75", estimate: undefined });
@@ -430,10 +453,23 @@ describe("plans", () => {
   });
   it("summarises plan status for the answered strip", () => {
     expect(planStatusLine(null)).toBeNull();
-    expect(planStatusLine({ status: "pending_confirmation", actions: [{ type: "set_budget", params: null }] })).toMatchObject({ word: "Awaiting your confirmation", tone: "warn" });
+    expect(planStatusLine({ status: "pending_confirmation", actions: [{ type: "set_budget", params: null }] })).toMatchObject({ word: "Needs your go-ahead", tone: "warn" });
     expect(planStatusLine({ status: "executing", actions: [{ type: "a", params: null, status: "done" }, { type: "b", params: null, status: "running" }] })).toMatchObject({ word: "Running", detail: "1 of 2 actions done" });
     expect(planStatusLine({ status: "done", actions: [{ type: "a", params: null, status: "done" }, { type: "b", params: null, status: "failed" }] })).toMatchObject({ word: "Done with issues", tone: "warn" });
     expect(planStatusLine({ status: "done", actions: [] })).toMatchObject({ word: "Done", tone: "good", detail: "no actions" });
+    // A status outside the list is spelled out, never a raw key.
+    expect(planStatusLine({ status: "pending_review", actions: [] })).toMatchObject({ word: "Pending review", tone: "neutral" });
+  });
+  it("names an action's status in the Decided panel's words, never 'awaiting approval' (UX plan B18)", () => {
+    expect(actionStatusWord("awaiting_approval")).toBe("Waiting for your go-ahead");
+    expect(actionStatusWord("pending")).toBe("Queued");
+    expect(actionStatusWord("running")).toBe("Running");
+    expect(actionStatusWord("done")).toBe("Done");
+    expect(actionStatusWord("failed")).toBe("Failed");
+    expect(actionStatusWord("denied")).toBe("Not allowed");
+    expect(actionStatusWord("skipped")).toBe("Skipped");
+    expect(actionStatusWord("some_new_state")).toBe("Some new state");
+    expect(actionStatusWord("")).toBe("Queued");
   });
   it("says an action left to the founder is confirmed only once it is (VOL-X1)", () => {
     const ask = { type: "set_budget", params: null, policyOutcome: "ask" };
@@ -465,7 +501,7 @@ describe("won customers open their replay", () => {
 
 describe("the decision's deadline and the agent's desk", () => {
   const now = new Date(2026, 9, 9, 14, 0, 0);
-  it("says when the decision expires, in days, under 'Your call'", () => {
+  it("says when the decision expires, in days, beside 'Your decision'", () => {
     expect(decisionDeadline({ expires_at: new Date(2026, 9, 14, 9, 0, 0).toISOString() }, now)).toBe("Expires in 5 days");
     expect(decisionDeadline({ expires_at: new Date(2026, 9, 10, 9, 0, 0).toISOString() }, now)).toBe("Expires tomorrow");
     expect(decisionDeadline({ expires_at: new Date(2026, 9, 9, 18, 0, 0).toISOString() }, now)).toBe("Expires today");
@@ -478,9 +514,35 @@ describe("the decision's deadline and the agent's desk", () => {
     expect(hasAgentDesk("human_message")).toBe(false);
   });
 
-  it("describes a plan with nothing outside policy without a '0 actions' sentence", () => {
-    expect(confirmPlanDescription([{ label: "Create a task", outcome: "allow", hardGate: false, cost: null, reasons: [] }])).toBe("Everything here is within the current policy. Nothing runs until you say go.");
-    expect(confirmPlanDescription([{ label: "Set budget", outcome: "ask", hardGate: false, cost: null, reasons: [] }, { label: "Pay", outcome: "allow", hardGate: true, cost: null, reasons: [] }])).toBe("1 action sits outside the current policy and needs your go-ahead. 1 is hard-gated: the team prepares everything and you act.");
+  it("describes the plan in plain words: the reassurance first, then why an action asks, never policy vocabulary (UX plan B14)", () => {
+    expect(confirmPlanDescription([{ label: "Create a task", outcome: "allow", hardGate: false, cost: null, reasons: [] }])).toBe(`${NOTHING_RUNS} Everything here is allowed on its own.`);
+    expect(confirmPlanDescription([{ label: "Set budget", outcome: "ask", hardGate: false, cost: null, reasons: [] }, { label: "Pay", outcome: "allow", hardGate: true, cost: null, reasons: [] }])).toBe(`${NOTHING_RUNS} 1 action needs your go-ahead. 1 is yours alone to do: the team prepares everything and you act.`);
+    expect(confirmPlanDescription([{ label: "Set budget", outcome: "ask", hardGate: false, cost: { amountMinor: 50_000, currency: "USD" }, reasons: ["Assisted mode: amount is above the approval threshold"] }])).toBe(`${NOTHING_RUNS} 1 action needs your go-ahead because it spends money.`);
+    expect(confirmPlanDescription([{ label: "Email", outcome: "ask", hardGate: false, cost: null, reasons: ["Recipient was first seen inside untrusted content and has not been verified"] }, { label: "Spend", outcome: "ask", hardGate: false, cost: null, reasons: ["Amount exceeds the spend cap set by the founder"] }, { label: "Old", outcome: "deny", hardGate: false, cost: null, reasons: [] }])).toBe(`${NOTHING_RUNS} 2 actions need your go-ahead. 1 is not allowed and will be skipped.`);
+    for (const lines of [[{ label: "X", outcome: "ask" as const, hardGate: true, cost: null, reasons: ["Assisted mode: contracts need approval"] }]]) expect(confirmPlanDescription(lines)).not.toMatch(/policy|hard-gated|hard gate/i);
+  });
+
+  it("turns a policy's reason into plain words, and keeps the agent's own sentence beside it", () => {
+    expect(plainReason("Assisted mode: amount is above the approval threshold")).toBe("spends money");
+    expect(plainReason("Amount exceeds the spend cap set by the founder")).toBe("spends money");
+    expect(plainReason("Please set up my spend allowance")).toBe("spends money");
+    expect(plainReason("Recipient is on the suppression list")).toBe("contacts someone new");
+    expect(plainReason("Recipient was first seen inside untrusted content and has not been verified")).toBe("contacts someone new");
+    expect(plainReason("Assisted mode: contracts need approval")).toBe("creates a contract");
+    expect(plainReason("Augmented mode: irreversible actions need approval")).toBe("cannot be undone");
+    expect(plainReason("Hard gate: this changes a security setting, which always requires a human (BUILD §2.2)")).toBe("changes a setting");
+    // A sentence that could mean a spend or a contact reads from the action's cost.
+    expect(plainReason("Augmented mode: external actions and spending need approval", { cost: { amountMinor: 1, currency: "USD" } })).toBe("spends money");
+    expect(plainReason("Augmented mode: external actions and spending need approval", { cost: null })).toBe("contacts someone new");
+    expect(plainReason("Something nobody wrote a rule for")).toBeNull();
+    expect(becauseWords(["spends money"])).toBe("it spends money");
+    expect(becauseWords(["cannot be undone", "spends money"])).toBe("it spends money and cannot be undone");
+    expect(becauseWords(["changes a setting", "contacts someone new", "spends money"])).toBe("it spends money, contacts someone new and changes a setting");
+    expect(lineReasons({ reasons: ["Assisted mode: amount is above the approval threshold", "Please set up my spend allowance"], cost: null })).toEqual({ because: ["spends money"], kept: ["Please set up my spend allowance"] });
+    expect(reasonSentence({ reasons: ["Please set up my spend allowance"], cost: null })).toBe("Needs your go-ahead because it spends money. Please set up my spend allowance.");
+    expect(reasonSentence({ reasons: ["Assisted mode: amount is above the approval threshold"], cost: null })).toBe("Needs your go-ahead because it spends money.");
+    expect(reasonSentence({ reasons: ["Something nobody wrote a rule for"], cost: null })).toBe("Something nobody wrote a rule for.");
+    expect(reasonSentence({ reasons: [], cost: null })).toBe("");
   });
 });
 
@@ -509,8 +571,8 @@ describe("an agent's request in the Inbox (audit FR-01)", () => {
   const departments = [{ slug: "build", moduleKeys: ["development", "product"], tabs: [{ slug: "training-ground", position: 1 }, { slug: "plan", position: 2 }] }];
   const waiting = { outcome: null, sessionWaiting: true, task: { id: "t-1", title: "Index the usage events" }, canAnswer: true, section: "development" } as const;
   it("says where the request stands and what Approve does from here", () => {
-    expect(approvalStatus(waiting)).toEqual({ word: "Waiting for you", tone: "warn", detail: "The agent's session is waiting for your answer. Approve and it carries on." });
-    expect(approvalStatus({ ...waiting, sessionWaiting: false }).detail).toBe("The session stopped waiting and freed its place. Approve and the task runs again on the next cycle.");
+    expect(approvalStatus(waiting)).toEqual({ word: "Needs your answer", tone: "warn", detail: "The agent's session is waiting for your answer. Approve and it carries on." });
+    expect(approvalStatus({ ...waiting, sessionWaiting: false }).detail).toBe("The session stopped waiting and freed its place. Approve and the task runs again in the team's next round of work.");
     expect(approvalStatus({ ...waiting, sessionWaiting: false, task: null }).detail).toBe("Approve and it runs once, exactly as asked.");
     expect(approvalStatus({ ...waiting, outcome: "approved" })).toMatchObject({ word: "Approved", tone: "good" });
     expect(approvalStatus({ ...waiting, outcome: "rejected" })).toMatchObject({ word: "Rejected", tone: "bad", detail: "Nothing ran. The task stays blocked until you start it again." });

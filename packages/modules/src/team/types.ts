@@ -62,7 +62,12 @@ export interface AgentRow {
   lineManagerId?: string | null;
   currentTask?: { id: string; title: string; status?: string } | null;
   skills?: AgentSkillRow[];
-  /** 1–10 average of displayed skills (null until the first training run). */
+  /** The 1–20 mean of the displayed skills to one decimal, the one scale the product shows (null until the first training run). */
+  rating20?: number | null;
+  /**
+   * @deprecated The same mean on a 1–10 scale, kept for one release so older callers keep working; read `rating20`.
+   * Null until the first training run.
+   */
   rating?: number | null;
   wage?: AgentWage;
   currency?: string;

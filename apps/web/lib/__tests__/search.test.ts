@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { parseSearchQuery } from "@foundmill/dugout";
 import { accessFor } from "../access";
-import { entityPaletteItems, filterLocal, localPaletteItems, searchInputFor } from "../search";
+import { entityPaletteItems, filterLocal, helpPaletteItems, localPaletteItems, searchInputFor } from "../search";
 
 const BID = "00000000-0000-4000-8000-000000000001";
 const departments = [{ id: "d1", name: "Distribution", slug: "distribution", colourToken: "dept-4" as const, tabs: [{ slug: "channels", title: "Channels", position: 1 }, { slug: "formation", title: "Formation", position: 0 }] }];
@@ -39,13 +39,22 @@ describe("universal search", () => {
     expect(filterLocal(items, "zzzz")).toEqual([]);
   });
 
-  it("offers Preferences (the person's own date and time format), found by what it changes", () => {
+  it("offers Preferences (the person's own date format, guidance and text size), found by what it changes", () => {
     const items = localPaletteItems({ businessId: BID, departments, live: false });
     const prefs = items.find((i) => i.id === "command:preferences");
-    expect(prefs).toMatchObject({ kind: "command", label: "Preferences", href: `/b/${BID}/settings/preferences` });
-    for (const q of ["Preferences", "date format", "time format", "24-hour"]) expect(filterLocal(items, q)[0]?.id, q).toBe("command:preferences");
+    expect(prefs).toMatchObject({ kind: "command", label: "Preferences", description: "Your date format, guidance and text size, in every business", href: `/b/${BID}/settings/preferences` });
+    for (const q of ["Preferences", "date format", "time format", "24-hour", "guidance", "explain", "text size", "comfortable", "checklist", "tour"]) expect(filterLocal(items, q)[0]?.id, q).toBe("command:preferences");
     // One row for it, not a second "Settings · Preferences".
     expect(items.filter((i) => i.href === `/b/${BID}/settings/preferences`)).toHaveLength(1);
+  });
+
+  it("calls the glossary tab Your words (the slug and the old name still find it) and says what Refresh does without a cycle (§7.17, B12)", () => {
+    const items = localPaletteItems({ businessId: BID, departments, live: false });
+    const words = items.find((i) => i.id === "command:settings:glossary");
+    expect(words).toMatchObject({ label: "Settings · Your words", href: `/b/${BID}/settings/glossary` });
+    expect(filterLocal(items, "glossary")[0]?.id).toBe("command:settings:glossary");
+    expect(filterLocal(items, "your words")[0]?.id).toBe("command:settings:glossary");
+    expect(items.find((i) => i.id === "command:refresh-inbox")?.description).toBe("Ask the team for one quick note; no new work starts");
   });
 
   it("offers Edit layout only where the screen has a layout to edit (audit OL-29)", () => {
@@ -89,6 +98,32 @@ describe("universal search", () => {
   it("searches by operators alone (audit GTM-27)", () => {
     expect(searchInputFor(parseSearchQuery("role:supplier"))).toEqual({ q: "", role: "supplier", stage: undefined, departmentId: undefined, limit: 20 });
     expect(searchInputFor(parseSearchQuery("department:nowhere"), () => undefined)).toBeNull();
+  });
+
+  it("calls the CRM Contacts on screen and still finds it by its old name; Stop all agents says what it does in plain words (B13, B6)", () => {
+    const items = localPaletteItems({ businessId: BID, departments, live: false });
+    expect(items.find((i) => i.id === "screen:crm")).toMatchObject({ label: "Contacts", href: `/b/${BID}/crm`, shortcut: ["G", "C"] });
+    expect(filterLocal(items, "crm")[0]?.id).toBe("screen:crm");
+    expect(filterLocal(items, "contacts")[0]?.id).toBe("screen:crm");
+    const stop = items.find((i) => i.id === "command:stop-all");
+    expect(stop?.description).toBe("Pause the whole team. An owner can resume.");
+    expect(stop?.description).not.toMatch(/kill switch/i);
+  });
+
+  it("builds the Help group from the defined terms, in the business's words, after the keyboard shortcuts row (B12)", () => {
+    const items = helpPaletteItems(BID, null);
+    expect(items[0]).toEqual(expect.objectContaining({ id: "help:keyboard-shortcuts", title: "Keyboard shortcuts" }));
+    const runway = items.find((i) => i.id === "help:runway");
+    expect(runway).toMatchObject({ title: "Runway", line: "How many months your cash lasts at today's spending.", href: `/b/${BID}/d/finance/runway` });
+    // The old tab slug stays in the URL (learnPath's aliases); a term without a learn target has no href.
+    expect(items.find((i) => i.id === "help:rating")?.href).toBe(`/b/${BID}/d/team/squad`);
+    expect(items.find((i) => i.id === "help:estimate")?.href).toBeUndefined();
+    // The longer explanation travels with the row, so a term without an href can open its definition in place.
+    expect(items.find((i) => i.id === "help:estimate")?.long).toMatch(/^The figure is calculated/);
+    expect(items.length).toBeGreaterThan(40);
+    // The glossary renames inside the definitions.
+    const clients = helpPaletteItems(BID, { customer: "client" });
+    expect(clients.find((i) => i.id === "help:acquisition_cost")?.title).toBe("Cost to win a client");
   });
 
   it("offers Sign out as a command with no link, found by its synonyms too", () => {

@@ -23,6 +23,8 @@ test.describe("billing", () => {
     // Credits are US dollars.
     await expect(screen.getByRole("combobox", { name: "Top-up amount" })).toContainText("$50.00");
     await expect(screen).toContainText("This server simulates payments");
+    // "Credits" is defined where the founder first meets it, on the panel's title (a dotted word with guidance on).
+    await expect(screen.locator('[data-term="credits"]').first()).toBeVisible();
 
     await topUp.click();
     await expect(page).toHaveURL(new RegExp(`${BILLING}\\?checkout=${UUID}$`), { timeout: LONG });
@@ -40,7 +42,14 @@ test.describe("billing", () => {
     await page.reload();
     await settled(page);
     await expect(screen.getByTestId("checkout-panel")).toHaveAttribute("data-status", "paid", { timeout: LONG });
-    await screen.getByRole("button", { name: "Close the checkout panel" }).click();
+    // Seeded Northwind has no finished cycle, so with guidance on the first-Continue callout (UX plan §7.7) sits under
+    // Continue in the top bar, over the panel's top-right close button. It is not modal and stays until "Got it", which
+    // marks the tour done for the whole dev account (first-days.spec.ts still expects it), so the close button is
+    // pressed from the keyboard instead of a pointer click through the callout's card.
+    const close = screen.getByRole("button", { name: "Close the checkout panel" });
+    await close.focus();
+    await expect(close).toBeFocused();
+    await page.keyboard.press("Enter");
     await expect(page).toHaveURL(new RegExp(`${BILLING}$`));
     await expect(screen.getByTestId("checkout-panel")).toHaveCount(0);
   });

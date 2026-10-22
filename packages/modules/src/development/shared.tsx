@@ -1,7 +1,7 @@
 "use client";
 /** Helpers shared by the development screens: layout, mutations with pending/error state, agent and task lookups. */
 import { useCallback, useMemo, useRef, useState, type ReactNode } from "react";
-import { PageGrid, StatusPill, TASK_STATUS_META, cn, type TileAgent } from "@foundmill/dugout";
+import { PageGrid, StatusPill, TASK_STATUS_META, cn, useGuided, type TileAgent } from "@foundmill/dugout";
 import type { DeptColourToken, TaskStatus } from "@foundmill/shared";
 import { departmentForModule, useDepartments } from "@foundmill/widgets/shared/departments";
 import { routes } from "@foundmill/widgets/shared/routes";
@@ -18,6 +18,19 @@ export function Screen({ name, children, className }: { name: string; children: 
       {children}
     </PageGrid>
   );
+}
+
+/* ---------- Tables ---------- */
+
+/** The built-in "Simple" saved view every table carries: its four most important columns (UX plan §7.10). */
+export const SIMPLE_VIEW_ID = "simple";
+
+/**
+ * The view a table opens on before the person picks one: "Simple" while guidance is on, the screen's general view
+ * otherwise. A view the person left open (stored per table) still wins; this only fills the gap (saved-views.ts).
+ */
+export function useDefaultViewId(general: string): string {
+  return useGuided() ? SIMPLE_VIEW_ID : general;
 }
 
 /* ---------- Mutations ---------- */

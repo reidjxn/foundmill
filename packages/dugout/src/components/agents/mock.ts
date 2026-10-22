@@ -49,11 +49,11 @@ const TASKS = [
   "Migrate orders to the new schema",
   "Weekly investor update draft",
   "Pricing page copy A/B variant",
-  "Webhook retries with dead letters",
+  "Retry failed payment notices",
   "Onboarding checklist component",
   "Competitor teardown: three incumbents",
   "Cohort retention query",
-  "Image pipeline for product photos",
+  "Resize and compress product photos",
   "Accessibility sweep of the storefront",
   "Shopify order sync reconciliation",
   "Lifecycle: activation nudge",
@@ -97,8 +97,8 @@ export function mockTask(i: number, script: MockSessionScript = STOREFRONT_SESSI
 }
 
 const PLAN_TEMPLATES = [
-  ["Read the task and acceptance tests", "Sketch the component API", "Implement the component", "Wire it into the page", "Write Playwright tests", "Run the full suite", "Open the pull request"],
-  ["Inspect the existing schema", "Write the migration", "Update the repository functions", "Add unit tests", "Run RLS tests", "Open the pull request"],
+  ["Read the task and the tests it must pass", "Sketch the component API", "Implement the component", "Wire it into the page", "Write Playwright tests", "Run the full suite", "Send the change for review"],
+  ["Inspect the existing schema", "Write the migration", "Update the data access functions", "Add unit tests", "Run the data privacy tests", "Send the change for review"],
   ["Collect sources", "Extract typed facts through the quarantined reader", "Score and rank", "Write the brief", "Link entities"],
 ];
 
@@ -299,7 +299,7 @@ const CSS_DIFF = [
 ].join("\n");
 
 const NOTES = [
-  "Reading the acceptance tests before touching the page.",
+  "Reading the tests the task must pass before touching the page.",
   "Price recalculation moves into a pure helper so the test can call it directly.",
   "Keyboard selection uses roving tabindex, matching the other radio groups on the site.",
   "Playwright failed on price formatting; the locale was en-US in the test runner.",
@@ -393,10 +393,10 @@ export function mockRecording(script: MockSessionScript = STOREFRONT_SESSION_SCR
     failingCheck: own?.failingCheck ?? script.failingCheck,
     failure: script.failure,
     pullRequest,
-    doneNote: own?.doneNote ?? (pullRequest !== null ? `Done. Pull request #${pullRequest} merged.` : "Done."),
+    doneNote: own?.doneNote ?? (pullRequest !== null ? `Done. Change #${pullRequest} merged into the code.` : "Done."),
     nudge: own?.nudge ?? {
       text: script.nudge?.text ?? "Match the design system",
-      reply: script.nudge?.reply ?? "Swapping ad-hoc spacing for tokens before the next build.",
+      reply: script.nudge?.reply ?? "Swapping ad-hoc spacing for design tokens before the next build.",
       file: { ...script.styleFile, additions: 8, deletions: 1 },
     },
     gate: own ? (own.gate ?? null) : (script.gate ?? null),
@@ -516,7 +516,7 @@ export function generateMockSessionEvents(seedKey: string | number, startedAt: s
   const merges = rec.pullRequest !== null;
   if (merges) events.push({ kind: "phase_changed", at: at(), from: "review", to: "merge", reason: null });
   play(acts.ship);
-  if (merges) events.push({ kind: "tool_call", at: at(), callId: `c-${seedKey}-7`, connectorKey: "github", tool: "create_pull_request", status: "succeeded", argsSummary: `pull request #${rec.pullRequest} → main`, durationMs: 1800, costMinor: 0 });
+  if (merges) events.push({ kind: "tool_call", at: at(), callId: `c-${seedKey}-7`, connectorKey: "github", tool: "create_pull_request", status: "succeeded", argsSummary: `change #${rec.pullRequest} → main`, durationMs: 1800, costMinor: 0 });
   if (gate) {
     tick(duration * 0.04);
     wait(gate);
@@ -603,7 +603,7 @@ export interface MockChannelProfile {
 export const DTC_CHANNEL_PROFILE: MockChannelProfile = {
   fits: { paid_ads: 17, social: 16, influencer: 15, email_automation: 14, content: 12, seo: 11, affiliate: 10, pr: 9, geo: 8, events: 7, direct_mail: 6, lead_generation: 4, print: 4, broadcast: 3, outdoor: 3 },
   recommended: ["paid_ads", "social", "influencer", "email_automation"],
-  why: (label) => `${label} fits a direct-to-consumer skincare brand at this price point. Time to first signal is short and the founder already has material for it. Expected cost per customer sits inside the runway budget.`,
+  why: (label) => `${label} fits a direct-to-consumer skincare brand at this price point. Time to first signal is short and the founder already has material for it. Expected cost per customer sits inside the cash budget.`,
   currency: "EUR",
 };
 
@@ -655,7 +655,8 @@ export function mockSquadRows(n = 14, seedKey = "squad"): SquadRow[] {
       status,
       currentTask: status === "idle" || status === "injured" ? null : { id: `task-${i + 1}`, title: TASKS[i % TASKS.length]! },
       form,
-      rating: Math.round((5.5 + rng.range(-1.5, 4)) * 10) / 10,
+      // The 1–20 mean of the agent's skills, one decimal (the scale the profile uses).
+      rating: Math.round((11 + rng.range(-3, 8)) * 10) / 10,
       tools: rng.shuffle(TOOLS).slice(0, rng.int(2, 6)),
       model: a.model,
       wage: { amountMinor: (a.model === "opus" ? 18_000 : a.model === "sonnet" ? 7_500 : 1_200) + rng.int(0, 4_000), currency: "EUR" },
@@ -673,8 +674,8 @@ export function mockInstructions(): AgentInstructions {
   return {
     role: "Frontend engineer for a direct-to-consumer skincare storefront built with Next.js.",
     goals: ["Ship accessible, tested UI that matches the design tokens.", "Keep bundle size flat; measure before adding a dependency.", "Leave the codebase easier to change than you found it."],
-    rules: ["Write the Playwright test before the component.", "Never introduce a hex color outside tokens.css.", "Ask before changing a shared component's props.", "Keep pull requests under 400 changed lines."],
-    playbook: ["Read the task and its acceptance tests.", "Sketch the component API in a comment.", "Implement with tokens only.", "Run unit, type and e2e checks.", "Open a pull request with a screenshot."],
+    rules: ["Write the Playwright test before the component.", "Never introduce a hex color outside tokens.css.", "Ask before changing a shared component's props.", "Keep each change under 400 lines."],
+    playbook: ["Read the task and the tests it must pass.", "Sketch the component API in a comment.", "Implement with tokens only.", "Run unit, type and e2e checks.", "Send the change for review with a screenshot."],
     tone: "Plain and specific. Short sentences. No exclamation marks.",
     examples: [
       { input: "Add a size selector to the product page.", output: "Radio group with roving tabindex, prices from formatPrice, Playwright test for keyboard selection, screenshot attached to the PR." },
@@ -687,7 +688,7 @@ export function mockInstructionVersions(): InstructionVersion[] {
   const previous: AgentInstructions = {
     ...live,
     goals: live.goals.slice(0, 2),
-    rules: ["Write tests after the component.", "Never introduce a hex color outside tokens.css.", "Keep pull requests under 600 changed lines."],
+    rules: ["Write tests after the component.", "Never introduce a hex color outside tokens.css.", "Keep each change under 600 lines."],
     playbook: live.playbook.filter((p) => !p.startsWith("Sketch")),
     tone: "Plain and specific.",
     examples: [],
@@ -716,7 +717,7 @@ export function mockTrainingResults(): TrainingSkillResult[] {
 }
 
 export const MOCK_COACH_EXPLANATION =
-  "Writing the Playwright test first lifted Testing and Design fidelity, and the smaller pull-request cap improved Scope control. Speed dropped because the agent now runs the e2e suite twice per task; State management fell by two points on the three tests that involve shared stores, where the new rule about asking before changing shared props made it stop and ask instead of finishing. Promote if you value the test coverage over the two-minute median slowdown; a follow-up Focus session on State management would recover the drop.";
+  "Writing the Playwright test first lifted Testing and Design fidelity, and the smaller cap on change size improved Scope control. Speed dropped because the agent now runs the e2e suite twice per task; State management fell by two points on the three tests that involve shared stores, where the new rule about asking before changing shared props made it stop and ask instead of finishing. Promote if you value the test coverage over the two-minute median slowdown; a follow-up Focus session on State management would recover the drop.";
 
 export function mockModelOptions(current: ModelKey = "sonnet", opts: { chiefOfStaff?: boolean; lockedToOpus?: boolean } = {}): ModelOption[] {
   const base: Record<ModelKey, Omit<ModelOption, "skillDelta" | "wageDelta">> = {
@@ -751,7 +752,7 @@ export function mockTraits(): Trait[] {
   return [
     { id: "tests_first", label: "Writes tests first", derivedFrom: "Write the Playwright test before the component.", tone: "good" },
     { id: "asks_before_props", label: "Asks before changing shared props", derivedFrom: "Ask before changing a shared component's props.", tone: "good" },
-    { id: "small_prs", label: "Small pull requests", derivedFrom: "Keep pull requests under 400 changed lines." },
+    { id: "small_prs", label: "Small changes", derivedFrom: "Keep each change under 400 lines." },
     { id: "tokens_only", label: "Tokens only", derivedFrom: "Never introduce a hex color outside tokens.css." },
     { id: "slow_on_e2e", label: "Slower on e2e-heavy tasks", derivedFrom: "Runs the e2e suite twice per task", tone: "warn" },
   ];

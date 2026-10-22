@@ -14,9 +14,10 @@ export interface ConnectionChipProps extends Omit<HTMLAttributes<HTMLSpanElement
 }
 
 const WORD: Record<ConnectionState, string> = { reconnecting: "Reconnecting…", paused: "Live updates paused" };
+/** The defaults say that nothing is lost (UX plan §7.7): the team's work and notes are on the server; only this screen may lag. */
 const DETAIL: Record<ConnectionState, string> = {
-  reconnecting: "The live connection dropped. What you see may be out of date until it is back.",
-  paused: "Live updates are paused. What you see may be out of date; screens still refresh on their own.",
+  reconnecting: "The live connection dropped. Nothing is lost. What you see may be out of date until it is back.",
+  paused: "Live updates are paused. Nothing is lost. What you see may be out of date; screens still refresh on their own.",
 };
 
 /**

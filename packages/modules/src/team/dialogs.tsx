@@ -1,13 +1,13 @@
 "use client";
 /**
- * Dialogs the Agents and Recruitment tabs share (BUILD §11.9 Recruitment: hire, release, clone, loan). Each one owns
- * its form state, runs the mutation through `useAction`, keeps the dialog open on error and tells the caller when it
- * succeeded so the list is refetched.
+ * Dialogs the Agents and Recruitment tabs share (BUILD §11.9 Recruitment: hire, let go, duplicate, lend; the API paths
+ * keep release / clone / loan). Each one owns its form state, runs the mutation through `useAction`, keeps the dialog
+ * open on error and tells the caller when it succeeded so the list is refetched.
  */
 import { useEffect, useId, useState } from "react";
 import { ArrowLeftRight, Copy, UserRoundMinus, UserRoundPlus } from "lucide-react";
 import { CREDITS_CURRENCY } from "@foundmill/config";
-import { Button, Checkbox, Chip, MODEL_LABELS, Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, Field, Input, KeyValueList, ProvenanceChip, SimpleSelect, formatMoney } from "@foundmill/dugout";
+import { Button, Checkbox, Chip, ConsequenceLine, MODEL_LABELS, Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, Field, Input, KeyValueList, ProvenanceChip, ReassuranceLine, SimpleSelect, Term, formatMoney } from "@foundmill/dugout";
 import type { DepartmentRow } from "@foundmill/widgets/shared/types";
 import { humanise } from "../fit";
 import { FAMILY_LABELS, InlineError, isChiefOfStaff, useAction } from "./shared";
@@ -21,6 +21,15 @@ function departmentOptions(departments: readonly DepartmentRow[] | undefined) {
     .sort((a, b) => a.position - b.position)
     .map((d) => ({ value: d.id, label: d.name }));
 }
+
+/* ---------- Consequences (UX plan §6.2 ConsequenceLine, always shown) ---------- */
+
+/** Letting an agent go: what happens, said the same way in the dialog and the Team moves footer. */
+export const RELEASE_CONSEQUENCE = "Running tasks stop; history and logs stay on the profile. Nothing is deleted.";
+/** Lending: the agent gains a department. Moving: it leaves its current ones and follows the new lead. */
+export const LOAN_CONSEQUENCE = { lend: "It joins the other department from the next cycle and keeps its tasks, skills, tools and model.", move: "It leaves its current departments; the new department's lead becomes its line manager." } as const;
+/** Hiring: the agent starts next cycle; its wage cap is the most it can cost. */
+export const HIRE_CONSEQUENCE = "Starts next cycle with the template's instructions, tools and skills, plus any you add here.";
 
 /* ---------- Hire ---------- */
 
@@ -83,7 +92,17 @@ export function HireDialog({ template, onOpenChange, departments, defaultDepartm
   };
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent size="md" aria-describedby={`${id}-desc`} data-testid="hire-dialog">
+      <DialogContent
+        size="md"
+        aria-describedby={`${id}-desc`}
+        data-testid="hire-dialog"
+        // Open on the first thing to fill (the department), not on the Estimate chip above it: a chip's tooltip would
+        // open with the dialog, and Esc would then close the tooltip instead of the dialog.
+        onOpenAutoFocus={(e) => {
+          e.preventDefault();
+          document.getElementById(`${id}-dept`)?.focus();
+        }}
+      >
         <DialogHeader>
           <DialogTitle>Hire {template?.name ?? "agent"}</DialogTitle>
           {/* Template descriptions run long: three lines, the rest on request. */}
@@ -102,11 +121,12 @@ export function HireDialog({ template, onOpenChange, departments, defaultDepartm
               dense
               items={[
                 { label: "Role", value: template.role },
-                { label: "Family", value: FAMILY_LABELS[template.family] },
-                { label: "Model", value: MODEL_LABELS[template.modelKey] ?? template.modelKey },
+                { label: "Kind", value: FAMILY_LABELS[template.family] },
+                { label: <Term id="model">Model</Term>, value: MODEL_LABELS[template.modelKey] ?? template.modelKey },
                 { label: "Skills", value: template.skills.length ? template.skills.map(humanise).join(", ") : "None yet; train it from its profile" },
                 {
-                  label: "Wage cap",
+                  // A wage cap caps metered model cost: US dollars, whatever the business's currency (C19).
+                  label: <Term id="wage_cap">Wage cap (USD)</Term>,
                   value: (
                     <span className="inline-flex items-center gap-1.5 tabular-nums">
                       {formatMoney({ amountMinor: template.wageCapMinor, currency })}/mo <ProvenanceChip kind="estimate" />
@@ -123,7 +143,9 @@ export function HireDialog({ template, onOpenChange, departments, defaultDepartm
             <Input id={`${id}-name`} value={name} maxLength={80} onChange={(e) => setName(e.target.value)} placeholder={template?.name} />
           </Field>
           <SkillsStep value={skills} onChange={setSkills} disabled={action.pending !== null} />
-          <p className="text-small text-secondary">The agent starts with the template's instructions, tools and skills, plus any you add here, and appears in the team table straight away. Train it from its profile to tune them.</p>
+          {/* What hiring does, what it can cost and that it can be undone, always shown; the reassurance only while guided. */}
+          <ConsequenceLine consequence={HIRE_CONSEQUENCE} cost={template ? `Up to ${formatMoney({ amountMinor: template.wageCapMinor, currency })}/mo (Estimate)` : undefined} reversible data-testid="hire-consequence" />
+          <ReassuranceLine>Train it from its profile to tune its skills; lend it or let it go later from Team › Agents.</ReassuranceLine>
           <InlineError error={action.error} />
         </DialogBody>
         <DialogFooter>
@@ -139,7 +161,7 @@ export function HireDialog({ template, onOpenChange, departments, defaultDepartm
   );
 }
 
-/* ---------- Release ---------- */
+/* ---------- Let go (team.agents.release) ---------- */
 
 export interface ReleaseDialogProps {
   agent: AgentRow | null;
@@ -147,7 +169,7 @@ export interface ReleaseDialogProps {
   onReleased: (agent: AgentRow) => void;
 }
 
-/** Release an agent from the team (team.agents.release). The Chief of Staff cannot be released. */
+/** Let an agent go from the team (team.agents.release). The Chief of Staff cannot be let go. */
 export function ReleaseDialog({ agent, onOpenChange, onReleased }: ReleaseDialogProps) {
   const id = useId();
   const action = useAction();
@@ -162,23 +184,40 @@ export function ReleaseDialog({ agent, onOpenChange, onReleased }: ReleaseDialog
   };
   return (
     <Dialog open={!!agent} onOpenChange={onOpenChange}>
-      <DialogContent size="sm" aria-describedby={`${id}-desc`} data-testid="release-dialog">
+      <DialogContent
+        size="sm"
+        aria-describedby={`${id}-desc`}
+        data-testid="release-dialog"
+        // Open on Keep, the safe choice, never on a defined word in the description (its card would open with the dialog).
+        onOpenAutoFocus={(e) => {
+          e.preventDefault();
+          document.getElementById(`${id}-keep`)?.focus();
+        }}
+      >
         <DialogHeader>
-          <DialogTitle>Release {agent?.name}</DialogTitle>
+          <DialogTitle>Let {agent?.name} go</DialogTitle>
           <DialogDescription id={`${id}-desc`}>
-            {cos ? "The Chief of Staff plans every cycle and cannot be released." : `${agent?.name} leaves the team. Running tasks stop and its history and logs stay on the profile. Nothing is deleted.`}
+            {cos ? (
+              <>
+                The <Term id="chief_of_staff">Chief of Staff</Term> plans every <Term id="cycle">cycle</Term> and cannot be let go.
+              </>
+            ) : (
+              `${agent?.name} leaves the team.`
+            )}
           </DialogDescription>
         </DialogHeader>
-        <DialogBody>
+        <DialogBody className="flex flex-col gap-2">
+          {/* What letting go does and that there is no way back, always shown (UX plan §6.2 ConsequenceLine). */}
+          {cos ? null : <ConsequenceLine consequence={RELEASE_CONSEQUENCE} reversible={false} data-testid="release-consequence" />}
           {agent?.currentTask ? <p className="text-small text-status-warn">Currently working on “{agent.currentTask.title}”; that task returns to ready.</p> : null}
-          <InlineError error={action.error} className="mt-2" />
+          <InlineError error={action.error} />
         </DialogBody>
         <DialogFooter>
-          <Button variant="ghost" onClick={() => onOpenChange(false)}>
+          <Button id={`${id}-keep`} variant="ghost" onClick={() => onOpenChange(false)}>
             Keep
           </Button>
           <Button variant="danger" icon={UserRoundMinus} disabled={cos} loading={action.pending !== null} onClick={() => void confirm()} data-testid="release-confirm">
-            Release
+            Let go
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -186,7 +225,7 @@ export function ReleaseDialog({ agent, onOpenChange, onReleased }: ReleaseDialog
   );
 }
 
-/* ---------- Clone ---------- */
+/* ---------- Duplicate (team.agents.clone) ---------- */
 
 export interface CloneDialogProps {
   agent: AgentRow | null;
@@ -195,7 +234,7 @@ export interface CloneDialogProps {
   onCloned: (clone: AgentRow, from: AgentRow) => void;
 }
 
-/** Clone an agent with its instructions, tools, model and skills (team.agents.clone). */
+/** Duplicate an agent with its instructions, tools, model and skills (team.agents.clone). */
 export function CloneDialog({ agent, onOpenChange, departments, onCloned }: CloneDialogProps) {
   const id = useId();
   const action = useAction();
@@ -223,7 +262,7 @@ export function CloneDialog({ agent, onOpenChange, departments, onCloned }: Clon
     <Dialog open={!!agent} onOpenChange={onOpenChange}>
       <DialogContent size="sm" aria-describedby={`${id}-desc`} data-testid="clone-dialog">
         <DialogHeader>
-          <DialogTitle>Clone {agent?.name}</DialogTitle>
+          <DialogTitle>Duplicate {agent?.name}</DialogTitle>
           <DialogDescription id={`${id}-desc`}>A new agent with the same instructions, tools, model and skills. Its history starts empty.</DialogDescription>
         </DialogHeader>
         <DialogBody className="flex flex-col gap-3">
@@ -232,7 +271,7 @@ export function CloneDialog({ agent, onOpenChange, departments, onCloned }: Clon
           </Field>
           <fieldset className="flex flex-col gap-1">
             <legend className="t-label mb-1">Departments</legend>
-            {options.length === 0 ? <p className="text-small text-secondary">No departments to choose from; the clone keeps its source's departments.</p> : null}
+            {options.length === 0 ? <p className="text-small text-secondary">No departments to choose from; the duplicate keeps its source's departments.</p> : null}
             {options.map((o) => {
               const cid = `${id}-dept-${o.value}`;
               return (
@@ -252,7 +291,7 @@ export function CloneDialog({ agent, onOpenChange, departments, onCloned }: Clon
             Cancel
           </Button>
           <Button variant="primary" icon={Copy} disabled={!name.trim()} loading={action.pending !== null} onClick={() => void confirm()} data-testid="clone-confirm">
-            Clone
+            Duplicate
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -260,7 +299,7 @@ export function CloneDialog({ agent, onOpenChange, departments, onCloned }: Clon
   );
 }
 
-/* ---------- Loan ---------- */
+/* ---------- Lend (team.agents.loan) ---------- */
 
 export interface LoanDialogProps {
   agent: AgentRow | null;
@@ -269,7 +308,7 @@ export interface LoanDialogProps {
   onLoaned: (agent: AgentRow, departmentId: string, move: boolean) => void;
 }
 
-/** Loan an agent to another department, or move it there (team.agents.loan). */
+/** Lend an agent to another department, or move it there (team.agents.loan). */
 export function LoanDialog({ agent, onOpenChange, departments, onLoaned }: LoanDialogProps) {
   const id = useId();
   const action = useAction();
@@ -297,7 +336,7 @@ export function LoanDialog({ agent, onOpenChange, departments, onLoaned }: LoanD
     <Dialog open={!!agent} onOpenChange={onOpenChange}>
       <DialogContent size="sm" aria-describedby={`${id}-desc`} data-testid="loan-dialog">
         <DialogHeader>
-          <DialogTitle>Loan {agent?.name}</DialogTitle>
+          <DialogTitle>Lend {agent?.name} to another department</DialogTitle>
           <DialogDescription id={`${id}-desc`}>The agent joins another department's team and keeps its skills, tools and model.</DialogDescription>
         </DialogHeader>
         <DialogBody className="flex flex-col gap-3">
@@ -311,9 +350,11 @@ export function LoanDialog({ agent, onOpenChange, departments, onLoaned }: LoanD
           <div className="flex items-center gap-2">
             <Checkbox id={`${id}-move`} checked={move} onCheckedChange={(v) => setMove(v === true)} />
             <label htmlFor={`${id}-move`} className="text-body text-primary">
-              Move instead of loan (leaves the current departments)
+              Move instead of lending (leaves the current departments)
             </label>
           </div>
+          {/* What lending or moving does, and that either can be undone, always shown (UX plan §6.2 ConsequenceLine). */}
+          <ConsequenceLine consequence={move ? LOAN_CONSEQUENCE.move : LOAN_CONSEQUENCE.lend} reversible data-testid="loan-consequence" />
           <InlineError error={action.error} />
         </DialogBody>
         <DialogFooter>
@@ -321,7 +362,7 @@ export function LoanDialog({ agent, onOpenChange, departments, onLoaned }: LoanD
             Cancel
           </Button>
           <Button variant="primary" icon={ArrowLeftRight} disabled={!departmentId} loading={action.pending !== null} onClick={() => void confirm()} data-testid="loan-confirm">
-            {move ? "Move" : "Loan"}
+            {move ? "Move" : "Lend"}
           </Button>
         </DialogFooter>
       </DialogContent>

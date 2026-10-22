@@ -9,14 +9,14 @@
  */
 import { useEffect, useMemo, useState } from "react";
 import { ExternalLink, FileText, Inbox, Plus, RefreshCw, Trash2 } from "lucide-react";
-import { Button, Chip, DataTable, Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, Panel, ProvenanceChip, formatRelative, type DataTableColumn, type SavedView } from "@foundmill/dugout";
+import { Button, Chip, ConsequenceLine, DataTable, Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, Panel, ProvenanceChip, Term, formatRelative, type DataTableColumn, type SavedView } from "@foundmill/dugout";
 import { SOURCE_KINDS, type SourceKind } from "@foundmill/shared";
 import { moduleHref, routes, useBusinessEvents, useDepartments, useWidgetData, useWidgetQuery } from "@foundmill/widgets";
 import { useSavedViews } from "@foundmill/widgets/shared/saved-views";
 import { useCanWrite } from "../env";
 import { plural } from "../fit";
 import type { ModuleScreenProps } from "../registry";
-import { InlineError, Screen, blockTitle, useAction } from "./shared";
+import { InlineError, SIMPLE_VIEW_ID, Screen, blockTitle, useAction, useDefaultViewId } from "./shared";
 import { AddSourceDialog } from "./sources/AddSourceDialog";
 import { IMPORT_STATE_META, SOURCE_KIND_META, hostOf, importState, isSimulatedSummary, isSourceKind, isWebUri, linkedBlocks, readState, relevance, summaryLine, topics } from "./sources/kinds";
 import type { SourceRow, SourcesListResponse, SpecBlockRow, SpecGetResponse } from "./types";
@@ -27,6 +27,8 @@ export const IMPORT_POLL_MS = 5_000;
 
 export const SOURCE_VIEWS: SavedView[] = [
   // The default view fits the panel at 1280 without a cut column; topics and fetch times live in the column menu.
+  // Simple (UX plan §7.10): what it is, what kind, what it says and when it arrived; first while guidance is on.
+  { id: SIMPLE_VIEW_ID, name: "Simple", builtIn: true, columns: ["title", "kind", "summary", "createdAt"], sort: [{ id: "createdAt", desc: true }], filters: [] },
   { id: "all", name: "All sources", builtIn: true, columns: ["title", "kind", "summary", "blocks", "createdAt"], sort: [{ id: "createdAt", desc: true }], filters: [] },
   { id: "customers", name: "Customer voice", builtIn: true, columns: ["title", "kind", "summary", "blocks", "createdAt"], sort: [{ id: "createdAt", desc: true }], filters: [{ id: "f-cv", field: "kind", op: "in", value: ["transcript", "feedback"] }] },
   { id: "competitors", name: "Competitors", builtIn: true, columns: ["title", "host", "summary", "fetchedAt"], sort: [{ id: "fetchedAt", desc: true }], filters: [{ id: "f-comp", field: "kind", op: "eq", value: "competitor" }] },
@@ -104,7 +106,7 @@ export function sourceColumns(blocks: readonly SpecBlockRow[], onOpenBlock: (id:
     {
       id: "blocks",
       accessorFn: (r) => linkedBlocks(r).length,
-      header: "Spec blocks",
+      header: "Spec paragraphs",
       size: 180,
       cell: ({ row }) => {
         const linked = linkedBlocks(row.original)
@@ -120,7 +122,7 @@ export function sourceColumns(blocks: readonly SpecBlockRow[], onOpenBlock: (id:
             onClick={() => onOpenBlock(linked[0]!.blockId)}
             title={linked.map((l) => `${blockTitle(l.block!)} · relevance ${Math.round(l.score * 100)}%`).join("\n")}
           >
-            {linked.length === 1 ? "1 block" : `${linked.length} blocks`}
+            {linked.length === 1 ? "1 paragraph" : `${linked.length} paragraphs`}
           </Chip>
         );
       },
@@ -153,8 +155,9 @@ export function SourcesScreen({ businessId }: ModuleScreenProps) {
   const list = useWidgetQuery<SourcesListResponse>("product.sources.list", kind ? { kind, limit: 200 } : { limit: 200 }, { refetchIntervalMs: importing ? IMPORT_POLL_MS : undefined });
   const spec = useWidgetQuery<SpecGetResponse>("product.spec.get", {});
   const departments = useDepartments();
-  // Saved per person, business and table (audit #204): they come back after a reload.
-  const savedViews = useSavedViews("product.sources", SOURCE_VIEWS, { defaultViewId: "all" });
+  // Saved per person, business and table (audit #204): they come back after a reload. Simple opens first while guidance is on.
+  const defaultViewId = useDefaultViewId("all");
+  const savedViews = useSavedViews("product.sources", SOURCE_VIEWS, { defaultViewId });
   const [adding, setAdding] = useState(false);
   const [removing, setRemoving] = useState<SourceRow | null>(null);
   const [highlight] = useState<string | null>(() => sourceFromLocation());
@@ -218,7 +221,12 @@ export function SourcesScreen({ businessId }: ModuleScreenProps) {
             </span>
           ) : null
         }
-        footer={<span className="tabular-nums">{plural(rows.length, "source")}{kind ? ` of kind ${SOURCE_KIND_META[kind].word}` : ""} · the Source Watcher scores relevance against every spec block and raises proposals from the Changes tab</span>}
+        footer={
+          <span className="tabular-nums">
+            {plural(rows.length, "source")}
+            {kind ? ` of kind ${SOURCE_KIND_META[kind].word}` : ""} · the <Term id="source_watcher">Source Watcher</Term> scores relevance against every <Term id="specification">specification</Term> paragraph and raises <Term id="proposal">proposals</Term> from the Changes tab
+          </span>
+        }
         flush
       >
         <div role="group" aria-label="Filter by kind" className="flex flex-wrap items-center gap-1 border-b border-subtle px-panel-pad py-2">
@@ -241,7 +249,7 @@ export function SourcesScreen({ businessId }: ModuleScreenProps) {
           data={rows}
           columns={columns}
           {...savedViews}
-          defaultViewId="all"
+          defaultViewId={defaultViewId}
           height={560}
           exportFileName="sources"
           rowClassName={(row) => (row.id === highlight ? "bg-panel-alt" : undefined)}
@@ -276,6 +284,10 @@ export function SourcesScreen({ businessId }: ModuleScreenProps) {
               {removing ? `"${removing.title || removing.uri || "Untitled"}" leaves the list and the Source Watcher stops reading it. Change proposals that cite it keep it as evidence.` : ""}
             </DialogDescription>
           </DialogHeader>
+          <DialogBody>
+            {/* What removing does, always shown (UX plan §6.2 ConsequenceLine): the source cannot be brought back from here. */}
+            <ConsequenceLine consequence="The Source Watcher stops reading it; proposals keep what it already said." cost="No cost" reversible={false} />
+          </DialogBody>
           <DialogFooter>
             <InlineError error={action.error} />
             <Button variant="ghost" onClick={() => setRemoving(null)}>

@@ -179,6 +179,18 @@ export function pauseNote(reason: AutopilotPauseReason, idleCycles: number = AUT
   }
 }
 
+/**
+ * The chip's word while a note holds Continue: the one "needs you" family the product uses (UX plan §5.5, "answer").
+ * Shown by the Home chip, Settings › Mode and the department cards.
+ */
+export const AUTOPILOT_NEEDS_ANSWER_LABEL = "Needs your answer";
+
+/** Why Autopilot waits on the founder, in plain words: "2 notes in the Inbox need your answer. Autopilot never answers them for you." */
+export function inboxWaitNote(blockingItems: number): string {
+  const one = blockingItems === 1;
+  return `${one ? "1 note" : `${blockingItems} notes`} in the Inbox need${one ? "s" : ""} your answer. Autopilot never answers ${one ? "it" : "them"} for you.`;
+}
+
 /** How much Autopilot may spend today (USD cents, an Estimate): the ceiling, never more than the credits there are. */
 export function effectiveSpendCeiling(settings: Pick<AutopilotSettings, "spendCeilingMinor">, spentTodayMinor: number, creditsRemainingMinor: number | null): number | null {
   const credits = creditsRemainingMinor === null ? null : spentTodayMinor + Math.max(0, creditsRemainingMinor);
@@ -203,7 +215,7 @@ export function decideAutopilot(f: AutopilotFacts): AutopilotDecision {
   const tomorrow = utcDayStart(f.now) + DAY_MS;
   if (f.vacation) return { action: "wait", why: "vacation", note: "You are on vacation; the Chief of Staff runs the cycles until you come back.", nextAt: null, until: null };
   if (f.cycleOpen) return { action: "wait", why: "cycle_running", note: "A cycle is running; the next one is planned when it ends.", nextAt: null, until: null };
-  if (f.blockingItems > 0) return { action: "wait", why: "inbox", note: `Waiting for you: ${f.blockingItems} Inbox item${f.blockingItems === 1 ? "" : "s"} need${f.blockingItems === 1 ? "s" : ""} your decision. Autopilot never decides for you.`, nextAt, until: null };
+  if (f.blockingItems > 0) return { action: "wait", why: "inbox", note: inboxWaitNote(f.blockingItems), nextAt, until: null };
   if (f.cyclesToday >= f.settings.maxCyclesPerDay) return { action: "wait", why: "daily_cycles", note: `Today's limit of ${f.settings.maxCyclesPerDay} cycle${f.settings.maxCyclesPerDay === 1 ? "" : "s"} is reached; Autopilot continues tomorrow (UTC).`, nextAt: Math.max(nextAt, tomorrow), until: tomorrow };
   const ceiling = effectiveSpendCeiling(f.settings, f.spentTodayMinor, f.creditsRemainingMinor);
   if (ceiling !== null && f.spentTodayMinor >= ceiling) return { action: "wait", why: "daily_spend", note: "Today's spend ceiling is reached (Estimate); Autopilot continues tomorrow (UTC).", nextAt: Math.max(nextAt, tomorrow), until: tomorrow };
@@ -216,7 +228,7 @@ export type AutopilotState = "off" | "on" | "waiting" | "paused";
 
 export interface AutopilotView {
   state: AutopilotState;
-  /** The chip text: On, Waiting for you, Paused: reason, Off. */
+  /** The chip text: On, Needs your answer, Paused: reason, Off. */
   label: string;
   /** One plain sentence under it. */
   detail: string;
@@ -241,7 +253,7 @@ export function autopilotView(d: AutopilotDecision): AutopilotView {
     case "pause":
       return { state: "paused", label: `Paused: ${PAUSE_SHORT[d.reason]}`, detail: d.note, nextAt: null };
     case "wait":
-      if (d.why === "inbox") return { state: "waiting", label: "Waiting for you", detail: d.note, nextAt: d.nextAt };
+      if (d.why === "inbox") return { state: "waiting", label: AUTOPILOT_NEEDS_ANSWER_LABEL, detail: d.note, nextAt: d.nextAt };
       if (d.why === "vacation") return { state: "waiting", label: "Waiting: on vacation", detail: d.note, nextAt: null };
       if (d.why === "daily_cycles") return { state: "waiting", label: "Waiting: daily limit reached", detail: d.note, nextAt: d.nextAt };
       if (d.why === "daily_spend") return { state: "waiting", label: "Waiting: spend ceiling reached", detail: d.note, nextAt: d.nextAt };

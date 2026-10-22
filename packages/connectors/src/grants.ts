@@ -173,8 +173,8 @@ export const SESSION_MANAGED_CAPABILITIES: Readonly<Record<string, Readonly<Reco
   },
   platform: {
     "labels.read": "the classifier is handed the label set with each input",
-    "routing.table.read": "triage is handed the routing table with each item",
-    "inbound.recent.read": "triage is handed the recent items to check for duplicates",
+    "routing.table.read": "the inbound sorter is handed the routing table with each item",
+    "inbound.recent.read": "the inbound sorter is handed the recent items to check for duplicates",
     "policy.content.read": "moderation is handed the content policy with each item",
   },
 };
@@ -187,7 +187,7 @@ export const NOT_YET_SERVED: Readonly<Record<string, Readonly<Record<string, str
   github: { "actions.read": "no Actions tool on the GitHub connector yet", "issues.list": "no Issues tool on the GitHub connector yet", "branches.list": "no branch listing tool yet (read_tree reads one ref)" },
   dropbox_sign: { "templates.list": "no template tool on the Dropbox Sign connector yet" },
   stripe: { "subscriptions.list": "no subscription tool on the Stripe connector yet" },
-  sendgrid: { "subusers.read": "subusers are not modeled", "inbound.read": "inbound mail arrives as webhook events, not a tool" },
+  sendgrid: { "subusers.read": "subusers are not modeled", "inbound.read": "inbound mail arrives as pushed events, not a tool" },
   shopify: { "payouts.list": "no Shopify Payments tool yet", "discounts.create": "no discount tool on the Shopify connector yet" },
   sandbox: {
     shell: "no shell in a live session: Bash is disallowed on the orchestrator host (SECURITY_REVIEW SEC-3)",
@@ -201,7 +201,7 @@ export const NOT_YET_SERVED: Readonly<Record<string, Readonly<Record<string, str
       "legal.contracts.review", "legal.policies.generate", "incorporation.prepare", "crm.entities.create", "crm.interactions.append", "documents.read", "documents.write",
       "costing.model.read", "costing.model.update", "campaigns.create", "campaigns.update", "campaigns.pause", "assets.create", "attribution.links.create", "attribution.codes.create",
       "rfq.create", "rfq.track", "quotes.record", "samples.track",
-    ].map((c) => [c, "no platform tool for this yet: the agent asks its lead or the founder (send_message, request_human_action)"]),
+    ].map((c) => [c, "no platform tool for this yet: the agent asks its lead (send_message) or hands it to the founder"]),
   ),
 };
 

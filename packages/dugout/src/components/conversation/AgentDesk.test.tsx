@@ -83,9 +83,9 @@ describe("AgentDesk", () => {
   it("offers the latest agent message's replies on the founder's turn, and 1–4 send them", () => {
     const { props } = desk();
     expect(replyButtons().map((b) => b.textContent)).toEqual([
-      "1Yes, ask for 45 days",
-      "2Show me December",
-      "3What does Boots risk?",
+      "Yes, ask for 45 days",
+      "Show me December",
+      "What does Boots risk?",
     ]);
     fireEvent.keyDown(document, { key: "3", code: "Digit3" });
     expect(props.onQuickReply).toHaveBeenCalledWith(JUNO_MESSAGES[1]!.quickReplies![2]);
@@ -136,9 +136,9 @@ describe("AgentDesk", () => {
       "I've modeled the Boots UK trial",
     );
     expect(replyButtons().map((b) => b.textContent)).toEqual([
-      "1Go with: Approve the trial",
-      "2Why that one?",
-      "3What's the risk?",
+      "Go with: Approve the trial",
+      "Why that one?",
+      "What's the risk?",
     ]);
     expect(screen.getByRole("button", { name: "Write" })).toBeTruthy();
   });
@@ -363,7 +363,7 @@ describe("AgentDesk: never makes the founder type", () => {
       />,
     );
     const buttons = replyButtons();
-    expect(buttons.map((b) => b.textContent)).toEqual(["1Tell me more", "2Thanks, carry on"]);
+    expect(buttons.map((b) => b.textContent)).toEqual(["Tell me more", "Thanks, carry on"]);
     await user.click(buttons[0]!);
     expect(onSend).toHaveBeenCalledWith("Tell me more");
     expect(onQuickReply).not.toHaveBeenCalled();
@@ -381,8 +381,8 @@ describe("AgentDesk: never makes the founder type", () => {
       />,
     );
     expect(replyButtons().map((b) => b.textContent)).toEqual([
-      "1What are you working on?",
-      "2Anything blocking you?",
+      "What are you working on?",
+      "Anything blocking you?",
     ]);
   });
 

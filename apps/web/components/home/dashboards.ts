@@ -3,7 +3,7 @@
  * version bookkeeping behind "layout edits persist, version, and can be reset", presets for the WidgetGrid, the
  * share link co-founders open, and the day-one state (ghosted milestones).
  */
-import type { TabItem, TrophyCard, WidgetLayout, WidgetPreset } from "@foundmill/dugout";
+import type { NextStepFacts, NextStepFoundationsStatus, NextStepItem, TabItem, TrophyCard, WidgetLayout, WidgetPreset } from "@foundmill/dugout";
 import { applyGlossary } from "@foundmill/shared/glossary";
 import { TROPHIES } from "@foundmill/journey";
 import { DASHBOARD_PRESET_LIST, dashboardPresets, fromGridLayout, isDashboardPresetId, layoutsEqual, routes, toGridLayout, type DashboardPresetId } from "@foundmill/widgets";
@@ -114,14 +114,57 @@ export function isDayOne(input: DayOneInput): boolean {
   return input.conversions === 0 && input.milestones === 0 && (input.cyclesCompleted ?? 0) === 0;
 }
 
-/**
- * The day-one line, true to the cycle's state: never "press Continue to start the first cycle" while that cycle is
- * already running, or while a note in Respond holds Continue.
- */
-export function dayOneLine(input: { running: boolean; cycleNumber: number | null; blocking: number }): string {
-  if (input.running) return `Cycle ${input.cycleNumber ?? 1} is under way: the team is on its first tasks. These are the milestones ahead; they light up as customers and revenue arrive.`;
-  if (input.blocking > 0) return `The team is waiting on you: answer the ${input.blocking === 1 ? "note" : `${input.blocking} notes`} in Respond, then Continue starts the next cycle. These are the milestones ahead.`;
-  return "Nothing has happened yet. These are the milestones ahead; press Continue to start the first cycle.";
+/** What the shell already holds, turned into the next-step strip's facts (UX plan §6.2 NextStep, §7.8). */
+export interface NextStepInputs {
+  /** `business.get` foundationsStatus: none, pending, drafting, ready or failed. */
+  foundationsStatus: string | null | undefined;
+  /** Notes in Respond that hold Continue (`inbox.list` blocking, else `business.get` blockingItems). */
+  blocking: number;
+  /** Notes from the team not opened yet (`unreadNotes`). */
+  unread: number;
+  /** `cycle.status`: running (a paused cycle is not running for the founder), the cycle's number, the agents at work, the cycles finished. */
+  cycle: { running: boolean; paused?: boolean; cycleNumber: number | null; nextCycleNumber?: number; activeAgentIds?: readonly string[]; completedCount: number } | null | undefined;
+  distributionStartedAt: Date | string | null | undefined;
+}
+
+/** The first-open drafting's status as the strip reads it: pending and drafting are one wait; none is "nothing to read". */
+export function foundationsForNextStep(status: string | null | undefined): NextStepFoundationsStatus {
+  switch (status) {
+    case "ready":
+    case "failed":
+    case "none":
+      return status;
+    case "pending":
+    case "drafting":
+      return "drafting";
+    default:
+      return null;
+  }
+}
+
+/** Notes from an agent the founder has not opened, on the page the shell reads. */
+export function unreadNotes(items: readonly { state: string; fromAgentId?: string | null }[] | undefined): number {
+  return (items ?? []).filter((i) => i.state === "unread" && i.fromAgentId !== null && i.fromAgentId !== undefined).length;
+}
+
+export function nextStepFacts(input: NextStepInputs): NextStepFacts {
+  const cycle = input.cycle ?? null;
+  const running = !!cycle?.running && !cycle.paused;
+  return {
+    foundationsStatus: foundationsForNextStep(input.foundationsStatus),
+    blockingNotes: Math.max(0, input.blocking),
+    unreadNotes: Math.max(0, input.unread),
+    cycleRunning: running,
+    cycleNumber: (running ? cycle?.cycleNumber : null) ?? cycle?.nextCycleNumber ?? 1,
+    agentsWorking: running ? (cycle?.activeAgentIds?.length ?? 0) : 0,
+    distributionStarted: input.distributionStartedAt !== null && input.distributionStartedAt !== undefined,
+    firstCycleDone: (cycle?.completedCount ?? 0) > 0,
+  };
+}
+
+/** "Press Continue" has no route: its Go puts the focus on the top bar's button (`focusContinueButton`). */
+export function withContinueAction(steps: readonly NextStepItem[], onGo: () => void): NextStepItem[] {
+  return steps.map((s) => (s.id === "press-continue" && !s.href && !s.done ? { ...s, onGo } : s));
 }
 
 function describeTrophy(t: (typeof TROPHIES)[number], currency: string): string {

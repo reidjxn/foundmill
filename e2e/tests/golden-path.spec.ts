@@ -232,6 +232,9 @@ test.describe("golden path", () => {
     await page.getByTestId("commit-link").first().click();
     await expect(page.getByTestId("commit-form")).toBeVisible();
     await expect(page.getByTestId("commit-form")).toHaveAttribute("data-business-mode", "assisted");
+    // How it runs is one line of chips until Change opens the five controls (commit.spec.ts, UX plan §7.6).
+    await page.getByTestId("how-it-runs-change").click();
+    await expect(page.getByTestId("business-mode-panel")).toBeVisible();
     await expect(page.locator('[data-option="assisted"]')).toHaveAttribute("data-selected", "true");
     const name = `Playwright Business ${Date.now().toString(36)}`;
     await page.getByLabel(/Business name/).fill(name);
@@ -241,12 +244,9 @@ test.describe("golden path", () => {
     bid = page.url().match(new RegExp(`/b/(${UUID})/home`))![1]!;
     await expect(page.getByTestId("app-shell")).toBeVisible();
     await expect(page.getByTestId("kit-bar")).toContainText(name);
-    // Home shows the foundations drafting, then ready: two notes ask for the founder's sign-off.
+    // The foundations draft in the mock model in moments. The Home banner shows only while a draft is in progress (or
+    // when it turns ready during this visit), so the outcome is checked where it lands: the two sign-off notes below.
     await expect(page.getByTestId("home-screen")).toBeVisible({ timeout: LONG });
-    const status = page.getByTestId("foundations-status");
-    await expect(status).toBeVisible({ timeout: LONG });
-    await expect(status).toHaveAttribute("data-foundations-state", "ready", { timeout: LONG });
-    await expect(status.getByRole("status")).toContainText("Two notes in the Inbox ask for your sign-off.");
     // The sidebar carries the departments the commit created.
     expect(await page.locator("[data-testid=app-shell] nav a[href*='/d/']").count()).toBeGreaterThanOrEqual(1);
     // The Inbox opens on the Chief of Staff's welcome note: an Update, with no decision to take.

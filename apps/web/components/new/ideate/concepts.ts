@@ -6,7 +6,8 @@
  */
 import { CREDITS_CURRENCY } from "@foundmill/config";
 import { ARCHETYPE_LABELS, type Archetype } from "@foundmill/shared";
-import { CONCEPT_ATTRIBUTE_KEYS, CONCEPT_ATTRIBUTE_LABELS, createRng, hslToRgb, kitOnPrimaryDetail, rgbToHex, type Concept, type ConceptAttribute, type ConceptEvidence, type Kit } from "@foundmill/dugout";
+import { TERMS } from "@foundmill/shared/terms";
+import { CONCEPT_ATTRIBUTE_KEYS, CONCEPT_ATTRIBUTE_LABELS, createRng, hslToRgb, kitOnPrimaryDetail, rgbToHex, type Concept, type ConceptAttribute, type ConceptEvidence, type Kit, type TermDefinition } from "@foundmill/dugout";
 import { DISPLAY_LOCALE } from "@/lib/format";
 
 export const META_KIND = "foundmill:meta";
@@ -175,7 +176,22 @@ export function attributeChanges(before: IdeaVersionLike["attributes"] | null | 
   });
 }
 
-export const VERSION_ACTION_LABELS: Record<string, string> = { generated: "Generated", merged: "Merged", forked: "Forked", edited: "Edited" };
+/**
+ * A concept attribute as a defined word (UX plan §7.5, A6): the `Term` id is `attr_<key>` ("attr_market_pull" …
+ * "attr_distribution_clarity"), the entry the shared definitions map holds for every attribute, its sentence carrying
+ * the direction ("How crowded the market is; higher means less crowded."). An unknown key has no entry, so the word
+ * stays plain text.
+ */
+export function attributeTermId(key: string): string {
+  return `attr_${key}`;
+}
+
+/** The map's definition of an attribute (TERMS), for a Term rendered outside the app's provider; undefined for an unknown key. */
+export function attributeTerm(key: string): TermDefinition | undefined {
+  return (TERMS as Record<string, TermDefinition>)[attributeTermId(key)];
+}
+
+export const VERSION_ACTION_LABELS: Record<string, string> = { generated: "Generated", merged: "Merged", forked: "Variant made", edited: "Edited" };
 
 export function versionActionLabel(action: string): string {
   return VERSION_ACTION_LABELS[action] ?? action;

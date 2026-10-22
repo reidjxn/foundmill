@@ -2,7 +2,7 @@
 /** Create / edit a roadmap item and link it to spec blocks (product.roadmap.upsert + product.roadmap.link). */
 import { useEffect, useMemo, useState } from "react";
 import { Save } from "lucide-react";
-import { Button, Checkbox, Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, Field, Input, SimpleSelect, Textarea } from "@foundmill/dugout";
+import { Button, Checkbox, Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, Field, Input, SimpleSelect, Term, Textarea } from "@foundmill/dugout";
 import { ROADMAP_HORIZONS } from "@foundmill/shared";
 import { HORIZON_LABEL } from "../roadmap-status";
 import { InlineError, blockTitle, groupBySection, useAction } from "../shared";
@@ -82,7 +82,7 @@ export function ItemDialog({ open, item, horizon, blocks, onClose, onSaved }: { 
       <DialogContent size="lg">
         <DialogHeader>
           <DialogTitle>{item ? "Edit roadmap item" : "New roadmap item"}</DialogTitle>
-          <DialogDescription>Status is computed from linked tasks and acceptance criteria; it is not set here.</DialogDescription>
+          <DialogDescription>Status comes from the linked tasks and their checks for done; you do not set it here.</DialogDescription>
         </DialogHeader>
         <DialogBody className="grid grid-cols-2 gap-3">
           <Field htmlFor="rm-title" label="Title" required error={touched && !draft.title.trim() ? "Required" : undefined} className="col-span-2">
@@ -104,8 +104,8 @@ export function ItemDialog({ open, item, horizon, blocks, onClose, onSaved }: { 
             <Textarea id="rm-desc" rows={3} value={draft.descriptionMd} onChange={(e) => setDraft({ ...draft, descriptionMd: e.target.value })} placeholder="What done looks like, in a sentence or two" />
           </Field>
           <fieldset className="col-span-2 min-w-0">
-            <legend className="t-label mb-1">Linked spec blocks</legend>
-            {groups.length === 0 ? <p className="text-small text-secondary">No spec blocks yet. Link blocks once the Specification has content.</p> : null}
+            <legend className="t-label mb-1">Linked <Term id="specification">specification</Term> paragraphs</legend>
+            {groups.length === 0 ? <p className="text-small text-secondary">No specification paragraphs yet. Link them once the Specification has content.</p> : null}
             <div className="max-h-48 overflow-auto rounded-panel border border-subtle bg-panel-alt p-2">
               {groups.map((g) => (
                 <div key={g.section} className="mb-2 last:mb-0">

@@ -87,6 +87,7 @@ export function SavedViewSelector({
             className={cn("group/trigger max-w-72 gap-1.5", className)}
             aria-label={`View: ${active?.name ?? "All"}${dirty ? " (unsaved changes)" : ""}`}
             data-saved-view={activeId ?? undefined}
+            data-coachmark="table-views"
           >
             <Icon icon={Bookmark} size="inline" className="text-secondary" />
             {/* Founders name their views: the name fits (steps down, then truncates with a tooltip). */}

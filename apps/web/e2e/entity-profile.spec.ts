@@ -45,6 +45,20 @@ async function openFirstEntity(page: Page): Promise<string> {
   return first!.href;
 }
 
+/**
+ * Presses one of a screen's top-right action buttons from the keyboard. Seeded Northwind has no finished cycle, so with
+ * guidance on the first-Continue callout (UX plan §7.7) sits under Continue in the top bar, over the screen header's
+ * right-hand actions (Export, Request deletion, New record). It is not modal and stays until "Got it", which marks the
+ * tour done for the whole dev account (first-days.spec.ts and tours.spec.ts still expect it), so the button is focused
+ * and pressed with Enter, as crm.spec.ts and billing.spec.ts do, rather than clicked through the callout's card.
+ */
+async function pressAction(page: Page, testId: string): Promise<void> {
+  const button = page.getByTestId(testId);
+  await button.focus();
+  await expect(button).toBeFocused();
+  await page.keyboard.press("Enter");
+}
+
 test.describe("entity profile", () => {
   test("header with relationship strength and lead score, seven tabs", async ({ page }) => {
     await openFirstEntity(page);
@@ -87,11 +101,11 @@ test.describe("entity profile", () => {
 
   test("data duties: export shows the JSON; deletion is queued, never immediate", async ({ page }) => {
     await openFirstEntity(page);
-    await page.getByTestId("entity-export").click();
+    await pressAction(page, "entity-export");
     await expect(page.getByTestId("export-dialog")).toContainText("exportedAt");
     await page.keyboard.press("Escape");
     await expect(page.getByTestId("export-dialog")).toBeHidden();
-    await page.getByTestId("entity-delete").click();
+    await pressAction(page, "entity-delete");
     await expect(page.getByTestId("delete-request-dialog")).toContainText("never runs immediately");
     // What the request does now and later (audit RA-23): outreach suppressed at once, the record purged by the nightly job.
     await expect(page.getByTestId("delete-request-dialog")).toContainText("Outreach to them stops now");
@@ -157,8 +171,9 @@ test.describe("entity profile", () => {
     const second = `Merge Second ${tag}`;
     const add = async (name: string, email?: string): Promise<string> => {
       await openBusiness(page, "crm");
-      await page.getByTestId("crm-new").click();
+      await pressAction(page, "crm-new");
       const dialog = page.getByTestId("new-entity-dialog");
+      await expect(dialog).toBeVisible({ timeout: LONG });
       await dialog.getByLabel("Name").fill(name);
       if (email) await dialog.getByLabel("Email").fill(email);
       await page.getByTestId("new-entity-save").click();

@@ -268,6 +268,7 @@ export function primaryRole(roles: readonly EntityRoleRecord[]): EntityRoleRecor
 export const STAGE_TONE: Record<string, "good" | "warn" | "bad" | "info" | "neutral"> = { customer: "good", champion: "good", activated: "info", signed_up: "info", churned: "bad", negotiating: "warn", shortlisted: "info", qualified: "info" };
 
 /** Where a mention lives, in words ("inbox_item" → "an inbox note"). */
+// plain-allow: the names of the documents a mention sits in; the Product tabs that hold the specification and its proposals define both words.
 const CONTAINER_WORDS: Record<string, string> = { inbox_item: "an inbox note", spec_block: "the specification", spec: "the specification", document: "a document", doc: "a document", contract: "a contract", proposal: "a proposal", task: "a task", note: "a note", roadmap_item: "the roadmap" };
 
 export function containerWord(kind: string): string {

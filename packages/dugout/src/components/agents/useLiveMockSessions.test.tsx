@@ -52,7 +52,7 @@ describe("mock session recordings", () => {
     expect(out).toEqual([...Object.values(TASKS[4]!.terminal).flat()]);
     expect(out.join(" ")).not.toContain("task 1");
     expect(events.some((e) => e.kind === "file_changed" && e.path === "src/task-5.ts")).toBe(true);
-    expect(events.filter((e) => e.kind === "note").map((e) => (e.kind === "note" ? e.text : ""))).toEqual(["start task 5", "change task 5", "insight task 5", "failing task 5", "review task 5", "Done. Pull request #105 merged."]);
+    expect(events.filter((e) => e.kind === "note").map((e) => (e.kind === "note" ? e.text : ""))).toEqual(["start task 5", "change task 5", "insight task 5", "failing task 5", "review task 5", "Done. Change #105 merged into the code."]);
     const phases = events.flatMap((e) => (e.kind === "phase_changed" ? [e.to] : []));
     expect(phases).toEqual(["planning", "implementing", "testing", "review", "merge", "done"]);
     const progress = events.filter((e) => e.kind === "progress");
@@ -60,9 +60,9 @@ describe("mock session recordings", () => {
   });
 
   it("derives the done note from the script's data, never a fixed pull request", () => {
-    expect(mockRecording(STOREFRONT_SESSION_SCRIPT).doneNote).toBe("Done. Pull request #41 merged.");
+    expect(mockRecording(STOREFRONT_SESSION_SCRIPT).doneNote).toBe("Done. Change #41 merged into the code.");
     const other = { ...STOREFRONT_SESSION_SCRIPT, stdout: STOREFRONT_SESSION_SCRIPT.stdout.map((l) => l.replace("/pull/41", "/pull/318")) };
-    expect(mockRecording(other).doneNote).toBe("Done. Pull request #318 merged.");
+    expect(mockRecording(other).doneNote).toBe("Done. Change #318 merged into the code.");
     const noPr = { ...STOREFRONT_SESSION_SCRIPT, stdout: STOREFRONT_SESSION_SCRIPT.stdout.filter((l) => !l.includes("/pull/")) };
     expect(mockRecording(noPr).doneNote).toBe("Done.");
     expect(pullRequestIn(["a", "x/pull/7", "y/pull/12"])).toBe(12);

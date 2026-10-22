@@ -2,7 +2,7 @@
 import { describe, expect, it } from "vitest";
 import { readWidgetEvent } from "../data";
 import { addDays, dailySeries, daysUntil, lastDays, weekKey } from "../shared/time";
-import { agentRows, pickAgent } from "../widgets/agent-of-the-week";
+import { agentRating20, agentRows, pickAgent, starsFromRating20 } from "../widgets/agent-of-the-week";
 import { buildFormRows, formCells } from "../widgets/channel-form-guide";
 import { forecastSeries, runwayTileProps, runwayTone } from "../widgets/cash-runway";
 import { pickCommunity, postPreview, postsToTimeline } from "../widgets/community-feed";
@@ -16,8 +16,8 @@ import { formatDate } from "@foundmill/dugout";
 import { groupByHorizon, roadmapStatus, taskProgress } from "../widgets/roadmap-timeline";
 import { dayHourIn } from "@foundmill/shared/time-zone";
 import { sessionsToPulseCells, type SessionRow } from "../widgets/squad-pulse";
-import { boardWords, runwayTile, squadHealth, statusTiles } from "../widgets/status-strip";
-import { headlineMetric } from "../widgets/department-card";
+import { PLAIN_LINES, boardWords, runwayTile, squadHealth, statusTiles, teamHealthCaption } from "../widgets/status-strip";
+import { METRIC_PLAIN, headlineMetric } from "../widgets/department-card";
 import { teamHealth, teamHealthCounts, teamHealthSummary } from "../shared/health";
 import { milestoneKey, trophyCards } from "../widgets/trophy-cabinet";
 import { monthRevenueMinor } from "../shared/cash";
@@ -151,14 +151,52 @@ describe("status strip", () => {
   it("builds five tiles in Personal mode and six in LIVE, with Estimate on runway", () => {
     const base = { finance, ribbon: ribbon(14), departments, today: TODAY, currency: "EUR", loading: { finance: false, ribbon: false, departments: false, positions: false }, open: () => {} };
     const personal = statusTiles({ ...base, live: false });
-    expect(personal.map((t) => t.label)).toEqual(["Cash", "Runway", "Revenue this month", "Customers this week", "Business health"]);
+    expect(personal.map((t) => t.label)).toEqual(["Cash", "Runway", "Revenue this month", "Customers this week", "Team health"]);
     expect(personal[1]).toMatchObject({ value: "8.7", unit: "mo", estimate: "estimate" });
     expect(personal[3]!.value).toBe(2);
+    // Captions in words (UX plan B9, B10); the formula and the accounting basis sit in the provenance tooltip.
+    expect(personal[0]!.caption).toBe(`In the bank · ${finance.cash.accounts} accounts`);
+    expect(statusTiles({ ...base, live: false, finance: { ...finance, cash: { ...finance.cash, accounts: 1 } } })[0]!.caption).toBe("In the bank · 1 account");
+    expect(personal[1]!.caption).toBe(finance.runway.blocksContinue ? "Under 3 months of cash left: holds Continue" : finance.runway.months! < 9 ? "Under 9 months of cash left" : "Months of cash left at today's spending");
+    expect(personal[1]!.provenance?.source).toContain("Cash ÷ net burn");
+    expect(personal[2]!.caption).toBe("Money in this month");
+    expect(personal[2]!.provenance).toMatchObject({ note: finance.revenue.label });
+    expect(personal[3]!.caption).toBe("Paying customers, last 7 days");
+    expect(personal[4]!.caption).toBe("5 of 6 agents healthy");
+    for (const t of personal) expect(String(t.caption ?? "")).not.toMatch(/÷|Cash basis|Business health/);
+    // One agent, none, and a team that all needs the founder.
+    expect(teamHealthCaption(teamHealthCounts(["healthy"]))).toBe("1 of 1 agent healthy");
+    expect(teamHealthCaption(teamHealthCounts([]))).toBe("No agents hired yet");
+    expect(teamHealthCaption(teamHealthCounts(["failing", "injured"]))).toBe("0 of 2 agents healthy");
+    expect(statusTiles({ ...base, live: false, departments: [] })[4]).toMatchObject({ label: "Team health", value: "—", caption: "No agents hired yet" });
     const live = statusTiles({ ...base, live: true, positions: [{ ...leaderboardEntries[7]!, board: leaderboards[0]! }] });
     expect(live.length).toBe(6);
     expect(live[5]).toMatchObject({ label: "Leaderboard position", value: "#8" });
     expect(squadHealth(departments)).toBeCloseTo(5 / 6, 5);
     expect(squadHealth([])).toBeNull();
+  });
+
+  it("gives every tile its plain-words line and the defined labels their term (UX plan §7.8)", () => {
+    const base = { finance, ribbon: ribbon(14), departments, today: TODAY, currency: "EUR", loading: { finance: false, ribbon: false, departments: false, positions: false }, open: () => {} };
+    const tiles = statusTiles({ ...base, live: true, positions: [{ ...leaderboardEntries[7]!, board: leaderboards[0]! }] });
+    // The definitions map's line where it has one; the strip's own words for the rest.
+    expect(tiles.map((t) => t.metricId ?? t.plain)).toEqual([PLAIN_LINES.cash, "runway", PLAIN_LINES.revenue, PLAIN_LINES.customers, "team_health", "leaderboard"]);
+    expect(tiles.map((t) => t.termId)).toEqual([undefined, "runway", "revenue", undefined, undefined, undefined]);
+    // No runway figure yet: the tile still defines the word.
+    expect(runwayTile({ ...finance, runway: { ...finance.runway, months: null } }, false, () => {})).toMatchObject({ termId: "runway", metricId: "runway" });
+    // A failed Finance read keeps the term on the label and says nothing in plain words under "No access".
+    const forbidden = Object.assign(new Error("no"), { data: { code: "FORBIDDEN" } });
+    const failed = statusTiles({ ...base, live: false, finance: undefined, errors: { finance: forbidden } });
+    expect(failed[1]).toMatchObject({ termId: "runway" });
+    expect(failed[1]!.metricId).toBeUndefined();
+    expect(failed[1]!.plain).toBeUndefined();
+  });
+
+  it("names the metric of every department card in plain words, or its definition", () => {
+    expect(METRIC_PLAIN.runway).toEqual({ metricId: "runway" });
+    expect(METRIC_PLAIN.squad_health).toEqual({ metricId: "team_health" });
+    expect(METRIC_PLAIN.blended_cpa).toEqual({ metricId: "acquisition_cost" });
+    for (const key of ["auto", "tasks_done", "roadmap_on_track", "next_filing"] as const) expect("plain" in METRIC_PLAIN[key] && METRIC_PLAIN[key].plain.length > 0).toBe(true);
   });
 
   it("never counts a raise as revenue: Revenue this month and its spark read operating inflows (BUILD §11.8)", () => {
@@ -297,6 +335,23 @@ describe("agent of the week", () => {
     expect(pickAgent(team, { by: "rating", departmentId: departments[0]!.id })!.name).toBe("Atlas");
     expect(pickAgent([], { by: "rating", departmentId: null })).toBeNull();
   });
+  it("rates on the one /20 scale: the mean of the skills, else the /10 rating doubled, and the stars from it (founder decision 2026-10-20)", () => {
+    // Atlas: skills 16 and 14 → 15; Ember: 18.
+    expect(agentRating20(team[0]!)).toBe(15);
+    expect(agentRating20(team[2]!)).toBe(18);
+    expect(agentRating20({ skills: [], rating: 7.5 })).toBe(15);
+    expect(agentRating20({ skills: [], rating: null })).toBeNull();
+    expect(agentRating20({ skills: [{ displayed: 0 }], rating: null })).toBeNull();
+    // team.agents.list's own /20 figure comes first; a missing or zero one falls through to the skills, then the /10.
+    expect(agentRating20({ skills: [{ displayed: 10 }], rating: 4, rating20: 16.5 })).toBe(16.5);
+    expect(agentRating20({ skills: [{ displayed: 10 }], rating: 4, rating20: 0 })).toBe(10);
+    expect(agentRating20({ skills: [], rating: 4, rating20: null })).toBe(8);
+    expect(starsFromRating20(18)).toBe(4.5);
+    expect(starsFromRating20(15)).toBe(4);
+    expect(starsFromRating20(20)).toBe(5);
+    expect(starsFromRating20(1)).toBe(0.5);
+  });
+
   it("reads team.agents.list as the API's { agents, templates } envelope or a bare array", () => {
     expect(agentRows(undefined)).toEqual([]);
     expect(agentRows(team)).toBe(team);
@@ -409,7 +464,7 @@ describe("text helpers", () => {
     expect(describeEvent({ type: "customer.converted", payload: { kind: "payment", amount: { amountMinor: 4900, currency: "USD" } } })).toMatchObject({ title: "New paying customer", description: "$49.00", statusWord: "Win" });
     expect(describeEvent({ type: "approval.resolved", payload: { outcome: "approved" } })).toMatchObject({ title: "Approved", statusWord: "Approved", tone: "good" });
     expect(describeEvent({ type: "approval.resolved", payload: { outcome: "expired" } }).title).toBe("Approval expired");
-    expect(describeEvent({ type: "cycle.completed", payload: { cycleNumber: 3, outcome: "time_box", tasksCompleted: 1 } })).toMatchObject({ title: "Cycle 3 reached its time box", description: "1 task done" });
+    expect(describeEvent({ type: "cycle.completed", payload: { cycleNumber: 3, outcome: "time_box", tasksCompleted: 1 } })).toMatchObject({ title: "Cycle 3 reached its time limit", description: "1 task done" });
     expect(describeEvent({ type: "task.progressed", payload: { phase: "implementing", progress: 0.45 } }).title).toBe("Implementing: 45%");
     expect(describeEvent({ type: "mode.changed", payload: { scope: "business" } }).title).toBe("Business mode changed");
     expect(describeEvent({ type: "constructor", payload: {} }).title).toBe("Business update");

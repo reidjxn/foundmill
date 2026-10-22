@@ -1,5 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { useState } from "react";
+import { GuidanceProvider } from "../guidance/GuidanceProvider";
 import { AgentTile, type AgentTileProps } from "./AgentTile";
 import { generateMockSessionEvents, mockSessionSeed, mockSpecialistData } from "./mock";
 import { reduceSessionEvents } from "./progress";
@@ -77,6 +78,18 @@ export const Preview: Story = {
   args: { defaultView: "preview", session: { ...session(0, "running"), preview: { screenshotUrl: SCREENSHOT, capturedAt: "2026-10-07T09:10:00Z", url: null } } },
 };
 export const Focused: Story = { args: { focused: true, controls: controls(() => {}) } };
+/** Guidance on (the default): the header's visible "…" opens the same actions as the hover toolbar, so hovering is never the only path. */
+export const GuidedActionsMenu: Story = { name: "Guided · actions menu", args: { controls: controls(() => {}) } };
+/** Guidance off: no "…"; the hover toolbar is the only control surface, as before. */
+export const GuidanceOff: Story = {
+  name: "Guidance off",
+  args: { controls: controls(() => {}) },
+  render: (args) => (
+    <GuidanceProvider value={{ guidance: "off" }}>
+      <AgentTile {...args} />
+    </GuidanceProvider>
+  ),
+};
 export const Compact: Story = {
   decorators: [
     (Story) => (

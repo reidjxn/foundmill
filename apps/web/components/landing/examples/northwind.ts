@@ -106,7 +106,7 @@ const ACTIVITY: readonly ActivityLine[] = [
   { who: "Cove", dept: "dept-6", text: "reconciled this week's Shopify payouts, 214 of 214 matched" },
   { who: "Arden", dept: "dept-5", text: "confirmed Cranbury's FDA facility registration is current" },
   { who: "Reed", dept: "dept-7", text: "compared three quotes for 30 ml airless pumps" },
-  { who: "Linden", dept: "dept-2", text: "opened a pull request for skip-a-refill" },
+  { who: "Linden", dept: "dept-2", text: "sent skip-a-refill for review" },
   { who: "Poppy", dept: "dept-3", text: "shipped 30 creator kits with tracked discount codes" },
   { who: "Sage", dept: "dept-1", text: "turned 46 subscriber reviews into one spec change" },
   { who: "Tess", dept: "dept-6", text: "updated the landed cost estimate to $11.78 a routine" },
@@ -155,7 +155,7 @@ const CYCLE_OUTCOMES: readonly CycleOutcome[] = [
     from: { name: "Cove", seed: "cove", dept: "dept-6", role: "Finance lead" },
     department: "Finance",
     subject: "Hold eight weeks of stock instead of six?",
-    body: "Chain orders arrive in lumps: Larkfield will reorder every two weeks. Two more weeks of cover ties up $4,700 more in stock at landed cost, and the runway holds at 13 months.",
+    body: "Chain orders arrive in lumps: Larkfield will reorder every two weeks. Two more weeks of cover ties up $4,700 more in stock at landed cost, and the cash still lasts 13 months.",
     stake: "+$4,700 in stock · Estimate",
     options: [
       // The Inbox line is one line in a 21rem column: short enough to read whole.
@@ -187,7 +187,7 @@ const CHANNELS: ExampleBusiness["channels"] = {
   seed: "northwind",
   fits: { influencer: 17, paid_ads: 16, email_automation: 15, lead_generation: 14, social: 13, content: 12, seo: 11, affiliate: 10, events: 9, pr: 8, direct_mail: 7, print: 5, geo: 5, outdoor: 3, broadcast: 2 },
   recommended: ["influencer", "paid_ads", "email_automation", "lead_generation"],
-  why: "{channel} fits a fragrance-free routine that people choose after reading the label, and that store buyers stock once shoppers ask for it. The first signal comes within a cycle and the cost per customer stays inside the runway budget.",
+  why: "{channel} fits a fragrance-free routine that people choose after reading the label, and that store buyers stock once shoppers ask for it. The first signal comes within one round of work, and the cost per customer stays inside the budget.",
 };
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -337,7 +337,7 @@ const INBOX_NOTE: ExampleInboxNote = {
   /** When the note arrived: today on the example business. */
   paragraphs: [
     "Larkfield's opening order ships from stock this month and leaves the serum with about nine weeks of cover, into early December. The batch 007 pack is ready: 5,000 of each product from Cranbury Contract Labs in New Jersey, with components from Maumee Valley Packaging in Ohio. Every line cites a quote; the serum's week-12 stability readout is attached.",
-    "Cranbury wants a 50% deposit of $21,000 with the order and $21,000 more when the batch passes release testing; Maumee invoices $14,350 on delivery. Placing an order is yours alone. The runway goes from 13 to 12 months (Estimate).",
+    "Cranbury wants a 50% deposit of $21,000 with the order and $21,000 more when the batch passes release testing; Maumee invoices $14,350 on delivery. Placing an order is yours alone. The cash would last 12 months instead of 13 (Estimate).",
   ],
   costMinor: 2_100_000,
   costLabel: "Deposit",
@@ -362,10 +362,10 @@ const LEADS: readonly ExampleLead[] = [
     role: "Product lead",
     model: "Opus",
     stars: { current: 3.5, potential: 4.5 },
-    remit: "A vision, a living specification and a roadmap built from what people with reactive skin report, batch by batch.",
+    remit: "A vision, a living description of the product and a roadmap built from what people with reactive skin report, batch by batch.",
     now: "Writing the body lotion spec from 46 subscriber reviews",
     training: "Version 3 promoted: review and reaction synthesis",
-    skills: [skill("research", "Research synthesis", "craft", 16, 2, 18), skill("spec", "Specification writing", "craft", 15, 1, 17), skill("prioritize", "Prioritization", "judgement", 16, 1, 18), skill("no", "Saying no", "judgement", 15, 2, 17), skill("pace", "Pace", "execution", 14, 0, 16), skill("reliability", "Reliability", "execution", 15, 1, 17)],
+    skills: [skill("research", "Research synthesis", "craft", 16, 2, 18), skill("spec", "Product writing", "craft", 15, 1, 17), skill("prioritize", "Prioritization", "judgement", 16, 1, 18), skill("no", "Saying no", "judgement", 15, 2, 17), skill("pace", "Pace", "execution", 14, 0, 16), skill("reliability", "Reliability", "execution", 15, 1, 17)],
     traits: [
       { id: "verbatim", label: "Quotes customers word for word", tone: "good" },
       { id: "batches", label: "Ties every report to a batch number", tone: "good" },
@@ -396,12 +396,12 @@ const LEADS: readonly ExampleLead[] = [
     role: "Lead developer",
     model: "Sonnet",
     stars: { current: 3, potential: 4 },
-    remit: "The Shopify store and what runs on it: refill subscriptions, batch results pages and order webhooks, merged only when the tests pass.",
+    remit: "The Shopify store and what runs on it: refill subscriptions, batch results pages and order notifications, merged only when the tests pass.",
     now: "Adding skip-a-refill to the subscription page",
     training: "Version 3 promoted: testing against a test store",
     skills: [skill("storefront", "Storefront code", "craft", 15, 1, 17), skill("testing", "Testing", "craft", 15, 2, 17), skill("planning", "Planning", "judgement", 13, 1, 16), skill("scope", "Scope control", "judgement", 14, 2, 16), skill("reliability", "Reliability", "execution", 15, 1, 17), skill("cost", "Cost efficiency", "execution", 14, 0, 16)],
     traits: [
-      { id: "small_prs", label: "Small pull requests", tone: "good" },
+      { id: "small_prs", label: "Small, easy-to-review changes", tone: "good" },
       { id: "test_store", label: "Tries every change on a test store first", tone: "good" },
       { id: "theme", label: "Slower on theme-wide changes", tone: "warn" },
     ],
@@ -413,10 +413,10 @@ const LEADS: readonly ExampleLead[] = [
     role: "Distribution Strategist",
     model: "Sonnet",
     stars: { current: 3.5, potential: 4.5 },
-    remit: "Fifteen channels scored for fit, and the store buyers. Creators, paid social and refill reminders run inside your caps; every wholesale term comes to you.",
+    remit: "Fifteen channels scored for how well they suit Northwind, and the store buyers. Creators, paid social and refill reminders run inside your caps; every wholesale term comes to you.",
     now: "Answering Larkfield Market's buyer on opening terms",
     training: "Version 3 promoted: wholesale terms and trade spend",
-    skills: [skill("fit", "Channel fit", "craft", 16, 1, 18), skill("copy", "Copywriting", "craft", 14, 1, 16), skill("negotiation", "Buyer negotiation", "judgement", 16, 3, 18), skill("budget", "Budget discipline", "judgement", 16, 0, 17), skill("attribution", "Attribution", "execution", 13, 1, 16), skill("follow_up", "Buyer follow-up", "execution", 16, 2, 18)],
+    skills: [skill("fit", "Channel scoring", "craft", 16, 1, 18), skill("copy", "Copywriting", "craft", 14, 1, 16), skill("negotiation", "Buyer negotiation", "judgement", 16, 3, 18), skill("budget", "Budget discipline", "judgement", 16, 0, 17), skill("attribution", "Source tracking", "execution", 13, 1, 16), skill("follow_up", "Buyer follow-up", "execution", 16, 2, 18)],
     traits: [
       { id: "terms", label: "Trades discounts for better terms", tone: "good" },
       { id: "caps", label: "Never exceeds a spend cap", tone: "good" },
@@ -430,10 +430,10 @@ const LEADS: readonly ExampleLead[] = [
     role: "Finance lead",
     model: "Opus",
     stars: { current: 4, potential: 4.5 },
-    remit: "Cash, stock on hand, landed cost per unit and runway, with a reconciled ledger. Anything that is not a real figure is labeled Forecast or Estimate.",
+    remit: "Cash, stock on hand, landed cost per unit and months of cash left, with the books reconciled. A figure that is not measured carries a label: Estimate means worked out, Forecast means projected.",
     now: "Reconciling this week's Shopify payouts, 214 of 214 matched",
     training: "Version 5 promoted: cash tied up in stock",
-    skills: [skill("reconcile", "Reconciliation", "craft", 18, 1, 19), skill("forecast", "Forecasting", "craft", 15, 2, 17), skill("cash", "Cash discipline", "judgement", 17, 0, 18), skill("unit", "Unit economics", "judgement", 16, 1, 18), skill("inventory", "Inventory costing", "execution", 15, 2, 17), skill("audit", "Audit trail", "execution", 17, 0, 19)],
+    skills: [skill("reconcile", "Reconciliation", "craft", 18, 1, 19), skill("forecast", "Forecasting", "craft", 15, 2, 17), skill("cash", "Cash discipline", "judgement", 17, 0, 18), skill("unit", "Profit per sale", "judgement", 16, 1, 18), skill("inventory", "Inventory costing", "execution", 15, 2, 17), skill("audit", "Audit trail", "execution", 17, 0, 19)],
     traits: [
       { id: "labels", label: "Labels every estimate", tone: "good" },
       { id: "stock_cash", label: "Counts stock as cash", tone: "good" },

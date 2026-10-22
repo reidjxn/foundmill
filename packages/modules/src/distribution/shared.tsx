@@ -1,7 +1,7 @@
 "use client";
 /** Helpers shared by the distribution screens: layout, mutations with pending/error state, vocabulary, formatting. */
 import { useCallback, useRef, useState, type ReactNode } from "react";
-import { PageGrid, ProvenanceChip, cn, formatMoney } from "@foundmill/dugout";
+import { PageGrid, ProvenanceChip, cn, formatMoney, useGuided } from "@foundmill/dugout";
 import { CHANNEL_META, type ChannelKey, type ChannelLine } from "@foundmill/shared/constants";
 import { usSpelling } from "@foundmill/shared/us-spelling";
 import { useWidgetData } from "@foundmill/widgets/data";
@@ -100,6 +100,17 @@ export function Fact({ label, children, numeric }: { label: ReactNode; children:
 export function fitTableHeight(rows: number, opts: { minRows?: number; maxRows?: number; rowHeight?: number } = {}): number {
   const { minRows = 4, maxRows = 18, rowHeight = 28 } = opts;
   return 41 + Math.min(maxRows, Math.max(minRows, rows)) * rowHeight;
+}
+
+/** The built-in "Simple" saved view every table carries: its four most important columns (UX plan §7.10). */
+export const SIMPLE_VIEW_ID = "simple";
+
+/**
+ * The view a table opens on before the person picks one: "Simple" while guidance is on, the screen's general view
+ * otherwise. A view the person left open (stored per table) still wins; this only fills the gap (saved-views.ts).
+ */
+export function useDefaultViewId(general: string): string {
+  return useGuided() ? SIMPLE_VIEW_ID : general;
 }
 
 /** "1,250", "25k", "£4,000" → major units (null when it is not a number). The inverse of MoneyInput's grouped display. */

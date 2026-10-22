@@ -3,7 +3,7 @@
  * → the desk's persona and messages, merging a send into the cached view without a refetch, the local acknowledgement
  * in the agent's own voice (no model call), and the persona-line de-duplication ("Chief of Staff · Chief of Staff").
  */
-import { deskPersonaFrom, type DeskMessage, type DeskPersona, type QuickReplyItem } from "@foundmill/dugout";
+import { consequenceText, deskPersonaFrom, type DeskMessage, type DeskPersona, type QuickReplyItem } from "@foundmill/dugout";
 import type { DeptColourToken } from "@foundmill/shared";
 import type { RouterOutputs } from "@/lib/trpc";
 
@@ -44,6 +44,37 @@ export function deskPersonaOf(p: ConversationPersonaView, fallbackDept: DeptColo
   return { ...persona, role: roleBesideName(p.name, p.role) ?? "" };
 }
 
+/**
+ * The second line of a "Go with: …" quick reply (UX plan B20): a `choose_option` chip decides the note from the chat,
+ * and says so. It travels as the reply's `description` (QuickReplies draws it in small text under the label, never in
+ * the label), so the founder's own words (`say`, else the label) stay what they were and are never spoken with it.
+ */
+export const CHOICE_SUBLINE = "This answers the note";
+
+/**
+ * The second line of "Take a break" (the chip that pauses the agent's running task through `dev.tasks.pause`): what it
+ * does and that it can be undone, the way every stop-style action carries its consequence (UX plan §6.2 ConsequenceLine).
+ */
+export const TAKE_A_BREAK_SUBLINE = consequenceText({ consequence: "Pauses the current task; resume it from Development.", reversible: true })!;
+
+type SublineReply = Pick<QuickReplyItem, "id" | "kind" | "label" | "say" | "description">;
+
+/**
+ * A quick reply with its subline: "This answers the note" on a `choose_option`, the pause consequence on "Take a break",
+ * as is for every other reply. A description the server already wrote is kept. Idempotent.
+ */
+export function withChoiceSubline<Q extends SublineReply>(reply: Q): Q {
+  if (reply.description) return reply;
+  if (reply.kind === "choose_option") return { ...reply, description: CHOICE_SUBLINE };
+  if (reply.id === TAKE_A_BREAK_ID) return { ...reply, description: TAKE_A_BREAK_SUBLINE };
+  return reply;
+}
+
+/** Every reply of a list, the `choose_option` ones (and "Take a break") with their subline. */
+export function withChoiceSublines<Q extends SublineReply>(replies: readonly Q[]): Q[] {
+  return replies.map(withChoiceSubline);
+}
+
 /** Server messages as desk messages (ids aliased so an optimistic bubble keeps its identity once the server has it). */
 export function deskMessagesOf(view: Pick<ConversationView, "messages">, alias: ReadonlyMap<string, string> = new Map()): DeskMessage[] {
   return view.messages.map((m) => ({
@@ -52,7 +83,7 @@ export function deskMessagesOf(view: Pick<ConversationView, "messages">, alias: 
     bubbles: m.bubbles,
     at: m.at,
     reaction: m.reaction,
-    quickReplies: m.quickReplies as readonly QuickReplyItem[],
+    quickReplies: withChoiceSublines(m.quickReplies as readonly QuickReplyItem[]),
     chosenQuickReplyId: m.chosenQuickReplyId,
     handOff: m.handOff,
     planId: m.planId,
@@ -200,7 +231,7 @@ export function openFailureLine(err: unknown): string {
  * falls back to the starters.
  */
 export function failureQuickReplies(retry: boolean, before: readonly QuickReplyItem[], failedReplyId: string | null, decided = false): QuickReplyItem[] {
-  const rest = before.filter((r) => r.id !== failedReplyId && r.id !== RETRY_REPLY_ID && r.kind !== "write" && !(decided && r.kind === "choose_option")).map((r) => ({ ...r, recommended: retry ? false : r.recommended }));
+  const rest = before.filter((r) => r.id !== failedReplyId && r.id !== RETRY_REPLY_ID && r.kind !== "write" && !(decided && r.kind === "choose_option")).map((r) => withChoiceSubline({ ...r, recommended: retry ? false : r.recommended }));
   const out = retry ? [{ id: RETRY_REPLY_ID, label: "Try again", say: "Try again", kind: "ask" as const, recommended: true }, ...rest] : rest;
   return out.slice(0, 4);
 }

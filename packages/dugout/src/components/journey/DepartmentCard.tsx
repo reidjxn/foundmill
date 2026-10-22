@@ -1,4 +1,5 @@
 "use client";
+import type { ReactNode } from "react";
 import { ArrowRight, CircleCheck, CircleX, Clock, Inbox, MessageSquareReply, Moon, RefreshCw, TriangleAlert } from "lucide-react";
 import type { EntityKind } from "@foundmill/shared";
 import { cn } from "../../lib/cn";
@@ -10,11 +11,12 @@ import { FitText } from "../foundation/FitText";
 import { Skeleton } from "../foundation/Skeleton";
 import { StatusPill, agentStatusTone, type StatusTone } from "../foundation/StatusPill";
 import { Tooltip } from "../foundation/Tooltip";
+import { PlainFigure } from "../guidance/PlainFigure";
 import { EntityText } from "./EntityText";
 import { Figure } from "../data/Figure";
 import { TileSpark } from "../data/MetricTile";
 import { DEPT_TEXT, DEPT_TONE } from "./ribbon/OnThisDayCard";
-import type { DepartmentCardData, DepartmentQuietLine, HealthTone } from "./types";
+import type { DepartmentCardData, DepartmentQuietLine, HealthTone, SquadMember } from "./types";
 
 export interface DepartmentCardProps {
   department: DepartmentCardData;
@@ -26,6 +28,12 @@ export interface DepartmentCardProps {
   entityKinds?: Record<string, EntityKind>;
   /** Max avatars in the squad strip before "+N". Default 8. */
   maxSquad?: number;
+  /**
+   * The headline metric in plain words under its figure while guidance is on (PlainFigure, UX plan §7.8): the id of its
+   * definition ("runway", "team_health", "acquisition_cost"), or an explicit line in `metricPlain`.
+   */
+  metricId?: string;
+  metricPlain?: ReactNode;
   className?: string;
 }
 
@@ -37,21 +45,50 @@ const HEALTH: Record<HealthTone, { tone: StatusTone; icon: IconComponent; word: 
 
 const DELTA_CLASS: Record<HealthTone, string> = { good: "tone-status-good text-status-good", warn: "tone-status-warn text-status-warn", bad: "tone-status-bad text-status-bad" };
 
+/** The statuses that need the founder, worst first, in the words Team › Health uses for them (shared/health.ts in widgets). */
+const ATTENTION_WORDS: ReadonlyArray<[status: SquadMember["status"], word: string]> = [
+  ["failing", "failing"],
+  ["injured", "down"],
+  ["degraded", "degraded"],
+];
+
+/**
+ * The team strip's words (UX plan B19): "3 of 4 working" counts the agents with a task right now, never the healthy
+ * ones (a healthy idle agent is not working). With nobody on a task the strip says what the team is instead: "4 agents,
+ * all healthy", or what needs the founder ("4 agents, 1 down, 1 degraded").
+ */
+export function teamStripWords(squad: readonly { status: SquadMember["status"]; task?: string | null }[]): string {
+  const total = squad.length;
+  if (total === 0) return "No agents yet";
+  const working = squad.filter((m) => !!m.task).length;
+  if (working > 0) return `${working} of ${total} working`;
+  const agents = total === 1 ? "1 agent" : `${total} agents`;
+  const parts = ATTENTION_WORDS.map(([status, word]) => {
+    const n = squad.filter((m) => m.status === status).length;
+    return n > 0 ? `${n} ${word}` : null;
+  }).filter((p): p is string => p !== null);
+  if (parts.length > 0) return `${agents}, ${parts.join(", ")}`;
+  return total === 1 ? "1 agent, healthy" : `${agents}, all healthy`;
+}
+
 /**
  * Home's department card (BUILD §11.2, DESIGN §9, Mission): a department-glow panel whose lit corner takes the
  * department colour. Header: the glowing dot, the name (fits: founder-defined names step down, never clip), the lead's
- * face and name, the health pill. The team strip with status rings (hover shows role, model and task) and "4 of 7
- * working"; up to three "Now" lines that wrap to two lines instead of clipping; the headline metric on an inner plate
- * with its sparkline; "Next up" at the foot. "Now" takes the card's spare height, so the metric and "Next up" sit at the
- * foot, level with the other cards in the row. A quiet card (nothing in progress) fills "Now" with one line from real
- * data — the note waiting for the founder, an unread note, the last task it finished, or "All clear" — never a void
- * (`QuietLine`); while the work is loading it shows placeholders rather than calling the department quiet.
+ * face and name, the health pill. The team strip with status rings (hover shows role, model and task) and "3 of 7
+ * working" (agents on a task; "7 agents, all healthy" when nobody is); up to three "Working on now" lines that wrap to
+ * two lines instead of clipping; the headline metric on an inner plate with its sparkline; "Next" at the foot.
+ * "Working on now" takes the card's spare height, so the metric and "Next" sit at the foot, level with the other cards
+ * in the row. A quiet card (nothing in progress) fills "Working on now" with one line from real data — the note waiting
+ * for the founder, an unread note, the last task it finished, or "All clear" — never a void (`QuietLine`); while the
+ * work is loading it shows placeholders rather than calling the department quiet.
  */
-export function DepartmentCard({ department: d, onOpen, onOpenAgent, onOpenEntity, onOpenQuiet, entityKinds, maxSquad = 8, className }: DepartmentCardProps) {
+export function DepartmentCard({ department: d, onOpen, onOpenAgent, onOpenEntity, onOpenQuiet, entityKinds, maxSquad = 8, metricId, metricPlain, className }: DepartmentCardProps) {
   const health = HEALTH[d.health];
   const squad = d.squad.slice(0, maxSquad);
   const extra = d.squad.length - squad.length;
-  const working = d.squad.filter((m) => m.status === "healthy").length;
+  const stripWords = teamStripWords(d.squad);
+  // The leading count stands out ("3 of 4 working", "4 agents, all healthy"); the rest of the words stay secondary.
+  const stripParts = /^(\d+)(.*)$/.exec(stripWords);
   const quiet = d.now.length === 0 && !d.nowLoading;
   // A failed load is not a quiet department: the line says so instead of "Quiet".
   const failed = quiet && d.quiet?.kind === "error";
@@ -77,7 +114,7 @@ export function DepartmentCard({ department: d, onOpen, onOpenAgent, onOpenEntit
         </StatusPill>
       </header>
       <div className="flex min-h-0 flex-1 flex-col gap-3 px-panel-pad pb-3 pt-3">
-        <div className="flex items-center gap-2" aria-label={`Team: ${d.squad.length} agents, ${working} working`}>
+        <div className="flex items-center gap-2" aria-label={`Team: ${stripWords}`} data-team-strip>
           <ul className="flex items-center" data-squad-strip>
             {squad.map((m, i) => {
               const { word } = agentStatusTone(m.status);
@@ -109,13 +146,20 @@ export function DepartmentCard({ department: d, onOpen, onOpenAgent, onOpenEntit
               </li>
             ) : null}
           </ul>
-          <span className="ml-auto whitespace-nowrap text-small text-secondary tabular-nums">
-            <span className="font-medium text-primary">{working}</span> of {d.squad.length} working
+          <span className="ml-auto whitespace-nowrap text-small text-secondary tabular-nums" data-team-strip-words>
+            {stripParts ? (
+              <>
+                <span className="font-medium text-primary">{stripParts[1]}</span>
+                {stripParts[2]}
+              </>
+            ) : (
+              stripWords
+            )}
           </span>
         </div>
         <div className="flex flex-1 flex-col" data-now>
           <div className="flex items-center gap-1.5">
-            <span className="t-data">Now</span>
+            <span className="t-data">Working on now</span>
             {quiet && !failed ? (
               <>
                 <span aria-hidden className="t-data">
@@ -148,21 +192,24 @@ export function DepartmentCard({ department: d, onOpen, onOpenAgent, onOpenEntit
         <div className="flex items-end justify-between gap-3 rounded-md border border-line-faint bg-white/2 px-3 pb-2.5 pt-2" data-department-metric>
           <div className="min-w-0">
             <span className="t-data block">{d.metric.label}</span>
-            <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-1">
-              <FitText className="font-display text-display-md font-semibold text-primary" text={d.metric.value} truncate={false} tooltip={false}>
-                <Figure value={d.metric.value} />
-              </FitText>
-              {d.metric.delta ? (
-                <span className={cn("chip-tone inline-flex h-badge items-center whitespace-nowrap rounded-pill border px-1.5 text-small font-medium tabular-nums", DELTA_CLASS[d.metric.deltaTone ?? "good"])}>{d.metric.delta}</span>
-              ) : null}
-              {d.metric.provenance ? <ProvenanceChip kind={d.metric.provenance} /> : null}
-            </div>
+            {/* The plain-words line under the figure while guidance is on; the figure alone otherwise (same structure). */}
+            <PlainFigure metricId={metricId} plain={metricPlain} className="mt-0.5">
+              <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                <FitText className="font-display text-display-md font-semibold text-primary" text={d.metric.value} truncate={false} tooltip={false}>
+                  <Figure value={d.metric.value} />
+                </FitText>
+                {d.metric.delta ? (
+                  <span className={cn("chip-tone inline-flex h-badge items-center whitespace-nowrap rounded-pill border px-1.5 text-small font-medium tabular-nums", DELTA_CLASS[d.metric.deltaTone ?? "good"])}>{d.metric.delta}</span>
+                ) : null}
+                {d.metric.provenance ? <ProvenanceChip kind={d.metric.provenance} /> : null}
+              </div>
+            </PlainFigure>
           </div>
           <TileSpark data={d.metric.series} className={cn("mb-1 max-w-32 shrink-0 basis-1/3", DEPT_TEXT[d.dept])} label={d.metric.seriesLabel ?? `${d.metric.label}, ${d.metric.series.length} periods`} />
         </div>
         <div className="flex items-center gap-2">
           <Icon icon={Clock} size="inline" className="shrink-0 text-tertiary" />
-          <span className="t-data shrink-0">Next up</span>
+          <span className="t-data shrink-0">Next</span>
           <span className="line-clamp-2 min-w-0 flex-1 text-small text-secondary" title={d.nextUp}>
             {d.nextUp}
           </span>
@@ -183,8 +230,8 @@ const QUIET_ICON: Record<DepartmentQuietLine["kind"] | "unknown", IconComponent>
 const QUIET_OPENS: ReadonlySet<DepartmentQuietLine["kind"]> = new Set(["attention", "respond", "inbox", "error"]);
 
 /**
- * A quiet card's one line, set in the space "Now" lines would take: the department's light on an icon disc, a kicker
- * ("Waiting for you", "New in your Inbox", "Last finished", "All clear"), the line itself (two lines at most, the whole
+ * A quiet card's one line, set in the space "Working on now" lines would take: the department's light on an icon disc, a kicker
+ * ("Needs your answer", "New in your Inbox", "Last finished", "All clear"), the line itself (two lines at most, the whole
  * text on hover) and a short detail. A note opens from the line. Without a line it says only what the card knows.
  */
 function QuietLine({ line, onOpen }: { line: DepartmentQuietLine | null; onOpen?: () => void }) {

@@ -1,7 +1,8 @@
 import { beforeAll, describe, expect, it, vi } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { AppShell, KIT_VARIABLES, sidebarItemForTarget, withSidebarKeys, type AppShellProps } from "./AppShell";
+import { AppShell, KIT_VARIABLES, PROCESSING_LINE_MIN_PX, processingLineText, sidebarItemForTarget, withSidebarKeys, type AppShellProps } from "./AppShell";
+import { GuidanceProvider } from "../guidance/GuidanceProvider";
 import { SAMPLE_LOGOS } from "../foundation/logo-samples";
 import { kitBarGradient, kitStyle } from "./KitBar";
 import { kitRamp } from "../../lib/colour";
@@ -55,7 +56,7 @@ describe("AppShell", () => {
     expect(screen.getByTestId("kitbar-business-name").textContent).toBe("Northwind Skincare");
     expect(screen.getByTestId("kitbar-screen-title").textContent).toBe("Home");
     expect(screen.getByText("Content")).toBeTruthy();
-    expect(screen.getByRole("status", { name: /Cycle running/ })).toBeTruthy();
+    expect(screen.getByRole("status", { name: "Product, Formulation Lab, Distribution and Operations are working" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Continue" })).toBeTruthy();
     expect(screen.getByTestId("stop-all-trigger")).toBeTruthy();
     expect(screen.getByText("LIVE")).toBeTruthy();
@@ -86,6 +87,38 @@ describe("AppShell", () => {
     unmount();
     render(<AppShell {...shellProps({ sidebar: { items: NORTHWIND_SIDEBAR, activeId: "home", collapsed: true, onCollapsedChange: vi.fn(), brand: { href: "/" } } })} />);
     expect(screen.queryByRole("link", { name: "Foundmill" })).toBeNull();
+  });
+
+  it("puts a badge after the business name and something else in Continue's slot when given (the Example frame)", () => {
+    const { unmount } = render(<AppShell {...shellProps()} />);
+    expect(screen.queryByTestId("kitbar-business-badge")).toBeNull();
+    expect(screen.queryByTestId("kitbar-continue-slot")).toBeNull();
+    expect(document.querySelector("[data-coachmark='continue']")).toBeTruthy();
+    unmount();
+    render(
+      <AppShell
+        {...shellProps({
+          businessBadge: <span data-testid="badge">Example</span>,
+          continueSlot: (
+            <button type="button" data-coachmark="start-your-own">
+              Start your own
+            </button>
+          ),
+          continueButton: { state: { kind: "idle" }, disabled: true },
+        })}
+      />,
+    );
+    // The badge sits after the name, inside the identity.
+    const name = screen.getByTestId("kitbar-business-name");
+    const badge = screen.getByTestId("kitbar-business-badge");
+    expect(name.parentElement).toBe(badge.parentElement);
+    expect(name.compareDocumentPosition(badge) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    // The slot replaces Continue and keeps its height and minimum width.
+    const slot = screen.getByTestId("kitbar-continue-slot");
+    expect(slot.className).toContain("h-kitbar-chip");
+    expect(slot.className).toContain("min-w-continue-min");
+    expect(slot.querySelector("[data-coachmark='start-your-own']")?.textContent).toBe("Start your own");
+    expect(document.querySelector("[data-coachmark='continue']")).toBeNull();
   });
 
   it("shows the business logo in the top bar, or the initials mark (never a shield) when there is none", () => {
@@ -130,9 +163,69 @@ describe("AppShell", () => {
     expect(screen.getByRole("status", { name: "Live updates paused" })).toBeTruthy();
   });
 
-  it("hides the LIVE chip in Personal mode; the sidebar shows the items the app gives it (Network stays: it is the founder's own)", () => {
-    render(<AppShell {...shellProps({ mode: "personal" })} />);
+  it("hides the LIVE chip and the sidebar's \"Live\" label in Personal mode; the sidebar shows the items the app gives it (Network stays: it is the founder's own)", () => {
+    const { unmount } = render(<AppShell {...shellProps({ mode: "personal" })} />);
     expect(screen.queryByText("LIVE")).toBeNull();
+    expect(screen.queryByText("Live")).toBeNull();
+    expect(screen.getByRole("link", { name: "Network" })).toBeTruthy();
+    unmount();
+    render(<AppShell {...shellProps({ mode: "live" })} />);
+    expect(screen.getByText("Live")).toBeTruthy();
+  });
+
+  it("says in words what the strip shows: the tooltip and status sentence, and a line in the tab bar while guidance is on (B2)", () => {
+    const tabs = { tabs: [{ id: "a", label: "Overview" }, { id: "b", label: "Cash" }, { id: "c", label: "Runway" }], activeId: "b" };
+    const { unmount } = render(<AppShell {...shellProps({ tabs, processing: { segments: NORTHWIND_SEGMENTS, active: true, cycleNumber: 3 } })} />);
+    const sentence = "Product, Formulation Lab, Distribution and Operations are working on cycle 3";
+    expect(screen.getByRole("status", { name: sentence })).toBeTruthy();
+    // Four departments: the tab bar says the count, so the line never reaches an ellipsis at 1280 px; the strip keeps the names.
+    const line = screen.getByTestId("processing-line");
+    expect(line.textContent).toBe("4 departments are working on cycle 3");
+    expect(line.closest("[role=tablist]")).toBeNull();
+    // A FitText box: it steps down to its floor before it truncates (DESIGN §2), not a plain `truncate`.
+    expect(line.hasAttribute("data-fit-box")).toBe(true);
+    expect(line.className).not.toMatch(/(^|\s)truncate(\s|$)/);
+    unmount();
+    render(
+      <GuidanceProvider value={{ guidance: "off" }}>
+        <AppShell {...shellProps({ tabs, processing: { segments: NORTHWIND_SEGMENTS, active: false } })} />
+      </GuidanceProvider>,
+    );
+    expect(screen.getByRole("status", { name: "No cycle running" })).toBeTruthy();
+    expect(screen.queryByTestId("processing-line")).toBeNull();
+  });
+
+  it("words the tab bar's processing line: the sentence for one or two departments, a count from three (review F45)", () => {
+    const seg = (label: string, active: boolean) => ({ id: label, label, dept: "dept-1" as const, active });
+    expect(processingLineText([seg("Product", true), seg("Finance", true), seg("Legal", false)], true, 12)).toBe("Product and Finance are working on cycle 12");
+    expect(processingLineText([seg("Product", true)], true, null)).toBe("Product is working");
+    expect(processingLineText([seg("Product", true), seg("Development", true), seg("Distribution", true), seg("Finance", true)], true, 12)).toBe(
+      "4 departments are working on cycle 12",
+    );
+    expect(processingLineText([seg("Product", true), seg("Development", true), seg("Distribution", true)], false, 12)).toBe("No cycle running");
+    expect(PROCESSING_LINE_MIN_PX).toBe(11);
+  });
+
+  it("opens the keyboard shortcuts from the sidebar's \"?\" cap and from the palette's Help row, and pauses coach marks while an overlay is open or a cycle runs (B15)", async () => {
+    const user = userEvent.setup();
+    const onSelect = vi.fn();
+    const { unmount } = render(<AppShell {...shellProps({ search: { items: PALETTE_ITEMS, onSelect } })} />);
+    const root = screen.getByTestId("app-shell");
+    expect(root.getAttribute("data-coachmark-pause")).toBeNull();
+    await user.click(screen.getByRole("button", { name: "Keyboard shortcuts" }));
+    expect(await screen.findByTestId("keyboard-help")).toBeTruthy();
+    expect(root.getAttribute("data-coachmark-pause")).toBe("true");
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryByTestId("keyboard-help")).toBeNull());
+    expect(root.getAttribute("data-coachmark-pause")).toBeNull();
+    await user.click(screen.getByTestId("kitbar-search"));
+    await user.click(await screen.findByRole("option", { name: /Keyboard shortcuts/ }));
+    expect(await screen.findByTestId("keyboard-help")).toBeTruthy();
+    expect(onSelect).not.toHaveBeenCalled();
+    unmount();
+    render(<AppShell {...shellProps({ continueButton: { state: { kind: "processing" }, cycleNumber: 4 } })} />);
+    expect(screen.getByTestId("app-shell").getAttribute("data-coachmark-pause")).toBe("true");
+    expect(screen.getByRole("button", { name: "Pause the running cycle" }).getAttribute("data-coachmark")).toBe("continue");
   });
 
   it("fills in sidebar chords and routes G chords to onNavigate", async () => {

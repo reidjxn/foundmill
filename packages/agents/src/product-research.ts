@@ -269,7 +269,7 @@ export function smokeThreshold(bodyMd: string): string | null {
 
 /**
  * The update the Product Researcher posts when the plan is ready (BUILD §11.3 note style: fact → why it matters →
- * ask; 60-180 words). Deterministic from the plan, so it needs no second model call and invents nothing.
+ * ask; under 180 words, no padding). Deterministic from the plan, so it needs no second model call and invents nothing.
  */
 export function researchPlanNote(plan: ResearchPlan, icp: string): { subject: string; bodyMd: string } {
   const md = (s: string) => escapeMarkdown(plainLine(s));
@@ -301,6 +301,5 @@ export function researchPlanNote(plan: ResearchPlan, icp: string): { subject: st
     lines.splice(lines.length - 2, 1);
     body = lines.join("\n\n");
   }
-  if (words(body).length < 60) body = `${body}\n\nThe plan names, for each assumption, the specification section it comes from and the cheapest test that would move it; findings arrive as sources with quotes and a confidence, so the Product lead can propose changes you accept or reject.`;
   return { subject: clipChars(`How we'll test the specification with ${plainLine(who)}`, 80), bodyMd: body };
 }

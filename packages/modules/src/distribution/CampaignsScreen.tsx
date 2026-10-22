@@ -16,6 +16,7 @@ import {
   Panel,
   ProvenanceChip,
   StatusPill,
+  Term,
   formatMoney,
   useFormatters,
   type DataTableColumn,
@@ -33,7 +34,7 @@ import { CampaignDialog, EndCampaignDialog } from "./CampaignDialogs";
 import { ASSET_KIND_WORD } from "./channel-data";
 import { DateText } from "../dates";
 import { fitColumns, fitToGrow, type ColumnFit } from "../fit";
-import { InlineError, Screen, channelLabel, fitTableHeight, searchParam, useAction } from "./shared";
+import { InlineError, SIMPLE_VIEW_ID, Screen, channelLabel, fitTableHeight, searchParam, useAction, useDefaultViewId } from "./shared";
 import type { AgentRow, AssetRow, CampaignRow, ChannelsListResponse, Page } from "./types";
 
 export interface CampaignTableRow extends CampaignRow {
@@ -46,6 +47,8 @@ export interface CampaignTableRow extends CampaignRow {
  * there; the dates and assets of the campaign in hand are in the detail beside it.
  */
 export const CAMPAIGN_VIEWS: SavedView[] = [
+  // Simple (UX plan §7.10): the campaign, its channel, where it stands and what it may spend.
+  { id: SIMPLE_VIEW_ID, name: "Simple", builtIn: true, columns: ["name", "channel", "status", "budget"], sort: [{ id: "starts", desc: true }], filters: [] },
   { id: "all", name: "All campaigns", builtIn: true, columns: ["name", "channel", "status", "budget", "assets"], sort: [{ id: "starts", desc: true }], filters: [] },
   { id: "live", name: "Live", builtIn: true, columns: ["name", "channel", "budget", "starts", "assets"], sort: [{ id: "starts", desc: true }], filters: [{ id: "f-live", field: "status", op: "eq", value: "Live" }] },
   { id: "approval", name: "Awaiting approval", builtIn: true, columns: ["name", "channel", "status", "assets", "pendingAssets"], sort: [{ id: "pendingAssets", desc: true }], filters: [{ id: "f-appr", field: "pendingAssets", op: "gt", value: 0 }] },
@@ -117,8 +120,9 @@ export function CampaignsScreen({ businessId }: ModuleScreenProps) {
   const assets = useWidgetQuery<AssetRow[]>("distribution.assets.list", {});
   const agents = useWidgetQuery<AgentRow[]>("team.agents.list", {});
   const action = useAction();
-  // Saved per person, business and table (audit #204): they come back after a reload.
-  const savedViews = useSavedViews("distribution.campaigns", CAMPAIGN_VIEWS, { defaultViewId: "all" });
+  // Saved per person, business and table (audit #204): they come back after a reload. Simple opens first while guidance is on.
+  const defaultViewId = useDefaultViewId("all");
+  const savedViews = useSavedViews("distribution.campaigns", CAMPAIGN_VIEWS, { defaultViewId });
   const [selectedId, setSelectedId] = useState<string | null>(() => searchParam("campaign"));
   useBusinessEvents(() => {
     campaigns.refetch();
@@ -185,7 +189,7 @@ export function CampaignsScreen({ businessId }: ModuleScreenProps) {
   return (
     <Screen name="distribution/campaigns">
       <Panel
-        title="Campaigns"
+        title={<Term id="campaign">Campaigns</Term>}
         span={8}
         loading={campaigns.isLoading}
         error={campaigns.error ? campaigns.error.message : undefined}
@@ -196,7 +200,11 @@ export function CampaignsScreen({ businessId }: ModuleScreenProps) {
             New campaign
           </Button>
         }
-        footer={<span>Right-click a campaign to edit, launch, pause, resume or end it. Launch needs at least one approved asset.</span>}
+        footer={
+          <span>
+            Use the … button or right-click a campaign to edit, launch, pause, resume or end it. Launch needs at least one approved <Term id="creative">asset</Term>.
+          </span>
+        }
         flush
       >
         <InlineError error={action.error} className="px-panel-pad pt-2" />
@@ -206,7 +214,7 @@ export function CampaignsScreen({ businessId }: ModuleScreenProps) {
           data={rows}
           columns={columns}
           {...savedViews}
-          defaultViewId="all"
+          defaultViewId={defaultViewId}
           rowActions={rowActions}
           onRowOpen={(r) => setSelectedId(r.id)}
           onRowClick={(r) => setSelectedId(r.id)}
@@ -338,7 +346,7 @@ function CampaignDetail({ row, agents, businessId, pending, onStatus, onEnd, onE
         )}
       </section>
       <p className="text-small text-secondary">
-        Spend above the approval threshold, any contract and anything in the founder's name goes to the Inbox before it happens. Results are an <ProvenanceChip kind="estimate" /> until the conversion API confirms them.
+        Spend above the approval threshold, any contract and anything in the founder's name goes to the Inbox before it happens. Results are an <ProvenanceChip kind="estimate" /> until the channel's own sales reports confirm them.
       </p>
     </div>
   );

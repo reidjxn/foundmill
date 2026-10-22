@@ -1,10 +1,11 @@
 // @vitest-environment happy-dom
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
-import { CONCEPT_ATTRIBUTE_KEYS, TooltipProvider } from "@foundmill/dugout";
+import { CONCEPT_ATTRIBUTE_KEYS, GuidanceProvider, TooltipProvider } from "@foundmill/dugout";
 import { TRPCClientError } from "@trpc/client";
 import { domainCandidates } from "@foundmill/shared";
-import { CommitForm, archetypeParam, commitSteps, departmentColour, importHref, upgradeHrefOf, type CommitDomainApi, type CommitLogoApi } from "../commit/CommitScreen";
+import { termsWithGlossary } from "@foundmill/shared/terms";
+import { CommitForm, HOW_IT_RUNS_REASSURANCE, WHAT_HAPPENS_NEXT, archetypeParam, commitSteps, departmentColour, importHref, includedCreditsLine, spendCapSummary, upgradeHrefOf, type CommitDomainApi, type CommitLogoApi } from "../commit/CommitScreen";
 import type { DomainCheck } from "../commit/naming";
 import { IMPORT_STEPS, STUDIO_STEPS } from "../StudioFrame";
 import { META_KIND, type IdeaLike } from "../ideate/concepts";
@@ -61,16 +62,108 @@ function fakeDomainApi(statuses: Record<string, Partial<DomainCheck>> = {}, over
   } as never;
 }
 
-function renderForm(onCommit = vi.fn(), extra: Partial<React.ComponentProps<typeof CommitForm>> = {}) {
+/** The app's definitions map (GuidanceHost hands the same to the provider), so the Terms on the screen are real. */
+const TERMS = termsWithGlossary(null);
+
+/**
+ * Renders the form with guidance on and the definitions, and opens "How it runs" (the five controls start behind
+ * "Change" while guidance is on, §7.6); `collapsed: true` leaves them closed.
+ */
+function renderForm(onCommit = vi.fn(), extra: Partial<React.ComponentProps<typeof CommitForm>> = {}, { collapsed = false } = {}) {
   render(
-    <TooltipProvider>
-      <CommitForm idea={idea} viewer={{ email: null }} currency="EUR" onCommit={onCommit} logoApi={fakeLogoApi()} domainApi={fakeDomainApi()} {...extra} />
-    </TooltipProvider>,
+    <GuidanceProvider value={{ guidance: "on", terms: TERMS }}>
+      <TooltipProvider>
+        <CommitForm idea={idea} viewer={{ email: null }} currency="EUR" onCommit={onCommit} logoApi={fakeLogoApi()} domainApi={fakeDomainApi()} {...extra} />
+      </TooltipProvider>
+    </GuidanceProvider>,
   );
+  if (!collapsed) openHowItRuns();
   return onCommit;
 }
 
+function openHowItRuns() {
+  const change = screen.getByTestId("how-it-runs-change");
+  if (change.getAttribute("aria-expanded") !== "true") fireEvent.click(change);
+}
+
 describe("CommitForm (BUILD §11.1 Commit screen; AC-11.1.6, AC-11.1.7)", () => {
+  it("opens Name and Logo and sums up How it runs in chips; Change opens the five controls (A3, §7.6)", () => {
+    renderForm(vi.fn(), {}, { collapsed: true });
+    expect(screen.getByTestId("name-panel")).toBeTruthy();
+    expect(screen.getByTestId("logo-panel")).toBeTruthy();
+    const summary = screen.getByTestId("how-it-runs-summary");
+    const chips = () => Array.from(summary.querySelectorAll("[data-summary]")).map((c) => [c.getAttribute("data-summary"), c.textContent]);
+    expect(chips()).toEqual([
+      ["game-mode", "Personal"],
+      ["business-mode", "Assisted"],
+      ["archetype", "B2B SaaS"],
+      ["spend-cap", "Asks you above €250.00"],
+      ["autopilot", "Autopilot off"],
+    ]);
+    // The chips that have a definition are Terms: the dotted word opens its definition card.
+    for (const [chip, term] of [
+      ["archetype", "archetype"],
+      ["business-mode", "business_mode"],
+      ["autopilot", "autopilot"],
+    ]) expect(summary.querySelector(`[data-summary="${chip}"] button[data-term="${term}"]`)?.className).toContain("term-link");
+    expect(screen.getByTestId("reassure-how-it-runs").textContent).toBe(HOW_IT_RUNS_REASSURANCE);
+    // Closed by default while guidance is on: no archetype cards, no mode cards, no spend cap, no autopilot switch.
+    const change = screen.getByTestId("how-it-runs-change");
+    expect(change.textContent).toContain("Change");
+    expect(change.getAttribute("aria-expanded")).toBe("false");
+    expect(screen.queryByTestId("archetype-panel")).toBeNull();
+    expect(screen.queryByTestId("business-mode-panel")).toBeNull();
+    expect(screen.queryByLabelText(/Spend cap per action/)).toBeNull();
+    expect(screen.queryByRole("switch", { name: "Run on autopilot" })).toBeNull();
+    fireEvent.click(change);
+    expect(change.getAttribute("aria-expanded")).toBe("true");
+    expect(change.textContent).toContain("Hide");
+    expect(screen.getByRole("radiogroup", { name: "Personal or live" })).toBeTruthy();
+    expect(screen.getByTestId("archetype-panel")).toBeTruthy();
+    expect(screen.getByTestId("business-mode-panel")).toBeTruthy();
+    expect(screen.getByLabelText(/Spend cap per action/)).toBeTruthy();
+    // Every control keeps its id, and the chips follow the controls.
+    fireEvent.click(screen.getByRole("switch", { name: "Run on autopilot" }));
+    fireEvent.click(screen.getByLabelText(/Automated/));
+    fireEvent.click(document.querySelector<HTMLElement>('[data-option="live"] button[role="radio"]')!);
+    fireEvent.change(screen.getByLabelText(/Spend cap per action/), { target: { value: "" } });
+    expect(chips()).toEqual([
+      ["game-mode", "Live"],
+      ["business-mode", "Automated"],
+      ["archetype", "B2B SaaS"],
+      ["spend-cap", "No spend cap"],
+      ["autopilot", "Autopilot on"],
+    ]);
+    fireEvent.click(change);
+    expect(screen.queryByTestId("archetype-panel")).toBeNull();
+    expect(spendCapSummary(" 1,000 ", "USD")).toBe("Asks you above $1,000.00");
+    expect(spendCapSummary("abc", "USD")).toBe("Spend cap to fix");
+  });
+
+  it("shows the five controls at once when guidance is off, and opens them to show a refused answer", async () => {
+    render(
+      <GuidanceProvider value={{ guidance: "off", terms: TERMS }}>
+        <TooltipProvider>
+          <CommitForm idea={{ ...idea, archetype: null }} viewer={{ email: null }} currency="EUR" onCommit={vi.fn()} logoApi={fakeLogoApi()} domainApi={fakeDomainApi()} />
+        </TooltipProvider>
+      </GuidanceProvider>,
+    );
+    expect(screen.getByTestId("how-it-runs-change").getAttribute("aria-expanded")).toBe("true");
+    expect(screen.getByTestId("archetype-panel")).toBeTruthy();
+    expect(screen.getByTestId("how-it-runs-summary").querySelector('[data-summary="archetype"]')?.textContent).toBe("Pick an archetype");
+    cleanup();
+    // Guidance on, nothing picked: Take charge refuses, and the controls open on the archetype that is missing.
+    const onCommit = vi.fn();
+    renderForm(onCommit, { idea: { ...idea, archetype: null } }, { collapsed: true });
+    expect(screen.queryByTestId("archetype-panel")).toBeNull();
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("take-charge"));
+    });
+    expect(onCommit).not.toHaveBeenCalled();
+    expect(screen.getByTestId("how-it-runs-change").getAttribute("aria-expanded")).toBe("true");
+    expect(screen.getByTestId("archetype-panel")).toBeTruthy();
+  });
+
   it("defaults to Assisted and Personal with the card's archetype and name", () => {
     renderForm();
     expect(screen.getByTestId("commit-form").dataset.businessMode).toBe("assisted");
@@ -101,14 +194,64 @@ describe("CommitForm (BUILD §11.1 Commit screen; AC-11.1.6, AC-11.1.7)", () => 
         vi.advanceTimersByTime(500);
       });
       expect(document.querySelectorAll("[data-registry]")).toHaveLength(2);
-      expect(screen.getByTestId("trademark-screen").textContent).toMatch(/Trademark quick screen \(Estimate, not legal clearance\)/);
+      // One panel checks the name; each registry's acronym is expanded where it is read (A12).
+      expect(screen.getByTestId("name-checks-panel").textContent).toMatch(/Check the name \(domains and trademarks\)/);
+      expect(screen.getByTestId("trademark-screen").textContent).toMatch(/USPTO, the US trademark office/);
+      expect(screen.getByTestId("trademark-screen").textContent).toMatch(/EUIPO, the EU trademark office/);
       expect(screen.getByTestId("trademark-provenance").textContent).toMatch(/Estimate/);
       // "Ledgerly" starts like the known mark "ledger": said about that list, with the mark named (nothing invented).
       expect(document.querySelector("[data-registry]")?.textContent).toMatch(/LEDGER.*Close to a known mark/);
-      expect(screen.getByTestId("trademark-caveat").textContent).toMatch(/A heuristic.*not a registry search/);
+      expect(screen.getByTestId("trademark-caveat").textContent).toMatch(/A quick check.*not a registry search/);
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it("says what happens next in the real order, with the included credits and no card (A4, A10)", () => {
+    renderForm();
+    const next = screen.getByTestId("what-happens-next");
+    expect(WHAT_HAPPENS_NEXT).toEqual(["Your team is hired", "The Product lead drafts vision, specification and roadmap (a minute or two)", "Two notes ask you to sign them off", "Then building starts. Nothing is spent until you approve it."]);
+    for (const step of WHAT_HAPPENS_NEXT) expect(next.textContent).toContain(step);
+    expect(next.textContent).not.toMatch(/Board|three decisions|first cycle/);
+    expect(includedCreditsLine()).toBe("Starts with $5.00 of included credits this month. No card.");
+    expect(screen.getByTestId("commit-credits-line").textContent).toBe("Starts with $5.00 of included credits this month. No card.");
+    cleanup();
+    // When this month's pool already went elsewhere, the paused notice speaks instead; the credits line never contradicts it.
+    renderForm(vi.fn(), { creditsNotice: "This month's included credits ($5.00) already went to another business you took charge of." });
+    expect(screen.queryByTestId("commit-credits-line")).toBeNull();
+  });
+
+  it("gives every business mode an example line and says 'your limits', never 'caps' (§7.6)", () => {
+    renderForm();
+    const examples = Array.from(document.querySelectorAll("[data-mode-example]")).map((n) => n.textContent);
+    expect(examples).toHaveLength(3);
+    expect(examples[1]).toBe("Example: drafts the pricing page and publishes it; asks before paying for a domain.");
+    expect(screen.getByTestId("business-mode-panel").textContent).toMatch(/within your limits/);
+    expect(screen.getByTestId("business-mode-panel").textContent).not.toMatch(/\bcaps\b/);
+  });
+
+  it("reassures under Name, Logo, How it runs, Archetype and Mode while guidance is on, and says nothing when it is off (§5.7, §5.9)", () => {
+    renderForm();
+    for (const id of ["reassure-name", "reassure-logo", "reassure-how-it-runs", "reassure-archetype", "reassure-mode"]) expect(screen.getByTestId(id).getAttribute("data-reassurance")).toBe("settings");
+    expect(screen.getByTestId("reassure-name").textContent).toBe("You can change this later in Settings › Business.");
+    expect(screen.getByTestId("reassure-logo").textContent).toBe("You can change this later in Settings › Business.");
+    expect(screen.getByTestId("reassure-archetype").textContent).toBe("You can change this later in Settings › Business.");
+    expect(screen.getByTestId("reassure-mode").textContent).toBe("You can change this later in Settings › Mode.");
+    cleanup();
+    render(
+      <GuidanceProvider value={{ guidance: "off", terms: TERMS }}>
+        <TooltipProvider>
+          <CommitForm idea={idea} viewer={{ email: null }} currency="EUR" onCommit={vi.fn()} logoApi={fakeLogoApi()} domainApi={fakeDomainApi()} />
+        </TooltipProvider>
+      </GuidanceProvider>,
+    );
+    for (const id of ["reassure-name", "reassure-logo", "reassure-how-it-runs", "reassure-archetype", "reassure-mode"]) expect(screen.queryByTestId(id)).toBeNull();
+    // Information stays: the credits line, the chips and the example lines are not tutoring.
+    expect(screen.getByTestId("commit-credits-line")).toBeTruthy();
+    expect(screen.getByTestId("how-it-runs-summary").textContent).toContain("Asks you above €250.00");
+    expect(document.querySelectorAll("[data-mode-example]")).toHaveLength(3);
+    // Panel titles carry the defined words as plain text when guidance is off, never a broken underline.
+    expect(screen.getByTestId("archetype-panel").querySelector('[data-term="archetype"]')?.getAttribute("data-guided")).toBe("off");
   });
   it("changes the default spend cap with the business mode until the founder edits it", () => {
     renderForm();
@@ -358,8 +501,8 @@ describe("CommitForm domain checker (audit #458: a real lookup, never a guess)",
       expect(rowFor("ledgerly.io").textContent).toMatch(/The registry is busy/);
       expect(rowFor("ledgerly.io").querySelector('[data-testid="domain-retry"]')).toBeTruthy();
       expect(rowFor("ledgerly.com").querySelector('[data-testid="domain-retry"]')).toBeNull();
-      // Registry answers: a "Registry" chip, no Estimate chip anywhere in the Domains column, and the time it was checked.
-      expect([...domainsBox().querySelectorAll('[data-testid="domain-provenance"]')].map((c) => c.textContent)).toEqual(["Registry"]);
+      // Registry answers: a "Domain registry" chip, no Estimate chip anywhere in the Domains column, and the time it was checked.
+      expect([...domainsBox().querySelectorAll('[data-testid="domain-provenance"]')].map((c) => c.textContent)).toEqual(["Domain registry"]);
       expect(domainsBox().querySelector('[data-provenance="estimate"]')).toBeNull();
       expect(domainsBox().textContent).not.toMatch(/Estimate/);
       expect(screen.getByTestId("domain-checked").textContent).toMatch(/^Checked \d{1,2}:\d{2} (AM|PM)\.\s*$/);
@@ -371,7 +514,7 @@ describe("CommitForm domain checker (audit #458: a real lookup, never a guess)",
     }
   });
 
-  it("a DNS answer reads 'DNS (Estimate)'; the mock reads 'Mock'", async () => {
+  it("a DNS answer reads 'DNS lookup (Estimate)'; the mock reads 'Mock'", async () => {
     vi.useFakeTimers();
     try {
       const domainApi = fakeDomainApi({
@@ -381,7 +524,7 @@ describe("CommitForm domain checker (audit #458: a real lookup, never a guess)",
       });
       renderForm(vi.fn(), { domainApi });
       await settle();
-      expect([...domainsBox().querySelectorAll('[data-testid="domain-provenance"]')].map((c) => c.textContent)).toEqual(["Registry", "DNS (Estimate)", "Mock"]);
+      expect([...domainsBox().querySelectorAll('[data-testid="domain-provenance"]')].map((c) => c.textContent)).toEqual(["Domain registry", "DNS lookup (Estimate)", "Mock"]);
       expect(rowFor("ledgerly.io").dataset.provenance).toBe("DNS");
       expect(rowFor("ledgerly.io").textContent).toMatch(/this is an estimate/);
     } finally {

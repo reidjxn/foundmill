@@ -8,7 +8,8 @@
  */
 import { useMemo, useState } from "react";
 import { Check, CheckCheck, ExternalLink, FileText, GitCommitVertical, Map as MapIcon, Save, X } from "lucide-react";
-import { Button, Chip, DiffView, EntityLink, Icon, KeyValueList, Markdown, Panel, ProvenanceChip, StatusPill, cn, useEntityLinkContext, useFormatters, type HunkDecisionState, type HunkDecisions } from "@foundmill/dugout";
+import { Button, Chip, DiffView, EntityLink, Icon, KeyValueList, Markdown, Panel, ProvenanceChip, StatusPill, Term, cn, useEntityLinkContext, useFormatters, type HunkDecisionState, type HunkDecisions } from "@foundmill/dugout";
+import { useCanWrite, useModuleEnv } from "../../env";
 import { pmToText, textToPm } from "../prosemirror";
 import { InlineError, PinnedChip, blockTitle, findBlock, useAction, useAgentNames } from "../shared";
 import type { ProposalHunkRow, ProposalWithHunks, RoadmapRow, SourceRow, SpecBlockRow, SpecVersionRow } from "../types";
@@ -41,8 +42,19 @@ export function sourceKindWord(kind: string): string {
   return words[kind] ?? (kind.charAt(0).toUpperCase() + kind.slice(1)).replace(/_/g, " ");
 }
 
+/**
+ * Whether this person may decide proposals (Product write), and the host's reason when not: a viewer, an advisor or an
+ * example viewer sees the decision buttons disabled with that line instead of meeting the server's role error.
+ */
+function useProductWrite(): { canWrite: boolean; reason: string | undefined } {
+  const canWrite = useCanWrite("product");
+  const { readOnly } = useModuleEnv();
+  return { canWrite, reason: canWrite ? undefined : readOnly };
+}
+
 function HunkCard({ hunk, index, blocks, roadmapItems, settled, onChanged, onOpenBlock, onOpenRoadmapItem }: { hunk: ProposalHunkRow; index: number; blocks: readonly SpecBlockRow[]; roadmapItems: readonly RoadmapRow[]; settled: boolean; onChanged: () => void; onOpenBlock: (id: string) => void; onOpenRoadmapItem: (id: string) => void }) {
   const action = useAction();
+  const { canWrite, reason } = useProductWrite();
   const [staged, setStaged] = useState<HunkDecisions>({});
   const [merged, setMerged] = useState<string | null>(null);
   const block = findBlock(blocks, hunk.specBlockId);
@@ -75,8 +87,8 @@ function HunkCard({ hunk, index, blocks, roadmapItems, settled, onChanged, onOpe
           {pill.word}
         </StatusPill>
       </header>
-      {block?.pinned && hunk.decision === "pending" ? <p className="text-small text-secondary">This block is pinned (human-edited). Nothing changes unless you accept or edit this change.</p> : null}
-      {changedSince ? <p className="text-small text-secondary">This block changed after the proposal was drafted. Current shows it as it reads now; accepting keeps those edits and adds this change.</p> : null}
+      {block?.pinned && hunk.decision === "pending" ? <p className="text-small text-secondary">This paragraph is pinned (human-edited). Nothing changes unless you accept or edit this change.</p> : null}
+      {changedSince ? <p className="text-small text-secondary">This paragraph changed after the proposal was drafted. Current shows it as it reads now; accepting keeps those edits and adds this change.</p> : null}
       <DiffView
         title={null}
         original={sides.original}
@@ -84,9 +96,9 @@ function HunkCard({ hunk, index, blocks, roadmapItems, settled, onChanged, onOpe
         base={sides.base}
         labels={{ original: "Current", proposed: "Proposed", base: "When proposed" }}
         defaultMode={sides.base !== undefined ? "side-by-side" : "inline"}
-        readOnly={locked}
-        decisions={locked ? undefined : staged}
-        onDecision={locked ? undefined : onDecision}
+        readOnly={locked || !canWrite}
+        decisions={locked || !canWrite ? undefined : staged}
+        onDecision={locked || !canWrite ? undefined : onDecision}
         maxHeight={360}
       />
       {!locked ? (
@@ -94,13 +106,13 @@ function HunkCard({ hunk, index, blocks, roadmapItems, settled, onChanged, onOpe
           <span className="text-small text-secondary">{stagedCount ? `${stagedCount} change${stagedCount === 1 ? "" : "s"} staged in the diff` : "Decide the whole change, or accept and reject lines in the diff and save the result as an edit."}</span>
           <span className="flex-1" />
           <InlineError error={action.error} />
-          <Button size="sm" variant="ghost" icon={X} onClick={() => void decide("rejected")} loading={action.pending === "rejected"}>
+          <Button size="sm" variant="ghost" icon={X} onClick={() => void decide("rejected")} loading={action.pending === "rejected"} disabled={!canWrite} title={reason}>
             Reject change
           </Button>
-          <Button size="sm" variant="default" icon={Save} disabled={merged === null || stagedCount === 0} onClick={() => merged !== null && void decide("edited", textToPm(merged))} loading={action.pending === "edited"}>
+          <Button size="sm" variant="default" icon={Save} disabled={!canWrite || merged === null || stagedCount === 0} title={reason} onClick={() => merged !== null && void decide("edited", textToPm(merged))} loading={action.pending === "edited"}>
             Save as edited
           </Button>
-          <Button size="sm" variant="primary" icon={Check} onClick={() => void decide("accepted")} loading={action.pending === "accepted"}>
+          <Button size="sm" variant="primary" icon={Check} onClick={() => void decide("accepted")} loading={action.pending === "accepted"} disabled={!canWrite} title={reason}>
             Accept change
           </Button>
         </footer>
@@ -112,6 +124,7 @@ function HunkCard({ hunk, index, blocks, roadmapItems, settled, onChanged, onOpe
 export function ProposalDetail({ proposal, blocks, roadmapItems, sources, latestVersion, currency, onChanged, onOpenBlock, onOpenRoadmapItem, onOpenSource }: ProposalDetailProps) {
   const { formatDate, formatDateTime } = useFormatters();
   const action = useAction();
+  const { canWrite, reason } = useProductWrite();
   const settled = isSettled(proposal);
   const progress = decisionProgress(proposal.hunks);
   const status = PROPOSAL_STATUS_PILL[proposal.status];
@@ -179,14 +192,14 @@ export function ProposalDetail({ proposal, blocks, roadmapItems, sources, latest
       {!settled ? (
         <div className="flex flex-wrap items-center gap-2 rounded-panel border border-subtle bg-panel-alt p-2">
           <span className="text-body text-primary">
-            {progress.pending} of {progress.total} changes still wait for you. Deciding the last one publishes a new spec version with a changelog.
+            {progress.pending} of {progress.total} changes in this <Term id="proposal">proposal</Term> still wait for you. Deciding the last one publishes a new spec version with a changelog.
           </span>
           <span className="flex-1" />
           <InlineError error={action.error} />
-          <Button size="sm" variant="ghost" icon={X} onClick={() => void action.run("product.proposals.reject", { proposalId: proposal.id }, { key: "reject", then: onChanged })} loading={action.pending === "reject"}>
+          <Button size="sm" variant="ghost" icon={X} onClick={() => void action.run("product.proposals.reject", { proposalId: proposal.id }, { key: "reject", then: onChanged })} loading={action.pending === "reject"} disabled={!canWrite} title={reason}>
             Reject proposal
           </Button>
-          <Button size="sm" variant="primary" icon={CheckCheck} onClick={() => void action.run("product.proposals.acceptAll", { proposalId: proposal.id }, { key: "acceptAll", then: onChanged })} loading={action.pending === "acceptAll"}>
+          <Button size="sm" variant="primary" icon={CheckCheck} onClick={() => void action.run("product.proposals.acceptAll", { proposalId: proposal.id }, { key: "acceptAll", then: onChanged })} loading={action.pending === "acceptAll"} disabled={!canWrite} title={reason}>
             Accept all
           </Button>
         </div>
@@ -194,7 +207,7 @@ export function ProposalDetail({ proposal, blocks, roadmapItems, sources, latest
         <Panel title="Result" className={cn(proposal.status === "rejected" && "opacity-90")}>
           <div className="flex flex-col gap-1 text-body text-primary">
             <p>
-              {proposal.status === "rejected" ? "Rejected: no block changed." : `${progress.accepted} accepted · ${progress.edited} edited · ${progress.rejected} rejected.`}
+              {proposal.status === "rejected" ? "Rejected: no paragraph changed." : `${progress.accepted} accepted · ${progress.edited} edited · ${progress.rejected} rejected.`}
             </p>
             {resultVersion ? (
               <p className="flex flex-wrap items-center gap-1">
@@ -203,13 +216,13 @@ export function ProposalDetail({ proposal, blocks, roadmapItems, sources, latest
                 {resultVersion.changelogMd ? <span className="text-secondary">· {resultVersion.changelogMd}</span> : null}
               </p>
             ) : proposal.status !== "rejected" ? (
-              <p className="text-small text-secondary">The new version appears in the Specification history once published.</p>
+              <p className="text-small text-secondary">The new version appears in the <Term id="specification">Specification</Term> history once published.</p>
             ) : null}
           </div>
         </Panel>
       )}
 
-      <div className="flex flex-col gap-2" aria-label="Hunks">
+      <div className="flex flex-col gap-2" aria-label="Proposed changes">
         {hunks.map((h, i) => (
           <HunkCard key={h.id} hunk={h} index={i} blocks={blocks} roadmapItems={roadmapItems} settled={settled} onChanged={onChanged} onOpenBlock={onOpenBlock} onOpenRoadmapItem={onOpenRoadmapItem} />
         ))}

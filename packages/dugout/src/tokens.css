@@ -52,11 +52,16 @@
   --reading: #dfe4ea; /* the 15 px note body, slightly softer than text-1 */
   --accent: #7cc4ff; /* focus, selection, links outside prose */
 
-  /* ---------- Status ---------- */
+  /* ---------- Status ----------
+     Status text sits on surface-3 (menus, hover cards) and surface-4 (pressed) too, so each colour is tested at
+     4.5 : 1 against both (tokens.test.ts, UX plan D5). bad and info were lifted the minimum step that passes
+     (2026-10-20): bad #F2545B → #F36066 (4.19 → 4.52 : 1 on surface-4), info #5B8CFF → #5E8EFF (4.49 → 4.60 : 1).
+     The rating ramp and the department colours keep the original hues: they colour cells and dots, not text on a
+     raised surface. */
   --status-good: #3dd68c;
   --status-warn: #f5b841;
-  --status-bad: #f2545b;
-  --status-info: #5b8cff;
+  --status-bad: #f36066;
+  --status-info: #5e8eff;
 
   /* ---------- Rating ramp 1–20 ---------- */
   --rating-1: #f2545b; /* 1-5 */
@@ -111,8 +116,8 @@
      strip segments, presence rings, Continue). Never on a static panel, never on text. ---------- */
   --glow-good: 0 0 10px -1px rgba(61, 214, 140, 0.7);
   --glow-warn: 0 0 10px -1px rgba(245, 184, 65, 0.7);
-  --glow-bad: 0 0 10px -1px rgba(242, 84, 91, 0.7);
-  --glow-info: 0 0 10px -1px rgba(91, 140, 255, 0.7);
+  --glow-bad: 0 0 10px -1px rgba(243, 96, 102, 0.7); /* status-bad #F36066 */
+  --glow-info: 0 0 10px -1px rgba(94, 142, 255, 0.7); /* status-info #5E8EFF */
   --glow-accent: 0 0 10px -1px rgba(124, 196, 255, 0.7);
   --glow-gold: 0 0 12px -1px rgba(232, 197, 107, 0.65);
 
@@ -161,6 +166,9 @@
   --font-mono: "JetBrains Mono Variable", "JetBrains Mono", ui-monospace, monospace;
 
   /* ---------- Type scale (DESIGN §4): size / line-height / tracking ---------- */
+  /* The rem base. It never follows the text-size preference, so Tailwind spacing, control heights and the shell's
+     structure stay put when a founder chooses comfortable text (only the type tokens below change). */
+  --fs-root: 13px;
   --fs-display-hero: 80px; /* signed-out landing headlines only */
   --lh-display-hero: 80px;
   --fs-display-xl: 40px; /* Win moment, the one hero figure (Journey headline up to 54 via t-figure-hero) */
@@ -184,7 +192,7 @@
   --fs-label: 12px; /* form labels, table headers, chips: Inter 500, sentence case */
   --lh-label: 16px;
   --ls-label: 0em;
-  --fs-data: 10.5px; /* the only caps: data labels (t-data) */
+  --fs-data: 11px; /* the only caps: data labels (t-data). 11 is DESIGN §2's floor (was 10.5; UX plan D3, 2026-10-20) */
   --lh-data: 14px;
   --ls-data: 0.09em;
   --fs-body: 13px;
@@ -278,6 +286,7 @@
   --palette-height: 70vh; /* the palette's list scrolls beyond this */
   --profile-header: 96px; /* ProfileHeader's height */
   --profile-avatar: 64px; /* its avatar or logo */
+  --explainer-col: 200px; /* the Explainer's three columns wrap below this width each (grid-cols-explainer) */
 
   /* ---------- Overlays ---------- */
   --backdrop: rgba(5, 7, 10, 0.66);
@@ -309,4 +318,19 @@
   --inner-highlight: var(--elev-0);
   --focus-ring: 2px solid var(--accent);
   --focus-offset: 2px;
+}
+
+/*
+ * Comfortable text (UX plan §6.4, §9; `account_preferences.text_size`). The app stamps data-text="comfortable" on the
+ * root element and only the reading sizes grow: body 14/20, small 12.5/16, chat 14/21. Everything structural keeps
+ * its token (the rem base --fs-root, panel headers 40, rows 28/34, the sidebar 232, titles, actions, labels, data),
+ * so type changes inside regions and nothing moves. Declared after :root so it wins at equal specificity.
+ */
+:root[data-text="comfortable"] {
+  --fs-body: 14px;
+  --lh-body: 20px;
+  --fs-small: 12.5px;
+  --lh-small: 16px;
+  --fs-chat: 14px;
+  --lh-chat: 21px;
 }

@@ -133,7 +133,7 @@ interface HunkControlsProps {
 function HunkControls({ state, onDecide, onEdit, editing }: HunkControlsProps) {
   const d = state.decision;
   return (
-    <div className="flex items-center gap-1" role="group" aria-label="Hunk decision">
+    <div className="flex items-center gap-1" role="group" aria-label="Decision on this change">
       <Button
         size="sm"
         variant={d === "accepted" ? "primary" : "ghost"}
@@ -182,7 +182,7 @@ function HunkEditor({
         value={text}
         onChange={(e) => setText(e.target.value)}
         rows={Math.min(16, Math.max(3, initial.split("\n").length + 1))}
-        aria-label="Edit this hunk"
+        aria-label="Edit this change"
         autoFocus
       />
       <div className="flex justify-end gap-1.5">
@@ -266,7 +266,7 @@ export function DiffView({
           <span className="text-status-good">+{summary.added}</span>
           <span className="text-status-bad">−{summary.removed}</span>
           <span className="text-tertiary">
-            · {summary.hunks} {summary.hunks === 1 ? "hunk" : "hunks"}
+            · {summary.hunks} {summary.hunks === 1 ? "change" : "changes"}
           </span>
           {!readOnly && summary.hunks > 0 ? (
             <span className="text-tertiary">
@@ -318,7 +318,7 @@ export function DiffView({
                   key={h.id}
                   data-hunk={h.id}
                   data-decision={state.decision}
-                  aria-label={`Hunk ${h.index + 1}`}
+                  aria-label={`Change ${h.index + 1}`}
                   className="border-b border-line last:border-b-0"
                 >
                   <div className="flex min-h-control-lg flex-wrap items-center gap-2 border-b border-line-faint bg-surface-1/70 px-2.5 py-1">
@@ -394,7 +394,7 @@ function ThreeWayHunkView({
     <section
       data-hunk={hunk.id}
       data-conflict={hunk.conflict || undefined}
-      aria-label={`Hunk ${hunk.index + 1}${hunk.conflict ? ", conflict" : ""}`}
+      aria-label={`Change ${hunk.index + 1}${hunk.conflict ? ", conflict" : ""}`}
       className="border-b border-line last:border-b-0"
     >
       <div className="flex min-h-control-lg flex-wrap items-center gap-2 border-b border-line-faint bg-surface-1/70 px-2.5 py-1">

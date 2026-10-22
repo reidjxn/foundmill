@@ -16,7 +16,7 @@ import { PNL_CATEGORY_OPTIONS, categoryLabel, monthStart, plainWords, sectionOf,
 import { RecategoriseDialog } from "./RecategoriseDialog";
 import { DateText } from "../dates";
 import { fitColumns, fitToGrow, type ColumnFit } from "../fit";
-import { Screen, fmtMoney, fmtSigned, toDate, useCurrency, useNow } from "./shared";
+import { SIMPLE_VIEW_ID, Screen, fmtMoney, fmtSigned, toDate, useCurrency, useDefaultViewId, useNow } from "./shared";
 import type { AccountRow, AccountsListResponse, CategorySource, TransactionRow, TransactionsListResponse } from "./types";
 
 export const CONSENT_WARN_DAYS = 7;
@@ -38,7 +38,7 @@ export function consentState(consentExpiresAt: string | null | undefined, now: D
 }
 
 const SECTION_TONE: Record<PnlSection | "uncategorised", ChipTone> = { revenue: "good", cogs: "neutral", opex: "neutral", financing: "info", tax: "warn", other: "neutral", uncategorised: "warn" };
-const SOURCE_WORD: Record<CategorySource, string> = { rule: "by a rule", model: "by the finance lead", ledger: "from the ledger", user: "by you" };
+const SOURCE_WORD: Record<CategorySource, string> = { rule: "by a rule", model: "by the finance lead", ledger: "from your accounting books", user: "by you" };
 
 export function CategoryChip({ category, source }: { category: string | null; source: CategorySource | null }) {
   const section = sectionOf(category);
@@ -51,6 +51,8 @@ export function CategoryChip({ category, source }: { category: string | null; so
 }
 
 export const TRANSACTION_VIEWS: SavedView[] = [
+  // Simple (UX plan §7.10): when, who, what for and how much; the table opens on it while guidance is on.
+  { id: SIMPLE_VIEW_ID, name: "Simple", builtIn: true, columns: ["bookedAt", "counterparty", "category", "amount"], sort: [{ id: "bookedAt", desc: true }], filters: [] },
   { id: "all", name: "All transactions", builtIn: true, columns: ["bookedAt", "counterparty", "description", "category", "amount", "account"], sort: [{ id: "bookedAt", desc: true }], filters: [] },
   { id: "uncategorised", name: "Uncategorized", builtIn: true, columns: ["bookedAt", "counterparty", "description", "category", "amount"], sort: [{ id: "bookedAt", desc: true }], filters: [{ id: "f-unc", field: "categoryText", op: "eq", value: "Uncategorized" }] },
   { id: "in", name: "Money in", builtIn: true, columns: ["bookedAt", "counterparty", "category", "amount", "account"], sort: [{ id: "amount", desc: true }], filters: [{ id: "f-in", field: "amount", op: "gt", value: 0 }] },
@@ -78,11 +80,11 @@ export function transactionColumns(accounts: readonly AccountRow[], businessId: 
     {
       id: "counterparty",
       accessorFn: (r) => r.counterparty ?? "",
-      header: "Counterparty",
+      header: "Paid to / from",
       size: sizes.counterparty,
       cell: ({ row }) => {
         const r = row.original;
-        if (r.counterpartyEntityId) return <EntityLink entity={{ id: r.counterpartyEntityId, kind: "organisation", name: r.counterparty ?? "Counterparty", href: routes.crm(businessId, r.counterpartyEntityId) }} />;
+        if (r.counterpartyEntityId) return <EntityLink entity={{ id: r.counterpartyEntityId, kind: "organisation", name: r.counterparty ?? "Unnamed", href: routes.crm(businessId, r.counterpartyEntityId) }} />;
         return <span className="truncate text-body-strong text-primary">{r.counterparty ?? <span className="text-secondary">—</span>}</span>;
       },
     },
@@ -154,8 +156,9 @@ export function CashScreen({ businessId }: ModuleScreenProps) {
   const accountsQ = useWidgetQuery<AccountsListResponse>("finance.accounts.list", {});
   const [accountId, setAccountId] = useState<string | null>(null);
   const txQ = useWidgetQuery<TransactionsListResponse>("finance.transactions.list", accountId ? { accountId, limit: 500 } : { limit: 500 });
-  // Saved per person, business and table (audit #204): they come back after a reload.
-  const savedViews = useSavedViews("finance.cash", TRANSACTION_VIEWS, { defaultViewId: "all" });
+  // Saved per person, business and table (audit #204): they come back after a reload. Simple opens first while guidance is on.
+  const defaultViewId = useDefaultViewId("all");
+  const savedViews = useSavedViews("finance.cash", TRANSACTION_VIEWS, { defaultViewId });
   const [search, setSearch] = useState("");
   const [recat, setRecat] = useState<TransactionRow | null>(null);
 
@@ -176,7 +179,7 @@ export function CashScreen({ businessId }: ModuleScreenProps) {
 
   const rowActions = (row: TransactionRow): RowAction<TransactionRow>[] => [
     { id: "recat", label: "Recategorize…", icon: Tag, onSelect: (r) => setRecat(r) },
-    { id: "crm", label: row.counterpartyEntityId ? "Open counterparty in CRM" : "Counterparty not linked", icon: ExternalLink, disabled: !row.counterpartyEntityId, onSelect: (r) => (r.counterpartyEntityId ? navigate(routes.crm(businessId, r.counterpartyEntityId)) : undefined) },
+    { id: "crm", label: row.counterpartyEntityId ? "Open the other side in CRM" : "Other side not in the CRM", icon: ExternalLink, disabled: !row.counterpartyEntityId, onSelect: (r) => (r.counterpartyEntityId ? navigate(routes.crm(businessId, r.counterpartyEntityId)) : undefined) },
   ];
 
   return (
@@ -215,7 +218,7 @@ export function CashScreen({ businessId }: ModuleScreenProps) {
         error={txQ.error ? txQ.error.message : undefined}
         onRetry={txQ.refetch}
         empty={txQ.data && rows.length === 0 && !accountId ? { icon: Landmark, title: "No transactions yet", children: "Transactions sync from your connected accounts; the finance lead categorizes them into the standard chart of accounts." } : undefined}
-        actions={<Input icon={Search} controlSize="sm" placeholder="Search transactions" aria-label="Search transactions" title="Search counterparty or description" value={search} onChange={(e) => setSearch(e.target.value)} wrapperClassName="w-64" />}
+        actions={<Input icon={Search} controlSize="sm" placeholder="Search transactions" aria-label="Search transactions" title="Search by who was paid, who paid you or the description" value={search} onChange={(e) => setSearch(e.target.value)} wrapperClassName="w-64" />}
         footer={<span className="tabular-nums">Latest {rows.length} transactions{accountId ? ` in ${accounts.find((a) => a.id === accountId)?.name ?? "this account"}` : ""} · right-click a row to recategorize · base currency {currency}</span>}
       >
         {accounts.length > 1 ? (
@@ -236,7 +239,7 @@ export function CashScreen({ businessId }: ModuleScreenProps) {
           data={rows}
           columns={columns}
           {...savedViews}
-          defaultViewId="all"
+          defaultViewId={defaultViewId}
           height={520}
           globalFilter={search}
           exportFileName="transactions"

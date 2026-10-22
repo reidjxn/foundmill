@@ -8,7 +8,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Copy, Flag, Gem, Rocket, Trophy } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Button, Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, Field, Input, Panel, StatusPill, Timeline, TrophyCabinet, useToast, useDateFormat, type TimelineEvent, type TrophyCard } from "@foundmill/dugout";
+import { Button, Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, Field, Input, Panel, StatusPill, Term, Timeline, TrophyCabinet, useToast, useDateFormat, type TimelineEvent, type TrophyCard } from "@foundmill/dugout";
 import { routes } from "@foundmill/widgets/shared/routes";
 import { plainWords, plural } from "@/lib/format";
 import { errorMessage } from "@/lib/trpc";
@@ -105,12 +105,20 @@ export function MilestonesScreen() {
         title="Customers and revenue"
         span={12}
         glow="brand"
-        footer={<span>{live ? "Shareable cards show the customer only when permission is recorded." : "Milestones light up as customers and revenue arrive; once the business is live they become shareable cards."}</span>}
+        footer={
+          <span>
+            {live ? "Shareable cards show the customer only when permission is recorded." : <><Term id="milestone">Milestones</Term> light up as customers and revenue arrive; once the business is live they become shareable cards.</>} A figure marked{" "}
+            <Term id="estimate" always>
+              Estimate
+            </Term>{" "}
+            is worked out, not measured.
+          </span>
+        }
         data-testid="trophy-cabinet-panel"
       >
         <TrophyCabinet trophies={cards} columns={4} onOpen={onOpen} onShare={live ? setShareKey : undefined} />
       </Panel>
-      <Panel title="Releases, decisions and launches" meta={events.length ? plural(events.length, "milestone") : undefined} span={12} empty={events.length === 0 ? { icon: Flag, children: "Releases, decisions, incorporation, funding and launches appear here as they happen." } : undefined} data-testid="milestones-timeline">
+      <Panel title="Releases, decisions and launches" help="Every reached milestone links to its Customer Update, the replay of how that customer was won." meta={events.length ? plural(events.length, "milestone") : undefined} span={12} empty={events.length === 0 ? { icon: Flag, children: "Releases, decisions, incorporation, funding and launches appear here as they happen." } : undefined} data-testid="milestones-timeline">
         <Timeline events={events} absolute />
       </Panel>
       <ShareDialog card={shareCard} businessName={data.business.name} onClose={() => setShareKey(null)} />

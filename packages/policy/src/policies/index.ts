@@ -102,6 +102,6 @@ export function loadPolicySet(dir: string = POLICIES_DIR): LoadedPolicySet {
     byId[p.id] = p;
     staticPolicies[p.id] = p.text;
   }
-  if (policies.length === 0) throw new PolicyLoadError(`no .cedar files found in ${dir}`);
+  if (policies.length === 0) throw new PolicyLoadError(`no policy files found in ${dir}`);
   return { policies, byId, staticPolicies };
 }

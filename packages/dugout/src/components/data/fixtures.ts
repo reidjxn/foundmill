@@ -27,7 +27,7 @@ export const LEAD_STAGE_LABELS: Record<LeadStage, string> = {
   new: "New",
   contacted: "Contacted",
   qualified: "Qualified",
-  proposal: "Proposal",
+  proposal: "Quote sent",
   won: "Won",
   lost: "Lost",
 };
@@ -257,10 +257,10 @@ export const ENTITY_DETAILS: Record<string, EntityDetails> = {
     portrait: { type: "logo", primary: "#1F6F5F", monogram: "NB" },
     chips: [
       { label: "Retailer", tone: "info" },
-      { label: "Proposal", tone: "warn" },
+      { label: "Quote sent", tone: "warn" },
     ],
     facts: [
-      { label: "Pipeline", value: "€48,000" },
+      { label: "Open deals", value: "€48,000" },
       { label: "Stores", value: "23" },
       { label: "Contacts", value: "4" },
     ],
@@ -347,7 +347,10 @@ export function resolveFixtureEntity(id: string): EntityDetails | undefined {
   return ENTITY_DETAILS[id];
 }
 
-export const NOTE_WITH_MARKUP = `[[ent:${ENTITY_IDS.scout}|Scout]] closed the loop with [[ent:${ENTITY_IDS.sara}|Sara Lindqvist]] at [[ent:${ENTITY_IDS.nordic}|Nordic Beauty AB]]: they want 23 stores stocked before the holiday season, which means a reorder from [[ent:${ENTITY_IDS.meridian}|Meridian Labs]] by Friday. [[ent:${ENTITY_IDS.ledger}|Ledger]] has checked the cash position.`;
+// plain-allow: "Ledger" here is the Finance lead's name, not the word.
+const LEDGER_MENTION = `[[ent:${ENTITY_IDS.ledger}|Ledger]]`;
+
+export const NOTE_WITH_MARKUP = `[[ent:${ENTITY_IDS.scout}|Scout]] closed the loop with [[ent:${ENTITY_IDS.sara}|Sara Lindqvist]] at [[ent:${ENTITY_IDS.nordic}|Nordic Beauty AB]]: they want 23 stores stocked before the holiday season, which means a reorder from [[ent:${ENTITY_IDS.meridian}|Meridian Labs]] by Friday. ${LEDGER_MENTION} has checked the cash position.`;
 
 export const NOTE_MARKDOWN = `## Nordic Beauty wants the full range
 
@@ -355,7 +358,7 @@ export const NOTE_MARKDOWN = `## Nordic Beauty wants the full range
 
 - Reorder size: 2,000 units (covers 9 weeks at the current run rate)
 - Unit cost at 2,000: €9.20, at 1,000: €9.94
-- [[ent:${ENTITY_IDS.ledger}|Ledger]] confirms the cash position allows it
+- ${LEDGER_MENTION} confirms the cash position allows it
 
 | Option | Units | Cost | Covers |
 | --- | ---: | ---: | ---: |
@@ -416,6 +419,7 @@ export const CONCEPT_ATTRIBUTES: AttributeRow[] = [
     name: "Market size",
     value: 14,
     compare: 11,
+    hint: "How many people or businesses could pay for it. Higher means a bigger market.",
     evidence: {
       summary: "Nordic premium skincare grew 11% last year; 2.1M addressable households.",
       sources: ["Euromonitor 2025", "SCB household survey"],
@@ -441,6 +445,7 @@ export const CONCEPT_ATTRIBUTES: AttributeRow[] = [
     name: "Defensibility",
     value: 6,
     compare: 8,
+    hint: "How hard it is for others to copy. Higher means harder to copy.",
     evidence: "Formulation is replicable; brand and retail relationships are the moat.",
   },
   {
@@ -464,12 +469,14 @@ export const CONCEPT_ATTRIBUTES: AttributeRow[] = [
     compare: 9,
     evidence: "Five years in beauty retail buying; existing supplier relationships.",
   },
-  { id: "channel", name: "Channel access", value: 13, compare: 7 },
+  // A hint without evidence: the label still explains itself on hover and focus.
+  { id: "channel", name: "Channel access", value: 13, compare: 7, hint: "How clear the path to the first customers is. Higher means a clearer path." },
   {
     id: "regulatory",
     name: "Regulatory load",
     value: 8,
     compare: 14,
+    hint: "How much regulation applies. Higher means fewer rules to deal with.",
     evidence: "EU CPNP notification and a safety assessment per product.",
   },
   { id: "timing", name: "Timing", value: 15, compare: 15 },
@@ -538,7 +545,7 @@ export const DEMO_WIDGET_REGISTRY: WidgetRegistryEntry[] = [
   {
     key: "status_strip",
     title: "Status strip",
-    description: "Cash, runway, revenue, customers, health.",
+    description: "Cash, months of cash left, revenue, customers, health.",
     icon: Trophy,
     defaultSize: { w: 12, h: 12 },
     minSize: { w: 6, h: 10 },
@@ -592,7 +599,7 @@ export const DEMO_WIDGET_REGISTRY: WidgetRegistryEntry[] = [
   {
     key: "custom_metric",
     title: "Custom metric",
-    description: "A named query or a sentence compiled to a read-only query.",
+    description: "A saved question, or a sentence turned into a read-only query.",
     icon: ListChecks,
     defaultSize: { w: 3, h: 12 },
     minSize: { w: 3, h: 10 },

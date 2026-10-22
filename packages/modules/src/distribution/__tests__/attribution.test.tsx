@@ -2,7 +2,7 @@ import "./setup";
 import { describe, expect, it } from "vitest";
 import userEvent from "@testing-library/user-event";
 import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
-import { AttributionScreen } from "../AttributionScreen";
+import { AttributionScreen, creditSharingHeadline } from "../AttributionScreen";
 import { createFakeSource, renderScreen } from "./fake-source";
 import { BID, JOURNEY, dataResponses, emptyResponses } from "./fixtures";
 import type { JourneyRow } from "../types";
@@ -10,13 +10,19 @@ import type { JourneyRow } from "../types";
 const props = { businessId: BID, departmentId: "d1" };
 
 describe("AttributionScreen", () => {
-  it("shows the model in use, the touch funnel and the channel attribution table with partial-journey labels", () => {
+  it("says how credit is shared in plain words, with the model under Technical detail, then the touch funnel and the channel attribution table with partial-journey labels", () => {
     const fake = createFakeSource({ businessId: BID, responses: dataResponses });
     renderScreen(fake, <AttributionScreen {...props} />);
-    const model = screen.getByRole("region", { name: "Model in use" });
-    expect(within(model).getByText("Position-based 40/20/40")).toBeTruthy();
+    const model = screen.getByRole("region", { name: "How credit is shared" });
+    expect(screen.queryByRole("region", { name: "Model in use" })).toBeNull();
+    // The business thing first (UX plan §7.13, C7); the algorithm's name behind the disclosure.
+    expect(screen.getByTestId("credit-headline").textContent).toBe("Early touches get 40 %, the last touch 40 %, the middle 20 %.");
+    const technical = screen.getByTestId("credit-technical");
+    expect(technical.querySelector("summary")!.textContent).toContain("Technical detail");
+    expect(within(technical).getByText("Position-based 40/20/40")).toBeTruthy();
     expect(within(model).getByText("1 of 3")).toBeTruthy(); // partial journeys, over every journey (journey.attribution)
-    expect(within(model).getByText(/197 more labeled conversions/)).toBeTruthy();
+    expect(within(technical).getByText(/197 more to go/)).toBeTruthy();
+    expect(within(model).queryByText(/Markov/)).toBeNull();
     expect(fake.queried.get("journey.list")).toEqual({ limit: 5, orderBy: "converted" });
     const wins = within(model).getByRole("region", { name: "Latest wins" });
     expect(within(wins).getAllByRole("listitem")).toHaveLength(3);
@@ -70,13 +76,20 @@ describe("AttributionScreen", () => {
     const summary = { conversionCount: 9228, byKind: { payment: 2125, signup: 4600, activation: 2503 }, attributionModel: "data_driven_markov", threshold: 200, remaining: 0, journeys: 3341, partialJourneys: 283 };
     const fake = createFakeSource({ businessId: BID, responses: { ...dataResponses, "journey.list": { items: signups, nextCursor: "next" }, "journey.attribution": summary } });
     renderScreen(fake, <AttributionScreen {...props} />);
-    const model = screen.getByRole("region", { name: "Model in use" });
-    expect(within(model).getByText("Data-driven (Markov removal effect)")).toBeTruthy();
+    const model = screen.getByRole("region", { name: "How credit is shared" });
+    expect(screen.getByTestId("credit-headline").textContent).toBe(creditSharingHeadline("data_driven_markov"));
+    expect(within(screen.getByTestId("credit-technical")).getByText("Data-driven (Markov removal effect)")).toBeTruthy();
     expect(within(model).getByText("9,228")).toBeTruthy();
     expect(within(model).getByText("2,125")).toBeTruthy();
     expect(within(model).getByText("283 of 3,341")).toBeTruthy();
-    expect(within(model).queryByText(/more labeled conversions/)).toBeNull();
+    expect(within(model).queryByText(/more to go/)).toBeNull();
     expect(within(model).getByText(/only first-party touches were weighted/)).toBeTruthy();
+  });
+
+  it("creditSharingHeadline reads as one plain sentence per model, never an algorithm's name", () => {
+    expect(creditSharingHeadline("position_based_40_20_40")).toBe("Early touches get 40 %, the last touch 40 %, the middle 20 %.");
+    expect(creditSharingHeadline("data_driven_markov")).toBe("Each touch gets the credit it earned: the more wins depended on it, the bigger its share.");
+    for (const key of ["position_based_40_20_40", "data_driven_markov"] as const) expect(creditSharingHeadline(key)).not.toMatch(/Markov|position-based/i);
   });
 
   it("handles empty, error and loading, and refetches on customer.converted", () => {

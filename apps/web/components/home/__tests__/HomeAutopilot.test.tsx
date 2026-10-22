@@ -1,12 +1,12 @@
 // @vitest-environment happy-dom
 /**
- * Home's Autopilot chip: the state in words with the next planned cycle (an Estimate); it nudges the workflow to run
- * only when Autopilot is on and not paused; clicking it opens Settings › Mode.
+ * Home's Autopilot chip: the state in words (On, Needs your answer, Paused: reason, Off) with the next planned cycle (an
+ * Estimate); it nudges the workflow to run only when Autopilot is on and not paused; clicking it opens Settings › Mode.
  */
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { TooltipProvider } from "@foundmill/dugout";
+import { AUTOPILOT_GUIDE_LINE, GuidanceProvider, TooltipProvider } from "@foundmill/dugout";
 
 const BUSINESS = "6f1d2c3b-4a5e-4f60-8a71-0b2c3d4e5f60";
 let businessId = BUSINESS;
@@ -30,12 +30,14 @@ vi.mock("@/components/shell/business-context", () => ({ useBusiness: () => ({ bu
 
 import { HomeAutopilot } from "../HomeAutopilot";
 
-const renderChip = () =>
+const renderChip = (guidance: "on" | "off" = "on") =>
   render(
     <QueryClientProvider client={new QueryClient({ defaultOptions: { mutations: { retry: false }, queries: { retry: false } } })}>
-      <TooltipProvider>
-        <HomeAutopilot />
-      </TooltipProvider>
+      <GuidanceProvider value={{ guidance }}>
+        <TooltipProvider>
+          <HomeAutopilot />
+        </TooltipProvider>
+      </GuidanceProvider>
     </QueryClientProvider>,
   );
 
@@ -71,15 +73,15 @@ describe("Home Autopilot chip", () => {
     expect(ensure).toHaveBeenCalledTimes(1);
   });
 
-  it("shows Waiting for you and Paused with their reasons, without nudging a paused Autopilot", async () => {
+  it("shows Needs your answer and Paused with their reasons, without nudging a paused Autopilot", async () => {
     status = { enabled: true, state: "paused", label: "Paused: agents stopped", detail: "Stop all agents was pressed, so Autopilot paused.", pausedReason: "kill_switch", nextAt: null };
     const { unmount } = renderChip();
     expect((await screen.findByTestId("autopilot-chip")).textContent).toContain("Paused: agents stopped");
     expect(ensure).not.toHaveBeenCalled();
     unmount();
-    status = { enabled: true, state: "waiting", label: "Waiting for you", detail: "Two Inbox items need your decision.", pausedReason: null, nextAt: null };
+    status = { enabled: true, state: "waiting", label: "Needs your answer", detail: "2 notes in the Inbox need your answer. Autopilot never answers them for you.", pausedReason: null, nextAt: null };
     renderChip();
-    expect((await screen.findByTestId("autopilot-chip")).textContent).toContain("Waiting for you");
+    expect((await screen.findByTestId("autopilot-chip")).textContent).toContain("Needs your answer");
   });
 
   it("shows Off and never nudges", async () => {
@@ -87,6 +89,19 @@ describe("Home Autopilot chip", () => {
     renderChip();
     expect((await screen.findByTestId("autopilot-chip")).textContent).toContain("Off");
     expect(ensure).not.toHaveBeenCalled();
+  });
+
+  it("says beside the chip what Autopilot does and never does, in guided mode only (UX plan B16)", async () => {
+    status = { enabled: false, state: "off", label: "Off", detail: "Cycles start when you press Continue.", pausedReason: null, nextAt: null };
+    const { unmount } = renderChip("on");
+    await screen.findByTestId("autopilot-chip");
+    const guide = screen.getByTestId("home-autopilot").querySelector("[data-autopilot-guide]");
+    expect(guide?.textContent).toBe(AUTOPILOT_GUIDE_LINE);
+    expect(guide?.textContent).toBe("Autopilot presses Continue for you on a schedule. It never answers notes for you.");
+    unmount();
+    renderChip("off");
+    await screen.findByTestId("autopilot-chip");
+    expect(screen.getByTestId("home-autopilot").querySelector("[data-autopilot-guide]")).toBeNull();
   });
 
   it("does not nudge for a viewer, and opens Settings › Mode when clicked", async () => {

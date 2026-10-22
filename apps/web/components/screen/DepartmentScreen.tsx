@@ -12,7 +12,7 @@ import { ArrowRight, House, LayoutGrid, Pencil } from "lucide-react";
 import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
-import { Button, EmptyState, Kbd, Panel, useToast, type TabItem } from "@foundmill/dugout";
+import { Button, EmptyState, Kbd, Panel, useGuided, useToast, type TabItem } from "@foundmill/dugout";
 import { useModulePacks } from "@foundmill/modules/lazy";
 import { getModuleScreen, type ModuleScreen } from "@foundmill/modules/registry";
 import type { ModuleKey } from "@foundmill/shared";
@@ -22,12 +22,13 @@ import { routes } from "@foundmill/widgets/shared/routes";
 import { usePageShortcuts } from "@/lib/keys";
 import { NO_ACCESS_PREFIX, errorMessage, trpcPathPrefix } from "@/lib/trpc";
 import { useTRPC } from "@/lib/trpc-react";
-import { canOpenDepartment } from "@/lib/access";
+import { canOpenDepartment, type Access } from "@/lib/access";
 import { useBusiness } from "@/components/shell/business-context";
 import { useShellChrome } from "@/components/shell/chrome";
 import { ErrorPanel } from "@/components/shell/ErrorPanel";
 import { RefreshFailedNotice, loadFailed, refreshFailed } from "@/components/shell/QueryStates";
 import { ScreenSkeleton } from "@/components/shell/ScreenSkeleton";
+import { DepartmentTour } from "./DepartmentTour";
 
 const WidgetScreen = dynamic(() => import("./WidgetScreen").then((m) => m.WidgetScreen), { loading: () => <ScreenSkeleton /> });
 
@@ -71,6 +72,15 @@ export function relocatedModuleHref(businessId: string, departments: Parameters<
   return isModuleKey(deptSlug) ? moduleHref(businessId, departments, deptSlug, tabSlug) : null;
 }
 
+/**
+ * Whether the widget-layout editor (the Edit toggle and its E shortcut) is offered: a widget layout (not a module
+ * screen, loaded or loading) and a person who may change things. Viewers, advisors and example viewers never get it,
+ * since `screen.update` is a write the server refuses for them.
+ */
+export function canEditLayout(state: { hasScreen: boolean; isModuleScreen: boolean; modulePending: boolean; access: Pick<Access, "canChange"> }): boolean {
+  return state.hasScreen && !state.isModuleScreen && !state.modulePending && state.access.canChange;
+}
+
 export function DepartmentScreen({ deptSlug, tabSlug, subView }: DepartmentScreenProps) {
   const { businessId, departmentBySlug, departments, data, access } = useBusiness();
   const department = departmentBySlug(deptSlug);
@@ -111,7 +121,7 @@ export function DepartmentScreen({ deptSlug, tabSlug, subView }: DepartmentScree
 
   // --- Edit mode (E) for widget layouts ---------------------------------------------------------------------------
   const [editing, setEditing] = useState(false);
-  const editable = Boolean(screenRow) && !moduleScreen && !modulePending;
+  const editable = canEditLayout({ hasScreen: Boolean(screenRow), isModuleScreen: Boolean(moduleScreen), modulePending, access });
   usePageShortcuts({ onEditLayout: editable ? () => setEditing((e) => !e) : undefined, onEscape: editing ? () => setEditing(false) : undefined });
 
   useShellChrome(
@@ -166,6 +176,8 @@ export function DepartmentScreen({ deptSlug, tabSlug, subView }: DepartmentScree
       <div className="min-h-full" data-testid="module-screen" data-module={`${moduleScreen.moduleKey}/${moduleScreen.tabSlug}`}>
         {stale}
         <Component businessId={businessId} departmentId={department.id} subView={subView} />
+        {/* The first-visit tour (once per account, guidance on), on whichever department tab is opened first. */}
+        <DepartmentTour />
       </div>
     );
   }
@@ -173,6 +185,7 @@ export function DepartmentScreen({ deptSlug, tabSlug, subView }: DepartmentScree
   return (
     <>
       {stale}
+      <DepartmentTour />
       <WidgetScreen
         businessId={businessId}
         screenId={screenRow.id}
@@ -187,11 +200,13 @@ export function DepartmentScreen({ deptSlug, tabSlug, subView }: DepartmentScree
   );
 }
 
-function EditToggle({ editing, onToggle }: { editing: boolean; onToggle: () => void }) {
+/** The Edit/Done toggle; its E key cap shows only with guidance off (DESIGN §5.9, §7.7), as on Home. */
+export function EditToggle({ editing, onToggle }: { editing: boolean; onToggle: () => void }) {
+  const guided = useGuided();
   return (
-    <Button size="sm" variant={editing ? "primary" : "ghost"} icon={Pencil} onClick={onToggle} aria-pressed={editing} data-testid="edit-layout">
+    <Button size="sm" variant={editing ? "primary" : "ghost"} icon={Pencil} onClick={onToggle} aria-pressed={editing} aria-keyshortcuts="E" data-testid="edit-layout">
       {editing ? "Done" : "Edit"}
-      <Kbd>E</Kbd>
+      {guided ? null : <Kbd>E</Kbd>}
     </Button>
   );
 }

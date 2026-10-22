@@ -31,6 +31,8 @@ export interface FoundationsStatusProps extends Omit<HTMLAttributes<HTMLElement>
   span?: GridSpan;
   /** Panel title. */
   heading?: ReactNode;
+  /** The panel's InfoTip: by default what the three parts are, since "specification" is the founder's first meeting with the word. */
+  help?: ReactNode;
 }
 
 const PILL: Record<FoundationsState, { tone: StatusTone; word: string; icon: IconComponent }> = {
@@ -49,13 +51,17 @@ const PARTS: { label: string; icon: IconComponent }[] = [
 export const DRAFTING_LINE = "Drafting your vision, specification and roadmap…";
 export const READY_LINE = "Your vision, specification and roadmap are drafted.";
 
+/** What the three parts are, for the panel's InfoTip (UX plan §6.2). */
+export const FOUNDATIONS_HELP =
+  "The vision says what the business is for. The specification is the written description of what the product is and does. The roadmap is the order the team builds it in.";
+
 /**
  * The state of a new business's foundations (BUILD §11.1 first open, §11.5): drafting with an indeterminate ring and the
  * three parts, ready with the way in, or failed with the reason and Try again. A panel like any other (DESIGN §3, §8);
  * the body is a polite live region so the change to ready or failed is announced once.
  */
 export const FoundationsStatus = forwardRef<HTMLElement, FoundationsStatusProps>(function FoundationsStatus(
-  { state, basis, summary, error, onRetry, retrying, onOpen, openLabel = "Open the vision", readyLine, secondaryAction, span, heading = "Vision, specification and roadmap", className, ...rest },
+  { state, basis, summary, error, onRetry, retrying, onOpen, openLabel = "Open the vision", readyLine, secondaryAction, span, heading = "Vision, specification and roadmap", help = FOUNDATIONS_HELP, className, ...rest },
   ref,
 ) {
   const pill = PILL[state];
@@ -64,6 +70,8 @@ export const FoundationsStatus = forwardRef<HTMLElement, FoundationsStatusProps>
     <Panel
       ref={ref}
       title={heading}
+      help={help}
+      helpLabel={typeof heading === "string" ? undefined : "the vision, specification and roadmap"}
       span={span}
       glow={drafting ? "brand" : undefined}
       data-foundations-state={state}

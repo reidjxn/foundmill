@@ -11,14 +11,23 @@ import { DURATION_MS, MOTION_EASE, STAGGER_MS, STREAM_CADENCE, TYPING_DOTS } fro
 const tokensCss = readFileSync(join(__dirname, "tokens.css"), "utf8");
 const dugoutCss = readFileSync(join(__dirname, "dugout.css"), "utf8");
 
-/** Every `--name: value;` declared in tokens.css, comments stripped, multi-line values joined. */
+/** Every `--name: value;` declared in a stretch of CSS, comments stripped, multi-line values joined. */
 function declarations(css: string): Map<string, string> {
   const out = new Map<string, string>();
   const body = css.replace(/\/\*[\s\S]*?\*\//g, "");
   for (const m of body.matchAll(/(--[a-z0-9-]+)\s*:\s*([^;]+);/g)) out.set(m[1]!, m[2]!.replace(/\s+/g, " ").trim());
   return out;
 }
-const tokens = declarations(tokensCss);
+/** The body of one top-level rule (`:root`, `:root[data-text="comfortable"]`): from its opening brace to the first `}` at column 0. */
+function rule(css: string, selector: string): string {
+  const start = css.indexOf(`${selector} {`);
+  if (start < 0) throw new Error(`${selector} is not declared in tokens.css`);
+  const end = css.indexOf("\n}", start);
+  return css.slice(start + selector.length + 2, end < 0 ? undefined : end);
+}
+/** The design tokens: the `:root` rule only, so a later override block never shadows a root value here. */
+const tokens = declarations(rule(tokensCss, ":root"));
+const comfortable = declarations(rule(tokensCss, ':root[data-text="comfortable"]'));
 
 /** Resolve a token to its final literal value by following var() references. */
 function resolve(name: string, depth = 0): string {
@@ -49,6 +58,47 @@ describe("text ramp: WCAG AA is the floor (DIRECTION #1)", () => {
     expect(lum("--ink")).toBeLessThan(lum("--canvas"));
     const ladder = ["--canvas", "--rail", "--surface-1", "--surface-2", "--surface-3", "--surface-4"].map(lum);
     expect([...ladder].sort((a, b) => a - b)).toEqual(ladder);
+  });
+});
+
+describe("status colours as text (UX plan D5)", () => {
+  // Pills, consequence lines and error text sit on menus and hover cards (surface-3) and pressed plates (surface-4),
+  // not only on the panel. bad and info were lifted the minimum step that passes; good and warn already did.
+  it.each(["--status-good", "--status-warn", "--status-bad", "--status-info"])("%s reaches 4.5 : 1 on surface-3 and surface-4", (status) => {
+    for (const s of ["--surface-3", "--surface-4"]) expect(contrastRatio(hex(status), hex(s)), `${status} on ${s}`).toBeGreaterThanOrEqual(4.5);
+  });
+  it("documents the lifted values", () => {
+    expect(hex("--status-bad").toLowerCase()).toBe("#f36066");
+    expect(hex("--status-info").toLowerCase()).toBe("#5e8eff");
+    // Lifted by the smallest step, not restyled: still within a hair of the old hues on the canvas.
+    expect(contrastRatio(hex("--status-bad"), hex("--canvas"))).toBeGreaterThan(6);
+    expect(contrastRatio(hex("--status-info"), hex("--canvas"))).toBeGreaterThan(6);
+  });
+});
+
+describe("type scale and text size (UX plan §9)", () => {
+  it("keeps the data label at the 11 px floor on its 14 px line (DESIGN §2: nothing below 11 but kbd glyphs)", () => {
+    expect(resolve("--fs-data")).toBe("11px");
+    expect(resolve("--lh-data")).toBe("14px");
+    expect(Number.parseFloat(resolve("--fs-micro"))).toBeGreaterThanOrEqual(11);
+  });
+  it("sets the rem base apart from the body size, so comfortable text never moves the structure", () => {
+    expect(resolve("--fs-root")).toBe("13px");
+    expect(resolve("--fs-body")).toBe("13px");
+    const base = /@layer base \{([\s\S]*?)\n\}/.exec(dugoutCss)?.[1] ?? "";
+    expect(base).toMatch(/html \{[\s\S]*?font-size: var\(--fs-root\);/);
+    expect(base).toMatch(/body \{[\s\S]*?font-size: var\(--fs-body\);\s*line-height: var\(--lh-body\);/);
+  });
+  it("comfortable text grows body 14/20, small 12.5/16 and chat 14/21 and touches nothing else", () => {
+    expect(comfortable.get("--fs-body")).toBe("14px");
+    expect(comfortable.get("--lh-body")).toBe("20px");
+    expect(comfortable.get("--fs-small")).toBe("12.5px");
+    expect(comfortable.get("--lh-small")).toBe("16px");
+    expect(comfortable.get("--fs-chat")).toBe("14px");
+    expect(comfortable.get("--lh-chat")).toBe("21px");
+    expect([...comfortable.keys()].sort()).toEqual(["--fs-body", "--fs-chat", "--fs-small", "--lh-body", "--lh-chat", "--lh-small"]);
+    // The structure is not in the override: headers, rows, the sidebar and the rem base keep their root values.
+    for (const name of ["--fs-root", "--panel-header-height", "--row-compact", "--row-comfortable", "--sidebar-width", "--fs-title", "--fs-action", "--fs-label", "--fs-data"]) expect(comfortable.has(name), name).toBe(false);
   });
 });
 
@@ -175,6 +225,17 @@ describe("dugout.css", () => {
     expect(css).toContain("text-decoration-line: underline");
     expect(css).toContain("currentColor 40%");
     expect(css).toContain("text-underline-offset: 0.24em");
+  });
+  it("draws a defined word (Term) with the entity link's geometry, dotted: dotted = learn, dashed = not measured", () => {
+    const css = utility("term-link");
+    expect(css).toContain("color: inherit");
+    expect(css).toContain("text-decoration-style: dotted");
+    expect(css).toContain("text-decoration-thickness: 1px");
+    expect(css).toContain("currentColor 40%");
+    expect(css).toContain("text-underline-offset: 0.24em");
+    expect(css).toContain("cursor: help");
+    expect(css).not.toContain("dashed");
+    expect(utility("dashed-edge")).toContain("dashed");
   });
   it("offers the 2027 surface and light utilities", () => {
     for (const name of ["surface-panel", "surface-raised", "surface-well", "surface-overlay", "surface-dialog", "glass", "canvas-lit", "edge", "edge-tint", "glow-dept", "glow-brand", "rim", "sheen", "orbit", "shimmer", "presence-breathe", "typing-dots", "stream-caret", "landed", "slide-indicator", "slide-plate", "pressable", "focus-ring", "focus-within-ring", "rule-fade", "t-data", "t-title", "t-action", "t-micro", "t-unit", "t-currency"]) {

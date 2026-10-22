@@ -53,7 +53,7 @@ describe("IPScreen", () => {
     renderScreen(fake, <IPScreen {...props} />);
     expect(screen.getByText(/Enter a word mark to see its distinctiveness/)).toBeTruthy();
     expect(screen.getByText(/Marks you screen are listed here/)).toBeTruthy();
-    expect(screen.getByText("No repository connected")).toBeTruthy();
+    expect(screen.getByText("No code host connected")).toBeTruthy();
     act(() => fake.setResponse("integrations.list", new Error("integrations down")));
     expect(screen.getByText("integrations down")).toBeTruthy();
   });

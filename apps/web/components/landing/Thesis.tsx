@@ -3,17 +3,26 @@
  * Why now: one statement and four pillars. The statement's second sentence lights word by word as it scrolls through
  * the window (all lit at once under reduced motion); each pillar links to the section that shows it.
  */
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { ArrowDown, BadgeCheck, Layers, ShieldCheck, TrendingUp, type LucideIcon } from "lucide-react";
 import { APP_NAME } from "@foundmill/config";
-import { Icon, prefersReducedMotion } from "@foundmill/dugout";
+import { Icon, Term, prefersReducedMotion } from "@foundmill/dugout";
 import { Container, Eyebrow, Reveal } from "./parts";
 
-const PILLARS: ReadonlyArray<{ icon: LucideIcon; title: string; text: string; href: string; link: string; tone: string }> = [
-  { icon: Layers, title: "A whole company, in parallel", text: "Six departments work at once every cycle, against one plan, one budget and one picture of the business. A Chief of Staff keeps them in step.", href: "#team", link: "Meet the team", tone: "var(--dept-1)" },
-  { icon: BadgeCheck, title: "Real work, real outcomes", text: "Agents open real pull requests on your GitHub, send email from your own accounts and reconcile your Stripe and bank data. You connect each one and decide what it may do.", href: "#live", link: "Watch the work", tone: "var(--dept-2)" },
+const PILLARS: ReadonlyArray<{ icon: LucideIcon; title: string; text: ReactNode; href: string; link: string; tone: string }> = [
+  { icon: Layers, title: "A whole company, in parallel", text: (
+      <>
+        Six departments work at once every <Term id="cycle">cycle</Term>, against one plan, one budget and one picture of the business. A <Term id="chief_of_staff">Chief of Staff</Term> keeps them in step.
+      </>
+    ), href: "#team", link: "Meet the team", tone: "var(--dept-1)" },
+  { icon: BadgeCheck, title: "Real work, real outcomes", text: (
+      <>
+        Agents open real <Term id="pull_request">pull requests</Term> on your GitHub, send email from your own accounts and reconcile your Stripe and bank data. You connect each one and decide what it may do.
+      </>
+    ),
+    href: "#live", link: "Watch the work", tone: "var(--dept-2)" },
   { icon: TrendingUp, title: "Better every cycle", text: "Agents are trained against real tests between cycles. Ratings move only with evidence, and the business remembers what it learns.", href: "#journey", link: "See it grow", tone: "var(--dept-3)" },
-  { icon: ShieldCheck, title: "You stay in charge", text: "Money, contracts, filings and anything irreversible wait for you, with the work prepared and a recommendation attached.", href: "#control", link: "Your calls", tone: "var(--status-good)" },
+  { icon: ShieldCheck, title: "You stay in charge", text: "Money, contracts, filings and anything irreversible wait for you, with the work prepared and a recommendation attached.", href: "#control", link: "Your decisions", tone: "var(--status-good)" },
 ];
 
 const STATEMENT = `AI agents can now write the code, run the channels and keep the books. ${APP_NAME} turns them into one team, gives them a real business to run, and keeps you in charge of every call that matters.`;

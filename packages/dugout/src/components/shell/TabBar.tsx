@@ -203,7 +203,8 @@ export function TabBar({ tabs, activeId, activeSubViewId, onChange, trailing, cl
   return (
     <div className={cn("tabbar", className)} data-testid="tab-bar" {...rest}>
       <div ref={areaRef} className="relative flex min-w-0 flex-1 items-stretch gap-1" data-indicator-ready={indicator ? "" : undefined}>
-        <div ref={listRef} role="tablist" aria-label={ariaLabel} aria-orientation="horizontal" className="flex min-w-0 items-stretch gap-1" onKeyDown={onKeyDown}>
+        {/* The department tour's first step (Coachmark) rings the tabs themselves, not the trailing slot. */}
+        <div ref={listRef} role="tablist" aria-label={ariaLabel} aria-orientation="horizontal" className="flex min-w-0 items-stretch gap-1" onKeyDown={onKeyDown} data-coachmark="tabs">
           {tabs.map((tab, i) => {
             const active = tab.id === activeId;
             const hidden = i >= shown;

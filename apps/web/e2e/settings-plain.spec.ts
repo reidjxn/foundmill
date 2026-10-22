@@ -60,6 +60,8 @@ test.describe("settings, plain words", () => {
     await expect(modeSwitch).toBeVisible({ timeout: LONG });
     await expect(screen).toContainText("Personal or live");
     await expect(screen).not.toContainText(/Game mode/);
+    // Going live carries its consequence and that it can be undone (UX plan §6.2).
+    await expect(screen.getByTestId("game-mode-consequence")).toContainText("Reversible");
     await modeSwitch.click();
     const dialog = page.getByRole("dialog");
     await expect(dialog).toBeVisible();
@@ -79,6 +81,42 @@ test.describe("settings, plain words", () => {
     await expect(confirm).toBeEnabled();
     await dialog.getByRole("button", { name: "Cancel" }).click();
     await expect(dialog).toBeHidden();
+  });
+
+  test("Mode: each business mode card carries one concrete day, the words are defined on first use, and Autopilot says what it never does (UX plan §7.17)", async ({ page }) => {
+    const screen = await openSettings(page, "mode");
+    await expect(screen.getByRole("radio", { name: "Assisted" })).toBeVisible({ timeout: LONG });
+    // The three cards: the business thing, then the example line Commit shows, never "counterparties".
+    const examples = screen.locator("[data-mode-example]");
+    await expect(examples).toHaveCount(3);
+    await expect(examples.first()).toContainText(/^Example: /);
+    await expect(screen).not.toContainText(/counterpart/i);
+    // Defined terms sit where a founder first meets them: the panel titles and the hard-gates line (a dotted word with
+    // guidance on, plain text with it off; `data-term` marks both).
+    for (const id of ["business_mode", "hard_gate", "autopilot", "vacation"]) await expect(screen.locator(`[data-term="${id}"]`).first()).toBeVisible();
+    const autopilot = screen.getByTestId("autopilot-section");
+    await expect(autopilot.getByTestId("autopilot-help")).toHaveText("Autopilot presses Continue for you on a schedule. It never answers notes for you.", { timeout: LONG });
+    await expect(autopilot.getByTestId("autopilot-switch")).toHaveAttribute("aria-describedby", "autopilot-help");
+    // Vacation carries its consequence under the button.
+    await expect(screen.getByTestId("vacation-consequence")).toContainText("Reversible");
+  });
+
+  test("Keys: says what the key is for in words, defines the key and the credits, and the Settings list shows its state", async ({ page }) => {
+    const screen = await openSettings(page, "keys");
+    const lede = screen.getByTestId("keys-lede");
+    await expect(lede).toBeVisible({ timeout: LONG });
+    await expect(lede).toHaveText("Agents think with Claude. Paste your Anthropic key so they run on your account, or use credits on Billing.");
+    await expect(lede.locator('[data-term="api_key"]')).toHaveCount(1);
+    await expect(lede.locator('[data-term="credits"]')).toHaveCount(1);
+    await expect(lede.getByRole("link", { name: "Billing" })).toHaveAttribute("href", /\/settings\/billing$/);
+    // The key's state left the sidebar foot (B13) and sits on the Keys entry of the Settings list.
+    const chip = screen.getByTestId("key-status");
+    await expect(chip).toBeVisible();
+    await expect(chip).toHaveAttribute("data-key-status", /^(connected|none|revoked)$/);
+    await expect(chip).toHaveText(/^(Connected|None|Revoked)$/);
+    // Northwind runs on credits in this stack (no own-key integration, audit #95), so the chip reads None and the pill No key.
+    await expect(chip).toHaveAttribute("data-key-status", "none");
+    await expect(screen).toContainText("No key");
   });
 
   test("Billing: correct plurals, whole numbers in the usage tables, credits and model costs in US dollars", async ({ page }) => {
@@ -138,10 +176,12 @@ test.describe("settings, plain words", () => {
     await expect(row).toBeVisible({ timeout: LONG });
     // The page first shows the list it was rendered with; Connect asks for the key once the replayed list marks it Live.
     await expect(row).toContainText("Live", { timeout: LONG });
-    await row.getByRole("button", { name: "Connect" }).click();
-    // The dialog is a portal outside the shell, so it is looked up on the page; only one can be open.
+    // The row re-renders when the list settles; a Connect pressed in that moment can miss, so press until the dialog opens.
     const dialog = page.getByTestId("connect-fields-dialog");
-    await expect(dialog).toBeVisible();
+    await expect(async () => {
+      await row.getByRole("button", { name: "Connect" }).click();
+      await expect(dialog).toBeVisible({ timeout: 5_000 });
+    }).toPass({ timeout: LONG });
     await expect(dialog).toContainText("Connect SendGrid");
     await expect(dialog).toContainText("billed to your SendGrid account");
     const key = dialog.getByLabel("API key");
@@ -173,9 +213,15 @@ test.describe("settings, plain words", () => {
     await expect(settingsScreen(page).getByTestId("oauth-finish").getByRole("button", { name: "Connect Gmail" })).toBeVisible({ timeout: LONG });
   });
 
-  test("Glossary and Departments: no retired default words, modules named in words", async ({ page }) => {
+  test("Your words and Departments: the glossary tab is called Your words, no retired default words, modules named in words", async ({ page }) => {
     const glossary = await openSettings(page, "glossary");
     await expect(glossary.getByTestId("glossary-rows")).toBeVisible({ timeout: LONG });
+    // "Your words" on the list, the panel and the browser title; the slug stays "glossary" (UX plan §7.17).
+    await expect(glossary.getByRole("navigation", { name: "Settings sections" }).getByRole("link", { name: "Your words" })).toHaveAttribute("aria-current", "page");
+    await expect(glossary.getByRole("heading", { name: "Your words" })).toBeVisible();
+    await expect(glossary.getByTestId("your-words-lede")).toHaveText("Rename the product's nouns to yours (clients instead of customers).");
+    await expect(glossary).not.toContainText(/Glossary/);
+    await expect(page).toHaveTitle(/^Your words · Settings · /);
     const terms = await glossary.getByLabel("Default word").evaluateAll((els) => els.map((e) => (e as HTMLInputElement).value));
     expect(terms.filter((t) => /^(squad|club|crest|shout)$/i.test(t))).toEqual([]);
     const departments = await openSettings(page, "departments");

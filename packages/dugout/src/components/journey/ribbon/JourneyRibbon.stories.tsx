@@ -13,7 +13,7 @@ const meta = {
     docs: {
       description: {
         component:
-          "The hero of Home (BUILD §11.2, DESIGN §8): the business's story on one time axis, as labeled rows. Revenue per day (7-day average) on a money scale with the forecast after Today and the runway estimate; milestones and planned roadmap items as labeled pins; bars for new signups, paying customers and agent hours; quarters as chapters along the top; the future hatched. The labels on the left show the last 7 days, or the hovered day. Two years of daily data render from one build per zoom; scrolling is a translate. Wheel or drag to scroll, ⌘/Ctrl + wheel or + / − to zoom, Home for today, click a day to open it.",
+          "The hero of Home (BUILD §11.2, DESIGN §8): the business's story on one time axis, as labeled rows. Revenue per day (7-day average) on a money scale with the forecast after Today and the runway estimate; milestones and planned roadmap items as labeled pins; bars for new signups, paying customers and hours of team work; quarters as chapters along the top; the future hatched. The labels on the left show the last 7 days, or the hovered day. Two years of daily data render from one build per zoom; scrolling is a translate. Wheel or drag to scroll, ⌘/Ctrl + wheel or + / − to zoom, Home for today, click a day to open it.",
       },
     },
   },

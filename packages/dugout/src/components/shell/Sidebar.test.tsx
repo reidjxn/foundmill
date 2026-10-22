@@ -5,7 +5,7 @@ import { APP_NAME } from "@foundmill/config";
 import { MONOGRAM_HEIGHT, MONOGRAM_WIDTH, WORDMARK_HEIGHT, WORDMARK_WIDTH } from "../../brand/marks";
 import { WORDMARK_ASPECT } from "../foundation/Wordmark";
 import { NORTHWIND_SIDEBAR } from "./fixtures";
-import { SIDEBAR_BRAND_HEIGHT, SIDEBAR_BRAND_ID, Sidebar, nextSidebarIndex, sidebarBadgeClass, sidebarItemName } from "./Sidebar";
+import { SIDEBAR_BRAND_HEIGHT, SIDEBAR_BRAND_ID, SIDEBAR_HELP_LABEL, Sidebar, nextSidebarIndex, sidebarBadgeClass, sidebarItemName, sidebarItemTooltip } from "./Sidebar";
 import { TabBar, nextTabIndex, visibleTabCount } from "./TabBar";
 import { DISTRIBUTION_TABS } from "./fixtures";
 
@@ -35,6 +35,48 @@ describe("Sidebar", () => {
     expect(screen.queryByText("Live")).toBeNull();
   });
 
+  it("draws the \"Live\" label only for a LIVE business; a Personal one keeps its Network item without it (B13)", () => {
+    const { unmount } = render(<Sidebar items={NORTHWIND_SIDEBAR} collapsed={false} onCollapsedChange={() => {}} showLive live={false} />);
+    expect(screen.getByRole("link", { name: "Network" })).toBeTruthy();
+    expect(screen.queryByText("Live")).toBeNull();
+    expect(document.querySelector("[data-live-label]")).toBeNull();
+    unmount();
+    render(<Sidebar items={NORTHWIND_SIDEBAR} collapsed={false} onCollapsedChange={() => {}} showLive live />);
+    expect(screen.getByText("Live")).toBeTruthy();
+  });
+
+  it("calls Contacts what the slug still calls CRM, and says both in the collapsed tooltip (B13)", async () => {
+    const user = userEvent.setup();
+    const crm = NORTHWIND_SIDEBAR.find((it) => it.fixed === "crm")!;
+    expect(crm.label).toBe("Contacts");
+    expect(crm.href).toContain("/crm");
+    expect(sidebarItemTooltip(crm)).toBe("Contacts (CRM)");
+    expect(sidebarItemTooltip({ ...crm, label: "CRM" })).toBe("CRM");
+    expect(sidebarItemTooltip(NORTHWIND_SIDEBAR[0]!)).toBe("Home");
+    render(<Sidebar items={NORTHWIND_SIDEBAR} collapsed onCollapsedChange={() => {}} />);
+    await user.hover(screen.getByRole("link", { name: "Contacts" }));
+    expect((await screen.findAllByText("Contacts (CRM)")).length).toBeGreaterThan(0);
+  });
+
+  it("offers a \"?\" cap beside the collapse toggle that opens the keyboard shortcuts, expanded only (B15)", async () => {
+    const user = userEvent.setup();
+    const onHelp = vi.fn();
+    const { unmount } = render(<Sidebar items={NORTHWIND_SIDEBAR} collapsed={false} onCollapsedChange={() => {}} onHelp={onHelp} />);
+    const cap = screen.getByRole("button", { name: SIDEBAR_HELP_LABEL });
+    expect(cap.getAttribute("aria-keyshortcuts")).toBe("?");
+    expect(cap.textContent).toBe("?");
+    // Beside the toggle, before it.
+    const toggle = screen.getByTestId("sidebar-toggle");
+    expect(cap.compareDocumentPosition(toggle) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    await user.click(cap);
+    expect(onHelp).toHaveBeenCalledTimes(1);
+    unmount();
+    // Collapsed to 64 px there is no room beside the toggle; ? on the keyboard and the palette's Help row remain.
+    render(<Sidebar items={NORTHWIND_SIDEBAR} collapsed onCollapsedChange={() => {}} onHelp={onHelp} />);
+    expect(screen.queryByRole("button", { name: SIDEBAR_HELP_LABEL })).toBeNull();
+    expect(screen.getByTestId("sidebar-toggle")).toBeTruthy();
+  });
+
   it("collapses to icons with sr-only labels and a toggle", async () => {
     const user = userEvent.setup();
     const onCollapsedChange = vi.fn();
@@ -58,18 +100,18 @@ describe("Sidebar", () => {
     render(<Sidebar items={NORTHWIND_SIDEBAR} activeId="home" collapsed={false} onCollapsedChange={() => {}} onSelect={onSelect} />);
     const home = screen.getByRole("link", { name: "Home" });
     expect(home.tabIndex).toBe(0);
-    expect(screen.getByRole("link", { name: "CRM" }).tabIndex).toBe(-1);
+    expect(screen.getByRole("link", { name: "Contacts" }).tabIndex).toBe(-1);
     home.focus();
     await user.keyboard("{ArrowDown}");
     expect(document.activeElement).toBe(screen.getByRole("link", { name: "Inbox, 3 items" }));
     await user.keyboard("{ArrowUp}{ArrowUp}");
-    expect(document.activeElement).toBe(screen.getByRole("link", { name: "Anthropic key" }));
+    expect(document.activeElement).toBe(screen.getByRole("link", { name: "Settings" }));
     await user.keyboard("{Home}");
     expect(document.activeElement).toBe(home);
     await user.keyboard("{End}");
-    expect(document.activeElement).toBe(screen.getByRole("link", { name: "Anthropic key" }));
+    expect(document.activeElement).toBe(screen.getByRole("link", { name: "Settings" }));
     await user.keyboard("{Enter}");
-    expect(onSelect).toHaveBeenCalledWith(expect.objectContaining({ id: "key" }));
+    expect(onSelect).toHaveBeenCalledWith(expect.objectContaining({ id: "settings" }));
     expect(nextSidebarIndex("ArrowDown", 2, 3)).toBe(0);
     expect(nextSidebarIndex("x", 0, 3)).toBeNull();
   });
@@ -122,13 +164,15 @@ describe("Sidebar brand (the Foundmill wordmark in the foot)", () => {
     expect(settings.className).toContain("sidebar-item");
   });
 
-  it("closes the foot, after the last item and before the collapse toggle", () => {
-    render(<Sidebar items={NORTHWIND_SIDEBAR} collapsed={false} onCollapsedChange={() => {}} brand={brand} />);
-    const key = screen.getByRole("link", { name: "Anthropic key" });
+  it("closes the foot, after the last item and before the \"?\" cap and the collapse toggle", () => {
+    render(<Sidebar items={NORTHWIND_SIDEBAR} collapsed={false} onCollapsedChange={() => {}} brand={brand} onHelp={() => {}} />);
+    const settings = screen.getByRole("link", { name: "Settings" });
     const link = screen.getByRole("link", { name: APP_NAME });
+    const help = screen.getByRole("button", { name: SIDEBAR_HELP_LABEL });
     const toggle = screen.getByTestId("sidebar-toggle");
-    expect(key.compareDocumentPosition(link) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(link.compareDocumentPosition(toggle) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(settings.compareDocumentPosition(link) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(link.compareDocumentPosition(help) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(help.compareDocumentPosition(toggle) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
   it("is not drawn when the sidebar is collapsed, and no mark takes its place", () => {
@@ -156,7 +200,7 @@ describe("Sidebar brand (the Foundmill wordmark in the foot)", () => {
     await user.keyboard("{ArrowUp}");
     expect(document.activeElement).toBe(link);
     await user.keyboard("{ArrowUp}");
-    expect(document.activeElement).toBe(screen.getByRole("link", { name: "Anthropic key" }));
+    expect(document.activeElement).toBe(screen.getByRole("link", { name: "Settings" }));
     await user.keyboard("{End}");
     expect(document.activeElement).toBe(link);
     await user.keyboard("{ArrowDown}");
@@ -171,7 +215,7 @@ describe("Sidebar brand (the Foundmill wordmark in the foot)", () => {
     const home = screen.getByRole("link", { name: "Home" });
     home.focus();
     await user.keyboard("{ArrowUp}");
-    expect(document.activeElement).toBe(screen.getByRole("link", { name: "Anthropic key" }));
+    expect(document.activeElement).toBe(screen.getByRole("link", { name: "Settings" }));
     await user.keyboard("{ArrowDown}");
     expect(document.activeElement).toBe(home);
   });
@@ -267,7 +311,7 @@ describe("TabBar", () => {
       await user.click(await screen.findByRole("menuitem", { name: "Creative" }));
       expect(onChange).toHaveBeenCalledWith("creative");
       rerender(<TabBar tabs={DISTRIBUTION_TABS} activeId="attribution" onChange={onChange} />);
-      expect(await screen.findByRole("button", { name: "More tabs, Attribution selected" })).toBeTruthy();
+      expect(await screen.findByRole("button", { name: "More tabs, Customer sources selected" })).toBeTruthy();
     } finally {
       if (offset) Object.defineProperty(HTMLElement.prototype, "offsetWidth", offset);
       else delete (HTMLElement.prototype as { offsetWidth?: number }).offsetWidth;

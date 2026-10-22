@@ -1,23 +1,56 @@
 import { describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { mockSquadRows } from "./mock";
-import { FormCells, ModelChip, RatingCell, SQUAD_VIEWS, StatusCell, ToolIcons, WageCell, formScore, squadColumns } from "./SquadCells";
+import { FormCells, ModelChip, RATING_COLUMN_LABEL, RatingCell, SQUAD_VIEWS, StatusCell, ToolIcons, WAGE_COLUMN_LABEL, WageCell, formKey, formScore, squadColumns } from "./SquadCells";
 import { ModelPicker } from "./ModelPicker";
 import { mockModelOptions } from "./mock";
 
 describe("team cells", () => {
-  it("FormCells carries words and pads to five", () => {
+  it("FormCells carries the key in words and pads to five", () => {
     render(<FormCells form={["success", "partial", "failure"]} name="Juno form" />);
-    const list = screen.getByRole("list", { name: "Juno form, last five: none, none, success, partial, failure" });
+    const list = screen.getByRole("list", { name: "Juno form: Last 3 tasks: 1 went well, 1 partly, 1 failed" });
     expect(list.querySelectorAll("li")).toHaveLength(5);
+    expect(Array.from(list.querySelectorAll("li")).map((li) => li.getAttribute("data-result"))).toEqual(["none", "none", "success", "partial", "failure"]);
     expect(formScore(["success", "partial", "failure", "success"])).toBe(2.5);
+    // The key is the guidance group's FormKey sentence, over the last five results.
+    expect(formKey(["success", "success", "partial", "success", "success", "failure"])).toBe("Last 5 tasks: 3 went well, 1 partly, 1 failed");
+    expect(formKey([])).toBe("No tasks yet");
   });
 
-  it("RatingCell is display-sm in the ramp colour with one decimal", () => {
-    render(<RatingCell value={8.25} />);
-    const el = screen.getByLabelText("Rating 8.3 of 10");
-    expect(el.className).toContain("text-rating-4");
-    expect(el.className).toContain("t-display-sm");
+  it("FormCells shows the FormKey sentence on hover, so the five cells always have their words", async () => {
+    const user = userEvent.setup();
+    render(<FormCells form={["success", "failure", "success", "success", "partial"]} name="Juno form" />);
+    await user.hover(screen.getByRole("list", { name: /Juno form/ }));
+    const key = await screen.findAllByText("Last 5 tasks: 3 went well, 1 partly, 1 failed");
+    expect(key.some((el) => el.hasAttribute("data-form-key"))).toBe(true);
+  });
+
+  it("RatingCell is the 1–20 mean in display-sm in the ramp colour, one decimal, with the band word (ScaleLabel, compact) beside it", () => {
+    render(<RatingCell value={16.25} />);
+    const el = screen.getByLabelText("Rating 16.3 of 20, Excellent");
+    expect(el.querySelector(".t-display-sm")?.className).toContain("text-rating-4");
+    expect(el.textContent).toBe("16.3Excellent");
+    const band = el.querySelector("[data-scale-label]") as HTMLElement;
+    expect(band.getAttribute("data-tone")).toBe("rating-4");
+    expect(band.getAttribute("data-scale")).toBe("20");
+    // Compact for the table's 28 px rows: the word and its dot, no plate.
+    expect(band.className).not.toContain("chip-plate");
+    expect(band.querySelector(".chip-dot")).not.toBeNull();
+    render(<RatingCell value={7} compact />);
+    const compact = screen.getByLabelText("Rating 7.0 of 20, Average");
+    expect(compact.textContent).toBe("7.0");
+    expect(compact.getAttribute("title")).toBe("7.0 of 20 · Average");
+    render(<RatingCell value={0} />);
+    expect(screen.getByLabelText("Not rated yet").textContent).toBe("—");
+  });
+
+  it("the Rating column reads /20 with its tooltip, and the cost column says it is US dollars", () => {
+    const cols = squadColumns();
+    expect(RATING_COLUMN_LABEL).toBe("Rating /20");
+    expect(cols.find((c) => c.id === "rating")?.meta?.label).toBe("Rating /20");
+    expect(cols.find((c) => c.id === "wage")?.header).toBe(WAGE_COLUMN_LABEL);
+    expect(WAGE_COLUMN_LABEL).toBe("AI cost (USD)");
   });
 
   it("ModelChip is mono and clickable", () => {
@@ -67,6 +100,9 @@ describe("ModelPicker", () => {
     expect(screen.getByText(/Downgrading the Chief of Staff/)).toBeTruthy();
     expect(screen.getAllByText("Estimate").length).toBe(2);
     expect(screen.getByText("▲ 2.5")).toBeTruthy();
+    // The money row is the cost per month, never a "wage" (UX plan C14).
+    expect(screen.getAllByText("Cost per month").length).toBe(3);
+    expect(screen.queryByText("Wage")).toBeNull();
   });
 
   it("disables locked options and explains why", () => {

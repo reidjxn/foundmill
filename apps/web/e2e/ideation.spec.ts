@@ -1,5 +1,5 @@
-import { expect, test, type Page } from "@playwright/test";
-import { LONG, openStudio, signIn } from "./helpers";
+import { expect, test, type Page, type PlaywrightWorkerArgs } from "@playwright/test";
+import { LONG, devApi, openStudio, signIn } from "./helpers";
 
 /**
  * /new, /new/ideate, /new/compare — Door A (BUILD §11.1; AC-11.1.2, AC-11.1.3, AC-11.1.4). MODEL_MODE=mock returns
@@ -9,6 +9,16 @@ import { LONG, openStudio, signIn } from "./helpers";
  */
 const gridOf = (page: Page) => page.getByTestId("concept-grid");
 const cardsOf = (page: Page) => gridOf(page).locator("[data-concept]");
+
+/** The dev founder's guidance switch (Settings › Preferences): explainers and term underlines render only while it is on; key caps only while it is off. */
+async function guidanceOn(playwright: PlaywrightWorkerArgs["playwright"]): Promise<boolean> {
+  const api = await devApi(playwright);
+  const res = await api.get("/trpc/founder.preferences.guidance");
+  expect(res.ok(), `founder.preferences.guidance answered ${res.status()}`).toBe(true);
+  const body = (await res.json()) as { result: { data: { json: { guidance: "on" | "off" } } } };
+  await api.dispose();
+  return body.result.data.json.guidance === "on";
+}
 
 /**
  * The deck is paged, newest first (idea.list, 48 a page): "Show older concepts" loads the next page. Counting tests load
@@ -34,12 +44,21 @@ async function needCards(page: Page, minimum: number): Promise<void> {
 }
 
 test.describe("doors", () => {
-  test("offers Door A and Door B", async ({ page }) => {
+  test("offers Door A and Door B, and recommends Door A to a first-time founder with the page (§7.4)", async ({ page, playwright }) => {
     await signIn(page);
     await page.goto("/new");
     await expect(page.getByTestId("doors")).toBeVisible();
     await expect(page.getByTestId("door-ideate")).toHaveAttribute("href", "/new/ideate");
     await expect(page.getByTestId("door-import")).toHaveAttribute("href", "/new/import");
+    // The experience travels with the page (apps/web/app/new/page.tsx): the tag is in the server's HTML or not at all.
+    const api = await devApi(playwright);
+    const res = await api.get("/trpc/founder.profile.get");
+    expect(res.ok()).toBe(true);
+    const body = (await res.json()) as { result: { data: { json: { profile: { experience: string | null } | null } } } };
+    await api.dispose();
+    const firstTime = body.result.data.json.profile?.experience === "first_time";
+    await expect(page.locator('[data-door="ideate"][data-recommended]')).toHaveCount(firstTime ? 1 : 0);
+    await expect(page.getByTestId("door-recommended")).toHaveCount(firstTime ? 1 : 0);
     await page.getByTestId("door-ideate").click();
     await expect(page).toHaveURL(/\/new\/ideate$/);
   });
@@ -51,9 +70,77 @@ test.describe("ideation studio", () => {
     await openStudio(page);
   });
 
-  test("the brief tells the truth about what the agents do", async ({ page }) => {
+  test("the brief tells the truth about what the agents do", async ({ page, playwright }) => {
     // The hero only shows on an empty deck; its copy must never claim research grounding that does not run.
     await expect(page.getByTestId("prompt-box")).not.toContainText(/grounds each with competitors/);
+    // The kind-of-business select reads as a question, not as "archetype" (A7); the word beside it is the defined term.
+    await expect(page.getByRole("combobox", { name: "Kind of business" })).toBeVisible();
+    const label = page.getByTestId("archetype-hint-label");
+    await expect(label).toHaveText("Kind of business");
+    await expect(label.locator('[data-term="archetype"]')).toBeVisible();
+    // Key caps are an operator's affordance (UX plan §5.9): the generate control's ⌘↵ shows only while guidance is off.
+    const guided = await guidanceOn(playwright);
+    await expect(page.getByTestId("generate-button").locator("kbd")).toHaveCount(guided ? 0 : 1);
+    // Example briefs show only while the deck is empty (A7) and guidance is on: an ExampleToggle group (UX plan §6.2).
+    const empty = (await page.getByTestId("concept-grid").locator("[data-concept]").count()) === 0;
+    await expect(page.getByTestId("example-briefs")).toHaveCount(empty && guided ? 1 : 0);
+    if (empty && guided) {
+      const briefs = page.getByTestId("example-briefs");
+      await expect(briefs.getByRole("group", { name: "Try an example brief" })).toBeVisible();
+      const chip = briefs.getByRole("button", { name: "A subscription for refillable skincare" });
+      const brief = page.getByRole("textbox", { name: "Brief" });
+      const generate = page.getByTestId("generate-button");
+      await chip.click();
+      await expect(brief).toHaveValue("A subscription for refillable skincare");
+      await expect(chip).toHaveAttribute("aria-pressed", "true");
+      // The brief wears the Example chip in a dashed frame, the control says it drafts from the example, and nothing is drafted by itself.
+      await expect(page.getByTestId("brief-example").getByText("Example", { exact: true })).toBeVisible();
+      await expect(generate).toContainText("Draft 6–12 ideas from this example");
+      await expect(page.getByTestId("draft-status")).toHaveCount(0);
+      // An edit, however small, makes the brief the founder's.
+      await brief.fill("A subscription for refillable skincare, for gyms");
+      await expect(page.getByTestId("brief-example")).toHaveCount(0);
+      await expect(chip).toHaveAttribute("aria-pressed", "false");
+      await expect(generate).toContainText("Draft concepts");
+      // The chosen chip again clears what it filled.
+      await chip.click();
+      await expect(brief).toHaveValue("A subscription for refillable skincare");
+      await chip.click();
+      await expect(brief).toHaveValue("");
+      await expect(page.getByTestId("brief-example")).toHaveCount(0);
+      await expect(generate).toContainText("Draft 6–12 ideas for me");
+      await expect(page.getByTestId("draft-status")).toHaveCount(0);
+    }
+  });
+
+  test("the deck explains itself: the 'How to read a card' Explainer collapses on Got it and stays so per account; 'Pick 2–4 cards to compare them'", async ({ page, playwright }) => {
+    await needCards(page, 1);
+    const guided = await guidanceOn(playwright);
+    const explainer = page.locator('[data-explainer="ideate-cards"]');
+    const kbdTip = page.getByTestId("compare-kbd-tip");
+    if (guided) {
+      // The Explainer (UX plan §6.2): three labels and Got it while open; one line with a chevron once seen, and the
+      // account remembers it (explainers_seen), so a reload keeps it collapsed.
+      await expect(explainer).toBeVisible();
+      await expect(explainer).toHaveAttribute("data-testid", "how-to-read-card");
+      if ((await explainer.getAttribute("data-state")) === "open") {
+        await expect(explainer).toContainText("What this screen is for");
+        await expect(explainer).toContainText("Every bar runs 1–20 and higher is always the better side");
+        await explainer.getByRole("button", { name: "Got it" }).click();
+      }
+      await expect(explainer).toHaveAttribute("data-state", "collapsed");
+      await expect(explainer.getByRole("button", { name: "Show more about this screen" })).toBeVisible();
+      await page.reload();
+      await openStudio(page);
+      await expect(explainer).toHaveAttribute("data-state", "collapsed", { timeout: LONG });
+      // Key caps are for operators: the shortcuts tip is not there while guidance is on.
+      await expect(kbdTip).toHaveCount(0);
+    } else {
+      await expect(explainer).toHaveCount(0);
+      await expect(kbdTip.getByRole("button", { name: "About Keyboard shortcuts for comparing" })).toBeVisible();
+    }
+    await expect(page.getByTestId("compare-hint")).toContainText("Pick 2–4 cards to compare them");
+    await expect(page.getByTestId("compare-hint")).not.toContainText("Tick");
   });
 
   test("AC-11.1.2: an empty brief drafts 6–12 cards, each with ten attributes and at least two citations", async ({ page }) => {
@@ -62,7 +149,7 @@ test.describe("ideation studio", () => {
     const generate = page.getByTestId("generate-button");
     // The generate control: the light slab at rest, its label saying what will happen.
     await expect(generate).toHaveAttribute("data-variant", "generate");
-    await expect(generate).toContainText("Surprise me within my constraints");
+    await expect(generate).toContainText("Draft 6–12 ideas for me");
     await generate.click();
     // The cards stream in at the top of the deck as each is saved; the status line names who drafted them.
     const status = page.getByTestId("draft-status");
@@ -207,24 +294,27 @@ test.describe("ideation studio", () => {
     await card.locator('[data-concept-action="fork"]').click();
     const fork = page.getByTestId("fork-dialog");
     await expect(fork).toBeVisible();
+    // "More like this" drafts a variant; the founder never reads "fork" (A14).
+    await expect(fork.getByRole("heading")).toContainText(/Draft a variant of/);
     await fork.getByLabel(/Name/).fill(variant);
-    await fork.getByRole("button", { name: "Create fork" }).click();
+    await fork.getByRole("button", { name: "Draft it" }).click();
     await expect(fork).toBeHidden({ timeout: LONG });
     await expect(cards).toHaveCount(before + 1, { timeout: LONG });
     await expect(grid.locator("[data-concept]", { has: page.getByRole("heading", { level: 3, name: variant, exact: true }) })).toHaveCount(1);
 
-    // The source carries a "forked" version in its history.
+    // The source carries a "forked" version in its history; versions read in words.
     const source = page.locator(`#concept-${id}`);
-    await expect(source.getByTestId("history-button")).toHaveText(/History · v2/);
+    await expect(source.getByTestId("history-button")).toHaveText(/History · version 2/);
     await source.getByTestId("history-button").click();
     const history = page.getByTestId("history-dialog");
     await expect(history).toBeVisible();
     await expect(history.locator("[data-version]")).toHaveCount(2);
-    // The version row reads exactly "Forked"; the lineage line below it reads "Forked to <name>".
-    await expect(history.getByText("Forked", { exact: true })).toBeVisible();
+    await expect(history.locator("[data-version='2']")).toContainText("Version 2");
+    // The version row reads exactly "Variant made" (never "Forked", the copy rule); the lineage line below it reads "Variant: <name>".
+    await expect(history.getByText("Variant made", { exact: true })).toBeVisible();
     await history.getByRole("button", { name: "Older" }).click();
     await expect(history.locator('[data-version][aria-current="true"]')).toHaveAttribute("data-version", "1");
-    await expect(history.getByTestId("lineage")).toContainText("Forked to");
+    await expect(history.getByTestId("lineage")).toContainText("Variant:");
     // The dialog has two Close buttons (Dugout's corner icon and the footer's text button): the footer one is last.
     await history.getByRole("button", { name: "Close" }).last().click();
     await expect(history).toBeHidden();

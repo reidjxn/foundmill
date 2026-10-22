@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { StopAllAgents } from "./StopAllAgents";
+import { STOP_ALL_CONSEQUENCE, STOP_ALL_TOOLTIP, StopAllAgents, stopAllDescription } from "./StopAllAgents";
 
 describe("StopAllAgents", () => {
   it("confirms before calling onConfirm and closes when it resolves", async () => {
@@ -9,10 +9,24 @@ describe("StopAllAgents", () => {
     let resolve: () => void = () => {};
     const onConfirm = vi.fn(() => new Promise<void>((r) => (resolve = r)));
     render(<StopAllAgents onConfirm={onConfirm} runningCount={7} />);
+    // The trigger says what it does and that nothing is lost (B6); the dialog opens with the reassurance.
+    expect(STOP_ALL_TOOLTIP).toBe("Stop all agents (pauses everything, nothing is lost)");
+    expect(stopAllDescription(0, true)).toMatch(/^Nothing is deleted\. Every running session stops now\./);
+    expect(stopAllDescription(1, true)).toContain("1 running session stops now.");
+    await user.hover(screen.getByTestId("stop-all-trigger"));
+    expect((await screen.findAllByText(STOP_ALL_TOOLTIP)).length).toBeGreaterThan(0);
     await user.click(screen.getByTestId("stop-all-trigger"));
     expect(onConfirm).not.toHaveBeenCalled();
-    expect(screen.getByRole("dialog", { name: "Stop all agents?" })).toBeTruthy();
+    const dialog = screen.getByRole("dialog", { name: "Stop all agents?" });
+    expect(dialog.textContent).toContain("Nothing is deleted. 7 running sessions stop now.");
     expect(screen.getByText(/7 running sessions stop now/)).toBeTruthy();
+    // Under the confirm: what the stop does, that it costs nothing and can be undone (a ConsequenceLine).
+    const consequence = screen.getByTestId("stop-all-consequence");
+    expect(consequence.hasAttribute("data-consequence")).toBe(true);
+    expect(consequence.textContent).toContain(STOP_ALL_CONSEQUENCE);
+    expect(consequence.textContent).toContain("No cost");
+    expect(consequence.querySelector("[data-consequence-reversible='true']")?.textContent).toBe("Reversible");
+    expect(STOP_ALL_CONSEQUENCE).toBe("Running sessions stop now; tasks keep their state. Nothing is deleted.");
     const confirm = screen.getByRole("button", { name: "Stop all agents" });
     await user.click(confirm);
     expect(onConfirm).toHaveBeenCalledTimes(1);
@@ -50,6 +64,8 @@ describe("StopAllAgents", () => {
     const dialog = screen.getByRole("dialog", { name: "Stop all agents" });
     expect(dialog.textContent).toContain("Only an owner or admin");
     expect(screen.queryByRole("button", { name: "Stop all agents" })).toBeNull();
+    // No confirm, so no line under it.
+    expect(screen.queryByTestId("stop-all-consequence")).toBeNull();
     await user.click(screen.getByRole("button", { name: "Got it" }));
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
     expect(onConfirm).not.toHaveBeenCalled();

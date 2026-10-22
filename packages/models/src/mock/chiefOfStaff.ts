@@ -95,7 +95,7 @@ export function generateChiefOfStaff(ctx: MockContext): CyclePlanOutput {
       continue;
     }
     if (started >= limit) {
-      deferred.push({ task_id: t.id, reason: budgetRemaining === 0 ? "Model budget exhausted; agents paused except the Inbox" : `Concurrency limit of ${Math.min(maxAgents, capacitySessions ?? maxAgents)} agents reached` });
+      deferred.push({ task_id: t.id, reason: budgetRemaining === 0 ? "The model budget is used up; agents are paused except the Inbox" : `At most ${Math.min(maxAgents, capacitySessions ?? maxAgents)} agents can work at once, and they are all busy` });
       continue;
     }
     const agent = chooseAgent(agents, t, busy);
@@ -114,13 +114,13 @@ export function generateChiefOfStaff(ctx: MockContext): CyclePlanOutput {
 
   const approvalsNeeded: string[] = approvalsWaiting.map((a) => (isRecord(a) && typeof a.title === "string" ? a.title : typeof a === "string" ? a : "Pending approval"));
   if (budgetRemaining === 0) approvalsNeeded.push("Top up the model budget before agents resume");
-  if (mode === "augmented" && started > 0) approvalsNeeded.push("Augmented mode: every external action and merge waits for approval");
+  if (mode === "augmented" && started > 0) approvalsNeeded.push("Augmented mode: every outside action and every merge waits for your go-ahead");
 
   const roadmap = ctx.getArray<unknown>("roadmap_without_tasks");
   const summary =
     started === 0
-      ? `No tasks start this cycle for ${businessName}: ${budgetRemaining === 0 ? "the model budget is exhausted" : open.length === 0 ? "the board is clear" : "the open tasks wait on earlier tasks"}.${roadmap.length > 0 ? ` ${roadmap.length} roadmap item${roadmap.length === 1 ? " has" : "s have"} no tasks yet: build a task graph in Development › Plan.` : ""}`
-      : `Start ${started} task${started === 1 ? "" : "s"} across ${departments.size} department${departments.size === 1 ? "" : "s"} for ${businessName} within a cap of ${Number.isFinite(limit) ? limit : maxAgents} concurrent agents; ${deferred.length} deferred. Customer-unblocking work goes first.`;
+      ? `No tasks start in this round of work for ${businessName}: ${budgetRemaining === 0 ? "the model budget is used up" : open.length === 0 ? "the board is clear" : "the open tasks wait on earlier tasks"}.${roadmap.length > 0 ? ` ${roadmap.length} roadmap item${roadmap.length === 1 ? " has" : "s have"} no tasks yet: plan them from the Plan tab.` : ""}`
+      : `Start ${started} task${started === 1 ? "" : "s"} across ${departments.size} department${departments.size === 1 ? "" : "s"} for ${businessName} with at most ${Number.isFinite(limit) ? limit : maxAgents} agents working at once; ${deferred.length} wait. Work that unblocks a customer goes first.`;
 
   return {
     summary,

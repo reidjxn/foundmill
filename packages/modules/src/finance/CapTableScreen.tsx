@@ -7,7 +7,7 @@
  */
 import { useId, useMemo, useState } from "react";
 import { Calculator, Download, ExternalLink, FileSpreadsheet, Landmark, PieChart, Users } from "lucide-react";
-import { Button, Chip, DataTable, cn, Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, EntityLink, Field, Input, KeyValueList, MiniTable, MoneyInput, Panel, ProvenanceChip, StatusStrip, Textarea, formatPercent, useFormatters, type ChipTone, type DataTableColumn, type MetricTileProps, type RowAction, type SavedView } from "@foundmill/dugout";
+import { Button, Chip, DataTable, cn, Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, EmptyState, EntityLink, Explainer, Field, Input, KeyValueList, MiniTable, MoneyInput, Panel, ProvenanceChip, StatusStrip, Term, Textarea, formatPercent, useFormatters, type ChipTone, type DataTableColumn, type EmptyStateProps, type MetricTileProps, type RowAction, type SavedView } from "@foundmill/dugout";
 import type { EntityKind } from "@foundmill/shared";
 import { moduleTabHref, useDepartments } from "@foundmill/widgets/shared/departments";
 import { routes } from "@foundmill/widgets/shared/routes";
@@ -17,8 +17,16 @@ import type { ModuleScreenProps } from "../registry";
 import { aktiebokRows, delawareLedgerRows, entryCurrency, holderKindWord, modelRound, safeTerms, toCsv, vestingSummary, type RoundInput } from "./metrics";
 import { DateText } from "../dates";
 import { fitColumns, fitToGrow, type ColumnFit } from "../fit";
-import { Screen, downloadText, fmtMoney, fmtQuantity, parseAmount, useCurrency, useNow } from "./shared";
+import { SIMPLE_VIEW_ID, Screen, downloadText, fmtMoney, fmtQuantity, parseAmount, useCurrency, useDefaultViewId, useNow } from "./shared";
 import type { CapTableEntryRow, CapTableResponse, CapTableSummary, SecurityRow } from "./types";
+
+/** The tab's intro while guidance is on (UX plan §7.14: "Who owns what share of the company"). */
+export const CAP_TABLE_EXPLAINER = {
+  screenId: "finance/cap-table",
+  purpose: "Who owns what share of the company.",
+  action: "Read the holders and their classes; model a priced round below to see how a raise would change the shares.",
+  watchFor: "SAFEs and notes are not shares until a round converts them; the round model is an Estimate, not a term sheet.",
+} as const;
 
 const KIND_TONE: Record<SecurityRow["kind"], ChipTone> = { common: "neutral", preferred: "info", option: "kit", warrant: "info", safe: "gold", note: "gold" };
 const KIND_WORD: Record<SecurityRow["kind"], string> = { common: "Common", preferred: "Preferred", option: "Option", warrant: "Warrant", safe: "SAFE", note: "Note" };
@@ -37,6 +45,8 @@ export function holderRows(data: CapTableResponse | undefined): HolderRow[] {
 }
 
 export const HOLDER_VIEWS: SavedView[] = [
+  // Simple (UX plan §7.10): who holds what share; it opens first while guidance is on.
+  { id: SIMPLE_VIEW_ID, name: "Simple", builtIn: true, columns: ["name", "kind", "quantity", "pct"], sort: [{ id: "quantity", desc: true }], filters: [] },
   { id: "all", name: "All holders", builtIn: true, columns: ["name", "quantity", "pct", "positions"], sort: [{ id: "quantity", desc: true }], filters: [] },
   { id: "kinds", name: "Holders by kind", builtIn: true, columns: ["name", "kind", "quantity", "pct"], sort: [{ id: "kind", desc: false }], filters: [] },
   { id: "people", name: "People", builtIn: true, columns: ["name", "quantity", "pct", "positions"], sort: [{ id: "quantity", desc: true }], filters: [{ id: "f-p", field: "kind", op: "in", value: ["person", "team_member"] }] },
@@ -44,6 +54,7 @@ export const HOLDER_VIEWS: SavedView[] = [
 ];
 
 export const ISSUANCE_VIEWS: SavedView[] = [
+  { id: SIMPLE_VIEW_ID, name: "Simple", builtIn: true, columns: ["holder", "class", "quantity", "issuedAt"], sort: [{ id: "issuedAt", desc: true }], filters: [] },
   { id: "all", name: "All issuances", builtIn: true, columns: ["holder", "class", "kind", "quantity", "price", "consideration", "issuedAt", "vesting"], sort: [{ id: "issuedAt", desc: true }], filters: [] },
   { id: "options", name: "Options and vesting", builtIn: true, columns: ["holder", "class", "quantity", "issuedAt", "vesting", "vestedPct"], sort: [{ id: "issuedAt", desc: true }], filters: [{ id: "f-opt", field: "kind", op: "eq", value: "option" }] },
   { id: "convertibles", name: "SAFEs and notes", builtIn: true, columns: ["holder", "class", "kind", "principal", "cap", "discount", "issuedAt"], sort: [{ id: "issuedAt", desc: true }], filters: [{ id: "f-conv", field: "kind", op: "in", value: ["safe", "note"] }] },
@@ -128,7 +139,7 @@ export function issuanceColumns(businessId: string, securities: readonly Securit
     { id: "price", accessorFn: (r) => r.priceMinor ?? 0, header: "Price", size: sizes.price, cell: ({ row }) => <span className="tabular-nums">{row.original.priceMinor === null ? "—" : fmtMoney(row.original.priceMinor, currencyOf(row.original))}</span>, meta: { numeric: true } },
     { id: "consideration", accessorFn: (r) => (r.priceMinor === null ? 0 : Math.round(r.priceMinor * Number(r.quantity))), header: "Consideration", size: sizes.consideration, cell: ({ row }) => <span className="tabular-nums">{row.original.priceMinor === null ? "—" : fmtMoney(Math.round(row.original.priceMinor * Number(row.original.quantity)), currencyOf(row.original))}</span>, meta: { numeric: true } },
     { id: "issuedAt", accessorFn: (r) => r.issuedAt ?? "", header: "Issued", size: sizes.issuedAt, cell: ({ getValue }) => <DateText className="tabular-nums" value={getValue() ? String(getValue()) : null} />, meta: { filter: "date" } },
-    { id: "vesting", accessorFn: (r) => vestingSummary(r.vesting, r.quantity, now, r.issuedAt)?.text ?? "", header: "Vesting", size: sizes.vesting, cell: ({ getValue }) => <span className="text-secondary">{String(getValue()) || "Fully vested"}</span> },
+    { id: "vesting", accessorFn: (r) => vestingSummary(r.vesting, r.quantity, now, r.issuedAt)?.text ?? "", header: "Vesting", size: sizes.vesting, cell: ({ getValue }) => <span className="text-secondary">{String(getValue()) || "Fully vested"}</span>, meta: { term: "vesting" } },
     {
       id: "vestedPct",
       // No schedule: vested at issue. A schedule with no start date: unknown, never "100%".
@@ -155,9 +166,10 @@ export function CapTableScreen({ businessId }: ModuleScreenProps) {
   const departments = useDepartments();
   const id = useId();
   const cap = useWidgetQuery<CapTableResponse>("finance.capTable.get", {});
-  // Saved per person, business and table (audit #204): they come back after a reload.
-  const holderSavedViews = useSavedViews("finance.cap-table.holders", HOLDER_VIEWS, { defaultViewId: "all" });
-  const issuanceSavedViews = useSavedViews("finance.cap-table.issuances", ISSUANCE_VIEWS, { defaultViewId: "all" });
+  // Saved per person, business and table (audit #204): they come back after a reload. Simple opens first while guidance is on.
+  const defaultViewId = useDefaultViewId("all");
+  const holderSavedViews = useSavedViews("finance.cap-table.holders", HOLDER_VIEWS, { defaultViewId });
+  const issuanceSavedViews = useSavedViews("finance.cap-table.issuances", ISSUANCE_VIEWS, { defaultViewId });
   const [holderFilter, setHolderFilter] = useState<string | null>(null);
   const [round, setRound] = useState<{ preMoney: string; investment: string; poolPct: string; newClass: string }>({ preMoney: "", investment: "", poolPct: "10", newClass: "Series Seed Preferred" });
   const [exportText, setExportText] = useState<{ title: string; csv: string } | null>(null);
@@ -200,11 +212,12 @@ export function CapTableScreen({ businessId }: ModuleScreenProps) {
     if (!downloadText(`${which}-${now.toISOString().slice(0, 10)}.csv`, csv)) setExportText({ title, csv });
   };
 
+  // Each tile's plain line while guidance is on (PlainFigure): what the figure is, before where it comes from.
   const tiles: MetricTileProps[] = [
-    { label: "Fully diluted shares", value: data?.summary.totalQuantity ?? null, format: "integer", provenance: { source: "Cap table entries: every issued share and option", query: "finance.capTable.get", note: "SAFEs and convertible notes are left out until a priced round converts them; round modeling shows the shares they would convert into (Estimate)." } },
-    { label: "Holders", value: holders.length, format: "integer", provenance: { source: "Distinct holder entities in the CRM" } },
-    { label: "Option pool", value: pool.authorised ? pool.available / pool.authorised : "—", format: "percent", caption: pool.authorised ? `${fmtQuantity(pool.available)} of ${fmtQuantity(pool.authorised)} unallocated` : "No option class yet", provenance: { source: "Authorized option classes minus issued options", note: "The share of the pool still available to grant." } },
-    { label: "Convertibles", value: { amountMinor: convertiblePrincipal, currency: cur }, caption: `${convertibles.length} SAFE${convertibles.length === 1 ? "" : "s"} or note${convertibles.length === 1 ? "" : "s"} outstanding`, provenance: { source: "Principal of post-money SAFEs and convertible notes", note: "Converts into shares at the next priced round (see round modeling)." } },
+    { label: "Fully diluted shares", value: data?.summary.totalQuantity ?? null, format: "integer", plain: "Every share that exists today or that an option could become.", provenance: { source: "Cap table entries: every issued share and option", query: "finance.capTable.get", note: "SAFEs and convertible notes are left out until a priced round converts them; round modeling shows the shares they would convert into (Estimate)." } },
+    { label: "Holders", value: holders.length, format: "integer", plain: "People and organizations that own a share of the company.", provenance: { source: "Distinct holder entities in the CRM" } },
+    { label: "Option pool", value: pool.authorised ? pool.available / pool.authorised : "—", format: "percent", plain: "The share of the options set aside for hires that is still unallocated.", caption: pool.authorised ? `${fmtQuantity(pool.available)} of ${fmtQuantity(pool.authorised)} unallocated` : "No option class yet", provenance: { source: "Authorized option classes minus issued options", note: "The share of the pool still available to grant." } },
+    { label: "Convertibles", value: { amountMinor: convertiblePrincipal, currency: cur }, plain: "Money invested that turns into shares at the next priced round.", caption: <>{convertibles.length} <Term id="safe">SAFE{convertibles.length === 1 ? "" : "s"}</Term> or note{convertibles.length === 1 ? "" : "s"} outstanding</>, provenance: { source: "Principal of post-money SAFEs and convertible notes", note: "Converts into shares at the next priced round (see round modeling)." } },
   ];
 
   const holderActions = (row: HolderRow): RowAction<HolderRow>[] => [
@@ -215,9 +228,9 @@ export function CapTableScreen({ businessId }: ModuleScreenProps) {
 
   const empty = data && data.entries.length === 0 && data.securities.length === 0;
   const nothingToExport = !data || data.entries.length === 0;
-  // One empty state for an empty cap table (the Holders panel, with the way forward); the other panels keep their place
+  // One empty state for an empty cap table (the Holders panel, under its intro, with the way forward); the other panels keep their place
   // with one quiet line of what they will hold, no second icon, button or zero-count footer.
-  const emptyState = { icon: PieChart, title: "No cap table yet", children: "The legal lead records the founders' shares here once the company is incorporated.", action: { label: "Open Legal", icon: Landmark, onClick: () => navigate(moduleTabHref(businessId, departments.data, "legal", "entity")) } };
+  const emptyState: Omit<EmptyStateProps, "children"> & { children: string } = { icon: PieChart, title: "No cap table yet", children: "The legal lead records the founders' shares here once the company is incorporated.", action: { label: "Open Legal", icon: Landmark, onClick: () => navigate(moduleTabHref(businessId, departments.data, "legal", "entity")) } };
   const quiet = (text: string, padded?: boolean) => <p className={cn("text-small text-secondary", padded && "px-panel-pad py-3")}>{text}</p>;
 
   return (
@@ -225,12 +238,31 @@ export function CapTableScreen({ businessId }: ModuleScreenProps) {
       <section aria-label="Cap table summary" className="col-span-12" aria-busy={cap.isLoading || undefined}>
         <StatusStrip tiles={tiles.map((t) => ({ ...t, loading: cap.isLoading }))} />
       </section>
-      <Panel title="Holders" span={8} flush loading={cap.isLoading} error={cap.error ? cap.error.message : undefined} onRetry={cap.refetch} empty={empty ? emptyState : undefined} footer={empty ? undefined : <span className="tabular-nums">{holders.length} holder{holders.length === 1 ? "" : "s"} · fully diluted over {fmtQuantity(data?.summary.totalQuantity ?? 0)} shares · right-click for CRM and issuances</span>}>
-        <div className="min-w-0">
-        <DataTable<HolderRow> aria-label="Holders" data={holders} columns={hColumns} getRowId={(r) => r.holderEntityId} {...holderSavedViews} defaultViewId="all" height={320} exportFileName="cap-table-holders" rowActions={holderActions} onRowOpen={(r) => navigate(routes.crm(businessId, r.holderEntityId))} rowClassName={(r) => (holderFilter === r.holderEntityId ? "bg-panel-alt" : undefined)} />
-        </div>
+      <Panel title={<Term id="cap_table">Holders</Term>} span={8} flush loading={cap.isLoading} error={cap.error ? cap.error.message : undefined} onRetry={cap.refetch} footer={empty ? undefined : <span className="tabular-nums">{holders.length} holder{holders.length === 1 ? "" : "s"} · fully diluted over {fmtQuantity(data?.summary.totalQuantity ?? 0)} shares · use the … button or right-click for CRM and issuances</span>}>
+        {/* What the cap table is, in the tab's intro while guidance is on (UX plan §7.14). */}
+        {/* It stays above the empty state too: a new business, with no shares yet, is the one that needs it most. */}
+        <Explainer {...CAP_TABLE_EXPLAINER} className="m-panel-pad mb-2" />
+        {empty ? (
+          <EmptyState {...emptyState} className="py-6" />
+        ) : (
+          <div className="min-w-0">
+          <DataTable<HolderRow> aria-label="Holders" data={holders} columns={hColumns} getRowId={(r) => r.holderEntityId} {...holderSavedViews} defaultViewId={defaultViewId} height={320} exportFileName="cap-table-holders" rowActions={holderActions} onRowOpen={(r) => navigate(routes.crm(businessId, r.holderEntityId))} rowClassName={(r) => (holderFilter === r.holderEntityId ? "bg-panel-alt" : undefined)} />
+          </div>
+        )}
       </Panel>
-      <Panel title="Classes" span={4} loading={cap.isLoading} error={cap.error ? cap.error.message : undefined} footer={empty ? undefined : <span>Options count toward fully diluted; SAFEs and notes are shown at principal until they convert.</span>}>
+      <Panel
+        title="Classes"
+        span={4}
+        loading={cap.isLoading}
+        error={cap.error ? cap.error.message : undefined}
+        footer={
+          empty ? undefined : (
+            <span>
+              Options count toward fully diluted; <Term id="safe">SAFEs</Term> and notes are shown at principal until they convert.
+            </span>
+          )
+        }
+      >
         {empty ? quiet("Share classes appear with the first issuance.") : null}
         {/* A narrow column: each class is a row of words over a line of figures, never a table cut at its edge. */}
         <ul aria-label="Share classes" className="flex flex-col" hidden={!!empty}>
@@ -280,13 +312,19 @@ export function CapTableScreen({ businessId }: ModuleScreenProps) {
             </Button>
           </div>
         }
-        footer={empty ? undefined : <span className="tabular-nums">Versioned and audited{lastChange ? ` · last change ${formatDate(lastChange)}` : ""} · exports are CSV registers for Delaware (stock ledger) and Sweden (aktiebok)</span>}
+        footer={
+          empty ? undefined : (
+            <span className="tabular-nums">
+              Versioned and audited{lastChange ? ` · last change ${formatDate(lastChange)}` : ""} · <Term id="vesting">vesting</Term> shows how much of a grant its holder has earned so far · exports are CSV registers for Delaware (stock ledger) and Sweden (aktiebok)
+            </span>
+          )
+        }
       >
         {empty ? (
           quiet("Each issuance and its vesting appear here once the first shares are recorded.", true)
         ) : (
           <div className="min-w-0">
-          <DataTable<CapTableEntryRow> aria-label="Issuances" data={entries} columns={iColumns} {...issuanceSavedViews} defaultViewId="all" height={360} exportFileName="cap-table-issuances" rowActions={issuanceActions} onRowOpen={(r) => navigate(routes.crm(businessId, r.holderEntityId))} empty={holderFilter ? "No issuances for this holder." : undefined} />
+          <DataTable<CapTableEntryRow> aria-label="Issuances" data={entries} columns={iColumns} {...issuanceSavedViews} defaultViewId={defaultViewId} height={360} exportFileName="cap-table-issuances" rowActions={issuanceActions} onRowOpen={(r) => navigate(routes.crm(businessId, r.holderEntityId))} empty={holderFilter ? "No issuances for this holder." : undefined} />
           </div>
         )}
       </Panel>

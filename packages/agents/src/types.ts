@@ -171,7 +171,7 @@ export const Trait = z.string().min(3).max(48);
 
 /**
  * How an agent sounds in a conversation, without a model call (audit-conversation §3 "voice kit"): the greeting at the
- * top of an empty thread, the typing line while a reply is in flight ("Checking the branch…"), and the acknowledgements
+ * top of an empty thread, the typing line while a reply is in flight ("Checking my changes…"), and the acknowledgements
  * used for nudges and quick confirmations. Derived from the template's family and tone (`deriveVoice`); never a claim to
  * be human.
  */
@@ -381,6 +381,11 @@ export const BoardDecisionOption = z
     label: z.string().min(1),
     recommended: z.boolean(),
     consequence: z.string().min(1),
+    /**
+     * Why this option is recommended, in the Board's words ("Recommended because it is free and reversible."; UX plan
+     * §7.19). One sentence, on the recommended option; the DecisionBar shows it under the consequence.
+     */
+    because: z.string().min(1).max(400).optional(),
     costMinor: z.number().int().nonnegative(),
     reversible: z.boolean(),
     actions: z.array(OptionAction).min(1).max(8),
@@ -393,7 +398,8 @@ export const BoardDecision = z
     bodyMd: z.string().min(40),
     options: z.array(BoardDecisionOption).min(2).max(4),
   })
-  .refine((d) => d.options.filter((o) => o.recommended).length === 1, { message: "exactly one option must be recommended" });
+  .refine((d) => d.options.filter((o) => o.recommended).length === 1, { message: "exactly one option must be recommended" })
+  .refine((d) => d.options.every((o) => !o.recommended || !!o.because), { message: "the recommended option says why (because)" });
 export type BoardDecision = z.infer<typeof BoardDecision>;
 
 /**

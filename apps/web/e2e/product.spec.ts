@@ -27,9 +27,32 @@ test.describe("product", () => {
     await expect(page.getByRole("list", { name: "Roadmap items in Now" })).toBeVisible();
   });
 
-  test("Vision: a pinned block's author link opens the agent, and the block opens the Specification (audit #397)", async ({ page }) => {
+  test("Vision: the department's intro sits inside the first panel and the summary's first word is defined (UX plan §7.10, guidance on by default)", async ({ page }) => {
     await openProductTab(page, "vision");
-    const pinned = page.getByRole("list", { name: "Pinned blocks" });
+    const explainer = page.locator("[data-explainer='product/vision']");
+    await expect(explainer).toBeVisible({ timeout: LONG });
+    await expect(explainer).toContainText("What your business is building.");
+    // Inside a panel's body, never floating (DESIGN §2: structure never moves).
+    expect(await explainer.evaluate((el) => !!el.closest("[data-panel-body]"))).toBe(true);
+    // The defined word carries the dotted underline; its definition opens on hover.
+    const term = page.getByTestId("spec-summary").locator("[data-term='specification']");
+    await expect(term).toBeVisible();
+    await term.hover();
+    await expect(page.locator("[data-definition-card]")).toContainText(/specification/i, { timeout: LONG });
+    // "Got it" collapses the intro to one line; the collapse is remembered per account.
+    await explainer.getByRole("button", { name: "Got it" }).click();
+    await expect(explainer).toHaveAttribute("data-state", "collapsed");
+    await page.reload();
+    await expect(page.locator("[data-explainer='product/vision']")).toHaveAttribute("data-state", "collapsed", { timeout: LONG });
+    await page.locator("[data-explainer='product/vision']").getByRole("button", { name: "Show more about this screen" }).click();
+    await expect(page.locator("[data-explainer='product/vision']")).toHaveAttribute("data-state", "open");
+  });
+
+  test("Vision: a pinned paragraph's author link opens the agent, and the paragraph opens the Specification (audit #397)", async ({ page }) => {
+    await openProductTab(page, "vision");
+    // "Block" reads "paragraph" everywhere a founder reads (UX plan §7.11, C13).
+    const pinned = page.getByRole("list", { name: "Pinned paragraphs" });
+    await expect(page.getByRole("list", { name: "Pinned blocks" })).toHaveCount(0);
     await expect(pinned).toBeVisible({ timeout: LONG });
     // Nothing interactive sits inside a block's button.
     expect(await pinned.locator("[data-pinned-block] a, [data-pinned-block] button").count()).toBe(0);
@@ -55,6 +78,9 @@ test.describe("product", () => {
     await expect(roadmap.getByTestId("signoff-pill")).toContainText(/^Signed off [A-Z][a-z]{2} \d{1,2}, \d{4}$/);
     await openProductTab(page, "vision");
     await expect(page.getByTestId("signoff-summary")).toHaveText("Specification: signed off · Roadmap: signed off", { timeout: LONG });
+    // "Sign-off" is a defined word in the banner's title (UX plan §7.10 column heads and panel titles).
+    await openProductTab(page, "roadmap");
+    await expect(page.getByTestId("signoff-banner").locator("[data-term='sign_off']")).toBeVisible({ timeout: LONG });
   });
 
   test("Roadmap board: owners by name, linked blocks inside their cards", async ({ page }) => {

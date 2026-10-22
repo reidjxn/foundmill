@@ -15,7 +15,7 @@ describe("serializeInstructions", () => {
     const text = serializeInstructions(mockInstructions());
     expect(text.indexOf("# Role")).toBeLessThan(text.indexOf("# Goals"));
     expect(text.indexOf("# Playbook")).toBeLessThan(text.indexOf("# Tone"));
-    expect(text).toContain("1. Read the task and its acceptance tests.");
+    expect(text).toContain("1. Read the task and the tests it must pass.");
     expect(text).toContain("- Write the Playwright test before the component.");
     expect(instructionsEqual(mockInstructions(), mockInstructions())).toBe(true);
     expect(instructionsEqual(mockInstructions(), { ...mockInstructions(), tone: "x" })).toBe(false);
@@ -46,7 +46,7 @@ describe("InstructionsEditor", () => {
     render(<InstructionsEditor value={draft} onChange={vi.fn()} versions={versions} defaultMode="diff" />);
     const diff = document.querySelector("[data-diff-view]") as HTMLElement;
     expect(diff).toBeTruthy();
-    expect(within(diff).getByText(/1 hunk/)).toBeTruthy();
+    expect(within(diff).getByText(/1 change\b/)).toBeTruthy();
     expect(within(diff).getAllByText(/Plain and warm\./).length).toBeGreaterThan(0);
   });
 
@@ -56,7 +56,7 @@ describe("InstructionsEditor", () => {
     const rules = screen.getByRole("list", { name: "Rules" });
     const flagged = within(rules).getAllByRole("listitem")[2]!;
     expect(flagged.getAttribute("data-flagged")).toBe("true");
-    expect(within(flagged).getByRole("status").textContent).toContain("has no effect");
+    expect(within(flagged).getByRole("status").textContent).toContain("is ignored");
     expect((within(flagged).getByRole("textbox") as HTMLInputElement).value).toContain("Ask before changing");
   });
 

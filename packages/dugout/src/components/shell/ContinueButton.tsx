@@ -3,6 +3,7 @@ import { forwardRef, useCallback, useEffect, useLayoutEffect, useRef, useState, 
 import { useHotkeys } from "react-hotkeys-hook";
 import { ArrowRight, CircleAlert, Pause, Play, TreePalm, Undo2 } from "lucide-react";
 import { cn } from "../../lib/cn";
+import { TERMS } from "@foundmill/shared/terms";
 import type { DateFormatPrefs } from "../../lib/date-preferences";
 import { formatDate, formatDateYearParts, type DateYearParts } from "../../lib/format";
 import { useDateFormat } from "../foundation/DateFormatProvider";
@@ -11,6 +12,7 @@ import { Button, type ButtonSize } from "../foundation/Button";
 import { Icon } from "../foundation/Icon";
 import { Kbd } from "../foundation/Kbd";
 import { Tooltip } from "../foundation/Tooltip";
+import { useGuided, useTerm } from "../guidance/GuidanceProvider";
 import type { ContinueState } from "./types";
 import { spaceBelongsTo } from "./keyboard";
 
@@ -34,6 +36,8 @@ export interface ContinueHandlers {
 
 export interface ContinueButtonProps extends ContinueHandlers {
   state: ContinueState;
+  /** The running cycle's number, for the processing tooltip ("The team is working · cycle 3"). */
+  cycleNumber?: number | null;
   /** Change this value (a cycle id, a timestamp) to fire the single pulse. */
   pulseKey?: string | number;
   /** Bind Space to the state's primary action (for use outside an AppShell, which binds Space through useKeyboardMap). */
@@ -93,6 +97,38 @@ export function holidayCaptionParts(state: Extract<ContinueState, { kind: "holid
   return { full: "On vacation", date: null, short: "On vacation" };
 }
 
+/** "One round of work: …" → "A cycle is one round of work: …": the definition as a sentence of its own. */
+export function cycleDefinitionSentence(short: string): string {
+  const text = short.trim();
+  return text ? `A cycle is ${text.charAt(0).toLowerCase()}${text.slice(1)}` : "";
+}
+
+/**
+ * The tooltip's sentence per state (docs/UX_AUDIT_AND_PLAN.md §7.7, B1): what pressing does, in the business's words.
+ * Idle says the loop once; blocked counts the notes and says what the press opens; processing names the cycle; the
+ * Customer Update and vacation states keep their words. Exported for tests.
+ *
+ * `cycleDefinition` (the definitions map's `cycle.short`, passed while guidance is on): the idle sentence names the
+ * cycle and defines it in words. A tooltip is a label and cannot hold the Term's button, so the definition is a
+ * sentence instead of an underline.
+ */
+export function continueTooltip(state: ContinueState, cycleNumber?: number | null, prefs?: DateFormatPrefs | null, cycleDefinition?: string | null): string {
+  switch (state.kind) {
+    case "idle": {
+      const defined = cycleDefinition ? cycleDefinitionSentence(cycleDefinition) : "";
+      return defined ? `Let the team work on their next tasks for one cycle. ${defined}` : "Let the team work on their next tasks. Their notes land in the Inbox.";
+    }
+    case "blocked":
+      return `${state.count} ${state.count === 1 ? "note needs" : "notes need"} your answer before the team can carry on. Press to open the first.`;
+    case "processing":
+      return typeof cycleNumber === "number" && cycleNumber > 0 ? `The team is working · cycle ${cycleNumber}` : "The team is working";
+    case "matchday":
+      return "A customer was won";
+    case "holiday":
+      return holidayCaption(state, prefs);
+  }
+}
+
 /** The callback Space (and a click) should run for a state. */
 export function continueButtonAction(state: ContinueState, handlers: ContinueHandlers): (() => void) | undefined {
   switch (state.kind) {
@@ -116,7 +152,7 @@ export function continueButtonAction(state: ContinueState, handlers: ContinueHan
  * Vacation is neutral with the caption and "Come back". It keeps one width through its states, so the bar never jumps.
  */
 export const ContinueButton = forwardRef<HTMLButtonElement, ContinueButtonProps>(function ContinueButton(
-  { state, pulseKey, bindSpace = false, disabled, pending = false, size = "md", className, ...handlers },
+  { state, cycleNumber, pulseKey, bindSpace = false, disabled, pending = false, size = "md", className, ...handlers },
   ref,
 ) {
   const reduced = usePrefersReducedMotion();
@@ -138,6 +174,10 @@ export const ContinueButton = forwardRef<HTMLButtonElement, ContinueButtonProps>
     if (hadFocus && el && document.activeElement !== el) el.focus({ preventScroll: true });
   }, [wrapped, hadFocus]);
   const datePrefs = useDateFormat();
+  // While guidance is on, the idle tooltip defines "cycle" (the business's own word from the map, else the source).
+  const guided = useGuided();
+  const cycleTerm = useTerm("cycle");
+  const cycleDefinition = guided ? (cycleTerm?.short ?? TERMS.cycle.short) : null;
   const [pulsing, setPulsing] = useState(false);
   const firstPulse = useRef(true);
   const lastKind = useRef(state.kind);
@@ -190,6 +230,8 @@ export const ContinueButton = forwardRef<HTMLButtonElement, ContinueButtonProps>
     "data-continue-state": state.kind,
     "data-pulsing": pulsing || undefined,
     "aria-keyshortcuts": "Space",
+    // The first-time callout (Coachmark, next wave) anchors here.
+    "data-coachmark": "continue",
   } as const;
 
   const pulseClass = pulsing ? "animate-ring-pulse" : "";
@@ -266,8 +308,9 @@ export const ContinueButton = forwardRef<HTMLButtonElement, ContinueButtonProps>
   return (
     <Tooltip
       content={
-        <span className="inline-flex items-center gap-1.5">
-          {state.kind === "idle" ? "Advance a business cycle" : state.kind === "blocked" ? "Continue is blocked until you respond" : state.kind === "processing" ? "A cycle is running" : state.kind === "matchday" ? "A customer was won" : holidayCaption(state, datePrefs)}
+        <span className="inline-flex flex-wrap items-center gap-x-1.5 gap-y-1">
+          <span>{continueTooltip(state, cycleNumber, datePrefs, cycleDefinition)}</span>
+          {/* A control hint, like the search's ⌘K: it stays whatever the guidance setting. */}
           <Kbd>Space</Kbd>
         </span>
       }

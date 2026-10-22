@@ -142,7 +142,7 @@ function LineChartSvg({ series, label, width, height, xType, yFormat = (v) => fo
             <g data-mark>
               <line x1={px(markX)} x2={px(markX)} y1={0} y2={innerH} stroke="var(--kit-lift)" strokeOpacity={0.7} strokeWidth={1} strokeDasharray="2 3" />
               {markLabel ? (
-                <text x={px(markX) + 6} y={10} className="t-data" fill="var(--text-3)" fontSize={10.5} letterSpacing="0.09em">
+                <text x={px(markX) + 6} y={10} className="t-data" fill="var(--text-3)" fontSize={11} letterSpacing="0.09em">
                   {markLabel.toUpperCase()}
                 </text>
               ) : null}

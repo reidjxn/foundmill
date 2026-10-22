@@ -6,7 +6,7 @@
 import { useMemo } from "react";
 import { z } from "zod";
 import { Landmark } from "lucide-react";
-import { LineChart, MetricTile, StatusPill, formatMoney, formatNumber, type LineSeries, type MetricTileProps } from "@foundmill/dugout";
+import { LineChart, MetricTile, StatusPill, Term, formatMoney, formatNumber, type LineSeries, type MetricTileProps } from "@foundmill/dugout";
 import { minorToMajor } from "@foundmill/shared";
 import { useBusinessEvents, useWidgetData, useWidgetQuery } from "../data";
 import { registerWidget, type WidgetProps } from "../registry";
@@ -63,9 +63,10 @@ export function monthlySeries(finance: FinanceOverview | undefined, months: numb
 }
 
 /**
- * The Runway tile: the figure in months with its Estimate chip, or, without a figure, the shared runway words every
- * other screen uses ("No limit" when cash-flow positive, "Not known yet" with the reason) and no Estimate chip, since
- * nothing has been estimated.
+ * The Runway tile: the figure in months with its Estimate chip and a caption in words (UX plan B9: "Months of cash
+ * left at today's spending"; the formula "Cash ÷ net burn" is the provenance tooltip), or, without a figure, the shared
+ * runway words every other screen uses ("No limit" when cash-flow positive, "Not known yet" with the reason) and no
+ * Estimate chip, since nothing has been estimated.
  */
 export function runwayTileProps(f: FinanceOverview): Pick<MetricTileProps, "label" | "value" | "unit" | "estimate" | "caption" | "provenance"> {
   const months = f.runway.months;
@@ -74,7 +75,12 @@ export function runwayTileProps(f: FinanceOverview): Pick<MetricTileProps, "labe
     const words = runwayWords(f) ?? RUNWAY_WORDS.no_bank;
     return { label: "Runway", value: words.value, caption: words.caption, provenance };
   }
-  return { label: "Runway", value: formatNumber(months, { maxDigits: 1 }), unit: "mo", estimate: "estimate", caption: f.runway.blocksContinue ? "Under 3 months: blocks Continue until acknowledged" : "Cash ÷ net burn", provenance };
+  return { label: "Runway", value: formatNumber(months, { maxDigits: 1 }), unit: "mo", estimate: "estimate", caption: f.runway.blocksContinue ? "Under 3 months of cash left: holds Continue until acknowledged" : "Months of cash left at today's spending", provenance };
+}
+
+/** The Net burn tile's caption in words, with the gross figure the net one is cut from (UX plan B9). */
+export function netBurnCaption(f: FinanceOverview, currency: string): string {
+  return `Spent minus earned each month · gross ${formatMoney({ amountMinor: f.burn.grossBurnMinor, currency }, { compact: true })}`;
 }
 
 function CashRunwayWidget({ settings }: WidgetProps<CashRunwaySettings>) {
@@ -92,6 +98,7 @@ function CashRunwayWidget({ settings }: WidgetProps<CashRunwaySettings>) {
   return (
     <WidgetFrame
       title="Cash and runway"
+      help="Runway is how many months your cash lasts at today's spending. Net burn is what the business spends in a month minus what it earns."
       data-widget="cash_runway"
       queries={[finance]}
       flush
@@ -102,15 +109,21 @@ function CashRunwayWidget({ settings }: WidgetProps<CashRunwaySettings>) {
       {f ? (
         <div className="flex h-full min-h-0 flex-col">
           <div className="grid grid-cols-3 gap-px border-b border-subtle bg-subtle">
-            <MetricTile label="Cash" value={{ amountMinor: f.cash.amountMinor, currency: cur }} caption={f.cash.accounts ? `${f.cash.accounts} account${f.cash.accounts === 1 ? "" : "s"}` : "No bank connected"} provenance={{ source: "Bank balances", asOf: f.cash.asOf ?? undefined }} onClick={open} />
-            <MetricTile label="Net burn / month" value={{ amountMinor: f.burn.netBurnMinor, currency: cur }} estimate="estimate" caption={`Gross ${formatMoney({ amountMinor: f.burn.grossBurnMinor, currency: cur }, { compact: true })}`} provenance={{ source: "Operating outflows − inflows", note: f.burn.definition }} onClick={open} />
+            <MetricTile label="Cash" value={{ amountMinor: f.cash.amountMinor, currency: cur }} caption={f.cash.accounts ? `In the bank · ${f.cash.accounts} account${f.cash.accounts === 1 ? "" : "s"}` : "No bank connected"} provenance={{ source: "Bank balances", asOf: f.cash.asOf ?? undefined }} onClick={open} />
+            <MetricTile label="Net burn / month" value={{ amountMinor: f.burn.netBurnMinor, currency: cur }} estimate="estimate" caption={netBurnCaption(f, cur)} provenance={{ source: "Operating outflows − inflows (trailing 3 months)", note: f.burn.definition }} onClick={open} />
             <MetricTile {...runwayTileProps(f)} onClick={open} />
           </div>
           <div className="min-h-0 flex-1 p-panel-pad">
             {series.length > 0 ? (
               <LineChart series={series} label={forecastShown ? "Cash forecast by scenario" : "Monthly net cash flow"} height={140} provenance={forecastShown ? "forecast" : undefined} yFormat={(v) => formatNumber(v, { maxDigits: 0 })} />
             ) : (
-              <p className="text-small text-secondary">{settings.chart === "forecast" ? "No forecast yet. The Finance lead drafts one after the first cycle." : "Monthly cash flow appears after two months of transactions."}</p>
+              <p className="text-small text-secondary">{settings.chart === "forecast" ? (
+                  <>
+                    No forecast yet. The Finance lead drafts one after the first <Term id="cycle">cycle</Term>.
+                  </>
+                ) : (
+                  "Monthly cash flow appears after two months of transactions."
+                )}</p>
             )}
           </div>
         </div>

@@ -94,8 +94,8 @@ export function OnThisDayCard({ summary, forecastPoint, currency, onOpenJourney,
             </div>
           </dl>
           <div className="mt-2 flex flex-col gap-1">
-            <span className="t-data">Agent hours by department · {formatNumber(p?.totalHours ?? 0, { maxDigits: 1 })}</span>
-            {top.length === 0 ? <span className="text-small text-secondary">No agent work recorded</span> : null}
+            <span className="t-data">Hours of team work by department · {formatNumber(p?.totalHours ?? 0, { maxDigits: 1 })}</span>
+            {top.length === 0 ? <span className="text-small text-secondary">No team work recorded</span> : null}
             {top.map((d) => (
               <div key={d.id} className="flex items-center gap-2 text-small">
                 <span aria-hidden className={cn("inline-block size-1.5 shrink-0 rounded-full", DEPT_BG[d.dept])} />

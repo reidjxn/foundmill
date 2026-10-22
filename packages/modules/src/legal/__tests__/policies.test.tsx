@@ -14,9 +14,9 @@ describe("PoliciesScreen", () => {
     const panel = screen.getByRole("region", { name: "Policies" });
     expect(within(panel).getByRole("tab", { name: "Privacy policy" }).getAttribute("aria-selected")).toBe("true");
     expect(within(panel).getByText(/change(s)? proposed/)).toBeTruthy();
-    expect(within(panel).getByText(/1 hunk/)).toBeTruthy();
+    expect(within(panel).getByText("· 1 change")).toBeTruthy();
     expect(within(panel).getByText(/1 pending/)).toBeTruthy();
-    const apply = within(panel).getByRole("button", { name: "Apply accepted hunks" });
+    const apply = within(panel).getByRole("button", { name: "Apply the changes you accepted" });
     expect(apply.hasAttribute("disabled")).toBe(true);
     fireEvent.click(within(panel).getByRole("button", { name: "Accept all" }));
     expect(apply.hasAttribute("disabled")).toBe(false);

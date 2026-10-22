@@ -58,31 +58,84 @@ describe("account_preferences (table)", () => {
     expect([row!.dateFormat, row!.timeFormat]).toEqual(["us", "12h"]);
     await h.db.delete(s.accountPreferences).where(eq(s.accountPreferences.userId, cy));
   });
+
+  it("0064: only the known guidance modes and text sizes are stored; a new row is guided, standard, with nothing seen", async () => {
+    await expect(h.service().execute(sql`insert into account_preferences (user_id, guidance) values (${cy}::uuid, 'quiet')`)).rejects.toThrow(/check constraint/);
+    await expect(h.service().execute(sql`insert into account_preferences (user_id, text_size) values (${cy}::uuid, 'large')`)).rejects.toThrow(/check constraint/);
+    const [row] = await h.asUser(cy).run((tx) => tx.insert(s.accountPreferences).values({ userId: cy }).returning());
+    expect([row!.guidance, row!.textSize, row!.explainersSeen, row!.toursDone, row!.checklistDismissedAt]).toEqual(["on", "standard", {}, {}, null]);
+    await h.db.delete(s.accountPreferences).where(eq(s.accountPreferences.userId, cy));
+  });
 });
+
+/** The defaults everyone reads until they choose. */
+const DEFAULTS = { date: "us", time: "12h", guidance: "on", textSize: "standard", explainersSeen: {}, toursDone: {}, checklistDismissedAt: null };
 
 describe("repos.preferences under RLS", () => {
   it("reads the defaults without writing a row, then upserts only what changed", async () => {
     const dee = await h.createUser("dee@test.local");
-    expect(await h.asUser(dee).run((tx) => preferencesRepo.get(tx, dee))).toEqual({ date: "us", time: "12h" });
+    expect(await h.asUser(dee).run((tx) => preferencesRepo.get(tx, dee))).toEqual(DEFAULTS);
     expect(await h.service().run((tx) => tx.select().from(s.accountPreferences).where(eq(s.accountPreferences.userId, dee)))).toHaveLength(0);
-    expect(await h.asUser(dee).run((tx) => preferencesRepo.update(tx, dee, { time: "24h" }))).toEqual({ date: "us", time: "24h" });
-    expect(await h.asUser(dee).run((tx) => preferencesRepo.update(tx, dee, { date: "iso" }))).toEqual({ date: "iso", time: "24h" });
-    expect(await h.asUser(dee).run((tx) => preferencesRepo.get(tx, dee))).toEqual({ date: "iso", time: "24h" });
+    expect(await h.asUser(dee).run((tx) => preferencesRepo.update(tx, dee, { time: "24h" }))).toEqual({ ...DEFAULTS, time: "24h" });
+    expect(await h.asUser(dee).run((tx) => preferencesRepo.update(tx, dee, { date: "iso" }))).toEqual({ ...DEFAULTS, date: "iso", time: "24h" });
+    expect(await h.asUser(dee).run((tx) => preferencesRepo.get(tx, dee))).toEqual({ ...DEFAULTS, date: "iso", time: "24h" });
   });
 
   it("another account cannot read or change the first one's choice through the repo", async () => {
     // Bo asking for Ada's row sees nothing, so reads the defaults; writing it fails the policy.
-    expect(await h.asUser(bo).run((tx) => preferencesRepo.get(tx, ada))).toEqual({ date: "us", time: "12h" });
+    expect(await h.asUser(bo).run((tx) => preferencesRepo.get(tx, ada))).toEqual(DEFAULTS);
     await expect(h.asUser(bo).run((tx) => preferencesRepo.update(tx, ada, { date: "us", time: "12h" }))).rejects.toThrow(RLS_DENIED);
-    expect(await h.asUser(ada).run((tx) => preferencesRepo.get(tx, ada))).toEqual({ date: "day_first", time: "24h" });
+    expect(await h.asUser(ada).run((tx) => preferencesRepo.get(tx, ada))).toMatchObject({ date: "day_first", time: "24h" });
     // Bo's own change touches Bo only.
-    expect(await h.asUser(bo).run((tx) => preferencesRepo.update(tx, bo, { time: "24h" }))).toEqual({ date: "iso", time: "24h" });
-    expect(await h.asUser(ada).run((tx) => preferencesRepo.get(tx, ada))).toEqual({ date: "day_first", time: "24h" });
+    expect(await h.asUser(bo).run((tx) => preferencesRepo.update(tx, bo, { time: "24h" }))).toMatchObject({ date: "iso", time: "24h" });
+    expect(await h.asUser(ada).run((tx) => preferencesRepo.get(tx, ada))).toMatchObject({ date: "day_first", time: "24h" });
   });
 
   it("refuses an empty change or an unknown format with a validation error", async () => {
     await expect(h.asUser(ada).run((tx) => preferencesRepo.update(tx, ada, {}))).rejects.toThrow(/Invalid preferences/);
     await expect(h.asUser(ada).run((tx) => preferencesRepo.update(tx, ada, { date: "dmy" } as never))).rejects.toThrow(/Invalid preferences/);
     await expect(h.asUser(ada).run((tx) => preferencesRepo.update(tx, ada, { date: "us", extra: 1 } as never))).rejects.toThrow(/Invalid preferences/);
+  });
+});
+
+describe("repos.preferences: the guided layer (0064)", () => {
+  it("the switch and the text size save on their own, with the date format untouched", async () => {
+    const eve = await h.createUser("eve@test.local");
+    expect(await h.asUser(eve).run((tx) => preferencesRepo.update(tx, eve, { guidance: "off" }))).toEqual({ ...DEFAULTS, guidance: "off" });
+    expect(await h.asUser(eve).run((tx) => preferencesRepo.update(tx, eve, { textSize: "comfortable" }))).toEqual({ ...DEFAULTS, guidance: "off", textSize: "comfortable" });
+    expect(await h.asUser(eve).run((tx) => preferencesRepo.update(tx, eve, { guidance: "on", date: "iso" }))).toEqual({ ...DEFAULTS, date: "iso", textSize: "comfortable" });
+  });
+
+  it("marks merge into what was seen; a first mark creates the row with just that mark", async () => {
+    const fay = await h.createUser("fay@test.local");
+    expect(await h.asUser(fay).run((tx) => preferencesRepo.update(tx, fay, { explainersSeen: { home: true } }))).toMatchObject({ explainersSeen: { home: true }, toursDone: {} });
+    expect(await h.asUser(fay).run((tx) => preferencesRepo.update(tx, fay, { explainersSeen: { inbox: true }, toursDone: { home: true } }))).toMatchObject({ explainersSeen: { home: true, inbox: true }, toursDone: { home: true } });
+    // Marking a screen again changes nothing; the other marks stay.
+    expect(await h.asUser(fay).run((tx) => preferencesRepo.update(tx, fay, { explainersSeen: { home: true } }))).toMatchObject({ explainersSeen: { home: true, inbox: true }, toursDone: { home: true } });
+  });
+
+  it("the checklist is dismissed now or shown again, and a reset clears everything that was seen", async () => {
+    const gus = await h.createUser("gus@test.local");
+    const before = Date.now();
+    const dismissed = await h.asUser(gus).run((tx) => preferencesRepo.update(tx, gus, { checklistDismissed: true, toursDone: { inbox: true } }));
+    expect(dismissed.checklistDismissedAt).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+    expect(Date.parse(dismissed.checklistDismissedAt!)).toBeGreaterThanOrEqual(before - 1000);
+    expect(await h.asUser(gus).run((tx) => preferencesRepo.update(tx, gus, { checklistDismissed: false }))).toMatchObject({ checklistDismissedAt: null, toursDone: { inbox: true } });
+    await h.asUser(gus).run((tx) => preferencesRepo.update(tx, gus, { checklistDismissed: true, explainersSeen: { home: true }, textSize: "comfortable" }));
+    // The reset puts the tutoring back to the first day and keeps the choices (the switch, the text size, the dates).
+    expect(await h.asUser(gus).run((tx) => preferencesRepo.update(tx, gus, { reset: true }))).toEqual({ ...DEFAULTS, textSize: "comfortable" });
+    // A reset on an account with no row yet reads as the defaults too.
+    const hal = await h.createUser("hal@test.local");
+    expect(await h.asUser(hal).run((tx) => preferencesRepo.update(tx, hal, { reset: true }))).toEqual(DEFAULTS);
+  });
+
+  it("refuses unknown modes, a mark that is not true, too many marks, and a reset that also marks", async () => {
+    await expect(h.asUser(ada).run((tx) => preferencesRepo.update(tx, ada, { guidance: "quiet" } as never))).rejects.toThrow(/Invalid preferences/);
+    await expect(h.asUser(ada).run((tx) => preferencesRepo.update(tx, ada, { textSize: "large" } as never))).rejects.toThrow(/Invalid preferences/);
+    await expect(h.asUser(ada).run((tx) => preferencesRepo.update(tx, ada, { explainersSeen: { home: false } } as never))).rejects.toThrow(/Invalid preferences/);
+    await expect(h.asUser(ada).run((tx) => preferencesRepo.update(tx, ada, { toursDone: Object.fromEntries(Array.from({ length: 51 }, (_, i) => [`t${i}`, true])) }))).rejects.toThrow(/Invalid preferences/);
+    await expect(h.asUser(ada).run((tx) => preferencesRepo.update(tx, ada, { reset: true, explainersSeen: { home: true } }))).rejects.toThrow(/Invalid preferences/);
+    await expect(h.asUser(ada).run((tx) => preferencesRepo.update(tx, ada, { reset: false } as never))).rejects.toThrow(/Invalid preferences/);
+    expect(await h.asUser(ada).run((tx) => preferencesRepo.get(tx, ada))).toMatchObject({ guidance: "on", textSize: "standard", explainersSeen: {} });
   });
 });

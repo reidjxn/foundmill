@@ -38,6 +38,8 @@ export interface SidebarItem {
   fixed?: "home" | "inbox" | "crm";
   /** A department's stored G-chord letter (departments.shortcut); it wins over the letter its name would give. */
   shortcut?: string | null;
+  /** One short line for the item's tooltip under its label ("Contacts, the CRM": the old name kept for operators). */
+  hint?: string;
   disabled?: boolean;
 }
 
@@ -56,7 +58,8 @@ export interface SidebarBrand {
 export type ContinueState =
   | { kind: "idle" }
   | { kind: "blocked"; count: number }
-  | { kind: "processing"; label?: string }
+  /** `cycle`: the running cycle's number, for "The team is working · cycle 3" (the button's `cycleNumber` prop also carries it). */
+  | { kind: "processing"; label?: string; cycle?: number }
   | { kind: "matchday" }
   | { kind: "holiday"; until: Date | string | null; untilLabel?: string };
 

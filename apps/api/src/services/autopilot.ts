@@ -18,7 +18,7 @@ import { SIGNALS, WORKFLOWS, workflowIds, type TemporalResult } from "./temporal
 export interface AutopilotStatus {
   enabled: boolean;
   state: AutopilotState;
-  /** The chip text: On, Waiting for you, Paused: reason, Off. */
+  /** The chip text: On, Needs your answer, Paused: reason, Off. */
   label: string;
   /** One plain sentence under the chip. */
   detail: string;

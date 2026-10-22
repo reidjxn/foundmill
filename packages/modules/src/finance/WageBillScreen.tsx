@@ -2,21 +2,21 @@
 /**
  * Finance › Payroll (BUILD §11.8): per-agent monthly cost (tokens, sandbox minutes, tool calls, training) against
  * each agent's wage cap, the human payroll line from categorised bank transactions, and output per 100 units of team
- * cost. Every figure is an Estimate: the founder's Anthropic invoice is the only real cost. The team's cost is metered
+ * cost. Every figure is an Estimate: the real cost is the credits used or, with the founder's own key, the Anthropic invoice. The team's cost is metered
  * in US dollars and is never added to staff payroll or compared with a cap in another currency (nothing is converted).
  */
 import { useMemo, useState } from "react";
 import { AlertTriangle, Bot, GraduationCap, UserRound, Users } from "lucide-react";
-import { AgentStatusPill, Chip, DataTable, DeptChip, EntityLink, MiniTable, Panel, StatusPill, StatusStrip, SimpleSelect, currencySymbol, formatCompact, formatNumber, formatPercent, useFormatters, type DataTableColumn, type MetricTileProps, type RowAction, type SavedView } from "@foundmill/dugout";
+import { AgentStatusPill, Chip, DataTable, DeptChip, EntityLink, MiniTable, Panel, StatusPill, StatusStrip, SimpleSelect, Term, currencySymbol, formatCompact, formatNumber, formatPercent, useFormatters, type DataTableColumn, type MetricTileProps, type RowAction, type SavedView } from "@foundmill/dugout";
 import { moduleTabHref, moduleTabLabel, useDepartments } from "@foundmill/widgets/shared/departments";
 import { routes } from "@foundmill/widgets/shared/routes";
 import { useWidgetData, useWidgetQuery } from "@foundmill/widgets/data";
 import { failedWithoutData, unavailableWords } from "@foundmill/widgets/shared/errors";
 import { useSavedViews } from "@foundmill/widgets/shared/saved-views";
 import type { ModuleScreenProps } from "../registry";
-import { capUsedPct, formatMonth, monthKey, monthStart, outputPerHundred, sectionOf, trailingMonths } from "./metrics";
+import { capUsedPct, formatMonth, monthKey, monthStart, outputPerHundred, pnlLabelWords, sectionOf, trailingMonths } from "./metrics";
 import { fitColumns, fitToGrow, type ColumnFit } from "../fit";
-import { Screen, fmtMoney, toDate, useCurrency, useNow } from "./shared";
+import { SIMPLE_VIEW_ID, Screen, fmtMoney, toDate, useCurrency, useDefaultViewId, useNow } from "./shared";
 import type { MembershipRow, PnlResponse, TaskRow, TasksListResponse, TeamAgentRow, WageRow, WagesResponse } from "./types";
 
 export const CAP_WARN_PCT = 80;
@@ -99,6 +99,8 @@ export function wageBillRows(wages: readonly WageRow[], agents: readonly TeamAge
  * wage cap cell already shows the share used, and an agent's model and role are one click away on its profile.
  */
 export const WAGE_VIEWS: SavedView[] = [
+  // Simple (UX plan §7.10): who, what it cost, the cap and what came of it; the table opens on it while guidance is on.
+  { id: SIMPLE_VIEW_ID, name: "Simple", builtIn: true, columns: ["name", "cost", "cap", "tasks"], sort: [{ id: "cost", desc: true }], filters: [] },
   { id: "all", name: "All agents", builtIn: true, columns: ["name", "cost", "cap", "tasks", "output"], sort: [{ id: "cost", desc: true }], filters: [] },
   { id: "usage", name: "Usage detail", builtIn: true, columns: ["name", "tokens", "sandbox", "tools", "training", "cost"], sort: [{ id: "cost", desc: true }], filters: [] },
   { id: "teams", name: "By department", builtIn: true, columns: ["name", "department", "status", "cost"], sort: [{ id: "department", desc: false }], filters: [] },
@@ -125,6 +127,15 @@ export const WAGE_FIT = {
 } satisfies Record<string, ColumnFit>;
 export type WageColumnId = keyof typeof WAGE_FIT;
 
+/**
+ * The team's cost tile: the figure is metered in US dollars (tokens, sandbox minutes, tool calls, training), so where
+ * it is, the tile says so instead of "payroll" in another currency (UX plan §7.14, C21). Any other currency keeps
+ * "Team payroll".
+ */
+export function teamCostLabel(currency: string): string {
+  return currency.toUpperCase() === "USD" ? "AI usage cost (USD)" : "Team payroll";
+}
+
 /** "Tasks per £100": output per 100 units of the business's own currency. */
 export function perHundredLabel(currency: string): string {
   const symbol = currencySymbol(currency);
@@ -137,9 +148,9 @@ export function wageColumns(businessId: string, currency: string, sizes: Record<
     { id: "name", accessorKey: "name", header: "Agent", size: sizes.name, cell: ({ row }) => <EntityLink entity={{ id: row.original.agentId, kind: "agent", name: row.original.name, href: routes.agent(businessId, row.original.agentId) }} />, meta: { locked: true } },
     { id: "role", accessorKey: "role", header: "Role", size: sizes.role, cell: ({ getValue }) => <span className="truncate text-secondary">{String(getValue() ?? "") || "—"}</span> },
     { id: "department", accessorFn: (r) => r.department?.name ?? "", header: "Department", size: sizes.department, cell: ({ row }) => (row.original.department ? <DeptChip dept={row.original.department.colourToken} fit>{row.original.department.name}</DeptChip> : <span className="text-secondary">—</span>), meta: { filter: "text" } },
-    { id: "model", accessorKey: "modelKey", header: "Model", size: sizes.model, cell: ({ getValue }) => (getValue() ? <Chip tone="neutral" mono>{String(getValue())}</Chip> : null), meta: { filter: "select", filterOptions: ["opus", "sonnet", "haiku"].map((m) => ({ value: m, label: m })) } },
+    { id: "model", accessorKey: "modelKey", header: "Model", size: sizes.model, cell: ({ getValue }) => (getValue() ? <Chip tone="neutral" mono>{String(getValue())}</Chip> : null), meta: { filter: "select", filterOptions: ["opus", "sonnet", "haiku"].map((m) => ({ value: m, label: m })), term: "model" } },
     { id: "status", accessorFn: (r) => r.status ?? "", header: "Status", size: sizes.status, cell: ({ row }) => (row.original.status ? <AgentStatusPill status={row.original.status} /> : <span className="text-secondary">Released</span>) },
-    { id: "tokens", accessorKey: "tokens", header: "Tokens", size: sizes.tokens, cell: ({ getValue }) => <span className="tabular-nums">{formatCompact(getValue() as number)}</span>, meta: { numeric: true } },
+    { id: "tokens", accessorKey: "tokens", header: "Tokens", size: sizes.tokens, cell: ({ getValue }) => <span className="tabular-nums">{formatCompact(getValue() as number)}</span>, meta: { numeric: true, term: "tokens" } },
     { id: "sandbox", accessorKey: "sandboxMinutes", header: "Sandbox", size: sizes.sandbox, cell: ({ getValue }) => <span className="tabular-nums">{formatNumber(getValue() as number, { digits: 0 })} min</span>, meta: { numeric: true, label: "Sandbox minutes", csv: (r) => r.sandboxMinutes } },
     { id: "tools", accessorKey: "toolCalls", header: "Tool calls", size: sizes.tools, cell: ({ getValue }) => <span className="tabular-nums">{formatNumber(getValue() as number, { digits: 0 })}</span>, meta: { numeric: true } },
     { id: "training", accessorKey: "trainingMinor", header: "Training", size: sizes.training, cell: ({ getValue }) => <span className="tabular-nums">{fmtMoney(getValue() as number, currency)}</span>, meta: { numeric: true, csv: (r) => (r.trainingMinor / 100).toFixed(2) } },
@@ -172,7 +183,7 @@ export function wageColumns(businessId: string, currency: string, sizes: Record<
           </span>
         );
       },
-      meta: { numeric: true, csv: (r) => (r.capMinor === null ? "" : (r.capMinor / 100).toFixed(2)) },
+      meta: { numeric: true, csv: (r) => (r.capMinor === null ? "" : (r.capMinor / 100).toFixed(2)), term: "wage_cap" },
     },
     { id: "capPct", accessorFn: (r) => r.capUsedPct ?? 0, header: "Cap used", size: sizes.capPct, cell: ({ getValue }) => <span className="tabular-nums">{formatPercent(getValue() as number, { ofHundred: true, digits: 0 })}</span>, meta: { numeric: true } },
     { id: "tasks", accessorKey: "tasksDone", header: "Tasks done", size: sizes.tasks, cell: ({ getValue }) => <span className="tabular-nums">{String(getValue())}</span>, meta: { numeric: true } },
@@ -198,8 +209,9 @@ export function WageBillScreen({ businessId }: ModuleScreenProps) {
     return { from: from.toISOString(), to: monthStart(from, 1).toISOString() };
   }, [period]);
   const pnl = useWidgetQuery<PnlResponse>("finance.pnl", range);
-  // Saved per person, business and table (audit #204): they come back after a reload.
-  const savedViews = useSavedViews("finance.payroll", WAGE_VIEWS, { defaultViewId: "all" });
+  // Saved per person, business and table (audit #204): they come back after a reload. Simple opens first while guidance is on.
+  const defaultViewId = useDefaultViewId("all");
+  const savedViews = useSavedViews("finance.payroll", WAGE_VIEWS, { defaultViewId });
 
   // The team's cost is metered in US dollars (finance.wages `currency`) and wage caps cap that cost (`wageCapCurrency`,
   // US dollars too); staff payroll is in the business's currency.
@@ -220,18 +232,20 @@ export function WageBillScreen({ businessId }: ModuleScreenProps) {
   const wagesFailed = failedWithoutData(wages);
   const pnlFailed = failedWithoutData(pnl);
   const unavailable = (label: string, error: Error | null): MetricTileProps => ({ label, ...unavailableWords(error, "Finance") });
+  const teamLabel = teamCostLabel(teamCurrency);
 
+  // Each tile's plain line while guidance is on (PlainFigure): what the figure is, before where it comes from.
   const known: MetricTileProps[] = [
-    { label: "Team payroll", value: { amountMinor: squadMinor, currency: teamCurrency }, estimate: "estimate", provenance: { source: "Usage ledger: tokens, sandbox minutes, tool calls, training", query: "finance.wages", note: "Metered at list prices; the Anthropic invoice is the only real cost." }, caption: `${rows.filter((r) => r.costMinor > 0).length} agents with usage in ${formatMonth(period, datePrefs)}` },
-    { label: "Human payroll", value: { amountMinor: payrollMinor, currency }, estimate: "estimate", provenance: { source: pnl.data?.label ?? "Management P&L, unaudited, cash basis", query: "finance.pnl categories Payroll, Contractors", note: "Bank outflows categorized as payroll or contractors in the month." }, caption: `${staff.length} staff member${staff.length === 1 ? "" : "s"}` },
+    { label: <Term id="wage">{teamLabel}</Term>, value: { amountMinor: squadMinor, currency: teamCurrency }, estimate: "estimate", plain: "What the agents' work cost this month: their thinking, the computers they work on, the services they use and training.", provenance: { source: "Usage ledger: tokens, sandbox minutes, tool calls, training", query: "finance.wages", note: "Metered at list prices; the real cost is your credits used or, with your own key, your Anthropic invoice." }, caption: `${rows.filter((r) => r.costMinor > 0).length} agents with usage in ${formatMonth(period, datePrefs)}` },
+    { label: "Human payroll", value: { amountMinor: payrollMinor, currency }, estimate: "estimate", plain: "What the business paid its staff and contractors this month.", provenance: { source: pnlLabelWords(pnl.data?.label), query: "finance.pnl categories Payroll, Contractors", note: "Bank outflows categorized as payroll or contractors in the month." }, caption: `${staff.length} staff member${staff.length === 1 ? "" : "s"}` },
     teamCurrency === currency
-      ? { label: "Total payroll", value: { amountMinor: squadMinor + payrollMinor, currency }, estimate: "estimate", provenance: { source: "Team payroll + human payroll", note: "Team and staff together for the month." }, caption: formatMonth(period, datePrefs) }
+      ? { label: "Total payroll", value: { amountMinor: squadMinor + payrollMinor, currency }, estimate: "estimate", plain: "Agents and staff together.", provenance: { source: `${teamLabel} + human payroll`, note: "Team and staff together for the month." }, caption: formatMonth(period, datePrefs) }
       : // Never added across currencies (nothing is converted): both parts, each in its own currency.
-        { label: "Total payroll", value: `${fmtMoney(squadMinor, teamCurrency, { compact: true })} + ${fmtMoney(payrollMinor, currency, { compact: true })}`, estimate: "estimate", provenance: { source: "Team payroll + human payroll", note: "Kept apart: the team is metered in US dollars, staff are paid in the business's currency." }, caption: formatMonth(period, datePrefs) },
-    { label: perHundredLabel(teamCurrency), value: outputPerHundred(tasksDone, squadMinor) ?? "—", format: "decimal", estimate: outputPerHundred(tasksDone, squadMinor) === null ? undefined : "estimate", provenance: { source: "Tasks completed ÷ team payroll", query: "dev.tasks.list status=done", note: `Tasks marked done in the month for every ${perHundredLabel(teamCurrency).replace("Tasks per ", "")} of team cost.` }, caption: `${tasksDone} task${tasksDone === 1 ? "" : "s"} done` },
+        { label: "Total payroll", value: `${fmtMoney(squadMinor, teamCurrency, { compact: true })} + ${fmtMoney(payrollMinor, currency, { compact: true })}`, estimate: "estimate", plain: "Agents and staff, each in its own currency.", provenance: { source: `${teamLabel} + human payroll`, note: "Kept apart: the team's AI usage is metered in US dollars, staff are paid in the business's currency." }, caption: formatMonth(period, datePrefs) },
+    { label: perHundredLabel(teamCurrency), value: outputPerHundred(tasksDone, squadMinor) ?? "—", format: "decimal", estimate: outputPerHundred(tasksDone, squadMinor) === null ? undefined : "estimate", plain: "How many tasks the team finishes for each hundred it costs.", provenance: { source: `Tasks completed ÷ ${teamLabel.toLowerCase()}`, query: "dev.tasks.list status=done", note: `Tasks marked done in the month for every ${perHundredLabel(teamCurrency).replace("Tasks per ", "")} of team cost.` }, caption: `${tasksDone} task${tasksDone === 1 ? "" : "s"} done` },
   ];
   const tiles: MetricTileProps[] = [
-    wagesFailed ? unavailable("Team payroll", wages.error) : known[0]!,
+    wagesFailed ? unavailable(teamLabel, wages.error) : known[0]!,
     pnlFailed ? unavailable("Human payroll", pnl.error) : known[1]!,
     wagesFailed || pnlFailed ? unavailable("Total payroll", wages.error ?? pnl.error) : known[2]!,
     wagesFailed ? unavailable(perHundredLabel(teamCurrency), wages.error) : known[3]!,
@@ -274,10 +288,16 @@ export function WageBillScreen({ businessId }: ModuleScreenProps) {
             <SimpleSelect aria-label="Period" controlSize="sm" value={period} onValueChange={setPeriod} options={periods.map((p) => ({ value: p, label: formatMonth(p, datePrefs) }))} />
           </div>
         }
-        footer={wages.data ? <span className="tabular-nums">{rows.length} agents · {fmtMoney(squadMinor, teamCurrency)} in {formatMonth(period, datePrefs)} · Estimate: metered usage at list prices</span> : undefined}
+        footer={
+          wages.data ? (
+            <span className="tabular-nums">
+              {rows.length} agents · {fmtMoney(squadMinor, teamCurrency)} in {formatMonth(period, datePrefs)} · Estimate: {teamCurrency.toUpperCase() === "USD" ? "AI usage metered in US dollars at list prices" : "metered usage at list prices"}, counted in <Term id="tokens">tokens</Term> · a <Term id="wage_cap">wage cap</Term> is the most an agent may cost in a month
+            </span>
+          ) : undefined
+        }
       >
         <div className="min-w-0">
-          <DataTable<WageBillRow> aria-label="Team payroll" data={rows} columns={columns} getRowId={(r) => r.agentId} {...savedViews} defaultViewId="all" height={480} exportFileName={`wage-bill-${period}`} rowActions={rowActions} onRowOpen={(r) => navigate(routes.agent(businessId, r.agentId))} />
+          <DataTable<WageBillRow> aria-label="Team payroll" data={rows} columns={columns} getRowId={(r) => r.agentId} {...savedViews} defaultViewId={defaultViewId} height={480} exportFileName={`wage-bill-${period}`} rowActions={rowActions} onRowOpen={(r) => navigate(routes.agent(businessId, r.agentId))} />
         </div>
       </Panel>
       <Panel title="Staff" span={4} loading={humans.isLoading || pnl.isLoading} error={humans.error ? humans.error.message : undefined} onRetry={humans.refetch} empty={humans.data && staff.length === 0 ? { icon: UserRound, children: `Invite staff from ${staffTab}; their payroll shows here from bank transactions.` } : undefined} footer={<span>Payroll is the month's bank outflows categorized Payroll or Contractors.</span>}>

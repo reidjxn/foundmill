@@ -30,10 +30,12 @@ test.describe("switch business and Your businesses", () => {
     await watchShellPairs(page);
     const switcher = await openSwitcher(page);
     await expect(switcher.getByRole("option", { name: /Northwind Skincare/ })).toContainText("Current business");
-    await expect(switcher.getByRole("option", { name: /Ledgerly/ })).toBeVisible({ timeout: LONG });
+    // By id: the foundations spec takes charge of throwaways named "Ledgerly <suffix>", which the founder owns too.
+    const ledgerly = switcher.locator(`[data-business-id="${LEDGERLY_BUSINESS_ID}"]`);
+    await expect(ledgerly).toBeVisible({ timeout: LONG });
     for (const action of ["Create a new business", "Manage businesses", "Home", "Your profile"]) await expect(switcher.getByRole("option", { name: new RegExp(`^${action}$`) })).toBeVisible();
 
-    await switcher.getByRole("option", { name: /Ledgerly/ }).click();
+    await ledgerly.click();
     await page.waitForURL(new RegExp(`/b/${LEDGERLY_BUSINESS_ID}/home$`), { timeout: LONG });
     await expect(page.getByTestId("kitbar-business-name")).toHaveText("Ledgerly", { timeout: LONG });
     await expect(page.getByTestId("app-shell")).toHaveAttribute("data-business-id", LEDGERLY_BUSINESS_ID);
@@ -81,8 +83,10 @@ test.describe("switch business and Your businesses", () => {
     await expect(northwind.getByRole("link", { name: "Settings of Northwind Skincare" })).toHaveAttribute("href", `/b/${NORTHWIND_BUSINESS_ID}/settings/business`);
     await expect(page.locator(`[data-business-row="${LEDGERLY_BUSINESS_ID}"]`)).toContainText("Scale plan");
     await expect(page.getByTestId("businesses-create")).toHaveAttribute("href", "/new");
+    // The owner belongs to both demos for real: nothing is listed under "Example" (example-business.spec.ts covers an example viewer).
+    await expect(page.getByTestId("example-businesses")).toHaveCount(0);
 
-    await page.getByRole("link", { name: "Open Ledgerly" }).click();
+    await page.getByRole("link", { name: "Open Ledgerly", exact: true }).click();
     await page.waitForURL(new RegExp(`/b/${LEDGERLY_BUSINESS_ID}/home$`), { timeout: LONG });
     await expect(page.getByTestId("kitbar-business-name")).toHaveText("Ledgerly", { timeout: LONG });
   });

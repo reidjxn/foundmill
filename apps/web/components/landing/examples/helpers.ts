@@ -103,6 +103,7 @@ export function exampleChapters(today: string, titles: readonly (string | null)[
     if (startsOn > horizon) break;
     const endsOn = `${year}-${pad(quarter * 3)}-${pad(new Date(Date.UTC(year, quarter * 3, 0)).getUTCDate())}`;
     const status: ExampleChapter["status"] = endsOn < today ? "past" : startsOn > today ? "future" : "current";
+    // plain-allow: "chapter" is defined where the title shows (Journey.tsx's <Term id="chapter">).
     chapters.push({ id: `${year}-Q${quarter}`, index, year, quarter, startsOn, endsOn, status, title: status === "past" ? (titles[index] ?? null) : null, provisionalTitle: `Chapter ${index + 1}` });
     if (quarter === 4) [year, quarter] = [year + 1, 1];
     else quarter += 1;

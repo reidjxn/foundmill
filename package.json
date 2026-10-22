@@ -23,6 +23,7 @@
     "format": "prettier --write .",
     "banned-terms": "node scripts/banned-terms.mjs",
     "us-english": "node scripts/us-english.mjs",
+    "plain-language": "node scripts/plain-language.mjs",
     "focus-visible": "node scripts/focus-visible.mjs"
   },
   "devDependencies": {

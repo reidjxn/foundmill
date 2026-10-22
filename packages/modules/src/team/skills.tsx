@@ -105,7 +105,7 @@ export function SkillLibraryDialog({ open, onOpenChange, unavailable, remaining 
       <DialogContent size="lg" aria-describedby={`${id}-desc`} data-testid="skill-library-dialog">
         <DialogHeader>
           <DialogTitle>{agentName ? `Add skills to ${agentName}` : "Add skills from the library"}</DialogTitle>
-          <DialogDescription id={`${id}-desc`}>Each skill gives the agent how-to instructions for a kind of work and shows on its attributes, untested until a training run scores it. Skills never change its tools, autonomy or spend caps.</DialogDescription>
+          <DialogDescription id={`${id}-desc`}>Each skill gives the agent how-to instructions for a kind of work and shows on its attributes, untested until a training run scores it. Skills never change its tools, how much it may do without asking you, or its spend caps.</DialogDescription>
         </DialogHeader>
         <DialogBody className="flex max-h-[60vh] flex-col overflow-y-auto">
           {library.isLoading && !library.data ? <p className="text-small text-secondary">Loading the library…</p> : null}
@@ -241,7 +241,7 @@ export function SkillsStep({ value, onChange, disabled }: SkillsStepProps) {
   return (
     <fieldset className="flex flex-col gap-2" data-testid="hire-skills-step">
       <legend className="t-label mb-1">Skills (optional)</legend>
-      <p className="text-small text-secondary">Add how-to skills from the library or a skill file. They show on the agent's attributes, untested until a training run scores them, and never change its tools, autonomy or spend caps.</p>
+      <p className="text-small text-secondary">Add how-to skills from the library or a skill file. They show on the agent's attributes, untested until a training run scores them, and never change its tools, how much it may do without asking you, or its spend caps.</p>
       <div className="flex flex-wrap gap-2">
         <Button size="sm" icon={BookOpen} disabled={disabled || remaining <= 0} onClick={() => setLibrary(true)} data-testid="hire-add-library-skill">
           Add from library

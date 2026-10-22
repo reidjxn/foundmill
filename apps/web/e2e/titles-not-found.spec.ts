@@ -17,7 +17,7 @@ test.describe("titles and misses inside a business", () => {
     for (const [path, title] of [
       ["home", /^Home · Northwind Skincare · /],
       ["inbox", /^Inbox · Northwind Skincare · /],
-      ["crm", /^CRM · Northwind Skincare · /],
+      ["crm", /^Contacts · Northwind Skincare · /],
       ["settings/members", /^Members · Settings · Northwind Skincare · /],
       ["settings/danger", /^Danger zone · Settings · Northwind Skincare · /],
       ["d/finance/overview", /^Overview · Finance · Northwind Skincare · /],

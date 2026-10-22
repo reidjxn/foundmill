@@ -14,7 +14,11 @@ function asUser<T>(ctx: { db: Db; userId: string; email?: string | null }, fn: (
 }
 
 export const founderBusinessesRouter = router({
-  /** Every business the person belongs to that is not archived, A to Z (the switcher puts the current one first). */
+  /**
+   * Every business the person belongs to that is not archived, A to Z (the switcher puts the current one first). A
+   * row's `isExample` marks an example membership (0065, "Explore an example"): Your businesses lists those under
+   * their own heading, and nothing counts them as a business of the founder's own.
+   */
   list: protectedProcedure.query(async ({ ctx }) => {
     const rows = await asUser(ctx, (tx) => repos.businesses.listSummariesForUser(tx, ctx.userId));
     // While LIVE is closed on this deployment a stored "live" reads as Personal everywhere (as business.get does).

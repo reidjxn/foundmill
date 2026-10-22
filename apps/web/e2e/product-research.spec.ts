@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import { LONG, UUID, commitThrowaway, openBusiness } from "./helpers";
+import { LONG, UUID, chooseTableView, commitThrowaway, openBusiness } from "./helpers";
 
 /**
  * The Product Researcher (BUILD §11.5 Research tab; the founder's 2026-10-18 request): the seeded Northwind reads its
@@ -11,8 +11,9 @@ async function openProductTab(page: Page, tab: string, bid?: string): Promise<vo
   if (bid) await page.goto(`/b/${bid}/home`);
   else await openBusiness(page);
   await expect(page.getByTestId("app-shell")).toBeVisible({ timeout: LONG });
-  const product = page.locator("[data-testid=app-shell] nav a[href*='/d/']").filter({ hasText: /product/i }).first();
-  await expect(product, "the seed gives every business a Product department").toBeVisible({ timeout: LONG });
+  // By slug, not label: departments are labels over modules (a services business calls Product "Service design").
+  const product = page.locator("[data-testid=app-shell] nav a[href*='/d/product/']").first();
+  await expect(product, "every archetype gives the business a department with the product slug").toBeVisible({ timeout: LONG });
   const href = (await product.getAttribute("href"))!;
   await page.goto(href.replace(/\/d\/([^/]+)\/.*$/, `/d/$1/${tab}`));
   await expect(page.getByTestId("module-screen")).toHaveAttribute("data-module", `product/${tab}`, { timeout: LONG });
@@ -25,6 +26,8 @@ test.describe("product research", () => {
     await expect(panel).toBeVisible({ timeout: LONG });
     await expect(panel).toHaveAttribute("data-research-state", "ready", { timeout: LONG });
     await expect(panel).toContainText("Testing the specification with");
+    // Guidance on (the product default): the plan's intro sits in the panel's body (UX plan §7.11).
+    await expect(panel.locator("[data-explainer='product/research']")).toContainText("Who we will talk to and what we will ask, before building more.");
     const cards = panel.getByRole("list", { name: "Research artifacts" }).getByRole("listitem");
     expect(await cards.count()).toBeGreaterThanOrEqual(3);
     // The plan sits above the sources' panels.
@@ -70,6 +73,9 @@ test.describe("product research", () => {
     // department keeps the archetype's slug; its agents tab keeps the slug `squad`).
     await page.goto(`/b/${bid}/d/team/squad`);
     await expect(page.getByTestId("module-screen")).toHaveAttribute("data-module", "team/squad", { timeout: LONG });
+    // The tab opens on Simple while guidance is on (Agent, Status, Current task, Rating; UX plan §7.10), which has no
+    // Role column; General carries it.
+    await chooseTableView(page, "General");
     await expect(page.getByRole("row").filter({ hasText: "Product research analyst" }).first()).toBeVisible({ timeout: LONG });
     expect(page.url()).toMatch(new RegExp(`/b/${UUID}/d/team/squad`));
   });

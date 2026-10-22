@@ -15,7 +15,7 @@ export function createNotionConnector(options: LiveConnectorOptions = {}): Conne
   const { secrets, fetch, now } = resolveLiveOptions(options);
   const http = (token: string): HttpClient => createHttp({ connectorKey: NOTION_KEY, baseUrl: NOTION_BASE_URL, fetch, headers: { authorization: `Bearer ${token}`, "notion-version": NOTION_VERSION } });
   const forCtx = (ctx: ToolContext): HttpClient => {
-    if (!ctx.credential?.secret) throw new ConfigError(NOTION_KEY, "Notion OAuth token", "connect Notion in Settings → Integrations");
+    if (!ctx.credential?.secret) throw new ConfigError(NOTION_KEY, "Notion access token", "connect Notion in Settings → Integrations");
     return http(ctx.credential.secret);
   };
 

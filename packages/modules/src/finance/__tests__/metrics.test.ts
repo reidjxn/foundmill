@@ -2,6 +2,9 @@ import { describe, expect, it } from "vitest";
 import { NON_OPERATING_CATEGORY_KEYS } from "@foundmill/shared/constants";
 import {
   CHART_OF_ACCOUNTS,
+  METRIC_DEFINITIONS,
+  PNL_CASH_BASIS_LABEL,
+  PNL_CASH_BASIS_WORDS,
   acquisitionCost,
   aktiebokRows,
   buildPnl,
@@ -10,6 +13,7 @@ import {
   delawareLedgerRows,
   driversHint,
   entryCurrency,
+  financeSummarySentence,
   forecastStartMonth,
   formatMonth,
   holderKindWord,
@@ -18,10 +22,13 @@ import {
   monthlySeries,
   outputPerHundred,
   paybackMonths,
+  pnlLabelWords,
   pnlTotals,
   projectForecast,
   readDrivers,
   readSeries,
+  runwayPhrase,
+  sentenceMoney,
   runwayTone,
   runwayWarnings,
   runwayWord,
@@ -183,6 +190,57 @@ describe("overview metrics (AC-11.8.1)", () => {
   it("measures output per hundred units of cost", () => {
     expect(outputPerHundred(3, 42_000)).toBe(0.71);
     expect(outputPerHundred(3, 0)).toBeNull();
+  });
+});
+
+describe("plain words on the Overview (UX plan §7.14, C6)", () => {
+  const base = { cashMinor: 7_200_000, accounts: 2, netBurnMinor: 900_000, runwayMonths: 8, currency: "GBP" };
+
+  it("composes the one sentence above the tiles from cash, net burn and runway", () => {
+    expect(financeSummarySentence(base)).toBe("You have £72K in the bank and spend £9K more than you earn each month, so cash lasts about 8 months (Estimate).");
+    expect(financeSummarySentence({ ...base, runwayMonths: 7.5 })).toContain("about 8 months");
+    expect(financeSummarySentence({ ...base, runwayMonths: 1.2 })).toContain("about 1 month (Estimate)");
+    expect(financeSummarySentence({ ...base, runwayMonths: 0.4 })).toContain("so cash lasts under a month (Estimate)");
+  });
+
+  it("has a sentence for every state: cash-flow positive, break-even, runway not measured yet, no bank", () => {
+    expect(financeSummarySentence({ ...base, netBurnMinor: -300_000, runwayMonths: null })).toBe("You have £72K in the bank and earn £3K more than you spend each month, so cash is growing (Estimate).");
+    expect(financeSummarySentence({ ...base, netBurnMinor: 0, runwayMonths: null })).toBe("You have £72K in the bank and spend about what you earn each month, so cash holds steady (Estimate).");
+    expect(financeSummarySentence({ ...base, runwayMonths: null })).toBe("You have £72K in the bank and spend £9K more than you earn each month; how long it lasts is not known yet (Estimate).");
+    expect(financeSummarySentence({ ...base, accounts: 0 })).toBe("No bank is connected yet, so how much cash you have and how long it lasts are not known.");
+    expect(financeSummarySentence({ ...base, accounts: 0 })).not.toContain("Estimate");
+  });
+
+  it("phrases runway in months and money as a sentence says it", () => {
+    expect(runwayPhrase(8)).toBe("about 8 months");
+    expect(runwayPhrase(1)).toBe("about 1 month");
+    expect(runwayPhrase(0.9)).toBe("under a month");
+    expect(sentenceMoney(7_231_800, "GBP")).toBe("£72K");
+    expect(sentenceMoney(-900_000, "GBP")).toBe("£9K");
+    expect(sentenceMoney(150_000_000, "EUR")).toBe("€1.5M");
+    expect(sentenceMoney(95_000, "USD")).toBe("$950");
+  });
+
+  it("spells every abbreviation out on first use and defines each tile in plain words before its formula", () => {
+    expect(METRIC_DEFINITIONS.mrr.label).toBe("Monthly recurring revenue (MRR)");
+    expect(METRIC_DEFINITIONS.arr.label).toBe("Annual recurring revenue (ARR)");
+    expect(METRIC_DEFINITIONS.grossBurn.label).toBe("Gross burn (spending per month)");
+    expect(METRIC_DEFINITIONS.netBurn.label).toBe("Net burn (spending beyond income)");
+    expect(METRIC_DEFINITIONS.payback.label).toBe("Payback (months to earn back a customer's cost)");
+    expect(METRIC_DEFINITIONS.acquisitionCost.label).toBe("Cost to win a customer");
+    for (const { definition } of Object.values(METRIC_DEFINITIONS)) {
+      const [plain, formula] = definition.split(";");
+      expect(plain!.length, definition).toBeGreaterThan(20);
+      expect(formula, definition).toBeTruthy();
+      expect(plain, definition).not.toMatch(/÷|×/);
+    }
+  });
+
+  it("reads the P&L source label in plain words and passes a ledger's own label through", () => {
+    expect(pnlLabelWords(PNL_CASH_BASIS_LABEL)).toBe(PNL_CASH_BASIS_WORDS);
+    expect(pnlLabelWords("Management view, unaudited, cash basis: counted when the cash moves")).toBe("Management view, unaudited, cash basis: counted when the cash moves");
+    expect(pnlLabelWords(undefined)).toBe(PNL_CASH_BASIS_WORDS);
+    expect(pnlLabelWords("Xero ledger, accrual basis")).toBe("Xero ledger, accrual basis");
   });
 });
 

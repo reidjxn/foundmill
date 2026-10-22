@@ -132,7 +132,7 @@ export function PoliciesScreen({ businessId }: ModuleScreenProps) {
             ))}
           </div>
         }
-        footer={<span>Generated from {flows.length} connected integration{flows.length === 1 ? "" : "s"}, the legal entity and the archetype on {formatDate(now)}. The published text is the "{POLICIES_SECTION}" section of the product spec; publishing or accepting hunks writes that block as you.</span>}
+        footer={<span>Generated from {flows.length} connected integration{flows.length === 1 ? "" : "s"}, the legal entity and the archetype on {formatDate(now)}. The published text is the "{POLICIES_SECTION}" section of the product spec; publishing or accepting changes writes that section as you.</span>}
       >
         {generated ? (
           current ? (
@@ -149,7 +149,7 @@ export function PoliciesScreen({ businessId }: ModuleScreenProps) {
                       Accept all
                     </Button>
                     <Button size="sm" variant="primary" icon={RefreshCw} loading={action.pending === active} disabled={!diff || diff.summary.accepted + diff.summary.edited === 0} onClick={() => void applyAccepted()}>
-                      Apply accepted hunks
+                      Apply the changes you accepted
                     </Button>
                   </>
                 ) : null}
@@ -167,7 +167,7 @@ export function PoliciesScreen({ businessId }: ModuleScreenProps) {
                 <Chip tone="warn" icon={FileText} className="whitespace-nowrap">
                   Not yet in the spec
                 </Chip>
-                <span className="t-small text-secondary">This preview is the generated text. Publishing adds it to the "{POLICIES_SECTION}" section of the product spec as you; later changes come back here as hunks to accept.</span>
+                <span className="t-small text-secondary">This preview is the generated text. Publishing adds it to the "{POLICIES_SECTION}" section of the product spec as you; later changes come back here for you to accept.</span>
                 <Button size="sm" variant="primary" icon={Send} loading={action.pending === `publish-${active}`} onClick={() => void publishFirst()}>
                   Publish to the spec
                 </Button>
@@ -202,7 +202,7 @@ export function PoliciesScreen({ businessId }: ModuleScreenProps) {
         />
       </Panel>
 
-      <Panel title="Open change proposals" span={12} loading={proposals.isLoading} error={proposals.error ? proposals.error.message : undefined} onRetry={proposals.refetch} empty={!proposals.isLoading && policyProposals.length === 0 ? `When an integration or data flow changes, the Source Watcher raises a change proposal for the policies; it appears here and in ${changesTab}.` : undefined} actions={<Button size="sm" variant="ghost" icon={FileDiff} onClick={() => navigate(changesHref)}>{changesTab}</Button>}>
+      <Panel title="Open change proposals" help="A change proposal is an edit an agent suggests to a policy, with its reasons; nothing changes until you accept it." span={12} loading={proposals.isLoading} error={proposals.error ? proposals.error.message : undefined} onRetry={proposals.refetch} empty={!proposals.isLoading && policyProposals.length === 0 ? `When an integration or data flow changes, the Source Watcher raises a change proposal for the policies; it appears here and in ${changesTab}.` : undefined} actions={<Button size="sm" variant="ghost" icon={FileDiff} onClick={() => navigate(changesHref)}>{changesTab}</Button>}>
         <ul aria-label="Policy proposals" className="flex flex-col gap-1">
           {policyProposals.map((p) => (
             <li key={p.id} className="flex items-center gap-2">

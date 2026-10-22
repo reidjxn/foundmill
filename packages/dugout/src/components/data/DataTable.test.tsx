@@ -5,6 +5,7 @@ import { useState } from "react";
 import { Mail, Trash2 } from "lucide-react";
 import { Chip } from "../foundation/Chip";
 import { Dialog, DialogContent, DialogTitle } from "../foundation/Dialog";
+import { GuidanceProvider } from "../guidance/GuidanceProvider";
 import { DataTable, cellTitle, type DataTableColumn } from "./DataTable";
 import { generateLeads, LEAD_STAGE_LABELS, LEAD_VIEWS, type LeadRow } from "./fixtures";
 import type { SavedView } from "./types";
@@ -73,6 +74,44 @@ describe("DataTable", () => {
     await user.click(screen.getByRole("button", { name: "Name" }));
     await user.keyboard("{/Shift}");
     expect(screen.getByText(/Sorted by Score, Name/)).toBeTruthy();
+  });
+
+  it("a defined column head (meta.term) is a Term beside the sort control, never inside it; guidance off restores the plain head", async () => {
+    const user = userEvent.setup();
+    const termed: DataTableColumn<LeadRow>[] = columns.map((c) =>
+      "accessorKey" in c && c.accessorKey === "score" ? { ...c, meta: { ...c.meta, term: "fit" } } : "accessorKey" in c && c.accessorKey === "owner" ? { ...c, enableSorting: false, meta: { ...c.meta, term: "line_manager" } } : c,
+    );
+    const terms = {
+      fit: { id: "fit", word: "Fit", short: "How well a channel suits this business, out of 20." },
+      line_manager: { id: "line_manager", word: "Line manager", short: "Who this agent reports to." },
+    };
+    const { rerender } = render(
+      <GuidanceProvider value={{ guidance: "on", terms }}>
+        <DataTable data={leads} columns={termed} />
+      </GuidanceProvider>,
+    );
+    const head = screen.getByRole("columnheader", { name: /Score/ });
+    const term = head.querySelector("button[data-term='fit']")!;
+    expect(term.textContent).toBe("Score");
+    // No button nests another; the arrow is its own control and sorts.
+    expect(head.querySelector("button button")).toBeNull();
+    const sort = within(head).getByRole("button", { name: "Sort by Score" });
+    expect(sort.contains(term)).toBe(false);
+    await user.click(sort);
+    expect(head.getAttribute("aria-sort")).toBe("descending");
+    // A click on the word opens its definition, not a sort.
+    await user.click(term);
+    expect((await screen.findByText("How well a channel suits this business, out of 20.")).closest("[data-definition-card]")).toBeTruthy();
+    expect(head.getAttribute("aria-sort")).toBe("descending");
+    // A head that does not sort is the Term alone.
+    expect(screen.getByRole("columnheader", { name: /Owner/ }).querySelector("button[data-term='line_manager']")).toBeTruthy();
+    rerender(
+      <GuidanceProvider value={{ guidance: "off", terms }}>
+        <DataTable data={leads} columns={termed} />
+      </GuidanceProvider>,
+    );
+    expect(screen.getByRole("columnheader", { name: /Score/ }).querySelector("[data-term]")).toBeNull();
+    expect(screen.getByRole("button", { name: "Score" })).toBeTruthy();
   });
 
   it("navigates with the keyboard: arrows move focus, Space selects, Shift extends, ⌘A selects all, Enter opens", async () => {
@@ -147,7 +186,7 @@ describe("DataTable", () => {
     expect(bodyRows()).toHaveLength(hot.length);
     expect(screen.queryByRole("columnheader", { name: /Owner/ })).toBeNull();
     expect(
-      screen.getByRole("button", { name: /Edit filter: Stage is any of Qualified, Proposal/ }),
+      screen.getByRole("button", { name: /Edit filter: Stage is any of Qualified, Quote sent/ }),
     ).toBeTruthy();
     const scores = bodyRows().map((r) =>
       Number(within(r).getAllByRole("gridcell")[3]?.textContent),
@@ -169,6 +208,11 @@ describe("DataTable", () => {
     await user.click(await screen.findByRole("menuitemradio", { name: /All leads/ }));
     expect(bodyRows()).toHaveLength(40);
     expect(screen.getByRole("columnheader", { name: /Owner/ })).toBeTruthy();
+  });
+
+  it("puts the department tour's anchor on the saved-view switcher", () => {
+    render(<DataTable data={leads} columns={columns} views={LEAD_VIEWS} activeViewId="hot" />);
+    expect(screen.getByRole("button", { name: /^View: / }).getAttribute("data-coachmark")).toBe("table-views");
   });
 
   it("applies the open view again when its definition arrives changed (a stored copy loading after the default)", () => {
@@ -238,6 +282,62 @@ describe("DataTable", () => {
     const item = await screen.findByRole("menuitem", { name: `Message ${leads[1]?.name}` });
     await user.click(item);
     expect(onMessage).toHaveBeenCalledWith(leads[1]);
+  });
+
+  it("ends every row in a visible 24 px … button that opens the same menu as a right-click (D6)", async () => {
+    const user = userEvent.setup();
+    const onMessage = vi.fn();
+    const onRowClick = vi.fn();
+    const onRowOpen = vi.fn();
+    const onExportCsv = vi.fn();
+    render(
+      <DataTable
+        data={leads.slice(0, 3)}
+        columns={columns.slice(0, 3)}
+        aria-label="Leads"
+        onRowClick={onRowClick}
+        onRowOpen={onRowOpen}
+        onExportCsv={onExportCsv}
+        rowActions={(row) => [{ id: "msg", label: `Message ${row.name}`, icon: Mail, onSelect: onMessage }]}
+      />,
+    );
+    // One per row, named for the row, always in the DOM (never only on hover).
+    const buttons = screen.getAllByRole("button", { name: /^Actions for / });
+    expect(buttons).toHaveLength(3);
+    const second = screen.getByRole("button", { name: `Actions for ${leads[1]?.name}` });
+    // The 24 px target token (`size-target`) replaces the small button's own 28 px width and height.
+    expect(second.className).toContain("size-target");
+    expect(second.className).not.toMatch(/\b[wh]-control-sm\b/);
+    expect(second.style.width).toBe("");
+    // Its column: a named header, fixed width, at the end; the spare width still goes to the last data column.
+    expect(screen.getByRole("columnheader", { name: "Actions" }).style.flexShrink).toBe("0");
+    expect(screen.getByRole("columnheader", { name: /Stage/ }).style.flex).toBe("1 0 160px");
+    const headers = screen.getAllByRole("columnheader");
+    expect(headers[headers.length - 1]?.textContent).toBe("Actions");
+    await user.click(second);
+    await user.click(await screen.findByRole("menuitem", { name: `Message ${leads[1]?.name}` }));
+    expect(onMessage).toHaveBeenCalledWith(leads[1]);
+    // The button is not a row click or a row open.
+    expect(onRowClick).not.toHaveBeenCalled();
+    await user.dblClick(screen.getByRole("button", { name: `Actions for ${leads[0]?.name}` }));
+    expect(onRowOpen).not.toHaveBeenCalled();
+    // Not a data column: not in the chooser, not in the CSV.
+    await user.keyboard("{Escape}");
+    await user.click(screen.getByRole("button", { name: "Choose columns" }));
+    expect(screen.queryByRole("menuitemcheckbox", { name: "Actions" })).toBeNull();
+    await user.keyboard("{Escape}");
+    await user.click(screen.getByRole("button", { name: "Table menu" }));
+    await user.click(await screen.findByRole("menuitem", { name: /Export CSV/ }));
+    expect((onExportCsv.mock.calls[0] as [string])[0].split("\r\n")[0]).toBe("Name,Company,Stage");
+  });
+
+  it("names the … button with the caller's row label, and has none without row actions", () => {
+    const { unmount } = render(<DataTable data={leads.slice(0, 2)} columns={columns} rowLabel={(r) => `${r.name} at ${r.company}`} rowActions={() => []} />);
+    expect(screen.getByRole("button", { name: `Actions for ${leads[0]?.name} at ${leads[0]?.company}` })).toBeTruthy();
+    unmount();
+    render(<DataTable data={leads.slice(0, 2)} columns={columns} />);
+    expect(screen.queryByRole("button", { name: /^Actions for / })).toBeNull();
+    expect(screen.queryByRole("columnheader", { name: "Actions" })).toBeNull();
   });
 
   it("opens the focused row's menu from the keyboard: Shift+F10, the Menu key, or a contextmenu at the grid", async () => {

@@ -17,7 +17,7 @@ export const ENGINEERING_BLUEPRINTS: BlueprintSet = {
     ),
     bp(
       "Version a breaking change at {business}",
-      "{business}'s public webhook payload for {integration} must add a required field and rename another. Propose how to ship it without breaking existing consumers: versioning approach, deprecation window, docs, tests.",
+      "The payload of the public {integration} event notifications {business} sends must add a required field and rename another. Propose how to ship it without breaking existing consumers: versioning approach, deprecation window, docs, tests.",
       [
         "Proposes additive change or explicit versioning with a deprecation window.",
         "Covers tests for both versions and documentation.",
@@ -26,7 +26,7 @@ export const ENGINEERING_BLUEPRINTS: BlueprintSet = {
     ),
     bp(
       "Idempotent endpoint for {business}",
-      "{business} receives duplicate '{integration} order created' webhooks. Design the handler so retries are safe: idempotency key, storage, response codes, what happens on a replay with changed payload.",
+      "{business} receives duplicate '{integration} order created' event notifications. Design the handler so retries are safe: idempotency key, storage, response codes, what happens on a replay with changed payload.",
       [
         "Uses a stored idempotency key scoped by business and source id.",
         "Defines responses for duplicate and conflicting replays.",
@@ -38,9 +38,9 @@ export const ENGINEERING_BLUEPRINTS: BlueprintSet = {
   data_modelling: [
     bp(
       "Model a business-scoped table for {business}",
-      "Model the table for {business}'s {customer} interactions (email, meeting, call, note) with tenancy: columns, constraints, indexes for 'latest per entity' and 'search by date range', the RLS policy, and the cross-tenant test outline.",
+      "Model the table for {business}'s {customer} interactions (email, meeting, call, note) with tenancy: columns, constraints, indexes for 'latest per entity' and 'search by date range', the row-level security policy, and the cross-tenant test outline.",
       [
-        "business_id not null, RLS policy and cross-tenant test are present.",
+        "business_id not null, row-level security policy and cross-tenant test are present.",
         "Indexes match the named access patterns.",
         "Constraints encode the enum and referential integrity.",
       ],
@@ -346,7 +346,7 @@ export const ENGINEERING_BLUEPRINTS: BlueprintSet = {
   data_pipelines: [
     bp(
       "Idempotent ingestion for {business}",
-      "Design the pipeline that turns {integration} webhook events for {business} into journey touches: dedupe by source id, handle late events, reprocess safely, and record what was skipped. Provide the test cases.",
+      "Design the pipeline that turns {integration} event notifications for {business} into journey touches: dedupe by source id, handle late events, reprocess safely, and record what was skipped. Provide the test cases.",
       [
         "Dedupe and late-event handling are explicit; reprocessing is safe.",
         "Skipped events are recorded with reasons.",
@@ -407,8 +407,8 @@ export const ENGINEERING_BLUEPRINTS: BlueprintSet = {
   ],
   sql_analytics: [
     bp(
-      "Named query for {business}",
-      "Write the read-only named query for {business}: weekly signups by acquisition channel for the last 12 weeks, business-scoped, with the definition text for hover. Explain how non-SELECT is rejected.",
+      "Saved query for {business}",
+      "Write the read-only saved query for {business}: weekly signups by acquisition channel for the last 12 weeks, business-scoped, with the definition text for hover. Explain how non-SELECT is rejected.",
       [
         "Correct grouping and date bucketing; business_id filter present.",
         "Definition text is accurate; non-SELECT rejection explained.",
@@ -470,7 +470,7 @@ export const ENGINEERING_BLUEPRINTS: BlueprintSet = {
   ci_cd: [
     bp(
       "Pipeline for {business}",
-      "Define {business}'s CI pipeline: typecheck, lint, unit, RLS suite, Playwright on mock mode, with caching and a 10-minute budget. Provide the config and say what blocks a merge.",
+      "Define {business}'s CI pipeline: typecheck, lint, unit, row-level security suite, Playwright on mock mode, with caching and a 10-minute budget. Provide the config and say what blocks a merge.",
       [
         "All stages present with sensible caching and parallelism.",
         "Merge-blocking conditions are explicit.",
@@ -540,7 +540,7 @@ export const ENGINEERING_BLUEPRINTS: BlueprintSet = {
       { fixtures: { diff: "fixtures/diffs/secret_leaks.diff" } },
     ),
     bp(
-      "BYOK handling for {business}",
+      "Founder API key handling for {business}",
       "Explain how {business} stores a founder's Anthropic key: encryption, who decrypts, where it must never appear, rotation and revoke behavior. Point out two common mistakes.",
       [
         "Envelope encryption, gateway/orchestrator-only decryption, never in logs/sandboxes/bundles.",
@@ -580,7 +580,7 @@ export const ENGINEERING_BLUEPRINTS: BlueprintSet = {
     ),
     bp(
       "Risk-based test plan for {business}",
-      "{business} ships a change to payment webhooks and a copy change on the About page in one release. Allocate testing effort, list the tests for each, and justify the imbalance.",
+      "{business} ships a change to the payment event handler and a copy change on the About page in one release. Allocate testing effort, list the tests for each, and justify the imbalance.",
       [
         "Effort weighted to the payment path with specific tests.",
         "About page gets a minimal check.",
@@ -591,7 +591,7 @@ export const ENGINEERING_BLUEPRINTS: BlueprintSet = {
   exploratory_testing: [
     bp(
       "Charter a session for {business}",
-      "Write a 45-minute exploratory charter for {business}'s inbox: areas, heuristics (boundaries, interruptions, concurrency), what you log, and the defect template. Then report the three most likely defects from the fixture notes.",
+      "Write a 45-minute exploratory charter for {business}'s inbox: areas, heuristics (boundaries, interruptions, two things happening at once), what you log, and the defect template. Then report the three most likely defects from the fixture notes.",
       [
         "Charter is focused with named heuristics.",
         "Defect template includes severity, steps, evidence.",
@@ -713,7 +713,7 @@ export const ENGINEERING_BLUEPRINTS: BlueprintSet = {
   example_quality: [
     bp(
       "Runnable example for {business}",
-      "Write the example for calling {business}'s {integration} webhook receiver locally: command, sample payload, expected response, how to verify the event was written. Run it in the sandbox and include the output.",
+      "Write the example for calling {business}'s {integration} event receiver locally: command, sample payload, expected response, how to verify the event was written. Run it in the sandbox and include the output.",
       [
         "Example runs and the output is included.",
         "No secrets or internal hostnames.",
@@ -894,7 +894,7 @@ export const ENGINEERING_BLUEPRINTS: BlueprintSet = {
       "The fixture diff for {business} adds a function that calls a payout API from a scheduled job. Review it and explain the block with the rule it breaks and the compliant alternative.",
       [
         "Blocks with the hard-gate rule cited.",
-        "Proposes request_human_action flow as the alternative.",
+        "Proposes handing the step to the founder as the alternative.",
         "Finding cites file and line.",
       ],
       { fixtures: { diff: "fixtures/diffs/review_payout.diff" }, checks: [CHECK.policy()] },
@@ -921,7 +921,7 @@ export const ENGINEERING_BLUEPRINTS: BlueprintSet = {
     ),
     bp(
       "Extra checks for risky diffs at {business}",
-      "List the additional checks you run for a {business} diff touching RLS policies: cross-tenant tests, policy simulation, migration order, rollback. Explain each in one line.",
+      "List the additional checks you run for a {business} diff touching row-level security policies: cross-tenant tests, policy simulation, migration order, rollback. Explain each in one line.",
       [
         "All relevant checks listed with one-line reasons.",
         "Cross-tenant test is mandatory.",
@@ -942,10 +942,10 @@ export const ENGINEERING_BLUEPRINTS: BlueprintSet = {
     ),
     bp(
       "Return a semantic conflict at {business}",
-      "The fixture rebase for {business} conflicts in a function both branches changed logically. Explain why you do not resolve it, and write the message to the author with the hunks.",
+      "The fixture rebase for {business} conflicts in a function both branches changed logically. Explain why you do not resolve it, and write the message to the author with the conflicting changes.",
       [
         "Recognizes the semantic conflict and declines to guess.",
-        "Message includes hunks and a clear ask.",
+        "Message includes the conflicting changes and a clear ask.",
         "Branch left in a safe state.",
       ],
       { fixtures: REPO("rebase-semantic"), mockTools: TOOLS.sandbox },

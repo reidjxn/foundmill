@@ -82,7 +82,7 @@ export function pmExcerpt(doc: PmDoc | null | undefined, max = 140): string {
 }
 
 /** The first heading's text, else the first line, else the fallback. */
-export function pmTitle(doc: PmDoc | null | undefined, fallback = "Untitled block"): string {
+export function pmTitle(doc: PmDoc | null | undefined, fallback = "Untitled paragraph"): string {
   if (!isNode(doc)) return fallback;
   const nodes = doc.type === "doc" ? (doc.content ?? []) : [doc];
   const heading = nodes.find((n) => n.type === "heading");

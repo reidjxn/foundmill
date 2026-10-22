@@ -1,7 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { GuidanceProvider } from "../../guidance/GuidanceProvider";
 import { conceptFixtures } from "../fixtures";
+import { CONCEPT_ATTRIBUTE_HINTS, CONCEPT_ATTRIBUTE_KEYS, CONCEPT_ATTRIBUTE_LABELS } from "../types";
 import { AttributeBar } from "./AttributeBar";
 import { ConceptCard, conceptOverall } from "./ConceptCard";
 import { compareLeaders, ConceptCompare } from "./ConceptCompare";
@@ -28,6 +30,46 @@ describe("AttributeBar", () => {
     const { container: c2 } = render(<AttributeBar label="y" value={4} ghost={9} />);
     expect(c2.querySelectorAll(".border-rating-2").length).toBe(5);
   });
+  it("explains the attribute and its direction on the label, reachable by keyboard, with or without evidence (A6)", async () => {
+    const user = userEvent.setup();
+    render(<AttributeBar label="Competition" value={12} hint="How crowded the market is. Higher means less crowded." />);
+    // No evidence attached: the label is still a focusable trigger for the definition.
+    const label = screen.getByRole("button", { name: "Competition" });
+    expect(label.hasAttribute("title")).toBe(false);
+    await user.tab();
+    expect(document.activeElement).toBe(label);
+    expect((await screen.findAllByText("How crowded the market is. Higher means less crowded.")).length).toBeGreaterThan(0);
+  });
+  it("keeps the label's Term outside the meter and outside the evidence trigger (one focusable control each)", async () => {
+    const user = userEvent.setup();
+    render(<AttributeBar label="Competition" value={12} hint="How crowded the market is. Higher means less crowded." evidence={[{ text: "Six direct rivals", source: "G2" }]} />);
+    const meter = screen.getByRole("meter", { name: "Competition" });
+    const label = screen.getByRole("button", { name: "Competition" });
+    // Meter children are presentational: the Term must be a sibling, not a descendant.
+    expect(meter.contains(label)).toBe(false);
+    expect(meter.querySelector("button, a, [tabindex]")).toBeNull();
+    // The meter itself opens the evidence; it is the only evidence trigger and it does not wrap the Term.
+    const trigger = document.querySelector("[data-evidence-trigger]");
+    expect(trigger).toBe(meter);
+    expect(meter.getAttribute("tabindex")).toBe("0");
+    await user.tab();
+    expect(document.activeElement).toBe(label);
+    await user.tab();
+    expect(document.activeElement).toBe(meter);
+    await user.hover(meter);
+    expect(await screen.findByText("Six direct rivals")).toBeTruthy();
+  });
+  it("leaves the meter out of the tab order when no evidence is attached", () => {
+    render(<AttributeBar label="Competition" value={12} hint="How crowded the market is. Higher means less crowded." />);
+    const meter = screen.getByRole("meter", { name: "Competition" });
+    expect(meter.hasAttribute("tabindex")).toBe(false);
+    expect(meter.contains(screen.getByRole("button", { name: "Competition" }))).toBe(false);
+  });
+  it("keeps a plain label when nothing defines the attribute", () => {
+    render(<AttributeBar label="Timing" value={12} />);
+    expect(screen.queryByRole("button")).toBeNull();
+    expect(screen.getByTitle("Timing")).toBeTruthy();
+  });
 });
 
 describe("ConceptCard", () => {
@@ -40,7 +82,7 @@ describe("ConceptCard", () => {
     // The name steps down, then wraps to two lines before it is ever cut.
     expect(document.querySelector("h3 [data-fit-box]")?.getAttribute("data-lines")).toBe("2");
     expect(screen.getByRole("img", { name: `${c.name} logo` })).toBeTruthy();
-    expect(screen.getByRole("img", { name: /Current ability: 3 of 5, potential 4.5/ })).toBeTruthy();
+    expect(screen.getByRole("img", { name: /Current ability: 3 of 5, could reach 4.5/ })).toBeTruthy();
     expect(screen.getAllByRole("meter").length).toBe(10);
     expect(conceptOverall(c)).toBe(12);
     // Shortlist, "More like this" (fork) and Ask are on the card; Merge and Discard are in the More menu.
@@ -55,6 +97,31 @@ describe("ConceptCard", () => {
       await user.click(await screen.findByRole("menuitem", { name: action === "merge" ? "Merge with another" : "Discard" }));
       expect(onAction).toHaveBeenLastCalledWith(action, c.id);
     }
+  });
+  it("defines every attribute label with its direction and says 'Version n' in words", () => {
+    render(<ConceptCard concept={{ ...concepts[0]!, version: 3 }} />);
+    const labels = document.querySelectorAll("[data-attribute-hint]");
+    expect(labels).toHaveLength(10);
+    for (const key of CONCEPT_ATTRIBUTE_KEYS) expect(screen.getByRole("button", { name: CONCEPT_ATTRIBUTE_LABELS[key] })).toBeTruthy();
+    expect(CONCEPT_ATTRIBUTE_HINTS.competition).toMatch(/Higher means less crowded/);
+    for (const key of CONCEPT_ATTRIBUTE_KEYS) expect(CONCEPT_ATTRIBUTE_HINTS[key]).toMatch(/Higher means/);
+    expect(screen.getByText("Version 3")).toBeTruthy();
+    expect(screen.queryByText("v3")).toBeNull();
+  });
+  it("each attribute label is a dotted Term with its attr_ id, kept with guidance off (the direction is information)", async () => {
+    const user = userEvent.setup();
+    render(
+      <GuidanceProvider value={{ guidance: "off" }}>
+        <ConceptCard concept={concepts[0]!} />
+      </GuidanceProvider>,
+    );
+    for (const key of CONCEPT_ATTRIBUTE_KEYS) {
+      const trigger = document.querySelector(`[data-attribute-hint] [data-term='attr_${key}']`);
+      expect(trigger, key).toBeTruthy();
+      expect(trigger!.className).toContain("term-link");
+    }
+    await user.click(screen.getByRole("button", { name: CONCEPT_ATTRIBUTE_LABELS.competition }));
+    expect((await screen.findByText(CONCEPT_ATTRIBUTE_HINTS.competition)).closest("[data-definition-card]")).toBeTruthy();
   });
   it("shows the shortlisted state and the compare toggle", async () => {
     const user = userEvent.setup();
@@ -90,6 +157,9 @@ describe("ConceptCompare", () => {
       expect(container.querySelectorAll("[data-compare-row]").length).toBe(10);
       expect(container.querySelectorAll("[data-compare-row='market_pull'] [data-leader]").length).toBe(1);
       expect(container.querySelectorAll("[data-radar-series]").length).toBe(n);
+      // The row header defines the attribute too (one focusable label per row).
+      expect(container.querySelectorAll("[role='rowheader'] [data-attribute-hint]").length).toBe(10);
+      expect(container.querySelectorAll("[role='rowheader'] [data-term^='attr_']").length).toBe(10);
       unmount();
     }
     const leaders = compareLeaders(concepts.slice(0, 2));

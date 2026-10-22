@@ -10,7 +10,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft, Route, UserRound } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Button, Chip, EmptyState, JourneyStage, Panel, ProvenanceChip, formatMoney, type ReplaySpeed } from "@foundmill/dugout";
+import { Button, Chip, EmptyState, JourneyStage, Panel, ProvenanceChip, Term, formatMoney, useGuided, type ReplaySpeed } from "@foundmill/dugout";
 import { routes } from "@foundmill/widgets/shared/routes";
 import { errorMessage, trpcErrorCode, trpcPathPrefix } from "@/lib/trpc";
 import { useTRPC } from "@/lib/trpc-react";
@@ -25,11 +25,15 @@ export interface JourneyScreenProps {
   journeyId: string;
 }
 
+/** The one line at the top of a Customer Update while guidance is on (UX plan §7.18). */
+export const JOURNEY_LEDE = "How this customer was won, step by step.";
+
 export function JourneyScreen({ journeyId }: JourneyScreenProps) {
   const { businessId, data, departments } = useBusiness();
   const trpc = useTRPC();
   const queryClient = useQueryClient();
   const router = useRouter();
+  const guided = useGuided();
   const userId = data.membership.userId;
 
   // Back and the breadcrumb return to where the replay was opened from (`?from=`), the Inbox otherwise.
@@ -76,7 +80,6 @@ export function JourneyScreen({ journeyId }: JourneyScreenProps) {
   const agents = useMemo(() => (journey ? stageAgentMeta(journey.agents, departments) : []), [journey, departments]);
   const entityKinds = useMemo(() => (row && journey ? entityKindsFor(row, journey.agents) : {}), [row, journey]);
 
-  const title = customer ? `Customer Update · ${customer.name}` : "Customer Update";
   useShellChrome({ title: "Customer Update", breadcrumbs: [{ label: origin.label, href: origin.href }, { label: customer?.name ?? "Replay" }] }, [origin.label, origin.href, customer?.name]);
 
   const openEntity = useCallback((id: string) => router.push(id === entityId || !/^[0-9a-f-]{36}$/i.test(id) ? routes.crm(businessId, entityId ?? id) : departments.some((d) => d.squad.some((a) => a.id === id)) ? routes.agent(businessId, id) : routes.crm(businessId, id)), [router, businessId, entityId, departments]);
@@ -103,7 +106,16 @@ export function JourneyScreen({ journeyId }: JourneyScreenProps) {
         <Button size="sm" variant="ghost" icon={ArrowLeft} onClick={back} data-testid="journey-back" data-back-href={origin.href}>
           {origin.label}
         </Button>
-        <span className="t-title text-primary">{title}</span>
+        <span className="t-title text-primary">
+          <Term id="customer_update">Customer Update</Term>
+          {customer ? ` · ${customer.name}` : ""}
+        </span>
+        {/* The line a first-timer reads before the replay (UX plan §7.18); operators have the stage itself. */}
+        {guided ? (
+          <span className="text-small text-secondary" data-testid="journey-lede">
+            {JOURNEY_LEDE}
+          </span>
+        ) : null}
         {journey.partialJourney ? <Chip tone="neutral">Consented touches only</Chip> : null}
         {journey.stats.acquisitionCostMinor !== null ? (
           <span className="inline-flex items-center gap-1.5 text-small text-secondary" data-testid="acquisition-cost">

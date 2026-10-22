@@ -23,6 +23,8 @@ test.describe("development code tab", () => {
 
     await expect(page.getByText("No saved code yet")).toBeVisible({ timeout: LONG });
     await expect(page.getByText(/the files it wrote are saved here/)).toBeVisible();
+    // The footer defines "session" and "branch" where a founder first meets them (guidance on, the product default).
+    await expect(page.getByTestId("module-screen").locator("[data-term='branch']").first()).toBeVisible();
     await page.getByRole("button", { name: "Go to Plan" }).click();
     await page.waitForURL(/\/d\/[^/]+\/plan/, { timeout: LONG });
   });

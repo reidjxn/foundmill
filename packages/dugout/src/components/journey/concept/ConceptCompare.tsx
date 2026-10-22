@@ -5,8 +5,8 @@ import { BusinessLogo } from "../../foundation/BusinessLogo";
 import { EmptyState } from "../../foundation/EmptyState";
 import { Icon } from "../../foundation/Icon";
 import { StarRating } from "../../foundation/StarRating";
-import { CONCEPT_ATTRIBUTE_KEYS, CONCEPT_ATTRIBUTE_LABELS, type Concept, type ConceptAttributeKey } from "../types";
-import { AttributeBar } from "./AttributeBar";
+import { CONCEPT_ATTRIBUTE_AXIS_LABELS, CONCEPT_ATTRIBUTE_HINTS, CONCEPT_ATTRIBUTE_KEYS, CONCEPT_ATTRIBUTE_LABELS, type Concept, type ConceptAttributeKey } from "../types";
+import { AttributeBar, AttributeLabel } from "./AttributeBar";
 import { conceptOverall } from "./ConceptCard";
 import { RadarChart } from "./RadarChart";
 
@@ -78,7 +78,7 @@ export function ConceptCompare({ concepts, radarSize = 320, className }: Concept
           {CONCEPT_ATTRIBUTE_KEYS.map((key) => (
             <li key={key} className="grid items-center gap-x-4 px-panel-pad py-1.5" style={{ gridTemplateColumns: cols }} role="row" data-compare-row={key}>
               <span className="text-body text-primary" role="rowheader">
-                {CONCEPT_ATTRIBUTE_LABELS[key]}
+                <AttributeLabel label={CONCEPT_ATTRIBUTE_LABELS[key]} hint={CONCEPT_ATTRIBUTE_HINTS[key]} attributeKey={key} textClassName="text-body text-primary" />
               </span>
               {shown.map((c, i) => {
                 const leader = leaders[key] === i;
@@ -94,7 +94,7 @@ export function ConceptCompare({ concepts, radarSize = 320, className }: Concept
       </div>
       <div className="grid grid-cols-[auto_1fr] gap-gutter">
         <div className="surface-panel p-panel-pad">
-          <RadarChart label="Attribute radar" size={radarSize} axes={CONCEPT_ATTRIBUTE_KEYS.map((k) => ({ key: k, label: CONCEPT_ATTRIBUTE_LABELS[k].replace("Speed to first customer", "Speed").replace("Agent-executability", "Agents").replace("Distribution clarity", "Distribution").replace("Regulatory load", "Regulatory").replace("Capital intensity", "Capital") }))} series={shown.map((c, i) => ({ id: c.id, label: c.name, tone: COMPARE_TONES[i] as DeptColourToken, values: CONCEPT_ATTRIBUTE_KEYS.map((k) => attributeValue(c, k)) }))} />
+          <RadarChart label="Attribute radar" size={radarSize} axes={CONCEPT_ATTRIBUTE_KEYS.map((k) => ({ key: k, label: CONCEPT_ATTRIBUTE_AXIS_LABELS[k] }))} series={shown.map((c, i) => ({ id: c.id, label: c.name, tone: COMPARE_TONES[i] as DeptColourToken, values: CONCEPT_ATTRIBUTE_KEYS.map((k) => attributeValue(c, k)) }))} />
         </div>
         <section className="surface-panel flex flex-col overflow-hidden" aria-label="Agent verdict">
           <header className="flex h-panel-header items-center gap-2 border-b border-subtle bg-panel-alt px-panel-pad">

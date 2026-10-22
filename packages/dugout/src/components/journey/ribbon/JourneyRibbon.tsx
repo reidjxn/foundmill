@@ -11,6 +11,7 @@ import { FitText } from "../../foundation/FitText";
 import { Icon } from "../../foundation/Icon";
 import { SegmentedControl } from "../../foundation/SegmentedControl";
 import { Figure } from "../../data/Figure";
+import { Term } from "../../guidance/Term";
 import type { Chapter, Conversion, DayKey, ForecastPoint, JourneyDailyRow, Kit, Milestone, RibbonDepartment, RibbonEvent, RoadmapFlag, ZoomLevel } from "../types";
 import { ZOOM_LEVELS } from "../types";
 import {
@@ -116,7 +117,7 @@ const TRACK_FILL: Record<TrackKind, { fill: string; opacity: number }> = {
   payments: { fill: "var(--gold)", opacity: 1 },
   hours: { fill: "var(--text-secondary)", opacity: 0.28 },
 };
-const TRACK_LABEL: Record<TrackKind, string> = { signups: "New signups", payments: "Paying customers", hours: "Agent hours" };
+const TRACK_LABEL: Record<TrackKind, string> = { signups: "New signups", payments: "Paying customers", hours: "Hours of team work" };
 const GLYPH_ICON: Record<MilestoneGlyphKind, typeof Trophy> = { trophy: Trophy, flag: Flag, diamond: Diamond, banner: Landmark };
 const GLYPH_COLOUR: Record<MilestoneGlyphKind, string> = { trophy: "var(--gold)", flag: "var(--text-2)", diamond: "var(--accent)", banner: "var(--text-2)" };
 /** Axis tick labels: mono 11 px, about 6.7 px a character (for keeping them inside the plot and apart). */
@@ -148,7 +149,7 @@ function barLabel(kind: TrackKind, bar: TrackBar, f: DateFormatters): string {
     const what = bar.value === 1 ? "1 paying customer" : `${formatNumber(bar.value, { digits: 0 })} paying customers`;
     return bar.value === 1 && bar.ids.length === 1 ? `${what} on ${when}. Opens the Customer Update` : `${what}, ${when}. Opens the day`;
   }
-  return `${formatNumber(bar.value, { maxDigits: 1 })} ${kind === "signups" ? "signups" : "agent hours"}, ${when}`;
+  return `${formatNumber(bar.value, { maxDigits: 1 })} ${kind === "signups" ? "signups" : "hours of team work"}, ${when}`;
 }
 
 /* ---------- Surface (fixed width) ---------- */
@@ -506,7 +507,7 @@ const RibbonSurface = forwardRef<JourneyRibbonHandle, SurfaceProps>(function Rib
     return { hours, signups, activations, payments };
   }, [index]);
   const recent = useMemo(() => windowTotals(index, today), [index, today]);
-  const summaryText = `${label ?? "Journey ribbon"}: ${f.formatDate(geometry.kickoff)} to ${f.formatDate(geometry.horizon)}. Revenue per day, new signups, paying customers and agent hours over time. ${departments.length} departments, ${formatNumber(totals.hours, { digits: 0 })} agent hours, ${totals.signups} signups, ${totals.activations} activations, ${totals.payments} payments, ${geometry.milestones.length} milestones. Zoom ${ZOOM_LABELS[zoom]}. Arrow keys move through the days, Shift with an arrow scrolls, plus and minus zoom, Home returns to today, Enter opens the day.`;
+  const summaryText = `${label ?? "Journey ribbon"}: ${f.formatDate(geometry.kickoff)} to ${f.formatDate(geometry.horizon)}. Revenue per day, new signups, paying customers and hours of team work over time. ${departments.length} departments, ${formatNumber(totals.hours, { digits: 0 })} hours of team work, ${totals.signups} signups, ${totals.activations} activations, ${totals.payments} payments, ${geometry.milestones.length} milestones. Zoom ${ZOOM_LABELS[zoom]}. Arrow keys move through the days, Shift with an arrow scrolls, plus and minus zoom, Home returns to today, Enter opens the day.`;
 
   const todayVisible = geometry.todayX >= vis0 && geometry.todayX <= vis1;
   const todayPoint = index.byDay.get(today);
@@ -613,13 +614,30 @@ const RibbonSurface = forwardRef<JourneyRibbonHandle, SurfaceProps>(function Rib
               <svg width={16} height={10} aria-hidden>
                 <line x1={1} x2={15} y1={5} y2={5} stroke={REVENUE} strokeWidth={1.5} strokeDasharray="3 3" />
               </svg>
-              Forecast
+              {/* A projection, not a measurement: defined on hover and focus even with guidance off (UX plan §7.8). */}
+              <Term id="forecast" always>
+                Forecast
+              </Term>
             </li>
           ) : null}
           <li className="flex items-center gap-1.5 whitespace-nowrap">
             <Icon icon={Trophy} size={13} className="text-gold" />
             Milestones
           </li>
+          {geometry.runway ? (
+            <li className="flex items-center gap-1.5 whitespace-nowrap" data-legend-runway>
+              <svg width={16} height={10} aria-hidden>
+                <line x1={8} x2={8} y1={0} y2={10} stroke={RUNWAY_COLOUR[geometry.runway.tone]} strokeWidth={1.5} strokeDasharray="3 2" />
+              </svg>
+              {/* Worked out, not measured: defined even with guidance off, like Forecast (UX plan §7.8). */}
+              <span>
+                Cash runs out ·{" "}
+                <Term id="estimate" always>
+                  Estimate
+                </Term>
+              </span>
+            </li>
+          ) : null}
           {geometry.roadmap.length > 0 ? (
             <li className="flex items-center gap-1.5 whitespace-nowrap">
               <Icon icon={Flag} size={13} className="text-tertiary" />
@@ -839,7 +857,7 @@ const RibbonSurface = forwardRef<JourneyRibbonHandle, SurfaceProps>(function Rib
             ) : null}
             {/* Forecast label at the end of the dashed line */}
             {geometry.forecast && geometry.todayX < scrollX + plotW - 120 ? (
-              <text x={Math.min(geometry.forecast.x1, scrollX + plotW) - 12} y={Math.max(layout.revenueTop + 12, geometry.revenue.y(forecastFromToday?.[forecastFromToday.length - 1]?.upsideMinor ?? 0) - 10)} textAnchor="end" className="t-data" fill="var(--text-3)" fontSize={10.5} letterSpacing="0.09em">
+              <text x={Math.min(geometry.forecast.x1, scrollX + plotW) - 12} y={Math.max(layout.revenueTop + 12, geometry.revenue.y(forecastFromToday?.[forecastFromToday.length - 1]?.upsideMinor ?? 0) - 10)} textAnchor="end" className="t-data" fill="var(--text-3)" fontSize={11} letterSpacing="0.09em">
                 FORECAST
               </text>
             ) : null}
@@ -939,7 +957,7 @@ const RibbonSurface = forwardRef<JourneyRibbonHandle, SurfaceProps>(function Rib
       </span>
       {/* The keyboard's day, read out as it moves (the label column shows the same figures). */}
       <span className="sr-only" aria-live="polite" data-ribbon-day-readout>
-        {keyDay && hoverX === null ? `${readout.when}: ${readout.revenue} ${readout.revenueCaption}${readout.revenueDay ? `, ${readout.revenueDay}` : ""}; ${readout.signups} new signups, ${readout.payments} paying customers, ${readout.hours} agent hours.` : ""}
+        {keyDay && hoverX === null ? `${readout.when}: ${readout.revenue} ${readout.revenueCaption}${readout.revenueDay ? `, ${readout.revenueDay}` : ""}; ${readout.signups} new signups, ${readout.payments} paying customers, ${readout.hours} hours of team work.` : ""}
       </span>
       {reduced && liveCount > 0 ? (
         <span className="absolute bottom-2 left-2 inline-flex items-center gap-1 rounded-xs bg-surface-2 px-1.5 t-label text-primary" data-live-count>
@@ -955,7 +973,7 @@ const RibbonSurface = forwardRef<JourneyRibbonHandle, SurfaceProps>(function Rib
 /**
  * The Journey Ribbon (BUILD §11.2, DESIGN §8): the business's story on one time axis, as labelled rows. Revenue per
  * day (7-day average) with a money scale, the forecast after Today and the runway estimate; milestones as labelled
- * pins; bars for new signups, paying customers and agent hours; quarters as chapters along the top. The labels on the
+ * pins; bars for new signups, paying customers and hours of team work; quarters as chapters along the top. The labels on the
  * left show the last 7 days, or the hovered day. Zoom Week / Month / Quarter / All time; wheel and drag scroll; click
  * opens a day; a single payment opens its Customer Update. Reduced motion renders the same picture with no animation
  * (AC-11.2.6).

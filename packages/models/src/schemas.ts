@@ -28,6 +28,12 @@ export const ComposerOption = z.object({
   consequence: z.string(),
   cost_minor: z.number().int().nonnegative(),
   reversible: z.boolean(),
+  /**
+   * One sentence on why this option is recommended ("Recommended because it is free and reversible."; UX plan §7.19,
+   * voice guide §8.1 rule 4). The live prompt requires it on the recommended option; optional in the schema so notes
+   * stored before it existed still validate. The DecisionBar shows it under the consequence.
+   */
+  because: z.string().optional(),
 });
 export type ComposerOption = z.infer<typeof ComposerOption>;
 
@@ -59,6 +65,7 @@ export const ComposerOutput = z
     path: ["decision", "options"],
   })
   .refine((v) => v.exhibit.kind === "none" || v.exhibit.spec_ref !== null, {
+    // plain-allow: model-facing (a validation message the Composer reads on its retry; founders never see it)
     message: "an exhibit other than 'none' must reference a named query",
     path: ["exhibit", "spec_ref"],
   });

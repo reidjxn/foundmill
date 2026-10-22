@@ -187,7 +187,7 @@ export function generateJourneyFixture(opts: { days?: number; today?: string; se
   const horizon = addDays(todayDate, 183);
   let cursor = startOfQuarter(kickoffDate);
   let index = 0;
-  const titles = ["Finding the formula", "First customers", "The bundle chapter", "Scaling the lab", "Retail on the horizon", "Steady state", "Second summer", "Northern expansion", "Fall push"];
+  const titles = ["Finding the formula", "First customers", "Bundles take off", "Scaling the lab", "Retail on the horizon", "Steady state", "Second summer", "Northern expansion", "Fall push"];
   while (cursor <= horizon) {
     const start = cursor;
     const end = endOfQuarter(cursor);
@@ -202,6 +202,8 @@ export function generateJourneyFixture(opts: { days?: number; today?: string; se
       endsOn: day(end),
       status,
       title: status === "past" ? (titles[index] ?? null) : null,
+      // The landing page's example chapters (apps/web landing/examples/helpers.ts) are numbered the same way; its test
+      // requires the two to match. plain-allow: "chapter" is defined where the ribbon shows it (<Term id="chapter">).
       provisionalTitle: `Chapter ${index + 1}`,
     });
     cursor = addDays(end, 1);
@@ -382,7 +384,7 @@ const CONCEPT_SPECS: Array<{ name: string; pitch: string; kit: Kit; values: numb
     values: [9, 8, 12, 17, 18, 16, 13, 6, 16, 12],
     current: 2.5,
     potential: 3,
-    verdict: "Fast to revenue and cheap to run; little defensibility beyond taste.",
+    verdict: "Fast to revenue and cheap to run; little to stop others copying it beyond taste.",
   },
 ];
 
@@ -394,7 +396,7 @@ export function conceptFixtures(): Concept[] {
       value: s.values[k] ?? 10,
       evidence: [
         { text: rng.pick(["Three comparable products priced €38–€64 per month.", "Search volume up 22% year on year in the Nordics.", "Two funded competitors; neither ships weekly.", "Founder has eight years in the category.", "Regulated under EU cosmetics rules; no pre-approval."]), source: rng.pick(["Research agent", "Statista", "Crunchbase", "Founder profile"]) },
-        { text: rng.pick(["Pricing comparables cluster around an annual plan.", "First-customer path is a warm intro, then a pilot.", "Agents can run 70% of the weekly work in a sandbox."]), source: "Research agent" },
+        { text: rng.pick(["Pricing comparables cluster around an annual plan.", "First-customer path is a warm intro, then a pilot.", "Agents can run 70% of the weekly work on their own."]), source: "Research agent" },
       ],
     }));
     return { id: `concept-${i + 1}`, name: s.name, pitch: s.pitch, kit: s.kit, currentStars: s.current, potentialStars: s.potential, attributes, verdict: s.verdict, citations: 2 + rng.int(0, 4), archetypeLabel: ["DTC physical product", "B2B SaaS", "Marketplace", "Content / media"][i], version: 1 };
@@ -424,7 +426,7 @@ export function departmentCardFixtures(): DepartmentCardData[] {
         ["Quill", "Content", "sonnet", "idle", null],
       ]),
       now: ["Lifecycle sent 240 welcome emails; 38 opened", "Scout is drafting the wholesale sheet for [[ent:0f7c2d1e-4b1a-4c8e-9a3b-2d5f6e7a8b9c|Nordic Beauty AB]]", "Beacon paused the retinol campaign pending approval"],
-      metric: { label: "Blended cost per customer", value: "€41.20", series: series(52, -0.8), delta: "▼ 9.4%", deltaTone: "good", provenance: "estimate" },
+      metric: { label: "Cost to win a customer", value: "€41.20", series: series(52, -0.8), delta: "▼ 9.4%", deltaTone: "good", provenance: "estimate" },
       nextUp: "Retail listing proposal for Nordic Beauty (Thu)",
     },
     {
@@ -442,7 +444,7 @@ export function departmentCardFixtures(): DepartmentCardData[] {
         ["Mortar", "Infra", "sonnet", "idle", null],
       ]),
       now: ["Pixel merged the bundle picker; 14 tests green", "Forge is blocked on the subscriptions table change", "Probe found a flaky checkout test and quarantined it"],
-      metric: { label: "Tasks merged this week", value: "11", series: series(8, 0.3), delta: "▲ 3", deltaTone: "good" },
+      metric: { label: "Tasks finished this week", value: "11", series: series(8, 0.3), delta: "▲ 3", deltaTone: "good" },
       nextUp: "Subscription plans release (needs your approval)",
     },
     {
@@ -453,12 +455,13 @@ export function departmentCardFixtures(): DepartmentCardData[] {
       health: "bad",
       healthWord: "Failing",
       squad: squad("dept-4", [
+        // plain-allow: "Ledger" here is the Finance lead's name, not the word.
         ["Ledger", "Finance lead", "opus", "failing", "Bank sync failed 3× (Tink consent expired)"],
         ["Tally", "Bookkeeping", "haiku", "injured", "Loop detected; stopped"],
       ]),
       now: ["Bank sync has failed three times since 6:10 AM", "Tink consent expired; a reconnect is waiting in your Inbox"],
-      metric: { label: "Runway", value: "7.5 mo", series: series(9, -0.12), delta: "▼ 0.4 mo", deltaTone: "bad", provenance: "estimate" },
-      nextUp: "Reconnect the bank (2 min) so the P&L closes",
+      metric: { label: "Months of cash left", value: "7.5 mo", series: series(9, -0.12), delta: "▼ 0.4 mo", deltaTone: "bad", provenance: "estimate" },
+      nextUp: "Reconnect the bank (2 min) so the month's books close",
     },
     {
       id: "d-product",
@@ -502,9 +505,9 @@ export function trophyFixtures(): TrophyCard[] {
     { key: "customer_10", label: "10th customer", description: "Ten paying customers.", achievedAt: "2025-01-08T09:41:00.000Z", customerName: null, shareable: true },
     { key: "customer_100", label: "100th customer", description: "One hundred paying customers.", achievedAt: "2025-09-22T16:20:00.000Z", customerName: null, shareable: true },
     { key: "customer_1000", label: "1,000th customer", description: "One thousand paying customers.", achievedAt: null },
-    { key: "mrr_1k", label: "€1K MRR", description: "Monthly recurring revenue crosses €1,000.", achievedAt: "2025-02-14T11:00:00.000Z", shareable: true },
-    { key: "mrr_10k", label: "€10K MRR", description: "Monthly recurring revenue crosses €10,000.", achievedAt: "2026-03-03T08:15:00.000Z", shareable: true },
-    { key: "mrr_100k", label: "€100K MRR", description: "Monthly recurring revenue crosses €100,000.", achievedAt: null },
+    { key: "mrr_1k", label: "€1K MRR", description: "MRR: monthly recurring revenue reaches €1,000.", achievedAt: "2025-02-14T11:00:00.000Z", shareable: true },
+    { key: "mrr_10k", label: "€10K MRR", description: "MRR: monthly recurring revenue reaches €10,000.", achievedAt: "2026-03-03T08:15:00.000Z", shareable: true },
+    { key: "mrr_100k", label: "€100K MRR", description: "MRR: monthly recurring revenue reaches €100,000.", achievedAt: null },
     { key: "first_enterprise_contract", label: "First enterprise contract", description: "A contract above the enterprise threshold.", achievedAt: "2026-10-01T15:30:00.000Z", customerName: "Nordic Beauty AB", amountMinor: 186000, currency: "EUR", shareable: true },
   ];
 }

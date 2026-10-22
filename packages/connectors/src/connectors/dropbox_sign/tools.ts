@@ -42,7 +42,7 @@ export const dropboxSignTools = [
   defineTool({ name: "get_signature_request", description: "Status of one signature request (who signed, when).", input: z.object({ signatureRequestId: RequestId }), output: SignatureRequest, hints: {}, untrusted: "api", untrustedRef: (a) => `request:${a.signatureRequestId}`, annotations: { readOnlyHint: true } }),
   defineTool({
     name: "send_signature_request",
-    description: "Send a document for signature to one or more counterparties. The founder's own signature is a separate, hard-gated step (sign_as_founder). Test mode by default.",
+    description: "Send a document for signature to one or more other parties. The founder's own signature is a separate, hard-gated step (sign_as_founder). Test mode by default.",
     input: z.object({ title: z.string().min(1).max(255), subject: z.string().max(255).optional(), message: z.string().max(5000).optional(), signers: z.array(Signer).min(1).max(20), fileUrls: z.array(z.url()).min(1).max(10), testMode: z.boolean().default(true), metadata: z.record(z.string().max(40), z.string().max(500)).default({}) }),
     output: SignatureRequest,
     hints: { contactsThirdParty: true, irreversible: true },

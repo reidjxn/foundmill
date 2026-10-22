@@ -144,8 +144,14 @@ test.describe("foundations", () => {
     await expect(row.locator("[data-import-state]")).toHaveAttribute("data-import-state", "not_read");
     await expect(row).toContainText("import worker was not reachable");
     await expect(row).not.toContainText(/files read/);
-    // Read now asks the import to read it again (still no worker here, so it stays not read, with the reason).
-    await page.getByTestId("read-imports-now").click();
+    // Read now asks the import to read it again (still no worker here, so it stays not read, with the reason). With
+    // guidance on, the first-Continue callout (UX plan §7.7) sits under Continue over the header's right-hand actions;
+    // it is not modal and "Got it" would mark it done for the whole dev account, so the button is focused and pressed
+    // with Enter, as crm.spec.ts and entity-profile.spec.ts do.
+    const readNow = page.getByTestId("read-imports-now");
+    await readNow.focus();
+    await expect(readNow).toBeFocused();
+    await page.keyboard.press("Enter");
     await expect(row.locator("[data-import-state]")).toHaveAttribute("data-import-state", "not_read", { timeout: LONG });
     // Next's route announcer is an empty alert; only one with words in it is an error.
     await expect(page.getByRole("alert").filter({ hasText: /\S/ })).toHaveCount(0);

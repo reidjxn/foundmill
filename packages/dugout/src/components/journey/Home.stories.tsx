@@ -1,5 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { DateFormatProvider } from "../foundation/DateFormatProvider";
+import { FIXTURE_TERMS } from "../guidance/fixtures";
+import { GuidanceProvider } from "../guidance/GuidanceProvider";
 import { DayDigest } from "./DayDigest";
 import { DepartmentCard } from "./DepartmentCard";
 import { departmentCardFixtures, generateJourneyFixture, RIBBON_DEPARTMENTS, squadPulseFixture, trophyFixtures } from "./fixtures";
@@ -34,9 +36,26 @@ export const DepartmentCards: Story = {
 const quietBase = cards.find((d) => d.now.length === 0)!;
 const busy = cards[0]!;
 
+/** Guided mode (UX plan §7.8): the headline metric gets its plain-words line under the figure, from the definitions map or an explicit line. */
+export const GuidedMetric: Story = {
+  name: "Department cards · the metric in plain words",
+  render: () => (
+    <GuidanceProvider value={{ terms: FIXTURE_TERMS }}>
+      <div className="grid w-[1200px] grid-cols-3 gap-gutter">
+        <DepartmentCard department={{ ...busy, metric: { ...busy.metric, label: "Months of cash left", value: "7.4 mo", provenance: "estimate" } }} metricId="runway" entityKinds={ENTITY_KINDS} className="h-full" onOpen={() => {}} />
+        <DepartmentCard department={{ ...quietBase, metric: { ...quietBase.metric, label: "Tasks finished this week", value: "12" } }} metricPlain="Tasks the team finished in the last 7 days." className="h-full" onOpen={() => {}} />
+        <GuidanceProvider value={{ guidance: "off" }}>
+          <DepartmentCard department={{ ...quietBase, id: "q-off", metric: { ...quietBase.metric, label: "Months of cash left", value: "7.4 mo" } }} metricId="runway" className="h-full" onOpen={() => {}} />
+        </GuidanceProvider>
+      </div>
+    </GuidanceProvider>
+  ),
+};
+
 /**
  * One grid row at Home's height (the department card is 16 grid rows, 368 px): a busy card sets the height and the
- * quiet ones fill "Now" with their one line instead of a void; the metric and "Next up" sit level across the row.
+ * quiet ones fill "Working on now" with their one line instead of a void; the metric and "Next" sit level across the
+ * row. The team strip counts agents on a task ("3 of 4 working") or says what the team is ("2 agents, all healthy").
  */
 export const QuietCards: Story = {
   name: "Department cards · quiet, in one row",
@@ -44,7 +63,7 @@ export const QuietCards: Story = {
     <div className="flex w-[1200px] flex-col gap-gutter">
       <div className="grid h-[368px] grid-cols-3 gap-gutter">
         <DepartmentCard department={busy} entityKinds={ENTITY_KINDS} className="h-full" onOpen={() => {}} />
-        <DepartmentCard department={{ ...quietBase, id: "q-respond", name: "Team", dept: "dept-6", quiet: { kind: "respond", label: "Waiting for you", text: "Set the focus for the next cycle", detail: "2 more in the Inbox" } }} className="h-full" onOpen={() => {}} onOpenQuiet={() => {}} />
+        <DepartmentCard department={{ ...quietBase, id: "q-respond", name: "Team", dept: "dept-6", quiet: { kind: "respond", label: "Needs your answer", text: "Set the focus for the next cycle", detail: "2 more in the Inbox" } }} className="h-full" onOpen={() => {}} onOpenQuiet={() => {}} />
         <DepartmentCard department={{ ...quietBase, id: "q-inbox", name: "Finance", dept: "dept-4", quiet: { kind: "inbox", label: "New in your Inbox", text: "VAT return due in nine days" } }} className="h-full" onOpen={() => {}} onOpenQuiet={() => {}} />
       </div>
       <div className="grid h-[368px] grid-cols-3 gap-gutter">

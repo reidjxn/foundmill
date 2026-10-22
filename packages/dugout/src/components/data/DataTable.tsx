@@ -37,6 +37,7 @@ import {
   ChevronsUpDown,
   Columns3,
   Download,
+  Ellipsis,
   EllipsisVertical,
   Rows3,
   Rows4,
@@ -46,6 +47,8 @@ import { cn } from "../../lib/cn";
 import { formatNumber } from "../../lib/format";
 import { uniqueId } from "../../lib/seed";
 import { Checkbox } from "../foundation/Checkbox";
+import { useGuidanceMode } from "../guidance/GuidanceProvider";
+import { Term } from "../guidance/Term";
 import {
   ContextMenu,
   ContextMenuContent,
@@ -80,6 +83,9 @@ import {
 import { SavedViewSelector } from "./SavedViewSelector";
 import { ROW_HEIGHT, type RowAction, type SavedView, type TableDensity } from "./types";
 
+/** A defined word in a column head is a button, which the browser keeps out of the head's data caps: it inherits them. */
+const HEAD_TERM = "[text-transform:inherit] [letter-spacing:inherit]";
+
 // ---------------------------------------------------------------------------------------------------------------------
 // Column meta (TanStack's extension point). Declared here so every consumer of @foundmill/dugout gets it.
 // ---------------------------------------------------------------------------------------------------------------------
@@ -112,6 +118,13 @@ declare module "@tanstack/react-table" {
      * Numeric columns always fit; so does any cell whose words all sit in chips or pills (a chip is never cut).
      */
     fitContent?: boolean;
+    /**
+     * A TERMS id: the head label becomes a `Term` with its definition card (UX plan §6.2, §7.10). On a sortable column
+     * the Term sits beside the sort control, never inside it (a button in a button is invalid and Enter would fire
+     * both): the label opens the definition, the arrow sorts. Guidance off, or an id the map does not hold: the plain
+     * head, the whole label sorting as before.
+     */
+    term?: string;
   }
 }
 
@@ -139,8 +152,13 @@ export interface DataTableProps<T> {
   selectedIds?: readonly string[];
   onSelectionChange?: (ids: string[], rows: T[]) => void;
 
-  /** Right-click verbs for a row (BUILD §5.4 "right-click menu"). */
+  /**
+   * A row's verbs (BUILD §5.4 "right-click menu"). With them every row also ends in a visible "…" button (24 px,
+   * "Actions for <row>") that opens the same menu, so a right-click or Shift+F10 is never the only way in (D6).
+   */
   rowActions?: (row: T) => RowAction<T>[];
+  /** What the "…" button calls the row ("Actions for Summit Health"). Default: the row's first text cell. */
+  rowLabel?: (row: T) => string;
   /** Enter or double-click. */
   onRowOpen?: (row: T) => void;
   onRowClick?: (row: T, event: MouseEvent) => void;
@@ -187,6 +205,12 @@ export interface DataTableProps<T> {
 }
 
 const SELECT_COLUMN_ID = "__select";
+/** The visible "…" at the end of every row with actions. */
+export const ACTIONS_COLUMN_ID = "__actions";
+/** The 24 px button (`size-target`), the cell's padding on both sides and the row's end padding: never narrower, so it is never cut. */
+const ACTIONS_COLUMN_WIDTH = 44;
+/** Columns the table adds itself: not data, so no CSV, no chooser, no content fit. */
+const OWN_COLUMNS = new Set([SELECT_COLUMN_ID, ACTIONS_COLUMN_ID]);
 const MIN_COLUMN_WIDTH = 48;
 const DEFAULT_COLUMN_WIDTH = 160;
 const NO_SIZES: Record<string, number> = {};
@@ -313,6 +337,7 @@ export function DataTable<T>(props: DataTableProps<T>) {
     selectedIds,
     onSelectionChange,
     rowActions,
+    rowLabel,
     onRowOpen,
     onRowClick,
     rowClassName,
@@ -365,6 +390,9 @@ export function DataTable<T>(props: DataTableProps<T>) {
   );
 
   const [sorting, setSorting] = useState<SortingState>(() => viewToState(activeView).sort);
+  // Column heads that are defined terms (`meta.term`): the map, and whether tutoring renders at all.
+  // The mode and the terms only: a "Got it" or a finished tour elsewhere does not render the table again.
+  const { guidance: guidanceMode, terms: guidanceTerms } = useGuidanceMode();
   const [chips, setChips] = useState<FilterChipValue[]>(() => viewToState(activeView).filters);
   const [visibleIds, setVisibleIds] = useState<string[]>(() => viewToState(activeView).columns);
   const [densityState, setDensityState] = useState<TableDensity>(
@@ -519,9 +547,13 @@ export function DataTable<T>(props: DataTableProps<T>) {
     });
   }, [chips, columns]);
 
+  // The "…" cell reaches the current row model and handlers through a ref, so the column definitions stay stable.
+  const rowMenu = useRef<{ open: (row: Row<T>, from: HTMLElement) => void; label: (row: Row<T>) => string }>({ open: () => {}, label: () => "" });
+
   const allColumns = useMemo<ColumnDef<T, unknown>[]>(() => {
-    if (!selectable) return columns;
-    const select: ColumnDef<T, unknown> = {
+    const out: ColumnDef<T, unknown>[] = [];
+    if (selectable) {
+      const select: ColumnDef<T, unknown> = {
       id: SELECT_COLUMN_ID,
       size: 36,
       minSize: 36,
@@ -551,9 +583,45 @@ export function DataTable<T>(props: DataTableProps<T>) {
           onDoubleClick={(e) => e.stopPropagation()}
         />
       ),
-    };
-    return [select, ...columns];
-  }, [columns, selectable]);
+      };
+      out.push(select);
+    }
+    out.push(...columns);
+    if (rowActions) {
+      // Always rendered, never only on hover: a visible way into the row's verbs (DESIGN §2 never clip; the column
+      // is as wide as the button needs and never grows, so the "…" sits at the row's end).
+      const actions: ColumnDef<T, unknown> = {
+        id: ACTIONS_COLUMN_ID,
+        size: ACTIONS_COLUMN_WIDTH,
+        minSize: ACTIONS_COLUMN_WIDTH,
+        maxSize: ACTIONS_COLUMN_WIDTH,
+        enableSorting: false,
+        enableResizing: false,
+        enableHiding: false,
+        meta: { locked: true, filter: false, align: "center", label: "Actions" },
+        header: () => <span className="sr-only">Actions</span>,
+        cell: ({ row }) => (
+          <IconButton
+            size="sm"
+            icon={Ellipsis}
+            label={`Actions for ${rowMenu.current.label(row)}`}
+            tooltip={false}
+            title="Actions"
+            // 24 px (the smallest pointer target, `--target-size`) inside a 28 px row; the small button is 28.
+            className="size-target text-tertiary"
+            data-row-actions=""
+            onClick={(e) => {
+              e.stopPropagation();
+              rowMenu.current.open(row, e.currentTarget);
+            }}
+            onDoubleClick={(e) => e.stopPropagation()}
+          />
+        ),
+      };
+      out.push(actions);
+    }
+    return out;
+  }, [columns, selectable, !!rowActions]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const table = useReactTable<T>({
     data: data as T[],
@@ -687,7 +755,9 @@ export function DataTable<T>(props: DataTableProps<T>) {
       target !== e.currentTarget &&
       (target.tagName === "INPUT" ||
         target.tagName === "TEXTAREA" ||
-        target.getAttribute("role") === "separator")
+        target.getAttribute("role") === "separator" ||
+        // The row's "…" button: Enter and Space open its menu, nothing else.
+        target.hasAttribute("data-row-actions"))
     )
       return;
     const pageSize = Math.max(1, Math.floor(height / rowHeight) - 1);
@@ -805,6 +875,25 @@ export function DataTable<T>(props: DataTableProps<T>) {
     const box = target.getBoundingClientRect();
     target.dispatchEvent(new window.MouseEvent("contextmenu", { bubbles: true, cancelable: true, button: 2, clientX: box.left + 16, clientY: rowEl ? box.bottom : box.top }));
   };
+  /** The "…" button: the row's menu, opened under the button as a right-click there would. */
+  const openRowMenuFrom = (row: Row<T>, from: HTMLElement) => {
+    const index = rows.indexOf(row);
+    if (index < 0 || typeof window === "undefined") return;
+    const box = from.getBoundingClientRect();
+    // Bubbles through the row (which records it, as a right-click does) to the menu's trigger, which opens at the point.
+    from.dispatchEvent(new window.MouseEvent("contextmenu", { bubbles: true, cancelable: true, button: 2, clientX: box.left, clientY: box.bottom + 2 }));
+  };
+  /** What the "…" button calls its row: the caller's label, else the first text cell, else its number. */
+  const rowLabelOf = (row: Row<T>): string => {
+    if (rowLabel) return rowLabel(row.original);
+    for (const cell of row.getVisibleCells()) {
+      if (OWN_COLUMNS.has(cell.column.id)) continue;
+      const v = cell.getValue();
+      if (typeof v === "string" && v.trim() !== "") return v;
+    }
+    return `row ${rows.indexOf(row) + 1}`;
+  };
+  rowMenu.current = { open: openRowMenuFrom, label: rowLabelOf };
   const onGridContextMenu = (e: MouseEvent<HTMLTableElement>) => {
     // Only the keyboard's contextmenu reaches the grid itself (a screen reader's, or a browser's for the Menu key); a
     // right-click starts on a row's cell.
@@ -818,7 +907,7 @@ export function DataTable<T>(props: DataTableProps<T>) {
   const exportCsvNow = () => {
     const cols: CsvColumn<Row<T>>[] = table
       .getVisibleLeafColumns()
-      .filter((c) => c.id !== SELECT_COLUMN_ID)
+      .filter((c) => !OWN_COLUMNS.has(c.id))
       .map((c) => ({
         header: columnLabel(table, c.id),
         value: (r) => (c.columnDef.meta?.csv ? c.columnDef.meta.csv(r.original) : r.getValue(c.id)),
@@ -865,7 +954,7 @@ export function DataTable<T>(props: DataTableProps<T>) {
       return (Number.parseFloat(cs.paddingLeft) || 0) + (Number.parseFloat(cs.paddingRight) || 0);
     };
     for (const col of table.getVisibleLeafColumns()) {
-      if (col.id === SELECT_COLUMN_ID) continue;
+      if (OWN_COLUMNS.has(col.id)) continue;
       const meta = col.columnDef.meta;
       const always = !!meta?.numeric || !!meta?.fitContent;
       const sel = `td[data-col="${CSS.escape(col.id)}"]`;
@@ -914,11 +1003,13 @@ export function DataTable<T>(props: DataTableProps<T>) {
   const visibleLeaf = table.getVisibleLeafColumns();
   const totalWidth = table.getTotalSize();
   // Spare width: the growing columns share it by weight, in the header and every row alike (one flex rule for both,
-  // so they always line up); with no growing column the last one takes it.
+  // so they always line up); with no growing column the last data column takes it (the "…" column keeps its width,
+  // so the button stays at the row's end).
   const anyGrow = visibleLeaf.some((c) => (c.columnDef.meta?.grow ?? 0) > 0);
-  const columnStyle = (id: string, size: number, last: boolean): CSSProperties => {
+  const fallbackGrowId = anyGrow ? null : ([...visibleLeaf].reverse().find((c) => c.id !== ACTIONS_COLUMN_ID)?.id ?? null);
+  const columnStyle = (id: string, size: number): CSSProperties => {
     const col = visibleLeaf.find((c) => c.id === id);
-    const grow = anyGrow ? Math.max(0, col?.columnDef.meta?.grow ?? 0) : last ? 1 : 0;
+    const grow = anyGrow ? Math.max(0, col?.columnDef.meta?.grow ?? 0) : id === fallbackGrowId ? 1 : 0;
     return grow > 0 ? { width: size, minWidth: size, flex: `${grow} 0 ${size}px` } : { width: size, flexShrink: 0 };
   };
   const rowIdAttr = (r: Row<T>) => `${tableId}-row-${r.id}`;
@@ -977,7 +1068,7 @@ export function DataTable<T>(props: DataTableProps<T>) {
                 last && "pr-3",
                 meta?.className,
               )}
-              style={columnStyle(cell.column.id, cell.column.getSize(), last)}
+              style={columnStyle(cell.column.id, cell.column.getSize())}
             >
               {/* Numbers never truncate: their column grows to fit them (see the content-fit effect). */}
               {/* Text cells: a row's long free text may end in an ellipsis (a list convention), with the whole value in a
@@ -1003,6 +1094,7 @@ export function DataTable<T>(props: DataTableProps<T>) {
       ref={scrollRef}
       className="relative overflow-auto"
       style={{ height }}
+      data-scroll-region="table"
       data-density={density}
       data-state={state}
       onScroll={updateCues}
@@ -1050,6 +1142,14 @@ export function DataTable<T>(props: DataTableProps<T>) {
                 const sortIndex = sorting.length > 1 && sorted ? col.getSortIndex() + 1 : null;
                 const last = hi === hg.headers.length - 1;
                 const label = columnLabel(table, col.id);
+                const termId = meta?.term && guidanceMode === "on" && guidanceTerms[meta.term] ? meta.term : null;
+                const sortIcon = (
+                  <Icon
+                    icon={sorted === "asc" ? ArrowUp : sorted === "desc" ? ArrowDown : ChevronsUpDown}
+                    size={12}
+                    className={cn("shrink-0", sorted ? "text-kit-lift" : "opacity-0 transition-opacity duration-hover group-hover/sort:opacity-100 group-focus-visible/sort:opacity-100 group-focus-within/sort:opacity-100")}
+                  />
+                );
                 return (
                   <th
                     key={header.id}
@@ -1072,9 +1172,30 @@ export function DataTable<T>(props: DataTableProps<T>) {
                       hi === 0 && "pl-3",
                       last && "pr-3",
                     )}
-                    style={columnStyle(col.id, col.getSize(), last)}
+                    style={columnStyle(col.id, col.getSize())}
                   >
-                    {header.isPlaceholder ? null : canSort ? (
+                    {header.isPlaceholder ? null : termId && canSort ? (
+                      // A defined head: the label is the Term (its card), the arrow beside it is the sort control.
+                      <span className={cn("t-data group/sort -mx-1 flex min-w-0 items-center gap-1 px-1 py-0.5", align === "right" && "flex-row-reverse", sorted && "text-secondary")} data-header-term={termId}>
+                        <span className="truncate" data-header-label="">
+                          <Term id={termId} className={HEAD_TERM}>{flexRender(col.columnDef.header, header.getContext())}</Term>
+                        </span>
+                        <button
+                          type="button"
+                          onClick={col.getToggleSortingHandler()}
+                          aria-label={`Sort by ${label}`}
+                          title={`Sort by ${label}. Shift+click to add a secondary sort.`}
+                          className="inline-flex shrink-0 items-center gap-1 rounded-xs transition-colors duration-hover hover:text-primary focus-visible:shadow-ring"
+                        >
+                          {sortIcon}
+                          {sortIndex ? <span className="font-mono text-micro text-secondary">{sortIndex}</span> : null}
+                        </button>
+                      </span>
+                    ) : termId ? (
+                      <span className="t-data truncate" data-header-label="" data-header-term={termId}>
+                        <Term id={termId} className={HEAD_TERM}>{flexRender(col.columnDef.header, header.getContext())}</Term>
+                      </span>
+                    ) : canSort ? (
                       <button
                         type="button"
                         onClick={col.getToggleSortingHandler()}
@@ -1109,7 +1230,7 @@ export function DataTable<T>(props: DataTableProps<T>) {
                           "t-data truncate",
                           col.id === SELECT_COLUMN_ID && "flex items-center",
                         )}
-                        title={col.id === SELECT_COLUMN_ID ? undefined : label}
+                        title={OWN_COLUMNS.has(col.id) ? undefined : label}
                         data-header-label=""
                       >
                         {flexRender(col.columnDef.header, header.getContext())}

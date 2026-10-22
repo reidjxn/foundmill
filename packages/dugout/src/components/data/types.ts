@@ -132,6 +132,11 @@ export interface AttributeRow {
   value: number;
   /** Evidence on hover: a sentence and optional sources. */
   evidence?: string | { summary: string; sources?: string[]; provenance?: "forecast" | "estimate" };
+  /**
+   * What the attribute measures and which way it reads ("How crowded the market is. Higher means less crowded."):
+   * a tooltip on the label, which becomes focusable. Shown whether or not evidence is attached.
+   */
+  hint?: string;
   /** Second value drawn as an outline marker (Compare view). */
   compare?: number;
 }

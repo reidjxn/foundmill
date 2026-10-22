@@ -36,11 +36,11 @@ export function describeAction(type: string, p: Record<string, unknown> | null |
     case "set_agent_model":
       return `Change an agent's model${s("model") || s("modelKey") ? ` to ${s("model") || s("modelKey")}` : ""}`;
     case "update_spec":
-      return "Update the specification";
+      return "Update the specification: what the product is and does";
     case "update_roadmap":
       return "Update the roadmap";
     case "create_playbook":
-      return "Create a playbook";
+      return "Write a playbook: the steps an agent follows";
     case "request_human_action":
       return `Founder action: ${s("request") || s("original_text") || "needs you"}`;
     case "reply_only":

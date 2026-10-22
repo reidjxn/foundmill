@@ -21,10 +21,13 @@ import {
   Panel,
   SimpleSelect,
   StatusPill,
+  Term,
   Textarea,
+  Tooltip,
   type DataTableColumn,
   type RowAction,
   type SavedView,
+  type TermDefinition,
 } from "@foundmill/dugout";
 import { moduleHref, useDepartments } from "@foundmill/widgets/shared/departments";
 import { routes } from "@foundmill/widgets/shared/routes";
@@ -34,10 +37,12 @@ import type { ModuleScreenProps } from "../registry";
 import { LAWFUL_BASES, lawfulBasisLabel, suppressionOf } from "./channel-data";
 import { RelativeDateText } from "../dates";
 import { fitColumns, fitToGrow, type ColumnFit } from "../fit";
-import { InlineError, Screen, fitTableHeight, plainWords, sourceLabel, useAction } from "./shared";
+import { InlineError, SIMPLE_VIEW_ID, Screen, fitTableHeight, plainWords, sourceLabel, useAction, useDefaultViewId } from "./shared";
 import type { AgentRow, LeadRow, Page } from "./types";
 
 export const LEAD_VIEWS: SavedView[] = [
+  // Simple (UX plan §7.10): who the lead is, where they stand and whether we may contact them.
+  { id: SIMPLE_VIEW_ID, name: "Simple", builtIn: true, columns: ["name", "company", "stage", "lawfulBasis"], sort: [{ id: "added", desc: true }], filters: [] },
   { id: "all", name: "All leads", builtIn: true, columns: ["name", "email", "stage", "source", "lawfulBasis", "suppression", "added"], sort: [{ id: "added", desc: true }], filters: [] },
   { id: "owners", name: "Companies and owners", builtIn: true, columns: ["name", "company", "stage", "owner", "added"], sort: [{ id: "added", desc: true }], filters: [] },
   { id: "needs-basis", name: "Needs lawful basis", builtIn: true, columns: ["name", "company", "email", "source", "lawfulBasis", "added"], sort: [{ id: "added", desc: true }], filters: [{ id: "f-basis", field: "lawfulBasis", op: "eq", value: "Not recorded" }] },
@@ -63,6 +68,11 @@ export type LeadColumnId = keyof typeof LEAD_FIT;
 
 const str = (v: unknown): string => (typeof v === "string" ? v : "");
 
+/** What "lawful basis" means, said wherever the words appear (UX plan §7.13): the cell's tooltip and the Term's fallback. */
+export const LAWFUL_BASIS_DEFINITION = "Your legal reason for contacting someone; suppressed means never contact.";
+/** The Term's own definition where the map does not reach (stories, tests): the same sentence, under the shared id. */
+export const LAWFUL_BASIS_TERM: TermDefinition = { id: "lawful_basis", word: "Lawful basis", short: LAWFUL_BASIS_DEFINITION };
+
 export function leadColumns(businessId: string, agents: readonly AgentRow[] | undefined, sizes: Record<LeadColumnId, number> = fitColumns<LeadColumnId>(null, LEAD_FIT, [])): DataTableColumn<LeadRow>[] {
   const agentName = (id: string) => agents?.find((a) => a.id === id)?.name ?? "Agent";
   return [
@@ -83,8 +93,20 @@ export function leadColumns(businessId: string, agents: readonly AgentRow[] | un
       accessorFn: (r) => lawfulBasisLabel(r.lawfulBasis),
       header: "Lawful basis",
       size: sizes.lawfulBasis,
-      cell: ({ row }) => (row.original.lawfulBasis ? <Chip tone="good" icon={ScrollText} className="whitespace-nowrap">{lawfulBasisLabel(row.original.lawfulBasis)}</Chip> : <Chip tone="warn" icon={ScrollText} className="whitespace-nowrap">Not recorded</Chip>),
-      meta: { filter: "select", filterOptions: [{ value: "Not recorded", label: "Not recorded" }, ...LAWFUL_BASES] },
+      cell: ({ row }) => (
+        <Tooltip content={LAWFUL_BASIS_DEFINITION}>
+          {row.original.lawfulBasis ? (
+            <Chip tone="good" icon={ScrollText} className="whitespace-nowrap">
+              {lawfulBasisLabel(row.original.lawfulBasis)}
+            </Chip>
+          ) : (
+            <Chip tone="warn" icon={ScrollText} className="whitespace-nowrap">
+              Not recorded
+            </Chip>
+          )}
+        </Tooltip>
+      ),
+      meta: { filter: "select", filterOptions: [{ value: "Not recorded", label: "Not recorded" }, ...LAWFUL_BASES], term: "lawful_basis" },
     },
     {
       id: "suppression",
@@ -130,8 +152,9 @@ export function LeadsScreen({ businessId }: ModuleScreenProps) {
   const leads = useWidgetQuery<Page<LeadRow>>("crm.roles.byRole", { role: "lead", limit: 500 });
   const agents = useWidgetQuery<AgentRow[]>("team.agents.list", {});
   const action = useAction();
-  // Saved per person, business and table (audit #204): they come back after a reload.
-  const savedViews = useSavedViews("distribution.leads", LEAD_VIEWS, { defaultViewId: "all" });
+  // Saved per person, business and table (audit #204): they come back after a reload. Simple opens first while guidance is on.
+  const defaultViewId = useDefaultViewId("all");
+  const savedViews = useSavedViews("distribution.leads", LEAD_VIEWS, { defaultViewId });
   const [basisFor, setBasisFor] = useState<LeadRow | null>(null);
   const [noteFor, setNoteFor] = useState<LeadRow | null>(null);
   useBusinessEvents(() => leads.refetch(), ["lead.created", "lead.replied"]);
@@ -163,13 +186,17 @@ export function LeadsScreen({ businessId }: ModuleScreenProps) {
   return (
     <Screen name="distribution/leads">
       <Panel
-        title="Leads"
+        title={<Term id="lead">Leads</Term>}
         span={12}
         loading={leads.isLoading}
         error={leads.error ? leads.error.message : undefined}
         onRetry={leads.refetch}
         meta={rows.length ? `${rows.length} lead${rows.length === 1 ? "" : "s"} · ${missingBasis} without a lawful basis · ${suppressed} suppressed` : undefined}
-        footer={<span>Engines skip suppressed leads and never cold-email EU consumers. Right-click a lead to record its lawful basis, add a note or end its lead role.</span>}
+        footer={
+          <span>
+            A <Term id="lawful_basis" definition={LAWFUL_BASIS_TERM}>lawful basis</Term> is your legal reason for contacting someone; suppressed means never contact. Engines skip suppressed leads and never cold-email EU consumers. Use the … button or right-click a lead to record its lawful basis, add a note or end its lead role.
+          </span>
+        }
         flush
       >
         <InlineError error={action.error} className="px-panel-pad pt-2" />
@@ -179,7 +206,7 @@ export function LeadsScreen({ businessId }: ModuleScreenProps) {
           data={rows}
           columns={columns}
           {...savedViews}
-          defaultViewId="all"
+          defaultViewId={defaultViewId}
           rowActions={rowActions}
           onRowOpen={openProfile}
           height={fitTableHeight(rows.length, { minRows: 12, maxRows: 18 })}
@@ -213,7 +240,15 @@ function LawfulBasisDialog({ lead, action, onClose, onSaved }: { lead: LeadRow |
       <DialogContent size="sm">
         <DialogHeader>
           <DialogTitle>Set lawful basis</DialogTitle>
-          <DialogDescription>{lead ? `${lead.displayName}. Outreach engines need a recorded basis before they contact a lead.` : ""}</DialogDescription>
+          <DialogDescription>
+            {lead ? (
+              <>
+                {lead.displayName}. A <Term id="lawful_basis" definition={LAWFUL_BASIS_TERM}>lawful basis</Term> is your legal reason for contacting someone; suppressed means never contact. Outreach engines need a recorded basis before they contact a lead.
+              </>
+            ) : (
+              ""
+            )}
+          </DialogDescription>
         </DialogHeader>
         <DialogBody>
           <label htmlFor={id} className="flex flex-col gap-1">

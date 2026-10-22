@@ -8,6 +8,7 @@ import { useCallback, useEffect, useId, useMemo, useState } from "react";
 import { ArrowDownToLine, ArrowUpToLine, Coins, ExternalLink, Pause, Play, ThumbsUp } from "lucide-react";
 import {
   Button,
+  COST_TREND_LABEL,
   Chip,
   DataTable,
   Dialog,
@@ -18,12 +19,14 @@ import {
   DialogHeader,
   DialogTitle,
   Field,
+  FormGuide,
   MoneyInput,
   Panel,
   ProvenanceChip,
   RatingFigure,
   StarRating,
   StatusPill,
+  Term,
   formatMoney,
   formatNumber,
   type DataTableColumn,
@@ -42,24 +45,29 @@ import { buildChannelViews, channelStatus, CHANNEL_STATUS_WORDS, resumeStatus, s
 import { METRICS_WINDOW_DAYS } from "./FormationScreen";
 import { localScores, RESCORE_DEBOUNCE_MS, useDebouncedRun } from "./rescore";
 import { fitColumns, fitToGrow, type ColumnFit } from "../fit";
-import { EstimatedMoney, InlineError, LINE_LABELS, OFFLINE_TRACKING_LABEL, Screen, fitTableHeight, parseMajor, searchParam, useAction } from "./shared";
+import { EstimatedMoney, InlineError, LINE_LABELS, OFFLINE_TRACKING_LABEL, SIMPLE_VIEW_ID, Screen, fitTableHeight, parseMajor, searchParam, useAction, useDefaultViewId } from "./shared";
 import type { CampaignRow, ChannelMetricRow, ChannelsListResponse, Page, RecommendResponse, RecommendationRow } from "./types";
 
 export const CHANNEL_VIEWS: SavedView[] = [
+  // Simple (UX plan §7.10): the four columns a first-timer needs; the table opens on it while guidance is on.
+  { id: SIMPLE_VIEW_ID, name: "Simple", builtIn: true, columns: ["label", "fit", "status", "cpa"], sort: [{ id: "fit", desc: true }], filters: [] },
   { id: "all", name: "All channels", builtIn: true, columns: ["label", "line", "fit", "stars", "cpa", "budget", "status", "tracking"], sort: [{ id: "fit", desc: true }], filters: [] },
-  { id: "running", name: "Running", builtIn: true, columns: ["label", "fit", "budget", "status", "leads", "customers", "cpaActual"], sort: [{ id: "fit", desc: true }], filters: [{ id: "f-run", field: "enabled", op: "eq", value: true }] },
+  // Running: how each running channel is doing, so the cost trend sits where the figures are (the budget stays in All).
+  { id: "running", name: "Running", builtIn: true, columns: ["label", "fit", "form", "status", "leads", "customers", "cpaActual"], sort: [{ id: "fit", desc: true }], filters: [{ id: "f-run", field: "enabled", op: "eq", value: true }] },
   { id: "bench", name: "Off the board", builtIn: true, columns: ["label", "line", "fit", "stars", "cpa", "status"], sort: [{ id: "fit", desc: true }], filters: [{ id: "f-bench", field: "enabled", op: "eq", value: false }] },
   { id: "offline", name: "Offline tracking", builtIn: true, columns: ["label", "line", "fit", "budget", "status", "tracking"], sort: [{ id: "fit", desc: true }], filters: [{ id: "f-off", field: "tracking", op: "eq", value: true }] },
 ];
 
 /**
  * What each column's content needs (px, cell padding included) and its share of the spare width. The default view
- * sums to 966 px, inside the 980 px the table has at 1280; the Running view drops Family to fit its 35-day figures.
+ * sums to 966 px, inside the 980 px the table has at 1280; the Running view drops Family and the budget to fit its
+ * cost trend and 35-day figures (864 px).
  */
 export const CHANNEL_FIT = {
   label: { min: 170, grow: 3 },
   line: { min: 104, grow: 1 },
   fit: { min: 56 },
+  form: { min: 84 },
   stars: { min: 110 },
   cpa: { min: 146 },
   cpaActual: { min: 184 },
@@ -110,7 +118,17 @@ export function channelColumns(sizes: Record<ChannelColumnId, number> = fitColum
       size: sizes.line,
       meta: { filter: "select", filterOptions: CHANNEL_LINES.map((l) => ({ value: LINE_LABELS[l], label: LINE_LABELS[l] })) },
     },
-    { id: "fit", accessorFn: (r) => r.fit, header: "Fit", size: sizes.fit, cell: ({ row }) => (row.original.scored ? <RatingFigure value={row.original.fit} /> : <span className="text-secondary">—</span>), meta: { numeric: true } },
+    { id: "fit", accessorFn: (r) => r.fit, header: "Fit", size: sizes.fit, cell: ({ row }) => (row.original.scored ? <RatingFigure value={row.original.fit} /> : <span className="text-secondary">—</span>), meta: { numeric: true, term: "fit" } },
+    {
+      // The five-cell strip the Board's tokens carry: each week's cost per customer against the cost target; its key
+      // ("Last 5 weeks against the cost target: 4 under, 1 near") is the strip's tooltip. The identifier `form` stays.
+      id: "form",
+      accessorFn: (r) => r.form5.filter((c) => c === "good").length - r.form5.filter((c) => c === "bad").length,
+      header: COST_TREND_LABEL,
+      size: sizes.form,
+      cell: ({ row }) => (row.original.enabled ? <FormGuide form={row.original.form5} name={`${row.original.meta?.label ?? row.original.channelKey} ${COST_TREND_LABEL.toLowerCase()}`} /> : <span className="text-secondary">—</span>),
+      meta: { numeric: true, filter: false, fitContent: true, csv: (r) => r.form5.join(" "), term: "cost_trend" },
+    },
     {
       id: "stars",
       accessorFn: (r) => r.stars,
@@ -125,7 +143,7 @@ export function channelColumns(sizes: Record<ChannelColumnId, number> = fitColum
       header: "Cost per customer",
       size: sizes.cpa,
       cell: ({ row }) => <CostPerCustomer view={row.original} />,
-      meta: { numeric: true, label: "Cost per customer (Estimate)" },
+      meta: { numeric: true, label: "Cost per customer (Estimate)", term: "acquisition_cost" },
     },
     { id: "cpaActual", accessorFn: (r) => r.form?.cpaMinor ?? null, header: `Cost per customer, ${CHANNEL_WINDOW_DAYS} days`, size: sizes.cpaActual, cell: ({ row }) => <EstimatedMoney amountMinor={row.original.form?.cpaMinor ?? null} currency={row.original.currency} spendMinor={row.original.form?.spendMinor ?? null} />, meta: { numeric: true, label: `Cost per customer, ${CHANNEL_WINDOW_DAYS} days (Estimate)` } },
     { id: "budget", accessorFn: (r) => r.budgetMinor, header: "Monthly budget", size: sizes.budget, cell: ({ row }) => <span className="tabular-nums">{row.original.persisted ? formatMoney({ amountMinor: row.original.budgetMinor, currency: row.original.currency }) : "—"}</span>, meta: { numeric: true } },
@@ -196,8 +214,9 @@ export function ChannelsScreen({ businessId, rescoreDelayMs = RESCORE_DEBOUNCE_M
   const metrics = useWidgetQuery<ChannelMetricRow[]>("distribution.channels.metrics", { from: addDays(today, -(METRICS_WINDOW_DAYS - 1)) });
   const departments = useDepartments();
   const action = useAction();
-  // Saved per person, business and table (audit #204): they come back after a reload.
-  const savedViews = useSavedViews("distribution.channels", CHANNEL_VIEWS, { defaultViewId: "all" });
+  // Saved per person, business and table (audit #204): they come back after a reload. Simple opens first while guidance is on.
+  const defaultViewId = useDefaultViewId("all");
+  const savedViews = useSavedViews("distribution.channels", CHANNEL_VIEWS, { defaultViewId });
   const [recommendation, setRecommendation] = useState<RecommendationRow[] | null>(null);
   const [highlight] = useState<string | null>(() => searchParam("channel"));
   const [budgetFor, setBudgetFor] = useState<ChannelView | null>(null);
@@ -264,7 +283,7 @@ export function ChannelsScreen({ businessId, rescoreDelayMs = RESCORE_DEBOUNCE_M
       { id: "open", label: "Open profile", icon: ExternalLink, onSelect: (r) => openProfile(r.channelKey) },
       row.enabled
         ? { id: "bench", label: "Take off the board", icon: ArrowDownToLine, onSelect: (r) => void toggle(r, false), separatorBefore: true }
-        : { id: "start", label: "Move to Board", icon: ArrowUpToLine, onSelect: (r) => void toggle(r, true), separatorBefore: true },
+        : { id: "start", label: "Put on the board", icon: ArrowUpToLine, onSelect: (r) => void toggle(r, true), separatorBefore: true },
       { id: "pause", label: row.paused ? "Resume campaigns" : "Pause campaigns", icon: row.paused ? Play : Pause, onSelect: (r) => void pause(r, !r.paused), disabled: !row.enabled || row.campaigns.length === 0 },
       { id: "budget", label: "Set budget…", icon: Coins, onSelect: (r) => setBudgetFor(r), disabled: !row.persisted, separatorBefore: true },
     ],
@@ -276,6 +295,7 @@ export function ChannelsScreen({ businessId, rescoreDelayMs = RESCORE_DEBOUNCE_M
     <Screen name="distribution/channels">
       <Panel
         title="Channels"
+        help="Fit is how well a channel suits this business, scored 1–20; the cost trend is the last five weeks against the cost target."
         menu={pinMenu}
         span={12}
         loading={channels.isLoading}
@@ -285,18 +305,18 @@ export function ChannelsScreen({ businessId, rescoreDelayMs = RESCORE_DEBOUNCE_M
           <>
             {rescoreSoon.pending ? (
               <Chip tone="neutral" data-testid="rescore-pending">
-                Local scores · re-scoring shortly
+                Scores are being refreshed
               </Chip>
             ) : null}
             <Button size="sm" variant="ghost" loading={action.pending === "recommend"} onClick={rescoreNow}>
-              {scored === 0 ? "Get recommendation" : "Re-score"}
+              {scored === 0 ? "Get recommendation" : "Score again"}
             </Button>
           </>
         }
         meta={`${rows.filter((r) => r.enabled).length} on the board · ${scored} of 15 scored`}
         footer={
           <span className="inline-flex flex-wrap items-center gap-1.5">
-            <RecommendedMark /> marks the Distribution Strategist's picks. Cost per customer is an <ProvenanceChip kind="estimate" /> until the conversion API confirms it. Right-click a channel to move it on or off the board, pause it or set its budget.
+            <RecommendedMark /> marks the <Term id="distribution_strategist">Distribution Strategist</Term>'s picks. <Term id="acquisition_cost">Cost per customer</Term> is an <Term id="estimate" always>Estimate</Term> until the channel's own sales reports confirm it. Potential is the strategist's rating of how much a channel could bring in. Use the … button or right-click a channel to move it on or off the board, pause it or set its budget.
           </span>
         }
         flush
@@ -309,7 +329,7 @@ export function ChannelsScreen({ businessId, rescoreDelayMs = RESCORE_DEBOUNCE_M
           columns={columns}
           getRowId={(r) => r.channelKey}
           {...savedViews}
-          defaultViewId="all"
+          defaultViewId={defaultViewId}
           rowActions={rowActions}
           onRowOpen={(r) => openProfile(r.channelKey)}
           rowClassName={(r) => (r.channelKey === highlight ? "bg-white/4" : undefined)}

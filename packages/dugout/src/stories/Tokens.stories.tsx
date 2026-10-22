@@ -159,7 +159,7 @@ const TYPE: Array<{ cls: string; spec: string; where: string; sample: ReactNode 
   { cls: "t-title", spec: "Inter 600, 13/18, sentence case", where: "Panel titles", sample: "Time and budget" },
   { cls: "t-action", spec: "Inter 500, 13/16, sentence case (alias t-tab)", where: "Buttons, tabs, sidebar, quick replies", sample: "Live sessions" },
   { cls: "t-label", spec: "Inter 500, 12/16, text-2", where: "Form labels, table headers, chips", sample: "Budget you can commit" },
-  { cls: "t-data", spec: "Barlow 600, 10.5/14, caps +0.09em, text-3", where: "The only caps: data labels", sample: "Last 7 days" },
+  { cls: "t-data", spec: "Barlow 600, 11/14, caps +0.09em, text-3", where: "The only caps: data labels", sample: "Last 7 days" },
   { cls: "t-body", spec: "Inter 400, 13/19", where: "Everything else", sample: "Juno modeled it: 2,400 units on sale-or-return at a 33% margin." },
   { cls: "t-reading", spec: "Inter 400, 15/24, −0.006em, reading color", where: "Inbox note body (640 px measure)", sample: "The catch is 60-day payment terms. Cash dips to £41K in December, then recovers by February." },
   { cls: "t-chat", spec: "Inter 400, 13.5/20", where: "Conversation bubbles", sample: "Still positive. At 40% we clear £6,100 and the unsold units come back in time for Ireland." },

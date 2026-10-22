@@ -60,6 +60,9 @@ export interface PresetOptions {
 
 const w = (key: string, x: number, y: number, width: number, h: number, settings: Record<string, unknown> = {}): PresetWidget => ({ key, x, y, w: width, h, settings });
 
+/** The first-week checklist (UX plan §7.8): the header plus seven 34 px rows. */
+const CHECKLIST_ROWS = 12;
+
 function founder(departments: number): PresetWidget[] {
   const { ribbon, strip, card } = PRESET_ROWS;
   const cards = Math.max(0, Math.floor(departments));
@@ -72,6 +75,9 @@ function founder(departments: number): PresetWidget[] {
     ...Array.from({ length: cards }, (_, slot) => w("department_card", (slot % CARDS_PER_ROW) * 4, top + Math.floor(slot / CARDS_PER_ROW) * card, 4, card, { slot })),
     w("squad_pulse", 0, below, 8, 12),
     w("inbox_preview", 8, below, 4, 12, { rows: 4 }),
+    // "Your first week" in the Inbox preview's column, right under it (UX plan §7.8): the widget hides itself once the
+    // week's items are done or the founder closes it, and a cell at the foot of the page leaves no hole when it does.
+    w("first_week_checklist", 8, below + 12, 4, CHECKLIST_ROWS),
   ];
 }
 

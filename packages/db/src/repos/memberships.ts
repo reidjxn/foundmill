@@ -7,9 +7,9 @@
  * other as the remaining owner.
  */
 import { ConflictError, MEMBERSHIP_ROLES, ValidationError, type MembershipRole } from "@foundmill/shared";
-import { and, asc, eq, inArray, isNull, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull, ne, sql } from "drizzle-orm";
 import { z } from "zod";
-import { businesses, entities, memberships, type Business, type Membership } from "../schema";
+import { businesses, entities, memberships, MEMBERSHIP_SOURCES, type Business, type Membership } from "../schema";
 import { Id, maybeOne, one, parseInput, type Executor } from "./_shared";
 
 export const SectionPermissions = z.record(z.string(), z.enum(["read", "write", "none"]));
@@ -19,15 +19,27 @@ export const AddMembershipInput = z.object({
   userId: Id,
   role: z.enum(MEMBERSHIP_ROLES),
   sectionPermissions: SectionPermissions.default({}),
+  /** How the row came to be (0065): an invitation unless the caller says otherwise. `example` rows go through `openExample`. */
+  source: z.enum(MEMBERSHIP_SOURCES).exclude(["example"]).default("invite"),
 });
 export type AddMembershipInput = z.input<typeof AddMembershipInput>;
 
+/** What `business.example.open` says to someone who already belongs to the example business for real. */
+export const ALREADY_A_MEMBER_OF_EXAMPLE = "You are already a member of this business. Open it from Switch business.";
+
+/** An example membership (0065): a read-only walk around a seeded demo business, never staff and never a seat. */
+const notExample = ne(memberships.source, "example");
+
 export const membershipsRepo = {
-  async list(db: Executor, businessId: string, filter: { role?: MembershipRole } = {}): Promise<Membership[]> {
+  /**
+   * The business's staff: every membership but the example viewers (0065), who are not staff, hold no seat and are
+   * never listed to the owner. `includeExample` lists them too (counts, the cross-tenant suite).
+   */
+  async list(db: Executor, businessId: string, filter: { role?: MembershipRole; includeExample?: boolean } = {}): Promise<Membership[]> {
     return db
       .select()
       .from(memberships)
-      .where(and(eq(memberships.businessId, businessId), filter.role ? eq(memberships.role, filter.role) : undefined))
+      .where(and(eq(memberships.businessId, businessId), filter.role ? eq(memberships.role, filter.role) : undefined, filter.includeExample ? undefined : notExample))
       .orderBy(asc(memberships.createdAt));
   },
 
@@ -61,7 +73,8 @@ export const membershipsRepo = {
         entities,
         and(eq(entities.businessId, memberships.businessId), eq(entities.kind, "team_member"), isNull(entities.archivedAt), isNull(entities.mergedIntoId), sql`${entities.identifiers}->>'user_id' = ${memberships.userId}::text`),
       )
-      .where(eq(memberships.businessId, businessId))
+      // Example viewers (0065) are not staff: the Team's staff list never shows them.
+      .where(and(eq(memberships.businessId, businessId), notExample))
       .orderBy(asc(memberships.createdAt), asc(entities.createdAt));
     const out = new Map<string, Membership & { displayName: string | null; entityId: string | null }>();
     for (const r of rows) if (!out.has(r.membership.id)) out.set(r.membership.id, { ...r.membership, displayName: r.displayName ?? null, entityId: r.entityId ?? null });
@@ -115,11 +128,48 @@ export const membershipsRepo = {
     const v = parseInput(AddMembershipInput, input, "membership");
     const rows = await db
       .insert(memberships)
-      .values({ businessId, userId: v.userId, role: v.role, sectionPermissions: v.sectionPermissions })
+      .values({ businessId, userId: v.userId, role: v.role, sectionPermissions: v.sectionPermissions, source: v.source })
       .onConflictDoNothing({ target: [memberships.businessId, memberships.userId] })
       .returning();
     if (rows.length === 0) throw new ConflictError("That person is already a member of this business; change their role instead", { userId: v.userId });
     return one(rows, "membership");
+  },
+
+  /**
+   * "Explore an example" (0065; docs/UX_AUDIT_AND_PLAN.md §12 item 5): gives the user a viewer membership of the example
+   * business with `source: "example"`. Idempotent: an example membership that already exists comes back as it is
+   * (`created: false`). Someone who belongs to the business for real (any other source) is refused with a ConflictError:
+   * their real seat is never rewritten into an example one, and they open the business from Switch business instead.
+   * Service connection only: the memberships insert policy lets nobody give themselves a membership.
+   */
+  async openExample(db: Executor, businessId: string, userId: string): Promise<{ membership: Membership; created: boolean }> {
+    const bid = parseInput(Id, businessId, "business id");
+    const uid = parseInput(Id, userId, "user id");
+    const rows = await db
+      .insert(memberships)
+      .values({ businessId: bid, userId: uid, role: "viewer", sectionPermissions: {}, source: "example" })
+      .onConflictDoNothing({ target: [memberships.businessId, memberships.userId] })
+      .returning();
+    if (rows[0]) return { membership: rows[0], created: true };
+    const existing = await membershipsRepo.get(db, bid, uid);
+    if (!existing) throw new ConflictError("The example business could not be opened; try again");
+    if (existing.source !== "example") throw new ConflictError(ALREADY_A_MEMBER_OF_EXAMPLE, { businessId: bid, role: existing.role });
+    return { membership: existing, created: false };
+  },
+
+  /**
+   * Leaves the example (0065): deletes the user's own membership of the business only when it is an example one, so a
+   * real seat (an invitation, the founder's own) is never removed by this path. Returns the row that was removed, or
+   * null when there was no example membership to leave (already left, or never opened).
+   */
+  async leaveExample(db: Executor, businessId: string, userId: string): Promise<Membership | null> {
+    const bid = parseInput(Id, businessId, "business id");
+    const uid = parseInput(Id, userId, "user id");
+    const rows = await db
+      .delete(memberships)
+      .where(and(eq(memberships.businessId, bid), eq(memberships.userId, uid), eq(memberships.source, "example")))
+      .returning();
+    return rows[0] ?? null;
   },
 
   /**

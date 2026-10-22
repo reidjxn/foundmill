@@ -3,7 +3,8 @@ import { ThumbsUp } from "lucide-react";
 import { cn } from "../../lib/cn";
 import { clampRating, ratingBandLabel, ratingTone, type RatingTone } from "../../lib/rating";
 import { Icon } from "../foundation/Icon";
-import { CHANNEL_ICONS, FORM_WORDS, channelLabel } from "./formation";
+import { Tooltip } from "../foundation/Tooltip";
+import { CHANNEL_ICONS, COST_TREND_LABEL, FORM_WORDS, channelLabel, costTrendKey } from "./formation";
 import type { ChannelTokenData, FormCell } from "./types";
 
 const RATING_BG: Record<RatingTone, string> = {
@@ -19,19 +20,28 @@ export interface FormGuideProps {
   form: readonly FormCell[];
   /** Accessible name prefix. */
   name?: string;
+  /** Show the key ("Last 5 weeks against the cost target: 4 under, 1 near") on hover and focus (default true). */
+  tooltip?: boolean;
   className?: string;
 }
 
-/** Five 8 px cells, oldest left, newest right; each cell carries a word for assistive tech. */
-export function FormGuide({ form, name = "Form", className }: FormGuideProps) {
+/**
+ * The cost trend: five 8 px cells, oldest left, newest right, each a week's cost per customer against the channel's
+ * cost target. Each cell carries a word for assistive tech and the strip carries its key as a tooltip (`costTrendKey`:
+ * weeks against a cost target, so the guidance group's FormKey, which counts an agent's task results, is not the
+ * sentence here). Always shown: the key is information, not tutoring (UX plan §6.2 ScaleLabel).
+ */
+export function FormGuide({ form, name = COST_TREND_LABEL, tooltip = true, className }: FormGuideProps) {
   const cells = Array.from({ length: 5 }, (_, i) => form[form.length - 5 + i] ?? "none");
-  return (
-    <ol aria-label={`${name}, last five weeks: ${cells.map((c) => FORM_WORDS[c]).join(", ")}`} className={cn("flex gap-px", className)}>
+  const strip = (
+    <ol aria-label={`${name}, last five weeks: ${cells.map((c) => FORM_WORDS[c]).join(", ")}`} className={cn("flex gap-px", className)} data-form-guide="">
       {cells.map((c, i) => (
         <li key={i} aria-hidden data-form={c} className={cn("size-2 rounded-xs", FORM_BG[c])} />
       ))}
     </ol>
   );
+  if (!tooltip) return strip;
+  return <Tooltip content={costTrendKey(form)}>{strip}</Tooltip>;
 }
 
 /** Ring and fill from the family accent: a lit ring on a faint wash when running, a quiet ring when off the board. */
@@ -60,7 +70,7 @@ export interface ChannelTokenProps extends Omit<ButtonHTMLAttributes<HTMLButtonE
 
 /**
  * A 56 px channel token (DESIGN §8): icon, fit badge in the rating ramp, thumbs-up when recommended, a five-cell
- * recent-performance strip underneath and the channel name. Running tokens wear their family accent as a ring with a
+ * cost-trend strip underneath and the channel name. Running tokens wear their family accent as a ring with a
  * soft halo; tokens off the board keep a quiet tint of it. The button is the drag handle and the keyboard target.
  */
 export const ChannelToken = forwardRef<HTMLButtonElement, ChannelTokenProps>(function ChannelToken({ channel, dragging, hideLabel, hintId, accent, fullLabel, labelPlate, className, style, ...rest }, ref) {
@@ -68,6 +78,7 @@ export const ChannelToken = forwardRef<HTMLButtonElement, ChannelTokenProps>(fun
   const scored = channel.scored !== false;
   const tone = ratingTone(fit);
   const label = channelLabel(channel.key);
+  // plain-allow: the token's accessible name; it renders only on the Channel Board, whose key defines fit with a Term (FormationBoard.tsx).
   const name = `${label}, ${scored ? `fit ${fit} of 20 (${ratingBandLabel(fit)})` : "not scored yet"}${channel.recommended ? ", recommended" : ""}, ${channel.enabled ? "on the board" : "off the board"}${channel.paused ? ", paused" : ""}`;
   return (
     <span className={cn("flex w-18 flex-col items-center gap-1", className)} data-channel={channel.key} data-enabled={channel.enabled} data-recommended={channel.recommended || undefined}>
@@ -107,7 +118,7 @@ export const ChannelToken = forwardRef<HTMLButtonElement, ChannelTokenProps>(fun
           </span>
         ) : null}
       </span>
-      <FormGuide form={channel.form} name={`${label} form`} />
+      <FormGuide form={channel.form} name={`${label} ${COST_TREND_LABEL.toLowerCase()}`} tooltip={!dragging} />
       {!hideLabel ? (
         <span className={cn("text-center text-small leading-4 text-primary", fullLabel ? "w-max whitespace-nowrap" : "max-w-full truncate", labelPlate && "rounded-chip bg-ink/70 px-1")} title={fullLabel ? undefined : label} aria-hidden>
           {label}

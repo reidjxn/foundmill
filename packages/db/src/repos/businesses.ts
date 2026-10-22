@@ -65,6 +65,8 @@ export interface BusinessSummary {
   gameMode: GameMode;
   businessMode: BusinessMode;
   isDemo: boolean;
+  /** The person holds an example membership (0065): a read-only walk around a demo business, listed under "Example". */
+  isExample: boolean;
   kitPrimary: string;
   kitSecondary: string;
   createdAt: Date;
@@ -101,15 +103,18 @@ export const businessesRepo = {
     return maybeOne(await db.select().from(businesses).where(and(eq(businesses.slug, slug), notArchived)).limit(1));
   },
 
-  /** Account-scoped: every business the user is a member of, newest first. */
-  async listForUser(db: Executor, userId: string): Promise<(Business & { role: string })[]> {
+  /**
+   * Account-scoped: every business the user is a member of, newest first. `isExample` marks an example membership
+   * (0065): a demo the person is walking around, never "their" business (pickers prefer a real one).
+   */
+  async listForUser(db: Executor, userId: string): Promise<(Business & { role: string; isExample: boolean })[]> {
     const rows = await db
-      .select({ business: businesses, role: memberships.role })
+      .select({ business: businesses, role: memberships.role, source: memberships.source })
       .from(memberships)
       .innerJoin(businesses, eq(businesses.id, memberships.businessId))
       .where(and(eq(memberships.userId, userId), notArchived))
       .orderBy(desc(businesses.createdAt));
-    return rows.map((r) => ({ ...r.business, role: r.role }));
+    return rows.map((r) => ({ ...r.business, role: r.role, isExample: r.source === "example" }));
   },
 
   /**
@@ -134,6 +139,7 @@ export const businessesRepo = {
         committedAt: businesses.committedAt,
         agentsStoppedAt: businesses.agentsStoppedAt,
         role: memberships.role,
+        source: memberships.source,
         logoSha256: businessLogos.sha256,
       })
       .from(memberships)
@@ -141,7 +147,24 @@ export const businessesRepo = {
       .leftJoin(businessLogos, eq(businessLogos.businessId, businesses.id))
       .where(and(eq(memberships.userId, id), notArchived))
       .orderBy(sql`lower(${businesses.name})`, asc(businesses.id));
-    return rows.map(({ agentsStoppedAt, logoSha256, ...r }) => ({ ...r, agentsStopped: agentsStoppedAt !== null, logo: logoSha256 ? { sha256: logoSha256 } : null }));
+    return rows.map(({ agentsStoppedAt, logoSha256, source, ...r }) => ({ ...r, isExample: source === "example", agentsStopped: agentsStoppedAt !== null, logo: logoSha256 ? { sha256: logoSha256 } : null }));
+  },
+
+  /**
+   * The example business (0065; docs/UX_AUDIT_AND_PLAN.md §12 item 5): a committed, open demo business (`is_demo`,
+   * 0044), `prefer` first when it is one (the seed's Northwind Skincare, `EXAMPLE_BUSINESS_ID`), else the oldest. Null
+   * when the deployment has no demo business (production without seeds), so New business shows no example door.
+   */
+  async example(db: Executor, options: { prefer?: string } = {}): Promise<Business | null> {
+    const prefer = options.prefer ? parseInput(Id, options.prefer, "business id") : null;
+    const oldest = [asc(businesses.createdAt), asc(businesses.id)];
+    const rows = await db
+      .select()
+      .from(businesses)
+      .where(and(eq(businesses.isDemo, true), notArchived, isNotNull(businesses.committedAt)))
+      .orderBy(...(prefer ? [sql`(${businesses.id} = ${prefer}::uuid) desc`, ...oldest] : oldest))
+      .limit(1);
+    return rows[0] ?? null;
   },
 
   /**

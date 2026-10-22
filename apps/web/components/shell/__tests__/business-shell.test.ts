@@ -4,7 +4,8 @@ import { EVENT_TYPES } from "@foundmill/shared/constants";
 import { EMPTY_CYCLE, cycleFromSnapshot } from "@/lib/cycle";
 import { trpcPathPrefix, trpcQueryKey } from "@/lib/trpc";
 import { SAFETY_POLL_MS } from "@/lib/stream-status";
-import { INVALIDATE_ON_EVENT, cycleReducer, describeContinue, shellPollIntervals } from "../BusinessShell";
+import { EXAMPLE_CHIP_TOOLTIP, EXAMPLE_READ_ONLY_REASON, accessFor, readOnlyReason } from "@/lib/access";
+import { EXAMPLE_START_CALLOUT, FIRST_CONTINUE_CALLOUT, START_YOUR_OWN_HREF, INVALIDATE_ON_EVENT, cycleReducer, describeContinue, exampleFrame, shellPollIntervals, wantsFirstContinueCallout } from "../BusinessShell";
 
 type ContinueResult = Parameters<typeof describeContinue>[0];
 
@@ -51,6 +52,48 @@ describe("shell cycle reducer", () => {
     expect(paused.paused).toBe(true);
     const done = cycleReducer(paused, { type: "event", event: { type: "cycle.completed", payload: { outcome: "completed" } }, agentDepartment: () => null });
     expect(done).toMatchObject({ running: false, paused: false, completedCount: 4 });
+  });
+});
+
+describe("the first-Continue callout (UX plan §7.7)", () => {
+  it("shows until the first cycle the founder starts has completed (commit runs cycle 1 itself), never for a read-only role", () => {
+    expect(wantsFirstContinueCallout({ completedCount: 0 }, true)).toBe(true);
+    expect(wantsFirstContinueCallout({ completedCount: 1 }, true)).toBe(true);
+    expect(wantsFirstContinueCallout({ completedCount: 2 }, true)).toBe(false);
+    expect(wantsFirstContinueCallout({ completedCount: 0 }, false)).toBe(false);
+  });
+
+  it("is anchored to the top bar's Continue and says the loop in one sentence", () => {
+    expect(FIRST_CONTINUE_CALLOUT).toEqual({ tourId: "first-continue", targetId: "continue", title: "This is how you move forward", body: "Press it when you have answered what needs you." });
+  });
+});
+
+describe("the Example frame (UX plan §12 item 5)", () => {
+  const example = accessFor({ role: "viewer", sectionPermissions: {}, source: "example" }, { isDemo: true });
+  const owner = accessFor({ role: "owner", sectionPermissions: {}, source: "founder" }, { isDemo: true });
+  const viewer = accessFor({ role: "viewer", sectionPermissions: {}, source: "invite" }, { isDemo: true });
+
+  it("for an example viewer: the chip, Stop all agents hidden, and the Start-your-own callout in place of the first-Continue one", () => {
+    expect(exampleFrame(example, { completedCount: 0 })).toEqual({ chip: true, stopAllHidden: true, callout: EXAMPLE_START_CALLOUT });
+    // Never the first-Continue callout for a read-only role, and never the frame for the demo's own owner or an invited viewer.
+    expect(exampleFrame(owner, { completedCount: 0 })).toEqual({ chip: false, stopAllHidden: false, callout: FIRST_CONTINUE_CALLOUT });
+    expect(exampleFrame(owner, { completedCount: 5 })).toEqual({ chip: false, stopAllHidden: false, callout: null });
+    expect(exampleFrame(viewer, { completedCount: 0 })).toEqual({ chip: false, stopAllHidden: false, callout: null });
+  });
+
+  it("the callout targets Start your own with its own tour id, and the chip says nothing is saved", () => {
+    expect(EXAMPLE_START_CALLOUT).toEqual({ tourId: "example-start", targetId: "start-your-own", title: "This is an example", body: "When you are ready, start your own business here." });
+    expect(EXAMPLE_START_CALLOUT.tourId).not.toBe(FIRST_CONTINUE_CALLOUT.tourId);
+    // "Start your own" (in Continue's slot) opens the three doors.
+    expect(START_YOUR_OWN_HREF).toBe("/new");
+    expect(EXAMPLE_CHIP_TOOLTIP).toBe("A seeded example business. Nothing you do here is saved.");
+  });
+
+  it("every refused write keeps the viewer wording, extended for the example", () => {
+    expect(readOnlyReason(example)).toBe(EXAMPLE_READ_ONLY_REASON);
+    expect(readOnlyReason(viewer)).toMatch(/^As a viewer/);
+    expect(example.canChange).toBe(false);
+    expect(example.isAdmin).toBe(false);
   });
 });
 

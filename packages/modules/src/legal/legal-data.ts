@@ -145,7 +145,7 @@ export const ROUTE_META: Record<IncorporationRoute, RouteMeta> = {
   kit: {
     route: "kit",
     label: "Document pack",
-    jurisdictionLabel: "Any other jurisdiction",
+    jurisdictionLabel: "Any other country or state",
     who: "The team prepares the documents and forms; you file them with the registry yourself.",
     external: null,
     entityTypes: ["As required by the registry"],
@@ -243,7 +243,7 @@ export function founderCanCancel(incorporation: IncorporationRow | null): boolea
 export const INCORPORATION_STATUS_WORD: Record<IncorporationRow["status"], string> = {
   draft: "Draft",
   in_progress: "Preparing",
-  awaiting_founder: "Waiting for you",
+  awaiting_founder: "Needs your go-ahead",
   submitted: "Submitted",
   complete: "Complete",
   abandoned: "Abandoned",
@@ -486,7 +486,7 @@ export const DATA_FLOWS: Record<string, Omit<DataFlow, "connectorKey">> = {
   stripe: { processor: "Stripe", purpose: "Payments, invoicing and subscription billing", data: ["name", "email", "billing address", "payment card (tokenized by Stripe)", "transaction history"], cookies: [{ name: "__stripe_mid", purpose: "Fraud prevention during checkout", duration: "1 year", category: "necessary" }, { name: "__stripe_sid", purpose: "Fraud prevention during checkout", duration: "30 minutes", category: "necessary" }] },
   sendgrid: { processor: "Twilio SendGrid", purpose: "Transactional and marketing email", data: ["email", "name", "email engagement (opens, clicks)"], cookies: [] },
   shopify: { processor: "Shopify", purpose: "Online store, orders and fulfillment", data: ["name", "email", "shipping address", "order history"], cookies: [{ name: "_shopify_y", purpose: "Shop analytics", duration: "1 year", category: "analytics" }, { name: "cart", purpose: "Keeps the basket between pages", duration: "2 weeks", category: "necessary" }] },
-  github: { processor: "GitHub", purpose: "Source code hosting and issue tracking", data: ["GitHub account name", "issue and pull request content"], cookies: [] },
+  github: { processor: "GitHub", purpose: "Source code hosting and issue tracking", data: ["GitHub account name", "issue content and proposed code changes"], cookies: [] },
   gmail: { processor: "Google (Gmail)", purpose: "Email correspondence synced into the CRM", data: ["email address", "message content", "attachments"], cookies: [] },
   google_calendar: { processor: "Google Calendar", purpose: "Meeting scheduling", data: ["email address", "meeting times and attendees"], cookies: [] },
   google_drive: { processor: "Google Drive", purpose: "Document storage", data: ["documents shared with the business"], cookies: [] },
@@ -497,7 +497,7 @@ export const DATA_FLOWS: Record<string, Omit<DataFlow, "connectorKey">> = {
   cloudflare_dns: { processor: "Cloudflare", purpose: "DNS and edge delivery for the website", data: ["IP address", "request logs"], cookies: [{ name: "__cf_bm", purpose: "Bot management", duration: "30 minutes", category: "necessary" }] },
   anthropic: { processor: "Anthropic", purpose: "AI agents that draft, research and classify on the business's behalf", data: ["text the team processes, which may include customer names and messages"], cookies: [] },
   voyage: { processor: "Voyage AI", purpose: "Search embeddings for notes and documents", data: ["text of notes and documents"], cookies: [] },
-  e2b: { processor: "E2B", purpose: "Isolated sandboxes for coding agents", data: ["source code and test data"], cookies: [] },
+  e2b: { processor: "E2B", purpose: "Isolated, throwaway computers where coding agents run code", data: ["source code and test data"], cookies: [] },
   ecb_rates: { processor: "European Central Bank", purpose: "Exchange rates", data: [], cookies: [] },
   companies_house: { processor: "Companies House", purpose: "Company registry lookups", data: ["company and officer public records"], cookies: [] },
   bolagsverket: { processor: "Bolagsverket", purpose: "Company registry lookups", data: ["company public records"], cookies: [] },
@@ -623,7 +623,7 @@ export function generateTerms(p: PolicyInput): string {
   lines.push(`## Acceptable use`, ``, `Do not misuse the service, break the law, infringe others' rights or try to access accounts or data that are not yours.`, ``);
   lines.push(`## Liability`, ``, `To the extent the law allows, we are not liable for indirect losses. Nothing in these terms limits liability that cannot be limited by law.`, ``);
   const place = jurisdictionName(p.jurisdiction);
-  lines.push(`## Governing law`, ``, `${place ? `The law of ${placeInSentence(place)} applies and its courts have jurisdiction` : "The law of the place where the company is registered applies"}, without affecting consumer rights that apply where you live.`, ``);
+  lines.push(`## Governing law`, ``, `${place ? `The law of ${placeInSentence(place)} applies and its courts decide disputes` : "The law of the place where the company is registered applies"}, without affecting consumer rights that apply where you live.`, ``);
   lines.push(`## Changes`, ``, `We may update these terms; material changes are announced at least 30 days before they apply.`, ``);
   return lines.join("\n");
 }

@@ -94,8 +94,8 @@ export const JUNO_MESSAGES: DeskMessage[] = [
     id: "m2",
     author: "agent",
     bubbles: [
-      "Still positive. At 40% we clear about £6,100 (Estimate), and the unsold units come back in time for Ireland.",
-      `The bigger lever is the 60-day terms. If ${ent("bootsUk", "Boots UK")} agrees to 45, December stays above £50K (Forecast).`,
+      "Still positive. At 40% we clear about £6,100 by my estimate, and the unsold units come back in time for Ireland.",
+      `The bigger lever is the 60-day terms. If ${ent("bootsUk", "Boots UK")} agrees to 45, December stays above £50K on my forecast.`,
     ],
     at: deskAt(1),
     reaction: "noted",
@@ -252,7 +252,7 @@ export const RESEARCH_MESSAGES: DeskMessage[] = [
     author: "agent",
     bubbles: [
       `Indie skincare brands chasing a pharmacy listing. ${ent("bootsUk", "Boots UK")} asks for stability and patch-test data before it lists a brand.`,
-      "A contract lab charges about £2–4K per product line (Estimate), so a brand with three SKUs feels the cost first.",
+      "A contract lab charges about £2–4K per product line by my estimate, so a brand with three products feels the cost first.",
     ],
     at: deskAt(5),
     reaction: "thinking",
@@ -312,7 +312,7 @@ export const CERTIFICATION_MESSAGES: DeskMessage[] = [
     id: "c2",
     author: "agent",
     bubbles: [
-      "Day 21 of 28. If the last week holds, the results are ready on October 16 (Forecast).",
+      "Day 21 of 28. If the last week holds, the results are ready on October 16 by my forecast.",
       "I'm down until 2:30 PM; the log keeps running without me.",
     ],
     at: deskAt(-39),

@@ -19,6 +19,11 @@ export interface QuickReplyItem {
   id: string;
   /** Sentence case, ≤ 36 characters from the server; two lines at most on screen, never truncated. */
   label: string;
+  /**
+   * A second line under the label in small text ("This answers the note" on a `choose_option`, the consequence of a
+   * "Take a break"; UX plan B20, §6.2 ConsequenceLine). Never spoken: the founder's words stay `say` or the label.
+   */
+  description?: string;
   say?: string;
   /** `write` opens the one-line field instead of sending. */
   kind?: QuickReplyKind;

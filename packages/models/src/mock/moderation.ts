@@ -51,7 +51,7 @@ export function generateModeration(ctx: MockContext): ModerationOutput {
     ? flags.length === 0
       ? "No honest-agent or marketing-law issues found; safe to send once policy checks pass."
       : `Allowed with ${flags.length} advisory flag${flags.length === 1 ? "" : "s"} (${flags.map((f) => f.category).join(", ")}); fix before sending if you can.`
-    : `Blocked: ${critical} critical flag${critical === 1 ? "" : "s"} (${flags.filter((f) => f.severity === "critical").map((f) => f.category).join(", ")}). Honest-agent code (BUILD §2.3) forbids sending this as written.`;
+    : `Blocked: ${critical} critical flag${critical === 1 ? "" : "s"} (${flags.filter((f) => f.severity === "critical").map((f) => f.category).join(", ")}). The rules every agent follows forbid sending this as written.`;
   return { allowed, flags, rationale };
 }
 

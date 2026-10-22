@@ -1,22 +1,23 @@
 "use client";
 /**
  * Finance › Profit and loss (BUILD §11.8, DESIGN §9): the management P&L as a DataTable with indented category lines,
- * subtotal rules and totals over a selectable period, labelled "Management P&L, unaudited, cash basis" when the
- * numbers come from categorised bank transactions (a connected ledger wins and is labelled as such). Selecting a line
+ * subtotal rules and totals over a selectable period, labelled "Management view, unaudited, counted when the cash
+ * moves (cash basis)" when the numbers come from categorised bank transactions (a connected ledger wins and is
+ * labelled as such). Selecting a line
  * lists its transactions; recategorising one through `finance.transactions.recategorise` can create a rule.
  */
 import { useMemo, useState } from "react";
 import { AlertTriangle, Landmark, Receipt, Tag, X } from "lucide-react";
-import { Button, DataTable, EntityLink, MiniTable, Panel, SegmentedControl, StatusPill, cn, formatPercent, useFormatters, type DataTableColumn, type DateFormatPrefs, type RowAction, type SavedView } from "@foundmill/dugout";
+import { Button, DataTable, EntityLink, MiniTable, Panel, SegmentedControl, StatusPill, Term, cn, formatPercent, useFormatters, type DataTableColumn, type DateFormatPrefs, type RowAction, type SavedView } from "@foundmill/dugout";
 import { moduleTabHref, useDepartments } from "@foundmill/widgets/shared/departments";
 import { routes } from "@foundmill/widgets/shared/routes";
 import { useWidgetData, useWidgetQuery } from "@foundmill/widgets/data";
 import { useSavedViews } from "@foundmill/widgets/shared/saved-views";
 import type { ModuleScreenProps } from "../registry";
-import { PNL_SECTION_LABELS, buildPnl, categoryLabel, formatMonth, isUncategorised, ledgerPnlRows, monthStart, pnlTotals, type PnlRow } from "./metrics";
+import { PNL_SECTION_LABELS, buildPnl, categoryLabel, formatMonth, isUncategorised, ledgerPnlRows, monthStart, pnlLabelWords, pnlTotals, type PnlRow } from "./metrics";
 import { RecategoriseDialog } from "./RecategoriseDialog";
 import { fitColumns, fitToGrow, type ColumnFit } from "../fit";
-import { Screen, fitTableHeight, fmtMoney, fmtSigned, useCurrency, useNow } from "./shared";
+import { SIMPLE_VIEW_ID, Screen, fitTableHeight, fmtMoney, fmtSigned, useCurrency, useDefaultViewId, useNow } from "./shared";
 import type { PnlResponse, TransactionRow, TransactionsListResponse } from "./types";
 
 export const PNL_PERIODS = [
@@ -37,6 +38,8 @@ export function periodRange(period: PnlPeriod, now: Date, prefs?: DateFormatPref
 }
 
 export const PNL_VIEWS: SavedView[] = [
+  // Simple (UX plan §7.10, principle 10): every line keeps its place; the figures narrow to the amount and its share.
+  { id: SIMPLE_VIEW_ID, name: "Simple", builtIn: true, columns: ["label", "amount", "pct"], sort: [], filters: [] },
   { id: "all", name: "Management P&L", builtIn: true, columns: ["label", "amount", "pct", "count"], sort: [], filters: [] },
   { id: "operating", name: "Operating only", builtIn: true, columns: ["label", "amount", "pct", "count"], sort: [], filters: [{ id: "f-op", field: "section", op: "in", value: ["revenue", "cogs", "opex", "gross", "operating"] }] },
   { id: "uncategorised", name: "Needs categorizing", builtIn: true, columns: ["label", "amount", "count"], sort: [], filters: [{ id: "f-unc", field: "section", op: "eq", value: "uncategorised" }] },
@@ -116,6 +119,17 @@ export function pnlColumns(currency: string, sizes: Record<PnlColumnId, number> 
   ];
 }
 
+/** The P&L's source label with "cash basis" as a defined word where the label ends in it; any other label as it is. */
+export function PnlBasisMeta({ label }: { label: string }) {
+  const suffix = " (cash basis)";
+  if (!label.endsWith(suffix)) return <>{label}</>;
+  return (
+    <>
+      {label.slice(0, -suffix.length)} (<Term id="cash_basis">cash basis</Term>)
+    </>
+  );
+}
+
 export function pnlRowClass(row: PnlRow): string | undefined {
   if (row.kind === "subtotal") return "border-t border-secondary";
   if (row.kind === "total") return "border-t border-secondary bg-panel-alt";
@@ -138,8 +152,9 @@ export function ProfitAndLossScreen({ businessId }: ModuleScreenProps) {
   const { prefs: datePrefs, formatDateShort } = useFormatters();
   const range = useMemo(() => periodRange(period, now, datePrefs), [period, now, datePrefs]);
   const pnl = useWidgetQuery<PnlResponse>("finance.pnl", { from: range.from, to: range.to });
-  // Saved per person, business and table (audit #204): they come back after a reload.
-  const savedViews = useSavedViews("finance.pnl", PNL_VIEWS, { defaultViewId: "all" });
+  // Saved per person, business and table (audit #204): they come back after a reload. Simple opens first while guidance is on.
+  const defaultViewId = useDefaultViewId("all");
+  const savedViews = useSavedViews("finance.pnl", PNL_VIEWS, { defaultViewId });
   const [selected, setSelected] = useState<PnlRow | null>(null);
   const [recat, setRecat] = useState<TransactionRow | null>(null);
   const transactions = useWidgetQuery<TransactionsListResponse>("finance.transactions.list", { from: range.from, to: range.to, limit: 500 }, { enabled: !!selected });
@@ -168,14 +183,16 @@ export function ProfitAndLossScreen({ businessId }: ModuleScreenProps) {
   return (
     <Screen name="finance/pnl">
       <Panel
-        title="Profit and loss"
+        title={<Term id="pnl">Profit and loss</Term>}
+        helpLabel="Profit and loss"
+        help="Money in minus money out, counted when the cash moves; every line is a category of the chart of accounts."
         span={selected ? 8 : 12}
         flush
         loading={pnl.isLoading}
         error={pnl.error ? pnl.error.message : undefined}
         onRetry={pnl.refetch}
         empty={empty ? { icon: Landmark, title: "No transactions in this period", children: "Connect a bank account and the finance lead categorizes every transaction into the standard chart of accounts.", action: { label: "Connect a bank", icon: Landmark, onClick: () => navigate(routes.settings(businessId, "integrations")) } } : undefined}
-        meta={pnl.data ? (ledger ? `Ledger · ${ledger.basis} basis` : pnl.data.label) : undefined}
+        meta={pnl.data ? (ledger ? <><Term id="ledger">Ledger</Term> · {ledger.basis} basis</> : <PnlBasisMeta label={pnlLabelWords(pnl.data.label)} />) : undefined}
         actions={<SegmentedControl<PnlPeriod> aria-label="Period" size="sm" value={period} onValueChange={setPeriod} options={PNL_PERIODS.map((p) => ({ value: p.value, label: p.short, title: p.label }))} />}
         footer={
           <>
@@ -204,7 +221,7 @@ export function ProfitAndLossScreen({ businessId }: ModuleScreenProps) {
           data={rows}
           columns={columns}
           {...savedViews}
-          defaultViewId="all"
+          defaultViewId={defaultViewId}
           height={fitTableHeight(rows.length, { minRows: 6, maxRows: 40 })}
           density="compact"
           virtualized={false}
@@ -229,7 +246,7 @@ export function ProfitAndLossScreen({ businessId }: ModuleScreenProps) {
             </Button>
           }
           empty={transactions.data && lineTransactions.length === 0 ? "No transactions in this line for the period." : undefined}
-          footer={<span>Pick a transaction to recategorize it. Applying to a counterparty creates a rule for future syncs.</span>}
+          footer={<span>Pick a transaction to recategorize it. Applying it to every transaction with the same other side makes a rule for future syncs.</span>}
         >
           <MiniTable<TransactionRow>
             aria-label={`Transactions in ${selected.label}`}
@@ -241,8 +258,8 @@ export function ProfitAndLossScreen({ businessId }: ModuleScreenProps) {
               { id: "date", header: "Date", width: 84, cell: (t) => <span className="tabular-nums">{formatDateShort(t.bookedAt)}</span> },
               {
                 id: "who",
-                header: "Counterparty",
-                cell: (t) => (t.counterpartyEntityId ? <EntityLink entity={{ id: t.counterpartyEntityId, kind: "organisation", name: t.counterparty ?? "Counterparty" }} hoverCard={false} /> : <span className="truncate">{t.counterparty ?? t.description}</span>),
+                header: "Paid to / from",
+                cell: (t) => (t.counterpartyEntityId ? <EntityLink entity={{ id: t.counterpartyEntityId, kind: "organisation", name: t.counterparty ?? "Unnamed" }} hoverCard={false} /> : <span className="truncate">{t.counterparty ?? t.description}</span>),
               },
               { id: "amount", header: "Amount", numeric: true, width: 100, cell: (t) => <span className="tabular-nums">{fmtSigned(t.amountMinor, t.currency)}</span> },
               {

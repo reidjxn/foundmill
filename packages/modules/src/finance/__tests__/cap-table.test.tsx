@@ -30,6 +30,8 @@ describe("CapTableScreen", () => {
     expect(within(strip).getByText(/800,000 of 1,000,000 unallocated/)).toBeTruthy();
     expect(within(strip).getByText("Convertibles").parentElement!.parentElement!.textContent).toContain("€100K");
     const holders = screen.getByRole("grid", { name: "Holders" });
+    // Guidance off: the operator's view, no intro.
+    expect(document.querySelector("[data-explainer]")).toBeNull();
     expect(within(holders).getByRole("link", { name: /Mara Lindqvist/ }).getAttribute("href")).toBe(`/b/${BID}/crm/${ENTITY.mara}/overview`);
     expect(within(holders).getAllByText("48.91%")).toHaveLength(2);
     expect(within(holders).getAllByText("Common")).toHaveLength(2);
@@ -42,6 +44,19 @@ describe("CapTableScreen", () => {
     expect(screen.getByRole("region", { name: "Issuances" }).textContent).toContain("4 issuances");
     expect(screen.getByText(/^Versioned and audited · last change/)).toBeTruthy();
     expect(screen.queryByRole("button", { name: /Pay|Transfer|Wire/ })).toBeNull(); // no money movement
+  });
+
+  it("guidance on: the intro says who owns what, the Holders open on the Simple view and SAFE is a defined word (UX plan §7.14)", () => {
+    const fake = createFakeSource({ businessId: BID, responses: dataResponses });
+    renderScreen(fake, <CapTableScreen {...props} />, {}, { guidance: "on" });
+    const explainer = document.querySelector("[data-explainer='finance/cap-table']") as HTMLElement;
+    expect(within(explainer).getByText("Who owns what share of the company.")).toBeTruthy();
+    expect(screen.getAllByRole("button", { name: /^View: Simple/ })).toHaveLength(2);
+    const holders = screen.getByRole("grid", { name: "Holders" });
+    expect(within(holders).getAllByRole("columnheader").map((h) => h.textContent)).toEqual(["Holder", "Kind", "Shares", "Fully diluted", "Actions"]);
+    expect(screen.getAllByRole("button", { name: /^SAFEs?$/ }).length).toBeGreaterThan(0);
+    // The tiles carry their plain lines.
+    expect(document.querySelectorAll("[data-plain-line]").length).toBe(4);
   });
 
   it("leaves SAFEs out of the fully diluted percentages and shows them at principal, until they convert (#168)", () => {

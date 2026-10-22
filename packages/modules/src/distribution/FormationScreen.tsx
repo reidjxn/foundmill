@@ -7,7 +7,7 @@
  */
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Play, RefreshCw, Sparkles } from "lucide-react";
-import { Button, Chip, Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, FormationBoard, GridCell, Panel, ProvenanceChip, formatMoney } from "@foundmill/dugout";
+import { Button, Chip, Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, Explainer, FormationBoard, GridCell, Panel, ProvenanceChip, Term, formatMoney } from "@foundmill/dugout";
 import type { ChannelKey } from "@foundmill/shared";
 import { CHANNEL_WINDOW_DAYS } from "@foundmill/shared/constants";
 import { addDays } from "@foundmill/widgets/shared/time";
@@ -30,6 +30,14 @@ export interface FormationScreenProps extends ModuleScreenProps {
 
 /** The channel window ("last 35 days"): today and the 34 days before it, as the API's channel summary counts it. */
 export const METRICS_WINDOW_DAYS = CHANNEL_WINDOW_DAYS;
+
+/** The department's intro, on its first tab while guidance is on (UX plan §7.10). */
+export const DISTRIBUTION_EXPLAINER = {
+  screenId: "distribution/board",
+  purpose: "How customers will find you.",
+  action: "Channels on the Board are running; the rest wait in the tray. Drag one up to start it, or open it for its profile.",
+  watchFor: "Cost per customer is an Estimate until the ad platform reports which customers it actually brought.",
+} as const;
 
 export function FormationScreen({ businessId, departmentId, animateEntrance = true, rescoreDelayMs = RESCORE_DEBOUNCE_MS }: FormationScreenProps) {
   const { navigate, currency } = useWidgetData();
@@ -185,6 +193,7 @@ export function FormationScreen({ businessId, departmentId, animateEntrance = tr
         <Panel
           title="Board"
           meta={hasData ? (waiting ? `${starters} of 15 on the board · waiting for the product` : starting ? `${starters - starting} of 15 running · ${starting} starting` : `${starters} of 15 running`) : undefined}
+          help="Each token is a channel; drag it onto the board to start it, or off the board to stop it."
           loading={channels.isLoading}
           error={channels.error ? channels.error.message : undefined}
           onRetry={channels.refetch}
@@ -192,26 +201,31 @@ export function FormationScreen({ businessId, departmentId, animateEntrance = tr
             <>
               {rescoreSoon.pending ? (
                 <Chip tone="neutral" data-testid="rescore-pending">
-                  Local scores · re-scoring shortly
+                  Scores are being refreshed
                 </Chip>
               ) : null}
               <Button size="sm" variant="ghost" icon={rescoring ? RefreshCw : Sparkles} loading={rescoring} onClick={rescoreNow}>
-                {scored === 0 ? "Get recommendation" : "Re-score"}
+                {scored === 0 ? "Get recommendation" : "Score again"}
               </Button>
             </>
           }
           footer={
             hasData ? (
               <span className="inline-flex flex-wrap items-center gap-1.5 tabular-nums">
-                Budget across running channels {formatMoney({ amountMinor: budget, currency })} per month · cost per customer is an <ProvenanceChip kind="estimate" /> · drag a channel on or off the board, or open it for its profile
+                Budget across running channels {formatMoney({ amountMinor: budget, currency })} per month · <Term id="acquisition_cost">cost per customer</Term> is an <ProvenanceChip kind="estimate" /> · drag a channel on or off the board, or open it for its profile
               </span>
             ) : undefined
           }
           className="min-w-0 flex-1"
         >
+          {/* The department's intro (guidance on), then what the numbers mean, said once under the title (UX plan §7.13). */}
+          <Explainer {...DISTRIBUTION_EXPLAINER} className="mb-3" />
+          <p className="mb-2 max-w-reading text-small text-secondary" data-testid="board-caption">
+            <Term id="fit">Fit</Term> 1–20: how well a channel suits this business, scored by the <Term id="distribution_strategist">Distribution Strategist</Term>. Closer to the center means a better fit.
+          </p>
           {hasData && scored === 0 ? (
             <p className="mb-2 text-small text-secondary" role="status">
-              {starters > 0 ? "No channel has been scored yet." : "All 15 channels are off the board."} The Distribution Strategist scores each one 1–20 for fit and puts 3 to 6 starters on the Board.
+              {starters > 0 ? "No channel has been scored yet." : "All 15 channels are off the board."} The Distribution Strategist scores each one 1–20 for fit and picks 3 to 6 channels to start with.
             </p>
           ) : null}
           <InlineError error={action.error} className="mb-2" />

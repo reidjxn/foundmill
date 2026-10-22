@@ -1,13 +1,16 @@
 "use client";
 /**
  * Settings › Keys (BUILD §10.2): paste an Anthropic key → validate (minimal API call, nothing stored) → store
- * (encrypted with the business data key; never shown again, never logged). Rotate and revoke; spend-limit advice.
+ * (encrypted with the business data key; never shown again, never logged). Rotate and revoke; spend-limit advice. The
+ * first line says what the key is for in plain words (docs/UX_AUDIT_AND_PLAN.md §7.17, C23), with the key and the
+ * credits defined on first use.
  */
 import { useMutation, useQuery } from "@tanstack/react-query";
 import type { IntegrationStatus } from "@foundmill/shared";
 import { KeyRound, RefreshCw, ShieldOff } from "lucide-react";
 import { useState } from "react";
-import { Button, Chip, Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, Field, Input, KeyValueList, StatusPill, useDateFormat } from "@foundmill/dugout";
+import { Button, Chip, ConsequenceLine, Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, Field, Input, KeyValueList, ShellLink, StatusPill, Term, useDateFormat } from "@foundmill/dugout";
+import { routes } from "@foundmill/widgets/shared/routes";
 import { formatDateTime, plainWords } from "@/lib/format";
 import { errorMessage } from "@/lib/trpc";
 import { useTRPC } from "@/lib/trpc-react";
@@ -19,6 +22,9 @@ import { useInvalidateRouters } from "./SettingsScreen";
 import { AdminOnly, Hint, SettingsSection, useSettingsToast } from "./shared";
 
 export const SPEND_LIMIT_ADVICE = "Also set a monthly spend limit in your Anthropic Console: the key is yours, and the limit there is the ceiling no agent can exceed.";
+
+/** What revoking the key does, under the button and in the dialog (principle 6: every decision carries its consequence). */
+export const REVOKE_CONSEQUENCE = { consequence: "Every agent stops until a new key is stored.", cost: "No cost", reversible: true } as const;
 
 export function KeysTab() {
   const datePrefs = useDateFormat();
@@ -47,6 +53,10 @@ export function KeysTab() {
     <AdminOnly>
       {refreshFailed(status) ? <RefreshFailedNotice query={status} className="flex items-center gap-2" /> : null}
       <SettingsSection title="Anthropic key" loading={status.isLoading}>
+        <p className="text-body text-secondary" data-testid="keys-lede">
+          Agents think with Claude. Paste your <Term id="api_key">Anthropic key</Term> so they run on your account, or use <Term id="credits">credits</Term> on{" "}
+          <ShellLink href={routes.settings(businessId, "billing")}>Billing</ShellLink>.
+        </p>
         <div className="flex items-center gap-3">
           <StatusPill tone={configured ? "good" : "neutral"} icon={KeyRound}>
             {configured ? "Key on file" : "No key"}
@@ -113,16 +123,20 @@ export function KeysTab() {
       {configured ? (
         <SettingsSection title="Revoke">
           <p className="text-body text-secondary">Revoking archives the credential, disconnects the integration, stops every agent and posts a note in the Inbox. Storing a new key resumes them by itself; on a plan with credits, an owner or admin can also press Resume agents in the top bar.</p>
-          <div>
-            <Button variant="danger" icon={ShieldOff} onClick={() => setConfirmRevoke(true)}>
-              Revoke key
-            </Button>
+          <div className="flex flex-col gap-1.5">
+            <div>
+              <Button variant="danger" icon={ShieldOff} onClick={() => setConfirmRevoke(true)}>
+                Revoke key
+              </Button>
+            </div>
+            <ConsequenceLine {...REVOKE_CONSEQUENCE} data-testid="revoke-consequence" />
           </div>
           <Dialog open={confirmRevoke} onOpenChange={setConfirmRevoke}>
             <DialogContent size="sm">
               <DialogHeader>
                 <DialogTitle>Revoke the Anthropic key?</DialogTitle>
                 <DialogDescription>Every agent stops until a new key is stored, which resumes them. The Inbox gets a note explaining why.</DialogDescription>
+                <ConsequenceLine {...REVOKE_CONSEQUENCE} />
               </DialogHeader>
               <DialogFooter>
                 <Button variant="ghost" onClick={() => setConfirmRevoke(false)}>

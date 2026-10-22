@@ -753,7 +753,7 @@ function within180(lines: string[]): string {
 
 /**
  * The two decision notes the Product lead posts when the foundations are ready (BUILD §11.3 note style: fact → why it
- * matters → ask; 60-180 words each): "Sign off the product specification" and "Sign off the product roadmap". The
+ * matters → ask; under 180 words each, no padding): "Sign off the product specification" and "Sign off the product roadmap". The
  * founder approves each, or asks for changes in their own words. Deterministic from the draft, so they need no second
  * model call and invent nothing; model text goes in as plain, escaped text (the notes render as Markdown).
  */

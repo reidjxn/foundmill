@@ -9,15 +9,17 @@ const concepts = conceptFixtures();
 const meta = {
   title: "Journey/ConceptCard",
   component: ConceptCard,
-  parameters: { docs: { description: { component: "Ideation Studio player cards (BUILD §11.1, DESIGN §9): logo, name, pitch, current and potential stars, ten attributes as 20-cell ramp bars with evidence on hover, and the Shortlist / Merge / Fork / Ask / Discard actions. Compare lays 2–4 cards side by side with a radar in department colors and the agent verdict." } } },
+  parameters: { docs: { description: { component: "Ideation Studio profile cards (BUILD §11.1, DESIGN §9): logo, name, pitch, current and potential stars, ten attributes as 20-cell ramp bars with evidence on hover and, on every attribute label, a focusable tooltip that says what it measures and which way it reads (\"Competition: higher means less crowded\"). Actions: Shortlist, More like this (a variant), Ask, Merge, Discard. Compare lays 2–4 cards side by side with a radar in department colors and the agent verdict." } } },
   args: { concept: concepts[0]! },
 } satisfies Meta<typeof ConceptCard>;
 export default meta;
 type Story = StoryObj<typeof meta>;
 
 export const Card: Story = {};
-/** A forked card's long name wraps to two lines before anything is cut (DIRECTION #15). */
-export const LongName: Story = { name: "Long forked name", args: { concept: { ...concepts[2]!, id: "concept-long", name: "Soldesk variant for makerspaces with two locations", version: 3 } }, decorators: [(S) => <div style={{ width: 340 }}><S /></div>] };
+/** Hover or focus any attribute label: the tooltip says what it measures and which way it reads (A6). */
+export const AttributeDefinitions: Story = { name: "Attribute definitions on the labels", args: { concept: concepts[1]! }, parameters: { docs: { description: { story: "Every label is a focusable trigger: Tab to it or hover it to read the definition and the direction, whether or not evidence is attached to the bar." } } } };
+/** A variant's long name wraps to two lines before anything is cut (DIRECTION #15); the version reads in words. */
+export const LongName: Story = { name: "Long variant name", args: { concept: { ...concepts[2]!, id: "concept-long", name: "Soldesk variant for makerspaces with two locations", version: 3 } }, decorators: [(S) => <div style={{ width: 340 }}><S /></div>] };
 export const Shortlisted: Story = { args: { concept: concepts[1]!, shortlisted: true, selected: true, onToggleSelect: () => {} } };
 
 export const Deck: Story = {

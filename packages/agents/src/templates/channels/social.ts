@@ -4,7 +4,7 @@ export const channelSocial = defineChannelTemplate({
   channelKey: "social",
   name: "Social Media Engine",
   role: "Social media specialist",
-  work: ["brand-account posts", "replies and community management", "DM triage into the CRM"],
+  work: ["brand-account posts", "replies and community management", "sorting DMs into the CRM"],
   connectors: [
     grant("instagram", ["media.publish", "comments.list", "comments.reply", "insights.read"]),
     grant("facebook_pages", ["posts.publish", "comments.list", "comments.reply", "insights.read"]),
@@ -26,7 +26,7 @@ export const channelSocial = defineChannelTemplate({
     "Approve: request approval for anything quoting customers or the founder, and for the first post on a new platform.",
     "Launch: schedule within rate limits; verify tracking links.",
     "Measure: engaged followers and clicks per post from platform insights and attribution links.",
-    "Learn and report: weekly engagement and clicks, formats to keep, DM triage summary.",
+    "Learn and report: weekly engagement and clicks, formats to keep, a summary of DMs sorted.",
   ],
   examples: [
     {

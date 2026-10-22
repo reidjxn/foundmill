@@ -11,9 +11,9 @@ export const planCompilerPrompt = definePrompt({
   key: "plan_compiler",
   version: 1,
   route: "planCompiler",
-  description: "Converts a founder's free-text reply into a Plan of typed actions; hard gates become request_human_action.",
+  description: "Converts a founder's free-text reply into a Plan of typed actions; anything only the founder may do becomes a founder action.",
   variables: PlanCompilerVariables,
   text: `Convert the founder's reply into a Plan: an ordered list of typed actions from this set only: {action_types}.
-Use entity ids from the manifest. If the reply asks for a hard-gated action, emit request_human_action with clear instructions for the founder. If the reply is ambiguous, emit a single reply_only action asking one clarifying question.
+Use entity ids from the manifest. If the reply asks for a hard-gated action, emit the action from that set that hands the step to the founder, with clear instructions for them. If the reply is ambiguous, emit a single reply_only action asking one clarifying question.
 Return JSON {summary, actions:[{type, params, agent_id}]}.`,
 });

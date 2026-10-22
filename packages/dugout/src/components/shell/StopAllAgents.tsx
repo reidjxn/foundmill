@@ -7,6 +7,8 @@ import { useFormatters } from "../foundation/DateFormatProvider";
 import { Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "../foundation/Dialog";
 import { Icon } from "../foundation/Icon";
 import { Tooltip } from "../foundation/Tooltip";
+import { ConsequenceLine } from "../guidance/ConsequenceLine";
+import { Term } from "../guidance/Term";
 
 /** The team is stopped (Stop all agents, a revoked key, used-up credits): the kill switch becomes the way back. */
 export interface AgentsStoppedState {
@@ -53,10 +55,27 @@ export interface StopAllAgentsProps {
 /** The API's kill-switch budget (30 s) plus a margin: past it a pending stop or resume no longer holds the dialog. */
 export const STOP_PENDING_ESCAPE_MS = 35_000;
 
+/** The trigger's tooltip: what it does and the reassurance, in one line (docs/UX_AUDIT_AND_PLAN.md §7.7, B6). */
+export const STOP_ALL_TOOLTIP = "Stop all agents (pauses everything, nothing is lost)";
+
 /**
- * The kill switch (BUILD §5.4): visible on every screen, confirms before calling the API.
- * Nothing is deleted: sessions stop, tasks keep their state and can be resumed. While the team is stopped the same
- * control says so and offers Resume agents (owners and admins), so the way back is where the stop was pulled.
+ * The line under the confirm (a `ConsequenceLine`, always shown: a consequence is information, not tutoring): what the
+ * stop does, that it costs nothing and that it can be undone (Resume agents).
+ */
+export const STOP_ALL_CONSEQUENCE = "Running sessions stop now; tasks keep their state. Nothing is deleted.";
+
+/** The confirm dialog's description: the reassurance first, then what stops and who brings it back. Exported for tests. */
+export function stopAllDescription(count: number, canStop: boolean): string {
+  if (!canStop) return "Only an owner or admin can stop every agent at once. Ask one of them; they find the same button here.";
+  const stops = count > 0 ? `${count} running ${count === 1 ? "session stops" : "sessions stop"} now.` : "Every running session stops now.";
+  return `Nothing is deleted. ${stops} Tasks keep their state and nothing starts again until an owner or admin resumes the agents.`;
+}
+
+/**
+ * Stop all agents (BUILD §5.4): visible on every screen, confirms before calling the API. Its tooltip says what it does
+ * and that nothing is lost; the dialog opens with "Nothing is deleted." Sessions stop, tasks keep their state and can
+ * be resumed. While the team is stopped the same control says so and offers Resume agents (owners and admins), so the
+ * way back is where the stop was pulled.
  */
 export function StopAllAgents(props: StopAllAgentsProps) {
   if (props.stopped) return <ResumeAgents {...props} stopped={props.stopped} />;
@@ -122,7 +141,7 @@ function StopAll({ onConfirm, runningCount, open, onOpenChange, disabled, childr
   // The icon trigger is glass on the brand slab (34 px) with the octagon in a light red; hover warms it towards red.
   const trigger =
     variant === "icon" ? (
-      <Tooltip content="Stop all agents">
+      <Tooltip content={STOP_ALL_TOOLTIP}>
         <button
           type="button"
           aria-label="Stop all agents"
@@ -147,11 +166,7 @@ function StopAll({ onConfirm, runningCount, open, onOpenChange, disabled, childr
         <DialogContent size="sm" hideClose={locked}>
           <DialogHeader>
             <DialogTitle>{canStop ? "Stop all agents?" : "Stop all agents"}</DialogTitle>
-            <DialogDescription>
-              {canStop
-                ? `${count > 0 ? `${count} running ${count === 1 ? "session stops" : "sessions stop"} now.` : "Every running session stops now."} Tasks keep their state and nothing starts again until an owner or admin resumes the agents.`
-                : "Only an owner or admin can stop every agent at once. Ask one of them; they find the same button here."}
-            </DialogDescription>
+            <DialogDescription>{stopAllDescription(count, canStop)}</DialogDescription>
           </DialogHeader>
           {children || error || slow ? (
             <DialogBody className="flex flex-col gap-2">
@@ -174,6 +189,8 @@ function StopAll({ onConfirm, runningCount, open, onOpenChange, disabled, childr
                 Stop all agents
               </Button>
             ) : null}
+            {/* Its own row under the buttons (the footer wraps), lined up with the confirm. */}
+            {canStop ? <ConsequenceLine consequence={STOP_ALL_CONSEQUENCE} cost="No cost" reversible className="basis-full justify-end text-right" data-testid="stop-all-consequence" /> : null}
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -217,7 +234,13 @@ function ResumeAgents({ stopped, open, onOpenChange, disabled, className, varian
             <DialogTitle>{stopped.canResume ? "Resume agents?" : "Agents are stopped"}</DialogTitle>
             <DialogDescription>
               The team stopped{since ? ` on ${since}` : ""} because {stopped.reason}. Nothing starts work until it is resumed.{" "}
-              {stopped.canResume ? "Resuming puts every agent the stop paused back to work; the next cycle picks up the paused tasks. Campaigns the stop paused stay paused until you resume them in Distribution." : "An owner or admin resumes the agents."}
+              {stopped.canResume ? (
+                <>
+                  Resuming puts every agent the stop paused back to work; the next <Term id="cycle">cycle</Term> picks up the paused tasks. Campaigns the stop paused stay paused until you resume them in Distribution.
+                </>
+              ) : (
+                "An owner or admin resumes the agents."
+              )}
             </DialogDescription>
           </DialogHeader>
           {stopped.hint || error || slow ? (

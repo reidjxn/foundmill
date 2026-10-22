@@ -1,10 +1,25 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 import { LONG, chooseTableView, openBusiness } from "./helpers";
 
 /**
  * CRM list and universal search (BUILD §11.12) on the seeded Northwind Skincare (customers, suppliers and supplier
  * contacts). Stack and commands: e2e/README.md.
  */
+/**
+ * Opens the New record dialog from the keyboard. Seeded Northwind has no finished cycle, so with guidance on the
+ * first-Continue callout (UX plan §7.7) sits under Continue in the top bar, over the screen's top-right "New record"
+ * button. It is not modal and stays until "Got it", which marks the tour done for the whole dev account
+ * (first-days.spec.ts still expects it), so the button is pressed from the keyboard, as billing.spec.ts does for its
+ * close button, rather than by a pointer click through the callout's card.
+ */
+async function openNewRecord(page: Page): Promise<void> {
+  const button = page.getByTestId("crm-new");
+  await button.focus();
+  await expect(button).toBeFocused();
+  await page.keyboard.press("Enter");
+  await expect(page.getByTestId("new-entity-dialog")).toBeVisible({ timeout: LONG });
+}
+
 test.describe("crm", () => {
   test.beforeEach(async ({ page }) => {
     await openBusiness(page, "crm");
@@ -14,6 +29,8 @@ test.describe("crm", () => {
   });
 
   test("lists records with grouped views, importers and the data duties panel", async ({ page }) => {
+    // "Contacts" is the screen's name in the chrome (founder decision 2026-10-20, item 1); the grid keeps "CRM records".
+    await expect(page.getByTestId("kitbar-screen-title")).toHaveText("Contacts", { timeout: LONG });
     await expect(page.getByTestId("crm-importers")).toContainText("Affinity");
     await expect(page.getByTestId("crm-data-duties")).toContainText("Lawful basis");
     // Dugout's DataTable is an ARIA grid; the seed gives Northwind records to list.
@@ -130,15 +147,17 @@ test.describe("crm", () => {
   test("the list pages through every record and says how many there are", async ({ page }) => {
     const summary = page.getByTestId("crm-loaded");
     await expect(summary).toHaveText(/^[\d,]+( of [\d,]+)? records?$/, { timeout: LONG });
-    // Pages keep loading until everything is here (or the automatic limit): the count settles on the true total.
-    await expect(page.getByTestId("crm-load-more")).toHaveCount(0, { timeout: LONG });
-    const text = (await summary.textContent()) ?? "";
-    expect(text, "no partial 'N of M' left once everything is loaded").not.toContain(" of ");
+    // Pages keep loading until everything is here (or the automatic limit): the count settles on the true total. While
+    // a page is in flight the footer swaps "Load more" for "Loading more…", so the button's absence alone does not mean
+    // the list is complete: wait for the summary itself to drop its partial "N of M".
+    await expect(summary, "no partial 'N of M' left once everything is loaded").not.toContainText(" of ", { timeout: LONG });
+    await expect(summary).toHaveText(/^[\d,]+ records?$/);
+    await expect(page.getByTestId("crm-load-more")).toHaveCount(0);
+    await expect(page.getByTestId("crm-table-panel").getByText("Loading more…")).toHaveCount(0);
   });
 
   test("new record dialog and the merge flow from a row", async ({ page }) => {
-    await page.getByTestId("crm-new").click();
-    await expect(page.getByTestId("new-entity-dialog")).toBeVisible();
+    await openNewRecord(page);
     await page.keyboard.press("Escape");
     await expect(page.getByTestId("new-entity-dialog")).toBeHidden();
     // The first data row (row 0 is the column header).
@@ -155,7 +174,7 @@ test.describe("crm", () => {
     const tag = Date.now().toString(36);
     const email = `dup.${tag}@merge.example`;
     const add = async (name: string) => {
-      await page.getByTestId("crm-new").click();
+      await openNewRecord(page);
       const dialog = page.getByTestId("new-entity-dialog");
       await dialog.getByLabel("Name").fill(name);
       await dialog.getByLabel("Email").fill(email);

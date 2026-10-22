@@ -61,7 +61,13 @@ describe("token verifier", () => {
     const prod = createTokenVerifier({ appEnv: "production", devUserId: USER_A, jwks: createLocalJWKSet({ keys: [jwk] }) });
     expect(prod.devUserId).toBeNull();
     expect(await prod.resolve("dev")).toBeNull();
+    // The second dev account is a development/test bearer too: in production it names nobody.
+    expect(await prod.resolve(`dev:${USER_B}`)).toBeNull();
     expect(await prod.resolve(null)).toBeNull();
+    const staging = createTokenVerifier({ appEnv: "staging", devUserId: USER_A, jwks: createLocalJWKSet({ keys: [jwk] }) });
+    expect(staging.devUserId).toBeNull();
+    expect(await staging.resolve(`dev:${USER_B}`)).toBeNull();
+    expect(await staging.resolve("dev")).toBeNull();
     expect(await prod.resolve(await sign({ sub: USER_B }))).toMatchObject({ userId: USER_B, email: null, expiresAt: expect.any(Number) });
   });
 

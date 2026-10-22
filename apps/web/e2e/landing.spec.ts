@@ -21,11 +21,34 @@ test.describe("landing page", () => {
     expect((await home.locator("svg").boundingBox())!.height).toBe(20);
     await expect(page.locator("svg[data-variant]")).toHaveCount(0);
 
+    // The hero's assurances: what a founder starts with (the free plan's included credits, no card); the key assurance
+    // lives in "You decide" beside "Your key, sealed" (UX plan §7.1, A13).
+    const hero = page.locator("section", { has: page.locator("#hero-title") });
+    await expect(hero.getByText("Starts with $5.00 of included credits · no card")).toBeVisible();
+    await expect(hero.getByText(/Anthropic key/)).toHaveCount(0);
+    await expect(page.getByText(/Bring your own Anthropic key/)).toHaveCount(1);
+    await expect(page.locator("#control").getByText(/^Bring your own Anthropic key, or stay on the included credits\./)).toBeVisible();
+
     // Section nav scrolls to each section.
     for (const [label, id] of [["Why now", "why"], ["How it works", "how"], ["Your team", "team"], ["Live sessions", "live"], ["Journey", "journey"], ["You decide", "control"]] as const) {
       await page.getByRole("navigation", { name: "Sections" }).getByRole("link", { name: label }).click();
       await expect(page.locator(`#${id}`)).toBeInViewport();
     }
+
+    // How it works: four beats, each labeled Example; the fourth is day one as it runs (drafting → two sign-offs →
+    // Continue), drawn with the product's parts.
+    const how = page.locator("#how");
+    await how.scrollIntoViewIfNeeded();
+    await expect(how.getByTestId("step-title")).toHaveText(["Shape the idea", "Make it yours", "Press Continue", "Your first day"]);
+    await expect(how.getByText("Example", { exact: true })).toHaveCount(4);
+    const firstDay = how.getByRole("region", { name: "Vision, specification and roadmap · Drafting" });
+    await expect(firstDay).toContainText("Drafting your vision, specification and roadmap…");
+    await expect(firstDay).toContainText("Iris, Product lead, writes it from your idea and your profile. Orla, Chief of Staff, plans the first cycle from the roadmap.");
+    const signoffs = how.getByRole("list", { name: "Inbox" }).getByRole("listitem");
+    await expect(signoffs).toHaveText([/Sign off the product specification/, /Sign off the product roadmap/]);
+    await expect(how.getByRole("list", { name: "Inbox" }).getByText("Respond", { exact: true })).toHaveCount(2);
+    await expect(how.getByText("Building starts: 11 tasks planned")).toBeVisible();
+    await expect(how.getByText("The team drafts; you sign off; then they build. Nothing is spent until you approve it.")).toBeVisible();
 
     // The team: each department's lead, with their attribute ratings.
     await page.locator("#team").scrollIntoViewIfNeeded();
@@ -78,10 +101,16 @@ test.describe("landing page", () => {
     await expect(deck.getByRole("button", { name: /Respond to 1 item/ })).toBeVisible();
     await page.getByTestId("deck-decision").getByRole("button", { name: "Merge" }).click();
     await expect(deck.getByText("Photo grading merged", { exact: true })).toBeVisible();
+    // The callout under Continue teaches the loop in the app's own words, until the visitor presses it. It is the
+    // design system's Callout: a popover portaled to <body>, anchored to the deck's Continue (data-coachmark-active).
+    const callout = page.locator("[data-coachmark][data-tour='deck-continue']");
+    await expect(callout).toContainText("Press it when you have answered what needs you.");
+    await expect(page.locator("[data-testid='deck-continue'][data-coachmark-active]")).toHaveCount(1);
 
     // Pressing Continue runs the next cycle, which brings a customer; the gold card opens the Journey.
     await deck.getByRole("button", { name: "Continue" }).click();
     await expect(deck).toHaveAttribute("data-phase", "processing");
+    await expect(callout).toHaveCount(0);
     await expect(page.getByTestId("deck-win")).toBeVisible({ timeout: 15_000 });
     await expect(deck.getByRole("button", { name: /Go to Journey/ })).toBeVisible();
     await page.getByTestId("deck-win").getByRole("button", { name: /See the Customer Update/ }).click();

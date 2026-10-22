@@ -71,6 +71,21 @@ describe("ResearchPlanPanel", () => {
     expect(fake.mutations).toHaveLength(0);
   });
 
+  it("guidance on: the intro says what the plan is for, in the panel's body (UX plan §7.11)", () => {
+    const fake = createFakeSource({ businessId: BID, responses: { "product.research.get": ready, "business.get": { foundationsStatus: "ready" }, "department.list": departments } });
+    renderScreen(fake, <ResearchPlanPanel businessId={BID} blocks={[]} onOpenBlock={() => undefined} />, { canWrite: () => true }, { guidance: "on" });
+    const panel = screen.getByTestId("research-plan");
+    const explainer = panel.querySelector("[data-explainer='product/research']") as HTMLElement;
+    expect(within(explainer).getByText("Who we will talk to and what we will ask, before building more.")).toBeTruthy();
+    expect(within(explainer).getByText(/Nothing is sent to anyone without your approval/)).toBeTruthy();
+  });
+
+  it("guidance off: no intro", () => {
+    const fake = createFakeSource({ businessId: BID, responses: { "product.research.get": ready, "business.get": { foundationsStatus: "ready" }, "department.list": departments } });
+    renderScreen(fake, <ResearchPlanPanel businessId={BID} blocks={[]} onOpenBlock={() => undefined} />, { canWrite: () => true });
+    expect(document.querySelector("[data-explainer]")).toBeNull();
+  });
+
   it("reads an artifact in a dialog and marks it ready; a reader without write sees no such buttons", async () => {
     const fake = createFakeSource({ businessId: BID, responses: { "product.research.get": ready, "business.get": { foundationsStatus: "ready" }, "department.list": departments } });
     renderScreen(fake, <ResearchPlanPanel businessId={BID} blocks={[]} onOpenBlock={() => undefined} />, { canWrite: () => true });

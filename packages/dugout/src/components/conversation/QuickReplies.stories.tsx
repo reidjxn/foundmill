@@ -46,6 +46,18 @@ export const FourStarters: Story = {
 /** Where 1–4 already belong to the DecisionBar: Alt+1–4. */
 export const AltKeys: Story = { name: "Alt+1–4", args: { keyModifier: "alt" } };
 
+/** A reply with a second line: "Go with: …" decides the note from the chat and says so (UX plan B20); "Take a break" says what it does. */
+export const WithDescription: Story = {
+  args: {
+    replies: [
+      { ...DECISION_STARTERS[0]!, description: "This answers the note" },
+      DECISION_STARTERS[1]!,
+      { id: "take_a_break", label: "Take a break", kind: "acknowledge", description: "Pauses the current task · Reversible" },
+      DECISION_STARTERS[3]!,
+    ],
+  },
+};
+
 /** Only one reply arrived: the row still offers two (the second is sent as typed text). */
 export const PaddedToTwo: Story = {
   args: {

@@ -18,7 +18,7 @@ export const backendEngineer = defineTemplate({
     goals: [
       "The acceptance tests named in the task pass, and new behavior has its own tests.",
       "APIs are typed end to end (Zod input, typed output), errors are explicit, and nothing reads process.env outside the env module.",
-      "Data access goes through repositories with businessId first; every business-scoped table has RLS and a cross-tenant test.",
+      "Data access goes through repositories with businessId first; every business-scoped table has row-level security and a cross-tenant test.",
     ],
     rules: [
       ...CODING_COMMON_RULES,
@@ -31,7 +31,7 @@ export const backendEngineer = defineTemplate({
       "Claim the task; restate the goal and acceptance criteria in the plan checklist; list the files in scope.",
       "Write failing tests for each acceptance criterion.",
       "Implement in small commits on agent/<taskId>; run the test suite and typecheck after each step.",
-      "Run the repository's lint and the RLS tests if a table changed; fix everything in scope.",
+      "Run the repository's lint and the row-level security tests if a table changed; fix everything in scope.",
       "Push the branch, write the completion report (what changed, tests added, open questions) and hand off to review.",
     ],
     tone: "Terse engineering notes. Names files, functions and tests.",

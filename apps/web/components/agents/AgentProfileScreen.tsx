@@ -113,7 +113,8 @@ export function AgentProfileScreen({ agentId, tab }: AgentProfileScreenProps) {
         </span>
       ),
     },
-    { label: wageLabel(profile.wage.period, undefined, datePrefs), value: `${formatMoney({ amountMinor: profile.wage.costMinor, currency: profile.wage.currency })}${profile.wage.wageCapMinor !== null ? ` of ${formatMoney({ amountMinor: profile.wage.wageCapMinor, currency: profile.wage.currency })}` : ""}`, provenance: "estimate" },
+    // Metered model, sandbox and tool spend: US dollars, whatever currency the business keeps its books in (C19).
+    { label: `${wageLabel(profile.wage.period, undefined, datePrefs)} (USD)`, value: `${formatMoney({ amountMinor: profile.wage.costMinor, currency: profile.wage.currency })}${profile.wage.wageCapMinor !== null ? ` of ${formatMoney({ amountMinor: profile.wage.wageCapMinor, currency: profile.wage.currency })}` : ""}`, provenance: "estimate" },
     // Tasks it finished in its sessions over the last 30 days (the History tab's strip counts the same rows).
     { label: "Tasks · 30 days", value: profile.recent.tasksDone },
   ];
@@ -138,6 +139,7 @@ export function AgentProfileScreen({ agentId, tab }: AgentProfileScreenProps) {
           )
         }
         facts={facts}
+        // The header's stars read "Now 3.5 of 5 · could reach 4.5" once with their band word (StarRating's caption and ScaleLabel); the 1–20 mean is the Rating column's figure.
         stars={mean !== null ? { current: starsFor(mean) ?? 0, potential: starsFor(potential) } : undefined}
         actions={
           released ? (

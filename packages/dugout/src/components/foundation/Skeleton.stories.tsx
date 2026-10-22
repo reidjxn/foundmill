@@ -17,6 +17,9 @@ export default meta;
 type Story = StoryObj<typeof meta>;
 
 export const Bar: Story = { args: { className: "w-48" } };
+/** A skeleton names its queue (DESIGN §7): a small tertiary line, announced politely. */
+export const Labeled: Story = { args: { className: "w-48", label: "Queued for Teodor" } };
+export const TextLabeled: Story = { name: "Text, labeled", render: () => <SkeletonText className="w-80" label="Loading cash from Stripe" /> };
 export const Circle: Story = { args: { shape: "circle", className: "size-8" } };
 export const Text: Story = { render: () => <SkeletonText className="w-80" /> };
 export const Rows: Story = { render: () => <SkeletonRows className="surface-panel w-128" /> };
@@ -31,8 +34,7 @@ export const StaggeredCard: Story = {
           <Skeleton index={2} className="h-3 w-1/3" />
         </div>
       </div>
-      <SkeletonText lines={3} start={3} />
-      <p className="text-small text-tertiary">Queued for Teodor · 3rd</p>
+      <SkeletonText lines={3} start={3} label="Queued for Teodor · 3rd" />
     </div>
   ),
 };

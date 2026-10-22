@@ -67,9 +67,9 @@ describe("page titles", () => {
     expect(title("/home/5f2b8c1e-9a4d-4c3b-8e7f-1a2b3c4d5e6f")).toBe("Home");
     expect(title("/inbox")).toBe("Inbox");
     expect(title("/inbox/item-1")).toBe("Inbox");
-    expect(title("/crm")).toBe("CRM");
+    expect(title("/crm")).toBe("Contacts");
     expect(title("/crm/e1/activity", "Acme Ltd")).toBe("Activity · Acme Ltd");
-    expect(title("/crm/e1/overview")).toBe("Overview · CRM");
+    expect(title("/crm/e1/overview")).toBe("Overview · Contacts");
     expect(title("/milestones")).toBe("Milestones");
     expect(title("/journey/j1")).toBe("Customer Update");
     expect(title("/settings/members")).toBe("Members · Settings");
@@ -91,6 +91,8 @@ describe("page titles", () => {
   it("names settings sections, department tabs, agents and entities", () => {
     expect(settingsTitle("members")).toBe("Members · Settings");
     expect(settingsTitle("danger")).toBe("Danger zone · Settings");
+    // The glossary slug stays; the tab reads "Your words" (docs/UX_AUDIT_AND_PLAN.md §7.17).
+    expect(settingsTitle("glossary")).toBe("Your words · Settings");
     expect(settingsTitle("nope")).toBe("Settings");
     expect(departmentTitle(DEPARTMENTS, "finance", "cash")).toBe("Cash · Finance");
     expect(departmentTitle(DEPARTMENTS, "finance", "nope")).toBe("Finance");
@@ -99,6 +101,6 @@ describe("page titles", () => {
     expect(agentTitle(DEPARTMENTS, "missing", "overview")).toBe("Overview · Agent");
     expect(agentTitle(DEPARTMENTS, "a1", "profile")).toBe("Mara");
     expect(entityTitle("Acme Ltd", "activity")).toBe("Activity · Acme Ltd");
-    expect(entityTitle(null, "overview")).toBe("Overview · CRM");
+    expect(entityTitle(null, "overview")).toBe("Overview · Contacts");
   });
 });

@@ -3,16 +3,18 @@ import { forwardRef, useCallback, useEffect, useMemo, useState, type CSSProperti
 import type { BusinessMode, GameMode, Money } from "@foundmill/shared";
 import { cn } from "../../lib/cn";
 import { BusinessLogo } from "../foundation/BusinessLogo";
+import { FitText } from "../foundation/FitText";
 import { useToastPlacement } from "../foundation/Toast";
 import { TooltipProvider } from "../foundation/Tooltip";
+import { useGuided } from "../guidance/GuidanceProvider";
 import { Breadcrumbs } from "./Breadcrumbs";
-import { CommandPalette, type CommandPaletteProps } from "./CommandPalette";
+import { CommandPalette, KEYBOARD_SHORTCUTS_HELP_ITEM, type CommandPaletteProps, type PaletteItem } from "./CommandPalette";
 import { continueButtonAction, type ContinueHandlers } from "./ContinueButton";
 import { KeyboardHelp } from "./KeyboardHelp";
 import type { ConnectionChipProps } from "./ConnectionChip";
 import { KitBar, kitStyle, type KitBarBusinessMenu, type KitBarNav } from "./KitBar";
 import { NeedsLargerWindow } from "./NeedsLargerWindow";
-import { ProcessingStrip } from "./ProcessingStrip";
+import { ProcessingStrip, processingStatusText } from "./ProcessingStrip";
 import { RightRail } from "./RightRail";
 import type { RunwayWords } from "./RunwayChip";
 import { Sidebar } from "./Sidebar";
@@ -34,6 +36,8 @@ export interface AppShellSidebar {
 
 export interface AppShellContinue extends ContinueHandlers {
   state: ContinueState;
+  /** The running cycle's number, for the processing tooltip ("The team is working · cycle 3"). */
+  cycleNumber?: number | null;
   /** Change to fire the single 600 ms pulse (DESIGN §7). */
   pulseKey?: string | number;
   disabled?: boolean;
@@ -45,6 +49,38 @@ export interface AppShellProcessing {
   segments: ProcessingSegment[];
   /** A business cycle is running. */
   active: boolean;
+  /** The running cycle's number, for the strip's sentence ("Product and Finance are working on cycle 3"). */
+  cycleNumber?: number | null;
+}
+
+/** The floor the tab bar's processing line steps down to before it truncates (DESIGN §2: 11 px). */
+export const PROCESSING_LINE_MIN_PX = 11;
+
+/**
+ * The tab bar's version of the strip's sentence: the sentence itself while it names one or two departments, and a count
+ * once it names three or more ("4 departments are working on cycle 12"), so the line never reaches an ellipsis at
+ * 1280 px. The strip's tooltip and accessible name keep every department's name. Exported for tests.
+ */
+export function processingLineText(segments: readonly ProcessingSegment[], active: boolean, cycleNumber?: number | null): string {
+  const working = active ? segments.filter((s) => s.active).length : 0;
+  if (working < 3) return processingStatusText(segments, active, cycleNumber);
+  const on = typeof cycleNumber === "number" && cycleNumber > 0 ? ` on cycle ${cycleNumber}` : "";
+  return `${working} departments are working${on}`;
+}
+
+/**
+ * The strip's sentence in words, at the right end of the tab bar while guidance is on (B2): `t-small` in text-3,
+ * inside the bar's 40 px. When the tabs leave it little room it steps its size down to 11 px first and truncates with a
+ * tooltip only as the last resort (FitText, DESIGN §2). Nothing moves. It stays a plain line on purpose: `PlainFigure`
+ * stacks a figure over its words, which would need a second row the bar does not have, and `ConsequenceLine` is for
+ * what an action will do, not for what is happening now.
+ */
+function ProcessingLine({ text }: { text: string }) {
+  return (
+    <FitText minPx={PROCESSING_LINE_MIN_PX} className="t-small max-w-64 min-w-0 text-tertiary" data-testid="processing-line">
+      {text}
+    </FitText>
+  );
 }
 
 export interface AppShellRightRail {
@@ -76,6 +112,13 @@ export interface AppShellProps extends Omit<HTMLAttributes<HTMLDivElement>, "tit
   logoSrc?: string | null;
   /** A ready element instead of `logoSrc`. */
   logo?: ReactNode;
+  /** A small badge after the business name in the top bar (KitBar `businessBadge`: the Example chip). */
+  businessBadge?: ReactNode;
+  /**
+   * Something else in Continue's slot (KitBar `continueSlot`: the Example frame's "Start your own"). Continue's
+   * keyboard shortcut still follows `continueButton`, so pass it disabled alongside.
+   */
+  continueSlot?: ReactNode;
   businessName: string;
   screenTitle: ReactNode;
   sidebar: AppShellSidebar;
@@ -174,7 +217,10 @@ export function useDocumentKit(kit: Kit): void {
 /**
  * The AppShell (BUILD §5.3, DESIGN §8): sidebar left, kit bar top, processing strip under it, tab bar, content grid,
  * optional right rail. Nothing floats. Applies the business kit as CSS variables on its root, binds the keyboard map,
- * hosts the command palette and the keyboard help, and renders NeedsLargerWindow below the minimum width.
+ * hosts the command palette (with its Help group) and the keyboard help (opened by ?, the sidebar's "?" cap or the
+ * palette's Keyboard shortcuts row), repeats the processing strip's sentence in the tab bar while guidance is on, and
+ * renders NeedsLargerWindow below the minimum width. Its root carries `data-coachmark-pause` while a cycle runs or an
+ * overlay is open, so a first-time callout never starts then.
  */
 export const AppShell = forwardRef<HTMLDivElement, AppShellProps>(function AppShell(
   {
@@ -183,6 +229,8 @@ export const AppShell = forwardRef<HTMLDivElement, AppShellProps>(function AppSh
     kit,
     logoSrc,
     logo,
+    businessBadge,
+    continueSlot,
     businessName,
     screenTitle,
     sidebar,
@@ -232,9 +280,23 @@ export const AppShell = forwardRef<HTMLDivElement, AppShellProps>(function AppSh
     [search],
   );
   const [helpOpen, setHelpOpen] = useState(false);
+  const guided = useGuided();
 
-  const { state, pulseKey, disabled: continueDisabled, pending: continuePending, ...continueHandlers } = continueButton;
+  const { state, cycleNumber, pulseKey, disabled: continueDisabled, pending: continuePending, ...continueHandlers } = continueButton;
   const continueAction = continueButtonAction(state, continueHandlers);
+  const processingText = processingStatusText(processing.segments, processing.active, processing.cycleNumber);
+  // The Help group always offers the keyboard shortcuts; the app adds its defined terms (apps/web/lib/search.ts).
+  const helpItems = useMemo(() => {
+    const given = search?.helpItems ?? [];
+    return given.some((it) => it.id === KEYBOARD_SHORTCUTS_HELP_ITEM.id) ? given : [KEYBOARD_SHORTCUTS_HELP_ITEM, ...given];
+  }, [search?.helpItems]);
+  const onPaletteSelect = useCallback(
+    (item: PaletteItem) => {
+      if (item.id === KEYBOARD_SHORTCUTS_HELP_ITEM.id) setHelpOpen(true);
+      else search?.onSelect(item);
+    },
+    [search],
+  );
 
   const openSearch = useCallback(() => {
     if (search) setSearchOpen(true);
@@ -277,6 +339,8 @@ export const AppShell = forwardRef<HTMLDivElement, AppShellProps>(function AppSh
 
   const homeItem = items.find((it) => it.fixed === "home");
   const rootStyle: CSSProperties = { ...kitStyle(kit), ...style };
+  // A first-time callout (Coachmark, next wave) never starts while a cycle runs or an overlay is open.
+  const coachmarkPause = state.kind === "processing" || searchOpen || helpOpen || stopAll.open === true;
 
   return (
     <TooltipProvider delayDuration={400} skipDelayDuration={300}>
@@ -285,6 +349,7 @@ export const AppShell = forwardRef<HTMLDivElement, AppShellProps>(function AppSh
         data-testid="app-shell"
         data-game-mode={mode}
         data-chord-pending={chordPending || undefined}
+        data-coachmark-pause={coachmarkPause || undefined}
         className={cn("flex h-screen w-full min-w-(--min-viewport) overflow-hidden canvas-lit text-primary", className)}
         style={rootStyle}
         {...rest}
@@ -298,6 +363,8 @@ export const AppShell = forwardRef<HTMLDivElement, AppShellProps>(function AppSh
           collapsed={sidebar.collapsed}
           onCollapsedChange={sidebar.onCollapsedChange}
           brand={sidebar.brand}
+          live={mode === "live"}
+          onHelp={() => setHelpOpen(true)}
           onSelect={(item) => {
             cancelChord();
             onNavigate?.(item);
@@ -321,14 +388,30 @@ export const AppShell = forwardRef<HTMLDivElement, AppShellProps>(function AppSh
             businessMode={businessMode}
             onModeClick={onModeClick}
             gameMode={mode}
-            continueButton={{ state, pulseKey, disabled: continueDisabled, pending: continuePending, ...continueHandlers }}
+            continueButton={{ state, cycleNumber, pulseKey, disabled: continueDisabled, pending: continuePending, ...continueHandlers }}
+            continueSlot={continueSlot}
+            businessBadge={businessBadge}
             stopAll={stopAll}
             onHome={homeItem && onNavigate ? () => onNavigate(homeItem) : undefined}
             businessMenu={businessMenu}
             connection={connection}
           />
-          <ProcessingStrip segments={processing.segments} active={processing.active} />
-          {tabs ? <TabBar {...tabs} /> : null}
+          <ProcessingStrip segments={processing.segments} active={processing.active} cycleNumber={processing.cycleNumber} label={processingText} />
+          {tabs ? (
+            <TabBar
+              {...tabs}
+              trailing={
+                guided ? (
+                  <>
+                    {tabs.trailing}
+                    <ProcessingLine text={processingLineText(processing.segments, processing.active, processing.cycleNumber)} />
+                  </>
+                ) : (
+                  tabs.trailing
+                )
+              }
+            />
+          ) : null}
           {breadcrumbs && breadcrumbs.length > 0 ? (
             <div className="rule-under flex h-control-md shrink-0 items-center px-gutter">
               <Breadcrumbs items={breadcrumbs} />
@@ -349,6 +432,8 @@ export const AppShell = forwardRef<HTMLDivElement, AppShellProps>(function AppSh
           <CommandPalette
             {...search}
             business={search.business ?? { name: businessName, href: homeItem?.href, logo: logoSrc !== undefined || !logo ? <BusinessLogo src={logoSrc} name={businessName} primary={kit.primary} size={20} /> : undefined }}
+            helpItems={helpItems}
+            onSelect={onPaletteSelect}
             open={searchOpen}
             onOpenChange={setSearchOpen}
           />

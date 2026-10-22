@@ -4,6 +4,7 @@ import { Archive, Bot, ExternalLink, ListPlus, Mail } from "lucide-react";
 import { formatDate, formatMoney } from "../../lib/format";
 import { Chip } from "../foundation/Chip";
 import { StatusPill, type StatusTone } from "../foundation/StatusPill";
+import { GuidanceProvider } from "../guidance/GuidanceProvider";
 import { DataTable, type DataTableColumn } from "./DataTable";
 import { EntityLink } from "./EntityLink";
 import { RatingFigure } from "./RatingBar";
@@ -210,17 +211,52 @@ function LeadsTable({ count, height = 560 }: { count: number; height?: number })
       />
       <p className="text-small text-secondary" aria-live="polite">
         {log.length === 0
-          ? "Right-click a row for verbs; Enter or double-click opens; Shift+click a header for a secondary sort."
+          ? "Press a row's … or right-click it for verbs; Enter or double-click opens; Shift+click a header for a secondary sort."
           : log.join(" · ")}
       </p>
     </div>
   );
 }
 
-/** 5,000 generated leads, three saved views, filter chips, a right-click menu and CSV export. */
+/** 5,000 generated leads, three saved views, filter chips, a row menu (the … button or a right-click) and CSV export. */
 export const FiveThousandLeads: Story = {
   args: { data: [], columns: [] },
   render: () => <LeadsTable count={5000} />,
+};
+
+/**
+ * Row actions are never hidden behind a right-click: every row ends in a visible 24 px "…" (named "Actions for <row>")
+ * that opens the same menu, and Shift+F10 opens it for the focused row. The column keeps its width; the last data
+ * column takes the spare.
+ */
+export const RowActions: Story = {
+  args: { data: [], columns: [] },
+  render: () => {
+    function Demo() {
+      const [log, setLog] = useState<string | null>(null);
+      return (
+        <div className="flex flex-col gap-2">
+          <DataTable
+            title="Recent leads"
+            aria-label="Recent leads"
+            data={generateLeads(8, "actions")}
+            columns={columns.slice(0, 5)}
+            height={300}
+            rowLabel={(row) => `${row.name} at ${row.company}`}
+            rowActions={(row) => [
+              { id: "message", label: "Message", icon: Mail, onSelect: (r) => setLog(`Message ${r.name}`) },
+              { id: "open", label: "Open profile", icon: ExternalLink, onSelect: (r) => setLog(`Open ${r.name}`) },
+              { id: "archive", label: "Archive lead", icon: Archive, variant: "danger", separatorBefore: true, disabled: row.stage === "won", onSelect: (r) => setLog(`Archive ${r.name}`) },
+            ]}
+          />
+          <p className="text-small text-secondary" aria-live="polite">
+            {log ?? "Press a row's … (or right-click, or Shift+F10 on the focused row)."}
+          </p>
+        </div>
+      );
+    }
+    return <Demo />;
+  },
 };
 
 export const SmallWithoutViews: Story = {
@@ -233,6 +269,28 @@ export const SmallWithoutViews: Story = {
       height={380}
     />
   ),
+};
+
+/**
+ * A head that is a defined term (`meta.term`): the word opens its definition card, the arrow beside it sorts. With
+ * guidance off the head is plain and sorts as a whole.
+ */
+export const DefinedColumnHeads: Story = {
+  args: { data: [], columns: [] },
+  render: () => {
+    const defined = columns.slice(0, 7).map((c, i) => (i === 2 ? { ...c, meta: { ...c.meta, term: "pipeline" } } : c));
+    const terms = { pipeline: { id: "pipeline", word: "Pipeline", short: "Every open lead and deal, by how close it is to paying.", learn: "distribution/leads" } };
+    return (
+      <div className="grid grid-cols-2 gap-gutter">
+        <GuidanceProvider value={{ guidance: "on", terms }}>
+          <DataTable title="Guidance on" data={generateLeads(12, "terms-on")} columns={defined} height={380} />
+        </GuidanceProvider>
+        <GuidanceProvider value={{ guidance: "off", terms }}>
+          <DataTable title="Guidance off" data={generateLeads(12, "terms-off")} columns={defined} height={380} />
+        </GuidanceProvider>
+      </div>
+    );
+  },
 };
 
 export const ComfortableDensity: Story = {

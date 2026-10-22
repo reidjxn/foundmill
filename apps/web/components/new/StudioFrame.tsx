@@ -20,20 +20,24 @@ export interface StudioStepItem {
   href: string;
 }
 
+/**
+ * The trail's words say what each step is for a first-timer (docs/UX_AUDIT_AND_PLAN.md §7.4, A9): "Your profile ·
+ * Start · Ideas · Compare (optional) · Launch". The ids, slugs and routes are unchanged.
+ */
 export const STUDIO_STEPS: readonly StudioStepItem[] = [
-  { id: "profile", label: "Profile", href: "/onboarding" },
-  { id: "new", label: "New business", href: "/new" },
-  { id: "ideate", label: "Ideate", href: "/new/ideate" },
-  { id: "compare", label: "Compare", href: "/new/compare" },
-  { id: "commit", label: "Commit", href: "/new/commit" },
+  { id: "profile", label: "Your profile", href: "/onboarding" },
+  { id: "new", label: "Start", href: "/new" },
+  { id: "ideate", label: "Ideas", href: "/new/ideate" },
+  { id: "compare", label: "Compare (optional)", href: "/new/compare" },
+  { id: "commit", label: "Launch", href: "/new/commit" },
 ];
 
-/** Door B replaces Ideate + Compare in the trail. */
+/** Door B replaces Ideas + Compare in the trail. */
 export const IMPORT_STEPS: readonly StudioStepItem[] = [
-  { id: "profile", label: "Profile", href: "/onboarding" },
-  { id: "new", label: "New business", href: "/new" },
+  { id: "profile", label: "Your profile", href: "/onboarding" },
+  { id: "new", label: "Start", href: "/new" },
   { id: "import", label: "Import", href: "/new/import" },
-  { id: "commit", label: "Commit", href: "/new/commit" },
+  { id: "commit", label: "Launch", href: "/new/commit" },
 ];
 
 export interface StudioFrameProps {

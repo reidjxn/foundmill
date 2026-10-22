@@ -1,10 +1,21 @@
-import { expect, test, type Page } from "@playwright/test";
-import { LONG, NORTHWIND_BUSINESS_ID, openBusiness } from "./helpers";
+import { expect, test, type Page, type PlaywrightWorkerArgs } from "@playwright/test";
+import { LONG, NORTHWIND_BUSINESS_ID, devApi, openBusiness } from "./helpers";
 
 /**
  * Agent profile (BUILD §11.10; AC-11.10.1 live version untouched until Promote, AC-11.10.5 ApplyScopeDialog on a
- * model change) on the seeded Northwind squad. Stack and commands: e2e/README.md.
+ * model change) on the seeded Northwind squad, with the guided layer (UX plan §7.15): the Training explainer, the
+ * defined words, the About Skills tip and the band word beside every figure. Stack and commands: e2e/README.md.
  */
+
+/** The dev founder's guidance switch (Settings › Preferences): explainers, tips and term underlines render only while it is on. */
+async function guidanceOn(playwright: PlaywrightWorkerArgs["playwright"]): Promise<boolean> {
+  const api = await devApi(playwright);
+  const res = await api.get("/trpc/founder.preferences.guidance");
+  expect(res.ok(), `founder.preferences.guidance answered ${res.status()}`).toBe(true);
+  const body = (await res.json()) as { result: { data: { json: { guidance: "on" | "off" } } } };
+  await api.dispose();
+  return body.result.data.json.guidance === "on";
+}
 
 /** Opens the first squad member who is not the Chief of Staff (whose model is locked to the top route). */
 async function openSquadAgent(page: Page): Promise<string> {
@@ -18,16 +29,51 @@ async function openSquadAgent(page: Page): Promise<string> {
 }
 
 test.describe("agent profile", () => {
-  test("header, six tabs and the overview panels", async ({ page }) => {
+  test("header, six tabs and the overview panels", async ({ page, playwright }) => {
     const agentId = await openSquadAgent(page);
+    const guided = await guidanceOn(playwright);
     await expect(page.getByTestId("agent-profile")).toHaveAttribute("data-agent-id", agentId);
     await expect(page.getByTestId("profile-header")).toBeVisible();
     await expect(page.getByTestId("header-model-chip")).toBeVisible();
     for (const tab of ["Overview", "Training", "Autonomy", "Tools", "History", "Logs"]) await expect(page.getByRole("tab", { name: tab })).toBeVisible();
     await expect(page.getByTestId("what-i-do")).toBeVisible();
-    await expect(page.getByTestId("skills-panel")).toBeVisible();
-    await expect(page.getByTestId("position-map")).toBeVisible();
-    await expect(page.getByTestId("contract-panel")).toBeVisible();
+    const skills = page.getByTestId("skills-panel");
+    await expect(skills).toBeVisible();
+    // One scale (founder, Oct 20, 2026): every skill figure carries its band word as a ScaleLabel pill, and the footer
+    // says what the scores are with Tested and Proven defined on first use (C3).
+    await expect(page.getByTestId("skills-footer")).toContainText("Scores 1–20.");
+    const band = skills.locator("[data-skill-band]").first();
+    await expect(band).toBeVisible({ timeout: LONG });
+    await expect(band).toHaveAttribute("data-scale-label", "");
+    await expect(band).toHaveText(/^(Poor|Average|Good|Excellent)$/);
+    if (guided) {
+      // The tip on the panel title, the dotted words in the footer and the "why this matters" line are tutoring.
+      await expect(skills.getByRole("button", { name: "About Skills" })).toBeVisible();
+      await expect(page.getByTestId("skills-footer").locator("[data-term='tested']")).toHaveClass(/term-link/);
+      await expect(page.getByTestId("skills-why")).toContainText("Higher skills mean fewer failed tasks");
+      await expect(page.getByTestId("position-map").locator("[data-term='position_map']")).toBeVisible();
+      await expect(page.getByTestId("coach-report").locator("[data-term='coach']")).toBeVisible();
+    } else {
+      await expect(skills.getByRole("button", { name: "About Skills" })).toHaveCount(0);
+      await expect(page.getByTestId("skills-why")).toHaveCount(0);
+      await expect(page.getByTestId("skills-footer").locator("[data-term='tested']")).toHaveAttribute("data-guided", "off");
+    }
+    // The stars read "Now 3.5 of 5 · could reach 4.5" once, in the header, with their band word beside them.
+    await expect(page.getByTestId("profile-header").locator("[data-stars-caption]")).toHaveText(/^Now [\d.]+ of 5 · could reach [\d.]+$/);
+    await expect(page.getByTestId("profile-header").locator("[data-stars-band]")).toHaveText(/^(Poor|Average|Good|Excellent)$/);
+    // The roles map uses the band words (compact ScaleLabels) under its new title; the old sport words never show.
+    const roles = page.getByTestId("position-map");
+    await expect(roles).toBeVisible();
+    await expect(roles).toContainText("Other roles it could take");
+    await expect(roles).toContainText("Based on the skills each role needs.");
+    await expect(roles).not.toContainText(/Natural|Accomplished|Competent|Unconvincing|Position map/);
+    await expect(roles.locator("[data-position-map] li [data-scale-label]").first()).toHaveText(/^(Poor|Average|Good|Excellent)$/, { timeout: LONG });
+    // The contract panel keeps the money and autonomy rows; the version and type moved to History (C12).
+    const contract = page.getByTestId("contract-panel");
+    await expect(contract).toBeVisible();
+    await expect(contract).toContainText("Needs your OK above");
+    await expect(contract).not.toContainText(/Live version|Asks above/);
+    await expect(contract.getByTestId("negotiation-note")).toContainText("Negotiation arrives with LIVE deals.");
   });
 
   test("model chip → picker → ApplyScopeDialog (AC-11.10.5)", async ({ page }) => {
@@ -90,11 +136,26 @@ test.describe("agent profile", () => {
     await expect(page.getByTestId("agent-training")).not.toHaveAttribute("data-phase", "active");
   });
 
-  test("training: editing saves a draft, the live version stays (AC-11.10.1)", async ({ page }) => {
+  test("training: editing saves a draft, the live version stays (AC-11.10.1)", async ({ page, playwright }) => {
     await openSquadAgent(page);
+    const guided = await guidanceOn(playwright);
     await page.getByRole("tab", { name: "Training" }).click();
     await expect(page.getByTestId("agent-training")).toBeVisible({ timeout: LONG });
     await expect(page).toHaveURL(/\/training$/);
+    // The three-step strip (C5) is the guided layer's Explainer: open or collapsed per the account, never there with
+    // guidance off; the panel title is a defined word.
+    const explainer = page.locator("[data-explainer='agent-training']");
+    if (guided) {
+      await expect(explainer).toBeVisible();
+      await expect(explainer).toContainText("Training tries new instructions on practice tests");
+      if ((await explainer.getAttribute("data-state")) === "open") {
+        await expect(explainer).toContainText("1 Edit the instructions · 2 Train (2–5 minutes) · 3 Promote if the scores improved");
+        await expect(explainer).toContainText("A drop of more than one point is highlighted");
+      }
+      await expect(page.getByTestId("agent-training").locator("[data-term='training']").first()).toHaveClass(/term-link/);
+    } else {
+      await expect(explainer).toHaveCount(0);
+    }
     const liveChip = page.getByText(/^Live v\d+$/);
     const before = (await liveChip.count()) ? await liveChip.first().textContent() : null;
     const goals = page.locator("[data-instructions-editor]").getByRole("region", { name: "Goals" });
@@ -109,8 +170,13 @@ test.describe("agent profile", () => {
     await page.getByTestId("train").click();
     await expect(page.getByTestId("train-dialog")).toBeVisible();
     await expect(page.getByTestId("train-dialog")).toContainText("Estimate");
+    await expect(page.getByTestId("train-dialog")).toContainText("half stay hidden");
+    // The dialog opens on its primary button, not on the Estimate chip or a defined word, so one Escape closes it.
+    await expect(page.getByTestId("train-confirm")).toBeFocused();
     await page.keyboard.press("Escape");
     await expect(page.getByTestId("train-dialog")).toBeHidden();
+    // The Training panel's footer says the rules in plain words (C5); the notice takes its place after a save.
+    await expect(page.getByTestId("agent-training")).not.toContainText(/Held-out|prepended by the runtime|Club rules/);
   });
 
   test("promoting a run writes its scores onto the attributes; a skill with no tests stays untested (founder: 'Training doesn't update ratings')", async ({ page }) => {
@@ -173,11 +239,11 @@ test.describe("agent profile", () => {
     await cap.click();
     await cap.press("ControlOrMeta+a");
     await cap.pressSequentially("1250");
-    await page.getByRole("textbox", { name: "Ask above" }).click();
+    await page.getByRole("textbox", { name: "Needs your OK above" }).click();
     await expect(cap).toHaveValue("1,250");
     // The seed gives some agents an approval threshold above a zero spend cap, which the form refuses to save; the
     // threshold field is part of the save path, so put it inside the cap first.
-    await page.getByRole("textbox", { name: "Ask above" }).fill("0");
+    await page.getByRole("textbox", { name: "Needs your OK above" }).fill("0");
     await expect(page.getByTestId("autonomy-error")).toHaveCount(0);
     await expect(page.getByTestId("save-autonomy")).toBeEnabled();
     await page.getByTestId("save-autonomy").click();
@@ -206,10 +272,12 @@ test.describe("agent profile", () => {
     await page.getByRole("tab", { name: "Autonomy" }).click();
     await expect(page.getByTestId("agent-autonomy")).toBeVisible({ timeout: LONG });
     await expect(page.getByTestId("save-autonomy")).toHaveText(/Save autonomy/);
-    // Negotiation has no runtime yet (AC-11.14.3): the switch is off and cannot be turned on; limits save as "Save limits".
-    await expect(page.getByTestId("save-negotiation")).toHaveText(/Save limits/);
-    await expect(page.locator("#negotiation-enabled")).toBeDisabled();
-    await expect(page.getByTestId("negotiation-footer")).toContainText("not available yet");
+    // Negotiation has no runtime yet (AC-11.14.3): hidden until it ships, one line instead of a dead form (UX plan C12).
+    await expect(page.getByTestId("negotiation-note")).toContainText("Negotiation arrives with LIVE deals.");
+    await expect(page.getByTestId("save-negotiation")).toHaveCount(0);
+    await expect(page.locator("#negotiation-enabled")).toHaveCount(0);
+    // The caps read in plain words: "Needs your OK above", never "Ask above" or "denied outright".
+    await expect(page.getByTestId("agent-autonomy")).not.toContainText(/Ask above|denied outright/);
     // Tools by name in words, never "HARD GATE (BUILD §2.2)".
     await page.getByRole("tab", { name: "Tools" }).click();
     await expect(page.getByTestId("tool-grants")).toBeVisible({ timeout: LONG });
@@ -224,6 +292,9 @@ test.describe("agent profile", () => {
     await openSquadAgent(page);
     await page.getByRole("tab", { name: "History" }).click();
     await expect(page.getByTestId("history-timeline")).toBeVisible({ timeout: LONG });
+    // The live version and the agent's type live here now (C12), beside the timeline.
+    await expect(page.getByTestId("version-panel")).toContainText("Live version");
+    await expect(page.getByTestId("version-panel")).toContainText("Type");
     await page.getByRole("tab", { name: "Logs" }).click();
     await expect(page.getByTestId("agent-logs")).toBeVisible({ timeout: LONG });
     expect(page.url()).toContain(`/b/${NORTHWIND_BUSINESS_ID}/agents/`);
@@ -241,6 +312,8 @@ test.describe("agent profile", () => {
     const dialog = page.getByTestId("line-manager-dialog");
     await expect(dialog).toBeVisible();
     await expect(dialog.getByTestId("line-manager-save")).toBeDisabled();
+    // Focus lands on the one field, not on the defined words in the description, so Escape closes the dialog itself.
+    await expect(dialog.getByRole("combobox", { name: "Reports to" })).toBeFocused();
     await page.keyboard.press("Escape");
     await expect(dialog).toBeHidden();
   });

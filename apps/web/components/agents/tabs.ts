@@ -2,6 +2,7 @@
 export const AGENT_TABS = [
   { id: "overview", label: "Overview" },
   { id: "training", label: "Training" },
+  // plain-allow: a tab label (a link, so no Term inside); the Autonomy tab defines the word with a Term in its title.
   { id: "autonomy", label: "Autonomy" },
   { id: "tools", label: "Tools" },
   { id: "history", label: "History" },

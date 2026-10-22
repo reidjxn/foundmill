@@ -8,8 +8,8 @@ import { LEDGERLY_KIT, NORTHWIND_KIT, NORTHWIND_SIDEBAR } from "./fixtures";
 const meta = {
   title: "Shell/Sidebar",
   component: Sidebar,
-  parameters: { layout: "fullscreen", docs: { description: { component: "232 px on the rail (64 px collapsed), its inner hairline catching light at the top. Items are 32 px, 10 px in from the edges, sentence case: a 16 px icon in text-3 (department icons carry a small dot in their color) and an action-style label; hover adds a 3.5% plate. Active: a brand plate (primary 30% → 7%) with a kit-lift ring and icon, and a lit 3 px edge with its glow at the rail's edge. Badges are 18 px glowing pills in the department color (red for the Inbox). Groups are separated by fading hairlines. A long founder-defined label wraps to two lines and steps down to fit — never silently clipped. Arrow keys move, Enter opens; collapsed items show their label and chord as a tooltip. The `brand` prop adds the Foundmill wordmark as the last foot row, aligned with the item icons; it is drawn only while expanded and the sidebar never shows the FM monogram." } } },
-  args: { items: withSidebarKeys(NORTHWIND_SIDEBAR), activeId: "d-distribution", collapsed: false, showLive: true, brand: { href: "#" }, onCollapsedChange: () => {} },
+  parameters: { layout: "fullscreen", docs: { description: { component: "232 px on the rail (64 px collapsed), its inner hairline catching light at the top. Items are 32 px, 10 px in from the edges, sentence case: a 16 px icon in text-3 (department icons carry a small dot in their color) and an action-style label; hover adds a 3.5% plate. Active: a brand plate (primary 30% → 7%) with a kit-lift ring and icon, and a lit 3 px edge with its glow at the rail's edge. Badges are 18 px glowing pills in the department color (red for the Inbox). Groups are separated by fading hairlines; the LIVE block's “Live” label is drawn only for a LIVE business (`live`), a Personal one keeps its Network item without it. The CRM reads “Contacts” (its collapsed tooltip says both). A long founder-defined label wraps to two lines and steps down to fit — never silently clipped. Arrow keys move, Enter opens; collapsed items show their label and chord as a tooltip. The foot ends with a ghost “?” cap that opens the keyboard shortcuts (`onHelp`, expanded only), the collapse toggle and, with the `brand` prop, the Foundmill wordmark aligned with the item icons; the wordmark is drawn only while expanded and the sidebar never shows the FM monogram." } } },
+  args: { items: withSidebarKeys(NORTHWIND_SIDEBAR), activeId: "d-distribution", collapsed: false, showLive: true, live: true, brand: { href: "#" }, onCollapsedChange: () => {}, onHelp: () => {} },
 } satisfies Meta<typeof Sidebar>;
 export default meta;
 type Story = StoryObj<typeof meta>;
@@ -31,7 +31,8 @@ export const Expanded: Story = { render: (args) => <Frame {...args} /> };
 export const Collapsed: Story = { args: { collapsed: true }, render: (args) => <Frame {...args} /> };
 /** Without the `brand` prop the foot ends with the last item. */
 export const WithoutBrand: Story = { args: { brand: undefined }, render: (args) => <Frame {...args} /> };
-export const Personal: Story = { args: { showLive: false, activeId: "inbox" }, render: (args) => <Frame {...args} /> };
+/** A Personal business: the LIVE block is reduced to the founder's own Network item, under the hairline, with no "Live" label. */
+export const Personal: Story = { args: { items: withSidebarKeys(NORTHWIND_SIDEBAR.filter((it) => it.group !== "live" || it.id === "network")), live: false, activeId: "inbox" }, render: (args) => <Frame {...args} /> };
 export const SideBySide: Story = {
   render: (args) => (
     <div className="flex h-screen gap-8 bg-canvas p-4" style={kitStyle(LEDGERLY_KIT)}>

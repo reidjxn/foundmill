@@ -9,8 +9,10 @@ import { Chip, ProvenanceChip } from "../foundation/Chip";
 import { Icon } from "../foundation/Icon";
 import { StarRating } from "../foundation/StarRating";
 import { RatingFigure } from "../data/RatingBar";
+import { ScaleLabel } from "../guidance/ScaleLabel";
+import { Term } from "../guidance/Term";
 import { FormGuide } from "./ChannelToken";
-import { CHANNEL_ICONS, LINE_LABELS, channelLine } from "./formation";
+import { CHANNEL_ICONS, COST_TREND_LABEL, LINE_LABELS, channelLine } from "./formation";
 import type { ChannelTokenData } from "./types";
 
 export interface ChannelProfileCardProps {
@@ -20,6 +22,13 @@ export interface ChannelProfileCardProps {
   onPause?: (key: ChannelKey, paused: boolean) => void;
   className?: string;
 }
+
+/** A channel's Potential is not an agent's (TERMS.potential), so the card defines it in place. */
+const CHANNEL_POTENTIAL_DEFINITION = {
+  id: "channel_potential",
+  word: "Potential",
+  short: "How much this channel could bring in for this business once it is running well, from 0 to 5 stars.",
+};
 
 /** Channel profile (BUILD §11.7 "Click → channel profile"): agents, budget, rules, results, pause. Fits a hover card or a rail. */
 export function ChannelProfileCard({ channel, onOpenChannel, onToggle, onPause, className }: ChannelProfileCardProps) {
@@ -37,9 +46,19 @@ export function ChannelProfileCard({ channel, onOpenChannel, onToggle, onPause, 
             {LINE_LABELS[line]} · {meta.coreMetric}
           </p>
         </div>
-        <div className="flex flex-col items-end">
-          {channel.scored === false ? <span className="text-small text-secondary">Not scored</span> : <RatingFigure value={channel.fit} />}
-          <span className="t-label">Fit</span>
+        <div className="flex flex-col items-end gap-0.5">
+          {/* The figure carries its band word (UX plan §6.2 ScaleLabel: every number carries a word), and the label its definition. */}
+          {channel.scored === false ? (
+            <span className="text-small text-secondary">Not scored</span>
+          ) : (
+            <span className="inline-flex items-center gap-1.5">
+              <ScaleLabel value={channel.fit} compact />
+              <RatingFigure value={channel.fit} />
+            </span>
+          )}
+          <span className="t-label">
+            <Term id="fit">Fit</Term>
+          </span>
         </div>
       </div>
       <div className="flex flex-wrap items-center gap-1.5">
@@ -51,21 +70,29 @@ export function ChannelProfileCard({ channel, onOpenChannel, onToggle, onPause, 
       <dl className="grid grid-cols-2 gap-x-4 gap-y-1.5">
         {channel.potential !== undefined && channel.scored !== false ? (
           <div>
-            <dt className="t-label">Potential</dt>
+            <dt className="t-label">
+              <Term id="channel_potential" definition={CHANNEL_POTENTIAL_DEFINITION}>
+                Potential
+              </Term>
+            </dt>
             <dd>
               <StarRating value={channel.potential} label="Potential" showValue />
             </dd>
           </div>
         ) : null}
         <div>
-          <dt className="t-label">Form</dt>
+          <dt className="t-label">
+            <Term id="cost_trend">{COST_TREND_LABEL}</Term>
+          </dt>
           <dd className="pt-1">
-            <FormGuide form={channel.form} name={`${meta.label} form`} />
+            <FormGuide form={channel.form} name={`${meta.label} ${COST_TREND_LABEL.toLowerCase()}`} />
           </dd>
         </div>
         {channel.cpaRange && channel.cpaRange.high.amountMinor > 0 ? (
           <div className="col-span-2">
-            <dt className="t-label">Cost per customer</dt>
+            <dt className="t-label">
+              <Term id="acquisition_cost">Cost per customer</Term>
+            </dt>
             <dd className="inline-flex items-center gap-1.5 tabular-nums">
               {formatMoney(channel.cpaRange.low)} – {formatMoney(channel.cpaRange.high)} <ProvenanceChip kind="estimate" />
             </dd>

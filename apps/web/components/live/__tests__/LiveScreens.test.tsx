@@ -510,7 +510,8 @@ describe("/leaderboards/[boardId]", () => {
     expect(rows[1]!.querySelector("[data-delta]")?.textContent).toBe("up 2");
     expect(rows[2]!.querySelector("[data-delta]")?.textContent).toBe("down 1");
     expect(rows[2]!.textContent).toContain("Unlisted business");
-    expect(within(rows[0]!).getByLabelText(/Form, last five: success, success, success, success, partial/)).toBeTruthy();
+    // The Form cells carry their key in words (FormCells, UX plan §6.2 `FormKey`): never only five colors.
+    expect(within(rows[0]!).getByLabelText("Form: Last 5 tasks: 4 went well, 1 partly, 0 failed")).toBeTruthy();
     expect(within(grid).getByRole("columnheader", { name: /MRR growth/ })).toBeTruthy();
     expect(rows[0]!.querySelector("svg[role=img], [role=img]")).not.toBeNull(); // the logo
     const strip = screen.getByRole("list", { name: /at a glance/ });

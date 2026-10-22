@@ -120,7 +120,7 @@ describe("archetype seeds (BUILD §11.1, AC-11.1.6)", () => {
       expect(d.options.length).toBeGreaterThanOrEqual(2);
       expect(d.options.length).toBeLessThanOrEqual(4);
       expect(d.options.filter((o) => o.recommended).length).toBe(1);
-      expect(d.bodyMd).toContain("The Board");
+      expect(d.bodyMd).toMatch(/\bI need\b/);
       expect(d.subject.length).toBeLessThanOrEqual(80);
       for (const o of d.options) {
         expect(o.consequence.length).toBeGreaterThan(10);
@@ -128,7 +128,15 @@ describe("archetype seeds (BUILD §11.1, AC-11.1.6)", () => {
       }
       const recommended = d.options.find((o) => o.recommended)!;
       expect(recommended.reversible).toBe(true);
+      // The recommended option says why, in one plain sentence from the founder's seat (UX plan §7.19 "because").
+      expect(recommended.because, seed.archetype).toMatch(/^Recommended because .+\.$/);
+      expect(recommended.because!.length).toBeLessThanOrEqual(400);
+      for (const o of d.options) if (!o.recommended) expect(o.because, `${seed.archetype}/${o.id}`).toBeUndefined();
     }
+    // The shape refuses a recommended option without its reason.
+    const seed = ARCHETYPE_SEED_LIST[0]!;
+    const stripped = { ...seed, boardDecision: { ...seed.boardDecision, options: seed.boardDecision.options.map((o) => (o.recommended ? { ...o, because: undefined } : o)) } };
+    expect(ArchetypeSeed.safeParse(stripped).success).toBe(false);
   });
 
   it("every Board option runs typed actions its own team can carry out, and budgets exactly what it costs (audit IAE-20, AC-01, FR-10)", () => {
@@ -170,6 +178,30 @@ describe("archetype seeds (BUILD §11.1, AC-11.1.6)", () => {
     for (const seed of ARCHETYPE_SEED_LIST) for (const text of [seed.firstBuild.title, seed.firstBuild.goal, ...seed.firstBuild.acceptance]) expect(text, seed.archetype).not.toMatch(FOOTBALL);
   });
 
+  it("task titles and option labels the founder sees carry no jargon; the technical detail stays in the goals (UX plan §7.19, §8.2)", () => {
+    // The replace tier of the jargon table, as the Board's labels, the first build's title and the task titles reach the screen.
+    const JARGON = /\b(?:ICP|CPA|CAC|COGS|RLS|Cedar|named query|exhibit|request_human_action|concurrency|time box|counterparty|webhook|OAuth|BYOK|unit economics|hunk|triage|hard gate|engine|pipeline|vertical slice)\b/;
+    const titles: string[] = [CHANNEL_SCORING_TASK.title];
+    const labels: string[] = [];
+    for (const seed of ARCHETYPE_SEED_LIST) {
+      titles.push(seed.firstBuild.title, ...seed.firstCycleTasks.map((t) => t.title));
+      for (const o of seed.boardDecision.options) {
+        labels.push(o.label, o.consequence);
+        for (const a of o.actions) if (a.type === "create_task") titles.push(a.params.title as string);
+      }
+      labels.push(seed.boardDecision.subject, seed.boardDecision.bodyMd);
+    }
+    for (const text of [...titles, ...labels]) expect(text).not.toMatch(JARGON);
+    // The plain titles the plan asks for, with the engineering detail kept where the engineer agent reads it.
+    const b2b = ARCHETYPE_SEEDS.b2b_saas;
+    expect(b2b.firstBuild.title).toBe("Plan the first build: signup, first value, payment");
+    expect(b2b.firstBuild.goal).toContain("task graph");
+    expect(b2b.boardDecision.options[0]!.label).toBe("Reach the one kind of customer we target first");
+    expect(ARCHETYPE_SEEDS.consumer_app.boardDecision.options[0]!.label).toBe("Small paid test with a cost-per-customer limit");
+    const outboundGoals = b2b.boardDecision.options[0]!.actions.filter((a) => a.type === "create_task").map((a) => a.params.goal as string);
+    expect(outboundGoals.some((g) => /ideal customer profile/.test(g))).toBe(true);
+  });
+
   it("templateKeysForArchetype starts with the Chief of Staff, hires the utilities and never repeats a key", () => {
     for (const a of ARCHETYPES) {
       const keys = templateKeysForArchetype(a);
@@ -189,5 +221,20 @@ describe("archetype seeds (BUILD §11.1, AC-11.1.6)", () => {
     }
     // Renamed departments keep the same slug and module (AC-11.13.1).
     expect(getArchetypeSeed("content_media").departments[0]).toMatchObject({ slug: "product", name: "Editorial", moduleKeys: ["product"] });
+  });
+
+  // The first decision note comes from the Chief of Staff in the first person (voice guide §8.1 #7): there is no
+  // board of directors, and the old "starters" label is gone from what the founder reads (UX plan §5 #11).
+  it.each(ARCHETYPES)("%s: the first decision note is first person, with no 'The Board' and no 'starters'", (archetype) => {
+    const { subject, bodyMd, options } = getArchetypeSeed(archetype).boardDecision;
+    const text = [subject, bodyMd, ...options.flatMap((o) => [o.label, o.consequence ?? ""])].join("\n");
+    expect(text).not.toMatch(/\bThe Board\b/);
+    expect(text).not.toMatch(/\bstarters?\b/i);
+    expect(bodyMd).toMatch(/\bI need\b/);
+  });
+
+  it("the channel-scoring task never says 'starters' in its title or acceptance", () => {
+    for (const text of [CHANNEL_SCORING_TASK.title, ...CHANNEL_SCORING_TASK.acceptance]) expect(text).not.toMatch(/\bstarters?\b/i);
+    expect(CHANNEL_SCORING_TASK.title).toBe("Score the 15 channels and pick 3 to 6 to start with");
   });
 });

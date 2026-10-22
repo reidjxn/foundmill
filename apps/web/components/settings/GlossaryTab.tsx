@@ -1,5 +1,9 @@
 "use client";
-/** Settings › Glossary (BUILD §11.13): rename nouns everywhere; the Composer and commentary read the same map. */
+/**
+ * Settings › Your words (BUILD §11.13; "Glossary" until docs/UX_AUDIT_AND_PLAN.md §7.17, the slug stays `glossary`):
+ * rename the product's nouns to the business's own everywhere; the Composer, the definitions and the captions read the
+ * same map.
+ */
 import { useMutation } from "@tanstack/react-query";
 import { ArrowRight, Plus, Trash2 } from "lucide-react";
 import { useState } from "react";
@@ -40,7 +44,7 @@ export function GlossaryTab() {
   const t = useSettingsToast();
   const [rows, setRows] = useState<Row[]>(() => glossaryRows(data.business.glossary ?? {}));
   const [nextId, setNextId] = useState(rows.length);
-  const update = useMutation(trpc.business.update.mutationOptions({ onSuccess: () => (void invalidate(["business"]), t.saved("Glossary saved", "New notes use the new words.")), onError: (e) => t.failed(e) }));
+  const update = useMutation(trpc.business.update.mutationOptions({ onSuccess: () => (void invalidate(["business"]), t.saved("Your words saved", "New notes, captions and definitions use them.")), onError: (e) => t.failed(e) }));
 
   const add = (term = "") => {
     setRows((r) => [...r, { id: nextId, term, replacement: "" }]);
@@ -51,8 +55,11 @@ export function GlossaryTab() {
 
   return (
     <AdminOnly>
-      <SettingsSection title="Glossary">
-        <Hint>Say “clients” instead of “customers”, “patients” instead of “leads”. Words are matched whole and in any case, in Inbox notes and updates, the Inbox tabs and the captions of the Home panels.</Hint>
+      <SettingsSection title="Your words" data-testid="your-words-panel">
+        <p className="text-body text-secondary" data-testid="your-words-lede">
+          Rename the product&apos;s nouns to yours (clients instead of customers).
+        </p>
+        <Hint>Words are matched whole and in any case, in Inbox notes and updates, the Inbox tabs, the captions of the Home panels and the definitions you can hover.</Hint>
         <div className="flex flex-col gap-2" data-testid="glossary-rows">
           <div className="flex items-center gap-2">
             <span className="t-data flex-1">Default word</span>

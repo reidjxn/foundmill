@@ -1,4 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
+import { ArrowRight } from "lucide-react";
+import { Button } from "../foundation/Button";
+import { Chip } from "../foundation/Chip";
 import { SAMPLE_LOGOS } from "../foundation/logo-samples";
 import { KitBar } from "./KitBar";
 import { FIXTURE_TODAY, LEDGERLY_KIT, NORTHWIND_KIT, SWITCHER_BUSINESSES } from "./fixtures";
@@ -39,6 +42,19 @@ export const LightBrandColour: Story = {
 };
 export const Ledgerly: Story = { args: { kit: LEDGERLY_KIT, businessName: "Ledgerly", logoSrc: SAMPLE_LOGOS.orbit, screenTitle: "Finance · Runway", runwayMonths: null, runwayWords: { value: "No limit", caption: "Cash-flow positive, so no limit yet" } } };
 /** No logo yet: the initials mark in the primary, separated from the bar by its hairline. */
+/** The Example frame: the neutral "Example" chip after the name, and "Start your own" in Continue's slot (its width kept). */
+export const ExampleFrame: Story = {
+  args: {
+    businessBadge: <Chip className="shrink-0 text-kit-on-primary">Example</Chip>,
+    continueSlot: (
+      <Button variant="primary" iconRight={ArrowRight} className="h-kitbar-chip rounded-track min-w-continue-min" data-coachmark="start-your-own">
+        Start your own
+      </Button>
+    ),
+    continueButton: { state: { kind: "idle" }, disabled: true },
+    stopAll: { onConfirm: async () => {}, className: "hidden" },
+  },
+};
 export const WithoutLogo: Story = { name: "No logo yet → initials mark", args: { logoSrc: null } };
 
 export const SwitchBusiness: Story = {

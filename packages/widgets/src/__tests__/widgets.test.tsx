@@ -5,11 +5,12 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { act, render, screen, within } from "@testing-library/react";
 import type { ReactElement } from "react";
-import { DateFormatProvider, formatDateShort } from "@foundmill/dugout";
+import { DateFormatProvider, GuidanceProvider, formatDateShort } from "@foundmill/dugout";
 import { WidgetDataProvider } from "../data";
 import { getWidget, listWidgets, parseWidgetSettings, type AnyWidgetDefinition } from "../registry";
 import { createFakeSource, type FakeResponse } from "../testing";
 import "../widgets";
+import { FIRST_WEEK_REFETCH_DEBOUNCE_MS, firstWeekEventMatters } from "../widgets/first-week-checklist";
 import { BID, TODAY, communities, dataResponses, emptyResponses, leaderboardEntries, leaderboards, posts } from "./fixtures";
 import { addDays } from "../shared/time";
 
@@ -34,7 +35,7 @@ type Case = {
 const CASES: Case[] = [
   { key: "journey_ribbon", expectData: /^Forecast$/, expectEmpty: /journey starts on day one/ },
   { key: "department_card", expectData: /Beacon/, expectEmpty: /No department in this slot/, settings: { slot: 0 } },
-  { key: "squad_pulse", expectData: /agent hours over the last 7 days/, expectEmpty: /appear after the first cycle/ },
+  { key: "squad_pulse", expectData: /hours of team work over the last 7 days/, expectEmpty: /appear after the first cycle/ },
   { key: "inbox_preview", expectData: /Approve the schema change/, expectEmpty: /land here after each cycle/ },
   { key: "live_feed", expectData: /Done: Usage index/, expectEmpty: /Events appear here/ },
   { key: "status_strip", expectData: /Customers this week/, expectEmpty: /Finance figures appear once/ },
@@ -48,6 +49,8 @@ const CASES: Case[] = [
   { key: "league_table", expectData: /Ledgerly/, expectEmpty: /No leaderboard is open/, live: true },
   { key: "community_feed", expectData: /annual-plan discounts/, expectEmpty: /Join a community/, live: true },
   { key: "custom_metric", expectData: /€1,250/, expectEmpty: /Pick a metric from the catalog/, settings: { mode: "query", queryId: "revenue_30d", label: "Revenue, last 30 days", format: "money" }, emptySettings: {} },
+  // Nothing done yet is the checklist's "empty": seven rows, none ticked.
+  { key: "first_week_checklist", expectData: /2 of 7 done/, expectEmpty: /0 of 7 done/ },
 ];
 
 function mount(def: AnyWidgetDefinition, responses: Record<string, FakeResponse>, opts: { settings?: Record<string, unknown>; live?: boolean; missing?: "loading" | "empty" } = {}) {
@@ -158,12 +161,48 @@ describe("a refused or failed query is never empty data", () => {
     expect(container.textContent).toContain("Couldn't load");
     expect(container.textContent).not.toMatch(/Connect a bank|Finance figures appear once/);
   });
-  it("department card: Finance's Runway says No access instead of 'Not known yet'", () => {
+  it("department card: Finance's Months of cash left says No access instead of 'Not known yet'", () => {
     const { container } = mount(getWidget("department_card")!, { ...dataResponses(), "finance.overview": forbidden }, { settings: { module: "finance" } });
     const metric = container.querySelector("[data-department-metric]")!;
-    expect(metric.textContent).toContain("Runway");
+    expect(metric.textContent).toContain("Months of cash left");
     expect(metric.textContent).toContain("No access");
     expect(metric.textContent).not.toContain("Not known yet");
+  });
+});
+
+describe("empty widgets in guided mode (UX plan §7.8)", () => {
+  const mountEmpty = (guidance: "on" | "off") => {
+    const fake = createFakeSource({ businessId: BID, responses: emptyResponses() });
+    const def = getWidget("inbox_preview")!;
+    const Component = def.Component;
+    return render(
+      <GuidanceProvider value={{ guidance }}>
+        <WidgetDataProvider source={fake.source}>
+          <Component businessId={BID} instanceId="inbox_preview-1" settings={parseWidgetSettings(def, {})} />
+        </WidgetDataProvider>
+      </GuidanceProvider>,
+    );
+  };
+  it("collapse to the icon and the one line on a plate that hugs them, keeping the text and the action", () => {
+    const { container } = mountEmpty("on");
+    const panel = container.querySelector("[data-widget='inbox_preview']")!;
+    expect(panel.getAttribute("data-empty")).toBe("collapsed");
+    expect(panel.getAttribute("data-state")).toBe("empty");
+    expect(panel.className).toContain("h-auto");
+    expect(panel.className).not.toContain("h-full");
+    const empty = panel.querySelector("[role='status']")!;
+    expect(empty.className).toContain("flex-row");
+    expect(empty.className).not.toContain("flex-col");
+    expect(empty.className).not.toContain("py-8");
+    expect(screen.getByText(/land here after each cycle/)).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Open inbox" })).toBeTruthy();
+  });
+  it("keep the tall centred empty state when guidance is off", () => {
+    const { container } = mountEmpty("off");
+    const panel = container.querySelector("[data-widget='inbox_preview']")!;
+    expect(panel.getAttribute("data-empty")).toBeNull();
+    expect(panel.className).toContain("h-full");
+    expect(panel.querySelector("[role='status']")!.className).toContain("flex-col");
   });
 });
 
@@ -193,6 +232,10 @@ describe("Home captions in the business's words (Settings › Glossary, AC-11.13
   it("leaves every caption alone with an empty glossary", () => {
     const { container } = mount(getWidget("status_strip")!, dataResponses());
     expect(container.textContent).toContain("Customers this week");
+  });
+  it("carries the Home tour's anchor on the status strip's panel root", () => {
+    const { container } = mount(getWidget("status_strip")!, dataResponses());
+    expect(container.querySelector("[data-widget='status_strip']")?.getAttribute("data-coachmark")).toBe("status-strip");
   });
 });
 
@@ -274,10 +317,19 @@ describe("navigation", () => {
     (container.querySelector("[data-inbox-row]") as HTMLButtonElement).click();
     expect(fake.navigations[0]).toMatch(new RegExp(`^/b/${BID}/inbox/`));
   });
+  it("an inbox preview row holds no button inside its own button (the tag's tooltip trigger is a span)", () => {
+    const { container } = mount(getWidget("inbox_preview")!, dataResponses());
+    const rows = container.querySelectorAll("[data-inbox-row]");
+    expect(rows.length).toBeGreaterThan(0);
+    for (const row of rows) {
+      expect(row.querySelector("[data-row-tag]")).not.toBeNull();
+      expect(row.querySelector("button, a, [tabindex]")).toBeNull();
+    }
+  });
   it("Channel performance's empty state opens the Channel Board by its name, not 'Formation'", () => {
     const { fake } = mount(getWidget("channel_form_guide")!, emptyResponses());
     expect(screen.queryByText(/Formation/)).toBeNull();
-    expect(screen.getByText(/Put starters on the Channel Board/)).toBeTruthy();
+    expect(screen.getByText(/Put the first channels on the Channel Board/)).toBeTruthy();
     screen.getByRole("button", { name: "Open Channel Board" }).click();
     expect(fake.navigations[0]).toMatch(/\/distribution\/formation$|\/home$/);
   });
@@ -314,5 +366,119 @@ describe("dates in the signed-in person's format", () => {
     expect(target).toMatch(/^\d{2}-\d{2}$/);
     expect(screen.getByText(`Target ${target}`)).toBeTruthy();
     expect(screen.queryByText(/^Target [A-Z][a-z]{2} \d/)).toBeNull();
+  });
+});
+
+/** The guided layer on Home's widgets (UX plan §7.8): terms on the strip's labels, plain words under every figure, the checklist. */
+function mountGuided(def: AnyWidgetDefinition, responses: Record<string, FakeResponse>, guidance: Partial<Parameters<typeof GuidanceProvider>[0]["value"] & object> = {}, opts: { editing?: boolean; actions?: Parameters<typeof GuidanceProvider>[0]["actions"] } = {}) {
+  const fake = createFakeSource({ businessId: BID, responses });
+  const Component = def.Component;
+  const utils = render(
+    <GuidanceProvider value={guidance} actions={opts.actions}>
+      <WidgetDataProvider source={fake.source}>
+        <Component businessId={BID} instanceId={`${def.key}-1`} settings={parseWidgetSettings(def, {})} editing={opts.editing} />
+      </WidgetDataProvider>
+    </GuidanceProvider>,
+  );
+  return { fake, ...utils };
+}
+
+const TERMS = {
+  runway: { id: "runway", word: "Runway", short: "How many months your cash lasts at today's spending." },
+  team_health: { id: "team_health", word: "Team health", short: "The share of agents not failing, down or degraded; idle and paused agents count as fine." },
+  revenue: { id: "revenue", word: "Revenue", short: "Money customers paid you, counted on the day it arrives." },
+};
+
+describe("status strip in guided mode", () => {
+  it("defines Runway and Revenue on their labels and says every figure in plain words; guidance off keeps the figures alone", () => {
+    const { container, unmount } = mountGuided(getWidget("status_strip")!, dataResponses(), { terms: TERMS });
+    const runway = container.querySelector("[data-term='runway']");
+    expect(runway?.tagName).toBe("BUTTON");
+    expect(runway?.textContent).toBe("Runway");
+    // "Revenue" is defined by the map's entry (TERMS.revenue), like every other label.
+    expect(container.querySelector("[data-term='revenue']")?.tagName).toBe("BUTTON");
+    const lines = [...container.querySelectorAll("[data-metric-tile] [data-plain-line]")].map((el) => el.textContent);
+    expect(lines).toEqual(["What is in the bank right now.", "How many months your cash lasts at today's spending.", "What customers paid you this month.", "People who paid you for the first time in the last 7 days.", "The share of agents not failing, down or degraded; idle and paused agents count as fine."]);
+    unmount();
+    const { container: off } = mountGuided(getWidget("status_strip")!, dataResponses(), { guidance: "off", terms: TERMS });
+    expect(off.querySelector("[data-plain-line]")).toBeNull();
+    expect(off.querySelector("[data-term='runway']")?.getAttribute("data-guided")).toBe("off");
+    expect(off.querySelector("button[data-term]")).toBeNull();
+  });
+});
+
+describe("first-week checklist widget", () => {
+  const def = () => getWidget("first_week_checklist")!;
+
+  it("lists the seven items with the done ones ticked, Go links to the product tabs and a Go button for running a cycle", () => {
+    const { container } = mountGuided(def(), dataResponses());
+    expect(screen.getByRole("region", { name: "Your first week" })).toBeTruthy();
+    expect(screen.getByText("2 of 7 done")).toBeTruthy();
+    expect(container.querySelectorAll("[data-first-week-item][data-done]").length).toBe(2);
+    expect(screen.getByRole("link", { name: "Go: Read a note from an agent" }).getAttribute("href")).toBe(`/b/${BID}/inbox`);
+    expect(screen.getByRole("link", { name: "Go: Connect a bank or Stripe" }).getAttribute("href")).toBe(`/b/${BID}/settings/integrations`);
+    expect(screen.getByRole("button", { name: "Go: Run a cycle" })).toBeTruthy();
+    // The query is scoped by the host (businessId merged in): the widget asks with no input of its own.
+    expect(container.querySelector("[data-widget='first_week_checklist']")).toBeTruthy();
+  });
+
+  it("Hide records the dismissal through the guided layer, and a dismissed checklist renders nothing outside Edit mode", () => {
+    const dismissChecklist = vi.fn();
+    const { unmount } = mountGuided(def(), dataResponses(), {}, { actions: { dismissChecklist } });
+    screen.getByRole("button", { name: "Hide" }).click();
+    expect(dismissChecklist).toHaveBeenCalledTimes(1);
+    unmount();
+    const { container, fake, unmount: u2 } = mountGuided(def(), dataResponses(), { checklistDismissedAt: "2026-10-20T10:00:00.000Z" });
+    expect(container.innerHTML).toBe("");
+    expect(fake.queried.has("business.firstWeek.get")).toBe(false);
+    u2();
+    const { container: editing } = mountGuided(def(), dataResponses(), { checklistDismissedAt: "2026-10-20T10:00:00.000Z" }, { editing: true });
+    expect(editing.textContent).toContain("Hidden: you closed the checklist");
+  });
+
+  it("folds a burst of events into one refetch, and ignores events whose flags are already done (perf audit item 10)", () => {
+    vi.useFakeTimers();
+    try {
+      const { fake } = mountGuided(def(), dataResponses());
+      const ev = (type: string) => ({ id: `evt-${type}`, businessId: BID, type, occurredAt: new Date().toISOString(), actor: { kind: "system" }, entityIds: [], payload: {}, narrated: false });
+      // Both sign-offs are done in the fixture: a sign-off decision cannot change the answer.
+      act(() => fake.emit(ev("product.signoff_decided")));
+      act(() => void vi.advanceTimersByTime(FIRST_WEEK_REFETCH_DEBOUNCE_MS + 10));
+      expect(fake.refetches["business.firstWeek.get"]).toBeUndefined();
+      // A burst on flags still open: one refetch once the burst settles.
+      act(() => {
+        fake.emit(ev("inbox.item_updated"));
+        fake.emit(ev("decision.made"));
+        fake.emit(ev("conversation.message_posted"));
+      });
+      expect(fake.refetches["business.firstWeek.get"]).toBeUndefined();
+      act(() => void vi.advanceTimersByTime(FIRST_WEEK_REFETCH_DEBOUNCE_MS + 10));
+      expect(fake.refetches["business.firstWeek.get"]).toBe(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("firstWeekEventMatters: an event counts only while a flag it can flip is still open", () => {
+    const flags = { specificationSignedOff: true, roadmapSignedOff: false, cycleCompleted: true, noteRead: true, conversationReplySent: false, distributionStarted: false, bankOrStripeConnected: false };
+    expect(firstWeekEventMatters("product.signoff_decided", flags)).toBe(true);
+    expect(firstWeekEventMatters("product.signoff_decided", { ...flags, roadmapSignedOff: true })).toBe(false);
+    expect(firstWeekEventMatters("cycle.completed", flags)).toBe(false);
+    expect(firstWeekEventMatters("inbox.item_updated", flags)).toBe(false);
+    expect(firstWeekEventMatters("conversation.message_posted", flags)).toBe(true);
+    expect(firstWeekEventMatters("cycle.completed", undefined)).toBe(true);
+    expect(firstWeekEventMatters("agent.health_changed", flags)).toBe(false);
+  });
+
+  it("records the dismissal once every item is done, and renders nothing when guidance is off", () => {
+    const dismissChecklist = vi.fn();
+    const allDone = Object.fromEntries(Object.keys(dataResponses()["business.firstWeek.get"] as object).map((k) => [k, true]));
+    const { container, unmount } = mountGuided(def(), { ...dataResponses(), "business.firstWeek.get": allDone }, {}, { actions: { dismissChecklist } });
+    expect(container.querySelector("[data-first-week-all-done]")).toBeTruthy();
+    expect(dismissChecklist).toHaveBeenCalledTimes(1);
+    unmount();
+    const { container: off, fake } = mountGuided(def(), dataResponses(), { guidance: "off" });
+    expect(off.innerHTML).toBe("");
+    expect(fake.queried.has("business.firstWeek.get")).toBe(false);
   });
 });

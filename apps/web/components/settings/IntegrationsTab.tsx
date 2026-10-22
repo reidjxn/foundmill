@@ -10,7 +10,7 @@ import { useMutation, useQuery } from "@tanstack/react-query";
 import { Activity, ExternalLink, FlaskConical, FolderGit2, KeyRound, Plug, RefreshCw, Unplug } from "lucide-react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
-import { Button, Chip, Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, Field, IconButton, Input, SimpleSelect, StatusPill, cn, useDateFormat, type StatusTone, type DateFormatPrefs } from "@foundmill/dugout";
+import { Button, Chip, Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, Field, IconButton, Input, SimpleSelect, StatusPill, Term, cn, useDateFormat, type StatusTone, type DateFormatPrefs } from "@foundmill/dugout";
 import type { IntegrationStatus } from "@foundmill/shared";
 import { routes } from "@foundmill/widgets/shared/routes";
 import { ShellLinkButton } from "@/components/live/ShellLinkButton";
@@ -45,10 +45,10 @@ export const AUTH_WORD: Record<string, string> = {
 /** The six panel actions BUILD §13.3 names; the ingest catalogue may add more. */
 export const SIMULATIONS: { name: string; label: string; description: string }[] = [
   { name: "signup.created", label: "Signup", description: "A new signup from the mock Stripe customer" },
-  { name: "payment.received", label: "Payment", description: "A paid invoice: records a conversion, a journey and a Customer Update" },
+  { name: "payment.received", label: "Payment", description: "A paid invoice: records a new paying customer, a journey and a Customer Update" },
   { name: "lead.replied", label: "Lead reply", description: "An inbound reply through the mock SendGrid parse" },
   { name: "bank.balance_updated", label: "Bank sync", description: "A mock open-banking balance update" },
-  { name: "channel.threshold_breached", label: "CPA spike", description: "A channel's cost per customer jumps past its threshold" },
+  { name: "channel.threshold_breached", label: "Customer cost spike", description: "A channel's cost to win a customer jumps past its threshold" },
   { name: "credential.expiring", label: "Credential expiry", description: "A connector credential about to expire" },
 ];
 
@@ -282,7 +282,7 @@ export function IntegrationsTab() {
             {installCode && installState ? (
               <>
                 <Hint>
-                  GitHub installation {pendingInstallation} is ready. Connect it to this business so agents can push their code to their own branches. GitHub confirms you can manage it first. Then choose the repository on {codeTab}.
+                  GitHub installation {pendingInstallation} is ready. Connect it to this business so agents can push their code to their own <Term id="branch">branches</Term>. GitHub confirms you can manage it first. Then choose the <Term id="repository">repository</Term> on {codeTab}.
                 </Hint>
                 <Button variant="primary" icon={FolderGit2} loading={connect.isPending} onClick={confirmInstallation}>
                   Connect installation
@@ -370,7 +370,7 @@ export function SimulatePanel({ businessId, connectors }: { businessId: string; 
       onSuccess: (result, vars) => {
         setLast({ name: vars.eventName, result });
         if (result.ok) {
-          t.saved("Simulated", `${vars.eventName} went through the webhook path.`);
+          t.saved("Simulated", `${vars.eventName} went through the same path as a real event.`);
           void invalidate(["inbox", "journey", "finance", "integrations", "distribution"]);
         } else t.failed(new Error(simulateRefusalMessage(result)), "Simulation refused");
       },
@@ -379,7 +379,7 @@ export function SimulatePanel({ businessId, connectors }: { businessId: string; 
   );
   return (
     <SettingsSection title="Simulate" actions={<Chip tone="warn" icon={FlaskConical}>Development only</Chip>} data-testid="simulate-panel">
-      <Hint>Fires a mock platform event through the API and apps/ingest exactly as a vendor webhook would: it is labeled “Simulated”, costs nothing and never leaves this environment. Owners and admins only.</Hint>
+      <Hint>Fires a mock platform event through the API and apps/ingest exactly as a real event from the vendor would: it is labeled “Simulated”, costs nothing and never leaves this environment. Owners and admins only.</Hint>
       <div className="flex items-center gap-3">
         <span className="t-label">Connector</span>
         <SimpleSelect aria-label="Connector" controlSize="sm" value={connector} onValueChange={setConnector} placeholder="Default per event" options={[{ value: "", label: "Default per event" }, ...connectors.map((c) => ({ value: c.key, label: c.label }))]} className="w-56" />

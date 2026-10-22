@@ -57,6 +57,13 @@ export const MODULE_TABS: Record<ModuleKey, readonly { slug: string; title: stri
 
 export const MEMBERSHIP_ROLES = ["owner", "admin", "member", "viewer", "advisor"] as const;
 export type MembershipRole = (typeof MEMBERSHIP_ROLES)[number];
+/**
+ * How a membership came to be (migration 0065): `invite` (team.humans.invite, the seeds' owners, every row before
+ * 0065), `founder` (the owner seat Commit writes), `example` (business.example.open: a read-only walk around a seeded
+ * demo business, always a viewer, never a seat, never staff). The db schema re-exports these.
+ */
+export const MEMBERSHIP_SOURCES = ["invite", "founder", "example"] as const;
+export type MembershipSource = (typeof MEMBERSHIP_SOURCES)[number];
 export const WRITE_ROLES: readonly MembershipRole[] = ["owner", "admin", "member"];
 
 export const DEPT_COLOUR_TOKENS = ["dept-1", "dept-2", "dept-3", "dept-4", "dept-5", "dept-6", "dept-7", "dept-8"] as const;
@@ -321,8 +328,20 @@ export const EVENT_TYPES = [
   "product.signoff_decided",
   "distribution.started",
   "product.research_drafted",
+  "guidance.tour_completed", "guidance.tour_skipped", "guidance.explainer_dismissed", "guidance.term_opened", "guidance.turned_off",
 ] as const;
 export type EventType = (typeof EVENT_TYPES)[number];
+
+/**
+ * The guided layer's product signals (docs/UX_AUDIT_AND_PLAN.md §11): how founders use the tours, the explainers, the
+ * definitions and the switch. Written by `founder.preferences.signal` into the business the founder was in, for the
+ * metrics consumer; never narrated, and walled to the readers of Settings on the business stream.
+ */
+export const GUIDANCE_EVENT_TYPES = ["guidance.tour_completed", "guidance.tour_skipped", "guidance.explainer_dismissed", "guidance.term_opened", "guidance.turned_off"] as const satisfies readonly EventType[];
+export type GuidanceEventType = (typeof GUIDANCE_EVENT_TYPES)[number];
+/** Where a founder turned guidance off: Settings › Preferences, a tour's card, or the first-week checklist. */
+export const GUIDANCE_OFF_SOURCES = ["settings", "tour", "checklist"] as const;
+export type GuidanceOffSource = (typeof GUIDANCE_OFF_SOURCES)[number];
 
 /**
  * Events addressed to one person, never to a business (audit FU-S-2). A connection request or a message from another
@@ -384,3 +403,16 @@ export interface DateFormatPrefs {
 
 /** What everyone reads until they choose: US dates, 12-hour times (also the signed-out pages). */
 export const DEFAULT_DATE_FORMAT_PREFS: Readonly<DateFormatPrefs> = Object.freeze({ date: "us", time: "12h" });
+
+/**
+ * The guided layer's one switch (docs/UX_AUDIT_AND_PLAN.md §6.3; `account_preferences.guidance`, 0064): "on" shows
+ * tutoring (explainers, the first-week checklist, coach marks, term underlines), "off" hides it and never hides
+ * information (consequences, provenance, Estimate). Keyboard caps on buttons go the other way: they show only when it is
+ * off. A personal preference of the account, applied in every business, like the date format.
+ */
+export const GUIDANCE_MODES = ["on", "off"] as const;
+export type GuidanceMode = (typeof GUIDANCE_MODES)[number];
+
+/** The account's type size (`account_preferences.text_size`, 0064): comfortable grows body and small text; the structure keeps its sizes. */
+export const TEXT_SIZES = ["standard", "comfortable"] as const;
+export type TextSize = (typeof TEXT_SIZES)[number];

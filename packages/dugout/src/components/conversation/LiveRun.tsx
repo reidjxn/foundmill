@@ -104,6 +104,9 @@ export interface LiveRunProps {
 }
 
 /** "0:19", "1:04:05". */
+/** The meter's token count says what a token is on hover (the component is server-safe, so the sentence is static). */
+export const TOKENS_HINT = "Tokens: the units AI usage is metered in, roughly three quarters of a word each.";
+
 export function formatRunClock(ms: number): string {
   const s = Math.max(0, Math.round(ms / 1000));
   const h = Math.floor(s / 3600);
@@ -278,7 +281,7 @@ export function LiveRun({
                       ·
                     </span>
                   ) : null}
-                  <span>{`${formatNumber(meter.tokens)} tokens`}</span>
+                  <span title={TOKENS_HINT}>{`${formatNumber(meter.tokens)} tokens`}</span>
                 </>
               ) : null}
               {typeof meter.elapsedMs === "number" ? (

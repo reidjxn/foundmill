@@ -5,8 +5,18 @@ import { ProvenanceChip } from "../foundation/Chip";
 import { useFormatters } from "../foundation/DateFormatProvider";
 import { StatusPill, type StatusTone } from "../foundation/StatusPill";
 import { Tooltip } from "../foundation/Tooltip";
+import { useGuided, useTerm } from "../guidance/GuidanceProvider";
+import { Term } from "../guidance/Term";
 
 export type AutopilotChipState = "off" | "on" | "waiting" | "paused";
+
+/**
+ * The one sentence that tells Autopilot apart from the founder's own Continue and from a vacation (UX plan B16): what
+ * it does, and what it never does. Shown beside the chip in guided mode (`guide`), its first word a defined `Term`.
+ */
+export const AUTOPILOT_GUIDE_LINE = "Autopilot presses Continue for you on a schedule. It never answers notes for you.";
+const GUIDE_WORD = "Autopilot";
+const GUIDE_REST = AUTOPILOT_GUIDE_LINE.slice(GUIDE_WORD.length);
 
 const STATE: Record<AutopilotChipState, { tone: StatusTone; icon: LucideIcon }> = {
   off: { tone: "neutral", icon: Power },
@@ -17,7 +27,7 @@ const STATE: Record<AutopilotChipState, { tone: StatusTone; icon: LucideIcon }> 
 
 export interface AutopilotChipProps {
   state: AutopilotChipState;
-  /** The word: On, Waiting for you, Paused: credits used up, Off. */
+  /** The word: On, Needs your answer, Paused: credits used up, Off. */
   label: string;
   /** One plain sentence, shown as the tooltip and read by assistive tech. */
   detail?: string;
@@ -25,18 +35,28 @@ export interface AutopilotChipProps {
   nextAt?: Date | string | number | null;
   /** Makes the chip a button (open Settings › Mode). */
   onClick?: () => void;
+  /**
+   * Guided mode: `AUTOPILOT_GUIDE_LINE` beside the chip, one sentence that says what Autopilot does and never does
+   * (Home passes it). Nothing when guidance is off: the chip's own words are the information.
+   */
+  guide?: boolean;
   className?: string;
 }
 
 /**
  * Autopilot's state on Home: "Autopilot" + a status pill (icon + word, so the state never rests on color) + the next
  * planned cycle with the dashed Estimate tag. The pill is amber while it waits for the founder, red while a guard rail
- * has paused it. A button when it opens Settings › Mode; the tooltip says why in plain words.
+ * has paused it. A button when it opens Settings › Mode; the tooltip says why in plain words. With `guide`, in guided
+ * mode, one sentence sits beside it: what Autopilot presses for you and what it never answers for you.
  */
-export function AutopilotChip({ state, label, detail, nextAt, onClick, className }: AutopilotChipProps) {
+export function AutopilotChip({ state, label, detail, nextAt, onClick, guide, className }: AutopilotChipProps) {
   const { formatDateShort, formatTime } = useFormatters();
+  const guided = useGuided();
   const s = STATE[state];
   const hasNext = nextAt !== null && nextAt !== undefined && (state === "on" || state === "waiting");
+  // "Next cycle" sits inside the chip (a button when clickable), so the definition rides in its tooltip while guided.
+  const cycle = useTerm("cycle");
+  const cycleLine = hasNext && guided && cycle ? `${cycle.word}: ${cycle.short}` : null;
   const content = (
     <>
       <span className="text-label font-medium text-secondary">Autopilot</span>
@@ -68,5 +88,27 @@ export function AutopilotChip({ state, label, detail, nextAt, onClick, className
       {content}
     </span>
   );
-  return detail ? <Tooltip content={detail}>{body}</Tooltip> : body;
+  const tip =
+    detail && cycleLine ? (
+      <span className="flex max-w-72 flex-col gap-0.5">
+        <span>{detail}</span>
+        <span className="text-secondary">{cycleLine}</span>
+      </span>
+    ) : (
+      (detail ?? cycleLine)
+    );
+  const chip = tip ? <Tooltip content={tip}>{body}</Tooltip> : body;
+  if (!guide || !guided) return chip;
+  // The sentence sits beside the chip, outside its button, so the chip's name stays its state and the line is read as
+  // ordinary text; "Autopilot" is the defined word there (a Term inside the chip's own button would nest two buttons).
+  // It wraps under the chip before it squeezes it (never clipped).
+  return (
+    <span className="inline-flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1" data-autopilot-guided="">
+      {chip}
+      <span className="text-small text-secondary" data-autopilot-guide="">
+        <Term id="autopilot">{GUIDE_WORD}</Term>
+        {GUIDE_REST}
+      </span>
+    </span>
+  );
 }

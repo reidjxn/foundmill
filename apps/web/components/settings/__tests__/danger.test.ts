@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { consequenceText } from "@foundmill/dugout";
 import { exportJson } from "@/lib/download";
-import { ARCHIVED_HREF, exportToast, saveExport } from "../danger";
+import { ARCHIVED_HREF, DANGER_CONSEQUENCES, DELETION_DELAY_DAYS, exportToast, saveExport } from "../danger";
 
 const result = { fileName: "ledgerly-3f2a1c-export-2026-10-12.json", archive: { format: "foundmill-export/2", tables: { tasks: [{ id: "t1" }] } }, totalRows: 12_345, counts: { tasks: 12_000, agents: 345 }, complete: true };
 
@@ -38,5 +39,11 @@ describe("Danger zone export (BUILD §11.15)", () => {
     expect(exportToast(result, true)).toEqual({ tone: "good", title: "Export downloaded", description: "ledgerly-3f2a1c-export-2026-10-12.json: 12,345 records across 2 tables. Credentials are never included." });
     expect(exportToast({ ...result, complete: false }, true).description).toMatch(/Not complete/);
     expect(ARCHIVED_HREF).toBe("/businesses#archived");
+  });
+
+  it("archive and delete each carry their consequence, cost and reversibility (UX plan §6.2, principle 6)", () => {
+    expect(consequenceText(DANGER_CONSEQUENCES.archive)).toBe("Every agent stops and the business leaves your list. Restore it from Your businesses. · No cost · Reversible");
+    expect(consequenceText(DANGER_CONSEQUENCES.delete)).toBe(`Everything is deleted after ${DELETION_DELAY_DAYS} days; cancel before then, not after. · No cost · Not reversible`);
+    for (const line of Object.values(DANGER_CONSEQUENCES)) expect(line.consequence).not.toMatch(/!|unknown/);
   });
 });

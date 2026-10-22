@@ -1,10 +1,63 @@
 import { describe, expect, it, vi } from "vitest";
 import { act, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { CONTINUE_PULSE_MS, ContinueButton, continueButtonAction, continueButtonLabel, holidayCaption, holidayCaptionParts, untilPhrase } from "./ContinueButton";
+import { GuidanceProvider } from "../guidance/GuidanceProvider";
+import { CONTINUE_PULSE_MS, ContinueButton, continueButtonAction, continueButtonLabel, continueTooltip, cycleDefinitionSentence, holidayCaption, holidayCaptionParts, untilPhrase } from "./ContinueButton";
 import type { ContinueState } from "./types";
 
 describe("ContinueButton", () => {
+  it("says what pressing does, in the business's words, per state (B1)", async () => {
+    expect(continueTooltip({ kind: "idle" })).toBe("Let the team work on their next tasks. Their notes land in the Inbox.");
+    expect(continueTooltip({ kind: "blocked", count: 2 })).toBe("2 notes need your answer before the team can carry on. Press to open the first.");
+    expect(continueTooltip({ kind: "blocked", count: 1 })).toBe("1 note needs your answer before the team can carry on. Press to open the first.");
+    expect(continueTooltip({ kind: "processing" }, 3)).toBe("The team is working · cycle 3");
+    expect(continueTooltip({ kind: "processing" })).toBe("The team is working");
+    expect(continueTooltip({ kind: "matchday" })).toBe("A customer was won");
+    expect(continueTooltip({ kind: "holiday", until: "2026-10-14" })).toBe("On vacation until Oct 14, 2026");
+    const user = userEvent.setup();
+    render(<ContinueButton state={{ kind: "processing" }} cycleNumber={3} />);
+    const button = screen.getByRole("button", { name: "Pause the running cycle" });
+    // The next wave's first-time callout anchors on the button.
+    expect(button.getAttribute("data-coachmark")).toBe("continue");
+    await user.hover(button);
+    expect((await screen.findAllByText("The team is working · cycle 3")).length).toBeGreaterThan(0);
+  });
+
+  it("names and defines the cycle in the idle tooltip while guidance is on, as a sentence (a tooltip holds no Term)", async () => {
+    const short = "One round of work: the team works for a while, then reports back in the Inbox.";
+    expect(cycleDefinitionSentence(short)).toBe("A cycle is one round of work: the team works for a while, then reports back in the Inbox.");
+    expect(cycleDefinitionSentence("  ")).toBe("");
+    expect(continueTooltip({ kind: "idle" }, null, null, short)).toBe("Let the team work on their next tasks for one cycle. A cycle is one round of work: the team works for a while, then reports back in the Inbox.");
+    // Only idle changes; no definition, no change.
+    expect(continueTooltip({ kind: "blocked", count: 1 }, null, null, short)).toBe("1 note needs your answer before the team can carry on. Press to open the first.");
+    expect(continueTooltip({ kind: "idle" }, null, null, null)).toBe("Let the team work on their next tasks. Their notes land in the Inbox.");
+
+    const user = userEvent.setup();
+    // Outside a provider guidance reads as on: the definition comes from the source map.
+    const { unmount } = render(<ContinueButton state={{ kind: "idle" }} />);
+    await user.hover(screen.getByRole("button", { name: /Continue/ }));
+    expect((await screen.findAllByText(/A cycle is one round of work/)).length).toBeGreaterThan(0);
+    unmount();
+    // The business's own words win, and guidance off says the plain sentence.
+    const terms = { cycle: { id: "cycle", word: "Sprint", short: "One sprint of work." } };
+    const on = render(
+      <GuidanceProvider value={{ terms }}>
+        <ContinueButton state={{ kind: "idle" }} />
+      </GuidanceProvider>,
+    );
+    await user.hover(screen.getByRole("button", { name: /Continue/ }));
+    expect((await screen.findAllByText(/A cycle is one sprint of work\./)).length).toBeGreaterThan(0);
+    on.unmount();
+    render(
+      <GuidanceProvider value={{ guidance: "off", terms }}>
+        <ContinueButton state={{ kind: "idle" }} />
+      </GuidanceProvider>,
+    );
+    await user.hover(screen.getByRole("button", { name: /Continue/ }));
+    expect((await screen.findAllByText("Let the team work on their next tasks. Their notes land in the Inbox.")).length).toBeGreaterThan(0);
+    expect(screen.queryByText(/A cycle is/)).toBeNull();
+  });
+
   it("labels every state (BUILD §5.4)", () => {
     expect(continueButtonLabel({ kind: "idle" })).toBe("Continue");
     expect(continueButtonLabel({ kind: "blocked", count: 3 })).toBe("Respond · 3");

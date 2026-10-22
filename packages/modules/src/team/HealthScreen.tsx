@@ -6,7 +6,7 @@
  */
 import { useMemo } from "react";
 import { Activity, CircleCheck, ExternalLink, HeartPulse, TriangleAlert, UserRoundPlus } from "lucide-react";
-import { Avatar, Button, Chip, DeptChip, EntityLink, Panel, StatusPill, StatusStrip, cn, formatPercent, formatRelative, type HealthDetails, type MetricTileProps } from "@foundmill/dugout";
+import { Avatar, Button, Chip, DeptChip, EntityLink, Panel, StatusPill, StatusStrip, Term, cn, formatPercent, formatRelative, type HealthDetails, type MetricTileProps } from "@foundmill/dugout";
 import { AGENT_STATUSES, type AgentStatus } from "@foundmill/shared/constants";
 import { moduleTabHref, useDepartments } from "@foundmill/widgets/shared/departments";
 import { teamHealthCounts, teamHealthSummary } from "@foundmill/widgets/shared/health";
@@ -41,7 +41,7 @@ export function healthDetails(agent: AgentRow): HealthDetails {
 /**
  * Why this agent is in its group, in one line: the expected return, the reason, a loop, or (degraded) the error rate.
  * Empty when there is nothing beyond what the group's own description and the card's figures already say, so a card
- * never repeats its panel header or its Heartbeat / Errors figures.
+ * never repeats its panel header or its Last active / Failed sessions figures.
  */
 export function healthReason(status: AgentStatus, details: HealthDetails, now: Date): string {
   const parts: string[] = [];
@@ -58,11 +58,13 @@ export function healthReason(status: AgentStatus, details: HealthDetails, now: D
 }
 
 /**
- * The Health headline when nobody needs the founder: how many agents are working (healthy) out of the team. All idle
- * is not "everyone is working".
+ * The Health headline when nobody needs the founder: how many agents are working out of the team. "Working" is having
+ * a task right now, the rule Home's team strip uses (`teamStripWords` in @foundmill/dugout: "3 of 4 working" counts
+ * the agents on a task, never the healthy ones), so a healthy idle agent is not working and all idle is never
+ * "everyone is working".
  */
-export function healthSummary(agents: readonly Pick<AgentRow, "status">[]): { text: string; tone: "good" | "neutral" } {
-  const working = agents.filter((a) => a.status === "healthy").length;
+export function healthSummary(agents: readonly Pick<AgentRow, "status" | "currentTask">[]): { text: string; tone: "good" | "neutral" } {
+  const working = agents.filter((a) => !!a.currentTask).length;
   if (working === 0) return { text: "No agent is working right now", tone: "neutral" };
   if (working === agents.length) return { text: "Everyone is working", tone: "good" };
   return { text: `${working} of ${agents.length} working`, tone: "good" };
@@ -72,8 +74,8 @@ const TONE_CLASS: Record<AgentStatus, string> = { failing: "text-status-bad", in
 
 /** One short line under each count in the strip. */
 export const STATUS_CAPTION: Record<AgentStatus, string> = {
-  healthy: "Heartbeat on time",
-  degraded: "Errors above 10%",
+  healthy: "Active recently",
+  degraded: "Failed sessions above 10%",
   failing: "Sessions stopped",
   injured: "Back once reconnected",
   paused: "By you or a vacation",
@@ -111,7 +113,7 @@ export function HealthScreen({ businessId }: ModuleScreenProps) {
     <Screen name="team/health">
       <Panel
         span={12}
-        title="Health"
+        title={<Term id="health">Health</Term>}
         flush
         loading={loading}
         error={error}
@@ -130,13 +132,13 @@ export function HealthScreen({ businessId }: ModuleScreenProps) {
             </span>
           )
         }
-        footer="Statuses change as sessions start, end, fail or loop, and when a credential lapses or a wage cap is reached. Heartbeat is an agent's last activity; errors are the share of its sessions that failed over 24 h."
+        footer="Statuses change as sessions start, end, fail or loop, and when a credential lapses or a wage cap is reached. Last active is the last time the agent did anything; failed sessions is the share of its sessions that failed over the last 24 hours."
       >
         <StatusStrip tiles={tiles} className="rounded-none border-0" aria-label="Agents by health" />
       </Panel>
 
       {!loading && !error && agents.length === 0 ? (
-        <Panel span={12} title="Team" empty={{ icon: HeartPulse, title: "No agents to watch", children: "Each agent appears here under its health with heartbeat, error rate and, when down, the expected return.", action: { label: "Go to Recruitment", icon: UserRoundPlus, onClick: () => navigate(recruitHref) } }} />
+        <Panel span={12} title="Team" empty={{ icon: HeartPulse, title: "No agents to watch", children: "Each agent appears here under its health with when it was last active, its failed sessions and, when down, the expected return.", action: { label: "Go to Recruitment", icon: UserRoundPlus, onClick: () => navigate(recruitHref) } }} />
       ) : null}
 
       {groups.map((group) => (
@@ -165,11 +167,11 @@ export function HealthScreen({ businessId }: ModuleScreenProps) {
                   ) : null}
                   <dl className="flex min-w-0 gap-4">
                     <div className="flex shrink-0 flex-col gap-0.5">
-                      <dt className="t-data">Heartbeat</dt>
+                      <dt className="t-data">Last active</dt>
                       <dd className="whitespace-nowrap text-body text-primary tabular-nums">{details.lastHeartbeatAt ? formatRelative(details.lastHeartbeatAt, now) : <span className="text-tertiary">—</span>}</dd>
                     </div>
                     <div className="flex shrink-0 flex-col gap-0.5">
-                      <dt className="t-data">Errors 24 h</dt>
+                      <dt className="t-data">Failed sessions, 24 h</dt>
                       <dd className="whitespace-nowrap text-body text-primary tabular-nums">{typeof details.errorRate === "number" ? formatPercent(details.errorRate, { digits: 1 }) : <span className="text-tertiary">—</span>}</dd>
                     </div>
                     <div className="flex min-w-0 flex-1 flex-col gap-0.5">

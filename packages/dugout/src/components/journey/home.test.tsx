@@ -1,8 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { GuidanceProvider } from "../guidance/GuidanceProvider";
 import { DayDigest } from "./DayDigest";
-import { DepartmentCard } from "./DepartmentCard";
+import { DepartmentCard, teamStripWords } from "./DepartmentCard";
 import { departmentCardFixtures, generateJourneyFixture, RIBBON_DEPARTMENTS, squadPulseFixture, trophyFixtures } from "./fixtures";
 import { indexDailyRows, summariseDay } from "./ribbon/geometry";
 import { buildPulseGrid, SquadPulse } from "./SquadPulse";
@@ -32,6 +33,37 @@ describe("DepartmentCard", () => {
     expect(screen.getAllByText("Estimate").length).toBeGreaterThan(0);
     expect(screen.getByText("Quiet", { selector: "[data-now-quiet]" })).toBeTruthy();
     expect(screen.queryByText(/next cycle starts with Continue/)).toBeNull();
+    // Plain labels (UX plan E6): "Working on now" and "Next", never the bare "Now" or "Next up".
+    expect(screen.getAllByText("Working on now").length).toBe(cards.length);
+    expect(screen.getAllByText("Next").length).toBe(cards.length);
+    expect(screen.queryByText("Next up")).toBeNull();
+  });
+
+  it("counts the agents on a task in the team strip, and says what the team is when nobody is (UX plan B19)", () => {
+    const { container } = render(
+      <>
+        {cards.map((d) => (
+          <DepartmentCard key={d.id} department={d} />
+        ))}
+      </>,
+    );
+    // Distribution: Scout, Lifecycle and Beacon carry a task (Beacon degraded, still on one); Quill is idle.
+    expect(container.querySelector("[data-department='d-distribution'] [data-team-strip-words]")?.textContent).toBe("3 of 4 working");
+    expect(container.querySelector("[data-department='d-distribution'] [data-team-strip]")?.getAttribute("aria-label")).toBe("Team: 3 of 4 working");
+    // Product: two idle agents, nobody on a task: not "0 of 2 working".
+    expect(container.querySelector("[data-department='d-product'] [data-team-strip-words]")?.textContent).toBe("2 agents, all healthy");
+    expect(container.textContent).not.toContain("0 of 2 working");
+  });
+
+  it("teamStripWords: a task counts as working, health alone does not; an idle team names what needs you", () => {
+    const m = (status: "healthy" | "idle" | "paused" | "degraded" | "injured" | "failing", task: string | null = null) => ({ status, task });
+    expect(teamStripWords([m("healthy", "Invoice lines"), m("healthy"), m("idle"), m("degraded", "Retry the sync")])).toBe("2 of 4 working");
+    expect(teamStripWords([m("healthy"), m("healthy"), m("idle"), m("paused")])).toBe("4 agents, all healthy");
+    expect(teamStripWords([m("idle"), m("degraded")])).toBe("2 agents, 1 degraded");
+    expect(teamStripWords([m("failing"), m("injured"), m("injured"), m("degraded")])).toBe("4 agents, 1 failing, 2 down, 1 degraded");
+    expect(teamStripWords([m("idle")])).toBe("1 agent, healthy");
+    expect(teamStripWords([m("injured")])).toBe("1 agent, 1 down");
+    expect(teamStripWords([])).toBe("No agents yet");
   });
   it("links entities in Now lines, exposes member status in the name and opens agents", async () => {
     const user = userEvent.setup();
@@ -54,11 +86,32 @@ describe("DepartmentCard · quiet", () => {
   it("fills Now with the line it is given, which opens the note", async () => {
     const user = userEvent.setup();
     const onOpenQuiet = vi.fn();
-    const { container } = render(<DepartmentCard department={{ ...quiet, quiet: { kind: "respond", label: "Waiting for you", text: "Approve the Q4 retail terms", detail: "2 more in the Inbox" } }} onOpenQuiet={onOpenQuiet} />);
+    const { container } = render(<DepartmentCard department={{ ...quiet, quiet: { kind: "respond", label: "Needs your answer", text: "Approve the Q4 retail terms", detail: "2 more in the Inbox" } }} onOpenQuiet={onOpenQuiet} />);
     expect(screen.getByText("Quiet", { selector: "[data-now-quiet]" })).toBeTruthy();
     expect(container.querySelector("[data-now-lines]")).toBeNull();
-    await user.click(screen.getByRole("button", { name: "Waiting for you: Approve the Q4 retail terms. 2 more in the Inbox" }));
+    await user.click(screen.getByRole("button", { name: "Needs your answer: Approve the Q4 retail terms. 2 more in the Inbox" }));
     expect(onOpenQuiet).toHaveBeenCalledTimes(1);
+  });
+
+  it("puts the headline metric in plain words under its figure while guidance is on, and leaves the figure alone when it is off", () => {
+    const terms = { runway: { id: "runway", word: "Runway", short: "How many months your cash lasts at today's spending." } };
+    const { container, unmount } = render(
+      <GuidanceProvider value={{ terms }}>
+        <DepartmentCard department={quiet} metricId="runway" />
+      </GuidanceProvider>,
+    );
+    expect(container.querySelector("[data-department-metric] [data-plain-line]")?.textContent).toBe("How many months your cash lasts at today's spending.");
+    unmount();
+    const { container: plain, unmount: unmountPlain } = render(<DepartmentCard department={quiet} metricPlain="Tasks the team finished in the last 7 days." />);
+    expect(plain.querySelector("[data-department-metric] [data-plain-line]")?.textContent).toBe("Tasks the team finished in the last 7 days.");
+    unmountPlain();
+    const { container: off } = render(
+      <GuidanceProvider value={{ guidance: "off", terms }}>
+        <DepartmentCard department={quiet} metricId="runway" metricPlain="Never shown" />
+      </GuidanceProvider>,
+    );
+    expect(off.querySelector("[data-plain-line]")).toBeNull();
+    expect(off.querySelector("[data-department-metric] [data-figure]")).toBeTruthy();
   });
 
   it("states a finished task as plain text, and says only what it knows without a line", () => {
@@ -96,7 +149,9 @@ describe("SquadPulse", () => {
     const onSelect = vi.fn();
     const { container } = render(<SquadPulse departments={RIBBON_DEPARTMENTS} days={days} cells={cells} onSelect={onSelect} />);
     expect(container.querySelectorAll("[data-pulse-cell]").length).toBe(168);
-    expect(screen.getByRole("grid").getAttribute("aria-label")).toContain("agent hours over the last 7 days");
+    // "Hours of team work", never "agent-hours", in anything read out (UX plan B16).
+    expect(screen.getByRole("grid").getAttribute("aria-label")).toContain("hours of team work over the last 7 days");
+    expect(screen.getByRole("grid").getAttribute("aria-label")).not.toMatch(/agent.hours/);
     const start = container.querySelector("[data-pulse-cell='6:9']") as HTMLElement;
     expect(start.tabIndex).toBe(0);
     start.focus();
@@ -171,7 +226,8 @@ describe("DayDigest", () => {
     const onOpenJourney = vi.fn();
     render(<DayDigest summary={summary} currency="EUR" highlights={["Scout closed [[ent:0f7c2d1e-4b1a-4c8e-9a3b-2d5f6e7a8b9c|Nordic Beauty AB]]"]} onOpenJourney={onOpenJourney} onOpenEntity={() => {}} />);
     expect(screen.getByRole("region", { name: /Day digest/ })).toBeTruthy();
-    expect(screen.getByText("Agent hours")).toBeTruthy();
+    expect(screen.getByText("Hours of team work")).toBeTruthy();
+    expect(screen.getByRole("complementary", { name: "Hours of team work by department" })).toBeTruthy();
     expect(screen.getByRole("link", { name: "Nordic Beauty AB" })).toBeTruthy();
     const replay = screen.getAllByRole("button", { name: /Open the Customer Update/ })[0]!;
     await user.click(replay);

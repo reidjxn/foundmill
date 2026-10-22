@@ -16,7 +16,7 @@ const openPr = (n: number) => ["$ gh pr create --fill --base main", `${REPO}/${n
 /** The orbit's own Development agents, so the tiles show the same portraits as the team. */
 const AGENTS: readonly MockSessionAgent[] = [
   { name: "Rune", seed: "rune", role: "Play loop engineer", dept: "dept-2", model: "sonnet", kind: "code" },
-  { name: "Vex", seed: "vex", role: "Crash triage", dept: "dept-2", model: "sonnet", kind: "code" },
+  { name: "Vex", seed: "vex", role: "Crash sorting", dept: "dept-2", model: "sonnet", kind: "code" },
   { name: "Sprite", seed: "sprite", role: "Card-game playtester", dept: "dept-2", model: "sonnet", kind: "code" },
   { name: "Bolt", seed: "bolt", role: "Lead developer", dept: "dept-2", model: "sonnet", kind: "code" },
 ];
@@ -91,17 +91,17 @@ const MODEL_ROUTING: MockTaskScript = {
 const UNITY_PARSER: MockTaskScript = {
   title: "Unity WebGL crash log parser",
   goal: "Turn a Unity WebGL crash log into a bug with its stack, its build and the replay that caused it.",
-  plan: ["Read held-out Unity WebGL crash logs", "Parse the stack from the browser console", "Map wasm frames to C# with the symbols file", "Group crashes by their top frame", "Run the triage eval", "Open the pull request"],
-  readPath: "src/triage/godot/parse.ts",
+  plan: ["Read held-out Unity WebGL crash logs", "Parse the stack from the browser console", "Map wasm frames to C# with the symbols file", "Group crashes by their top frame", "Run the crash eval", "Open the pull request"],
+  readPath: "src/crashes/godot/parse.ts",
   terminal: {
     setup: ["$ gw sandbox up --image webgl-chromium", "sbx-52e1 ready · headless Chromium · WebGL 2", "lanternfall 1.2 (Unity 6 WebGL) · first frame 6.4s"],
-    unit: ["$ pnpm vitest run src/triage/unity", " ✓ src/triage/unity/parse.test.ts (12 tests) 264ms", " ✓ src/triage/unity/symbols.test.ts (5 tests) 380ms", "      Tests  17 passed (17)"],
-    check: ["$ pnpm evals run triage --logs 80 --held-out", "Running 80 Unity WebGL crash logs (held out)", "  ✓  stack parsed 80/80", "  ✓  grouped with its duplicates 74/80", "  ✘  C# frame named 54/80 (68%), threshold 90%", "  1 threshold missed"],
-    fix: ['$ git commit -am "fix(triage): load symbols for IL2CPP builds"', "[agent/task-2 8e2f6b1] fix(triage): load symbols for IL2CPP builds", " 3 files changed, 58 insertions(+), 7 deletions(-)", STATIC_CHECKS, "$ pnpm evals run triage --logs 80 --held-out", "  all thresholds met (stack 100%, C# frame 95%)"],
+    unit: ["$ pnpm vitest run src/crashes/unity", " ✓ src/crashes/unity/parse.test.ts (12 tests) 264ms", " ✓ src/crashes/unity/symbols.test.ts (5 tests) 380ms", "      Tests  17 passed (17)"],
+    check: ["$ pnpm evals run crashes --logs 80 --held-out", "Running 80 Unity WebGL crash logs (held out)", "  ✓  stack parsed 80/80", "  ✓  grouped with its duplicates 74/80", "  ✘  C# frame named 54/80 (68%), threshold 90%", "  1 threshold missed"],
+    fix: ['$ git commit -am "fix(crashes): load symbols for IL2CPP builds"', "[agent/task-2 8e2f6b1] fix(crashes): load symbols for IL2CPP builds", " 3 files changed, 58 insertions(+), 7 deletions(-)", STATIC_CHECKS, "$ pnpm evals run crashes --logs 80 --held-out", "  all thresholds met (stack 100%, C# frame 95%)"],
     ship: openPr(321),
   },
-  file: fileChange("src/triage/unity/parse.ts", "@@ -0,0 +1,13 @@", [
-    '+import { symbolsFor } from "@/triage/unity/symbols";',
+  file: fileChange("src/crashes/unity/parse.ts", "@@ -0,0 +1,13 @@", [
+    '+import { symbolsFor } from "@/crashes/unity/symbols";',
     "+",
     "+/** A Unity WebGL crash from the browser console: wasm frames mapped back to C# where the build has symbols. */",
     "+export async function parseUnityCrash(log: ConsoleLog, build: Build): Promise<Crash> {",
@@ -122,9 +122,9 @@ const UNITY_PARSER: MockTaskScript = {
     "C# frames were missing for IL2CPP builds: the symbols file was never loaded. Loading it.",
     "Review: symbol files are deleted with the build, 30 days after the run.",
   ],
-  unitCommand: "pnpm vitest run src/triage/unity",
+  unitCommand: "pnpm vitest run src/crashes/unity",
   unitPassed: 17,
-  acceptanceCommand: "pnpm evals run triage",
+  acceptanceCommand: "pnpm evals run crashes",
   failingCheck: "C# frame named for 90% of crashes",
   pullRequest: 321,
   nudge: {

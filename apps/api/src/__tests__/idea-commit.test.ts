@@ -37,6 +37,8 @@ describe("idea.commit (AC-11.1.6, AC-11.1.7)", () => {
     expect(business.kitPrimary.toLowerCase()).toBe("#1b4fd8");
     const membership = await repos.memberships.get(hz.db, bid, userId);
     expect(membership?.role).toBe("owner");
+    // The founder's own seat says so (0065 source): never an invite, never an example.
+    expect(membership?.source).toBe("founder");
 
     // Departments 1:1 with the seed; every one has its module tabs as screen definitions.
     const departments = await repos.departments.list(hz.db, bid);
@@ -82,6 +84,8 @@ describe("idea.commit (AC-11.1.6, AC-11.1.7)", () => {
     expect(inbox.items.map((i) => ({ id: i.id, type: i.type, blocksContinue: i.blocksContinue }))).toEqual([{ id: result.firstItem.id, type: "update", blocksContinue: false }]);
     expect(result.firstItem.fromAgentId).toBe(result.chiefOfStaffId);
     expect(result.firstItem.subject).toBe("Your team is drafting the product foundations");
+    // The founder meets the Chief of Staff and what is always theirs in the first note (UX plan §7.19, E5).
+    expect(result.firstItem.bodyMd.startsWith("I'm your Chief of Staff. I run the team so you only read and decide. Some things are always yours: money, signatures, contracts, deleting things.")).toBe(true);
     expect(result.firstItem.bodyMd).toContain("Nothing is spent on distribution until you start it");
     expect(inbox.continueState).toEqual({ kind: "idle" });
     expect((await caller.business.get({ businessId: bid })).productStage).toBe("drafting");

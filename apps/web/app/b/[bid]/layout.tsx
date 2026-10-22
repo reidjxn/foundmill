@@ -3,9 +3,10 @@
  * departments on the server, then renders the Dugout AppShell through <BusinessShell> (client) with everything
  * the surfaces below need: WidgetDataProvider, keyboard map, universal search, Continue state, stream.
  *
- * The profile, the business and the departments are asked in parallel; then the shell's first-screen queries (inbox,
- * finance, cycle) start and reach the browser with the page (lib/shell-data.server.ts), together with the profile the
- * gate already read. app/b/loading.tsx shows the app frame while this waits, so the document head and the scripts
+ * The profile, the business, the departments and the guidance preferences are asked in parallel; then the shell's
+ * first-screen queries (inbox, finance, cycle) start and reach the browser with the page (lib/shell-data.server.ts),
+ * together with the profile the gate already read. The guidance preferences go to GuidanceHost as `initial`, below
+ * `<Prefetched>`, so the first render holds the account's answer (lib/guidance.server.ts). app/b/loading.tsx shows the app frame while this waits, so the document head and the scripts
  * reach the browser first.
  *
  * Browser titles ("Inbox · Northwind · Foundmill") are rendered by <BusinessTitle> from what the shell already holds,
@@ -18,12 +19,14 @@ import type { ReactNode } from "react";
 import { staleBusinessPath } from "@/lib/auth/last-business";
 import { getLastBusinessId } from "@/lib/auth/server";
 import { getServerDateFormat } from "@/lib/date-format.server";
+import { getServerGuidance } from "@/lib/guidance.server";
 import { Prefetched } from "@/lib/hydrate.server";
 import { startBusinessShell } from "@/lib/shell-data.server";
 import { serverApi } from "@/lib/trpc-server";
 import { handOverProfile } from "@/lib/profile-handover";
 import { errorMessage, trpcErrorCode } from "@/lib/trpc";
 import { DateFormatHost } from "@/components/providers/DateFormatHost";
+import { GuidanceHost } from "@/components/providers/GuidanceHost";
 import { BusinessShell } from "@/components/shell/BusinessShell";
 import { BusinessTitle } from "@/components/shell/BusinessTitle";
 import { ApiErrorPage } from "@/components/shell/ApiErrorPage";
@@ -51,6 +54,8 @@ export default async function BusinessLayout({ params, children }: { params: Par
   // The person's date format (the cookie, else the API), so the shell renders in it on the first byte.
   const dateFormat = getServerDateFormat();
   dateFormat.catch(() => undefined);
+  // The guided layer's preferences (never rejects: a failed read is handed over as null and read in the browser).
+  const guidance = getServerGuidance();
   let profile;
   try {
     profile = await api.founder.profile.get.query();
@@ -62,7 +67,7 @@ export default async function BusinessLayout({ params, children }: { params: Par
 
   let loaded;
   try {
-    loaded = await Promise.all([shell.data, dateFormat]);
+    loaded = await Promise.all([shell.data, dateFormat, guidance]);
   } catch (err) {
     const code = trpcErrorCode(err);
     if (code === "NOT_FOUND" || code === "FORBIDDEN") {
@@ -73,16 +78,18 @@ export default async function BusinessLayout({ params, children }: { params: Par
     }
     return <UnreachablePage message={errorMessage(err, "The API did not answer.")} />;
   }
-  const [[business, departments], date] = loaded;
+  const [[business, departments], date, guided] = loaded;
   return (
     // The profile the gate just read goes along, so the shell's business menu, the Inbox and the reading pane do not ask again.
     <Prefetched queryClient={handOverProfile(shell.prefetch(), profile)}>
-      <DateFormatHost initial={date.prefs} owner={date.owner}>
-        <BusinessShell businessId={bid} initialBusiness={business} initialDepartments={departments} viewer={{ email: profile.email ?? server.auth.email, userId: server.auth.userId, name: profile.profile?.displayName ?? null }}>
-          <BusinessTitle />
-          {children}
-        </BusinessShell>
-      </DateFormatHost>
+      <GuidanceHost initial={guided.prefs} signedIn textSizeOwner={date.owner}>
+        <DateFormatHost initial={date.prefs} owner={date.owner}>
+          <BusinessShell businessId={bid} initialBusiness={business} initialDepartments={departments} viewer={{ email: profile.email ?? server.auth.email, userId: server.auth.userId, name: profile.profile?.displayName ?? null }}>
+            <BusinessTitle />
+            {children}
+          </BusinessShell>
+        </DateFormatHost>
+      </GuidanceHost>
     </Prefetched>
   );
 }

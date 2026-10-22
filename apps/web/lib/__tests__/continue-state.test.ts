@@ -43,9 +43,9 @@ describe("computeContinueState", () => {
     expect(firstBlockingItem(undefined)).toBeUndefined();
   });
 
-  it("Respond · N opens the first red item, or the Respond tab before inbox.list has answered", () => {
+  it("Respond · N opens the Inbox's Respond tab on the first red item, or the tab alone before inbox.list has answered (B1)", () => {
     const items = [item({ id: "a", state: "answered", blocksContinue: true }), item({ id: "b", type: "decision", blocksContinue: true })];
-    expect(respondHref("biz", items)).toBe("/b/biz/inbox/b");
+    expect(respondHref("biz", items)).toBe("/b/biz/inbox/b?tab=respond");
     expect(respondHref("biz", undefined)).toBe("/b/biz/inbox?tab=respond");
     expect(respondHref("biz", [item({ id: "c", type: "customer_won" })])).toBe("/b/biz/inbox?tab=respond");
   });

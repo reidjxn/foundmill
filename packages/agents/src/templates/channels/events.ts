@@ -22,7 +22,7 @@ export const channelEvents = defineChannelTemplate({
   examples: [
     {
       input: "Fintech Ops Summit London: sponsorship tiers £2,500 / £6,000; expected 400 attendees (organizer figure).",
-      output: "Negotiated proposal: £2,500 tier plus a 10-minute talk slot (organizer agreed in writing, msg_88). Contract draft attached for founder signature; deposit £1,250 → request_human_action. Lead capture form ready with consent checkbox.",
+      output: "Negotiated proposal: £2,500 tier plus a 10-minute talk slot (organizer agreed in writing, msg_88). Contract draft attached for founder signature; deposit £1,250 → founder action. Lead capture form ready with consent checkbox.",
     },
   ],
   craftSkills: ["event_sourcing", "negotiation", "lead_capture", "follow_up"],

@@ -3,11 +3,11 @@
  * stopAllAgents/resumeAgents/export/archive/restore/listArchived/requestDeletion/cancelDeletion (BUILD §9.4, §9.6, §11.15, §14).
  */
 import { LIMITS, liveModeOpen } from "@foundmill/config";
-import { HolidayRunningError, repos, SLUG_TAKEN, UpdateBusinessInput, type Db } from "@foundmill/db";
-import { demoBusinessIdForSlug } from "@foundmill/db/seed/constants";
+import { HolidayRunningError, repos, SLUG_TAKEN, UpdateBusinessInput, type Db, type DbTx } from "@foundmill/db";
+import { demoBusinessIdForSlug, EXAMPLE_BUSINESS_ID } from "@foundmill/db/seed/constants";
 import { BUSINESS_SETTINGS_FIELDS, businessStreamKey } from "@foundmill/events";
 import { PRICING_CURRENCY } from "@foundmill/models";
-import { AUTOPILOT_CADENCES, AUTOPILOT_LIMITS, BUSINESS_MODES, ConflictError, CurrencyCode, DECISION_TYPES, EVENT_TYPES, GAME_MODES, isValidTimeZone } from "@foundmill/shared";
+import { AppError, AUTOPILOT_CADENCES, AUTOPILOT_LIMITS, BUSINESS_MODES, ConflictError, CurrencyCode, DECISION_TYPES, EVENT_TYPES, GAME_MODES, isValidTimeZone } from "@foundmill/shared";
 import { z } from "zod";
 import { autopilotStatus, ensureAutopilot, setAutopilot } from "../services/autopilot";
 import { pauseCycle, resumeCycle, startCycle } from "../services/cycle";
@@ -19,8 +19,35 @@ import { modelLimited } from "../services/model-limits";
 import { noteAsSeenBy } from "../services/inbox-redaction";
 import { signoffViews, startDistribution } from "../services/signoff";
 import type { Context } from "../context";
-import { adminArchivedProcedure, adminProcedure, archivedBusinessProcedure, assertLiveOpen, audit, businessProcedure, emit, ownerArchivedProcedure, ownerProcedure, protectedProcedure, router, writeProcedure } from "../trpc";
+import { adminArchivedProcedure, adminProcedure, archivedBusinessProcedure, assertLiveOpen, audit, businessProcedure, emit, Id, ownerArchivedProcedure, ownerProcedure, protectedProcedure, router, writeProcedure } from "../trpc";
 import { businessLogoRouter } from "./logo";
+
+/** How the signed-in person stands to the example business (`business.example.get`). */
+export type ExampleMembership = "none" | "example" | "member";
+
+/** What New business needs for the "Explore an example" door, or null when the deployment has no example business. */
+export interface ExampleBusinessView {
+  id: string;
+  name: string;
+  slug: string;
+  kitPrimary: string;
+  kitSecondary: string;
+  /** `example`: an example membership already exists (the door reopens it); `member`: a real seat (the door hides). */
+  membership: ExampleMembership;
+}
+
+/** The example business (the seed's Northwind Skincare first, else the oldest committed demo), or null. */
+export function findExampleBusiness(db: Db | DbTx) {
+  return repos.businesses.example(db, { prefer: EXAMPLE_BUSINESS_ID });
+}
+
+/** "member" for any real seat, "example" for an example membership, "none" without one. */
+export function exampleMembershipOf(membership: { source: string } | null): ExampleMembership {
+  if (!membership) return "none";
+  return membership.source === "example" ? "example" : "member";
+}
+
+export const NO_EXAMPLE_BUSINESS = "There is no example business on this deployment";
 
 /**
  * What an admin may change on the business record (Settings › Business and Glossary send these). The currency (0025) is
@@ -61,6 +88,47 @@ const AutopilotSettingsInput = z.object({
   maxIdleCycles: z.number().int().min(AUTOPILOT_LIMITS.maxIdleCycles.min).max(AUTOPILOT_LIMITS.maxIdleCycles.max).optional(),
 });
 
+/** The first-week checklist's flags (docs/UX_AUDIT_AND_PLAN.md §6.2 FirstWeekChecklist), one per item, all read-only. */
+export interface FirstWeekFlags {
+  specificationSignedOff: boolean;
+  roadmapSignedOff: boolean;
+  cycleCompleted: boolean;
+  noteRead: boolean;
+  conversationReplySent: boolean;
+  distributionStarted: boolean;
+  bankOrStripeConnected: boolean;
+}
+
+/**
+ * What the business has done in its first week, from what it already records: the latest sign-off round of each kind
+ * approved, a `cycle.completed` event, a note from an agent that someone opened (a read receipt, 0048) or answered, a
+ * message the founder wrote to an agent, distribution started, a bank account or a connected Stripe. Every read runs
+ * under the caller's RLS (a member of another business is refused by `businessProcedure` before any of this runs);
+ * each existence check loads one id at most. The sign-offs are read as their latest round of each kind only (not the
+ * Product screens' views, which also read the stage and every specification version with its snapshot), and
+ * distribution comes from the business the access lookup already holds: one transaction, every read in parallel.
+ */
+export async function firstWeekFlags(tx: DbTx, business: { id: string; distributionStartedAt: Date | null }): Promise<FirstWeekFlags> {
+  const businessId = business.id;
+  const [signoffs, completed, noteRead, conversationReplySent, accounts, stripe] = await Promise.all([
+    repos.productSignoffs.latest(tx, businessId),
+    repos.events.list(tx, businessId, { type: "cycle.completed", limit: 1 }),
+    repos.inbox.anyAgentNoteOpened(tx, businessId),
+    repos.conversations.anyFounderMessage(tx, businessId),
+    repos.finance.listAccounts(tx, businessId),
+    repos.integrations.getByKey(tx, businessId, "stripe"),
+  ]);
+  return {
+    specificationSignedOff: signoffs.spec?.status === "approved",
+    roadmapSignedOff: signoffs.roadmap?.status === "approved",
+    cycleCompleted: completed.items.length > 0,
+    noteRead,
+    conversationReplySent,
+    distributionStarted: business.distributionStartedAt !== null,
+    bankOrStripeConnected: accounts.length > 0 || stripe?.status === "connected" || stripe?.status === "mock",
+  };
+}
+
 const journeyRefreshes = new WeakMap<Db, { running: Promise<void> | null; again: boolean }>();
 
 /**
@@ -100,6 +168,60 @@ export const businessRouter = router({
     get: businessProcedure.query(({ ctx }) => autopilotStatus(ctx)),
     set: adminProcedure.input(AutopilotSettingsInput).mutation(({ ctx, input }) => setAutopilot(ctx, input)),
     ensure: writeProcedure.mutation(({ ctx }) => ensureAutopilot(ctx)),
+  }),
+
+  /**
+   * The first-week checklist (UX plan §6.2, §7.8): one done flag per item, read-only, for any member of the business
+   * (RLS-scoped like every other read here). Home's "Your first week" panel ticks its rows off from this.
+   */
+  firstWeek: router({
+    get: businessProcedure.query(({ ctx }) => ctx.rls((tx) => firstWeekFlags(tx, { id: ctx.businessId, distributionStartedAt: ctx.business.distributionStartedAt }))),
+  }),
+
+  /**
+   * The example business (docs/UX_AUDIT_AND_PLAN.md §10 Phase 3, §12 item 5; 0065): a signed-in founder walks around a
+   * seeded demo business as a read-only viewer before starting their own. Account-level like founder.businesses.*:
+   * no businessId on `get` and `open` (the server picks the example). All three run on the service connection: the
+   * memberships insert policy lets nobody give themselves a membership, and the delete is pinned to the caller's own
+   * example row. Nothing an example viewer does is kept (a viewer writes nothing; leaving deletes the row).
+   */
+  example: router({
+    /**
+     * Which demo business is the example (the seed's Northwind Skincare when present, else the oldest committed demo),
+     * and how the caller stands to it. Null when the deployment has no demo business (production without seeds), so
+     * New business shows no example door.
+     */
+    get: protectedProcedure.query(async ({ ctx }): Promise<ExampleBusinessView | null> => {
+      const example = await findExampleBusiness(ctx.db);
+      if (!example) return null;
+      const membership = await repos.memberships.get(ctx.db, example.id, ctx.userId);
+      return { id: example.id, name: example.name, slug: example.slug, kitPrimary: example.kitPrimary, kitSecondary: example.kitSecondary, membership: exampleMembershipOf(membership) };
+    }),
+    /**
+     * Opens the example for the caller: a viewer membership with `source: "example"`, written once (idempotent: a
+     * second open answers the same row, `created: false`) and audited on the example business when written. Refused
+     * (CONFLICT) when the caller already belongs to that business for real: a seat is never rewritten into an example.
+     */
+    open: protectedProcedure.mutation(async ({ ctx }) => {
+      const example = await findExampleBusiness(ctx.db);
+      if (!example) throw new AppError("not_found", NO_EXAMPLE_BUSINESS, 404);
+      return ctx.db.transaction(async (tx) => {
+        const { membership, created } = await repos.memberships.openExample(tx, example.id, ctx.userId);
+        if (created) await audit(tx, { businessId: example.id, userId: ctx.userId }, { action: "business.example.open", target: { kind: "membership", id: membership.id }, details: { businessId: example.id } });
+        return { businessId: example.id, membershipId: membership.id, created };
+      });
+    }),
+    /**
+     * Leaves the example: deletes the caller's own example membership of `businessId` and nothing else (a real seat on
+     * the same business is never touched; `left: false` when there was none). Audited on the business when a row went.
+     */
+    leave: protectedProcedure.input(z.object({ businessId: Id })).mutation(({ ctx, input }) =>
+      ctx.db.transaction(async (tx) => {
+        const gone = await repos.memberships.leaveExample(tx, input.businessId, ctx.userId);
+        if (gone) await audit(tx, { businessId: input.businessId, userId: ctx.userId }, { action: "business.example.leave", target: { kind: "membership", id: gone.id }, details: { businessId: input.businessId } });
+        return { businessId: input.businessId, left: gone !== null };
+      }),
+    ),
   }),
 
   get: businessProcedure.query(async ({ ctx }) => {

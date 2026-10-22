@@ -2,6 +2,7 @@ import { ENTITY_MARKUP_RE } from "@foundmill/shared";
 import { describe, expect, it } from "vitest";
 import { ComposerOutput } from "../schemas";
 import { MockModelClient, numbersIn, wordCount } from "./index";
+import { COMPOSER_MAX_WORDS, recommendedBecause } from "./inboxComposer";
 import { AGENT_PRIYA, AGENT_TOMAS, COMPOSER_INPUT, EVENT_1, EVENT_2, MANIFEST, ORG_ALDER, PERSON_MARA, promptWith } from "./fixtures.test-helpers";
 
 /** Numbers a note may legitimately contain: every digit token in the input plus the major-unit forms of its minor amounts. */
@@ -26,17 +27,28 @@ function allowedNumbers(input: unknown): Set<string> {
   return allowed;
 }
 
+/**
+ * What a mock-mode tester must never read (UX plan §7.19, E2, E4): developer notes, the plumbing, the replace-tier
+ * jargon, and the old mechanism-first sentences.
+ */
+const NEVER_IN_A_NOTE = /Mock citation|replace with|See note\.|named query|\bexhibit\b|policy cap|request_human_action|\bICP\b|\bCPA\b|concurrency|time box|\btriage\b|\bpolicy\b|hard gate|\bengine\b|differ in (what they )?cost|\byour call\b|needs a call from you|outside the current policy caps/i;
+
 function assertComposerInvariants(out: ComposerOutput, input: Record<string, unknown>, manifestIds: Set<string>) {
   expect(ComposerOutput.safeParse(out).success).toBe(true);
   const words = wordCount(out.body_md);
-  expect(words).toBeGreaterThanOrEqual(60);
-  expect(words).toBeLessThanOrEqual(180);
+  // Under 180 words and never padded: there is no floor (a clear short note beats a padded one).
+  expect(words).toBeGreaterThan(0);
+  expect(words).toBeLessThanOrEqual(COMPOSER_MAX_WORDS);
   expect(out.subject.length).toBeLessThanOrEqual(80);
   for (const m of out.body_md.matchAll(ENTITY_MARKUP_RE)) expect(manifestIds.has(m[1] as string), `unknown entity id ${m[1]}`).toBe(true);
+  for (const text of [out.subject, out.body_md, ...(out.decision?.options.flatMap((o) => [o.label, o.consequence, o.because ?? ""]) ?? [])]) expect(text).not.toMatch(NEVER_IN_A_NOTE);
   if (out.decision) {
     expect(out.decision.options.length).toBeGreaterThanOrEqual(2);
     expect(out.decision.options.length).toBeLessThanOrEqual(4);
-    expect(out.decision.options.filter((o) => o.recommended)).toHaveLength(1);
+    const recommended = out.decision.options.filter((o) => o.recommended);
+    expect(recommended).toHaveLength(1);
+    // The recommended option always says why (voice guide §8.1 rule 4).
+    expect(recommended[0]!.because, `no because on "${recommended[0]!.label}"`).toMatch(/\S/);
   }
   const queryIds = new Set(((input.named_queries as Array<{ id: string }> | undefined) ?? []).map((q) => q.id));
   if (out.exhibit.kind === "none") expect(out.exhibit.spec_ref).toBeNull();
@@ -78,7 +90,7 @@ describe("mock inbox composer (BUILD §11.3, §12.2)", () => {
     assertComposerInvariants(out, COMPOSER_INPUT, new Set(MANIFEST.map((m) => m.id)));
   });
 
-  it("holds every invariant across varied inputs: 60–180 words, manifest-only ids, one recommended, exhibit from named queries, no invented numbers", async () => {
+  it("holds every invariant across varied inputs: under 180 words with no padding, manifest-only ids, one recommended with a because, the chart from the named queries, no invented numbers, no plumbing", async () => {
     const client = new MockModelClient();
     const subjects = new Set<string>();
     for (const input of VARIANTS) {
@@ -113,6 +125,38 @@ describe("mock inbox composer (BUILD §11.3, §12.2)", () => {
     expect(decision.decision?.options.find((o) => o.recommended)?.id).toBe("x");
     expect(decision.decision?.options.find((o) => o.id === "y")?.cost_minor).toBe(2500);
     expect(decision.body_md).not.toContain("2500"); // option costs live on the options, never as raw minor units in prose
+    // Options handed over without a reason get one on the recommended option only, written from what they state.
+    expect(decision.decision?.options.find((o) => o.id === "x")?.because).toBe(recommendedBecause({ cost_minor: 0, reversible: true }));
+    expect(decision.decision?.options.find((o) => o.id === "y")?.because).toBeUndefined();
+  });
+
+  it("writes the business stake before the system and keeps a reason the options arrived with (UX plan §7.19)", async () => {
+    const client = new MockModelClient();
+    const input = {
+      ...COMPOSER_INPUT,
+      type: "decision",
+      options: [
+        { id: "trim", label: "Trim spend to extend runway", recommended: true, consequence: "The Finance lead proposes cuts for you to approve.", because: "Recommended because it protects cash without closing any door.", cost_minor: 0, reversible: true },
+        { id: "hold", label: "Hold course", recommended: false, consequence: "No change; the warning stays on Home.", because: "On the list because it is the smallest change.", cost_minor: 0, reversible: true },
+      ],
+    };
+    const out = (await client.complete({ route: "inboxComposer", messages: promptWith(input), schema: ComposerOutput })).json;
+    expect(out.decision?.options.map((o) => o.because)).toEqual(["Recommended because it protects cash without closing any door.", "On the list because it is the smallest change."]);
+    expect(out.body_md).toMatch(/yours to decide because|on your desk because/);
+    // An option handed over without a consequence states none rather than a developer note.
+    const bare = { ...COMPOSER_INPUT, type: "decision", options: [{ id: "a", label: "Go", recommended: true }, { id: "b", label: "Wait" }] };
+    const bareOut = (await client.complete({ route: "inboxComposer", messages: promptWith(bare), schema: ComposerOutput })).json;
+    expect(bareOut.decision?.options.map((o) => o.consequence)).toEqual(["", ""]);
+    expect(bareOut.decision?.options[0]?.because).toBe(recommendedBecause({ cost_minor: 0, reversible: true }));
+  });
+
+  it("defines runway in the sentence and never names the plumbing on a warning", async () => {
+    const client = new MockModelClient();
+    const runway = (await client.complete({ route: "inboxComposer", messages: promptWith(VARIANTS[2] as Record<string, unknown>), schema: ComposerOutput })).json;
+    expect(runway.body_md).toContain("Runway, the months of cash left at today's spending");
+    const breached = (await client.complete({ route: "inboxComposer", messages: promptWith(VARIANTS[1] as Record<string, unknown>), schema: ComposerOutput })).json;
+    expect(breached.body_md).toMatch(/limit/);
+    expect(breached.decision?.options.map((o) => o.label)).toContain("Raise the limit and continue");
   });
 
   it("with no event writes from the grounded next-best decision it is given, never a 'nothing new' filler (composer service parity)", async () => {

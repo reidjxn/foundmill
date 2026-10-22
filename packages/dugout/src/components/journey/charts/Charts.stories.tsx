@@ -45,9 +45,9 @@ export const Line: Story = {
 export const Area: Story = {
   render: () => (
     <div className="w-[720px]">
-      <Tile title="Agent hours by department · stacked">
+      <Tile title="Hours of team work by department · stacked">
         <AreaChart
-          label="Agent hours by department"
+          label="Hours of team work by department"
           height={200}
           stacked
           series={[

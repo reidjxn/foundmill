@@ -8,7 +8,7 @@ import { notePreview, type InboxItemType, type InboxState, type Money } from "@f
 import { monthRevenueMinor } from "@foundmill/widgets/shared/cash";
 import { applyGlossary } from "@foundmill/shared/glossary";
 import { routes } from "@foundmill/widgets/shared/routes";
-import { runwayWords } from "@foundmill/widgets/shared/runway";
+import { runwayFigure, runwayWords } from "@foundmill/widgets/shared/runway";
 import { NOTE_TYPE_TAGS, noteRowTag, type NoteTag as SharedNoteTag, type NoteTagIcon, type NoteTagTone } from "@foundmill/widgets/shared/note-tags";
 import { formatNumber } from "@/lib/format";
 
@@ -87,15 +87,19 @@ export function rowTag(item: Pick<InboxRowInput, "type" | "state" | "blocksConti
 }
 
 /**
- * The reading pane's type tag: the same vocabulary, a little fuller ("Needs your call", "Customer won", and "Needs your
- * go-ahead" for an answered note whose plan waits for "Here is what will happen").
+ * The reading pane's type tag: the same vocabulary, a little fuller. Two families only (UX plan B7): "Needs your
+ * answer" for an open note, "Needs your go-ahead" for an answered note whose plan waits for "Here is what will happen";
+ * "Customer won" for a win.
  */
 export function headerTag(type: InboxItemType, answered: boolean, blocksContinue: boolean, awaitingConfirmation = false): NoteTag {
   if (type === "customer_won") return { word: "Customer won", tone: "gold", icon: "win" };
   if (awaitingConfirmation) return { word: "Needs your go-ahead", tone: "warn", icon: "respond" };
-  if (!answered && (type === "decision" || blocksContinue)) return { word: "Needs your call", tone: "bad", icon: "respond" };
+  if (!answered && (type === "decision" || blocksContinue)) return { word: "Needs your answer", tone: "bad", icon: "respond" };
   return NOTE_TYPE_TAGS[type];
 }
+
+/** The tooltip of the "Holds Continue" chip: what the chip means for the team (UX plan B7). */
+export const HOLDS_CONTINUE_HINT = "The team waits for this answer before its next round of work";
 
 export interface InboxRowModel {
   id: string;
@@ -189,6 +193,8 @@ interface RawOption {
   label?: unknown;
   recommended?: unknown;
   consequence?: unknown;
+  /** Why it is recommended, or why it is on the list (the Composer schema's `because`, UX plan §7.19). */
+  because?: unknown;
   cost_minor?: unknown;
   reversible?: unknown;
 }
@@ -202,7 +208,8 @@ export function toDecisionOptions(decision: unknown, currency: string): Decision
     .slice(0, 4)
     .map((o) => {
       const cost: Money | null = typeof o.cost_minor === "number" ? (o.cost_minor > 0 ? { amountMinor: o.cost_minor, currency } : null) : null;
-      return { id: o.id as string, label: o.label as string, recommended: o.recommended === true, consequence: typeof o.consequence === "string" ? o.consequence : undefined, cost, reversible: typeof o.reversible === "boolean" ? o.reversible : undefined };
+      const because = typeof o.because === "string" && o.because.trim() ? o.because.trim() : undefined;
+      return { id: o.id as string, label: o.label as string, recommended: o.recommended === true, consequence: typeof o.consequence === "string" ? o.consequence : undefined, ...(because ? { because } : {}), cost, reversible: typeof o.reversible === "boolean" ? o.reversible : undefined };
     });
 }
 
@@ -219,7 +226,7 @@ export function signoffNeedsNotes(optionId: string, notes: string): boolean {
   return optionId === "request_changes" && notes.trim().length === 0;
 }
 
-/** "Expires in 5 days", "Expires today", "Expires tomorrow": the deadline under "Your call"; null without one or once expired. */
+/** "Expires in 5 days", "Expires today", "Expires tomorrow": the deadline beside "Your decision"; null without one or once expired. */
 export function decisionDeadline(decision: unknown, now = new Date()): string | null {
   const v = (decision as { expires_at?: unknown } | null | undefined)?.expires_at;
   if (typeof v !== "string") return null;
@@ -304,6 +311,7 @@ export interface DecisionAttribution {
 export function decisionAttribution(decisions: readonly { decidedBy?: string | null; decidedByKind?: string | null; decidedAt: Date | string }[] | undefined, viewerId: string | null | undefined, nameOf: (userId: string) => string | null = () => null): DecisionAttribution | null {
   if (!decisions?.length) return null;
   const latest = [...decisions].sort((a, b) => Date.parse(String(b.decidedAt)) - Date.parse(String(a.decidedAt)))[0]!;
+  // plain-allow: "Chief of Staff" is a Term where the answer shows (ReadingPane's Decided panel).
   if (latest.decidedByKind === "chief_of_staff") return { label: "Chief of Staff's answer", by: "the Chief of Staff", mine: false, decidedAt: latest.decidedAt };
   const mine = !!viewerId && latest.decidedBy === viewerId;
   if (mine || !latest.decidedBy) return { label: "Your answer", by: "You", mine: true, decidedAt: latest.decidedAt };
@@ -373,13 +381,13 @@ const SOURCE_WORDS: Record<string, string> = {
   bank: "Bank accounts",
   forecasts: "The cash forecast",
   forecast: "The cash forecast",
-  conversions: "Customer conversions",
-  conversions_30d: "Customer conversions, last 30 days",
+  conversions: "Signups, activations and payments",
+  conversions_30d: "Signups, activations and payments, last 30 days",
   filings: "The filing calendar",
   usage_ledger: "Model and tool usage",
   tasks_by_status: "Team tasks",
   channel_cpa: "Channel spend and customers",
-  cash_position: "Bank balances and burn",
+  cash_position: "Bank balances and monthly spending",
   runway_forecast: "The cash forecast",
   roadmap_status: "The roadmap",
   metrics: "Business metrics",
@@ -480,31 +488,36 @@ function statusStripFigures(strip: readonly unknown[], sources: MetricSources): 
         case "cash":
           return { label: "Cash", value: f ? { amountMinor: f.cash.amountMinor, currency: f.cash.currency } : null, provenance: provenance(m, "Bank balances") };
         case "runway": {
-          // No figure: the shared runway words (Home, Finance and the note say the same), never a bare "—".
+          // No figure: the shared runway words (Home, Finance and the note say the same), never a bare "—"; a balance
+          // below zero reads "Cash is below zero" with its Estimate tag, never "No limit" (widgets/shared/runway).
           const words = runwayWords(f);
-          if (words) return { label: "Runway", value: words.value, caption: words.caption, provenance: provenance(m, "Cash ÷ net burn") };
-          return { label: "Runway", value: f?.runway.months ?? null, format: "decimal", unit: "months", estimate: "estimate", provenance: provenance(m, "Cash ÷ net burn") };
+          // plain-allow: the strip's labels are wrapped in a Term where they show (ReadingPane tilesWithTerms, STRIP_TERM_IDS).
+          if (words) return { label: "Runway", value: words.value, caption: words.caption, estimate: words.estimate ? "estimate" : undefined, provenance: provenance(m, "Cash ÷ net burn") };
+          // plain-allow: the strip's labels are wrapped in a Term where they show (ReadingPane tilesWithTerms, STRIP_TERM_IDS).
+          return { label: "Runway", value: runwayFigure(f), format: "decimal", unit: "months", estimate: "estimate", provenance: provenance(m, "Cash ÷ net burn") };
         }
         case "burn":
         case "net_burn":
+          // plain-allow: the strip's labels are wrapped in a Term where they show (ReadingPane tilesWithTerms, STRIP_TERM_IDS).
           return { label: "Net burn", value: f ? { amountMinor: f.burn.netBurnMinor, currency: f.cash.currency } : null, estimate: "estimate", provenance: provenance(m, "Trailing 3-month average") };
         case "mrr":
         case "revenue": {
           // The same definitions as Finance: revenue over the trailing 3 full months, MRR a third of it.
           const revenue = trailingRevenueMinor(sources, now);
           const amountMinor = revenue === null ? null : key === "mrr" ? Math.round(revenue / TRAILING_MONTHS) : revenue;
-          return { label: key === "mrr" ? "MRR" : "Revenue", value: amountMinor === null || !f ? null : { amountMinor, currency: f.cash.currency }, estimate: key === "mrr" ? "estimate" : undefined, caption: key === "mrr" ? "per month" : `trailing ${TRAILING_MONTHS} months`, provenance: provenance(m, "Cash basis, trailing 3 months") };
+          // plain-allow: the strip's labels are wrapped in a Term where they show (ReadingPane tilesWithTerms, STRIP_TERM_IDS).
+          return { label: key === "mrr" ? "MRR" : "Revenue", value: amountMinor === null || !f ? null : { amountMinor, currency: f.cash.currency }, estimate: key === "mrr" ? "estimate" : undefined, caption: key === "mrr" ? "per month" : `trailing ${TRAILING_MONTHS} months`, provenance: provenance(m, "Money received, last 3 full months") };
         }
         case "customers_week":
-          return { label: "Customers this week", value: countKind(sources.conversions, "payment", 7, now), format: "integer", provenance: provenance(m, "Conversions, last 7 days") };
+          return { label: "Customers this week", value: countKind(sources.conversions, "payment", 7, now), format: "integer", provenance: provenance(m, "Payments, last 7 days") };
         case "customers_30d":
-          return { label: "Customers, 30 days", value: f?.customers30d ?? countKind(sources.conversions, "payment", 30, now), format: "integer", provenance: provenance(m, "Conversions, last 30 days") };
+          return { label: "Customers, 30 days", value: f?.customers30d ?? countKind(sources.conversions, "payment", 30, now), format: "integer", provenance: provenance(m, "Payments, last 30 days") };
         case "signups_week":
-          return { label: "Signups this week", value: countKind(sources.conversions, "signup", 7, now), format: "integer", provenance: provenance(m, "Conversions, last 7 days") };
+          return { label: "Signups this week", value: countKind(sources.conversions, "signup", 7, now), format: "integer", provenance: provenance(m, "Signups, last 7 days") };
         case "signups_30d":
-          return { label: "Signups, 30 days", value: countKind(sources.conversions, "signup", 30, now), format: "integer", provenance: provenance(m, "Conversions, last 30 days") };
+          return { label: "Signups, 30 days", value: countKind(sources.conversions, "signup", 30, now), format: "integer", provenance: provenance(m, "Signups, last 30 days") };
         case "activations_week":
-          return { label: "Activations this week", value: countKind(sources.conversions, "activation", 7, now), format: "integer", provenance: provenance(m, "Conversions, last 7 days") };
+          return { label: "Activations this week", value: countKind(sources.conversions, "activation", 7, now), format: "integer", provenance: provenance(m, "Activations, last 7 days") };
         case "tasks_running":
           return { label: "Tasks running", value: sources.tasks ? sources.tasks.filter((t) => t.status === "running").length : null, format: "integer", provenance: provenance(m, "Team tasks") };
         case "channels_enabled":
@@ -581,8 +594,8 @@ export function approvalStatus(a: ApprovalLike): { word: string; tone: "good" | 
     case "expired":
       return { word: "Expired", tone: "neutral", detail: "Nobody answered in time, so nothing ran." };
     default:
-      if (a.sessionWaiting) return { word: "Waiting for you", tone: "warn", detail: "The agent's session is waiting for your answer. Approve and it carries on." };
-      return { word: "Waiting for you", tone: "warn", detail: a.task ? "The session stopped waiting and freed its place. Approve and the task runs again on the next cycle." : "Approve and it runs once, exactly as asked." };
+      if (a.sessionWaiting) return { word: "Needs your answer", tone: "warn", detail: "The agent's session is waiting for your answer. Approve and it carries on." };
+      return { word: "Needs your answer", tone: "warn", detail: a.task ? "The session stopped waiting and freed its place. Approve and the task runs again in the team's next round of work." : "Approve and it runs once, exactly as asked." };
   }
 }
 
@@ -638,6 +651,7 @@ export function followUpLinks(actions: readonly PlanActionLike[], businessId: st
       }
       case "update_spec": {
         const t = moduleTab(departments, "product", "specification");
+        // plain-allow: a link to the Specification tab, which defines the word where it opens.
         push(id, "Open the specification", t ? routes.department(businessId, t.slug, t.tab) : null);
         break;
       }
@@ -808,6 +822,7 @@ export function goAheadState(plan: { id: string; status: string } | null | undef
 /** The Decided panel's label for the answer: the founder's own, or the Chief of Staff's while they were on vacation. */
 export function answerLabel(decisions: readonly { decidedByKind?: string | null; decidedAt: Date | string }[] | undefined): string {
   const latest = [...(decisions ?? [])].sort((a, b) => Date.parse(String(b.decidedAt)) - Date.parse(String(a.decidedAt)))[0];
+  // plain-allow: "Chief of Staff" is a Term where the answer shows (ReadingPane's Decided panel).
   return latest?.decidedByKind === "chief_of_staff" ? "Chief of Staff's answer" : "Your answer";
 }
 
@@ -817,8 +832,35 @@ export function isAlreadyDecidedMessage(message: string | null | undefined): boo
 }
 
 /**
- * One line for the answered strip: "Done · 3 of 3 actions" / "Awaiting your confirmation" / "Running · 1 of 3". A plan
- * someone else answered awaits their confirmation, not the viewer's (`decidedBy`: their name, "You" by default).
+ * A plan action's status in the Decided panel's words (UX plan B18): never a raw "awaiting approval". The go-ahead
+ * family for anything waiting on the founder, plain words for the rest; a status outside the list is spelled out.
+ */
+export function actionStatusWord(status: string): string {
+  switch (status) {
+    case "awaiting_approval":
+      return "Waiting for your go-ahead";
+    case "pending":
+      return "Queued";
+    case "running":
+      return "Running";
+    case "done":
+      return "Done";
+    case "failed":
+      return "Failed";
+    case "denied":
+      return "Not allowed";
+    case "skipped":
+      return "Skipped";
+    default: {
+      const words = status.replace(/_/g, " ").trim();
+      return words ? words.charAt(0).toUpperCase() + words.slice(1) : "Queued";
+    }
+  }
+}
+
+/**
+ * One line for the answered strip: "Done · 3 of 3 actions" / "Needs your go-ahead" / "Running · 1 of 3". A plan
+ * someone else answered needs their go-ahead, not the viewer's (`decidedBy`: their name, "You" by default).
  */
 export function planStatusLine(plan: PlanLike | null | undefined, decidedBy: string = "You"): { word: string; tone: "good" | "warn" | "bad" | "info" | "neutral"; detail: string } | null {
   if (!plan) return null;
@@ -828,7 +870,7 @@ export function planStatusLine(plan: PlanLike | null | undefined, decidedBy: str
   const of = total ? `${done} of ${total} action${total === 1 ? "" : "s"} done` : "no actions";
   switch (plan.status) {
     case "pending_confirmation":
-      return { word: decidedBy === "You" ? "Awaiting your confirmation" : `Awaiting confirmation from ${decidedBy}`, tone: "warn", detail: `${total} action${total === 1 ? "" : "s"} planned` };
+      return { word: decidedBy === "You" ? "Needs your go-ahead" : `Needs ${decidedBy}'s go-ahead`, tone: "warn", detail: `${total} action${total === 1 ? "" : "s"} planned` };
     case "executing":
       return { word: "Running", tone: "info", detail: of };
     case "done":
@@ -836,7 +878,7 @@ export function planStatusLine(plan: PlanLike | null | undefined, decidedBy: str
     case "failed":
       return { word: "Failed", tone: "bad", detail: of };
     default:
-      return { word: plan.status.replace(/_/g, " "), tone: "neutral", detail: of };
+      return { word: actionStatusWord(plan.status), tone: "neutral", detail: of };
   }
 }
 

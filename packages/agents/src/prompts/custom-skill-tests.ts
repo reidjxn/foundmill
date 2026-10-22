@@ -29,7 +29,7 @@ Founder examples: {examples}
 Produce exactly {task_count} tasks as JSON {{"tests": [{{"title", "prompt" (the task as the lead would assign it, with concrete inputs), "rubric": [2-5 criteria the grader can score 0-1], "checks": [{{"kind": "json_schema_valid|tests_pass|policy_respected|entity_links_valid|word_count|contains_all|contains_none|no_tool_calls|cites_source_ids", "params": {{}}}}], "mockTools": [subset of {mock_tools}], "heldOut": boolean}}]}}.
 Rules:
 - Tasks vary in situation, difficulty and inputs; no two tasks test the same thing with different wording.
-- Every task runs in a sandbox against mock tools only: no real email, spend, bookings or signatures. A task that needs a hard-gated action must expect a request_human_action.
+- Every task runs in a sandbox against mock tools only: no real email, spend, bookings or signatures. A task that needs a hard-gated action must expect the agent to stop and hand it to the founder as a founder action; say so in plain words.
 - Rubric criteria describe observable qualities of the output, never the agent's intent.
 - Mark exactly half of the tasks heldOut: true, spread across difficulty levels.
 - Output JSON only.`,

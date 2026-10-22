@@ -1,5 +1,5 @@
-import { expect, test, type Page } from "@playwright/test";
-import { LONG, NORTHWIND_BUSINESS_ID, openBusiness } from "./helpers";
+import { expect, test, type Page, type PlaywrightWorkerArgs } from "@playwright/test";
+import { LONG, NORTHWIND_BUSINESS_ID, chooseTableView, devApi, openBusiness } from "./helpers";
 
 /**
  * Distribution, Finance and Legal on the seeded Northwind Skincare (its Distribution department is named "Retail
@@ -21,6 +21,16 @@ async function openTab(page: Page, dept: keyof typeof TABS, tab: string): Promis
   await expect(screen).toBeVisible({ timeout: LONG });
   await expect(screen).toHaveAttribute("data-module", `${dept}/${tab}`);
   await expect(screen.locator('[aria-busy="true"]')).toHaveCount(0, { timeout: LONG });
+}
+
+/** The dev founder's guidance switch (Settings › Preferences): examples to try render only while it is on. */
+async function guidanceOn(playwright: PlaywrightWorkerArgs["playwright"]): Promise<boolean> {
+  const api = await devApi(playwright);
+  const res = await api.get("/trpc/founder.preferences.guidance");
+  expect(res.ok(), `founder.preferences.guidance answered ${res.status()}`).toBe(true);
+  const body = (await res.json()) as { result: { data: { json: { guidance: "on" | "off" } } } };
+  await api.dispose();
+  return body.result.data.json.guidance === "on";
 }
 
 /** A stored key shown as-is: two or more lower-case words joined by underscores ("cost_of_goods", "private_limited_company"). */
@@ -49,30 +59,57 @@ test.describe("distribution, finance and legal read in plain words", () => {
     const table = page.getByRole("grid", { name: "Profit and loss" });
     await expect(table.getByText("Cost of sales", { exact: true }).first()).toBeVisible();
     await expect(table.getByText("cost_of_goods")).toHaveCount(0);
-    await expect(page.getByText("Management P&L, unaudited, cash basis")).toBeVisible();
+    // The API's "cash basis" label reads in plain words (UX plan §7.14).
+    await expect(page.getByText("Management view, unaudited, cash basis: counted when the cash moves")).toBeVisible();
     const period = page.getByRole("group", { name: "Period" });
     await period.getByRole("button", { name: "6 months" }).click();
     await expect(period.getByRole("button", { name: "6 months" })).toHaveAttribute("aria-pressed", "true");
     await expect(table).toContainText("£");
-    // The line column takes the spare width, so Amount, % of revenue and Transactions sit together at the right.
+    // Transactions is in the full view; Simple (UX plan principle 10) keeps every line with the amount and its share only.
+    await chooseTableView(page, "Management P&L");
+    // The line column takes the spare width, so Amount, % of revenue and Transactions sit together at the right, just
+    // before the row's visible "…" (UX plan D6), which closes the row.
     const box = await table.boundingBox();
     const amount = await table.getByRole("columnheader", { name: "Amount" }).boundingBox();
     const count = await table.getByRole("columnheader", { name: "Transactions" }).boundingBox();
-    expect(box && amount && count, "the P&L headers are on screen").toBeTruthy();
+    const actions = await table.locator('[role="columnheader"][data-col="__actions"]').boundingBox();
+    expect(box && amount && count && actions, "the P&L headers are on screen").toBeTruthy();
     expect(count!.x - (amount!.x + amount!.width), "a gap opens between the figures").toBeLessThan(160);
-    expect(count!.x + count!.width).toBeGreaterThan(box!.x + box!.width - 24);
+    expect(Math.abs(actions!.x - (count!.x + count!.width)), "Transactions sits against the row actions").toBeLessThan(2);
+    expect(actions!.x + actions!.width).toBeGreaterThan(box!.x + box!.width - 24);
   });
 
   test("finance: Payroll keeps the team's metered cost and its wage caps in US dollars, apart from staff payroll in pounds", async ({ page }) => {
     await openTab(page, "finance", "wage-bill");
     const strip = page.getByRole("region", { name: "Payroll summary" });
-    await expect(strip.getByText("Team payroll")).toBeVisible();
+    // Metered in US dollars: the tile says what the figure is (UX plan §7.14, C21), never "payroll" in another currency.
+    await expect(strip.getByText("AI usage cost (USD)")).toBeVisible();
     // Never added across currencies: the team in US dollars, staff in the business's pounds.
     await expect(strip).toContainText("$");
     await expect(strip).toContainText("£");
     const table = page.getByRole("grid", { name: "Team payroll" });
     await expect(table).toContainText("$");
     await expect(table).not.toContainText("£");
+  });
+
+  test("finance: the Overview carries the department's intro, a defined word on each tile label and a plain line under each figure (UX plan §7.14)", async ({ page }) => {
+    await openTab(page, "finance", "overview");
+    const metrics = page.getByRole("region", { name: "Finance metrics" });
+    await expect(metrics.locator("[data-metric-tile]").first()).toBeVisible({ timeout: LONG });
+    // Guidance on (the product default): the intro above the summary sentence, inside the metrics region.
+    const explainer = metrics.locator("[data-explainer='finance/overview']");
+    await expect(explainer).toContainText("Where the money is and how long it lasts.");
+    await expect(explainer).toContainText("Numbers marked Estimate are worked out, not measured.");
+    // The summary sentence stays, and the runway tile's label is a defined word with its plain line under the figure.
+    await expect(page.getByTestId("finance-summary")).toBeVisible();
+    const runway = page.locator("[data-metric='runway']");
+    await expect(runway.locator("[data-term='runway']")).toBeVisible();
+    await expect(runway.locator("[data-plain-line]")).toContainText("How many months your cash lasts at today's spending.");
+    expect(await metrics.locator("[data-plain-line]").count()).toBe(10);
+    // Hovering the defined word opens its definition card, with somewhere to go.
+    await runway.locator("[data-term='runway']").hover();
+    await expect(page.locator("[data-definition-card]")).toBeVisible({ timeout: LONG });
+    await expect(page.locator("[data-definition-card] [data-definition-learn]")).toHaveAttribute("href", /\/finance\/runway$/);
   });
 
   test("finance: payback divides by the whole paying base, never by the customers the channels just won", async ({ page }) => {
@@ -147,6 +184,43 @@ test.describe("distribution, finance and legal read in plain words", () => {
     await expect(page.getByRole("form", { name: "Upside drivers" })).toBeVisible();
   });
 
+  test("finance: Runway's example drivers fill the form read-only, hold Save and Reset, and are never saved (UX plan Phase 3)", async ({ page, playwright }) => {
+    await openTab(page, "finance", "runway");
+    const toggle = page.getByTestId("runway-example-toggle");
+    if (!(await guidanceOn(playwright))) {
+      // Guidance off: examples to try are tutoring, so the toggle is not there; the real drafts stay as they are.
+      await expect(toggle).toHaveCount(0);
+      return;
+    }
+    const form = page.getByRole("form", { name: "Base drivers" });
+    const cashBefore = await form.getByLabel("Starting cash").inputValue();
+    await toggle.getByRole("button", { name: "Show me an example" }).click();
+    const example = page.getByTestId("runway-example");
+    await expect(example).toBeVisible();
+    await expect(example.getByText("Example", { exact: true }).first()).toBeVisible();
+    const expected: [string, RegExp][] = [
+      ["Starting cash", /^30,000(\.00)?$/],
+      ["Monthly revenue", /^4,000(\.00)?$/],
+      ["Revenue growth", /^5$/],
+      ["Monthly costs", /^7,500(\.00)?$/],
+      ["Cost growth", /^1$/],
+      ["Horizon", /^24$/],
+    ];
+    for (const [label, value] of expected) {
+      const field = example.getByLabel(label, { exact: true });
+      await expect(field, label).toHaveValue(value);
+      await expect(field, label).toHaveAttribute("readonly", "");
+    }
+    await expect(form.getByRole("button", { name: "Save Base forecast" })).toBeDisabled();
+    await expect(form.getByRole("button", { name: "Reset" })).toBeDisabled();
+    await expect(page.locator("[data-driver-runway]")).toHaveText(/^Example runway with these drivers:/);
+    // Hiding it gives the founder's own drafts back, untouched.
+    await page.getByTestId("runway-example-toggle").getByRole("button", { name: "Hide the example" }).click();
+    await expect(example).toHaveCount(0);
+    await expect(form.getByLabel("Starting cash")).toHaveValue(cashBefore);
+    await expect(page.locator("[data-driver-runway]")).toHaveText(/^Base runway with these drivers:/);
+  });
+
   test("finance: every projected figure on Runway carries a Forecast label", async ({ page }) => {
     await openTab(page, "finance", "runway");
     const warnings = page.getByRole("region", { name: /Runway warnings/ });
@@ -156,6 +230,26 @@ test.describe("distribution, finance and legal read in plain words", () => {
     await expect(cash.locator("..").getByText("Forecast", { exact: true })).toBeVisible();
     // The driver summary under the form says so too.
     await expect(page.locator("[data-driver-runway]").getByText("Forecast", { exact: true })).toBeVisible();
+  });
+
+  test("distribution: the Channels table carries a built-in Simple view (Channel, Fit, Status, Cost per customer) and the general view stays one click away (UX plan §7.10)", async ({ page }) => {
+    await openTab(page, "distribution", "channels");
+    const table = page.getByRole("grid", { name: "Channels" });
+    await expect(table.getByRole("row").nth(1)).toBeVisible({ timeout: LONG });
+    // The open view is saved per person (audit #204), so the test picks Simple itself rather than trusting the default.
+    await chooseTableView(page, "Simple");
+    // The heads' words as written: column heads render in data caps (docs/DESIGN.md, t-data), so innerText is upper case.
+    const heads = (await table.getByRole("columnheader").allTextContents()).map((t) => t.trim()).filter(Boolean);
+    expect(heads.slice(0, 4)).toEqual(["Channel", "Fit", "Status", "Cost per customer"]);
+    // A defined head (Fit, Cost per customer) is in the same caps as the plain ones, not left in sentence case.
+    await expect(table.locator("[data-header-term='fit'] [data-term='fit']")).toHaveCSS("text-transform", "uppercase");
+    await expect(table.getByRole("row").filter({ hasText: "Acquisition" })).toHaveCount(0);
+    // The panel's help tip (guidance on, the product default) and the footer's defined words.
+    await expect(page.getByRole("button", { name: "About Channels" })).toBeVisible();
+    await expect(page.locator("[data-term='acquisition_cost']").first()).toBeVisible();
+    // Back to the general view: Family returns, and the choice is what later tests expect.
+    await chooseTableView(page, "All channels");
+    await expect(table.getByRole("columnheader", { name: /Family/ })).toBeVisible();
   });
 
   test("distribution: channel names are never squeezed by the recommendation mark and £0 is not an estimate", async ({ page }) => {
@@ -213,17 +307,25 @@ test.describe("distribution, finance and legal read in plain words", () => {
     }
   });
 
-  test("distribution: the model in use and the win count come from the whole history and agree with the replays", async ({ page }) => {
+  test("distribution: how credit is shared reads in plain words, the model sits under Technical detail, and the win count comes from the whole history", async ({ page }) => {
     await openTab(page, "distribution", "attribution");
-    const model = page.getByRole("region", { name: "Model in use" });
+    const model = page.getByRole("region", { name: "How credit is shared" });
     await expect(model).toBeVisible();
+    await expect(page.getByRole("region", { name: "Model in use" })).toHaveCount(0);
     const count = Number((await model.getByText(/^[\d,]+$/).first().innerText()).replace(/,/g, ""));
-    // Past 200 labeled conversions the model is data-driven (the replays say so), and no "more … before" countdown.
+    // The headline is a sentence, never an algorithm's name; the name waits behind the disclosure.
+    const headline = page.getByTestId("credit-headline");
+    await expect(headline).not.toContainText(/Markov|Position-based/);
+    const technical = page.getByTestId("credit-technical");
+    await technical.locator("summary").click();
+    // Past 200 labeled conversions the model is data-driven (the replays say so), and no "more to go" countdown.
     if (count >= 200) {
-      await expect(model).toContainText("Data-driven (Markov removal effect)");
-      await expect(model).not.toContainText("before the Markov removal-effect model takes over");
+      await expect(headline).toContainText("Each touch gets the credit it earned");
+      await expect(technical).toContainText("Data-driven (Markov removal effect)");
+      await expect(technical).not.toContainText("more to go");
     } else {
-      await expect(model).toContainText("Position-based 40/20/40");
+      await expect(headline).toContainText("Early touches get 40 %, the last touch 40 %, the middle 20 %.");
+      await expect(technical).toContainText("Position-based 40/20/40");
     }
   });
 
@@ -244,6 +346,17 @@ test.describe("distribution, finance and legal read in plain words", () => {
     await openTab(page, "distribution", "formation");
     // A channel on the board without its engine yet reads "starting", never "running".
     await expect(page.getByText(/^\d+ of 15 running( · \d+ starting)?$/)).toBeVisible({ timeout: LONG });
+    // What fit is, once, under the title; the re-score button in plain words (UX plan §7.13, C9).
+    await expect(page.getByTestId("board-caption")).toContainText("Fit 1–20: how well a channel suits this business");
+    await expect(page.getByRole("button", { name: /^(Score again|Get recommendation)$/ })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Re-score" })).toHaveCount(0);
+    // Guidance on (the product default): the department's intro inside the Board's body, Fit as a defined word in the
+    // caption, the panel's one-sentence help tip, and the key's defined word under the board (UX plan §7.10, §7.13).
+    const board = page.getByRole("region", { name: "Board" }).first();
+    await expect(board.locator("[data-explainer='distribution/board']")).toContainText("How customers will find you.");
+    await expect(page.getByTestId("board-caption").locator("[data-term='fit']")).toBeVisible();
+    await expect(board.getByRole("button", { name: "About Board" })).toBeVisible();
+    await expect(page.locator("[data-board-key] [data-term='fit']")).toBeVisible();
     // Northwind started distribution in its first weeks (the seed): no Start distribution banner.
     await expect(page.getByTestId("distribution-waiting")).toHaveCount(0);
     await openTab(page, "distribution", "channels");
@@ -282,13 +395,19 @@ test.describe("distribution, finance and legal read in plain words", () => {
     const facts = page.getByRole("region", { name: "Legal entity" });
     await expect(facts.getByText("Private limited company")).toBeVisible();
     await expect(facts.getByText("United Kingdom", { exact: true })).toBeVisible();
+    // Guidance on (the product default): the department's intro sits in the entity panel's body, above the facts, and
+    // Jurisdiction is a defined word (UX plan §7.10, §7.16).
+    const explainer = facts.locator("[data-explainer='legal/entity']");
+    await expect(explainer).toContainText("The company itself: where it is registered, what it must file, what it has signed.");
+    await expect(explainer).toContainText("Information, not legal advice.");
+    await expect(facts.locator("[data-term='jurisdiction']").first()).toBeVisible();
     await openTab(page, "legal", "policies");
     await expect(page.getByText(/private limited company, registration number \d+ \(United Kingdom\)/)).toBeVisible();
     // A UK company's policy cites the UK GDPR and is dated in words, never an ISO key.
     await expect(page.getByText(/UK General Data Protection Regulation \(UK GDPR\)/)).toBeVisible();
     await expect(page.getByText(/^Last updated [A-Z][a-z]+ \d{1,2}, \d{4}$/)).toBeVisible();
     await openTab(page, "legal", "incorporate");
-    await expect(page.getByRole("radio", { name: /Document pack · Any other jurisdiction/ })).toBeVisible();
+    await expect(page.getByRole("radio", { name: /Document pack · Any other country or state/ })).toBeVisible();
     await expect(page.getByRole("radio", { name: /^Kit\b/ })).toHaveCount(0);
   });
 
@@ -326,6 +445,9 @@ test.describe("distribution, finance and legal tables fit at 1280", () => {
     ];
     for (const [dept, tab] of routes) {
       await openTab(page, dept, tab);
+      // Channels keeps whatever view an earlier test left open (the general view is wider than 1280 px); this test
+      // measures the default, the Simple view that opens while guidance is on.
+      if (dept === "distribution" && tab === "channels") await chooseTableView(page, "Simple");
       const grids = page.getByTestId("module-screen").getByRole("grid");
       await expect(grids.first()).toBeVisible({ timeout: LONG });
       // Column widths settle after the first layout pass (they follow the measured width).

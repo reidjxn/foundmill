@@ -62,7 +62,7 @@ export const SCENARIOS: readonly Scenario[] = Object.freeze([
     channel: "lead_generation",
     supplier: "AWS (hosting)",
     regulator: "the FCA",
-    stack: "Next.js, Hono, Postgres with RLS, Stripe billing",
+    stack: "Next.js, Hono, Postgres with row-level security, Stripe billing",
     keyword: "month-end reconciliation software",
     integration: "Stripe",
     publication: "Fintech Futures",

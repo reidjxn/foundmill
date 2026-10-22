@@ -258,7 +258,7 @@ export function DepartmentsTab() {
       <Dialog open={confirmReset} onOpenChange={setConfirmReset}>
         <DialogContent size="sm">
           <DialogHeader>
-            <DialogTitle>Reset departments to the archetype defaults?</DialogTitle>
+            <DialogTitle>Reset departments to the defaults for this kind of business?</DialogTitle>
             <DialogDescription>Names, icons, colors, order and modules go back to the seed, and archived default departments come back. Custom departments stay; nothing is deleted.</DialogDescription>
           </DialogHeader>
           <DialogFooter>

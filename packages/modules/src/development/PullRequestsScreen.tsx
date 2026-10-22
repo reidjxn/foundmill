@@ -6,7 +6,7 @@
  */
 import { useMemo, useState } from "react";
 import { ExternalLink, GitMerge, GitPullRequest, MonitorPlay, Network, SearchCheck } from "lucide-react";
-import { Avatar, DataTable, EntityLink, FitText, Panel, StatusPill, formatNumber, type DataTableColumn, type RowAction, type SavedView, type StatusTone } from "@foundmill/dugout";
+import { Avatar, DataTable, EntityLink, Explainer, FitText, Panel, StatusPill, Term, formatNumber, type DataTableColumn, type RowAction, type SavedView, type StatusTone } from "@foundmill/dugout";
 import type { TaskStatus } from "@foundmill/shared";
 import { routes } from "@foundmill/widgets/shared/routes";
 import { useBusinessEvents, useWidgetData, useWidgetQuery, type WidgetEvent } from "@foundmill/widgets/data";
@@ -16,7 +16,7 @@ import { fitColumns, fitToGrow, humanise, type ColumnFit } from "../fit";
 import type { ModuleScreenProps } from "../registry";
 import { OpenInClaudeCodeDialog } from "./dialogs";
 import { useDevScreenOptions } from "./options";
-import { Screen, agentHref, shortSha, toDate, toTileAgent, useAgentIndex, useAgents, useDevDepartment } from "./shared";
+import { SIMPLE_VIEW_ID, Screen, agentHref, shortSha, toDate, toTileAgent, useAgentIndex, useAgents, useDefaultViewId, useDevDepartment } from "./shared";
 import type { AgentRow, MergedPrRow, OpenPrRow, PrsListResponse } from "./types";
 
 /** Merge-queue status of an open PR (BUILD §11.6: Review agent → preview → Integration agent merge queue). */
@@ -41,12 +41,15 @@ export interface MergedPrTableRow extends MergedPrRow {
 }
 
 export const OPEN_PR_VIEWS: SavedView[] = [
+  // Simple (UX plan §7.10): what it is, where it stands, who wrote it and the preview; it opens first while guidance is on.
+  { id: SIMPLE_VIEW_ID, name: "Simple", builtIn: true, columns: ["title", "queue", "agentName", "previewUrl"], sort: [], filters: [] },
   { id: "open", name: "Open", builtIn: true, columns: ["title", "queue", "agentName", "branch", "previewUrl"], sort: [], filters: [] },
   { id: "queue", name: "Merge queue", builtIn: true, columns: ["title", "agentName", "branch", "previewUrl"], sort: [], filters: [{ id: "f-queue", field: "status", op: "eq", value: "merging" }] },
   { id: "review", name: "In review", builtIn: true, columns: ["title", "agentName", "branch", "previewUrl"], sort: [], filters: [{ id: "f-review", field: "status", op: "eq", value: "review" }] },
 ];
 
 export const MERGED_PR_VIEWS: SavedView[] = [
+  { id: SIMPLE_VIEW_ID, name: "Simple", builtIn: true, columns: ["prLabel", "title", "mergedByName", "mergedAt"], sort: [{ id: "mergedAt", desc: true }], filters: [] },
   { id: "recent", name: "Recently merged", builtIn: true, columns: ["prLabel", "title", "branch", "mergedByName", "additions", "deletions", "sha", "mergedAt"], sort: [{ id: "mergedAt", desc: true }], filters: [] },
   { id: "by-agents", name: "Merged by agents", builtIn: true, columns: ["prLabel", "title", "branch", "mergedByName", "mergedAt"], sort: [{ id: "mergedAt", desc: true }], filters: [{ id: "f-agent", field: "mergedByName", op: "contains", value: "agent" }] },
 ];
@@ -122,6 +125,16 @@ export function toMergedRows(merged: readonly MergedPrRow[], agents: Map<string,
   });
 }
 
+/** What a pull request is, for a first-timer, under the title while guidance is on (UX plan §7.12). */
+export const PULL_REQUESTS_LEDE = "A bundle of finished code waiting for review.";
+/** The tab's intro while guidance is on: the lede, what to do, what to watch for (the Explainer, UX plan §6.2). */
+export const PULL_REQUESTS_EXPLAINER = {
+  screenId: "development/pull-requests",
+  purpose: PULL_REQUESTS_LEDE,
+  action: "Open the preview to try the change; merges follow the business mode.",
+  watchFor: "In Augmented mode a merge waits for your approval in the Inbox.",
+} as const;
+
 export function PullRequestsScreen({ businessId, departmentId }: ModuleScreenProps) {
   const { navigate } = useWidgetData();
   const deptSlug = useDevDepartment(departmentId)?.slug ?? "development";
@@ -133,9 +146,11 @@ export function PullRequestsScreen({ businessId, departmentId }: ModuleScreenPro
   const prs = useWidgetQuery<PrsListResponse>("dev.prs.list", {});
   const agents = useAgents();
   const agentIndex = useAgentIndex(agents.data?.agents);
-  // Saved per person, business and table (audit #204): they come back after a reload.
-  const openSavedViews = useSavedViews("development.pull-requests.open", OPEN_PR_VIEWS, { defaultViewId: "open" });
-  const mergedSavedViews = useSavedViews("development.pull-requests.merged", MERGED_PR_VIEWS, { defaultViewId: "recent" });
+  // Saved per person, business and table (audit #204): they come back after a reload. Simple opens first while guidance is on.
+  const openDefaultViewId = useDefaultViewId("open");
+  const mergedDefaultViewId = useDefaultViewId("recent");
+  const openSavedViews = useSavedViews("development.pull-requests.open", OPEN_PR_VIEWS, { defaultViewId: openDefaultViewId });
+  const mergedSavedViews = useSavedViews("development.pull-requests.merged", MERGED_PR_VIEWS, { defaultViewId: mergedDefaultViewId });
   const [previews, setPreviews] = useState<Map<string, string>>(() => new Map());
   const [claudeCode, setClaudeCode] = useState<OpenPrTableRow | null>(null);
   useBusinessEvents(
@@ -197,7 +212,7 @@ export function PullRequestsScreen({ businessId, departmentId }: ModuleScreenPro
           );
         },
       },
-      { id: "branch", accessorKey: "branch", header: "Branch", size: openSizes.branch, cell: ({ row }) => <BranchName branch={row.original.branch} /> },
+      { id: "branch", accessorKey: "branch", header: "Branch", size: openSizes.branch, cell: ({ row }) => <BranchName branch={row.original.branch} />, meta: { term: "branch" } },
       {
         id: "previewUrl",
         accessorKey: "previewUrl",
@@ -223,7 +238,7 @@ export function PullRequestsScreen({ businessId, departmentId }: ModuleScreenPro
     () => fitToGrow<MergedPrTableRow>([
       { id: "prLabel", accessorKey: "prLabel", header: "PR", size: mergedSizes.prLabel, meta: { locked: true }, cell: ({ row }) => (row.original.url ? <a href={row.original.url} target="_blank" rel="noreferrer" className="entity-link font-mono text-mono">{row.original.prLabel}</a> : <span className="font-mono text-mono">{row.original.prLabel}</span>) },
       { id: "title", accessorKey: "title", header: "Title", size: mergedSizes.title, cell: ({ row }) => <span className="block min-w-0 truncate text-body-strong" title={row.original.title ?? undefined}>{row.original.title ?? "—"}</span> },
-      { id: "branch", accessorKey: "branch", header: "Branch", size: mergedSizes.branch, cell: ({ row }) => (row.original.branch ? <BranchName branch={row.original.branch} /> : <span className="text-tertiary">—</span>) },
+      { id: "branch", accessorKey: "branch", header: "Branch", size: mergedSizes.branch, cell: ({ row }) => (row.original.branch ? <BranchName branch={row.original.branch} /> : <span className="text-tertiary">—</span>), meta: { term: "branch" } },
       { id: "mergedByName", accessorKey: "mergedByName", header: "Merged by", size: mergedSizes.mergedByName },
       { id: "additions", accessorKey: "additions", header: "Added", size: mergedSizes.additions, meta: { numeric: true, label: "Lines added" }, cell: ({ row }) => (row.original.additions === undefined ? <span className="text-tertiary">—</span> : <span className="text-status-good tabular-nums">+{formatNumber(row.original.additions)}</span>) },
       { id: "deletions", accessorKey: "deletions", header: "Removed", size: mergedSizes.deletions, meta: { numeric: true, label: "Lines removed" }, cell: ({ row }) => (row.original.deletions === undefined ? <span className="text-tertiary">—</span> : <span className="text-status-bad tabular-nums">−{formatNumber(row.original.deletions)}</span>) },
@@ -248,7 +263,7 @@ export function PullRequestsScreen({ businessId, departmentId }: ModuleScreenPro
     <Screen name="development/pull-requests">
       <Panel
         span={12}
-        title="Open pull requests"
+        title={<Term id="pull_request">Open pull requests</Term>}
         flush
         loading={prs.isLoading}
         error={prs.error ? prs.error.message : undefined}
@@ -260,14 +275,16 @@ export function PullRequestsScreen({ businessId, departmentId }: ModuleScreenPro
         }
         footer={<span>Merges follow the business mode: automatic when the checks are green in Assisted and Automated, your approval in Augmented.</span>}
       >
+        {/* What a pull request is, in the tab's intro while guidance is on (UX plan §7.12). */}
+        <Explainer {...PULL_REQUESTS_EXPLAINER} className="m-panel-pad mb-2" />
         <div className="min-w-0">
-          <DataTable<OpenPrTableRow> data={openRows} columns={openColumns} {...openSavedViews} defaultViewId="open" rowActions={openActions} onRowOpen={(r) => navigate(planHref(r.taskId))} height={Math.min(320, Math.max(3, openRows.length) * 28 + 42)} exportFileName="open-pull-requests" empty={{ icon: GitPullRequest, children: "Pull requests appear here when an agent's task passes its acceptance tests and enters review.", action: { label: "Go to Plan", onClick: () => navigate(routes.department(businessId, deptSlug, "plan")) } }} aria-label="Open pull requests" className="border-0" />
+          <DataTable<OpenPrTableRow> data={openRows} columns={openColumns} {...openSavedViews} defaultViewId={openDefaultViewId} rowActions={openActions} onRowOpen={(r) => navigate(planHref(r.taskId))} height={Math.min(320, Math.max(3, openRows.length) * 28 + 42)} exportFileName="open-pull-requests" empty={{ icon: GitPullRequest, children: "Pull requests appear here when an agent's task passes its acceptance tests and enters review.", action: { label: "Go to Plan", onClick: () => navigate(routes.department(businessId, deptSlug, "plan")) } }} aria-label="Open pull requests" className="border-0" />
         </div>
       </Panel>
 
       <Panel span={12} title="Merged" flush loading={prs.isLoading} error={prs.error ? prs.error.message : undefined} onRetry={prs.refetch} meta={mergedRows.length ? <span>{mergedRows.length} merged</span> : undefined}>
         <div className="min-w-0">
-          <DataTable<MergedPrTableRow> data={mergedRows} columns={mergedColumns} {...mergedSavedViews} defaultViewId="recent" rowActions={mergedActions} height={mergedRows.length ? 360 : 240} exportFileName="merged-pull-requests" empty={{ icon: GitMerge, children: "Merged pull requests are listed here as the merge queue lands them.", action: openRows.length ? { label: "Go to Plan", onClick: () => navigate(routes.department(businessId, deptSlug, "plan")) } : undefined }} aria-label="Merged pull requests" className="border-0" />
+          <DataTable<MergedPrTableRow> data={mergedRows} columns={mergedColumns} {...mergedSavedViews} defaultViewId={mergedDefaultViewId} rowActions={mergedActions} height={mergedRows.length ? 360 : 240} exportFileName="merged-pull-requests" empty={{ icon: GitMerge, children: "Merged pull requests are listed here as the merge queue lands them.", action: openRows.length ? { label: "Go to Plan", onClick: () => navigate(routes.department(businessId, deptSlug, "plan")) } : undefined }} aria-label="Merged pull requests" className="border-0" />
         </div>
       </Panel>
 

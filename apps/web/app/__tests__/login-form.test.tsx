@@ -40,7 +40,7 @@ function onHost(url: string) {
 }
 
 async function sendLink(email = "founder@example.com") {
-  fireEvent.change(screen.getByLabelText("Work email"), { target: { value: email } });
+  fireEvent.change(screen.getByLabelText("Email"), { target: { value: email } });
   fireEvent.click(screen.getByRole("button", { name: "Send sign-in link" }));
   await waitFor(() => expect(screen.getByTestId("login-sent")).toBeTruthy());
 }
@@ -94,7 +94,9 @@ describe("LoginForm", () => {
     const { renderToString } = await import("react-dom/server");
     const html = renderToString(<LoginForm errorParam="expired" nextParam="/b/abc" />);
     expect(html).toContain("Send sign-in link");
-    expect(html).toContain("Work email");
+    expect(html).toContain("Email");
+    expect(html).toContain("No password, no card. We email you a link.");
+    expect(html).toContain("you@example.com");
     expect(html).toContain("Link expired");
     expect(html).not.toContain("BAILOUT_TO_CLIENT_SIDE_RENDERING");
   });
@@ -114,7 +116,7 @@ describe("LoginForm", () => {
     for (const [error, shown] of cases) {
       signInWithOtp.mockResolvedValueOnce({ error });
       const view = render(<LoginForm />);
-      fireEvent.change(screen.getByLabelText("Work email"), { target: { value: "founder@example.com" } });
+      fireEvent.change(screen.getByLabelText("Email"), { target: { value: "founder@example.com" } });
       fireEvent.click(screen.getByRole("button", { name: "Send sign-in link" }));
       const alert = await screen.findByRole("alert");
       expect(alert.textContent, error.message).toMatch(shown);
@@ -126,7 +128,7 @@ describe("LoginForm", () => {
   it("a send that throws shows the plain failure and leaves the form ready to try again", async () => {
     signInWithOtp.mockRejectedValueOnce(new TypeError("Failed to fetch"));
     render(<LoginForm />);
-    fireEvent.change(screen.getByLabelText("Work email"), { target: { value: "founder@example.com" } });
+    fireEvent.change(screen.getByLabelText("Email"), { target: { value: "founder@example.com" } });
     fireEvent.click(screen.getByRole("button", { name: "Send sign-in link" }));
     expect((await screen.findByRole("alert")).textContent).toMatch(/couldn't be sent/);
     expect(screen.getByRole("button", { name: "Send sign-in link" }).hasAttribute("disabled")).toBe(false);
@@ -135,7 +137,7 @@ describe("LoginForm", () => {
   it("an auth client that fails to load shows the plain failure instead of doing nothing", async () => {
     clientLoadError = new TypeError("Failed to fetch dynamically imported module");
     render(<LoginForm />);
-    fireEvent.change(screen.getByLabelText("Work email"), { target: { value: "founder@example.com" } });
+    fireEvent.change(screen.getByLabelText("Email"), { target: { value: "founder@example.com" } });
     fireEvent.click(screen.getByRole("button", { name: "Send sign-in link" }));
     const alert = await screen.findByRole("alert");
     expect(alert.textContent).toMatch(/couldn't be sent/);

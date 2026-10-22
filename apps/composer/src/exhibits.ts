@@ -11,10 +11,10 @@
  */
 import { repos, type Executor } from "@foundmill/db";
 import { CHANNEL_META, type ExhibitKind } from "@foundmill/shared";
+import { ESTIMATE, FORECAST, type ExhibitLabel } from "./labels";
 import { estimateRunwayMonths } from "./metrics";
 
-export const EXHIBIT_LABELS = ["Estimate", "Forecast"] as const;
-export type ExhibitLabel = (typeof EXHIBIT_LABELS)[number];
+export { EXHIBIT_LABELS, type ExhibitLabel } from "./labels";
 
 /** Chart-ready payload every named query returns. `series` for charts, `columns` + `rows` for tables. */
 export const NAMED_QUERY_IDS = ["tasks_by_status", "conversions_30d", "channel_cpa", "cash_position", "runway_forecast", "roadmap_status"] as const;
@@ -73,7 +73,7 @@ export const NAMED_QUERIES: Readonly<Record<NamedQueryId, NamedQuery>> = {
   },
   conversions_30d: {
     id: "conversions_30d",
-    title: "Conversions, last 30 days",
+    title: "Signups, activations and payments, last 30 days",
     kind: "chart",
     description: "Daily signups, activations and payments over the last thirty days.",
     async run(db, businessId, now = new Date()) {
@@ -94,7 +94,7 @@ export const NAMED_QUERIES: Readonly<Record<NamedQueryId, NamedQuery>> = {
       return {
         id: "conversions_30d",
         kind: "chart",
-        title: "Conversions, last 30 days",
+        title: "Signups, activations and payments, last 30 days",
         label: null,
         source: "conversions",
         computedAt: now.toISOString(),
@@ -122,7 +122,7 @@ export const NAMED_QUERIES: Readonly<Record<NamedQueryId, NamedQuery>> = {
         id: "channel_cpa",
         kind: "chart",
         title: "Cost per customer by channel",
-        label: "Estimate",
+        label: ESTIMATE,
         source: "channel_metrics",
         computedAt: now.toISOString(),
         series: [
@@ -136,7 +136,7 @@ export const NAMED_QUERIES: Readonly<Record<NamedQueryId, NamedQuery>> = {
     id: "cash_position",
     title: "Cash position",
     kind: "table",
-    description: "Cash in bank per currency with trailing net burn and the runway estimate.",
+    description: "Cash in bank per currency. Net burn is what the business spends in a month minus what it earns (trailing three months); runway is how many months the cash lasts at that rate (an estimate).",
     async run(db, businessId, now = new Date()) {
       const [cash, burn] = await Promise.all([repos.finance.cashPosition(db, businessId), repos.finance.netBurn(db, businessId, { asOf: now })]);
       const rows: Record<string, string | number | null>[] = cash.byCurrency.map((c) => ({
@@ -150,7 +150,7 @@ export const NAMED_QUERIES: Readonly<Record<NamedQueryId, NamedQuery>> = {
         id: "cash_position",
         kind: "table",
         title: "Cash position",
-        label: "Estimate",
+        label: ESTIMATE,
         source: "accounts, transactions",
         computedAt: now.toISOString(),
         columns: [
@@ -184,7 +184,7 @@ export const NAMED_QUERIES: Readonly<Record<NamedQueryId, NamedQuery>> = {
               return { x, y: typeof yRaw === "number" && Number.isFinite(yRaw) ? yRaw : null };
             }),
         }));
-      return { id: "runway_forecast", kind: "chart", title: "Runway forecast", label: "Forecast", source: "forecasts", computedAt: now.toISOString(), series };
+      return { id: "runway_forecast", kind: "chart", title: "Runway forecast", label: FORECAST, source: "forecasts", computedAt: now.toISOString(), series };
     },
   },
   roadmap_status: {
