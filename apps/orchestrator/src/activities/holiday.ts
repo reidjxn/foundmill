@@ -21,7 +21,7 @@ import { emitEvent, systemActor } from "../events";
 import { ACTION_TOOLS, amountOf, evaluateAction, type PolicyVerdict } from "./plan";
 import type { HolidayCheck, HolidayDecisions, HolidayEnd, HolidayInput, LoadedHoliday } from "./types";
 
-const GATED: ReadonlySet<DecisionType> = new Set<DecisionType>(["sign_contracts"]);
+const GATED: ReadonlySet<DecisionType> = new Set<DecisionType>(["sign_contracts", "merge_to_main"]);
 
 type HolidayItem = Pick<InboxItem, "subject" | "bodyMd" | "decision">;
 interface HolidayOption {

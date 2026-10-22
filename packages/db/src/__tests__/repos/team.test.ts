@@ -132,6 +132,8 @@ describe("approvals routed by Responsibilities (TPD-04)", () => {
     // An agent never decides a signature, and an explicit null (a hard gate) is not routed.
     expect(await repos.approvals.create(r.db, businessId, { agentId: requester.id, connectorKey: "dropbox_sign", tool: "send_envelope" })).toMatchObject({ decisionType: "sign_contracts", handlerKind: null, outcome: null });
     expect(await repos.approvals.create(r.db, businessId, { agentId: requester.id, connectorKey: "github", tool: "merge_pr", decisionType: null })).toMatchObject({ decisionType: null, handlerKind: null, outcome: null });
+    // A merge routed as spend above the threshold (the gateway's route for an amount) is still the founder's.
+    expect(await repos.approvals.create(r.db, businessId, { agentId: requester.id, connectorKey: "github", tool: "merge_pr", decisionType: "spend_above_threshold" })).toMatchObject({ handlerKind: null, outcome: null });
     // A handler who is not a member of this business hands it back to the founder.
     expect(await repos.approvals.create(r.db, businessId, { agentId: requester.id, connectorKey: "x", tool: "schedule_post" })).toMatchObject({ decisionType: "publish_content", handlerKind: null });
     // A paused agent handler hands it back too.

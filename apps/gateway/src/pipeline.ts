@@ -568,9 +568,10 @@ async function queueApproval(deps: GatewayDeps, session: SessionToken, req: Call
 
 function decisionTypeFor(loaded: Loaded, req: CallRequestParsed, decision: EvaluateResult) {
   const hints = loaded.connector.policyHints[loaded.tool.name] ?? {};
+  // A merge is a merge whatever its amount: checked before the spend threshold, so a merge carrying an amount is not routed as spend.
+  if (loaded.connector.key === "github" && loaded.tool.name === "merge_pr") return "merge_to_main" as const;
   if (decision.policyIds.some((id) => id.endsWith("above-threshold")) || (hints.spendsMoney && (req.context.amountMinor ?? 0) > 0)) return "spend_above_threshold" as const;
   if (toolAttributes(loaded.connector.key, loaded.tool.name).contract || loaded.connector.key === "dropbox_sign") return "sign_contracts" as const;
-  if (loaded.connector.key === "github" && loaded.tool.name === "merge_pr") return "merge_to_main" as const;
   if (hints.contactsThirdParty) return "message_customers" as const;
   return null;
 }
