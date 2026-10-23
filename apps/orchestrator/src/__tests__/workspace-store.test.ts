@@ -72,7 +72,7 @@ describe("saveWorkspace / restoreWorkspace", () => {
     expect((await readdir(next)).sort()).toEqual(["package.json", "src"]);
     expect(await readFile(path.join(next, "src", "a.ts"), "utf8")).toBe("export const a = 1;\n");
 
-    expect(await restoreWorkspace(t.db, t.businessId, t.fixture.task2Id, await freshDir())).toEqual({ files: 0, bytes: 0, savedAt: null, recipients: { emails: [], urls: [], phones: [], all: false } });
+    expect(await restoreWorkspace(t.db, t.businessId, t.fixture.task2Id, await freshDir())).toEqual({ files: 0, bytes: 0, removed: 0, savedAt: null, recipients: { emails: [], urls: [], phones: [], all: false } });
 
     const big = await freshDir();
     await writeFile(path.join(big, "a.bin"), Buffer.alloc(10));

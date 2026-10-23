@@ -49,4 +49,36 @@ describe("gateway client", () => {
     expect(offline.minted).toHaveLength(1);
     expect(offline.calls).toHaveLength(1);
   });
+
+  it("downloads an archive as bytes from POST /v1/github/archive, reads JSON outcomes, and refuses one over its cap", async () => {
+    const tarball = new Uint8Array([31, 139, 8, 0, 1, 2, 3]);
+    const seen: { url: string; auth: string | null; body: string }[] = [];
+    const client = createGatewayClient({
+      baseUrl: "http://gateway.test",
+      serviceSecret: "x".repeat(32),
+      fetch: async (url, init) => {
+        const body = String(init?.body ?? "");
+        seen.push({ url: String(url), auth: new Headers(init?.headers).get("authorization"), body });
+        const ref = (JSON.parse(body) as { ref: string }).ref;
+        if (ref === "missing") return new Response(JSON.stringify({ outcome: "allow", result: { ok: false, error: { code: "not_found", message: "ref missing not found" } } }), { status: 200, headers: { "content-type": "application/json" } });
+        if (ref === "denied") return new Response(JSON.stringify({ outcome: "deny", reasons: ["paused"] }), { status: 403, headers: { "content-type": "application/json" } });
+        return new Response(tarball, { status: 200, headers: { "content-type": "application/gzip", "x-foundmill-archive-ref": encodeURIComponent("agent/t1"), "x-foundmill-archive-sha": "a".repeat(40) } });
+      },
+    });
+    const ok = await client.downloadArchive("sess", { owner: "acme", repo: "shop", ref: "agent/t1" });
+    expect(ok).toEqual({ outcome: "allow", archive: { ref: "agent/t1", sha: "a".repeat(40), data: tarball } });
+    expect(seen[0]).toEqual({ url: "http://gateway.test/v1/github/archive", auth: "Bearer sess", body: JSON.stringify({ owner: "acme", repo: "shop", ref: "agent/t1" }) });
+    expect(await client.downloadArchive("sess", { owner: "acme", repo: "shop", ref: "missing" })).toEqual({ outcome: "allow", error: { code: "not_found", message: "ref missing not found" } });
+    expect(await client.downloadArchive("sess", { owner: "acme", repo: "shop", ref: "denied" })).toEqual({ outcome: "deny", reasons: ["paused"] });
+    await expect(client.downloadArchive("sess", { owner: "acme", repo: "shop", ref: "main" }, { maxBytes: 4 })).rejects.toMatchObject({ code: "archive_too_large" });
+  });
+
+  it("offline client serves archives from the GitHub mock", async () => {
+    const offline = createOfflineGatewayClient();
+    const minted = await offline.mintSessionToken({ businessId: "6f1d2c3b-4a5e-4f60-8a71-0b2c3d4e5f60", agentId: "a", sessionId: "s", allowedTools: ["github:download_archive"] });
+    const r = await offline.downloadArchive(minted.token, { owner: "acme", repo: "shop", ref: "HEAD" });
+    expect(r.outcome === "allow" && "archive" in r && r.archive.ref).toBe("main");
+    expect((await offline.downloadArchive(minted.token, { owner: "acme", repo: "shop", ref: "agent/none" })).outcome === "allow").toBe(true);
+    expect(offline.archives).toHaveLength(2);
+  });
 });

@@ -54,8 +54,9 @@ import { budgetSummary, LIMIT_WORDS, sessionBudget, type SessionBudget } from ".
 import { archiveSessionRecording } from "./recording";
 import { createSessionWorkspace, guardToolCall, hookOutputFor, removeSessionWorkspace, sdkEnvFor, sdkToolPolicyFor } from "./sdk-isolation";
 import { describePush, pushWorkspace, type PushContext } from "./workspace-push";
-import { restoreWorkspace, saveWorkspace, type LeftOut, type RestoredWorkspace, type SaveWorkspaceOptions } from "./workspace-store";
-import { syncWorkspaceToSandbox } from "./workspace-sync";
+import { mergeRecipients, restoreWorkspace, saveWorkspace, toSeed, type LeftOut, type RestoredWorkspace, type SaveWorkspaceOptions } from "./workspace-store";
+import { syncCheckoutToSandbox, syncWorkspaceToSandbox } from "./workspace-sync";
+import { checkoutNote, checkoutRepository, describeCheckout, extractArchive, type Checkout } from "./checkout";
 import { fingerprintWorkspace, workspaceChanged } from "./workspace-fingerprint";
 import type { AgentSessionInput, SessionFinish, SessionLaunch, SessionParked, SessionResult, SessionRunOptions } from "./types";
 
@@ -1364,26 +1365,49 @@ async function runLiveSession(deps: OrchestratorDeps, recorder: SessionRecorder,
   // SEC-3: the SDK process lives in a private per-session workspace (cwd, HOME, TMPDIR), with a from-scratch environment
   // (never `process.env`), built-in tools by task kind only, and a path guard on every file-tool call. Deleted in `finally`.
   const cwd = await createSessionWorkspace(deps.env.ORCHESTRATOR_WORKSPACE_DIR, input.sessionId);
-  // Code tasks pick up where the last session on the task left off (Development › Code keeps every session's files).
-  // Restore comes before the token: what the files mention is untrusted for the gateway from the session's first call.
+  // Code tasks start from the repository (decision 2, ./checkout: the task's branch, else the default branch) and pick
+  // up where the last session on the task left off (Development › Code keeps every session's changes, applied on top).
+  // Both come before the token: what the files mention is untrusted for the gateway from the session's first call.
   let restored: RestoredWorkspace | null = null;
   let restoreFailed = false;
+  let checkout: Checkout | null = null;
   let token: Awaited<ReturnType<typeof deps.gateway.mintSessionToken>>;
   try {
     if (policy.fileTools) {
+      const checked = await checkoutRepository(deps, { businessId: input.businessId, agentId: agent.id, sessionId: input.sessionId, taskId: task.id }, cwd);
+      if (checked.status === "checked_out") checkout = checked.checkout;
+      else if (checked.status === "failed") {
+        // Never a partial checkout: the session starts as it did before checkouts, and the note says why.
+        deps.log.warn({ err: checked.reason, sessionId: input.sessionId }, "repository checkout failed");
+        await createSessionWorkspace(deps.env.ORCHESTRATOR_WORKSPACE_DIR, input.sessionId);
+      }
+      const checkedNote = describeCheckout(checked);
+      await recorder.publishRaw({ kind: "note", at: deps.clock.now().toISOString(), source: "system", level: checkedNote.level, text: checkedNote.text });
       try {
-        restored = await restoreWorkspace(deps.db, input.businessId, task.id, cwd);
-        if (restored.files > 0) await recorder.publishRaw({ kind: "note", at: deps.clock.now().toISOString(), source: "system", level: "info", text: `Restored ${restored.files} file${restored.files === 1 ? "" : "s"} (${Math.ceil(restored.bytes / 1024)} KB) saved by an earlier session on this task.` });
+        restored = await restoreWorkspace(deps.db, input.businessId, task.id, cwd, undefined, undefined, { checkout: checkout !== null });
+        if (restored.files > 0 || restored.removed > 0) await recorder.publishRaw({ kind: "note", at: deps.clock.now().toISOString(), source: "system", level: "info", text: checkout ? `Applied ${restored.files} file${restored.files === 1 ? "" : "s"} (${Math.ceil(restored.bytes / 1024)} KB)${restored.removed ? ` and ${restored.removed} removal${restored.removed === 1 ? "" : "s"}` : ""} saved by an earlier session on this task over the checkout.` : `Restored ${restored.files} file${restored.files === 1 ? "" : "s"} (${Math.ceil(restored.bytes / 1024)} KB) saved by an earlier session on this task.` });
       } catch (err) {
         // Start clean rather than from a partial copy; the save at the end keeps the files this session never had.
         restoreFailed = true;
         restored = null;
         await createSessionWorkspace(deps.env.ORCHESTRATOR_WORKSPACE_DIR, input.sessionId);
         deps.log.warn({ err: (err as Error).message, sessionId: input.sessionId }, "workspace restore failed");
-        await recorder.publishRaw({ kind: "note", at: deps.clock.now().toISOString(), source: "system", level: "warn", text: "The code saved for this task could not be restored; this session starts from an empty workspace, and the saved files are kept." });
+        // The checkout itself is unpacked again from its archive (the same files, so the same base).
+        if (checkout) {
+          try {
+            await extractArchive(checkout.archive, cwd);
+          } catch {
+            checkout = null;
+            await createSessionWorkspace(deps.env.ORCHESTRATOR_WORKSPACE_DIR, input.sessionId);
+          }
+        }
+        await recorder.publishRaw({ kind: "note", at: deps.clock.now().toISOString(), source: "system", level: "warn", text: checkout ? "The code saved for this task could not be restored; this session starts from the checkout alone, and the saved files are kept." : "The code saved for this task could not be restored; this session starts from an empty workspace, and the saved files are kept." });
       }
     }
-    token = await deps.gateway.mintSessionToken({ businessId: input.businessId, agentId: agent.id, sessionId: input.sessionId, allowedTools: grants.toolRefs, ttlSeconds: SESSION_TOKEN_TTL_SECONDS, ...(restored && restored.files > 0 ? { untrusted: restored.recipients } : {}) });
+    // The checkout's recipients and the restored files' are untrusted together (one seed; `all` past its limits).
+    const seeded = checkout || (restored && restored.files > 0) ? mergeRecipients(checkout?.recipients, restored && restored.files > 0 ? restored.recipients : null) : undefined;
+    const untrusted = seeded === undefined ? null : seeded === null ? { emails: [], urls: [], phones: [], all: true } : toSeed(seeded);
+    token = await deps.gateway.mintSessionToken({ businessId: input.businessId, agentId: agent.id, sessionId: input.sessionId, allowedTools: grants.toolRefs, ttlSeconds: SESSION_TOKEN_TTL_SECONDS, ...(untrusted ? { untrusted } : {}) });
   } catch (err) {
     await removeSessionWorkspace(cwd).catch(() => undefined);
     throw err;
@@ -1393,7 +1417,7 @@ async function runLiveSession(deps: OrchestratorDeps, recorder: SessionRecorder,
   const traceparent = currentTraceparent();
   const mcpServers = Object.fromEntries(grants.servers.map((key) => [key, { type: "http" as const, url: deps.gateway.mcpUrl(key), headers: { ...deps.gateway.sessionHeaders(token.token), ...(traceparent ? { traceparent } : {}) } }]));
 
-  const continuing = restored && restored.files > 0 ? restoredWorkspaceNote(restored.files) : "";
+  const continuing = [checkout ? checkoutNote(checkout) : "", restored && restored.files > 0 ? restoredWorkspaceNote(restored.files) : ""].filter(Boolean).join("\n\n");
   const resumed = !ctx.run.resume ? "" : ctx.run.resume.reason === "handoff" || ctx.run.resume.reason === "retry" ? "This session moved to another worker mid-task and has been resumed. Continue the task from where the work stands, and check what is already done before you repeat any external action." : "This session was paused for a while and has been resumed. Continue the task from where the work stands.";
   const taskPrompt = [`# Task: ${task.title}`, task.goalMd || "", Array.isArray(task.acceptance) && task.acceptance.length ? `## Acceptance criteria\n${task.acceptance.map((a) => `- ${typeof a === "string" ? a : JSON.stringify(a)}`).join("\n")}` : "", policy.fileTools ? `Work on branch ${launch.branch} inside your working directory; it is the only place you can read or write files.` : "Keep every action inside the tools you were given; this task has no file access.", continuing, resumed, "Report each phase change and keep every external action inside the tools you were given."].filter(Boolean).join("\n\n");
 
@@ -1756,7 +1780,7 @@ async function runLiveSession(deps: OrchestratorDeps, recorder: SessionRecorder,
     if (acceptanceCommand && (agentBlock || nothingWritten)) {
       await recorder.publishRaw({ kind: "note", at: deps.clock.now().toISOString(), source: "system", level: "info", text: `Acceptance tests not run: ${agentBlock ? `${agent.name} blocked the task` : "the session changed no files"}.` });
     } else if (acceptanceCommand) {
-      const ran = await runAcceptance(deps, recorder, live.acquireSandbox, cwd, acceptanceCommand, acceptanceAbort.signal);
+      const ran = await runAcceptance(deps, recorder, live.acquireSandbox, cwd, acceptanceCommand, acceptanceAbort.signal, checkout);
       recorder.sandboxMs += ran.ms;
       acceptance = ran.verdict;
     }
@@ -1782,7 +1806,7 @@ async function runLiveSession(deps: OrchestratorDeps, recorder: SessionRecorder,
     queue.close(true);
     // Keep the code whatever the outcome (done, stopped, failed, parked): the workspace itself is deleted next. Only a
     // session that finished (or waits on an approval) is pushed to GitHub.
-    if (policy.fileTools) await keepWorkspace(deps, recorder, { businessId: input.businessId, taskId: task.id, sessionId: input.sessionId, agentId: agent.id, branch: launch.branch, agentName: agent.name, holdBack }, cwd, { secrets: [key.apiKey, token.token], carryOver: restoreFailed });
+    if (policy.fileTools) await keepWorkspace(deps, recorder, { businessId: input.businessId, taskId: task.id, sessionId: input.sessionId, agentId: agent.id, branch: launch.branch, agentName: agent.name, holdBack }, cwd, { secrets: [key.apiKey, token.token], carryOver: restoreFailed, ...(checkout ? { base: checkout.base } : {}) });
     try {
       await removeSessionWorkspace(cwd);
     } catch (err) {
@@ -1804,7 +1828,10 @@ async function keepWorkspace(deps: OrchestratorDeps, recorder: SessionRecorder, 
       await recorder.publishRaw({ kind: "note", at: at(), source: "system", level: "warn", text: `This session's code was not saved: ${saved.reason}.` });
     } else if (saved.status === "saved") {
       const delta = [saved.added ? `${saved.added} added` : "", saved.changed ? `${saved.changed} changed` : "", saved.removed ? `${saved.removed} removed` : ""].filter(Boolean).join(", ");
-      await recorder.publishRaw({ kind: "note", at: at(), source: "system", level: "info", text: `Saved this task's code: ${saved.files} file${saved.files === 1 ? "" : "s"} (${Math.ceil(saved.bytes / 1024)} KB)${delta ? `, ${delta}` : ""}. the Code tab shows it.` });
+      const base = saved.snapshot?.baseCommitSha ? saved.snapshot : null;
+      // On a checkout only the changes are kept (decision 2): the note says against what.
+      if (base) await recorder.publishRaw({ kind: "note", at: at(), source: "system", level: "info", text: `Saved this task's changes against ${base.baseRepo}@${base.baseRef}: ${delta || "none"} (${Math.ceil(saved.bytes / 1024)} KB). the Code tab shows them.` });
+      else await recorder.publishRaw({ kind: "note", at: at(), source: "system", level: "info", text: `Saved this task's code: ${saved.files} file${saved.files === 1 ? "" : "s"} (${Math.ceil(saved.bytes / 1024)} KB)${delta ? `, ${delta}` : ""}. the Code tab shows it.` });
     }
     if (leftOut) await recorder.publishRaw({ kind: "note", at: at(), source: "system", level: "warn", text: leftOut });
     if (saved.status !== "refused" && saved.snapshot) {
@@ -1910,7 +1937,7 @@ export const NO_CHANGES_REASON = "no changes: the session ended without changing
  * offline and publish the `test_result`. Every failure ends as a failed acceptance result with its reason; none of them
  * fails the session. Returns the sandbox time to book and the verdict (null when the run was cut short before it began).
  */
-async function runAcceptance(deps: OrchestratorDeps, recorder: SessionRecorder, acquireSandbox: () => Promise<Sandbox>, cwd: string, command: string, abort: AbortSignal | null = null): Promise<{ ms: number; verdict: AcceptanceVerdict | null }> {
+async function runAcceptance(deps: OrchestratorDeps, recorder: SessionRecorder, acquireSandbox: () => Promise<Sandbox>, cwd: string, command: string, abort: AbortSignal | null = null, checkout: Checkout | null = null): Promise<{ ms: number; verdict: AcceptanceVerdict | null }> {
   const at = () => deps.clock.now().toISOString();
   if (abort?.aborted) return { ms: 0, verdict: null };
   const failed = async (reason: string, durationMs = 0, output = ""): Promise<AcceptanceVerdict> => {
@@ -1934,7 +1961,7 @@ async function runAcceptance(deps: OrchestratorDeps, recorder: SessionRecorder, 
   abort?.addEventListener("abort", stopNow, { once: true });
   let verdict: AcceptanceVerdict;
   try {
-    verdict = await runAcceptanceIn(deps, recorder, sandbox, cwd, command, failed);
+    verdict = await runAcceptanceIn(deps, recorder, sandbox, cwd, command, failed, checkout);
   } finally {
     abort?.removeEventListener("abort", stopNow);
     await sandbox.stop().catch(() => undefined);
@@ -1942,11 +1969,12 @@ async function runAcceptance(deps: OrchestratorDeps, recorder: SessionRecorder, 
   return { ms: Math.max(0, deps.clock.nowMs() - startedAtMs), verdict };
 }
 
-async function runAcceptanceIn(deps: OrchestratorDeps, recorder: SessionRecorder, sandbox: Sandbox, cwd: string, command: string, failed: (reason: string, durationMs?: number, output?: string) => Promise<AcceptanceVerdict>): Promise<AcceptanceVerdict> {
+async function runAcceptanceIn(deps: OrchestratorDeps, recorder: SessionRecorder, sandbox: Sandbox, cwd: string, command: string, failed: (reason: string, durationMs?: number, output?: string) => Promise<AcceptanceVerdict>, checkout: Checkout | null = null): Promise<AcceptanceVerdict> {
   const at = () => deps.clock.now().toISOString();
-  let synced: Awaited<ReturnType<typeof syncWorkspaceToSandbox>>;
+  let synced: Awaited<ReturnType<typeof syncWorkspaceToSandbox>> & { unpacked?: boolean; changed?: number; removed?: number };
   try {
-    synced = await syncWorkspaceToSandbox(cwd, sandbox);
+    // A checkout goes in whole (its archive, unpacked in the sandbox) with the agent's changes on top.
+    synced = checkout ? await syncCheckoutToSandbox(cwd, sandbox, { archive: checkout.archive, files: checkout.base.files }) : await syncWorkspaceToSandbox(cwd, sandbox);
   } catch (err) {
     const reason = String((err as Error).message ?? err).split(cwd).join("<workspace>");
     await recorder.publishRaw({ kind: "note", at: at(), source: "system", level: "warn", text: `Acceptance tests not run: the workspace could not be copied into the sandbox (${reason.slice(0, 300)}).` });
@@ -1956,7 +1984,15 @@ async function runAcceptanceIn(deps: OrchestratorDeps, recorder: SessionRecorder
     await recorder.publishRaw({ kind: "note", at: at(), source: "system", level: "warn", text: `Acceptance tests not run: ${synced.refused}.` });
     return failed(`Workspace not copied to the sandbox: ${synced.refused}`);
   }
-  await recorder.publishRaw({ kind: "note", at: at(), source: "system", level: "info", text: `Copied ${synced.files} file${synced.files === 1 ? "" : "s"} (${Math.ceil(synced.bytes / 1024)} KB) into the sandbox for the acceptance tests.` });
+  await recorder.publishRaw({
+    kind: "note",
+    at: at(),
+    source: "system",
+    level: "info",
+    text: synced.unpacked
+      ? `Unpacked the checkout of ${checkout!.base.repo}@${checkout!.base.ref} in the sandbox with ${synced.changed} changed file${synced.changed === 1 ? "" : "s"}${synced.removed ? ` and ${synced.removed} removed` : ""} for the acceptance tests.`
+      : `Copied ${synced.files} file${synced.files === 1 ? "" : "s"} (${Math.ceil(synced.bytes / 1024)} KB) into the sandbox for the acceptance tests.`,
+  });
 
   const prep = await sandbox.exec(acceptancePrepareScript(), { timeoutMs: ACCEPTANCE_PREPARE_TIMEOUT_MS });
   if (prep.code !== 0) {

@@ -6,9 +6,12 @@
  * - Off until the founder turns pushing on for the repository: a push runs the repository's CI and preview deploys on
  *   code an agent wrote. Commits carry `[skip ci]`, files under `.github` (workflows, local actions) are never sent, and
  *   a session that was stopped, looped or failed is not pushed at all.
- * - One commit per session, carrying only what changed since the last save that reached the repository (its files are
- *   the diff base; the first push sends every file and deletes nothing that was already in the repository), within
- *   `commit_files`' limits (300 files, 10 MB).
+ * - One commit per session, within `commit_files`' limits (300 files, 10 MB). A save made on a checkout of the
+ *   repository (0068) is already the diff against it: its added and changed files are written and the checkout's files
+ *   the agent deleted are removed, on top of the branch (created from the checkout's commit when missing); unchanged
+ *   files are never sent. A save with no checkout carries only what changed since the last save that reached the
+ *   repository (its files are the diff base; the first push sends every file and deletes nothing that was already in
+ *   the repository).
  * - The token is minted for this call alone (`github:commit_files`, five minutes), so the push goes through the same
  *   policy, audit, rate limits and credentials as any agent tool call.
  * - `commit_files` writes only `agent/` branches of private repositories and never force-pushes; merging stays a pull
@@ -71,18 +74,34 @@ export async function pushWorkspace(db: Db, gateway: GatewayClient, ctx: PushCon
     }
   };
 
+  // A save made on a checkout is a diff against it: it goes onto the branch as it is, and only to that repository.
+  const onCheckout = snapshot.baseCommitSha !== null && snapshot.baseRepo !== null;
+  if (onCheckout && snapshot.baseRepo!.toLowerCase() !== repo.toLowerCase()) return { status: "skipped", reason: `this code was checked out from ${snapshot.baseRepo}, not ${repo} (the Code tab)` };
+
   try {
-    const base = await repos.workspaces.lastPushed(db, ctx.businessId, ctx.taskId, repo);
-    // Only paths commit_files accepts: nothing under .git or .github ever leaves for the repository.
-    const pushable = snapshot.files.filter((f) => isCommitPath(f.path));
-    const leftOut = snapshot.files.length - pushable.length;
-    const before = new Map((base?.files ?? []).filter((f) => isCommitPath(f.path)).map((f) => [f.path, f.sha256] as const));
-    const now = new Set(pushable.map((f) => f.path));
-    const writes = pushable.filter((f) => before.get(f.path) !== f.sha256);
-    const deletions = [...before.keys()].filter((p) => !now.has(p));
-    if (base?.pushedCommitSha && writes.length === 0 && deletions.length === 0) {
-      await record({ commitSha: base.pushedCommitSha, url: base.pushedUrl });
-      return { status: "up_to_date", repo, branch, commitSha: base.pushedCommitSha };
+    let writes: typeof snapshot.files;
+    let deletions: string[];
+    let leftOut: number;
+    if (onCheckout) {
+      // Only what the agent changed against the checkout: its added and changed files and the checkout's files it
+      // deleted. Nothing under .git or .github ever leaves for the repository.
+      writes = snapshot.files.filter((f) => isCommitPath(f.path));
+      deletions = snapshot.removedPaths.filter((p) => isCommitPath(p));
+      leftOut = snapshot.files.length - writes.length + (snapshot.removedPaths.length - deletions.length);
+      if (writes.length === 0 && deletions.length === 0) return { status: "up_to_date", repo, branch, commitSha: snapshot.baseCommitSha! };
+    } else {
+      const base = await repos.workspaces.lastPushed(db, ctx.businessId, ctx.taskId, repo);
+      // Only paths commit_files accepts: nothing under .git or .github ever leaves for the repository.
+      const pushable = snapshot.files.filter((f) => isCommitPath(f.path));
+      leftOut = snapshot.files.length - pushable.length;
+      const before = new Map((base?.files ?? []).filter((f) => isCommitPath(f.path)).map((f) => [f.path, f.sha256] as const));
+      const now = new Set(pushable.map((f) => f.path));
+      writes = pushable.filter((f) => before.get(f.path) !== f.sha256);
+      deletions = [...before.keys()].filter((p) => !now.has(p));
+      if (base?.pushedCommitSha && writes.length === 0 && deletions.length === 0) {
+        await record({ commitSha: base.pushedCommitSha, url: base.pushedUrl });
+        return { status: "up_to_date", repo, branch, commitSha: base.pushedCommitSha };
+      }
     }
     const bytes = writes.reduce((n, f) => n + f.size, 0);
     if (writes.length > MAX_COMMIT_FILES || deletions.length > MAX_COMMIT_FILES || bytes > MAX_COMMIT_BYTES) {
@@ -99,7 +118,8 @@ export async function pushWorkspace(db: Db, gateway: GatewayClient, ctx: PushCon
       {
         connector: "github",
         tool: "commit_files",
-        args: { owner: target.owner, repo: target.repo, branch, message: pushMessage(ctx, snapshot), files: contents.map((f) => ({ path: f.path, content: Buffer.from(f.content).toString("base64"), encoding: "base64" })), deletions },
+        // A missing branch starts at the checkout's commit, so the diff applies to exactly what the agent saw.
+        args: { owner: target.owner, repo: target.repo, branch, ...(onCheckout ? { fromRef: snapshot.baseCommitSha } : {}), message: pushMessage(ctx, snapshot), files: contents.map((f) => ({ path: f.path, content: Buffer.from(f.content).toString("base64"), encoding: "base64" })), deletions },
       },
       { timeoutMs: PUSH_TIMEOUT_MS },
     );

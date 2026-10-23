@@ -489,6 +489,63 @@ describe("runAgentSession (live runner, SDK mocked)", () => {
     }
   });
 
+  it("code task: starts from a checkout of the Code-tab repository, unpacks it in the sandbox and saves only the changes; a failed checkout starts as before with a warning", async () => {
+    const task = await repos.tasks.create(t.db, t.businessId, { kind: "code", title: "Work on the checkout", goalMd: "Change the entry point.", assigneeAgentId: t.workerId, status: "ready" });
+    await repos.integrations.upsert(t.deps.db, t.businessId, { connectorKey: "github", status: "mock", authKind: "app", settings: { repo: "acme/shop" } });
+    try {
+      const sessionId = await openSessionRow(t, t.workerId, task.id);
+      const input = { businessId: t.businessId, agentId: t.workerId, taskId: task.id, sessionId };
+      const launch = await acts.prepareSession(input);
+      let listing: string[] = [];
+      let prompt = "";
+      script = async function* (call) {
+        const cwd = call.options.cwd as string;
+        listing = (await readdir(cwd, { recursive: true, withFileTypes: true })).filter((e) => e.isFile() && !path.relative(cwd, path.join(e.parentPath, e.name)).startsWith(".tmp")).map((e) => path.relative(cwd, path.join(e.parentPath, e.name))).sort();
+        for await (const m of call.prompt as AsyncIterable<{ message: { content: string } }>) {
+          prompt = m.message.content;
+          break;
+        }
+        await writeFile(path.join(cwd, "src", "index.ts"), "export const changed = true;\n");
+        yield* success(sessionId)();
+      };
+      const writesBefore = provider.writes.length;
+      await acts.runAgentSession(input, launch);
+      expect(listing).toEqual(["README.md", "package.json", "src/index.ts"]);
+      expect(prompt).toMatch(/Your working directory is a checkout of acme\/shop at main \(commit [0-9a-f]{7}, 3 files\)/);
+      expect(t.gateway.archives.at(-1)).toEqual({ owner: "acme", repo: "shop", ref: "HEAD" });
+      const notes = (await readSessionEvents(t.redis, sessionId, { kinds: ["note"] })).map((r) => (r.event.kind === "note" ? r.event.text : ""));
+      expect(notes.some((n) => /^Checked out acme\/shop@main \(3 files, commit [0-9a-f]{7}\)\.$/.test(n))).toBe(true);
+      // The sandbox gets the archive once and only the changed file on top of it.
+      expect(provider.writes.length).toBe(writesBefore + 1);
+      expect([...provider.writes.at(-1)!.keys()].sort()).toEqual(["/tmp/fm-checkout.tgz", "src/index.ts"]);
+      expect(provider.execs.some((e) => e.includes("tar -xzf /tmp/fm-checkout.tgz"))).toBe(true);
+      expect(notes.some((n) => /^Unpacked the checkout of acme\/shop@main in the sandbox with 1 changed file for the acceptance tests\.$/.test(n))).toBe(true);
+      const saved = await repos.workspaces.latest(t.db, t.businessId, task.id);
+      expect(saved).toMatchObject({ baseRepo: "acme/shop", baseRef: "main", removedPaths: [], fileCount: 1, changed: 1, added: 0 });
+      expect(saved?.files.map((f) => f.path)).toEqual(["src/index.ts"]);
+      expect(notes.some((n) => /^Saved this task's changes against acme\/shop@main: 1 changed \(1 KB\)\. the Code tab shows them\.$/.test(n))).toBe(true);
+
+      // The gateway cannot serve the archive: the session starts from the saved changes alone and says why.
+      const failing = createSessionActivities({ ...liveDeps, gateway: { ...t.gateway, async downloadArchive() { return { outcome: "deny" as const, reasons: ["agent paused"] }; } } });
+      const failedId = await openSessionRow(t, t.workerId, task.id);
+      const failedInput = { ...input, sessionId: failedId };
+      let seen: string[] = [];
+      script = async function* (call) {
+        seen = (await readdir(call.options.cwd as string, { recursive: true })).filter((n) => !n.startsWith(".tmp")).sort();
+        yield* success(failedId)();
+      };
+      await failing.runAgentSession(failedInput, await failing.prepareSession(failedInput));
+      expect(seen).toEqual(["src", "src/index.ts"]);
+      const failedNotes = (await readSessionEvents(t.redis, failedId, { kinds: ["note"] })).map((r) => (r.event.kind === "note" ? r.event : null));
+      expect(failedNotes.some((n) => n?.level === "warn" && n.text === "Could not check out acme/shop: refused by policy (agent paused). This session starts from the code saved on this task only.")).toBe(true);
+      // Its save keeps the checkout's base (it worked on the saved changes alone).
+      expect(await repos.workspaces.latest(t.db, t.businessId, task.id)).toMatchObject({ baseRepo: "acme/shop", baseRef: "main" });
+      expect(await readdir(workspaceRoot)).toEqual([]);
+    } finally {
+      await repos.integrations.disconnect(t.deps.db, t.businessId, (await repos.integrations.getByKey(t.deps.db, t.businessId, "github"))!.id);
+    }
+  });
+
   it("cleans the workspace up when the SDK throws mid-run, and the failure is reported without the environment", async () => {
     const sessionId = await openSessionRow(t, t.workerId, t.codeTaskId);
     const input = { businessId: t.businessId, agentId: t.workerId, taskId: t.codeTaskId, sessionId };

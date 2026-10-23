@@ -898,7 +898,7 @@ describe("download_archive", () => {
       },
       "GET https://api.github.com/repos/acme/shop/tarball/*": (req, url) => {
         seen.push(`${url.pathname} ${req.headers.get("authorization")}`);
-        return new Response(options.body ? options.body() : tarball, { headers: { "content-type": "application/x-gzip", ...(options.length ? { "content-length": options.length } : {}) } });
+        return new Response(options.body ? options.body() : new Uint8Array(tarball), { headers: { "content-type": "application/x-gzip", ...(options.length ? { "content-length": options.length } : {}) } });
       },
     });
     const connector = createGithubConnector({ secrets: {}, fetch });

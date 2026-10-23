@@ -9,6 +9,8 @@
  */
 import { createHmac, randomUUID } from "node:crypto";
 import { AppError } from "@foundmill/shared";
+import { isUntrusted, mockIntegrationRecord, type ToolContext } from "@foundmill/connectors";
+import { createGithubMock } from "@foundmill/connectors/connectors/github/mock";
 
 export const TOKEN_ISSUER = "foundmill-gateway";
 export const SERVICE_AUDIENCE = "foundmill-gateway/service";
@@ -50,9 +52,30 @@ export interface GatewayCallResponse {
   retryAfterSeconds?: number;
 }
 
+export interface ArchiveRequest {
+  owner: string;
+  repo: string;
+  /** Branch, tag or commit; "HEAD" for the default branch. */
+  ref: string;
+}
+
+/**
+ * The gateway's answer to an archive request (`POST /v1/github/archive`): the tarball as bytes with the ref and commit
+ * it is of; a tool error (`not_found` for a branch that does not exist); or the policy outcome that stopped it.
+ */
+export type ArchiveResponse =
+  | { outcome: "allow"; archive: { ref: string; sha: string; data: Uint8Array } }
+  | { outcome: "allow"; error: { code: string; message: string } }
+  | { outcome: "ask" | "deny" | "rate_limited"; reasons: string[] };
+
 export interface GatewayClient {
   readonly baseUrl: string;
   mintSessionToken(input: MintSessionTokenRequest): Promise<MintSessionTokenResponse>;
+  /**
+   * A repository archive for a code session's checkout, read as bytes and given up past `maxBytes`. Only the business's
+   * Code-tab repository is served; the token must allow `github:download_archive`.
+   */
+  downloadArchive(sessionToken: string, request: ArchiveRequest, options?: { timeoutMs?: number; maxBytes?: number }): Promise<ArchiveResponse>;
   /** `timeoutMs` overrides the client's default for one long call (a push of many files). */
   call(sessionToken: string, request: GatewayCallRequest, options?: { timeoutMs?: number }): Promise<GatewayCallResponse>;
   health(): Promise<{ ok: boolean; mode?: "mock" | "live" }>;
@@ -68,6 +91,19 @@ export class GatewayClientError extends AppError {
 }
 
 const b64url = (input: Buffer | string): string => Buffer.from(input).toString("base64url");
+
+const SILENT = { debug: () => {}, info: () => {}, warn: () => {}, error: () => {} };
+
+/** The claims of an offline token (`offline.<base64url JSON>.sig`), or null for any other token. */
+function offlineClaims(token: string): { businessId?: string } | null {
+  const [head, body] = token.split(".");
+  if (head !== "offline" || !body) return null;
+  try {
+    return JSON.parse(Buffer.from(body, "base64url").toString("utf8")) as { businessId?: string };
+  } catch {
+    return null;
+  }
+}
 
 /** HS256 JWT identical in shape to apps/gateway's `signServiceToken`. */
 export function signServiceToken(secret: string, svc: string, ttlSeconds = DEFAULT_SERVICE_TOKEN_TTL_SECONDS, now: () => Date = () => new Date()): string {
@@ -91,6 +127,54 @@ export interface GatewayClientOptions {
 }
 
 const stripSlash = (s: string) => s.replace(/\/+$/, "");
+
+/** Largest archive the client reads unless told otherwise (the connector's own cap). */
+export const MAX_ARCHIVE_RESPONSE_BYTES = 60 * 1024 * 1024;
+export const ARCHIVE_PATH = "/v1/github/archive";
+
+/** A response body read as bytes, refused past `max` (the declared length first, then as it streams). */
+async function readBytes(res: Response, max: number): Promise<Uint8Array> {
+  const declared = Number(res.headers.get("content-length") ?? Number.NaN);
+  if (Number.isFinite(declared) && declared > max) throw new GatewayClientError("archive_too_large", `the archive is larger than ${Math.round(max / (1024 * 1024))} MB`, 413);
+  if (!res.body) return new Uint8Array(await res.arrayBuffer());
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  const reader = res.body.getReader();
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.byteLength;
+    if (total > max) {
+      await reader.cancel().catch(() => undefined);
+      throw new GatewayClientError("archive_too_large", `the archive is larger than ${Math.round(max / (1024 * 1024))} MB`, 413);
+    }
+    chunks.push(value);
+  }
+  return new Uint8Array(Buffer.concat(chunks, total));
+}
+
+/** The archive answer from a gateway response: bytes for `application/gzip`, else the JSON outcome. */
+async function archiveResponse(res: Response, max: number): Promise<ArchiveResponse> {
+  if (res.status === 200 && (res.headers.get("content-type") ?? "").startsWith("application/gzip")) {
+    const data = await readBytes(res, max);
+    return { outcome: "allow", archive: { ref: decodeURIComponent(res.headers.get("x-foundmill-archive-ref") ?? ""), sha: res.headers.get("x-foundmill-archive-sha") ?? "", data } };
+  }
+  const text = await res.text();
+  let json: Record<string, unknown> | null;
+  try {
+    json = text ? (JSON.parse(text) as Record<string, unknown>) : null;
+  } catch {
+    throw new GatewayClientError("gateway_bad_response", `Gateway returned non-JSON (${res.status}) for ${ARCHIVE_PATH}`, res.status, text.slice(0, 300));
+  }
+  const outcome = json?.outcome;
+  if (outcome === "ask" || outcome === "deny" || outcome === "rate_limited") return { outcome, reasons: Array.isArray(json?.reasons) ? (json.reasons as string[]) : [] };
+  if (outcome === "allow") {
+    const error = (json?.result as { error?: { code?: string; message?: string } } | undefined)?.error;
+    return { outcome: "allow", error: { code: error?.code ?? "tool_failed", message: error?.message ?? "GitHub gave no archive" } };
+  }
+  const err = (json as { error?: { code?: string; message?: string } } | null)?.error;
+  throw new GatewayClientError(err?.code ?? "gateway_error", err?.message ?? `Gateway POST ${ARCHIVE_PATH} returned ${res.status}`, res.status, json);
+}
 
 export function createGatewayClient(options: GatewayClientOptions): GatewayClient {
   const baseUrl = stripSlash(options.baseUrl);
@@ -140,6 +224,21 @@ export function createGatewayClient(options: GatewayClientOptions): GatewayClien
     health: () => request("GET", "/health"),
     mintSessionToken: (input) => request<MintSessionTokenResponse>("POST", "/v1/session-tokens", { body: input, token: signServiceToken(options.serviceSecret, serviceName, DEFAULT_SERVICE_TOKEN_TTL_SECONDS, options.now) }),
     call: (sessionToken, body, opts) => request<GatewayCallResponse>("POST", "/v1/call", { body, token: sessionToken, okStatuses: [200, 403, 429], ...(opts?.timeoutMs ? { timeoutMs: opts.timeoutMs } : {}) }),
+    async downloadArchive(sessionToken, body, opts) {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), opts?.timeoutMs ?? timeoutMs);
+      try {
+        let res: Response;
+        try {
+          res = await doFetch(`${baseUrl}${ARCHIVE_PATH}`, { method: "POST", headers: { accept: "application/gzip, application/json", "content-type": "application/json", authorization: `Bearer ${sessionToken}` }, body: JSON.stringify(body), signal: controller.signal });
+        } catch (e) {
+          throw new GatewayClientError("gateway_unreachable", `Gateway request POST ${ARCHIVE_PATH} failed: ${(e as Error).message}`, 503);
+        }
+        return await archiveResponse(res, opts?.maxBytes ?? MAX_ARCHIVE_RESPONSE_BYTES);
+      } finally {
+        clearTimeout(timer);
+      }
+    },
     mcpUrl: (connector) => `${baseUrl}/mcp/${connector}`,
     sessionHeaders: (sessionToken) => ({ authorization: `Bearer ${sessionToken}` }),
   };
@@ -149,15 +248,27 @@ export function createGatewayClient(options: GatewayClientOptions): GatewayClien
  * Gateway stand-in for tests and for mock runs without a gateway process: mints structurally valid, unsigned-looking
  * tokens and answers every call as a mock allow. Never used when `INTEGRATIONS_MODE=live`.
  */
-export function createOfflineGatewayClient(baseUrl = "http://gateway.offline"): GatewayClient & { minted: MintSessionTokenRequest[]; calls: GatewayCallRequest[] } {
+export function createOfflineGatewayClient(baseUrl = "http://gateway.offline"): GatewayClient & { minted: MintSessionTokenRequest[]; calls: GatewayCallRequest[]; archives: ArchiveRequest[] } {
   const minted: MintSessionTokenRequest[] = [];
   const calls: GatewayCallRequest[] = [];
+  const archives: ArchiveRequest[] = [];
+  // Checkouts come from the GitHub connector's mock (a small deterministic repository per name), per client.
+  const github = createGithubMock();
   return {
     baseUrl,
     minted,
     calls,
+    archives,
     async health() {
       return { ok: true, mode: "mock" };
+    },
+    async downloadArchive(token, req) {
+      archives.push(req);
+      const businessId = offlineClaims(token)?.businessId ?? "00000000-0000-4000-8000-000000000000";
+      const result = await github.callTool("download_archive", req, { businessId, agentId: null, sessionId: null, integration: mockIntegrationRecord("github", businessId), log: SILENT, mode: "mock" } as unknown as ToolContext);
+      if (!result.ok) return { outcome: "allow", error: { code: result.error?.code ?? "tool_failed", message: result.error?.message ?? "no archive" } };
+      const out = (isUntrusted(result.data) ? result.data.content : result.data) as { ref: string; sha: string; base64: string };
+      return { outcome: "allow", archive: { ref: out.ref, sha: out.sha, data: new Uint8Array(Buffer.from(out.base64, "base64")) } };
     },
     async mintSessionToken(input) {
       minted.push(input);
