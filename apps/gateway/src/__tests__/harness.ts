@@ -166,6 +166,8 @@ export interface SetupGatewayOptions {
   extraConnectorKeys?: string[];
   /** A controllable clock for the gateway (`deps.now`): tokens, rate limits and the state cache read it. */
   now?: () => Date;
+  /** Further connectors registered next to the test connector (e.g. a stand-in keyed "github"). */
+  connectors?: Connector[];
 }
 
 export async function setupGateway(options: SetupGatewayOptions = {}): Promise<GatewayFixture> {
@@ -177,7 +179,7 @@ export async function setupGateway(options: SetupGatewayOptions = {}): Promise<G
   const vault = new LocalVault(generateMasterKey());
   const seen: SeenCall[] = [];
   const connectors = [createTestConnector(options.connector, seen), ...(options.extraConnectorKeys ?? []).map((key) => createTestConnector({ ...options.connector, key }, seen))];
-  const registry = createRegistry(connectors.map((c) => c.connector));
+  const registry = createRegistry([...connectors.map((c) => c.connector), ...(options.connectors ?? [])]);
   const rateLimits = new MemoryRateLimitStore();
   const recipients = new UntrustedRecipientRegistry();
   const deps: GatewayDeps = { db, registry, vault, mode: options.mode ?? "mock", rateLimits, recipients, log: silentLog, ...(options.liveConnectors ? { liveConnectors: options.liveConnectors } : {}), ...(options.now ? { now: options.now } : {}) };
