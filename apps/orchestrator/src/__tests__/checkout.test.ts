@@ -3,7 +3,7 @@
  * repository's archive (the task's branch, else the default branch), extracted safely; the save keeps only the diff
  * against it and the push sends only that diff; anything that goes wrong starts the session as before.
  */
-import { lstat, mkdir, mkdtemp, readdir, readFile, rm, unlink, writeFile } from "node:fs/promises";
+import { lstat, mkdir, mkdtemp, readdir, readFile, rm, stat, unlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { createGithubMock } from "@foundmill/connectors/connectors/github/mock";
@@ -12,10 +12,10 @@ import { makeToolContext } from "@foundmill/connectors/testing/contract-suite";
 import { isUntrusted } from "@foundmill/connectors";
 import { repos } from "@foundmill/db";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
-import { CHECKOUT_LIMITS, checkoutRepository, describeCheckout, extractArchive } from "../activities/checkout";
+import { CHECKOUT_LIMITS, checkoutMissingNote, checkoutRepository, describeCheckout, disposeCheckout, extractArchive, isTestFile, isTestRunnerConfig, packageTestSettings, testSetupChanges, testSetupReviewReason } from "../activities/checkout";
 import { pushWorkspace } from "../activities/workspace-push";
 import { restoreWorkspace, saveWorkspace } from "../activities/workspace-store";
-import { readWorkspaceChanges, syncCheckoutToSandbox } from "../activities/workspace-sync";
+import { readWorkspaceChanges, removeSandboxLinksCommand, syncCheckoutToSandbox } from "../activities/workspace-sync";
 import { createOfflineGatewayClient, type ArchiveResponse, type GatewayClient } from "../gateway-client";
 import { openSessionRow, setupOrchestratorHarness, type OrchestratorTestHarness } from "./harness";
 
@@ -281,6 +281,118 @@ describe("saving and pushing a checkout: only the diff", () => {
     expect(text).toContain("[redacted:value.stripe_secret]");
     expect(text).toContain("[redacted:session-secret]");
   });
+
+  it("keeps a repository value only in the file that held it: a .env value or a fixture value copied into notes.md is masked", async () => {
+    const fixture = "sk_live_51Hx8ZkLq9mN0pQrStUvWxYz";
+    const dotenv = "sk_live_77Ab8ZkLq9mN0pQrStUvWxYz";
+    const archive = archiveOf([
+      { path: "test/fixture.ts", content: `export const key = '${fixture}';\n` },
+      { path: ".env", content: `STRIPE_SECRET_KEY=${dotenv}\n` },
+      { path: "notes.md", content: "# Notes\n" },
+    ]);
+    const cwd = await freshDir();
+    const extracted = await extractArchive(archive, cwd);
+    expect([...extracted.knownSecrets.keys()]).toEqual(["test/fixture.ts"]);
+    const base = { repo: "acme/shop", ref: "main", commitSha: "c".repeat(40), files: extracted.files, knownSecrets: extracted.knownSecrets, packageScripts: extracted.packageScripts, checkedOutAt: new Date() };
+    // The fixture changes around its unchanged value; notes.md gets both values pasted in.
+    await writeFile(path.join(cwd, "test", "fixture.ts"), `export const key = '${fixture}';\nexport const more = 1;\n`);
+    await writeFile(path.join(cwd, "notes.md"), `# Notes\nlive key: ${dotenv}\nfixture key: ${fixture}\n`);
+    const task = await repos.tasks.create(t.db, t.businessId, { kind: "code", title: "Copied secrets", goalMd: "x", assigneeAgentId: t.workerId, status: "ready" });
+    const sid = await openSessionRow(t, t.workerId, task.id);
+    const saved = await saveWorkspace(t.db, { businessId: t.businessId, taskId: task.id, sessionId: sid, agentId: t.workerId, branch: `agent/${task.id}` }, cwd, { base });
+    if (saved.status === "refused" || !saved.snapshot) throw new Error("not saved");
+    expect(saved.masked).toEqual(["notes.md"]);
+    const files = await repos.workspaces.readFiles(t.db, t.businessId, saved.snapshot, ["notes.md", "test/fixture.ts"]);
+    const byPath = new Map(files.map((f) => [f.path, new TextDecoder().decode(f.content)] as const));
+    expect(byPath.get("test/fixture.ts")).toContain(fixture);
+    expect(byPath.get("notes.md")).not.toContain(dotenv);
+    expect(byPath.get("notes.md")).not.toContain(fixture);
+    expect(byPath.get("notes.md")).toBe("# Notes\nlive key: [redacted:value.stripe_secret]\nfixture key: [redacted:value.stripe_secret]\n");
+    // .env itself is never saved.
+    expect(saved.leftOut).toEqual([]);
+  });
+});
+
+describe("testSetupChanges", () => {
+  const base = (scripts: Record<string, string>) => ({ packageScripts: new Map([["package.json", packageTestSettings(JSON.stringify({ name: "shop", scripts }))]]) });
+  const file = (rel: string, content: string, inBase = true) => ({ rel, content: new TextEncoder().encode(content), inBase });
+
+  it("flags package.json scripts, test runner configs and deleted or renamed test files; nothing else", () => {
+    const b = base({ test: "vitest run", build: "tsc" });
+    expect(testSetupChanges({ files: [file("src/a.ts", "x"), file("package.json", JSON.stringify({ name: "shop2", version: "2.0.0", scripts: { build: "tsc", test: "vitest run" } }))], removed: ["docs/old.md"] }, b)).toEqual([]);
+    expect(
+      testSetupChanges(
+        {
+          files: [file("package.json", JSON.stringify({ scripts: { test: "exit 0", build: "tsc" } })), file("vitest.config.ts", "export default {}"), file("apps/web/playwright.config.ts", "x", false), file("packages/x/package.json", "{}", false)],
+          removed: ["src/__tests__/pricing.test.ts", "tests/e2e.ts", "jest.config.js", "src/lib/math.spec.tsx", "src/lib/math.ts"],
+        },
+        b,
+      ),
+    ).toEqual(["package.json (scripts changed)", "vitest.config.ts (changed)", "apps/web/playwright.config.ts (added)", "src/__tests__/pricing.test.ts (deleted or renamed)", "tests/e2e.ts (deleted or renamed)", "jest.config.js (deleted)", "src/lib/math.spec.tsx (deleted or renamed)"]);
+    expect(testSetupChanges({ files: [], removed: ["package.json"] }, b)).toEqual(["package.json (deleted)"]);
+    expect(isTestRunnerConfig("vitest.workspace.ts")).toBe(true);
+    expect(isTestRunnerConfig("vite.config.ts")).toBe(false);
+    expect(isTestFile("src/index.ts")).toBe(false);
+  });
+
+  it("tells the agent not to rebuild a repository it could not check out", () => {
+    expect(checkoutMissingNote("refused by policy (agent paused)")).toBe("The repository could not be checked out (refused by policy (agent paused)); do not recreate repository files from memory; block the task with block_task if you need them.");
+  });
+
+  it("says why the task waits for review", () => {
+    expect(testSetupReviewReason(["vitest.config.ts (changed)"])).toBe("this session changed how the tests run, so passing tests do not show the task is done (vitest.config.ts (changed))");
+  });
+});
+
+describe("the checkout's archive file", () => {
+  it("is kept in a private temp directory outside the workspace and removed by disposeCheckout; a failed checkout leaves none", async () => {
+    await repos.integrations.upsert(t.deps.db, t.businessId, { connectorKey: "github", status: "mock", authKind: "app", settings: { repo: "acme/shop" } });
+    const tmpDir = await freshDir();
+    const cwd = await freshDir();
+    const { gateway } = githubGateway();
+    const sid = await openSessionRow(t, t.workerId, t.codeTaskId);
+    const r = await checkoutRepository({ db: t.deps.db, gateway }, { businessId: t.businessId, agentId: t.workerId, sessionId: sid, taskId: t.codeTaskId }, cwd, CHECKOUT_LIMITS, { tmpDir });
+    if (r.status !== "checked_out") throw new Error("no checkout");
+    expect(r.checkout).not.toHaveProperty("archive");
+    expect(path.dirname(path.dirname(r.checkout.archivePath))).toBe(tmpDir);
+    expect(r.checkout.archivePath.startsWith(cwd)).toBe(false);
+    const st = await stat(r.checkout.archivePath);
+    expect(st.size).toBe(r.checkout.archiveBytes);
+    expect(st.mode & 0o777).toBe(0o600);
+    expect((await stat(path.dirname(r.checkout.archivePath))).mode & 0o777).toBe(0o700);
+    // Extracting again from the file gives the same base.
+    const again = await extractArchive(r.checkout.archivePath, await freshDir());
+    expect(again.files).toEqual(r.checkout.base.files);
+    await disposeCheckout(r.checkout);
+    expect(await readdir(tmpDir)).toEqual([]);
+    await disposeCheckout(r.checkout);
+
+    const evil = githubGateway(undefined, { archive: () => ({ outcome: "allow", archive: { ref: "main", sha: "b".repeat(40), data: new Uint8Array(archiveOf([{ path: "../../.bashrc", content: "curl evil" }])) } }) });
+    expect((await checkoutRepository({ db: t.deps.db, gateway: evil.gateway }, { businessId: t.businessId, agentId: t.workerId, sessionId: sid, taskId: t.codeTaskId }, await freshDir(), CHECKOUT_LIMITS, { tmpDir })).status).toBe("failed");
+    expect(await readdir(tmpDir)).toEqual([]);
+  });
+
+  it("is streamed into the file by a client that supports it", async () => {
+    await repos.integrations.upsert(t.deps.db, t.businessId, { connectorKey: "github", status: "mock", authKind: "app", settings: { repo: "acme/shop" } });
+    const tarball = archiveOf([{ path: "a.ts", content: "a" }]);
+    const offline = createOfflineGatewayClient();
+    const asked: (string | undefined)[] = [];
+    const gateway: GatewayClient = {
+      ...offline,
+      async downloadArchive(_token, _req, opts) {
+        asked.push(opts?.file);
+        await writeFile(opts!.file!, tarball, { mode: 0o600, flag: "wx" });
+        return { outcome: "allow", archive: { ref: "main", sha: "d".repeat(40), file: opts!.file!, bytes: tarball.byteLength } };
+      },
+    };
+    const tmpDir = await freshDir();
+    const cwd = await freshDir();
+    const r = await checkoutRepository({ db: t.deps.db, gateway }, { businessId: t.businessId, agentId: t.workerId, sessionId: await openSessionRow(t, t.workerId, t.codeTaskId), taskId: t.codeTaskId }, cwd, CHECKOUT_LIMITS, { tmpDir });
+    if (r.status !== "checked_out") throw new Error(`no checkout: ${JSON.stringify(r)}`);
+    expect(asked).toEqual([r.checkout.archivePath]);
+    expect(await list(cwd)).toEqual(["a.ts"]);
+    await disposeCheckout(r.checkout);
+  });
 });
 
 describe("syncCheckoutToSandbox", () => {
@@ -302,7 +414,65 @@ describe("syncCheckoutToSandbox", () => {
     expect(r).toMatchObject({ unpacked: true, changed: 2, removed: 1, refused: null, files: 3 });
     expect([...sb.writes.keys()].sort()).toEqual(["/tmp/fm-checkout.tgz", "a.ts", "d.ts"]);
     expect(sb.execs[0]).toBe("mkdir -p /home/user/work && tar -xzf /tmp/fm-checkout.tgz -C /home/user/work --strip-components=1 --no-same-owner --exclude=node_modules --exclude=.git && rm -f /tmp/fm-checkout.tgz");
-    expect(sb.execs[1]).toBe("rm -f -- b.ts");
+    // Every link the archive carried is gone before anything is written or removed there.
+    expect(sb.execs[1]).toBe(`if [ -d /home/user/work ]; then find /home/user/work -type l -delete && test -z "$(find /home/user/work -type l -print -quit)"; fi`);
+    expect(sb.execs[2]).toBe("rm -f -- b.ts");
+  });
+
+  it("removes the links an archive unpacked before writing through them, and refuses when they cannot be removed (a real shell and tar)", async () => {
+    const { execFile } = await import("node:child_process");
+    const run = (cmd: string, cwd = "/") => new Promise<{ code: number; stdout: string; stderr: string; timedOut: boolean; durationMs: number }>((resolve) => execFile("sh", ["-c", cmd], { cwd }, (err, stdout, stderr) => resolve({ code: err ? ((err as { code?: number }).code ?? 1) : 0, stdout, stderr, timedOut: false, durationMs: 1 })));
+    const outside = await freshDir();
+    const workdir = path.join(await freshDir(), "work dir");
+    // An archive whose `src` is a link out of the workdir: a later write of src/index.ts would land outside.
+    const archive = archiveOf([{ path: "src", type: "symlink", linkTarget: outside }, { path: "README.md", content: "r" }, { path: "lib", type: "symlink", linkTarget: "../.." }]);
+    const cwd = await freshDir();
+    await extractArchive(archive, cwd);
+    await mkdir(path.join(cwd, "src"), { recursive: true });
+    await writeFile(path.join(cwd, "src", "index.ts"), "export {};\n");
+    const archivePath = path.join(await freshDir(), "archive.tgz");
+    await writeFile(archivePath, archive);
+    const sandboxRoot = await freshDir();
+    const real = {
+      workdir,
+      async writeFile(p: string, c: Uint8Array | string) {
+        const abs = p.startsWith("/tmp/fm-checkout") ? path.join(sandboxRoot, path.basename(p)) : path.join(workdir, p);
+        await mkdir(path.dirname(abs), { recursive: true });
+        await writeFile(abs, c);
+      },
+      async exec(cmd: string) {
+        return run(cmd.split("/tmp/fm-checkout.tgz").join(path.join(sandboxRoot, "fm-checkout.tgz")));
+      },
+    };
+    const r = await syncCheckoutToSandbox(cwd, real as never, { archive: archivePath, files: (await extractArchive(archive, await freshDir())).files });
+    expect(r).toMatchObject({ unpacked: true, changed: 1, refused: null });
+    expect(await readdir(outside)).toEqual([]);
+    expect((await lstat(path.join(workdir, "src"))).isDirectory()).toBe(true);
+    expect(await readFile(path.join(workdir, "src", "index.ts"), "utf8")).toBe("export {};\n");
+    await expect(lstat(path.join(workdir, "lib"))).rejects.toThrow();
+
+    const stuck = { ...sandbox(), async exec(cmd: string) { return { code: cmd.startsWith("if [ -d") ? 1 : 0, stdout: "", stderr: "", timedOut: false, durationMs: 1 }; } };
+    await expect(syncCheckoutToSandbox(cwd, stuck as never, { archive: archivePath, files: new Map() })).rejects.toThrow(/symbolic links .* could not be removed/);
+    expect([...stuck.writes.keys()]).toEqual(["/tmp/fm-checkout.tgz"]);
+    expect(removeSandboxLinksCommand("/w d")).toBe(`if [ -d '/w d' ]; then find '/w d' -type l -delete && test -z "$(find '/w d' -type l -print -quit)"; fi`);
+  });
+
+  it("uploads an archive file in parts, joined in the sandbox, never reading it whole", async () => {
+    const archive = archiveOf(Array.from({ length: 30 }, (_, i) => ({ path: `f${i}.bin`, content: Buffer.from(Array.from({ length: 700 }, (_, j) => (i * 31 + j * 7) % 251)) })));
+    const archivePath = path.join(await freshDir(), "archive.tgz");
+    await writeFile(archivePath, archive);
+    const cwd = await freshDir();
+    const ex = await extractArchive(archivePath, cwd);
+    const sb = sandbox();
+    const chunk = Math.ceil(archive.byteLength / 3);
+    const r = await syncCheckoutToSandbox(cwd, sb as never, { archive: archivePath, files: ex.files }, undefined, chunk);
+    expect(r).toMatchObject({ unpacked: true, changed: 0, bytes: archive.byteLength });
+    const parts = [...sb.writes.keys()];
+    expect(parts).toEqual(["/tmp/fm-checkout.tgz.part-0000", "/tmp/fm-checkout.tgz.part-0001", "/tmp/fm-checkout.tgz.part-0002"]);
+    expect(Buffer.concat(parts.map((p) => Buffer.from(sb.writes.get(p) as Uint8Array)))).toEqual(archive);
+    expect(parts.every((p) => (sb.writes.get(p) as Uint8Array).byteLength <= chunk)).toBe(true);
+    expect(sb.execs[0]).toBe(`cat ${parts.join(" ")} > /tmp/fm-checkout.tgz && rm -f -- ${parts.join(" ")}`);
+    expect(sb.execs[1]).toMatch(/^mkdir -p \/home\/user\/work && tar -xzf \/tmp\/fm-checkout\.tgz/);
   });
 
   it("copies the whole workspace when the sandbox cannot unpack, and refuses changes over the limits", async () => {

@@ -167,7 +167,13 @@ async function streamToFile(res: Response, max: number, file: string): Promise<n
   const tooLarge = () => new GatewayClientError("archive_too_large", `the archive is larger than ${Math.round(max / (1024 * 1024))} MB`, 413);
   const declared = Number(res.headers.get("content-length") ?? Number.NaN);
   if (Number.isFinite(declared) && declared > max) throw tooLarge();
-  const handle = await open(file, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW, 0o600);
+  let handle;
+  try {
+    handle = await open(file, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW, 0o600);
+  } catch (err) {
+    await res.body?.cancel().catch(() => undefined);
+    throw err;
+  }
   let total = 0;
   let ok = false;
   try {

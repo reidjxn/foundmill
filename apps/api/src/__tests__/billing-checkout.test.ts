@@ -35,6 +35,9 @@ const gateway: ApiGatewayClient = {
   generatePortrait: async () => {
     throw new Error("not in these tests");
   },
+  repository: async () => {
+    throw new Error("not in these tests");
+  },
   async createCheckout(input) {
     asked.push(input);
     if (failWith) throw failWith;

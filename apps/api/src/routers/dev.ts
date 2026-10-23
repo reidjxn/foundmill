@@ -5,10 +5,11 @@
  * Training Ground reflects the intent.
  */
 import { FLAGS, isSimulateEnv } from "@foundmill/config";
-import { TaskListFilter, assertConcurrencyRoom, codeRepositoryOf, modelBudgetState, periodOf, repos, type AgentSession, type DbTx, type Executor, type Task } from "@foundmill/db";
+import { REPOSITORY_FULL_NAME, TaskListFilter, assertConcurrencyRoom, codeRepositoryOf, modelBudgetState, periodOf, repos, type AgentSession, type DbTx, type Executor, type Task } from "@foundmill/db";
 import { SESSION_EVENT_KINDS, sessionStreamKey } from "@foundmill/events";
 import { AppError, ForbiddenError, NotFoundError, ValidationError, connectorMode, formatMoney, hasSectionAccess, sessionSections, type TaskStatus } from "@foundmill/shared";
 import { z } from "zod";
+import { verifyCodeRepository } from "../services/code-repository";
 import { replaySession } from "../services/replay";
 import { PlanInput, planKey, planTaskGraph, type PlanResult } from "../services/task-graph";
 
@@ -356,18 +357,34 @@ export const devRouter = router({
       }),
     ),
 
-    /** Choose the repository saved code is pushed to (`owner/name` or a github.com URL), or stop pushing with null. */
+    /**
+     * Choose the repository saved code is pushed to (`owner/name` or a github.com URL), or stop pushing with null. The
+     * installation must reach it and it must be private; GitHub's id of it is pinned with the choice.
+     */
     setRepository: sectionAdmin("development")
       // Pushing is off unless the founder turns it on: a push runs the repository's CI and preview deploys on agent code.
       .input(z.object({ repository: z.string().trim().max(300).nullable(), pushEnabled: z.boolean().default(false) }))
-      .mutation(({ ctx, input }) =>
-        ctx.rls(async (tx) => {
-          const fullName = input.repository ? input.repository.replace(/^https?:\/\/github\.com\//i, "").replace(/\.git$/i, "").replace(/\/+$/, "") : null;
-          const row = await repos.integrations.setCodeRepository(tx, ctx.businessId, fullName || null, { pushEnabled: input.pushEnabled });
-          await audit(tx, ctx, { action: "dev.code.set_repository", target: { kind: "integration", id: row.id }, details: { repository: fullName || null, pushEnabled: Boolean(fullName) && input.pushEnabled } });
+      .mutation(async ({ ctx, input }) => {
+        const typed = input.repository ? input.repository.replace(/^https?:\/\/github\.com\//i, "").replace(/\.git$/i, "").replace(/\/+$/, "") : null;
+        // A repository is checked with GitHub before it is stored (security review B1): the installation must reach it, it
+        // must be private, and its id is pinned with the choice. Shape and connection are checked first, so nothing is asked
+        // of GitHub for a name that could never be stored.
+        let verified: { fullName: string; repoId: number } | null = null;
+        if (typed) {
+          if (!REPOSITORY_FULL_NAME.test(typed)) throw new ValidationError("repository must be owner/name");
+          const integration = await ctx.rls((tx) => repos.integrations.getByKey(tx, ctx.businessId, "github"));
+          if (!integration || integration.archivedAt || integration.status === "disconnected") throw new ValidationError("connect GitHub before choosing a repository");
+          const repository = await verifyCodeRepository({ env: ctx.env, connectors: ctx.connectors, gateway: ctx.gateway }, ctx.businessId, integration, typed);
+          // GitHub's own spelling of the name (a renamed repository answers under its new one).
+          verified = { fullName: REPOSITORY_FULL_NAME.test(repository.fullName) ? repository.fullName : typed, repoId: repository.id };
+        }
+        return ctx.rls(async (tx) => {
+          const fullName = verified?.fullName ?? null;
+          const row = await repos.integrations.setCodeRepository(tx, ctx.businessId, fullName, { pushEnabled: input.pushEnabled, repoId: verified?.repoId ?? null });
+          await audit(tx, ctx, { action: "dev.code.set_repository", target: { kind: "integration", id: row.id }, details: { repository: fullName, repoId: verified?.repoId ?? null, pushEnabled: Boolean(fullName) && input.pushEnabled } });
           return { repository: codeRepositoryOf(row) };
-        }),
-      ),
+        });
+      }),
 
     /**
      * Forget a task's saved code: every saved session of the task and the contents no other task uses. Owners and admins

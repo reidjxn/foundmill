@@ -1504,6 +1504,135 @@ describe("honest outcomes: a code session ends done only when it did the work (d
     expect(await blockedEventsOf(sessionId)).toEqual([]);
   });
 
+  /** Run `during(sessionId)` inside the acceptance run's test phase (the sandbox's last exec), before it answers. */
+  const duringTests = async <T>(sessionId: string, during: () => Promise<void>, body: () => Promise<T>): Promise<T> => {
+    const create = provider.create;
+    provider.create = async (spec) => {
+      const sandbox = await create(spec);
+      const exec = sandbox.exec.bind(sandbox);
+      return { ...sandbox, exec: async (cmd, opts) => {
+        if (cmd.includes("/tmp/fm-acceptance.log")) await during();
+        return exec(cmd, opts);
+      } };
+    };
+    try {
+      return await body();
+    } finally {
+      provider.create = create;
+      void sessionId;
+    }
+  };
+
+  it("a Stop that lands while the acceptance tests run ends the session stopped, not done, and its code is not pushed", async () => {
+    const { task, sessionId, input, launch } = await freshCodeTask("Stop during the tests");
+    script = async function* (call) {
+      await writeFile(path.join(call.options.cwd as string, "late.ts"), "export const late = true;\n");
+      yield* success(sessionId)();
+    };
+    const result = await duringTests(sessionId, async () => {
+      await t.control.post(sessionId, { kind: "stop", reason: "founder_stop", by: t.fixture.ownerId });
+      await wait(900);
+    }, () => acts.runAgentSession(input, launch));
+    expect(result).toMatchObject({ outcome: "stopped", reason: "founder_stop", blockedReason: "stopped" });
+    const notes = (await readSessionEvents(t.redis, sessionId, { kinds: ["note"] })).map((r) => (r.event.kind === "note" ? r.event.text : ""));
+    expect(notes).toContain("Not pushed to GitHub: connect GitHub and choose a repository on the Code tab. The code is saved on the Code tab.");
+    const finish = await acts.finishSession(input, launch, result);
+    expect(finish.taskStatus).toBe("stopped");
+    expect((await repos.tasks.get(t.db, t.businessId, task.id)).status).toBe("stopped");
+  });
+
+  it("a cancel that lands while the acceptance tests run ends stopped too, never done", async () => {
+    const { sessionId, input, launch } = await freshCodeTask("Cancel during the tests");
+    const env = new MockActivityEnvironment();
+    script = async function* (call) {
+      await writeFile(path.join(call.options.cwd as string, "late.ts"), "export const late = true;\n");
+      yield* success(sessionId)();
+    };
+    const result = (await duringTests(sessionId, async () => env.cancel(), () => env.run(acts.runAgentSession, input, launch))) as SessionResult;
+    expect(result).toMatchObject({ outcome: "stopped", reason: "cancelled", blockedReason: "stopped" });
+  });
+
+  it("a session that changes how the tests run (package.json scripts, a runner config, a deleted test) ends in review with the files named, not done", async () => {
+    await repos.integrations.upsert(t.deps.db, t.businessId, { connectorKey: "github", status: "mock", authKind: "app", settings: { repo: "acme/shop" } });
+    try {
+      const { task, sessionId, input, launch } = await freshCodeTask("Make the tests pass");
+      script = async function* (call) {
+        const cwd = call.options.cwd as string;
+        await writeFile(path.join(cwd, "package.json"), '{"name":"shop","private":true,"scripts":{"test":"exit 0"}}\n');
+        await writeFile(path.join(cwd, "vitest.config.ts"), "export default { test: { include: [] } };\n");
+        yield* success(sessionId)();
+      };
+      const result = await acts.runAgentSession(input, launch);
+      const why = "this session changed how the tests run, so passing tests do not show the task is done (package.json (scripts changed), vitest.config.ts (added))";
+      expect(result).toMatchObject({ outcome: "done", review: `needs review: ${why}`, reason: `needs review: ${why}`, blockedReason: null });
+      const notes = (await readSessionEvents(t.redis, sessionId, { kinds: ["note"] })).map((r) => (r.event.kind === "note" ? r.event.text : ""));
+      expect(notes).toContain(`Held for your review, not done: ${why}.`);
+      const finish = await acts.finishSession(input, launch, result);
+      expect(finish.taskStatus).toBe("review");
+      expect((await repos.tasks.get(t.db, t.businessId, task.id)).status).toBe("review");
+
+      // The same work without touching the test setup ends done.
+      const plain = await freshCodeTask("Change the entry point");
+      script = async function* (call) {
+        await writeFile(path.join(call.options.cwd as string, "src", "index.ts"), "export const v = 2;\n");
+        yield* success(plain.sessionId)();
+      };
+      const ok = await acts.runAgentSession(plain.input, plain.launch);
+      expect(ok).toMatchObject({ outcome: "done", reason: null });
+      expect(ok.review ?? null).toBeNull();
+    } finally {
+      await repos.integrations.disconnect(t.deps.db, t.businessId, (await repos.integrations.getByKey(t.deps.db, t.businessId, "github"))!.id);
+    }
+  });
+
+  it("a checkout that failed is in the agent's prompt, and a save on the task's inherited base is kept but never pushed; the archive file is removed", async () => {
+    await repos.integrations.upsert(t.deps.db, t.businessId, { connectorKey: "github", status: "mock", authKind: "app", settings: { repo: "acme/shop" } });
+    try {
+      const { task, sessionId, input, launch } = await freshCodeTask("Work on a checkout, then without one");
+      // The first session checks out the repository (its archive kept in a temp file until the session ends).
+      const files: string[] = [];
+      const recording = createSessionActivities({ ...liveDeps, gateway: { ...t.gateway, async downloadArchive(token, req, opts) {
+        if (opts?.file) files.push(opts.file);
+        return t.gateway.downloadArchive(token, req, opts);
+      } } });
+      script = async function* (call) {
+        expect((await stat(files.at(-1)!)).isFile()).toBe(true);
+        await writeFile(path.join(call.options.cwd as string, "src", "index.ts"), "export const v = 2;\n");
+        yield* success(sessionId)();
+      };
+      await recording.runAgentSession(input, launch);
+      expect(files).toHaveLength(2); // agent/<task> is missing, then HEAD
+      await expect(stat(path.dirname(files[0]!))).rejects.toThrow();
+      expect(await repos.workspaces.latest(t.db, t.businessId, task.id)).toMatchObject({ baseRepo: "acme/shop", baseRef: "main" });
+
+      // The next session cannot check it out, with pushing on: the agent is told, and its save is not pushed.
+      await repos.integrations.upsert(t.deps.db, t.businessId, { connectorKey: "github", status: "mock", authKind: "app", settings: { repo: "acme/shop", writeEnabled: true } });
+      const failing = createSessionActivities({ ...liveDeps, gateway: { ...t.gateway, async downloadArchive() { return { outcome: "deny" as const, reasons: ["agent paused"] }; } } });
+      const nextId = await openSessionRow(t, t.workerId, task.id);
+      const next = { ...input, sessionId: nextId };
+      let prompt = "";
+      script = async function* (call) {
+        for await (const m of call.prompt as AsyncIterable<{ message: { content: string } }>) {
+          prompt = m.message.content;
+          break;
+        }
+        await writeFile(path.join(call.options.cwd as string, "README.md"), "# From memory\n");
+        yield* success(nextId)();
+      };
+      const callsBefore = t.gateway.calls.length;
+      await failing.runAgentSession(next, await failing.prepareSession(next));
+      expect(prompt).toContain("The repository could not be checked out (refused by policy (agent paused)); do not recreate repository files from memory; block the task with block_task if you need them.");
+      expect(prompt).not.toContain("Your working directory is a checkout");
+      expect(t.gateway.calls.slice(callsBefore).filter((c) => c.tool === "commit_files")).toEqual([]);
+      const held = "this session had no checkout of acme/shop, so its files are not a diff against it; a session that checks it out pushes them";
+      const notes = (await readSessionEvents(t.redis, nextId, { kinds: ["note"] })).map((r) => (r.event.kind === "note" ? r.event.text : ""));
+      expect(notes).toContain(`Not pushed to GitHub: ${held}. The code is saved on the Code tab.`);
+      expect(await repos.workspaces.latest(t.db, t.businessId, task.id)).toMatchObject({ sessionId: nextId, baseRepo: "acme/shop", pushedCommitSha: null, pushError: held });
+    } finally {
+      await repos.integrations.disconnect(t.deps.db, t.businessId, (await repos.integrations.getByKey(t.deps.db, t.businessId, "github"))!.id);
+    }
+  });
+
   it("a later session that only finishes work saved by an earlier one can end done without writing", async () => {
     const { task, sessionId, input, launch } = await freshCodeTask("Ship the saved change");
     await t.deps.db.transaction((tx) => repos.workspaces.save(tx as never, t.businessId, { taskId: task.id, files: [{ path: "done.ts", content: new TextEncoder().encode("export {};\n") }], carryOver: true }));

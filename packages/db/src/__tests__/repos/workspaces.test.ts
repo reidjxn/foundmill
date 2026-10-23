@@ -176,6 +176,37 @@ describe("workspaces", () => {
     expect(await repos.integrations.codeRepository(r.db, r.B.businessId)).toBeNull();
   });
 
+  it("pins GitHub's id of the Code-tab repository: on choosing it, or once for one chosen before pinning, never across businesses", async () => {
+    const { businessId, ownerId } = r.A;
+    const before = (await repos.integrations.getByKey(r.db, businessId, "github"))!.settings as Record<string, unknown>;
+    await r.svc((tx) => repos.integrations.upsert(tx, businessId, { connectorKey: "github", status: "connected", authKind: "app", settings: { externalAccountId: "42" } }));
+    await r.as(ownerId, (tx) => repos.integrations.setCodeRepository(tx, businessId, "acme/shop", { repoId: 1001 }));
+    expect(await repos.integrations.codeRepository(r.db, businessId)).toMatchObject({ fullName: "acme/shop", repoId: 1001 });
+    // Choosing another repository without a verified id drops the pin; with one, replaces it.
+    await r.as(ownerId, (tx) => repos.integrations.setCodeRepository(tx, businessId, "acme/site"));
+    expect(await repos.integrations.codeRepository(r.db, businessId)).toMatchObject({ fullName: "acme/site", repoId: null });
+    await expect(r.as(ownerId, (tx) => repos.integrations.setCodeRepository(tx, businessId, "acme/site", { repoId: -3 }))).rejects.toThrow(/repoId/);
+
+    // The gateway pins an unpinned choice once, only while the Code tab still names that repository.
+    expect(await r.svc((tx) => repos.integrations.pinCodeRepositoryId(tx, businessId, { fullName: "acme/other", repoId: 7 }))).toBe(false);
+    expect(await r.svc((tx) => repos.integrations.pinCodeRepositoryId(tx, businessId, { fullName: "Acme/Site", repoId: 2002 }))).toBe(true);
+    expect(await r.svc((tx) => repos.integrations.pinCodeRepositoryId(tx, businessId, { fullName: "acme/site", repoId: 3003 }))).toBe(false);
+    expect(await repos.integrations.codeRepository(r.db, businessId)).toMatchObject({ fullName: "acme/site", repoId: 2002 });
+    // A forged settings value is not a pin.
+    await r.svc((tx) => repos.integrations.upsert(tx, businessId, { connectorKey: "github", status: "connected", authKind: "app", settings: { externalAccountId: "42", repo: "acme/site", repoId: "2002" } }));
+    expect(await repos.integrations.codeRepository(r.db, businessId)).toMatchObject({ repoId: null });
+
+    // Cross-tenant: business B's owner can neither pin nor read A's repository, and B's own pin leaves A's alone.
+    expect(await r.as(r.B.ownerId, (tx) => repos.integrations.pinCodeRepositoryId(tx, businessId, { fullName: "acme/site", repoId: 666 }))).toBe(false);
+    expect(await repos.integrations.codeRepository(r.db, businessId)).toMatchObject({ repoId: null });
+    await r.svc((tx) => repos.integrations.upsert(tx, r.B.businessId, { connectorKey: "github", status: "connected", authKind: "app", settings: { externalAccountId: "77", repo: "acme/site" } }));
+    expect(await r.svc((tx) => repos.integrations.pinCodeRepositoryId(tx, r.B.businessId, { fullName: "acme/site", repoId: 4004 }))).toBe(true);
+    expect(await repos.integrations.codeRepository(r.db, businessId)).toMatchObject({ repoId: null });
+    expect(await repos.integrations.codeRepository(r.db, r.B.businessId)).toMatchObject({ repoId: 4004 });
+    await r.svc((tx) => repos.integrations.upsert(tx, r.B.businessId, { connectorKey: "github", status: "disconnected", authKind: "app", settings: {} }));
+    await r.svc((tx) => repos.integrations.upsert(tx, businessId, { connectorKey: "github", status: "connected", authKind: "app", settings: before }));
+  });
+
   it("0068: a save on a checkout stores only the diff against it, counted against the checkout, and keeps its base when a later session could not check out", async () => {
     const { businessId } = r.A;
     const taskId = r.A.taskIds[7]!;

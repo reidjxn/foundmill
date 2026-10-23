@@ -7,16 +7,34 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { repos } from "@foundmill/db";
 import { createGithubMock } from "@foundmill/connectors/connectors/github/mock";
 import { readTarGz } from "@foundmill/connectors/connectors/github/tarball";
-import { ARCHIVE_HEADERS, ARCHIVE_ROUTE, CODE_REPOSITORY_POLICY_ID } from "../archive";
+import type { Connector } from "@foundmill/connectors";
+import { ARCHIVE_HEADERS, ARCHIVE_ROUTE, CODE_REPOSITORY_POLICY_ID, MAX_CONCURRENT_ARCHIVES } from "../archive";
 import { visibleTools } from "../mcp";
 import type { SessionToken } from "../tokens";
-import { setupGateway, type GatewayFixture } from "./harness";
+import { MOCK_OWNER } from "@foundmill/connectors/connectors/github/fixtures/repos";
+import { REPOSITORY_CHECK_ROUTE } from "../code-repository";
+import { signServiceToken } from "../tokens";
+import { setupGateway, TEST_SECRET, type GatewayFixture } from "./harness";
 
 let g: GatewayFixture;
-const github = createGithubMock();
+const github = createGithubMock({ publicRepos: [`${MOCK_OWNER}/ledgerly-app`], inaccessibleRepos: ["acme/gone"] });
+/** Holds every download_archive until opened (the concurrency test); open otherwise. */
+let gate: Promise<void> | null = null;
+let entered = 0;
+const gated: Connector = {
+  ...github,
+  callTool: async (name, args, ctx) => {
+    if (name === "download_archive" && gate) {
+      entered++;
+      await gate;
+    }
+    return github.callTool(name, args, ctx);
+  },
+};
+(gated as { mock: Connector }).mock = gated;
 
 beforeAll(async () => {
-  g = await setupGateway({ connectors: [github] });
+  g = await setupGateway({ connectors: [gated] });
   await repos.integrations.upsert(g.db, g.businessId, { connectorKey: "github", status: "connected", authKind: "app", accountLabel: "acme", settings: { externalAccountId: "42", repo: "acme/shop" } });
 }, 120_000);
 afterAll(async () => {
@@ -61,10 +79,68 @@ describe("POST /v1/github/archive", () => {
     expect((await post({ owner: "acme", repo: "shop", extra: true }, await archiveToken())).status).toBe(400);
   });
 
+  it("pins the Code-tab repository's id on the first checkout (the mock's repository is private)", async () => {
+    expect(await repos.integrations.codeRepository(g.db, g.businessId)).toMatchObject({ fullName: "acme/shop", repoId: expect.any(Number) });
+  });
+
+  it(`serves at most ${MAX_CONCURRENT_ARCHIVES} archives at once: one more is answered 429 with Retry-After, and the others complete`, async () => {
+    let open!: () => void;
+    gate = new Promise<void>((resolve) => (open = resolve));
+    entered = 0;
+    try {
+      const tokens = await Promise.all(Array.from({ length: MAX_CONCURRENT_ARCHIVES + 1 }, () => archiveToken()));
+      const first = tokens.slice(0, MAX_CONCURRENT_ARCHIVES).map((t) => post({ owner: "acme", repo: "shop" }, t));
+      for (let i = 0; i < 200 && entered < MAX_CONCURRENT_ARCHIVES; i++) await new Promise((r) => setTimeout(r, 10));
+      expect(entered).toBe(MAX_CONCURRENT_ARCHIVES);
+      const fourth = await post({ owner: "acme", repo: "shop" }, tokens[MAX_CONCURRENT_ARCHIVES]);
+      expect(fourth.status).toBe(429);
+      expect(fourth.headers.get("retry-after")).toMatch(/^\d+$/);
+      expect(await fourth.json()).toMatchObject({ outcome: "rate_limited", scope: "concurrent", limit: MAX_CONCURRENT_ARCHIVES });
+      // The limited request never reached GitHub.
+      expect(entered).toBe(MAX_CONCURRENT_ARCHIVES);
+      open();
+      for (const res of await Promise.all(first)) expect(res.status).toBe(200);
+    } finally {
+      gate = null;
+      open?.();
+    }
+    // Slots are given back: the next request is served.
+    expect((await post({ owner: "acme", repo: "shop" }, await archiveToken())).status).toBe(200);
+  });
+
   it("never lists download_archive among an agent's MCP tools, whatever the token allows", () => {
     const session = { allowedTools: ["github:*"] } as unknown as SessionToken;
     const names = visibleTools(github, session).map((t) => t.name);
     expect(names).toContain("read_file");
     expect(names).not.toContain("download_archive");
+    expect(names).not.toContain("get_repository");
+  });
+});
+
+describe("POST /v1/github/repository", () => {
+  const check = async (body: unknown, svc = "api") =>
+    fetch(`${g.server.url}${REPOSITORY_CHECK_ROUTE}`, { method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${await signServiceToken(TEST_SECRET, svc)}` }, body: JSON.stringify(body) });
+
+  it("answers the repository's id, visibility and default branch as the business's installation sees it", async () => {
+    const res = await check({ businessId: g.businessId, owner: "acme", repo: "shop" });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ mode: "mock", repository: { id: expect.any(Number), fullName: "acme/shop", private: true, defaultBranch: "main" } });
+    const pub = await check({ businessId: g.businessId, owner: MOCK_OWNER, repo: "ledgerly-app" });
+    expect(await pub.json()).toMatchObject({ repository: { private: false } });
+  });
+
+  it("answers 404 for a repository the installation cannot reach, 409 without GitHub, and only to the api", async () => {
+    const gone = await check({ businessId: g.businessId, owner: "acme", repo: "gone" });
+    expect(gone.status).toBe(404);
+    expect(await gone.json()).toMatchObject({ error: { code: "repository_not_accessible" } });
+    expect((await check({ businessId: g.businessId, owner: "acme", repo: "shop" }, "orchestrator")).status).toBe(403);
+    expect((await fetch(`${g.server.url}${REPOSITORY_CHECK_ROUTE}`, { method: "POST", headers: { "content-type": "application/json" }, body: "{}" })).status).toBe(401);
+    const row = (await repos.integrations.getByKey(g.db, g.businessId, "github"))!;
+    await repos.integrations.upsert(g.db, g.businessId, { connectorKey: "github", status: "disconnected", authKind: "app" });
+    try {
+      expect((await check({ businessId: g.businessId, owner: "acme", repo: "shop" })).status).toBe(409);
+    } finally {
+      await repos.integrations.upsert(g.db, g.businessId, { connectorKey: "github", status: row.status, authKind: "app", settings: row.settings as Record<string, unknown> });
+    }
   });
 });

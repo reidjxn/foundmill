@@ -12,6 +12,7 @@
  *   POST /v1/personas/portrait     service JWT (api) → the AI-generated portrait of one persona catalog key (portraits.ts)
  *   POST /v1/call                  session JWT → the pipeline (allow / ask / deny / rate_limited)
  *   POST /v1/github/archive        session JWT → the Code-tab repository's tarball for a code session's checkout (archive.ts)
+ *   POST /v1/github/repository     service JWT (api) → a repository's id and visibility, before it is chosen on the Code tab (code-repository.ts)
  *   ALL  /mcp/:connector           session JWT → that connector's tools as an MCP streamable-HTTP server
  */
 import { Hono } from "hono";
@@ -29,7 +30,8 @@ import { CreateCheckoutRequest, createPlatformCheckout } from "./billing";
 import { CheckDomainsRequest, checkDomains } from "./domains";
 import { generatePortrait, PortraitRequest } from "./portraits";
 import { handleMcpRequest } from "./mcp";
-import { ARCHIVE_ROUTE, ArchiveRequest, serveArchive } from "./archive";
+import { ARCHIVE_ROUTE, ArchiveRequest, routeOnlyCall, serveArchive } from "./archive";
+import { checkRepository, REPOSITORY_CHECK_ROUTE, RepositoryCheckRequest } from "./code-repository";
 import { callerTrace, tracedToolCall } from "./tracing";
 import { toCandidates } from "./recipients";
 import { STATE_ERROR_CODES, stateDenial } from "./state";
@@ -88,6 +90,7 @@ export function createGatewayApp(deps: GatewayDeps, options: GatewayAppOptions):
   app.use("/v1/billing/*", limit(MAX_SERVICE_BODY_BYTES));
   app.use("/v1/domains/*", limit(MAX_SERVICE_BODY_BYTES));
   app.use("/v1/personas/*", limit(MAX_SERVICE_BODY_BYTES));
+  app.use(REPOSITORY_CHECK_ROUTE, limit(MAX_SERVICE_BODY_BYTES));
 
   app.get("/health", (c) => {
     const engine = getPolicyEngine();
@@ -140,6 +143,7 @@ export function createGatewayApp(deps: GatewayDeps, options: GatewayAppOptions):
 
   // Faces of anthropomorphic agents: the api asks for one catalog key; the gateway builds the prompt and holds OPENAI_API_KEY.
   app.use("/v1/personas/*", requireService);
+  app.use(REPOSITORY_CHECK_ROUTE, requireService);
   app.use("/v1/personas/*", async (c, next) => {
     if (c.var.service.svc !== "api") throw new GatewayError("forbidden_service", "Only the api asks for persona portraits", 403);
     await next();
@@ -240,6 +244,16 @@ export function createGatewayApp(deps: GatewayDeps, options: GatewayAppOptions):
     return c.json({ mode: modeFor(deps, connector.key), record: safe });
   });
 
+  // The repository the founder is choosing on Development › Code: reachable by the installation, its id and visibility.
+  app.post(REPOSITORY_CHECK_ROUTE, async (c) => {
+    if (c.var.service.svc !== "api") throw new GatewayError("forbidden_service", "Only the api checks the Code tab's repository", 403);
+    const input = RepositoryCheckRequest.parse(await c.req.json());
+    await repos.businesses.get(deps.db, input.businessId).catch(() => {
+      throw new GatewayError("business_not_found", `business ${input.businessId} is not available to this gateway`, 404);
+    });
+    return c.json(await checkRepository(deps, input));
+  });
+
   app.post("/v1/integrations/health", async (c) => {
     const input = IntegrationHealthRequest.parse(await c.req.json());
     const connector = appConnector(input.connector);
@@ -272,7 +286,8 @@ export function createGatewayApp(deps: GatewayDeps, options: GatewayAppOptions):
 
   app.post("/v1/call", async (c) => {
     const req = CallRequest.parse(await c.req.json());
-    const { status, body } = await tracedToolCall(deps, c.var.session, req);
+    // A route-only tool (a repository archive) is refused for an agent session; see archive.ts.
+    const { status, body } = (await routeOnlyCall(deps, c.var.session, req)) ?? (await tracedToolCall(deps, c.var.session, req));
     if (status === 429 && body.outcome === "rate_limited") c.header("Retry-After", String(body.retryAfterSeconds));
     return c.json(body, status);
   });

@@ -141,6 +141,74 @@ describe("pushWorkspace", () => {
     expect(describePush(r)?.text).toMatch(/2 files under \.github stayed here: agents never change a repository's workflows\.$/);
   });
 
+  it("expects the branch at the last commit the task saw, and pushes nothing over a branch that moved (branch_moved)", async () => {
+    await repos.integrations.upsert(t.deps.db, t.businessId, { connectorKey: "github", status: "mock", authKind: "app", settings: { repo: "acme/shop", writeEnabled: true } });
+    const task = await repos.tasks.create(t.db, t.businessId, { kind: "code", title: "Moved", goalMd: "x", assigneeAgentId: t.workerId, status: "ready" });
+    const branch = `agent/${task.id}`;
+    // The repository's main as the mock serves it (deterministic per name): the commit the checkout saw.
+    const head = await createOfflineGatewayClient().downloadArchive("t", { owner: "acme", repo: "shop", ref: "HEAD" });
+    if (!("archive" in head)) throw new Error("no archive");
+    const seen = head.archive.sha;
+    const moved = "f".repeat(40);
+    const onCheckout = async (files: Record<string, string>, sessionId: string) =>
+      (await t.deps.db.transaction((tx) => repos.workspaces.save(tx as never, t.businessId, { taskId: task.id, sessionId, files: Object.entries(files).map(([path, c]) => ({ path, content: text(c), inBase: false })), base: { repo: "acme/shop", ref: branch, commitSha: seen }, removedPaths: [] }))).snapshot!;
+    const ctx = (sessionId: string, extra: Partial<PushContext> = {}): PushContext => ({ businessId: t.businessId, taskId: task.id, sessionId, agentId: t.workerId, branch, agentName: "Worker", holdBack: null, ...extra });
+
+    // GitHub says the branch head is elsewhere: nothing is written, the save says why, the note says what happens next.
+    const s1 = await openSessionRow(t, t.workerId, task.id);
+    const first = await onCheckout({ "src/a.ts": "1" }, s1);
+    const refusing = githubGateway((req) => (req.tool === "commit_files" ? { outcome: "allow", result: { ok: false, error: { code: "branch_moved", message: `${branch} is at ${moved}`, details: { branch, expectedHeadSha: seen, currentHeadSha: moved } } } } : null));
+    const r = await pushWorkspace(t.deps.db, refusing.gateway, ctx(s1), first);
+    expect(refusing.offline.calls.at(-1)!.args).toMatchObject({ branch, fromRef: seen, expectedHeadSha: seen });
+    expect(r).toEqual({ status: "moved", repo: "acme/shop", branch, headSha: moved });
+    expect(seen).toMatch(/^[0-9a-f]{40}$/);
+    expect(describePush(r)).toEqual({ level: "warn", text: `Not pushed: ${branch} moved since checkout (fffffff); the next session checks it out again.` });
+    expect(await repos.workspaces.getSnapshot(t.db, t.businessId, first.id)).toMatchObject({ pushedCommitSha: null, pushError: `${branch} moved since checkout (fffffff); not pushed` });
+
+    // The same save pushes once GitHub takes it: it expected the checkout's commit.
+    const { gateway, offline } = githubGateway();
+    const ok = await pushWorkspace(t.deps.db, gateway, ctx(s1), (await repos.workspaces.getSnapshot(t.db, t.businessId, first.id))!);
+    expect(ok).toMatchObject({ status: "pushed" });
+    expect(offline.calls.at(-1)!.args).toMatchObject({ expectedHeadSha: seen });
+    const pushedSha = (ok as { commitSha: string }).commitSha;
+
+    // A session that checked out the same commit before that push landed: the push from this task moved the branch,
+    // so the last commit the task saw is the one it pushed.
+    const s2 = await openSessionRow(t, t.workerId, task.id);
+    const second = await onCheckout({ "src/a.ts": "2" }, s2);
+    const before = new Date(Date.now() - 60_000);
+    const two = await pushWorkspace(t.deps.db, gateway, ctx(s2, { checkout: { commitSha: seen, at: before } }), second);
+    expect(offline.calls.at(-1)!.args).toMatchObject({ expectedHeadSha: pushedSha });
+    expect(two).toMatchObject({ status: "pushed" });
+
+    // A checkout taken after that push saw the branch where the checkout says.
+    const s3 = await openSessionRow(t, t.workerId, task.id);
+    const third = await onCheckout({ "src/a.ts": "3" }, s3);
+    const three = await pushWorkspace(t.deps.db, gateway, ctx(s3, { checkout: { commitSha: seen, at: new Date(Date.now() + 60_000) } }), third);
+    expect(offline.calls.at(-1)!.args).toMatchObject({ expectedHeadSha: seen });
+    // The GitHub mock holds the branch at the second push: that checkout's diff is not written over it.
+    expect(three).toEqual({ status: "moved", repo: "acme/shop", branch, headSha: (two as { commitSha: string }).commitSha });
+    expect(await repos.workspaces.getSnapshot(t.db, t.businessId, third.id)).toMatchObject({ pushedCommitSha: null, pushError: expect.stringMatching(/moved since checkout/) });
+  });
+
+  it("never pushes a save made without the checkout its base names, and says why on that save only", async () => {
+    await repos.integrations.upsert(t.deps.db, t.businessId, { connectorKey: "github", status: "mock", authKind: "app", settings: { repo: "acme/shop", writeEnabled: true } });
+    const task = await repos.tasks.create(t.db, t.businessId, { kind: "code", title: "Held", goalMd: "x", assigneeAgentId: t.workerId, status: "ready" });
+    const sid = await openSessionRow(t, t.workerId, task.id);
+    const snapshot = (await t.deps.db.transaction((tx) => repos.workspaces.save(tx as never, t.businessId, { taskId: task.id, sessionId: sid, files: [{ path: "README.md", content: text("from memory") }], base: { repo: "acme/shop", ref: "main", commitSha: "b".repeat(40) }, removedPaths: [] }))).snapshot!;
+    const { gateway, offline } = githubGateway();
+    const reason = "this session had no checkout of acme/shop, so its files are not a diff against it; a session that checks it out pushes them";
+    const ctx: PushContext = { businessId: t.businessId, taskId: task.id, sessionId: sid, agentId: t.workerId, branch: `agent/${task.id}`, agentName: "Worker", holdBack: null, saveHeldBack: reason };
+    expect(await pushWorkspace(t.deps.db, gateway, ctx, snapshot)).toEqual({ status: "skipped", reason });
+    expect(offline.calls).toEqual([]);
+    expect(await repos.workspaces.getSnapshot(t.db, t.businessId, snapshot.id)).toMatchObject({ pushError: reason, pushedCommitSha: null });
+    // Another session's save (an unchanged save hands back the latest) is left as it is.
+    const other = await openSessionRow(t, t.workerId, task.id);
+    await repos.workspaces.recordPush(t.db, t.businessId, snapshot.id, { repo: "acme/shop", branch: `agent/${task.id}`, error: "earlier" });
+    expect(await pushWorkspace(t.deps.db, gateway, { ...ctx, sessionId: other }, (await repos.workspaces.getSnapshot(t.db, t.businessId, snapshot.id))!)).toMatchObject({ status: "skipped" });
+    expect((await repos.workspaces.getSnapshot(t.db, t.businessId, snapshot.id))?.pushError).toBe("earlier");
+  });
+
   it("does not push until the founder turns pushing on for the repository", async () => {
     await repos.integrations.upsert(t.deps.db, t.businessId, { connectorKey: "github", status: "mock", authKind: "app", settings: { repo: "acme/shop" } });
     const taskId = t.fixture.taskIds[2]!;

@@ -66,11 +66,11 @@ interface CommitFilesData {
   filesDeleted: number;
 }
 
-/** The branch head a `branch_moved` refusal reports (the connector's details), or null when it names none. */
+/** The branch head a `branch_moved` refusal reports (the connector's `currentHeadSha` detail), or null when it names none. */
 export function movedHeadSha(details: unknown): string | null {
   if (!details || typeof details !== "object") return null;
   const d = details as Record<string, unknown>;
-  for (const key of ["headSha", "currentHeadSha", "currentSha", "head", "sha"]) {
+  for (const key of ["currentHeadSha", "headSha", "currentSha"]) {
     const v = d[key];
     if (typeof v === "string" && /^[0-9a-f]{7,64}$/i.test(v)) return v;
   }

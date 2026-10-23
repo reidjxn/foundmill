@@ -1,7 +1,9 @@
 /** Development › Code: the code agents saved on code tasks (dev.code.list / files / file), per business. */
 import { repos } from "@foundmill/db";
+import { AppError } from "@foundmill/shared";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { decodeSavedFile, SAVED_FILE_TEXT_LIMIT } from "../routers/dev";
+import type { ApiGatewayClient, GatewayRepository } from "../services/gateway";
 import { createApiHarness, type ApiHarness } from "./harness";
 
 const text = (s: string) => new TextEncoder().encode(s);
@@ -71,7 +73,8 @@ describe("dev.code", () => {
     expect(await owner.dev.code.repository({ businessId })).toEqual({ connected: false, status: null, repository: null, simulated: true });
     await expect(owner.dev.code.setRepository({ businessId, repository: "acme/shop" })).rejects.toThrow(/connect GitHub/);
     await repos.integrations.upsert(hz.db, businessId, { connectorKey: "github", status: "mock", authKind: "app", settings: { externalAccountId: "1", config: {} } });
-    expect(await owner.dev.code.setRepository({ businessId, repository: "https://github.com/Acme/shop.git" })).toMatchObject({ repository: { fullName: "Acme/shop", owner: "Acme", repo: "shop", writeEnabled: false } });
+    // The simulated GitHub knows every repository a business names: private, with a stable id, pinned with the choice.
+    expect(await owner.dev.code.setRepository({ businessId, repository: "https://github.com/Acme/shop.git" })).toMatchObject({ repository: { fullName: "Acme/shop", owner: "Acme", repo: "shop", writeEnabled: false, repoId: expect.any(Number) } });
     expect(await owner.dev.code.setRepository({ businessId, repository: "Acme/shop", pushEnabled: true })).toMatchObject({ repository: { fullName: "Acme/shop", writeEnabled: true } });
     expect(await owner.dev.code.repository({ businessId })).toMatchObject({ connected: true, status: "mock", repository: { fullName: "Acme/shop" }, simulated: true });
     await expect(hz.caller({ userId: memberId }).dev.code.setRepository({ businessId, repository: "evil/repo" })).rejects.toThrow();
@@ -79,6 +82,7 @@ describe("dev.code", () => {
     const audit = await repos.audit.list(hz.db, businessId, { action: "dev.code.set_repository" });
     expect(audit.items[0]).toMatchObject({ actorId: ownerId, details: { repository: "Acme/shop", pushEnabled: true } });
     expect(await owner.dev.code.setRepository({ businessId, repository: null })).toEqual({ repository: null });
+    expect((await repos.integrations.getByKey(hz.db, businessId, "github"))?.settings).not.toHaveProperty("repoId");
   });
 
   it("keeps the chosen repository when GitHub is connected again", async () => {
@@ -107,5 +111,64 @@ describe("dev.code", () => {
     const big = decodeSavedFile(new Uint8Array(SAVED_FILE_TEXT_LIMIT + 10).fill(65));
     expect(big).toMatchObject({ binary: false, truncated: true });
     expect(big.text).toHaveLength(SAVED_FILE_TEXT_LIMIT);
+  });
+});
+
+describe("dev.code.setRepository against live GitHub (through the gateway)", () => {
+  let hz: ApiHarness;
+  const asked: { businessId: string; owner: string; repo: string }[] = [];
+  const answers: Record<string, GatewayRepository | "missing"> = {
+    "acme/shop": { id: 501, fullName: "acme/shop", private: true, defaultBranch: "main" },
+    "acme/public-site": { id: 502, fullName: "acme/public-site", private: false, defaultBranch: "main" },
+    "acme/old-name": { id: 503, fullName: "acme/new-name", private: true, defaultBranch: "main" },
+    "acme/gone": "missing",
+  };
+  const unused = async (): Promise<never> => {
+    throw new Error("unused");
+  };
+  const gateway: ApiGatewayClient = {
+    connect: unused,
+    health: unused,
+    createCheckout: unused,
+    checkDomains: unused,
+    generatePortrait: unused,
+    async repository(businessId, owner, repo) {
+      asked.push({ businessId, owner, repo });
+      const answer = answers[`${owner}/${repo}`.toLowerCase()];
+      if (!answer || answer === "missing") throw new AppError("repository_not_accessible", `The GitHub installation cannot access ${owner}/${repo}`, 404);
+      return { mode: "live", repository: answer };
+    },
+  };
+  beforeAll(async () => {
+    hz = await createApiHarness({ prefix: "code-live", gateway, env: { LIVE_CONNECTORS: "github" } });
+    await repos.integrations.upsert(hz.db, hz.A.businessId, { connectorKey: "github", status: "connected", authKind: "app", settings: { externalAccountId: "42" } });
+  }, 120_000);
+  afterAll(() => hz.close());
+
+  it("pins GitHub's id of a private repository the installation reaches", async () => {
+    const { businessId, ownerId } = hz.A;
+    const r = await hz.caller({ userId: ownerId }).dev.code.setRepository({ businessId, repository: "acme/shop", pushEnabled: true });
+    expect(r.repository).toMatchObject({ fullName: "acme/shop", repoId: 501, writeEnabled: true });
+    expect(asked.at(-1)).toEqual({ businessId, owner: "acme", repo: "shop" });
+    const audit = await repos.audit.list(hz.db, businessId, { action: "dev.code.set_repository" });
+    expect(audit.items[0]).toMatchObject({ details: { repository: "acme/shop", repoId: 501 } });
+  });
+
+  it("refuses a public repository and one the installation cannot reach with a clear message, keeping the earlier choice", async () => {
+    const { businessId, ownerId } = hz.A;
+    const owner = hz.caller({ userId: ownerId });
+    await expect(owner.dev.code.setRepository({ businessId, repository: "acme/public-site" })).rejects.toThrow("acme/public-site is public: agents work only on private repositories. Make it private on GitHub, or choose another repository");
+    await expect(owner.dev.code.setRepository({ businessId, repository: "acme/gone" })).rejects.toThrow("The GitHub installation cannot access acme/gone: add it to the installation on GitHub, or choose another repository");
+    expect(await repos.integrations.codeRepository(hz.db, businessId)).toMatchObject({ fullName: "acme/shop", repoId: 501 });
+  });
+
+  it("stores GitHub's own name for a renamed repository, and asks nothing for a name that could never be stored", async () => {
+    const { businessId, ownerId } = hz.A;
+    const owner = hz.caller({ userId: ownerId });
+    expect((await owner.dev.code.setRepository({ businessId, repository: "acme/old-name" })).repository).toMatchObject({ fullName: "acme/new-name", repoId: 503 });
+    const before = asked.length;
+    await expect(owner.dev.code.setRepository({ businessId, repository: "no slash" })).rejects.toThrow(/owner\/name/);
+    await expect(hz.caller({ userId: hz.B.ownerId }).dev.code.setRepository({ businessId: hz.B.businessId, repository: "acme/shop" })).rejects.toThrow(/connect GitHub/);
+    expect(asked.length).toBe(before);
   });
 });

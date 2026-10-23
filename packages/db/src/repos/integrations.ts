@@ -144,8 +144,8 @@ export const integrationsRepo = {
       const current = row ? codeRepositoryOf(row) : null;
       if (!row || !current || current.repoId !== null || current.fullName.toLowerCase() !== input.fullName.toLowerCase()) return false;
       const settings = { ...((row.settings ?? {}) as Record<string, unknown>), repoId: input.repoId };
-      await tx.update(integrations).set({ settings }).where(scoped(businessId, row.id));
-      return true;
+      // Under RLS a role that may not change integrations updates nothing, and nothing is pinned.
+      return (await tx.update(integrations).set({ settings }).where(scoped(businessId, row.id)).returning({ id: integrations.id })).length > 0;
     });
   },
 

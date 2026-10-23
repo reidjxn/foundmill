@@ -1,4 +1,7 @@
 import { createHmac } from "node:crypto";
+import { mkdtemp, readdir, readFile, rm, stat, symlink } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { SERVICE_AUDIENCE, TOKEN_ISSUER, createGatewayClient, createOfflineGatewayClient, signServiceToken } from "../gateway-client";
 
@@ -71,6 +74,32 @@ describe("gateway client", () => {
     expect(await client.downloadArchive("sess", { owner: "acme", repo: "shop", ref: "missing" })).toEqual({ outcome: "allow", error: { code: "not_found", message: "ref missing not found" } });
     expect(await client.downloadArchive("sess", { owner: "acme", repo: "shop", ref: "denied" })).toEqual({ outcome: "deny", reasons: ["paused"] });
     await expect(client.downloadArchive("sess", { owner: "acme", repo: "shop", ref: "main" }, { maxBytes: 4 })).rejects.toMatchObject({ code: "archive_too_large" });
+  });
+
+  it("streams an archive into a new 0600 file when asked, chunk by chunk, and removes it past the cap", async () => {
+    const chunks = [new Uint8Array([31, 139, 8, 0]), new Uint8Array([1, 2, 3, 4]), new Uint8Array([5, 6])];
+    const body = () => new ReadableStream<Uint8Array>({ start(c) { for (const ch of chunks) c.enqueue(ch); c.close(); } });
+    const client = createGatewayClient({ baseUrl: "http://gateway.test", serviceSecret: "x".repeat(32), fetch: async () => new Response(body(), { status: 200, headers: { "content-type": "application/gzip", "x-foundmill-archive-ref": "main", "x-foundmill-archive-sha": "b".repeat(40) } }) });
+    const dir = await mkdtemp(path.join(os.tmpdir(), "fm-gw-archive-"));
+    try {
+      const file = path.join(dir, "archive.tgz");
+      const r = await client.downloadArchive("sess", { owner: "acme", repo: "shop", ref: "HEAD" }, { file });
+      expect(r).toEqual({ outcome: "allow", archive: { ref: "main", sha: "b".repeat(40), file, bytes: 10 } });
+      expect(new Uint8Array(await readFile(file))).toEqual(new Uint8Array([31, 139, 8, 0, 1, 2, 3, 4, 5, 6]));
+      expect((await stat(file)).mode & 0o777).toBe(0o600);
+      // Never over a file (or a link) already there.
+      await expect(client.downloadArchive("sess", { owner: "acme", repo: "shop", ref: "HEAD" }, { file })).rejects.toMatchObject({ code: "EEXIST" });
+      await rm(file);
+      await symlink(path.join(dir, "elsewhere"), file);
+      await expect(client.downloadArchive("sess", { owner: "acme", repo: "shop", ref: "HEAD" }, { file })).rejects.toThrow();
+      await expect(stat(path.join(dir, "elsewhere"))).rejects.toThrow();
+      await rm(file);
+      // Over the cap while streaming: refused and the partial file is gone.
+      await expect(client.downloadArchive("sess", { owner: "acme", repo: "shop", ref: "HEAD" }, { file, maxBytes: 6 })).rejects.toMatchObject({ code: "archive_too_large" });
+      expect(await readdir(dir)).toEqual([]);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
   });
 
   it("offline client serves archives from the GitHub mock", async () => {

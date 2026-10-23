@@ -45,6 +45,7 @@ import { loadCredential, persistRefreshedCredential, toIntegrationRecord, type L
 import { writeGatewayEvent } from "./events";
 import { securitySettingsChange } from "./security-settings";
 import { grantsOutboundTools, READER_UNAVAILABLE, type UntrustedReader } from "./untrusted-reader";
+import { decideFirstParty, FIRST_PARTY_REPO_TOOLS, type RepoMetadataCache } from "./code-repository";
 import { checkRateLimit, type RateLimitStore } from "./rate-limit";
 import { candidatesFromArgs, candidatesFromContent, hashRecipient, type RecipientCandidate, type UntrustedRegister } from "./recipients";
 import { checkByokKey, SessionStateCache, stateDenial, type StateDenial } from "./state";
@@ -76,6 +77,10 @@ export interface GatewayDeps {
   policyEngine?: PolicyEngine;
   /** Per-session memo of the BYOK credential check (≤ 5 s). One is created per `deps` when omitted. */
   stateCache?: SessionStateCache;
+  /** GitHub's answers about repositories for the first-party rule (5 minutes). One is created per `deps` when omitted. */
+  repoCache?: RepoMetadataCache;
+  /** Repository archives served at once (`download_archive`, archive.ts); default MAX_CONCURRENT_ARCHIVES. */
+  archiveConcurrency?: number;
 }
 
 const defaultStateCaches = new WeakMap<GatewayDeps, SessionStateCache>();
@@ -149,33 +154,19 @@ export function guardGithubWrite(tool: string, row: Integration | null, args: un
 
 /**
  * GitHub reads whose result can be the business's own code (DECISIONS "Coding agents can read and change the repository
- * (2026-10-23)"): read from the repository chosen on Development › Code, it is first-party content and reaches the agent
- * raw instead of as the quarantined reader's digest, still inside the untrusted envelope and its notice. Every outbound
- * action stays gated by policy as before.
+ * (2026-10-23)"): read from the repository chosen on Development › Code, private, with the id pinned for it, at HEAD or a
+ * branch, it is first-party content and reaches the agent raw instead of as the quarantined reader's digest, still inside
+ * the untrusted envelope and its notice. Every outbound action stays gated by policy as before. The rule is in
+ * code-repository.ts.
  */
-export const FIRST_PARTY_REPO_TOOLS: ReadonlySet<string> = new Set(["list_repos", "read_tree", "read_file", "download_archive"]);
+export { FIRST_PARTY_REPO_TOOLS, firstPartyVerdict, isFirstPartyRef, isFirstPartyRepoRead } from "./code-repository";
 /**
- * GitHub tools whose result is a whole repository archive (a compressed tarball as base64). It holds no text to scan for
+ * GitHub tools whose result is a whole repository archive (a compressed tarball, as bytes). It holds no text to scan for
  * recipients, and no digest of it means anything, so it is delivered only when it is first-party and withheld otherwise.
  */
 export const REPO_ARCHIVE_TOOLS: ReadonlySet<string> = new Set(["download_archive"]);
 /** What an agent gets in place of an archive of any repository but the Code tab's. */
 export const ARCHIVE_WITHHELD = "Repository archives are delivered only for the repository chosen on the Code tab.";
-
-/**
- * Whether this call reads the business's own repository. `list_repos` lists what the founder's own GitHub installation
- * granted, so it counts whenever the business has one (`installed`); the other tools count only when the call names the
- * Code-tab repository (GitHub compares owner and name without regard to case). Anything else, and every other connector,
- * is third-party content.
- */
-export function isFirstPartyRepoRead(input: { connector: string; tool: string; args: unknown; codeRepository: { fullName: string } | null; installed: boolean }): boolean {
-  if (input.connector !== "github" || !FIRST_PARTY_REPO_TOOLS.has(input.tool)) return false;
-  if (input.tool === "list_repos") return input.installed;
-  if (!input.codeRepository) return false;
-  const a = (input.args && typeof input.args === "object" && !Array.isArray(input.args) ? input.args : {}) as Record<string, unknown>;
-  if (typeof a.owner !== "string" || typeof a.repo !== "string" || a.owner.length === 0 || a.repo.length === 0) return false;
-  return `${a.owner}/${a.repo}`.toLowerCase() === input.codeRepository.fullName.toLowerCase();
-}
 
 export class GatewayError extends AppError {
   constructor(code: string, message: string, status: number, details?: unknown) {
@@ -693,10 +684,11 @@ async function allow(deps: GatewayDeps, session: SessionToken, req: CallRequestP
   if (isUntrusted(result.data)) {
     const { content } = readForQuarantine(result.data);
     // The business's own repository (the Code tab, or its installation's repository list) is first-party: raw, below.
-    if (connector.key === "github" && FIRST_PARTY_REPO_TOOLS.has(tool.name)) {
+    // Decided only for a call that succeeded: GitHub is asked about the repository (cached) only when the call names the
+    // Code-tab repository at HEAD or a branch.
+    if (result.ok && connector.key === "github" && FIRST_PARTY_REPO_TOOLS.has(tool.name)) {
       const installed = mode === "live" ? appInstalled : loaded.integrationRow !== null && platformKeyConnected(loaded.integrationRow);
-      const codeRepository = tool.name === "list_repos" ? null : await repos.integrations.codeRepository(deps.db, session.businessId);
-      firstParty = isFirstPartyRepoRead({ connector: connector.key, tool: tool.name, args, codeRepository, installed });
+      firstParty = await decideFirstParty(deps, { connector, tool: tool.name, args: guarded.args, ctx, installed, log });
     }
     const archive = connector.key === "github" && REPO_ARCHIVE_TOOLS.has(tool.name);
     // Recipients first seen here still need the founder's approval, first-party or not. An archive is compressed bytes

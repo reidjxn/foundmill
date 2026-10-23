@@ -59,8 +59,16 @@ describe("credential assertion before launch (AC-11.6.6)", () => {
   it("tool grants map to the real tools behind them: gateway refs and SDK MCP names", () => {
     // A tool name, a template capability, a wildcard; the session workspace and a later-phase connector get nothing.
     const grants = [{ connectorKey: "gmail", tools: ["send_message", "threads.read"] }, { connectorKey: "github", tools: ["*"] }, { connectorKey: "sandbox", tools: ["read_file"] }, { connectorKey: "figma", tools: ["files.read"] }];
-    expect(toolRefs(grants)).toEqual(["gmail:send_message", "gmail:list_messages", "gmail:get_message", "gmail:list_labels", "github:*"]);
-    expect(mcpToolNames(grants)).toEqual(["mcp__gmail__send_message", "mcp__gmail__list_messages", "mcp__gmail__get_message", "mcp__gmail__list_labels", "mcp__github"]);
+    const refs = toolRefs(grants);
+    expect(refs.slice(0, 4)).toEqual(["gmail:send_message", "gmail:list_messages", "gmail:get_message", "gmail:list_labels"]);
+    // GitHub's wildcard is spelled out without the platform's route-only tools (its checkout's download_archive).
+    const github = refs.slice(4);
+    expect(github).toContain("github:read_file");
+    expect(github.every((r) => r.startsWith("github:") && r !== "github:*")).toBe(true);
+    expect(github).not.toContain("github:download_archive");
+    const names = mcpToolNames(grants);
+    expect(names.slice(0, 4)).toEqual(["mcp__gmail__send_message", "mcp__gmail__list_messages", "mcp__gmail__get_message", "mcp__gmail__list_labels"]);
+    expect(names.slice(4)).toEqual(github.map((r) => `mcp__github__${r.slice("github:".length)}`));
     expect(recordingForTask({ id: "x", kind: "research" })).toBe("northwind-supplier-shortlist");
   });
 });
