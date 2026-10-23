@@ -21,7 +21,7 @@ const read = sectionRead("settings");
 function keptSettings(row: { settings: unknown } | null, externalAccountId: string | null): Record<string, unknown> {
   const settings = (row?.settings ?? {}) as Record<string, unknown>;
   if (settings.externalAccountId !== externalAccountId) return {};
-  return Object.fromEntries(Object.entries(settings).filter(([k]) => k === "repo" || k === "writeEnabled"));
+  return Object.fromEntries(Object.entries(settings).filter(([k]) => k === "repo" || k === "writeEnabled" || k === "repoId"));
 }
 
 /** Finishing an App installation (GitHub): what GitHub sent back to the founder, with the state Connect signed. */

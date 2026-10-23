@@ -5,7 +5,8 @@
  * Credit top-ups open their Stripe Checkout session there too (`createCheckout`): STRIPE_SECRET_KEY lives only in the
  * gateway. The Commit screen's domain checks go there too (`checkDomains`): registries are reached only from the gateway.
  * So do the AI-generated faces of anthropomorphic agents (`generatePortrait`): the api sends a persona catalog key, never a
- * prompt, and OPENAI_API_KEY lives only in the gateway.
+ * prompt, and OPENAI_API_KEY lives only in the gateway. Choosing the Code tab's repository asks there whether the
+ * installation reaches it and whether it is private (`repository`).
  */
 import { randomUUID } from "node:crypto";
 import { OPENAI_IMAGES_GENERATION_TIMEOUT_MS } from "@foundmill/connectors";
@@ -73,6 +74,15 @@ export interface GatewayPortrait {
   model: string;
 }
 
+/** A GitHub repository as the business's installation sees it (apps/gateway code-repository.ts `RepoMetadata`). */
+export interface GatewayRepository {
+  /** GitHub's numeric id: what the Code tab pins. */
+  id: number;
+  fullName: string;
+  private: boolean;
+  defaultBranch: string;
+}
+
 /**
  * A portrait takes 10 to 60 seconds to render, so its call waits longer than the others: longer than the connector waits
  * for OpenAI (`OPENAI_IMAGES_GENERATION_TIMEOUT_MS`, 120 s) plus room for the gateway's own work, so the api never gives
@@ -91,6 +101,11 @@ export interface ApiGatewayClient {
    * catalog is a 400), so the api cannot send one. `businessId` only attributes the gateway's audit row.
    */
   generatePortrait(personaKey: string, businessId?: string): Promise<GatewayPortrait>;
+  /**
+   * Whether the business's GitHub installation reaches `owner/repo`, and its id and visibility (before it is chosen on
+   * Development › Code). 404 when the installation cannot reach it, 409 when GitHub is not connected.
+   */
+  repository(businessId: string, owner: string, repo: string): Promise<{ mode: "mock" | "live"; repository: GatewayRepository }>;
 }
 
 export interface CreateApiGatewayClientOptions {
@@ -139,5 +154,6 @@ export function createApiGatewayClient(opts: CreateApiGatewayClientOptions): Api
     createCheckout: (input) => post<GatewayCheckout>("/v1/billing/checkout-sessions", input),
     checkDomains: async (ownerKey, domains) => (await post<{ results: GatewayDomainAnswer[] }>("/v1/domains/check", { ownerKey, domains })).results,
     generatePortrait: (personaKey, businessId) => post<GatewayPortrait>("/v1/personas/portrait", { personaKey, ...(businessId ? { businessId } : {}) }, Math.max(timeoutMs, PORTRAIT_TIMEOUT_MS)),
+    repository: (businessId, owner, repo) => post<{ mode: "mock" | "live"; repository: GatewayRepository }>("/v1/github/repository", { businessId, owner, repo }),
   };
 }

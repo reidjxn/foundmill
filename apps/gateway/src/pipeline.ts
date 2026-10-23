@@ -10,7 +10,8 @@
  *             call, or a new approvals row + `approval.requested` + its Inbox decision item through the outbox; audit,
  *             return approvalId
  *     allow → decrypt credential in memory → connector.callTool → wrap untrusted content and remember
- *             its recipients for the session → meter into usage_ledger → audit → return
+ *             its recipients for the session (the quarantined reader's digest for sessions with outbound tools, except
+ *             first-party reads of the business's own Code-tab repository) → meter into usage_ledger → audit → return
  *
  * `/v1/call` and `/mcp/:connector` both run this function; nothing reaches a vendor any other way.
  */
@@ -44,6 +45,7 @@ import { loadCredential, persistRefreshedCredential, toIntegrationRecord, type L
 import { writeGatewayEvent } from "./events";
 import { securitySettingsChange } from "./security-settings";
 import { grantsOutboundTools, READER_UNAVAILABLE, type UntrustedReader } from "./untrusted-reader";
+import { decideFirstParty, FIRST_PARTY_REPO_TOOLS, type RepoMetadataCache } from "./code-repository";
 import { checkRateLimit, type RateLimitStore } from "./rate-limit";
 import { candidatesFromArgs, candidatesFromContent, hashRecipient, type RecipientCandidate, type UntrustedRegister } from "./recipients";
 import { checkByokKey, SessionStateCache, stateDenial, type StateDenial } from "./state";
@@ -75,6 +77,10 @@ export interface GatewayDeps {
   policyEngine?: PolicyEngine;
   /** Per-session memo of the BYOK credential check (≤ 5 s). One is created per `deps` when omitted. */
   stateCache?: SessionStateCache;
+  /** GitHub's answers about repositories for the first-party rule (5 minutes). One is created per `deps` when omitted. */
+  repoCache?: RepoMetadataCache;
+  /** Repository archives served at once (`download_archive`, archive.ts); default MAX_CONCURRENT_ARCHIVES. */
+  archiveConcurrency?: number;
 }
 
 const defaultStateCaches = new WeakMap<GatewayDeps, SessionStateCache>();
@@ -145,6 +151,22 @@ export function guardGithubWrite(tool: string, row: Integration | null, args: un
   const message = typeof a.message === "string" ? a.message.slice(0, 4_980) : "";
   return { args: { ...a, message: message.includes("[skip ci]") ? message : `${message}\n\n[skip ci]` } };
 }
+
+/**
+ * GitHub reads whose result can be the business's own code (DECISIONS "Coding agents can read and change the repository
+ * (2026-10-23)"): read from the repository chosen on Development › Code, private, with the id pinned for it, at HEAD or a
+ * branch, it is first-party content and reaches the agent raw instead of as the quarantined reader's digest, still inside
+ * the untrusted envelope and its notice. Every outbound action stays gated by policy as before. The rule is in
+ * code-repository.ts.
+ */
+export { FIRST_PARTY_REPO_TOOLS, firstPartyVerdict, isFirstPartyRef, isFirstPartyRepoRead } from "./code-repository";
+/**
+ * GitHub tools whose result is a whole repository archive (a compressed tarball, as bytes). It holds no text to scan for
+ * recipients, and no digest of it means anything, so it is delivered only when it is first-party and withheld otherwise.
+ */
+export const REPO_ARCHIVE_TOOLS: ReadonlySet<string> = new Set(["download_archive"]);
+/** What an agent gets in place of an archive of any repository but the Code tab's. */
+export const ARCHIVE_WITHHELD = "Repository archives are delivered only for the repository chosen on the Code tab.";
 
 export class GatewayError extends AppError {
   constructor(code: string, message: string, status: number, details?: unknown) {
@@ -432,6 +454,8 @@ interface AuditInput {
   resultOk?: boolean;
   errorCode?: string;
   untrusted?: boolean;
+  /** Untrusted content read from the business's own repository and delivered raw (isFirstPartyRepoRead). */
+  firstParty?: boolean;
 }
 
 async function appendAudit(deps: GatewayDeps, session: SessionToken, req: CallRequestParsed, input: AuditInput) {
@@ -451,6 +475,7 @@ async function appendAudit(deps: GatewayDeps, session: SessionToken, req: CallRe
       ...(input.resultOk !== undefined ? { resultOk: input.resultOk } : {}),
       ...(input.errorCode ? { errorCode: input.errorCode } : {}),
       ...(input.untrusted !== undefined ? { untrusted: input.untrusted } : {}),
+      ...(input.firstParty ? { firstParty: true } : {}),
       amountMinor: req.context.amountMinor ?? 0,
       mode: modeFor(deps, req.connector),
       ...argsSummary(req.args),
@@ -655,15 +680,33 @@ async function allow(deps: GatewayDeps, session: SessionToken, req: CallRequestP
   // Untrusted content: the agent receives the envelope; its recipients are remembered for this session (BUILD §9.8).
   let data = result.data;
   let untrusted = false;
+  let firstParty = false;
   if (isUntrusted(result.data)) {
     const { content } = readForQuarantine(result.data);
-    const found = candidatesFromContent(content);
-    const added = await deps.recipients.record(session.businessId, found);
-    if (added > 0) log.debug({ added }, "recipients first seen in untrusted content recorded for this business");
+    // The business's own repository (the Code tab, or its installation's repository list) is first-party: raw, below.
+    // Decided only for a call that succeeded: GitHub is asked about the repository (cached) only when the call names the
+    // Code-tab repository at HEAD or a branch.
+    if (result.ok && connector.key === "github" && FIRST_PARTY_REPO_TOOLS.has(tool.name)) {
+      const installed = mode === "live" ? appInstalled : loaded.integrationRow !== null && platformKeyConnected(loaded.integrationRow);
+      firstParty = await decideFirstParty(deps, { connector, tool: tool.name, args: guarded.args, ctx, installed, log });
+    }
+    const archive = connector.key === "github" && REPO_ARCHIVE_TOOLS.has(tool.name);
+    // Recipients first seen here still need the founder's approval, first-party or not. An archive is compressed bytes
+    // with no text to scan; it reaches an agent only when it is the Code tab's (withheld below otherwise).
+    if (!archive) {
+      const found = candidatesFromContent(content);
+      const added = await deps.recipients.record(session.businessId, found);
+      if (added > 0) log.debug({ added }, "recipients first seen in untrusted content recorded for this business");
+    }
     data = toAgentEnvelope(result.data);
-    // An agent that can contact people, spend or do something irreversible never reads third-party text raw: a model with no
-    // tools reads it and the agent gets typed fields only (BUILD §9.8 step 2). If the reader fails, the agent gets nothing.
-    if (deps.reader && grantsOutboundTools(deps.registry, session.allowedTools)) {
+    if (firstParty) {
+      // Still the untrusted envelope with its notice (data, never instructions); only the digest step is skipped.
+      data = { ...toAgentEnvelope(result.data), firstParty: true };
+    } else if (archive) {
+      data = { ...toAgentEnvelope(result.data), content: null, quarantined: true, unavailable: ARCHIVE_WITHHELD };
+    } else if (deps.reader && grantsOutboundTools(deps.registry, session.allowedTools)) {
+      // An agent that can contact people, spend or do something irreversible never reads third-party text raw: a model with no
+      // tools reads it and the agent gets typed fields only (BUILD §9.8 step 2). If the reader fails, the agent gets nothing.
       try {
         const digest = await deps.reader.digest({ content, businessId: session.businessId, agentId: session.agentId, sessionId: session.sessionId });
         data = { ...toAgentEnvelope(result.data), content: digest, quarantined: true };
@@ -687,6 +730,7 @@ async function allow(deps: GatewayDeps, session: SessionToken, req: CallRequestP
     resultOk: result.ok,
     errorCode: result.error?.code,
     untrusted,
+    firstParty,
   });
   if (result.ok) {
     try {
@@ -707,7 +751,7 @@ async function allow(deps: GatewayDeps, session: SessionToken, req: CallRequestP
       log.error({ err: safeError(e), auditId: audit.id, costMinor }, "tool call executed but its usage could not be booked");
     }
   }
-  log.info({ ok: result.ok, costMinor, untrusted, errorCode: result.error?.code }, "tool call executed");
+  log.info({ ok: result.ok, costMinor, untrusted, ...(firstParty ? { firstParty } : {}), errorCode: result.error?.code }, "tool call executed");
   const body: AllowResponse = {
     outcome: "allow",
     result: { ok: result.ok, ...(data !== undefined ? { data } : {}), ...(result.error ? { error: result.error } : {}), untrusted, costMinor },

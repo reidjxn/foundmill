@@ -33,6 +33,9 @@ const gateway: ApiGatewayClient = {
   async generatePortrait() {
     throw new Error("no portraits in these tests");
   },
+  async repository(_businessId, owner, repo) {
+    return { mode: "live", repository: { id: 7_700_001, fullName: `${owner}/${repo}`, private: true, defaultBranch: "main" } };
+  },
 };
 
 describe("integrations.connect for a live GitHub App", () => {

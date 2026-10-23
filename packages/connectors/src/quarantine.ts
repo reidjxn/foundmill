@@ -24,7 +24,7 @@ export interface Untrusted<T = unknown> {
   readonly untrusted: true;
   readonly source: UntrustedSource;
   readonly content: T;
-  /** sha256 of the canonical JSON of `content`; lets consumers de-duplicate and audit without re-reading. */
+  /** sha256 of the canonical JSON of `content` (binary values by their own sha256); lets consumers de-duplicate and audit without re-reading. */
   readonly contentHash: string;
   readonly byteLength: number;
   readonly receivedAt: string;
@@ -51,15 +51,42 @@ function sortKeys(value: unknown): unknown {
   return value;
 }
 
+/**
+ * The canonical JSON of untrusted content, with each binary value (a Buffer or other Uint8Array, such as a repository
+ * archive) standing in as `{"$binary":{"sha256":…,"byteLength":…}}`: the bytes are hashed where they are, never turned
+ * into base64 or a JSON array first. Returns that JSON and how many binary bytes it stands for.
+ */
+function hashableJson(value: unknown): { json: string; binaryBytes: number } {
+  let binaryBytes = 0;
+  const swap = (v: unknown, depth: number): unknown => {
+    if (v instanceof Uint8Array) {
+      binaryBytes += v.byteLength;
+      return { $binary: { sha256: createHash("sha256").update(v).digest("hex"), byteLength: v.byteLength } };
+    }
+    if (depth > 64 || !v || typeof v !== "object" || v instanceof Date) return v;
+    if (Array.isArray(v)) return v.some((x) => x && typeof x === "object") ? v.map((x) => swap(x, depth + 1)) : v;
+    let changed = false;
+    const out: Record<string, unknown> = {};
+    for (const [k, x] of Object.entries(v as Record<string, unknown>)) {
+      const s = swap(x, depth + 1);
+      if (s !== x) changed = true;
+      out[k] = s;
+    }
+    return changed ? out : v;
+  };
+  return { json: canonicalJson(swap(value, 0)), binaryBytes };
+}
+
 export function wrapUntrusted<T>(content: T, source: UntrustedSource, opts: WrapOptions = {}): Untrusted<T> {
   if (isUntrusted(content)) return content as unknown as Untrusted<T>; // never double-wrap
-  const json = canonicalJson(content);
+  const { json, binaryBytes } = hashableJson(content);
   return Object.freeze({
     untrusted: true as const,
     source: Object.freeze({ ...source }),
     content,
     contentHash: createHash("sha256").update(json).digest("hex"),
-    byteLength: Buffer.byteLength(json, "utf8"),
+    // The canonical JSON's bytes, plus the bytes of any binary value in it (counted as they are, not as JSON).
+    byteLength: Buffer.byteLength(json, "utf8") + binaryBytes,
     receivedAt: (opts.now ?? (() => new Date()))().toISOString(),
     notice: UNTRUSTED_NOTICE,
   });

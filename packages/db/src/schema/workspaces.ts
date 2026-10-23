@@ -52,6 +52,15 @@ export const workspaceSnapshots = pgTable(
     pushedUrl: text("pushed_url"),
     pushedAt: timestamp("pushed_at", { withTimezone: true, mode: "date" }),
     pushError: text("push_error"),
+    /**
+     * 0068: the checkout the session started from (the Code-tab repository at a ref and commit). With a base, `files` are
+     * only what the agent added or changed against it and `removedPaths` the checkout's files it deleted; without one,
+     * `files` are the whole workspace.
+     */
+    baseRepo: text("base_repo"),
+    baseRef: text("base_ref"),
+    baseCommitSha: text("base_commit_sha"),
+    removedPaths: jsonb("removed_paths").$type<string[]>().notNull().default(emptyList),
     ...timestamps(),
   },
   (t) => [

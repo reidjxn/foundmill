@@ -54,8 +54,10 @@ import { budgetSummary, LIMIT_WORDS, sessionBudget, type SessionBudget } from ".
 import { archiveSessionRecording } from "./recording";
 import { createSessionWorkspace, guardToolCall, hookOutputFor, removeSessionWorkspace, sdkEnvFor, sdkToolPolicyFor } from "./sdk-isolation";
 import { describePush, pushWorkspace, type PushContext } from "./workspace-push";
-import { restoreWorkspace, saveWorkspace, type LeftOut, type RestoredWorkspace, type SaveWorkspaceOptions } from "./workspace-store";
-import { syncWorkspaceToSandbox } from "./workspace-sync";
+import { mergeRecipients, restoreWorkspace, saveWorkspace, toSeed, type LeftOut, type RestoredWorkspace, type SaveWorkspaceOptions } from "./workspace-store";
+import { readWorkspaceChanges, syncCheckoutToSandbox, syncWorkspaceToSandbox } from "./workspace-sync";
+import { checkoutMissingNote, checkoutNote, checkoutRepository, describeCheckout, disposeCheckout, extractArchive, testSetupChanges, testSetupReviewReason, type Checkout } from "./checkout";
+import { fingerprintWorkspace, workspaceChanged } from "./workspace-fingerprint";
 import type { AgentSessionInput, SessionFinish, SessionLaunch, SessionParked, SessionResult, SessionRunOptions } from "./types";
 
 const ToolGrants = z.array(ToolGrant);
@@ -404,6 +406,13 @@ class SessionRecorder {
   prNumber: number | null = null;
   /** Milliseconds this run kept a sandbox running (the acceptance run of a live code task); priced at the session's end. */
   sandboxMs = 0;
+  /**
+   * The agent blocked this session's own task with the platform's `block_task` and the call went through: the gateway
+   * set the task `blocked` and wrote its `task.blocked`. The session then ends `blocked` with this reason (decision 3).
+   */
+  agentBlock: { reason: string } | null = null;
+  /** `block_task` calls in flight on this session's task: call id → the agent's reason. */
+  private readonly blockCalls = new Map<string, string>();
   lastPersisted = -1;
   lastPhase: string | null = null;
   /** Where a replay would pick up (mock runs): carried on every heartbeat so a retried run continues from there. */
@@ -453,6 +462,7 @@ class SessionRecorder {
     if (full.kind === "tool_call") {
       if (full.status === "started") this.toolCalls += 1;
       if (full.status === "failed" || full.status === "denied") this.toolFailures += 1;
+      this.trackBlockTask(full, opts.args);
       if (full.status === "succeeded" && /merge_pr|merge_pull_request/i.test(full.tool)) {
         const m = /#?(\d{1,6})/.exec(full.resultSummary ?? "");
         if (m) this.prNumber = Number(m[1]);
@@ -475,6 +485,24 @@ class SessionRecorder {
       return { loop: true };
     }
     return { loop: false };
+  }
+
+  /**
+   * A `block_task` on this session's own task: its reason is kept from the call's arguments, and once the call has gone
+   * through (not refused by the gateway, its policy or the platform) the agent has blocked the task.
+   */
+  private trackBlockTask(call: Extract<SessionEventInput, { kind: "tool_call" }>, args: unknown): void {
+    if (call.tool !== "block_task" || (call.connectorKey !== null && call.connectorKey !== undefined && call.connectorKey !== "platform")) return;
+    if (call.status === "started") {
+      const a = (args ?? {}) as { taskId?: unknown; reason?: unknown };
+      if (a.taskId !== undefined && a.taskId !== this.ctx.task.id) return;
+      this.blockCalls.set(call.callId, typeof a.reason === "string" && a.reason.trim() ? a.reason.trim().slice(0, 2000) : "the agent blocked the task");
+      return;
+    }
+    const reason = this.blockCalls.get(call.callId);
+    if (reason === undefined) return;
+    this.blockCalls.delete(call.callId);
+    if (call.status === "succeeded" && call.policyOutcome !== "deny" && call.policyOutcome !== "ask") this.agentBlock = { reason };
   }
 
   /** Publish without feeding the reducers (system notes). */
@@ -820,9 +848,16 @@ export function createSessionActivities(deps: OrchestratorDeps) {
     },
 
     /** Settle the session: agent_sessions row, usage ledger, task status, task events and the agent's health. */
-    async finishSession(input: AgentSessionInput, launch: SessionLaunch, result: SessionResult): Promise<SessionFinish> {
+    async finishSession(input: AgentSessionInput, launch: SessionLaunch, ran: SessionResult): Promise<SessionFinish> {
       const { db } = deps;
       const task = await repos.tasks.get(db, input.businessId, input.taskId);
+      // The agent blocked its own task during the session (the platform's `block_task`: the gateway set it `blocked` and
+      // wrote its `task.blocked`). That is how the session ended, whatever the run reported (decision 3): a run that
+      // otherwise ended done, or failed on something other than a loop, ends blocked with the agent's reason, and the
+      // task stays blocked instead of being booked done.
+      const agentBlocked = task.status === "blocked" ? await agentBlockedEvent(deps, input, task.id) : null;
+      const overridden = agentBlocked !== null && (ran.outcome === "done" || (ran.outcome === "failed" && ran.blockedReason !== "loop_detected"));
+      const result: SessionResult = overridden ? { ...ran, outcome: "blocked", reason: agentBlocked.detail, blockedReason: "dependency", approvalId: null, summary: `Blocked by the agent: ${agentBlocked.detail}`.slice(0, 1800) } : ran;
       const eventIds: string[] = [];
       const endedAt = deps.clock.now();
       // Sandbox time (Estimate, audit BILL-11). A replay runs nowhere: its row keeps the session's minutes at no cost. A live
@@ -868,7 +903,8 @@ export function createSessionActivities(deps: OrchestratorDeps) {
           taskStatus = task.status;
           break;
         case "done": {
-          taskStatus = result.progress.merged ? "done" : result.progress.reviewPassed || result.progress.phase === "review" || result.progress.phase === "merge" ? "review" : "done";
+          // A session that changed how the tests run (`review`) leaves the task for the founder to look at, never done.
+          taskStatus = result.review ? "review" : result.progress.merged ? "done" : result.progress.reviewPassed || result.progress.phase === "review" || result.progress.phase === "merge" ? "review" : "done";
           const ev = await emitEvent(db, {
             businessId: input.businessId,
             type: "task.completed",
@@ -880,6 +916,12 @@ export function createSessionActivities(deps: OrchestratorDeps) {
         }
         case "blocked": {
           taskStatus = "blocked";
+          // The agent's own block already told the founder (the gateway's `task.blocked` for this session): one Inbox
+          // item, not two.
+          if (agentBlocked && result.blockedReason === "dependency") {
+            eventIds.push(agentBlocked.id);
+            break;
+          }
           const ev = await emitEvent(db, {
             businessId: input.businessId,
             type: "task.blocked",
@@ -958,6 +1000,24 @@ export function createSessionActivities(deps: OrchestratorDeps) {
 
 export type SessionActivities = ReturnType<typeof createSessionActivities>;
 
+/**
+ * The `task.blocked` the gateway wrote when this session's agent blocked its own task with `block_task` (an agent's
+ * event naming this session and task), or null when it did not.
+ */
+async function agentBlockedEvent(deps: OrchestratorDeps, input: AgentSessionInput, taskId: string): Promise<{ id: string; detail: string } | null> {
+  try {
+    const session = await repos.agents.getSession(deps.db, input.businessId, input.sessionId);
+    const page = await repos.events.list(deps.db, input.businessId, { type: "task.blocked", from: session.startedAt, actorKind: "agent", limit: 100 });
+    for (const e of page.items) {
+      const p = e.payload as { taskId?: unknown; sessionId?: unknown; detail?: unknown };
+      if (p.taskId === taskId && p.sessionId === input.sessionId) return { id: e.id, detail: typeof p.detail === "string" && p.detail.trim() ? p.detail : "the agent blocked the task" };
+    }
+  } catch (err) {
+    deps.log.warn({ err: (err as Error).message, sessionId: input.sessionId }, "the agent's block of its task could not be read");
+  }
+  return null;
+}
+
 /** The subject of the note the Chief of Staff posts when the first roadmap item ships. */
 export const READY_TO_SELL_SUBJECT = "Ready to start selling?";
 
@@ -1015,7 +1075,7 @@ export async function offerReadyToSellAfterTask(deps: OrchestratorDeps, business
 /** A parked runner's half of `SessionParked`; runAgentSession adds the number of the last command its feed read. */
 type RunnerParked = Omit<SessionParked, "lastSeq">;
 
-type RunOutcome = Pick<SessionResult, "outcome" | "reason" | "blockedReason" | "approvalId" | "summary" | "providerSessionId"> & Partial<Pick<SessionResult, "tokensIn" | "tokensOut" | "costMinor" | "costMicroMinor" | "modelKey">> & { parked?: RunnerParked };
+type RunOutcome = Pick<SessionResult, "outcome" | "reason" | "blockedReason" | "approvalId" | "summary" | "providerSessionId"> & Partial<Pick<SessionResult, "tokensIn" | "tokensOut" | "costMinor" | "costMicroMinor" | "modelKey" | "review">> & { parked?: RunnerParked };
 
 /** Why a replay frees its slot early: the founder left an approval undecided, or a pause outlasted the hold. */
 type MockEnding = { kind: "approval_timeout" } | ({ kind: "park" } & RunnerParked);
@@ -1306,27 +1366,60 @@ async function runLiveSession(deps: OrchestratorDeps, recorder: SessionRecorder,
   // SEC-3: the SDK process lives in a private per-session workspace (cwd, HOME, TMPDIR), with a from-scratch environment
   // (never `process.env`), built-in tools by task kind only, and a path guard on every file-tool call. Deleted in `finally`.
   const cwd = await createSessionWorkspace(deps.env.ORCHESTRATOR_WORKSPACE_DIR, input.sessionId);
-  // Code tasks pick up where the last session on the task left off (Development › Code keeps every session's files).
-  // Restore comes before the token: what the files mention is untrusted for the gateway from the session's first call.
+  // Code tasks start from the repository (decision 2, ./checkout: the task's branch, else the default branch) and pick
+  // up where the last session on the task left off (Development › Code keeps every session's changes, applied on top).
+  // Both come before the token: what the files mention is untrusted for the gateway from the session's first call.
   let restored: RestoredWorkspace | null = null;
   let restoreFailed = false;
+  let checkout: Checkout | null = null;
+  /** The Code tab has a repository but this session has no checkout of it: why (the agent is told, not only the founder). */
+  let checkoutMissing: string | null = null;
+  /** That repository (`owner/name`): this session's save is kept but never pushed over it (no checkout, no push). */
+  let checkoutMissingRepo: string | null = null;
   let token: Awaited<ReturnType<typeof deps.gateway.mintSessionToken>>;
   try {
     if (policy.fileTools) {
+      const checked = await checkoutRepository(deps, { businessId: input.businessId, agentId: agent.id, sessionId: input.sessionId, taskId: task.id }, cwd);
+      if (checked.status === "checked_out") checkout = checked.checkout;
+      else if (checked.status === "failed") {
+        // Never a partial checkout: the session starts as it did before checkouts, and the note says why.
+        deps.log.warn({ err: checked.reason, sessionId: input.sessionId }, "repository checkout failed");
+        checkoutMissing = checked.reason;
+        checkoutMissingRepo = checked.repo;
+        await createSessionWorkspace(deps.env.ORCHESTRATOR_WORKSPACE_DIR, input.sessionId);
+      }
+      const checkedNote = describeCheckout(checked);
+      await recorder.publishRaw({ kind: "note", at: deps.clock.now().toISOString(), source: "system", level: checkedNote.level, text: checkedNote.text });
       try {
-        restored = await restoreWorkspace(deps.db, input.businessId, task.id, cwd);
-        if (restored.files > 0) await recorder.publishRaw({ kind: "note", at: deps.clock.now().toISOString(), source: "system", level: "info", text: `Restored ${restored.files} file${restored.files === 1 ? "" : "s"} (${Math.ceil(restored.bytes / 1024)} KB) saved by an earlier session on this task.` });
+        restored = await restoreWorkspace(deps.db, input.businessId, task.id, cwd, undefined, undefined, { checkout: checkout !== null });
+        if (restored.files > 0 || restored.removed > 0) await recorder.publishRaw({ kind: "note", at: deps.clock.now().toISOString(), source: "system", level: "info", text: checkout ? `Applied ${restored.files} file${restored.files === 1 ? "" : "s"} (${Math.ceil(restored.bytes / 1024)} KB)${restored.removed ? ` and ${restored.removed} removal${restored.removed === 1 ? "" : "s"}` : ""} saved by an earlier session on this task over the checkout.` : `Restored ${restored.files} file${restored.files === 1 ? "" : "s"} (${Math.ceil(restored.bytes / 1024)} KB) saved by an earlier session on this task.` });
       } catch (err) {
         // Start clean rather than from a partial copy; the save at the end keeps the files this session never had.
         restoreFailed = true;
         restored = null;
         await createSessionWorkspace(deps.env.ORCHESTRATOR_WORKSPACE_DIR, input.sessionId);
         deps.log.warn({ err: (err as Error).message, sessionId: input.sessionId }, "workspace restore failed");
-        await recorder.publishRaw({ kind: "note", at: deps.clock.now().toISOString(), source: "system", level: "warn", text: "The code saved for this task could not be restored; this session starts from an empty workspace, and the saved files are kept." });
+        // The checkout itself is unpacked again from its archive (the same files, so the same base).
+        if (checkout) {
+          try {
+            await extractArchive(checkout.archivePath, cwd);
+          } catch (unpackErr) {
+            await disposeCheckout(checkout);
+            checkoutMissing = `its archive could not be unpacked again: ${String((unpackErr as Error).message ?? unpackErr).slice(0, 200)}`;
+            checkoutMissingRepo = checkout.base.repo;
+            checkout = null;
+            await createSessionWorkspace(deps.env.ORCHESTRATOR_WORKSPACE_DIR, input.sessionId);
+          }
+        }
+        await recorder.publishRaw({ kind: "note", at: deps.clock.now().toISOString(), source: "system", level: "warn", text: checkout ? "The code saved for this task could not be restored; this session starts from the checkout alone, and the saved files are kept." : "The code saved for this task could not be restored; this session starts from an empty workspace, and the saved files are kept." });
       }
     }
-    token = await deps.gateway.mintSessionToken({ businessId: input.businessId, agentId: agent.id, sessionId: input.sessionId, allowedTools: grants.toolRefs, ttlSeconds: SESSION_TOKEN_TTL_SECONDS, ...(restored && restored.files > 0 ? { untrusted: restored.recipients } : {}) });
+    // The checkout's recipients and the restored files' are untrusted together (one seed; `all` past its limits).
+    const seeded = checkout || (restored && restored.files > 0) ? mergeRecipients(checkout?.recipients, restored && restored.files > 0 ? restored.recipients : null) : undefined;
+    const untrusted = seeded === undefined ? null : seeded === null ? { emails: [], urls: [], phones: [], all: true } : toSeed(seeded);
+    token = await deps.gateway.mintSessionToken({ businessId: input.businessId, agentId: agent.id, sessionId: input.sessionId, allowedTools: grants.toolRefs, ttlSeconds: SESSION_TOKEN_TTL_SECONDS, ...(untrusted ? { untrusted } : {}) });
   } catch (err) {
+    await disposeCheckout(checkout);
     await removeSessionWorkspace(cwd).catch(() => undefined);
     throw err;
   }
@@ -1335,7 +1428,7 @@ async function runLiveSession(deps: OrchestratorDeps, recorder: SessionRecorder,
   const traceparent = currentTraceparent();
   const mcpServers = Object.fromEntries(grants.servers.map((key) => [key, { type: "http" as const, url: deps.gateway.mcpUrl(key), headers: { ...deps.gateway.sessionHeaders(token.token), ...(traceparent ? { traceparent } : {}) } }]));
 
-  const continuing = restored && restored.files > 0 ? restoredWorkspaceNote(restored.files) : "";
+  const continuing = [checkout ? checkoutNote(checkout) : checkoutMissing ? checkoutMissingNote(checkoutMissing) : "", restored && restored.files > 0 ? restoredWorkspaceNote(restored.files) : ""].filter(Boolean).join("\n\n");
   const resumed = !ctx.run.resume ? "" : ctx.run.resume.reason === "handoff" || ctx.run.resume.reason === "retry" ? "This session moved to another worker mid-task and has been resumed. Continue the task from where the work stands, and check what is already done before you repeat any external action." : "This session was paused for a while and has been resumed. Continue the task from where the work stands.";
   const taskPrompt = [`# Task: ${task.title}`, task.goalMd || "", Array.isArray(task.acceptance) && task.acceptance.length ? `## Acceptance criteria\n${task.acceptance.map((a) => `- ${typeof a === "string" ? a : JSON.stringify(a)}`).join("\n")}` : "", policy.fileTools ? `Work on branch ${launch.branch} inside your working directory; it is the only place you can read or write files.` : "Keep every action inside the tools you were given; this task has no file access.", continuing, resumed, "Report each phase change and keep every external action inside the tools you were given."].filter(Boolean).join("\n\n");
 
@@ -1538,6 +1631,8 @@ async function runLiveSession(deps: OrchestratorDeps, recorder: SessionRecorder,
     return { ...handoffOutcome(null, carry), providerSessionId: sdkSessionId, ...usageNow() };
   };
 
+  // What the workspace held before the agent started (decision 3: a code session that changed nothing is not done).
+  const startPrint = policy.fileTools ? await fingerprintWorkspace(cwd) : null;
   try {
     send(taskPrompt);
     const env = sdkEnvFor({ cwd, apiKey: key.apiKey, sessionToken: token.token, sandboxEnv: live.sandboxEnv });
@@ -1682,12 +1777,59 @@ async function runLiveSession(deps: OrchestratorDeps, recorder: SessionRecorder,
     }
     holdBack = null;
     if (how === "approval_timeout") return { outcome: "blocked", reason: `no decision on the approval within ${minutesText(waits.approvalMs)}`, blockedReason: "awaiting_approval", approvalId: recorder.pendingApprovalId, summary: "Blocked on an approval.", providerSessionId: sdkSessionId, ...usageNow() };
-    // Acceptance tests run inside a sandbox, never on the orchestrator host, on a copy of the agent's workspace.
+    // Honest outcomes (decision 3, 2026-10-23): a task the agent blocked stays blocked, a code session that changed
+    // nothing is not done, and a code task whose acceptance run failed is never done.
+    const agentBlock = recorder.agentBlock;
+    // "Wrote nothing" is the task's work, not this run's alone: the changes earlier sessions saved on the task (restored
+    // here, or kept back when the restore failed) count, so a session that only finishes them (an approved action, a
+    // rerun after a flaky test) can still end done.
+    const nothingWritten = task.kind === "code" && policy.fileTools && !restoreFailed && !(restored?.savedAt && restored.files > 0) && !workspaceChanged(startPrint, await fingerprintWorkspace(cwd));
+    // Acceptance tests run inside a sandbox, never on the orchestrator host, on a copy of the agent's workspace. Not
+    // for a task the agent blocked or a session that wrote nothing: neither can end done, so the sandbox is not paid for.
     const acceptanceCommand = acceptanceCommandFor(task);
-    if (acceptanceCommand) recorder.sandboxMs += await runAcceptance(deps, recorder, live.acquireSandbox, cwd, acceptanceCommand, acceptanceAbort.signal);
+    let acceptance: AcceptanceVerdict | null = null;
+    if (acceptanceCommand && (agentBlock || nothingWritten)) {
+      await recorder.publishRaw({ kind: "note", at: deps.clock.now().toISOString(), source: "system", level: "info", text: `Acceptance tests not run: ${agentBlock ? `${agent.name} blocked the task` : "the session changed no files"}.` });
+    } else if (acceptanceCommand) {
+      const ran = await runAcceptance(deps, recorder, live.acquireSandbox, cwd, acceptanceCommand, acceptanceAbort.signal, checkout);
+      recorder.sandboxMs += ran.ms;
+      acceptance = ran.verdict;
+    }
     // A hand-off during the acceptance run: its sandbox is already stopped, and the next worker runs the tests again.
     if ((ending as LiveEnding | null) === "handoff") return handedOff();
+    // A Stop (or a cancel) that landed while the acceptance tests ran: the session was stopped, whatever they showed.
+    const stoppedLate = stoppedBy as { reason: string } | null;
+    if (stoppedLate) {
+      holdBack = "the session was stopped";
+      return { outcome: "stopped", reason: stoppedLate.reason, blockedReason: "stopped", approvalId: null, summary: `Stopped: ${stoppedLate.reason}.`, providerSessionId: sdkSessionId, ...usageNow() };
+    }
     if (recorder.pendingApprovalId) return { outcome: "blocked", reason: "waiting for the founder's approval", blockedReason: "awaiting_approval", approvalId: recorder.pendingApprovalId, summary: "Blocked on an approval.", providerSessionId: sdkSessionId, ...usageNow() };
+    if (agentBlock) return { outcome: "blocked", reason: agentBlock.reason, blockedReason: "dependency", approvalId: null, summary: `Blocked by ${agent.name}: ${agentBlock.reason}`.slice(0, 1800), providerSessionId: sdkSessionId, ...usageNow() };
+    if (nothingWritten) {
+      await recorder.publishRaw({ kind: "note", at: deps.clock.now().toISOString(), source: "system", level: "warn", text: `${agent.name} ended the session without changing any file, so the task is not done. It is blocked until it runs again.` });
+      return { outcome: "blocked", reason: NO_CHANGES_REASON, blockedReason: "error", approvalId: null, summary: `Blocked: ${agent.name} changed no files on "${task.title}".`.slice(0, 1800), providerSessionId: sdkSessionId, ...usageNow() };
+    }
+    if (acceptance && !acceptance.passed) {
+      const reason = acceptanceFailureReason(acceptance);
+      return { outcome: "blocked", reason, blockedReason: "error", approvalId: null, summary: `Blocked: the acceptance tests failed on "${task.title}".`.slice(0, 1800), providerSessionId: sdkSessionId, ...usageNow() };
+    }
+    // A code task with an acceptance command is done only on a run that passed: one that never ran shows nothing.
+    if (acceptanceCommand && !acceptance) {
+      await recorder.publishRaw({ kind: "note", at: deps.clock.now().toISOString(), source: "system", level: "warn", text: "The acceptance tests did not run, so the task is not done. It is blocked until it runs again." });
+      return { outcome: "blocked", reason: ACCEPTANCE_NOT_RUN_REASON, blockedReason: "error", approvalId: null, summary: `Blocked: the acceptance tests did not run on "${task.title}".`.slice(0, 1800), providerSessionId: sdkSessionId, ...usageNow() };
+    }
+    // Passing tests prove nothing when the session changed what they are (package.json scripts, a runner config, a
+    // deleted test): compared with the checkout, such a task waits in review for the founder instead of ending done.
+    if (checkout) {
+      const changes = await readWorkspaceChanges(cwd, checkout.base.files);
+      const found = changes.refused ? [`the changes could not be compared with the checkout: ${changes.refused}`] : testSetupChanges(changes, checkout.base);
+      if (found.length > 0) {
+        const why = testSetupReviewReason(found);
+        const review = `needs review: ${why}`;
+        await recorder.publishRaw({ kind: "note", at: deps.clock.now().toISOString(), source: "system", level: "warn", text: `Held for your review, not done: ${why}.` });
+        return { outcome: "done", reason: review, review, blockedReason: null, approvalId: null, summary: `${agent.name} finished "${task.title}"; it needs your review: ${why}.`.slice(0, 1800), providerSessionId: sdkSessionId, ...usageNow() };
+      }
+    }
     return { outcome: "done", reason: null, blockedReason: null, approvalId: null, summary: `${agent.name} finished "${task.title}" with ${recorder.toolCalls} tool calls.`, providerSessionId: sdkSessionId, ...usageNow() };
   } finally {
     await loop.stop();
@@ -1698,7 +1840,8 @@ async function runLiveSession(deps: OrchestratorDeps, recorder: SessionRecorder,
     queue.close(true);
     // Keep the code whatever the outcome (done, stopped, failed, parked): the workspace itself is deleted next. Only a
     // session that finished (or waits on an approval) is pushed to GitHub.
-    if (policy.fileTools) await keepWorkspace(deps, recorder, { businessId: input.businessId, taskId: task.id, sessionId: input.sessionId, agentId: agent.id, branch: launch.branch, agentName: agent.name, holdBack }, cwd, { secrets: [key.apiKey, token.token], carryOver: restoreFailed });
+    if (policy.fileTools) await keepWorkspace(deps, recorder, { businessId: input.businessId, taskId: task.id, sessionId: input.sessionId, agentId: agent.id, branch: launch.branch, agentName: agent.name, holdBack, checkout: checkout ? { commitSha: checkout.base.commitSha, at: checkout.base.checkedOutAt } : null }, cwd, { secrets: [key.apiKey, token.token], carryOver: restoreFailed, ...(checkout ? { base: checkout.base } : { withoutCheckoutOf: checkoutMissingRepo }) });
+    await disposeCheckout(checkout);
     try {
       await removeSessionWorkspace(cwd);
     } catch (err) {
@@ -1720,11 +1863,14 @@ async function keepWorkspace(deps: OrchestratorDeps, recorder: SessionRecorder, 
       await recorder.publishRaw({ kind: "note", at: at(), source: "system", level: "warn", text: `This session's code was not saved: ${saved.reason}.` });
     } else if (saved.status === "saved") {
       const delta = [saved.added ? `${saved.added} added` : "", saved.changed ? `${saved.changed} changed` : "", saved.removed ? `${saved.removed} removed` : ""].filter(Boolean).join(", ");
-      await recorder.publishRaw({ kind: "note", at: at(), source: "system", level: "info", text: `Saved this task's code: ${saved.files} file${saved.files === 1 ? "" : "s"} (${Math.ceil(saved.bytes / 1024)} KB)${delta ? `, ${delta}` : ""}. the Code tab shows it.` });
+      const base = saved.snapshot?.baseCommitSha ? saved.snapshot : null;
+      // On a checkout only the changes are kept (decision 2): the note says against what.
+      if (base) await recorder.publishRaw({ kind: "note", at: at(), source: "system", level: "info", text: `Saved this task's changes against ${base.baseRepo}@${base.baseRef}: ${delta || "none"} (${Math.ceil(saved.bytes / 1024)} KB). the Code tab shows them.` });
+      else await recorder.publishRaw({ kind: "note", at: at(), source: "system", level: "info", text: `Saved this task's code: ${saved.files} file${saved.files === 1 ? "" : "s"} (${Math.ceil(saved.bytes / 1024)} KB)${delta ? `, ${delta}` : ""}. the Code tab shows it.` });
     }
     if (leftOut) await recorder.publishRaw({ kind: "note", at: at(), source: "system", level: "warn", text: leftOut });
     if (saved.status !== "refused" && saved.snapshot) {
-      const pushed = describePush(await pushWorkspace(deps.db, deps.gateway, owner, saved.snapshot));
+      const pushed = describePush(await pushWorkspace(deps.db, deps.gateway, { ...owner, saveHeldBack: saved.pushHeldBack }, saved.snapshot));
       if (pushed) await recorder.publishRaw({ kind: "note", at: at(), source: "system", level: pushed.level, text: pushed.text });
     }
   } catch (err) {
@@ -1799,16 +1945,41 @@ function sandboxOutputForNote(output: string, max = 1500): string {
   return redactCredentialValues(output.trim()).slice(-max) || "(no output)";
 }
 
+/** How a code task's acceptance run went: `passed` only when the command ran, exited 0 and reported no failed test. */
+export interface AcceptanceVerdict {
+  passed: boolean;
+  /** The command's exit code; null when it never ran (no sandbox, workspace not copied, install failed, network open). */
+  exitCode: number | null;
+  testsPassed: number;
+  testsFailed: number;
+  /** Why it failed, or the tail of its output (credential-shaped values masked); empty when it passed. */
+  output: string;
+}
+
+/** Why a session whose acceptance run failed is not done: the task's `task.blocked` detail (at most 2,000 characters). */
+export function acceptanceFailureReason(v: AcceptanceVerdict): string {
+  const counts = `${v.testsPassed} passed, ${v.testsFailed} failed`;
+  const head = `acceptance tests failed (${v.exitCode === null ? "not run" : `exit ${v.exitCode}`}, ${counts})`;
+  const tail = v.output.trim();
+  return (tail ? `${head}. Last output:\n${tail.slice(-(2000 - head.length - 16))}` : head).slice(0, 2000);
+}
+
+/** Why a code session that changed no file is not done. */
+export const NO_CHANGES_REASON = "no changes: the session ended without changing any file in the workspace";
+/** Why a code task with an acceptance command whose run never happened is not done. */
+export const ACCEPTANCE_NOT_RUN_REASON = "acceptance tests did not run";
+
 /**
  * Copy the workspace into the sandbox, install dependencies online, close the network, run the acceptance command
  * offline and publish the `test_result`. Every failure ends as a failed acceptance result with its reason; none of them
- * fails the session.
+ * fails the session. Returns the sandbox time to book and the verdict (null when the run was cut short before it began).
  */
-async function runAcceptance(deps: OrchestratorDeps, recorder: SessionRecorder, acquireSandbox: () => Promise<Sandbox>, cwd: string, command: string, abort: AbortSignal | null = null): Promise<number> {
+async function runAcceptance(deps: OrchestratorDeps, recorder: SessionRecorder, acquireSandbox: () => Promise<Sandbox>, cwd: string, command: string, abort: AbortSignal | null = null, checkout: Checkout | null = null): Promise<{ ms: number; verdict: AcceptanceVerdict | null }> {
   const at = () => deps.clock.now().toISOString();
-  if (abort?.aborted) return 0;
-  const failed = async (reason: string, durationMs = 0) => {
+  if (abort?.aborted) return { ms: 0, verdict: null };
+  const failed = async (reason: string, durationMs = 0, output = ""): Promise<AcceptanceVerdict> => {
     await recorder.publish({ kind: "test_result", at: at(), suite: "acceptance", command, passed: 0, failed: 1, skipped: 0, durationMs, acceptance: true, failures: [reason.slice(0, 300)] });
+    return { passed: false, exitCode: null, testsPassed: 0, testsFailed: 1, output: output ? `${reason}:\n${output}` : reason };
   };
 
   // The sandbox exists for this run only (SANDBOX_TTL_MINUTES), so a long session never outlives its sandbox.
@@ -1819,27 +1990,28 @@ async function runAcceptance(deps: OrchestratorDeps, recorder: SessionRecorder, 
     sandbox = await acquireSandbox();
   } catch (err) {
     await recorder.publishRaw({ kind: "note", at: at(), source: "system", level: "warn", text: `Acceptance tests not run: the sandbox could not be started (${redactCredentialValues(String((err as Error).message ?? err)).slice(0, 300)}).` });
-    await failed("Sandbox could not be started");
-    return 0;
+    return { ms: 0, verdict: await failed("Sandbox could not be started") };
   }
   // A run that ends early (a hand-off on a worker shutdown, a cancel) stops the sandbox at once: a worker that exits
   // with it running would leave it billed until its TTL.
   const stopNow = () => void sandbox.stop().catch(() => undefined);
   abort?.addEventListener("abort", stopNow, { once: true });
+  let verdict: AcceptanceVerdict;
   try {
-    await runAcceptanceIn(deps, recorder, sandbox, cwd, command, failed);
+    verdict = await runAcceptanceIn(deps, recorder, sandbox, cwd, command, failed, checkout);
   } finally {
     abort?.removeEventListener("abort", stopNow);
     await sandbox.stop().catch(() => undefined);
   }
-  return Math.max(0, deps.clock.nowMs() - startedAtMs);
+  return { ms: Math.max(0, deps.clock.nowMs() - startedAtMs), verdict };
 }
 
-async function runAcceptanceIn(deps: OrchestratorDeps, recorder: SessionRecorder, sandbox: Sandbox, cwd: string, command: string, failed: (reason: string, durationMs?: number) => Promise<void>): Promise<void> {
+async function runAcceptanceIn(deps: OrchestratorDeps, recorder: SessionRecorder, sandbox: Sandbox, cwd: string, command: string, failed: (reason: string, durationMs?: number, output?: string) => Promise<AcceptanceVerdict>, checkout: Checkout | null = null): Promise<AcceptanceVerdict> {
   const at = () => deps.clock.now().toISOString();
-  let synced: Awaited<ReturnType<typeof syncWorkspaceToSandbox>>;
+  let synced: Awaited<ReturnType<typeof syncWorkspaceToSandbox>> & { unpacked?: boolean; changed?: number; removed?: number };
   try {
-    synced = await syncWorkspaceToSandbox(cwd, sandbox);
+    // A checkout goes in whole (its archive, unpacked in the sandbox) with the agent's changes on top.
+    synced = checkout ? await syncCheckoutToSandbox(cwd, sandbox, { archive: checkout.archivePath, files: checkout.base.files }) : await syncWorkspaceToSandbox(cwd, sandbox);
   } catch (err) {
     const reason = String((err as Error).message ?? err).split(cwd).join("<workspace>");
     await recorder.publishRaw({ kind: "note", at: at(), source: "system", level: "warn", text: `Acceptance tests not run: the workspace could not be copied into the sandbox (${reason.slice(0, 300)}).` });
@@ -1849,12 +2021,21 @@ async function runAcceptanceIn(deps: OrchestratorDeps, recorder: SessionRecorder
     await recorder.publishRaw({ kind: "note", at: at(), source: "system", level: "warn", text: `Acceptance tests not run: ${synced.refused}.` });
     return failed(`Workspace not copied to the sandbox: ${synced.refused}`);
   }
-  await recorder.publishRaw({ kind: "note", at: at(), source: "system", level: "info", text: `Copied ${synced.files} file${synced.files === 1 ? "" : "s"} (${Math.ceil(synced.bytes / 1024)} KB) into the sandbox for the acceptance tests.` });
+  await recorder.publishRaw({
+    kind: "note",
+    at: at(),
+    source: "system",
+    level: "info",
+    text: synced.unpacked
+      ? `Unpacked the checkout of ${checkout!.base.repo}@${checkout!.base.ref} in the sandbox with ${synced.changed} changed file${synced.changed === 1 ? "" : "s"}${synced.removed ? ` and ${synced.removed} removed` : ""} for the acceptance tests.`
+      : `Copied ${synced.files} file${synced.files === 1 ? "" : "s"} (${Math.ceil(synced.bytes / 1024)} KB) into the sandbox for the acceptance tests.`,
+  });
 
   const prep = await sandbox.exec(acceptancePrepareScript(), { timeoutMs: ACCEPTANCE_PREPARE_TIMEOUT_MS });
   if (prep.code !== 0) {
-    await recorder.publishRaw({ kind: "note", at: at(), source: "agent", level: "warn", text: `Installing the project's dependencies failed (exit ${prep.code}${prep.timedOut ? ", timed out" : ""}):\n${sandboxOutputForNote(prep.stdout + prep.stderr)}` });
-    return failed("Dependency install failed", prep.durationMs);
+    const prepOutput = sandboxOutputForNote(prep.stdout + prep.stderr);
+    await recorder.publishRaw({ kind: "note", at: at(), source: "agent", level: "warn", text: `Installing the project's dependencies failed (exit ${prep.code}${prep.timedOut ? ", timed out" : ""}):\n${prepOutput}` });
+    return failed("Dependency install failed", prep.durationMs, prepOutput);
   }
   try {
     await sandbox.closeEgress();
@@ -1868,7 +2049,10 @@ async function runAcceptanceIn(deps: OrchestratorDeps, recorder: SessionRecorder
   const counts = parseTestCounts(output);
   // The output comes from the task's own scripts, so it is shown as the agent's, never as a system message.
   if (res.code !== 0) await recorder.publishRaw({ kind: "note", at: at(), source: "agent", level: "warn", text: `Acceptance run exited with code ${res.code}${res.timedOut ? " (timed out)" : ""}. Last output:\n${sandboxOutputForNote(output)}` });
-  await recorder.publish({ kind: "test_result", at: at(), suite: "acceptance", command, passed: counts.passed, failed: res.code === 0 ? counts.failed : Math.max(1, counts.failed), skipped: 0, durationMs: prep.durationMs + res.durationMs, acceptance: true, failures: [] });
+  const testsFailed = res.code === 0 ? counts.failed : Math.max(1, counts.failed);
+  await recorder.publish({ kind: "test_result", at: at(), suite: "acceptance", command, passed: counts.passed, failed: testsFailed, skipped: 0, durationMs: prep.durationMs + res.durationMs, acceptance: true, failures: [] });
+  const passed = res.code === 0 && testsFailed === 0;
+  return { passed, exitCode: res.code, testsPassed: counts.passed, testsFailed, output: passed ? "" : sandboxOutputForNote(output) };
 }
 
 export function acceptanceCommandFor(task: Pick<Task, "acceptance" | "kind">): string | null {

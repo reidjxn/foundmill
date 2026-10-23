@@ -176,6 +176,69 @@ describe("workspaces", () => {
     expect(await repos.integrations.codeRepository(r.db, r.B.businessId)).toBeNull();
   });
 
+  it("pins GitHub's id of the Code-tab repository: on choosing it, or once for one chosen before pinning, never across businesses", async () => {
+    const { businessId, ownerId } = r.A;
+    const before = (await repos.integrations.getByKey(r.db, businessId, "github"))!.settings as Record<string, unknown>;
+    await r.svc((tx) => repos.integrations.upsert(tx, businessId, { connectorKey: "github", status: "connected", authKind: "app", settings: { externalAccountId: "42" } }));
+    await r.as(ownerId, (tx) => repos.integrations.setCodeRepository(tx, businessId, "acme/shop", { repoId: 1001 }));
+    expect(await repos.integrations.codeRepository(r.db, businessId)).toMatchObject({ fullName: "acme/shop", repoId: 1001 });
+    // Choosing another repository without a verified id drops the pin; with one, replaces it.
+    await r.as(ownerId, (tx) => repos.integrations.setCodeRepository(tx, businessId, "acme/site"));
+    expect(await repos.integrations.codeRepository(r.db, businessId)).toMatchObject({ fullName: "acme/site", repoId: null });
+    await expect(r.as(ownerId, (tx) => repos.integrations.setCodeRepository(tx, businessId, "acme/site", { repoId: -3 }))).rejects.toThrow(/repoId/);
+
+    // The gateway pins an unpinned choice once, only while the Code tab still names that repository.
+    expect(await r.svc((tx) => repos.integrations.pinCodeRepositoryId(tx, businessId, { fullName: "acme/other", repoId: 7 }))).toBe(false);
+    expect(await r.svc((tx) => repos.integrations.pinCodeRepositoryId(tx, businessId, { fullName: "Acme/Site", repoId: 2002 }))).toBe(true);
+    expect(await r.svc((tx) => repos.integrations.pinCodeRepositoryId(tx, businessId, { fullName: "acme/site", repoId: 3003 }))).toBe(false);
+    expect(await repos.integrations.codeRepository(r.db, businessId)).toMatchObject({ fullName: "acme/site", repoId: 2002 });
+    // A forged settings value is not a pin.
+    await r.svc((tx) => repos.integrations.upsert(tx, businessId, { connectorKey: "github", status: "connected", authKind: "app", settings: { externalAccountId: "42", repo: "acme/site", repoId: "2002" } }));
+    expect(await repos.integrations.codeRepository(r.db, businessId)).toMatchObject({ repoId: null });
+
+    // Cross-tenant: business B's owner can neither pin nor read A's repository, and B's own pin leaves A's alone.
+    expect(await r.as(r.B.ownerId, (tx) => repos.integrations.pinCodeRepositoryId(tx, businessId, { fullName: "acme/site", repoId: 666 }))).toBe(false);
+    expect(await repos.integrations.codeRepository(r.db, businessId)).toMatchObject({ repoId: null });
+    await r.svc((tx) => repos.integrations.upsert(tx, r.B.businessId, { connectorKey: "github", status: "connected", authKind: "app", settings: { externalAccountId: "77", repo: "acme/site" } }));
+    expect(await r.svc((tx) => repos.integrations.pinCodeRepositoryId(tx, r.B.businessId, { fullName: "acme/site", repoId: 4004 }))).toBe(true);
+    expect(await repos.integrations.codeRepository(r.db, businessId)).toMatchObject({ repoId: null });
+    expect(await repos.integrations.codeRepository(r.db, r.B.businessId)).toMatchObject({ repoId: 4004 });
+    await r.svc((tx) => repos.integrations.upsert(tx, r.B.businessId, { connectorKey: "github", status: "disconnected", authKind: "app", settings: {} }));
+    await r.svc((tx) => repos.integrations.upsert(tx, businessId, { connectorKey: "github", status: "connected", authKind: "app", settings: before }));
+  });
+
+  it("0068: a save on a checkout stores only the diff against it, counted against the checkout, and keeps its base when a later session could not check out", async () => {
+    const { businessId } = r.A;
+    const taskId = r.A.taskIds[7]!;
+    const base = { repo: "acme/shop", ref: "main", commitSha: "a".repeat(40) };
+    const save = (input: Partial<Parameters<typeof repos.workspaces.save>[2]>) => r.svc((tx) => repos.workspaces.save(tx, businessId, { taskId, files: [], ...input }));
+    // Nothing changed on the checkout: nothing is saved.
+    expect(await save({ base, removedPaths: [] })).toMatchObject({ saved: false, snapshot: null });
+    const first = await save({ base, files: [{ path: "src/a.ts", content: text("changed"), inBase: true }, { path: "src/new.ts", content: text("new"), inBase: false }], removedPaths: ["old.txt"] });
+    expect(first).toMatchObject({ saved: true, added: 1, changed: 1, removed: 1 });
+    expect(first.snapshot).toMatchObject({ baseRepo: "acme/shop", baseRef: "main", baseCommitSha: base.commitSha, removedPaths: ["old.txt"], fileCount: 2 });
+    // The same diff on the same commit is unchanged; on a new commit (the pushed branch) it is a new save.
+    expect(await save({ base, files: [{ path: "src/a.ts", content: text("changed"), inBase: true }, { path: "src/new.ts", content: text("new"), inBase: false }], removedPaths: ["old.txt"] })).toMatchObject({ saved: false });
+    const moved = { ...base, ref: `agent/${taskId}`, commitSha: "b".repeat(40) };
+    const second = await save({ base: moved, files: [], removedPaths: [] });
+    expect(second).toMatchObject({ saved: true, added: 0, changed: 0, removed: 0 });
+    expect(second.snapshot).toMatchObject({ baseRef: `agent/${taskId}`, fileCount: 0, removedPaths: [] });
+    await expect(save({ base, files: [{ path: "x.ts", content: text("x") }], removedPaths: ["x.ts"] })).rejects.toThrow(/both saved and removed/);
+    await expect(save({ base: { ...base, commitSha: "not-a-sha" } })).rejects.toThrow(/Invalid workspace/);
+
+    // A session that could not check out works on the saved changes alone: its save keeps the base and the removals.
+    await save({ base: moved, files: [{ path: "src/a.ts", content: text("v2"), inBase: true }], removedPaths: ["gone.md"] });
+    const inherited = await save({ files: [{ path: "src/a.ts", content: text("v3") }, { path: "extra.ts", content: text("e") }] });
+    expect(inherited.snapshot).toMatchObject({ baseCommitSha: moved.commitSha, baseRef: moved.ref, removedPaths: ["gone.md"], fileCount: 2 });
+    // ...unless the file is back.
+    expect((await save({ files: [{ path: "gone.md", content: text("back") }] })).snapshot).toMatchObject({ removedPaths: [] });
+    // null saves a whole workspace with no base.
+    expect((await save({ base: null, files: [{ path: "a.ts", content: text("a") }] })).snapshot).toMatchObject({ baseCommitSha: null, removedPaths: [] });
+    // Business B never sees A's checkout base.
+    expect(await r.as(r.B.ownerId, (tx) => repos.workspaces.listSnapshots(tx, businessId, taskId))).toEqual([]);
+    expect((await r.as(r.A.memberId, (tx) => repos.workspaces.listSnapshots(tx, businessId, taskId)))[1]).toMatchObject({ baseRepo: "acme/shop" });
+  });
+
   it("members read workspaces through RLS; they cannot write them", async () => {
     const { businessId, memberId, taskId } = r.A;
     const seen = await r.as(memberId, (tx) => repos.workspaces.latest(tx, businessId, taskId));

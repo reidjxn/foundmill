@@ -2,6 +2,8 @@ import { buildMockConnector } from "../../define";
 import { MOCK_NOW, mockHealth, mockIntegrationRecord, stableHash } from "../../mock-utils";
 import { makeWebhookRequest, ReplayGuard } from "../../webhooks";
 import { commitSha, fileSha, GH_MERGED_PR, GH_REPOS, MOCK_GITHUB_WEBHOOK_SECRET, MOCK_INSTALLATION_ID, MOCK_OWNER, type GhFixtureRepo } from "./fixtures/repos";
+import { writeTarGz } from "./tarball";
+import { branchMoved } from "./moved";
 import { ciState, CI_WORKFLOW, fileWriteBuffer, githubChangedMessage, GITHUB_APP_SCOPES, GITHUB_KEY, GITHUB_RATE_LIMITS, githubTools, mapCheckRun, mapPullRequest, mapRepository, MAX_TREE_ENTRIES, type GhCheckRun, type GhPullRequest, type GhWorkflowRun, type PullRequestT } from "./tools";
 import { createGithubWebhook, GITHUB_DELIVERY_HEADER, GITHUB_EVENT_HEADER, GITHUB_SIGNATURE_HEADER, githubSignature, normaliseGithubEvent, type GhWebhookPayload } from "./webhooks";
 
@@ -25,6 +27,19 @@ export function mergedPullRequestPayload(pr: GhPullRequest = GH_MERGED_PR, repo 
 }
 
 const blobShaOf = (path: string, content: Buffer) => stableHash(`blob:${path}:${content.toString("base64")}`, 40);
+
+/**
+ * What a repository the fixtures do not know holds on its default branch: a package.json and a couple of files, kept
+ * small (under 100 bytes) so the byte budgets below stay about what agents write.
+ */
+export function starterFiles(repo: string): GhFixtureRepo["files"] {
+  const name = repo.toLowerCase().replace(/[^a-z0-9._-]/g, "-").slice(0, 40);
+  return [
+    { path: "README.md", content: `# ${name}\n` },
+    { path: "package.json", content: `{"name":"${name}","private":true}\n` },
+    { path: "src/index.ts", content: "export {};\n" },
+  ];
+}
 
 /** One business's GitHub: the fixture repositories (copied), repositories it created, branch contents and pull requests. */
 function newWorld(bytesPerBusiness: number, publicRepos: ReadonlySet<string>) {
@@ -88,7 +103,7 @@ function newWorld(bytesPerBusiness: number, publicRepos: ReadonlySet<string>) {
     const created: GhFixtureRepo = {
       repo: { id: 900_000_000 + (parseInt(stableHash(`repo:${owner}/${repo}`, 6), 16) % 99_999_999), full_name: `${owner}/${repo}`, name: repo, private: true, default_branch: "main", description: null, html_url: `https://github.com/${owner}/${repo}`, pushed_at: null, language: null, owner: { login: owner } },
       branches: { main: commitSha(repo, "main") },
-      files: [],
+      files: starterFiles(repo),
     };
     repos.set(created.repo.full_name, created);
     return created;
@@ -131,11 +146,11 @@ export const MOCK_BUSINESSES = 200;
  * In-memory GitHub, one per business (what one business's agents write is never visible to another, and the fixture
  * repositories are copied for each). Branches from the fixtures share the repository's files; a branch `commit_files`
  * wrote to keeps its own contents, which `read_file` and `read_tree` show at that ref. The first write to a repository
- * the fixtures do not know creates it (empty, `main`), so mock mode works for whatever repository a business names.
+ * the fixtures do not know creates it (`main`, with `starterFiles`), so mock mode works for whatever repository a business names.
  * Written files are bounded per business (the oldest written branches are dropped first) and the least recently used
  * businesses are forgotten beyond MOCK_BUSINESSES.
  */
-export function createGithubMock(limits: { bytesPerBusiness?: number; bytesTotal?: number; businesses?: number; failingBranches?: readonly string[]; publicRepos?: readonly string[]; branchesWithChangedGithub?: readonly string[] } = {}) {
+export function createGithubMock(limits: { bytesPerBusiness?: number; bytesTotal?: number; businesses?: number; failingBranches?: readonly string[]; publicRepos?: readonly string[]; branchesWithChangedGithub?: readonly string[]; inaccessibleRepos?: readonly string[] } = {}) {
   const bytesTotal = limits.bytesTotal ?? MOCK_BYTES_TOTAL;
   const bytesPerBusiness = limits.bytesPerBusiness ?? MOCK_BYTES_PER_BUSINESS;
   const businesses = limits.businesses ?? MOCK_BUSINESSES;
@@ -151,6 +166,8 @@ export function createGithubMock(limits: { bytesPerBusiness?: number; bytesTotal
   const githubTreeSha = (r: GhFixtureRepo, branch: string): string => stableHash(`github-tree:${r.repo.full_name}:${branch !== r.repo.default_branch && changedGithub.has(branch) ? branch : r.repo.default_branch}`, 40);
   /** Fixture repositories (`owner/name`) that are public; agents may not push to or run CI on them. */
   const publicRepos = new Set(limits.publicRepos ?? []);
+  /** Repositories (`owner/name`, any case) the installation cannot reach: `get_repository` answers 404 for them. */
+  const inaccessibleRepos = new Set((limits.inaccessibleRepos ?? []).map((r) => r.toLowerCase()));
   const worlds = new Map<string, ReturnType<typeof newWorld>>();
   const world = (businessId: string) => {
     let w = worlds.get(businessId);
@@ -220,6 +237,24 @@ export function createGithubMock(limits: { bytesPerBusiness?: number; bytesTotal
         const binary = text.includes("\uFFFD");
         return { path, sha: blobShaOf(path, content), size: content.byteLength, encoding: binary ? ("base64" as const) : ("utf-8" as const), content: binary ? content.toString("base64") : text, url: `${r.repo.html_url}/blob/${ref === "HEAD" ? r.repo.default_branch : ref}/${path}` };
       },
+      download_archive: async ({ owner, repo, ref }, ctx) => {
+        const g = world(ctx.businessId);
+        // Like the first write, the first checkout of a repository the fixtures do not know creates it (starter files).
+        const r = g.findOrCreate(owner, repo);
+        if (!r.repo.private) throw Object.assign(new Error(`${owner}/${repo} is public; code sessions check out only private repositories`), { status: 422 });
+        const name = ref === "HEAD" ? r.repo.default_branch : ref;
+        const sha = g.resolveRef(r, name);
+        const files = [...g.filesAt(r, name)].sort(([a], [b]) => (a < b ? -1 : 1)).map(([path, content]) => ({ path, content }));
+        const archive = writeTarGz(files, { prefix: `${owner}-${repo}-${sha.slice(0, 7)}/`, comment: sha, mtime: MOCK_NOW.getTime() / 1000 });
+        // `base64` is the deprecated copy for readers that do not take `archive` yet (a mock archive is a few hundred bytes).
+        return { ref: name, sha, bytes: archive.length, archive, base64: archive.toString("base64") };
+      },
+      get_repository: async ({ owner, repo }, ctx) => {
+        // Like a checkout, naming a repository the fixtures do not know creates it (private, with a stable id), unless the
+        // mock is told the installation cannot reach it.
+        if (inaccessibleRepos.has(`${owner}/${repo}`.toLowerCase())) throw notFound(`repository ${owner}/${repo}`);
+        return mapRepository(world(ctx.businessId).findOrCreate(owner, repo).repo);
+      },
       create_branch: async ({ owner, repo, branch, fromRef }, ctx) => {
         const g = world(ctx.businessId);
         const r = g.find(owner, repo);
@@ -229,12 +264,13 @@ export function createGithubMock(limits: { bytesPerBusiness?: number; bytesTotal
         r.branches[branch] = sha;
         return { branch, sha, created: true };
       },
-      commit_files: async ({ owner, repo, branch, fromRef, message, files, deletions }, ctx) => {
+      commit_files: async ({ owner, repo, branch, fromRef, message, files, deletions, expectedHeadSha }, ctx) => {
         const g = world(ctx.businessId);
         const r = g.findOrCreate(owner, repo);
         if (branch === r.repo.default_branch) throw Object.assign(new Error(`commit_files never writes the default branch (${branch}); merge a pull request instead`), { status: 422 });
         if (!r.repo.private) throw Object.assign(new Error(`${owner}/${repo} is public; agents push only to private repositories`), { status: 422 });
         const existed = Boolean(r.branches[branch]);
+        if (existed && expectedHeadSha && r.branches[branch] !== expectedHeadSha) throw branchMoved(branch, expectedHeadSha, r.branches[branch]!);
         const from = existed ? branch : (fromRef ?? "HEAD");
         const parentSha = g.resolveRef(r, from);
         const next = new Map(g.filesAt(r, from));

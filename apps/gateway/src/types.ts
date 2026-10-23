@@ -123,7 +123,8 @@ export interface RateLimitedResponse {
   reasons: string[];
   retryAfterSeconds: number;
   limit: number;
-  scope: "minute" | "day";
+  /** `concurrent`: as many repository archives as one gateway serves at once are in flight (archive.ts). */
+  scope: "minute" | "day" | "concurrent";
   costMinor: 0;
 }
 
