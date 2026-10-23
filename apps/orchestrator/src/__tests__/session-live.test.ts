@@ -1633,6 +1633,29 @@ describe("honest outcomes: a code session ends done only when it did the work (d
     }
   });
 
+  it("no checkout, no push: a failed checkout on a task that never had one saves the workspace but never pushes it", async () => {
+    await repos.integrations.upsert(t.deps.db, t.businessId, { connectorKey: "github", status: "mock", authKind: "app", settings: { repo: "acme/shop", writeEnabled: true } });
+    try {
+      const { task, sessionId, input } = await freshCodeTask("Write without the repository");
+      const failing = createSessionActivities({ ...liveDeps, gateway: { ...t.gateway, async downloadArchive() { return { outcome: "allow" as const, error: { code: "vendor_error", message: "GitHub is unavailable" } }; } } });
+      script = async function* (call) {
+        await writeFile(path.join(call.options.cwd as string, "package.json"), '{"name":"from-memory"}\n');
+        yield* success(sessionId)();
+      };
+      const callsBefore = t.gateway.calls.length;
+      const result = await failing.runAgentSession(input, await failing.prepareSession(input));
+      expect(result.outcome).toBe("done");
+      expect(t.gateway.calls.slice(callsBefore).filter((c) => c.tool === "commit_files")).toEqual([]);
+      const held = "this session had no checkout of acme/shop, so its files are not a diff against it; a session that checks it out pushes them";
+      const notes = (await readSessionEvents(t.redis, sessionId, { kinds: ["note"] })).map((r) => (r.event.kind === "note" ? r.event.text : ""));
+      expect(notes).toContain(`Not pushed to GitHub: ${held}. The code is saved on the Code tab.`);
+      // Saved (the whole workspace, no base), with the reason on the save.
+      expect(await repos.workspaces.latest(t.db, t.businessId, task.id)).toMatchObject({ sessionId, baseRepo: null, fileCount: 1, pushedCommitSha: null, pushError: held });
+    } finally {
+      await repos.integrations.disconnect(t.deps.db, t.businessId, (await repos.integrations.getByKey(t.deps.db, t.businessId, "github"))!.id);
+    }
+  });
+
   it("a later session that only finishes work saved by an earlier one can end done without writing", async () => {
     const { task, sessionId, input, launch } = await freshCodeTask("Ship the saved change");
     await t.deps.db.transaction((tx) => repos.workspaces.save(tx as never, t.businessId, { taskId: task.id, files: [{ path: "done.ts", content: new TextEncoder().encode("export {};\n") }], carryOver: true }));

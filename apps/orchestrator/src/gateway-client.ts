@@ -320,8 +320,9 @@ export function createOfflineGatewayClient(baseUrl = "http://gateway.offline"): 
       const businessId = offlineClaims(token)?.businessId ?? "00000000-0000-4000-8000-000000000000";
       const result = await github.callTool("download_archive", req, { businessId, agentId: null, sessionId: null, integration: mockIntegrationRecord("github", businessId), log: SILENT, mode: "mock" } as unknown as ToolContext);
       if (!result.ok) return { outcome: "allow", error: { code: result.error?.code ?? "tool_failed", message: result.error?.message ?? "no archive" } };
-      const out = (isUntrusted(result.data) ? result.data.content : result.data) as { ref: string; sha: string; base64: string };
-      return { outcome: "allow", archive: { ref: out.ref, sha: out.sha, data: new Uint8Array(Buffer.from(out.base64, "base64")) } };
+      // The connector's `archive` holds the tarball's bytes as they are (never base64).
+      const out = (isUntrusted(result.data) ? result.data.content : result.data) as { ref: string; sha: string; archive: Uint8Array };
+      return { outcome: "allow", archive: { ref: out.ref, sha: out.sha, data: new Uint8Array(out.archive.buffer, out.archive.byteOffset, out.archive.byteLength) } };
     },
     async mintSessionToken(input) {
       minted.push(input);

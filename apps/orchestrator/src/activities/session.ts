@@ -1374,6 +1374,8 @@ async function runLiveSession(deps: OrchestratorDeps, recorder: SessionRecorder,
   let checkout: Checkout | null = null;
   /** The Code tab has a repository but this session has no checkout of it: why (the agent is told, not only the founder). */
   let checkoutMissing: string | null = null;
+  /** That repository (`owner/name`): this session's save is kept but never pushed over it (no checkout, no push). */
+  let checkoutMissingRepo: string | null = null;
   let token: Awaited<ReturnType<typeof deps.gateway.mintSessionToken>>;
   try {
     if (policy.fileTools) {
@@ -1383,6 +1385,7 @@ async function runLiveSession(deps: OrchestratorDeps, recorder: SessionRecorder,
         // Never a partial checkout: the session starts as it did before checkouts, and the note says why.
         deps.log.warn({ err: checked.reason, sessionId: input.sessionId }, "repository checkout failed");
         checkoutMissing = checked.reason;
+        checkoutMissingRepo = checked.repo;
         await createSessionWorkspace(deps.env.ORCHESTRATOR_WORKSPACE_DIR, input.sessionId);
       }
       const checkedNote = describeCheckout(checked);
@@ -1403,6 +1406,7 @@ async function runLiveSession(deps: OrchestratorDeps, recorder: SessionRecorder,
           } catch (unpackErr) {
             await disposeCheckout(checkout);
             checkoutMissing = `its archive could not be unpacked again: ${String((unpackErr as Error).message ?? unpackErr).slice(0, 200)}`;
+            checkoutMissingRepo = checkout.base.repo;
             checkout = null;
             await createSessionWorkspace(deps.env.ORCHESTRATOR_WORKSPACE_DIR, input.sessionId);
           }
@@ -1836,7 +1840,7 @@ async function runLiveSession(deps: OrchestratorDeps, recorder: SessionRecorder,
     queue.close(true);
     // Keep the code whatever the outcome (done, stopped, failed, parked): the workspace itself is deleted next. Only a
     // session that finished (or waits on an approval) is pushed to GitHub.
-    if (policy.fileTools) await keepWorkspace(deps, recorder, { businessId: input.businessId, taskId: task.id, sessionId: input.sessionId, agentId: agent.id, branch: launch.branch, agentName: agent.name, holdBack, checkout: checkout ? { commitSha: checkout.base.commitSha, at: checkout.base.checkedOutAt } : null }, cwd, { secrets: [key.apiKey, token.token], carryOver: restoreFailed, ...(checkout ? { base: checkout.base } : {}) });
+    if (policy.fileTools) await keepWorkspace(deps, recorder, { businessId: input.businessId, taskId: task.id, sessionId: input.sessionId, agentId: agent.id, branch: launch.branch, agentName: agent.name, holdBack, checkout: checkout ? { commitSha: checkout.base.commitSha, at: checkout.base.checkedOutAt } : null }, cwd, { secrets: [key.apiKey, token.token], carryOver: restoreFailed, ...(checkout ? { base: checkout.base } : { withoutCheckoutOf: checkoutMissingRepo }) });
     await disposeCheckout(checkout);
     try {
       await removeSessionWorkspace(cwd);

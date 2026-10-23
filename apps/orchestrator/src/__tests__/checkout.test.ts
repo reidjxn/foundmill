@@ -68,8 +68,8 @@ function githubGateway(github = createGithubMock(), options: { archive?: (req: {
       if (forced) return forced;
       const r = await github.callTool("download_archive", req, ctx);
       if (!r.ok) return { outcome: "allow", error: { code: r.error!.code, message: r.error!.message } };
-      const out = (isUntrusted(r.data) ? r.data.content : r.data) as { ref: string; sha: string; base64: string };
-      return { outcome: "allow", archive: { ref: out.ref, sha: out.sha, data: new Uint8Array(Buffer.from(out.base64, "base64")) } };
+      const out = (isUntrusted(r.data) ? r.data.content : r.data) as { ref: string; sha: string; archive: Uint8Array };
+      return { outcome: "allow", archive: { ref: out.ref, sha: out.sha, data: new Uint8Array(out.archive) } };
     },
   };
   return { github, gateway, offline, ctx };
