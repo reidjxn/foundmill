@@ -99,7 +99,7 @@ describe("team pulse", () => {
     expect(india.map((c) => [c.dayIndex, c.hour, c.agentHours])).toEqual([[1, 2, 0.5], [1, 3, 0.5]]);
   });
 
-  it("computes 200 sessions over 30 days well under 50 ms, with the same cells as walking every half hour", () => {
+  it("computes 200 sessions over 30 days several times faster than walking every half hour, with the same cells", () => {
     // The walk before audit C1: every half-hour step from each session's start, kept only when it lands on a day shown.
     const walkEveryStep = (rows: readonly SessionRow[], days: readonly string[], now: Date, zone: string | null) => {
       const deptOf = new Map(departments.flatMap((d) => d.squad.map((a) => [a.id, d.id] as const)));
@@ -132,15 +132,24 @@ describe("team pulse", () => {
     });
     const days = lastDays(7, TODAY);
     // UTC, a zone half an hour off and one 45 minutes off UTC (its days do not start on a half-hour step).
-    for (const zone of [null, "Asia/Kolkata", "Asia/Kathmandu"]) {
+    // Timed against the walk it replaced, on the same machine, rather than against a fixed number of milliseconds: a
+    // shared CI runner under load ran the fast path in 52-55 ms against a 50 ms limit (Oct 22-23, 2026), while the walk
+    // takes many times longer wherever it runs. The ceiling still catches a slip back to stepping through every half hour.
+    const bestOf = (fn: () => unknown) => {
       let best = Infinity;
-      let cells: ReturnType<typeof sessionsToPulseCells> = [];
       for (let run = 0; run < 3; run++) {
         const t0 = performance.now();
-        cells = sessionsToPulseCells(many, departments, days, at, zone);
+        fn();
         best = Math.min(best, performance.now() - t0);
       }
-      expect(best).toBeLessThan(50);
+      return best;
+    };
+    for (const zone of [null, "Asia/Kolkata", "Asia/Kathmandu"]) {
+      const cells = sessionsToPulseCells(many, departments, days, at, zone);
+      const fast = bestOf(() => sessionsToPulseCells(many, departments, days, at, zone));
+      const walk = bestOf(() => walkEveryStep(many, days, at, zone));
+      expect(fast, `fast path ${fast.toFixed(1)} ms, step walk ${walk.toFixed(1)} ms`).toBeLessThan(walk / 3);
+      expect(fast).toBeLessThan(250);
       expect(cells.length).toBeGreaterThan(0);
       expect(cells).toEqual(walkEveryStep(many, days, at, zone));
     }
