@@ -190,6 +190,25 @@ export const ciState = (run: GhWorkflowRun | null | undefined, checks: readonly 
   return checksState(checks, complete);
 };
 
+/**
+ * `download_archive`: a repository at one ref as GitHub's gzip-compressed tarball, for the platform's own checkout (a
+ * code session starts from it). At most 60 MB compressed; private repositories only, like every write.
+ */
+export const DOWNLOAD_ARCHIVE_TOOL = "download_archive";
+export const MAX_ARCHIVE_BYTES = 60 * 1024 * 1024;
+export const DownloadArchiveInput = RepoRef.extend({ ref: Ref.default("HEAD") });
+export const DownloadArchiveOutput = z.object({
+  /** The ref the archive is of: the branch, tag or commit asked for (the default branch's name for HEAD). */
+  ref: z.string(),
+  /** The commit the ref resolved to; the archive is of exactly this commit. */
+  sha: z.string().min(7).max(64),
+  bytes: z.number().int().nonnegative().max(MAX_ARCHIVE_BYTES),
+  /** The gzip-compressed tarball, base64. */
+  base64: z.string(),
+});
+export type DownloadArchiveOutputT = z.infer<typeof DownloadArchiveOutput>;
+export const archiveTooLargeMessage = (fullName: string) => `${fullName} is larger than ${MAX_ARCHIVE_BYTES / (1024 * 1024)} MB compressed; it cannot be checked out`;
+
 /** Why `run_checks` refuses a branch whose `.github` tree is not the default branch's. */
 export const githubChangedMessage = (branch: string): string => `run_checks refuses to run a workflow that differs from the default branch (.github changed on ${branch}); rebase the branch onto the default branch`;
 
@@ -222,6 +241,16 @@ export const githubTools = [
     hints: {},
     untrusted: "repo",
     untrustedRef: (a) => `${a.owner}/${a.repo}@${a.ref}:${a.path}`,
+    annotations: { readOnlyHint: true },
+  }),
+  defineTool({
+    name: DOWNLOAD_ARCHIVE_TOOL,
+    description: "The whole repository at a ref (branch, tag or commit; default: the default branch) as a gzip-compressed tarball (base64) with the commit it resolved to. Private repositories only, at most 60 MB compressed. Served to the platform's checkout of a code session (the gateway's archive route), not to an agent's tool list.",
+    input: DownloadArchiveInput,
+    output: DownloadArchiveOutput,
+    hints: {},
+    untrusted: "repo",
+    untrustedRef: (a) => `${a.owner}/${a.repo}@${a.ref}:archive`,
     annotations: { readOnlyHint: true },
   }),
   defineTool({

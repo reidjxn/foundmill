@@ -393,6 +393,13 @@
       "when": 1795867920000,
       "tag": "0067_anthropomorphic_agents",
       "breakpoints": true
+    },
+    {
+      "idx": 56,
+      "version": "7",
+      "when": 1795954320000,
+      "tag": "0068_workspace_checkout_base",
+      "breakpoints": true
     }
   ]
 }

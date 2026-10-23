@@ -70,7 +70,8 @@ const bankingCapabilities = { "accounts.list": ["list_accounts", "get_consent_st
 export const CAPABILITY_TOOLS: Readonly<Record<string, Readonly<Record<string, readonly string[]>>>> = {
   anthropic: { "panel.query": ["ask_panel"] },
   github: {
-    "repos.read": ["list_repos", "read_tree", "read_file"],
+    // download_archive is served on the gateway's archive route (a code session's checkout), never in an agent's MCP list.
+    "repos.read": ["list_repos", "read_tree", "read_file", "download_archive"],
     "pulls.list": ["list_pull_requests"],
     "pulls.read": ["list_pull_requests", "get_pull_request"],
     // A pull request reports its merge state (get_pull_request); get_checks reads the check runs of an agent's branch head.

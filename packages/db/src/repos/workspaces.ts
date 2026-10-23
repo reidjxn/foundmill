@@ -34,18 +34,39 @@ export function isSafeWorkspacePath(path: string): boolean {
 export const WORKSPACE_QUOTA_BYTES = 500 * 1024 * 1024;
 export const WORKSPACE_KEEP_SNAPSHOTS = 20;
 export const WORKSPACE_KEEP_YOUNGER_THAN_MS = 24 * 60 * 60 * 1000;
+const CHECKOUT_REPO = /^[A-Za-z0-9-]{1,100}\/[A-Za-z0-9_.-]{1,100}$/;
+const CHECKOUT_SHA = /^[0-9a-f]{7,64}$/;
 
 export const SaveWorkspaceInput = z.object({
   taskId: Id,
   sessionId: Id.nullable().optional(),
   agentId: Id.nullable().optional(),
   branch: z.string().max(250).nullable().optional(),
-  files: z.array(z.object({ path: z.string().refine(isSafeWorkspacePath, "workspace path must be relative and stay inside the workspace"), content: z.custom<Uint8Array>((v) => v instanceof Uint8Array, "file content must be bytes") })).max(5_000),
+  files: z
+    .array(
+      z.object({
+        path: z.string().refine(isSafeWorkspacePath, "workspace path must be relative and stay inside the workspace"),
+        content: z.custom<Uint8Array>((v) => v instanceof Uint8Array, "file content must be bytes"),
+        /** With a `base`: whether the checkout had this path (changed) or not (added). Counted, not stored. */
+        inBase: z.boolean().optional(),
+      }),
+    )
+    .max(5_000),
   /**
    * Keep the previous snapshot's files that are missing here instead of counting them as removed: the session did not
    * start from them (its restore failed), so their absence says nothing.
    */
   carryOver: z.boolean().optional(),
+  /**
+   * 0068: the checkout the session started from. With it `files` are only what changed against the checkout and
+   * `removedPaths` the checkout's files the session deleted. Omitted, a task whose latest save has a base keeps that
+   * base (the session could not check out, so it worked on the saved changes alone); null saves a whole workspace.
+   */
+  base: z
+    .object({ repo: z.string().regex(CHECKOUT_REPO, "owner/name"), ref: z.string().min(1).max(250), commitSha: z.string().regex(CHECKOUT_SHA, "a commit sha") })
+    .nullable()
+    .optional(),
+  removedPaths: z.array(z.string().refine(isSafeWorkspacePath, "workspace path must be relative and stay inside the workspace")).max(10_000).optional(),
 });
 export type SaveWorkspaceInput = z.input<typeof SaveWorkspaceInput>;
 
@@ -101,6 +122,10 @@ const summaryColumns = {
   pushedUrl: workspaceSnapshots.pushedUrl,
   pushedAt: workspaceSnapshots.pushedAt,
   pushError: workspaceSnapshots.pushError,
+  baseRepo: workspaceSnapshots.baseRepo,
+  baseRef: workspaceSnapshots.baseRef,
+  baseCommitSha: workspaceSnapshots.baseCommitSha,
+  removedPaths: workspaceSnapshots.removedPaths,
   createdAt: workspaceSnapshots.createdAt,
   updatedAt: workspaceSnapshots.updatedAt,
 };
@@ -217,21 +242,45 @@ export const workspacesRepo = {
       }
     }
     const previous = await workspacesRepo.latest(db, businessId, f.taskId);
+    // The checkout this save is a diff against: the session's own, or (when it could not check out) the latest save's.
+    const inherited = f.base === undefined && previous?.baseCommitSha && previous.baseRepo && previous.baseRef ? { repo: previous.baseRepo, ref: previous.baseRef, commitSha: previous.baseCommitSha } : null;
+    const base = f.base ?? inherited;
+    const removedSet = new Set(base ? (f.removedPaths ?? []) : []);
+    for (const p of removedSet) if (seen.has(p)) throw new ValidationError(`workspace path both saved and removed: ${p}`);
+    // A session on an inherited base never had the checkout: what an earlier save removed stays removed unless it is back.
+    if (inherited || (base && f.carryOver)) for (const p of previous?.removedPaths ?? []) if (!seen.has(p)) removedSet.add(p);
+    const inBase = new Map(f.files.map((file) => [file.path, file.inBase] as const));
     const entries: Array<WorkspaceManifestEntry & { content?: Uint8Array }> = f.files.map((file) => ({ path: file.path, sha256: sha256(file.content), size: file.content.byteLength, content: file.content }));
-    if (f.carryOver) for (const e of previous?.files ?? []) if (!seen.has(e.path)) entries.push({ ...e });
+    if (f.carryOver) for (const e of previous?.files ?? []) if (!seen.has(e.path) && !removedSet.has(e.path)) entries.push({ ...e });
     entries.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
+    const removedPaths = [...removedSet].sort();
     const now = new Set(entries.map((e) => e.path));
     const before = new Map((previous?.files ?? []).map((e) => [e.path, e.sha256] as const));
     let added = 0;
     let changed = 0;
-    for (const e of entries) {
-      const prev = before.get(e.path);
-      if (prev === undefined) added++;
-      else if (prev !== e.sha256) changed++;
-    }
-    const removed = [...before.keys()].filter((p) => !now.has(p)).length;
+    let removed: number;
     const unchanged = { snapshot: previous, saved: false, added: 0, changed: 0, removed: 0, refused: null, pruned: 0 };
-    if (added + changed + removed === 0 && (previous || entries.length === 0)) return unchanged;
+    if (base) {
+      // Counted against the checkout: what the commit onto the branch adds, changes and deletes.
+      for (const e of entries) {
+        const known = inBase.get(e.path);
+        if (known === false || (known === undefined && !before.has(e.path))) added++;
+        else if (known === true || before.get(e.path) !== e.sha256) changed++;
+      }
+      removed = removedPaths.length;
+      const sameBase = previous?.baseCommitSha === base.commitSha && previous.baseRepo === base.repo;
+      const sameFiles = previous !== null && previous.files.length === entries.length && entries.every((e) => before.get(e.path) === e.sha256);
+      const sameRemoved = previous !== null && previous.removedPaths.length === removedPaths.length && removedPaths.every((p, i) => previous.removedPaths[i] === p);
+      if ((sameBase && sameFiles && sameRemoved) || (!previous && entries.length === 0 && removedPaths.length === 0)) return unchanged;
+    } else {
+      for (const e of entries) {
+        const prev = before.get(e.path);
+        if (prev === undefined) added++;
+        else if (prev !== e.sha256) changed++;
+      }
+      removed = [...before.keys()].filter((p) => !now.has(p)).length;
+      if (added + changed + removed === 0 && (previous || entries.length === 0)) return unchanged;
+    }
 
     const unique = new Map<string, WorkspaceManifestEntry & { content: Uint8Array }>();
     for (const e of entries) if (e.content && !unique.has(e.sha256)) unique.set(e.sha256, e as WorkspaceManifestEntry & { content: Uint8Array });
@@ -273,7 +322,23 @@ export const workspacesRepo = {
     const files: WorkspaceManifestEntry[] = entries.map((e) => ({ path: e.path, sha256: e.sha256, size: e.size }));
     const [snapshot] = await db
       .insert(workspaceSnapshots)
-      .values({ businessId, taskId: f.taskId, sessionId: f.sessionId ?? null, agentId: f.agentId ?? null, branch: f.branch ?? null, files, fileCount: files.length, totalBytes: files.reduce((s, e) => s + e.size, 0), added, changed, removed })
+      .values({
+        businessId,
+        taskId: f.taskId,
+        sessionId: f.sessionId ?? null,
+        agentId: f.agentId ?? null,
+        branch: f.branch ?? null,
+        files,
+        fileCount: files.length,
+        totalBytes: files.reduce((s, e) => s + e.size, 0),
+        added,
+        changed,
+        removed,
+        baseRepo: base?.repo ?? null,
+        baseRef: base?.ref ?? null,
+        baseCommitSha: base?.commitSha ?? null,
+        removedPaths,
+      })
       .returning();
 
     // Retention: the task keeps its newest snapshots and everything from the last day (the quota still bounds both);

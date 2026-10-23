@@ -17,12 +17,13 @@ import { CallRequest } from "./types";
 import { GatewayError, modeFor, refuseServiceOnly, safeError, type GatewayDeps } from "./pipeline";
 import { tracedToolCall } from "./tracing";
 import { toolAllowed, type SessionToken } from "./tokens";
+import { ROUTE_ONLY_TOOLS } from "./archive";
 
 export const MCP_SERVER_VERSION = "0.1.0";
 
-/** The connector's MCP tool definitions this session may see. */
+/** The connector's MCP tool definitions this session may see (a tool served on its own route, such as a repository archive, never). */
 export function visibleTools(connector: Connector, session: SessionToken): McpToolDefinition[] {
-  return connector.tools.filter((t) => toolAllowed(session.allowedTools, connector.key, t.name));
+  return connector.tools.filter((t) => toolAllowed(session.allowedTools, connector.key, t.name) && !ROUTE_ONLY_TOOLS.has(`${connector.key}:${t.name}`));
 }
 
 function toMcpTool(def: McpToolDefinition): Tool {
@@ -47,6 +48,10 @@ export function createMcpServer(deps: GatewayDeps, session: SessionToken, connec
 
   server.setRequestHandler(CallToolRequestSchema, async (request): Promise<CallToolResult> => {
     const req = CallRequest.parse({ connector: connector.key, tool: request.params.name, args: request.params.arguments ?? {} });
+    if (ROUTE_ONLY_TOOLS.has(`${req.connector}:${req.tool}`)) {
+      const body = { outcome: "error" as const, error: { code: "route_only_tool", message: `${req.tool} is not available to agents`, status: 400 } };
+      return { content: [{ type: "text", text: JSON.stringify(body) }], structuredContent: body, isError: true };
+    }
     try {
       const { status, body } = await tracedToolCall(deps, session, req);
       return {

@@ -18,7 +18,7 @@ import { ConfigError, type Connector, type IntegrationRecord, type ToolContext }
 import { buildLiveConnector, healthResult } from "../../define";
 import { resolveLiveOptions, type LiveConnectorOptions } from "../../platform";
 import { githubMock } from "./mock";
-import { ciState, CI_WORKFLOW, fileWriteBuffer, githubChangedMessage, gitBlobSha, GITHUB_APP_SCOPES, GITHUB_KEY, GITHUB_RATE_LIMITS, githubTools, mapCheckRun, mapPullRequest, mapRepository, mapTreeEntry, MAX_FILE_BYTES, MAX_TREE_ENTRIES, type GhCheckRun, type GhPullRequest, type GhRepository } from "./tools";
+import { archiveTooLargeMessage, ciState, CI_WORKFLOW, fileWriteBuffer, MAX_ARCHIVE_BYTES, githubChangedMessage, gitBlobSha, GITHUB_APP_SCOPES, GITHUB_KEY, GITHUB_RATE_LIMITS, githubTools, mapCheckRun, mapPullRequest, mapRepository, mapTreeEntry, MAX_FILE_BYTES, MAX_TREE_ENTRIES, type GhCheckRun, type GhPullRequest, type GhRepository } from "./tools";
 import { createGithubWebhook } from "./webhooks";
 
 type RestOctokit = InstanceType<typeof Octokit>;
@@ -88,6 +88,37 @@ export function slots(size: number, maxWaiting = MAX_WAITING_COMMITS, waitMs = C
       }
     },
   };
+}
+
+/** How long one archive download may take (up to 60 MB from codeload). */
+const ARCHIVE_TIMEOUT_MS = 180_000;
+
+/** A response body (a web stream, a Node stream, bytes or text) read into memory, refused past `max` bytes. */
+export async function readCapped(body: unknown, max: number, fullName: string): Promise<Buffer> {
+  const tooLarge = () => Object.assign(new Error(archiveTooLargeMessage(fullName)), { status: 413 });
+  if (body instanceof ArrayBuffer || ArrayBuffer.isView(body)) {
+    const b = body instanceof ArrayBuffer ? Buffer.from(body) : Buffer.from(body.buffer, body.byteOffset, body.byteLength);
+    if (b.length > max) throw tooLarge();
+    return b;
+  }
+  if (typeof body === "string") throw Object.assign(new Error("GitHub answered the archive request with text, not an archive"), { status: 502 });
+  if (!body || typeof (body as AsyncIterable<Uint8Array>)[Symbol.asyncIterator] !== "function") throw Object.assign(new Error("GitHub sent no archive"), { status: 502 });
+  const chunks: Buffer[] = [];
+  let total = 0;
+  const iterator = (body as AsyncIterable<Uint8Array>)[Symbol.asyncIterator]();
+  try {
+    for (;;) {
+      const next = await iterator.next();
+      if (next.done) break;
+      total += next.value.byteLength;
+      if (total > max) throw tooLarge();
+      chunks.push(Buffer.from(next.value.buffer, next.value.byteOffset, next.value.byteLength));
+    }
+  } catch (e) {
+    await iterator.return?.().catch(() => undefined);
+    throw e;
+  }
+  return Buffer.concat(chunks, total);
 }
 
 /** Installations listed per user while checking ownership (100 per page). */
@@ -220,6 +251,22 @@ export function createGithubConnector(options: LiveConnectorOptions = {}): Conne
           const text = raw.toString("utf8");
           const binary = text.includes("�");
           return { path, sha: res.data.sha, size: res.data.size, encoding: binary ? ("base64" as const) : ("utf-8" as const), content: binary ? raw.toString("base64") : text, url: res.data.html_url ?? null };
+        },
+        download_archive: async ({ owner, repo, ref }, ctx) => {
+          const o = await octokitFor(ctx);
+          const info = (await o.rest.repos.get({ owner, repo })).data;
+          // What agents work from stays in repositories the founder controls access to, as with every write.
+          if (!info.private) throw Object.assign(new Error(`${owner}/${repo} is public; code sessions check out only private repositories`), { status: 422 });
+          const name = ref === "HEAD" ? info.default_branch : ref;
+          // GitHub answers 422 for a ref that names no commit; either way the ref is not there.
+          const sha = await refSha(o, owner, repo, name).catch((e: { status?: number }) => Promise.reject(e.status === 404 || e.status === 422 ? Object.assign(new Error(`ref ${name} not found in ${owner}/${repo}`), { status: 404 }) : e));
+          // The tarball of the resolved commit, so the archive and the sha always agree. GitHub redirects to codeload;
+          // the body is read as a stream and given up past the cap.
+          const res = await o.request("GET /repos/{owner}/{repo}/tarball/{ref}", { owner, repo, ref: sha, request: { parseSuccessResponseBody: false, signal: AbortSignal.timeout(ARCHIVE_TIMEOUT_MS) } });
+          const declared = Number((res.headers as Record<string, string | undefined>)["content-length"] ?? Number.NaN);
+          if (Number.isFinite(declared) && declared > MAX_ARCHIVE_BYTES) throw Object.assign(new Error(archiveTooLargeMessage(`${owner}/${repo}`)), { status: 413 });
+          const archive = await readCapped(res.data as unknown, MAX_ARCHIVE_BYTES, `${owner}/${repo}`);
+          return { ref: name, sha, bytes: archive.length, base64: archive.toString("base64") };
         },
         create_branch: async ({ owner, repo, branch, fromRef }, ctx) => {
           const o = await octokitFor(ctx);

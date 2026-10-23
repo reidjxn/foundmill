@@ -11,6 +11,7 @@
  *   POST /v1/domains/check         service JWT (api) → registry answers for up to 8 domain names (domains.ts)
  *   POST /v1/personas/portrait     service JWT (api) → the AI-generated portrait of one persona catalog key (portraits.ts)
  *   POST /v1/call                  session JWT → the pipeline (allow / ask / deny / rate_limited)
+ *   POST /v1/github/archive        session JWT → the Code-tab repository's tarball for a code session's checkout (archive.ts)
  *   ALL  /mcp/:connector           session JWT → that connector's tools as an MCP streamable-HTTP server
  */
 import { Hono } from "hono";
@@ -28,6 +29,7 @@ import { CreateCheckoutRequest, createPlatformCheckout } from "./billing";
 import { CheckDomainsRequest, checkDomains } from "./domains";
 import { generatePortrait, PortraitRequest } from "./portraits";
 import { handleMcpRequest } from "./mcp";
+import { ARCHIVE_ROUTE, ArchiveRequest, serveArchive } from "./archive";
 import { callerTrace, tracedToolCall } from "./tracing";
 import { toCandidates } from "./recipients";
 import { STATE_ERROR_CODES, stateDenial } from "./state";
@@ -79,6 +81,7 @@ export function createGatewayApp(deps: GatewayDeps, options: GatewayAppOptions):
   // files, base64 in JSON), an agent's MCP call far less, the service routes a few kilobytes.
   const limit = (maxSize: number) => bodyLimit({ maxSize, onError: (c) => c.json(errorBody("payload_too_large", `Request body is larger than ${Math.round(maxSize / 1024)} KB`), 413) });
   app.use("/v1/call", limit(MAX_CALL_BODY_BYTES));
+  app.use(ARCHIVE_ROUTE, limit(MAX_SERVICE_BODY_BYTES));
   app.use("/mcp/*", limit(MAX_MCP_BODY_BYTES));
   app.use("/v1/session-tokens", limit(MAX_SERVICE_BODY_BYTES));
   app.use("/v1/integrations/*", limit(MAX_SERVICE_BODY_BYTES));
@@ -260,8 +263,12 @@ export function createGatewayApp(deps: GatewayDeps, options: GatewayAppOptions):
   };
   app.use("/v1/call", requireSession);
   app.use("/mcp/*", requireSession);
+  app.use(ARCHIVE_ROUTE, requireSession);
   app.use("/v1/call", callerTrace);
   app.use("/mcp/*", callerTrace);
+  app.use(ARCHIVE_ROUTE, callerTrace);
+
+  app.post(ARCHIVE_ROUTE, async (c) => serveArchive(deps, c.var.session, ArchiveRequest.parse(await c.req.json())));
 
   app.post("/v1/call", async (c) => {
     const req = CallRequest.parse(await c.req.json());

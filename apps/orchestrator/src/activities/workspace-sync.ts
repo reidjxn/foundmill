@@ -12,10 +12,11 @@
  * - Caps (files, bytes per file, bytes in total) are checked while reading, before anything is written; over a cap the
  *   sync refuses with the reason, and the caller records the acceptance run as failed instead of testing a partial copy.
  */
+import { createHash } from "node:crypto";
 import { constants, existsSync } from "node:fs";
 import { open, readdir, realpath } from "node:fs/promises";
 import path from "node:path";
-import type { Sandbox } from "@foundmill/sandbox";
+import { shellJoin, type Sandbox } from "@foundmill/sandbox";
 
 /** Top-level entries the SDK process creates under its HOME (the workspace); never part of the agent's work. */
 export const SDK_HOME_ARTIFACTS: readonly string[] = [".tmp", ".cache", ".config", ".npm", ".local", ".pnpm-store"];
@@ -130,6 +131,143 @@ export async function readWorkspace(cwd: string, limits: WorkspaceSyncLimits = D
     }
   }
   return { files, skipped, refused: null };
+}
+
+/**
+ * A workspace that holds a checkout of the repository (./checkout): the whole tree is read (up to 10,000 files and
+ * 350 MB, at most 5 MB each), but only what differs from the checkout is kept, within the usual limits on what one
+ * session may change (DEFAULT_SYNC_LIMITS).
+ */
+export const CHECKOUT_SYNC_LIMITS: WorkspaceSyncLimits = { maxFiles: 10_000, maxFileBytes: 5 * 1024 * 1024, maxTotalBytes: 350 * 1024 * 1024, concurrency: 8 };
+
+export interface WorkspaceChange extends WorkspaceFile {
+  /** The checkout had this path (the file changed) or not (it was added). */
+  inBase: boolean;
+}
+
+export interface WorkspaceChanges {
+  /** Files added or changed against the checkout. */
+  files: WorkspaceChange[];
+  /** Files of the checkout that are no longer in the workspace (as regular files), sorted. */
+  removed: string[];
+  /** Files the same as in the checkout. */
+  unchanged: number;
+  skipped: number;
+  refused: string | null;
+}
+
+const sha256 = (content: Uint8Array) => createHash("sha256").update(content).digest("hex");
+
+/**
+ * What the agent changed against the checkout: every candidate file is opened and checked exactly as `readWorkspace`
+ * does and hashed; its content is kept only when it differs from `base` (path → sha256). Writes nothing anywhere.
+ */
+export async function readWorkspaceChanges(cwd: string, base: ReadonlyMap<string, string>, limits: WorkspaceSyncLimits = CHECKOUT_SYNC_LIMITS, changeLimits: WorkspaceSyncLimits = DEFAULT_SYNC_LIMITS): Promise<WorkspaceChanges> {
+  const cwdReal = await realpath(cwd);
+  const { rels, skipped: notFiles } = await candidates(cwd);
+  const files: WorkspaceChange[] = [];
+  const present = new Set<string>();
+  let skipped = notFiles;
+  let total = 0;
+  let changedBytes = 0;
+  let unchanged = 0;
+  const done = (refused: string | null): WorkspaceChanges => ({ files, removed: refused ? [] : [...base.keys()].filter((p) => !present.has(p)).sort(), unchanged, skipped, refused });
+  for (const rel of rels) {
+    let handle;
+    try {
+      handle = await open(path.join(cwd, ...rel.split("/")), constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+    } catch {
+      skipped++;
+      continue;
+    }
+    try {
+      const st = await handle.stat();
+      if (!st.isFile() || st.nlink !== 1) {
+        skipped++;
+        continue;
+      }
+      if (PROC_FD) {
+        const where = await realpath(`/proc/self/fd/${handle.fd}`);
+        if (!where.startsWith(cwdReal + path.sep)) {
+          skipped++;
+          continue;
+        }
+      }
+      if (st.size > limits.maxFileBytes) return done(`${rel} is larger than ${mb(limits.maxFileBytes)}`);
+      if (present.size + 1 > limits.maxFiles) return done(`the workspace has more than ${limits.maxFiles} files`);
+      if (total + st.size > limits.maxTotalBytes) return done(`the workspace is larger than ${mb(limits.maxTotalBytes)}`);
+      const content = new Uint8Array(st.size);
+      let read = 0;
+      while (read < st.size) {
+        const { bytesRead } = await handle.read(content, read, st.size - read, read);
+        if (bytesRead === 0) break;
+        read += bytesRead;
+      }
+      const bytes = read === st.size ? content : content.subarray(0, read);
+      total += read;
+      present.add(rel);
+      const known = base.get(rel);
+      if (known !== undefined && known === sha256(bytes)) {
+        unchanged++;
+        continue;
+      }
+      if (files.length + 1 > changeLimits.maxFiles) return done(`the session changed more than ${changeLimits.maxFiles} files`);
+      if (changedBytes + read > changeLimits.maxTotalBytes) return done(`the session's changes are larger than ${mb(changeLimits.maxTotalBytes)}`);
+      changedBytes += read;
+      files.push({ rel, content: bytes, inBase: known !== undefined });
+    } finally {
+      await handle.close();
+    }
+  }
+  return done(null);
+}
+
+/** Where the checkout's archive is put inside the sandbox before it is unpacked into the workdir. */
+export const SANDBOX_ARCHIVE_PATH = "/tmp/fm-checkout.tgz";
+/** How long unpacking the checkout inside the sandbox may take. */
+export const SANDBOX_UNPACK_TIMEOUT_MS = 5 * 60_000;
+
+export interface CheckoutSyncResult extends WorkspaceSyncResult {
+  /** The checkout was unpacked inside the sandbox from its archive (only the changes were copied); false when the whole workspace was copied instead. */
+  unpacked: boolean;
+  changed: number;
+  removed: number;
+}
+
+/**
+ * The acceptance copy of a workspace that holds a checkout: the checkout's archive is uploaded once and unpacked in the
+ * sandbox's workdir (without node_modules or .git), then the agent's changes are written over it and the files it
+ * deleted are removed. When the sandbox cannot unpack it, the whole workspace is copied file by file instead (with the
+ * checkout's limits). Writes nothing when refused.
+ */
+export async function syncCheckoutToSandbox(cwd: string, sandbox: Pick<Sandbox, "writeFile" | "exec" | "workdir">, checkout: { archive: Uint8Array; files: ReadonlyMap<string, string> }, limits: WorkspaceSyncLimits = CHECKOUT_SYNC_LIMITS): Promise<CheckoutSyncResult> {
+  const changes = await readWorkspaceChanges(cwd, checkout.files, limits);
+  if (changes.refused) return { files: 0, bytes: 0, skipped: changes.skipped, refused: changes.refused, unpacked: false, changed: 0, removed: 0 };
+  await sandbox.writeFile(SANDBOX_ARCHIVE_PATH, checkout.archive);
+  const unpack = await sandbox.exec(
+    [`mkdir -p ${shellJoin([sandbox.workdir])}`, `tar -xzf ${SANDBOX_ARCHIVE_PATH} -C ${shellJoin([sandbox.workdir])} --strip-components=1 --no-same-owner --exclude=node_modules --exclude=.git`, `rm -f ${SANDBOX_ARCHIVE_PATH}`].join(" && "),
+    { cwd: "/", timeoutMs: SANDBOX_UNPACK_TIMEOUT_MS },
+  );
+  if (unpack.code !== 0) {
+    const whole = await syncWorkspaceToSandbox(cwd, sandbox, limits);
+    return { ...whole, unpacked: false, changed: changes.files.length, removed: changes.removed.length };
+  }
+  // Paths come from the workspace walk and the checkout (both checked as relative paths); quoted one by one.
+  for (let i = 0; i < changes.removed.length; i += 200) {
+    const rm = await sandbox.exec(`rm -f -- ${shellJoin(changes.removed.slice(i, i + 200))}`, { timeoutMs: 60_000 });
+    if (rm.code !== 0) throw new Error(`the files the agent deleted could not be removed in the sandbox (exit ${rm.code})`);
+  }
+  let next = 0;
+  let bytes = 0;
+  const worker = async () => {
+    while (next < changes.files.length) {
+      const file = changes.files[next++]!;
+      await sandbox.writeFile(file.rel, file.content);
+      bytes += file.content.byteLength;
+    }
+  };
+  await Promise.all(Array.from({ length: Math.max(1, Math.min(limits.concurrency, changes.files.length)) }, worker));
+  return { files: changes.unchanged + changes.files.length, bytes: checkout.archive.byteLength + bytes, skipped: changes.skipped, refused: null, unpacked: true, changed: changes.files.length, removed: changes.removed.length };
 }
 
 /** Copy the agent's files from the host workspace into `sandbox.workdir`, keeping relative paths. Writes nothing when refused. */

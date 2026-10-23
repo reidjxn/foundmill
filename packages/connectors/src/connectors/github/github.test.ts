@@ -6,6 +6,7 @@ import { describeConnectorContract, envKeysPresent, makeToolContext, TEST_BUSINE
 import { GH_MERGED_PR, GH_REPOS, MOCK_OWNER } from "./fixtures/repos";
 import { createGithubConnector, slots } from "./index";
 import { createGithubMock, githubMock, mergedPullRequestPayload, signedDeliveryRequest } from "./mock";
+import { readTarGz, writeTarGz } from "./tarball";
 import { checksState, CommitFilesInput, GetChecksOutput, GITHUB_APP_SCOPES, gitBlobSha, RunChecksOutput } from "./tools";
 
 /** A signed install state as apps/api issues it (the connector checks only its shape). */
@@ -842,5 +843,83 @@ describe.skipIf(!envKeysPresent("GITHUB_APP_ID","GITHUB_APP_PRIVATE_KEY", "GITHU
     expect(first.ok, JSON.stringify(first.error)).toBe(true);
     expect(first.data).toMatchObject({ committed: true, filesWritten: 1 });
     expect((await connector.callTool("commit_files", args, ctx)).data).toMatchObject({ committed: false });
+  });
+});
+
+describe("download_archive", () => {
+  const entriesOf = async (base64: string) => {
+    const out: { path: string; content: string | null }[] = [];
+    for await (const e of readTarGz(Buffer.from(base64, "base64"), { maxEntries: 100, maxEntryBytes: 1024 * 1024, maxTotalBytes: 10 * 1024 * 1024 })) if (e.type === "file") out.push({ path: e.path, content: e.content?.toString("utf8") ?? null });
+    return out;
+  };
+
+  it("mock: the default branch of a fixture repository as a deterministic tarball, an agent branch with its own commits, a starter tree for an unknown repository", async () => {
+    const mock = createGithubMock();
+    const ctx = makeToolContext(mock);
+    const main = await mock.callTool("download_archive", { owner: MOCK_OWNER, repo: "northwind-site" }, ctx);
+    expect(main.ok, JSON.stringify(main.error)).toBe(true);
+    expect(isUntrusted(main.data) && main.data.source).toMatchObject({ connector: "github", kind: "repo", ref: `${MOCK_OWNER}/northwind-site@HEAD:archive` });
+    const out = (isUntrusted(main.data) ? main.data.content : null) as { ref: string; sha: string; bytes: number; base64: string };
+    expect(out).toMatchObject({ ref: "main", sha: GH_REPOS[0]!.branches.main });
+    expect(Buffer.from(out.base64, "base64").length).toBe(out.bytes);
+    const files = await entriesOf(out.base64);
+    expect(files.map((f) => f.path)).toEqual(GH_REPOS[0]!.files.map((f) => `${MOCK_OWNER}-northwind-site-${out.sha.slice(0, 7)}/${f.path}`).sort());
+    // Deterministic: the same call gives the same bytes.
+    const again = await mock.callTool("download_archive", { owner: MOCK_OWNER, repo: "northwind-site", ref: "main" }, ctx);
+    expect(isUntrusted(again.data) && (again.data.content as { base64: string }).base64).toBe(out.base64);
+
+    // A missing branch is not found (the orchestrator then checks out the default branch).
+    expect((await mock.callTool("download_archive", { owner: MOCK_OWNER, repo: "northwind-site", ref: "agent/t1" }, ctx)).error?.code).toBe("not_found");
+    await mock.callTool("commit_files", { owner: MOCK_OWNER, repo: "northwind-site", branch: "agent/t1", message: "x", files: [{ path: "NOTES.md", content: "notes\n" }], deletions: ["README.md"] }, ctx);
+    const branch = await mock.callTool("download_archive", { owner: MOCK_OWNER, repo: "northwind-site", ref: "agent/t1" }, ctx);
+    const onBranch = await entriesOf((isUntrusted(branch.data) ? (branch.data.content as { base64: string }) : { base64: "" }).base64);
+    expect(onBranch.some((f) => f.path.endsWith("/NOTES.md"))).toBe(true);
+    expect(onBranch.some((f) => f.path.endsWith("/README.md"))).toBe(false);
+
+    const fresh = await mock.callTool("download_archive", { owner: "acme", repo: "shop" }, ctx);
+    const starter = await entriesOf((isUntrusted(fresh.data) ? (fresh.data.content as { base64: string }) : { base64: "" }).base64);
+    expect(starter.map((f) => f.path.split("/").slice(1).join("/"))).toEqual(["README.md", "package.json", "src/index.ts"]);
+    expect(mock.policyHints.download_archive).toEqual({});
+
+    const pub = createGithubMock({ publicRepos: [`${MOCK_OWNER}/northwind-site`] });
+    expect((await pub.callTool("download_archive", { owner: MOCK_OWNER, repo: "northwind-site" }, makeToolContext(pub))).error).toMatchObject({ status: 422 });
+  });
+
+  const tarball = writeTarGz([{ path: "package.json", content: "{}" }], { prefix: "acme-shop-aaaaaaa/" });
+  const SHA = "a".repeat(40);
+  const live = (options: { private?: boolean; body?: () => BodyInit; length?: string; refs?: Record<string, string> } = {}) => {
+    const seen: string[] = [];
+    const fetch = routedFetch({
+      "GET https://api.github.com/repos/acme/shop": () => jsonResponse({ id: 1, full_name: "acme/shop", name: "shop", private: options.private ?? true, default_branch: "main", description: null, html_url: "https://github.com/acme/shop", owner: { login: "acme" } }),
+      "GET https://api.github.com/repos/acme/shop/commits/*": (_req, url) => {
+        const ref = decodeURIComponent(url.pathname.split("/commits/")[1]!);
+        const sha = (options.refs ?? { main: SHA })[ref];
+        return sha ? new Response(sha, { headers: { "content-type": "application/vnd.github.sha; charset=utf-8" } }) : jsonResponse({ message: `No commit found for SHA: ${ref}` }, { status: 422 });
+      },
+      "GET https://api.github.com/repos/acme/shop/tarball/*": (req, url) => {
+        seen.push(`${url.pathname} ${req.headers.get("authorization")}`);
+        return new Response(options.body ? options.body() : tarball, { headers: { "content-type": "application/x-gzip", ...(options.length ? { "content-length": options.length } : {}) } });
+      },
+    });
+    const connector = createGithubConnector({ secrets: {}, fetch });
+    const ctx = makeToolContext(connector, { mode: "live", credential: { kind: "app", secret: "ghs_installation_token" } });
+    return { seen, call: (args: Record<string, unknown>) => connector.callTool("download_archive", { owner: "acme", repo: "shop", ...args }, ctx) };
+  };
+
+  it("live: resolves the ref, downloads the tarball of that exact commit with the installation token", async () => {
+    const { seen, call } = live();
+    const r = await call({});
+    expect(r.ok, JSON.stringify(r.error)).toBe(true);
+    expect(isUntrusted(r.data) && r.data.content).toEqual({ ref: "main", sha: SHA, bytes: tarball.length, base64: tarball.toString("base64") });
+    expect(seen).toEqual([`/repos/acme/shop/tarball/${SHA} token ghs_installation_token`]);
+    expect((await call({ ref: "agent/t1" })).error).toMatchObject({ code: "not_found", message: "ref agent/t1 not found in acme/shop" });
+  });
+
+  it("live: refuses public repositories and archives over 60 MB (declared or streamed)", async () => {
+    expect((await live({ private: false }).call({})).error).toMatchObject({ status: 422, message: "acme/shop is public; code sessions check out only private repositories" });
+    expect((await live({ length: String(61 * 1024 * 1024) }).call({})).error).toMatchObject({ status: 413 });
+    const chunk = new Uint8Array(8 * 1024 * 1024);
+    const stream = () => new ReadableStream<Uint8Array>({ pull(c) { c.enqueue(chunk); } });
+    expect((await live({ body: stream }).call({})).error).toMatchObject({ status: 413, message: "acme/shop is larger than 60 MB compressed; it cannot be checked out" });
   });
 });

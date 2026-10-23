@@ -44,7 +44,7 @@ describe("the capability map", () => {
 describe("resolveGrants", () => {
   it("turns template capabilities into the real tools that serve them", () => {
     const r = resolveGrants([{ connectorKey: "github", tools: ["repos.read", "pulls.merge"] }, { connectorKey: "platform", tools: ["tasks.list", "messages.request", "inbox.request_human_action"] }]);
-    expect(r.toolRefs).toEqual(["github:list_repos", "github:read_tree", "github:read_file", "github:merge_pr", "platform:list_tasks", "platform:get_task", "platform:send_message", "platform:list_messages", "platform:request_human_action"]);
+    expect(r.toolRefs).toEqual(["github:list_repos", "github:read_tree", "github:read_file", "github:download_archive", "github:merge_pr", "platform:list_tasks", "platform:get_task", "platform:send_message", "platform:list_messages", "platform:request_human_action"]);
     expect(r.mcpTools).toContain("mcp__platform__request_human_action");
     expect(r.servers).toEqual(["github", "platform"]);
     expect(r.unresolved).toEqual([]);

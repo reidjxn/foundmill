@@ -24,7 +24,8 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } 
 import { createGithubMock } from "@foundmill/connectors/connectors/github/mock";
 import { makeToolContext } from "@foundmill/connectors/testing/contract-suite";
 import { openAgentSession } from "../activities/dispatch";
-import { ACCEPTANCE_EGRESS, classifyTurnEnd, createSessionActivities, SANDBOX_TTL_MINUTES } from "../activities/session";
+import { ACCEPTANCE_EGRESS, classifyTurnEnd, createSessionActivities, NO_CHANGES_REASON, SANDBOX_TTL_MINUTES } from "../activities/session";
+import { emitEvent } from "../events";
 import type { SessionResult } from "../activities/types";
 import type { SessionControlBus } from "../control-bus";
 import { CREDITS_USED_UP_SUMMARY, SESSION_CREDIT_CHECK_MS } from "../activities/session-credits";
@@ -365,7 +366,9 @@ describe("runAgentSession (live runner, SDK mocked)", () => {
     const leaked = "npm_" + "x".repeat(36);
     provider.replies.push({ code: 0, stdout: "Done in 2s", stderr: "", timedOut: false, durationMs: 30 }, { code: 1, stdout: "Tests  1 failed | 2 passed", stderr: `AssertionError: expected 2 to be 3 ${leaked}`, timedOut: false, durationMs: 40 });
     const result = await acts.runAgentSession(input, launch);
-    expect(result.outcome).toBe("done");
+    // A failed acceptance run is never done (decision 3): the task is blocked on it, with the run's output as the reason.
+    expect(result).toMatchObject({ outcome: "blocked", blockedReason: "error", reason: expect.stringMatching(/^acceptance tests failed \(exit 1, 2 passed, 1 failed\)\. Last output:\n[\s\S]*AssertionError/) });
+    expect(result.reason).not.toContain(leaked);
     const tests = await readSessionEvents(t.redis, sessionId, { kinds: ["test_result"] });
     expect(tests.at(-1)?.event).toMatchObject({ kind: "test_result", acceptance: true, passed: 2, failed: 1, durationMs: 70 });
     const notes = await readSessionEvents(t.redis, sessionId, { kinds: ["note"] });
@@ -390,7 +393,8 @@ describe("runAgentSession (live runner, SDK mocked)", () => {
       const logBefore = provider.log.length;
       const result = await acts.runAgentSession(input, launch);
       provider.closeFails = false;
-      expect(result.outcome).toBe("done");
+      // No tests could run: not done, and the reason says why (decision 3).
+      expect(result).toMatchObject({ outcome: "blocked", blockedReason: "error", reason: expect.stringMatching(mode === "install" ? /^acceptance tests failed \(not run, 0 passed, 1 failed\)\. Last output:\nDependency install failed:\n[\s\S]*ERR_PNPM_FETCH_404/ : /^acceptance tests failed \(not run, 0 passed, 1 failed\)\. Last output:\nSandbox network could not be closed/) });
       expect(provider.log.slice(logBefore)).not.toContain("exec:run");
       const tests = await readSessionEvents(t.redis, sessionId, { kinds: ["test_result"] });
       expect(tests.at(-1)?.event).toMatchObject({ kind: "test_result", acceptance: true, passed: 0, failed: 1, failures: [mode === "install" ? "Dependency install failed" : "Sandbox network could not be closed; tests not run"] });
@@ -1111,13 +1115,14 @@ describe("runAgentSession (live runner): session control, usage and refusals", (
     expect(result).toMatchObject({ outcome: "blocked", blockedReason: "awaiting_approval", tokensIn: 25, tokensOut: 5 });
   });
 
-  it("a sandbox that cannot start fails the acceptance run, not the session", async () => {
+  it("a sandbox that cannot start fails the acceptance run, not the session: the task is blocked on it", async () => {
     const { sessionId, input, launch } = await start(t.codeTaskId);
     script = success(sessionId);
     provider.createFails = true;
     try {
       const result = await acts.runAgentSession(input, launch);
-      expect(result.outcome).toBe("done");
+      // The session itself did not fail (the agent is not marked failing), but tests that never ran are not a pass.
+      expect(result).toMatchObject({ outcome: "blocked", blockedReason: "error", reason: expect.stringMatching(/^acceptance tests failed \(not run, 0 passed, 1 failed\)\. Last output:\nSandbox could not be started$/) });
     } finally {
       provider.createFails = false;
     }
@@ -1308,5 +1313,145 @@ describe("runAgentSession (live runner): the agent's wage cap and the monthly mo
     expect(calls).toHaveLength(0);
     expect(result).toMatchObject({ outcome: "blocked", blockedReason: "budget", reason: expect.stringMatching(/monthly model budget is used up/), tokensIn: 0, costMinor: 0 });
     await acts.finishSession(input, launch, result);
+  });
+});
+
+describe("honest outcomes: a code session ends done only when it did the work (decision 3, 2026-10-23)", () => {
+  /** A code task of its own, with no saved code from earlier sessions, running as dispatch leaves it. */
+  const freshCodeTask = async (title: string) => {
+    const task = await repos.tasks.create(t.db, t.businessId, { kind: "code", title, goalMd: "Change the code.", acceptance: ["pnpm test passes"], assigneeAgentId: t.workerId, status: "ready" });
+    await repos.tasks.setStatus(t.db, t.businessId, task.id, "running", { force: true });
+    const sessionId = await openSessionRow(t, t.workerId, task.id);
+    const input = { businessId: t.businessId, agentId: t.workerId, taskId: task.id, sessionId };
+    return { task, sessionId, input, launch: await acts.prepareSession(input) };
+  };
+  const blockedEventsOf = async (sessionId: string) => (await repos.events.list(t.db, t.businessId, { type: "task.blocked", limit: 200 })).items.filter((e) => (e.payload as { sessionId?: string }).sessionId === sessionId);
+  /** What the gateway's platform host does on `block_task` (apps/gateway platform-host.ts): the task is blocked and the founder told. */
+  const gatewayBlocks = async (taskId: string, sessionId: string, reason: string) => {
+    const task = await repos.tasks.setStatus(t.db, t.businessId, taskId, "blocked", { force: true });
+    return emitEvent(t.db, { businessId: t.businessId, type: "task.blocked", actor: { kind: "agent", id: t.workerId }, payload: { taskId, kind: task.kind, title: task.title, assigneeAgentId: t.workerId, sessionId, reason: "dependency", detail: reason, approvalId: null, occurrence: 1 } });
+  };
+  afterEach(async () => {
+    await repos.agents.setStatus(t.db, t.businessId, t.workerId, "idle");
+  });
+
+  it("an agent that blocks its own task ends the session blocked with its reason; the task stays blocked and the founder gets one task.blocked", async () => {
+    const { task, sessionId, input, launch } = await freshCodeTask("Add named paths to the code task schema");
+    const reason = "No repository available: the workspace is empty and no repository is connected.";
+    let gatewayEventId = "";
+    script = async function* (call) {
+      await writeFile(path.join(call.options.cwd as string, "NOTES.md"), "Looked for the schema.\n");
+      yield { type: "system", subtype: "init", session_id: `sdk-${sessionId}` };
+      yield { type: "assistant", message: { content: [{ type: "tool_use", id: "tu-block", name: "mcp__platform__block_task", input: { taskId: task.id, reason } }] } };
+      gatewayEventId = (await gatewayBlocks(task.id, sessionId, reason)).id;
+      yield { type: "user", message: { content: [{ type: "tool_result", tool_use_id: "tu-block", content: JSON.stringify({ id: task.id, status: "blocked" }) }] } };
+      yield { type: "assistant", message: { content: [{ type: "text", text: "Blocked: nothing to work on." }] } };
+      yield { type: "result", subtype: "success", modelUsage: { m: { inputTokens: 10, cacheReadInputTokens: 0, cacheCreationInputTokens: 0, outputTokens: 5, costUSD: 0.01 } } };
+    };
+    const specsBefore = provider.specs.length;
+    const result = await acts.runAgentSession(input, launch);
+    expect(result).toMatchObject({ outcome: "blocked", blockedReason: "dependency", reason, approvalId: null });
+    // Blocked by its agent: no acceptance run, so no sandbox is paid for.
+    expect(provider.specs.length).toBe(specsBefore);
+    const notes = (await readSessionEvents(t.redis, sessionId, { kinds: ["note"] })).map((r) => (r.event.kind === "note" ? r.event.text : ""));
+    expect(notes).toContain("Acceptance tests not run: Test Engineer blocked the task.");
+
+    const finish = await acts.finishSession(input, launch, result);
+    expect(finish.taskStatus).toBe("blocked");
+    expect((await repos.tasks.get(t.db, t.businessId, task.id)).status).toBe("blocked");
+    expect((await repos.agents.getSession(t.db, t.businessId, sessionId)).outcome).toBe("blocked");
+    // The gateway's event is the one Inbox item: the session settles on it instead of writing a second.
+    expect(finish.eventIds).toContain(gatewayEventId);
+    const events = await blockedEventsOf(sessionId);
+    expect(events.map((e) => e.id)).toEqual([gatewayEventId]);
+    expect(events[0]!.payload).toMatchObject({ reason: "dependency", detail: reason });
+    const completed = (await repos.events.list(t.db, t.businessId, { type: "task.completed", limit: 200 })).items.filter((e) => (e.payload as { sessionId?: string }).sessionId === sessionId);
+    expect(completed).toEqual([]);
+    // Blocked is not failing: the agent goes back to idle.
+    expect((await repos.agents.get(t.db, t.businessId, t.workerId)).status).toBe("idle");
+  });
+
+  it("a run reported done on a task its agent blocked during the session still ends blocked; a block from an earlier session does not count", async () => {
+    const { task, sessionId, input, launch } = await freshCodeTask("Wire the webhook retries");
+    const reason = "Waiting on the founder to connect the payments account.";
+    const gatewayEvent = await gatewayBlocks(task.id, sessionId, reason);
+    const done = { outcome: "done", reason: null, blockedReason: null, approvalId: null, progress: { planStepsDone: 0, planSteps: 0, acceptanceTestsPassing: 3, acceptanceTests: 3, reviewPassed: false, merged: false, phase: null, progress: 0.5, etaAt: null, at: null }, eventsEmitted: 3, toolCalls: 2, toolFailures: 0, tokensIn: 0, tokensOut: 0, costMinor: 0, durationMs: 21_000, prNumber: null, summary: "done", providerSessionId: null } satisfies SessionResult;
+    const finish = await acts.finishSession(input, launch, done);
+    expect(finish.taskStatus).toBe("blocked");
+    expect(finish.eventIds).toEqual([gatewayEvent.id]);
+    expect((await repos.agents.getSession(t.db, t.businessId, sessionId)).outcome).toBe("blocked");
+    expect(await blockedEventsOf(sessionId)).toHaveLength(1);
+
+    // The next session starts on the still-blocked task (no dispatch moved it) and finishes it: done, as the run says.
+    const nextId = await openSessionRow(t, t.workerId, task.id);
+    const next = { ...input, sessionId: nextId };
+    const finishNext = await acts.finishSession(next, launch, done);
+    expect(finishNext.taskStatus).toBe("done");
+    expect((await repos.agents.getSession(t.db, t.businessId, nextId)).outcome).toBe("done");
+  });
+
+  it("a code session that changes no file is not done: blocked with the reason, no acceptance run, the agent not failing", async () => {
+    const { task, sessionId, input, launch } = await freshCodeTask("Add a health endpoint");
+    script = async function* (call) {
+      // Only the SDK's own HOME state changes; the agent's files do not.
+      await mkdir(path.join(call.options.cwd as string, ".claude"), { recursive: true });
+      await writeFile(path.join(call.options.cwd as string, ".claude", "state.json"), "{}");
+      yield* success(sessionId)();
+    };
+    const specsBefore = provider.specs.length;
+    const result = await acts.runAgentSession(input, launch);
+    expect(result).toMatchObject({ outcome: "blocked", blockedReason: "error", reason: NO_CHANGES_REASON });
+    expect(provider.specs.length).toBe(specsBefore);
+    const notes = (await readSessionEvents(t.redis, sessionId, { kinds: ["note"] })).map((r) => (r.event.kind === "note" ? r.event.text : ""));
+    expect(notes).toContain("Acceptance tests not run: the session changed no files.");
+
+    const finish = await acts.finishSession(input, launch, result);
+    expect(finish.taskStatus).toBe("blocked");
+    expect((await repos.tasks.get(t.db, t.businessId, task.id)).status).toBe("blocked");
+    const events = await blockedEventsOf(sessionId);
+    expect(events).toHaveLength(1);
+    expect(events[0]!.payload).toMatchObject({ taskId: task.id, reason: "error", detail: NO_CHANGES_REASON });
+    expect((await repos.agents.get(t.db, t.businessId, t.workerId)).status).toBe("idle");
+  });
+
+  it("a code task whose acceptance run fails is never done: the task is blocked on the test output and the agent is not marked failing", async () => {
+    const { task, sessionId, input, launch } = await freshCodeTask("Fix the invoice rounding");
+    script = async function* (call) {
+      await writeFile(path.join(call.options.cwd as string, "invoice.ts"), "export const round = (n: number) => n;\n");
+      yield* success(sessionId)();
+    };
+    provider.replies.push({ code: 0, stdout: "", stderr: "", timedOut: false, durationMs: 5 }, { code: 1, stdout: "", stderr: " ERR_PNPM_NO_IMPORTER_MANIFEST_FOUND  No package.json was found in \"/work\".", timedOut: false, durationMs: 5 });
+    const result = await acts.runAgentSession(input, launch);
+    expect(result).toMatchObject({ outcome: "blocked", blockedReason: "error", reason: expect.stringMatching(/^acceptance tests failed \(exit 1, 0 passed, 1 failed\)\. Last output:\n[\s\S]*No package\.json/) });
+    const finish = await acts.finishSession(input, launch, result);
+    expect(finish.taskStatus).toBe("blocked");
+    const events = await blockedEventsOf(sessionId);
+    expect(events).toHaveLength(1);
+    expect(events[0]!.payload).toMatchObject({ taskId: task.id, reason: "error", detail: expect.stringMatching(/^acceptance tests failed.*No package\.json/s) });
+    expect((await repos.agents.get(t.db, t.businessId, t.workerId)).status).toBe("idle");
+  });
+
+  it("a code session that changes files and passes its acceptance run still ends done", async () => {
+    const { task, sessionId, input, launch } = await freshCodeTask("Add the named paths");
+    script = async function* (call) {
+      await writeFile(path.join(call.options.cwd as string, "paths.ts"), "export const paths = { home: \"/\" };\n");
+      yield* success(sessionId)();
+    };
+    const result = await acts.runAgentSession(input, launch);
+    expect(result).toMatchObject({ outcome: "done", reason: null, blockedReason: null });
+    const tests = await readSessionEvents(t.redis, sessionId, { kinds: ["test_result"] });
+    expect(tests.at(-1)?.event).toMatchObject({ acceptance: true, passed: 3, failed: 0 });
+    const finish = await acts.finishSession(input, launch, result);
+    expect(finish.taskStatus).toBe("done");
+    expect((await repos.tasks.get(t.db, t.businessId, task.id)).status).toBe("done");
+    expect(await blockedEventsOf(sessionId)).toEqual([]);
+  });
+
+  it("a later session that only finishes work saved by an earlier one can end done without writing", async () => {
+    const { task, sessionId, input, launch } = await freshCodeTask("Ship the saved change");
+    await t.deps.db.transaction((tx) => repos.workspaces.save(tx as never, t.businessId, { taskId: task.id, files: [{ path: "done.ts", content: new TextEncoder().encode("export {};\n") }], carryOver: true }));
+    script = success(sessionId);
+    const result = await acts.runAgentSession(input, launch);
+    expect(result.outcome).toBe("done");
   });
 });
