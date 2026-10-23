@@ -7,7 +7,7 @@ import { GH_MERGED_PR, GH_REPOS, MOCK_OWNER } from "./fixtures/repos";
 import { createGithubConnector, slots } from "./index";
 import { createGithubMock, githubMock, mergedPullRequestPayload, signedDeliveryRequest } from "./mock";
 import { readTarGz, writeTarGz } from "./tarball";
-import { checksState, CommitFilesInput, GetChecksOutput, GITHUB_APP_SCOPES, gitBlobSha, RunChecksOutput } from "./tools";
+import { BRANCH_MOVED, checksState, CommitFilesInput, GetChecksOutput, GITHUB_APP_SCOPES, gitBlobSha, RunChecksOutput } from "./tools";
 
 /** A signed install state as apps/api issues it (the connector checks only its shape). */
 const STATE = "eyJiIjoiYTEiLCJ1IjoidTEifQ.c2lnbmF0dXJl";
@@ -622,6 +622,21 @@ describe("github live: commit_files against the Git Data API", () => {
     expect(api.log.filter((l) => l.method !== "GET")).toEqual([]);
   });
 
+  it("refuses a branch whose head is not expectedHeadSha with branch_moved before writing anything", async () => {
+    const { api, commit } = setup();
+    await commit({ branch: "agent/t1", files: [{ path: "src/a.ts", content: "v2" }] });
+    const head = api.refs.get("agent/t1")!;
+    const writes = api.log.length;
+    const stale = "f".repeat(40);
+    const r = await commit({ branch: "agent/t1", message: "late", files: [{ path: "src/a.ts", content: "v3" }], expectedHeadSha: stale });
+    expect(r.error).toMatchObject({ code: BRANCH_MOVED, status: 409, details: { branch: "agent/t1", expectedHeadSha: stale, currentHeadSha: head } });
+    expect(api.log.slice(writes).filter((l) => l.method !== "GET")).toEqual([]);
+    expect(api.refs.get("agent/t1")).toBe(head);
+    expect((await commit({ branch: "agent/t1", message: "on time", files: [{ path: "src/a.ts", content: "v3" }], expectedHeadSha: head })).data).toMatchObject({ committed: true, parentSha: head });
+    // No branch yet: created from the default branch, the expected head notwithstanding.
+    expect((await commit({ branch: "agent/t2", files: [{ path: "src/a.ts", content: "v9" }], expectedHeadSha: stale })).data).toMatchObject({ created: true, committed: true });
+  });
+
   it("surfaces a branch that moved meanwhile as an error instead of overwriting it", async () => {
     const { api, commit } = setup();
     await commit({ branch: "agent/t1", files: [{ path: "src/a.ts", content: "v2" }] });
@@ -643,6 +658,26 @@ describe("github live: commit_files against the Git Data API", () => {
     expect(r.ok).toBe(false);
     expect(r.error?.status).toBe(422);
     expect(api.refs.get("agent/t1")).toBe(api.refs.get("main"));
+  });
+
+  it("answers branch_moved when the branch moves between the check and the update and expectedHeadSha was given", async () => {
+    const { api, commit } = setup();
+    await commit({ branch: "agent/t1", files: [{ path: "src/a.ts", content: "v2" }] });
+    const head = api.refs.get("agent/t1")!;
+    let moved = false;
+    const racing = createGithubConnector({
+      secrets: {},
+      fetch: async (input, init) => {
+        const req = new Request(input, init);
+        if (!moved && req.method === "PATCH") {
+          moved = true;
+          api.refs.set("agent/t1", api.refs.get("main")!);
+        }
+        return api.fetch(req);
+      },
+    });
+    const r = await racing.callTool("commit_files", { owner: OWNER, repo: REPO, branch: "agent/t1", message: "late", files: [{ path: "src/a.ts", content: "v3" }], expectedHeadSha: head }, makeToolContext(racing, { mode: "live", credential: { kind: "app", secret: "ghs_installation_token" } }));
+    expect(r.error).toMatchObject({ code: BRANCH_MOVED, details: { expectedHeadSha: head, currentHeadSha: api.refs.get("main") } });
   });
 });
 
@@ -847,9 +882,11 @@ describe.skipIf(!envKeysPresent("GITHUB_APP_ID","GITHUB_APP_PRIVATE_KEY", "GITHU
 });
 
 describe("download_archive", () => {
-  const entriesOf = async (base64: string) => {
+  type ArchiveOut = { ref: string; sha: string; bytes: number; archive: Uint8Array; base64?: string };
+  const archiveOf = (r: { data?: unknown }): ArchiveOut => (isUntrusted(r.data) ? r.data.content : r.data) as ArchiveOut;
+  const entriesOf = async (bytes: Uint8Array) => {
     const out: { path: string; content: string | null }[] = [];
-    for await (const e of readTarGz(Buffer.from(base64, "base64"), { maxEntries: 100, maxEntryBytes: 1024 * 1024, maxTotalBytes: 10 * 1024 * 1024 })) if (e.type === "file") out.push({ path: e.path, content: e.content?.toString("utf8") ?? null });
+    for await (const e of readTarGz(bytes, { maxEntries: 100, maxEntryBytes: 1024 * 1024, maxTotalBytes: 10 * 1024 * 1024 })) if (e.type === "file") out.push({ path: e.path, content: e.content?.toString("utf8") ?? null });
     return out;
   };
 
@@ -859,25 +896,31 @@ describe("download_archive", () => {
     const main = await mock.callTool("download_archive", { owner: MOCK_OWNER, repo: "northwind-site" }, ctx);
     expect(main.ok, JSON.stringify(main.error)).toBe(true);
     expect(isUntrusted(main.data) && main.data.source).toMatchObject({ connector: "github", kind: "repo", ref: `${MOCK_OWNER}/northwind-site@HEAD:archive` });
-    const out = (isUntrusted(main.data) ? main.data.content : null) as { ref: string; sha: string; bytes: number; base64: string };
+    const out = archiveOf(main);
     expect(out).toMatchObject({ ref: "main", sha: GH_REPOS[0]!.branches.main });
-    expect(Buffer.from(out.base64, "base64").length).toBe(out.bytes);
-    const files = await entriesOf(out.base64);
+    expect(Buffer.isBuffer(out.archive)).toBe(true);
+    expect(out.archive.byteLength).toBe(out.bytes);
+    // The deprecated base64 copy (mock only) is the same bytes.
+    expect(Buffer.from(out.base64!, "base64").equals(Buffer.from(out.archive))).toBe(true);
+    // The untrusted envelope hashes the bytes themselves, never a JSON array of them (the mock's base64 copy is still text).
+    expect(isUntrusted(main.data) && main.data.byteLength).toBeLessThan(out.bytes + out.base64!.length + 400);
+    const files = await entriesOf(out.archive);
     expect(files.map((f) => f.path)).toEqual(GH_REPOS[0]!.files.map((f) => `${MOCK_OWNER}-northwind-site-${out.sha.slice(0, 7)}/${f.path}`).sort());
     // Deterministic: the same call gives the same bytes.
     const again = await mock.callTool("download_archive", { owner: MOCK_OWNER, repo: "northwind-site", ref: "main" }, ctx);
-    expect(isUntrusted(again.data) && (again.data.content as { base64: string }).base64).toBe(out.base64);
+    expect(Buffer.from(archiveOf(again).archive).equals(Buffer.from(out.archive))).toBe(true);
+    expect(isUntrusted(again.data) && isUntrusted(main.data) && again.data.contentHash).toBe(isUntrusted(main.data) && main.data.contentHash);
 
     // A missing branch is not found (the orchestrator then checks out the default branch).
     expect((await mock.callTool("download_archive", { owner: MOCK_OWNER, repo: "northwind-site", ref: "agent/t1" }, ctx)).error?.code).toBe("not_found");
     await mock.callTool("commit_files", { owner: MOCK_OWNER, repo: "northwind-site", branch: "agent/t1", message: "x", files: [{ path: "NOTES.md", content: "notes\n" }], deletions: ["README.md"] }, ctx);
     const branch = await mock.callTool("download_archive", { owner: MOCK_OWNER, repo: "northwind-site", ref: "agent/t1" }, ctx);
-    const onBranch = await entriesOf((isUntrusted(branch.data) ? (branch.data.content as { base64: string }) : { base64: "" }).base64);
+    const onBranch = await entriesOf(archiveOf(branch).archive);
     expect(onBranch.some((f) => f.path.endsWith("/NOTES.md"))).toBe(true);
     expect(onBranch.some((f) => f.path.endsWith("/README.md"))).toBe(false);
 
     const fresh = await mock.callTool("download_archive", { owner: "acme", repo: "shop" }, ctx);
-    const starter = await entriesOf((isUntrusted(fresh.data) ? (fresh.data.content as { base64: string }) : { base64: "" }).base64);
+    const starter = await entriesOf(archiveOf(fresh).archive);
     expect(starter.map((f) => f.path.split("/").slice(1).join("/"))).toEqual(["README.md", "package.json", "src/index.ts"]);
     expect(mock.policyHints.download_archive).toEqual({});
 
@@ -910,7 +953,11 @@ describe("download_archive", () => {
     const { seen, call } = live();
     const r = await call({});
     expect(r.ok, JSON.stringify(r.error)).toBe(true);
-    expect(isUntrusted(r.data) && r.data.content).toEqual({ ref: "main", sha: SHA, bytes: tarball.length, base64: tarball.toString("base64") });
+    const out = archiveOf(r);
+    expect(out).toMatchObject({ ref: "main", sha: SHA, bytes: tarball.length });
+    // The live connector hands the bytes on as they are: no base64 copy.
+    expect(Buffer.from(out.archive).equals(tarball)).toBe(true);
+    expect(out.base64).toBeUndefined();
     expect(seen).toEqual([`/repos/acme/shop/tarball/${SHA} token ghs_installation_token`]);
     expect((await call({ ref: "agent/t1" })).error).toMatchObject({ code: "not_found", message: "ref agent/t1 not found in acme/shop" });
   });
@@ -921,5 +968,48 @@ describe("download_archive", () => {
     const chunk = new Uint8Array(8 * 1024 * 1024);
     const stream = () => new ReadableStream<Uint8Array>({ pull(c) { c.enqueue(chunk); } });
     expect((await live({ body: stream }).call({})).error).toMatchObject({ status: 413, message: "acme/shop is larger than 60 MB compressed; it cannot be checked out" });
+  });
+});
+
+describe("get_repository", () => {
+  it("mock: a fixture repository's id, visibility and default branch; an unknown one is created private with a stable id; an unreachable one is not found", async () => {
+    const mock = createGithubMock({ publicRepos: [`${MOCK_OWNER}/ledgerly-app`], inaccessibleRepos: ["Acme/Gone"] });
+    const ctx = makeToolContext(mock);
+    const content = (r: { data?: unknown }) => (isUntrusted(r.data) ? r.data.content : r.data) as { id: number; fullName: string; private: boolean; defaultBranch: string };
+    expect(content(await mock.callTool("get_repository", { owner: MOCK_OWNER, repo: "northwind-site" }, ctx))).toMatchObject({ id: GH_REPOS[0]!.repo.id, private: true, defaultBranch: "main" });
+    expect(content(await mock.callTool("get_repository", { owner: MOCK_OWNER, repo: "ledgerly-app" }, ctx))).toMatchObject({ private: false });
+    const created = content(await mock.callTool("get_repository", { owner: "acme", repo: "shop" }, ctx));
+    expect(created).toMatchObject({ fullName: "acme/shop", private: true });
+    // Another process's mock (the api's, the gateway's) gives the same id.
+    expect(content(await createGithubMock().callTool("get_repository", { owner: "acme", repo: "shop" }, makeToolContext(mock))).id).toBe(created.id);
+    expect((await mock.callTool("get_repository", { owner: "acme", repo: "gone" }, ctx)).error?.code).toBe("not_found");
+  });
+
+  it("live: reads GET /repos/{owner}/{repo} with the installation token", async () => {
+    const fetch = routedFetch({ "GET https://api.github.com/repos/acme/shop": () => jsonResponse({ id: 4242, full_name: "acme/shop", name: "shop", private: true, default_branch: "trunk", description: null, html_url: "https://github.com/acme/shop", owner: { login: "acme" } }) });
+    const connector = createGithubConnector({ secrets: {}, fetch });
+    const r = await connector.callTool("get_repository", { owner: "acme", repo: "shop" }, makeToolContext(connector, { mode: "live", credential: { kind: "app", secret: "ghs_installation_token" } }));
+    expect(isUntrusted(r.data) && r.data.content).toMatchObject({ id: 4242, private: true, defaultBranch: "trunk" });
+  });
+});
+
+describe("commit_files expectedHeadSha", () => {
+  it("mock: refuses with branch_moved (and the current head) when the branch moved, writes nothing; the right head commits", async () => {
+    const mock = createGithubMock();
+    const ctx = makeToolContext(mock);
+    const repo = { owner: MOCK_OWNER, repo: "northwind-site", branch: "agent/t1" };
+    const first = await mock.callTool("commit_files", { ...repo, message: "one", files: [{ path: "NOTES.md", content: "1\n" }] }, ctx);
+    const head = (first.data as { sha: string }).sha;
+    const stale = "f".repeat(40);
+    const refused = await mock.callTool("commit_files", { ...repo, message: "two", files: [{ path: "NOTES.md", content: "2\n" }], expectedHeadSha: stale }, ctx);
+    expect(refused.ok).toBe(false);
+    expect(refused.error).toMatchObject({ code: BRANCH_MOVED, status: 409, details: { branch: "agent/t1", expectedHeadSha: stale, currentHeadSha: head } });
+    const file = await mock.callTool("read_file", { owner: MOCK_OWNER, repo: "northwind-site", path: "NOTES.md", ref: "agent/t1" }, ctx);
+    expect(isUntrusted(file.data) && (file.data.content as { content: string }).content).toBe("1\n");
+    const ok = await mock.callTool("commit_files", { ...repo, message: "two", files: [{ path: "NOTES.md", content: "2\n" }], expectedHeadSha: head }, ctx);
+    expect(ok.data).toMatchObject({ committed: true, parentSha: head });
+    // A branch that does not exist yet is created whatever the expected head says.
+    expect((await mock.callTool("commit_files", { ...repo, branch: "agent/t2", message: "new", files: [{ path: "a.ts", content: "a" }], expectedHeadSha: stale }, ctx)).data).toMatchObject({ created: true, committed: true });
+    expect((await mock.callTool("commit_files", { ...repo, message: "x", files: [], expectedHeadSha: "abc123" }, ctx)).error?.code).toBe("invalid_args");
   });
 });

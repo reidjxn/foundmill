@@ -115,6 +115,12 @@ export const CommitFilesInput = RepoRef.extend({
   message: z.string().min(1).max(5_000),
   files: z.array(FileWrite).max(MAX_COMMIT_FILES).default([]),
   deletions: z.array(CommitPath).max(MAX_COMMIT_FILES).default([]),
+  /**
+   * The branch head the caller's changes are based on. When the branch exists and its head is any other commit, the call
+   * writes nothing and fails with `branch_moved` (details: `BranchMovedDetails`, with the current head). Ignored when the
+   * branch does not exist yet.
+   */
+  expectedHeadSha: z.string().regex(/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/, "a full commit sha").optional(),
 }).superRefine((input, ctx) => {
   const seen = new Set<string>();
   let total = 0;
@@ -203,11 +209,43 @@ export const DownloadArchiveOutput = z.object({
   /** The commit the ref resolved to; the archive is of exactly this commit. */
   sha: z.string().min(7).max(64),
   bytes: z.number().int().nonnegative().max(MAX_ARCHIVE_BYTES),
-  /** The gzip-compressed tarball, base64. */
-  base64: z.string(),
+  /**
+   * The gzip-compressed tarball's bytes, as they came from GitHub: never base64 inside the gateway (60 MB would be 80 MB of
+   * text, then that again as JSON). The gateway's archive route sends them as the response body; `/v1/call` encodes them
+   * as base64 for the few service callers that use it.
+   */
+  archive: z.instanceof(Uint8Array),
+  /**
+   * Deprecated: the same bytes as base64, set by the mock only (its archives are a few hundred bytes) until every reader
+   * takes `archive`. The live connector never sets it.
+   */
+  base64: z.string().optional(),
 });
 export type DownloadArchiveOutputT = z.infer<typeof DownloadArchiveOutput>;
 export const archiveTooLargeMessage = (fullName: string) => `${fullName} is larger than ${MAX_ARCHIVE_BYTES / (1024 * 1024)} MB compressed; it cannot be checked out`;
+
+/**
+ * `get_repository`: one repository's identity as the installation sees it (its numeric id, whether it is private, its
+ * default branch). The gateway reads it to pin and check the Code-tab repository (first-party reads, choosing the
+ * repository on Development › Code); it is never in an agent's tools.
+ */
+export const GET_REPOSITORY_TOOL = "get_repository";
+
+/**
+ * GitHub tools only the platform calls, from the gateway's own routes or its own checks: never granted to an agent
+ * session, never listed or callable through `/mcp/github`, and refused on `/v1/call` for an agent session.
+ */
+export const GITHUB_ROUTE_ONLY_TOOLS: readonly string[] = [DOWNLOAD_ARCHIVE_TOOL, GET_REPOSITORY_TOOL];
+
+/** The error code `commit_files` answers when the branch head is not the `expectedHeadSha` it was given. */
+export const BRANCH_MOVED = "branch_moved";
+/** What `commit_files` refuses with when the branch moved since the caller read it (`details` of the tool error). */
+export interface BranchMovedDetails {
+  branch: string;
+  expectedHeadSha: string;
+  currentHeadSha: string;
+}
+export const branchMovedMessage = (branch: string, expected: string, current: string) => `${branch} moved: its head is ${current.slice(0, 12)}, not ${expected.slice(0, 12)} as expected; nothing was written`;
 
 /** Why `run_checks` refuses a branch whose `.github` tree is not the default branch's. */
 export const githubChangedMessage = (branch: string): string => `run_checks refuses to run a workflow that differs from the default branch (.github changed on ${branch}); rebase the branch onto the default branch`;
@@ -245,12 +283,22 @@ export const githubTools = [
   }),
   defineTool({
     name: DOWNLOAD_ARCHIVE_TOOL,
-    description: "The whole repository at a ref (branch, tag or commit; default: the default branch) as a gzip-compressed tarball (base64) with the commit it resolved to. Private repositories only, at most 60 MB compressed. Served to the platform's checkout of a code session (the gateway's archive route), not to an agent's tool list.",
+    description: "The whole repository at a ref (branch, tag or commit; default: the default branch) as a gzip-compressed tarball (bytes) with the commit it resolved to. Private repositories only, at most 60 MB compressed. Served to the platform's checkout of a code session (the gateway's archive route), not to an agent's tool list.",
     input: DownloadArchiveInput,
     output: DownloadArchiveOutput,
     hints: {},
     untrusted: "repo",
     untrustedRef: (a) => `${a.owner}/${a.repo}@${a.ref}:archive`,
+    annotations: { readOnlyHint: true },
+  }),
+  defineTool({
+    name: GET_REPOSITORY_TOOL,
+    description: "One repository the installation can access: its numeric id, visibility and default branch. Used by the gateway to pin and check the Code-tab repository; not in an agent's tool list.",
+    input: RepoRef,
+    output: Repository,
+    hints: {},
+    untrusted: "repo",
+    untrustedRef: (a) => `${a.owner}/${a.repo}:repository`,
     annotations: { readOnlyHint: true },
   }),
   defineTool({
@@ -263,7 +311,7 @@ export const githubTools = [
   }),
   defineTool({
     name: "commit_files",
-    description: "Write files to an agent's working branch (agent/<name>) of a private repository as one commit: the branch is created from fromRef (default: the default branch) when missing, the files are added or replaced on top of it and the deletions removed. At most 300 files and 10 MB; nothing under .git or .github. Only changed files are uploaded; nothing changed means no commit. Never writes the default branch (merge a pull request with merge_pr) and never force-pushes.",
+    description: "Write files to an agent's working branch (agent/<name>) of a private repository as one commit: the branch is created from fromRef (default: the default branch) when missing, the files are added or replaced on top of it and the deletions removed. At most 300 files and 10 MB; nothing under .git or .github. Only changed files are uploaded; nothing changed means no commit. With expectedHeadSha, an existing branch whose head is another commit is refused (branch_moved, with the current head) and nothing is written. Never writes the default branch (merge a pull request with merge_pr) and never force-pushes.",
     input: CommitFilesInput,
     output: CommitFilesOutput,
     hints: {},

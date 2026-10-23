@@ -8,6 +8,8 @@
  * node:crypto here (docs/NEEDED_DEPS.md). Only the service secret lives in this process; vendor secrets never do.
  */
 import { createHmac, randomUUID } from "node:crypto";
+import { constants } from "node:fs";
+import { open, unlink } from "node:fs/promises";
 import { AppError } from "@foundmill/shared";
 import { isUntrusted, mockIntegrationRecord, type ToolContext } from "@foundmill/connectors";
 import { createGithubMock } from "@foundmill/connectors/connectors/github/mock";
@@ -60,11 +62,17 @@ export interface ArchiveRequest {
 }
 
 /**
- * The gateway's answer to an archive request (`POST /v1/github/archive`): the tarball as bytes with the ref and commit
- * it is of; a tool error (`not_found` for a branch that does not exist); or the policy outcome that stopped it.
+ * The tarball with the ref and commit it is of: as bytes, or (when the request named a `file`) written to that file,
+ * streamed, never whole in memory.
+ */
+export type ArchiveData = { ref: string; sha: string; data: Uint8Array } | { ref: string; sha: string; file: string; bytes: number };
+
+/**
+ * The gateway's answer to an archive request (`POST /v1/github/archive`): the tarball; a tool error (`not_found` for a
+ * branch that does not exist); or the policy outcome that stopped it.
  */
 export type ArchiveResponse =
-  | { outcome: "allow"; archive: { ref: string; sha: string; data: Uint8Array } }
+  | { outcome: "allow"; archive: ArchiveData }
   | { outcome: "allow"; error: { code: string; message: string } }
   | { outcome: "ask" | "deny" | "rate_limited"; reasons: string[] };
 
@@ -72,10 +80,11 @@ export interface GatewayClient {
   readonly baseUrl: string;
   mintSessionToken(input: MintSessionTokenRequest): Promise<MintSessionTokenResponse>;
   /**
-   * A repository archive for a code session's checkout, read as bytes and given up past `maxBytes`. Only the business's
-   * Code-tab repository is served; the token must allow `github:download_archive`.
+   * A repository archive for a code session's checkout, given up past `maxBytes`. Only the business's Code-tab
+   * repository is served; the token must allow `github:download_archive`. With `file`, the body is streamed into that
+   * new file (0600, links never followed; removed again when the download fails); a client may still answer with bytes.
    */
-  downloadArchive(sessionToken: string, request: ArchiveRequest, options?: { timeoutMs?: number; maxBytes?: number }): Promise<ArchiveResponse>;
+  downloadArchive(sessionToken: string, request: ArchiveRequest, options?: { timeoutMs?: number; maxBytes?: number; file?: string }): Promise<ArchiveResponse>;
   /** `timeoutMs` overrides the client's default for one long call (a push of many files). */
   call(sessionToken: string, request: GatewayCallRequest, options?: { timeoutMs?: number }): Promise<GatewayCallResponse>;
   health(): Promise<{ ok: boolean; mode?: "mock" | "live" }>;
@@ -153,11 +162,49 @@ async function readBytes(res: Response, max: number): Promise<Uint8Array> {
   return new Uint8Array(Buffer.concat(chunks, total));
 }
 
-/** The archive answer from a gateway response: bytes for `application/gzip`, else the JSON outcome. */
-async function archiveResponse(res: Response, max: number): Promise<ArchiveResponse> {
+/** A response body streamed into a new file (0600, O_EXCL | O_NOFOLLOW), refused past `max`; the file is removed on failure. */
+async function streamToFile(res: Response, max: number, file: string): Promise<number> {
+  const tooLarge = () => new GatewayClientError("archive_too_large", `the archive is larger than ${Math.round(max / (1024 * 1024))} MB`, 413);
+  const declared = Number(res.headers.get("content-length") ?? Number.NaN);
+  if (Number.isFinite(declared) && declared > max) throw tooLarge();
+  const handle = await open(file, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW, 0o600);
+  let total = 0;
+  let ok = false;
+  try {
+    if (!res.body) {
+      const data = new Uint8Array(await res.arrayBuffer());
+      if (data.byteLength > max) throw tooLarge();
+      await handle.write(data);
+      total = data.byteLength;
+    } else {
+      const reader = res.body.getReader();
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        total += value.byteLength;
+        if (total > max) {
+          await reader.cancel().catch(() => undefined);
+          throw tooLarge();
+        }
+        let written = 0;
+        while (written < value.byteLength) written += (await handle.write(value, written, value.byteLength - written)).bytesWritten;
+      }
+    }
+    ok = true;
+    return total;
+  } finally {
+    await handle.close();
+    if (!ok) await unlink(file).catch(() => undefined);
+  }
+}
+
+/** The archive answer from a gateway response: bytes (or a file) for `application/gzip`, else the JSON outcome. */
+async function archiveResponse(res: Response, max: number, file?: string): Promise<ArchiveResponse> {
   if (res.status === 200 && (res.headers.get("content-type") ?? "").startsWith("application/gzip")) {
-    const data = await readBytes(res, max);
-    return { outcome: "allow", archive: { ref: decodeURIComponent(res.headers.get("x-foundmill-archive-ref") ?? ""), sha: res.headers.get("x-foundmill-archive-sha") ?? "", data } };
+    const ref = decodeURIComponent(res.headers.get("x-foundmill-archive-ref") ?? "");
+    const sha = res.headers.get("x-foundmill-archive-sha") ?? "";
+    if (file) return { outcome: "allow", archive: { ref, sha, file, bytes: await streamToFile(res, max, file) } };
+    return { outcome: "allow", archive: { ref, sha, data: await readBytes(res, max) } };
   }
   const text = await res.text();
   let json: Record<string, unknown> | null;
@@ -234,7 +281,7 @@ export function createGatewayClient(options: GatewayClientOptions): GatewayClien
         } catch (e) {
           throw new GatewayClientError("gateway_unreachable", `Gateway request POST ${ARCHIVE_PATH} failed: ${(e as Error).message}`, 503);
         }
-        return await archiveResponse(res, opts?.maxBytes ?? MAX_ARCHIVE_RESPONSE_BYTES);
+        return await archiveResponse(res, opts?.maxBytes ?? MAX_ARCHIVE_RESPONSE_BYTES, opts?.file);
       } finally {
         clearTimeout(timer);
       }

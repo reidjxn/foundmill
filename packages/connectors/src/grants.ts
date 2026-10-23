@@ -16,7 +16,7 @@ import { companiesHouseTools } from "./connectors/companies_house/tools";
 import { domainsTools } from "./connectors/domains/tools";
 import { dropboxSignTools } from "./connectors/dropbox_sign/tools";
 import { ecbTools } from "./connectors/ecb_rates/tools";
-import { githubTools } from "./connectors/github/tools";
+import { GITHUB_ROUTE_ONLY_TOOLS, githubTools } from "./connectors/github/tools";
 import { gmailTools } from "./connectors/gmail/tools";
 import { googleCalendarTools } from "./connectors/google_calendar/tools";
 import { googleDriveTools } from "./connectors/google_drive/tools";
@@ -70,8 +70,8 @@ const bankingCapabilities = { "accounts.list": ["list_accounts", "get_consent_st
 export const CAPABILITY_TOOLS: Readonly<Record<string, Readonly<Record<string, readonly string[]>>>> = {
   anthropic: { "panel.query": ["ask_panel"] },
   github: {
-    // download_archive is served on the gateway's archive route (a code session's checkout), never in an agent's MCP list.
-    "repos.read": ["list_repos", "read_tree", "read_file", "download_archive"],
+    // download_archive is the platform's own checkout (the gateway's archive route, ROUTE_ONLY_TOOLS): never an agent's tool.
+    "repos.read": ["list_repos", "read_tree", "read_file"],
     "pulls.list": ["list_pull_requests"],
     "pulls.read": ["list_pull_requests", "get_pull_request"],
     // A pull request reports its merge state (get_pull_request); get_checks reads the check runs of an agent's branch head.
@@ -226,6 +226,24 @@ export function isServiceOnlyConnector(connectorKey: string): boolean {
   return SERVICE_ONLY_CONNECTORS.has(connectorKey);
 }
 
+/**
+ * `connector:tool` refs only the platform calls, on a gateway route of their own or from the gateway's own checks:
+ * `github:download_archive` (a code session's checkout, `POST /v1/github/archive`) and `github:get_repository` (pinning the
+ * Code-tab repository). No grant resolves to one, so no agent session token carries one (the orchestrator mints its
+ * checkout token with `github:download_archive` explicitly); the gateway also never lists one on `/mcp/:connector` and
+ * refuses one on `/v1/call` for an agent session, whatever a token says (a `github:*` wildcard included).
+ */
+export const ROUTE_ONLY_TOOLS: ReadonlySet<string> = new Set(GITHUB_ROUTE_ONLY_TOOLS.map((t) => `github:${t}`));
+
+const hasRouteOnlyTools = (connectorKey: string): boolean => [...ROUTE_ONLY_TOOLS].some((ref) => ref.startsWith(`${connectorKey}:`));
+
+/** Why a grant of a route-only tool resolves to nothing (`ResolvedGrants.unresolved`). */
+export const ROUTE_ONLY_REASON = "the platform calls this tool itself on its own gateway route; agents never do";
+
+export function isRouteOnlyTool(connectorKey: string, tool: string): boolean {
+  return ROUTE_ONLY_TOOLS.has(`${connectorKey}:${tool}`);
+}
+
 export interface ToolGrantLike {
   connectorKey: string;
   tools: readonly string[];
@@ -285,15 +303,18 @@ export function resolveGrants(grants: readonly ToolGrantLike[]): ResolvedGrants 
         unresolved.push({ connectorKey: g.connectorKey, capability, reason: SDK_BUILTIN_CAPABILITIES[g.connectorKey] ? (NOT_YET_SERVED[g.connectorKey]?.[capability] ?? "not a capability of the session workspace") : `the ${g.connectorKey} connector is not built yet` });
         continue;
       }
-      if (capability === "*") {
+      // A wildcard on a connector with route-only tools (GitHub) is spelled out without them, so the token never carries them.
+      if (capability === "*" && !hasRouteOnlyTools(g.connectorKey)) {
         refs.add(`${g.connectorKey}:*`);
         mcp.add(`mcp__${g.connectorKey}`);
         servers.add(g.connectorKey);
         continue;
       }
-      const tools = toolsForCapability(g.connectorKey, capability);
+      // A route-only tool (a repository archive) is never an agent's, whether granted by name or through `*`.
+      const served = toolsForCapability(g.connectorKey, capability);
+      const tools = served.filter((t) => !isRouteOnlyTool(g.connectorKey, t));
       if (tools.length === 0) {
-        unresolved.push({ connectorKey: g.connectorKey, capability, reason: NOT_YET_SERVED[g.connectorKey]?.[capability] ?? `${g.connectorKey} has no tool for "${capability}"` });
+        unresolved.push({ connectorKey: g.connectorKey, capability, reason: served.length > 0 ? ROUTE_ONLY_REASON : (NOT_YET_SERVED[g.connectorKey]?.[capability] ?? `${g.connectorKey} has no tool for "${capability}"`) });
         continue;
       }
       servers.add(g.connectorKey);

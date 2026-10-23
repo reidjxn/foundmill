@@ -18,6 +18,7 @@ import { ConfigError, type Connector, type IntegrationRecord, type ToolContext }
 import { buildLiveConnector, healthResult } from "../../define";
 import { resolveLiveOptions, type LiveConnectorOptions } from "../../platform";
 import { githubMock } from "./mock";
+import { branchMoved } from "./moved";
 import { archiveTooLargeMessage, ciState, CI_WORKFLOW, fileWriteBuffer, MAX_ARCHIVE_BYTES, githubChangedMessage, gitBlobSha, GITHUB_APP_SCOPES, GITHUB_KEY, GITHUB_RATE_LIMITS, githubTools, mapCheckRun, mapPullRequest, mapRepository, mapTreeEntry, MAX_FILE_BYTES, MAX_TREE_ENTRIES, type GhCheckRun, type GhPullRequest, type GhRepository } from "./tools";
 import { createGithubWebhook } from "./webhooks";
 
@@ -266,8 +267,10 @@ export function createGithubConnector(options: LiveConnectorOptions = {}): Conne
           const declared = Number((res.headers as Record<string, string | undefined>)["content-length"] ?? Number.NaN);
           if (Number.isFinite(declared) && declared > MAX_ARCHIVE_BYTES) throw Object.assign(new Error(archiveTooLargeMessage(`${owner}/${repo}`)), { status: 413 });
           const archive = await readCapped(res.data as unknown, MAX_ARCHIVE_BYTES, `${owner}/${repo}`);
-          return { ref: name, sha, bytes: archive.length, base64: archive.toString("base64") };
+          // The bytes themselves, never base64: the gateway hashes them and sends them on as they are.
+          return { ref: name, sha, bytes: archive.length, archive };
         },
+        get_repository: async ({ owner, repo }, ctx) => mapRepository((await (await octokitFor(ctx)).rest.repos.get({ owner, repo })).data as GhRepository),
         create_branch: async ({ owner, repo, branch, fromRef }, ctx) => {
           const o = await octokitFor(ctx);
           const existing = await o.rest.git.getRef({ owner, repo, ref: `heads/${branch}` }).catch((e: { status?: number }) => (e.status === 404 ? null : Promise.reject(e)));
@@ -276,7 +279,7 @@ export function createGithubConnector(options: LiveConnectorOptions = {}): Conne
           const created = await o.rest.git.createRef({ owner, repo, ref: `refs/heads/${branch}`, sha });
           return { branch, sha: created.data.object.sha, created: true };
         },
-        commit_files: ({ owner, repo, branch, fromRef, message, files, deletions }, ctx) =>
+        commit_files: ({ owner, repo, branch, fromRef, message, files, deletions, expectedHeadSha }, ctx) =>
           commitSlots.run(async () => {
             const o = await octokitFor(ctx);
             const info = (await o.rest.repos.get({ owner, repo })).data;
@@ -284,6 +287,8 @@ export function createGithubConnector(options: LiveConnectorOptions = {}): Conne
             // What agents write can name customers or carry business data: it goes only where the founder controls access.
             if (!info.private) throw Object.assign(new Error(`${owner}/${repo} is public; agents push only to private repositories`), { status: 422 });
             const existing = await o.rest.git.getRef({ owner, repo, ref: `heads/${branch}` }).catch((e: { status?: number }) => (e.status === 404 ? null : Promise.reject(e)));
+            // The caller's changes are based on a head the branch no longer has: nothing is written over the other commits.
+            if (existing && expectedHeadSha && existing.data.object.sha !== expectedHeadSha) throw branchMoved(branch, expectedHeadSha, existing.data.object.sha);
             const parentSha = existing ? existing.data.object.sha : await refSha(o, owner, repo, fromRef ?? info.default_branch);
             const baseTree = (await o.rest.git.getCommit({ owner, repo, commit_sha: parentSha })).data.tree.sha;
             // What the branch holds now, so unchanged files are not uploaded and only existing paths are deleted.
@@ -316,8 +321,16 @@ export function createGithubConnector(options: LiveConnectorOptions = {}): Conne
               return result(parentSha, false, null);
             }
             const commit = await o.rest.git.createCommit({ owner, repo, message, tree: tree.data.sha, parents: [parentSha] });
-            // Fast-forward only: if the branch moved since it was read, GitHub refuses and nothing is overwritten.
-            if (existing) await o.rest.git.updateRef({ owner, repo, ref: `heads/${branch}`, sha: commit.data.sha, force: false });
+            // Fast-forward only: if the branch moved since it was read, GitHub refuses and nothing is overwritten (with
+            // expectedHeadSha the refusal is the typed branch_moved).
+            if (existing)
+              await o.rest.git.updateRef({ owner, repo, ref: `heads/${branch}`, sha: commit.data.sha, force: false }).catch(async (e: { status?: number }) => {
+                if (expectedHeadSha && e.status === 422) {
+                  const now = await o.rest.git.getRef({ owner, repo, ref: `heads/${branch}` }).then((r) => r.data.object.sha, () => null);
+                  if (now && now !== parentSha) throw branchMoved(branch, expectedHeadSha, now);
+                }
+                throw e;
+              });
             else await o.rest.git.createRef({ owner, repo, ref: `refs/heads/${branch}`, sha: commit.data.sha });
             return result(commit.data.sha, true, commit.data.html_url ?? `${info.html_url}/commit/${commit.data.sha}`);
           }),
@@ -403,6 +416,7 @@ export function createGithubConnector(options: LiveConnectorOptions = {}): Conne
   );
 }
 
+export { branchMoved } from "./moved";
 export { githubMock, createGithubMock, signedDeliveryRequest, mergedPullRequestPayload } from "./mock";
 export { githubTools, GITHUB_KEY } from "./tools";
 export { createGithubWebhook, githubSignature, normaliseGithubEvent } from "./webhooks";

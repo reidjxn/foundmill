@@ -11,21 +11,30 @@
  * compressed, 8,000 files, 300 MB unpacked, 5 MB per file (a larger file is left out). Anything over a cap fails the
  * checkout, and the session starts as before with a note naming why.
  *
+ * The archive is streamed by the gateway client into a private temp file outside the workspace (0600, in a 0700
+ * directory of its own) and extracted from there; it is never held in memory for the session. The acceptance run
+ * uploads it to the sandbox from that file in chunks, and `disposeCheckout` removes it when the session ends (a failed
+ * checkout removes it at once).
+ *
  * The result is the base the session's save and push are diffed against (repository, ref, commit, each file's
  * sha256), the recipients its files mention (the gateway's untrusted seed: first-party code, but a recipient first seen
- * there still needs the founder) and the credential-shaped values already in the repository (kept as they are when a
- * changed file is saved, instead of being masked into the founder's code).
+ * there still needs the founder) and the credential-shaped values already in the repository, by path: a value is kept
+ * as it is only in the file that held it at the base (a test fixture), never when it turns up in another file, and
+ * nothing from files named like secrets (`.env`, keys) or start-up files is ever kept. Every package.json's `scripts`
+ * (and `jest`) are remembered too, so a session that rewires how tests run can be held for review.
  */
 import { createHash } from "node:crypto";
-import { constants } from "node:fs";
-import { lstat, mkdir, open, realpath, unlink } from "node:fs/promises";
+import { constants, createReadStream } from "node:fs";
+import { lstat, mkdir, mkdtemp, open, realpath, rm, unlink } from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
-import { readTarGz, TarError } from "@foundmill/connectors/connectors/github/tarball";
+import { createGunzip } from "node:zlib";
+import { readTar, readTarGz, TarError, type TarEntry, type TarReadLimits } from "@foundmill/connectors/connectors/github/tarball";
 import { DOWNLOAD_ARCHIVE_TOOL, MAX_ARCHIVE_BYTES } from "@foundmill/connectors/connectors/github/tools";
 import { repos, type Db } from "@foundmill/db";
 import type { GatewayClient } from "../gateway-client";
-import { collectRecipients, credentialMatches, restorablePath, scanText, type FoundRecipients } from "./workspace-store";
-import { DEFAULT_SYNC_LIMITS } from "./workspace-sync";
+import { collectRecipients, credentialMatches, isSecretFileName, isStartupFile, restorablePath, scanText, type FoundRecipients } from "./workspace-store";
+import { DEFAULT_SYNC_LIMITS, type WorkspaceChanges } from "./workspace-sync";
 
 export interface CheckoutLimits {
   maxArchiveBytes: number;
@@ -52,14 +61,25 @@ export interface CheckoutBase {
   commitSha: string;
   /** Every file written into the workspace: relative path → sha256 of its content. */
   files: Map<string, string>;
-  /** Credential-shaped values the checkout's files already hold. */
-  knownSecrets: Set<string>;
+  /**
+   * Credential-shaped values the checkout's files already hold, by the path that held them. Never from files named like
+   * secrets or start-up files: those values are masked wherever the agent copies them.
+   */
+  knownSecrets: Map<string, Set<string>>;
+  /** Every package.json of the checkout: relative path → its `scripts` and `jest` settings, canonical JSON. */
+  packageScripts: Map<string, string>;
+  /** When the checkout was taken (the push's expected branch head is the last commit the task saw). */
+  checkedOutAt: Date;
 }
 
 export interface Checkout {
   base: CheckoutBase;
-  /** The archive as the gateway served it (the acceptance run unpacks it inside the sandbox). */
-  archive: Uint8Array;
+  /**
+   * The archive as the gateway served it, in a private temp file outside the workspace (the acceptance run unpacks it
+   * inside the sandbox); `disposeCheckout` removes it.
+   */
+  archivePath: string;
+  archiveBytes: number;
   files: number;
   bytes: number;
   /** Entries not written: links, files over the size cap, start-up files, SDK entries, node_modules, .git. */
@@ -76,37 +96,91 @@ export interface CheckoutInput {
   taskId: string;
 }
 
-/** The archive of `ref`, or why there is none (`missing`: the ref does not exist). */
-async function fetchArchive(gateway: GatewayClient, token: string, target: { owner: string; repo: string }, ref: string): Promise<{ archive: { ref: string; sha: string; data: Uint8Array } } | { missing: true } | { error: string }> {
-  const res = await gateway.downloadArchive(token, { owner: target.owner, repo: target.repo, ref }, { timeoutMs: CHECKOUT_TIMEOUT_MS, maxBytes: CHECKOUT_LIMITS.maxArchiveBytes });
-  if (res.outcome === "allow" && "archive" in res) return { archive: res.archive };
+/** Write `content` to a new file (0600) without following links. */
+async function writeExclusive(abs: string, content: Uint8Array): Promise<void> {
+  const handle = await open(abs, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW, 0o600);
+  try {
+    await handle.writeFile(content);
+  } finally {
+    await handle.close();
+  }
+}
+
+/**
+ * The archive of `ref` in `file`, or why there is none (`missing`: the ref does not exist). The gateway client streams
+ * it into the file; a client that answers with bytes (the offline one, test stand-ins) has them written there.
+ */
+async function fetchArchive(gateway: GatewayClient, token: string, target: { owner: string; repo: string }, ref: string, file: string, maxBytes: number): Promise<{ archive: { ref: string; sha: string; bytes: number } } | { missing: true } | { error: string }> {
+  await rm(file, { force: true });
+  const res = await gateway.downloadArchive(token, { owner: target.owner, repo: target.repo, ref }, { timeoutMs: CHECKOUT_TIMEOUT_MS, maxBytes, file });
+  if (res.outcome === "allow" && "archive" in res) {
+    const got = res.archive;
+    if ("data" in got) {
+      if (got.data.byteLength > maxBytes) return { error: `the archive is larger than ${Math.round(maxBytes / (1024 * 1024))} MB` };
+      await writeExclusive(file, got.data);
+      return { archive: { ref: got.ref, sha: got.sha, bytes: got.data.byteLength } };
+    }
+    if (path.resolve(got.file) !== path.resolve(file)) throw new Error("the archive was written somewhere else");
+    return { archive: { ref: got.ref, sha: got.sha, bytes: got.bytes } };
+  }
   if (res.outcome === "allow") return res.error.code === "not_found" ? { missing: true } : { error: res.error.message.slice(0, 300) || "GitHub gave no archive" };
   if (res.outcome === "rate_limited") return { error: "GitHub's rate limit was reached" };
   if (res.outcome === "ask") return { error: "the checkout is waiting for the founder's approval" };
   return { error: `refused by policy${res.reasons.length ? ` (${res.reasons.join("; ").slice(0, 300)})` : ""}` };
 }
 
+export interface CheckoutOptions {
+  /** Where the archive's private temp directory is made (default: the OS temp directory); never inside `cwd`. */
+  tmpDir?: string;
+}
+
 /**
  * Check out the Code-tab repository into the fresh workspace `cwd`. Never throws: on failure the workspace may hold a
- * partial checkout, which the caller removes (it recreates the workspace) before starting as before.
+ * partial checkout, which the caller removes (it recreates the workspace) before starting as before, and the archive's
+ * temp file is already gone. On success the caller owns the temp file and removes it with `disposeCheckout`.
  */
-export async function checkoutRepository(deps: { db: Db; gateway: GatewayClient }, input: CheckoutInput, cwd: string, limits: CheckoutLimits = CHECKOUT_LIMITS): Promise<CheckoutResult> {
+export async function checkoutRepository(deps: { db: Db; gateway: GatewayClient }, input: CheckoutInput, cwd: string, limits: CheckoutLimits = CHECKOUT_LIMITS, options: CheckoutOptions = {}): Promise<CheckoutResult> {
   const target = await repos.integrations.codeRepository(deps.db, input.businessId);
   if (!target) return { status: "none", reason: "no repository is chosen on the Code tab" };
+  let dir: string | null = null;
+  let kept = false;
   try {
+    const checkedOutAt = new Date();
+    dir = await mkdtemp(path.join(options.tmpDir ?? os.tmpdir(), "fm-checkout-"));
+    const workspace = await realpath(cwd);
+    const dirReal = await realpath(dir);
+    if (dirReal === workspace || dirReal.startsWith(workspace + path.sep)) throw new Error("the archive cannot be kept inside the workspace");
+    const file = path.join(dir, "archive.tgz");
     const token = await deps.gateway.mintSessionToken({ businessId: input.businessId, agentId: input.agentId, sessionId: input.sessionId, allowedTools: [`github:${DOWNLOAD_ARCHIVE_TOOL}`], ttlSeconds: CHECKOUT_TOKEN_TTL_SECONDS });
-    let got = await fetchArchive(deps.gateway, token.token, target, `agent/${input.taskId}`);
-    if ("missing" in got) got = await fetchArchive(deps.gateway, token.token, target, "HEAD");
+    let got = await fetchArchive(deps.gateway, token.token, target, `agent/${input.taskId}`, file, limits.maxArchiveBytes);
+    if ("missing" in got) got = await fetchArchive(deps.gateway, token.token, target, "HEAD", file, limits.maxArchiveBytes);
     if ("missing" in got) return { status: "failed", repo: target.fullName, reason: "the repository or its default branch was not found" };
     if ("error" in got) return { status: "failed", repo: target.fullName, reason: got.error };
     const { archive } = got;
-    if (archive.data.byteLength > limits.maxArchiveBytes) return { status: "failed", repo: target.fullName, reason: `the archive is larger than ${Math.round(limits.maxArchiveBytes / (1024 * 1024))} MB` };
-    const extracted = await extractArchive(archive.data, cwd, limits);
-    const checkout: Checkout = { base: { repo: target.fullName, ref: archive.ref, commitSha: archive.sha, files: extracted.files, knownSecrets: extracted.knownSecrets }, archive: archive.data, files: extracted.files.size, bytes: extracted.bytes, skipped: extracted.skipped, recipients: extracted.recipients };
+    if (archive.bytes > limits.maxArchiveBytes) return { status: "failed", repo: target.fullName, reason: `the archive is larger than ${Math.round(limits.maxArchiveBytes / (1024 * 1024))} MB` };
+    const extracted = await extractArchive(file, cwd, limits);
+    const checkout: Checkout = {
+      base: { repo: target.fullName, ref: archive.ref, commitSha: archive.sha, files: extracted.files, knownSecrets: extracted.knownSecrets, packageScripts: extracted.packageScripts, checkedOutAt },
+      archivePath: file,
+      archiveBytes: archive.bytes,
+      files: extracted.files.size,
+      bytes: extracted.bytes,
+      skipped: extracted.skipped,
+      recipients: extracted.recipients,
+    };
+    kept = true;
     return { status: "checked_out", checkout };
   } catch (err) {
     return { status: "failed", repo: target.fullName, reason: String((err as Error).message ?? err).slice(0, 300) };
+  } finally {
+    if (!kept && dir) await rm(dir, { recursive: true, force: true }).catch(() => undefined);
   }
+}
+
+/** Remove a checkout's archive (its private temp directory). Idempotent; never throws. */
+export async function disposeCheckout(checkout: Pick<Checkout, "archivePath"> | null | undefined): Promise<void> {
+  if (!checkout) return;
+  await rm(path.dirname(checkout.archivePath), { recursive: true, force: true }).catch(() => undefined);
 }
 
 export interface Extracted {
@@ -114,7 +188,8 @@ export interface Extracted {
   bytes: number;
   skipped: number;
   recipients: FoundRecipients;
-  knownSecrets: Set<string>;
+  knownSecrets: Map<string, Set<string>>;
+  packageScripts: Map<string, string>;
 }
 
 /** Normalised segments of an archive path, or null when the path is unsafe (absolute or with a `..` segment). */
@@ -142,19 +217,50 @@ async function writeNew(abs: string, content: Uint8Array): Promise<void> {
   }
 }
 
+/** Entries of a gzip-compressed tar archive in a file, streamed (decompressed as it is read). */
+async function* readTarGzFile(file: string, limits: TarReadLimits): AsyncGenerator<TarEntry> {
+  const source = createReadStream(file);
+  const gunzip = createGunzip();
+  source.on("error", (err) => gunzip.destroy(err));
+  const stream = source.pipe(gunzip);
+  try {
+    yield* readTar(stream, limits);
+  } finally {
+    stream.destroy();
+    source.destroy();
+  }
+}
+
+/** The settings of a package.json that decide how its tests run (`scripts`, `jest`), as canonical JSON. */
+export function packageTestSettings(text: string): string {
+  const canonical = (v: unknown): unknown => (Array.isArray(v) ? v.map(canonical) : v && typeof v === "object" ? Object.fromEntries(Object.keys(v).sort().map((k) => [k, canonical((v as Record<string, unknown>)[k])])) : v);
+  try {
+    const json = JSON.parse(text) as { scripts?: unknown; jest?: unknown } | null;
+    return JSON.stringify(canonical({ scripts: json?.scripts ?? null, jest: json?.jest ?? null }));
+  } catch {
+    return "unparsable";
+  }
+}
+
+const baseName = (rel: string) => rel.slice(rel.lastIndexOf("/") + 1);
+
 /**
- * Unpack a GitHub tarball into `cwd` (which must be empty but for SDK entries), with the rules and caps above. Throws
- * on an unsafe or over-the-cap archive; what was written by then stays for the caller to remove.
+ * Unpack a GitHub tarball (bytes, or the path of a file holding it) into `cwd` (which must be empty but for SDK
+ * entries), with the rules and caps above. Throws on an unsafe or over-the-cap archive; what was written by then stays
+ * for the caller to remove.
  */
-export async function extractArchive(archive: Uint8Array, cwd: string, limits: CheckoutLimits = CHECKOUT_LIMITS): Promise<Extracted> {
+export async function extractArchive(archive: Uint8Array | string, cwd: string, limits: CheckoutLimits = CHECKOUT_LIMITS): Promise<Extracted> {
   const root = await realpath(cwd);
   const files = new Map<string, string>();
   const recipients: FoundRecipients = { emails: new Set(), urls: new Set(), phones: new Set() };
-  const knownSecrets = new Set<string>();
+  const knownSecrets = new Map<string, Set<string>>();
+  const packageScripts = new Map<string, string>();
+  let secretCount = 0;
   let top: string | null = null;
   let bytes = 0;
   let skipped = 0;
-  for await (const entry of readTarGz(archive, { maxEntries: limits.maxEntries, maxEntryBytes: limits.maxFileBytes, maxTotalBytes: limits.maxTotalBytes })) {
+  const tarLimits = { maxEntries: limits.maxEntries, maxEntryBytes: limits.maxFileBytes, maxTotalBytes: limits.maxTotalBytes };
+  for await (const entry of typeof archive === "string" ? readTarGzFile(archive, tarLimits) : readTarGz(archive, tarLimits)) {
     const segments = segmentsOf(entry.path);
     if (!segments) throw new TarError(`the archive holds an unsafe path (${entry.path.slice(0, 120)})`);
     if (segments.length === 0) continue;
@@ -186,11 +292,58 @@ export async function extractArchive(archive: Uint8Array, cwd: string, limits: C
     bytes += entry.content.byteLength;
     const text = scanText(entry.content);
     collectRecipients(recipients, text);
-    if (knownSecrets.size < MAX_KNOWN_SECRETS) for (const v of credentialMatches(text)) knownSecrets.add(v);
+    // Kept only where they were (a fixture in its own test file); never what a secret or start-up file holds.
+    if (secretCount < MAX_KNOWN_SECRETS && !isSecretFileName(rel) && !isStartupFile(rel)) {
+      for (const v of credentialMatches(text)) {
+        if (secretCount >= MAX_KNOWN_SECRETS) break;
+        const kept = knownSecrets.get(rel) ?? new Set<string>();
+        if (!kept.has(v)) {
+          kept.add(v);
+          secretCount++;
+        }
+        knownSecrets.set(rel, kept);
+      }
+    }
+    if (baseName(rel) === "package.json") packageScripts.set(rel, packageTestSettings(new TextDecoder("utf-8").decode(entry.content)));
   }
   // File names are visible to the agent too.
   collectRecipients(recipients, [...files.keys()].flatMap((p) => [p, p.replace(/\.[^./]*$/, "")]).join("\n"));
-  return { files, bytes, skipped, recipients, knownSecrets };
+  return { files, bytes, skipped, recipients, knownSecrets, packageScripts };
+}
+
+/** Config files of the test runners (vitest, jest, playwright): a change to one changes what a test run checks. */
+const TEST_RUNNER_CONFIG = /^(vitest|jest|playwright)(\.[\w-]+)*\.(config|workspace|projects)(\.[\w-]+)*\.(c|m)?(j|t)s(on)?$/i;
+/** Test files: under a tests directory, or named `*.test.*` / `*.spec.*`. */
+const TEST_FILE = /(^|\/)(__tests__|__test__|tests?|e2e|specs?)\/|\.(test|spec|e2e)\.[cm]?[jt]sx?$/i;
+
+export const isTestRunnerConfig = (rel: string) => TEST_RUNNER_CONFIG.test(baseName(rel));
+export const isTestFile = (rel: string) => TEST_FILE.test(rel);
+
+/**
+ * What a session changed, against its checkout, in how the tests run: package.json `scripts` (or `jest`) changed or
+ * the file removed, a test runner config added, changed or removed, a test file of the checkout deleted or renamed
+ * (a rename is a deletion here). A task with any of them cannot end done on its own tests: the founder looks first.
+ */
+export function testSetupChanges(changes: Pick<WorkspaceChanges, "files" | "removed">, base: Pick<CheckoutBase, "packageScripts">): string[] {
+  const out: string[] = [];
+  for (const f of changes.files) {
+    if (baseName(f.rel) === "package.json") {
+      const before = base.packageScripts.get(f.rel);
+      if (before !== undefined && before !== packageTestSettings(new TextDecoder("utf-8").decode(f.content))) out.push(`${f.rel} (scripts changed)`);
+    } else if (isTestRunnerConfig(f.rel)) out.push(`${f.rel} (${f.inBase ? "changed" : "added"})`);
+  }
+  for (const rel of changes.removed) {
+    if (baseName(rel) === "package.json" && base.packageScripts.has(rel)) out.push(`${rel} (deleted)`);
+    else if (isTestRunnerConfig(rel)) out.push(`${rel} (deleted)`);
+    else if (isTestFile(rel)) out.push(`${rel} (deleted or renamed)`);
+  }
+  return out;
+}
+
+/** Why a task whose session changed how its tests run waits for the founder instead of ending done. */
+export function testSetupReviewReason(found: readonly string[]): string {
+  const names = `${found.slice(0, 10).join(", ")}${found.length > 10 ? ` and ${found.length - 10} more` : ""}`;
+  return `this session changed how the tests run, so passing tests do not show the task is done (${names})`.slice(0, 1900);
 }
 
 /** The session note for a checkout outcome. */
@@ -205,6 +358,14 @@ export function describeCheckout(result: CheckoutResult): { level: "info" | "war
     case "failed":
       return { level: "warn", text: `Could not check out ${result.repo}: ${result.reason}. This session starts from the code saved on this task only.` };
   }
+}
+
+/**
+ * What the agent is told when the Code tab has a repository but the session could not check it out (part of the task
+ * prompt): it must not rebuild the repository from memory.
+ */
+export function checkoutMissingNote(reason: string): string {
+  return `The repository could not be checked out (${reason.replace(/\s+/g, " ").slice(0, 300)}); do not recreate repository files from memory; block the task with block_task if you need them.`;
 }
 
 /** What the agent is told about its working directory when it holds a checkout (part of the task prompt). */

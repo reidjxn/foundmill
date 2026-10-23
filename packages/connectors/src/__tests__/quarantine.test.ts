@@ -21,6 +21,17 @@ describe("quarantine: wrapUntrusted", () => {
     expect(toAgentEnvelope(w)).toEqual({ untrusted: true, content: w.content, source: w.source, notice: UNTRUSTED_NOTICE });
     expect(wrapUntrusted({ a: 1, b: 2 }, { connector: "x", kind: "api" }).contentHash).toBe(wrapUntrusted({ b: 2, a: 1 }, { connector: "x", kind: "api" }).contentHash);
   });
+  it("hashes binary content (an archive) by its bytes, keeps the bytes as they are, and counts them once", () => {
+    const bytes = Buffer.alloc(1024 * 1024, 7);
+    const w = wrapUntrusted({ ref: "main", archive: bytes }, { connector: "github", kind: "repo" });
+    expect(w.content.archive).toBe(bytes);
+    expect(w.byteLength).toBeGreaterThanOrEqual(bytes.byteLength);
+    expect(w.byteLength).toBeLessThan(bytes.byteLength + 200);
+    expect(wrapUntrusted({ archive: Buffer.from(bytes), ref: "main" }, { connector: "github", kind: "repo" }).contentHash).toBe(w.contentHash);
+    const other = Buffer.from(bytes);
+    other[10] = 8;
+    expect(wrapUntrusted({ ref: "main", archive: other }, { connector: "github", kind: "repo" }).contentHash).not.toBe(w.contentHash);
+  });
   it("extracts candidate recipients so policy can flag them as first seen in untrusted content", () => {
     const found = extractCandidateRecipients("Reply to Sales@Example.com or https://evil.example/pay?x=1, call +46 70 123 45 67.");
     expect(found.emails).toEqual(["sales@example.com"]);

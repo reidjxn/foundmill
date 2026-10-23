@@ -227,6 +227,11 @@ export interface SessionResult {
    * (`handoff`: the workflow starts the next run at once). Never set on a finished session.
    */
   parked?: SessionParked | null;
+  /**
+   * Set on a `done` session whose task must wait for the founder instead (`review`): it changed how the tests run
+   * (package.json scripts, a test runner config, a deleted test) compared with its checkout. Says why.
+   */
+  review?: string | null;
 }
 
 export interface SessionParked {

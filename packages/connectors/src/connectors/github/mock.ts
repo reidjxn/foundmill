@@ -3,6 +3,7 @@ import { MOCK_NOW, mockHealth, mockIntegrationRecord, stableHash } from "../../m
 import { makeWebhookRequest, ReplayGuard } from "../../webhooks";
 import { commitSha, fileSha, GH_MERGED_PR, GH_REPOS, MOCK_GITHUB_WEBHOOK_SECRET, MOCK_INSTALLATION_ID, MOCK_OWNER, type GhFixtureRepo } from "./fixtures/repos";
 import { writeTarGz } from "./tarball";
+import { branchMoved } from "./moved";
 import { ciState, CI_WORKFLOW, fileWriteBuffer, githubChangedMessage, GITHUB_APP_SCOPES, GITHUB_KEY, GITHUB_RATE_LIMITS, githubTools, mapCheckRun, mapPullRequest, mapRepository, MAX_TREE_ENTRIES, type GhCheckRun, type GhPullRequest, type GhWorkflowRun, type PullRequestT } from "./tools";
 import { createGithubWebhook, GITHUB_DELIVERY_HEADER, GITHUB_EVENT_HEADER, GITHUB_SIGNATURE_HEADER, githubSignature, normaliseGithubEvent, type GhWebhookPayload } from "./webhooks";
 
@@ -149,7 +150,7 @@ export const MOCK_BUSINESSES = 200;
  * Written files are bounded per business (the oldest written branches are dropped first) and the least recently used
  * businesses are forgotten beyond MOCK_BUSINESSES.
  */
-export function createGithubMock(limits: { bytesPerBusiness?: number; bytesTotal?: number; businesses?: number; failingBranches?: readonly string[]; publicRepos?: readonly string[]; branchesWithChangedGithub?: readonly string[] } = {}) {
+export function createGithubMock(limits: { bytesPerBusiness?: number; bytesTotal?: number; businesses?: number; failingBranches?: readonly string[]; publicRepos?: readonly string[]; branchesWithChangedGithub?: readonly string[]; inaccessibleRepos?: readonly string[] } = {}) {
   const bytesTotal = limits.bytesTotal ?? MOCK_BYTES_TOTAL;
   const bytesPerBusiness = limits.bytesPerBusiness ?? MOCK_BYTES_PER_BUSINESS;
   const businesses = limits.businesses ?? MOCK_BUSINESSES;
@@ -165,6 +166,8 @@ export function createGithubMock(limits: { bytesPerBusiness?: number; bytesTotal
   const githubTreeSha = (r: GhFixtureRepo, branch: string): string => stableHash(`github-tree:${r.repo.full_name}:${branch !== r.repo.default_branch && changedGithub.has(branch) ? branch : r.repo.default_branch}`, 40);
   /** Fixture repositories (`owner/name`) that are public; agents may not push to or run CI on them. */
   const publicRepos = new Set(limits.publicRepos ?? []);
+  /** Repositories (`owner/name`, any case) the installation cannot reach: `get_repository` answers 404 for them. */
+  const inaccessibleRepos = new Set((limits.inaccessibleRepos ?? []).map((r) => r.toLowerCase()));
   const worlds = new Map<string, ReturnType<typeof newWorld>>();
   const world = (businessId: string) => {
     let w = worlds.get(businessId);
@@ -243,7 +246,14 @@ export function createGithubMock(limits: { bytesPerBusiness?: number; bytesTotal
         const sha = g.resolveRef(r, name);
         const files = [...g.filesAt(r, name)].sort(([a], [b]) => (a < b ? -1 : 1)).map(([path, content]) => ({ path, content }));
         const archive = writeTarGz(files, { prefix: `${owner}-${repo}-${sha.slice(0, 7)}/`, comment: sha, mtime: MOCK_NOW.getTime() / 1000 });
-        return { ref: name, sha, bytes: archive.length, base64: archive.toString("base64") };
+        // `base64` is the deprecated copy for readers that do not take `archive` yet (a mock archive is a few hundred bytes).
+        return { ref: name, sha, bytes: archive.length, archive, base64: archive.toString("base64") };
+      },
+      get_repository: async ({ owner, repo }, ctx) => {
+        // Like a checkout, naming a repository the fixtures do not know creates it (private, with a stable id), unless the
+        // mock is told the installation cannot reach it.
+        if (inaccessibleRepos.has(`${owner}/${repo}`.toLowerCase())) throw notFound(`repository ${owner}/${repo}`);
+        return mapRepository(world(ctx.businessId).findOrCreate(owner, repo).repo);
       },
       create_branch: async ({ owner, repo, branch, fromRef }, ctx) => {
         const g = world(ctx.businessId);
@@ -254,12 +264,13 @@ export function createGithubMock(limits: { bytesPerBusiness?: number; bytesTotal
         r.branches[branch] = sha;
         return { branch, sha, created: true };
       },
-      commit_files: async ({ owner, repo, branch, fromRef, message, files, deletions }, ctx) => {
+      commit_files: async ({ owner, repo, branch, fromRef, message, files, deletions, expectedHeadSha }, ctx) => {
         const g = world(ctx.businessId);
         const r = g.findOrCreate(owner, repo);
         if (branch === r.repo.default_branch) throw Object.assign(new Error(`commit_files never writes the default branch (${branch}); merge a pull request instead`), { status: 422 });
         if (!r.repo.private) throw Object.assign(new Error(`${owner}/${repo} is public; agents push only to private repositories`), { status: 422 });
         const existed = Boolean(r.branches[branch]);
+        if (existed && expectedHeadSha && r.branches[branch] !== expectedHeadSha) throw branchMoved(branch, expectedHeadSha, r.branches[branch]!);
         const from = existed ? branch : (fromRef ?? "HEAD");
         const parentSha = g.resolveRef(r, from);
         const next = new Map(g.filesAt(r, from));

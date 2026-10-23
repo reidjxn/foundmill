@@ -226,6 +226,56 @@ export async function readWorkspaceChanges(cwd: string, base: ReadonlyMap<string
 export const SANDBOX_ARCHIVE_PATH = "/tmp/fm-checkout.tgz";
 /** How long unpacking the checkout inside the sandbox may take. */
 export const SANDBOX_UNPACK_TIMEOUT_MS = 5 * 60_000;
+/** The archive goes to the sandbox from its temp file in parts of at most this size (never whole in memory). */
+export const SANDBOX_UPLOAD_CHUNK_BYTES = 8 * 1024 * 1024;
+
+/**
+ * Upload the archive file to `SANDBOX_ARCHIVE_PATH`, reading it in parts: one write when it fits in a part, else one
+ * file per part joined inside the sandbox (the parts are removed). Returns the bytes sent.
+ */
+async function uploadArchive(sandbox: Pick<Sandbox, "writeFile" | "exec">, archive: Uint8Array | string, chunkBytes: number): Promise<number> {
+  if (typeof archive !== "string") {
+    await sandbox.writeFile(SANDBOX_ARCHIVE_PATH, archive);
+    return archive.byteLength;
+  }
+  const handle = await open(archive, constants.O_RDONLY | constants.O_NOFOLLOW);
+  try {
+    const st = await handle.stat();
+    if (!st.isFile()) throw new Error("the checkout's archive is not a file");
+    const parts: string[] = [];
+    let offset = 0;
+    do {
+      const size = Math.min(chunkBytes, st.size - offset);
+      const buf = new Uint8Array(size);
+      let read = 0;
+      while (read < size) {
+        const { bytesRead } = await handle.read(buf, read, size - read, offset + read);
+        if (bytesRead === 0) throw new Error("the checkout's archive changed while it was uploaded");
+        read += bytesRead;
+      }
+      const target = st.size <= chunkBytes ? SANDBOX_ARCHIVE_PATH : `${SANDBOX_ARCHIVE_PATH}.part-${String(parts.length).padStart(4, "0")}`;
+      await sandbox.writeFile(target, buf);
+      if (target !== SANDBOX_ARCHIVE_PATH) parts.push(target);
+      offset += size;
+    } while (offset < st.size);
+    if (parts.length > 0) {
+      const joined = await sandbox.exec(`cat ${shellJoin(parts)} > ${SANDBOX_ARCHIVE_PATH} && rm -f -- ${shellJoin(parts)}`, { cwd: "/", timeoutMs: SANDBOX_UNPACK_TIMEOUT_MS });
+      if (joined.code !== 0) throw new Error(`the checkout's archive could not be joined in the sandbox (exit ${joined.code})`);
+    }
+    return st.size;
+  } finally {
+    await handle.close();
+  }
+}
+
+/**
+ * Remove every symbolic link under the sandbox's workdir (an archive may carry them; the host workspace has none), so
+ * no later write or removal there goes through one; refuses when one is left.
+ */
+export function removeSandboxLinksCommand(workdir: string): string {
+  const dir = shellJoin([workdir]);
+  return `if [ -d ${dir} ]; then find ${dir} -type l -delete && test -z "$(find ${dir} -type l -print -quit)"; fi`;
+}
 
 export interface CheckoutSyncResult extends WorkspaceSyncResult {
   /** The checkout was unpacked inside the sandbox from its archive (only the changes were copied); false when the whole workspace was copied instead. */
@@ -235,19 +285,23 @@ export interface CheckoutSyncResult extends WorkspaceSyncResult {
 }
 
 /**
- * The acceptance copy of a workspace that holds a checkout: the checkout's archive is uploaded once and unpacked in the
- * sandbox's workdir (without node_modules or .git), then the agent's changes are written over it and the files it
- * deleted are removed. When the sandbox cannot unpack it, the whole workspace is copied file by file instead (with the
- * checkout's limits). Writes nothing when refused.
+ * The acceptance copy of a workspace that holds a checkout: the checkout's archive (bytes, or the path of its temp file,
+ * read in parts) is uploaded once and unpacked in the sandbox's workdir (without node_modules or .git), every symbolic
+ * link the archive carried is removed, then the agent's changes are written over it and the files it deleted are
+ * removed. When the sandbox cannot unpack it, the whole workspace is copied file by file instead (with the checkout's
+ * limits), also with no link left in the workdir. Writes nothing when refused.
  */
-export async function syncCheckoutToSandbox(cwd: string, sandbox: Pick<Sandbox, "writeFile" | "exec" | "workdir">, checkout: { archive: Uint8Array; files: ReadonlyMap<string, string> }, limits: WorkspaceSyncLimits = CHECKOUT_SYNC_LIMITS): Promise<CheckoutSyncResult> {
+export async function syncCheckoutToSandbox(cwd: string, sandbox: Pick<Sandbox, "writeFile" | "exec" | "workdir">, checkout: { archive: Uint8Array | string; files: ReadonlyMap<string, string> }, limits: WorkspaceSyncLimits = CHECKOUT_SYNC_LIMITS, chunkBytes = SANDBOX_UPLOAD_CHUNK_BYTES): Promise<CheckoutSyncResult> {
   const changes = await readWorkspaceChanges(cwd, checkout.files, limits);
   if (changes.refused) return { files: 0, bytes: 0, skipped: changes.skipped, refused: changes.refused, unpacked: false, changed: 0, removed: 0 };
-  await sandbox.writeFile(SANDBOX_ARCHIVE_PATH, checkout.archive);
+  const archiveBytes = await uploadArchive(sandbox, checkout.archive, chunkBytes);
   const unpack = await sandbox.exec(
     [`mkdir -p ${shellJoin([sandbox.workdir])}`, `tar -xzf ${SANDBOX_ARCHIVE_PATH} -C ${shellJoin([sandbox.workdir])} --strip-components=1 --no-same-owner --exclude=node_modules --exclude=.git`, `rm -f ${SANDBOX_ARCHIVE_PATH}`].join(" && "),
     { cwd: "/", timeoutMs: SANDBOX_UNPACK_TIMEOUT_MS },
   );
+  // Whether it unpacked or stopped part-way, nothing is written or removed through a link the archive made.
+  const unlinked = await sandbox.exec(removeSandboxLinksCommand(sandbox.workdir), { cwd: "/", timeoutMs: SANDBOX_UNPACK_TIMEOUT_MS });
+  if (unlinked.code !== 0) throw new Error(`the symbolic links in the sandbox's checkout could not be removed (exit ${unlinked.code})`);
   if (unpack.code !== 0) {
     const whole = await syncWorkspaceToSandbox(cwd, sandbox, limits);
     return { ...whole, unpacked: false, changed: changes.files.length, removed: changes.removed.length };
@@ -267,7 +321,7 @@ export async function syncCheckoutToSandbox(cwd: string, sandbox: Pick<Sandbox, 
     }
   };
   await Promise.all(Array.from({ length: Math.max(1, Math.min(limits.concurrency, changes.files.length)) }, worker));
-  return { files: changes.unchanged + changes.files.length, bytes: checkout.archive.byteLength + bytes, skipped: changes.skipped, refused: null, unpacked: true, changed: changes.files.length, removed: changes.removed.length };
+  return { files: changes.unchanged + changes.files.length, bytes: archiveBytes + bytes, skipped: changes.skipped, refused: null, unpacked: true, changed: changes.files.length, removed: changes.removed.length };
 }
 
 /** Copy the agent's files from the host workspace into `sandbox.workdir`, keeping relative paths. Writes nothing when refused. */

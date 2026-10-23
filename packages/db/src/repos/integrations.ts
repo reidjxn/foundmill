@@ -52,7 +52,17 @@ export interface CodeRepository {
    * because a push runs the repository's CI and preview deploys on code an agent wrote.
    */
   writeEnabled: boolean;
+  /**
+   * GitHub's numeric id of the repository (`settings.repoId`), pinned when it was chosen (the api checks it through the
+   * gateway: reachable by the installation and private) or, for a repository chosen before pinning existed, by the gateway
+   * on its first read after the same check. Null until pinned. The gateway treats a read as the founder's own code only
+   * when the repository it reads has this id (a renamed or replaced repository under the same name does not).
+   */
+  repoId: number | null;
 }
+
+/** A GitHub repository id as `settings.repoId` holds it: a positive safe integer. */
+const isRepoId = (v: unknown): v is number => typeof v === "number" && Number.isSafeInteger(v) && v > 0;
 
 /** Reads the repository the founder chose on Development › Code (`settings.repo`, also set by the demo seed). */
 export function codeRepositoryOf(integration: Pick<Integration, "id" | "status" | "settings" | "archivedAt">): CodeRepository | null {
@@ -61,7 +71,7 @@ export function codeRepositoryOf(integration: Pick<Integration, "id" | "status" 
   const raw = typeof settings.repo === "string" ? settings.repo : null;
   if (!raw || !REPOSITORY_FULL_NAME.test(raw)) return null;
   const [owner, repo] = raw.split("/") as [string, string];
-  return { integrationId: integration.id, status: integration.status, owner, repo, fullName: raw, writeEnabled: settings.writeEnabled === true };
+  return { integrationId: integration.id, status: integration.status, owner, repo, fullName: raw, writeEnabled: settings.writeEnabled === true, repoId: isRepoId(settings.repoId) ? settings.repoId : null };
 }
 
 const scoped = (businessId: string, id: string) => and(eq(integrations.businessId, businessId), eq(integrations.id, id));
@@ -96,21 +106,47 @@ export const integrationsRepo = {
 
   /**
    * Choose (or clear, with null) the repository code tasks push to, and whether they push to it (off unless turned on);
-   * GitHub must be connected first. Clearing the repository turns pushing off.
+   * GitHub must be connected first. Clearing the repository turns pushing off. `repoId` is GitHub's id of the repository
+   * as the caller verified it (the api, through the gateway); without one the repository stays unpinned until the gateway
+   * pins it (`pinCodeRepositoryId`).
    */
-  async setCodeRepository(db: Executor, businessId: string, fullName: string | null, options: { pushEnabled?: boolean } = {}): Promise<Integration> {
+  async setCodeRepository(db: Executor, businessId: string, fullName: string | null, options: { pushEnabled?: boolean; repoId?: number | null } = {}): Promise<Integration> {
     if (fullName !== null && !REPOSITORY_FULL_NAME.test(fullName)) throw new ValidationError("repository must be owner/name");
+    if (options.repoId !== undefined && options.repoId !== null && !isRepoId(options.repoId)) throw new ValidationError("repoId must be a positive integer");
     const row = await integrationsRepo.getByKey(db, businessId, "github");
     if (!row || row.archivedAt || row.status === "disconnected") throw new ValidationError("connect GitHub before choosing a repository");
     const settings = { ...((row.settings ?? {}) as Record<string, unknown>) };
     if (fullName === null) {
       delete settings.repo;
       delete settings.writeEnabled;
+      delete settings.repoId;
     } else {
       settings.repo = fullName;
       settings.writeEnabled = options.pushEnabled === true;
+      // A pin belongs to one repository: choosing any repository replaces it (or drops it when none was verified).
+      if (isRepoId(options.repoId)) settings.repoId = options.repoId;
+      else delete settings.repoId;
     }
     return one(await db.update(integrations).set({ settings }).where(scoped(businessId, row.id)).returning(), "integration");
+  },
+
+  /**
+   * Pin GitHub's id of the Code-tab repository chosen before pinning existed (the gateway, after it checked that the
+   * installation reaches the repository and that it is private). Only while the Code tab still names `fullName` (any case)
+   * and nothing is pinned yet; returns whether this call pinned it. An existing pin is never changed here.
+   */
+  async pinCodeRepositoryId(db: Executor, businessId: string, input: { fullName: string; repoId: number }): Promise<boolean> {
+    if (!REPOSITORY_FULL_NAME.test(input.fullName)) throw new ValidationError("repository must be owner/name");
+    if (!isRepoId(input.repoId)) throw new ValidationError("repoId must be a positive integer");
+    return db.transaction(async (tx) => {
+      const rows = await tx.select().from(integrations).where(and(eq(integrations.businessId, businessId), eq(integrations.connectorKey, "github"))).limit(1).for("update");
+      const row = rows[0];
+      const current = row ? codeRepositoryOf(row) : null;
+      if (!row || !current || current.repoId !== null || current.fullName.toLowerCase() !== input.fullName.toLowerCase()) return false;
+      const settings = { ...((row.settings ?? {}) as Record<string, unknown>), repoId: input.repoId };
+      await tx.update(integrations).set({ settings }).where(scoped(businessId, row.id));
+      return true;
+    });
   },
 
   /** The installation the gateway verified for an App connector (GitHub), or null when none was. */

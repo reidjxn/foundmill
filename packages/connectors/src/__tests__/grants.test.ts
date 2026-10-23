@@ -6,7 +6,7 @@
  */
 import { describe, expect, it } from "vitest";
 import { BUILTIN_CONNECTOR_KEYS, CONNECTOR_KEYS, createAllConnectors, createBuiltinConnectors } from "../catalogue";
-import { CAPABILITY_TOOLS, GATEWAY_TOOL_NAMES, NOT_YET_SERVED, resolveGrants, SDK_BUILTIN_CAPABILITIES, SERVICE_ONLY_CONNECTORS, SERVICE_ONLY_REASON, SESSION_MANAGED_CAPABILITIES, toolsForCapability } from "../grants";
+import { CAPABILITY_TOOLS, GATEWAY_TOOL_NAMES, NOT_YET_SERVED, resolveGrants, ROUTE_ONLY_REASON, ROUTE_ONLY_TOOLS, SDK_BUILTIN_CAPABILITIES, SERVICE_ONLY_CONNECTORS, SERVICE_ONLY_REASON, SESSION_MANAGED_CAPABILITIES, toolsForCapability } from "../grants";
 
 describe("the capability map", () => {
   it("knows every tool of every connector the gateway serves, and nothing else", () => {
@@ -44,7 +44,7 @@ describe("the capability map", () => {
 describe("resolveGrants", () => {
   it("turns template capabilities into the real tools that serve them", () => {
     const r = resolveGrants([{ connectorKey: "github", tools: ["repos.read", "pulls.merge"] }, { connectorKey: "platform", tools: ["tasks.list", "messages.request", "inbox.request_human_action"] }]);
-    expect(r.toolRefs).toEqual(["github:list_repos", "github:read_tree", "github:read_file", "github:download_archive", "github:merge_pr", "platform:list_tasks", "platform:get_task", "platform:send_message", "platform:list_messages", "platform:request_human_action"]);
+    expect(r.toolRefs).toEqual(["github:list_repos", "github:read_tree", "github:read_file", "github:merge_pr", "platform:list_tasks", "platform:get_task", "platform:send_message", "platform:list_messages", "platform:request_human_action"]);
     expect(r.mcpTools).toContain("mcp__platform__request_human_action");
     expect(r.servers).toEqual(["github", "platform"]);
     expect(r.unresolved).toEqual([]);
@@ -73,6 +73,23 @@ describe("resolveGrants", () => {
       { connectorKey: "github", capability: "issues.list", reason: NOT_YET_SERVED.github!["issues.list"] },
       { connectorKey: "github", capability: "repos.delete", reason: 'github has no tool for "repos.delete"' },
     ]);
+  });
+
+  it("never puts a route-only tool (the repository archive) in an agent's token: not by capability, by name or through *", () => {
+    expect([...ROUTE_ONLY_TOOLS].sort()).toEqual(["github:download_archive", "github:get_repository"]);
+    const r = resolveGrants([{ connectorKey: "github", tools: ["repos.read", "download_archive", "get_repository"] }]);
+    expect(r.toolRefs).toEqual(["github:list_repos", "github:read_tree", "github:read_file"]);
+    expect(r.unresolved).toEqual([
+      { connectorKey: "github", capability: "download_archive", reason: ROUTE_ONLY_REASON },
+      { connectorKey: "github", capability: "get_repository", reason: ROUTE_ONLY_REASON },
+    ]);
+    const wildcard = resolveGrants([{ connectorKey: "github", tools: ["*"] }]);
+    expect(wildcard.toolRefs).not.toContain("github:*");
+    expect(wildcard.toolRefs).not.toContain("github:download_archive");
+    expect(wildcard.toolRefs).not.toContain("github:get_repository");
+    expect(wildcard.toolRefs).toContain("github:commit_files");
+    expect(wildcard.mcpTools).not.toContain("mcp__github");
+    expect(wildcard.servers).toEqual(["github"]);
   });
 
   it("never gives an agent a service-only connector (openai_images), whatever the grant names", () => {

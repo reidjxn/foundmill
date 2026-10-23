@@ -55,8 +55,8 @@ import { archiveSessionRecording } from "./recording";
 import { createSessionWorkspace, guardToolCall, hookOutputFor, removeSessionWorkspace, sdkEnvFor, sdkToolPolicyFor } from "./sdk-isolation";
 import { describePush, pushWorkspace, type PushContext } from "./workspace-push";
 import { mergeRecipients, restoreWorkspace, saveWorkspace, toSeed, type LeftOut, type RestoredWorkspace, type SaveWorkspaceOptions } from "./workspace-store";
-import { syncCheckoutToSandbox, syncWorkspaceToSandbox } from "./workspace-sync";
-import { checkoutNote, checkoutRepository, describeCheckout, extractArchive, type Checkout } from "./checkout";
+import { readWorkspaceChanges, syncCheckoutToSandbox, syncWorkspaceToSandbox } from "./workspace-sync";
+import { checkoutMissingNote, checkoutNote, checkoutRepository, describeCheckout, disposeCheckout, extractArchive, testSetupChanges, testSetupReviewReason, type Checkout } from "./checkout";
 import { fingerprintWorkspace, workspaceChanged } from "./workspace-fingerprint";
 import type { AgentSessionInput, SessionFinish, SessionLaunch, SessionParked, SessionResult, SessionRunOptions } from "./types";
 
@@ -903,7 +903,8 @@ export function createSessionActivities(deps: OrchestratorDeps) {
           taskStatus = task.status;
           break;
         case "done": {
-          taskStatus = result.progress.merged ? "done" : result.progress.reviewPassed || result.progress.phase === "review" || result.progress.phase === "merge" ? "review" : "done";
+          // A session that changed how the tests run (`review`) leaves the task for the founder to look at, never done.
+          taskStatus = result.review ? "review" : result.progress.merged ? "done" : result.progress.reviewPassed || result.progress.phase === "review" || result.progress.phase === "merge" ? "review" : "done";
           const ev = await emitEvent(db, {
             businessId: input.businessId,
             type: "task.completed",
@@ -1074,7 +1075,7 @@ export async function offerReadyToSellAfterTask(deps: OrchestratorDeps, business
 /** A parked runner's half of `SessionParked`; runAgentSession adds the number of the last command its feed read. */
 type RunnerParked = Omit<SessionParked, "lastSeq">;
 
-type RunOutcome = Pick<SessionResult, "outcome" | "reason" | "blockedReason" | "approvalId" | "summary" | "providerSessionId"> & Partial<Pick<SessionResult, "tokensIn" | "tokensOut" | "costMinor" | "costMicroMinor" | "modelKey">> & { parked?: RunnerParked };
+type RunOutcome = Pick<SessionResult, "outcome" | "reason" | "blockedReason" | "approvalId" | "summary" | "providerSessionId"> & Partial<Pick<SessionResult, "tokensIn" | "tokensOut" | "costMinor" | "costMicroMinor" | "modelKey" | "review">> & { parked?: RunnerParked };
 
 /** Why a replay frees its slot early: the founder left an approval undecided, or a pause outlasted the hold. */
 type MockEnding = { kind: "approval_timeout" } | ({ kind: "park" } & RunnerParked);
@@ -1371,6 +1372,8 @@ async function runLiveSession(deps: OrchestratorDeps, recorder: SessionRecorder,
   let restored: RestoredWorkspace | null = null;
   let restoreFailed = false;
   let checkout: Checkout | null = null;
+  /** The Code tab has a repository but this session has no checkout of it: why (the agent is told, not only the founder). */
+  let checkoutMissing: string | null = null;
   let token: Awaited<ReturnType<typeof deps.gateway.mintSessionToken>>;
   try {
     if (policy.fileTools) {
@@ -1379,6 +1382,7 @@ async function runLiveSession(deps: OrchestratorDeps, recorder: SessionRecorder,
       else if (checked.status === "failed") {
         // Never a partial checkout: the session starts as it did before checkouts, and the note says why.
         deps.log.warn({ err: checked.reason, sessionId: input.sessionId }, "repository checkout failed");
+        checkoutMissing = checked.reason;
         await createSessionWorkspace(deps.env.ORCHESTRATOR_WORKSPACE_DIR, input.sessionId);
       }
       const checkedNote = describeCheckout(checked);
@@ -1395,8 +1399,10 @@ async function runLiveSession(deps: OrchestratorDeps, recorder: SessionRecorder,
         // The checkout itself is unpacked again from its archive (the same files, so the same base).
         if (checkout) {
           try {
-            await extractArchive(checkout.archive, cwd);
-          } catch {
+            await extractArchive(checkout.archivePath, cwd);
+          } catch (unpackErr) {
+            await disposeCheckout(checkout);
+            checkoutMissing = `its archive could not be unpacked again: ${String((unpackErr as Error).message ?? unpackErr).slice(0, 200)}`;
             checkout = null;
             await createSessionWorkspace(deps.env.ORCHESTRATOR_WORKSPACE_DIR, input.sessionId);
           }
@@ -1409,6 +1415,7 @@ async function runLiveSession(deps: OrchestratorDeps, recorder: SessionRecorder,
     const untrusted = seeded === undefined ? null : seeded === null ? { emails: [], urls: [], phones: [], all: true } : toSeed(seeded);
     token = await deps.gateway.mintSessionToken({ businessId: input.businessId, agentId: agent.id, sessionId: input.sessionId, allowedTools: grants.toolRefs, ttlSeconds: SESSION_TOKEN_TTL_SECONDS, ...(untrusted ? { untrusted } : {}) });
   } catch (err) {
+    await disposeCheckout(checkout);
     await removeSessionWorkspace(cwd).catch(() => undefined);
     throw err;
   }
@@ -1417,7 +1424,7 @@ async function runLiveSession(deps: OrchestratorDeps, recorder: SessionRecorder,
   const traceparent = currentTraceparent();
   const mcpServers = Object.fromEntries(grants.servers.map((key) => [key, { type: "http" as const, url: deps.gateway.mcpUrl(key), headers: { ...deps.gateway.sessionHeaders(token.token), ...(traceparent ? { traceparent } : {}) } }]));
 
-  const continuing = [checkout ? checkoutNote(checkout) : "", restored && restored.files > 0 ? restoredWorkspaceNote(restored.files) : ""].filter(Boolean).join("\n\n");
+  const continuing = [checkout ? checkoutNote(checkout) : checkoutMissing ? checkoutMissingNote(checkoutMissing) : "", restored && restored.files > 0 ? restoredWorkspaceNote(restored.files) : ""].filter(Boolean).join("\n\n");
   const resumed = !ctx.run.resume ? "" : ctx.run.resume.reason === "handoff" || ctx.run.resume.reason === "retry" ? "This session moved to another worker mid-task and has been resumed. Continue the task from where the work stands, and check what is already done before you repeat any external action." : "This session was paused for a while and has been resumed. Continue the task from where the work stands.";
   const taskPrompt = [`# Task: ${task.title}`, task.goalMd || "", Array.isArray(task.acceptance) && task.acceptance.length ? `## Acceptance criteria\n${task.acceptance.map((a) => `- ${typeof a === "string" ? a : JSON.stringify(a)}`).join("\n")}` : "", policy.fileTools ? `Work on branch ${launch.branch} inside your working directory; it is the only place you can read or write files.` : "Keep every action inside the tools you were given; this task has no file access.", continuing, resumed, "Report each phase change and keep every external action inside the tools you were given."].filter(Boolean).join("\n\n");
 
@@ -1786,6 +1793,12 @@ async function runLiveSession(deps: OrchestratorDeps, recorder: SessionRecorder,
     }
     // A hand-off during the acceptance run: its sandbox is already stopped, and the next worker runs the tests again.
     if ((ending as LiveEnding | null) === "handoff") return handedOff();
+    // A Stop (or a cancel) that landed while the acceptance tests ran: the session was stopped, whatever they showed.
+    const stoppedLate = stoppedBy as { reason: string } | null;
+    if (stoppedLate) {
+      holdBack = "the session was stopped";
+      return { outcome: "stopped", reason: stoppedLate.reason, blockedReason: "stopped", approvalId: null, summary: `Stopped: ${stoppedLate.reason}.`, providerSessionId: sdkSessionId, ...usageNow() };
+    }
     if (recorder.pendingApprovalId) return { outcome: "blocked", reason: "waiting for the founder's approval", blockedReason: "awaiting_approval", approvalId: recorder.pendingApprovalId, summary: "Blocked on an approval.", providerSessionId: sdkSessionId, ...usageNow() };
     if (agentBlock) return { outcome: "blocked", reason: agentBlock.reason, blockedReason: "dependency", approvalId: null, summary: `Blocked by ${agent.name}: ${agentBlock.reason}`.slice(0, 1800), providerSessionId: sdkSessionId, ...usageNow() };
     if (nothingWritten) {
@@ -1795,6 +1808,23 @@ async function runLiveSession(deps: OrchestratorDeps, recorder: SessionRecorder,
     if (acceptance && !acceptance.passed) {
       const reason = acceptanceFailureReason(acceptance);
       return { outcome: "blocked", reason, blockedReason: "error", approvalId: null, summary: `Blocked: the acceptance tests failed on "${task.title}".`.slice(0, 1800), providerSessionId: sdkSessionId, ...usageNow() };
+    }
+    // A code task with an acceptance command is done only on a run that passed: one that never ran shows nothing.
+    if (acceptanceCommand && !acceptance) {
+      await recorder.publishRaw({ kind: "note", at: deps.clock.now().toISOString(), source: "system", level: "warn", text: "The acceptance tests did not run, so the task is not done. It is blocked until it runs again." });
+      return { outcome: "blocked", reason: ACCEPTANCE_NOT_RUN_REASON, blockedReason: "error", approvalId: null, summary: `Blocked: the acceptance tests did not run on "${task.title}".`.slice(0, 1800), providerSessionId: sdkSessionId, ...usageNow() };
+    }
+    // Passing tests prove nothing when the session changed what they are (package.json scripts, a runner config, a
+    // deleted test): compared with the checkout, such a task waits in review for the founder instead of ending done.
+    if (checkout) {
+      const changes = await readWorkspaceChanges(cwd, checkout.base.files);
+      const found = changes.refused ? [`the changes could not be compared with the checkout: ${changes.refused}`] : testSetupChanges(changes, checkout.base);
+      if (found.length > 0) {
+        const why = testSetupReviewReason(found);
+        const review = `needs review: ${why}`;
+        await recorder.publishRaw({ kind: "note", at: deps.clock.now().toISOString(), source: "system", level: "warn", text: `Held for your review, not done: ${why}.` });
+        return { outcome: "done", reason: review, review, blockedReason: null, approvalId: null, summary: `${agent.name} finished "${task.title}"; it needs your review: ${why}.`.slice(0, 1800), providerSessionId: sdkSessionId, ...usageNow() };
+      }
     }
     return { outcome: "done", reason: null, blockedReason: null, approvalId: null, summary: `${agent.name} finished "${task.title}" with ${recorder.toolCalls} tool calls.`, providerSessionId: sdkSessionId, ...usageNow() };
   } finally {
@@ -1806,7 +1836,8 @@ async function runLiveSession(deps: OrchestratorDeps, recorder: SessionRecorder,
     queue.close(true);
     // Keep the code whatever the outcome (done, stopped, failed, parked): the workspace itself is deleted next. Only a
     // session that finished (or waits on an approval) is pushed to GitHub.
-    if (policy.fileTools) await keepWorkspace(deps, recorder, { businessId: input.businessId, taskId: task.id, sessionId: input.sessionId, agentId: agent.id, branch: launch.branch, agentName: agent.name, holdBack }, cwd, { secrets: [key.apiKey, token.token], carryOver: restoreFailed, ...(checkout ? { base: checkout.base } : {}) });
+    if (policy.fileTools) await keepWorkspace(deps, recorder, { businessId: input.businessId, taskId: task.id, sessionId: input.sessionId, agentId: agent.id, branch: launch.branch, agentName: agent.name, holdBack, checkout: checkout ? { commitSha: checkout.base.commitSha, at: checkout.base.checkedOutAt } : null }, cwd, { secrets: [key.apiKey, token.token], carryOver: restoreFailed, ...(checkout ? { base: checkout.base } : {}) });
+    await disposeCheckout(checkout);
     try {
       await removeSessionWorkspace(cwd);
     } catch (err) {
@@ -1835,7 +1866,7 @@ async function keepWorkspace(deps: OrchestratorDeps, recorder: SessionRecorder, 
     }
     if (leftOut) await recorder.publishRaw({ kind: "note", at: at(), source: "system", level: "warn", text: leftOut });
     if (saved.status !== "refused" && saved.snapshot) {
-      const pushed = describePush(await pushWorkspace(deps.db, deps.gateway, owner, saved.snapshot));
+      const pushed = describePush(await pushWorkspace(deps.db, deps.gateway, { ...owner, saveHeldBack: saved.pushHeldBack }, saved.snapshot));
       if (pushed) await recorder.publishRaw({ kind: "note", at: at(), source: "system", level: pushed.level, text: pushed.text });
     }
   } catch (err) {
@@ -1931,6 +1962,8 @@ export function acceptanceFailureReason(v: AcceptanceVerdict): string {
 
 /** Why a code session that changed no file is not done. */
 export const NO_CHANGES_REASON = "no changes: the session ended without changing any file in the workspace";
+/** Why a code task with an acceptance command whose run never happened is not done. */
+export const ACCEPTANCE_NOT_RUN_REASON = "acceptance tests did not run";
 
 /**
  * Copy the workspace into the sandbox, install dependencies online, close the network, run the acceptance command
@@ -1974,7 +2007,7 @@ async function runAcceptanceIn(deps: OrchestratorDeps, recorder: SessionRecorder
   let synced: Awaited<ReturnType<typeof syncWorkspaceToSandbox>> & { unpacked?: boolean; changed?: number; removed?: number };
   try {
     // A checkout goes in whole (its archive, unpacked in the sandbox) with the agent's changes on top.
-    synced = checkout ? await syncCheckoutToSandbox(cwd, sandbox, { archive: checkout.archive, files: checkout.base.files }) : await syncWorkspaceToSandbox(cwd, sandbox);
+    synced = checkout ? await syncCheckoutToSandbox(cwd, sandbox, { archive: checkout.archivePath, files: checkout.base.files }) : await syncWorkspaceToSandbox(cwd, sandbox);
   } catch (err) {
     const reason = String((err as Error).message ?? err).split(cwd).join("<workspace>");
     await recorder.publishRaw({ kind: "note", at: at(), source: "system", level: "warn", text: `Acceptance tests not run: the workspace could not be copied into the sandbox (${reason.slice(0, 300)}).` });

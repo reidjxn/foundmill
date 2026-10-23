@@ -84,6 +84,7 @@ describe("extractArchive", () => {
         { path: "src/index.ts", content: "export const site = 'https://shop.example/help';\n" },
         { path: "docs/CONTACT.md", content: "Write to ops@shop.example\n" },
         { path: "test/fixture.ts", content: "export const key = 'sk_live_51Hx8ZkLq9mN0pQrStUvWxYz';\n" },
+        { path: ".env", content: "STRIPE_SECRET_KEY=sk_live_77Ab8ZkLq9mN0pQrStUvWxYz\n" },
         // Left out: links of either kind, dependencies, git metadata, the CLI's and shells' start-up files, SDK state.
         { path: "link", type: "symlink", linkTarget: "/etc/passwd" },
         { path: "hard", type: "hardlink", linkTarget: "package.json" },
@@ -97,13 +98,15 @@ describe("extractArchive", () => {
       ]),
       cwd,
     );
-    expect(await list(cwd)).toEqual(["docs/CONTACT.md", "package.json", "src/index.ts", "test/fixture.ts"]);
-    expect([...out.files.keys()].sort()).toEqual(["docs/CONTACT.md", "package.json", "src/index.ts", "test/fixture.ts"]);
+    expect(await list(cwd)).toEqual([".env", "docs/CONTACT.md", "package.json", "src/index.ts", "test/fixture.ts"]);
+    expect([...out.files.keys()].sort()).toEqual([".env", "docs/CONTACT.md", "package.json", "src/index.ts", "test/fixture.ts"]);
     expect(out.files.get("package.json")).toMatch(/^[0-9a-f]{64}$/);
     expect(out.skipped).toBe(9);
     expect([...out.recipients.emails]).toEqual(["ops@shop.example"]);
     expect([...out.recipients.urls]).toContain("https://shop.example/help");
-    expect([...out.knownSecrets]).toEqual(["sk_live_51Hx8ZkLq9mN0pQrStUvWxYz"]);
+    // Kept by the path that held them; a secret file's values are never kept anywhere.
+    expect([...out.knownSecrets.entries()].map(([p, v]) => [p, [...v]])).toEqual([["test/fixture.ts", ["sk_live_51Hx8ZkLq9mN0pQrStUvWxYz"]]]);
+    expect(out.packageScripts.get("package.json")).toBe('{"jest":null,"scripts":null}');
     await expect(lstat(path.join(cwd, "link"))).rejects.toThrow();
   });
 
@@ -263,9 +266,9 @@ describe("saving and pushing a checkout: only the diff", () => {
     const cwd = await freshDir();
     // Check out the seeded branch (as if it were the task's) by asking for it directly.
     const res = await gateway.downloadArchive("t", { owner: "acme", repo: "shop", ref: "agent/seed" });
-    if (!("archive" in res)) throw new Error("no archive");
+    if (!("archive" in res) || !("data" in res.archive)) throw new Error("no archive");
     const extracted = await extractArchive(res.archive.data, cwd);
-    const base = { repo: "acme/shop", ref: "agent/seed", commitSha: res.archive.sha, files: extracted.files, knownSecrets: extracted.knownSecrets };
+    const base = { repo: "acme/shop", ref: "agent/seed", commitSha: res.archive.sha, files: extracted.files, knownSecrets: extracted.knownSecrets, packageScripts: extracted.packageScripts, checkedOutAt: new Date() };
     const sessionKey = "fm-session-token-" + "s".repeat(40);
     await writeFile(path.join(cwd, "test", "fixture.ts"), `export const key = '${known}';\nexport const other = '${fresh}';\nexport const mine = '${sessionKey}';\n`);
     const saved = await saveWorkspace(t.db, { businessId: t.businessId, taskId: task.id, sessionId: sid, agentId: t.workerId, branch: `agent/${task.id}` }, cwd, { base, secrets: [sessionKey] });

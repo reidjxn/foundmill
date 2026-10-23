@@ -16,7 +16,10 @@
  *
  * A session that started from a checkout of the repository (./checkout, 0068) saves only what differs from it: the
  * added and changed files, the checkout's files it deleted and the base (repository, ref, commit). Restoring such a save
- * over a checkout replaces the checkout's files and removes the deleted ones again.
+ * over a checkout replaces the checkout's files and removes the deleted ones again. A credential-shaped value the
+ * checkout already held is kept as it is only in the file that held it (never one from a secret or start-up file).
+ * A session without a checkout on a task whose saves have one (it inherits the base) holds the whole workspace, not a
+ * diff against the repository: it is saved but never pushed (`pushHeldBack`).
  *
  * Restored paths are checked again (relative, inside the workspace, never over SDK state or startup files) and written
  * with O_CREAT | O_EXCL | O_NOFOLLOW into the fresh directory (over a checkout, a regular file there is unlinked first),
@@ -60,7 +63,19 @@ export interface RestoredWorkspace {
 }
 
 export type SavedWorkspace =
-  | { status: "saved" | "unchanged"; files: number; bytes: number; added: number; changed: number; removed: number; leftOut: LeftOut[]; masked: string[]; snapshot: WorkspaceSnapshot | null }
+  | {
+      status: "saved" | "unchanged";
+      files: number;
+      bytes: number;
+      added: number;
+      changed: number;
+      removed: number;
+      leftOut: LeftOut[];
+      masked: string[];
+      snapshot: WorkspaceSnapshot | null;
+      /** Why this save must not be pushed (it is not a diff against a checkout this session had); null pushes it. */
+      pushHeldBack: string | null;
+    }
   | { status: "refused"; reason: string; leftOut: LeftOut[]; masked: string[] };
 
 export interface LeftOut {
@@ -72,7 +87,8 @@ export interface SaveWorkspaceOptions {
   limits?: WorkspaceSyncLimits;
   /**
    * The checkout the session started from (./checkout): only what differs from it is saved, with the files it deleted
-   * and the base it is a diff against. Credential-shaped values the checkout already held are kept as they are.
+   * and the base it is a diff against. A credential-shaped value the checkout already held is kept as it is in the
+   * file that held it, and masked anywhere else.
    */
   base?: CheckoutBase | null;
   /** Values that must never be stored (the session's model key and gateway token); masked wherever they appear. */
@@ -137,7 +153,7 @@ export function isSecretFileName(rel: string): boolean {
   return SECRET_FILE.test(name) && !SECRET_TEMPLATE.test(name);
 }
 
-const isStartupFile = (rel: string) => STARTUP_FILES.includes(rel.split("/")[0]!.toLowerCase());
+export const isStartupFile = (rel: string) => STARTUP_FILES.includes(rel.split("/")[0]!.toLowerCase());
 
 /** Whether a stored path may be written into a session workspace. */
 export function restorablePath(rel: string): boolean {
@@ -312,7 +328,8 @@ export function credentialMatches(text: string): string[] {
 
 /**
  * Mask credential-shaped values and the session's own secrets in text; null when there is nothing to mask. Values in
- * `keep` (already in the checked-out repository) are left as they are; the session's own secrets never are.
+ * `keep` (the ones this same file held in the checked-out repository) are left as they are; the session's own secrets
+ * never are.
  */
 function maskSecrets(text: string, secrets: readonly string[], keep?: ReadonlySet<string>): string | null {
   let out = text;
@@ -333,9 +350,10 @@ export async function saveWorkspace(db: Db, owner: WorkspaceOwner, cwd: string, 
   const read: { files: { rel: string; content: Uint8Array; inBase?: boolean }[]; refused: string | null; removed?: string[] } = base ? await readWorkspaceChanges(cwd, base.files, options.limits ?? CHECKOUT_SYNC_LIMITS) : await readWorkspace(cwd, options.limits ?? DEFAULT_SYNC_LIMITS);
   if (read.refused) return { status: "refused", reason: read.refused, leftOut, masked };
   const files: { path: string; content: Uint8Array; inBase?: boolean }[] = [];
-  const keep = base?.knownSecrets;
   for (const f of read.files) {
     const inBase = base ? { inBase: f.inBase === true } : {};
+    // Only a value this very path held at the base: one copied from .env (never kept) or another file is masked.
+    const keep = base?.knownSecrets.get(f.rel);
     if (!isSafeWorkspacePath(f.rel)) leftOut.push({ path: f.rel, reason: "name" });
     else if (isStartupFile(f.rel)) leftOut.push({ path: f.rel, reason: "startup" });
     else if (isSecretFileName(f.rel)) leftOut.push({ path: f.rel, reason: "secret" });
@@ -363,5 +381,9 @@ export async function saveWorkspace(db: Db, owner: WorkspaceOwner, cwd: string, 
   );
   if (result.refused) return { status: "refused", reason: result.refused, leftOut, masked };
   const bytes = files.reduce((s, f) => s + f.content.byteLength, 0);
-  return { status: result.saved ? "saved" : "unchanged", files: files.length, bytes, added: result.added, changed: result.changed, removed: result.removed, leftOut, masked, snapshot: result.snapshot };
+  // No checkout this session, but the task's saves are diffs against one (the base was inherited): what was saved is
+  // the whole workspace, which may hold files rebuilt without the repository. It is kept, never pushed over it.
+  const inherited = !base && result.snapshot?.baseCommitSha ? result.snapshot : null;
+  const pushHeldBack = inherited ? `this session had no checkout of ${inherited.baseRepo ?? "the repository"}, so its files are not a diff against it; a session that checks it out pushes them` : null;
+  return { status: result.saved ? "saved" : "unchanged", files: files.length, bytes, added: result.added, changed: result.changed, removed: result.removed, leftOut, masked, snapshot: result.snapshot, pushHeldBack };
 }
