@@ -10,22 +10,23 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { ToastProvider, TooltipProvider, useFormatters, useGuidance, type DateFormatPrefs } from "@foundmill/dugout";
 import type * as SharedModule from "../shared";
 
-type Guidance = { guidance: "on" | "off"; textSize: "standard" | "comfortable"; explainersSeen: Record<string, true>; toursDone: Record<string, true>; checklistDismissedAt: string | null };
-type Change = Partial<DateFormatPrefs> & Partial<{ guidance: Guidance["guidance"]; textSize: Guidance["textSize"]; explainersSeen: Record<string, true>; toursDone: Record<string, true>; checklistDismissed: boolean; reset: true }>;
+type Guidance = { guidance: "on" | "off"; textSize: "standard" | "comfortable"; explainersSeen: Record<string, true>; toursDone: Record<string, true>; checklistDismissedAt: string | null; anthropomorphicAgents: boolean };
+type Change = Partial<DateFormatPrefs> & Partial<{ guidance: Guidance["guidance"]; textSize: Guidance["textSize"]; explainersSeen: Record<string, true>; toursDone: Record<string, true>; checklistDismissed: boolean; anthropomorphicAgents: boolean; reset: true }>;
 
 const BUSINESS = "b1e5e5e5-0000-4000-8000-000000000001";
 const PREFS_KEY = [["founder", "preferences", "get"], { type: "query" }];
 const GUIDANCE_KEY = [["founder", "preferences", "guidance"], { type: "query" }];
-const guidanceDefaults = (): Guidance => ({ guidance: "on", textSize: "standard", explainersSeen: {}, toursDone: {}, checklistDismissedAt: null });
+const guidanceDefaults = (): Guidance => ({ guidance: "on", textSize: "standard", explainersSeen: {}, toursDone: {}, checklistDismissedAt: null, anthropomorphicAgents: false });
 
 let stored: DateFormatPrefs = { date: "us", time: "12h" };
 let guidanceStored: Guidance = guidanceDefaults();
 async function serverUpdate(change: Change) {
-  const { date, time, guidance, textSize, explainersSeen, toursDone, checklistDismissed, reset } = change;
+  const { date, time, guidance, textSize, explainersSeen, toursDone, checklistDismissed, anthropomorphicAgents, reset } = change;
   stored = { ...stored, ...(date ? { date } : {}), ...(time ? { time } : {}) };
   const next: Guidance = { ...guidanceStored, explainersSeen: { ...guidanceStored.explainersSeen }, toursDone: { ...guidanceStored.toursDone } };
   if (guidance) next.guidance = guidance;
   if (textSize) next.textSize = textSize;
+  if (anthropomorphicAgents !== undefined) next.anthropomorphicAgents = anthropomorphicAgents;
   if (reset) Object.assign(next, { explainersSeen: {}, toursDone: {}, checklistDismissedAt: null });
   for (const id of Object.keys(explainersSeen ?? {})) next.explainersSeen[id] = true;
   for (const id of Object.keys(toursDone ?? {})) next.toursDone[id] = true;
@@ -78,7 +79,7 @@ vi.mock("../shared", async (importOriginal) => ({ ...(await importOriginal<typeo
 
 import { DateFormatHost } from "@/components/providers/DateFormatHost";
 import { GuidanceHost } from "@/components/providers/GuidanceHost";
-import { PreferencesTab, guidanceSavedLine, preferenceChange, resettable, savedLine } from "../PreferencesTab";
+import { ANTHROPOMORPHIC_EXPLAINER, PreferencesTab, anthropomorphicSavedLine, guidanceSavedLine, preferenceChange, resettable, savedLine } from "../PreferencesTab";
 
 /** Somewhere else on the page (the top bar, the Inbox): it must follow the choice without a reload. */
 function Elsewhere() {
@@ -116,6 +117,46 @@ afterEach(() => {
   saved.mockClear();
   failed.mockClear();
   document.documentElement.removeAttribute("data-text");
+});
+
+describe("Anthropomorphic agents switch", () => {
+  it("is off by default, explains itself in plain words, and says the agents are still AI agents", async () => {
+    mount();
+    const sw = await screen.findByTestId("anthropomorphic-switch");
+    expect(sw.getAttribute("aria-checked")).toBe("false");
+    expect(screen.getByLabelText("Anthropomorphic agents")).toBe(sw);
+    expect(screen.getByTestId("anthropomorphic-panel").textContent).toContain(ANTHROPOMORPHIC_EXPLAINER);
+    expect(ANTHROPOMORPHIC_EXPLAINER).toMatch(/still AI agents/);
+    expect(ANTHROPOMORPHIC_EXPLAINER).toMatch(/AI-generated face/);
+  });
+
+  it("saves at once through founder.preferences.update, says so, and can be switched back", async () => {
+    mount();
+    const sw = await screen.findByTestId("anthropomorphic-switch");
+    fireEvent.click(sw);
+    await waitFor(() => expect(update).toHaveBeenCalledWith({ anthropomorphicAgents: true }));
+    await waitFor(() => expect(screen.getByTestId("anthropomorphic-switch").getAttribute("aria-checked")).toBe("true"));
+    await waitFor(() => expect(saved).toHaveBeenCalledTimes(1));
+    expect(saved.mock.calls[0]?.[0]).toBe("Anthropomorphic agents on");
+    fireEvent.click(screen.getByTestId("anthropomorphic-switch"));
+    await waitFor(() => expect(update).toHaveBeenLastCalledWith({ anthropomorphicAgents: false }));
+    await waitFor(() => expect(saved).toHaveBeenCalledTimes(2));
+    expect(saved.mock.calls[1]?.[0]).toBe("Anthropomorphic agents off");
+    expect(guidanceStored.anthropomorphicAgents).toBe(false);
+  });
+
+  it("rolls back and reports when the save fails", async () => {
+    mount();
+    update.mockRejectedValueOnce(new Error("nope"));
+    fireEvent.click(await screen.findByTestId("anthropomorphic-switch"));
+    await waitFor(() => expect(failed).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(screen.getByTestId("anthropomorphic-switch").getAttribute("aria-checked")).toBe("false"));
+  });
+
+  it("words the toast for each state", () => {
+    expect(anthropomorphicSavedLine(true).description).toContain("AI-generated face");
+    expect(anthropomorphicSavedLine(false).description).toContain("by role");
+  });
 });
 
 describe("PreferencesTab", () => {

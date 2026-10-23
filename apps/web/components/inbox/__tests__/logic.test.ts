@@ -127,6 +127,11 @@ describe("rows (DESIGN §9)", () => {
     expect(idx.get("a1")).toMatchObject({ departmentName: "Distribution", dept: "dept-1" });
     expect(idx.get("a2")?.seed).toBe("a2");
   });
+  it("carries each agent's persona key for the Inbox's sender label", () => {
+    const idx = agentIndex([{ id: "d1", name: "Distribution", colourToken: "dept-1", squad: [{ id: "a1", name: "Chief of Staff", role: "Chief of Staff", avatarSeed: "s1", personaKey: "malik" }, { id: "a2", name: "Finn", role: "Analyst", avatarSeed: "s2" }] }]);
+    expect(idx.get("a1")?.personaKey).toBe("malik");
+    expect(idx.get("a2")?.personaKey).toBeNull();
+  });
 });
 
 describe("refresh gate (BUILD §11.3 debounce 3 s)", () => {

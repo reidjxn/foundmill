@@ -7,7 +7,7 @@
  */
 import { useMemo, useState } from "react";
 import { ExternalLink, Network, UserRoundPlus } from "lucide-react";
-import { Avatar, Button, DeptChip, EntityLink, HierarchyChart, KeyValueList, ModelChip, Panel, ProvenanceChip, Switch, Term, formatMoney, layoutHierarchy, type HierarchyKind, type HierarchyNode } from "@foundmill/dugout";
+import { Avatar, useAgentPersona, Button, DeptChip, EntityLink, HierarchyChart, KeyValueList, ModelChip, Panel, ProvenanceChip, Switch, Term, formatMoney, layoutHierarchy, type HierarchyKind, type HierarchyNode } from "@foundmill/dugout";
 import { moduleTabHref, useDepartments } from "@foundmill/widgets/shared/departments";
 import { routes } from "@foundmill/widgets/shared/routes";
 import { useWidgetData } from "@foundmill/widgets/data";
@@ -65,7 +65,7 @@ export function toHierarchyNodes(agents: readonly AgentRow[], opts: { department
     // A role that only repeats the name ("Quality Specialist" / "Quality specialist") gives way to the department.
     const roleLine = agentRoleLine(a);
     const department = a.departments?.[0]?.name;
-    nodes.push({ id: a.id, name: a.name, role: roleLine ?? department ?? "Agent", kind, parentId, avatar: { seed: a.avatarSeed || a.id, dept: agentDept(a) }, status: a.status, model: a.modelKey, department: roleLine ? department : undefined });
+    nodes.push({ id: a.id, name: a.name, role: roleLine ?? department ?? "Agent", kind, parentId, avatar: { seed: a.avatarSeed || a.id, dept: agentDept(a), personaKey: a.personaKey }, status: a.status, model: a.modelKey, department: roleLine ? department : undefined });
   }
   // The founder is the root; everyone else on the staff (the viewer included when they are not the founder) hangs under it.
   const rootUserId = opts.founder?.userId ?? opts.me?.userId ?? null;
@@ -78,6 +78,7 @@ export function toHierarchyNodes(agents: readonly AgentRow[], opts: { department
 }
 
 export function HierarchyScreen({ businessId }: ModuleScreenProps) {
+  const persona = useAgentPersona();
   const { navigate, currency } = useWidgetData();
   const { liveRefetchMs } = useTeamOptions();
   const now = useNow();
@@ -157,9 +158,9 @@ export function HierarchyScreen({ businessId }: ModuleScreenProps) {
           {selectedAgent ? (
             <div className="flex flex-col gap-3" data-testid="hierarchy-detail">
               <div className="flex items-center gap-2">
-                <Avatar size={48} name={selectedAgent.name} agent={{ seed: selectedAgent.avatarSeed || selectedAgent.id, dept: agentDept(selectedAgent) }} status={selectedAgent.status} />
+                <Avatar size={48} name={persona.nameFor(selectedAgent)} agent={{ seed: selectedAgent.avatarSeed || selectedAgent.id, dept: agentDept(selectedAgent), personaKey: selectedAgent.personaKey }} status={selectedAgent.status} />
                 <span className="flex min-w-0 flex-col">
-                  <EntityLink entity={{ id: selectedAgent.id, kind: "agent", name: selectedAgent.name, href: agentHref(businessId, selectedAgent.id) }} details={agentEntity(businessId, selectedAgent, currency)} className="t-display-sm min-w-0 truncate" onOpen={(e) => e.href && navigate(e.href)} onVerb={(verb, e) => verb === "open_profile" && e.href && navigate(e.href)} />
+                  <EntityLink entity={{ id: selectedAgent.id, kind: "agent", name: selectedAgent.name, href: agentHref(businessId, selectedAgent.id) }} details={agentEntity(businessId, selectedAgent, currency)} personaText="name" className="t-display-sm min-w-0 truncate" onOpen={(e) => e.href && navigate(e.href)} onVerb={(verb, e) => verb === "open_profile" && e.href && navigate(e.href)} />
                   {agentRoleLine(selectedAgent) ? <span className="text-small text-secondary">{agentRoleLine(selectedAgent)}</span> : null}
                 </span>
               </div>

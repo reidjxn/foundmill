@@ -18,7 +18,7 @@ import type { ConversationSubject } from "./logic";
 
 export interface OpenDeskOptions {
   /** Who the founder is talking to, so the sheet opens at once while the conversation loads. */
-  persona?: { name: string; role?: string | null; avatarSeed: string; dept?: DeptColourToken | null } | null;
+  persona?: { name: string; role?: string | null; avatarSeed: string; personaKey?: string | null; dept?: DeptColourToken | null } | null;
   /** Sent as the founder's first message once the desk is ready (the palette carries the typed question). */
   text?: string | null;
   /** The line under the band ("About: …"). */

@@ -13,6 +13,7 @@ import { formatMoney, formatNumber, formatRelative } from "../../lib/format";
 import { RATING_MAX, ratingBandLabel, ratingClass } from "../../lib/rating";
 import type { DataTableColumn } from "../data/DataTable";
 import type { SavedView } from "../data/types";
+import { useAgentPersona } from "../foundation/AgentPersona";
 import { Avatar } from "../foundation/Avatar";
 import { Chip } from "../foundation/Chip";
 import { Icon, type IconComponent } from "../foundation/Icon";
@@ -221,11 +222,17 @@ export function StatusCell({ status, expectedReturnAt, now = new Date(), classNa
   );
 }
 
-export function AgentNameCell({ row }: { row: Pick<SquadRow, "name" | "seed" | "dept" | "status"> }) {
+/**
+ * The Agent column's cell. With anthropomorphic agents on it shows the persona's first name and face; the position is
+ * the Role column beside it (and the hover title), so "Bob" never stands without what he does.
+ */
+export function AgentNameCell({ row }: { row: Pick<SquadRow, "name" | "seed" | "dept" | "status"> & Partial<Pick<SquadRow, "role" | "personaKey">> }) {
+  const persona = useAgentPersona();
+  const name = persona.nameFor(row);
   return (
     <span className="inline-flex min-w-0 items-center gap-2">
-      <Avatar size={24} name={row.name} agent={{ seed: row.seed, dept: row.dept }} status={row.status} />
-      <span className="truncate font-medium" title={row.name}>{row.name}</span>
+      <Avatar size={24} name={name} agent={{ seed: row.seed, dept: row.dept, personaKey: row.personaKey }} status={row.status} />
+      <span className="truncate font-medium" title={persona.labelFor(row)}>{name}</span>
     </span>
   );
 }
@@ -238,13 +245,15 @@ export interface SquadColumnOptions {
   now?: Date;
   onModelClick?: (row: SquadRow) => void;
   renderTask?: (row: SquadRow) => ReactNode;
+  /** The name the Agent column sorts and searches by (anthropomorphic agents: the persona's first name). Default: the row's name. */
+  displayName?: (row: SquadRow) => string;
 }
 
 /** The team table columns (BUILD §11.9) as DataTable column definitions. */
 export function squadColumns(opts: SquadColumnOptions = {}): DataTableColumn<SquadRow>[] {
   const now = opts.now ?? new Date();
   return [
-    { id: "name", accessorKey: "name", header: "Agent", size: 200, cell: ({ row }) => <AgentNameCell row={row.original} />, meta: { locked: true } },
+    { id: "name", accessorFn: (r) => opts.displayName?.(r) ?? r.name, header: "Agent", size: 200, cell: ({ row }) => <AgentNameCell row={row.original} />, meta: { locked: true } },
     { id: "role", accessorKey: "role", header: "Role", size: 160 },
     { id: "departments", accessorFn: (r) => r.departments.join(", "), header: "Departments", size: 140 },
     { id: "status", accessorKey: "status", header: "Status", size: 150, cell: ({ row }) => <StatusCell status={row.original.status} expectedReturnAt={row.original.expectedReturnAt} now={now} />, meta: { filter: "select", filterOptions: ["healthy", "degraded", "failing", "injured", "paused", "idle"].map((v) => ({ value: v, label: v })) } },

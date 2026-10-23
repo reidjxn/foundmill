@@ -38,9 +38,9 @@ export function guidanceOffByDefault(experience: string | null | undefined): boo
   return typeof experience === "string" && EXPERIENCED_FOUNDER_EXPERIENCES.includes(experience.trim().toLowerCase());
 }
 
-/** The guided layer's part of the preferences row (what founder.preferences.guidance answers). */
+/** The guided layer's part of the preferences row and the anthropomorphic agents switch (what founder.preferences.guidance answers). */
 export function guidancePrefsOf(p: AccountPreferencesView): GuidancePrefs {
-  return { guidance: p.guidance, textSize: p.textSize, explainersSeen: p.explainersSeen, toursDone: p.toursDone, checklistDismissedAt: p.checklistDismissedAt };
+  return { guidance: p.guidance, textSize: p.textSize, explainersSeen: p.explainersSeen, toursDone: p.toursDone, checklistDismissedAt: p.checklistDismissedAt, anthropomorphicAgents: p.anthropomorphicAgents };
 }
 
 const SignalTourId = z.string().trim().min(1).max(120);
@@ -94,9 +94,12 @@ export const founderRouter = router({
         return { date: p.date, time: p.time };
       }),
     ),
-    /** The guided layer's preferences: the switch, the text size, the explainers seen, the tours done, the checklist. */
+    /**
+     * The guided layer's preferences (the switch, the text size, the explainers seen, the tours done, the checklist) and
+     * `anthropomorphicAgents` (0067: agents show a persona's first name and face; default false).
+     */
     guidance: protectedProcedure.query(({ ctx }) => asUser(ctx, async (tx) => guidancePrefsOf(await repos.preferences.get(tx, ctx.userId)))),
-    /** Change any of the preferences (formats, the switch, the text size, marks, the checklist, a reset); returns them all. */
+    /** Change any of the preferences (formats, the switch, the text size, marks, the checklist, a reset, anthropomorphic agents); returns them all. */
     update: protectedProcedure.input(AccountPreferencesPatch).mutation(({ ctx, input }) => asUser(ctx, (tx) => repos.preferences.update(tx, ctx.userId, input))),
     /**
      * Records one guided-layer signal as a guidance.* event in the business the founder was in (see the file comment).

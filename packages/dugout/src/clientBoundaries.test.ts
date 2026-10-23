@@ -98,12 +98,12 @@ export const SERVER_SAFE_FILES = [
   "components/data/filters.ts",
   "components/data/entityMarkup.ts",
   // Conversation and generation: the presence, receipts, reactions, typing line, live run and drafting frame are CSS
-  // only (conversation.css); AgentDesk, QuickReplies and StreamingText are the client pieces.
+  // only (conversation.css); AgentDesk, DeskPresence (it reads the anthropomorphic agents provider for the first name),
+  // QuickReplies and StreamingText are the client pieces.
   "components/conversation/types.ts",
   "components/conversation/ReadReceipt.tsx",
   "components/conversation/Reaction.tsx",
   "components/conversation/TypingLine.tsx",
-  "components/conversation/DeskPresence.tsx",
   "components/conversation/LiveRun.tsx",
   "components/conversation/DraftingCard.tsx",
   "components/conversation/NudgeAck.tsx",

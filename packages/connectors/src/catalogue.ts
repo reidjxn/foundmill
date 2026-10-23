@@ -26,6 +26,7 @@ import { createShopifyConnector } from "./connectors/shopify";
 import { createStripeConnector } from "./connectors/stripe";
 import { createTinkConnector } from "./connectors/tink";
 import { createVoyageConnector } from "./connectors/voyage";
+import { createOpenaiImagesConnector } from "./connectors/openai_images";
 import { createPlatformConnector } from "./connectors/platform";
 import { createQuarantineConnector } from "./connectors/quarantine";
 import { createWebConnector } from "./connectors/web";
@@ -36,6 +37,7 @@ export type ConnectorFactory = (options?: LiveConnectorOptions) => Connector;
 export const CONNECTOR_FACTORIES: Readonly<Record<string, ConnectorFactory>> = Object.freeze({
   anthropic: createAnthropicConnector,
   voyage: createVoyageConnector,
+  openai_images: createOpenaiImagesConnector,
   github: createGithubConnector,
   google_drive: createGoogleDriveConnector,
   gmail: createGmailConnector,

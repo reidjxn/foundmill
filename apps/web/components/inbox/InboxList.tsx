@@ -8,7 +8,7 @@ import { Inbox } from "lucide-react";
 import { NETWORK_SENDER, NOTE_TAG_ICONS, noteTagLegend } from "@foundmill/widgets/shared/note-tags";
 import { useEffect, useRef, type ReactNode } from "react";
 import { APP_NAME } from "@foundmill/config";
-import { Avatar, Button, Chip, EmptyState, Skeleton, Tooltip, VirtualList, formatRelative, useFormatters, type ChipTone, type IconComponent, type VirtualListHandle } from "@foundmill/dugout";
+import { Avatar, useAgentPersona, Button, Chip, EmptyState, Skeleton, Tooltip, VirtualList, formatRelative, useFormatters, type ChipTone, type IconComponent, type VirtualListHandle } from "@foundmill/dugout";
 import type { DeptColourToken } from "@foundmill/shared";
 import { useHydrated } from "@/lib/today";
 import type { InboxRowModel, NoteTag, TagIcon } from "./logic";
@@ -40,6 +40,7 @@ export interface AgentMeta {
   name: string;
   role: string;
   seed: string;
+  personaKey?: string | null;
   dept: DeptColourToken;
   departmentId: string;
   departmentName: string;
@@ -75,6 +76,7 @@ export function InboxList({ rows, selectedId, onSelect, onPrefetch, loading, has
   // once the browser knows the reader's time zone (the server renders in UTC).
   const { formatDateTime } = useFormatters();
   const hydrated = useHydrated();
+  const persona = useAgentPersona();
   // J/K and a click keep the selected row in view, drawn or not (a long list only draws the rows near the viewport).
   useEffect(() => {
     if (!selectedId) return;
@@ -140,7 +142,7 @@ export function InboxList({ rows, selectedId, onSelect, onPrefetch, loading, has
               aria-label={`${row.subject}. ${row.tag.word}${row.needsAnswer && row.tag.word !== "Respond" ? ", needs your answer" : ""}${row.won ? ", customer won" : ""}`}
             >
               <span className="shrink-0 pt-0.5">
-                {row.agent ? <Avatar size={32} name={row.agent.name} agent={{ seed: row.agent.seed, dept: row.agent.dept }} /> : <Avatar size={32} name={row.fromUser ? (founderName ?? "You") : row.fromPerson ? NETWORK_SENDER : APP_NAME} />}
+                {row.agent ? <Avatar size={32} name={row.agent.name} agent={{ seed: row.agent.seed, dept: row.agent.dept, personaKey: row.agent.personaKey }} /> : <Avatar size={32} name={row.fromUser ? (founderName ?? "You") : row.fromPerson ? NETWORK_SENDER : APP_NAME} />}
               </span>
               <span className="flex min-w-0 flex-1 flex-col gap-1">
                 <span className="flex items-start gap-2">
@@ -151,6 +153,12 @@ export function InboxList({ rows, selectedId, onSelect, onPrefetch, loading, has
                     {formatRelative(row.createdAt)}
                   </time>
                 </span>
+                {/* Anthropomorphic agents: who wrote it, as "Bob (Chief of Staff)". Nothing extra while the switch is off. */}
+                {row.agent && persona.hasPersona(row.agent) ? (
+                  <span className="truncate text-small text-tertiary" data-testid="row-sender">
+                    {persona.labelFor(row.agent)}
+                  </span>
+                ) : null}
                 <span className="flex min-w-0 items-center gap-1.5">
                   <NoteTagChip tag={row.tag} testId="row-tag" />
                   {/* A note preview may end in "…" (a list convention, no-clip.spec.ts); the full line is the title. */}

@@ -2,7 +2,8 @@
  * account_preferences (0022, 0064) — account-scoped (userId first): how one signed-in person reads dates and times, in
  * every business, and the guided layer's preferences (docs/UX_AUDIT_AND_PLAN.md §6.3): the guidance switch, the text
  * size, which screens' explainers were dismissed, which tours were done and whether the first-week checklist was put
- * away. Routers founder.preferences.get/guidance/update. A person with no row reads the defaults (US dates, 12-hour
+ * away; and (0067) whether agents show a persona's first name and AI-generated face (anthropomorphic agents, off by
+ * default; off shows agents exactly as before). Routers founder.preferences.get/guidance/update. A person with no row reads the defaults (US dates, 12-hour
  * times, guidance on, standard text, nothing seen), so reading never writes; the first change creates the row.
  */
 import { DEFAULT_DATE_FORMAT_PREFS, DateFormatPreference, TimeFormatPreference, type DateFormatPrefs } from "@foundmill/shared";
@@ -21,13 +22,15 @@ export interface GuidancePrefs {
   toursDone: SeenMap;
   /** When the first-week checklist was dismissed; null while it shows. */
   checklistDismissedAt: string | null;
+  /** Anthropomorphic agents (0067): agents show a persona's first name and face, beside their position. Default off. */
+  anthropomorphicAgents: boolean;
 }
 
 /** Everything on the row a person can choose: the date and time format and the guided layer's preferences. */
 export interface AccountPreferencesView extends DateFormatPrefs, GuidancePrefs {}
 
-/** What everyone reads until they choose: guidance on, standard text, nothing seen, the checklist showing. */
-export const DEFAULT_GUIDANCE_PREFS: Readonly<GuidancePrefs> = Object.freeze({ guidance: "on", textSize: "standard", explainersSeen: {}, toursDone: {}, checklistDismissedAt: null });
+/** What everyone reads until they choose: guidance on, standard text, nothing seen, the checklist showing, agents as agents. */
+export const DEFAULT_GUIDANCE_PREFS: Readonly<GuidancePrefs> = Object.freeze({ guidance: "on", textSize: "standard", explainersSeen: {}, toursDone: {}, checklistDismissedAt: null, anthropomorphicAgents: false });
 
 export const DEFAULT_ACCOUNT_PREFERENCES: Readonly<AccountPreferencesView> = Object.freeze({ ...DEFAULT_DATE_FORMAT_PREFS, ...DEFAULT_GUIDANCE_PREFS });
 
@@ -48,6 +51,7 @@ export const AccountPreferencesPatch = z
     explainersSeen: SeenMarks.optional(),
     toursDone: SeenMarks.optional(),
     checklistDismissed: z.boolean().optional(),
+    anthropomorphicAgents: z.boolean().optional(),
     reset: z.literal(true).optional(),
   })
   .strict()
@@ -65,9 +69,10 @@ const columns = {
   explainersSeen: accountPreferences.explainersSeen,
   toursDone: accountPreferences.toursDone,
   checklistDismissedAt: accountPreferences.checklistDismissedAt,
+  anthropomorphicAgents: accountPreferences.anthropomorphicAgents,
 };
 
-type Row = Pick<typeof accountPreferences.$inferSelect, "guidance" | "textSize" | "explainersSeen" | "toursDone" | "checklistDismissedAt"> & DateFormatPrefs;
+type Row = Pick<typeof accountPreferences.$inferSelect, "guidance" | "textSize" | "explainersSeen" | "toursDone" | "checklistDismissedAt" | "anthropomorphicAgents"> & DateFormatPrefs;
 
 function view(row: Row): AccountPreferencesView {
   return {
@@ -78,6 +83,7 @@ function view(row: Row): AccountPreferencesView {
     explainersSeen: row.explainersSeen ?? {},
     toursDone: row.toursDone ?? {},
     checklistDismissedAt: row.checklistDismissedAt ? row.checklistDismissedAt.toISOString() : null,
+    anthropomorphicAgents: row.anthropomorphicAgents ?? false,
   };
 }
 
@@ -95,7 +101,7 @@ export const preferencesRepo = {
   async update(db: Executor, userId: string, patch: AccountPreferencesPatch): Promise<AccountPreferencesView> {
     const v = parseInput(AccountPreferencesPatch, patch, "preferences");
     const dismissedAt = v.checklistDismissed === undefined ? undefined : v.checklistDismissed ? new Date() : null;
-    const scalars = defined({ dateFormat: v.date, timeFormat: v.time, guidance: v.guidance, textSize: v.textSize });
+    const scalars = defined({ dateFormat: v.date, timeFormat: v.time, guidance: v.guidance, textSize: v.textSize, anthropomorphicAgents: v.anthropomorphicAgents });
     // A first row starts from the defaults, so a reset has nothing to clear and a mark is the whole map.
     const insert = { userId, ...scalars, ...defined({ explainersSeen: v.explainersSeen, toursDone: v.toursDone, checklistDismissedAt: dismissedAt }) };
     const set = {

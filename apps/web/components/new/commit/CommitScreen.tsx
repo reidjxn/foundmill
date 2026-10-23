@@ -20,7 +20,9 @@ import { CREDITS_CURRENCY, includedCreditsMinor } from "@foundmill/config";
 import { ARCHETYPES, ARCHETYPE_LABELS, type Archetype, type BusinessMode, type DeptColourToken, type GameMode } from "@foundmill/shared";
 import { routes } from "@foundmill/widgets/shared/routes";
 import { Avatar, Button, Checkbox, Chip, ConceptCard, EmptyState, Field, Input, Label, MoneyInput, Panel, ProvenanceChip, RadioGroup, RadioGroupItem, ReassuranceLine, SkeletonRows, StatusPill, Switch, Term, cn, fieldDescribedBy, formatMoney, useDateFormat, useFormatters, useGuided, useToast, type Kit } from "@foundmill/dugout";
+import { ANTHROPOMORPHIC_EXPLAINER } from "@/lib/anthropomorphic";
 import { formatDate, formatMoney as formatCredits, plainWords, plural } from "@/lib/format";
+import { useGuidancePreferences } from "@/components/providers/guidance-context";
 import { useSingleFlight } from "@/lib/single-flight";
 import { errorMessage, tierLimitOf, trpcErrorCode, trpcPathPrefix, type RouterOutputs } from "@/lib/trpc";
 import { useTRPC, useTRPCClient } from "@/lib/trpc-react";
@@ -93,6 +95,7 @@ export function CommitScreen({ ideaId, viewer, currency }: CommitScreenProps) {
   // This month's included-credit pool (SEC2 S6): Commit says before Take charge when the new team would start paused.
   const allowanceQ = useQuery(trpc.founder.businesses.allowance.queryOptions(undefined, { staleTime: 60_000, retry: false }));
   const datePrefs = useDateFormat();
+  const guidancePrefs = useGuidancePreferences();
   const queryClient = useQueryClient();
   const [archetype, setArchetype] = useState<Archetype | null>(null);
   const previewQ = useQuery(trpc.idea.preview.queryOptions({ archetype: archetype ?? "b2b_saas" }, { enabled: archetype !== null, staleTime: 60_000 }));
@@ -208,6 +211,7 @@ export function CommitScreen({ ideaId, viewer, currency }: CommitScreenProps) {
       upgradeHref={upgradeHrefOf(commit.error)}
       creditsNotice={creditsNoticeOf(allowanceQ.data?.includedCredits, (d) => formatDate(d, datePrefs))}
       adultConfirmed={summaryQ.data?.adultConfirmed === true}
+      anthropomorphicDefault={guidancePrefs.prefs.anthropomorphicAgents === true}
       liveOpen={featuresQ.data?.features.liveMode ?? false}
       onCommit={onCommit}
       logoApi={logoApi}
@@ -270,6 +274,8 @@ export interface CommitFormProps {
   creditsNotice?: string | null;
   /** The founder's 18+ confirmation is on record already (`live.summary`), so a LIVE start does not ask again. */
   adultConfirmed?: boolean;
+  /** The founder's account preference (Settings › Preferences): the Anthropomorphic agents switch starts here. Default off. */
+  anthropomorphicDefault?: boolean;
   /** Whether LIVE is open on this deployment (`founder.profile.get` features); while it is not, only Personal is offered. */
   liveOpen?: boolean;
   onCommit: (input: ReturnType<typeof commitInput>) => void;
@@ -309,7 +315,7 @@ export function upgradeHrefOf(err: unknown): string | null {
 
 const DEBOUNCE_MS = 350;
 
-export function CommitForm({ idea, viewer, currency, initialName, suggestedArchetype, steps, preview, previewLoading, onArchetypeChange, committing, error, upgradeHref, creditsNotice, adultConfirmed = false, liveOpen = true, onCommit, logoApi, domainApi, back }: CommitFormProps) {
+export function CommitForm({ idea, viewer, currency, initialName, suggestedArchetype, steps, preview, previewLoading, onArchetypeChange, committing, error, upgradeHref, creditsNotice, adultConfirmed = false, anthropomorphicDefault = false, liveOpen = true, onCommit, logoApi, domainApi, back }: CommitFormProps) {
   const concept = useMemo(() => toConcept(idea), [idea]);
   // Guidance off: an operator sees the five "How it runs" controls at once (§7.6); on, they open from "Change".
   const guided = useGuided();
@@ -317,10 +323,15 @@ export function CommitForm({ idea, viewer, currency, initialName, suggestedArche
   // The idea's seed only picks the starting brand colours now; the logo is uploaded or generated.
   const ideaSeed = String(readMeta(idea.current?.research).crest_seed ?? idea.id);
   const [form, setForm] = useState<CommitFormValues>(() => {
-    const base = initialCommitForm({ title: idea.current?.title ?? idea.title, archetype: suggestedArchetype ?? idea.archetype }, kitFromSeed(ideaSeed), currency);
+    const base = initialCommitForm({ title: idea.current?.title ?? idea.title, archetype: suggestedArchetype ?? idea.archetype }, kitFromSeed(ideaSeed), currency, anthropomorphicDefault);
     return initialName ? { ...base, name: initialName } : base;
   });
   const [capTouched, setCapTouched] = useState(false);
+  // The switch follows the account preference until the founder chooses here (the preference may arrive after the form).
+  const [facesChosen, setFacesChosen] = useState(false);
+  useEffect(() => {
+    if (!facesChosen) setForm((f) => (f.anthropomorphicAgents === anthropomorphicDefault ? f : { ...f, anthropomorphicAgents: anthropomorphicDefault }));
+  }, [anthropomorphicDefault, facesChosen]);
   const [touched, setTouched] = useState(false);
   const errors = useMemo(() => validateCommitForm(form, { adultOnRecord: adultConfirmed }), [form, adultConfirmed]);
   const valid = Object.keys(errors).length === 0;
@@ -666,6 +677,24 @@ export function CommitForm({ idea, viewer, currency, initialName, suggestedArche
                       <Label htmlFor="run-on-autopilot">Run on autopilot</Label>
                       <p id="run-on-autopilot-hint" className="text-small text-secondary">
                         Off by default. The team starts its own <Term id="cycle">cycles</Term>, about every 4 hours, the way Continue does: every approval and <Term id="hard_gate">hard gate</Term> still waits for you, and Autopilot pauses itself when <Term id="credits">credits</Term> run out or Inbox decisions are waiting.
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex items-start gap-3 border-t border-line pt-3" data-testid="anthropomorphic-choice">
+                    <Switch
+                      id="anthropomorphic-agents"
+                      checked={form.anthropomorphicAgents}
+                      onCheckedChange={(on) => {
+                        setFacesChosen(true);
+                        set("anthropomorphicAgents", on);
+                      }}
+                      aria-describedby="anthropomorphic-agents-hint"
+                      data-testid="anthropomorphic-agents"
+                    />
+                    <div className="flex flex-col gap-1">
+                      <Label htmlFor="anthropomorphic-agents">Anthropomorphic agents</Label>
+                      <p id="anthropomorphic-agents-hint" className="text-small text-secondary">
+                        {ANTHROPOMORPHIC_EXPLAINER} It is your account setting, so it applies to every business; Settings › Preferences changes it any time.
                       </p>
                     </div>
                   </div>

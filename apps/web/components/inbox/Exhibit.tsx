@@ -203,13 +203,14 @@ function AgentExhibit({ agentId }: { agentId: string | null }) {
   return (
     <Panel title="Agent" span={12} data-testid="exhibit" data-exhibit="agent_tile">
       <div className="flex items-center gap-3">
-        <Avatar size={32} name={found.name} agent={{ seed: found.avatarSeed || found.id, dept: found.dept }} status={found.status} />
+        <Avatar size={32} name={found.name} agent={{ seed: found.avatarSeed || found.id, dept: found.dept, personaKey: found.personaKey }} status={found.status} />
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
             {/* An agent mention like any other: hover card, and a click navigates in the app through the shell's EntityLink provider. */}
             <EntityLink
               entity={{ id: found.id, kind: "agent", name: found.name, href: routes.agent(businessId, found.id) }}
-              details={{ id: found.id, kind: "agent", name: found.name, href: routes.agent(businessId, found.id), subtitle: `${found.role} · ${found.department}`, portrait: { type: "agent", seed: found.avatarSeed || found.id, dept: found.dept, status: found.status } }}
+              details={{ id: found.id, kind: "agent", name: found.name, href: routes.agent(businessId, found.id), subtitle: `${found.role} · ${found.department}`, personaKey: found.personaKey, role: found.role, portrait: { type: "agent", seed: found.avatarSeed || found.id, dept: found.dept, status: found.status, personaKey: found.personaKey } }}
+              personaText="name"
               contextMenu={false}
               className="truncate text-body-strong text-primary"
               data-testid="exhibit-agent-link"

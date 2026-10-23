@@ -23,6 +23,7 @@ import {
 } from "lucide-react";
 import type { EntityKind } from "@foundmill/shared";
 import { cn } from "../../lib/cn";
+import { useAgentPersona } from "../foundation/AgentPersona";
 import { Avatar } from "../foundation/Avatar";
 import { Button } from "../foundation/Button";
 import { Chip } from "../foundation/Chip";
@@ -113,19 +114,26 @@ export function useEntityLinkContext(): EntityLinkContextValue {
 // Hover card body
 // ---------------------------------------------------------------------------------------------------------------------
 
-function Portrait({ details }: { details: EntityDetails }) {
+/** The agent identity a card or mention carries, when it is an agent the persona layer can rename. */
+function agentIdentityOf(details: Pick<EntityDetails, "kind" | "name" | "subtitle" | "role" | "personaKey" | "portrait"> | undefined) {
+  if (!details || details.kind !== "agent") return null;
+  const personaKey = details.personaKey ?? (details.portrait?.type === "agent" ? details.portrait.personaKey : null);
+  return personaKey ? { name: details.name, role: details.role ?? details.subtitle ?? null, personaKey } : null;
+}
+
+function Portrait({ details, name }: { details: EntityDetails; name: string }) {
   const p = details.portrait;
-  if (p?.type === "logo") return <BusinessLogo src={p.src} name={details.name} primary={p.primary} monogram={p.monogram} size={48} title={details.name} />;
+  if (p?.type === "logo") return <BusinessLogo src={p.src} name={name} primary={p.primary} monogram={p.monogram} size={48} title={name} />;
   if (p?.type === "agent")
     return (
       <Avatar
         size={48}
-        name={details.name}
-        agent={{ seed: p.seed, dept: p.dept }}
+        name={name}
+        agent={{ seed: p.seed, dept: p.dept, personaKey: p.personaKey ?? details.personaKey }}
         status={p.status}
       />
     );
-  return <Avatar size={48} name={details.name} src={p?.type === "person" ? p.src : undefined} />;
+  return <Avatar size={48} name={name} src={p?.type === "person" ? p.src : undefined} />;
 }
 
 export interface EntityCardProps {
@@ -139,10 +147,17 @@ export interface EntityCardProps {
 /** The 320 px card: avatar/logo, name, kind/role chips, three facts, actions (DESIGN §8). Also usable inline. */
 export function EntityCard({ details, onOpen, showKind = true, className }: EntityCardProps) {
   const facts = (details.facts ?? []).slice(0, 3);
+  // Anthropomorphic agents: the persona's first name leads, the position stays under it, and the card says what it is.
+  const persona = useAgentPersona();
+  const identity = agentIdentityOf(details);
+  const named = identity && persona.hasPersona(identity);
+  const title = named ? persona.nameFor(identity) : details.name;
+  const subtitle = named ? (details.subtitle ?? persona.positionFor(identity)) : details.subtitle;
+  const chips = named ? [{ label: "AI agent" }, ...(details.chips ?? [])] : (details.chips ?? []);
   return (
     <div className={cn("flex flex-col gap-2", className)} data-entity-card={details.id}>
       <div className="flex items-start gap-3">
-        <Portrait details={details} />
+        <Portrait details={details} name={title} />
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-1.5">
             {details.href || onOpen ? (
@@ -156,18 +171,18 @@ export function EntityCard({ details, onOpen, showKind = true, className }: Enti
                 }}
                 className="t-display-sm entity-link text-balance break-words text-primary"
               >
-                {details.name}
+                {title}
               </a>
             ) : (
-              <span className="t-display-sm text-balance break-words text-primary">{details.name}</span>
+              <span className="t-display-sm text-balance break-words text-primary">{title}</span>
             )}
           </div>
-          {details.subtitle ? (
-            <p className="break-words text-small text-secondary">{details.subtitle}</p>
+          {subtitle ? (
+            <p className="break-words text-small text-secondary">{subtitle}</p>
           ) : null}
           <div className="mt-1 flex flex-wrap gap-1 empty:hidden">
-            {showKind ? <Chip tone="neutral">{ENTITY_KIND_LABELS[details.kind]}</Chip> : null}
-            {(details.chips ?? []).map((c) => (
+            {showKind && !named ? <Chip tone="neutral">{ENTITY_KIND_LABELS[details.kind]}</Chip> : null}
+            {chips.map((c) => (
               <Chip key={c.label} tone={c.tone ?? "neutral"} icon={c.icon}>
                 {c.label}
               </Chip>
@@ -231,6 +246,11 @@ export interface EntityLinkProps extends Omit<
   hideIcon?: boolean;
   /** Mark the link as unverified (dotted underline in the secondary text colour, title). */
   unverified?: boolean;
+  /**
+   * What an agent with a persona reads as while anthropomorphic agents are on: "label" ("Bob (Chief of Staff)", the
+   * default) or "name" ("Bob", for a cell with its role beside it).
+   */
+  personaText?: "label" | "name";
 }
 
 /**
@@ -251,15 +271,21 @@ export const EntityLink = forwardRef<HTMLAnchorElement, EntityLinkProps>(functio
     hideIcon: _hideIcon,
     kindUnknown = false,
     unverified,
+    personaText = "label",
     className,
     ...rest
   },
   ref,
 ) {
   const ctx = useEntityLinkContext();
+  const persona = useAgentPersona();
   const resolved = details ?? ctx.resolve?.(entity.id);
   const kind = entity.kind ?? resolved?.kind;
   const name = entity.name || resolved?.name || String(display ?? "");
+  // An agent the resolver knows reads as "Bob (Chief of Staff)" when anthropomorphic agents are on, whatever the
+  // markup said; the position always stays with the name. Unknown agents keep the markup's text.
+  const identity = kind === "agent" ? agentIdentityOf(resolved ? { ...resolved, kind: "agent" } : undefined) : null;
+  const personaLabel = identity && persona.hasPersona(identity) ? (personaText === "name" ? persona.nameFor(identity) : persona.labelFor(identity)) : null;
   const href =
     entity.href ?? resolved?.href ?? ctx.hrefFor?.({ ...entity, kind, name }) ?? undefined;
   const ref0: EntityRef = useMemo(
@@ -285,11 +311,11 @@ export const EntityLink = forwardRef<HTMLAnchorElement, EntityLinkProps>(functio
           e.preventDefault();
         }
       }}
-      title={unverified ? `${name} (unverified)` : undefined}
+      title={unverified ? `${personaLabel ?? name} (unverified)` : undefined}
       className={cn("entity-link", unverified && "decoration-dotted text-secondary", className)}
       {...rest}
     >
-      {display ?? name}
+      {personaLabel ?? display ?? name}
     </a>
   );
 
@@ -321,7 +347,7 @@ export const EntityLink = forwardRef<HTMLAnchorElement, EntityLinkProps>(functio
   return (
     <ContextMenu>
       {withCard}
-      <ContextMenuContent aria-label={`${name} actions`}>
+      <ContextMenuContent aria-label={`${personaLabel ?? name} actions`}>
         {items.map((v, i) => (
           <span key={v.verb} className="contents">
             {v.verb === "open_profile" && i > 0 ? <ContextMenuSeparator /> : null}

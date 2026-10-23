@@ -201,7 +201,7 @@ export function agentDept(agent: Pick<AgentRow, "departments"> | null | undefine
 /** The agent facts an AgentTile header needs; a placeholder when the squad list has not loaded yet. */
 export function toTileAgent(agent: AgentRow | undefined, agentId: string | null | undefined): TileAgent {
   if (agent) {
-    return { id: agent.id, name: agent.name, seed: agent.avatarSeed || agent.id, dept: agentDept(agent), status: agent.status, model: agent.modelKey, role: agent.role };
+    return { id: agent.id, name: agent.name, seed: agent.avatarSeed || agent.id, dept: agentDept(agent), status: agent.status, model: agent.modelKey, role: agent.role, personaKey: agent.personaKey ?? null };
   }
   return { id: agentId ?? "unassigned", name: agentId ? "Agent" : "Unassigned", seed: agentId ?? "unassigned", dept: "dept-1", status: "idle", model: "sonnet" };
 }

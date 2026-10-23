@@ -132,3 +132,25 @@ export const Stack: Story = {
     </div>
   ),
 };
+
+/** A tiny stand-in face (a data URL: stories need no network). The real faces are AI-generated portraits served by the API. */
+const FACE =
+  "data:image/svg+xml;utf8," +
+  encodeURIComponent(
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40"><rect width="40" height="40" fill="#c9b8a6"/><circle cx="20" cy="16" r="7" fill="#e8c9a8"/><ellipse cx="20" cy="38" rx="13" ry="10" fill="#3a4a63"/><path d="M16 18q4 4 8 0" stroke="#6b3b2a" stroke-width="1.2" fill="none"/></svg>',
+  );
+/** Anthropomorphic agents on: the AI-generated face replaces the drawn portrait, with the same sizes and status rings. */
+export const WithFace: Story = {
+  args: { agent: { seed: "juno", dept: "dept-3", src: FACE } },
+  render: (args) => (
+    <div className="flex items-end gap-4">
+      {[24, 36, 48, 68].map((s) => (
+        <Avatar key={s} {...args} size={s} presence={s === 68 ? "live" : undefined} />
+      ))}
+    </div>
+  ),
+};
+/** A face that does not load (or is not made yet) leaves the drawn portrait in place. */
+export const FaceFallback: Story = {
+  args: { agent: { seed: "juno", dept: "dept-3", src: "/faces/does-not-exist.png" } },
+};

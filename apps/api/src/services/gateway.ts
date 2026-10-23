@@ -4,8 +4,11 @@
  * same shape as apps/gateway `signServiceToken` (`iss foundmill-gateway`, `aud foundmill-gateway/service`, `svc api`).
  * Credit top-ups open their Stripe Checkout session there too (`createCheckout`): STRIPE_SECRET_KEY lives only in the
  * gateway. The Commit screen's domain checks go there too (`checkDomains`): registries are reached only from the gateway.
+ * So do the AI-generated faces of anthropomorphic agents (`generatePortrait`): the api sends a persona catalog key, never a
+ * prompt, and OPENAI_API_KEY lives only in the gateway.
  */
 import { randomUUID } from "node:crypto";
+import { OPENAI_IMAGES_GENERATION_TIMEOUT_MS } from "@foundmill/connectors";
 import { AppError, type IntegrationStatus } from "@foundmill/shared";
 import { SignJWT } from "jose";
 
@@ -61,12 +64,33 @@ export interface GatewayDomainAnswer {
   reason?: string;
 }
 
+/** One generated portrait, as the gateway answers (apps/gateway portraits.ts `PortraitResponse`). */
+export interface GatewayPortrait {
+  mime: "image/webp" | "image/png";
+  /** The image bytes, base64. */
+  base64: string;
+  /** The image model that made it ("mock-portrait" for the placeholder). */
+  model: string;
+}
+
+/**
+ * A portrait takes 10 to 60 seconds to render, so its call waits longer than the others: longer than the connector waits
+ * for OpenAI (`OPENAI_IMAGES_GENERATION_TIMEOUT_MS`, 120 s) plus room for the gateway's own work, so the api never gives
+ * up on an image the gateway is still about to return (and pay for).
+ */
+export const PORTRAIT_TIMEOUT_MS = OPENAI_IMAGES_GENERATION_TIMEOUT_MS + 30_000;
+
 export interface ApiGatewayClient {
   connect(businessId: string, connector: string, input: Record<string, unknown>): Promise<GatewayIntegrationRecord>;
   health(businessId: string, connector: string): Promise<GatewayHealth>;
   createCheckout(input: GatewayCheckoutRequest): Promise<GatewayCheckout>;
   /** Registry answers for up to eight domain names, on behalf of one founder (the gateway's rate-limit scope). */
   checkDomains(ownerKey: string, domains: string[]): Promise<GatewayDomainAnswer[]>;
+  /**
+   * The AI-generated face for one persona catalog key. The gateway builds the prompt from the key (a key outside the
+   * catalog is a 400), so the api cannot send one. `businessId` only attributes the gateway's audit row.
+   */
+  generatePortrait(personaKey: string, businessId?: string): Promise<GatewayPortrait>;
 }
 
 export interface CreateApiGatewayClientOptions {
@@ -86,11 +110,11 @@ export function createApiGatewayClient(opts: CreateApiGatewayClientOptions): Api
   const fetchImpl = opts.fetch ?? globalThis.fetch;
   const timeoutMs = opts.timeoutMs ?? 30_000;
 
-  const post = async <T>(path: string, body: unknown): Promise<T> => {
+  const post = async <T>(path: string, body: unknown, callTimeoutMs = timeoutMs): Promise<T> => {
     if (!opts.secret || opts.secret.length < 16) throw new AppError("config", "SESSION_TOKEN_SECRET is not set on the api, so it cannot call the gateway", 412);
     const token = await signApiServiceToken(opts.secret);
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    const timer = setTimeout(() => controller.abort(), callTimeoutMs);
     let res: Response;
     try {
       res = await fetchImpl(`${baseUrl}${path}`, { method: "POST", headers: { "content-type": "application/json", accept: "application/json", authorization: `Bearer ${token}` }, body: JSON.stringify(body), signal: controller.signal });
@@ -114,5 +138,6 @@ export function createApiGatewayClient(opts: CreateApiGatewayClientOptions): Api
     health: async (businessId, connector) => (await post<{ health: GatewayHealth }>("/v1/integrations/health", { businessId, connector })).health,
     createCheckout: (input) => post<GatewayCheckout>("/v1/billing/checkout-sessions", input),
     checkDomains: async (ownerKey, domains) => (await post<{ results: GatewayDomainAnswer[] }>("/v1/domains/check", { ownerKey, domains })).results,
+    generatePortrait: (personaKey, businessId) => post<GatewayPortrait>("/v1/personas/portrait", { personaKey, ...(businessId ? { businessId } : {}) }, Math.max(timeoutMs, PORTRAIT_TIMEOUT_MS)),
   };
 }

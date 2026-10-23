@@ -41,6 +41,7 @@ import {
   Tooltip,
   formatRelative,
   isTypingTarget,
+  useAgentPersona,
   useFormatters,
   useGuided,
   useTerm,
@@ -245,6 +246,10 @@ function ReadingPaneBody({ data, currency, departments, onArchived }: BodyProps)
 
   const agents = useMemo(() => agentIndex(departments), [departments]);
   const persona = fromAgent ? agents.get(fromAgent.id) : undefined;
+  // Anthropomorphic agents: the sender reads "Bob (Chief of Staff)" (the position is in the label, so no role line beside it).
+  const agentPersona = useAgentPersona();
+  const agentSender = fromAgent ? { name: fromAgent.name, role: fromAgent.role || persona?.role, personaKey: fromAgent.personaKey ?? persona?.personaKey } : null;
+  const senderLabelled = agentSender !== null && agentPersona.hasPersona(agentSender);
   const department = persona ? departments.find((d) => d.id === persona.departmentId) : undefined;
   const dates = headerDates(item, decisions[0]?.decidedAt ?? null);
   const { formatDate, formatDateTime } = useFormatters();
@@ -408,7 +413,7 @@ function ReadingPaneBody({ data, currency, departments, onArchived }: BodyProps)
   // The conversation under the note (DIRECTION #6): Alt+1–4 answer the agent (1–4 stay on the options), T talks.
   const desk = useRef<AgentConversationHandle>(null);
   const showDesk = hasAgentDesk(item.type);
-  const agentName = fromAgent?.name ?? "the Chief of Staff";
+  const agentName = agentSender ? agentPersona.nameFor(agentSender) : "the Chief of Staff";
   useEffect(() => {
     if (!showDesk) return;
     const onKey = (e: KeyboardEvent) => {
@@ -439,7 +444,7 @@ function ReadingPaneBody({ data, currency, departments, onArchived }: BodyProps)
   // Nothing exists yet while the plan waits, so there is nothing to open.
   const links = useMemo(() => (plan && !pendingConfirmation ? followUpLinks(plan.actions, businessId, departments) : []), [plan, pendingConfirmation, businessId, departments]);
   const planLine = planStatusLine(plan, attribution && !attribution.mine ? attribution.by : "You");
-  const roleLine = roleBesideName(fromAgent?.name ?? persona?.name, persona?.role);
+  const roleLine = senderLabelled ? null : roleBesideName(fromAgent?.name ?? persona?.name, persona?.role);
   // An agent's record opens the agent's profile, every other record its CRM profile (audit GTM-19).
   const relatedEntities = entities.map((e) => ({ id: e.id, kind: e.kind as EntityKind, name: e.displayName, href: entityHref(businessId, e, (id) => agents.has(id)) }));
   // Parts of the note the reader's section permissions hide (inbox.get masks them on the server).
@@ -462,12 +467,12 @@ function ReadingPaneBody({ data, currency, departments, onArchived }: BodyProps)
     <article className="flex min-h-0 flex-1 flex-col" data-testid="inbox-item" data-item-id={item.id} data-type={item.type} data-state={isAnswered ? "answered" : item.state}>
       {/* header */}
       <header className="flex min-h-16 shrink-0 flex-wrap items-center gap-x-3 gap-y-2 border-b border-subtle bg-panel px-gutter py-2.5" data-testid="inbox-item-header">
-        {persona ? <Avatar size={40} name={persona.name} agent={{ seed: persona.seed, dept: persona.dept as DeptColourToken }} /> : <Avatar size={40} name={senderName} />}
+        {persona ? <Avatar size={40} name={persona.name} agent={{ seed: persona.seed, dept: persona.dept as DeptColourToken, personaKey: agentSender?.personaKey }} /> : <Avatar size={40} name={senderName} />}
         {/* The persona column keeps a 16rem basis, so the tags wrap under it instead of crushing it. */}
         <div className="flex min-w-0 flex-[1_1_16rem] flex-col gap-0.5">
           <p className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
             {fromAgent ? (
-              <EntityLink entity={{ id: fromAgent.id, kind: "agent", name: fromAgent.name, href: routes.agent(businessId, fromAgent.id) }} onOpen={() => router.push(routes.agent(businessId, fromAgent.id))} hoverCard={false} contextMenu={false} className="text-body-strong text-primary" data-testid="persona-link" />
+              <EntityLink entity={{ id: fromAgent.id, kind: "agent", name: fromAgent.name, href: routes.agent(businessId, fromAgent.id) }} onOpen={() => router.push(routes.agent(businessId, fromAgent.id))} hoverCard={false} contextMenu={false} display={agentSender && senderLabelled ? agentPersona.labelFor(agentSender) : undefined} className="text-body-strong text-primary" data-testid="persona-link" />
             ) : (
               <span className="text-body-strong text-primary" data-testid="human-sender">{senderName}</span>
             )}

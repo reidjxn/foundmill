@@ -9,6 +9,7 @@
  *   POST /v1/integrations/health   service JWT → that integration's health check
  *   POST /v1/billing/checkout-sessions  service JWT (api) → a Stripe Checkout session on the platform account (billing.ts)
  *   POST /v1/domains/check         service JWT (api) → registry answers for up to 8 domain names (domains.ts)
+ *   POST /v1/personas/portrait     service JWT (api) → the AI-generated portrait of one persona catalog key (portraits.ts)
  *   POST /v1/call                  session JWT → the pipeline (allow / ask / deny / rate_limited)
  *   ALL  /mcp/:connector           session JWT → that connector's tools as an MCP streamable-HTTP server
  */
@@ -25,6 +26,7 @@ import { toIntegrationRecord } from "./credentials";
 import { appInstallationVerified, GatewayError, modeFor, safeError, type GatewayDeps } from "./pipeline";
 import { CreateCheckoutRequest, createPlatformCheckout } from "./billing";
 import { CheckDomainsRequest, checkDomains } from "./domains";
+import { generatePortrait, PortraitRequest } from "./portraits";
 import { handleMcpRequest } from "./mcp";
 import { callerTrace, tracedToolCall } from "./tracing";
 import { toCandidates } from "./recipients";
@@ -82,6 +84,7 @@ export function createGatewayApp(deps: GatewayDeps, options: GatewayAppOptions):
   app.use("/v1/integrations/*", limit(MAX_SERVICE_BODY_BYTES));
   app.use("/v1/billing/*", limit(MAX_SERVICE_BODY_BYTES));
   app.use("/v1/domains/*", limit(MAX_SERVICE_BODY_BYTES));
+  app.use("/v1/personas/*", limit(MAX_SERVICE_BODY_BYTES));
 
   app.get("/health", (c) => {
     const engine = getPolicyEngine();
@@ -131,6 +134,15 @@ export function createGatewayApp(deps: GatewayDeps, options: GatewayAppOptions):
     if (c.var.service.svc !== "api") throw new GatewayError("forbidden_service", "Only the api checks domains", 403);
     await next();
   });
+
+  // Faces of anthropomorphic agents: the api asks for one catalog key; the gateway builds the prompt and holds OPENAI_API_KEY.
+  app.use("/v1/personas/*", requireService);
+  app.use("/v1/personas/*", async (c, next) => {
+    if (c.var.service.svc !== "api") throw new GatewayError("forbidden_service", "Only the api asks for persona portraits", 403);
+    await next();
+  });
+
+  app.post("/v1/personas/portrait", async (c) => c.json(await generatePortrait(deps, PortraitRequest.parse(await c.req.json()), c.var.service.svc)));
 
   app.post("/v1/domains/check", async (c) => c.json(await checkDomains(deps, CheckDomainsRequest.parse(await c.req.json()))));
 

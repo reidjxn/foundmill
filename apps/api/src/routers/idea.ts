@@ -303,6 +303,8 @@ export const ideaRouter = router({
         confirmAdult: z.boolean().optional(),
         /** "Run on autopilot": the business starts its own cycles; off unless chosen. */
         autopilot: z.boolean().default(false),
+        /** The Launch step's "Anthropomorphic agents" switch; when given it becomes the founder's account preference. */
+        anthropomorphicAgents: z.boolean().optional(),
       }),
     )
     // A new business drafts its foundations and runs its first cycle on the platform key (SEC-13).
@@ -316,6 +318,6 @@ export const ideaRouter = router({
       if (input.gameMode === "live") await requireAdultToGoLive(ctx.db, ctx.userId, input.confirmAdult);
       // A logo is an upload check like any other (the SVG check is CPU work).
       if (input.logo) await takeLogoCheck(ctx.limits, ctx.userId);
-      return commitIdea(ctx.db, ctx.temporal, ctx.userId, input, () => importJobKey(ctx.env));
+      return commitIdea(ctx.db, ctx.temporal, ctx.userId, input, () => importJobKey(ctx.env), { log: ctx.log });
     }),
 });

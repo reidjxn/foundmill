@@ -34,6 +34,8 @@ export interface BusinessContext extends Context {
   business: Business;
   membership: Membership;
   role: MembershipRole;
+  /** The signed-in person's "Anthropomorphic agents" preference, read with the membership (no extra round trip). */
+  anthropomorphicAgents?: boolean;
   /** Runs fn inside a transaction as the signed-in user so Postgres RLS enforces tenancy. */
   rls: RlsRunner;
 }
@@ -285,6 +287,8 @@ export interface BusinessAccess {
   membership: Membership | null;
   /** Null when there is no membership, or the business is archived and the procedure does not take archived ones. */
   business: Business | null;
+  /** The person's anthropomorphic-agents preference (false without a preferences row). */
+  anthropomorphicAgents?: boolean;
 }
 
 /**
@@ -324,7 +328,7 @@ function businessBase(options: { includeArchived: boolean }) {
     if (!access.business) throw new NotFoundError("business", input.businessId);
     const business = access.business;
     const rls: RlsRunner = (fn) => withRls(ctx.db, { userId: ctx.userId, claims: ctx.email ? { email: ctx.email } : undefined }, fn);
-    const bctx: BusinessContext = { ...ctx, businessId: input.businessId, business, membership, role: membership.role, rls };
+    const bctx: BusinessContext = { ...ctx, businessId: input.businessId, business, membership, role: membership.role, anthropomorphicAgents: access.anthropomorphicAgents === true, rls };
     return next({ ctx: bctx });
   });
 }

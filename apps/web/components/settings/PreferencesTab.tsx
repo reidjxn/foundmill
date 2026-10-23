@@ -13,6 +13,9 @@
  *   beside the switch says what guidance changes (shown in both states: it is information about the switch itself), and
  *   a reassurance line under it says the choice can be switched any time (tutoring, so it hides with guidance off).
  *
+ * - Agents: the "Anthropomorphic agents" switch (a human first name and an AI-generated face for every agent, with the
+ *   position always beside the name; off shows agents by role, exactly as before). It saves through the same host.
+ *
  * Open to every member, whatever their role: it changes nothing of the business.
  */
 import { useQuery } from "@tanstack/react-query";
@@ -36,6 +39,7 @@ import {
   type SegmentedOption,
   type TextSize,
 } from "@foundmill/dugout";
+import { ANTHROPOMORPHIC_EXPLAINER } from "@/lib/anthropomorphic";
 import { useClientNow } from "@/lib/today";
 import { useDatePreferences } from "@/components/providers/DateFormatHost";
 import { useGuidancePreferences, type GuidancePatch, type GuidancePrefs } from "@/components/providers/GuidanceHost";
@@ -165,6 +169,49 @@ export function GuidanceSection() {
   );
 }
 
+export { ANTHROPOMORPHIC_EXPLAINER };
+
+/** The toast after the switch is saved: the title names the choice, the line says what follows from it. */
+export function anthropomorphicSavedLine(on: boolean): { title: string; description: string } {
+  return on
+    ? { title: "Anthropomorphic agents on", description: "Agents show a first name and an AI-generated face, with their position beside the name, in every business." }
+    : { title: "Anthropomorphic agents off", description: "Agents show by role, as before, in every business." };
+}
+
+/** The Anthropomorphic agents section: one switch, saved at once through the GuidanceHost like the guidance switch. */
+export function AnthropomorphicAgentsSection() {
+  const { prefs, save } = useGuidancePreferences();
+  const t = useSettingsToast();
+  const on = prefs.anthropomorphicAgents === true;
+  const change = (next: boolean) =>
+    save({ anthropomorphicAgents: next }).then(
+      (saved) => {
+        const line = anthropomorphicSavedLine(saved.anthropomorphicAgents === true);
+        t.saved(line.title, line.description);
+      },
+      (err: unknown) => t.failed(err, "Preference not saved"),
+    );
+  return (
+    <SettingsSection title="Agents" data-testid="anthropomorphic-panel">
+      <div className="flex items-start gap-3" data-testid="anthropomorphic-choice">
+        <Switch
+          id="anthropomorphic-switch"
+          checked={on}
+          onCheckedChange={(next) => void change(next)}
+          aria-describedby="anthropomorphic-switch-hint"
+          data-testid="anthropomorphic-switch"
+        />
+        <div className="flex flex-col gap-1">
+          <Label htmlFor="anthropomorphic-switch">Anthropomorphic agents</Label>
+          <p id="anthropomorphic-switch-hint" className="text-small text-secondary">
+            {ANTHROPOMORPHIC_EXPLAINER}
+          </p>
+        </div>
+      </div>
+    </SettingsSection>
+  );
+}
+
 export function PreferencesTab() {
   const { prefs, save } = useDatePreferences();
   const t = useSettingsToast();
@@ -204,6 +251,7 @@ export function PreferencesTab() {
         <DateFormatPicker value={prefs} onChange={onChange} now={now} />
       </SettingsSection>
       <GuidanceSection />
+      <AnthropomorphicAgentsSection />
       <SettingsSection title="Your account ID" data-testid="account-id-panel">
         <AccountId accountId={viewer.data?.userId} />
       </SettingsSection>

@@ -182,8 +182,8 @@ export function DepartmentSettingsDialog({ department, shortcut, onOpenChange, o
                 <ul className="flex flex-col" data-testid="dept-members">
                   {members.map((m) => (
                     <li key={m.id} className="flex min-h-row-comfortable items-center gap-2 border-b border-line-faint last:border-b-0">
-                      <Avatar size={24} name={m.name} agent={{ seed: m.avatarSeed || m.id, dept: draft.colourToken }} status={m.status} />
-                      <EntityLink entity={{ id: m.id, kind: "agent", name: m.name, href: routes.agent(businessId, m.id) }} onOpen={() => router.push(routes.agent(businessId, m.id))} contextMenu={false} className="text-body-strong text-primary" />
+                      <Avatar size={24} name={m.name} agent={{ seed: m.avatarSeed || m.id, dept: draft.colourToken, personaKey: m.personaKey }} status={m.status} />
+                      <EntityLink entity={{ id: m.id, kind: "agent", name: m.name, href: routes.agent(businessId, m.id) }} onOpen={() => router.push(routes.agent(businessId, m.id))} contextMenu={false} personaText="name" className="text-body-strong text-primary" />
                       <span className="min-w-0 flex-1 truncate text-small text-secondary">{m.role}</span>
                       {draft.leadAgentId === m.id ? (
                         <Chip tone="info" icon={Crown}>

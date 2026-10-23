@@ -2,7 +2,7 @@
  * agents, agent_versions, agent_sessions, agent_metrics — the squad (BUILD §9.1–9.2, §11.9, §11.10;
  * routers team.agents.*, agent.profile.*, agent.model.*, agent.autonomy.*, dev.sessions.*).
  */
-import { AGENT_LAYERS, AGENT_PAUSE_REASONS, AGENT_STATUSES, AGENT_STOP_REASONS, AGENT_VERSION_STATES, MODEL_KEYS, uuid, ValidationError, type AgentPauseReason, type AgentStatus } from "@foundmill/shared";
+import { AGENT_LAYERS, AGENT_PAUSE_REASONS, AGENT_STATUSES, AGENT_STOP_REASONS, AGENT_VERSION_STATES, MODEL_KEYS, personaByKey, pickPersonaKeys, uuid, ValidationError, type AgentPauseReason, type AgentStatus } from "@foundmill/shared";
 import { CREDITS_CURRENCY } from "@foundmill/config";
 import { and, asc, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
@@ -45,12 +45,18 @@ export const CreateAgentInput = z.object({
   wageCapMinor: MinorAmount.nullable().optional(),
   currency: Currency.optional(),
   avatarSeed: z.string().max(80).optional(),
+  /**
+   * The persona (anthropomorphic agents, 0067): a key of `PERSONAS` in @foundmill/shared. Leave it out and the repo
+   * picks one (`assignPersonaKeys`): unique within the business, avoiding the owner's other businesses' keys.
+   */
+  personaKey: z.string().refine((k) => personaByKey(k) !== null, "not a persona catalog key").optional(),
   /** When given, version 1 is created `live` with these instructions/tools and becomes current. */
   initialVersion: CreateAgentVersionInput.omit({ state: true }).optional(),
 });
 export type CreateAgentInput = z.input<typeof CreateAgentInput>;
 
-export const UpdateAgentInput = patchSchema(CreateAgentInput.omit({ initialVersion: true, agentType: true, status: true }));
+/** The persona key is given once at hire and never changes (a rename keeps it), so an update cannot carry one. */
+export const UpdateAgentInput = patchSchema(CreateAgentInput.omit({ initialVersion: true, agentType: true, status: true, personaKey: true }));
 export type UpdateAgentInput = z.input<typeof UpdateAgentInput>;
 
 export const AgentListFilter = PageInput.extend({
@@ -139,7 +145,7 @@ export interface AgentDailyActivity {
 }
 
 /** What department.list shows of an agent: the lead and the team strip. */
-export type AgentRosterRow = Pick<Agent, "id" | "name" | "role" | "status" | "modelKey" | "avatarSeed" | "departmentIds">;
+export type AgentRosterRow = Pick<Agent, "id" | "name" | "role" | "status" | "modelKey" | "avatarSeed" | "departmentIds" | "personaKey">;
 
 const scoped = (businessId: string, agentId: string) => and(eq(agents.businessId, businessId), eq(agents.id, agentId));
 
@@ -153,6 +159,62 @@ async function startingStatus(db: Executor, businessId: string, requested: Agent
   const stop = rows[0];
   if (!stop?.stoppedAt) return { status: requested, pausedReason: null };
   return { status: "paused", pausedReason: stop.reason ?? "kill_switch" };
+}
+
+/**
+ * Serializes persona assignment per business until the transaction ends, so two hires at once (a double click, a plan
+ * hiring while the founder hires) read each other's keys instead of picking the same one.
+ */
+async function lockPersonas(db: Executor, businessId: string): Promise<void> {
+  await db.execute(sql`select pg_advisory_xact_lock(hashtext('agents_persona'), hashtext(${businessId}::uuid::text))`);
+}
+
+/**
+ * What persona assignment must respect for one business, in one statement: `taken`, every key the business's agents
+ * hold (archived ones too, so a released agent's face never comes back as someone else), `live`, the keys its live
+ * (not released) agents hold, and `avoid`, the keys live agents hold in the other businesses owned by this business's
+ * owners (membership role owner), so one founder's businesses greet them with different names while the catalog allows.
+ */
+export async function personaContext(db: Executor, businessId: string): Promise<{ taken: string[]; live: string[]; avoid: string[] }> {
+  const rows = rowsOf<{ kind: "taken" | "live" | "avoid"; key: string }>(
+    await db.execute(sql`
+      select 'taken' as kind, a.persona_key as key from agents a
+       where a.business_id = ${businessId}::uuid and a.persona_key is not null
+      union
+      select 'live' as kind, a.persona_key as key from agents a
+       where a.business_id = ${businessId}::uuid and a.persona_key is not null and a.archived_at is null
+      union
+      select 'avoid' as kind, a.persona_key as key from agents a
+       where a.persona_key is not null and a.archived_at is null and a.business_id <> ${businessId}::uuid
+         and a.business_id in (
+           select o.business_id from memberships o
+            where o.role = 'owner'
+              and o.user_id in (select m.user_id from memberships m where m.business_id = ${businessId}::uuid and m.role = 'owner'))`),
+  );
+  const of = (kind: "taken" | "live" | "avoid") => rows.filter((r) => r.kind === kind).map((r) => r.key);
+  return { taken: of("taken"), live: of("live"), avoid: of("avoid") };
+}
+
+/**
+ * Persona keys for new agents of one business: a key the caller asks for is kept unless a live agent of the business
+ * already holds it (or an earlier agent of the same call asked for it), in which case it is replaced like a missing one;
+ * the rest are picked with `pickPersonaKeys` seeded by the business id (so the same business and history always pick the
+ * same keys). Takes the business's persona lock; call inside a transaction so the lock holds until the agents are inserted.
+ */
+export async function assignPersonaKeys(db: Executor, businessId: string, requested: readonly (string | null | undefined)[]): Promise<string[]> {
+  if (requested.length === 0) return [];
+  await lockPersonas(db, businessId);
+  const ctx = await personaContext(db, businessId);
+  const held = new Set(ctx.live);
+  const kept = requested.map((k) => {
+    if (typeof k !== "string" || held.has(k)) return null;
+    held.add(k);
+    return k;
+  });
+  const given = kept.filter((k): k is string => k !== null);
+  const picked = pickPersonaKeys(kept.length - given.length, { seed: businessId, taken: [...ctx.taken, ...given], avoid: ctx.avoid });
+  let next = 0;
+  return kept.map((k) => k ?? picked[next++]!);
 }
 
 export const agentsRepo = {
@@ -186,7 +248,7 @@ export const agentsRepo = {
     const limit = Math.min(Math.max(Math.trunc(options.limit ?? 500), 1), 1000);
     const ks = timeKeyset<Agent>(agents.createdAt, agents.id, (r) => ({ at: r.createdAt, id: r.id }), "asc");
     return db
-      .select({ id: agents.id, name: agents.name, role: agents.role, status: agents.status, modelKey: agents.modelKey, avatarSeed: agents.avatarSeed, departmentIds: agents.departmentIds })
+      .select({ id: agents.id, name: agents.name, role: agents.role, status: agents.status, modelKey: agents.modelKey, avatarSeed: agents.avatarSeed, departmentIds: agents.departmentIds, personaKey: agents.personaKey })
       .from(agents)
       .where(and(eq(agents.businessId, businessId), isNull(agents.archivedAt)))
       .orderBy(...ks.orderBy)
@@ -201,6 +263,18 @@ export const agentsRepo = {
   async byIds(db: Executor, businessId: string, ids: readonly string[]): Promise<Agent[]> {
     if (ids.length === 0) return [];
     return db.select().from(agents).where(and(eq(agents.businessId, businessId), inArray(agents.id, [...ids])));
+  },
+
+  /**
+   * agent id → persona key (null until the boot backfill gave it one) for the agents among `ids` that belong to the
+   * business (archived ones too); another business's agent is simply absent. One projected statement (crm.entity.lookup
+   * marks agent records with the face to show).
+   */
+  async personaKeysByIds(db: Executor, businessId: string, ids: readonly string[]): Promise<Map<string, string | null>> {
+    const wanted = [...new Set(ids)];
+    if (wanted.length === 0) return new Map();
+    const rows = await db.select({ id: agents.id, personaKey: agents.personaKey }).from(agents).where(and(eq(agents.businessId, businessId), inArray(agents.id, wanted)));
+    return new Map(rows.map((r) => [r.id, r.personaKey] as const));
   },
 
   /** The business's Chief of Staff (assistant layer), or null before hiring. */
@@ -219,6 +293,7 @@ export const agentsRepo = {
       await assertDepartmentsOwned(tx, businessId, v.departmentIds, "departmentIds");
       await assertAgentsOwned(tx, businessId, [v.lineManagerId], "lineManagerId");
       const start = await startingStatus(tx, businessId, v.status);
+      const [personaKey] = await assignPersonaKeys(tx, businessId, [v.personaKey]);
       const agent = one(
         await tx
           .insert(agents)
@@ -240,6 +315,7 @@ export const agentsRepo = {
             wageCapMinor: v.wageCapMinor ?? null,
             ...(v.currency ? { currency: v.currency } : {}),
             avatarSeed: v.avatarSeed ?? `${v.agentType}:${v.name}`,
+            personaKey: personaKey ?? null,
           })
           .returning(),
         "agent",
@@ -270,65 +346,115 @@ export const agentsRepo = {
   /**
    * Many agents at once, each with its id chosen by the caller (so line managers can point at agents created in the
    * same call): one insert for the agents, one for their first versions, one update linking them. Three round trips
-   * however large the team (commit hires about 26), plus the read of the stop flag. Results come back in the order given.
+   * however large the team (commit hires about 26), plus the read of the stop flag and the persona keys (taken under the
+   * business's persona lock, `assignPersonaKeys`). Results come back in the order given.
    */
   async createMany(db: Executor, businessId: string, inputs: (CreateAgentInput & { id: string })[]): Promise<(Agent & { currentVersion: AgentVersion | null })[]> {
     if (inputs.length === 0) return [];
-    const list = inputs.map((i) => ({ ...parseInput(CreateAgentInput, i, "agent"), id: parseInput(Id, i.id, "agent id") }));
-    const stopped = await startingStatus(db, businessId, "idle");
-    const created = await db
-      .insert(agents)
-      .values(
-        list.map((v) => ({
-          id: v.id,
-          businessId,
-          name: v.name,
-          role: v.role,
-          agentType: v.agentType,
-          layer: v.layer,
-          descriptionMd: v.descriptionMd,
-          departmentIds: v.departmentIds,
-          lineManagerId: v.lineManagerId ?? null,
-          modelKey: v.modelKey,
-          ...(stopped.status === "paused" ? stopped : { status: v.status }),
-          autonomy: v.autonomy,
-          negotiation: v.negotiation,
-          schedule: v.schedule,
-          wageCapMinor: v.wageCapMinor ?? null,
-          ...(v.currency ? { currency: v.currency } : {}),
-          avatarSeed: v.avatarSeed ?? `${v.agentType}:${v.name}`,
-        })),
-      )
-      .returning();
-    const withVersion = list.filter((v) => v.initialVersion);
-    const versions = withVersion.length
-      ? await db
-          .insert(agentVersions)
-          .values(
-            withVersion.map((v) => ({
-              businessId,
-              agentId: v.id,
-              version: 1,
-              instructions: v.initialVersion!.instructions,
-              tools: v.initialVersion!.tools,
-              modelKey: v.initialVersion!.modelKey ?? v.modelKey,
-              state: "live" as const,
-              createdByKind: v.initialVersion!.createdByKind,
-              createdBy: v.initialVersion!.createdBy ?? null,
-            })),
-          )
-          .returning()
-      : [];
-    const linked = versions.length
-      ? await db
-          .update(agents)
-          .set({ currentVersionId: sql`(select ${agentVersions.id} from ${agentVersions} where ${agentVersions.agentId} = ${agents.id} and ${agentVersions.version} = 1)` })
-          .where(and(eq(agents.businessId, businessId), inArray(agents.id, withVersion.map((v) => v.id))))
-          .returning()
-      : [];
-    const agentById = new Map([...created, ...linked].map((a) => [a.id, a] as const));
-    const versionByAgent = new Map(versions.map((v) => [v.agentId, v] as const));
-    return list.map((v) => ({ ...one([agentById.get(v.id)].filter((a): a is Agent => a !== undefined), "agent", v.id), currentVersion: versionByAgent.get(v.id) ?? null }));
+    const parsed = inputs.map((i) => ({ ...parseInput(CreateAgentInput, i, "agent"), id: parseInput(Id, i.id, "agent id") }));
+    // One transaction (a savepoint inside the caller's) so the persona lock holds until the agents are in.
+    return db.transaction(async (tx) => {
+      const personaKeys = await assignPersonaKeys(tx, businessId, parsed.map((v) => v.personaKey));
+      const list = parsed.map((v, i) => ({ ...v, personaKey: personaKeys[i]! }));
+      const stopped = await startingStatus(tx, businessId, "idle");
+      const created = await tx
+        .insert(agents)
+        .values(
+          list.map((v) => ({
+            id: v.id,
+            businessId,
+            name: v.name,
+            role: v.role,
+            agentType: v.agentType,
+            layer: v.layer,
+            descriptionMd: v.descriptionMd,
+            departmentIds: v.departmentIds,
+            lineManagerId: v.lineManagerId ?? null,
+            modelKey: v.modelKey,
+            ...(stopped.status === "paused" ? stopped : { status: v.status }),
+            autonomy: v.autonomy,
+            negotiation: v.negotiation,
+            schedule: v.schedule,
+            wageCapMinor: v.wageCapMinor ?? null,
+            ...(v.currency ? { currency: v.currency } : {}),
+            avatarSeed: v.avatarSeed ?? `${v.agentType}:${v.name}`,
+            personaKey: v.personaKey,
+          })),
+        )
+        .returning();
+      const withVersion = list.filter((v) => v.initialVersion);
+      const versions = withVersion.length
+        ? await tx
+            .insert(agentVersions)
+            .values(
+              withVersion.map((v) => ({
+                businessId,
+                agentId: v.id,
+                version: 1,
+                instructions: v.initialVersion!.instructions,
+                tools: v.initialVersion!.tools,
+                modelKey: v.initialVersion!.modelKey ?? v.modelKey,
+                state: "live" as const,
+                createdByKind: v.initialVersion!.createdByKind,
+                createdBy: v.initialVersion!.createdBy ?? null,
+              })),
+            )
+            .returning()
+        : [];
+      const linked = versions.length
+        ? await tx
+            .update(agents)
+            .set({ currentVersionId: sql`(select ${agentVersions.id} from ${agentVersions} where ${agentVersions.agentId} = ${agents.id} and ${agentVersions.version} = 1)` })
+            .where(and(eq(agents.businessId, businessId), inArray(agents.id, withVersion.map((v) => v.id))))
+            .returning()
+        : [];
+      const agentById = new Map([...created, ...linked].map((a) => [a.id, a] as const));
+      const versionByAgent = new Map(versions.map((v) => [v.agentId, v] as const));
+      return list.map((v) => ({ ...one([agentById.get(v.id)].filter((a): a is Agent => a !== undefined), "agent", v.id), currentVersion: versionByAgent.get(v.id) ?? null }));
+    });
+  },
+
+  /**
+   * Gives a persona key to every agent of the business that has none (agents hired before 0067), oldest first, with
+   * the same rules as a hire. Idempotent: agents that have a key keep it, so a second run changes nothing. Returns the
+   * number of agents given a key.
+   */
+  async assignMissingPersonas(db: Executor, businessId: string): Promise<number> {
+    return db.transaction(async (tx) => {
+      await lockPersonas(tx, businessId);
+      const missing = await tx
+        .select({ id: agents.id })
+        .from(agents)
+        .where(and(eq(agents.businessId, businessId), isNull(agents.personaKey)))
+        .orderBy(asc(agents.createdAt), asc(agents.id));
+      if (missing.length === 0) return 0;
+      const keys = await assignPersonaKeys(tx, businessId, missing.map(() => null));
+      const values = sql.join(missing.map((a, i) => sql`(${a.id}::uuid, ${keys[i]!}::text)`), sql`, `);
+      const updated = await tx.execute(sql`
+        update agents set persona_key = v.key from (values ${values}) as v(id, key)
+         where agents.id = v.id and agents.business_id = ${businessId}::uuid and agents.persona_key is null
+        returning agents.id`);
+      return rowsOf(updated).length;
+    });
+  },
+
+  /**
+   * The boot backfill (apps/api, after migrations): `assignMissingPersonas` for every business with an agent that has
+   * no persona key, one business at a time in id order. Idempotent; a business that fails is reported in `failed` and
+   * the others still run. Service connection only (it reads every business).
+   */
+  async backfillPersonas(db: Executor): Promise<{ businesses: number; agents: number; failed: { businessId: string; error: string }[] }> {
+    const pending = rowsOf<{ business_id: string }>(await db.execute(sql`select distinct business_id from agents where persona_key is null order by business_id`));
+    let assigned = 0;
+    const failed: { businessId: string; error: string }[] = [];
+    for (const { business_id: businessId } of pending) {
+      try {
+        assigned += await agentsRepo.assignMissingPersonas(db, businessId);
+      } catch (err) {
+        failed.push({ businessId, error: err instanceof Error ? err.message : String(err) });
+      }
+    }
+    return { businesses: pending.length - failed.length, agents: assigned, failed };
   },
 
   async update(db: Executor, businessId: string, agentId: string, input: UpdateAgentInput): Promise<Agent> {
@@ -444,7 +570,10 @@ export const agentsRepo = {
     });
   },
 
-  /** Clone: a new agent with the same configuration and a copy of the current version as live version 1. */
+  /**
+   * Clone: a new agent with the same configuration and a copy of the current version as live version 1. It gets a
+   * persona of its own (the source's key is taken), never the source's.
+   */
   async clone(db: Executor, businessId: string, agentId: string, overrides: { name: string; departmentIds?: string[] }): Promise<Agent & { currentVersion: AgentVersion | null }> {
     const o = parseInput(z.object({ name: z.string().trim().min(1).max(80), departmentIds: z.array(Id).optional() }), overrides, "clone");
     return db.transaction(async (tx) => {

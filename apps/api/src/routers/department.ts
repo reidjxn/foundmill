@@ -70,7 +70,7 @@ export const departmentRouter = router({
         list.push({ id: s.id, slug: s.tabSlug, title: s.title, position: s.position });
         tabsByDepartment.set(s.departmentId, list);
       }
-      const member = (a: (typeof roster)[number]) => ({ id: a.id, name: a.name, role: a.role, status: a.status, modelKey: a.modelKey, avatarSeed: a.avatarSeed });
+      const member = (a: (typeof roster)[number]) => ({ id: a.id, name: a.name, role: a.role, status: a.status, modelKey: a.modelKey, avatarSeed: a.avatarSeed, personaKey: a.personaKey });
       return departments.map((d) => {
         const lead = roster.find((a) => a.id === d.leadAgentId);
         return {

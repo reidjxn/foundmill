@@ -82,7 +82,7 @@ export interface EntityAction {
 }
 
 export type EntityPortrait =
-  | { type: "agent"; seed: string | number; dept: DeptColourToken; status?: AgentStatus }
+  | { type: "agent"; seed: string | number; dept: DeptColourToken; status?: AgentStatus; personaKey?: string | null }
   | { type: "person"; src?: string }
   | {
       /** An organisation or business: its logo as a data URL, or the initials mark in `primary`. */
@@ -96,6 +96,13 @@ export type EntityPortrait =
 export interface EntityDetails extends EntityRef {
   subtitle?: string;
   portrait?: EntityPortrait;
+  /**
+   * Agents only, for anthropomorphic agents (AgentPersonaProvider): the agent's persona key and position. With the
+   * preference on, the mention and the card read the persona's first name and keep the position beside it; `name`
+   * stays the agent's own name, which the preference off shows.
+   */
+  personaKey?: string | null;
+  role?: string | null;
   chips?: EntityChip[];
   /** Up to three; extra facts are dropped. */
   facts?: EntityFact[];

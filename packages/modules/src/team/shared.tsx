@@ -5,7 +5,7 @@
  */
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { CircleAlert, CircleDashed, CirclePause } from "lucide-react";
-import { Avatar, EntityLink, MODEL_LABELS, PageGrid, StatusPill, agentStatusTone, cn, formatRelative, useGuided, type EntityDetails, type IconComponent, type SquadRow } from "@foundmill/dugout";
+import { Avatar, EntityLink, MODEL_LABELS, useAgentPersona, PageGrid, StatusPill, agentStatusTone, cn, formatRelative, useGuided, type EntityDetails, type IconComponent, type SquadRow } from "@foundmill/dugout";
 import { type AgentStatus, type DeptColourToken, type MembershipRole } from "@foundmill/shared/constants";
 import { SECTIONS } from "@foundmill/shared/permissions";
 import { moduleTabHref } from "@foundmill/widgets/shared/departments";
@@ -265,7 +265,7 @@ export function AgentStatusWordPill({ status, expectedReturnAt, now = new Date()
 
 export interface AgentCellProps {
   businessId: string;
-  agent: { id: string; name: string; seed: string | number; dept: DeptColourToken; status?: AgentStatus };
+  agent: { id: string; name: string; seed: string | number; dept: DeptColourToken; status?: AgentStatus; role?: string; personaKey?: string | null };
   details?: EntityDetails;
   onOpen: (agentId: string) => void;
   avatarSize?: 20 | 24;
@@ -275,15 +275,18 @@ export interface AgentCellProps {
 /**
  * An agent in a table row: portrait and the name as an entity link. A block-level flex row (not inline-flex), so the
  * name sits on the row's centre line with the other cells, and the link itself truncates with an ellipsis when the
- * column is narrow (the full name is in the hover card).
+ * column is narrow (the full name is in the hover card). With anthropomorphic agents on it shows the persona's first
+ * name and face; the position is the Role column beside it.
  */
 export function AgentCell({ businessId, agent, details, onOpen, avatarSize = 24, className }: AgentCellProps) {
+  const persona = useAgentPersona();
   return (
     <span className={cn("flex min-w-0 items-center gap-2", className)}>
-      <Avatar size={avatarSize} name={agent.name} agent={{ seed: agent.seed, dept: agent.dept }} status={agent.status} className="shrink-0" />
+      <Avatar size={avatarSize} name={persona.nameFor(agent)} agent={{ seed: agent.seed, dept: agent.dept, personaKey: agent.personaKey }} status={agent.status} className="shrink-0" />
       <EntityLink
         entity={{ id: agent.id, kind: "agent", name: agent.name, href: agentHref(businessId, agent.id) }}
         details={details}
+        personaText="name"
         hideIcon
         className="min-w-0 truncate text-body-strong"
         onOpen={(e) => onOpen(e.id)}
@@ -392,6 +395,7 @@ export function toSquadRow(agent: AgentRow, currency: string): SquadRow {
     seed: agent.avatarSeed || agent.id,
     dept: agentDept(agent),
     role: agent.role ?? "",
+    personaKey: agent.personaKey ?? null,
     departments: (agent.departments ?? []).map((d) => d.name),
     status: agent.status,
     currentTask: agent.currentTask ? { id: agent.currentTask.id, title: agent.currentTask.title } : null,
@@ -469,7 +473,9 @@ export function agentEntity(businessId: string, agent: AgentRow, currency: strin
     name: agent.name,
     href: agentHref(businessId, agent.id),
     subtitle: agent.role,
-    portrait: { type: "agent", seed: agent.avatarSeed || agent.id, dept: agentDept(agent), status: agent.status },
+    portrait: { type: "agent", seed: agent.avatarSeed || agent.id, dept: agentDept(agent), status: agent.status, personaKey: agent.personaKey ?? null },
+    personaKey: agent.personaKey ?? null,
+    role: agent.role ?? null,
     chips: [{ label: STATUS_WORD[agent.status], tone: agentStatusTone(agent.status).tone }, { label: MODEL_LABELS[agent.modelKey] ?? agent.modelKey }],
     facts: [
       { label: "Departments", value: (agent.departments ?? []).map((d) => d.name).join(", ") || "—" },

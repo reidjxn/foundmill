@@ -8,6 +8,7 @@ import {
   EntityLinkProvider,
   type EntityLinkContextValue,
 } from "./EntityLink";
+import { AgentPersonaProvider } from "../foundation/AgentPersona";
 import { EntityText } from "./EntityText";
 import { Markdown } from "./Markdown";
 import type { EntityRenderNode } from "./entityMarkup";
@@ -198,5 +199,22 @@ export const MarkdownWithoutImages: Story = {
         {"Our funnel after the change: ![funnel chart](https://example.com/funnel.png). **Replies halved** at [[ent:11111111-1111-4111-8111-111111111111|Acme Ltd]]; details in [the write-up](https://example.com/notes)."}
       </Markdown>
     </div>
+  ),
+};
+
+/** Anthropomorphic agents on: an agent the resolver knows reads as "Name (Position)"; the card keeps the position and says AI agent. */
+export const AgentWithPersona: Story = {
+  args: { entity: { id: ENTITY_IDS.scout, kind: "agent", name: "Scout" } },
+  render: () => (
+    <AgentPersonaProvider anthropomorphic>
+      <EntityLinkProvider value={{ resolve: (id) => (id === ENTITY_IDS.scout ? { ...resolveFixtureEntity(id)!, personaKey: "malik", role: "Scout" } : undefined) }}>
+        <p className="text-body text-primary">
+          Ask <EntityLink entity={{ id: ENTITY_IDS.scout, kind: "agent", name: "Scout" }} /> about the Nordic order.
+        </p>
+        <div className="surface-overlay mt-3 w-80 p-3">
+          <EntityCard details={{ ...ENTITY_DETAILS[ENTITY_IDS.scout]!, personaKey: "malik", role: "Scout" }} />
+        </div>
+      </EntityLinkProvider>
+    </AgentPersonaProvider>
   ),
 };

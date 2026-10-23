@@ -24,6 +24,7 @@ import {
   ALWAYS_LIVE_CONNECTORS,
   canonicalJson,
   isConfigError,
+  isServiceOnlyConnector,
   isUntrusted,
   mockIntegrationRecord,
   readForQuarantine,
@@ -225,6 +226,11 @@ interface Loaded {
   holidayBudgetMinor: number | null;
 }
 
+/** 403 `service_only_connector` for a connector agents never reach (packages/connectors `SERVICE_ONLY_CONNECTORS`). */
+export function refuseServiceOnly(connectorKey: string): void {
+  if (isServiceOnlyConnector(connectorKey)) throw new GatewayError("service_only_connector", `${connectorKey} is called by the platform itself; agent sessions cannot use it`, 403, { connector: connectorKey });
+}
+
 function findTool(connector: Connector, name: string): McpToolDefinition | undefined {
   return connector.tools.find((t) => t.name === name);
 }
@@ -235,6 +241,10 @@ export async function executeToolCall(deps: GatewayDeps, session: SessionToken, 
   const { businessId } = session;
   const ref = toolRef(req.connector, req.tool);
   const args = req.args ?? {};
+
+  // 0. Service-only connectors (openai_images): only the platform's own service routes call them, never an agent session,
+  // whatever its token was minted with.
+  refuseServiceOnly(req.connector);
 
   // 1. Session scope: a token only reaches the tools it was minted for (BUILD §9.3).
   if (!toolAllowed(session.allowedTools, req.connector, req.tool)) {

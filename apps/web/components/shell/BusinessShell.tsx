@@ -18,7 +18,7 @@ import { ArrowRight } from "lucide-react";
 import dynamic from "next/dynamic";
 import { usePathname, useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState, useTransition, type ReactNode } from "react";
-import { AppShell, Avatar, Button, Callout, Chip, EntityLinkProvider, GuidanceTermsProvider, ShellLinkProvider, Tooltip, useToast, type PaletteItem, type ProcessingSegment, type SearchQuery, type SidebarItem } from "@foundmill/dugout";
+import { AppShell, Avatar, useAgentPersona, Button, Callout, Chip, EntityLinkProvider, GuidanceTermsProvider, ShellLinkProvider, Tooltip, useToast, type PaletteItem, type ProcessingSegment, type SearchQuery, type SidebarItem } from "@foundmill/dugout";
 import { ModuleEnvProvider, type ModuleEnv } from "@foundmill/modules/env";
 import { readWidgetEvent, type WidgetEvent } from "@foundmill/widgets/data";
 import { routes } from "@foundmill/widgets/shared/routes";
@@ -583,16 +583,18 @@ function ShellInner({ businessId, initialBusiness, initialDepartments, viewer, c
   // Lead rows: "Ask <agent>" opens the agent's desk as a sheet (the typed words become the first message); "Generate…"
   // goes to a surface where a real model call drafts something.
   const deskApi = useRef<AgentDeskApi>(null);
-  const agents = useMemo(() => paletteAgents(departments), [departments]);
+  // Anthropomorphic agents: "Ask Bob" (and "ask bob why…" finds him) when the preference is on; the role stays on the row.
+  const persona = useAgentPersona();
+  const agents = useMemo(() => paletteAgents(departments).map((a) => ({ ...a, displayName: persona.nameFor(a) })), [departments, persona]);
   const askText = parsed?.text ?? searchText;
-  const askItems = useMemo(() => askPaletteItems(agents, askText, (a) => <Avatar size={20} name={a.name} agent={{ seed: a.avatarSeed, dept: a.dept }} />), [agents, askText]);
+  const askItems = useMemo(() => askPaletteItems(agents, askText, (a) => <Avatar size={20} name={a.name} agent={{ seed: a.avatarSeed, dept: a.dept, personaKey: a.personaKey }} />), [agents, askText]);
   const generateItems = useMemo(() => generatePaletteItems(businessId, departments), [businessId, departments]);
   const onAsk = useCallback(
     (item: PaletteItem, text: string) => {
       const a = agentOfAskItem(item, agents);
       if (!a) return;
       setSearchOpen(false);
-      deskApi.current?.open({ kind: "agent", id: a.id }, { persona: { name: a.name, role: a.role, avatarSeed: a.avatarSeed, dept: a.dept }, text: askQuestion(text, a) || null });
+      deskApi.current?.open({ kind: "agent", id: a.id }, { persona: { name: a.name, role: a.role, avatarSeed: a.avatarSeed, personaKey: a.personaKey, dept: a.dept }, text: askQuestion(text, a) || null });
     },
     [agents, setSearchOpen],
   );
@@ -623,11 +625,11 @@ function ShellInner({ businessId, initialBusiness, initialDepartments, viewer, c
   // Every mention resolves (lib/entity-resolver.tsx): agents (by agent id, or by their CRM record) open their profile,
   // records their CRM profile, with a full hover card and the right-click verbs (audit GTM-19, VFR3-X1, GTM-26).
   const agentSummaries = useMemo<AgentSummary[]>(
-    () => departments.flatMap((d) => d.squad.map((a) => ({ id: a.id, name: a.name, role: a.role, status: a.status, modelKey: a.modelKey, avatarSeed: a.avatarSeed, departmentName: d.name, dept: d.colourToken }))),
+    () => departments.flatMap((d) => d.squad.map((a) => ({ id: a.id, name: a.name, role: a.role, status: a.status, modelKey: a.modelKey, avatarSeed: a.avatarSeed, personaKey: a.personaKey, departmentName: d.name, dept: d.colourToken }))),
     [departments],
   );
   const navigate = useCallback((href: string) => router.push(href), [router]);
-  const onMessageAgent = useCallback((a: AgentSummary) => deskApi.current?.open({ kind: "agent", id: a.id }, { persona: { name: a.name, role: a.role ?? "", avatarSeed: String(a.avatarSeed ?? a.id), dept: a.dept ?? "dept-1" }, text: null }), []);
+  const onMessageAgent = useCallback((a: AgentSummary) => deskApi.current?.open({ kind: "agent", id: a.id }, { persona: { name: a.name, role: a.role ?? "", avatarSeed: String(a.avatarSeed ?? a.id), personaKey: a.personaKey, dept: a.dept ?? "dept-1" }, text: null }), []);
   const entityLinks = useEntityResolver({ businessId, agents: agentSummaries, canReadCrm: access.canRead("crm"), navigate, onMessageAgent });
   // "Reconnecting…" / "Live updates paused" once the business's channel has been down a few seconds (audit RES-11).
   // Nothing is lost: the team's work and notes are on the server; only this screen may be behind.

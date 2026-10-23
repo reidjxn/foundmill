@@ -101,6 +101,18 @@ describe("the command palette's Ask and Generate rows", () => {
     expect(agentOfAskItem(named[0]!, agents)?.id).toBe("pike");
   });
 
+  it("with anthropomorphic agents on, asks the persona by first name, finds it by that name, and keeps the role on the row", () => {
+    const withName = agents.map((a) => (a.id === "pike" ? { ...a, personaKey: "malik", displayName: "Malik" } : a));
+    const items = askPaletteItems(withName, "malik how are the wholesale numbers?", () => null);
+    expect(items.map((i) => i.label)).toEqual(["Ask Malik"]);
+    expect(items[0]).toMatchObject({ description: "Wholesale analyst · Retail Partnerships" });
+    expect(askQuestion("ask malik why is cash down?", withName[2]!)).toBe("Why is cash down?");
+    // The agent's own name still finds it, and off (no displayName) is today's label.
+    expect(askPaletteItems(withName, "pike", () => null).map((i) => i.label)).toEqual(["Ask Malik"]);
+    expect(askPaletteItems(agents, "pike", () => null).map((i) => i.label)).toEqual(["Ask Pike"]);
+    expect(paletteAgents([{ ...departments[0]!, squad: [{ id: "pike", name: "Pike", role: "Wholesale analyst", avatarSeed: null, personaKey: "malik" }] }]).find((a) => a.id === "pike")?.personaKey).toBe("malik");
+  });
+
   it("carries the question without the words that only picked the agent", () => {
     expect(askQuestion("ask juno why is cash down?", agents[0]!)).toBe("Why is cash down?");
     expect(askQuestion("engineer what is blocking you?", agents[1]!)).toBe("What is blocking you?");

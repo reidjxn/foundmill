@@ -16,6 +16,10 @@
  * One business per idea: the transaction claims the idea (`ideas.claimForCommit`, one conditional statement) before
  * anything is created, so a double click, a second tab or a retried request never builds a second business; it
  * answers with the business the first commit created (`alreadyCommitted: true`), read back from that commit's audit row.
+ *
+ * Anthropomorphic agents (Launch step, 0067): when the founder chose on or off there, the choice is written to their
+ * account preferences once the business exists. It is a display preference, so a failure to save it is logged and never
+ * fails the commit (Settings › Preferences changes it any time).
  */
 import { randomUUID } from "node:crypto";
 import { departmentTabs, getArchetypeSeed, getTemplate, prompts } from "@foundmill/agents";
@@ -28,6 +32,7 @@ import { QUEUE_ACTION } from "./cycle";
 import { checkLogoChoice, type LogoChoice } from "./logo";
 import { hireMany, type PlannedHire } from "./squad";
 import { startAutopilotWorkflow } from "./autopilot";
+import type { ApiLogger } from "./log";
 import type { TemporalService } from "./temporal";
 import { WORKFLOWS, workflowIds, type TemporalResult } from "./temporal";
 import { importJobIdOf, resolveImportLink, seedFoundations, type ImportLink, type ScoutingReportLike } from "./foundations";
@@ -50,6 +55,8 @@ export interface CommitIdeaInput {
   spendCapMinor?: number | null;
   /** "Run on autopilot" (Commit): the business starts its own cycles (0055). Off unless chosen. */
   autopilot?: boolean;
+  /** The Launch step's "Anthropomorphic agents" switch: written to the founder's account preferences when given (0067). */
+  anthropomorphicAgents?: boolean;
 }
 
 export interface CommitIdeaResult {
@@ -152,7 +159,7 @@ function uniqueSlug(name: string): string {
  * `importKey` returns the key import job ids are signed with (`importJobKey(env)`); it is only called for an idea that
  * Import drafted, so a Door A commit never needs it.
  */
-export async function commitIdea(db: Db, temporal: TemporalService, userId: string, input: CommitIdeaInput, importKey: () => string): Promise<CommitIdeaResult> {
+export async function commitIdea(db: Db, temporal: TemporalService, userId: string, input: CommitIdeaInput, importKey: () => string, deps: { log?: Pick<ApiLogger, "warn"> } = {}): Promise<CommitIdeaResult> {
   const idea = await repos.ideas.get(db, userId, input.ideaId);
   if (idea.committedAt) return committedIdeaResult(db, userId, input.ideaId);
   // Door B: the Import job this idea was drafted from (recorded by idea.generate), verified again (signed for this
@@ -395,6 +402,16 @@ export async function commitIdea(db: Db, temporal: TemporalService, userId: stri
   });
 
   if (!result) return committedIdeaResult(db, userId, input.ideaId);
+
+  // The Launch step's display choice goes on the founder's account (every business they run reads it). Best effort: the
+  // business is already committed, and a preference that did not save is one switch away in Settings.
+  if (input.anthropomorphicAgents !== undefined) {
+    try {
+      await repos.preferences.update(db, userId, { anthropomorphicAgents: input.anthropomorphicAgents });
+    } catch (err) {
+      deps.log?.warn({ businessId: result.business.id, err: err instanceof Error ? err.message : String(err) }, "commit: could not save the anthropomorphic agents preference");
+    }
+  }
 
   const cycle = await temporal.start(WORKFLOWS.businessCycle, { workflowId: workflowIds.cycle(result.business.id, 1), args: [{ businessId: result.business.id, cycleNumber: 1, trigger: "continue" }] });
   // The first cycle exists from here on, even while the orchestrator has not picked it up: Continue shows it and Pause reaches it.

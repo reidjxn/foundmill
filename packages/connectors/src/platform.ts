@@ -13,6 +13,8 @@ import type { PlatformHost } from "./connectors/platform/tools";
 export interface PlatformSecrets {
   anthropicApiKey?: string;
   voyageApiKey?: string;
+  /** Image generation for the faces of anthropomorphic agents (the `openai_images` connector). */
+  openaiApiKey?: string;
   e2bApiKey?: string;
   stripeSecretKey?: string;
   stripeWebhookSecret?: string;
@@ -61,6 +63,7 @@ export function platformSecretsFromEnv(env: Env = loadEnv()): PlatformSecrets {
   };
   set("anthropicApiKey", env.ANTHROPIC_API_KEY);
   set("voyageApiKey", env.VOYAGE_API_KEY);
+  set("openaiApiKey", env.OPENAI_API_KEY);
   set("e2bApiKey", env.E2B_API_KEY);
   set("stripeSecretKey", env.STRIPE_SECRET_KEY);
   set("stripeWebhookSecret", env.STRIPE_WEBHOOK_SECRET);

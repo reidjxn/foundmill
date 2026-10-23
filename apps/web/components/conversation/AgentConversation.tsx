@@ -22,7 +22,7 @@
  */
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState, type ReactNode } from "react";
-import { AgentDesk, Button, EntityText, Markdown, Skeleton, stripEntityMarkup, useToast, type AgentDeskVariant, type DeskMessage, type QuickReplyItem } from "@foundmill/dugout";
+import { AgentDesk, Button, EntityText, Markdown, Skeleton, stripEntityMarkup, useAgentPersona, useToast, type AgentDeskVariant, type DeskMessage, type QuickReplyItem } from "@foundmill/dugout";
 import type { DeptColourToken } from "@foundmill/shared";
 import { errorMessage, trpcPathPrefix, type RouterInputs, type RouterOutputs } from "@/lib/trpc";
 import { useTRPC, useTRPCClient } from "@/lib/trpc-react";
@@ -110,7 +110,7 @@ export interface AgentConversationProps {
    */
   opener?: string | null;
   /** Sheet only: who the founder is talking to, so the sheet opens at once while the desk loads. */
-  personaHint?: { name: string; role?: string | null; avatarSeed: string; dept?: DeptColourToken | null } | null;
+  personaHint?: { name: string; role?: string | null; avatarSeed: string; personaKey?: string | null; dept?: DeptColourToken | null } | null;
   className?: string;
 }
 
@@ -179,6 +179,7 @@ export const AgentConversation = forwardRef<AgentConversationHandle, AgentConver
   const trpc = useTRPC();
   const queryClient = useQueryClient();
   const { toast } = useToast();
+  const agentPersona = useAgentPersona();
   const input = useMemo(() => ({ businessId, subject: { kind: subject.kind, id: subject.id } }), [businessId, subject.kind, subject.id]);
   const getQ = useQuery(trpc.agent.conversation.get.queryOptions(input, { staleTime: 60_000, enabled: variant !== "sheet" || open }));
   const key = trpc.agent.conversation.get.queryKey(input);
@@ -383,7 +384,7 @@ export const AgentConversation = forwardRef<AgentConversationHandle, AgentConver
           setLocal((l) => [...l.map((m) => (m.id === localId ? { ...m, state: "seen" as const } : m)), { id: `${localId}-ack`, author: "agent", bubbles: [`${voiceAck(persona.voice, `${task.id}:${localId}`)} Pausing ${task.title} now.`], at, reaction: "noted", quickReplies: [] }]);
           void invalidate(["dev", "team", "cycle"]);
           void queryClient.invalidateQueries({ queryKey: key });
-          toast({ title: "Paused", description: `${persona.name} has stopped work on ${task.title}. Resume it from Development.`, tone: "info" });
+          toast({ title: "Paused", description: `${agentPersona.nameFor(persona)} has stopped work on ${task.title}. Resume it from Development.`, tone: "info" });
         })
         .catch((err: unknown) => failed(out, err, `I couldn't pause ${task.title} just then.`))
         .finally(() => {
@@ -540,7 +541,7 @@ export const AgentConversation = forwardRef<AgentConversationHandle, AgentConver
   }, [lastId, messages.length, variant, replying]);
   const lines = useMemo(() => (preview ? confirmationLines(preview.evaluations, currency) : []), [preview, currency]);
 
-  const label = persona ? `Conversation with ${persona.name}` : "Conversation";
+  const label = persona ? `Conversation with ${agentPersona.nameFor(persona)}` : "Conversation";
   const dialog = <ConfirmPlanDialog open={confirmOpen} onOpenChange={setConfirmOpen} lines={lines} summary={preview?.summary ?? ""} loading={confirmM.isPending} onConfirm={() => preview && confirmM.mutate({ businessId, planId: preview.planId })} />;
 
   if (!view || !persona) {
@@ -549,7 +550,7 @@ export const AgentConversation = forwardRef<AgentConversationHandle, AgentConver
       // The sheet opens at once with who the founder is talking to; the thread and replies follow from `get`.
       return (
         <AgentDesk
-          persona={{ id: subject.id, name: personaHint.name, role: roleBesideName(personaHint.name, personaHint.role) ?? "", avatarSeed: personaHint.avatarSeed, dept: personaHint.dept ?? fallbackDept }}
+          persona={{ id: subject.id, name: personaHint.name, role: roleBesideName(personaHint.name, personaHint.role) ?? "", avatarSeed: personaHint.avatarSeed, personaKey: personaHint.personaKey, dept: personaHint.dept ?? fallbackDept }}
           messages={[]}
           onQuickReply={() => undefined}
           onSend={() => undefined}
@@ -568,7 +569,7 @@ export const AgentConversation = forwardRef<AgentConversationHandle, AgentConver
               <span aria-busy="true">Opening the conversation…</span>
             )
           }
-          label={`Conversation with ${personaHint.name}`}
+          label={`Conversation with ${agentPersona.nameFor(personaHint)}`}
           open={open}
           onOpenChange={onOpenChange}
           subject={subjectLine}

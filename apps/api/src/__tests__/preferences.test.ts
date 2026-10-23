@@ -26,7 +26,7 @@ const code = async (p: Promise<unknown>) => {
 };
 
 /** The guided layer's defaults, until the person chooses. */
-const GUIDED = { guidance: "on", textSize: "standard", explainersSeen: {}, toursDone: {}, checklistDismissedAt: null };
+const GUIDED = { guidance: "on", textSize: "standard", explainersSeen: {}, toursDone: {}, checklistDismissedAt: null, anthropomorphicAgents: false };
 
 describe("founder.preferences", () => {
   it("reads US dates and 12-hour times until the person chooses, without writing a row", async () => {
@@ -87,6 +87,21 @@ describe("founder.preferences", () => {
     expect(await newcomer.founder.preferences.update({ date: "iso", textSize: "comfortable" })).toMatchObject({ date: "iso", time: "12h", textSize: "comfortable" });
     // Choosing a format never creates a founder profile (the onboarding gate stays where it was).
     expect((await newcomer.founder.profile.get()).complete).toBe(false);
+  });
+
+  it("anthropomorphic agents (0067): off until chosen, round-trips through update and guidance, the account's own", async () => {
+    const fresh = await hz.h.createUser("anthropomorphic-preferences@test.local");
+    const me = hz.caller({ userId: fresh });
+    expect((await me.founder.preferences.guidance()).anthropomorphicAgents).toBe(false);
+    expect(await me.founder.preferences.update({ anthropomorphicAgents: true })).toMatchObject({ date: "us", time: "12h", guidance: "on", anthropomorphicAgents: true });
+    expect(await me.founder.preferences.guidance()).toEqual({ ...GUIDED, anthropomorphicAgents: true });
+    // Another preference changes nothing about it; a reset of the tours keeps it too.
+    expect(await me.founder.preferences.update({ textSize: "comfortable" })).toMatchObject({ anthropomorphicAgents: true });
+    expect(await me.founder.preferences.update({ reset: true })).toMatchObject({ anthropomorphicAgents: true });
+    // Someone else's switch is their own.
+    expect((await hz.caller({ userId: hz.B.memberId }).founder.preferences.guidance()).anthropomorphicAgents).toBe(false);
+    expect(await me.founder.preferences.update({ anthropomorphicAgents: false })).toMatchObject({ anthropomorphicAgents: false });
+    expect(await code(me.founder.preferences.update({ anthropomorphicAgents: "on" } as never))).toBe("BAD_REQUEST");
   });
 
   it("refuses signed-out callers, unknown formats or modes, a mark that is not true, and an empty change", async () => {

@@ -42,6 +42,8 @@ export interface DeskPersona {
   /** "Head of Retail Partnerships". */
   role: string;
   avatarSeed: string | number;
+  /** `agents.persona_key`: the first name and face shown when anthropomorphic agents are on (AgentPersonaProvider). */
+  personaKey?: string | null;
   /** The agent's department colour: bubbles, the typing dots, the Now bar, reactions. */
   dept: DeptColourToken;
   /** Health (the portrait's status ring). */
@@ -331,6 +333,7 @@ export function deskPersonaFrom(
     name: string;
     role: string;
     avatarSeed: string | number;
+    personaKey?: string | null;
     colourToken?: DeptColourToken | null;
     status?: AgentStatus;
     presence?: AgentPresence;
@@ -346,6 +349,7 @@ export function deskPersonaFrom(
     name: p.name,
     role: p.role,
     avatarSeed: p.avatarSeed,
+    personaKey: p.personaKey ?? null,
     dept: p.colourToken ?? fallbackDept,
     status: p.status,
     presence: p.presence,

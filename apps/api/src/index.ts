@@ -7,7 +7,8 @@
  * MIGRATION_LOCK_TIMEOUT_MS; keep serving if the db is down) → open the database pool's connections and keep them open
  * (a `select 1` per connection every minute, packages/db `keepPoolWarm`) → supervise the outbox relay
  * (started once Redis answers PING, retried with a capped backoff until it does: services/relay.ts) → listen on PORT
- * (fallback API_PORT) on host "::" (Railway private network is IPv6-only, §17) → with SEED_ON_BOOT, build the demo
+ * (fallback API_PORT) on host "::" (Railway private network is IPv6-only, §17) → give agents without a persona key one,
+ * in the background (services/persona-backfill.ts; logged, never blocks) → with SEED_ON_BOOT, build the demo
  * businesses in the background (services/seed-on-boot.ts). SIGTERM/SIGINT: stop accepting connections, let in-flight
  * requests and streamed answers finish, stop the relay, close Temporal, Redis and the database pool, exit 0, all within
  * SHUTDOWN_TIMEOUT_MS (docs/DEPLOY.md §3 "Redeploys and shutdown").
@@ -24,6 +25,7 @@ import type { ApiRedis } from "./services/redis";
 import { superviseOutboxRelay, type RelaySupervisor } from "./services/relay";
 import { monitorWorker, type WorkerMonitor } from "./services/worker-health";
 import { seedOnBoot } from "./services/seed-on-boot";
+import { backfillPersonasOnBoot } from "./services/persona-backfill";
 import { startWorkflowReconciler } from "./services/workflow-reconcile";
 
 export { createApp } from "./app";
@@ -177,6 +179,8 @@ export async function main(): Promise<void> {
   const port = servicePort(env, "API_PORT");
 
   server = await listen(app, port, deps);
+  // Agents hired before 0067 get their persona keys (idempotent; failures are logged and never block).
+  if (migrated) void backfillPersonasOnBoot(deps);
   // The demo seed may add a running vacation: the reconciler below runs after it.
   const seeded = migrated ? seedOnBoot(deps).catch(() => undefined) : Promise.resolve();
   // Every minute: is the orchestrator taking the work waiting on its task queues? An error line when it stops (SOAK-06).

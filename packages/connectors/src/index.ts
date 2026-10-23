@@ -13,6 +13,7 @@ export { BankAccount, BankTransaction, ConsentStatus, SyncResult, makeBankingToo
 
 export { createAnthropicConnector, anthropicMock, ANTHROPIC_KEY } from "./connectors/anthropic";
 export { createVoyageConnector, voyageMock, VOYAGE_KEY } from "./connectors/voyage";
+export { createOpenaiImagesConnector, openaiImagesMock, placeholderPortraitPng, MOCK_IMAGE_MODEL, OPENAI_IMAGES_KEY, OPENAI_IMAGES_GENERATION_TIMEOUT_MS, estimateImageCostMinor } from "./connectors/openai_images";
 export { createGithubConnector, githubMock, GITHUB_KEY, githubSignature, normaliseGithubEvent, signedDeliveryRequest as signedGithubDeliveryRequest } from "./connectors/github";
 export { createGoogleDriveConnector, googleDriveMock, GOOGLE_DRIVE_KEY } from "./connectors/google_drive";
 export { createGmailConnector, gmailMock, GMAIL_KEY } from "./connectors/gmail";

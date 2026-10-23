@@ -199,7 +199,7 @@ export function TrainingGroundScreen({ businessId, subView }: ModuleScreenProps)
   };
 
   const items = useMemo<(TileGridItem & { session: AgentTileSession })[]>(
-    () => streams.sessions.map((s) => ({ id: s.id, label: `${s.agent.name}: ${s.task.title}`, avatar: { name: s.agent.name, seed: s.agent.seed, dept: s.agent.dept, status: s.agent.status }, session: s })),
+    () => streams.sessions.map((s) => ({ id: s.id, label: `${s.agent.name}: ${s.task.title}`, avatar: { name: s.agent.name, seed: s.agent.seed, dept: s.agent.dept, status: s.agent.status, role: s.agent.role, personaKey: s.agent.personaKey }, session: s })),
     [streams.sessions],
   );
 

@@ -63,6 +63,7 @@ import {
   CONVERSATION_SUBJECT_KINDS,
   NotFoundError,
   ValidationError,
+  agentDisplayName,
   formatMoney,
   usDate,
   uuid,
@@ -164,6 +165,8 @@ export interface ConversationPersona {
   name: string;
   role: string;
   avatarSeed: string;
+  /** The agent's persona (anthropomorphic agents, 0067); null until it has one. */
+  personaKey: string | null;
   layer: string;
   /** The first department's colour (the bubble tint and the portrait ring); null for agents outside a department. */
   colourToken: DeptColourToken | null;
@@ -355,6 +358,7 @@ async function personaOf(tx: DbTx, ctx: BusinessContext, r: Resolved, seed: stri
     name: r.agent.name,
     role: r.agent.role || getTemplateByAgentType(r.agent.agentType)?.role || "Agent",
     avatarSeed: r.agent.avatarSeed || r.agent.id,
+    personaKey: r.agent.personaKey ?? null,
     layer: r.agent.layer,
     colourToken: (dept?.colourToken as DeptColourToken | undefined) ?? null,
     status: r.agent.status,
@@ -885,9 +889,10 @@ export async function sendConversationMessage(ctx: BusinessContext, input: SendI
   }
 
   if (!ctxData) throw new Error("the reply context is read with the desk");
-  // What the reply is about, as this person may read it (shared by the scripted reply and the model's).
+  // What the reply is about, as this person may read it (shared by the scripted reply and the model's). With
+  // anthropomorphic agents on, the agent goes by its persona's first name with this founder; it is still an AI agent.
   const turn: ConversationTurnInput = {
-    agent: { id: r.agent.id, name: r.agent.name, role: ctxData.model?.persona.role ?? (r.agent.role || "Agent"), voice },
+    agent: { id: r.agent.id, name: agentDisplayName(r.agent, ctx.anthropomorphicAgents === true), role: ctxData.model?.persona.role ?? (r.agent.role || "Agent"), voice },
     currentWork: { task: taskInput(r.currentTask), nextTask: taskInput(r.nextTask), status: r.agent.status, presence: ctxData.model?.persona.presence ?? agentPresence(r.agent.status, r.currentTask) },
     subject: promptSubject(ctxData.seen.r, ctx.business.currency),
     thread: ctxData.seen.messages.map((m) => ({ author: m.author, text: m.bubbles.join("\n") })),

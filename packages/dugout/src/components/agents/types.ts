@@ -130,6 +130,8 @@ export interface TileAgent {
   model: ModelKey;
   /** Template or role label ("Frontend engineer"). */
   role?: string;
+  /** `agents.persona_key`: the name and face shown when anthropomorphic agents are on (AgentPersonaProvider). */
+  personaKey?: string | null;
 }
 
 export interface TileTask {
@@ -265,7 +267,7 @@ export interface TaskGraphNode {
   status: TaskStatus;
   /** Ids this task depends on. */
   deps: string[];
-  agent?: Pick<TileAgent, "id" | "name" | "seed" | "dept"> | null;
+  agent?: Pick<TileAgent, "id" | "name" | "seed" | "dept" | "personaKey" | "role"> | null;
   progress?: number;
   /** File-scope hints; overlapping scopes are never scheduled together (AC-11.6.2). */
   fileScope?: string[];
@@ -348,7 +350,7 @@ export interface ChannelTokenData {
   potential?: number;
   cpaRange?: { low: Money; high: Money };
   why?: string;
-  agents?: Array<Pick<TileAgent, "name" | "seed" | "dept" | "status">>;
+  agents?: Array<Pick<TileAgent, "name" | "seed" | "dept" | "status" | "personaKey" | "role">>;
   /** Share of the monthly distribution budget, 0–1. */
   budgetShare?: number;
   paused?: boolean;
@@ -378,6 +380,8 @@ export interface SquadRow {
   seed: string | number;
   dept: DeptColourToken;
   role: string;
+  /** `agents.persona_key`; see TileAgent. */
+  personaKey?: string | null;
   departments: string[];
   status: AgentStatus;
   currentTask: { id: string; title: string } | null;
@@ -495,7 +499,7 @@ export interface HierarchyNode {
   role: string;
   kind: HierarchyKind;
   parentId: string | null;
-  avatar?: { seed: string | number; dept: DeptColourToken } | null;
+  avatar?: { seed: string | number; dept: DeptColourToken; personaKey?: string | null } | null;
   status?: AgentStatus;
   model?: ModelKey;
   department?: string;

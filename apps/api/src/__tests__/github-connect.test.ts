@@ -30,6 +30,9 @@ const gateway: ApiGatewayClient = {
   async checkDomains() {
     throw new Error("no domain checks in these tests");
   },
+  async generatePortrait() {
+    throw new Error("no portraits in these tests");
+  },
 };
 
 describe("integrations.connect for a live GitHub App", () => {

@@ -1,6 +1,8 @@
+"use client";
 import type { CSSProperties, HTMLAttributes } from "react";
 import { Bot } from "lucide-react";
 import { cn } from "../../lib/cn";
+import { useAgentPersona } from "../foundation/AgentPersona";
 import { Avatar, type AvatarPresence, type AvatarSurface } from "../foundation/Avatar";
 import { Icon } from "../foundation/Icon";
 import { presenceWords, toneClass, type DeskLiveState, type DeskPersona } from "./types";
@@ -97,7 +99,7 @@ export function AiAgentTag({ className }: { className?: string }) {
 /**
  * The agent at their desk (DIRECTION #6): a live portrait with its status ring and presence (breathing while live or
  * in a session) on a soft halo of the agent's colour, the name in display type, the role, the "AI agent" marker, the
- * state line and the Now card. Server-safe.
+ * state line and the Now card. A client piece (it reads the anthropomorphic agents provider).
  */
 export function DeskPresence({
   persona,
@@ -108,13 +110,19 @@ export function DeskPresence({
   ...rest
 }: DeskPresenceProps) {
   const { state } = presenceWords(persona, replying);
+  // Anthropomorphic agents: the persona's first name and face; the role line under it stays (agents are still AI agents).
+  const agentPersona = useAgentPersona();
+  const name = agentPersona.nameFor(persona);
+  // "Chief of Staff" is hidden beside an agent named that (it would only repeat the name); beside a first name it is
+  // the position, and it always shows.
+  const role = persona.role || (agentPersona.hasPersona(persona) ? agentPersona.positionFor(persona) : "");
   const live = state === "live" || state === "working";
   const portrait = (size: number) => (
     <span className="desk-portrait" data-live={live || undefined}>
       <Avatar
         size={size}
-        name={persona.name}
-        agent={{ seed: persona.avatarSeed, dept: persona.dept }}
+        name={name}
+        agent={{ seed: persona.avatarSeed, dept: persona.dept, personaKey: persona.personaKey }}
         status={persona.status}
         presence={AVATAR_PRESENCE[state]}
         surface={surface}
@@ -133,8 +141,8 @@ export function DeskPresence({
         {portrait(36)}
         <div className="flex min-w-0 flex-1 flex-col gap-0.5">
           <div className="flex min-w-0 flex-wrap items-baseline gap-x-2">
-            <span className="text-title font-semibold text-primary">{persona.name}</span>
-            <span className="text-small text-tertiary">{persona.role}</span>
+            <span className="text-title font-semibold text-primary">{name}</span>
+            <span className="text-small text-tertiary">{role}</span>
           </div>
           <DeskStateLine persona={persona} replying={replying} />
         </div>
@@ -154,9 +162,9 @@ export function DeskPresence({
         <div className="flex min-w-0 items-center gap-4">
           {portrait(64)}
           <div className="flex min-w-0 flex-1 flex-col gap-1">
-            <span className="t-display-md text-primary">{persona.name}</span>
+            <span className="t-display-md text-primary">{name}</span>
             <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-small text-tertiary">
-              <span>{persona.role}</span>
+              <span>{role}</span>
               <AiAgentTag />
             </div>
             <DeskStateLine persona={persona} replying={replying} className="mt-1" />
@@ -170,14 +178,14 @@ export function DeskPresence({
   return (
     <aside
       className={cn("desk-presence", toneClass(persona.dept), className)}
-      aria-label={`${persona.name}, ${persona.role}`}
+      aria-label={role ? `${name}, ${role}` : name}
       data-testid="desk-presence"
       data-layout="column"
       {...rest}
     >
       {portrait(68)}
-      <span className="t-display-md mt-4 text-primary">{persona.name}</span>
-      <span className="mt-0.5 text-small text-tertiary">{persona.role}</span>
+      <span className="t-display-md mt-4 text-primary">{name}</span>
+      <span className="mt-0.5 text-small text-tertiary">{role}</span>
       <AiAgentTag className="mt-2" />
       <DeskStateLine persona={persona} replying={replying} className="mt-3" />
       <DeskNow persona={persona} className="mt-2" />

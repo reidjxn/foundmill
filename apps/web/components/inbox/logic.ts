@@ -703,7 +703,7 @@ export interface DepartmentLike {
   id: string;
   name: string;
   colourToken: string;
-  squad: readonly { id: string; name: string; role: string; avatarSeed: string; status?: string; modelKey?: string }[];
+  squad: readonly { id: string; name: string; role: string; avatarSeed: string; personaKey?: string | null; status?: string; modelKey?: string }[];
 }
 
 export interface AgentIndexEntry {
@@ -711,6 +711,8 @@ export interface AgentIndexEntry {
   name: string;
   role: string;
   seed: string;
+  /** `agents.persona_key`: the first name and face shown when anthropomorphic agents are on. */
+  personaKey?: string | null;
   dept: string;
   departmentId: string;
   departmentName: string;
@@ -724,7 +726,7 @@ export function agentIndex(departments: readonly DepartmentLike[]): Map<string, 
   for (const d of departments) {
     for (const a of d.squad) {
       if (out.has(a.id)) continue;
-      out.set(a.id, { id: a.id, name: a.name, role: a.role, seed: a.avatarSeed || a.id, dept: d.colourToken, departmentId: d.id, departmentName: d.name, status: a.status, modelKey: a.modelKey });
+      out.set(a.id, { id: a.id, name: a.name, role: a.role, seed: a.avatarSeed || a.id, personaKey: a.personaKey ?? null, dept: d.colourToken, departmentId: d.id, departmentName: d.name, status: a.status, modelKey: a.modelKey });
     }
   }
   return out;

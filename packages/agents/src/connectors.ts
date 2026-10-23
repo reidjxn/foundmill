@@ -24,6 +24,8 @@ export const THIRD_PARTY_CONNECTOR_KEYS = [
   // Phase 1
   "anthropic",
   "voyage",
+  // Not `openai_images`: the faces of anthropomorphic agents are made by the platform itself (the gateway's portrait
+  // route); it is a service-only connector (packages/connectors SERVICE_ONLY_CONNECTORS), so no template may grant it.
   "recraft",
   "github",
   "google_drive",

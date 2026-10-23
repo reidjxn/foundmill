@@ -7,6 +7,7 @@ import { FitText } from "../../foundation/FitText";
 import { formatDuration, formatMoney, formatNumber, formatOrdinal, formatPercent, type DateFormatters } from "../../../lib/format";
 import { ratingClass } from "../../../lib/rating";
 import { usePrefersReducedMotion } from "../../../lib/reducedMotion";
+import { useAgentPersona } from "../../foundation/AgentPersona";
 import { Avatar } from "../../foundation/Avatar";
 import { Button } from "../../foundation/Button";
 import { Chip, ProvenanceChip } from "../../foundation/Chip";
@@ -136,6 +137,7 @@ function EmptyLine({ children }: { children: ReactNode }) {
 const NO_AGENT = "No agent touched this win: it came in without a touch from the team.";
 
 function TeamSheet({ journey, agents }: { journey: Journey; agents?: readonly StageAgentMeta[] }) {
+  const persona = useAgentPersona();
   const maxW = Math.max(1e-9, ...journey.channels.map((c) => c.weight));
   const captainAgent = journey.captain?.agentId ?? null;
   const captainChannel = journey.captain?.channelKey ?? null;
@@ -170,10 +172,10 @@ function TeamSheet({ journey, agents }: { journey: Journey; agents?: readonly St
               const meta = agentMeta(agents, a.agentId);
               return (
                 <li key={a.agentId} className="flex items-center gap-2">
-                  <Avatar size={24} name={a.name} agent={{ seed: meta.seed, dept: meta.dept }} status={meta.status} />
+                  <Avatar size={24} name={persona.nameFor({ ...a, personaKey: meta.personaKey })} agent={{ seed: meta.seed, dept: meta.dept, personaKey: meta.personaKey }} status={meta.status} />
                   <span className="min-w-0 flex-1">
                     <span className="block truncate text-body-strong">
-                      {a.name}
+                      {persona.nameFor({ ...a, personaKey: meta.personaKey })}
                       {a.agentId === captainAgent ? <Icon icon={Star} size="inline" className="ml-1 inline text-gold" label="Standout agent" /> : null}
                     </span>
                     <span className="block truncate text-small text-secondary">{a.role ?? "Agent"}</span>
@@ -228,6 +230,7 @@ function KickOff({ journey, touches }: { journey: Journey; touches: readonly Tou
 }
 
 function MatchFeed({ journey, touches, playedIds, commentaryShown, agents, onOpenEntity, entityKinds, reduced }: { journey: Journey; touches: readonly Touch[]; playedIds: string[]; commentaryShown: number[]; agents?: readonly StageAgentMeta[]; onOpenEntity?: (id: string) => void; entityKinds?: Record<string, EntityKind>; reduced: boolean }) {
+  const persona = useAgentPersona();
   const f = useFormatters();
   const kickoff = journey.stats.firstTouchAt;
   const played = new Set(playedIds);
@@ -260,7 +263,7 @@ function MatchFeed({ journey, touches, playedIds, commentaryShown, agents, onOpe
                   <Chip tone={isCaptain ? "gold" : "neutral"} icon={isCaptain ? Star : undefined}>
                     {channelLabel(t.channelKey)}
                   </Chip>
-                  {agent ? <Avatar size={20} name={agent.name} agent={{ seed: meta.seed, dept: meta.dept }} /> : null}
+                  {agent ? <Avatar size={20} name={persona.labelFor({ ...agent, personaKey: meta.personaKey })} agent={{ seed: meta.seed, dept: meta.dept, personaKey: meta.personaKey }} /> : null}
                   <EntityText text={t.source?.label ?? `${channelLabel(t.channelKey)} ${t.kind.replace(/_/g, " ")}`} kinds={entityKinds} onOpenEntity={onOpenEntity} className="min-w-0 flex-1 truncate text-body-strong" />
                   <span className="text-small text-secondary tabular-nums">{formatPercent(weight, { digits: 0 })}</span>
                 </div>
@@ -479,6 +482,7 @@ function GoalMoment({ journey, customer, kit, currency, reduced, overlay }: { jo
 
 function FullTime({ journey, customer, agents, currency, onReplay, onClose, closeLabel }: { journey: Journey; customer: CustomerFacts; agents?: readonly StageAgentMeta[]; currency: string; onReplay?: () => void; onClose?: () => void; closeLabel: string }) {
   const f = useFormatters();
+  const persona = useAgentPersona();
   const payback = paybackMonths(journey);
   const potm = journey.agents.find((a) => a.agentId === journey.playerOfTheMatch) ?? null;
   const sorted = [...journey.agents].sort((a, b) => b.rating - a.rating || b.contribution - a.contribution);
@@ -543,10 +547,10 @@ function FullTime({ journey, customer, agents, currency, onReplay, onClose, clos
             const isPotm = potm?.agentId === a.agentId;
             return (
               <li key={a.agentId} className={cn("flex items-center gap-3 rounded-panel px-2 py-1", isPotm && "bg-gold/10")} data-agent-rating={a.agentId}>
-                <Avatar size={32} name={a.name} agent={{ seed: meta.seed, dept: meta.dept }} status={meta.status} />
+                <Avatar size={32} name={persona.nameFor({ ...a, personaKey: meta.personaKey })} agent={{ seed: meta.seed, dept: meta.dept, personaKey: meta.personaKey }} status={meta.status} />
                 <span className="min-w-0 flex-1">
                   <span className="flex items-center gap-2 text-body-strong">
-                    <span className="truncate">{a.name}</span>
+                    <span className="truncate">{persona.nameFor({ ...a, personaKey: meta.personaKey })}</span>
                     {isPotm ? (
                       <Chip tone="gold" icon={Trophy}>
                         Standout agent

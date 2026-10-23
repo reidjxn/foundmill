@@ -6,15 +6,15 @@ import { Avatar } from "../foundation/Avatar";
 export interface TeamOrbitDepartment {
   name: string;
   dept: DeptColourToken;
-  lead: { name: string; seed: string | number };
-  workers: ReadonlyArray<{ name: string; seed: string | number }>;
+  lead: { name: string; seed: string | number; personaKey?: string | null };
+  workers: ReadonlyArray<{ name: string; seed: string | number; personaKey?: string | null }>;
 }
 
 export interface TeamOrbitProps {
   /** Centre label (default "You"). */
   centreLabel?: string;
   centreCaption?: string;
-  chief?: { name: string; seed: string | number };
+  chief?: { name: string; seed: string | number; personaKey?: string | null };
   departments?: readonly TeamOrbitDepartment[];
   /** Seconds for one turn of the departments ring; the outer ring turns the other way, slower. */
   periodSeconds?: number;
@@ -73,7 +73,7 @@ export function TeamOrbit({ centreLabel = "You", centreCaption = "Founder", chie
         {workers.map((w) => (
           <span key={String(w.seed)} className="absolute -translate-x-1/2 -translate-y-1/2" style={at(R_WORKERS, w.angle)}>
             <span className="block animate-orbit" style={spin(periodSeconds * 1.6)}>
-              <Avatar size={28} name={w.name} agent={{ seed: w.seed, dept: w.dept }} />
+              <Avatar size={28} name={w.name} agent={{ seed: w.seed, dept: w.dept, personaKey: w.personaKey }} />
             </span>
           </span>
         ))}
@@ -106,7 +106,7 @@ export function TeamOrbit({ centreLabel = "You", centreCaption = "Founder", chie
           <span key={d.name} className="absolute -translate-x-1/2 -translate-y-1/2" style={at(R_LEADS, (360 / n) * i)}>
             <span className="flex animate-orbit flex-col items-center gap-1" style={spin(periodSeconds, true)}>
               <span className="rounded-full p-0.5" style={{ background: `radial-gradient(closest-side, color-mix(in oklab, var(--${d.dept}) 45%, transparent), transparent)` }}>
-                <Avatar size={44} name={d.lead.name} agent={{ seed: d.lead.seed, dept: d.dept }} />
+                <Avatar size={44} name={d.lead.name} agent={{ seed: d.lead.seed, dept: d.dept, personaKey: d.lead.personaKey }} />
               </span>
               <span className="t-label whitespace-nowrap rounded-chip bg-ink/70 px-1.5 py-px" style={{ color: `color-mix(in oklab, var(--${d.dept}) 70%, var(--white))` }}>
                 {d.name}
@@ -122,7 +122,7 @@ export function TeamOrbit({ centreLabel = "You", centreCaption = "Founder", chie
       <div aria-hidden className="absolute inset-0 z-10 animate-orbit" style={spin(periodSeconds * 0.7)} data-orbit="chief">
         <span className="absolute -translate-x-1/2 -translate-y-1/2" style={at(R_CHIEF, 30)}>
           <span className="block animate-orbit" style={spin(periodSeconds * 0.7, true)}>
-            <Avatar size={36} name={chief.name} agent={{ seed: chief.seed, dept: "dept-1" }} />
+            <Avatar size={36} name={chief.name} agent={{ seed: chief.seed, dept: "dept-1", personaKey: chief.personaKey }} />
           </span>
         </span>
         <span className="absolute -translate-x-1/2 -translate-y-1/2" style={at(R_CHIEF + R_CHIEF_LABEL, 30)} data-orbit-label="chief">

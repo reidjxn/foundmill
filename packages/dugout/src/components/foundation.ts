@@ -1,5 +1,6 @@
 // Foundation primitives (stage 1). Heavier components live in shell/data/journey/agents.
 export * from "./foundation/Icon";
+export * from "./foundation/AgentPersona";
 export * from "./foundation/Spinner";
 export * from "./foundation/FitText";
 export * from "./foundation/Button";

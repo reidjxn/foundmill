@@ -41,8 +41,8 @@ function InboxPreviewWidget({ settings }: WidgetProps<InboxPreviewSettings>) {
   useBusinessEvents(() => inbox.refetch(), ["inbox.item_created", "inbox.item_updated", "decision.made", "cycle.completed"]);
 
   const agentMeta = useMemo(() => {
-    const map = new Map<string, { name: string; seed: string; dept: DeptColourToken }>();
-    for (const d of departments.data ?? []) for (const a of d.squad) if (!map.has(a.id)) map.set(a.id, { name: a.name, seed: a.avatarSeed || a.id, dept: d.colourToken });
+    const map = new Map<string, { name: string; seed: string; dept: DeptColourToken; personaKey?: string | null }>();
+    for (const d of departments.data ?? []) for (const a of d.squad) if (!map.has(a.id)) map.set(a.id, { name: a.name, seed: a.avatarSeed || a.id, dept: d.colourToken, personaKey: a.personaKey });
     return map;
   }, [departments.data]);
 
@@ -86,7 +86,7 @@ function InboxPreviewWidget({ settings }: WidgetProps<InboxPreviewSettings>) {
                 )}
                 aria-label={`${item.subject}${item.blocksContinue ? ", needs your answer" : ""}${won ? ", customer won" : ""}`}
               >
-                {agent ? <Avatar size={24} name={agent.name} agent={{ seed: agent.seed, dept: agent.dept }} /> : <Avatar size={24} name={item.fromUserId ? senderName(item.fromUserId) : APP_NAME} />}
+                {agent ? <Avatar size={24} name={agent.name} agent={{ seed: agent.seed, dept: agent.dept, personaKey: agent.personaKey }} /> : <Avatar size={24} name={item.fromUserId ? senderName(item.fromUserId) : APP_NAME} />}
                 <span className="flex min-w-0 flex-1 flex-col gap-1">
                   <span className={cn("line-clamp-2 break-words text-body-strong", item.state === "unread" ? "text-primary" : "text-secondary")}>{item.subject}</span>
                   {/* The same tag as the Inbox list (icon + word, one vocabulary, the legend on hover), then the one-line preview. */}

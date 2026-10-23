@@ -11,7 +11,7 @@
  */
 import { useCallback, useMemo, useState } from "react";
 import { FlaskConical, ShieldCheck } from "lucide-react";
-import { Avatar, Chip, Icon, MiniTable, Panel, ShoutMenu, SpecialistTile, Term, TileGrid, formatDuration, formatMoney, type AgentTileSession, type TileControls, type TileGridItem } from "@foundmill/dugout";
+import { AgentName, Avatar, Chip, Icon, MiniTable, Panel, ShoutMenu, SpecialistTile, Term, TileGrid, formatDuration, formatMoney, type AgentTileSession, type TileControls, type TileGridItem } from "@foundmill/dugout";
 import { routes } from "@foundmill/widgets/shared/routes";
 import { useBusinessEvents, useWidgetData, useWidgetQuery } from "@foundmill/widgets/data";
 import { plural } from "../fit";
@@ -108,7 +108,7 @@ export function SpecialistsScreen({ businessId, departmentId }: ModuleScreenProp
   };
 
   const items = useMemo<(SpecialistItem & { hasData: boolean })[]>(
-    () => streams.sessions.map((s) => ({ id: s.id, label: `${s.agent.name}: ${s.task.title}`, avatar: { name: s.agent.name, seed: s.agent.seed, dept: s.agent.dept, status: s.agent.status }, session: s, hasData: hasSpecialistData(specialistDataFromSession(s)) })),
+    () => streams.sessions.map((s) => ({ id: s.id, label: `${s.agent.name}: ${s.task.title}`, avatar: { name: s.agent.name, seed: s.agent.seed, dept: s.agent.dept, status: s.agent.status, role: s.agent.role, personaKey: s.agent.personaKey }, session: s, hasData: hasSpecialistData(specialistDataFromSession(s)) })),
     [streams.sessions],
   );
   const tiles = useMemo(() => items.filter((i) => i.hasData || isLiveStatus(i.session.status)), [items]);
@@ -190,9 +190,9 @@ export function SpecialistsScreen({ businessId, departmentId }: ModuleScreenProp
                   width: 260,
                   cell: (i) => (
                     <span className="flex min-w-0 items-center gap-2">
-                      <Avatar size={20} name={i.session.agent.name} agent={{ seed: i.session.agent.seed, dept: i.session.agent.dept }} status={i.session.agent.status} />
+                      <Avatar size={20} name={i.session.agent.name} agent={{ seed: i.session.agent.seed, dept: i.session.agent.dept, personaKey: i.session.agent.personaKey }} status={i.session.agent.status} />
                       <span className="min-w-0 truncate" title={i.session.agent.name}>
-                        {i.session.agent.name}
+                        <AgentName agent={i.session.agent} />
                       </span>
                     </span>
                   ),
@@ -227,9 +227,9 @@ export function SpecialistsScreen({ businessId, departmentId }: ModuleScreenProp
                   width: 260,
                   cell: (i) => (
                     <span className="flex min-w-0 items-center gap-2">
-                      <Avatar size={20} name={i.session.agent.name} agent={{ seed: i.session.agent.seed, dept: i.session.agent.dept }} status={i.session.agent.status} />
+                      <Avatar size={20} name={i.session.agent.name} agent={{ seed: i.session.agent.seed, dept: i.session.agent.dept, personaKey: i.session.agent.personaKey }} status={i.session.agent.status} />
                       <span className="min-w-0 truncate" title={i.session.agent.name}>
-                        {i.session.agent.name}
+                        <AgentName agent={i.session.agent} />
                       </span>
                     </span>
                   ),

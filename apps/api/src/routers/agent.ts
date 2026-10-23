@@ -179,7 +179,7 @@ export const agentRouter = router({
           }),
           wage: { ...spend, currency: CREDITS_CURRENCY, period, label: "Estimate" as const },
           departments: departments.filter((d) => agent.departmentIds.includes(d.id)).map((d) => ({ id: d.id, name: d.name, colourToken: d.colourToken })),
-          lineManager: lineManager ? { id: lineManager.id, name: lineManager.name, role: lineManager.role, archivedAt: lineManager.archivedAt } : null,
+          lineManager: lineManager ? { id: lineManager.id, name: lineManager.name, role: lineManager.role, personaKey: lineManager.personaKey, archivedAt: lineManager.archivedAt } : null,
           /** No agent line manager: the agent reports to the business's owner (the founder); "You" only for that person. */
           reportsToOwner: owner ? { userId: owner.userId, isViewer: owner.userId === ctx.userId } : null,
           stars: { current: tested === null ? null : Math.max(1, Math.min(5, Math.round(tested / 4))), potential: potential === null ? null : Math.max(1, Math.min(5, Math.round(potential / 4))) },

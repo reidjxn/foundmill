@@ -10,7 +10,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Dumbbell, MessageCircle, UserRoundCog } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
-import { Avatar, Button, EntityLink, HealthBadge, IconButton, ModelChip, ProfileHeader, StatusPill, formatMoney, useDateFormat, type ProfileChip, type ProfileFact, type TabItem } from "@foundmill/dugout";
+import { Avatar, Button, EntityLink, HealthBadge, useAgentPersona, IconButton, ModelChip, ProfileHeader, StatusPill, formatMoney, useDateFormat, type ProfileChip, type ProfileFact, type TabItem } from "@foundmill/dugout";
 import { routes } from "@foundmill/widgets/shared/routes";
 import { errorMessage } from "@/lib/trpc";
 import { useTRPC } from "@/lib/trpc-react";
@@ -70,6 +70,10 @@ export function AgentProfileScreen({ agentId, tab }: AgentProfileScreenProps) {
   );
   const squadQ = useQuery(trpc.team.agents.list.queryOptions({ businessId }, { staleTime: 60_000, enabled: modelOpen || managerOpen || tab === "autonomy" }));
   const profile = profileQ.data;
+  // Anthropomorphic agents: the persona's first name leads, the position stays in the first chip, and an "AI agent" chip
+  // says what it is. Off, or an agent without a persona: the name and chips as before.
+  const personaView = useAgentPersona();
+  const shownName = profile ? personaView.nameFor(profile.agent) : "Agent";
 
   const tabs = useMemo<TabItem[]>(() => AGENT_TABS.map((t) => ({ id: t.id, label: t.label, href: routes.agent(businessId, agentId, t.id) })), [businessId, agentId]);
   const teamDept = useMemo(() => departments.find((d) => d.moduleKeys.includes("team")), [departments]);
@@ -77,11 +81,11 @@ export function AgentProfileScreen({ agentId, tab }: AgentProfileScreenProps) {
 
   useShellChrome(
     {
-      title: profile?.agent.name ?? "Agent",
+      title: profile ? shownName : "Agent",
       tabs: { tabs, activeId: tab, onChange: (id) => router.push(routes.agent(businessId, agentId, id)), "aria-label": "Agent profile tabs" },
-      breadcrumbs: [{ label: "Agents", href: squadHref }, { label: profile?.agent.name ?? "Agent" }],
+      breadcrumbs: [{ label: "Agents", href: squadHref }, { label: profile ? shownName : "Agent" }],
     },
-    [profile?.agent.name, tabs, tab, squadHref],
+    [profile, shownName, tabs, tab, squadHref],
   );
 
   if (loadFailed(profileQ) && isMissing(profileQ.error)) {
@@ -100,7 +104,8 @@ export function AgentProfileScreen({ agentId, tab }: AgentProfileScreenProps) {
   const mean = meanRating(skillRows);
   const potential = meanRating(skillRows.map((s) => ({ value: s.potential ?? s.value })));
   // Each chip once: a Chief of Staff's role and layer are the same words.
-  const chips: ProfileChip[] = profileChips(agent, profile.departments);
+  const baseChips: ProfileChip[] = profileChips(agent, profile.departments);
+  const chips: ProfileChip[] = personaView.hasPersona(agent) ? [...baseChips.slice(0, 1), { label: "AI agent" }, ...baseChips.slice(1)] : baseChips;
   // A released agent keeps its profile as a record: no training, no conversation, no model change, no manager change.
   const released = agent.archivedAt ? formatDate(agent.archivedAt, datePrefs) : null;
   const facts: ProfileFact[] = [
@@ -126,8 +131,8 @@ export function AgentProfileScreen({ agentId, tab }: AgentProfileScreenProps) {
     <div className="flex min-h-0 flex-1 flex-col" data-testid="agent-profile" data-agent-id={agent.id} data-tab={tab}>
       {refreshFailed(profileQ) ? <RefreshFailedNotice query={profileQ} /> : null}
       <ProfileHeader
-        avatar={<Avatar size={64} name={agent.name} agent={{ seed: agent.avatarSeed || agent.id, dept }} status={agent.status} />}
-        name={agent.name}
+        avatar={<Avatar size={64} name={shownName} agent={{ seed: agent.avatarSeed || agent.id, dept, personaKey: agent.personaKey }} status={agent.status} />}
+        name={shownName}
         chips={chips}
         status={
           released ? (
@@ -160,14 +165,14 @@ export function AgentProfileScreen({ agentId, tab }: AgentProfileScreenProps) {
                   size="sm"
                   variant="primary"
                   icon={MessageCircle}
-                  onClick={() => desk.open({ kind: "agent", id: agent.id }, { persona: { name: agent.name, role: agent.role || humaniseKey(agent.agentType), avatarSeed: agent.avatarSeed || agent.id, dept } })}
+                  onClick={() => desk.open({ kind: "agent", id: agent.id }, { persona: { name: agent.name, role: agent.role || humaniseKey(agent.agentType), avatarSeed: agent.avatarSeed || agent.id, personaKey: agent.personaKey, dept } })}
                   // The sheet's code is on its way before the press.
                   onPointerEnter={desk.prefetch}
                   onFocus={desk.prefetch}
                   aria-haspopup="dialog"
                   data-testid="header-talk"
                 >
-                  Talk to {agent.name}
+                  Talk to {shownName}
                 </Button>
               ) : null}
             </>
