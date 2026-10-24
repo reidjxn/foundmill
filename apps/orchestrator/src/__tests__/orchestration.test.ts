@@ -7,7 +7,7 @@ import { repos } from "@foundmill/db";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createAutomatedModeActivities } from "../activities/automatedMode";
 import { createBriefActivities, foldDuplicates } from "../activities/brief";
-import { createCycleActivities, cycleEventKey, IDLE_CYCLE_SUBJECT } from "../activities/cycle";
+import { factualSummary, createCycleActivities, cycleEventKey, IDLE_CYCLE_SUBJECT } from "../activities/cycle";
 import { createHolidayActivities } from "../activities/holiday";
 import { setupOrchestratorHarness, type OrchestratorTestHarness } from "./harness";
 
@@ -182,5 +182,61 @@ describe("the planner sees every kind of work once (audit SOAK-04, #84)", () => 
     expect(brief.openTaskTotal).toBe(total);
     expect(brief.openTasks.length).toBeLessThanOrEqual(total);
     expect(Array.isArray(brief.untaskedRoadmap)).toBe(true);
+  });
+});
+
+describe("the planner is told only about blockers that are still open (Foundmill cycle 12)", () => {
+  it("drops a finished or archived blocker from blocked_by, so an unblocked task never looks blocked", async () => {
+    const acts = createCycleActivities(t.deps);
+    const brief = await createBriefActivities(t.deps).loadBrief({ businessId: t.businessId });
+    const [first, ...rest] = brief.openTasks;
+    expect(first, "the fixture business has an open task").toBeDefined();
+    const finished = uuidOf(901);
+    const stillOpen = rest[0]?.id;
+    const ready = { ...first!, status: "ready" as const, blocked: false, dependsOn: [finished, ...(stillOpen ? [stillOpen] : [])] };
+    const withDeps = { ...brief, openTasks: [ready, ...rest] };
+    let payload: { open_tasks: { id: string; blocked_by: string[] }[] } | null = null;
+    const complete = t.deps.models.complete.bind(t.deps.models);
+    t.deps.models.complete = (async (...args: Parameters<typeof complete>) => {
+      const content = String(args[0].messages[0]!.content);
+      payload = JSON.parse(content.slice(content.indexOf("```json") + 7, content.lastIndexOf("```")));
+      return complete(...args);
+    }) as typeof t.deps.models.complete;
+    try {
+      await acts.planCycle({ businessId: t.businessId, cycleNumber: 5, trigger: "continue", brief: withDeps });
+    } finally {
+      t.deps.models.complete = complete;
+    }
+    const sent = payload!.open_tasks.find((x) => x.id === ready.id);
+    expect(sent, "the ready task is shown to the planner").toBeDefined();
+    expect(sent!.blocked_by).not.toContain(finished);
+    expect(sent!.blocked_by).toEqual(stillOpen ? [stillOpen] : []);
+  });
+});
+
+describe("the cycle summary leads with what really starts (Foundmill cycle 12)", () => {
+  const brief = {
+    businessName: "Foundmill",
+    productStage: "building",
+    agents: [{ id: "a1", name: "Backend Engineer" }],
+    openTasks: [
+      { id: "t1", title: "Resolve neighbors" },
+      { id: "t2", title: "Seed workspace" },
+    ],
+    untaskedRoadmap: [{ id: "r1", title: "First live engineering loop on Foundmill", horizon: "now" }],
+  } as never;
+
+  it("never repeats starts the planner described but did not schedule", () => {
+    const text = factualSummary(brief, "Four agents start: the Planner drafts a task graph.", [], [{ taskId: "t1", reason: "conflicting dependency data" }, { taskId: "t2", reason: "waits on earlier tasks" }]);
+    expect(text).toMatch(/^Nothing started this cycle\./);
+    expect(text).not.toMatch(/Four agents start/);
+    expect(text).toContain("Resolve neighbors: conflicting dependency data");
+    expect(text).toContain("Build a task graph");
+    expect(text).toContain("First live engineering loop on Foundmill");
+  });
+
+  it("opens with the tasks that start and who runs them, then the planner's notes", () => {
+    const text = factualSummary(brief, "Product first.", [{ taskId: "t1", agentId: "a1" }], []);
+    expect(text).toBe("Starting: Resolve neighbors (Backend Engineer).\n\nProduct first.");
   });
 });

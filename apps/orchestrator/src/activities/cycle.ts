@@ -90,6 +90,31 @@ export function idleSummary(brief: BusinessBrief, waiting: readonly BriefTask[])
 }
 
 /**
+ * The cycle's summary as the founder reads it, led by what really starts. The planner's prose can describe work it never
+ * scheduled ("Four agents start…" with no task behind them: Foundmill cycle 12, Oct 24, 2026), so when nothing starts the
+ * summary is built from the deferrals alone, and otherwise it opens with the tasks that start and who runs them.
+ */
+export function factualSummary(brief: BusinessBrief, planned: string, starts: readonly Pick<CycleStart, "taskId" | "agentId">[], deferred: readonly { taskId: string; reason: string }[]): string {
+  const title = new Map(brief.openTasks.map((t) => [t.id, t.title] as const));
+  const agent = new Map(brief.agents.map((a) => [a.id, a.name] as const));
+  if (starts.length > 0) {
+    const started = starts.map((s) => `${title.get(s.taskId) ?? "a task"} (${agent.get(s.agentId) ?? "an agent"})`);
+    return `Starting: ${started.join(", ")}.\n\n${planned}`;
+  }
+  const parts: string[] = [];
+  if (deferred.length > 0) {
+    const shown = deferred.slice(0, 5).map((d) => `${title.get(d.taskId) ?? "a task"}: ${d.reason}`);
+    parts.push(`Every task that could start was held back (${shown.join("; ")}${deferred.length > shown.length ? "; …" : ""})`);
+  }
+  const roadmap = brief.untaskedRoadmap ?? [];
+  if (roadmap.length > 0 && brief.productStage !== "awaiting_signoff") {
+    const names = roadmap.slice(0, 3).map((r) => r.title);
+    parts.push(`${roadmap.length} roadmap item${roadmap.length === 1 ? " has" : "s have"} no tasks yet (${names.join(", ")}${roadmap.length > names.length ? ", …" : ""}). Open Development › Plan and choose Build a task graph to turn ${roadmap.length === 1 ? "it" : "them"} into work`);
+  }
+  return `Nothing started this cycle.${parts.length ? ` ${parts.join(". ")}.` : ""}`;
+}
+
+/**
  * Why a task waits on the founder instead of being dispatched (0030), or null: its gated call's approval is still open
  * in the Inbox (approving makes it dispatchable again), or the founder rejected it since its last session (it runs
  * again only when started by hand).
@@ -178,6 +203,9 @@ export function createCycleActivities(deps: OrchestratorDeps) {
       }
       // The planner sees the most important and oldest tasks, identical ones folded; the payload never grows with the backlog.
       const shown = foldDuplicates(candidates).slice(0, PLAN_PAYLOAD_TASKS).map(({ task }) => task);
+      // Only blockers still open block: a finished or archived one would contradict the task's own unblocked state and the
+      // planner deferred such a task as "conflicting dependency data" (Foundmill business, cycle 12, Oct 24, 2026).
+      const openIds = new Set(brief.openTasks.map((t) => t.id));
       const payload = {
         business_mode: brief.businessMode,
         product_stage: productStage,
@@ -191,7 +219,7 @@ export function createCycleActivities(deps: OrchestratorDeps) {
         agents: brief.agents.map((a) => ({ id: a.id, name: a.name, role: a.role, agent_type: a.agentType, layer: a.layer, department_id: a.departmentIds[0] ?? null, status: a.status })),
         open_task_total: brief.openTaskTotal ?? brief.openTasks.length,
         roadmap_without_tasks: (brief.untaskedRoadmap ?? []).slice(0, 10).map((r) => ({ id: r.id, title: r.title, horizon: r.horizon })),
-        open_tasks: shown.map((t) => ({ id: t.id, title: t.title, kind: t.kind, status: t.status, department_id: t.departmentId ?? "general", assignee_agent_id: t.assigneeAgentId ?? undefined, priority: Math.max(1, Math.min(5, 3 - Math.sign(t.priority))), blocked_by: t.dependsOn })),
+        open_tasks: shown.map((t) => ({ id: t.id, title: t.title, kind: t.kind, status: t.status, department_id: t.departmentId ?? "general", assignee_agent_id: t.assigneeAgentId ?? undefined, priority: Math.max(1, Math.min(5, 3 - Math.sign(t.priority))), blocked_by: t.dependsOn.filter((id) => openIds.has(id)) })),
       };
       const result = await deps.models
         .complete({
@@ -230,7 +258,7 @@ export function createCycleActivities(deps: OrchestratorDeps) {
       for (const t of waiting) deferred.push({ taskId: t.id, reason: deferralOf(t, brief)! });
       starts.sort((a, b) => a.priority - b.priority);
       return {
-        summary: plan.summary,
+        summary: factualSummary(brief, plan.summary, starts, deferred),
         timeBoxHours: Math.max(0.25, Math.min(plan.time_box_hours || LIMITS.cycleTimeBoxAgentHours, 24)),
         starts,
         deferred,
