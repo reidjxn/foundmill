@@ -1,4 +1,5 @@
 /** tasks + task_edges — the Development Plan graph (BUILD §11.6; routers dev.tasks.*). */
+import type { PlannedTask } from "@foundmill/models";
 import { PLANNABLE_TASK_STATUSES, TASK_KINDS, TASK_PHASES, TASK_STATUSES, ValidationError, type TaskStatus } from "@foundmill/shared";
 import { and, asc, desc, eq, inArray, isNull, notInArray, or, sql } from "drizzle-orm";
 import { z } from "zod";
@@ -65,6 +66,13 @@ async function assertTaskReferences(db: Executor, businessId: string, v: { depar
 
 /** Statuses a cycle may start a task from (the orchestrator's DISPATCHABLE; apps/orchestrator retry.ts bounds the retries). */
 export const PLANNABLE_STATUSES = PLANNABLE_TASK_STATUSES;
+
+/** What the Planner answered (`TaskGraphOutput.tasks`, packages/models) and where its tasks are filed. */
+export interface WritePlannedGraphInput {
+  tasks: readonly Pick<PlannedTask, "id" | "title" | "goal" | "kind" | "acceptance_criteria" | "file_scope_hints" | "depends_on" | "hard">[];
+  roadmapItemId: string | null;
+  departmentId: string | null;
+}
 
 /** A planning candidate: the task, its dependencies and why it may not start now. */
 export interface PlanningCandidate extends Task {
@@ -228,6 +236,35 @@ export const tasksRepo = {
    */
   async lockPlanning(db: Executor, businessId: string): Promise<void> {
     await db.execute(sql`select pg_advisory_xact_lock(hashtext('dev.tasks.plan'), hashtext(${businessId}::text))`);
+  },
+
+  /**
+   * Write the Planner's answer as `planned` tasks and the edges between them (BUILD §11.6): one task per planned task
+   * (title cut to 200, priority 10 when `hard`), filed under the roadmap item and department given, then an edge for every
+   * `depends_on` that names another task of the same answer. The api's `planTaskGraph` and the cycle's roadmap planning
+   * both write through here, so a task planned by either looks the same. Call inside a transaction holding `lockPlanning`.
+   */
+  async writePlannedGraph(db: Executor, businessId: string, input: WritePlannedGraphInput): Promise<Task[]> {
+    const idByPlanned = new Map<string, string>();
+    const created: Task[] = [];
+    for (const t of input.tasks) {
+      const task = await tasksRepo.create(db, businessId, {
+        kind: t.kind,
+        title: t.title.slice(0, 200),
+        goalMd: t.goal,
+        acceptance: t.acceptance_criteria,
+        fileScope: t.file_scope_hints,
+        roadmapItemId: input.roadmapItemId,
+        departmentId: input.departmentId,
+        status: "planned",
+        priority: t.hard ? 10 : 0,
+      });
+      idByPlanned.set(t.id, task.id);
+      created.push(task);
+    }
+    // A dependency on a task outside the answer is dropped; one on itself or a cycle is refused by `addEdge` (the answer is bad).
+    for (const t of input.tasks) for (const dep of t.depends_on) if (idByPlanned.has(dep)) await tasksRepo.addEdge(db, businessId, idByPlanned.get(dep)!, idByPlanned.get(t.id)!);
+    return created;
   },
 
   async reassign(db: Executor, businessId: string, taskId: string, assigneeAgentId: string | null): Promise<Task> {

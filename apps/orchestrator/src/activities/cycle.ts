@@ -4,21 +4,33 @@
  */
 import { ApplicationFailure } from "@temporalio/common";
 import { LIMITS } from "@foundmill/config";
-import { buildSystemPrompt, getPrompt, getTemplate, getTemplateByAgentType, modelBillingFacts, modelBillingMessage } from "@foundmill/agents";
+import { agentUsable, buildSystemPrompt, getPrompt, getTemplate, modelBillingFacts, modelBillingMessage, pickAssignee as pickAgent } from "@foundmill/agents";
 import { APP_NAME } from "@foundmill/config";
 import { repos } from "@foundmill/db";
 import { CyclePlanOutput } from "@foundmill/models";
-import { PLANNABLE_TASK_STATUSES, uuid, type TaskKind } from "@foundmill/shared";
+import { PLANNABLE_TASK_STATUSES, uuid } from "@foundmill/shared";
 import { ComposerRequestError, ComposerUnavailableError } from "../composer-client";
 import { CYCLE_PLAN_FAILURE, type PlanFailureDetails } from "../cycle-contract";
 import type { OrchestratorDeps } from "../deps";
 import { requestJourneyDailyRefresh } from "../journey-refresh";
 import { agentActor, emitEvent, systemActor } from "../events";
-import { foldDuplicates } from "./brief";
+import { foldDuplicates, loadDispatchFacts } from "./brief";
 import { openAgentSession, type DispatchRefusal } from "./dispatch";
-import type { BriefAgent, BriefTask, BusinessBrief, CyclePlan, CycleStart, CycleTrigger } from "./types";
+import { roadmapPlanNote } from "./roadmap-plan";
+import type { BriefAgent, BriefTask, BusinessBrief, CyclePlan, CycleStart, CycleTrigger, FollowUpStartsInput, RoadmapPlanResult } from "./types";
+
+export { agentUsable };
 
 const DISPATCHABLE = new Set<string>(PLANNABLE_TASK_STATUSES);
+
+/** Why a task the planner left out starts anyway (lead, 2026-10-24: the planner orders, it never gates). */
+export const SLOT_FREE_REASON = "ready, and an agent slot was free";
+/** Why a task left out when every slot was taken waits (the planner's own reason wins when it gave one). */
+export const SLOTS_TAKEN_REASON = "every agent slot of this cycle is taken";
+/** Why a task starts mid-cycle (`followUpStarts`): what it waited on finished while the cycle ran. */
+export const FOLLOW_UP_REASON = "its earlier work finished during this cycle";
+/** Follow-up starts sort after every start of the plan (the planner's priorities are 1–5). */
+export const FOLLOW_UP_PRIORITY = 6;
 
 /** Subject of the note a cycle posts when nothing could start. */
 export const IDLE_CYCLE_SUBJECT = "Nothing is ready to start";
@@ -44,12 +56,6 @@ export function planFailure(err: unknown): unknown {
   return ApplicationFailure.create({ type: CYCLE_PLAN_FAILURE, message: "This cycle's plan could not run: the model service refused the request. Press Continue to try again; if it happens again, the team has the details.", nonRetryable: true, details: [{ kind: "request" } satisfies PlanFailureDetails] });
 }
 
-/** An agent the cycle may give work: not paused, injured or failing (failing agents rest first, `recoverAgents`), and under its wage cap. */
-export function agentUsable(a: BriefAgent): boolean {
-  if (a.status === "paused" || a.status === "injured" || a.status === "failing") return false;
-  return a.wageRemainingMinor === undefined || a.wageRemainingMinor === null || a.wageRemainingMinor > 0;
-}
-
 /**
  * Why a dispatchable-looking task is left out before planning, or null: a failed or blocked task waiting for its retry
  * (doubling waits, then the founder's Start; audit BF-14), or a task whose session holds an undecided approval.
@@ -65,11 +71,10 @@ export function retryDeferral(task: BriefTask): string | null {
 
 /**
  * The Chief of Staff's answer when nothing can start (audit OL-10): no model is called, so no empty cycle is paid for, and
- * the note says what is actually in the way instead of "everything is blocked". Roadmap items without tasks point to
- * Development › Plan, where a task graph turns them into work.
+ * the note says what is actually in the way instead of "everything is blocked". Roadmap items without tasks are planned
+ * by the team itself in the next cycles (lead, 2026-10-24); the founder never builds a task graph.
  */
 export function idleSummary(brief: BusinessBrief, waiting: readonly BriefTask[]): string {
-  const roadmap = brief.untaskedRoadmap ?? [];
   const byDeps = brief.openTasks.filter((t) => DISPATCHABLE.has(t.status) && t.blocked).length;
   const approvals = waiting.filter((t) => t.awaitingApproval).length;
   const held = waiting.filter((t) => channelDeferral(brief, t) !== null).length;
@@ -77,16 +82,28 @@ export function idleSummary(brief: BusinessBrief, waiting: readonly BriefTask[])
   const parts: string[] = [];
   // Before the founder's sign-off nothing is planned beyond groundwork (founder, 2026-10-18).
   if (brief.productStage === "awaiting_signoff") parts.push("The specification and roadmap are waiting for your sign-off in the Inbox; building starts when both are approved");
-  if (roadmap.length > 0 && brief.productStage !== "awaiting_signoff") {
-    const names = roadmap.slice(0, 3).map((r) => r.title);
-    parts.push(`${roadmap.length} roadmap item${roadmap.length === 1 ? " has" : "s have"} no tasks yet (${names.join(", ")}${roadmap.length > names.length ? ", …" : ""}). Open Development › Plan and choose Build a task graph to turn ${roadmap.length === 1 ? "it" : "them"} into work`);
-  }
+  const roadmap = untaskedRoadmapLine(brief);
+  if (roadmap) parts.push(roadmap);
   if (approvals > 0) parts.push(`${approvals} task${approvals === 1 ? " waits" : "s wait"} for your approval in the Inbox`);
   if (retrying > 0) parts.push(`${retrying} task${retrying === 1 ? " is" : "s are"} waiting to be retried or need${retrying === 1 ? "s" : ""} you to start ${retrying === 1 ? "it" : "them"} from the Plan`);
   if (byDeps > 0) parts.push(`${byDeps} task${byDeps === 1 ? " waits" : "s wait"} on earlier tasks`);
   if (held > 0) parts.push(`${held} channel task${held === 1 ? " waits" : "s wait"} until you start distribution from Distribution › Board`);
   const reason = parts.length > 0 ? `${parts.join("; ")}.` : "The board is clear.";
   return `Nothing is ready to start for ${brief.businessName}, so no cycle was planned. ${reason}`;
+}
+
+/** "N roadmap items have no tasks yet (…); the team plans them in the next cycles", or null before the sign-off or with none. */
+export function untaskedRoadmapLine(brief: Pick<BusinessBrief, "untaskedRoadmap" | "productStage">): string | null {
+  const roadmap = brief.untaskedRoadmap ?? [];
+  if (roadmap.length === 0 || brief.productStage === "awaiting_signoff") return null;
+  const names = roadmap.slice(0, 3).map((r) => r.title);
+  return `${roadmap.length} roadmap item${roadmap.length === 1 ? " has" : "s have"} no tasks yet (${names.join(", ")}${roadmap.length > names.length ? ", …" : ""}); the team plans ${roadmap.length === 1 ? "it" : "them"} in the next cycles`;
+}
+
+/** The plan's summary with what this cycle planned from the roadmap in front of it (nothing added when nothing was tried). */
+export function withRoadmapNote(summary: string, planned: RoadmapPlanResult | null | undefined): string {
+  const note = roadmapPlanNote(planned);
+  return note ? `${note}\n\n${summary}` : summary;
 }
 
 /**
@@ -106,11 +123,8 @@ export function factualSummary(brief: BusinessBrief, planned: string, starts: re
     const shown = deferred.slice(0, 5).map((d) => `${title.get(d.taskId) ?? "a task"}: ${d.reason}`);
     parts.push(`Every task that could start was held back (${shown.join("; ")}${deferred.length > shown.length ? "; …" : ""})`);
   }
-  const roadmap = brief.untaskedRoadmap ?? [];
-  if (roadmap.length > 0 && brief.productStage !== "awaiting_signoff") {
-    const names = roadmap.slice(0, 3).map((r) => r.title);
-    parts.push(`${roadmap.length} roadmap item${roadmap.length === 1 ? " has" : "s have"} no tasks yet (${names.join(", ")}${roadmap.length > names.length ? ", …" : ""}). Open Development › Plan and choose Build a task graph to turn ${roadmap.length === 1 ? "it" : "them"} into work`);
-  }
+  const roadmap = untaskedRoadmapLine(brief);
+  if (roadmap) parts.push(roadmap);
   return `Nothing started this cycle.${parts.length ? ` ${parts.join(". ")}.` : ""}`;
 }
 
@@ -139,19 +153,17 @@ export function channelDeferral(brief: Pick<BusinessBrief, "productStage">, task
 /** Why a dispatchable-looking task sits this cycle out (a retry not yet due, an approval, distribution not started), or null. */
 const deferralOf = (task: BriefTask, brief: Pick<BusinessBrief, "productStage"> = {}): string | null => channelDeferral(brief, task) ?? approvalDeferral(task) ?? retryDeferral(task);
 
-function pickAssignee(task: BriefTask, brief: BusinessBrief, requested: string | null): BriefAgent | null {
-  const byId = new Map(brief.agents.map((a) => [a.id, a]));
-  const usable = (a: BriefAgent | undefined | null) => (a && agentUsable(a) ? a : null);
-  const fromRequest = requested ? usable(byId.get(requested)) : null;
-  if (fromRequest) return fromRequest;
-  const fromTask = task.assigneeAgentId ? usable(byId.get(task.assigneeAgentId)) : null;
-  if (fromTask) return fromTask;
-  const inDept = brief.agents.filter((a) => (task.departmentId ? a.departmentIds.includes(task.departmentId) : true) && a.layer === "worker");
-  const fits = (a: BriefAgent) => {
-    const t = getTemplateByAgentType(a.agentType);
-    return t ? t.taskKinds.includes(task.kind as TaskKind) : false;
-  };
-  return usable(inDept.find(fits)) ?? usable(brief.agents.find((a) => a.layer === "worker" && fits(a))) ?? usable(inDept[0]) ?? null;
+/**
+ * The agent a start runs on: the shared rule (`pickAssignee`, packages/agents; `dev.tasks.start` uses the same), avoiding
+ * an agent already chosen for another start this cycle when another usable agent fits.
+ */
+export function pickAssignee(task: BriefTask, agents: readonly BriefAgent[], requested: string | null, chosen: ReadonlySet<string>): BriefAgent | null {
+  return pickAgent(task, agents, { requested, exclude: chosen });
+}
+
+/** A start of `task` on `agent`, as the plan and the follow-ups record it. */
+function startOf(task: BriefTask, agent: BriefAgent, priority: number, reason: string, departmentId: string | null = task.departmentId): CycleStart {
+  return { taskId: task.id, agentId: agent.id, departmentId, priority, reason, kind: task.kind, fileScope: task.fileScope, budgetMinor: task.budgetMinor };
 }
 
 export function createCycleActivities(deps: OrchestratorDeps) {
@@ -175,98 +187,153 @@ export function createCycleActivities(deps: OrchestratorDeps) {
     return [item.id];
   }
 
-  return {
-    /** Chief of Staff plan for one cycle (BUILD §12.4). Ids in the model's answer are validated against the brief. */
-    async planCycle(input: { businessId: string; cycleNumber: number; trigger: CycleTrigger; brief: BusinessBrief }): Promise<CyclePlan> {
-      const { brief } = input;
-      const chiefAgent = brief.agents.find((a) => a.id === brief.chiefOfStaffId) ?? null;
-      // A stopped team plans nothing, and no model is called (or charged) for it.
-      if (brief.agentsStopped) return { summary: "The team is stopped, so nothing was planned. An owner or admin resumes the agents with Resume agents in the top bar.", timeBoxHours: 0.25, starts: [], deferred: [], approvalsNeeded: [], modelKey: chiefAgent?.modelKey ?? "opus", warning: null, costMinor: 0 };
-      // Every concurrent-agent slot of the plan tier is in use (`brief.maxAgents` is the room left): nothing new can start,
-      // so no plan is drafted (and nothing spent on one); the open work is listed as deferred.
-      if (brief.maxAgents <= 0) return { summary: "Every agent the plan runs at once is already at work; nothing new starts this cycle.", timeBoxHours: LIMITS.cycleTimeBoxAgentHours, starts: [], deferred: brief.openTasks.filter((t) => DISPATCHABLE.has(t.status) && !t.blocked).map((t) => ({ taskId: t.id, reason: "plan limit: every concurrent agent slot is in use" })), approvalsNeeded: [], modelKey: chiefAgent?.modelKey ?? "opus", warning: null, costMinor: 0 };
-      // This month's credits are used up (a business on credits): no plan is drafted on the platform's key either.
-      if (brief.budgetRemainingMinor !== null && brief.budgetRemainingMinor <= 0) return { summary: "This month's credits are used up, so nothing new starts this cycle. Top up or add your own Anthropic key to keep the team working.", timeBoxHours: LIMITS.cycleTimeBoxAgentHours, starts: [], deferred: brief.openTasks.filter((t) => DISPATCHABLE.has(t.status) && !t.blocked).map((t) => ({ taskId: t.id, reason: "credits used up for this month" })), approvalsNeeded: [], modelKey: chiefAgent?.modelKey ?? "opus", warning: null, costMinor: 0 };
-      // The business's monthly model budget is used up (0059, whoever pays the model): dispatch would refuse every start, and a
-      // plan costs money too.
-      if (brief.modelBudgetRemainingMinor != null && brief.modelBudgetRemainingMinor <= 0) return { summary: "The monthly model budget is used up, so nothing new starts this cycle. An owner or admin can raise or remove the budget; otherwise the team starts again next month.", timeBoxHours: LIMITS.cycleTimeBoxAgentHours, starts: [], deferred: brief.openTasks.filter((t) => DISPATCHABLE.has(t.status) && !t.blocked).map((t) => ({ taskId: t.id, reason: "monthly model budget used up" })), approvalsNeeded: [], modelKey: chiefAgent?.modelKey ?? "opus", warning: null, costMinor: 0 };
-      const chief = getTemplate("chief_of_staff");
-      const system = buildSystemPrompt({ businessName: brief.businessName, appName: APP_NAME, template: chief, brief: brief.text, glossary: brief.glossary });
-      const budgetText = brief.budgetRemainingMinor === null ? "the founder's own key (no credits)" : `${(brief.budgetRemainingMinor / 100).toFixed(2)} ${brief.creditsCurrency} of credits (Estimate)`;
-      const productStage = brief.productStage ?? "selling";
-      const prompt = getPrompt("chief_of_staff_planner").render({ business_name: brief.businessName, max_agents: brief.maxAgents, budget: budgetText, capacity: brief.capacity, product_stage: productStage });
-      const waiting = brief.openTasks.filter((t) => DISPATCHABLE.has(t.status) && !t.blocked && deferralOf(t, brief) !== null);
-      const candidates = brief.openTasks.filter((t) => DISPATCHABLE.has(t.status) && !t.blocked && deferralOf(t, brief) === null);
-      // Nothing can start: say why instead of paying for a plan that starts nothing (audit OL-10, BF-14).
-      if (candidates.length === 0) {
-        return { summary: idleSummary(brief, waiting), timeBoxHours: LIMITS.cycleTimeBoxAgentHours, starts: [], deferred: waiting.map((t) => ({ taskId: t.id, reason: deferralOf(t, brief)! })), approvalsNeeded: [], modelKey: chiefAgent?.modelKey ?? "opus", warning: null, costMinor: 0, idle: true };
-      }
-      // The planner sees the most important and oldest tasks, identical ones folded; the payload never grows with the backlog.
-      const shown = foldDuplicates(candidates).slice(0, PLAN_PAYLOAD_TASKS).map(({ task }) => task);
-      // Only blockers still open block: a finished or archived one would contradict the task's own unblocked state and the
-      // planner deferred such a task as "conflicting dependency data" (Foundmill business, cycle 12, Oct 24, 2026).
-      const openIds = new Set(brief.openTasks.map((t) => t.id));
-      const payload = {
-        business_mode: brief.businessMode,
-        product_stage: productStage,
-        trigger: input.trigger,
-        cycle_number: input.cycleNumber,
-        max_agents: brief.maxAgents,
-        budget_remaining_minor: brief.budgetRemainingMinor,
-        capacity: brief.capacity,
-        approvals_waiting: brief.pendingApprovals,
-        departments: brief.departments.map((d) => ({ id: d.id, name: d.name, lead_agent_id: d.leadAgentId })),
-        agents: brief.agents.map((a) => ({ id: a.id, name: a.name, role: a.role, agent_type: a.agentType, layer: a.layer, department_id: a.departmentIds[0] ?? null, status: a.status })),
-        open_task_total: brief.openTaskTotal ?? brief.openTasks.length,
-        roadmap_without_tasks: (brief.untaskedRoadmap ?? []).slice(0, 10).map((r) => ({ id: r.id, title: r.title, horizon: r.horizon })),
-        open_tasks: shown.map((t) => ({ id: t.id, title: t.title, kind: t.kind, status: t.status, department_id: t.departmentId ?? "general", assignee_agent_id: t.assigneeAgentId ?? undefined, priority: Math.max(1, Math.min(5, 3 - Math.sign(t.priority))), blocked_by: t.dependsOn.filter((id) => openIds.has(id)) })),
-      };
-      const result = await deps.models
-        .complete({
-          route: "chiefOfStaff",
-          schema: CyclePlanOutput,
-          system: [system],
-          messages: [{ role: "user", content: `${prompt}\n\n\`\`\`json\n${JSON.stringify(payload)}\n\`\`\`` }],
-          modelOverride: chiefAgent?.modelKey,
-          cacheSystem: true,
-          scope: `cycle:${input.businessId}`,
-          attribution: { businessId: input.businessId, agentId: chiefAgent?.id, kind: "cycle_plan" },
-        })
-        .catch((err: unknown) => {
-          throw planFailure(err);
-        });
-      const plan = result.json;
-      const byId = new Map(shown.map((t) => [t.id, t]));
-      const starts: CycleStart[] = [];
-      const deferred: { taskId: string; reason: string }[] = plan.deferred.filter((d) => byId.has(d.task_id)).map((d) => ({ taskId: d.task_id, reason: d.reason }));
-      const seen = new Set<string>();
-      for (const dept of plan.departments) {
-        for (const s of dept.tasks_to_start) {
-          const task = byId.get(s.task_id);
-          if (!task || seen.has(task.id)) continue;
-          seen.add(task.id);
-          const agent = pickAssignee(task, brief, s.agent_id);
-          if (!agent) {
-            deferred.push({ taskId: task.id, reason: "no available agent for this task" });
-            continue;
-          }
-          starts.push({ taskId: task.id, agentId: agent.id, departmentId: task.departmentId ?? (brief.departments.find((d) => d.id === dept.department_id)?.id ?? null), priority: s.priority, reason: s.reason, kind: task.kind, fileScope: task.fileScope, budgetMinor: task.budgetMinor });
+  /** The Chief of Staff's plan for one cycle, before the roadmap note is put in front of its summary (`planCycle`). */
+  async function draftPlan(input: { businessId: string; cycleNumber: number; trigger: CycleTrigger; brief: BusinessBrief }): Promise<CyclePlan> {
+    const { brief } = input;
+    const chiefAgent = brief.agents.find((a) => a.id === brief.chiefOfStaffId) ?? null;
+    // A stopped team plans nothing, and no model is called (or charged) for it.
+    if (brief.agentsStopped) return { summary: "The team is stopped, so nothing was planned. An owner or admin resumes the agents with Resume agents in the top bar.", timeBoxHours: 0.25, starts: [], deferred: [], approvalsNeeded: [], modelKey: chiefAgent?.modelKey ?? "opus", warning: null, costMinor: 0 };
+    // Every concurrent-agent slot of the plan tier is in use (`brief.maxAgents` is the room left): nothing new can start,
+    // so no plan is drafted (and nothing spent on one); the open work is listed as deferred.
+    if (brief.maxAgents <= 0) return { summary: "Every agent the plan runs at once is already at work; nothing new starts this cycle.", timeBoxHours: LIMITS.cycleTimeBoxAgentHours, starts: [], deferred: brief.openTasks.filter((t) => DISPATCHABLE.has(t.status) && !t.blocked).map((t) => ({ taskId: t.id, reason: "plan limit: every concurrent agent slot is in use" })), approvalsNeeded: [], modelKey: chiefAgent?.modelKey ?? "opus", warning: null, costMinor: 0 };
+    // This month's credits are used up (a business on credits): no plan is drafted on the platform's key either.
+    if (brief.budgetRemainingMinor !== null && brief.budgetRemainingMinor <= 0) return { summary: "This month's credits are used up, so nothing new starts this cycle. Top up or add your own Anthropic key to keep the team working.", timeBoxHours: LIMITS.cycleTimeBoxAgentHours, starts: [], deferred: brief.openTasks.filter((t) => DISPATCHABLE.has(t.status) && !t.blocked).map((t) => ({ taskId: t.id, reason: "credits used up for this month" })), approvalsNeeded: [], modelKey: chiefAgent?.modelKey ?? "opus", warning: null, costMinor: 0 };
+    // The business's monthly model budget is used up (0059, whoever pays the model): dispatch would refuse every start, and a
+    // plan costs money too.
+    if (brief.modelBudgetRemainingMinor != null && brief.modelBudgetRemainingMinor <= 0) return { summary: "The monthly model budget is used up, so nothing new starts this cycle. An owner or admin can raise or remove the budget; otherwise the team starts again next month.", timeBoxHours: LIMITS.cycleTimeBoxAgentHours, starts: [], deferred: brief.openTasks.filter((t) => DISPATCHABLE.has(t.status) && !t.blocked).map((t) => ({ taskId: t.id, reason: "monthly model budget used up" })), approvalsNeeded: [], modelKey: chiefAgent?.modelKey ?? "opus", warning: null, costMinor: 0 };
+    const chief = getTemplate("chief_of_staff");
+    const system = buildSystemPrompt({ businessName: brief.businessName, appName: APP_NAME, template: chief, brief: brief.text, glossary: brief.glossary });
+    const budgetText = brief.budgetRemainingMinor === null ? "the founder's own key (no credits)" : `${(brief.budgetRemainingMinor / 100).toFixed(2)} ${brief.creditsCurrency} of credits (Estimate)`;
+    const productStage = brief.productStage ?? "selling";
+    const prompt = getPrompt("chief_of_staff_planner").render({ business_name: brief.businessName, max_agents: brief.maxAgents, budget: budgetText, capacity: brief.capacity, product_stage: productStage });
+    const waiting = brief.openTasks.filter((t) => DISPATCHABLE.has(t.status) && !t.blocked && deferralOf(t, brief) !== null);
+    const candidates = brief.openTasks.filter((t) => DISPATCHABLE.has(t.status) && !t.blocked && deferralOf(t, brief) === null);
+    // Nothing can start: say why instead of paying for a plan that starts nothing (audit OL-10, BF-14).
+    if (candidates.length === 0) {
+      return { summary: idleSummary(brief, waiting), timeBoxHours: LIMITS.cycleTimeBoxAgentHours, starts: [], deferred: waiting.map((t) => ({ taskId: t.id, reason: deferralOf(t, brief)! })), approvalsNeeded: [], modelKey: chiefAgent?.modelKey ?? "opus", warning: null, costMinor: 0, idle: true };
+    }
+    // The planner sees the most important and oldest tasks, identical ones folded; the payload never grows with the backlog.
+    const shown = foldDuplicates(candidates).slice(0, PLAN_PAYLOAD_TASKS).map(({ task }) => task);
+    // Only blockers still open block: a finished or archived one would contradict the task's own unblocked state and the
+    // planner deferred such a task as "conflicting dependency data" (Foundmill business, cycle 12, Oct 24, 2026).
+    const openIds = new Set(brief.openTasks.map((t) => t.id));
+    const payload = {
+      business_mode: brief.businessMode,
+      product_stage: productStage,
+      trigger: input.trigger,
+      cycle_number: input.cycleNumber,
+      max_agents: brief.maxAgents,
+      budget_remaining_minor: brief.budgetRemainingMinor,
+      capacity: brief.capacity,
+      approvals_waiting: brief.pendingApprovals,
+      departments: brief.departments.map((d) => ({ id: d.id, name: d.name, lead_agent_id: d.leadAgentId })),
+      agents: brief.agents.map((a) => ({ id: a.id, name: a.name, role: a.role, agent_type: a.agentType, layer: a.layer, department_id: a.departmentIds[0] ?? null, status: a.status })),
+      open_task_total: brief.openTaskTotal ?? brief.openTasks.length,
+      roadmap_without_tasks: (brief.untaskedRoadmap ?? []).slice(0, 10).map((r) => ({ id: r.id, title: r.title, horizon: r.horizon })),
+      open_tasks: shown.map((t) => ({ id: t.id, title: t.title, kind: t.kind, status: t.status, department_id: t.departmentId ?? "general", assignee_agent_id: t.assigneeAgentId ?? undefined, priority: Math.max(1, Math.min(5, 3 - Math.sign(t.priority))), blocked_by: t.dependsOn.filter((id) => openIds.has(id)) })),
+    };
+    const result = await deps.models
+      .complete({
+        route: "chiefOfStaff",
+        schema: CyclePlanOutput,
+        system: [system],
+        messages: [{ role: "user", content: `${prompt}\n\n\`\`\`json\n${JSON.stringify(payload)}\n\`\`\`` }],
+        modelOverride: chiefAgent?.modelKey,
+        cacheSystem: true,
+        scope: `cycle:${input.businessId}`,
+        attribution: { businessId: input.businessId, agentId: chiefAgent?.id, kind: "cycle_plan" },
+      })
+      .catch((err: unknown) => {
+        throw planFailure(err);
+      });
+    const plan = result.json;
+    const byId = new Map(shown.map((t) => [t.id, t]));
+    // The planner's own deferrals: kept only for a task no slot is left for; otherwise noted on the start's reason.
+    const plannerDeferred = new Map(plan.deferred.filter((d) => byId.has(d.task_id)).map((d) => [d.task_id, d.reason] as const));
+    const starts: CycleStart[] = [];
+    const deferred: { taskId: string; reason: string }[] = [];
+    const seen = new Set<string>();
+    const chosen = new Set<string>();
+    // The model's picks first, in its priority order.
+    for (const dept of plan.departments) {
+      for (const s of dept.tasks_to_start) {
+        const task = byId.get(s.task_id);
+        if (!task || seen.has(task.id)) continue;
+        seen.add(task.id);
+        const agent = pickAssignee(task, brief.agents, s.agent_id, chosen);
+        if (!agent) {
+          deferred.push({ taskId: task.id, reason: "no available agent for this task" });
+          continue;
         }
+        chosen.add(agent.id);
+        starts.push(startOf(task, agent, s.priority, s.reason, task.departmentId ?? (brief.departments.find((d) => d.id === dept.department_id)?.id ?? null)));
       }
-      // The planner may leave dispatchable work out; nothing silently disappears — it is listed as deferred.
-      for (const t of candidates) if (!seen.has(t.id) && !deferred.some((d) => d.taskId === t.id)) deferred.push({ taskId: t.id, reason: "not selected for this cycle" });
-      for (const t of waiting) deferred.push({ taskId: t.id, reason: deferralOf(t, brief)! });
-      starts.sort((a, b) => a.priority - b.priority);
-      return {
-        summary: factualSummary(brief, plan.summary, starts, deferred),
-        timeBoxHours: Math.max(0.25, Math.min(plan.time_box_hours || LIMITS.cycleTimeBoxAgentHours, 24)),
-        starts,
-        deferred,
-        approvalsNeeded: plan.approvals_needed,
-        modelKey: result.modelKey,
-        warning: result.warning ?? null,
-        costMinor: result.cost.costMinorInt,
-      };
+    }
+    // The planner orders, it never gates (lead, 2026-10-24; Foundmill cycle 12 planned nothing with four tasks ready):
+    // every candidate it left out starts while a slot is free, most important and then oldest first.
+    for (const task of candidates) {
+      if (seen.has(task.id)) continue;
+      if (starts.length >= brief.maxAgents) break;
+      seen.add(task.id);
+      const agent = pickAssignee(task, brief.agents, null, chosen);
+      if (!agent) {
+        deferred.push({ taskId: task.id, reason: "no available agent for this task" });
+        continue;
+      }
+      chosen.add(agent.id);
+      const noted = plannerDeferred.get(task.id);
+      starts.push(startOf(task, agent, 5, noted ? `${SLOT_FREE_REASON}; the plan noted: ${noted}` : SLOT_FREE_REASON));
+    }
+    // Nothing silently disappears: what no slot was left for is listed as deferred, with the planner's reason when it gave one.
+    for (const t of candidates) if (!seen.has(t.id)) deferred.push({ taskId: t.id, reason: plannerDeferred.get(t.id) ?? SLOTS_TAKEN_REASON });
+    for (const t of waiting) deferred.push({ taskId: t.id, reason: deferralOf(t, brief)! });
+    starts.sort((a, b) => a.priority - b.priority);
+    return {
+      summary: factualSummary(brief, plan.summary, starts, deferred),
+      timeBoxHours: Math.max(0.25, Math.min(plan.time_box_hours || LIMITS.cycleTimeBoxAgentHours, 24)),
+      starts,
+      deferred,
+      approvalsNeeded: plan.approvals_needed,
+      modelKey: result.modelKey,
+      warning: result.warning ?? null,
+      costMinor: result.cost.costMinorInt,
+    };
+  }
+
+  return {
+    /**
+     * Chief of Staff plan for one cycle (BUILD §12.4). Ids in the model's answer are validated against the brief. The
+     * planner orders the work and never gates it (lead, 2026-10-24): every dispatchable task it left out starts while
+     * an agent slot is free. `roadmapPlanned` (what `planRoadmap` did before this plan) opens the summary.
+     */
+    async planCycle(input: { businessId: string; cycleNumber: number; trigger: CycleTrigger; brief: BusinessBrief; roadmapPlanned?: RoadmapPlanResult | null }): Promise<CyclePlan> {
+      const plan = await draftPlan(input);
+      return { ...plan, summary: withRoadmapNote(plan.summary, input.roadmapPlanned) };
+    },
+
+    /**
+     * Tasks that became dispatchable while the cycle ran (lead, 2026-10-24, decision 8): a session finished, so the tasks
+     * that waited on it (and anything else dispatchable the cycle has not started, skipped or finished: `exclude`) can
+     * start within the same time box. No model is called: one read of the dispatch facts, the cycle's own deferral
+     * rules (product stage, approval holds, retry backoff), the shared assignee rule avoiding the agents still busy.
+     */
+    async followUpStarts(input: FollowUpStartsInput): Promise<CycleStart[]> {
+      const facts = await loadDispatchFacts(deps, input.businessId);
+      if (facts.agentsStopped) return [];
+      const exclude = new Set(input.exclude);
+      const chosen = new Set(input.busyAgentIds ?? []);
+      const limit = input.limit ?? Number.POSITIVE_INFINITY;
+      const starts: CycleStart[] = [];
+      for (const t of facts.openTasks) {
+        if (starts.length >= limit) break;
+        if (exclude.has(t.id) || t.blocked || !DISPATCHABLE.has(t.status) || deferralOf(t, facts) !== null) continue;
+        const agent = pickAssignee(t, facts.agents, null, chosen);
+        if (!agent) continue;
+        chosen.add(agent.id);
+        starts.push(startOf(t, agent, FOLLOW_UP_PRIORITY, FOLLOW_UP_REASON));
+      }
+      if (starts.length) deps.log.info({ businessId: input.businessId, cycleId: input.cycleId, taskIds: starts.map((s) => s.taskId) }, "cycle: follow-up starts");
+      return starts;
     },
 
     /**

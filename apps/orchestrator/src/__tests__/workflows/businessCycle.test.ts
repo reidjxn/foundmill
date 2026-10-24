@@ -3,7 +3,7 @@
  * runs two tasks with overlapping file scopes at once (AC-11.6.2), narrates and completes; stop ends it early.
  */
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import type { Activities, BusinessBrief, CyclePlan, SessionLaunch, SessionResult } from "../../activities";
+import type { Activities, BusinessBrief, CyclePlan, CycleStart, RoadmapPlanResult, SessionLaunch, SessionResult } from "../../activities";
 import { ApplicationFailure } from "@temporalio/common";
 import { CYCLE_PLAN_FAILURE, PLAN_FAILED_MESSAGE } from "../../cycle-contract";
 import { businessCycle, fileScopesOverlap, pauseSignal, resumeSignal, stopSignal } from "../../workflows";
@@ -79,13 +79,19 @@ interface Calls {
   plans: number;
   startedPlans: CyclePlan[];
   planFailures: { message: string; details: unknown }[];
+  /** Every planCycle input's `roadmapPlanned`, in order. */
+  roadmapPlanned: (RoadmapPlanResult | null | undefined)[];
+  roadmapPlans: number;
+  briefs: number;
+  /** Every followUpStarts input as received. */
+  followUps: { exclude: string[]; busyAgentIds?: string[]; limit?: number }[];
 }
 
 /** Each test's sessions get their own ids: children an earlier test abandoned may still run under theirs. */
 let rigRun = 0;
 
-function mockActivities(opts: { holdSessions?: boolean; holdOpen?: boolean; stoppedBrief?: boolean; refuseAfter?: number; planned?: number; planError?: () => Error; budgetMinor?: number; idle?: boolean; planFails?: boolean; openFailsOnce?: boolean; startFailsOnce?: boolean } = {}): { acts: Partial<Activities>; calls: Calls; release: () => void; releaseOpen: () => void } {
-  const calls: Calls = { opened: [], sessionIds: [], openInputs: [], running: new Set(), maxConcurrent: 0, overlapSeen: false, narrated: [], completed: [], started: 0, opening: false, plans: 0, startedPlans: [], planFailures: [], failed: [], startInputs: [], idleNotes: [] };
+function mockActivities(opts: { holdSessions?: boolean; holdOpen?: boolean; stoppedBrief?: boolean; refuseAfter?: number; planned?: number; planError?: () => Error; budgetMinor?: number; idle?: boolean; planFails?: boolean; openFailsOnce?: boolean; startFailsOnce?: boolean; untaskedNow?: boolean; roadmapResult?: RoadmapPlanResult; followUp?: CycleStart } = {}): { acts: Partial<Activities>; calls: Calls; release: () => void; releaseOpen: () => void } {
+  const calls: Calls = { opened: [], sessionIds: [], openInputs: [], running: new Set(), maxConcurrent: 0, overlapSeen: false, narrated: [], completed: [], started: 0, opening: false, plans: 0, startedPlans: [], planFailures: [], failed: [], startInputs: [], idleNotes: [], roadmapPlanned: [], roadmapPlans: 0, briefs: 0, followUps: [] };
   const run = String((rigRun += 1)).padStart(4, "0");
   const scopes = new Map(tasks.map((t) => [t.id, t.fileScope]));
   let release = () => {};
@@ -96,10 +102,20 @@ function mockActivities(opts: { holdSessions?: boolean; holdOpen?: boolean; stop
   const openHeld = new Promise<void>((r) => (releaseOpen = r));
   const acts: Partial<Activities> = {
     async loadBrief() {
-      return { ...brief(), agentsStopped: opts.stoppedBrief ?? false, budgetRemainingMinor: opts.budgetMinor ?? null };
+      calls.briefs += 1;
+      return { ...brief(), agentsStopped: opts.stoppedBrief ?? false, budgetRemainingMinor: opts.budgetMinor ?? null, ...(opts.untaskedNow ? { untaskedRoadmap: [{ id: id(300), title: "Repository context for code sessions", horizon: "now" }] } : {}) };
     },
-    async planCycle({ brief: b }) {
+    async planRoadmap() {
+      calls.roadmapPlans += 1;
+      return opts.roadmapResult ?? { planned: [], failed: [], skipped: "nothing to plan", costMinor: 0 };
+    },
+    async followUpStarts(input) {
+      calls.followUps.push({ exclude: input.exclude, busyAgentIds: input.busyAgentIds, limit: input.limit });
+      return opts.followUp && !input.exclude.includes(opts.followUp.taskId) ? [opts.followUp] : [];
+    },
+    async planCycle({ brief: b, roadmapPlanned }) {
       calls.plans += 1;
+      calls.roadmapPlanned.push(roadmapPlanned);
       if (opts.planError) throw opts.planError();
       if (opts.planFails) throw new Error("The planner is unavailable");
       if (opts.idle) return { ...plan(), starts: [], costMinor: 0, idle: true, summary: "Everything open is blocked." };
@@ -365,6 +381,51 @@ describe("businessCycle workflow", () => {
     expect(m.calls.planFailures[0]).toMatchObject({ cycleNumber: 7, message: PLAN_FAILED_MESSAGE, details: { kind: "error" } });
     expect(m.calls.planFailures[0]!.message).not.toMatch(/Anthropic|overloaded|chiefOfStaff/);
     expect(m.calls.completed[0]).toMatchObject({ outcome: "failed" });
+  });
+
+  it("plans Now roadmap items without tasks before the plan, reloads the brief when something was planned, and adds the cost (lead, 2026-10-24)", async () => {
+    const roadmapResult: RoadmapPlanResult = { planned: [{ roadmapItemId: id(300), title: "Repository context for code sessions", taskIds: [id(301), id(302)], costMinor: 7 }], failed: [], skipped: null, costMinor: 7 };
+    const m = mockActivities({ planned: 1, untaskedNow: true, roadmapResult });
+    const result = await rig.run(m.acts, (client, taskQueue) => client.workflow.execute(businessCycle, { workflowId: `cycle:${B}:80`, taskQueue, args: [{ businessId: B, cycleNumber: 80, trigger: "continue" }] }));
+    expect(result.outcome).toBe("completed");
+    expect(m.calls.roadmapPlans).toBe(1);
+    expect(m.calls.briefs).toBe(2);
+    expect(m.calls.roadmapPlanned).toEqual([roadmapResult]);
+    expect(result.costMinor).toBe(12 + 7 + 5);
+
+    // Nothing in Now without tasks: no planning call, one brief.
+    const none = mockActivities({ planned: 1 });
+    await rig.run(none.acts, (client, taskQueue) => client.workflow.execute(businessCycle, { workflowId: `cycle:${B}:81`, taskQueue, args: [{ businessId: B, cycleNumber: 81, trigger: "continue" }] }));
+    expect(none.calls.roadmapPlans).toBe(0);
+    expect(none.calls.briefs).toBe(1);
+    expect(none.calls.roadmapPlanned).toEqual([null]);
+
+    // Nothing planned (a failed Planner, a held item): the brief is not reloaded and the plan still hears about it.
+    const held: RoadmapPlanResult = { planned: [], failed: [{ roadmapItemId: id(300), title: "Repository context for code sessions", reason: "the Planner did not answer" }], skipped: null, costMinor: 0 };
+    const failed = mockActivities({ planned: 1, untaskedNow: true, roadmapResult: held });
+    await rig.run(failed.acts, (client, taskQueue) => client.workflow.execute(businessCycle, { workflowId: `cycle:${B}:82`, taskQueue, args: [{ businessId: B, cycleNumber: 82, trigger: "continue" }] }));
+    expect(failed.calls.briefs).toBe(1);
+    expect(failed.calls.roadmapPlanned).toEqual([held]);
+
+    // A stopped team plans no roadmap either.
+    const stoppedTeam = mockActivities({ stoppedBrief: true, untaskedNow: true, roadmapResult });
+    await rig.run(stoppedTeam.acts, (client, taskQueue) => client.workflow.execute(businessCycle, { workflowId: `cycle:${B}:83`, taskQueue, args: [{ businessId: B, cycleNumber: 83, trigger: "continue" }] }));
+    expect(stoppedTeam.calls.roadmapPlans).toBe(0);
+  });
+
+  it("a cycle whose first task finishes gets the task it unblocked dispatched in the same cycle (decision 8)", async () => {
+    const followUp: CycleStart = { taskId: id(5), agentId: agents[1]!, departmentId: id(50), priority: 6, reason: "its earlier work finished during this cycle", kind: "code", fileScope: [], budgetMinor: null };
+    const m = mockActivities({ planned: 1, followUp });
+    const result = await rig.run(m.acts, (client, taskQueue) => client.workflow.execute(businessCycle, { workflowId: `cycle:${B}:84`, taskQueue, args: [{ businessId: B, cycleNumber: 84, trigger: "continue" }] }));
+    expect(result.outcome).toBe("completed");
+    expect(m.calls.opened.map((o) => o.taskId)).toEqual([id(1), id(5)]);
+    expect(result.tasksDispatched).toBe(2);
+    expect(result.tasksCompleted).toBe(2);
+    // Asked once per finished session, with every task the cycle holds excluded and the cycle's concurrency as the limit.
+    expect(m.calls.followUps.length).toBeGreaterThanOrEqual(2);
+    expect(m.calls.followUps[0]).toMatchObject({ exclude: [id(1)], busyAgentIds: [], limit: 3 });
+    expect(m.calls.followUps[1]!.exclude.sort()).toEqual([id(1), id(5)].sort());
+    expect(m.calls.completed[0]).toMatchObject({ tasksDispatched: 2, tasksCompleted: 2 });
   });
 
   it("a brief that says the team is stopped dispatches nothing and records the cycle as stopped", async () => {

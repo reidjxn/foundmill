@@ -84,8 +84,8 @@ describe("a cycle with nothing to start (audit OL-10, SOAK-04)", () => {
       expect(planned.starts).toEqual([]);
       expect(planned.costMinor).toBe(0);
       expect(modelCalls).toBe(0);
-      expect(planned.summary).toMatch(/1 roadmap item has no tasks yet \(Pricing experiment\)/);
-      expect(planned.summary).toMatch(/Development › Plan/);
+      expect(planned.summary).toMatch(/1 roadmap item has no tasks yet \(Pricing experiment\); the team plans it in the next cycles/);
+      expect(planned.summary).not.toMatch(/task graph|Development › Plan/);
       expect(planned.summary).not.toMatch(/everything open is blocked/i);
 
       const one = await acts.noteIdleCycle({ businessId: t.businessId, cycleNumber: 3, summary: planned.summary });
@@ -231,7 +231,8 @@ describe("the cycle summary leads with what really starts (Foundmill cycle 12)",
     expect(text).toMatch(/^Nothing started this cycle\./);
     expect(text).not.toMatch(/Four agents start/);
     expect(text).toContain("Resolve neighbors: conflicting dependency data");
-    expect(text).toContain("Build a task graph");
+    expect(text).toContain("the team plans it in the next cycles");
+    expect(text).not.toMatch(/task graph/);
     expect(text).toContain("First live engineering loop on Foundmill");
   });
 

@@ -65,7 +65,7 @@ describe("chief of staff cycle plan (BUILD §12.4)", () => {
     expect(r.json.time_box_hours).toBe(4);
   });
 
-  it("offers a failed or blocked task again (the orchestrator's retry rules decide when) and points at the Plan when only the roadmap has work", async () => {
+  it("offers a failed or blocked task again (the orchestrator's retry rules decide when) and says the team plans the roadmap when only the roadmap has work", async () => {
     const retry = await client.complete({
       route: "chiefOfStaff",
       messages: promptWith({ max_agents: 3, open_tasks: [{ id: "t1", title: "Plan the first vertical slice", kind: "code", status: "failed", department_id: "dept-eng" }, { id: "t2", title: "Set up the first runway forecast", kind: "finance", status: "blocked", department_id: "dept-fin" }], agents: AGENTS }),
@@ -76,7 +76,8 @@ describe("chief of staff cycle plan (BUILD §12.4)", () => {
     const idle = await client.complete({ route: "chiefOfStaff", messages: promptWith({ business_name: "Acme", max_agents: 3, open_tasks: [], roadmap_without_tasks: [{ id: "r1", title: "Pricing experiment", horizon: "now" }], agents: AGENTS }), schema: CyclePlanOutput });
     expect(idle.json.departments).toEqual([]);
     expect(idle.json.summary).toMatch(/1 roadmap item has no tasks yet/);
-    expect(idle.json.summary).toMatch(/plan them from the Plan tab/);
+    expect(idle.json.summary).toMatch(/the team plans it in the next cycles/);
+    expect(idle.json.summary).not.toMatch(/Plan tab|task graph/);
     expect(idle.json.summary).not.toMatch(/everything open is blocked/);
   });
 

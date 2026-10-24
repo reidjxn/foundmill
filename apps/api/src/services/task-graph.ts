@@ -8,8 +8,8 @@
  * same item, goal and department returns that plan (`reused: true`) instead of a second graph; the write holds a
  * per-business planning lock so a plan written on another instance meanwhile is seen, not written twice.
  */
-import { HOUSE_STYLE } from "@foundmill/agents";
-import { repos, type DbTx, type Task } from "@foundmill/db";
+import { PLANNER_SYSTEM_PROMPT } from "@foundmill/agents";
+import { repos, roadmapItemDepartmentId, type DbTx, type Task } from "@foundmill/db";
 import { TaskGraphOutput } from "@foundmill/models";
 import { ValidationError } from "@foundmill/shared";
 import { createHash } from "node:crypto";
@@ -29,11 +29,6 @@ export function planKey(input: PlanInput): string {
   return createHash("sha256").update(JSON.stringify([input.roadmapItemId ?? null, goal, input.departmentId ?? null])).digest("hex").slice(0, 32);
 }
 
-function departmentOfRoadmapItem(item: { ownerRef: unknown } | null): string | null {
-  const ref = item?.ownerRef as { kind?: string; id?: string } | null | undefined;
-  return ref && ref.kind === "department" && typeof ref.id === "string" ? ref.id : null;
-}
-
 /** The plan written for this request in the repeat window, while its tasks are still there; null otherwise. */
 async function repeatedPlan(ctx: BusinessContext, tx: DbTx, key: string): Promise<PlanResult | null> {
   const entry = await repos.audit.latestMatching(tx, ctx.businessId, "dev.tasks.plan", { planKey: key }, new Date(Date.now() - PLAN_REPEAT_WINDOW_MS));
@@ -46,8 +41,9 @@ async function repeatedPlan(ctx: BusinessContext, tx: DbTx, key: string): Promis
 }
 
 /**
- * Build and write the task graph for `input` (one Planner call, audited as `dev.tasks.plan` with `planKey`). `key`
- * defaults to the request's own key; the router passes it so its in-flight map and this agree.
+ * Plan `input` into tasks and write them (one Planner call, audited as `dev.tasks.plan` with `planKey`). `key`
+ * defaults to the request's own key; the router passes it so its in-flight map and this agree. The business cycle
+ * plans Now roadmap items the same way on its own (apps/orchestrator `planRoadmap`): same system prompt, same write.
  */
 export async function planTaskGraph(ctx: BusinessContext, input: PlanInput, key: string = planKey(input)): Promise<PlanResult> {
   // Before the planner is paid for: the department must be this business's own (400), as the tasks' repo insists (audit RA-07).
@@ -61,7 +57,7 @@ export async function planTaskGraph(ctx: BusinessContext, input: PlanInput, key:
   const result = await ctx.models.complete({
     route: "planner",
     schema: TaskGraphOutput,
-    system: `You are the Planner. Build a task graph with goals, acceptance criteria, test expectations, file-scope hints and dependencies. ${HOUSE_STYLE}`,
+    system: PLANNER_SYSTEM_PROMPT,
     messages: [{ role: "user", content: "```json\n" + JSON.stringify({ goal, roadmap_item: roadmapItem, spec_sections: blocks.map((b) => b.section) }) + "\n```" }],
     attribution: { businessId: ctx.businessId, kind: "planner" },
   });
@@ -70,24 +66,7 @@ export async function planTaskGraph(ctx: BusinessContext, input: PlanInput, key:
     await repos.tasks.lockPlanning(tx, ctx.businessId);
     const written = await repeatedPlan(ctx, tx, key);
     if (written) return written;
-    const idByPlanned = new Map<string, string>();
-    const created: Task[] = [];
-    for (const t of result.json.tasks) {
-      const task = await repos.tasks.create(tx, ctx.businessId, {
-        kind: t.kind,
-        title: t.title.slice(0, 200),
-        goalMd: t.goal,
-        acceptance: t.acceptance_criteria,
-        fileScope: t.file_scope_hints,
-        roadmapItemId: roadmapItem?.id ?? null,
-        departmentId: input.departmentId ?? departmentOfRoadmapItem(roadmapItem),
-        status: "planned",
-        priority: t.hard ? 10 : 0,
-      });
-      idByPlanned.set(t.id, task.id);
-      created.push(task);
-    }
-    for (const t of result.json.tasks) for (const dep of t.depends_on) if (idByPlanned.has(dep)) await repos.tasks.addEdge(tx, ctx.businessId, idByPlanned.get(dep)!, idByPlanned.get(t.id)!);
+    const created = await repos.tasks.writePlannedGraph(tx, ctx.businessId, { tasks: result.json.tasks, roadmapItemId: roadmapItem?.id ?? null, departmentId: input.departmentId ?? roadmapItemDepartmentId(roadmapItem) });
     await audit(tx, ctx, { action: "dev.tasks.plan", target: { kind: "roadmap_item", id: roadmapItem?.id ?? "" }, details: { tasks: created.length, costMinor: result.cost.costMinorInt, planKey: key, taskIds: created.map((t) => t.id) } });
     return { tasks: created, graph: await repos.tasks.graph(tx, ctx.businessId), costMinor: result.cost.costMinorInt, costLabel: "Estimate" as const, reused: false };
   });
