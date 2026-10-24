@@ -47,6 +47,12 @@ export const LIMITS = {
    * (founder, 2026-10-18). More means more Opus spend on the first approval; fewer leaves graphs to build by hand.
    */
   signoffPlanRoadmapItems: 2,
+  /**
+   * Roadmap items in Now without tasks that one business cycle plans into tasks (one Planner call each) before the
+   * Chief of Staff's plan (lead, 2026-10-24: the team plans the roadmap; nobody builds a task graph by hand). More
+   * means more Opus spend per cycle; fewer leaves imported items waiting for more cycles.
+   */
+  cyclePlanRoadmapItems: 2,
   /** LIVE writes per person (audit GLS2F-05): connection requests, messages and posts are throttled so one account cannot flood a person, a thread, a community or the event outbox. */
   liveRequestsPerUserPerHour: 20,
   /** Requests to one person per day, so request, withdraw and request again is stopped quickly. */

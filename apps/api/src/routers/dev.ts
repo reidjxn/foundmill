@@ -4,8 +4,9 @@
  * `session:{sessionId}` that degrades to `{ queued: false, reason }`; the local task state is always updated so the
  * Training Ground reflects the intent.
  */
+import { pickAssignee } from "@foundmill/agents";
 import { FLAGS, isSimulateEnv } from "@foundmill/config";
-import { REPOSITORY_FULL_NAME, TaskListFilter, assertConcurrencyRoom, codeRepositoryOf, modelBudgetState, periodOf, repos, type AgentSession, type DbTx, type Executor, type Task } from "@foundmill/db";
+import { REPOSITORY_FULL_NAME, TaskListFilter, assertConcurrencyRoom, codeRepositoryOf, modelBudgetState, periodOf, repos, type Agent, type AgentSession, type DbTx, type Executor, type Task } from "@foundmill/db";
 import { SESSION_EVENT_KINDS, sessionStreamKey } from "@foundmill/events";
 import { AppError, ForbiddenError, NotFoundError, ValidationError, connectorMode, formatMoney, hasSectionAccess, sessionSections, type TaskStatus } from "@foundmill/shared";
 import { z } from "zod";
@@ -99,6 +100,29 @@ export class TaskNotStartedError extends AppError {
   }
 }
 
+/** How a task's kind reads in the refusal when nobody on the team does that work. */
+const WORK_WORDS: Record<string, string> = { code: "code", research: "research", channel: "channel", specialist: "specialist", legal: "legal", finance: "finance", ops: "operations" };
+
+/**
+ * The agent a task started by hand runs on when none is set (lead, 2026-10-24): chosen the way the cycle chooses
+ * (`pickAssignee`: a usable worker of the task's department staffed for its kind, else any such worker, else any worker
+ * of the department; never paused, down, failing, released or over its wage cap) and written on the task. Null when
+ * nobody on the team fits.
+ */
+async function autoAssign(ctx: BusinessContext, task: Task): Promise<Agent | null> {
+  // The usage ledger is service-written and read on the service db, before the RLS transaction (one connection on PGlite).
+  const wages = await repos.usage.wages(ctx.db, ctx.businessId, periodOf(new Date()));
+  const spentBy = new Map(wages.map((w) => [w.agentId, w.costMinor]));
+  return ctx.rls(async (tx) => {
+    const agents = await repos.agents.list(tx, ctx.businessId, { limit: 200 });
+    const rows = agents.items.map((a) => ({ ...a, wageRemainingMinor: a.wageCapMinor === null ? null : Number(a.wageCapMinor) - (spentBy.get(a.id) ?? 0) }));
+    const picked = pickAssignee(task, rows);
+    if (!picked) return null;
+    await repos.tasks.reassign(tx, ctx.businessId, task.id, picked.id);
+    return agents.items.find((a) => a.id === picked.id) ?? null;
+  });
+}
+
 /** Plans being built on this instance, by business and request: a concurrent identical request shares the one planner call. */
 const plansInFlight = new Map<string, Promise<PlanResult>>();
 
@@ -135,10 +159,11 @@ export const devRouter = router({
     ),
 
     /**
-     * Start: an agentSession workflow is started for the task. Refused (CONFLICT) while the team is stopped, while the
-     * task already runs (or has a session open), is in review or done, waits on an unfinished dependency, or when its
-     * agent is paused, released or at its wage cap, or the business's monthly model budget is used up: a start never wakes
-     * a paused agent, so it cannot undo Stop all agents.
+     * Start: an agentSession workflow is started for the task. A task nobody is assigned to gets an agent the way the
+     * cycle picks one (`autoAssign`, lead 2026-10-24) and is refused only when nobody on the team does that kind of work.
+     * Refused (CONFLICT) while the team is stopped, while the task already runs (or has a session open), is in review or
+     * done, waits on an unfinished dependency, or when its agent is paused, released or at its wage cap, or the business's
+     * monthly model budget is used up: a start never wakes a paused agent, so it cannot undo Stop all agents.
      * Refused with `tier_limit` (the web's upgrade prompt) when every concurrent agent the plan holds is already working.
      * The task is claimed with one conditional update, so a double click starts one session; when the workflow cannot
      * be queued the claim is undone and the session row closed (SERVICE_UNAVAILABLE), so a retry is not refused.
@@ -146,11 +171,13 @@ export const devRouter = router({
     start: write.input(z.object({ taskId: Id })).use(modelLimited("session")).mutation(async ({ ctx, input }) => {
       await assertAgentsRunning(ctx, "the task");
       const task = await ctx.rls((tx) => repos.tasks.get(tx, ctx.businessId, input.taskId));
-      if (!task.assigneeAgentId) throw new ValidationError("Assign an agent before starting the task");
       if (!(STARTABLE_TASK_STATUSES as readonly TaskStatus[]).includes(task.status)) throw new TaskStartError(task.status === "running" ? "The task is already running." : `The task is ${task.status}; it cannot be started again.`, { status: task.status });
-      const [assignee, open, dependencies] = await ctx.rls((tx) => Promise.all([repos.agents.get(tx, ctx.businessId, task.assigneeAgentId!), repos.agents.listSessions(tx, ctx.businessId, { taskId: task.id, openOnly: true, limit: 1 }), repos.tasks.openDependencies(tx, ctx.businessId, task.id)]));
+      const [open, dependencies] = await ctx.rls((tx) => Promise.all([repos.agents.listSessions(tx, ctx.businessId, { taskId: task.id, openOnly: true, limit: 1 }), repos.tasks.openDependencies(tx, ctx.businessId, task.id)]));
       if (open.items.length > 0) throw new TaskStartError("The task already has a session running.", { sessionId: open.items[0]!.id });
       if (dependencies.length > 0) throw new TaskStartError(`Finish what it depends on first: ${dependencies.map((d) => `"${d.title}"`).join(", ")}.`, { dependencies: dependencies.map((d) => d.id) });
+      // Nobody chosen: the team picks, as the cycle would, and the choice is written on the task.
+      const assignee = task.assigneeAgentId ? await ctx.rls((tx) => repos.agents.get(tx, ctx.businessId, task.assigneeAgentId!)) : await autoAssign(ctx, task);
+      if (!assignee) throw new TaskStartError(`No agent on the team does ${WORK_WORDS[task.kind] ?? task.kind} work yet. Hire one or assign the task.`, { kind: task.kind });
       if (assignee.archivedAt) throw new TaskStartError(`${assignee.name} has left the team. Reassign the task first.`);
       if (assignee.status === "paused") throw new TaskStartError(assignee.pausedReason === "wage_cap" ? `${assignee.name} reached its wage cap for the month and is paused. Raise the cap on its profile or reassign the task.` : `${assignee.name} is paused. Resume the agents or reassign the task first.`, { pausedReason: assignee.pausedReason });
       const spend = await repos.usage.agentSpend(ctx.db, ctx.businessId, assignee.id, periodOf(new Date()));

@@ -251,6 +251,36 @@ describe("dev.tasks.start guards (RA-05, api-services-14)", () => {
       await repos.businesses.update(hz.db, A(), { modelBilling: "credits" });
     }
   });
+
+  it("a task nobody is assigned to gets an agent that does its kind of work, the way the cycle picks one, written on the task (lead, 2026-10-24)", async () => {
+    for (const open of (await repos.agents.listSessions(hz.db, A(), { openOnly: true, limit: 100 })).items) await repos.agents.endSession(hz.db, A(), open.id, { outcome: "done" });
+    const engineer = await repos.agents.create(hz.db, A(), { name: "Auto Backend", agentType: "backend_engineer", layer: "worker", departmentIds: [hz.A.departmentId] });
+    const t = await repos.tasks.create(hz.db, A(), { kind: "code", title: "Unassigned code task", status: "planned", departmentId: hz.A.departmentId });
+    expect(t.assigneeAgentId).toBeNull();
+    const started = await start(t.id);
+    expect(started.session.agentId).toBe(engineer.id);
+    expect(await repos.tasks.get(hz.db, A(), t.id)).toMatchObject({ assigneeAgentId: engineer.id, status: "running" });
+    expect(started.workflow).toMatchObject({ queued: true, workflowId: `session:${started.session.id}` });
+    await repos.agents.endSession(hz.db, A(), started.session.id, { outcome: "done" });
+    // A paused agent is never picked: with the engineer paused, the task falls to nobody that does code work in that department.
+    await repos.agents.setStatus(hz.db, A(), engineer.id, "paused", { pausedReason: "wage_cap" });
+    const second = await repos.tasks.create(hz.db, A(), { kind: "code", title: "Unassigned while paused", status: "ready", departmentId: hz.A.departmentId });
+    await expect(start(second.id)).rejects.toMatchObject({ code: "CONFLICT", message: "No agent on the team does code work yet. Hire one or assign the task." });
+    expect((await repos.tasks.get(hz.db, A(), second.id)).assigneeAgentId).toBeNull();
+    await repos.agents.setStatus(hz.db, A(), engineer.id, "idle");
+  });
+
+  it("refuses to start an unassigned task when nobody on the team fits, and says so in the founder's words", async () => {
+    const empty = await repos.departments.create(hz.db, A(), { name: "Legal", moduleKeys: ["legal"] });
+    const t = await repos.tasks.create(hz.db, A(), { kind: "legal", title: "Unassigned legal task", status: "ready", departmentId: empty.id });
+    await expect(start(t.id)).rejects.toMatchObject({ code: "CONFLICT", message: "No agent on the team does legal work yet. Hire one or assign the task." });
+    expect((await repos.tasks.get(hz.db, A(), t.id)).status).toBe("ready");
+    expect((await repos.agents.listSessions(hz.db, A(), { taskId: t.id, limit: 5 })).items).toHaveLength(0);
+    // Assigned by hand, it starts as before (the fixture's engineer has no template but is the chosen one).
+    await repos.tasks.reassign(hz.db, A(), t.id, hz.A.agent2Id);
+    for (const open of (await repos.agents.listSessions(hz.db, A(), { openOnly: true, limit: 100 })).items) await repos.agents.endSession(hz.db, A(), open.id, { outcome: "done" });
+    expect((await start(t.id)).session.agentId).toBe(hz.A.agent2Id);
+  });
 });
 
 describe("a new key and a top-up lift the stop they caused, never Stop all agents", () => {

@@ -9,9 +9,12 @@
  * dispatch is refused for it) ends the cycle as `stopped` without planning or opening anything more. A plan that cannot
  * be drafted (the model account cannot pay, a missing or refused key, or every retry failed) ends the cycle `failed`
  * with a note in the Inbox saying why, instead of the workflow failing without a word (audit BILL-06).
+ *
+ * Lead, 2026-10-24: before the plan, Now roadmap items without tasks are planned into tasks (`planRoadmap`, brief
+ * reloaded after); and when a session finishes, the tasks it unblocked start within the same time box (`followUpStarts`).
  */
 import { ActivityFailure, ApplicationFailure, CancellationScope, ParentClosePolicy, allHandlersFinished, condition, isCancellation, patched, proxyActivities, setHandler, startChild, uuid4, workflowInfo, type ChildWorkflowHandle } from "@temporalio/workflow";
-import type { Activities, BusinessBrief, BusinessCycleInput, BusinessCycleResult, CyclePlan, CycleStart } from "../activities";
+import type { Activities, BusinessBrief, BusinessCycleInput, BusinessCycleResult, CyclePlan, CycleStart, RoadmapPlanResult } from "../activities";
 import { CYCLE_PLAN_FAILURE, DEFAULT_TASK_RESERVE_MINOR, PLAN_FAILED_MESSAGE, type PlanFailureDetails } from "../cycle-contract";
 import { agentSession, type AgentSessionOutcome } from "./agentSession";
 import { decisionSignal, pauseSignal, resumeSignal, shoutSignal, stopSignal } from "./signals";
@@ -27,6 +30,10 @@ export { DEFAULT_TASK_RESERVE_MINOR };
 
 /** A finished session returns its reserve to the cycle and takes what it really cost (histories before it replay without). */
 export const CYCLE_BUDGET_RECONCILE_PATCH = "cycle-budget-reconcile";
+/** The cycle plans Now roadmap items without tasks before the Chief of Staff's plan (lead, 2026-10-24; histories before it replay without). */
+export const CYCLE_PLANS_ROADMAP_PATCH = "cycle-plans-roadmap";
+/** A cycle keeps going when a session finishes: tasks that became dispatchable start within the time box (decision 8; histories before it replay without). */
+export const CYCLE_FOLLOW_UPS_PATCH = "cycle-follow-ups";
 
 /**
  * What a starting task reserves of the credits left (an Estimate): its own budget or the default, but never more than
@@ -155,13 +162,25 @@ export async function businessCycle(input: BusinessCycleInput): Promise<Business
   }
 
   async function runCycle(): Promise<BusinessCycleResult> {
-    const brief = await acts.loadBrief({ businessId: input.businessId });
+    let brief = await acts.loadBrief({ businessId: input.businessId });
     creditsCurrency = brief.creditsCurrency;
     // A stopped team (Stop all agents, a revoked key, used-up credits) plans nothing and dispatches nothing.
     if (brief.agentsStopped) stopped = { reason: "agents_stopped", by: null };
+    // The team plans the roadmap (lead, 2026-10-24): Now items without tasks are planned into tasks before the Chief of
+    // Staff plans, and the brief is reloaded so the plan sees them. The activity never fails for one item; should it fail
+    // outright, the cycle goes on without it and the items are tried again next cycle.
+    let roadmapPlanned: RoadmapPlanResult | null = null;
+    if (!stopped && (brief.untaskedRoadmap ?? []).some((r) => r.horizon === "now") && patched(CYCLE_PLANS_ROADMAP_PATCH)) {
+      try {
+        roadmapPlanned = await acts.planRoadmap({ businessId: input.businessId, cycleNumber: input.cycleNumber, brief });
+      } catch {
+        roadmapPlanned = null;
+      }
+      if (roadmapPlanned && roadmapPlanned.planned.length > 0) brief = await acts.loadBrief({ businessId: input.businessId });
+    }
     let plan: CyclePlan;
     try {
-      plan = await acts.planCycle({ businessId: input.businessId, cycleNumber: input.cycleNumber, trigger: input.trigger, brief });
+      plan = await acts.planCycle({ businessId: input.businessId, cycleNumber: input.cycleNumber, trigger: input.trigger, brief, roadmapPlanned });
     } catch (err) {
       return endUnplanned(input, brief, err, startedAt, cycleId);
     }
@@ -173,8 +192,10 @@ export async function businessCycle(input: BusinessCycleInput): Promise<Business
     const reconcileBudget = patched(CYCLE_BUDGET_RECONCILE_PATCH);
     const pending: CycleStart[] = [...plan.starts];
     const skipped: { taskId: string; reason: string }[] = [];
+    /** Every task this cycle started, holds pending, skipped or finished: a follow-up never offers one of them again. */
+    const seenTasks = new Set(plan.starts.map((s) => s.taskId));
     const deadline = startedAt + timeBoxHours * HOUR_MS;
-    costMinor = plan.costMinor;
+    costMinor = plan.costMinor + (roadmapPlanned?.costMinor ?? 0);
 
     const canStart = (s: CycleStart): string | null => {
       if (running.size >= maxConcurrent) return "concurrency";
@@ -275,6 +296,21 @@ export async function businessCycle(input: BusinessCycleInput): Promise<Business
       if (!woke) {
         outcome = "time_box";
         break;
+      }
+      // A session finished: the tasks that waited on it (and anything else now dispatchable) start within this cycle's
+      // time box instead of waiting for the next press of Continue (decision 8). One read per wake; a failure here only
+      // means the next wake, or the next cycle, picks them up.
+      if (finished.length > before && !stopped && !paused && patched(CYCLE_FOLLOW_UPS_PATCH)) {
+        try {
+          const more = await acts.followUpStarts({ businessId: input.businessId, cycleId, exclude: [...seenTasks], busyAgentIds: [...running.values()].map((r) => r.start.agentId), limit: maxConcurrent });
+          for (const s of more) {
+            if (seenTasks.has(s.taskId)) continue;
+            seenTasks.add(s.taskId);
+            pending.push(s);
+          }
+        } catch {
+          /* tried again on the next wake */
+        }
       }
     }
     // Nothing could start and no model was called: the cycle waits for the founder, not for a task.

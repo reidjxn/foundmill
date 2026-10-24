@@ -80,6 +80,12 @@ export const UpsertRoadmapItemInput = z.object({
 });
 export type UpsertRoadmapItemInput = z.input<typeof UpsertRoadmapItemInput>;
 
+/** The department a roadmap item's tasks are filed under: its owner when that owner is a department, else none. */
+export function roadmapItemDepartmentId(item: { ownerRef: unknown } | null | undefined): string | null {
+  const ref = item?.ownerRef as { kind?: string; id?: string } | null | undefined;
+  return ref && ref.kind === "department" && typeof ref.id === "string" ? ref.id : null;
+}
+
 // --- sources ----------------------------------------------------------------------------------------------------------
 
 export const CreateSourceInput = z.object({

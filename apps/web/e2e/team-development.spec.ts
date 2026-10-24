@@ -285,11 +285,32 @@ for (const width of [1280, 1440]) {
       const firstFive = await tasks.evaluate((el) => {
         const box = el.getBoundingClientRect();
         return Array.from(el.querySelectorAll<HTMLElement>("[role=columnheader]"))
-          .slice(0, 5)
+          .slice(0, 7)
           .filter((h) => h.getBoundingClientRect().right > box.right + 1)
           .map((h) => h.textContent);
       });
-      expect(firstFive, "Task, Status, Kind, Agent and Progress fit the panel").toEqual([]);
+      expect(firstFive, "Task, Run, Status, Kind, Agent, Progress and the … column fit the panel").toEqual([]);
+      // The Run column: 44 px right after Task, a running task says so, a task behind another says what it runs after.
+      const runHead = tasks.getByRole("columnheader", { name: "Run", exact: true });
+      await expect(runHead).toBeVisible();
+      expect(Math.round((await runHead.boundingBox())!.width), "the Run column is 44 px").toBe(44);
+      expect(await tasks.getByRole("columnheader").evaluateAll((hs) => hs.slice(0, 2).map((h) => h.textContent?.trim())), "Run follows Task").toEqual(["Task", "Run"]);
+      await expect(tasks.getByRole("img", { name: "Running now" }).first()).toBeVisible();
+      const waiting = tasks.getByRole("row", { name: /Account page: refill schedule UI/ });
+      await expect(waiting.getByRole("img", { name: "Runs after Subscription pause and skip finishes" })).toBeVisible();
+      // Nothing on the screen asks the founder for a task graph.
+      await expect(page.getByText(/task graph/i)).toHaveCount(0);
+      await expect(page.getByRole("heading", { name: "Plan something sooner" })).toBeVisible();
+      // The … button on the first task row opens its menu (a real menu, not a right-click only), with Start in it.
+      await tasks.getByRole("row").nth(1).getByRole("button", { name: /^Actions for / }).click();
+      const rowMenu = page.getByRole("menu", { name: "Row actions" });
+      await expect(rowMenu.getByRole("menuitem", { name: "Start" })).toBeVisible();
+      await page.keyboard.press("Escape");
+      await expect(rowMenu).toBeHidden();
+      // The task behind an open dependency cannot start: Start is off in its menu.
+      await waiting.getByRole("button", { name: /^Actions for / }).click();
+      await expect(rowMenu.getByRole("menuitem", { name: "Start" })).toHaveAttribute("aria-disabled", "true");
+      await page.keyboard.press("Escape");
       const kinds = await tasks.locator("[data-col=kind]").allTextContents();
       expect(kinds.filter((k) => /^[a-z]/.test(k.trim())), "task kinds are words (Specialist), not keys (specialist)").toEqual([]);
 

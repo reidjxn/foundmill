@@ -331,6 +331,48 @@ describe("DataTable", () => {
     expect((onExportCsv.mock.calls[0] as [string])[0].split("\r\n")[0]).toBe("Name,Company,Stage");
   });
 
+  it("opens the … button's menu without any contextmenu event (a listener that stops it changes nothing)", async () => {
+    const user = userEvent.setup();
+    const onMessage = vi.fn();
+    const onContextMenu = vi.fn((e: Event) => {
+      e.stopPropagation();
+      e.preventDefault();
+    });
+    render(<DataTable data={leads.slice(0, 3)} columns={columns} aria-label="Leads" rowActions={(row) => [{ id: "msg", label: `Message ${row.name}`, icon: Mail, onSelect: onMessage }]} />);
+    // Captured at the grid, so no synthetic contextmenu could reach the row or the menu's trigger.
+    grid().addEventListener("contextmenu", onContextMenu, true);
+    const button = screen.getByRole("button", { name: `Actions for ${leads[1]?.name}` });
+    await user.click(button);
+    const item = await screen.findByRole("menuitem", { name: `Message ${leads[1]?.name}` });
+    expect(onContextMenu).not.toHaveBeenCalled();
+    await user.click(item);
+    expect(onMessage).toHaveBeenCalledWith(leads[1]);
+    // Both menus close on select; the next press opens the menu of the row it was pressed on.
+    await waitFor(() => expect(screen.queryByRole("menuitem")).toBeNull());
+    await user.click(screen.getByRole("button", { name: `Actions for ${leads[2]?.name}` }));
+    expect(await screen.findByRole("menuitem", { name: `Message ${leads[2]?.name}` })).toBeTruthy();
+    expect(onContextMenu).not.toHaveBeenCalled();
+    // Escape closes it and focus goes back to the button that opened it.
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryByRole("menuitem")).toBeNull());
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole("button", { name: `Actions for ${leads[2]?.name}` })));
+  });
+
+  it("the … button still opens its row's menu when pressing it re-renders the screen with freshly built rows", async () => {
+    // A screen that derives its rows on every render hands the table new objects for the same rows each time, and one
+    // that opens a panel for the pressed row re-renders between the press and the click.
+    function Rebuilds() {
+      const [picked, setPicked] = useState<string | null>(null);
+      const rows = leads.slice(0, 3).map((l) => ({ ...l }));
+      return <DataTable data={rows} columns={columns} aria-label="Leads" onSelectionChange={(ids) => setPicked(ids[0] ?? null)} selectedIds={picked ? [picked] : []} rowActions={(row) => [{ id: "msg", label: `Message ${row.name}`, icon: Mail, onSelect: () => {} }]} />;
+    }
+    const user = userEvent.setup();
+    render(<Rebuilds />);
+    await user.click(screen.getByRole("button", { name: `Actions for ${leads[2]?.name}` }));
+    expect(await screen.findByRole("menuitem", { name: `Message ${leads[2]?.name}` })).toBeTruthy();
+    expect(screen.getByRole("menu", { name: "Row actions" })).toBeTruthy();
+  });
+
   it("names the … button with the caller's row label, and has none without row actions", () => {
     const { unmount } = render(<DataTable data={leads.slice(0, 2)} columns={columns} rowLabel={(r) => `${r.name} at ${r.company}`} rowActions={() => []} />);
     expect(screen.getByRole("button", { name: `Actions for ${leads[0]?.name} at ${leads[0]?.company}` })).toBeTruthy();

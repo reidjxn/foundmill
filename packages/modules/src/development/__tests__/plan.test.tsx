@@ -2,12 +2,14 @@ import "./setup";
 import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
-import { PLAN_VIEWS, PlanScreen, toPlanRows } from "../PlanScreen";
+import { PLAN_VIEWS, PlanScreen, toPlanRows, withRunColumn } from "../PlanScreen";
 import { BUSINESS_ID, createFakeSource, renderScreen } from "./fake-source";
 import { AGENT_JUNO, ROADMAP_ITEM, TASK_BUNDLE, TASK_INDEX, TASK_PLAYWRIGHT, TASK_RATE, agents, agentsResponse, edges, emptyTasksResponse, roadmapResponse, tasks, tasksResponse } from "./fixtures";
 
 const props = { businessId: BUSINESS_ID, departmentId: "d-dev" };
 const responses = () => ({ "dev.tasks.list": tasksResponse, "product.roadmap.list": roadmapResponse, "team.agents.list": agentsResponse });
+/** Nothing waits on anything: every open task can run now. */
+const freeResponses = () => ({ ...responses(), "dev.tasks.list": { ...tasksResponse, edges: [] } });
 
 describe("PlanScreen", () => {
   it("lists every task with status pills, agents and dependencies, and offers the saved views", async () => {
@@ -20,6 +22,12 @@ describe("PlanScreen", () => {
     expect(within(table).getByText("Review")).toBeTruthy();
     expect(within(table).getAllByRole("link", { name: "Pike" })).toHaveLength(2);
     expect(within(table).getByText("Unassigned")).toBeTruthy();
+    // The Run column: running tasks say so, a task behind an open dependency says what it runs after.
+    expect(within(table).getAllByRole("img", { name: "Running now" })).toHaveLength(2);
+    expect(within(table).getByRole("img", { name: "Runs after Add a bundle picker to the product page finishes" })).toBeTruthy();
+    expect(within(table).getByRole("img", { name: "Runs after Usage index for the Ledgerly dashboard finishes" })).toBeTruthy();
+    expect(within(table).getByRole("img", { name: "In review" })).toBeTruthy();
+    expect(within(table).getByRole("img", { name: "Done" })).toBeTruthy();
     // Kinds read as words, never the API's keys.
     expect(within(table).getAllByText("Code").length).toBe(5);
     expect(within(table).getByText("Specialist")).toBeTruthy();
@@ -33,14 +41,18 @@ describe("PlanScreen", () => {
     expect(screen.getByText("All tasks")).toBeTruthy();
   });
 
-  it("guidance on: opens on the Simple view (Task, Status, Agent, Progress) with the defined words on the panels (UX plan §7.10)", () => {
+  it("guidance on: opens on the Simple view (Task, Run, Status, Agent, Progress) with the defined words on the panels (UX plan §7.10)", () => {
     const fake = createFakeSource({ responses: responses() });
     renderScreen(fake, <PlanScreen {...props} />, {}, { guidance: "on" });
     const table = screen.getByRole("grid", { name: "Tasks" });
     expect(screen.getByRole("button", { name: /^View: Simple/ })).toBeTruthy();
-    expect(within(table).getAllByRole("columnheader").map((h) => h.textContent)).toEqual(["Task", "Status", "Agent", "Progress", "Actions"]);
+    expect(within(table).getAllByRole("columnheader").map((h) => h.textContent)).toEqual(["Task", "Run", "Status", "Agent", "Progress", "Actions"]);
     expect(within(table).getAllByRole("row")).toHaveLength(tasks.length + 1);
-    expect(screen.getByRole("button", { name: "Task graph" }).className).toContain("term-link");
+    // Nothing here asks the founder for a task graph: the panels say tasks and plan.
+    expect(screen.queryByRole("button", { name: "Task graph" })).toBeNull();
+    expect(screen.getByRole("heading", { name: "Tasks" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Plan something sooner" })).toBeTruthy();
+    expect(document.body.textContent).not.toMatch(/task graph/i);
     expect(screen.getByRole("button", { name: "About Dependencies" })).toBeTruthy();
     // Roadmap is defined by the planner field's help tip, never a Term button inside its <label>.
     expect(document.querySelector("label button")).toBeNull();
@@ -68,11 +80,12 @@ describe("PlanScreen", () => {
     expect(fake.mutations.at(-1)).toMatchObject({ path: "founder.tableViews.save", input: { tableKey: "development.plan", activeViewId: "all" } });
   });
 
-  it("builds the task graph from a roadmap item through dev.tasks.plan", async () => {
+  it("plans a roadmap item into tasks sooner through dev.tasks.plan", async () => {
     const user = userEvent.setup();
     const fake = createFakeSource({ responses: responses(), onMutate: () => ({ tasks: tasks.slice(0, 2), graph: { tasks: tasks.slice(0, 2), edges }, costMinor: 120, costLabel: "Estimate" }) });
     renderScreen(fake, <PlanScreen {...props} />);
     await screen.findByRole("grid", { name: "Tasks" });
+    expect(screen.getByTestId("plan-sooner-hint").textContent).toBe("The team plans the roadmap's Now items into tasks on its own, cycle by cycle. Use this to plan one item or an objective ahead of that.");
     const build = screen.getByRole("button", { name: "Plan the tasks" });
     expect(build).toHaveProperty("disabled", true);
     await user.click(screen.getByRole("combobox", { name: "Roadmap item" }));
@@ -94,7 +107,7 @@ describe("PlanScreen", () => {
     await waitFor(() => expect(fake.mutations).toContainEqual({ path: "dev.tasks.plan", input: { goal: "Rate-limit the public API" } }));
   });
 
-  it("shows the dependency view for the opened task and starts a ready task", async () => {
+  it("shows the dependency view for the opened task and says it runs after its open dependency", async () => {
     const user = userEvent.setup();
     const fake = createFakeSource({ responses: responses(), onMutate: () => ({ session: { id: "s" }, workflow: { queued: true } }) });
     renderScreen(fake, <PlanScreen {...props} />);
@@ -109,8 +122,73 @@ describe("PlanScreen", () => {
     expect(technical.querySelector("summary")!.textContent).toContain("Technical");
     expect(within(technical).getByText(`agent/${TASK_PLAYWRIGHT}`)).toBeTruthy();
     expect(within(technical).getByText("File scope")).toBeTruthy();
+    // Its dependency is running, so it cannot start yet: the Next row says what it waits for and Start is off (same rule as the API).
+    expect(screen.getByText("Runs after Add a bundle picker to the product page")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Start" })).toHaveProperty("disabled", true);
+    expect(screen.queryByRole("button", { name: "Run now" })).toBeNull();
+  });
+
+  it("runs a task from the Run column, the Next row and Start, with no agent needed", async () => {
+    const user = userEvent.setup();
+    const fake = createFakeSource({ responses: freeResponses(), onMutate: () => ({ session: { id: "s" }, workflow: { queued: true } }) });
+    renderScreen(fake, <PlanScreen {...props} />);
+    const table = await screen.findByRole("grid", { name: "Tasks" });
+    // Planned, ready and free: two Play buttons in the column, one per startable task ("Rate-limit" has no agent).
+    const runButtons = within(table).getAllByRole("button", { name: "Run now" });
+    expect(runButtons).toHaveLength(2);
+    expect(fake.mutations).toEqual([]);
+    const rateRow = within(table).getByText("Rate-limit the public API").closest("[role=row]") as HTMLElement;
+    await user.click(within(rateRow).getByRole("button", { name: "Run now" }));
+    await waitFor(() => expect(fake.mutations).toContainEqual({ path: "dev.tasks.start", input: { taskId: TASK_RATE } }));
+    // A press on the button is not a row selection.
+    expect(screen.getByText(/Select a task/)).toBeTruthy();
+    // The panel: "Next" with the button beside it, and Start.
+    await user.click(within(table).getByText("Playwright coverage for checkout"));
+    await screen.findByRole("application", { name: /Dependencies of Playwright coverage/ });
+    expect(screen.getByRole("button", { name: "Start" })).toHaveProperty("disabled", false);
     await user.click(screen.getByRole("button", { name: "Start" }));
     await waitFor(() => expect(fake.mutations).toContainEqual({ path: "dev.tasks.start", input: { taskId: TASK_PLAYWRIGHT } }));
+  });
+
+  it("resumes a paused task from its Run button", async () => {
+    const user = userEvent.setup();
+    const paused = tasks.map((t) => (t.id === TASK_BUNDLE ? { ...t, status: "paused" as const } : t));
+    const fake = createFakeSource({ responses: { ...responses(), "dev.tasks.list": { ...tasksResponse, items: paused } }, onMutate: () => ({}) });
+    renderScreen(fake, <PlanScreen {...props} />);
+    const table = await screen.findByRole("grid", { name: "Tasks" });
+    await user.click(within(table).getByRole("button", { name: "Resume" }));
+    await waitFor(() => expect(fake.mutations).toContainEqual({ path: "dev.tasks.resume", input: { taskId: TASK_BUNDLE } }));
+  });
+
+  it("the … button opens the row menu, and Start follows the API's rule (no agent needed, never behind an open dependency)", async () => {
+    const user = userEvent.setup();
+    const fake = createFakeSource({ responses: freeResponses(), onMutate: () => ({}) });
+    renderScreen(fake, <PlanScreen {...props} />);
+    const table = await screen.findByRole("grid", { name: "Tasks" });
+    await user.click(within(table).getByRole("button", { name: "Actions for Rate-limit the public API" }));
+    const menu = await screen.findByRole("menu", { name: "Row actions" });
+    // Planned, unassigned, nothing to wait for: Start is on.
+    expect(within(menu).getByRole("menuitem", { name: "Start" }).getAttribute("aria-disabled")).toBeNull();
+    await user.click(within(menu).getByRole("menuitem", { name: "Start" }));
+    await waitFor(() => expect(fake.mutations).toContainEqual({ path: "dev.tasks.start", input: { taskId: TASK_RATE } }));
+    // Review and done tasks cannot start.
+    await user.click(within(table).getByRole("button", { name: "Actions for Usage index for the Ledgerly dashboard" }));
+    expect((await screen.findByRole("menuitem", { name: "Start" })).getAttribute("aria-disabled")).toBe("true");
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryByRole("menu")).toBeNull());
+    await user.click(within(table).getByRole("button", { name: "Actions for Sitemap and canonical fixes" }));
+    expect((await screen.findByRole("menuitem", { name: "Start" })).getAttribute("aria-disabled")).toBe("true");
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryByRole("menu")).toBeNull());
+  });
+
+  it("Start is off for a task behind an open dependency, in the row menu too", async () => {
+    const user = userEvent.setup();
+    const fake = createFakeSource({ responses: responses(), onMutate: () => ({}) });
+    renderScreen(fake, <PlanScreen {...props} />);
+    const table = await screen.findByRole("grid", { name: "Tasks" });
+    await user.click(within(table).getByRole("button", { name: "Actions for Playwright coverage for checkout" }));
+    expect((await screen.findByRole("menuitem", { name: "Start" })).getAttribute("aria-disabled")).toBe("true");
   });
 
   it("offers the right-click verbs and routes them to the procedures", async () => {
@@ -153,7 +231,7 @@ describe("PlanScreen", () => {
 
   it("surfaces a failed mutation inline and keeps the table", async () => {
     const user = userEvent.setup();
-    const fake = createFakeSource({ responses: responses(), onMutate: () => Promise.reject(new Error("Assign an agent before starting the task")) });
+    const fake = createFakeSource({ responses: freeResponses(), onMutate: () => Promise.reject(new Error("Assign an agent before starting the task")) });
     renderScreen(fake, <PlanScreen {...props} />);
     const table = await screen.findByRole("grid", { name: "Tasks" });
     fireEvent.contextMenu(within(table).getByText("Playwright coverage for checkout"));
@@ -194,5 +272,24 @@ describe("toPlanRows", () => {
     expect(rows.find((r) => r.id === TASK_BUNDLE)?.blocks).toEqual(["Playwright coverage for checkout"]);
     expect(rows.find((r) => r.id === TASK_BUNDLE)?.progressNumber).toBe(35);
     expect(rows.find((r) => r.id === TASK_RATE)?.agentName).toBe("Unassigned");
+  });
+
+  it("lists the dependencies that are not done yet as what a task waits on", () => {
+    const rows = toPlanRows(tasks, edges, new Map());
+    expect(rows.find((r) => r.id === TASK_PLAYWRIGHT)?.waitingOn).toEqual(["Add a bundle picker to the product page"]);
+    expect(rows.find((r) => r.id === TASK_BUNDLE)?.waitingOn).toEqual([]);
+    // A finished dependency is not waited on; neither is one the list does not hold.
+    const doneDep = tasks.map((t) => (t.id === TASK_BUNDLE ? { ...t, status: "done" as const } : t));
+    expect(toPlanRows(doneDep, edges, new Map()).find((r) => r.id === TASK_PLAYWRIGHT)?.waitingOn).toEqual([]);
+    expect(toPlanRows(tasks, [{ fromTask: "missing", toTask: TASK_RATE }], new Map()).find((r) => r.id === TASK_RATE)?.waitingOn).toEqual([]);
+  });
+});
+
+describe("withRunColumn", () => {
+  it("puts Run after Task in every built-in view, and in a view saved before the column existed", () => {
+    for (const v of PLAN_VIEWS) expect(v.columns.slice(0, 2)).toEqual(["title", "run"]);
+    const old = { id: "mine", name: "Mine", columns: ["title", "status"], sort: [], filters: [] };
+    expect(withRunColumn([old])[0]?.columns).toEqual(["title", "run", "status"]);
+    expect(withRunColumn(PLAN_VIEWS)).toEqual(PLAN_VIEWS);
   });
 });

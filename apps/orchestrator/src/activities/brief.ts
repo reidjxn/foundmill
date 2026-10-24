@@ -53,6 +53,70 @@ function fit(lines: string[], budgetTokens: number): string[] {
   return out;
 }
 
+/**
+ * The facts dispatch decides on, as the brief carries them: the team (with what is left of each wage cap), every task
+ * a cycle may plan (with its blockers, approval holds and retry state), the departments and the product stage. The brief
+ * is built on them once per cycle; `followUpStarts` reads them again, cheaply, each time a session finishes.
+ */
+export interface DispatchFacts {
+  business: Awaited<ReturnType<typeof repos.businesses.get>>;
+  departments: BriefDepartment[];
+  agents: BriefAgent[];
+  openTasks: BriefTask[];
+  openTaskTotal: number;
+  productStage: ProductStage;
+  product: Awaited<ReturnType<typeof loadProductStage>>;
+  agentsStopped: boolean;
+}
+
+export async function loadDispatchFacts(deps: Pick<OrchestratorDeps, "db" | "clock">, businessId: string): Promise<DispatchFacts> {
+  const { db, clock } = deps;
+  const now = clock.now();
+  const [business, departmentsRaw, agentsPage, candidates, wages, product] = await Promise.all([
+    repos.businesses.get(db, businessId),
+    repos.departments.list(db, businessId),
+    repos.agents.list(db, businessId, { limit: 200 }),
+    repos.tasks.planningCandidates(db, businessId, { limit: PLANNING_CANDIDATE_LIMIT }),
+    repos.usage.wages(db, businessId, periodOf(now)),
+    loadProductStage(db, businessId),
+  ]);
+  const retriedIds = candidates.items.filter((t) => t.status === "failed" || t.status === "blocked").map((t) => t.id);
+  const [recent, holds] = await Promise.all([repos.agents.recentOutcomes(db, businessId, { taskIds: retriedIds, limit: 20 * retriedIds.length }), repos.approvals.holds(db, businessId, candidates.items.map((t) => t.id))]);
+  const spentBy = new Map(wages.map((w) => [w.agentId, w.costMinor]));
+
+  const departments: BriefDepartment[] = departmentsRaw.map((d) => ({ id: d.id, name: d.name, slug: d.slug, leadAgentId: d.leadAgentId, moduleKeys: d.moduleKeys, budgetMinor: d.budgetMinor === null ? null : Number(d.budgetMinor) }));
+  const agents: BriefAgent[] = agentsPage.items.map((a) => ({
+    id: a.id,
+    name: a.name,
+    role: a.role,
+    agentType: a.agentType,
+    layer: a.layer,
+    modelKey: a.modelKey,
+    status: a.status,
+    departmentIds: a.departmentIds,
+    wageCapMinor: a.wageCapMinor === null ? null : Number(a.wageCapMinor),
+    wageRemainingMinor: a.wageCapMinor === null ? null : Number(a.wageCapMinor) - (spentBy.get(a.id) ?? 0),
+  }));
+  const openTasks: BriefTask[] = candidates.items.map((t) => ({
+    id: t.id,
+    title: t.title,
+    kind: t.kind,
+    status: t.status,
+    departmentId: t.departmentId,
+    assigneeAgentId: t.assigneeAgentId,
+    priority: t.priority,
+    fileScope: t.fileScope,
+    dependsOn: t.dependsOn,
+    budgetMinor: t.budgetMinor === null ? null : Number(t.budgetMinor),
+    // Any unfinished dependency blocks dispatch, however old (computed in SQL over every task).
+    blocked: t.blocked,
+    awaitingApproval: t.awaitingApproval,
+    approvalHold: holds.get(t.id) ?? null,
+    retry: t.status === "failed" ? taskRetry(failureStreak(recent.filter((s) => s.taskId === t.id)), now) : t.status === "blocked" ? taskRetry(failureStreak(recent.filter((s) => s.taskId === t.id), ["blocked", "failed"]), now) : null,
+  }));
+  return { business, departments, agents, openTasks, openTaskTotal: candidates.total, productStage: product.stage, product, agentsStopped: business.agentsStoppedAt !== null };
+}
+
 export function createBriefActivities(deps: OrchestratorDeps) {
   return {
     async loadBrief(input: { businessId: string }): Promise<BusinessBrief> {
@@ -63,58 +127,19 @@ export function createBriefActivities(deps: OrchestratorDeps) {
       // that went over its cap while it worked is paused (with its note) before the planner sees the team.
       await recoverAgents(deps, businessId);
       await enforceWageCaps(deps, businessId);
-      const [business, departmentsRaw, agentsPage, candidates, inFlight, pendingApprovals, blockingInboxItems, holiday, chief, wages, roadmap, product] = await Promise.all([
-        repos.businesses.get(db, businessId),
-        repos.departments.list(db, businessId),
-        repos.agents.list(db, businessId, { limit: 200 }),
-        repos.tasks.planningCandidates(db, businessId, { limit: PLANNING_CANDIDATE_LIMIT }),
+      const [facts, inFlight, pendingApprovals, blockingInboxItems, holiday, chief, roadmap] = await Promise.all([
+        loadDispatchFacts(deps, businessId),
         repos.tasks.list(db, businessId, { status: IN_FLIGHT_STATUSES, limit: 50 }),
         repos.approvals.countPending(db, businessId),
         repos.inbox.countBlocking(db, businessId),
         repos.holidays.current(db, businessId, now),
         repos.agents.chiefOfStaff(db, businessId),
-        repos.usage.wages(db, businessId, periodOf(now)),
         repos.product.untaskedRoadmap(db, businessId, 20),
-        loadProductStage(db, businessId),
       ]);
-      const retriedIds = candidates.items.filter((t) => t.status === "failed" || t.status === "blocked").map((t) => t.id);
-      const recent = await repos.agents.recentOutcomes(db, businessId, { taskIds: retriedIds, limit: 20 * retriedIds.length });
-      const spentBy = new Map(wages.map((w) => [w.agentId, w.costMinor]));
-      const holds = await repos.approvals.holds(db, businessId, candidates.items.map((t) => t.id));
+      const { business, departments, agents, openTasks, product, agentsStopped } = facts;
+      const candidates = { total: facts.openTaskTotal };
       const currency = business.currency;
-
-      const departments: BriefDepartment[] = departmentsRaw.map((d) => ({ id: d.id, name: d.name, slug: d.slug, leadAgentId: d.leadAgentId, moduleKeys: d.moduleKeys, budgetMinor: d.budgetMinor === null ? null : Number(d.budgetMinor) }));
-      const agents: BriefAgent[] = agentsPage.items.map((a) => ({
-        id: a.id,
-        name: a.name,
-        role: a.role,
-        agentType: a.agentType,
-        layer: a.layer,
-        modelKey: a.modelKey,
-        status: a.status,
-        departmentIds: a.departmentIds,
-        wageCapMinor: a.wageCapMinor === null ? null : Number(a.wageCapMinor),
-        wageRemainingMinor: a.wageCapMinor === null ? null : Number(a.wageCapMinor) - (spentBy.get(a.id) ?? 0),
-      }));
-      const openTasks: BriefTask[] = candidates.items.map((t) => ({
-        id: t.id,
-        title: t.title,
-        kind: t.kind,
-        status: t.status,
-        departmentId: t.departmentId,
-        assigneeAgentId: t.assigneeAgentId,
-        priority: t.priority,
-        fileScope: t.fileScope,
-        dependsOn: t.dependsOn,
-        budgetMinor: t.budgetMinor === null ? null : Number(t.budgetMinor),
-        // Any unfinished dependency blocks dispatch, however old (computed in SQL over every task).
-        blocked: t.blocked,
-        awaitingApproval: t.awaitingApproval,
-        approvalHold: holds.get(t.id) ?? null,
-        retry: t.status === "failed" ? taskRetry(failureStreak(recent.filter((s) => s.taskId === t.id)), now) : t.status === "blocked" ? taskRetry(failureStreak(recent.filter((s) => s.taskId === t.id), ["blocked", "failed"]), now) : null,
-      }));
       const untaskedRoadmap = roadmap.map((r) => ({ id: r.id, title: r.title, horizon: r.horizon }));
-      const agentsStopped = business.agentsStoppedAt !== null;
       // Regulated-sector gates the founder confirmed (or that were suggested and never turned off) and has not cleared.
       const sectorChoices = await repos.legal.listSectorChoices(db, businessId);
       const suggested = detectSectors({ name: business.name, archetype: business.archetype, glossary: business.glossary }).map((h) => h.key);
@@ -149,7 +174,7 @@ export function createBriefActivities(deps: OrchestratorDeps) {
       const taskLines = foldDuplicates(openTasks).map(({ task: t, count }) => `- [${t.status}] ${t.title}${count > 1 ? ` (×${count})` : ""} (${t.kind}, id ${t.id}${t.assigneeAgentId ? `, assignee ${t.assigneeAgentId}` : ""}${t.departmentId ? `, dept ${t.departmentId}` : ""}${t.blocked ? ", blocked by dependencies" : ""}${t.awaitingApproval ? ", waiting for the founder's approval" : ""}${t.fileScope.length ? `, files ${t.fileScope.slice(0, 3).join(" ")}` : ""})`);
       sections.push(`## Open tasks (${candidates.total})\n${fit(taskLines, 1400).join("\n") || "- none"}`);
       if (inFlight.items.length) sections.push(`## In flight (${inFlight.items.length}${inFlight.nextCursor ? "+" : ""})\n${fit(inFlight.items.map((t) => `- [${t.status}] ${t.title} (${t.kind}, id ${t.id})`), 300).join("\n")}`);
-      if (untaskedRoadmap.length) sections.push(`## Roadmap without tasks (${untaskedRoadmap.length})\n${fit(untaskedRoadmap.map((r) => `- [${r.horizon}] ${r.title} (roadmap item ${r.id}): needs a task graph (Development › Plan) before anyone can start it`), 300).join("\n")}`);
+      if (untaskedRoadmap.length) sections.push(`## Roadmap without tasks (${untaskedRoadmap.length})\n${fit(untaskedRoadmap.map((r) => `- [${r.horizon}] ${r.title} (roadmap item ${r.id}): planned by the team in the coming cycles, Now items first; nobody starts it before then`), 300).join("\n")}`);
       // The first days (founder, 2026-10-18): the product comes first, distribution when the founder starts it.
       sections.push(`## Product stage\n${product.stage}: ${PRODUCT_STAGE_SENTENCES[product.stage]}`);
       sections.push(`## Governance\n${agentsStopped ? "The team is stopped (Stop all agents, a revoked key or used-up credits): no work starts until an owner or admin resumes it. " : ""}Approvals waiting: ${pendingApprovals}. Inbox items blocking Continue: ${blockingInboxItems}. Concurrency limit: ${maxAgents} agents (plan ${business.planTier}: ${concurrency.limit} at once, ${concurrency.running} already running). Model budget remaining this period: ${budgetRemainingMinor === null ? "the founder's own Anthropic key (no credits)" : formatMinor(budgetRemainingMinor, CREDITS_CURRENCY) + " of credits (Estimate)"}. Rate-limit capacity: ${capacity}.`);

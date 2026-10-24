@@ -18,6 +18,7 @@ export * from "./foundations-staged";
 export * from "./plan-import";
 export * from "./ideation";
 export * from "./registry";
+export * from "./assignee";
 export * from "./templates";
 export * from "./skills";
 export * from "./voice";
@@ -45,6 +46,7 @@ export {
   CLUB_RULES,
   HOUSE_STYLE,
   HOUSE_RULES_FOUNDER_LINE,
+  PLANNER_SYSTEM_PROMPT,
   type ClubRule,
   clubRulesPrompt,
   ClubRulesVariables,

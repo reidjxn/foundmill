@@ -7,6 +7,7 @@ import {
   useMemo,
   useRef,
   useState,
+  type ComponentType,
   type CSSProperties,
   type KeyboardEvent,
   type MouseEvent,
@@ -64,6 +65,7 @@ import {
   DropdownMenuItem,
   DropdownMenuLabel,
   DropdownMenuSeparator,
+  DropdownMenuShortcut,
   DropdownMenuTrigger,
 } from "../foundation/DropdownMenu";
 import { EmptyState, type EmptyStateProps } from "../foundation/EmptyState";
@@ -82,6 +84,13 @@ import {
 } from "./filters";
 import { SavedViewSelector } from "./SavedViewSelector";
 import { ROW_HEIGHT, type RowAction, type SavedView, type TableDensity } from "./types";
+
+/** The three parts a row menu is made of; the ContextMenu and DropdownMenu primitives both fit. */
+interface RowMenuKit {
+  Item: ComponentType<{ variant?: "default" | "danger"; disabled?: boolean; onSelect?: () => void; children?: ReactNode }>;
+  Separator: ComponentType;
+  Shortcut: ComponentType<{ children?: ReactNode }>;
+}
 
 /** A defined word in a column head is a button, which the browser keeps out of the head's data caps: it inherits them. */
 const HEAD_TERM = "[text-transform:inherit] [letter-spacing:inherit]";
@@ -860,10 +869,28 @@ export function DataTable<T>(props: DataTableProps<T>) {
     anchorRef.current = index;
     if (!r.getIsSelected() && (selectable || onSelectionChange || selectedIds)) selectOnly(index);
   };
+  // The "…" button and the keyboard open a real dropdown menu (Radix) anchored to an invisible, fixed-position trigger
+  // that sits on the button's (or the focused row's) rectangle. They never dispatch a synthetic `contextmenu` event, so
+  // nothing between the table and the document (a listener that stops the event, a browser that withholds it) can keep
+  // the menu closed. A right-click keeps the ContextMenu.
+  const [dropdownOpen, setDropdownOpen] = useState(false);
+  const [dropdownAnchor, setDropdownAnchor] = useState({ left: 0, top: 0, width: 0, height: 0 });
+  /** Where focus returns when the dropdown closes: the "…" button that opened it, else the grid. */
+  const dropdownOrigin = useRef<HTMLElement | null>(null);
+  const openRowDropdown = (index: number, box: { left: number; top: number; width: number; height: number }, origin: HTMLElement | null) => {
+    onRowContextMenu(index);
+    dropdownOrigin.current = origin;
+    setDropdownAnchor({ left: box.left, top: box.top, width: box.width, height: box.height });
+    setDropdownOpen(true);
+  };
+  const closeRowMenu = () => {
+    setDropdownOpen(false);
+    setMenuRow(null);
+  };
   /**
-   * Opens the row menu for a row from the keyboard. The grid keeps focus itself (rows are aria-activedescendant), so a
-   * keyboard contextmenu lands on the grid, where no row is known; this re-aims it at the row, which records the row
-   * (as a right-click does) and opens the menu beside it rather than wherever the browser placed the event.
+   * Opens the row menu for a row from the keyboard. The grid keeps focus itself (rows are aria-activedescendant), so the
+   * menu is anchored to the focused row (its left edge plus 16 px, under the row), or to the top of the body when the
+   * virtualizer has not rendered that row.
    */
   const openRowMenu = (index: number) => {
     const r = rows[index];
@@ -871,17 +898,17 @@ export function DataTable<T>(props: DataTableProps<T>) {
     const rowEl = document.getElementById(rowIdAttr(r));
     const target = rowEl ?? scrollRef.current?.querySelector("tbody");
     if (!target) return;
-    if (!rowEl) onRowContextMenu(index);
     const box = target.getBoundingClientRect();
-    target.dispatchEvent(new window.MouseEvent("contextmenu", { bubbles: true, cancelable: true, button: 2, clientX: box.left + 16, clientY: rowEl ? box.bottom : box.top }));
+    openRowDropdown(index, { left: box.left + 16, top: box.top, width: 0, height: rowEl ? box.height : 0 }, null);
   };
-  /** The "…" button: the row's menu, opened under the button as a right-click there would. */
+  /** The "…" button: the row's menu, opened under the button. */
   const openRowMenuFrom = (row: Row<T>, from: HTMLElement) => {
-    const index = rows.indexOf(row);
+    // By id, not identity: the cell holds the Row of the render that drew it, and a later render (new data, the same
+    // rows) builds a new row model. Looking the object up in the newer list found nothing and the button did nothing.
+    const index = rows.findIndex((r) => r.id === row.id);
     if (index < 0 || typeof window === "undefined") return;
     const box = from.getBoundingClientRect();
-    // Bubbles through the row (which records it, as a right-click does) to the menu's trigger, which opens at the point.
-    from.dispatchEvent(new window.MouseEvent("contextmenu", { bubbles: true, cancelable: true, button: 2, clientX: box.left, clientY: box.bottom + 2 }));
+    openRowDropdown(index, box, from);
   };
   /** What the "…" button calls its row: the caller's label, else the first text cell, else its number. */
   const rowLabelOf = (row: Row<T>): string => {
@@ -891,7 +918,7 @@ export function DataTable<T>(props: DataTableProps<T>) {
       const v = cell.getValue();
       if (typeof v === "string" && v.trim() !== "") return v;
     }
-    return `row ${rows.indexOf(row) + 1}`;
+    return `row ${rows.findIndex((r) => r.id === row.id) + 1}`;
   };
   rowMenu.current = { open: openRowMenuFrom, label: rowLabelOf };
   const onGridContextMenu = (e: MouseEvent<HTMLTableElement>) => {
@@ -1320,6 +1347,21 @@ export function DataTable<T>(props: DataTableProps<T>) {
     </div>
   );
 
+  /** The row menu's items, one render for both menus (right-click ContextMenu, "…" and keyboard DropdownMenu). */
+  const renderRowActionItems = (kit: RowMenuKit) => {
+    if (menuActions.length === 0) return <kit.Item disabled>No actions</kit.Item>;
+    return menuActions.map((a, i) => (
+      <span key={a.id} className="contents">
+        {a.separatorBefore && i > 0 ? <kit.Separator /> : null}
+        <kit.Item variant={a.variant} disabled={a.disabled} onSelect={() => menuRow && a.onSelect(menuRow.original)}>
+          {a.icon ? <Icon icon={a.icon} size="inline" className={a.variant === "danger" ? undefined : "text-secondary"} /> : null}
+          {a.label}
+          {a.shortcut ? <kit.Shortcut>{a.shortcut}</kit.Shortcut> : null}
+        </kit.Item>
+      </span>
+    ));
+  };
+
   // Columns past the right edge scroll inside the panel; a fade at the edge says so instead of a silent cut.
   const cuedBody = (
     <div className="scroll-cues relative min-w-0" data-more-left={cues.left || undefined} data-more-right={cues.right || undefined}>
@@ -1437,36 +1479,42 @@ export function DataTable<T>(props: DataTableProps<T>) {
       ) : null}
 
       {rowActions ? (
-        <ContextMenu onOpenChange={(o) => (o ? null : setMenuRow(null))}>
-          <ContextMenuTrigger asChild>{cuedBody}</ContextMenuTrigger>
-          {/* A browser that fires its own contextmenu on the key's release (focus is in the menu by then) shows nothing. */}
-          <ContextMenuContent aria-label="Row actions" onContextMenu={(e) => e.preventDefault()}>
-            {menuActions.length === 0 ? (
-              <ContextMenuItem disabled>No actions</ContextMenuItem>
-            ) : (
-              menuActions.map((a, i) => (
-                <span key={a.id} className="contents">
-                  {a.separatorBefore && i > 0 ? <ContextMenuSeparator /> : null}
-                  <ContextMenuItem
-                    variant={a.variant}
-                    disabled={a.disabled}
-                    onSelect={() => menuRow && a.onSelect(menuRow.original)}
-                  >
-                    {a.icon ? (
-                      <Icon
-                        icon={a.icon}
-                        size="inline"
-                        className={a.variant === "danger" ? undefined : "text-secondary"}
-                      />
-                    ) : null}
-                    {a.label}
-                    {a.shortcut ? <ContextMenuShortcut>{a.shortcut}</ContextMenuShortcut> : null}
-                  </ContextMenuItem>
-                </span>
-              ))
-            )}
-          </ContextMenuContent>
-        </ContextMenu>
+        <>
+          <ContextMenu onOpenChange={(o) => (o ? null : setMenuRow(null))}>
+            <ContextMenuTrigger asChild>{cuedBody}</ContextMenuTrigger>
+            {/* A browser that fires its own contextmenu on the key's release (focus is in the menu by then) shows nothing. */}
+            <ContextMenuContent aria-label="Row actions" onContextMenu={(e) => e.preventDefault()}>
+              {renderRowActionItems({ Item: ContextMenuItem, Separator: ContextMenuSeparator, Shortcut: ContextMenuShortcut })}
+            </ContextMenuContent>
+          </ContextMenu>
+          {/* The "…" button and the keyboard: the same verbs in a dropdown that hangs off an invisible trigger placed on the button's (or row's) rectangle. */}
+          <DropdownMenu
+            open={dropdownOpen}
+            onOpenChange={(o) => {
+              if (o) setDropdownOpen(true);
+              else closeRowMenu();
+            }}
+          >
+            <DropdownMenuTrigger asChild>
+              <span aria-hidden aria-label="Row actions" className="pointer-events-none invisible fixed" style={dropdownAnchor} data-row-menu-anchor="" />
+            </DropdownMenuTrigger>
+            <DropdownMenuContent
+              aria-label="Row actions"
+              align="start"
+              sideOffset={2}
+              onCloseAutoFocus={(e) => {
+                // The anchor is not a control: focus goes back to the "…" button that opened the menu, else to the grid.
+                e.preventDefault();
+                const origin = dropdownOrigin.current;
+                dropdownOrigin.current = null;
+                const back = origin?.isConnected ? origin : scrollRef.current?.querySelector<HTMLElement>('[role="grid"]');
+                back?.focus({ preventScroll: true });
+              }}
+            >
+              {renderRowActionItems({ Item: DropdownMenuItem, Separator: DropdownMenuSeparator, Shortcut: DropdownMenuShortcut })}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </>
       ) : (
         cuedBody
       )}

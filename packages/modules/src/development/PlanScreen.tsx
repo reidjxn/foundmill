@@ -1,12 +1,13 @@
 "use client";
 /**
- * Development › Plan (BUILD §6.3, §11.6): the task graph as a DataTable with saved views and right-click verbs, a
- * dependency view (TaskGraph) for the selected task, and the planner trigger (`dev.tasks.plan` from a roadmap item or
- * a goal).
+ * Development › Plan (BUILD §6.3, §11.6): the tasks as a DataTable with saved views, a Run column (running, run now,
+ * runs after another task) and right-click verbs, a dependency view (TaskGraph) for the selected task, and the optional
+ * "plan something sooner" trigger (`dev.tasks.plan` from a roadmap item or a goal). The team plans the roadmap's Now
+ * items into tasks on its own, cycle by cycle; nobody has to build a task graph.
  */
-import { useId, useMemo, useState } from "react";
+import { useId, useMemo, useRef, useState } from "react";
 import { ArrowUpCircle, Bot, ChevronRight, ExternalLink, ListTree, Network, Pause, Play, Radio, Square } from "lucide-react";
-import { Avatar, Button, Chip, DataTable, EntityLink, Field, GenerateControl, KeyValueList, Panel, ProgressRing, ProvenanceChip, STRONGEST_MODEL_LABEL, TASK_STATUS_META, TaskGraph, Term, Textarea, SimpleSelect, useTerm, type DataTableColumn, type RowAction, type SavedView } from "@foundmill/dugout";
+import { Avatar, Button, Chip, DataTable, EntityLink, Field, GenerateControl, KeyValueList, Panel, ProgressRing, ProvenanceChip, STRONGEST_MODEL_LABEL, TASK_STATUS_META, TaskGraph, TaskRunState, Term, Textarea, SimpleSelect, useTerm, canStartTask, taskRunInfo, type DataTableColumn, type RowAction, type SavedView } from "@foundmill/dugout";
 import type { TaskStatus } from "@foundmill/shared";
 import { routes } from "@foundmill/widgets/shared/routes";
 import { useBusinessEvents, useWidgetData, useWidgetQuery } from "@foundmill/widgets/data";
@@ -25,6 +26,8 @@ export interface PlanRow extends TaskRow {
   agentName: string;
   agent: AgentRow | undefined;
   dependsOn: string[];
+  /** Titles of the dependencies whose task is not done yet, in edge order: what this task still waits for. */
+  waitingOn: string[];
   blocks: string[];
   progressNumber: number;
   startedDate: Date | null;
@@ -33,13 +36,14 @@ export interface PlanRow extends TaskRow {
 export const PLAN_VIEWS: SavedView[] = [
   // Every built-in view fits the Plan panel at 1280 (668 px) with its columns at their minimum widths (PLAN_FIT), so no
   // column hides past the panel's edge; Started, Depends on and Priority stay in the column chooser and other views.
-  // Simple (UX plan §7.10): Task, Status, Agent, Progress; the table opens on it while guidance is on.
-  { id: SIMPLE_VIEW_ID, name: "Simple", builtIn: true, columns: ["title", "status", "agentName", "progressNumber"], sort: [{ id: "priority", desc: true }], filters: [] },
-  { id: "all", name: "All tasks", builtIn: true, columns: ["title", "status", "kind", "agentName", "progressNumber"], sort: [{ id: "priority", desc: true }], filters: [] },
-  { id: "ready", name: "Ready to start", builtIn: true, columns: ["title", "agentName", "dependsOn", "priority"], sort: [{ id: "priority", desc: true }], filters: [{ id: "f-ready", field: "status", op: "in", value: ["ready", "planned"] }] },
-  { id: "in-progress", name: "In progress", builtIn: true, columns: ["title", "status", "agentName", "progressNumber", "startedDate"], sort: [{ id: "startedDate", desc: true }], filters: [{ id: "f-live", field: "status", op: "in", value: ["running", "paused", "blocked", "review", "merging"] }] },
-  { id: "blocked", name: "Blocked", builtIn: true, columns: ["title", "agentName", "dependsOn", "progressNumber"], sort: [], filters: [{ id: "f-blocked", field: "status", op: "eq", value: "blocked" }] },
-  { id: "done", name: "Done", builtIn: true, columns: ["title", "agentName", "kind", "startedDate"], sort: [{ id: "startedDate", desc: true }], filters: [{ id: "f-done", field: "status", op: "in", value: ["done", "failed", "stopped"] }] },
+  // Simple (UX plan §7.10): Task, Run, Status, Agent, Progress; the table opens on it while guidance is on. The 44 px Run
+  // column follows Task in every view (a view saved before it existed gets it too: `withRunColumn`).
+  { id: SIMPLE_VIEW_ID, name: "Simple", builtIn: true, columns: ["title", "run", "status", "agentName", "progressNumber"], sort: [{ id: "priority", desc: true }], filters: [] },
+  { id: "all", name: "All tasks", builtIn: true, columns: ["title", "run", "status", "kind", "agentName", "progressNumber"], sort: [{ id: "priority", desc: true }], filters: [] },
+  { id: "ready", name: "Ready to start", builtIn: true, columns: ["title", "run", "agentName", "dependsOn", "priority"], sort: [{ id: "priority", desc: true }], filters: [{ id: "f-ready", field: "status", op: "in", value: ["ready", "planned"] }] },
+  { id: "in-progress", name: "In progress", builtIn: true, columns: ["title", "run", "status", "agentName", "progressNumber", "startedDate"], sort: [{ id: "startedDate", desc: true }], filters: [{ id: "f-live", field: "status", op: "in", value: ["running", "paused", "blocked", "review", "merging"] }] },
+  { id: "blocked", name: "Blocked", builtIn: true, columns: ["title", "run", "agentName", "dependsOn", "progressNumber"], sort: [], filters: [{ id: "f-blocked", field: "status", op: "eq", value: "blocked" }] },
+  { id: "done", name: "Done", builtIn: true, columns: ["title", "run", "agentName", "kind", "startedDate"], sort: [{ id: "startedDate", desc: true }], filters: [{ id: "f-done", field: "status", op: "in", value: ["done", "failed", "stopped"] }] },
 ];
 
 const STATUS_OPTIONS = (["planned", "ready", "running", "paused", "blocked", "review", "merging", "done", "failed", "stopped"] as TaskStatus[]).map((s) => ({ value: s, label: TASK_STATUS_META[s].word }));
@@ -51,14 +55,16 @@ const KIND_OPTIONS = Object.entries(KIND_LABELS).map(([value, label]) => ({ valu
 
 /**
  * Column minimums (what each cell needs, padding included) and how the extra width is shared. In "All tasks" the
- * first five fill the panel at 1280 and 1440; Started, Depends on and Priority follow behind the scroll cue.
+ * first six (Task, Run, Status, Kind, Agent, Progress) and the "…" column fill the 668 px panel at 1280 and 1440;
+ * Started, Depends on and Priority follow behind the scroll cue.
  */
 export const PLAN_FIT: Record<string, ColumnFit> = {
-  title: { min: 196, grow: 5 },
+  title: { min: 180, grow: 5 },
+  run: { min: 44 },
   status: { min: 108 },
-  kind: { min: 96 },
-  agentName: { min: 140, grow: 2 },
-  progressNumber: { min: 96 },
+  kind: { min: 84 },
+  agentName: { min: 116, grow: 2 },
+  progressNumber: { min: 88 },
   startedDate: { min: 104 },
   dependsOn: { min: 220, grow: 1 },
   priority: { min: 88 },
@@ -66,6 +72,7 @@ export const PLAN_FIT: Record<string, ColumnFit> = {
 
 export function toPlanRows(tasks: readonly TaskRow[], edges: readonly { fromTask: string; toTask: string }[], agents: Map<string, AgentRow>): PlanRow[] {
   const titles = new Map(tasks.map((t) => [t.id, t.title]));
+  const done = new Set(tasks.filter((t) => t.status === "done").map((t) => t.id));
   return tasks.map((t) => {
     const agent = t.assigneeAgentId ? agents.get(t.assigneeAgentId) : undefined;
     return {
@@ -73,10 +80,21 @@ export function toPlanRows(tasks: readonly TaskRow[], edges: readonly { fromTask
       agent,
       agentName: agent?.name ?? (t.assigneeAgentId ? "Agent" : "Unassigned"),
       dependsOn: edges.filter((e) => e.toTask === t.id).map((e) => titles.get(e.fromTask) ?? e.fromTask),
+      // A dependency is open while its task is not done; one the list does not hold cannot be waited on.
+      waitingOn: edges.filter((e) => e.toTask === t.id && titles.has(e.fromTask) && !done.has(e.fromTask)).map((e) => titles.get(e.fromTask)!),
       blocks: edges.filter((e) => e.fromTask === t.id).map((e) => titles.get(e.toTask) ?? e.toTask),
       progressNumber: Math.round(progressValue(t.progress) * 100),
       startedDate: toDate(t.startedAt),
     };
+  });
+}
+
+/** Puts the Run column right after Task in a view that lacks it (a view saved before the column existed). */
+export function withRunColumn(views: readonly SavedView[]): SavedView[] {
+  return views.map((v) => {
+    if (v.columns.includes("run")) return v;
+    const at = v.columns.indexOf("title");
+    return { ...v, columns: [...v.columns.slice(0, at + 1), "run", ...v.columns.slice(at + 1)] };
   });
 }
 
@@ -92,7 +110,9 @@ export function PlanScreen({ businessId, departmentId }: ModuleScreenProps) {
   const planner = useAction();
   // Saved per person, business and table (audit #204): they come back after a reload. Simple opens first while guidance is on.
   const defaultViewId = useDefaultViewId("all");
-  const savedViews = useSavedViews("development.plan", PLAN_VIEWS, { defaultViewId });
+  const planViews = useSavedViews("development.plan", PLAN_VIEWS, { defaultViewId });
+  const viewsWithRun = useMemo(() => withRunColumn(planViews.views), [planViews.views]);
+  const savedViews = { ...planViews, views: viewsWithRun };
   useBusinessEvents(() => tasks.refetch(), ["task.started", "task.completed", "task.blocked", "pr.merged", "product.signoff_decided"]);
   // Building starts when the founder has signed off the specification and the roadmap (founder, 2026-10-18).
   const stage = useBusinessStage();
@@ -129,6 +149,10 @@ export function PlanScreen({ businessId, departmentId }: ModuleScreenProps) {
 
   const runTask = (path: string, task: TaskRow, extra: Record<string, unknown> = {}) => action.run(path, { taskId: task.id, ...extra }, { key: `${path}:${task.id}`, then: () => tasks.refetch() });
 
+  // The Run cell reads the current handler and busy key through a ref, so the column definitions stay stable.
+  const live = useRef({ runTask, pending: action.pending });
+  live.current = { runTask, pending: action.pending };
+
   const columns = useMemo<DataTableColumn<PlanRow>[]>(
     () => fitToGrow<PlanRow>([
       {
@@ -148,6 +172,26 @@ export function PlanScreen({ businessId, departmentId }: ModuleScreenProps) {
               </Chip>
             ) : null}
           </span>
+        ),
+      },
+      {
+        id: "run",
+        accessorFn: (r) => taskRunInfo(r.status, r.waitingOn).label,
+        header: "Run",
+        size: sizes.run,
+        minSize: sizes.run,
+        maxSize: sizes.run,
+        enableSorting: false,
+        enableResizing: false,
+        meta: { locked: true, filter: false, align: "center", label: "Run" },
+        cell: ({ row }) => (
+          <TaskRunState
+            status={row.original.status}
+            waitingOn={row.original.waitingOn}
+            onRun={() => void live.current.runTask("dev.tasks.start", row.original)}
+            onResume={() => void live.current.runTask("dev.tasks.resume", row.original)}
+            pending={live.current.pending === `dev.tasks.start:${row.original.id}` || live.current.pending === `dev.tasks.resume:${row.original.id}`}
+          />
         ),
       },
       { id: "status", accessorKey: "status", header: "Status", size: sizes.status, meta: { filter: "select", filterOptions: STATUS_OPTIONS }, cell: ({ row }) => <TaskStatusPill status={row.original.status} /> },
@@ -194,7 +238,7 @@ export function PlanScreen({ businessId, departmentId }: ModuleScreenProps) {
     const over = row.status === "done";
     return [
       { id: "deps", label: "Show dependencies", icon: Network, onSelect: (r) => setSelectedId(r.id) },
-      { id: "start", label: "Start", icon: Play, disabled: !(row.status === "planned" || row.status === "ready" || row.status === "stopped" || row.status === "failed") || !row.assigneeAgentId, onSelect: (r) => void runTask("dev.tasks.start", r), separatorBefore: true },
+      { id: "start", label: "Start", icon: Play, disabled: !canStartTask(row.status, row.waitingOn), onSelect: (r) => void runTask("dev.tasks.start", r), separatorBefore: true },
       { id: "pause", label: "Pause", icon: Pause, disabled: !live, onSelect: (r) => void runTask("dev.tasks.pause", r) },
       { id: "resume", label: "Resume", icon: Play, disabled: row.status !== "paused", onSelect: (r) => void runTask("dev.tasks.resume", r) },
       { id: "reassign", label: "Reassign", icon: Bot, disabled: over, onSelect: (r) => setReassign(r) },
@@ -250,7 +294,7 @@ export function PlanScreen({ businessId, departmentId }: ModuleScreenProps) {
       ) : null}
       <Panel
         span={8}
-        title={<Term id="task_graph">Task graph</Term>}
+        title="Tasks"
         flush
         loading={tasks.isLoading}
         error={tasks.error ? tasks.error.message : undefined}
@@ -278,7 +322,7 @@ export function PlanScreen({ businessId, departmentId }: ModuleScreenProps) {
               icon: ListTree,
               children: (
                 <>
-                  No tasks yet. Pick a roadmap item or write an objective on the right and the <Term id="planner">Planner</Term> plans the tasks.
+                  No tasks yet. The team plans the roadmap into tasks on its own, cycle by cycle. To plan something sooner, use the panel on the right.
                 </>
               ),
             }}
@@ -289,7 +333,7 @@ export function PlanScreen({ businessId, departmentId }: ModuleScreenProps) {
 
       <Panel
         span={4}
-        title="Plan from the roadmap"
+        title="Plan something sooner"
         glow="brand"
         footer={
           <span className="inline-flex items-center gap-1">
@@ -298,6 +342,9 @@ export function PlanScreen({ businessId, departmentId }: ModuleScreenProps) {
         }
       >
         <div className="flex flex-col gap-3">
+          <p className="text-small text-secondary" data-testid="plan-sooner-hint">
+            The team plans the roadmap&apos;s Now items into tasks on its own, cycle by cycle. Use this to plan one item or an objective ahead of that.
+          </p>
           <Field htmlFor={`${id}-roadmap`} label="Roadmap item" help={roadmapTerm?.short} helpLearn={roadmapTerm?.learn}>
             <SimpleSelect id={`${id}-roadmap`} aria-label="Roadmap item" options={roadmapOptions} value={roadmapItemId || undefined} onValueChange={setRoadmapItemId} placeholder={roadmap.isLoading ? "Loading roadmap…" : roadmapOptions.length ? "Choose an item" : "No roadmap items yet"} disabled={!roadmapOptions.length} />
           </Field>
@@ -341,6 +388,19 @@ export function PlanScreen({ businessId, departmentId }: ModuleScreenProps) {
                 layout="stacked"
                 items={[
                   { label: "Status", value: <TaskStatusPill status={selected.status} /> },
+                  {
+                    label: "Next",
+                    value: (
+                      <TaskRunState
+                        variant="text"
+                        status={selected.status}
+                        waitingOn={selected.waitingOn}
+                        onRun={() => void runTask("dev.tasks.start", selected)}
+                        onResume={() => void runTask("dev.tasks.resume", selected)}
+                        pending={action.pending === `dev.tasks.start:${selected.id}` || action.pending === `dev.tasks.resume:${selected.id}`}
+                      />
+                    ),
+                  },
                   { label: "Agent", value: selected.agentName },
                   { label: "Kind", value: kindLabel(selected.kind) },
                   { label: "Depends on", value: selected.dependsOn.length ? selected.dependsOn.join(", ") : "Nothing" },
@@ -366,7 +426,7 @@ export function PlanScreen({ businessId, departmentId }: ModuleScreenProps) {
                 </div>
               </details>
               <div className="mt-3 flex flex-wrap gap-2">
-                <Button size="sm" icon={Play} disabled={!(selected.status === "planned" || selected.status === "ready") || !selected.assigneeAgentId} loading={action.pending === `dev.tasks.start:${selected.id}`} onClick={() => void runTask("dev.tasks.start", selected)}>
+                <Button size="sm" icon={Play} disabled={!canStartTask(selected.status, selected.waitingOn)} loading={action.pending === `dev.tasks.start:${selected.id}`} onClick={() => void runTask("dev.tasks.start", selected)}>
                   Start
                 </Button>
                 <Button size="sm" icon={ExternalLink} onClick={() => setClaudeCode(selected)}>

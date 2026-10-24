@@ -58,11 +58,34 @@ export interface BriefTask {
   approvalHold?: { approvalId: string; outcome: null | "rejected" } | null;
 }
 
-/** A roadmap item no task links to yet: it needs a task graph (Development › Plan) before anyone can start it. */
+/** A roadmap item no task links to yet: the cycle plans it into tasks (`planRoadmap`, Now items first) before anyone starts it. */
 export interface BriefRoadmapItem {
   id: string;
   title: string;
   horizon: string;
+}
+
+/** What a cycle planned from the roadmap before the Chief of Staff's plan (`planRoadmap`; lead, 2026-10-24). */
+export interface RoadmapPlanResult {
+  planned: { roadmapItemId: string; title: string; taskIds: string[]; costMinor: number }[];
+  /** Items whose Planner call failed: named in the summary, tried again next cycle. */
+  failed: { roadmapItemId: string; title: string; reason: string }[];
+  /** Why nothing was tried (the stage, a closed gate, no Now item without tasks); null when items were tried. */
+  skipped: string | null;
+  /** The Planner calls' cost, US cents (an Estimate); added to the cycle's cost. */
+  costMinor: number;
+}
+
+/** What `followUpStarts` is asked for: tasks that became dispatchable while the cycle ran (lead, 2026-10-24, decision 8). */
+export interface FollowUpStartsInput {
+  businessId: string;
+  cycleId: string;
+  /** Every task already started, pending, skipped or finished in this cycle: never offered again. */
+  exclude: string[];
+  /** Agents with a session open in this cycle: avoided when another usable agent fits. */
+  busyAgentIds?: string[];
+  /** Most starts to hand back (the cycle's concurrency); every dispatchable task when absent. */
+  limit?: number;
 }
 
 export interface BusinessBrief {
