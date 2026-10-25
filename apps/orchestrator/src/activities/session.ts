@@ -53,7 +53,7 @@ import { CREDITS_USED_UP_SUMMARY, SessionCredits, unbookedTokens } from "./sessi
 import { budgetSummary, LIMIT_WORDS, sessionBudget, type SessionBudget } from "./session-budget";
 import { archiveSessionRecording } from "./recording";
 import { createSessionWorkspace, guardToolCall, hookOutputFor, removeSessionWorkspace, sdkEnvFor, sdkToolPolicyFor } from "./sdk-isolation";
-import { describePush, pushWorkspace, type PushContext } from "./workspace-push";
+import { commitShaOf, describePush, pushWorkspace, type PushContext } from "./workspace-push";
 import { mergeRecipients, restoreWorkspace, saveWorkspace, toSeed, type LeftOut, type RestoredWorkspace, type SaveWorkspaceOptions } from "./workspace-store";
 import { readWorkspaceChanges, syncCheckoutToSandbox, syncWorkspaceToSandbox } from "./workspace-sync";
 import { checkoutMissingNote, checkoutNote, checkoutRepository, describeCheckout, disposeCheckout, extractArchive, testSetupChanges, testSetupReviewReason, type Checkout } from "./checkout";
@@ -413,6 +413,14 @@ class SessionRecorder {
   agentBlock: { reason: string } | null = null;
   /** `block_task` calls in flight on this session's task: call id → the agent's reason. */
   private readonly blockCalls = new Map<string, string>();
+  /**
+   * What the agent pushed to its own branch (`agent/<taskId>`) with GitHub's `commit_files` during this session: the
+   * count of pushes that went through and the last branch head one answered. The end-of-session push goes on top of
+   * them (workspace-push.ts `PushContext.agentPushed`).
+   */
+  readonly agentPushed: { count: number; lastSha: string | null } = { count: 0, lastSha: null };
+  /** `commit_files` calls in flight on this session's own branch. */
+  private readonly pushCalls = new Set<string>();
   lastPersisted = -1;
   lastPhase: string | null = null;
   /** Where a replay would pick up (mock runs): carried on every heartbeat so a retried run continues from there. */
@@ -463,6 +471,7 @@ class SessionRecorder {
       if (full.status === "started") this.toolCalls += 1;
       if (full.status === "failed" || full.status === "denied") this.toolFailures += 1;
       this.trackBlockTask(full, opts.args);
+      this.trackAgentPush(full, opts.args);
       if (full.status === "succeeded" && /merge_pr|merge_pull_request/i.test(full.tool)) {
         const m = /#?(\d{1,6})/.exec(full.resultSummary ?? "");
         if (m) this.prNumber = Number(m[1]);
@@ -503,6 +512,27 @@ class SessionRecorder {
     if (reason === undefined) return;
     this.blockCalls.delete(call.callId);
     if (call.status === "succeeded" && call.policyOutcome !== "deny" && call.policyOutcome !== "ask") this.agentBlock = { reason };
+  }
+
+  /**
+   * A `commit_files` by the agent on this session's own branch: once the call has gone through (not refused by the
+   * gateway or its policy) the branch moved by the agent's own hand, and the head GitHub answered, when the answer names
+   * it, is where the end-of-session push expects the branch.
+   */
+  private trackAgentPush(call: Extract<SessionEventInput, { kind: "tool_call" }>, args: unknown): void {
+    if (call.tool !== "commit_files" || (call.connectorKey !== null && call.connectorKey !== undefined && call.connectorKey !== "github")) return;
+    if (call.status === "started") {
+      const a = (args ?? {}) as { branch?: unknown };
+      if (a.branch === this.ctx.launch.branch) this.pushCalls.add(call.callId);
+      return;
+    }
+    if (!this.pushCalls.delete(call.callId)) return;
+    if (call.status !== "succeeded" || call.policyOutcome === "deny" || call.policyOutcome === "ask") return;
+    // A refused tool call still answers (ok: false): only a commit counts.
+    if (/"ok"\s*:\s*false/.test(call.resultSummary ?? "")) return;
+    this.agentPushed.count += 1;
+    const sha = commitShaOf(call.resultSummary);
+    if (sha) this.agentPushed.lastSha = sha;
   }
 
   /** Publish without feeding the reducers (system notes). */
@@ -1840,7 +1870,7 @@ async function runLiveSession(deps: OrchestratorDeps, recorder: SessionRecorder,
     queue.close(true);
     // Keep the code whatever the outcome (done, stopped, failed, parked): the workspace itself is deleted next. Only a
     // session that finished (or waits on an approval) is pushed to GitHub.
-    if (policy.fileTools) await keepWorkspace(deps, recorder, { businessId: input.businessId, taskId: task.id, sessionId: input.sessionId, agentId: agent.id, branch: launch.branch, agentName: agent.name, holdBack, checkout: checkout ? { commitSha: checkout.base.commitSha, at: checkout.base.checkedOutAt } : null }, cwd, { secrets: [key.apiKey, token.token], carryOver: restoreFailed, ...(checkout ? { base: checkout.base } : { withoutCheckoutOf: checkoutMissingRepo }) });
+    if (policy.fileTools) await keepWorkspace(deps, recorder, { businessId: input.businessId, taskId: task.id, sessionId: input.sessionId, agentId: agent.id, branch: launch.branch, agentName: agent.name, holdBack, checkout: checkout ? { commitSha: checkout.base.commitSha, at: checkout.base.checkedOutAt } : null, agentPushed: recorder.agentPushed }, cwd, { secrets: [key.apiKey, token.token], carryOver: restoreFailed, ...(checkout ? { base: checkout.base } : { withoutCheckoutOf: checkoutMissingRepo }) });
     await disposeCheckout(checkout);
     try {
       await removeSessionWorkspace(cwd);

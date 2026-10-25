@@ -8,7 +8,7 @@ import { createGithubMock } from "@foundmill/connectors/connectors/github/mock";
 import { makeToolContext } from "@foundmill/connectors/testing/contract-suite";
 import { repos, type WorkspaceSnapshot } from "@foundmill/db";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { describePush, pushWorkspace, type PushContext } from "../activities/workspace-push";
+import { commitShaOf, describePush, pushWorkspace, type PushContext } from "../activities/workspace-push";
 import { createOfflineGatewayClient, type GatewayCallRequest, type GatewayCallResponse, type GatewayClient } from "../gateway-client";
 import { openSessionRow, setupOrchestratorHarness, type OrchestratorTestHarness } from "./harness";
 
@@ -189,6 +189,58 @@ describe("pushWorkspace", () => {
     // The GitHub mock holds the branch at the second push: that checkout's diff is not written over it.
     expect(three).toEqual({ status: "moved", repo: "acme/shop", branch, headSha: (two as { commitSha: string }).commitSha });
     expect(await repos.workspaces.getSnapshot(t.db, t.businessId, third.id)).toMatchObject({ pushedCommitSha: null, pushError: expect.stringMatching(/moved since checkout/) });
+  });
+
+  it("goes on top of the commits the agent itself pushed to its branch during the session", async () => {
+    await repos.integrations.upsert(t.deps.db, t.businessId, { connectorKey: "github", status: "mock", authKind: "app", settings: { repo: "acme/shop", writeEnabled: true } });
+    const task = await repos.tasks.create(t.db, t.businessId, { kind: "code", title: "Own pushes", goalMd: "x", assigneeAgentId: t.workerId, status: "ready" });
+    const branch = `agent/${task.id}`;
+    const head = await createOfflineGatewayClient().downloadArchive("t", { owner: "acme", repo: "shop", ref: "HEAD" });
+    if (!("archive" in head)) throw new Error("no archive");
+    const seen = head.archive.sha;
+    const { gateway, offline, readFile } = githubGateway();
+    const sessionId = await openSessionRow(t, t.workerId, task.id);
+    const ctx = (extra: Partial<PushContext> = {}): PushContext => ({ businessId: t.businessId, taskId: task.id, sessionId, agentId: t.workerId, branch, agentName: "Worker", holdBack: null, checkout: { commitSha: seen, at: new Date(Date.now() - 60_000) }, ...extra });
+    const onCheckout = async (files: Record<string, string>) =>
+      (await t.deps.db.transaction((tx) => repos.workspaces.save(tx as never, t.businessId, { taskId: task.id, sessionId, files: Object.entries(files).map(([path, c]) => ({ path, content: text(c), inBase: false })), base: { repo: "acme/shop", ref: branch, commitSha: seen }, removedPaths: [] }))).snapshot!;
+
+    // The agent commits to its branch itself mid-session (engineers hold pulls.create, which carries commit_files).
+    const own = await gateway.call("t", { connector: "github", tool: "commit_files", args: { owner: "acme", repo: "shop", branch, fromRef: seen, message: "agent's own commit", files: [{ path: "src/own.ts", content: "mine" }] } });
+    const ownSha = (own.result as { data: { sha: string } }).data.sha;
+    expect(ownSha).toMatch(/^[0-9a-f]{40}$/);
+    expect(commitShaOf(JSON.stringify(own.result))).toBe(ownSha);
+    expect(commitShaOf('{"ok":true,"data":{"committed":false}}')).toBeNull();
+
+    // The session knows the head its agent pushed: the final push expects the branch there and lands.
+    const first = await onCheckout({ "src/a.ts": "1", "src/own.ts": "mine" });
+    const one = await pushWorkspace(t.deps.db, gateway, ctx({ agentPushed: { count: 1, lastSha: ownSha } }), first);
+    expect(offline.calls.at(-1)!.args).toMatchObject({ expectedHeadSha: ownSha });
+    expect(one).toMatchObject({ status: "pushed" });
+    expect(await readFile("src/a.ts", branch)).toBe("1");
+    const oneSha = (one as { commitSha: string }).commitSha;
+
+    // The agent pushed again but the head was not read from the answer: the first try expects the last commit this task
+    // saw, GitHub says the branch moved, and the push is retried once at the head it reports.
+    const again = await gateway.call("t", { connector: "github", tool: "commit_files", args: { owner: "acme", repo: "shop", branch, message: "agent's second commit", files: [{ path: "src/own.ts", content: "mine 2" }] } });
+    const againSha = (again.result as { data: { sha: string } }).data.sha;
+    const s2 = await openSessionRow(t, t.workerId, task.id);
+    const second = (await t.deps.db.transaction((tx) => repos.workspaces.save(tx as never, t.businessId, { taskId: task.id, sessionId: s2, files: [{ path: "src/a.ts", content: text("2"), inBase: false }], base: { repo: "acme/shop", ref: branch, commitSha: seen }, removedPaths: [] }))).snapshot!;
+    const callsBefore = offline.calls.length;
+    const two = await pushWorkspace(t.deps.db, gateway, ctx({ sessionId: s2, agentPushed: { count: 1, lastSha: null } }), second);
+    expect(offline.calls.length - callsBefore).toBe(2);
+    expect(offline.calls.at(-2)!.args).toMatchObject({ expectedHeadSha: oneSha });
+    expect(offline.calls.at(-1)!.args).toMatchObject({ expectedHeadSha: againSha });
+    expect(two).toMatchObject({ status: "pushed" });
+    expect(await readFile("src/a.ts", branch)).toBe("2");
+
+    // Without a push of its own, a moved branch is still not written over (the test above), and a second refusal at the
+    // reported head is final: only one retry.
+    const refusing = githubGateway((req) => (req.tool === "commit_files" ? { outcome: "allow", result: { ok: false, error: { code: "branch_moved", message: "moved", details: { branch, expectedHeadSha: seen, currentHeadSha: "a".repeat(40) } } } } : null));
+    const s3 = await openSessionRow(t, t.workerId, task.id);
+    const third = (await t.deps.db.transaction((tx) => repos.workspaces.save(tx as never, t.businessId, { taskId: task.id, sessionId: s3, files: [{ path: "src/a.ts", content: text("3"), inBase: false }], base: { repo: "acme/shop", ref: branch, commitSha: seen }, removedPaths: [] }))).snapshot!;
+    const three = await pushWorkspace(t.deps.db, refusing.gateway, ctx({ sessionId: s3, agentPushed: { count: 2, lastSha: null } }), third);
+    expect(refusing.offline.calls.filter((c) => c.tool === "commit_files")).toHaveLength(2);
+    expect(three).toEqual({ status: "moved", repo: "acme/shop", branch, headSha: "a".repeat(40) });
   });
 
   it("never pushes a save made without the checkout its base names, and says why on that save only", async () => {

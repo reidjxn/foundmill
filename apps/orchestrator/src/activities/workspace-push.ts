@@ -46,6 +46,21 @@ export interface PushContext extends WorkspaceOwner {
   saveHeldBack?: string | null;
   /** The checkout this session took (its commit and when): a save on that same commit expects the branch there. */
   checkout?: { commitSha: string; at: Date } | null;
+  /**
+   * What the agent itself pushed to its branch during this session with `commit_files` (engineers hold `pulls.create`):
+   * how many pushes went through and the last branch head one answered, when the answer named it. Those commits moved
+   * the branch after the checkout, and the workspace is the state the agent committed from, so the final push goes on
+   * top of them: the last head is the one this push expects, and when no head is known, a `branch_moved` refusal is
+   * retried once at the head it reports. Without this, an agent's own commits read as someone else's and the save is
+   * never pushed (Foundmill business, Oct 25, 2026).
+   */
+  agentPushed?: { count: number; lastSha: string | null } | null;
+}
+
+/** The branch head a successful `commit_files` answer names (`data.sha`), or null when the text holds none. */
+export function commitShaOf(resultText: string | null | undefined): string | null {
+  const m = /"sha"\s*:\s*"([0-9a-f]{40})"/i.exec(resultText ?? "");
+  return m ? m[1]!.toLowerCase() : null;
 }
 
 /** Lifetime of the token minted for one push. */
@@ -83,6 +98,8 @@ export function movedHeadSha(details: unknown): string | null {
  * commit). For a save without a checkout it is the commit the task last pushed there.
  */
 async function expectedHead(db: Db, ctx: PushContext, snapshot: WorkspaceSnapshot, repo: string, branch: string): Promise<string | null> {
+  // The agent's own pushes this session are the newest commits this task saw: the branch is expected at the last one.
+  if (ctx.agentPushed?.lastSha) return ctx.agentPushed.lastSha;
   const last = await repos.workspaces.lastPushed(db, ctx.businessId, ctx.taskId, repo);
   const lastSha = last && last.id !== snapshot.id && last.pushedBranch === branch && last.pushedCommitSha ? last.pushedCommitSha : null;
   if (snapshot.baseCommitSha === null) return lastSha;
@@ -158,16 +175,26 @@ export async function pushWorkspace(db: Db, gateway: GatewayClient, ctx: PushCon
     // Never on top of commits this task did not see (someone else's push, a rebase): GitHub refuses with branch_moved.
     const expectedHeadSha = await expectedHead(db, ctx, snapshot, repo, branch);
     const token = await gateway.mintSessionToken({ businessId: ctx.businessId, agentId: ctx.agentId, sessionId: ctx.sessionId, allowedTools: ["github:commit_files"], ttlSeconds: PUSH_TOKEN_TTL_SECONDS });
-    const res = await gateway.call(
-      token.token,
-      {
-        connector: "github",
-        tool: "commit_files",
-        // A missing branch starts at the checkout's commit, so the diff applies to exactly what the agent saw.
-        args: { owner: target.owner, repo: target.repo, branch, ...(onCheckout ? { fromRef: snapshot.baseCommitSha } : {}), ...(expectedHeadSha ? { expectedHeadSha } : {}), message: pushMessage(ctx, snapshot), files: contents.map((f) => ({ path: f.path, content: Buffer.from(f.content).toString("base64"), encoding: "base64" })), deletions },
-      },
-      { timeoutMs: PUSH_TIMEOUT_MS },
-    );
+    const commit = (expected: string | null) =>
+      gateway.call(
+        token.token,
+        {
+          connector: "github",
+          tool: "commit_files",
+          // A missing branch starts at the checkout's commit, so the diff applies to exactly what the agent saw.
+          args: { owner: target.owner, repo: target.repo, branch, ...(onCheckout ? { fromRef: snapshot.baseCommitSha } : {}), ...(expected ? { expectedHeadSha: expected } : {}), message: pushMessage(ctx, snapshot), files: contents.map((f) => ({ path: f.path, content: Buffer.from(f.content).toString("base64"), encoding: "base64" })), deletions },
+        },
+        { timeoutMs: PUSH_TIMEOUT_MS },
+      );
+    let res = await commit(expectedHeadSha);
+    const movedTo = (r: typeof res): string | null => {
+      const result = r.result as { ok?: boolean; error?: { code?: string; details?: unknown } } | undefined;
+      return r.outcome === "allow" && result?.ok === false && result.error?.code === "branch_moved" ? movedHeadSha(result.error.details) : null;
+    };
+    // The agent pushed to its branch itself during this session and no answer named the head: the branch is at one of
+    // its own commits, so the save goes on top of the head GitHub reports, once. A second refusal is someone else's push.
+    const ownHead = movedTo(res);
+    if (ownHead && (ctx.agentPushed?.count ?? 0) > 0 && ownHead !== expectedHeadSha) res = await commit(ownHead);
     if (res.outcome === "ask") {
       await record({ error: "waiting for the founder's approval" });
       return { status: "awaiting_approval", repo, branch, approvalId: res.approvalId ?? null };
