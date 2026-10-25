@@ -49,6 +49,8 @@ const Env = z.object({
   TEMPORAL_NAMESPACE: z.string().default("default"),
   TEMPORAL_TASK_QUEUE: z.string().default("foundmill"),
   E2B_API_KEY: z.string().optional(),
+  /** The E2B template the orchestrator's acceptance sandboxes start from; empty means E2B's `base` (docs/DEPLOY.md §5). */
+  E2B_TEMPLATE: z.string().optional(),
   BROWSERBASE_API_KEY: z.string().optional(),
   KMS_KEY_ID: z.string().optional(),
   DEV_MASTER_KEY: z.string().optional(),
