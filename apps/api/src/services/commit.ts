@@ -26,7 +26,7 @@ import { departmentTabs, getArchetypeSeed, getTemplate, prompts } from "@foundmi
 import { initialModelBilling } from "@foundmill/config";
 import { assertBusinessAllowance, autopilotChangedPayload, creditsUsedUp, includedCreditsFor, periodOf, repos, type Business, type Db, type DbTx, type InboxItem } from "@foundmill/db";
 import { writeEventRow } from "./events";
-import { CHANNEL_KEYS, CHANNEL_META, CurrencyCode, DEFAULT_BUSINESS_CURRENCY, DEFAULT_BUSINESS_MODE, ValidationError, slugify, type Archetype, type BusinessMode, type GameMode, type OptionAction } from "@foundmill/shared";
+import { CHANNEL_KEYS, CHANNEL_META, CurrencyCode, DEFAULT_BUSINESS_CURRENCY, DEFAULT_BUSINESS_MODE, ValidationError, slugify, type AgentStyle, type Archetype, type BusinessMode, type GameMode, type OptionAction } from "@foundmill/shared";
 import { presetLayout } from "../presets";
 import { QUEUE_ACTION } from "./cycle";
 import { checkLogoChoice, type LogoChoice } from "./logo";
@@ -57,6 +57,8 @@ export interface CommitIdeaInput {
   autopilot?: boolean;
   /** The Launch step's "Anthropomorphic agents" switch: written to the founder's account preferences when given (0067). */
   anthropomorphicAgents?: boolean;
+  /** The Launch step's character style for them: written to the founder's account preferences when given (0069). */
+  agentStyle?: AgentStyle;
 }
 
 export interface CommitIdeaResult {
@@ -403,11 +405,15 @@ export async function commitIdea(db: Db, temporal: TemporalService, userId: stri
 
   if (!result) return committedIdeaResult(db, userId, input.ideaId);
 
-  // The Launch step's display choice goes on the founder's account (every business they run reads it). Best effort: the
-  // business is already committed, and a preference that did not save is one switch away in Settings.
-  if (input.anthropomorphicAgents !== undefined) {
+  // The Launch step's display choices (the switch and the style) go on the founder's account (every business they run
+  // reads them), in one write. Best effort: the business is already committed, and a preference that did not save is one
+  // switch away in Settings.
+  if (input.anthropomorphicAgents !== undefined || input.agentStyle !== undefined) {
     try {
-      await repos.preferences.update(db, userId, { anthropomorphicAgents: input.anthropomorphicAgents });
+      await repos.preferences.update(db, userId, {
+        ...(input.anthropomorphicAgents !== undefined ? { anthropomorphicAgents: input.anthropomorphicAgents } : {}),
+        ...(input.agentStyle !== undefined ? { agentStyle: input.agentStyle } : {}),
+      });
     } catch (err) {
       deps.log?.warn({ businessId: result.business.id, err: err instanceof Error ? err.message : String(err) }, "commit: could not save the anthropomorphic agents preference");
     }

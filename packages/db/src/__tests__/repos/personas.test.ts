@@ -221,6 +221,36 @@ describe("persona_portraits (repos.personaPortraits)", () => {
     expect(await repos.personaPortraits.get(r.db, k)).toMatchObject({ mime: "image/webp", model: "gpt-image-real" });
   });
 
+  it("0069: one key has one row per style; get and readyKeys read the style asked and default to humans", async () => {
+    const k = PERSONAS[9]!.key;
+    expect(await repos.personaPortraits.get(r.db, k, "fantasy")).toBeNull();
+    const human = await repos.personaPortraits.put(r.db, { key: k, mime: "image/png", content: png(10), model: "mock-portrait" });
+    expect(human.style).toBe("humans");
+    const elf = await repos.personaPortraits.put(r.db, { key: k, style: "fantasy", mime: "image/webp", content: png(11), model: "gpt-image-real" });
+    expect(elf).toMatchObject({ key: k, style: "fantasy", mime: "image/webp" });
+    await repos.personaPortraits.put(r.db, { key: k, style: "cartoon_2d", mime: "image/png", content: png(12), model: "mock-portrait" });
+    // Three rows for the key, one per style; the humans row is untouched by the others.
+    const n = await r.db.select({ n: sql<number>`count(*)::int` }).from(s.personaPortraits).where(eq(s.personaPortraits.personaKey, k));
+    expect(Number(n[0]!.n)).toBe(3);
+    expect(Array.from((await repos.personaPortraits.get(r.db, k))!.content)).toEqual(Array.from(png(10)));
+    expect(Array.from((await repos.personaPortraits.get(r.db, k, "humans"))!.content)).toEqual(Array.from(png(10)));
+    expect(await repos.personaPortraits.get(r.db, k, "fantasy")).toMatchObject({ style: "fantasy", model: "gpt-image-real" });
+    expect(await repos.personaPortraits.get(r.db, k, "cartoon_3d")).toBeNull();
+    // A second put of the same (style, key) replaces, never adds.
+    await repos.personaPortraits.put(r.db, { key: k, style: "fantasy", mime: "image/webp", content: png(13), model: "gpt-image-real-2" });
+    expect(Number((await r.db.select({ n: sql<number>`count(*)::int` }).from(s.personaPortraits).where(eq(s.personaPortraits.personaKey, k)))[0]!.n)).toBe(3);
+    expect(Array.from((await repos.personaPortraits.get(r.db, k, "fantasy"))!.content)).toEqual(Array.from(png(13)));
+    // readyKeys is per style, humans unless given, and excludes models per style.
+    expect(await repos.personaPortraits.readyKeys(r.db, [k])).toEqual([k]);
+    expect(await repos.personaPortraits.readyKeys(r.db, [k], { style: "fantasy" })).toEqual([k]);
+    expect(await repos.personaPortraits.readyKeys(r.db, [k], { style: "cartoon_3d" })).toEqual([]);
+    expect(await repos.personaPortraits.readyKeys(r.db, [k], { style: "cartoon_2d", excludeModels: ["mock-portrait"] })).toEqual([]);
+    expect(await repos.personaPortraits.readyKeys(r.db, [k], { style: "fantasy", excludeModels: ["mock-portrait"] })).toEqual([k]);
+    // An unknown style is refused on write and the column refuses it in SQL too.
+    await expect(repos.personaPortraits.put(r.db, { key: k, style: "anime" as never, mime: "image/png", content: png(1), model: "m" })).rejects.toMatchObject({ code: "validation" });
+    await expect(r.db.execute(sql`update persona_portraits set style = 'anime' where persona_key = ${k}`)).rejects.toThrow();
+  });
+
   it("refuses keys outside the catalog, empty content and other image types", async () => {
     await expect(repos.personaPortraits.put(r.db, { key: "nobody", mime: "image/png", content: png(1), model: "m" })).rejects.toMatchObject({ code: "validation" });
     await expect(repos.personaPortraits.put(r.db, { key, mime: "image/png", content: new Uint8Array(), model: "m" })).rejects.toMatchObject({ code: "validation" });
@@ -256,6 +286,22 @@ describe("account preference (anthropomorphic_agents)", () => {
     expect((await r.as(r.B.memberId, (tx) => repos.preferences.get(tx, u))).anthropomorphicAgents).toBe(false);
     await expect(r.as(u, (tx) => repos.preferences.update(tx, u, { anthropomorphicAgents: "yes" } as never))).rejects.toMatchObject({ code: "validation" });
   });
+
+  it("0069: the style defaults to humans, round-trips each style as the user, survives the switch, and refuses an unknown one", async () => {
+    const u = r.A.memberId;
+    expect((await r.as(u, (tx) => repos.preferences.get(tx, u))).agentStyle).toBe("humans");
+    for (const style of ["cartoon_3d", "cartoon_2d", "fantasy", "humans"] as const) {
+      expect((await r.as(u, (tx) => repos.preferences.update(tx, u, { agentStyle: style }))).agentStyle).toBe(style);
+      expect((await r.as(u, (tx) => repos.preferences.get(tx, u))).agentStyle).toBe(style);
+    }
+    // The switch and the style travel together or apart; turning the switch off keeps the style for next time.
+    expect(await r.as(u, (tx) => repos.preferences.update(tx, u, { anthropomorphicAgents: true, agentStyle: "fantasy" }))).toMatchObject({ anthropomorphicAgents: true, agentStyle: "fantasy" });
+    expect(await r.as(u, (tx) => repos.preferences.update(tx, u, { anthropomorphicAgents: false }))).toMatchObject({ anthropomorphicAgents: false, agentStyle: "fantasy" });
+    expect((await r.as(r.B.memberId, (tx) => repos.preferences.get(tx, r.B.memberId))).agentStyle).toBe("humans");
+    await expect(r.as(u, (tx) => repos.preferences.update(tx, u, { agentStyle: "anime" } as never))).rejects.toMatchObject({ code: "validation" });
+    await expect(r.db.execute(sql`update account_preferences set agent_style = 'anime' where user_id = ${u}::uuid`)).rejects.toThrow();
+    await r.as(u, (tx) => repos.preferences.update(tx, u, { agentStyle: "humans" }));
+  });
 });
 
 describe("the display preference rides with the membership (repos.memberships.access)", () => {
@@ -263,13 +309,13 @@ describe("the display preference rides with the membership (repos.memberships.ac
     const userId = r.A.ownerId;
     try {
       await r.db.delete(s.accountPreferences).where(eq(s.accountPreferences.userId, userId));
-      expect((await repos.memberships.access(r.db, r.A.businessId, userId)).anthropomorphicAgents).toBe(false);
-      await repos.preferences.update(r.db, userId, { anthropomorphicAgents: true });
-      expect((await repos.memberships.access(r.db, r.A.businessId, userId)).anthropomorphicAgents).toBe(true);
-      // A non-member learns nothing, not even the preference.
-      expect(await repos.memberships.access(r.db, r.B.businessId, userId)).toEqual({ membership: null, business: null, anthropomorphicAgents: false });
+      expect(await repos.memberships.access(r.db, r.A.businessId, userId)).toMatchObject({ anthropomorphicAgents: false, agentStyle: "humans" });
+      await repos.preferences.update(r.db, userId, { anthropomorphicAgents: true, agentStyle: "cartoon_2d" });
+      expect(await repos.memberships.access(r.db, r.A.businessId, userId)).toMatchObject({ anthropomorphicAgents: true, agentStyle: "cartoon_2d" });
+      // A non-member learns nothing, not even the preferences.
+      expect(await repos.memberships.access(r.db, r.B.businessId, userId)).toEqual({ membership: null, business: null, anthropomorphicAgents: false, agentStyle: "humans" });
     } finally {
-      await repos.preferences.update(r.db, userId, { anthropomorphicAgents: false });
+      await repos.preferences.update(r.db, userId, { anthropomorphicAgents: false, agentStyle: "humans" });
     }
   });
 });

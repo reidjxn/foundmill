@@ -286,8 +286,8 @@ describe("repos.memberships.access", () => {
   });
 
   it("answers no membership for a non-member, whether or not the business exists", async () => {
-    expect(await repos.memberships.access(h.db, A.businessId, B.ownerId)).toEqual({ membership: null, business: null, anthropomorphicAgents: false });
-    expect(await repos.memberships.access(h.db, "00000000-0000-4000-8000-0000000000aa", A.ownerId)).toEqual({ membership: null, business: null, anthropomorphicAgents: false });
+    expect(await repos.memberships.access(h.db, A.businessId, B.ownerId)).toEqual({ membership: null, business: null, anthropomorphicAgents: false, agentStyle: "humans" });
+    expect(await repos.memberships.access(h.db, "00000000-0000-4000-8000-0000000000aa", A.ownerId)).toEqual({ membership: null, business: null, anthropomorphicAgents: false, agentStyle: "humans" });
   });
 
   it("answers the membership without the business once the business is archived", async () => {

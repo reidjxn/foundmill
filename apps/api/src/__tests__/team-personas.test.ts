@@ -1,10 +1,11 @@
 /**
- * `team.personas.ensure` (Anthropomorphic agents): a member of the business gets `{ ready, pending, failed }` for the persona keys of
- * that business's own agents and generation starts for the missing ones in the background; anonymous callers and people
+ * `team.personas.ensure` (Anthropomorphic agents): a member of the business gets `{ style, ready, pending, failed }` for the
+ * persona keys of that business's own agents in their own character style, and generation starts for the missing ones in
+ * the background; anonymous callers and people
  * outside the business are refused; one business can never cause, or learn about, another business's faces.
  */
 import { repos } from "@foundmill/db";
-import { AppError, PERSONAS } from "@foundmill/shared";
+import { AppError, PERSONAS, type AgentStyle } from "@foundmill/shared";
 import { TRPCError } from "@trpc/server";
 import { sql } from "drizzle-orm";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
@@ -17,7 +18,7 @@ const KEY_A2 = PERSONAS[101]!.key;
 const KEY_B = PERSONAS[102]!.key;
 const IMAGE = { mime: "image/webp" as const, base64: Buffer.from("RIFF\u0000\u0000\u0000\u0000WEBPVP8 ", "latin1").toString("base64"), model: "test-image-model" };
 
-const asked: { key: string; businessId?: string }[] = [];
+const asked: { key: string; businessId?: string; style?: string }[] = [];
 /** Keys the gateway double refuses for good (as the gateway answers a moderation refusal: 422 portrait_refused). */
 const refuse = new Set<string>();
 let hz: ApiHarness;
@@ -36,8 +37,8 @@ beforeAll(async () => {
     checkDomains: async () => {
       throw new Error("unused");
     },
-    generatePortrait: async (key: string, businessId?: string) => {
-      asked.push({ key, ...(businessId ? { businessId } : {}) });
+    generatePortrait: async (key: string, businessId?: string, style?: AgentStyle) => {
+      asked.push({ key, ...(businessId ? { businessId } : {}), ...(style ? { style } : {}) });
       if (refuse.has(key)) throw new AppError("portrait_refused", "The image service refused to make this portrait.", 422);
       return IMAGE;
     },
@@ -128,14 +129,54 @@ describe("team.personas.ensure", () => {
     expect(first.failed).toEqual([]);
     await portraitsIdle();
     const second = await hz.caller({ userId: hz.A.memberId, email: null }).team.personas.ensure({ businessId: hz.A.businessId });
-    expect(second).toEqual({ ready: [KEY_A2], pending: [], failed: [KEY_A1] });
+    expect(second).toEqual({ style: "humans", ready: [KEY_A2], pending: [], failed: [KEY_A1] });
     await portraitsIdle();
     expect(asked.filter((a) => a.key === KEY_A1)).toHaveLength(1);
   });
 
   it("agents without a persona key add nothing", async () => {
     await hz.db.execute(sql`update agents set persona_key = null where business_id = ${hz.A.businessId}::uuid`);
-    expect(await hz.caller({ userId: hz.A.ownerId, email: null }).team.personas.ensure({ businessId: hz.A.businessId })).toEqual({ ready: [], pending: [], failed: [] });
+    expect(await hz.caller({ userId: hz.A.ownerId, email: null }).team.personas.ensure({ businessId: hz.A.businessId })).toEqual({ style: "humans", ready: [], pending: [], failed: [] });
     expect(asked).toEqual([]);
+  });
+
+  it("0069: answers in the caller's own style, names it, and generates that style; the input cannot name a style", async () => {
+    const member = hz.caller({ userId: hz.A.memberId, email: null });
+    expect((await member.team.personas.ensure({ businessId: hz.A.businessId })).style).toBe("humans");
+    await portraitsIdle();
+    expect(asked.map((a) => a.style)).toEqual(["humans", "humans"]);
+    asked.length = 0;
+    try {
+      await repos.preferences.update(hz.db, hz.A.memberId, { anthropomorphicAgents: true, agentStyle: "fantasy" });
+      const first = await member.team.personas.ensure({ businessId: hz.A.businessId });
+      expect(first.style).toBe("fantasy");
+      expect([...first.pending].sort()).toEqual([KEY_A1, KEY_A2].sort());
+      expect(first.ready).toEqual([]);
+      await portraitsIdle();
+      expect(asked.map((a) => a.style)).toEqual(["fantasy", "fantasy"]);
+      expect(asked.every((a) => a.businessId === hz.A.businessId)).toBe(true);
+      const second = await member.team.personas.ensure({ businessId: hz.A.businessId });
+      expect(second.style).toBe("fantasy");
+      expect([...second.ready].sort()).toEqual([KEY_A1, KEY_A2].sort());
+      // Another member of the same business with another style gets their own answer about the same keys.
+      await repos.preferences.update(hz.db, hz.A.viewerId, { agentStyle: "cartoon_2d" });
+      const viewer = await hz.caller({ userId: hz.A.viewerId, email: null }).team.personas.ensure({ businessId: hz.A.businessId });
+      expect(viewer.style).toBe("cartoon_2d");
+      expect([...viewer.pending].sort()).toEqual([KEY_A1, KEY_A2].sort());
+      await portraitsIdle();
+      expect(asked.filter((a) => a.style === "cartoon_2d")).toHaveLength(2);
+      // The humans faces are still there for whoever has not chosen.
+      expect((await hz.caller({ userId: hz.A.ownerId, email: null }).team.personas.ensure({ businessId: hz.A.businessId })).ready.length).toBe(2);
+      // A style in the input is ignored (the business input drops unknown keys): the style is the caller's preference, never a parameter.
+      asked.length = 0;
+      const forced = await member.team.personas.ensure({ businessId: hz.A.businessId, style: "cartoon_3d" } as never);
+      expect(forced.style).toBe("fantasy");
+      expect([...forced.ready].sort()).toEqual([KEY_A1, KEY_A2].sort());
+      await portraitsIdle();
+      expect(asked).toEqual([]);
+    } finally {
+      await repos.preferences.update(hz.db, hz.A.memberId, { anthropomorphicAgents: false, agentStyle: "humans" });
+      await repos.preferences.update(hz.db, hz.A.viewerId, { agentStyle: "humans" });
+    }
   });
 });

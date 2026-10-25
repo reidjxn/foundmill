@@ -4,28 +4,34 @@
  * Launch step). The app mounts one provider per business with the preference and, when it is on, a way to turn a
  * persona key into a portrait URL; everything that names or pictures an agent reads it:
  *
- * - `nameFor(agent)`: the persona's first name ("Bob"), else the agent's own name. For a table cell or a card title,
+ * - `nameFor(agent)`: the character's name in the account's style ("Bob", "Bramble", "Elowen"), else the agent's own name. For a table cell or a card title,
  *   where the position sits beside it (a Role column, a subtitle).
  * - `labelFor(agent)`: "Bob (Chief of Staff)", else the agent's own name. For a sender, a mention, a heading with no
  *   role beside it. Agents stay AI agents: the position is always shown with a persona name.
  * - `portraitFor(agent)`: the AI-generated face's URL when it exists, else undefined (the Avatar then draws the
  *   department portrait, as it does with the preference off).
  *
+ * The style (`agentStyle`: humans, 3D cartoon humans, 2D cartoon humans and animals, fantasy) picks which character a
+ * persona key stands for; the key itself never changes, so switching style renames and re-pictures the same agents.
  * The rules themselves (`agentDisplayName`, `agentLabel`, `agentPosition`) live in @foundmill/shared/personas. Outside a
  * provider (stories, tests, the landing page) the preference reads as off and every function returns today's value.
  */
 import { createContext, useContext, useMemo, type ReactNode } from "react";
-import { agentDisplayName, agentLabel, agentPosition, personaByKey, type AgentIdentity } from "@foundmill/shared/personas";
+import { DEFAULT_AGENT_STYLE, agentDisplayName, agentLabel, agentPosition, characterFor, type AgentIdentity, type AgentStyle } from "@foundmill/shared/personas";
 
 export interface AgentPersonaProviderValue {
   /** The account's `anthropomorphicAgents` preference. */
   anthropomorphic: boolean;
-  /** The face for a persona key, or null when it is not made yet. Only called while `anthropomorphic` is on. */
+  /** The account's `agentStyle` preference: which character a persona key stands for. Default "humans". */
+  style?: AgentStyle;
+  /** The face for a persona key (in `style`), or null when it is not made yet. Only called while `anthropomorphic` is on. */
   portraitUrl?: (personaKey: string) => string | null | undefined;
 }
 
 export interface AgentPersonaApi {
   anthropomorphic: boolean;
+  /** The style the names and faces are in (humans while the preference is off). */
+  style: AgentStyle;
   /** The first name when the preference is on and the agent has a persona; else the agent's own name. */
   nameFor: (agent: AgentIdentity) => string;
   /** "Bob (Chief of Staff)" when on and the agent has a persona; else the agent's own name. */
@@ -41,6 +47,7 @@ export interface AgentPersonaApi {
 /** Today's behavior: names as stored, no faces. */
 export const AGENT_PERSONA_OFF: AgentPersonaApi = Object.freeze({
   anthropomorphic: false,
+  style: DEFAULT_AGENT_STYLE,
   nameFor: (agent: AgentIdentity) => agent.name,
   labelFor: (agent: AgentIdentity) => agent.name,
   positionFor: (agent: AgentIdentity) => agentPosition(agent),
@@ -52,14 +59,16 @@ export const AGENT_PERSONA_OFF: AgentPersonaApi = Object.freeze({
 export function createAgentPersonaApi(value: AgentPersonaProviderValue): AgentPersonaApi {
   if (!value.anthropomorphic) return AGENT_PERSONA_OFF;
   const portraitUrl = value.portraitUrl;
+  const style = value.style ?? DEFAULT_AGENT_STYLE;
   return {
     anthropomorphic: true,
-    nameFor: (agent) => agentDisplayName(agent, true),
-    labelFor: (agent) => agentLabel(agent, true),
+    style,
+    nameFor: (agent) => agentDisplayName(agent, true, style),
+    labelFor: (agent) => agentLabel(agent, true, style),
     positionFor: (agent) => agentPosition(agent),
-    hasPersona: (agent) => personaByKey(agent.personaKey) !== null,
+    hasPersona: (agent) => characterFor(agent.personaKey, style) !== null,
     portraitFor: (agent) => {
-      if (!agent.personaKey || !personaByKey(agent.personaKey)) return undefined;
+      if (!agent.personaKey || !characterFor(agent.personaKey, style)) return undefined;
       return portraitUrl?.(agent.personaKey) || undefined;
     },
   };
@@ -67,8 +76,8 @@ export function createAgentPersonaApi(value: AgentPersonaProviderValue): AgentPe
 
 const AgentPersonaContext = createContext<AgentPersonaApi>(AGENT_PERSONA_OFF);
 
-export function AgentPersonaProvider({ anthropomorphic, portraitUrl, children }: AgentPersonaProviderValue & { children?: ReactNode }) {
-  const api = useMemo(() => createAgentPersonaApi({ anthropomorphic, portraitUrl }), [anthropomorphic, portraitUrl]);
+export function AgentPersonaProvider({ anthropomorphic, style = DEFAULT_AGENT_STYLE, portraitUrl, children }: AgentPersonaProviderValue & { children?: ReactNode }) {
+  const api = useMemo(() => createAgentPersonaApi({ anthropomorphic, style, portraitUrl }), [anthropomorphic, style, portraitUrl]);
   return <AgentPersonaContext.Provider value={api}>{children}</AgentPersonaContext.Provider>;
 }
 

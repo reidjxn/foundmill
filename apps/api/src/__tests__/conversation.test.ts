@@ -6,7 +6,7 @@
 import { CONVERSATION_MAX_TOKENS, CONVERSATION_RESERVE_TOKENS, REFUSED_REPLY_LINES, hasClubRulesPrefix } from "@foundmill/agents";
 import { inboxItems, repos } from "@foundmill/db";
 import { eq } from "drizzle-orm";
-import { personaByKey } from "@foundmill/shared";
+import { agentDisplayName, personaByKey } from "@foundmill/shared";
 import { MockModelClient, ModelOutputError, PRICING_CURRENCY, type CompleteRequest, type ModelClient } from "@foundmill/models";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import type { ManifestEntityInput } from "@foundmill/entity-linker";
@@ -175,10 +175,18 @@ describe("agent.conversation.send", () => {
       expect(on).toContain(`You are ${persona!.name}, `);
       expect(on).toContain("an AI agent");
       expect(on).toContain("Never claim to be human.");
+      // The founder's character style (0069) picks the name: the same key is an elf or a wizard in the fantasy catalog.
+      await repos.preferences.update(hz.db, hz.A.ownerId, { agentStyle: "fantasy" });
+      const fantasyName = agentDisplayName(agent!, true, "fantasy");
+      expect(fantasyName).not.toBe(persona!.name);
+      const fantasy = await ask();
+      expect(fantasy).toContain(`You are ${fantasyName}, `);
+      expect(fantasy).toContain("an AI agent");
+      // Off ignores the style: the agent goes by its own name again.
       await repos.preferences.update(hz.db, hz.A.ownerId, { anthropomorphicAgents: false });
       expect(await ask()).toContain(`You are ${agent!.name}, `);
     } finally {
-      await repos.preferences.update(hz.db, hz.A.ownerId, { anthropomorphicAgents: false });
+      await repos.preferences.update(hz.db, hz.A.ownerId, { anthropomorphicAgents: false, agentStyle: "humans" });
     }
   });
 

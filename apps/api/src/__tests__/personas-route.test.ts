@@ -1,7 +1,8 @@
 /**
- * `GET /personas/:key` (Anthropomorphic agents): the stored face of a catalog key, public like a static asset (no sign-in),
- * served with the stored mime and a one-day cache; a key outside the catalog, a face not generated yet and a
- * key that only looks like a path are plain 404s that are not cached.
+ * `GET /personas/:style/:key` and `GET /personas/:key` (Anthropomorphic agents, character styles): the stored face of a
+ * catalog key in a style (humans for the short route), public like a static asset (no sign-in), served with the stored
+ * mime and a one-day cache; a key outside the catalog, a style outside AGENT_STYLES, a face not generated yet and a key
+ * that only looks like a path are plain 404s that are not cached.
  */
 import { repos } from "@foundmill/db";
 import { PERSONAS } from "@foundmill/shared";
@@ -127,5 +128,66 @@ describe("GET /personas/:key", () => {
 
   it("does not leak a portrait through a case or whitespace variant of the key", async () => {
     for (const key of [STORED.toUpperCase(), ` ${STORED}`, `${STORED}%20`]) expect((await app.request(`/personas/${key}`)).status, key).toBe(404);
+  });
+});
+
+describe("GET /personas/:style/:key (0069)", () => {
+  const KEY = PERSONAS[14]!.key;
+  const ELF = new Uint8Array(Buffer.from("RIFF\u0000\u0000\u0000\u0000WEBPVP8 elf", "latin1"));
+  const ELF_ETAG = `"${createHash("sha256").update(ELF).digest("hex")}"`;
+
+  beforeAll(async () => {
+    await repos.personaPortraits.put(hz.db, { key: KEY, style: "fantasy", mime: "image/webp", content: ELF, model: "test-image-model" });
+  });
+
+  it("serves the face of the style named with the same headers, and the human form is the short route", async () => {
+    const res = await app.request(`/personas/fantasy/${KEY}`);
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-type")).toBe("image/webp");
+    expect(res.headers.get("cache-control")).toBe("public, max-age=86400");
+    expect(res.headers.get("x-content-type-options")).toBe("nosniff");
+    expect(res.headers.get("cross-origin-resource-policy")).toBe("same-site");
+    expect(res.headers.get("content-security-policy")).toBe("default-src 'none'; sandbox");
+    expect(res.headers.get("etag")).toBe(ELF_ETAG);
+    expect(new Uint8Array(await res.arrayBuffer())).toEqual(ELF);
+    expect((await app.request(`/personas/fantasy/${KEY}`, { headers: { "if-none-match": ELF_ETAG } })).status).toBe(304);
+    // The same key as a human is a different face (STORED has one, KEY does not), whichever route names humans.
+    const human = await app.request(`/personas/humans/${STORED}`);
+    expect(human.status).toBe(200);
+    expect(human.headers.get("etag")).toBe(ETAG);
+    expect((await app.request(`/personas/${STORED}`)).headers.get("etag")).toBe(ETAG);
+    expect((await app.request(`/personas/humans/${KEY}`)).status).toBe(404);
+    expect((await app.request(`/personas/${KEY}`)).status).toBe(404);
+  });
+
+  it("is a 404 that is not cached for a style with no face yet, and for an unknown style without touching the table", async () => {
+    const missing = await app.request(`/personas/cartoon_3d/${KEY}`);
+    expect(missing.status).toBe(404);
+    expect(missing.headers.get("cache-control")).toBe("no-store");
+    const get = vi.spyOn(repos.personaPortraits, "get");
+    for (const style of ["anime", "Fantasy", "humans%20", "fantasy%2F", "x".repeat(200)]) {
+      const res = await app.request(`/personas/${style}/${KEY}`);
+      expect(res.status, style).toBe(404);
+      expect(res.headers.get("cache-control"), style).toBe("no-store");
+    }
+    expect(get).not.toHaveBeenCalled();
+    // An unknown key in a known style is a 404 without a read too.
+    expect((await app.request("/personas/fantasy/not-a-persona")).status).toBe(404);
+    expect(get).not.toHaveBeenCalled();
+  });
+
+  it("caches per character: the human and fantasy faces of one key are two entries", async () => {
+    resetPortraitState();
+    await repos.personaPortraits.put(hz.db, { key: KEY, style: "humans", mime: "image/png", content: new Uint8Array([0x89, 0x50, 0x4e, 0x47]), model: "mock-portrait" });
+    const get = vi.spyOn(repos.personaPortraits, "get");
+    expect((await app.request(`/personas/fantasy/${KEY}`)).headers.get("content-type")).toBe("image/webp");
+    expect((await app.request(`/personas/humans/${KEY}`)).headers.get("content-type")).toBe("image/png");
+    expect((await app.request(`/personas/${KEY}`)).headers.get("content-type")).toBe("image/png");
+    expect((await app.request(`/personas/fantasy/${KEY}`)).headers.get("content-type")).toBe("image/webp");
+    expect(get).toHaveBeenCalledTimes(2);
+    expect(cachedPortraitCount()).toBe(2);
+    invalidateStoredPortrait(KEY, "fantasy");
+    await app.request(`/personas/fantasy/${KEY}`);
+    expect(get).toHaveBeenCalledTimes(3);
   });
 });

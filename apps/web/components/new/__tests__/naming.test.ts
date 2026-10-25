@@ -150,12 +150,17 @@ describe("commit screen: form (AC-11.1.6, AC-11.1.7)", () => {
   it("builds the idea.commit input", () => {
     const form = initialCommitForm({ title: "Ledgerly", archetype: "b2b_saas" }, { primary: "1B4FD8", secondary: "#f5c400" }, "SEK");
     expect(form.logo).toBeNull();
-    expect(commitInput(IDEA, { ...form, spendCap: "1 250" })).toEqual({ ideaId: IDEA, name: "Ledgerly", gameMode: "personal", archetype: "b2b_saas", businessMode: "assisted", kit: { primary: "#1b4fd8", secondary: "#f5c400" }, logo: null, currency: "SEK", spendCapMinor: 125_000, autopilot: false, anthropomorphicAgents: false });
+    expect(commitInput(IDEA, { ...form, spendCap: "1 250" })).toEqual({ ideaId: IDEA, name: "Ledgerly", gameMode: "personal", archetype: "b2b_saas", businessMode: "assisted", kit: { primary: "#1b4fd8", secondary: "#f5c400" }, logo: null, currency: "SEK", spendCapMinor: 125_000, autopilot: false, anthropomorphicAgents: false, agentStyle: "humans" });
     expect(commitInput(IDEA, { ...form, spendCap: "" }).spendCapMinor).toBeNull();
     // The Launch step's Anthropomorphic agents choice starts as the account preference and travels with idea.commit.
     const on = initialCommitForm({ title: "Ledgerly", archetype: "b2b_saas" }, DEFAULT_KIT, "SEK", true);
     expect(on.anthropomorphicAgents).toBe(true);
     expect(commitInput(IDEA, on).anthropomorphicAgents).toBe(true);
+    // The style starts as the account preference (Humans without one) and travels with idea.commit.
+    expect(on.agentStyle).toBe("humans");
+    const fantasy = initialCommitForm({ title: "Ledgerly", archetype: "b2b_saas" }, DEFAULT_KIT, "SEK", true, "fantasy");
+    expect(fantasy.agentStyle).toBe("fantasy");
+    expect(commitInput(IDEA, fantasy).agentStyle).toBe("fantasy");
     // Autopilot is off unless the founder chose it.
     expect(initialCommitForm({ title: "Ledgerly", archetype: "b2b_saas" }, DEFAULT_KIT, "EUR").autopilot).toBe(false);
     expect(commitInput(IDEA, { ...form, autopilot: true }).autopilot).toBe(true);

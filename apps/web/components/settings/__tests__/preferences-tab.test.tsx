@@ -8,10 +8,11 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ToastProvider, TooltipProvider, useFormatters, useGuidance, type DateFormatPrefs } from "@foundmill/dugout";
+import { AGENT_STYLE_META, type AgentStyle } from "@foundmill/shared/personas";
 import type * as SharedModule from "../shared";
 
-type Guidance = { guidance: "on" | "off"; textSize: "standard" | "comfortable"; explainersSeen: Record<string, true>; toursDone: Record<string, true>; checklistDismissedAt: string | null; anthropomorphicAgents: boolean };
-type Change = Partial<DateFormatPrefs> & Partial<{ guidance: Guidance["guidance"]; textSize: Guidance["textSize"]; explainersSeen: Record<string, true>; toursDone: Record<string, true>; checklistDismissed: boolean; anthropomorphicAgents: boolean; reset: true }>;
+type Guidance = { guidance: "on" | "off"; textSize: "standard" | "comfortable"; explainersSeen: Record<string, true>; toursDone: Record<string, true>; checklistDismissedAt: string | null; anthropomorphicAgents: boolean; agentStyle?: AgentStyle };
+type Change = Partial<DateFormatPrefs> & Partial<{ guidance: Guidance["guidance"]; textSize: Guidance["textSize"]; explainersSeen: Record<string, true>; toursDone: Record<string, true>; checklistDismissed: boolean; anthropomorphicAgents: boolean; agentStyle: AgentStyle; reset: true }>;
 
 const BUSINESS = "b1e5e5e5-0000-4000-8000-000000000001";
 const PREFS_KEY = [["founder", "preferences", "get"], { type: "query" }];
@@ -21,12 +22,13 @@ const guidanceDefaults = (): Guidance => ({ guidance: "on", textSize: "standard"
 let stored: DateFormatPrefs = { date: "us", time: "12h" };
 let guidanceStored: Guidance = guidanceDefaults();
 async function serverUpdate(change: Change) {
-  const { date, time, guidance, textSize, explainersSeen, toursDone, checklistDismissed, anthropomorphicAgents, reset } = change;
+  const { date, time, guidance, textSize, explainersSeen, toursDone, checklistDismissed, anthropomorphicAgents, agentStyle, reset } = change;
   stored = { ...stored, ...(date ? { date } : {}), ...(time ? { time } : {}) };
   const next: Guidance = { ...guidanceStored, explainersSeen: { ...guidanceStored.explainersSeen }, toursDone: { ...guidanceStored.toursDone } };
   if (guidance) next.guidance = guidance;
   if (textSize) next.textSize = textSize;
   if (anthropomorphicAgents !== undefined) next.anthropomorphicAgents = anthropomorphicAgents;
+  if (agentStyle) next.agentStyle = agentStyle;
   if (reset) Object.assign(next, { explainersSeen: {}, toursDone: {}, checklistDismissedAt: null });
   for (const id of Object.keys(explainersSeen ?? {})) next.explainersSeen[id] = true;
   for (const id of Object.keys(toursDone ?? {})) next.toursDone[id] = true;
@@ -127,7 +129,10 @@ describe("Anthropomorphic agents switch", () => {
     expect(screen.getByLabelText("Anthropomorphic agents")).toBe(sw);
     expect(screen.getByTestId("anthropomorphic-panel").textContent).toContain(ANTHROPOMORPHIC_EXPLAINER);
     expect(ANTHROPOMORPHIC_EXPLAINER).toMatch(/still AI agents/);
-    expect(ANTHROPOMORPHIC_EXPLAINER).toMatch(/AI-generated face/);
+    expect(ANTHROPOMORPHIC_EXPLAINER).toMatch(/AI-generated picture/);
+    expect(ANTHROPOMORPHIC_EXPLAINER).toMatch(/fantasy characters/);
+    // Off: no style to choose.
+    expect(screen.queryByTestId("agent-style-picker")).toBeNull();
   });
 
   it("saves at once through founder.preferences.update, says so, and can be switched back", async () => {
@@ -137,12 +142,59 @@ describe("Anthropomorphic agents switch", () => {
     await waitFor(() => expect(update).toHaveBeenCalledWith({ anthropomorphicAgents: true }));
     await waitFor(() => expect(screen.getByTestId("anthropomorphic-switch").getAttribute("aria-checked")).toBe("true"));
     await waitFor(() => expect(saved).toHaveBeenCalledTimes(1));
-    expect(saved.mock.calls[0]?.[0]).toBe("Anthropomorphic agents on");
+    expect(saved.mock.calls[0]?.[0]).toBe("Anthropomorphic agents on: Humans");
     fireEvent.click(screen.getByTestId("anthropomorphic-switch"));
     await waitFor(() => expect(update).toHaveBeenLastCalledWith({ anthropomorphicAgents: false }));
     await waitFor(() => expect(saved).toHaveBeenCalledTimes(2));
     expect(saved.mock.calls[1]?.[0]).toBe("Anthropomorphic agents off");
     expect(guidanceStored.anthropomorphicAgents).toBe(false);
+  });
+
+  it("with the switch on, offers the four styles, starting at Humans when the account has none", async () => {
+    guidanceStored = { ...guidanceDefaults(), anthropomorphicAgents: true };
+    mount();
+    const picker = await screen.findByRole("radiogroup", { name: "Style" });
+    expect(picker).toBeTruthy();
+    for (const style of ["humans", "cartoon_3d", "cartoon_2d", "fantasy"] as const) {
+      const card = screen.getByRole("radio", { name: AGENT_STYLE_META[style].label });
+      expect(card.textContent).toContain(AGENT_STYLE_META[style].description);
+      expect(card.getAttribute("aria-checked")).toBe(style === "humans" ? "true" : "false");
+    }
+  });
+
+  it("saves a style at once, names it in the toast, and choosing the same one saves nothing", async () => {
+    guidanceStored = { ...guidanceDefaults(), anthropomorphicAgents: true };
+    mount();
+    fireEvent.click(await screen.findByRole("radio", { name: "Humans" }));
+    await new Promise((r) => setTimeout(r, 20));
+    expect(update).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("radio", { name: "Fantasy" }));
+    await waitFor(() => expect(update).toHaveBeenCalledWith({ agentStyle: "fantasy" }));
+    await waitFor(() => expect(saved).toHaveBeenCalledTimes(1));
+    expect(saved.mock.calls[0]?.[0]).toBe("Anthropomorphic agents on: Fantasy");
+    expect(screen.getByRole("radio", { name: "Fantasy" }).getAttribute("aria-checked")).toBe("true");
+    expect(guidanceStored.agentStyle).toBe("fantasy");
+  });
+
+  it("shows the saved style, and keeps it when the switch goes off and on", async () => {
+    guidanceStored = { ...guidanceDefaults(), anthropomorphicAgents: true, agentStyle: "cartoon_2d" };
+    mount();
+    expect((await screen.findByRole("radio", { name: AGENT_STYLE_META.cartoon_2d.label })).getAttribute("aria-checked")).toBe("true");
+    fireEvent.click(screen.getByTestId("anthropomorphic-switch"));
+    await waitFor(() => expect(screen.queryByTestId("agent-style-picker")).toBeNull());
+    await waitFor(() => expect(saved).toHaveBeenCalledTimes(1));
+    expect(saved.mock.calls[0]?.[0]).toBe("Anthropomorphic agents off");
+    fireEvent.click(screen.getByTestId("anthropomorphic-switch"));
+    expect((await screen.findByRole("radio", { name: AGENT_STYLE_META.cartoon_2d.label })).getAttribute("aria-checked")).toBe("true");
+  });
+
+  it("rolls back a style and reports when its save fails", async () => {
+    guidanceStored = { ...guidanceDefaults(), anthropomorphicAgents: true };
+    mount();
+    update.mockRejectedValueOnce(new Error("nope"));
+    fireEvent.click(await screen.findByRole("radio", { name: "Fantasy" }));
+    await waitFor(() => expect(failed).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(screen.getByRole("radio", { name: "Humans" }).getAttribute("aria-checked")).toBe("true"));
   });
 
   it("rolls back and reports when the save fails", async () => {
@@ -154,7 +206,10 @@ describe("Anthropomorphic agents switch", () => {
   });
 
   it("words the toast for each state", () => {
-    expect(anthropomorphicSavedLine(true).description).toContain("AI-generated face");
+    expect(anthropomorphicSavedLine(true, "cartoon_3d").title).toBe("Anthropomorphic agents on: 3D cartoon humans");
+    expect(anthropomorphicSavedLine(true, "fantasy").description).toContain("AI-generated picture");
+    expect(anthropomorphicSavedLine(true).title).toBe("Anthropomorphic agents on: Humans");
+    expect(anthropomorphicSavedLine(false, "fantasy").title).toBe("Anthropomorphic agents off");
     expect(anthropomorphicSavedLine(false).description).toContain("by role");
   });
 });

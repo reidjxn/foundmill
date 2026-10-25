@@ -2,16 +2,26 @@ import { expect, test, type Page } from "@playwright/test";
 import { LONG, devApi, openBusiness, settingsScreen, settled, toast } from "./helpers";
 
 /**
- * Anthropomorphic agents (founder, 2026-10-22): Settings › Preferences has a switch; on, every agent is named by a human
- * first name beside its position ("Malik (Chief of Staff)") and pictured with an AI-generated face; off, agents read
- * exactly as before. Runs on the seeded Northwind Skincare in mock mode (the mock image connector makes a placeholder
- * face). The dev founder is shared by every spec, so the account's choice found before is put back afterwards.
+ * Anthropomorphic agents (founder, 2026-10-22; styles 2026-10-24): Settings › Preferences has a switch; on, every agent is
+ * named by a first name beside its position ("Malik (Chief of Staff)") and pictured with an AI-generated face; off, agents
+ * read exactly as before. With the switch on, a Style choice (Humans, 3D cartoon humans, 2D cartoon humans and animals,
+ * Fantasy) picks which character each agent is: the same agent is "Malik" in Humans and a fantasy name in Fantasy, with
+ * its position beside the name either way, and Humans brings the human name back. Runs on the seeded Northwind Skincare in
+ * mock mode (the mock image connector makes a placeholder picture for every style). The dev founder is shared by every
+ * spec, so the account's choice found before (switch and style) is put back afterwards.
  * Stack and commands: e2e/README.md.
  */
-type Guidance = { anthropomorphicAgents?: boolean };
+type Style = "humans" | "cartoon_3d" | "cartoon_2d" | "fantasy";
+type Guidance = { anthropomorphicAgents?: boolean; agentStyle?: Style };
+
+/** The radio card's name for each style (AGENT_STYLE_META labels). */
+const STYLE_LABEL: Record<Style, string> = { humans: "Humans", cartoon_3d: "3D cartoon humans", cartoon_2d: "2D cartoon humans and animals", fantasy: "Fantasy" };
 
 /** "Malik (Chief of Staff)": a first name, then the position in brackets. */
 const NAME_WITH_POSITION = /^[\p{L}]+ \(.+\)$/u;
+
+/** A name of any script or punctuation ("Mal'Kor"), then the position in brackets. */
+const ANY_NAME_WITH_POSITION = /^(.+?) \((.+)\)$/u;
 
 async function setSwitch(page: Page, on: boolean): Promise<void> {
   await openBusiness(page, "settings/preferences");
@@ -21,9 +31,30 @@ async function setSwitch(page: Page, on: boolean): Promise<void> {
   const isOn = (await toggle.getAttribute("aria-checked")) === "true";
   if (isOn !== on) {
     await toggle.click();
-    await expect(toast(page, on ? "Anthropomorphic agents on" : "Anthropomorphic agents off")).toBeVisible({ timeout: LONG });
+    // On names the style that is in force (the account's, Humans after the reset in beforeAll).
+    await expect(toast(page, on ? /^Anthropomorphic agents on: .+$/ : "Anthropomorphic agents off")).toBeVisible({ timeout: LONG });
   }
   await expect(toggle).toHaveAttribute("aria-checked", String(on));
+}
+
+/** Switches the faces on and chooses a style in Settings › Preferences; the toast names it. */
+async function chooseStyle(page: Page, style: Style): Promise<void> {
+  await setSwitch(page, true);
+  const card = settingsScreen(page).getByRole("radio", { name: STYLE_LABEL[style], exact: true });
+  await expect(card).toBeVisible({ timeout: LONG });
+  if ((await card.getAttribute("aria-checked")) !== "true") {
+    await card.click();
+    await expect(toast(page, `Anthropomorphic agents on: ${STYLE_LABEL[style]}`)).toBeVisible({ timeout: LONG });
+  }
+  await expect(card).toHaveAttribute("aria-checked", "true");
+}
+
+/** The first Inbox sender's label ("Name (Position)") with the account's style as it is now. */
+async function firstSenderLabel(page: Page): Promise<string> {
+  await openInbox(page);
+  const sender = page.getByTestId("row-sender").first();
+  await expect(sender, "the seed gives Northwind notes from agents with a persona").toBeVisible({ timeout: LONG });
+  return (await sender.textContent())?.trim() ?? "";
 }
 
 async function openInbox(page: Page): Promise<void> {
@@ -33,20 +64,23 @@ async function openInbox(page: Page): Promise<void> {
 
 test.describe("anthropomorphic agents", () => {
   let before = false;
+  let beforeStyle: Style = "humans";
 
   test.beforeAll(async ({ playwright }) => {
     const api = await devApi(playwright);
     const res = await api.get("/trpc/founder.preferences.guidance");
     expect(res.ok(), `founder.preferences.guidance answered ${res.status()}`).toBe(true);
-    before = ((await res.json()) as { result: { data: { json: Guidance } } }).result.data.json.anthropomorphicAgents === true;
-    const reset = await api.post("/trpc/founder.preferences.update", { data: { json: { anthropomorphicAgents: false } } });
+    const found = ((await res.json()) as { result: { data: { json: Guidance } } }).result.data.json;
+    before = found.anthropomorphicAgents === true;
+    beforeStyle = found.agentStyle ?? "humans";
+    const reset = await api.post("/trpc/founder.preferences.update", { data: { json: { anthropomorphicAgents: false, agentStyle: "humans" } } });
     expect(reset.ok(), await reset.text()).toBe(true);
     await api.dispose();
   });
 
   test.afterAll(async ({ playwright }) => {
     const api = await devApi(playwright);
-    const res = await api.post("/trpc/founder.preferences.update", { data: { json: { anthropomorphicAgents: before } } });
+    const res = await api.post("/trpc/founder.preferences.update", { data: { json: { anthropomorphicAgents: before, agentStyle: beforeStyle } } });
     expect(res.ok(), await res.text()).toBe(true);
     await api.dispose();
   });
@@ -59,6 +93,8 @@ test.describe("anthropomorphic agents", () => {
     await expect(toggle).toHaveAttribute("aria-checked", "false");
     await expect(screen.getByTestId("anthropomorphic-panel")).toContainText("They are still AI agents");
     await expect(screen.getByTestId("anthropomorphic-panel")).toContainText("Off shows them by role.");
+    // Off: no style to choose.
+    await expect(screen.getByRole("radiogroup", { name: "Style" })).toHaveCount(0);
 
     await openInbox(page);
     await expect(page.getByTestId("row-sender")).toHaveCount(0);
@@ -113,6 +149,56 @@ test.describe("anthropomorphic agents", () => {
     for (const text of await names.allTextContents()) expect(text).not.toMatch(/\(/);
     // The mock image connector makes a face for each persona; the page asks again every 15 seconds until they are ready.
     await expect.poll(async () => page.locator("img[data-avatar='photo']").count(), { timeout: 45_000, intervals: [1_000, 3_000, 5_000] }).toBeGreaterThan(0);
+    await setSwitch(page, false);
+  });
+
+  test("style: Settings offers four styles when on; Fantasy gives the same agent a fantasy name with its position beside it, and Humans brings the human name back", async ({ page }) => {
+    await setSwitch(page, true);
+    const group = settingsScreen(page).getByRole("radiogroup", { name: "Style" });
+    await expect(group).toBeVisible({ timeout: LONG });
+    await expect(group.getByRole("radio")).toHaveCount(4);
+    for (const style of Object.keys(STYLE_LABEL) as Style[]) await expect(group.getByRole("radio", { name: STYLE_LABEL[style], exact: true })).toBeVisible();
+    await expect(group.getByRole("radio", { name: STYLE_LABEL.humans, exact: true })).toHaveAttribute("aria-checked", "true");
+
+    const humanLabel = await firstSenderLabel(page);
+    expect(humanLabel).toMatch(NAME_WITH_POSITION);
+    const humanPosition = ANY_NAME_WITH_POSITION.exec(humanLabel)![2];
+
+    // Fantasy: a different name, the same position beside it, still marked as an AI agent on the profile.
+    await openBusiness(page, "settings/preferences");
+    await chooseStyle(page, "fantasy");
+    const fantasyLabel = await firstSenderLabel(page);
+    const fantasy = ANY_NAME_WITH_POSITION.exec(fantasyLabel);
+    expect(fantasy, `"${fantasyLabel}" should read "Name (Position)"`).not.toBeNull();
+    expect(fantasy![1]).not.toBe(humanLabel.split(" (")[0]);
+    expect(fantasy![2]).toBe(humanPosition);
+    await page.locator("[data-inbox-row]").filter({ has: page.getByTestId("row-sender") }).first().click();
+    await page.getByTestId("persona-link").click();
+    await expect(page.getByTestId("agent-profile")).toBeVisible({ timeout: LONG });
+    await expect(page.getByTestId("agent-profile")).toContainText(fantasy![1]!);
+    await expect(page.getByTestId("agent-profile")).toContainText("AI agent");
+
+    // The choice is the account's, so it survives a reload; the pictures come from the Fantasy route.
+    await page.reload();
+    await expect.poll(async () => page.locator("img[data-avatar='photo']").evaluateAll((imgs) => imgs.map((i) => (i as HTMLImageElement).src)), { timeout: 45_000, intervals: [1_000, 3_000, 5_000] }).toEqual(
+      expect.arrayContaining([expect.stringContaining("/personas/fantasy/")]),
+    );
+
+    // Back to Humans: the human name returns.
+    await openBusiness(page, "settings/preferences");
+    await chooseStyle(page, "humans");
+    expect(await firstSenderLabel(page)).toBe(humanLabel);
+    await setSwitch(page, false);
+  });
+
+  test("style: 3D cartoon and 2D cartoon each name agents with a position beside the name", async ({ page }) => {
+    for (const style of ["cartoon_3d", "cartoon_2d"] as const) {
+      await openBusiness(page, "settings/preferences");
+      await chooseStyle(page, style);
+      expect(await firstSenderLabel(page)).toMatch(ANY_NAME_WITH_POSITION);
+    }
+    await openBusiness(page, "settings/preferences");
+    await chooseStyle(page, "humans");
     await setSwitch(page, false);
   });
 });

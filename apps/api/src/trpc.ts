@@ -14,7 +14,7 @@ import { isModelBillingError } from "@foundmill/models";
 import { assertAllowlisted } from "./services/access";
 import { modelBillingAppError } from "./services/model-errors";
 import { writeEventRow } from "./services/events";
-import { AppError, ConflictError, NotFoundError, WRITE_ROLES, effectivePermission, type Actor, type EventType, type MembershipRole, type PermissionLevel, type Section } from "@foundmill/shared";
+import { AppError, ConflictError, DEFAULT_AGENT_STYLE, NotFoundError, WRITE_ROLES, effectivePermission, isAgentStyle, type Actor, type AgentStyle, type EventType, type MembershipRole, type PermissionLevel, type Section } from "@foundmill/shared";
 import type { Context } from "./context";
 
 export const Id = z.guid();
@@ -36,6 +36,8 @@ export interface BusinessContext extends Context {
   role: MembershipRole;
   /** The signed-in person's "Anthropomorphic agents" preference, read with the membership (no extra round trip). */
   anthropomorphicAgents?: boolean;
+  /** The character style of those agents (humans when the person never chose), read with the membership too. */
+  agentStyle?: AgentStyle;
   /** Runs fn inside a transaction as the signed-in user so Postgres RLS enforces tenancy. */
   rls: RlsRunner;
 }
@@ -289,6 +291,8 @@ export interface BusinessAccess {
   business: Business | null;
   /** The person's anthropomorphic-agents preference (false without a preferences row). */
   anthropomorphicAgents?: boolean;
+  /** The person's character style for them (humans without a preferences row). */
+  agentStyle?: AgentStyle;
 }
 
 /**
@@ -328,7 +332,7 @@ function businessBase(options: { includeArchived: boolean }) {
     if (!access.business) throw new NotFoundError("business", input.businessId);
     const business = access.business;
     const rls: RlsRunner = (fn) => withRls(ctx.db, { userId: ctx.userId, claims: ctx.email ? { email: ctx.email } : undefined }, fn);
-    const bctx: BusinessContext = { ...ctx, businessId: input.businessId, business, membership, role: membership.role, anthropomorphicAgents: access.anthropomorphicAgents === true, rls };
+    const bctx: BusinessContext = { ...ctx, businessId: input.businessId, business, membership, role: membership.role, anthropomorphicAgents: access.anthropomorphicAgents === true, agentStyle: isAgentStyle(access.agentStyle) ? access.agentStyle : DEFAULT_AGENT_STYLE, rls };
     return next({ ctx: bctx });
   });
 }
