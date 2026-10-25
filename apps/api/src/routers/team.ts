@@ -2,7 +2,7 @@
 import { TEMPLATE_KEYS, getTemplate, hasTemplate, listTemplates } from "@foundmill/agents";
 import { CREDITS_CURRENCY } from "@foundmill/config";
 import { SectionPermissions, assertSeatAvailable, repos, type AgentRosterActivity } from "@foundmill/db";
-import { ConflictError, DECISION_TYPES, ForbiddenError, MEMBERSHIP_ROLES, NotFoundError, ValidationError } from "@foundmill/shared";
+import { ConflictError, DECISION_TYPES, DEFAULT_AGENT_STYLE, ForbiddenError, MEMBERSHIP_ROLES, NotFoundError, ValidationError } from "@foundmill/shared";
 import { z } from "zod";
 import { pendingApprovals, resolveApproval } from "../services/approvals";
 import { modelLimited } from "../services/model-limits";
@@ -47,18 +47,22 @@ export function latestUpdate(latest: NonNullable<AgentRosterActivity["latest"]>)
 export const teamRouter = router({
   /**
    * The faces of anthropomorphic agents. `ensure` (any member of the business: the faces show in the shell, so it is not a
-   * Team-section permission) says which of the business's agents' persona keys have a portrait, and starts generating the
-   * missing ones in the background (services/personas.ts: deduped, three at a time, never awaited, with a backoff shared
-   * across replicas). `{ ready, pending, failed }`: `failed` holds the keys refused for good (moderation, a key the gateway
-   * does not know), which are not tried again. The web polls it until `pending` is empty, loads each ready face from
-   * `GET /personas/:key` and keeps the drawn portrait for a failed one. Keys are read from this business's own agents
-   * under RLS; the input carries nothing but the business, so a caller cannot ask for a key of another business.
+   * Team-section permission) says which of the business's agents' persona keys have a portrait in the caller's own
+   * character style (`ctx.agentStyle`, their account preference; humans until chosen), and starts generating the missing
+   * ones in the background (services/personas.ts: deduped, three at a time, never awaited, with a backoff shared across
+   * replicas). `{ style, ready, pending, failed }`: `style` is the one the answer is about, `failed` holds the keys refused
+   * for good (moderation, a key the gateway does not know), which are not tried again. The web polls it until `pending`
+   * is empty, loads each ready face from `GET /personas/:style/:key` and keeps the drawn portrait for a failed one. Keys
+   * are read from this business's own agents under RLS; the input carries nothing but the business, so a caller cannot
+   * ask for a key of another business, nor for a style other than their own.
    */
   personas: router({
     ensure: businessProcedure.query(async ({ ctx }) => {
       const agents = await ctx.rls((tx) => repos.agents.list(tx, ctx.businessId, { limit: 500 }));
       const keys = [...new Set(agents.items.map((a) => a.personaKey).filter((k): k is string => typeof k === "string"))];
-      return ensurePortraits(ctx, keys, { businessId: ctx.businessId });
+      const style = ctx.agentStyle ?? DEFAULT_AGENT_STYLE;
+      const status = await ensurePortraits(ctx, keys, { businessId: ctx.businessId, style });
+      return { style, ...status };
     }),
   }),
 

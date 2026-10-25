@@ -5,7 +5,7 @@
  * EntityLink lookup never hands out another business's agent's key, and the boot backfill is idempotent and never throws.
  */
 import { repos, entities as entitiesTable, agents as agentsTable } from "@foundmill/db";
-import { personaByKey } from "@foundmill/shared";
+import { personaByKey, type AgentStyle } from "@foundmill/shared";
 import { eq, isNull } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { backfillPersonasOnBoot } from "../services/persona-backfill";
@@ -24,7 +24,7 @@ async function founder(email: string) {
   return { userId, caller };
 }
 
-async function commit(caller: Awaited<ReturnType<typeof founder>>["caller"], name: string, extra: { anthropomorphicAgents?: boolean } = {}) {
+async function commit(caller: Awaited<ReturnType<typeof founder>>["caller"], name: string, extra: { anthropomorphicAgents?: boolean; agentStyle?: AgentStyle } = {}) {
   const generated = await caller.idea.generate({ prompt: `${name} for small teams` });
   return caller.idea.commit({ ideaId: generated.ideas[0]!.id, name, archetype: "b2b_saas", gameMode: "personal", ...extra });
 }
@@ -42,6 +42,20 @@ describe("idea.commit and the Launch step's switch", () => {
     await commit(caller, "Third Off", { anthropomorphicAgents: false });
     expect((await caller.founder.preferences.guidance()).anthropomorphicAgents).toBe(false);
     await expect(commit(caller, "Bad Input", { anthropomorphicAgents: "yes" as never })).rejects.toMatchObject({ code: "BAD_REQUEST" });
+  });
+
+  it("0069: the Launch step's style goes on the account with the switch, alone or together; leaving it out changes nothing", async () => {
+    const { caller } = await founder("persona-launch-style@test.local");
+    expect(await caller.founder.preferences.guidance()).toMatchObject({ anthropomorphicAgents: false, agentStyle: "humans" });
+    await commit(caller, "Elves And Wizards", { anthropomorphicAgents: true, agentStyle: "fantasy" });
+    expect(await caller.founder.preferences.guidance()).toMatchObject({ anthropomorphicAgents: true, agentStyle: "fantasy" });
+    await commit(caller, "Style Only", { agentStyle: "cartoon_2d" });
+    expect(await caller.founder.preferences.guidance()).toMatchObject({ anthropomorphicAgents: true, agentStyle: "cartoon_2d" });
+    await commit(caller, "Switch Only");
+    expect(await caller.founder.preferences.guidance()).toMatchObject({ anthropomorphicAgents: true, agentStyle: "cartoon_2d" });
+    await commit(caller, "Off Keeps Style", { anthropomorphicAgents: false });
+    expect(await caller.founder.preferences.guidance()).toMatchObject({ anthropomorphicAgents: false, agentStyle: "cartoon_2d" });
+    await expect(commit(caller, "Bad Style", { agentStyle: "anime" as never })).rejects.toMatchObject({ code: "BAD_REQUEST" });
   });
 
   it("a preference that fails to save never fails the commit", async () => {

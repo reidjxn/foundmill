@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { render, screen } from "@testing-library/react";
+import { AGENT_STYLES, characterFor } from "@foundmill/shared/personas";
 import { AGENT_PERSONA_OFF, AgentPersonaProvider, createAgentPersonaApi, useAgentPersona } from "./AgentPersona";
 
 const cos = { name: "Chief of Staff", role: "Chief of Staff", personaKey: "malik" };
@@ -45,6 +46,39 @@ describe("createAgentPersonaApi", () => {
   });
 });
 
+describe("createAgentPersonaApi with a style", () => {
+  it("defaults to humans: the same names as before", () => {
+    const api = createAgentPersonaApi({ anthropomorphic: true });
+    expect(api.style).toBe("humans");
+    expect(api.nameFor(cos)).toBe("Malik");
+    expect(AGENT_PERSONA_OFF.style).toBe("humans");
+  });
+
+  it("names the agent by the character its key stands for in each style, with the position beside it", () => {
+    for (const style of AGENT_STYLES) {
+      const api = createAgentPersonaApi({ anthropomorphic: true, style });
+      const name = characterFor("malik", style)!.name;
+      expect(api.style).toBe(style);
+      expect(api.nameFor(cos)).toBe(name);
+      expect(api.labelFor(cos)).toBe(`${name} (Chief of Staff)`);
+      expect(api.hasPersona(cos)).toBe(true);
+    }
+  });
+
+  it("asks for the face by the same key whatever the style", () => {
+    const seen: string[] = [];
+    const api = createAgentPersonaApi({ anthropomorphic: true, style: "fantasy", portraitUrl: (k) => (seen.push(k), `/personas/fantasy/${k}`) });
+    expect(api.portraitFor(cos)).toBe("/personas/fantasy/malik");
+    expect(seen).toEqual(["malik"]);
+  });
+
+  it("off ignores the style", () => {
+    const api = createAgentPersonaApi({ anthropomorphic: false, style: "fantasy" });
+    expect(api).toBe(AGENT_PERSONA_OFF);
+    expect(api.labelFor(cos)).toBe("Chief of Staff");
+  });
+});
+
 describe("AgentPersonaProvider", () => {
   function Probe() {
     const p = useAgentPersona();
@@ -53,6 +87,14 @@ describe("AgentPersonaProvider", () => {
   it("is off outside a provider", () => {
     render(<Probe />);
     expect(screen.getByText("Chief of Staff")).toBeTruthy();
+  });
+  it("provides the style below it", () => {
+    render(
+      <AgentPersonaProvider anthropomorphic style="fantasy">
+        <Probe />
+      </AgentPersonaProvider>,
+    );
+    expect(screen.getByText(`${characterFor("malik", "fantasy")!.name} (Chief of Staff)`)).toBeTruthy();
   });
   it("provides the display rules below it", () => {
     render(

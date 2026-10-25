@@ -1,13 +1,14 @@
 /**
  * The Hono app (docs/ARCHITECTURE.md §13): `/health` (db + redis + temporal + composer reachability flags, never
- * throws), `GET /personas/:key` (the public AI-generated face of one persona catalog key, cached for a day), `/trpc/*` via tRPC's fetch adapter (gzip-compressed, streamed answers left alone), CORS for the web origin(s)
+ * throws), `GET /personas/:style/:key` and `GET /personas/:key` (the public AI-generated face of one persona catalog key in one character style, humans for the short form, cached for a day), `/trpc/*` via tRPC's fetch adapter (gzip-compressed, streamed answers left alone), CORS for the web origin(s)
  * and localhost:3000, request logging with pino.
  * `createApp(deps)` is pure so tests can boot it on an ephemeral port.
  */
 import { APP_NAME, LIMITS } from "@foundmill/config";
 import { platformBillingRefusal } from "@foundmill/models";
 import { fetchRequestHandler } from "@trpc/server/adapters/fetch";
-import { Hono } from "hono";
+import { DEFAULT_AGENT_STYLE, isAgentStyle } from "@foundmill/shared";
+import { Hono, type Context } from "hono";
 import { bodyLimit } from "hono/body-limit";
 import { compress } from "hono/compress";
 import { cors } from "hono/cors";
@@ -177,8 +178,10 @@ export function createApp(deps: ApiDeps) {
     );
   });
 
-  // The face of one persona catalog key (Anthropomorphic agents): a platform asset, not business data, so it needs no sign-in
-  // and any <img> on the web origin may load it. Only catalog keys are looked up; anything else, and a face not generated
+  // The face of one persona catalog key in one character style (Anthropomorphic agents): a platform asset, not business
+  // data, so it needs no sign-in and any <img> on the web origin may load it. `GET /personas/:style/:key` names the style
+  // (one of AGENT_STYLES; anything else is a 404 before the table is read) and `GET /personas/:key` still means humans,
+  // so a URL from before 0069 keeps working. Only catalog keys are looked up; anything else, and a face not generated
   // yet, is a plain 404 that must not be cached (the web polls team.personas.ensure and loads the image once it is ready).
   // A stored face is cached for a day, not for good: a deployment that moves from the mock placeholder to real faces (or
   // regenerates one) shows the new face within a day without any change to the URL, and the strong ETag (sha256 of the
@@ -186,8 +189,8 @@ export function createApp(deps: ApiDeps) {
   // (services/personas.ts `storedPortrait`), so a screen of faces does not read the table per <img>. The mime comes from
   // the row (webp, or png for the mock placeholder); `nosniff` and a sandboxing CSP keep the bytes an image whatever a
   // browser is shown, and `same-site` keeps other sites from embedding them (the web and the api share a site).
-  app.get("/personas/:key", async (c) => {
-    const portrait = await storedPortrait(deps.db, c.req.param("key"));
+  const servePortrait = async (c: Context<{ Variables: AppVariables }>, key: string, style: string): Promise<Response> => {
+    const portrait = isAgentStyle(style) ? await storedPortrait(deps.db, key, { style }) : null;
     if (!portrait) {
       c.header("cache-control", "no-store");
       return c.json({ error: "not_found" }, 404);
@@ -201,7 +204,9 @@ export function createApp(deps: ApiDeps) {
     };
     if (etagMatches(c.req.header("if-none-match"), portrait.etag)) return c.body(null, 304, headers);
     return c.body(portrait.bytes.buffer, 200, { ...headers, "content-type": portrait.mime });
-  });
+  };
+  app.get("/personas/:key", (c) => servePortrait(c, c.req.param("key"), DEFAULT_AGENT_STYLE));
+  app.get("/personas/:style/:key", (c) => servePortrait(c, c.req.param("key"), c.req.param("style")));
 
   // tRPC answers are JSON and shrink 5–10× with gzip (or deflate, whichever the client accepts). Hono's compress also
   // skips any answer that already sets Transfer-Encoding (tRPC's streamed batches) or is text/event-stream; streamed

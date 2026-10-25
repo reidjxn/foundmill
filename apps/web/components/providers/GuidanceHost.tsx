@@ -38,6 +38,7 @@ import { useTRPC } from "@/lib/trpc-react";
 import {
   DEFAULT_GUIDANCE_PREFS,
   GuidancePreferencesProvider,
+  agentStyleOf,
   GuidanceSignalProvider,
   isSignedInPath,
   type GuidancePatch,
@@ -55,6 +56,7 @@ import { encodeTextSizeCookie, readTextSizeCookie, textSizeCookieString } from "
 export {
   DEFAULT_GUIDANCE_PREFS,
   GuidanceSignalProvider,
+  agentStyleOf,
   isSignedInPath,
   useGuidancePreferences,
   useGuidanceSignal,
@@ -113,7 +115,7 @@ export const GUIDANCE_SIGNAL_MUTATION_KEY: readonly unknown[] = [["founder", "pr
 
 /** The guided layer's part of a full preferences answer (`founder.preferences.update` returns the formats too). */
 export function guidancePrefsOf(p: GuidancePrefs): GuidancePrefs {
-  return { guidance: p.guidance, textSize: p.textSize, explainersSeen: p.explainersSeen, toursDone: p.toursDone, checklistDismissedAt: p.checklistDismissedAt, anthropomorphicAgents: p.anthropomorphicAgents };
+  return { guidance: p.guidance, textSize: p.textSize, explainersSeen: p.explainersSeen, toursDone: p.toursDone, checklistDismissedAt: p.checklistDismissedAt, anthropomorphicAgents: p.anthropomorphicAgents, agentStyle: p.agentStyle };
 }
 
 /** What the account will hold once `patch` is saved: the optimistic answer, written before the API's. */
@@ -122,6 +124,7 @@ export function applyGuidancePatch(prev: GuidancePrefs, patch: GuidancePatch, no
   if (patch.guidance !== undefined) next.guidance = patch.guidance;
   if (patch.textSize !== undefined) next.textSize = patch.textSize;
   if (patch.anthropomorphicAgents !== undefined) next.anthropomorphicAgents = patch.anthropomorphicAgents;
+  if (patch.agentStyle !== undefined) next.agentStyle = patch.agentStyle;
   if (patch.reset) {
     next.explainersSeen = {};
     next.toursDone = {};
@@ -162,7 +165,7 @@ export function sameGuidancePrefs(a: GuidancePrefs | undefined, b: GuidancePrefs
     const keys = Object.keys(x);
     return keys.length === Object.keys(y).length && keys.every((k) => y[k] === x[k]);
   };
-  return a.guidance === b.guidance && a.textSize === b.textSize && a.anthropomorphicAgents === b.anthropomorphicAgents && a.checklistDismissedAt === b.checklistDismissedAt && sameMarks(a.explainersSeen, b.explainersSeen) && sameMarks(a.toursDone, b.toursDone);
+  return a.guidance === b.guidance && a.textSize === b.textSize && a.anthropomorphicAgents === b.anthropomorphicAgents && agentStyleOf(a) === agentStyleOf(b) && a.checklistDismissedAt === b.checklistDismissedAt && sameMarks(a.explainersSeen, b.explainersSeen) && sameMarks(a.toursDone, b.toursDone);
 }
 
 const DEFAULT_PREFS: GuidancePrefs = DEFAULT_GUIDANCE_PREFS;

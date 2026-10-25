@@ -54,7 +54,7 @@ export function contentSecurityPolicy(env: SecurityHeaderEnv, options: { dev?: b
     ["script-src", ["'self'", "'unsafe-inline'", ...(options.dev ? ["'unsafe-eval'"] : [])]],
     ["style-src", ["'self'", "'unsafe-inline'"]],
     // Agent avatars and logos are data: SVGs; a business's own logo and previews may be https images. The AI-generated
-    // faces of anthropomorphic agents load from the API's public /personas/<key> route: its origin is named, since a
+    // faces of anthropomorphic agents load from the API's public /personas/<style>/<key> route: its origin is named, since a
     // local API is plain http (https: alone would block it).
     ["img-src", ["'self'", "data:", "blob:", "https:", ...(apiOrigin ? [apiOrigin] : [])]],
     ["font-src", ["'self'", "data:"]],

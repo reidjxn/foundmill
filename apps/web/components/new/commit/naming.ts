@@ -11,6 +11,7 @@
 import { LIMITS } from "@foundmill/config";
 import { apcaLc, createRng, hexToRgb, hslToRgb, isHexColour, kitOnPrimaryDetail, rgbToHex, rgbToHsl, type Kit } from "@foundmill/dugout";
 import { ARCHETYPE_LABELS, domainCandidates, domainSlug, type Archetype, type BusinessMode, type GameMode } from "@foundmill/shared";
+import { DEFAULT_AGENT_STYLE, type AgentStyle } from "@foundmill/shared/personas";
 import type { LogoDraft } from "@/lib/logo";
 
 export const HEX_RE = /^#[0-9a-fA-F]{6}$/;
@@ -315,9 +316,11 @@ export interface CommitForm {
   autopilot: boolean;
   /** "Anthropomorphic agents": the team shows human first names and AI-generated faces. Starts as the founder's account preference. */
   anthropomorphicAgents: boolean;
+  /** Which kind of character the agents wear while "Anthropomorphic agents" is on (Humans, 3D cartoon humans, 2D cartoon humans and animals, Fantasy). Starts as the account preference. */
+  agentStyle: AgentStyle;
 }
 
-export function initialCommitForm(idea: { title: string; archetype: Archetype | null }, kit: Kit, currency: string, anthropomorphicAgents = false): CommitForm {
+export function initialCommitForm(idea: { title: string; archetype: Archetype | null }, kit: Kit, currency: string, anthropomorphicAgents = false, agentStyle: AgentStyle = DEFAULT_AGENT_STYLE): CommitForm {
   return {
     name: idea.title.replace(VARIANT_SUFFIX_RE, "").trim(),
     kit,
@@ -330,6 +333,7 @@ export function initialCommitForm(idea: { title: string; archetype: Archetype | 
     currency,
     autopilot: false,
     anthropomorphicAgents,
+    agentStyle,
   };
 }
 
@@ -379,6 +383,7 @@ export function commitInput(ideaId: string, form: CommitForm) {
     autopilot: form.autopilot,
     // The Launch step's choice; the server also stores it as the founder's account preference.
     anthropomorphicAgents: form.anthropomorphicAgents,
+    agentStyle: form.agentStyle,
   };
 }
 

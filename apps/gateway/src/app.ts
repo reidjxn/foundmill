@@ -9,7 +9,7 @@
  *   POST /v1/integrations/health   service JWT → that integration's health check
  *   POST /v1/billing/checkout-sessions  service JWT (api) → a Stripe Checkout session on the platform account (billing.ts)
  *   POST /v1/domains/check         service JWT (api) → registry answers for up to 8 domain names (domains.ts)
- *   POST /v1/personas/portrait     service JWT (api) → the AI-generated portrait of one persona catalog key (portraits.ts)
+ *   POST /v1/personas/portrait     service JWT (api) → the AI-generated portrait of one persona catalog key in one character style (portraits.ts)
  *   POST /v1/call                  session JWT → the pipeline (allow / ask / deny / rate_limited)
  *   POST /v1/github/archive        session JWT → the Code-tab repository's tarball for a code session's checkout (archive.ts)
  *   POST /v1/github/repository     service JWT (api) → a repository's id and visibility, before it is chosen on the Code tab (code-repository.ts)
@@ -141,7 +141,7 @@ export function createGatewayApp(deps: GatewayDeps, options: GatewayAppOptions):
     await next();
   });
 
-  // Faces of anthropomorphic agents: the api asks for one catalog key; the gateway builds the prompt and holds OPENAI_API_KEY.
+  // Faces of anthropomorphic agents: the api asks for one catalog key in one character style; the gateway builds the prompt and holds OPENAI_API_KEY.
   app.use("/v1/personas/*", requireService);
   app.use(REPOSITORY_CHECK_ROUTE, requireService);
   app.use("/v1/personas/*", async (c, next) => {

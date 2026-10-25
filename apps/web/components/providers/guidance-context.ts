@@ -6,13 +6,23 @@
  */
 import { createContext, useContext } from "react";
 import type { GuidanceOffSource } from "@foundmill/shared/constants";
+import { DEFAULT_AGENT_STYLE, isAgentStyle, type AgentStyle } from "@foundmill/shared/personas";
 import { isFounderPath } from "@/lib/auth/redirects";
 import type { RouterInputs, RouterOutputs } from "@/lib/trpc";
 
-/** The guided layer's preferences, as the API answers them. */
+/**
+ * The guided layer's preferences, as the API answers them. `agentStyle` (which kind of character the agents wear when
+ * `anthropomorphicAgents` is on) comes with the answer; `agentStyleOf` still reads an answer without it (a test fixture, an
+ * older API) as "humans".
+ */
 export type GuidancePrefs = RouterOutputs["founder"]["preferences"]["guidance"];
 /** A change to them (the date format is DateFormatHost's). */
 export type GuidancePatch = Omit<RouterInputs["founder"]["preferences"]["update"], "date" | "time">;
+
+/** The account's agent style: the stored one, else "humans" (an older answer, signed out, or an unknown value). */
+export function agentStyleOf(prefs: { agentStyle?: unknown } | null | undefined): AgentStyle {
+  return isAgentStyle(prefs?.agentStyle) ? prefs.agentStyle : DEFAULT_AGENT_STYLE;
+}
 
 /** One guided-layer signal as `founder.preferences.signal` takes it (the payload of a guidance.* event, with its type). */
 export type GuidanceSignal = RouterInputs["founder"]["preferences"]["signal"]["signal"];
@@ -36,7 +46,7 @@ export function useGuidanceSignal(): GuidanceSignalFn {
 }
 
 /** What everyone reads until the account answers, and on every signed-out page. */
-export const DEFAULT_GUIDANCE_PREFS: Readonly<GuidancePrefs> = Object.freeze({ guidance: "on", textSize: "standard", explainersSeen: {}, toursDone: {}, checklistDismissedAt: null, anthropomorphicAgents: false });
+export const DEFAULT_GUIDANCE_PREFS: Readonly<GuidancePrefs> = Object.freeze({ guidance: "on", textSize: "standard", explainersSeen: {}, toursDone: {}, checklistDismissedAt: null, anthropomorphicAgents: false, agentStyle: DEFAULT_AGENT_STYLE });
 
 /** True on the pages the proxy reserves for a signed-in founder; `/` is the landing page for a visitor, so it is not one. */
 export function isSignedInPath(pathname: string | null | undefined): boolean {

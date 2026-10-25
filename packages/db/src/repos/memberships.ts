@@ -6,7 +6,7 @@
  * business's owner lock (`lockOwners`, the same lock 0035's trigger takes), so concurrent changes cannot each count the
  * other as the remaining owner.
  */
-import { ConflictError, MEMBERSHIP_ROLES, ValidationError, type MembershipRole } from "@foundmill/shared";
+import { ConflictError, DEFAULT_AGENT_STYLE, MEMBERSHIP_ROLES, ValidationError, isAgentStyle, type AgentStyle, type MembershipRole } from "@foundmill/shared";
 import { and, asc, eq, inArray, isNull, ne, sql } from "drizzle-orm";
 import { z } from "zod";
 import { accountPreferences, businesses, entities, memberships, MEMBERSHIP_SOURCES, type Business, type Membership } from "../schema";
@@ -92,17 +92,19 @@ export const membershipsRepo = {
    * with a null business, as `businesses.get` would not find it, unless `includeArchived` (the few things an archived
    * business still allows: restore, export, deletion requests).
    */
-  async access(db: Executor, businessId: string, userId: string, options: { includeArchived?: boolean } = {}): Promise<{ membership: Membership | null; business: Business | null; anthropomorphicAgents: boolean }> {
-    // The member's own display preference rides along (anthropomorphic agents), so nothing downstream reads it again.
+  async access(db: Executor, businessId: string, userId: string, options: { includeArchived?: boolean } = {}): Promise<{ membership: Membership | null; business: Business | null; anthropomorphicAgents: boolean; agentStyle: AgentStyle }> {
+    // The member's own display preferences ride along (anthropomorphic agents and their style), so nothing downstream reads them again.
     const rows = await db
-      .select({ membership: memberships, business: businesses, anthropomorphicAgents: accountPreferences.anthropomorphicAgents })
+      .select({ membership: memberships, business: businesses, anthropomorphicAgents: accountPreferences.anthropomorphicAgents, agentStyle: accountPreferences.agentStyle })
       .from(memberships)
       .leftJoin(businesses, options.includeArchived ? eq(businesses.id, memberships.businessId) : and(eq(businesses.id, memberships.businessId), isNull(businesses.archivedAt)))
       .leftJoin(accountPreferences, eq(accountPreferences.userId, memberships.userId))
       .where(and(eq(memberships.businessId, businessId), eq(memberships.userId, userId)))
       .limit(1);
     const row = rows[0];
-    return row ? { membership: row.membership, business: row.business, anthropomorphicAgents: row.anthropomorphicAgents === true } : { membership: null, business: null, anthropomorphicAgents: false };
+    return row
+      ? { membership: row.membership, business: row.business, anthropomorphicAgents: row.anthropomorphicAgents === true, agentStyle: isAgentStyle(row.agentStyle) ? row.agentStyle : DEFAULT_AGENT_STYLE }
+      : { membership: null, business: null, anthropomorphicAgents: false, agentStyle: DEFAULT_AGENT_STYLE };
   },
 
   /** True when the user holds one of the roles in this business. */

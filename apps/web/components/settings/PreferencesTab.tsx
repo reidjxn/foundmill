@@ -13,8 +13,9 @@
  *   beside the switch says what guidance changes (shown in both states: it is information about the switch itself), and
  *   a reassurance line under it says the choice can be switched any time (tutoring, so it hides with guidance off).
  *
- * - Agents: the "Anthropomorphic agents" switch (a human first name and an AI-generated face for every agent, with the
- *   position always beside the name; off shows agents by role, exactly as before). It saves through the same host.
+ * - Agents: the "Anthropomorphic agents" switch (a first name and an AI-generated picture for every agent, with the
+ *   position always beside the name; off shows agents by role, exactly as before) and, while it is on, the Style radio
+ *   cards (Humans, 3D cartoon humans, 2D cartoon humans and animals, Fantasy). Both save through the same host at once.
  *
  * Open to every member, whatever their role: it changes nothing of the business.
  */
@@ -22,6 +23,7 @@ import { useQuery } from "@tanstack/react-query";
 import { UserRound } from "lucide-react";
 import { useCallback, useState } from "react";
 import {
+  AgentStylePicker,
   Button,
   Chip,
   DATE_FORMAT_LABELS,
@@ -39,10 +41,11 @@ import {
   type SegmentedOption,
   type TextSize,
 } from "@foundmill/dugout";
-import { ANTHROPOMORPHIC_EXPLAINER } from "@/lib/anthropomorphic";
+import type { AgentStyle } from "@foundmill/shared/personas";
+import { ANTHROPOMORPHIC_EXPLAINER, anthropomorphicSavedLine } from "@/lib/anthropomorphic";
 import { useClientNow } from "@/lib/today";
 import { useDatePreferences } from "@/components/providers/DateFormatHost";
-import { useGuidancePreferences, type GuidancePatch, type GuidancePrefs } from "@/components/providers/GuidanceHost";
+import { agentStyleOf, useGuidancePreferences, type GuidancePatch, type GuidancePrefs } from "@/components/providers/GuidanceHost";
 import { useTRPC } from "@/lib/trpc-react";
 import { AccountId } from "./AccountId";
 import { Hint, SettingsSection, useSettingsToast } from "./shared";
@@ -169,35 +172,36 @@ export function GuidanceSection() {
   );
 }
 
-export { ANTHROPOMORPHIC_EXPLAINER };
+export { ANTHROPOMORPHIC_EXPLAINER, anthropomorphicSavedLine };
 
-/** The toast after the switch is saved: the title names the choice, the line says what follows from it. */
-export function anthropomorphicSavedLine(on: boolean): { title: string; description: string } {
-  return on
-    ? { title: "Anthropomorphic agents on", description: "Agents show a first name and an AI-generated face, with their position beside the name, in every business." }
-    : { title: "Anthropomorphic agents off", description: "Agents show by role, as before, in every business." };
-}
-
-/** The Anthropomorphic agents section: one switch, saved at once through the GuidanceHost like the guidance switch. */
+/**
+ * The Agents section: the "Anthropomorphic agents" switch and, while it is on, the style of character (Humans, 3D cartoon
+ * humans, 2D cartoon humans and animals, Fantasy). Each choice saves at once through the GuidanceHost like the guidance
+ * switch, and the toast names the style. Off is identical to before whatever the style says (the style is kept).
+ */
 export function AnthropomorphicAgentsSection() {
   const { prefs, save } = useGuidancePreferences();
   const t = useSettingsToast();
   const on = prefs.anthropomorphicAgents === true;
-  const change = (next: boolean) =>
-    save({ anthropomorphicAgents: next }).then(
+  const style = agentStyleOf(prefs);
+  const change = (patch: GuidancePatch) =>
+    save(patch).then(
       (saved) => {
-        const line = anthropomorphicSavedLine(saved.anthropomorphicAgents === true);
+        const line = anthropomorphicSavedLine(saved.anthropomorphicAgents === true, agentStyleOf({ agentStyle: saved.agentStyle ?? patch.agentStyle ?? style }));
         t.saved(line.title, line.description);
       },
       (err: unknown) => t.failed(err, "Preference not saved"),
     );
+  const chooseStyle = (next: AgentStyle) => {
+    if (next !== style) void change({ agentStyle: next });
+  };
   return (
     <SettingsSection title="Agents" data-testid="anthropomorphic-panel">
       <div className="flex items-start gap-3" data-testid="anthropomorphic-choice">
         <Switch
           id="anthropomorphic-switch"
           checked={on}
-          onCheckedChange={(next) => void change(next)}
+          onCheckedChange={(next) => void change({ anthropomorphicAgents: next })}
           aria-describedby="anthropomorphic-switch-hint"
           data-testid="anthropomorphic-switch"
         />
@@ -208,6 +212,7 @@ export function AnthropomorphicAgentsSection() {
           </p>
         </div>
       </div>
+      {on ? <AgentStylePicker value={style} onChange={chooseStyle} testIdPrefix="agent-style" /> : null}
     </SettingsSection>
   );
 }

@@ -1,15 +1,16 @@
 /**
- * `POST /v1/personas/portrait` (Anthropomorphic agents): only the api asks, with a catalog key; the gateway builds the
- * prompt itself, so nothing the api sends can reach the image vendor as a prompt; live mode calls OpenAI Images with
- * the platform key, mock mode returns the deterministic placeholder; an unknown key is a 400, a missing OPENAI_API_KEY a
- * clear 503, the platform window limits the calls, and a portrait made for a business is audited.
+ * `POST /v1/personas/portrait` (Anthropomorphic agents, character styles): only the api asks, with a catalog key and a
+ * style (humans when absent); the gateway builds the prompt itself from both, so nothing the api sends can reach the
+ * image vendor as a prompt; live mode calls OpenAI Images with the platform key, mock mode returns the deterministic
+ * placeholder (one per style); an unknown key or style is a 400, a missing OPENAI_API_KEY a clear 503, the platform
+ * window limits the calls, and a portrait made for a business is audited with its style.
  */
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createOpenaiImagesConnector, createRegistry, jsonResponse, routedFetch } from "@foundmill/connectors";
 import { IMAGE_MODELS } from "@foundmill/models";
 import { repos, type Db } from "@foundmill/db";
 import { createTestDb, type TestHarness } from "@foundmill/db/testing/pglite";
-import { PERSONAS, personaPortraitPrompt } from "@foundmill/shared";
+import { AGENT_STYLES, PERSONAS, characterFor, characterPortraitPrompt, personaPortraitPrompt } from "@foundmill/shared";
 import { createGatewayApp } from "../app";
 import type { GatewayDeps } from "../pipeline";
 import { MemoryRateLimitStore } from "../rate-limit";
@@ -191,11 +192,67 @@ describe("persona portraits through the gateway", () => {
     expect(logged).not.toContain("sk-platform-key-0000");
     expect(logged).not.toContain("headshot");
     const audit = await repos.audit.list(db, businessId, { action: "gateway.persona_portrait.generated" });
-    expect(audit.items[0]).toMatchObject({ actorKind: "system", target: { id: PERSONA.key }, details: { service: "api", mode: "live", model: IMAGE_MODELS.portrait_image, label: "Estimate" } });
+    expect(audit.items[0]).toMatchObject({ actorKind: "system", target: { id: PERSONA.key }, details: { service: "api", mode: "live", style: "humans", model: IMAGE_MODELS.portrait_image, label: "Estimate" } });
   });
 
   it("a business that does not exist loses nothing: the portrait still comes back, unaudited", async () => {
     const res = await post(appFor(), { personaKey: PERSONA.key, businessId: crypto.randomUUID() });
     expect(res.status).toBe(200);
+  });
+});
+
+describe("character styles (0069)", () => {
+  it("builds the prompt from the style and the key, humans when absent, and never names a studio or franchise", async () => {
+    const seen: NonNullable<Opts["seen"]> = [];
+    const app = appFor({ mode: "live", key: "sk-platform-key-0000", seen });
+    const human = await post(app, { personaKey: PERSONA.key });
+    expect(human.status).toBe(200);
+    expect(seen[0]!.body.prompt).toBe(personaPortraitPrompt(PERSONA));
+    expect(seen[0]!.body.prompt).toBe(characterPortraitPrompt(characterFor(PERSONA.key, "humans")!));
+    const prompts = new Set<string>([seen[0]!.body.prompt as string]);
+    for (const style of AGENT_STYLES.filter((s) => s !== "humans")) {
+      const res = await post(app, { personaKey: PERSONA.key, style });
+      expect(res.status, style).toBe(200);
+      const prompt = seen.at(-1)!.body.prompt as string;
+      expect(prompt, style).toBe(characterPortraitPrompt(characterFor(PERSONA.key, style)!));
+      expect(prompt, style).toContain(characterFor(PERSONA.key, style)!.look);
+      // That the prompt names no studio, brand or franchise is the catalog's own test (packages/shared personas.test.ts).
+      prompts.add(prompt);
+    }
+    expect(prompts.size).toBe(AGENT_STYLES.length);
+    expect(seen.every((s) => s.body.size === "1024x1024" && s.body.quality === "medium")).toBe(true);
+  });
+
+  it("mock mode: the placeholder differs per style and is the same for the same (style, key)", async () => {
+    const app = appFor();
+    const faces = await Promise.all(AGENT_STYLES.map((style) => post(app, { personaKey: PERSONA.key, style })));
+    for (const f of faces) expect(f.body).toMatchObject({ mime: "image/png", model: "mock-portrait" });
+    expect(new Set(faces.map((f) => f.body.base64)).size).toBe(AGENT_STYLES.length);
+    expect((await post(app, { personaKey: PERSONA.key })).body.base64).toBe(faces[0]!.body.base64);
+    expect((await post(app, { personaKey: PERSONA.key, style: "fantasy" })).body.base64).toBe(faces[AGENT_STYLES.indexOf("fantasy")]!.body.base64);
+  });
+
+  it("an unknown style is a 400 unknown_style before any vendor call; an unknown key still wins as unknown_persona", async () => {
+    const seen: NonNullable<Opts["seen"]> = [];
+    const app = appFor({ mode: "live", key: "sk-platform-key-0000", seen });
+    for (const style of ["anime", "Humans", "humans ", "", 7, null]) {
+      const res = await post(app, { personaKey: PERSONA.key, style });
+      expect(res.status, JSON.stringify(style)).toBe(400);
+      if (typeof style === "string" && style.length > 0) expect(res.body.error?.code, style).toBe("unknown_style");
+    }
+    expect((await post(app, { personaKey: "not-a-persona", style: "fantasy" })).body.error?.code).toBe("unknown_persona");
+    expect((await post(app, { personaKey: "not-a-persona", style: "anime" })).body.error?.code).toBe("unknown_style");
+    expect(seen).toHaveLength(0);
+  });
+
+  it("logs and audits the style beside the key", async () => {
+    const logs: NonNullable<Opts["logs"]> = [];
+    const res = await post(appFor({ mode: "live", key: "sk-platform-key-0000", logs }), { personaKey: PERSONA.key, style: "cartoon_2d", businessId });
+    expect(res.status).toBe(200);
+    const generated = logs.find((l) => l.level === "info" && JSON.stringify(l.args).includes("persona portrait generated"));
+    expect(generated?.args[0]).toMatchObject({ personaKey: PERSONA.key, style: "cartoon_2d" });
+    expect(JSON.stringify(logs)).not.toContain(characterFor(PERSONA.key, "cartoon_2d")!.look);
+    const audit = await repos.audit.list(db, businessId, { action: "gateway.persona_portrait.generated" });
+    expect(audit.items[0]).toMatchObject({ target: { id: PERSONA.key }, details: { style: "cartoon_2d", mode: "live" } });
   });
 });

@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { CONCEPT_ATTRIBUTE_KEYS, GuidanceProvider, TooltipProvider } from "@foundmill/dugout";
 import { TRPCClientError } from "@trpc/client";
@@ -295,6 +295,30 @@ describe("CommitForm (BUILD §11.1 Commit screen; AC-11.1.6, AC-11.1.7)", () => 
       fireEvent.click(screen.getByTestId("take-charge"));
     });
     expect(onCommit.mock.calls[1]![0]).toMatchObject({ anthropomorphicAgents: true });
+  });
+
+  it("offers the four styles only while the switch is on, starts at the account's style, and sends the choice with idea.commit", async () => {
+    const onCommit = renderForm(vi.fn(), { anthropomorphicDefault: true, agentStyleDefault: "cartoon_2d" });
+    expect(screen.getByRole("radiogroup", { name: "Style" })).toBeTruthy();
+    expect(within(screen.getByRole("radiogroup", { name: "Style" })).getAllByRole("radio")).toHaveLength(4);
+    expect(screen.getByRole("radio", { name: "2D cartoon humans and animals" }).getAttribute("aria-checked")).toBe("true");
+    fireEvent.click(screen.getByRole("radio", { name: "Fantasy" }));
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("take-charge"));
+    });
+    expect(onCommit.mock.calls[0]![0]).toMatchObject({ anthropomorphicAgents: true, agentStyle: "fantasy" });
+    // Switching the faces off hides the choice.
+    fireEvent.click(screen.getByRole("switch", { name: "Anthropomorphic agents" }));
+    expect(screen.queryByRole("radiogroup", { name: "Style" })).toBeNull();
+  });
+
+  it("with the switch off there is no style to choose, and Humans is what is sent", async () => {
+    const onCommit = renderForm();
+    expect(screen.queryByRole("radiogroup", { name: "Style" })).toBeNull();
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("take-charge"));
+    });
+    expect(onCommit.mock.calls[0]![0]).toMatchObject({ anthropomorphicAgents: false, agentStyle: "humans" });
   });
 
   it("starts the Anthropomorphic agents switch on when the account preference is on, and follows it until the founder chooses", () => {

@@ -4,7 +4,7 @@
  */
 import { IDEAS_BY_ID_MAX, repos, type IdeaWithVersion } from "@foundmill/db";
 import { HOUSE_STYLE } from "@foundmill/agents";
-import { ARCHETYPES, Archetype, BUSINESS_MODES, CurrencyCode, GAME_MODES, ValidationError } from "@foundmill/shared";
+import { AGENT_STYLES, ARCHETYPES, Archetype, BUSINESS_MODES, CurrencyCode, GAME_MODES, ValidationError } from "@foundmill/shared";
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import { commitIdea, squadPreview } from "../services/commit";
@@ -305,6 +305,8 @@ export const ideaRouter = router({
         autopilot: z.boolean().default(false),
         /** The Launch step's "Anthropomorphic agents" switch; when given it becomes the founder's account preference. */
         anthropomorphicAgents: z.boolean().optional(),
+        /** The Launch step's character style for them (0069); when given it becomes the founder's account preference too. */
+        agentStyle: z.enum(AGENT_STYLES).optional(),
       }),
     )
     // A new business drafts its foundations and runs its first cycle on the platform key (SEC-13).

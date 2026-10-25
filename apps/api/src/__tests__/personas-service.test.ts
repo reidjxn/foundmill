@@ -4,25 +4,30 @@
  * logged and retried by a later call after an exponential backoff (one minute doubling to a day, shared through Redis
  * when there is one), a refusal for good is reported in `failed` and never retried, a stored face is never made again
  * (a mock placeholder is, once portraits are live), and mock mode draws the placeholder here with no gateway while live
- * mode asks the gateway with the key alone.
+ * mode asks the gateway with the key and the style alone. A character is one key in one style (0069): every state above
+ * is per character, and the same key is one row per style.
  */
 import { repos } from "@foundmill/db";
-import { PERSONAS } from "@foundmill/shared";
+import { AGENT_STYLES, PERSONAS } from "@foundmill/shared";
 import { OPENAI_IMAGES_GENERATION_TIMEOUT_MS } from "@foundmill/connectors";
-import { AppError } from "@foundmill/shared";
+import { AppError, type AgentStyle } from "@foundmill/shared";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { PORTRAIT_TIMEOUT_MS, type ApiGatewayClient, type GatewayPortrait } from "../services/gateway";
 import {
+  cachedPortraitCount,
   ensurePortraits,
   generatePortraitFor,
+  invalidateStoredPortrait,
   isPermanentPortraitFailure,
   PORTRAIT_BACKOFF_BASE_MS,
   PORTRAIT_BACKOFF_MAX_MS,
   PORTRAIT_BACKOFF_REDIS_PREFIX,
   PORTRAIT_CONCURRENCY,
   portraitBackoffMs,
+  portraitId,
   portraitsIdle,
   resetPortraitState,
+  storedPortrait,
   type PortraitDeps,
   type PortraitRedis,
 } from "../services/personas";
@@ -41,6 +46,7 @@ afterAll(() => hz.close());
 interface Call {
   key: string;
   businessId: string | undefined;
+  style: string | undefined;
   release(image?: GatewayPortrait): void;
   fail(message: string | Error): void;
 }
@@ -63,13 +69,14 @@ function controlledGateway() {
     checkDomains: async () => {
       throw new Error("unused");
     },
-    generatePortrait: (key: string, businessId?: string) =>
+    generatePortrait: (key: string, businessId?: string, style?: AgentStyle) =>
       new Promise<GatewayPortrait>((resolve, reject) => {
         running += 1;
         peak = Math.max(peak, running);
         calls.push({
           key,
           businessId,
+          style,
           release: (image = IMAGE) => {
             running -= 1;
             resolve(image);
@@ -264,7 +271,7 @@ describe("ensurePortraits", () => {
     await tick();
     one.calls[0]!.fail("The gateway did not answer");
     await portraitsIdle();
-    expect(JSON.parse(store.get(PORTRAIT_BACKOFF_REDIS_PREFIX + key)!.value)).toEqual({ attempts: 1, nextTryAt: clock + 60_000 });
+    expect(JSON.parse(store.get(PORTRAIT_BACKOFF_REDIS_PREFIX + portraitId("humans", key))!.value)).toEqual({ attempts: 1, nextTryAt: clock + 60_000 });
 
     // Another replica: its own process state is empty, Redis still says wait.
     resetPortraitState();
@@ -279,7 +286,7 @@ describe("ensurePortraits", () => {
     await tick();
     two.calls[0]!.fail("The gateway did not answer");
     await portraitsIdle();
-    expect(JSON.parse(store.get(PORTRAIT_BACKOFF_REDIS_PREFIX + key)!.value)).toEqual({ attempts: 2, nextTryAt: clock + 120_000 });
+    expect(JSON.parse(store.get(PORTRAIT_BACKOFF_REDIS_PREFIX + portraitId("humans", key))!.value)).toEqual({ attempts: 2, nextTryAt: clock + 120_000 });
 
     // A Redis that does not answer falls back to this process's record: still no retry storm.
     setDown(true);
@@ -294,7 +301,7 @@ describe("ensurePortraits", () => {
     await tick();
     two.calls[1]!.release();
     await portraitsIdle();
-    expect(store.has(PORTRAIT_BACKOFF_REDIS_PREFIX + key)).toBe(false);
+    expect(store.has(PORTRAIT_BACKOFF_REDIS_PREFIX + portraitId("humans", key))).toBe(false);
   });
 
   it("a refusal for good (a non-429 4xx from the gateway) is reported in failed and never tried again", async () => {
@@ -370,8 +377,8 @@ describe("ensurePortraits", () => {
     const { gateway, calls } = controlledGateway();
     await ensurePortraits(depsWith(gateway), [KEYS[50]!], { businessId: hz.A.businessId });
     await tick();
-    expect(calls[0]).toMatchObject({ key: KEYS[50], businessId: hz.A.businessId });
-    expect(Object.keys(calls[0]!).sort()).toEqual(["businessId", "fail", "key", "release"]);
+    expect(calls[0]).toMatchObject({ key: KEYS[50], businessId: hz.A.businessId, style: "humans" });
+    expect(Object.keys(calls[0]!).sort()).toEqual(["businessId", "fail", "key", "release", "style"]);
     calls[0]!.release();
     await portraitsIdle();
   });
@@ -412,5 +419,123 @@ describe("mock mode", () => {
     expect(b).toEqual(a);
     expect(c.base64).not.toEqual(a.base64);
     await expect(generatePortraitFor(deps, "not-a-persona")).rejects.toThrow(/catalog/);
+  });
+});
+
+describe("character styles (0069): one key, one portrait per style", () => {
+  it("ensure answers per style: a face stored as a human is not ready as a fantasy character, and each style is made once", async () => {
+    const { gateway, calls } = controlledGateway();
+    const deps = depsWith(gateway);
+    const key = KEYS[70]!;
+    await repos.personaPortraits.put(hz.db, { key, mime: "image/webp", content: WEBP_BYTES, model: "x" });
+    expect(await ensurePortraits(deps, [key])).toEqual({ ready: [key], pending: [], failed: [] });
+    expect(await ensurePortraits(deps, [key], { style: "humans" })).toEqual({ ready: [key], pending: [], failed: [] });
+    expect(await ensurePortraits(deps, [key], { style: "fantasy" })).toEqual({ ready: [], pending: [key], failed: [] });
+    expect(await ensurePortraits(deps, [key], { style: "cartoon_2d" })).toEqual({ ready: [], pending: [key], failed: [] });
+    // Asked again before they finish: the same character is not started twice, but the two styles are two jobs.
+    expect(await ensurePortraits(deps, [key], { style: "fantasy" })).toEqual({ ready: [], pending: [key], failed: [] });
+    await tick();
+    expect(calls.map((c) => [c.key, c.style])).toEqual([
+      [key, "fantasy"],
+      [key, "cartoon_2d"],
+    ]);
+    calls.forEach((c) => c.release());
+    await portraitsIdle();
+    expect(await repos.personaPortraits.get(hz.db, key, "fantasy")).toMatchObject({ style: "fantasy", model: "test-image-model" });
+    expect(await repos.personaPortraits.get(hz.db, key, "cartoon_2d")).toMatchObject({ style: "cartoon_2d" });
+    expect(await repos.personaPortraits.get(hz.db, key, "cartoon_3d")).toBeNull();
+    expect(await ensurePortraits(deps, [key], { style: "fantasy" })).toEqual({ ready: [key], pending: [], failed: [] });
+    expect(await ensurePortraits(deps, [key], { style: "cartoon_3d" })).toEqual({ ready: [], pending: [key], failed: [] });
+    await tick();
+    calls[2]!.release();
+    await portraitsIdle();
+    expect(logs.filter((l) => l.level === "info").map((l) => l.obj.style)).toEqual(["fantasy", "cartoon_2d", "cartoon_3d"]);
+  });
+
+  it("a failure, a backoff and a permanent refusal are the character's, not the key's", async () => {
+    const { redis, store } = fakeRedis();
+    const { gateway, calls } = controlledGateway();
+    const deps = depsWith(gateway, undefined, redis);
+    const key = KEYS[71]!;
+    await ensurePortraits(deps, [key], { style: "fantasy" });
+    await ensurePortraits(deps, [key], { style: "cartoon_2d" });
+    await ensurePortraits(deps, [key]);
+    await tick();
+    expect(calls.map((c) => c.style)).toEqual(["fantasy", "cartoon_2d", "humans"]);
+    calls[0]!.fail("The gateway did not answer");
+    calls[1]!.fail(new AppError("portrait_refused", "The image service refused to make this portrait.", 422));
+    calls[2]!.release();
+    await portraitsIdle();
+    expect(store.has(PORTRAIT_BACKOFF_REDIS_PREFIX + portraitId("fantasy", key))).toBe(true);
+    expect(store.has(PORTRAIT_BACKOFF_REDIS_PREFIX + portraitId("humans", key))).toBe(false);
+    expect(store.has(PORTRAIT_BACKOFF_REDIS_PREFIX + portraitId("cartoon_2d", key))).toBe(false);
+    expect(logs.find((l) => l.level === "warn")?.obj).toMatchObject({ personaKey: key, style: "fantasy", attempts: 1 });
+    expect(logs.find((l) => l.level === "error")?.obj).toMatchObject({ personaKey: key, style: "cartoon_2d", code: "portrait_refused" });
+    // Humans is ready; fantasy waits out its window; 2D is failed for good; 3D was never asked and starts at once.
+    expect(await ensurePortraits(deps, [key])).toEqual({ ready: [key], pending: [], failed: [] });
+    expect(await ensurePortraits(deps, [key], { style: "fantasy" })).toEqual({ ready: [], pending: [key], failed: [] });
+    expect(await ensurePortraits(deps, [key], { style: "cartoon_2d" })).toEqual({ ready: [], pending: [], failed: [key] });
+    expect(await ensurePortraits(deps, [key], { style: "cartoon_3d" })).toEqual({ ready: [], pending: [key], failed: [] });
+    await tick();
+    expect(calls).toHaveLength(4);
+    expect(calls[3]!.style).toBe("cartoon_3d");
+    calls[3]!.release();
+    await portraitsIdle();
+    clock += PORTRAIT_BACKOFF_BASE_MS;
+    await ensurePortraits(deps, [key], { style: "fantasy" });
+    await tick();
+    expect(calls).toHaveLength(5);
+    expect(calls[4]!.style).toBe("fantasy");
+    calls[4]!.release();
+    await portraitsIdle();
+  });
+
+  it("live, a stored placeholder in one style is replaced without touching the other styles", async () => {
+    const { gateway, calls } = controlledGateway();
+    const key = KEYS[72]!;
+    await repos.personaPortraits.put(hz.db, { key, style: "fantasy", mime: "image/png", content: new Uint8Array([0x89, 0x50, 0x4e, 0x47]), model: "mock-portrait" });
+    await repos.personaPortraits.put(hz.db, { key, style: "humans", mime: "image/webp", content: WEBP_BYTES, model: "real" });
+    const live = depsWith(gateway);
+    expect(await ensurePortraits(live, [key])).toEqual({ ready: [key], pending: [], failed: [] });
+    expect(await ensurePortraits(live, [key], { style: "fantasy" })).toEqual({ ready: [], pending: [key], failed: [] });
+    await tick();
+    expect(calls.map((c) => [c.key, c.style])).toEqual([[key, "fantasy"]]);
+    calls[0]!.release();
+    await portraitsIdle();
+    expect(await repos.personaPortraits.get(hz.db, key, "fantasy")).toMatchObject({ mime: "image/webp", model: "test-image-model" });
+    expect(await repos.personaPortraits.get(hz.db, key, "humans")).toMatchObject({ model: "real" });
+  });
+
+  it("mock mode draws a placeholder for every style, and the bytes differ per style because the prompt does", async () => {
+    const deps = depsWith(controlledGateway().gateway, { INTEGRATIONS_MODE: "mock", LIVE_CONNECTORS: "" });
+    const key = KEYS[73]!;
+    const faces = await Promise.all(AGENT_STYLES.map((style) => generatePortraitFor(deps, key, undefined, style)));
+    for (const face of faces) {
+      expect(face).toMatchObject({ mime: "image/png", model: "mock-portrait" });
+      expect(Buffer.from(face.base64, "base64").subarray(1, 4).toString("ascii")).toBe("PNG");
+    }
+    expect(new Set(faces.map((f) => f.base64)).size).toBe(AGENT_STYLES.length);
+    expect((await generatePortraitFor(deps, key)).base64).toBe(faces[0]!.base64);
+    // Through ensure: one row per style, all placeholders, no gateway.
+    for (const style of AGENT_STYLES) expect((await ensurePortraits(deps, [key], { style })).pending).toEqual([key]);
+    await portraitsIdle();
+    for (const style of AGENT_STYLES) expect(await ensurePortraits(deps, [key], { style })).toEqual({ ready: [key], pending: [], failed: [] });
+  });
+
+  it("the serving cache is per character: the human face never answers for the fantasy one", async () => {
+    const key = KEYS[74]!;
+    const human = new Uint8Array(Buffer.from("RIFF\u0000\u0000\u0000\u0000WEBPVP8 human", "latin1"));
+    const elf = new Uint8Array(Buffer.from("RIFF\u0000\u0000\u0000\u0000WEBPVP8 elf", "latin1"));
+    await repos.personaPortraits.put(hz.db, { key, mime: "image/webp", content: human, model: "x" });
+    expect(await storedPortrait(hz.db, key, { style: "fantasy" })).toBeNull();
+    expect(Buffer.from((await storedPortrait(hz.db, key))!.bytes).equals(human)).toBe(true);
+    await repos.personaPortraits.put(hz.db, { key, style: "fantasy", mime: "image/webp", content: elf, model: "x" });
+    const served = await storedPortrait(hz.db, key, { style: "fantasy" });
+    expect(Buffer.from(served!.bytes).equals(elf)).toBe(true);
+    expect(served!.etag).not.toBe((await storedPortrait(hz.db, key, { style: "humans" }))!.etag);
+    expect(cachedPortraitCount()).toBe(2);
+    invalidateStoredPortrait(key, "fantasy");
+    expect(cachedPortraitCount()).toBe(1);
+    expect(portraitId("fantasy", key)).toBe(`fantasy:${key}`);
   });
 });

@@ -26,7 +26,7 @@ const code = async (p: Promise<unknown>) => {
 };
 
 /** The guided layer's defaults, until the person chooses. */
-const GUIDED = { guidance: "on", textSize: "standard", explainersSeen: {}, toursDone: {}, checklistDismissedAt: null, anthropomorphicAgents: false };
+const GUIDED = { guidance: "on", textSize: "standard", explainersSeen: {}, toursDone: {}, checklistDismissedAt: null, anthropomorphicAgents: false, agentStyle: "humans" };
 
 describe("founder.preferences", () => {
   it("reads US dates and 12-hour times until the person chooses, without writing a row", async () => {
@@ -102,6 +102,24 @@ describe("founder.preferences", () => {
     expect((await hz.caller({ userId: hz.B.memberId }).founder.preferences.guidance()).anthropomorphicAgents).toBe(false);
     expect(await me.founder.preferences.update({ anthropomorphicAgents: false })).toMatchObject({ anthropomorphicAgents: false });
     expect(await code(me.founder.preferences.update({ anthropomorphicAgents: "on" } as never))).toBe("BAD_REQUEST");
+  });
+
+  it("agent style (0069): humans until chosen, each style round-trips with or without the switch, is kept by a reset, and an unknown one is refused", async () => {
+    const fresh = await hz.h.createUser("agent-style-preferences@test.local");
+    const me = hz.caller({ userId: fresh });
+    expect((await me.founder.preferences.guidance()).agentStyle).toBe("humans");
+    for (const agentStyle of ["cartoon_3d", "cartoon_2d", "fantasy"] as const) {
+      expect(await me.founder.preferences.update({ agentStyle })).toMatchObject({ agentStyle });
+      expect(await me.founder.preferences.guidance()).toEqual({ ...GUIDED, agentStyle });
+    }
+    expect(await me.founder.preferences.update({ anthropomorphicAgents: true, agentStyle: "cartoon_2d" })).toMatchObject({ anthropomorphicAgents: true, agentStyle: "cartoon_2d" });
+    // Off keeps the style for the next time the switch goes on; a reset of the tours keeps both.
+    expect(await me.founder.preferences.update({ anthropomorphicAgents: false })).toMatchObject({ anthropomorphicAgents: false, agentStyle: "cartoon_2d" });
+    expect(await me.founder.preferences.update({ reset: true })).toMatchObject({ anthropomorphicAgents: false, agentStyle: "cartoon_2d" });
+    expect((await hz.caller({ userId: hz.B.memberId }).founder.preferences.guidance()).agentStyle).toBe("humans");
+    expect(await code(me.founder.preferences.update({ agentStyle: "anime" } as never))).toBe("BAD_REQUEST");
+    expect(await code(me.founder.preferences.update({ agentStyle: "Humans" } as never))).toBe("BAD_REQUEST");
+    expect((await me.founder.preferences.guidance()).agentStyle).toBe("cartoon_2d");
   });
 
   it("refuses signed-out callers, unknown formats or modes, a mark that is not true, and an empty change", async () => {
