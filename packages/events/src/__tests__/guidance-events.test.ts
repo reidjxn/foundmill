@@ -30,8 +30,12 @@ describe("guidance.* through the outbox", () => {
     const consumer = consume(redis, { businessId: FIXTURE_BUSINESS_ID, group: "metrics", consumer: "metrics-1", blockMs: 10, handler: (e) => void received.push(e) });
     const relay = runOutboxRelay(db, redis, { intervalMs: 5 });
 
-    for (const type of GUIDANCE_EVENT_TYPES) {
-      await db.transaction((tx) => writeEvent(tx, { businessId: FIXTURE_BUSINESS_ID, type, actor: FOUNDER, payload: EVENT_FIXTURES[type] }));
+    // The relay publishes in (occurred_at, event id) order, so two signals stamped in the same millisecond have no
+    // defined order (CI run 169 on main saw explainer_dismissed after term_opened). Each signal gets its own millisecond,
+    // which is what the order assertion below is really about.
+    const base = Date.now();
+    for (const [i, type] of GUIDANCE_EVENT_TYPES.entries()) {
+      await db.transaction((tx) => writeEvent(tx, { businessId: FIXTURE_BUSINESS_ID, type, actor: FOUNDER, payload: EVENT_FIXTURES[type], occurredAt: new Date(base + i) }));
     }
     await waitFor(() => received.length === GUIDANCE_EVENT_TYPES.length);
     expect(received.map((e) => e.type)).toEqual([...GUIDANCE_EVENT_TYPES]);
