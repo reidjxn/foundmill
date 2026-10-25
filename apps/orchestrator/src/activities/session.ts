@@ -28,6 +28,8 @@
  * agent's code runs offline. Pause interrupts the SDK's turn and holds every tool call until Resume; Stop interrupts the
  * turn and waits briefly for the SDK's final usage before aborting it, so every token spent is booked.
  */
+import { promises as fs } from "node:fs";
+import path from "node:path";
 import type { Query } from "@anthropic-ai/claude-agent-sdk";
 import { AgentInstructions, buildSystemPrompt, docText, getTemplate, getTemplateByAgentType, hasClubRulesPrefix, listTemplates, restoredWorkspaceNote, ToolGrant, type AgentSkillPrompt, type AgentTemplate } from "@foundmill/agents";
 import { APP_NAME, CREDITS_CURRENCY, sandboxCostMicroMinor } from "@foundmill/config";
@@ -1932,29 +1934,103 @@ export function sandboxEgressFor(task: Pick<Task, "kind">): string[] {
   return task.kind === "code" ? [...ACCEPTANCE_EGRESS] : [];
 }
 
-/** pnpm for the acceptance run; E2B's base template ships Node and npm but not pnpm. */
+/** pnpm for the acceptance run when the project does not pin one (`packageManager`); E2B's base template ships Node and npm but not pnpm. */
 export const SANDBOX_PNPM = "pnpm@10";
 /** Bytes of a phase's output that come back to the orchestrator; the rest stays in a log inside the sandbox. */
 export const ACCEPTANCE_OUTPUT_TAIL_BYTES = 32 * 1024;
 const PNPM_SAFE_FLAGS = "--config.manage-package-manager-versions=false --config.package-manager-strict=false";
+
+/**
+ * What the acceptance sandbox must run the project with (read from the workspace's package.json and the task's
+ * acceptance command), so the tests run the way the project's own CI does rather than on whatever the sandbox image
+ * ships (E2B's `base` has Node 20 and no pnpm; this repository asks for Node 22.23.3 and pnpm 12.9.1: Foundmill business,
+ * Oct 25, 2026, "dependency install was killed … Node v20.9.0 while the project asks for 22.23.3").
+ */
+export interface AcceptanceToolchain {
+  /** The lowest Node the project accepts (`engines.node`), or null when it says nothing. */
+  node: string | null;
+  /** The pnpm the project pins (`packageManager: pnpm@x.y.z`), or null. */
+  pnpm: string | null;
+  /** The workspace package the acceptance command targets (`pnpm --filter <name> test`), or null for the whole workspace. */
+  filter: string | null;
+}
+
+const EMPTY_TOOLCHAIN: AcceptanceToolchain = { node: null, pnpm: null, filter: null };
+const VERSION = /^\d+(?:\.\d+){0,2}$/;
+/** A workspace package name or path as pnpm's `--filter` takes it; anything else is not put in a shell command. */
+const FILTER_NAME = /^(?:@?[A-Za-z0-9]|\.\/)[A-Za-z0-9_./-]{0,120}$/;
+
+/**
+ * The toolchain the project asks for: the lowest Node of `engines.node` (`>=22.23.3`, `^22.23.3`, `22.x`, `22.23.3`),
+ * the pnpm of `packageManager`, and the `--filter` of the acceptance command. Unreadable fields are null.
+ */
+export function acceptanceToolchainOf(packageJson: unknown, command: string): AcceptanceToolchain {
+  const pkg = (packageJson && typeof packageJson === "object" ? packageJson : {}) as { engines?: { node?: unknown }; packageManager?: unknown };
+  let node: string | null = null;
+  if (typeof pkg.engines?.node === "string") {
+    const m = /(\d+)(?:\.(\d+))?(?:\.(\d+))?/.exec(pkg.engines.node.replace(/^\s*(?:>=|\^|~|=)?\s*v?/, ""));
+    if (m) node = [m[1], m[2] ?? "0", m[3] ?? "0"].join(".");
+  }
+  let pnpm: string | null = null;
+  if (typeof pkg.packageManager === "string") {
+    const m = /^pnpm@(\d+\.\d+\.\d+)/.exec(pkg.packageManager.trim());
+    if (m) pnpm = m[1]!;
+  }
+  const f = /--filter(?:=|\s+)(\S+)/.exec(command);
+  const filter = f && FILTER_NAME.test(f[1]!) && !f[1]!.includes("...") ? f[1]! : null;
+  return { node: node && VERSION.test(node) ? node : null, pnpm: pnpm && VERSION.test(pnpm) ? pnpm : null, filter };
+}
+
+/** The toolchain from the workspace's own package.json; the empty toolchain when there is none or it is unreadable. */
+export async function readAcceptanceToolchain(cwd: string, command: string): Promise<AcceptanceToolchain> {
+  try {
+    const raw = await fs.readFile(path.join(cwd, "package.json"), "utf8");
+    return acceptanceToolchainOf(JSON.parse(raw), command);
+  } catch {
+    return { ...EMPTY_TOOLCHAIN, filter: acceptanceToolchainOf({}, command).filter };
+  }
+}
 
 /** Run `lines` under `set -e` with their output in a log inside the sandbox, print only its tail, keep the exit code. */
 function withOutputTail(log: string, lines: string[]): string {
   return ["(", "set -e", ...lines, `) >${log} 2>&1`, "rc=$?", `tail -c ${ACCEPTANCE_OUTPUT_TAIL_BYTES} ${log}`, "exit $rc"].join("\n");
 }
 
+/** `npm install --global` into the sandbox user's tool prefix, scripts off: nothing a package ships runs online. */
+const npmGlobal = (spec: string) => `(cd "$HOME" && npm install --global --prefix "$HOME/.fm-tools" --ignore-scripts --no-fund --no-audit --loglevel=error ${spec})`;
+
 /**
- * Phase 1, online (the registry is reachable): put pnpm on PATH and install the project's dependencies with every
- * lifecycle script and pnpmfile off, so no code the agent controls runs while the sandbox can reach the network.
- * pnpm's own settings that could fetch or switch package managers are pinned on the command line, which outranks
- * a project `.npmrc`, and in the sandbox user's global config for the offline phase.
+ * Phase 1, online (the registry is reachable): put the project's Node and pnpm on PATH and install its dependencies
+ * with every lifecycle script and pnpmfile off, so no code the agent controls runs while the sandbox can reach the
+ * network. pnpm's own settings that could fetch or switch package managers are pinned on the command line, which
+ * outranks a project `.npmrc`, and in the sandbox user's global config for the offline phase.
+ *
+ * - Node: when the sandbox's Node is older than the project's `engines.node`, the matching Node binary comes from the
+ *   npm registry (`node-linux-x64@<version>`, the only host the sandbox may reach) into `$HOME/.fm-tools/bin`, ahead of
+ *   the image's Node on PATH. A template that already ships the right Node skips this (docs/DEPLOY.md §5).
+ * - pnpm: the version `packageManager` pins, else `SANDBOX_PNPM`; an older pnpm on a newer lockfile re-resolves the
+ *   whole graph, which is slow and memory-hungry.
+ * - The install is narrowed to the package the acceptance command targets and its dependencies (`--filter <name>...`)
+ *   when the command names one, so a test of one package does not install the whole workspace.
  */
-export function acceptancePrepareScript(): string {
+export function acceptancePrepareScript(toolchain: AcceptanceToolchain = EMPTY_TOOLCHAIN): string {
+  const pnpmSpec = toolchain.pnpm ? `pnpm@${toolchain.pnpm}` : SANDBOX_PNPM;
+  const pnpmWanted = toolchain.pnpm ? `[ "$(pnpm --version 2>/dev/null)" = "${toolchain.pnpm}" ]` : "command -v pnpm >/dev/null 2>&1";
+  const filter = toolchain.filter ? ` --filter ${JSON.stringify(`${toolchain.filter}...`)}` : "";
   return withOutputTail("/tmp/fm-acceptance-prepare.log", [
     'export PATH="$HOME/.fm-tools/bin:$PATH"',
-    `command -v pnpm >/dev/null 2>&1 || (cd "$HOME" && npm install --global --prefix "$HOME/.fm-tools" --ignore-scripts --no-fund --no-audit --loglevel=error ${SANDBOX_PNPM})`,
+    // "$1 is older than $2": the smaller of the two by version sort is $1 and they differ.
+    'fm_older() { [ "$1" != "$2" ] && [ "$(printf %s\\\\n "$1" "$2" | sort -V | head -n1)" = "$1" ]; }',
+    ...(toolchain.node
+      ? [
+          `if fm_older "$(node --version 2>/dev/null | sed s/^v//)" "${toolchain.node}"; then echo "Sandbox Node $(node --version 2>/dev/null) is older than the project's ${toolchain.node}: installing Node ${toolchain.node}"; ${npmGlobal(`node-linux-x64@${toolchain.node}`)}; hash -r; fi`,
+          'echo "Node $(node --version)"',
+        ]
+      : []),
+    `${pnpmWanted} || ${npmGlobal(pnpmSpec)}`,
+    'hash -r; echo "pnpm $(pnpm --version)"',
     '(cd "$HOME" && pnpm config set --location=global manage-package-manager-versions false && pnpm config set --location=global package-manager-strict false) >/dev/null',
-    `if [ -f package.json ]; then pnpm install --no-frozen-lockfile --ignore-scripts --ignore-pnpmfile ${PNPM_SAFE_FLAGS} --reporter=append-only; fi`,
+    `if [ -f package.json ]; then pnpm install --no-frozen-lockfile --ignore-scripts --ignore-pnpmfile ${PNPM_SAFE_FLAGS} --reporter=append-only${filter}; fi`,
   ]);
 }
 
@@ -2061,7 +2137,12 @@ async function runAcceptanceIn(deps: OrchestratorDeps, recorder: SessionRecorder
       : `Copied ${synced.files} file${synced.files === 1 ? "" : "s"} (${Math.ceil(synced.bytes / 1024)} KB) into the sandbox for the acceptance tests.`,
   });
 
-  const prep = await sandbox.exec(acceptancePrepareScript(), { timeoutMs: ACCEPTANCE_PREPARE_TIMEOUT_MS });
+  // The project's own Node and pnpm, and only the package under test when the command names one (the image's Node 20
+  // and a whole-workspace install killed the first live runs).
+  const toolchain = await readAcceptanceToolchain(cwd, command);
+  const asked = [toolchain.node ? `Node ${toolchain.node} or newer` : null, toolchain.pnpm ? `pnpm ${toolchain.pnpm}` : null].filter(Boolean).join(" and ");
+  await recorder.publishRaw({ kind: "note", at: at(), source: "system", level: "info", text: `Installing dependencies in the sandbox${asked ? ` with ${asked} (the project's own)` : ""}${toolchain.filter ? `, for ${toolchain.filter} and what it depends on` : ""}.` });
+  const prep = await sandbox.exec(acceptancePrepareScript(toolchain), { timeoutMs: ACCEPTANCE_PREPARE_TIMEOUT_MS });
   if (prep.code !== 0) {
     const prepOutput = sandboxOutputForNote(prep.stdout + prep.stderr);
     await recorder.publishRaw({ kind: "note", at: at(), source: "agent", level: "warn", text: `Installing the project's dependencies failed (exit ${prep.code}${prep.timedOut ? ", timed out" : ""}):\n${prepOutput}` });

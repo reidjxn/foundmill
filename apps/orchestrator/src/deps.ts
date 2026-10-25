@@ -163,6 +163,8 @@ export function createDeps(options: CreateDepsOptions = {}): OrchestratorDeps {
         : resolveSandboxProvider({
             mode: env.SANDBOX_MODE,
             env: { INTEGRATIONS_MODE: env.INTEGRATIONS_MODE, E2B_API_KEY: env.E2B_API_KEY },
+            // The template acceptance sandboxes start from (infra/e2b builds one with the project's Node, pnpm and a browser).
+            ...(env.E2B_TEMPLATE ? { e2b: { template: env.E2B_TEMPLATE } } : {}),
             providers: { mock: new MockSandboxProvider({ speed: env.mockSessionSpeed, autoplay: false, holds: "as_recorded" }) },
           }).then((r) => ({ provider: r.provider, mode: r.mode, fellBackFrom: r.fellBackFrom }));
       resolved.catch(() => {
