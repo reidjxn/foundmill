@@ -1,0 +1,45 @@
+# Builds the E2B template Foundmill's acceptance sandboxes start from (infra/e2b/e2b.Dockerfile; docs/DEPLOY.md §5).
+# Run by hand from the Actions tab (or `gh workflow run e2b-template.yml`). The E2B key is the repository secret
+# E2B_API_KEY (the same key the orchestrator holds in Railway); it never appears in the log. After a successful build,
+# set E2B_TEMPLATE=<template name> on the orchestrator and redeploy it.
+name: E2B sandbox template
+
+on:
+  workflow_dispatch:
+    inputs:
+      name:
+        description: Template name (lowercase letters, numbers, dashes)
+        default: foundmill-sandbox
+        required: true
+      cpu:
+        description: vCPUs for each sandbox
+        default: "4"
+        required: true
+      memory_mb:
+        description: Memory for each sandbox, in MB (an even number)
+        default: "4096"
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build the template on E2B
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Build (E2B CLI 2.x builds the Dockerfile on E2B's side)
+        env:
+          E2B_API_KEY: ${{ secrets.E2B_API_KEY }}
+        run: |
+          if [ -z "$E2B_API_KEY" ]; then echo "The repository secret E2B_API_KEY is not set (Settings → Secrets and variables → Actions)."; exit 1; fi
+          npx --yes @e2b/cli@2.22.3 template create "${{ inputs.name }}" --path infra/e2b --dockerfile e2b.Dockerfile --cpu-count "${{ inputs.cpu }}" --memory-mb "${{ inputs.memory_mb }}"
+      - name: Show the team's templates
+        env:
+          E2B_API_KEY: ${{ secrets.E2B_API_KEY }}
+        run: npx --yes @e2b/cli@2.22.3 template list

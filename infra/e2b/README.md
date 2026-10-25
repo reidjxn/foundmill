@@ -11,17 +11,17 @@ there.
 
 ## Build and use
 
-1. Install Docker and sign in to E2B once: `npx e2b@latest auth login`.
-2. From the repository root:
-
-   ```sh
-   npx e2b@latest template build --name foundmill-sandbox --cpu-count 4 --memory-mb 4096 --dockerfile infra/e2b/e2b.Dockerfile --path infra/e2b
-   ```
-
+1. Add the E2B API key as a GitHub Actions repository secret named `E2B_API_KEY` (repository → Settings → Secrets and
+   variables → Actions → New repository secret). It is the same key the orchestrator holds in Railway.
+2. Run the workflow **E2B sandbox template** from the Actions tab (or `gh workflow run e2b-template.yml`). It runs
+   `npx @e2b/cli@2.22.3 template create foundmill-sandbox --path infra/e2b --dockerfile e2b.Dockerfile --cpu-count 4 --memory-mb 4096`;
+   E2B CLI 2.x builds the image on E2B's side, so no Docker is needed. The same command works from any machine with
+   `E2B_API_KEY` in its environment.
 3. In Railway, on the orchestrator service, set `E2B_TEMPLATE=foundmill-sandbox` and redeploy.
 
 Rebuild when the repository changes its Node or pnpm pin (root `Dockerfile`, `package.json` `packageManager`) or its
 Playwright version (`pnpm-workspace.yaml` catalog). `--cpu-count` and `--memory-mb` are the sandbox's size; raise them
 if dependency installs are still killed. Hobby plans cap sandbox sizes lower than Pro (e2b.dev/pricing).
 
-Nothing in this folder holds a secret. The E2B API key stays in Railway (`E2B_API_KEY`); the CLI uses your own login.
+Nothing in this folder holds a secret. The key is read from the repository secret in the workflow and from Railway by
+the orchestrator; it is never written to a log.
