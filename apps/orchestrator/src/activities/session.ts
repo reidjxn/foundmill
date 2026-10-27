@@ -58,7 +58,7 @@ import { createSessionWorkspace, guardToolCall, hookOutputFor, removeSessionWork
 import { commitShaOf, describePush, pushWorkspace, type PushContext } from "./workspace-push";
 import { mergeRecipients, restoreWorkspace, saveWorkspace, toSeed, type LeftOut, type RestoredWorkspace, type SaveWorkspaceOptions } from "./workspace-store";
 import { readWorkspaceChanges, syncCheckoutToSandbox, syncWorkspaceToSandbox } from "./workspace-sync";
-import { checkoutMissingNote, checkoutNote, checkoutRepository, describeCheckout, disposeCheckout, extractArchive, testSetupChanges, testSetupReviewReason, type Checkout } from "./checkout";
+import { checkoutMissingNote, checkoutNote, checkoutRepository, describeCheckout, disposeCheckout, extractArchive, testSetupChanges, testSetupReviewReason, type Checkout, type CheckoutBase, type CheckoutInput } from "./checkout";
 import { fingerprintWorkspace, workspaceChanged } from "./workspace-fingerprint";
 import type { AgentSessionInput, SessionFinish, SessionLaunch, SessionParked, SessionResult, SessionRunOptions } from "./types";
 
@@ -1812,10 +1812,25 @@ async function runLiveSession(deps: OrchestratorDeps, recorder: SessionRecorder,
     // Honest outcomes (decision 3, 2026-10-23): a task the agent blocked stays blocked, a code session that changed
     // nothing is not done, and a code task whose acceptance run failed is never done.
     const agentBlock = recorder.agentBlock;
+    // An engineer that works through the GitHub connector (commit_files on agent/<taskId>, then open_pr) leaves the
+    // local workspace as it was: the Oct 27, 2026 cycle of the Foundmill business judged such a session "changed no
+    // files" while its pull request was already open. The branch it pushed is brought down in place of the checkout,
+    // so the acceptance tests run on what was pushed and the save compares against it; the test-setup review below
+    // still compares with the checkout the session started from.
+    let endPrint = policy.fileTools ? await fingerprintWorkspace(cwd) : null;
+    let baseBefore: CheckoutBase | null = null;
+    if (task.kind === "code" && policy.fileTools && checkout && !agentBlock && recorder.agentPushed.count > 0 && !workspaceChanged(startPrint, endPrint)) {
+      const adopted = await adoptPushedBranch(deps, recorder, { businessId: input.businessId, agentId: agent.id, sessionId: input.sessionId, taskId: task.id }, cwd, checkout, agent.name, launch.branch);
+      if (adopted) {
+        baseBefore = checkout.base;
+        checkout = adopted;
+        endPrint = await fingerprintWorkspace(cwd);
+      }
+    }
     // "Wrote nothing" is the task's work, not this run's alone: the changes earlier sessions saved on the task (restored
     // here, or kept back when the restore failed) count, so a session that only finishes them (an approved action, a
     // rerun after a flaky test) can still end done.
-    const nothingWritten = task.kind === "code" && policy.fileTools && !restoreFailed && !(restored?.savedAt && restored.files > 0) && !workspaceChanged(startPrint, await fingerprintWorkspace(cwd));
+    const nothingWritten = task.kind === "code" && policy.fileTools && !restoreFailed && !(restored?.savedAt && restored.files > 0) && !workspaceChanged(startPrint, endPrint);
     // Acceptance tests run inside a sandbox, never on the orchestrator host, on a copy of the agent's workspace. Not
     // for a task the agent blocked or a session that wrote nothing: neither can end done, so the sandbox is not paid for.
     const acceptanceCommand = acceptanceCommandFor(task);
@@ -1853,8 +1868,9 @@ async function runLiveSession(deps: OrchestratorDeps, recorder: SessionRecorder,
     // Passing tests prove nothing when the session changed what they are (package.json scripts, a runner config, a
     // deleted test): compared with the checkout, such a task waits in review for the founder instead of ending done.
     if (checkout) {
-      const changes = await readWorkspaceChanges(cwd, checkout.base.files);
-      const found = changes.refused ? [`the changes could not be compared with the checkout: ${changes.refused}`] : testSetupChanges(changes, checkout.base);
+      const reviewBase = baseBefore ?? checkout.base;
+      const changes = await readWorkspaceChanges(cwd, reviewBase.files);
+      const found = changes.refused ? [`the changes could not be compared with the checkout: ${changes.refused}`] : testSetupChanges(changes, reviewBase);
       if (found.length > 0) {
         const why = testSetupReviewReason(found);
         const review = `needs review: ${why}`;
@@ -2049,6 +2065,9 @@ export function acceptanceRunScript(command: string): string {
   return withOutputTail("/tmp/fm-acceptance.log", [
     'export PATH="$HOME/.fm-tools/bin:$PATH"',
     PNPM_SAFE_ENV,
+    // The sandbox has a few GB at most: a test runner that forks one worker per CPU was killed (exit 137) on the
+    // first web test run of the Foundmill business (Oct 27, 2026). Vitest reads this; other runners ignore it.
+    "export VITEST_MAX_WORKERS=2",
     `if [ -f package.json ]; then pnpm rebuild ${PNPM_SAFE_FLAGS} >/dev/null 2>&1 || echo "(some dependency build scripts failed offline)"; fi`,
     command,
   ]);
@@ -2076,6 +2095,37 @@ export function acceptanceFailureReason(v: AcceptanceVerdict): string {
   const head = `acceptance tests failed (${v.exitCode === null ? "not run" : `exit ${v.exitCode}`}, ${counts})`;
   const tail = v.output.trim();
   return (tail ? `${head}. Last output:\n${tail.slice(-(2000 - head.length - 16))}` : head).slice(0, 2000);
+}
+
+/**
+ * The branch the agent pushed to during the session, brought down over the workspace in place of the checkout: what
+ * its `commit_files` calls wrote is this session's work even though no local file changed. Returns the new checkout,
+ * or null when the branch could not be fetched: the workspace is then the original checkout again, a note says why,
+ * and the run is judged as before (no local change).
+ */
+async function adoptPushedBranch(deps: OrchestratorDeps, recorder: SessionRecorder, input: CheckoutInput, cwd: string, current: Checkout, agentName: string, branch: string): Promise<Checkout | null> {
+  const at = () => deps.clock.now().toISOString();
+  const pushes = recorder.agentPushed.count;
+  const commits = `${pushes} commit${pushes === 1 ? "" : "s"}`;
+  // A clean workspace: the archive is written with exclusive creates, and a file the branch deleted must not linger.
+  await createSessionWorkspace(deps.env.ORCHESTRATOR_WORKSPACE_DIR, input.sessionId);
+  const again = await checkoutRepository(deps, input, cwd);
+  if (again.status === "checked_out" && again.checkout.base.ref === branch) {
+    await disposeCheckout(current);
+    await recorder.publishRaw({ kind: "note", at: at(), source: "system", level: "info", text: `Brought down ${branch} (${again.checkout.files} file${again.checkout.files === 1 ? "" : "s"}, commit ${again.checkout.base.commitSha.slice(0, 7)}) with the ${commits} ${agentName} pushed during the session, for the acceptance tests.` });
+    return again.checkout;
+  }
+  const why = again.status === "checked_out" ? `GitHub served ${again.checkout.base.ref}, not ${branch}` : again.reason;
+  if (again.status === "checked_out") await disposeCheckout(again.checkout);
+  // Back to the checkout the session started from; the push itself stands on GitHub.
+  await createSessionWorkspace(deps.env.ORCHESTRATOR_WORKSPACE_DIR, input.sessionId);
+  try {
+    await extractArchive(current.archivePath, cwd);
+  } catch (err) {
+    deps.log.warn({ err: (err as Error).message, sessionId: input.sessionId }, "checkout could not be unpacked again after the branch fetch failed");
+  }
+  await recorder.publishRaw({ kind: "note", at: at(), source: "system", level: "warn", text: `${agentName} pushed ${commits} to ${branch}, but the branch could not be brought down for the acceptance tests (${why.slice(0, 200)}). The push stands on GitHub; this session is judged on its workspace, which did not change.` });
+  return null;
 }
 
 /** Why a code session that changed no file is not done. */

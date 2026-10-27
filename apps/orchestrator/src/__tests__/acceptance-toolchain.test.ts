@@ -65,6 +65,8 @@ describe("acceptancePrepareScript", () => {
     const script = acceptanceRunScript("pnpm --filter @foundmill/gateway test");
     expect(script).toContain('export PATH="$HOME/.fm-tools/bin:$PATH"');
     expect(script).toContain("pnpm --filter @foundmill/gateway test");
+    // A worker per CPU was killed (exit 137) on the first web test run; vitest reads this cap.
+    expect(script).toContain("export VITEST_MAX_WORKERS=2");
   });
 
   it("pins pnpm's package-manager settings through the environment, never through `pnpm config set` (pnpm 12 refuses those keys in its global config)", () => {

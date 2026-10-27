@@ -21,6 +21,7 @@ import { LONG_LIVED_NAME_PATTERNS, parseSandboxSpec, type Sandbox, type SandboxP
 import { buildAad, createVault, encryptJson, generateMasterKey } from "@foundmill/shared/crypto";
 import { MockActivityEnvironment } from "@temporalio/testing";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { isUntrusted } from "@foundmill/connectors";
 import { createGithubMock } from "@foundmill/connectors/connectors/github/mock";
 import { makeToolContext } from "@foundmill/connectors/testing/contract-suite";
 import { openAgentSession } from "../activities/dispatch";
@@ -1469,6 +1470,66 @@ describe("honest outcomes: a code session ends done only when it did the work (d
     expect(events).toHaveLength(1);
     expect(events[0]!.payload).toMatchObject({ taskId: task.id, reason: "error", detail: NO_CHANGES_REASON });
     expect((await repos.agents.get(t.db, t.businessId, t.workerId)).status).toBe("idle");
+  });
+
+  it("a code session whose agent committed through GitHub is judged on its branch: brought down for the acceptance tests, not blocked for no changes", async () => {
+    // One GitHub mock behind both the gateway's calls and its archives, so the branch the agent writes is the one the checkout fetches.
+    const github = createGithubMock();
+    const offline = createOfflineGatewayClient();
+    const archives: { owner: string; repo: string; ref: string }[] = [];
+    const gateway = {
+      ...offline,
+      async call(_token: string, req: { connector: string; tool: string; args: Record<string, unknown> }) {
+        offline.calls.push(req);
+        return { outcome: "allow" as const, result: await github.callTool(req.tool, req.args, makeToolContext(github)), costMinor: 0 };
+      },
+      async downloadArchive(_token: string, req: { owner: string; repo: string; ref: string }) {
+        archives.push(req);
+        const result = await github.callTool("download_archive", req, makeToolContext(github));
+        if (!result.ok) return { outcome: "allow" as const, error: { code: result.error?.code ?? "tool_failed", message: result.error?.message ?? "no archive" } };
+        const out = (isUntrusted(result.data) ? result.data.content : result.data) as { ref: string; sha: string; archive: Uint8Array };
+        return { outcome: "allow" as const, archive: { ref: out.ref, sha: out.sha, data: new Uint8Array(out.archive.buffer, out.archive.byteOffset, out.archive.byteLength) } };
+      },
+    };
+    const pushing = createSessionActivities({ ...liveDeps, gateway });
+    await repos.integrations.upsert(t.deps.db, t.businessId, { connectorKey: "github", status: "mock", authKind: "app", settings: { repo: "acme/shop", writeEnabled: true } });
+    try {
+      const task = await repos.tasks.create(t.db, t.businessId, { kind: "code", title: "Fix the chip", goalMd: "Change the code.", acceptance: ["pnpm test passes"], assigneeAgentId: t.workerId, status: "ready" });
+      await repos.tasks.setStatus(t.db, t.businessId, task.id, "running", { force: true });
+      const sessionId = await openSessionRow(t, t.workerId, task.id);
+      const input = { businessId: t.businessId, agentId: t.workerId, taskId: task.id, sessionId };
+      const launch = await pushing.prepareSession(input);
+      const branch = `agent/${task.id}`;
+      const files = [{ path: "src/index.ts", content: "export const fixed = true;\n" }];
+      script = async function* () {
+        // The agent commits through the connector (what the gateway runs for its tool call) and never touches the local files.
+        const committed = await github.callTool("commit_files", { owner: "acme", repo: "shop", branch, message: "Fix the chip", files }, makeToolContext(github));
+        expect(committed.ok).toBe(true);
+        const sha = ((isUntrusted(committed.data) ? committed.data.content : committed.data) as { sha?: string }).sha;
+        yield { type: "assistant", message: { id: "m1", content: [{ type: "tool_use", id: "tu-commit", name: "mcp__github__commit_files", input: { owner: "acme", repo: "shop", branch, message: "Fix the chip", files } }], usage: { input_tokens: 20, output_tokens: 5 } } };
+        yield { type: "user", message: { content: [{ type: "tool_result", tool_use_id: "tu-commit", content: JSON.stringify({ ok: true, sha, branch }) }] } };
+        yield* success(sessionId)();
+      };
+      const specsBefore = provider.specs.length;
+      const result = await pushing.runAgentSession(input, launch);
+      expect(result.outcome).toBe("done");
+      // The session started from HEAD (the branch did not exist yet); after the turn the branch was fetched and tested.
+      expect(archives.map((a) => a.ref)).toEqual([branch, "HEAD", branch]);
+      expect(provider.specs.length).toBe(specsBefore + 1);
+      const notes = (await readSessionEvents(t.redis, sessionId, { kinds: ["note"] })).map((r) => (r.event.kind === "note" ? r.event.text : ""));
+      expect(notes.some((n) => new RegExp(`^Brought down ${branch} \\(3 files, commit [0-9a-f]{7}\\) with the 1 commit Test Engineer pushed during the session, for the acceptance tests\\.$`).test(n))).toBe(true);
+      expect(notes).not.toContain("Acceptance tests not run: the session changed no files.");
+      expect(notes.some((n) => n.startsWith(`Unpacked the checkout of acme/shop@${branch} in the sandbox`))).toBe(true);
+      // The save and the end-of-session push compare with the branch itself: nothing new to write over it.
+      const saved = await repos.workspaces.latest(t.db, t.businessId, task.id);
+      if (saved) expect(saved).toMatchObject({ baseRepo: "acme/shop", baseRef: branch });
+      // The session is closed like any other, so the worker is free for the next test.
+      const finish = await pushing.finishSession(input, launch, result);
+      expect(finish.taskStatus).not.toBe("blocked");
+      expect((await repos.tasks.get(t.db, t.businessId, task.id)).status).not.toBe("blocked");
+    } finally {
+      await repos.integrations.disconnect(t.deps.db, t.businessId, (await repos.integrations.getByKey(t.deps.db, t.businessId, "github"))!.id);
+    }
   });
 
   it("a code task whose acceptance run fails is never done: the task is blocked on the test output and the agent is not marked failing", async () => {
