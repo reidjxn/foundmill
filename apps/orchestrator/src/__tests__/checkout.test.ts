@@ -12,7 +12,7 @@ import { makeToolContext } from "@foundmill/connectors/testing/contract-suite";
 import { isUntrusted } from "@foundmill/connectors";
 import { repos } from "@foundmill/db";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
-import { CHECKOUT_LIMITS, checkoutMissingNote, checkoutRepository, describeCheckout, disposeCheckout, extractArchive, isTestFile, isTestRunnerConfig, packageTestSettings, testSetupChanges, testSetupReviewReason } from "../activities/checkout";
+import { CHECKOUT_BUSY_RETRIES, CHECKOUT_BUSY_WAIT_MS, CHECKOUT_LIMITS, checkoutMissingNote, checkoutRepository, describeCheckout, disposeCheckout, extractArchive, isTestFile, isTestRunnerConfig, packageTestSettings, testSetupChanges, testSetupReviewReason } from "../activities/checkout";
 import { pushWorkspace } from "../activities/workspace-push";
 import { restoreWorkspace, saveWorkspace } from "../activities/workspace-store";
 import { readWorkspaceChanges, removeSandboxLinksCommand, syncCheckoutToSandbox } from "../activities/workspace-sync";
@@ -181,6 +181,39 @@ describe("checkoutRepository", () => {
     expect(await checkoutRepository({ db: t.deps.db, gateway: evil.gateway }, await input(t.codeTaskId), await freshDir())).toMatchObject({ status: "failed", reason: expect.stringMatching(/unsafe path/) });
     const down: GatewayClient = { ...createOfflineGatewayClient(), async downloadArchive() { throw new Error("gateway unreachable"); } };
     expect(await checkoutRepository({ db: t.deps.db, gateway: down }, await input(t.codeTaskId), await freshDir())).toMatchObject({ status: "failed", reason: "gateway unreachable" });
+  });
+
+  it("waits its turn when the gateway's archive slots are taken, and gives up with the gateway's reason after the retries", async () => {
+    await repos.integrations.upsert(t.deps.db, t.businessId, { connectorKey: "github", status: "mock", authKind: "app", settings: { repo: "acme/shop" } });
+    const busy = { outcome: "rate_limited" as const, reasons: ["3 repository archives are being served already; retry in 5s"], retryAfterSeconds: 5 };
+    // Two refusals, then the archive: the checkout succeeds after two waits of the gateway's retry-after.
+    let refusals = 2;
+    const flaky = githubGateway(undefined, { archive: () => (refusals-- > 0 ? busy : null) });
+    const waits: number[] = [];
+    const sleep = async (ms: number) => {
+      waits.push(ms);
+    };
+    const r = await checkoutRepository({ db: t.deps.db, gateway: flaky.gateway }, await input(t.codeTaskId), await freshDir(), CHECKOUT_LIMITS, { sleep });
+    expect(r.status).toBe("checked_out");
+    expect(waits).toEqual([5_000, 5_000]);
+    expect(flaky.offline.archives.map((a) => a.ref)).toEqual([`agent/${t.codeTaskId}`, `agent/${t.codeTaskId}`, `agent/${t.codeTaskId}`, "HEAD"]);
+
+    // A retry-after shorter than the floor waits the floor; a long one is capped.
+    const short = { ...busy, retryAfterSeconds: 1 };
+    const long = { ...busy, retryAfterSeconds: 120 };
+    const answers = [short, long];
+    const paced = githubGateway(undefined, { archive: () => answers.shift() ?? null });
+    waits.length = 0;
+    expect((await checkoutRepository({ db: t.deps.db, gateway: paced.gateway }, await input(t.codeTaskId), await freshDir(), CHECKOUT_LIMITS, { sleep })).status).toBe("checked_out");
+    expect(waits).toEqual([CHECKOUT_BUSY_WAIT_MS, 15_000]);
+
+    // Refused every time: the checkout fails with the count, the time waited and the gateway's own words, never "GitHub's rate limit".
+    const always = githubGateway(undefined, { archive: () => busy });
+    waits.length = 0;
+    const gaveUp = await checkoutRepository({ db: t.deps.db, gateway: always.gateway }, await input(t.codeTaskId), await freshDir(), CHECKOUT_LIMITS, { sleep });
+    expect(gaveUp).toEqual({ status: "failed", repo: "acme/shop", reason: `the gateway refused the archive ${CHECKOUT_BUSY_RETRIES + 1} times over ${(CHECKOUT_BUSY_RETRIES * 5_000) / 1000} s (3 repository archives are being served already; retry in 5s)` });
+    expect(waits).toHaveLength(CHECKOUT_BUSY_RETRIES);
+    expect(describeCheckout(gaveUp).text).toMatch(/^Could not check out acme\/shop: the gateway refused the archive/);
   });
 });
 
