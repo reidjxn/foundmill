@@ -74,7 +74,7 @@ export type ArchiveData = { ref: string; sha: string; data: Uint8Array } | { ref
 export type ArchiveResponse =
   | { outcome: "allow"; archive: ArchiveData }
   | { outcome: "allow"; error: { code: string; message: string } }
-  | { outcome: "ask" | "deny" | "rate_limited"; reasons: string[] };
+  | { outcome: "ask" | "deny" | "rate_limited"; reasons: string[]; retryAfterSeconds?: number };
 
 export interface GatewayClient {
   readonly baseUrl: string;
@@ -220,7 +220,10 @@ async function archiveResponse(res: Response, max: number, file?: string): Promi
     throw new GatewayClientError("gateway_bad_response", `Gateway returned non-JSON (${res.status}) for ${ARCHIVE_PATH}`, res.status, text.slice(0, 300));
   }
   const outcome = json?.outcome;
-  if (outcome === "ask" || outcome === "deny" || outcome === "rate_limited") return { outcome, reasons: Array.isArray(json?.reasons) ? (json.reasons as string[]) : [] };
+  if (outcome === "ask" || outcome === "deny" || outcome === "rate_limited") {
+    const retryAfterSeconds = json?.retryAfterSeconds;
+    return { outcome, reasons: Array.isArray(json?.reasons) ? (json.reasons as string[]) : [], ...(typeof retryAfterSeconds === "number" && retryAfterSeconds > 0 ? { retryAfterSeconds } : {}) };
+  }
   if (outcome === "allow") {
     const error = (json?.result as { error?: { code?: string; message?: string } } | undefined)?.error;
     return { outcome: "allow", error: { code: error?.code ?? "tool_failed", message: error?.message ?? "GitHub gave no archive" } };

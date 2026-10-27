@@ -1830,14 +1830,31 @@ async function runLiveSession(deps: OrchestratorDeps, recorder: SessionRecorder,
     // "Wrote nothing" is the task's work, not this run's alone: the changes earlier sessions saved on the task (restored
     // here, or kept back when the restore failed) count, so a session that only finishes them (an approved action, a
     // rerun after a flaky test) can still end done.
-    const nothingWritten = task.kind === "code" && policy.fileTools && !restoreFailed && !(restored?.savedAt && restored.files > 0) && !workspaceChanged(startPrint, endPrint);
+    // A checkout of the task's own branch is the task's work from earlier sessions (their commits are on it), like
+    // restored saved files: a session that finishes it, or finds it finished, can end done when the tests pass. Every
+    // session on a branch with the Oct 25 commits had ended "changed no files" (Foundmill business, Oct 27, 2026).
+    const branchWork = checkout !== null && baseBefore === null && checkout.base.ref === launch.branch;
+    const nothingWritten = task.kind === "code" && policy.fileTools && !restoreFailed && !(restored?.savedAt && restored.files > 0) && !branchWork && !workspaceChanged(startPrint, endPrint);
+    // What the task changed against the checkout it started from: the acceptance tests run for those packages (the
+    // root `pnpm test` runs every package at once and was killed for memory in the sandbox), and the test-setup review
+    // below reads the same comparison. On the task's own branch with nothing changed here, the branch's changes are the
+    // ones the sessions that pushed them saved.
+    const reviewBase = baseBefore ?? checkout?.base ?? null;
+    const changes = reviewBase && task.kind === "code" && policy.fileTools ? await readWorkspaceChanges(cwd, reviewBase.files) : null;
+    let scopePaths = changes && !changes.refused ? [...changes.files.map((f) => f.rel), ...changes.removed] : [];
+    if (scopePaths.length === 0 && branchWork) {
+      const saved = await repos.workspaces.latest(deps.db, input.businessId, task.id);
+      if (saved) scopePaths = [...saved.files.map((f) => f.path), ...saved.removedPaths];
+    }
+    const scope = scopePaths.length > 0 ? await changedPackageNames(cwd, scopePaths) : [];
     // Acceptance tests run inside a sandbox, never on the orchestrator host, on a copy of the agent's workspace. Not
     // for a task the agent blocked or a session that wrote nothing: neither can end done, so the sandbox is not paid for.
-    const acceptanceCommand = acceptanceCommandFor(task);
+    const acceptanceCommand = acceptanceCommandFor(task, scope);
     let acceptance: AcceptanceVerdict | null = null;
     if (acceptanceCommand && (agentBlock || nothingWritten)) {
       await recorder.publishRaw({ kind: "note", at: deps.clock.now().toISOString(), source: "system", level: "info", text: `Acceptance tests not run: ${agentBlock ? `${agent.name} blocked the task` : "the session changed no files"}.` });
     } else if (acceptanceCommand) {
+      if (scope.length > 0 && acceptanceCommand !== acceptanceCommandFor(task)) await recorder.publishRaw({ kind: "note", at: deps.clock.now().toISOString(), source: "system", level: "info", text: `Acceptance tests run for ${scope.join(", ")}: what this task changed.` });
       const ran = await runAcceptance(deps, recorder, live.acquireSandbox, cwd, acceptanceCommand, acceptanceAbort.signal, checkout);
       recorder.sandboxMs += ran.ms;
       acceptance = ran.verdict;
@@ -1867,9 +1884,7 @@ async function runLiveSession(deps: OrchestratorDeps, recorder: SessionRecorder,
     }
     // Passing tests prove nothing when the session changed what they are (package.json scripts, a runner config, a
     // deleted test): compared with the checkout, such a task waits in review for the founder instead of ending done.
-    if (checkout) {
-      const reviewBase = baseBefore ?? checkout.base;
-      const changes = await readWorkspaceChanges(cwd, reviewBase.files);
+    if (checkout && reviewBase && changes) {
       const found = changes.refused ? [`the changes could not be compared with the checkout: ${changes.refused}`] : testSetupChanges(changes, reviewBase);
       if (found.length > 0) {
         const why = testSetupReviewReason(found);
@@ -1974,11 +1989,11 @@ export interface AcceptanceToolchain {
   node: string | null;
   /** The pnpm the project pins (`packageManager: pnpm@x.y.z`), or null. */
   pnpm: string | null;
-  /** The workspace package the acceptance command targets (`pnpm --filter <name> test`), or null for the whole workspace. */
-  filter: string | null;
+  /** The workspace packages the acceptance command targets (`pnpm --filter <name> … test`); empty for the whole workspace. */
+  filters: string[];
 }
 
-const EMPTY_TOOLCHAIN: AcceptanceToolchain = { node: null, pnpm: null, filter: null };
+const EMPTY_TOOLCHAIN: AcceptanceToolchain = { node: null, pnpm: null, filters: [] };
 const VERSION = /^\d+(?:\.\d+){0,2}$/;
 /** A workspace package name or path as pnpm's `--filter` takes it; anything else is not put in a shell command. */
 const FILTER_NAME = /^(?:@?[A-Za-z0-9]|\.\/)[A-Za-z0-9_./-]{0,120}$/;
@@ -1999,9 +2014,12 @@ export function acceptanceToolchainOf(packageJson: unknown, command: string): Ac
     const m = /^pnpm@(\d+\.\d+\.\d+)/.exec(pkg.packageManager.trim());
     if (m) pnpm = m[1]!;
   }
-  const f = /--filter(?:=|\s+)(\S+)/.exec(command);
-  const filter = f && FILTER_NAME.test(f[1]!) && !f[1]!.includes("...") ? f[1]! : null;
-  return { node: node && VERSION.test(node) ? node : null, pnpm: pnpm && VERSION.test(pnpm) ? pnpm : null, filter };
+  const filters: string[] = [];
+  for (const m of command.matchAll(/--filter(?:=|\s+)(\S+)/g)) {
+    const name = m[1]!;
+    if (FILTER_NAME.test(name) && !name.includes("...") && !filters.includes(name)) filters.push(name);
+  }
+  return { node: node && VERSION.test(node) ? node : null, pnpm: pnpm && VERSION.test(pnpm) ? pnpm : null, filters };
 }
 
 /** The toolchain from the workspace's own package.json; the empty toolchain when there is none or it is unreadable. */
@@ -2010,8 +2028,44 @@ export async function readAcceptanceToolchain(cwd: string, command: string): Pro
     const raw = await fs.readFile(path.join(cwd, "package.json"), "utf8");
     return acceptanceToolchainOf(JSON.parse(raw), command);
   } catch {
-    return { ...EMPTY_TOOLCHAIN, filter: acceptanceToolchainOf({}, command).filter };
+    return { ...EMPTY_TOOLCHAIN, filters: acceptanceToolchainOf({}, command).filters };
   }
+}
+
+/**
+ * The workspace packages the paths belong to (the `name` of the nearest package.json above each, never the workspace
+ * root's own): what a task changed, so its acceptance tests run for those packages rather than the whole workspace.
+ * A name that could not go into a shell command as it is (`FILTER_NAME`) is left out.
+ */
+export async function changedPackageNames(cwd: string, paths: readonly string[]): Promise<string[]> {
+  const root = path.resolve(cwd);
+  const packages = new Map<string, { exists: boolean; name: string | null }>();
+  const packageAt = async (dir: string) => {
+    const known = packages.get(dir);
+    if (known) return known;
+    let found: { exists: boolean; name: string | null } = { exists: false, name: null };
+    try {
+      const pkg = JSON.parse(await fs.readFile(path.join(dir, "package.json"), "utf8")) as { name?: unknown };
+      const name = typeof pkg.name === "string" && FILTER_NAME.test(pkg.name) && !pkg.name.includes("...") ? pkg.name : null;
+      found = { exists: true, name };
+    } catch {
+      /* no package.json here, or not JSON: not a package */
+    }
+    packages.set(dir, found);
+    return found;
+  };
+  const out = new Set<string>();
+  for (const rel of paths) {
+    const abs = path.resolve(root, rel);
+    if (!abs.startsWith(root + path.sep)) continue;
+    for (let dir = path.dirname(abs); dir !== root && dir.startsWith(root + path.sep); dir = path.dirname(dir)) {
+      const pkg = await packageAt(dir);
+      if (!pkg.exists) continue;
+      if (pkg.name) out.add(pkg.name);
+      break;
+    }
+  }
+  return [...out].sort();
 }
 
 /** Run `lines` under `set -e` with their output in a log inside the sandbox, print only its tail, keep the exit code. */
@@ -2039,7 +2093,7 @@ const npmGlobal = (spec: string) => `(cd "$HOME" && npm install --global --prefi
 export function acceptancePrepareScript(toolchain: AcceptanceToolchain = EMPTY_TOOLCHAIN): string {
   const pnpmSpec = toolchain.pnpm ? `pnpm@${toolchain.pnpm}` : SANDBOX_PNPM;
   const pnpmWanted = toolchain.pnpm ? `[ "$(pnpm --version 2>/dev/null)" = "${toolchain.pnpm}" ]` : "command -v pnpm >/dev/null 2>&1";
-  const filter = toolchain.filter ? ` --filter ${JSON.stringify(`${toolchain.filter}...`)}` : "";
+  const filter = toolchain.filters.map((name) => ` --filter ${JSON.stringify(`${name}...`)}`).join("");
   return withOutputTail("/tmp/fm-acceptance-prepare.log", [
     'export PATH="$HOME/.fm-tools/bin:$PATH"',
     PNPM_SAFE_ENV,
@@ -2199,7 +2253,7 @@ async function runAcceptanceIn(deps: OrchestratorDeps, recorder: SessionRecorder
   // and a whole-workspace install killed the first live runs).
   const toolchain = await readAcceptanceToolchain(cwd, command);
   const asked = [toolchain.node ? `Node ${toolchain.node} or newer` : null, toolchain.pnpm ? `pnpm ${toolchain.pnpm}` : null].filter(Boolean).join(" and ");
-  await recorder.publishRaw({ kind: "note", at: at(), source: "system", level: "info", text: `Installing dependencies in the sandbox${asked ? ` with ${asked} (the project's own)` : ""}${toolchain.filter ? `, for ${toolchain.filter} and what it depends on` : ""}.` });
+  await recorder.publishRaw({ kind: "note", at: at(), source: "system", level: "info", text: `Installing dependencies in the sandbox${asked ? ` with ${asked} (the project's own)` : ""}${toolchain.filters.length > 0 ? `, for ${toolchain.filters.join(", ")} and what ${toolchain.filters.length === 1 ? "it depends" : "they depend"} on` : ""}.` });
   const prep = await sandbox.exec(acceptancePrepareScript(toolchain), { timeoutMs: ACCEPTANCE_PREPARE_TIMEOUT_MS });
   if (prep.code !== 0) {
     const prepOutput = sandboxOutputForNote(prep.stdout + prep.stderr);
@@ -2224,12 +2278,25 @@ async function runAcceptanceIn(deps: OrchestratorDeps, recorder: SessionRecorder
   return { passed, exitCode: res.code, testsPassed: counts.passed, testsFailed, output: passed ? "" : sandboxOutputForNote(output) };
 }
 
-export function acceptanceCommandFor(task: Pick<Task, "acceptance" | "kind">): string | null {
+/**
+ * The acceptance command when the task names none and nothing says which packages it changed: every package's tests,
+ * one package at a time. Not `pnpm test` (`turbo run test` here): that runs every package at once and was killed for
+ * memory in the sandbox (exit 137) on the Foundmill business's Oct 27, 2026 cycles.
+ */
+export const ACCEPTANCE_FALLBACK_COMMAND = "pnpm -r --workspace-concurrency=1 run --if-present test";
+
+/**
+ * The task's acceptance command: the one its acceptance criteria name; else the tests of the packages the task changed
+ * (`scope`, from `changedPackageNames`); else `ACCEPTANCE_FALLBACK_COMMAND`. Null for a task that is not code.
+ */
+export function acceptanceCommandFor(task: Pick<Task, "acceptance" | "kind">, scope: readonly string[] = []): string | null {
   if (task.kind !== "code") return null;
   for (const a of task.acceptance) {
     if (a && typeof a === "object" && typeof (a as { command?: unknown }).command === "string") return (a as { command: string }).command;
   }
-  return "pnpm test";
+  const packages = [...new Set(scope.filter((name) => FILTER_NAME.test(name) && !name.includes("...")))].sort();
+  if (packages.length > 0) return `pnpm ${packages.map((name) => `--filter ${name}`).join(" ")} run --if-present test`;
+  return ACCEPTANCE_FALLBACK_COMMAND;
 }
 
 /** Parse "N passed, M failed" style summaries (vitest / jest / pytest). */

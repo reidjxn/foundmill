@@ -50,6 +50,15 @@ export const CHECKOUT_LIMITS: CheckoutLimits = { maxArchiveBytes: MAX_ARCHIVE_BY
 export const CHECKOUT_TOKEN_TTL_SECONDS = 300;
 /** How long one archive download may take, end to end. */
 export const CHECKOUT_TIMEOUT_MS = 240_000;
+/**
+ * The gateway serves a few archives at once (apps/gateway archive.ts `MAX_CONCURRENT_ARCHIVES`) and answers the rest
+ * `rate_limited` with a retry-after; a cycle starts its sessions in the same second, so the ones past the limit wait
+ * their turn: this many retries, `CHECKOUT_BUSY_WAIT_MS` apart unless the gateway asks for longer (capped at 15 s).
+ * The fourth session of the Foundmill business's Oct 27, 2026 cycles gave up at once and was told it was GitHub's limit.
+ */
+export const CHECKOUT_BUSY_RETRIES = 12;
+export const CHECKOUT_BUSY_WAIT_MS = 5_000;
+const CHECKOUT_BUSY_WAIT_MAX_MS = 15_000;
 /** Credential-shaped values remembered from the checkout (past it, the rest are masked as usual). */
 const MAX_KNOWN_SECRETS = 10_000;
 
@@ -110,28 +119,43 @@ async function writeExclusive(abs: string, content: Uint8Array): Promise<void> {
  * The archive of `ref` in `file`, or why there is none (`missing`: the ref does not exist). The gateway client streams
  * it into the file; a client that answers with bytes (the offline one, test stand-ins) has them written there.
  */
-async function fetchArchive(gateway: GatewayClient, token: string, target: { owner: string; repo: string }, ref: string, file: string, maxBytes: number): Promise<{ archive: { ref: string; sha: string; bytes: number } } | { missing: true } | { error: string }> {
-  await rm(file, { force: true });
-  const res = await gateway.downloadArchive(token, { owner: target.owner, repo: target.repo, ref }, { timeoutMs: CHECKOUT_TIMEOUT_MS, maxBytes, file });
-  if (res.outcome === "allow" && "archive" in res) {
-    const got = res.archive;
-    if ("data" in got) {
-      if (got.data.byteLength > maxBytes) return { error: `the archive is larger than ${Math.round(maxBytes / (1024 * 1024))} MB` };
-      await writeExclusive(file, got.data);
-      return { archive: { ref: got.ref, sha: got.sha, bytes: got.data.byteLength } };
+async function fetchArchive(gateway: GatewayClient, token: string, target: { owner: string; repo: string }, ref: string, file: string, maxBytes: number, sleep: (ms: number) => Promise<void>): Promise<{ archive: { ref: string; sha: string; bytes: number } } | { missing: true } | { error: string }> {
+  let waitedMs = 0;
+  for (let attempt = 1; ; attempt++) {
+    await rm(file, { force: true });
+    const res = await gateway.downloadArchive(token, { owner: target.owner, repo: target.repo, ref }, { timeoutMs: CHECKOUT_TIMEOUT_MS, maxBytes, file });
+    if (res.outcome === "allow" && "archive" in res) {
+      const got = res.archive;
+      if ("data" in got) {
+        if (got.data.byteLength > maxBytes) return { error: `the archive is larger than ${Math.round(maxBytes / (1024 * 1024))} MB` };
+        await writeExclusive(file, got.data);
+        return { archive: { ref: got.ref, sha: got.sha, bytes: got.data.byteLength } };
+      }
+      if (path.resolve(got.file) !== path.resolve(file)) throw new Error("the archive was written somewhere else");
+      return { archive: { ref: got.ref, sha: got.sha, bytes: got.bytes } };
     }
-    if (path.resolve(got.file) !== path.resolve(file)) throw new Error("the archive was written somewhere else");
-    return { archive: { ref: got.ref, sha: got.sha, bytes: got.bytes } };
+    if (res.outcome === "allow") return res.error.code === "not_found" ? { missing: true } : { error: res.error.message.slice(0, 300) || "GitHub gave no archive" };
+    if (res.outcome === "rate_limited") {
+      // The gateway's archive slots are taken (or a connector limit is spent): wait and ask again, a bounded number of times.
+      const why = res.reasons[0]?.slice(0, 200) || "rate limited";
+      if (attempt > CHECKOUT_BUSY_RETRIES) return { error: `the gateway refused the archive ${attempt} times over ${Math.round(waitedMs / 1000)} s (${why})` };
+      const wait = Math.min(CHECKOUT_BUSY_WAIT_MAX_MS, Math.max(CHECKOUT_BUSY_WAIT_MS, (res.retryAfterSeconds ?? 0) * 1000));
+      waitedMs += wait;
+      await sleep(wait);
+      continue;
+    }
+    if (res.outcome === "ask") return { error: "the checkout is waiting for the founder's approval" };
+    return { error: `refused by policy${res.reasons.length ? ` (${res.reasons.join("; ").slice(0, 300)})` : ""}` };
   }
-  if (res.outcome === "allow") return res.error.code === "not_found" ? { missing: true } : { error: res.error.message.slice(0, 300) || "GitHub gave no archive" };
-  if (res.outcome === "rate_limited") return { error: "GitHub's rate limit was reached" };
-  if (res.outcome === "ask") return { error: "the checkout is waiting for the founder's approval" };
-  return { error: `refused by policy${res.reasons.length ? ` (${res.reasons.join("; ").slice(0, 300)})` : ""}` };
 }
+
+const realSleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
 
 export interface CheckoutOptions {
   /** Where the archive's private temp directory is made (default: the OS temp directory); never inside `cwd`. */
   tmpDir?: string;
+  /** Waits between archive retries (injected by tests). */
+  sleep?: (ms: number) => Promise<void>;
 }
 
 /**
@@ -152,8 +176,9 @@ export async function checkoutRepository(deps: { db: Db; gateway: GatewayClient 
     if (dirReal === workspace || dirReal.startsWith(workspace + path.sep)) throw new Error("the archive cannot be kept inside the workspace");
     const file = path.join(dir, "archive.tgz");
     const token = await deps.gateway.mintSessionToken({ businessId: input.businessId, agentId: input.agentId, sessionId: input.sessionId, allowedTools: [`github:${DOWNLOAD_ARCHIVE_TOOL}`], ttlSeconds: CHECKOUT_TOKEN_TTL_SECONDS });
-    let got = await fetchArchive(deps.gateway, token.token, target, `agent/${input.taskId}`, file, limits.maxArchiveBytes);
-    if ("missing" in got) got = await fetchArchive(deps.gateway, token.token, target, "HEAD", file, limits.maxArchiveBytes);
+    const sleep = options.sleep ?? realSleep;
+    let got = await fetchArchive(deps.gateway, token.token, target, `agent/${input.taskId}`, file, limits.maxArchiveBytes, sleep);
+    if ("missing" in got) got = await fetchArchive(deps.gateway, token.token, target, "HEAD", file, limits.maxArchiveBytes, sleep);
     if ("missing" in got) return { status: "failed", repo: target.fullName, reason: "the repository or its default branch was not found" };
     if ("error" in got) return { status: "failed", repo: target.fullName, reason: got.error };
     const { archive } = got;

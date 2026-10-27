@@ -25,7 +25,7 @@ import { isUntrusted } from "@foundmill/connectors";
 import { createGithubMock } from "@foundmill/connectors/connectors/github/mock";
 import { makeToolContext } from "@foundmill/connectors/testing/contract-suite";
 import { openAgentSession } from "../activities/dispatch";
-import { ACCEPTANCE_EGRESS, classifyTurnEnd, createSessionActivities, NO_CHANGES_REASON, SANDBOX_TTL_MINUTES } from "../activities/session";
+import { ACCEPTANCE_EGRESS, ACCEPTANCE_FALLBACK_COMMAND, classifyTurnEnd, createSessionActivities, NO_CHANGES_REASON, SANDBOX_TTL_MINUTES } from "../activities/session";
 import { emitEvent } from "../events";
 import type { SessionResult } from "../activities/types";
 import type { SessionControlBus } from "../control-bus";
@@ -277,13 +277,15 @@ describe("runAgentSession (live runner, SDK mocked)", () => {
     expect(prepare).toContain("pnpm install");
     expect(prepare).toContain("--ignore-scripts");
     expect(prepare).toContain("--ignore-pnpmfile");
-    expect(prepare).not.toMatch(/\npnpm test\n/);
-    expect(run).toMatch(/\npnpm test\n\) >\/tmp\/fm-acceptance\.log 2>&1\n/);
+    // No checkout, so nothing says which packages changed: every package's tests, one package at a time (never the
+    // root `pnpm test`, which runs them all at once and was killed for memory in the sandbox).
+    expect(prepare).not.toContain(ACCEPTANCE_FALLBACK_COMMAND);
+    expect(run).toContain(`\n${ACCEPTANCE_FALLBACK_COMMAND}\n) >/tmp/fm-acceptance.log 2>&1\n`);
     expect(run).toMatch(/tail -c 32768/);
     const allNotes = await readSessionEvents(t.redis, sessionId, { kinds: ["note"] });
     expect(allNotes.some((r) => r.event.kind === "note" && /Copied 2 files .* into the sandbox/.test(r.event.text))).toBe(true);
     const tests = await readSessionEvents(t.redis, sessionId, { kinds: ["test_result"] });
-    expect(tests.at(-1)?.event).toMatchObject({ kind: "test_result", acceptance: true, command: "pnpm test", passed: 3, failed: 0 });
+    expect(tests.at(-1)?.event).toMatchObject({ kind: "test_result", acceptance: true, command: ACCEPTANCE_FALLBACK_COMMAND, passed: 3, failed: 0 });
     expect(provider.stopped).toBeGreaterThan(0);
 
     // The code outlives the workspace: saved to the task, without the SDK's state, dependencies, git or links.
@@ -1527,6 +1529,50 @@ describe("honest outcomes: a code session ends done only when it did the work (d
       const finish = await pushing.finishSession(input, launch, result);
       expect(finish.taskStatus).not.toBe("blocked");
       expect((await repos.tasks.get(t.db, t.businessId, task.id)).status).not.toBe("blocked");
+    } finally {
+      await repos.integrations.disconnect(t.deps.db, t.businessId, (await repos.integrations.getByKey(t.deps.db, t.businessId, "github"))!.id);
+    }
+  });
+
+  it("a session on the task's own branch, which already carries the work, is judged on the branch: the tests run and it can end done", async () => {
+    const github = createGithubMock();
+    const offline = createOfflineGatewayClient();
+    const gateway = {
+      ...offline,
+      async call(_token: string, req: { connector: string; tool: string; args: Record<string, unknown> }) {
+        offline.calls.push(req);
+        return { outcome: "allow" as const, result: await github.callTool(req.tool, req.args, makeToolContext(github)), costMinor: 0 };
+      },
+      async downloadArchive(_token: string, req: { owner: string; repo: string; ref: string }) {
+        const result = await github.callTool("download_archive", req, makeToolContext(github));
+        if (!result.ok) return { outcome: "allow" as const, error: { code: result.error?.code ?? "tool_failed", message: result.error?.message ?? "no archive" } };
+        const out = (isUntrusted(result.data) ? result.data.content : result.data) as { ref: string; sha: string; archive: Uint8Array };
+        return { outcome: "allow" as const, archive: { ref: out.ref, sha: out.sha, data: new Uint8Array(out.archive.buffer, out.archive.byteOffset, out.archive.byteLength) } };
+      },
+    };
+    const onBranch = createSessionActivities({ ...liveDeps, gateway });
+    await repos.integrations.upsert(t.deps.db, t.businessId, { connectorKey: "github", status: "mock", authKind: "app", settings: { repo: "acme/shop", writeEnabled: true } });
+    try {
+      const task = await repos.tasks.create(t.db, t.businessId, { kind: "code", title: "Founder-only merge rule", goalMd: "Change the code.", acceptance: ["pnpm test passes"], assigneeAgentId: t.workerId, status: "ready" });
+      await repos.tasks.setStatus(t.db, t.businessId, task.id, "running", { force: true });
+      const branch = `agent/${task.id}`;
+      // An earlier session pushed the work to the task's branch (its sandbox died before the tests could run).
+      await github.callTool("commit_files", { owner: "acme", repo: "shop", branch, message: "Founder-only merge rule", files: [{ path: "src/index.ts", content: "export const founderOnly = true;\n" }] }, makeToolContext(github));
+      const sessionId = await openSessionRow(t, t.workerId, task.id);
+      const input = { businessId: t.businessId, agentId: t.workerId, taskId: task.id, sessionId };
+      const launch = await onBranch.prepareSession(input);
+      // This session finds the work done and changes nothing.
+      script = success(sessionId);
+      const specsBefore = provider.specs.length;
+      const result = await onBranch.runAgentSession(input, launch);
+      expect(result.outcome).toBe("done");
+      expect(provider.specs.length).toBe(specsBefore + 1);
+      const notes = (await readSessionEvents(t.redis, sessionId, { kinds: ["note"] })).map((r) => (r.event.kind === "note" ? r.event.text : ""));
+      expect(notes.some((n) => n.startsWith(`Checked out acme/shop@${branch}`))).toBe(true);
+      expect(notes).not.toContain("Acceptance tests not run: the session changed no files.");
+      expect(notes.some((n) => n.startsWith(`Unpacked the checkout of acme/shop@${branch} in the sandbox`))).toBe(true);
+      const finish = await onBranch.finishSession(input, launch, result);
+      expect(finish.taskStatus).not.toBe("blocked");
     } finally {
       await repos.integrations.disconnect(t.deps.db, t.businessId, (await repos.integrations.getByKey(t.deps.db, t.businessId, "github"))!.id);
     }
