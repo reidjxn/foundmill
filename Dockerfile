@@ -18,6 +18,9 @@ COPY apps ./apps
 COPY packages ./packages
 COPY evals ./evals
 COPY e2e ./e2e
+# infra/e2b is the acceptance sandbox's template (infra/e2b/README.md); the orchestrator's Railway pre-deploy command
+# builds it from inside this image with the E2B key the service holds, so the key never leaves Railway.
+COPY infra ./infra
 RUN pnpm install --frozen-lockfile
 
 FROM deps AS runtime
