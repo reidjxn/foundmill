@@ -1939,6 +1939,13 @@ export const SANDBOX_PNPM = "pnpm@10";
 /** Bytes of a phase's output that come back to the orchestrator; the rest stays in a log inside the sandbox. */
 export const ACCEPTANCE_OUTPUT_TAIL_BYTES = 32 * 1024;
 const PNPM_SAFE_FLAGS = "--config.manage-package-manager-versions=false --config.package-manager-strict=false";
+/**
+ * The same two settings for every pnpm command the scripts run, the task's own included, through the environment pnpm
+ * reads (`npm_config_<key>`). Not `pnpm config set --location=global`: pnpm 12 refuses these keys in its global
+ * config.yaml ("ERR_PNPM_CONFIG_SET_UNSUPPORTED_YAML_CONFIG_KEY"), which ended every acceptance run of the Foundmill
+ * business on Oct 27, 2026 before a single package was installed.
+ */
+const PNPM_SAFE_ENV = "export npm_config_manage_package_manager_versions=false npm_config_package_manager_strict=false";
 
 /**
  * What the acceptance sandbox must run the project with (read from the workspace's package.json and the task's
@@ -2003,7 +2010,7 @@ const npmGlobal = (spec: string) => `(cd "$HOME" && npm install --global --prefi
  * Phase 1, online (the registry is reachable): put the project's Node and pnpm on PATH and install its dependencies
  * with every lifecycle script and pnpmfile off, so no code the agent controls runs while the sandbox can reach the
  * network. pnpm's own settings that could fetch or switch package managers are pinned on the command line, which
- * outranks a project `.npmrc`, and in the sandbox user's global config for the offline phase.
+ * outranks a project `.npmrc`, and in the environment (`PNPM_SAFE_ENV`) for the task's own command in the offline phase.
  *
  * - Node: when the sandbox's Node is older than the project's `engines.node`, the matching Node binary comes from the
  *   npm registry (`node-linux-x64@<version>`, the only host the sandbox may reach) into `$HOME/.fm-tools/bin`, ahead of
@@ -2019,6 +2026,7 @@ export function acceptancePrepareScript(toolchain: AcceptanceToolchain = EMPTY_T
   const filter = toolchain.filter ? ` --filter ${JSON.stringify(`${toolchain.filter}...`)}` : "";
   return withOutputTail("/tmp/fm-acceptance-prepare.log", [
     'export PATH="$HOME/.fm-tools/bin:$PATH"',
+    PNPM_SAFE_ENV,
     // "$1 is older than $2": the smaller of the two by version sort is $1 and they differ.
     'fm_older() { [ "$1" != "$2" ] && [ "$(printf %s\\\\n "$1" "$2" | sort -V | head -n1)" = "$1" ]; }',
     ...(toolchain.node
@@ -2029,7 +2037,6 @@ export function acceptancePrepareScript(toolchain: AcceptanceToolchain = EMPTY_T
       : []),
     `${pnpmWanted} || ${npmGlobal(pnpmSpec)}`,
     'hash -r; echo "pnpm $(pnpm --version)"',
-    '(cd "$HOME" && pnpm config set --location=global manage-package-manager-versions false && pnpm config set --location=global package-manager-strict false) >/dev/null',
     `if [ -f package.json ]; then pnpm install --no-frozen-lockfile --ignore-scripts --ignore-pnpmfile ${PNPM_SAFE_FLAGS} --reporter=append-only${filter}; fi`,
   ]);
 }
@@ -2041,6 +2048,7 @@ export function acceptancePrepareScript(toolchain: AcceptanceToolchain = EMPTY_T
 export function acceptanceRunScript(command: string): string {
   return withOutputTail("/tmp/fm-acceptance.log", [
     'export PATH="$HOME/.fm-tools/bin:$PATH"',
+    PNPM_SAFE_ENV,
     `if [ -f package.json ]; then pnpm rebuild ${PNPM_SAFE_FLAGS} >/dev/null 2>&1 || echo "(some dependency build scripts failed offline)"; fi`,
     command,
   ]);

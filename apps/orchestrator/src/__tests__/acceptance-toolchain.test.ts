@@ -66,4 +66,15 @@ describe("acceptancePrepareScript", () => {
     expect(script).toContain('export PATH="$HOME/.fm-tools/bin:$PATH"');
     expect(script).toContain("pnpm --filter @foundmill/gateway test");
   });
+
+  it("pins pnpm's package-manager settings through the environment, never through `pnpm config set` (pnpm 12 refuses those keys in its global config)", () => {
+    const safe = "export npm_config_manage_package_manager_versions=false npm_config_package_manager_strict=false";
+    for (const script of [acceptancePrepareScript({ node: "22.23.3", pnpm: "12.9.1", filter: "@foundmill/api" }), acceptancePrepareScript(), acceptanceRunScript("pnpm test")]) {
+      expect(script).toContain(safe);
+      expect(script).not.toContain("pnpm config set");
+    }
+    // The environment line comes before any pnpm command, so the first pnpm call already sees it.
+    const prepare = acceptancePrepareScript({ node: "22.23.3", pnpm: "12.9.1", filter: "@foundmill/api" }).split("\n");
+    expect(prepare.indexOf(safe)).toBeLessThan(prepare.findIndex((l) => l.includes("pnpm")));
+  });
 });
