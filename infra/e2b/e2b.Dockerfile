@@ -15,19 +15,18 @@
 # Same base as the service image (Dockerfile at the repository root): the versions the repository pins.
 FROM node:22.23.3-bookworm
 
-ENV PNPM_HOME=/pnpm
-ENV PATH=$PNPM_HOME:$PATH
 ENV PLAYWRIGHT_BROWSERS_PATH=/opt/pw-browsers
 
-# pnpm as the repository pins it (package.json `packageManager`), git for checkouts, build tools for native modules, and
-# the system libraries Chromium needs. Chromium itself is installed by Playwright below so its version matches the
-# `@playwright/test` the workspace pins (pnpm-workspace.yaml catalog).
-RUN corepack enable && corepack prepare pnpm@12.9.1 --activate \
+# pnpm as the repository pins it (package.json `packageManager`), installed globally with npm so it is the same binary
+# for every user (corepack keeps its copy in the installing user's cache, which E2B's `user` cannot see); git for
+# checkouts, build tools for native modules, and the system libraries Chromium needs. Chromium itself is installed by
+# Playwright below so its version matches the `@playwright/test` the workspace pins (pnpm-workspace.yaml catalog).
+RUN npm install -g pnpm@12.9.1 \
  && apt-get update && apt-get install -y --no-install-recommends ca-certificates git python3 make g++ curl \
  && npx --yes playwright@1.63.0 install --with-deps chromium \
  && rm -rf /var/lib/apt/lists/* /root/.npm
 
-# E2B runs commands as `user`; the browser and pnpm must be readable by it.
-RUN chmod -R a+rX /opt/pw-browsers /pnpm
+# E2B runs commands as `user`; the browser must be readable by it.
+RUN chmod -R a+rX /opt/pw-browsers
 
 WORKDIR /home/user
