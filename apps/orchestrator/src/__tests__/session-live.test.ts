@@ -1578,6 +1578,50 @@ describe("honest outcomes: a code session ends done only when it did the work (d
     }
   });
 
+  it("a code session that changes documentation only skips the acceptance tests, with a note, and ends done", async () => {
+    const github = createGithubMock();
+    const offline = createOfflineGatewayClient();
+    const gateway = {
+      ...offline,
+      async call(_token: string, req: { connector: string; tool: string; args: Record<string, unknown> }) {
+        offline.calls.push(req);
+        return { outcome: "allow" as const, result: await github.callTool(req.tool, req.args, makeToolContext(github)), costMinor: 0 };
+      },
+      async downloadArchive(_token: string, req: { owner: string; repo: string; ref: string }) {
+        const result = await github.callTool("download_archive", req, makeToolContext(github));
+        if (!result.ok) return { outcome: "allow" as const, error: { code: result.error?.code ?? "tool_failed", message: result.error?.message ?? "no archive" } };
+        const out = (isUntrusted(result.data) ? result.data.content : result.data) as { ref: string; sha: string; archive: Uint8Array };
+        return { outcome: "allow" as const, archive: { ref: out.ref, sha: out.sha, data: new Uint8Array(out.archive.buffer, out.archive.byteOffset, out.archive.byteLength) } };
+      },
+    };
+    const docs = createSessionActivities({ ...liveDeps, gateway });
+    await repos.integrations.upsert(t.deps.db, t.businessId, { connectorKey: "github", status: "mock", authKind: "app", settings: { repo: "acme/shop", writeEnabled: true } });
+    try {
+      const task = await repos.tasks.create(t.db, t.businessId, { kind: "code", title: "Review the agent-pack skills", goalMd: "Fix the docs.", acceptance: ["The three skills agree with the handover"], assigneeAgentId: t.workerId, status: "ready" });
+      await repos.tasks.setStatus(t.db, t.businessId, task.id, "running", { force: true });
+      const sessionId = await openSessionRow(t, t.workerId, task.id);
+      const input = { businessId: t.businessId, agentId: t.workerId, taskId: task.id, sessionId };
+      const launch = await docs.prepareSession(input);
+      script = async function* (call) {
+        await mkdir(path.join(call.options.cwd as string, "docs"), { recursive: true });
+        await writeFile(path.join(call.options.cwd as string, "docs", "NOTES.md"), "# Notes\n\nThe skills agree with the handover.\n");
+        yield* success(sessionId)();
+      };
+      const specsBefore = provider.specs.length;
+      const result = await docs.runAgentSession(input, launch);
+      expect(result).toMatchObject({ outcome: "done", reason: null, blockedReason: null });
+      // No sandbox: a Markdown change has no tests to run.
+      expect(provider.specs.length).toBe(specsBefore);
+      const notes = (await readSessionEvents(t.redis, sessionId, { kinds: ["note"] })).map((r) => (r.event.kind === "note" ? r.event.text : ""));
+      expect(notes).toContain("Acceptance tests not run: the task changed documentation only (docs/NOTES.md), which has no tests.");
+      expect(notes.some((n) => n.startsWith("The acceptance tests did not run"))).toBe(false);
+      const finish = await docs.finishSession(input, launch, result);
+      expect(finish.taskStatus).toBe("done");
+    } finally {
+      await repos.integrations.disconnect(t.deps.db, t.businessId, (await repos.integrations.getByKey(t.deps.db, t.businessId, "github"))!.id);
+    }
+  });
+
   it("a code task whose acceptance run fails is never done: the task is blocked on the test output and the agent is not marked failing", async () => {
     const { task, sessionId, input, launch } = await freshCodeTask("Fix the invoice rounding");
     script = async function* (call) {
