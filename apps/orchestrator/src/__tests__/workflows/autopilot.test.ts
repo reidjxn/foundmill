@@ -292,22 +292,34 @@ describe("autopilot workflow", () => {
   });
 
   it("continues as new after its rounds so the history stays small", async () => {
+    // Blocked for its first two looks (one run of two rounds), then the team is stopped: the third look, in the next run
+    // of the same workflow id, pauses it. The stop comes from the world, not a signal: with time skipped, a workflow that
+    // only waits runs through its rounds and runs at full speed, and a signal racing that loop hung the test on a
+    // loaded CI runner (main, Oct 27, 2026).
     const w = world({ blocking: 1 });
-    const result = await rig.run(mocks(w), (client, taskQueue) =>
-      drive(
-        client,
-        taskQueue,
-        `autopilot:${B}:rounds`,
-        async (handle) => {
-          // Two rounds per run: the third look happens in a new run of the same workflow id.
-          await until(() => w.evaluations >= 3);
-          const current = await client.workflow.getHandle(`autopilot:${B}:rounds`).describe();
-          expect(current.runId).not.toBe(handle.firstExecutionRunId);
-          await client.workflow.getHandle(`autopilot:${B}:rounds`).signal(stopSignal, { reason: "kill_switch" });
+    const base = mocks(w);
+    let firstRunId: string | undefined;
+    let lastRunId: string | undefined;
+    const result = await rig.run(
+      {
+        ...base,
+        async autopilotEvaluate(input: Parameters<NonNullable<Activities["autopilotEvaluate"]>>[0]) {
+          if (w.evaluations >= 2) w.stopReason = "kill_switch";
+          return base.autopilotEvaluate!(input);
         },
-        { businessId: B, maxRounds: 2 },
-      ),
+      },
+      async (client, taskQueue) => {
+        const handle = await client.workflow.start(autopilot, { workflowId: `autopilot:${B}:rounds`, taskQueue, args: [{ businessId: B, maxRounds: 2 }] });
+        firstRunId = handle.firstExecutionRunId;
+        const outcome = await handle.result();
+        lastRunId = (await client.workflow.getHandle(`autopilot:${B}:rounds`).describe()).runId;
+        return outcome;
+      },
     );
-    expect(result.outcome).toBe("stopped");
+    expect(result).toMatchObject({ outcome: "paused", pausedReason: "kill_switch", cyclesStarted: 0 });
+    expect(w.evaluations).toBe(3);
+    expect(w.pauses).toEqual(["kill_switch"]);
+    expect(lastRunId).toBeDefined();
+    expect(lastRunId).not.toBe(firstRunId);
   });
 });

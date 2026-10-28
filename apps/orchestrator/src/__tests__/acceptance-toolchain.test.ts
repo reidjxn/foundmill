@@ -9,7 +9,7 @@ import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { ACCEPTANCE_FALLBACK_COMMAND, acceptanceCommandFor, acceptancePrepareScript, acceptanceRunScript, acceptanceToolchainOf, changedPackageNames, readAcceptanceToolchain, SANDBOX_PNPM } from "../activities/session";
+import { ACCEPTANCE_FALLBACK_COMMAND, acceptanceCommandFor, acceptancePrepareScript, acceptanceRunScript, acceptanceToolchainOf, changedPackageNames, documentationOnly, readAcceptanceToolchain, SANDBOX_PNPM } from "../activities/session";
 
 describe("acceptanceToolchainOf", () => {
   it("reads the lowest Node of engines.node, the pinned pnpm and the command's --filter", () => {
@@ -87,6 +87,17 @@ describe("changedPackageNames", () => {
     ]);
     expect(scope).toEqual(["@foundmill/dugout", "@foundmill/web"]);
     expect(await changedPackageNames(cwd, [])).toEqual([]);
+  });
+});
+
+describe("documentationOnly", () => {
+  it("is true only for a non-empty set of documentation files", () => {
+    expect(documentationOnly(["docs/agent-pack/skill-checks-and-ci.md", "README.md", "PR_NOTE.MD", "docs/notes.txt", "docs/guide.mdx"])).toBe(true);
+    expect(documentationOnly(["docs/PROGRESS.md", "apps/web/src/app/page.tsx"])).toBe(false);
+    expect(documentationOnly(["package.json"])).toBe(false);
+    expect(documentationOnly([".github/workflows/ci.yml"])).toBe(false);
+    expect(documentationOnly(["docs/README"])).toBe(false);
+    expect(documentationOnly([])).toBe(false);
   });
 });
 

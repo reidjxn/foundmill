@@ -1847,12 +1847,17 @@ async function runLiveSession(deps: OrchestratorDeps, recorder: SessionRecorder,
       if (saved) scopePaths = [...saved.files.map((f) => f.path), ...saved.removedPaths];
     }
     const scope = scopePaths.length > 0 ? await changedPackageNames(cwd, scopePaths) : [];
+    // Documentation only, in no package, and the task names no test command: nothing to test, so no sandbox. The
+    // fallback would run every package's tests for a Markdown edit.
+    const docsOnly = scope.length === 0 && documentationOnly(scopePaths) && acceptanceCommandFor(task) === ACCEPTANCE_FALLBACK_COMMAND;
     // Acceptance tests run inside a sandbox, never on the orchestrator host, on a copy of the agent's workspace. Not
     // for a task the agent blocked or a session that wrote nothing: neither can end done, so the sandbox is not paid for.
-    const acceptanceCommand = acceptanceCommandFor(task, scope);
+    const acceptanceCommand = docsOnly ? null : acceptanceCommandFor(task, scope);
     let acceptance: AcceptanceVerdict | null = null;
     if (acceptanceCommand && (agentBlock || nothingWritten)) {
       await recorder.publishRaw({ kind: "note", at: deps.clock.now().toISOString(), source: "system", level: "info", text: `Acceptance tests not run: ${agentBlock ? `${agent.name} blocked the task` : "the session changed no files"}.` });
+    } else if (docsOnly && !agentBlock && !nothingWritten) {
+      await recorder.publishRaw({ kind: "note", at: deps.clock.now().toISOString(), source: "system", level: "info", text: `Acceptance tests not run: the task changed documentation only (${scopePaths.slice(0, 5).join(", ")}${scopePaths.length > 5 ? ` and ${scopePaths.length - 5} more` : ""}), which has no tests.` });
     } else if (acceptanceCommand) {
       if (scope.length > 0 && acceptanceCommand !== acceptanceCommandFor(task)) await recorder.publishRaw({ kind: "note", at: deps.clock.now().toISOString(), source: "system", level: "info", text: `Acceptance tests run for ${scope.join(", ")}: what this task changed.` });
       const ran = await runAcceptance(deps, recorder, live.acquireSandbox, cwd, acceptanceCommand, acceptanceAbort.signal, checkout);
@@ -2066,6 +2071,17 @@ export async function changedPackageNames(cwd: string, paths: readonly string[])
     }
   }
   return [...out].sort();
+}
+
+const DOCUMENTATION_EXTENSIONS = new Set([".md", ".mdx", ".markdown", ".txt", ".rst", ".adoc"]);
+
+/**
+ * True when every path is a documentation file (by extension): a change with no tests to run. The fallback acceptance
+ * command would run every package's tests for a Markdown edit (the agent-pack skills review and the documentation-fix
+ * note on the Foundmill business, Oct 27, 2026); such a session skips the tests instead. Empty: false.
+ */
+export function documentationOnly(paths: readonly string[]): boolean {
+  return paths.length > 0 && paths.every((rel) => DOCUMENTATION_EXTENSIONS.has(path.extname(rel).toLowerCase()));
 }
 
 /** Run `lines` under `set -e` with their output in a log inside the sandbox, print only its tail, keep the exit code. */
