@@ -60,9 +60,13 @@ export function planFailure(err: unknown): unknown {
  * Why a dispatchable-looking task is left out before planning, or null: a failed or blocked task waiting for its retry
  * (doubling waits, then the founder's Start; audit BF-14), or a task whose session holds an undecided approval.
  */
-export function retryDeferral(task: BriefTask): string | null {
+export function retryDeferral(task: BriefTask, trigger: CycleTrigger | null = null): string | null {
   if (task.awaitingApproval) return "waiting for your approval in the Inbox";
   if ((task.status !== "failed" && task.status !== "blocked") || !task.retry || task.retry.due) return null;
+  // The founder's Continue is the restart the retry rule waits for: every failed or blocked task runs again, whatever
+  // its wait or its count (five tasks past their retries sat through a Continue that planned nothing; Foundmill
+  // business, Oct 28, 2026). Autopilot, the schedule and wakes keep the doubling waits and the limit.
+  if (trigger === "continue") return null;
   const what = task.status === "failed" ? "failed" : "blocked";
   if (task.retry.exhausted) return `${what} ${task.retry.failures} times in a row; start it from the Plan once the cause is fixed`;
   const next = task.retry.nextAttemptAt ? new Date(task.retry.nextAttemptAt).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit", timeZone: "UTC" }) : null;
@@ -151,7 +155,7 @@ export function channelDeferral(brief: Pick<BusinessBrief, "productStage">, task
 }
 
 /** Why a dispatchable-looking task sits this cycle out (a retry not yet due, an approval, distribution not started), or null. */
-const deferralOf = (task: BriefTask, brief: Pick<BusinessBrief, "productStage"> = {}): string | null => channelDeferral(brief, task) ?? approvalDeferral(task) ?? retryDeferral(task);
+const deferralOf = (task: BriefTask, brief: Pick<BusinessBrief, "productStage"> = {}, trigger: CycleTrigger | null = null): string | null => channelDeferral(brief, task) ?? approvalDeferral(task) ?? retryDeferral(task, trigger);
 
 /**
  * The agent a start runs on: the shared rule (`pickAssignee`, packages/agents; `dev.tasks.start` uses the same), avoiding
@@ -206,11 +210,11 @@ export function createCycleActivities(deps: OrchestratorDeps) {
     const budgetText = brief.budgetRemainingMinor === null ? "the founder's own key (no credits)" : `${(brief.budgetRemainingMinor / 100).toFixed(2)} ${brief.creditsCurrency} of credits (Estimate)`;
     const productStage = brief.productStage ?? "selling";
     const prompt = getPrompt("chief_of_staff_planner").render({ business_name: brief.businessName, max_agents: brief.maxAgents, budget: budgetText, capacity: brief.capacity, product_stage: productStage });
-    const waiting = brief.openTasks.filter((t) => DISPATCHABLE.has(t.status) && !t.blocked && deferralOf(t, brief) !== null);
-    const candidates = brief.openTasks.filter((t) => DISPATCHABLE.has(t.status) && !t.blocked && deferralOf(t, brief) === null);
+    const waiting = brief.openTasks.filter((t) => DISPATCHABLE.has(t.status) && !t.blocked && deferralOf(t, brief, input.trigger) !== null);
+    const candidates = brief.openTasks.filter((t) => DISPATCHABLE.has(t.status) && !t.blocked && deferralOf(t, brief, input.trigger) === null);
     // Nothing can start: say why instead of paying for a plan that starts nothing (audit OL-10, BF-14).
     if (candidates.length === 0) {
-      return { summary: idleSummary(brief, waiting), timeBoxHours: LIMITS.cycleTimeBoxAgentHours, starts: [], deferred: waiting.map((t) => ({ taskId: t.id, reason: deferralOf(t, brief)! })), approvalsNeeded: [], modelKey: chiefAgent?.modelKey ?? "opus", warning: null, costMinor: 0, idle: true };
+      return { summary: idleSummary(brief, waiting), timeBoxHours: LIMITS.cycleTimeBoxAgentHours, starts: [], deferred: waiting.map((t) => ({ taskId: t.id, reason: deferralOf(t, brief, input.trigger)! })), approvalsNeeded: [], modelKey: chiefAgent?.modelKey ?? "opus", warning: null, costMinor: 0, idle: true };
     }
     // The planner sees the most important and oldest tasks, identical ones folded; the payload never grows with the backlog.
     const shown = foldDuplicates(candidates).slice(0, PLAN_PAYLOAD_TASKS).map(({ task }) => task);
@@ -286,7 +290,7 @@ export function createCycleActivities(deps: OrchestratorDeps) {
     }
     // Nothing silently disappears: what no slot was left for is listed as deferred, with the planner's reason when it gave one.
     for (const t of candidates) if (!seen.has(t.id)) deferred.push({ taskId: t.id, reason: plannerDeferred.get(t.id) ?? SLOTS_TAKEN_REASON });
-    for (const t of waiting) deferred.push({ taskId: t.id, reason: deferralOf(t, brief)! });
+    for (const t of waiting) deferred.push({ taskId: t.id, reason: deferralOf(t, brief, input.trigger)! });
     starts.sort((a, b) => a.priority - b.priority);
     return {
       summary: factualSummary(brief, plan.summary, starts, deferred),

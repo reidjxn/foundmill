@@ -1570,6 +1570,9 @@ describe("honest outcomes: a code session ends done only when it did the work (d
       const notes = (await readSessionEvents(t.redis, sessionId, { kinds: ["note"] })).map((r) => (r.event.kind === "note" ? r.event.text : ""));
       expect(notes.some((n) => n.startsWith(`Checked out acme/shop@${branch}`))).toBe(true);
       expect(notes).not.toContain("Acceptance tests not run: the session changed no files.");
+      // Nothing saved on the task says what the branch changed, so the branch is compared with the default branch: the
+      // one file its commit added, in no package, so every package's tests run (never a browser suite).
+      expect(notes.some((n) => new RegExp(`^Compared ${branch} with the default branch \\(commit [0-9a-f]{7}\\): 1 file differs\\.$`).test(n))).toBe(true);
       expect(notes.some((n) => n.startsWith(`Unpacked the checkout of acme/shop@${branch} in the sandbox`))).toBe(true);
       const finish = await onBranch.finishSession(input, launch, result);
       expect(finish.taskStatus).not.toBe("blocked");

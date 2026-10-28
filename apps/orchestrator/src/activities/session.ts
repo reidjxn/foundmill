@@ -28,7 +28,7 @@
  * agent's code runs offline. Pause interrupts the SDK's turn and holds every tool call until Resume; Stop interrupts the
  * turn and waits briefly for the SDK's final usage before aborting it, so every token spent is booked.
  */
-import { promises as fs } from "node:fs";
+import { promises as fs, type Dirent } from "node:fs";
 import path from "node:path";
 import type { Query } from "@anthropic-ai/claude-agent-sdk";
 import { AgentInstructions, buildSystemPrompt, docText, getTemplate, getTemplateByAgentType, hasClubRulesPrefix, listTemplates, restoredWorkspaceNote, ToolGrant, type AgentSkillPrompt, type AgentTemplate } from "@foundmill/agents";
@@ -58,7 +58,7 @@ import { createSessionWorkspace, guardToolCall, hookOutputFor, removeSessionWork
 import { commitShaOf, describePush, pushWorkspace, type PushContext } from "./workspace-push";
 import { mergeRecipients, restoreWorkspace, saveWorkspace, toSeed, type LeftOut, type RestoredWorkspace, type SaveWorkspaceOptions } from "./workspace-store";
 import { readWorkspaceChanges, syncCheckoutToSandbox, syncWorkspaceToSandbox } from "./workspace-sync";
-import { checkoutMissingNote, checkoutNote, checkoutRepository, describeCheckout, disposeCheckout, extractArchive, testSetupChanges, testSetupReviewReason, type Checkout, type CheckoutBase, type CheckoutInput } from "./checkout";
+import { checkoutMissingNote, checkoutNote, checkoutRepository, defaultBranchChanges, describeCheckout, disposeCheckout, extractArchive, testSetupChanges, testSetupReviewReason, type Checkout, type CheckoutBase, type CheckoutInput } from "./checkout";
 import { fingerprintWorkspace, workspaceChanged } from "./workspace-fingerprint";
 import type { AgentSessionInput, SessionFinish, SessionLaunch, SessionParked, SessionResult, SessionRunOptions } from "./types";
 
@@ -1846,20 +1846,33 @@ async function runLiveSession(deps: OrchestratorDeps, recorder: SessionRecorder,
       const saved = await repos.workspaces.latest(deps.db, input.businessId, task.id);
       if (saved) scopePaths = [...saved.files.map((f) => f.path), ...saved.removedPaths];
     }
-    const scope = scopePaths.length > 0 ? await changedPackageNames(cwd, scopePaths) : [];
-    // Documentation only, in no package, and the task names no test command: nothing to test, so no sandbox. The
-    // fallback would run every package's tests for a Markdown edit.
-    const docsOnly = scope.length === 0 && documentationOnly(scopePaths) && acceptanceCommandFor(task) === ACCEPTANCE_FALLBACK_COMMAND;
+    // Still nothing on a branch that carries the work (its sessions wrote through GitHub and saved no files): the branch
+    // is compared with the default branch, so the tests run for what the branch changed, never for every package.
+    if (scopePaths.length === 0 && branchWork && checkout && !agentBlock) {
+      const compared = await defaultBranchChanges(deps, { businessId: input.businessId, agentId: agent.id, sessionId: input.sessionId, taskId: task.id }, checkout);
+      if (compared.status === "compared") {
+        scopePaths = compared.changed;
+        await recorder.publishRaw({ kind: "note", at: deps.clock.now().toISOString(), source: "system", level: "info", text: `Compared ${checkout.base.ref} with the default branch (commit ${compared.commitSha.slice(0, 7)}): ${compared.changed.length === 1 ? "1 file differs" : `${compared.changed.length} files differ`}.` });
+      } else {
+        await recorder.publishRaw({ kind: "note", at: deps.clock.now().toISOString(), source: "system", level: "warn", text: `Could not compare ${checkout.base.ref} with the default branch (${compared.reason}), so the acceptance tests run for every package.` });
+      }
+    }
+    const [scoped, appTestPackages] = scopePaths.length > 0 || acceptanceCommandFor(task) === ACCEPTANCE_FALLBACK_COMMAND ? await Promise.all([changedScope(cwd, scopePaths), workspaceAppTestPackages(cwd)]) : [{ test: [], app: [], loose: [] }, []];
+    const scope = scoped.test;
+    // Nothing a sandbox can test, and the task names no command: documentation in no package, or packages whose tests need
+    // the running app (Playwright; CI runs them). The fallback would run every package's tests for a Markdown edit.
+    const named = acceptanceCommandFor(task) !== ACCEPTANCE_FALLBACK_COMMAND;
+    const nothingToTest = !named && scopePaths.length > 0 && scope.length === 0 && (scoped.loose.length === 0 || documentationOnly(scoped.loose));
     // Acceptance tests run inside a sandbox, never on the orchestrator host, on a copy of the agent's workspace. Not
     // for a task the agent blocked or a session that wrote nothing: neither can end done, so the sandbox is not paid for.
-    const acceptanceCommand = docsOnly ? null : acceptanceCommandFor(task, scope);
+    const acceptanceCommand = nothingToTest ? null : acceptanceCommandFor(task, scope, appTestPackages);
     let acceptance: AcceptanceVerdict | null = null;
     if (acceptanceCommand && (agentBlock || nothingWritten)) {
       await recorder.publishRaw({ kind: "note", at: deps.clock.now().toISOString(), source: "system", level: "info", text: `Acceptance tests not run: ${agentBlock ? `${agent.name} blocked the task` : "the session changed no files"}.` });
-    } else if (docsOnly && !agentBlock && !nothingWritten) {
-      await recorder.publishRaw({ kind: "note", at: deps.clock.now().toISOString(), source: "system", level: "info", text: `Acceptance tests not run: the task changed documentation only (${scopePaths.slice(0, 5).join(", ")}${scopePaths.length > 5 ? ` and ${scopePaths.length - 5} more` : ""}), which has no tests.` });
+    } else if (nothingToTest && !agentBlock && !nothingWritten) {
+      await recorder.publishRaw({ kind: "note", at: deps.clock.now().toISOString(), source: "system", level: "info", text: nothingToTestNote(scoped) });
     } else if (acceptanceCommand) {
-      if (scope.length > 0 && acceptanceCommand !== acceptanceCommandFor(task)) await recorder.publishRaw({ kind: "note", at: deps.clock.now().toISOString(), source: "system", level: "info", text: `Acceptance tests run for ${scope.join(", ")}: what this task changed.` });
+      if (scope.length > 0 && !named) await recorder.publishRaw({ kind: "note", at: deps.clock.now().toISOString(), source: "system", level: "info", text: `Acceptance tests run for ${scope.join(", ")}: what this task changed.${scoped.app.length > 0 ? ` The tests of ${scoped.app.join(", ")} need the running app and run in CI.` : ""}` });
       const ran = await runAcceptance(deps, recorder, live.acquireSandbox, cwd, acceptanceCommand, acceptanceAbort.signal, checkout);
       recorder.sandboxMs += ran.ms;
       acceptance = ran.verdict;
@@ -2043,34 +2056,111 @@ export async function readAcceptanceToolchain(cwd: string, command: string): Pro
  * A name that could not go into a shell command as it is (`FILTER_NAME`) is left out.
  */
 export async function changedPackageNames(cwd: string, paths: readonly string[]): Promise<string[]> {
+  const scope = await changedScope(cwd, paths);
+  return [...scope.test, ...scope.app].sort();
+}
+
+/** A package's `test` script that needs the running app (Playwright drives a browser against a server): never run in the acceptance sandbox. */
+const APP_TEST_SCRIPT = /\bplaywright\b/i;
+
+interface PackageInfo {
+  exists: boolean;
+  /** The `name`, when it can go into a shell command as it is (`FILTER_NAME`). */
+  name: string | null;
+  /** The `test` script runs against the running app (CI starts the servers for it; the sandbox has none). */
+  appTest: boolean;
+}
+
+async function readPackageInfo(dir: string): Promise<PackageInfo> {
+  try {
+    const pkg = JSON.parse(await fs.readFile(path.join(dir, "package.json"), "utf8")) as { name?: unknown; scripts?: Record<string, unknown> };
+    const name = typeof pkg.name === "string" && FILTER_NAME.test(pkg.name) && !pkg.name.includes("...") ? pkg.name : null;
+    const test = pkg.scripts && typeof pkg.scripts.test === "string" ? pkg.scripts.test : "";
+    return { exists: true, name, appTest: APP_TEST_SCRIPT.test(test) };
+  } catch {
+    return { exists: false, name: null, appTest: false }; // no package.json here, or not JSON: not a package
+  }
+}
+
+export interface ChangedScope {
+  /** Packages whose tests the sandbox runs (`--filter` names), sorted. */
+  test: string[];
+  /** Packages whose tests need the running app: named in the note, run in CI, never in the sandbox. Sorted. */
+  app: string[];
+  /** Paths in no package (the workspace root's own files). */
+  loose: string[];
+}
+
+/**
+ * What a change touches, by the nearest package.json above each path (never the workspace root's own): the packages to
+ * test in the sandbox, the packages whose tests need the running app, and the paths in no package.
+ */
+export async function changedScope(cwd: string, paths: readonly string[]): Promise<ChangedScope> {
   const root = path.resolve(cwd);
-  const packages = new Map<string, { exists: boolean; name: string | null }>();
+  const packages = new Map<string, PackageInfo>();
   const packageAt = async (dir: string) => {
     const known = packages.get(dir);
     if (known) return known;
-    let found: { exists: boolean; name: string | null } = { exists: false, name: null };
-    try {
-      const pkg = JSON.parse(await fs.readFile(path.join(dir, "package.json"), "utf8")) as { name?: unknown };
-      const name = typeof pkg.name === "string" && FILTER_NAME.test(pkg.name) && !pkg.name.includes("...") ? pkg.name : null;
-      found = { exists: true, name };
-    } catch {
-      /* no package.json here, or not JSON: not a package */
-    }
+    const found = await readPackageInfo(dir);
     packages.set(dir, found);
     return found;
   };
-  const out = new Set<string>();
+  const test = new Set<string>();
+  const app = new Set<string>();
+  const loose: string[] = [];
   for (const rel of paths) {
     const abs = path.resolve(root, rel);
     if (!abs.startsWith(root + path.sep)) continue;
+    let owned = false;
     for (let dir = path.dirname(abs); dir !== root && dir.startsWith(root + path.sep); dir = path.dirname(dir)) {
       const pkg = await packageAt(dir);
       if (!pkg.exists) continue;
-      if (pkg.name) out.add(pkg.name);
+      owned = true;
+      if (pkg.name) (pkg.appTest ? app : test).add(pkg.name);
       break;
     }
+    if (!owned) loose.push(rel);
   }
+  return { test: [...test].sort(), app: [...app].sort(), loose };
+}
+
+const SCAN_SKIP = new Set(["node_modules", ".git", "dist", ".next", ".turbo", "coverage", ".pnpm-store"]);
+
+/**
+ * The workspace packages whose `test` script needs the running app (up to three directories deep, as pnpm workspaces
+ * are laid out): left out of the every-package fallback, which would otherwise run a browser suite against no server
+ * (the Foundmill business's fifth cycle, Oct 28, 2026: eleven golden-path failures on a branch that changed an API file).
+ */
+export async function workspaceAppTestPackages(cwd: string, maxDepth = 3): Promise<string[]> {
+  const root = path.resolve(cwd);
+  const out = new Set<string>();
+  const walk = async (dir: string, depth: number): Promise<void> => {
+    if (depth > 0) {
+      const info = await readPackageInfo(dir);
+      if (info.exists && info.name && info.appTest) out.add(info.name);
+    }
+    if (depth >= maxDepth) return;
+    let entries: Dirent[];
+    try {
+      entries = await fs.readdir(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const e of entries) {
+      if (!e.isDirectory() || SCAN_SKIP.has(e.name) || e.name.startsWith(".")) continue;
+      await walk(path.join(dir, e.name), depth + 1);
+    }
+  };
+  await walk(root, 0);
   return [...out].sort();
+}
+
+/** The note when a change leaves the sandbox nothing to test. */
+export function nothingToTestNote(scoped: ChangedScope): string {
+  const parts: string[] = [];
+  if (scoped.loose.length > 0) parts.push(`documentation only (${scoped.loose.slice(0, 5).join(", ")}${scoped.loose.length > 5 ? ` and ${scoped.loose.length - 5} more` : ""}), which has no tests`);
+  if (scoped.app.length > 0) parts.push(`${scoped.app.join(", ")}, whose tests need the running app and run in CI`);
+  return `Acceptance tests not run: the task changed ${parts.join("; and ")}.`;
 }
 
 const DOCUMENTATION_EXTENSIONS = new Set([".md", ".mdx", ".markdown", ".txt", ".rst", ".adoc"]);
@@ -2303,16 +2393,20 @@ export const ACCEPTANCE_FALLBACK_COMMAND = "pnpm -r --workspace-concurrency=1 ru
 
 /**
  * The task's acceptance command: the one its acceptance criteria name; else the tests of the packages the task changed
- * (`scope`, from `changedPackageNames`); else `ACCEPTANCE_FALLBACK_COMMAND`. Null for a task that is not code.
+ * (`scope`, from `changedScope`); else `ACCEPTANCE_FALLBACK_COMMAND`, less the packages whose tests need the running app
+ * (`exclude`, from `workspaceAppTestPackages`). Null for a task that is not code.
  */
-export function acceptanceCommandFor(task: Pick<Task, "acceptance" | "kind">, scope: readonly string[] = []): string | null {
+export function acceptanceCommandFor(task: Pick<Task, "acceptance" | "kind">, scope: readonly string[] = [], exclude: readonly string[] = []): string | null {
   if (task.kind !== "code") return null;
   for (const a of task.acceptance) {
     if (a && typeof a === "object" && typeof (a as { command?: unknown }).command === "string") return (a as { command: string }).command;
   }
-  const packages = [...new Set(scope.filter((name) => FILTER_NAME.test(name) && !name.includes("...")))].sort();
+  const safe = (names: readonly string[]) => [...new Set(names.filter((name) => FILTER_NAME.test(name) && !name.includes("...")))].sort();
+  const packages = safe(scope);
   if (packages.length > 0) return `pnpm ${packages.map((name) => `--filter ${name}`).join(" ")} run --if-present test`;
-  return ACCEPTANCE_FALLBACK_COMMAND;
+  const excluded = safe(exclude);
+  if (excluded.length === 0) return ACCEPTANCE_FALLBACK_COMMAND;
+  return ACCEPTANCE_FALLBACK_COMMAND.replace(" run --if-present test", ` ${excluded.map((name) => `--filter=!${name}`).join(" ")} run --if-present test`);
 }
 
 /** Parse "N passed, M failed" style summaries (vitest / jest / pytest). */
