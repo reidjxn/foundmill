@@ -28,7 +28,7 @@
  * agent's code runs offline. Pause interrupts the SDK's turn and holds every tool call until Resume; Stop interrupts the
  * turn and waits briefly for the SDK's final usage before aborting it, so every token spent is booked.
  */
-import { promises as fs } from "node:fs";
+import { promises as fs, type Dirent } from "node:fs";
 import path from "node:path";
 import type { Query } from "@anthropic-ai/claude-agent-sdk";
 import { AgentInstructions, buildSystemPrompt, docText, getTemplate, getTemplateByAgentType, hasClubRulesPrefix, listTemplates, restoredWorkspaceNote, ToolGrant, type AgentSkillPrompt, type AgentTemplate } from "@foundmill/agents";
@@ -58,7 +58,7 @@ import { createSessionWorkspace, guardToolCall, hookOutputFor, removeSessionWork
 import { commitShaOf, describePush, pushWorkspace, type PushContext } from "./workspace-push";
 import { mergeRecipients, restoreWorkspace, saveWorkspace, toSeed, type LeftOut, type RestoredWorkspace, type SaveWorkspaceOptions } from "./workspace-store";
 import { readWorkspaceChanges, syncCheckoutToSandbox, syncWorkspaceToSandbox } from "./workspace-sync";
-import { checkoutMissingNote, checkoutNote, checkoutRepository, describeCheckout, disposeCheckout, extractArchive, testSetupChanges, testSetupReviewReason, type Checkout, type CheckoutBase, type CheckoutInput } from "./checkout";
+import { checkoutMissingNote, checkoutNote, checkoutRepository, defaultBranchChanges, describeCheckout, disposeCheckout, extractArchive, testSetupChanges, testSetupReviewReason, type Checkout, type CheckoutBase, type CheckoutInput } from "./checkout";
 import { fingerprintWorkspace, workspaceChanged } from "./workspace-fingerprint";
 import type { AgentSessionInput, SessionFinish, SessionLaunch, SessionParked, SessionResult, SessionRunOptions } from "./types";
 
@@ -1846,20 +1846,33 @@ async function runLiveSession(deps: OrchestratorDeps, recorder: SessionRecorder,
       const saved = await repos.workspaces.latest(deps.db, input.businessId, task.id);
       if (saved) scopePaths = [...saved.files.map((f) => f.path), ...saved.removedPaths];
     }
-    const scope = scopePaths.length > 0 ? await changedPackageNames(cwd, scopePaths) : [];
-    // Documentation only, in no package, and the task names no test command: nothing to test, so no sandbox. The
-    // fallback would run every package's tests for a Markdown edit.
-    const docsOnly = scope.length === 0 && documentationOnly(scopePaths) && acceptanceCommandFor(task) === ACCEPTANCE_FALLBACK_COMMAND;
+    // Still nothing on a branch that carries the work (its sessions wrote through GitHub and saved no files): the branch
+    // is compared with the default branch, so the tests run for what the branch changed, never for every package.
+    if (scopePaths.length === 0 && branchWork && checkout && !agentBlock) {
+      const compared = await defaultBranchChanges(deps, { businessId: input.businessId, agentId: agent.id, sessionId: input.sessionId, taskId: task.id }, checkout);
+      if (compared.status === "compared") {
+        scopePaths = compared.changed;
+        await recorder.publishRaw({ kind: "note", at: deps.clock.now().toISOString(), source: "system", level: "info", text: `Compared ${checkout.base.ref} with the default branch (commit ${compared.commitSha.slice(0, 7)}): ${compared.changed.length === 1 ? "1 file differs" : `${compared.changed.length} files differ`}.` });
+      } else {
+        await recorder.publishRaw({ kind: "note", at: deps.clock.now().toISOString(), source: "system", level: "warn", text: `Could not compare ${checkout.base.ref} with the default branch (${compared.reason}), so the acceptance tests run for every package.` });
+      }
+    }
+    const [scoped, appTestPackages] = scopePaths.length > 0 || acceptanceCommandFor(task) === ACCEPTANCE_FALLBACK_COMMAND ? await Promise.all([changedScope(cwd, scopePaths), workspaceAppTestPackages(cwd)]) : [{ test: [], app: [], loose: [] }, []];
+    const scope = scoped.test;
+    // Nothing a sandbox can test, and the task names no command: documentation in no package, or packages whose tests need
+    // the running app (Playwright; CI runs them). The fallback would run every package's tests for a Markdown edit.
+    const named = acceptanceCommandFor(task) !== ACCEPTANCE_FALLBACK_COMMAND;
+    const nothingToTest = !named && scopePaths.length > 0 && scope.length === 0 && (scoped.loose.length === 0 || documentationOnly(scoped.loose));
     // Acceptance tests run inside a sandbox, never on the orchestrator host, on a copy of the agent's workspace. Not
     // for a task the agent blocked or a session that wrote nothing: neither can end done, so the sandbox is not paid for.
-    const acceptanceCommand = docsOnly ? null : acceptanceCommandFor(task, scope);
+    const acceptanceCommand = nothingToTest ? null : acceptanceCommandFor(task, scope, appTestPackages);
     let acceptance: AcceptanceVerdict | null = null;
     if (acceptanceCommand && (agentBlock || nothingWritten)) {
       await recorder.publishRaw({ kind: "note", at: deps.clock.now().toISOString(), source: "system", level: "info", text: `Acceptance tests not run: ${agentBlock ? `${agent.name} blocked the task` : "the session changed no files"}.` });
-    } else if (docsOnly && !agentBlock && !nothingWritten) {
-      await recorder.publishRaw({ kind: "note", at: deps.clock.now().toISOString(), source: "system", level: "info", text: `Acceptance tests not run: the task changed documentation only (${scopePaths.slice(0, 5).join(", ")}${scopePaths.length > 5 ? ` and ${scopePaths.length - 5} more` : ""}), which has no tests.` });
+    } else if (nothingToTest && !agentBlock && !nothingWritten) {
+      await recorder.publishRaw({ kind: "note", at: deps.clock.now().toISOString(), source: "system", level: "info", text: nothingToTestNote(scoped) });
     } else if (acceptanceCommand) {
-      if (scope.length > 0 && acceptanceCommand !== acceptanceCommandFor(task)) await recorder.publishRaw({ kind: "note", at: deps.clock.now().toISOString(), source: "system", level: "info", text: `Acceptance tests run for ${scope.join(", ")}: what this task changed.` });
+      if (scope.length > 0 && !named) await recorder.publishRaw({ kind: "note", at: deps.clock.now().toISOString(), source: "system", level: "info", text: `Acceptance tests run for ${scope.join(", ")}: what this task changed.${scoped.app.length > 0 ? ` The tests of ${scoped.app.join(", ")} need the running app and run in CI.` : ""}` });
       const ran = await runAcceptance(deps, recorder, live.acquireSandbox, cwd, acceptanceCommand, acceptanceAbort.signal, checkout);
       recorder.sandboxMs += ran.ms;
       acceptance = ran.verdict;
@@ -1975,6 +1988,9 @@ export const SANDBOX_PNPM = "pnpm@10";
 /** Bytes of a phase's output that come back to the orchestrator; the rest stays in a log inside the sandbox. */
 export const ACCEPTANCE_OUTPUT_TAIL_BYTES = 32 * 1024;
 const PNPM_SAFE_FLAGS = "--config.manage-package-manager-versions=false --config.package-manager-strict=false";
+/** The two scripts' logs inside the sandbox (their tails are printed at the end, and read back after a timeout). */
+export const ACCEPTANCE_PREPARE_LOG = "/tmp/fm-acceptance-prepare.log";
+export const ACCEPTANCE_RUN_LOG = "/tmp/fm-acceptance.log";
 /**
  * The same two settings for every pnpm command the scripts run, the task's own included, through the environment pnpm
  * reads (`npm_config_<key>`). Not `pnpm config set --location=global`: pnpm 12 refuses these keys in its global
@@ -1982,6 +1998,8 @@ const PNPM_SAFE_FLAGS = "--config.manage-package-manager-versions=false --config
  * business on Oct 27, 2026 before a single package was installed.
  */
 const PNPM_SAFE_ENV = "export npm_config_manage_package_manager_versions=false npm_config_package_manager_strict=false";
+/** pnpm's settings for the offline phase: no registry calls, no update check, and whatever still tries gives up in seconds. */
+export const PNPM_OFFLINE_ENV = "export npm_config_offline=true npm_config_update_notifier=false npm_config_fetch_retries=0 npm_config_fetch_timeout=10000 CI=1";
 
 /**
  * What the acceptance sandbox must run the project with (read from the workspace's package.json and the task's
@@ -2043,34 +2061,111 @@ export async function readAcceptanceToolchain(cwd: string, command: string): Pro
  * A name that could not go into a shell command as it is (`FILTER_NAME`) is left out.
  */
 export async function changedPackageNames(cwd: string, paths: readonly string[]): Promise<string[]> {
+  const scope = await changedScope(cwd, paths);
+  return [...scope.test, ...scope.app].sort();
+}
+
+/** A package's `test` script that needs the running app (Playwright drives a browser against a server): never run in the acceptance sandbox. */
+const APP_TEST_SCRIPT = /\bplaywright\b/i;
+
+interface PackageInfo {
+  exists: boolean;
+  /** The `name`, when it can go into a shell command as it is (`FILTER_NAME`). */
+  name: string | null;
+  /** The `test` script runs against the running app (CI starts the servers for it; the sandbox has none). */
+  appTest: boolean;
+}
+
+async function readPackageInfo(dir: string): Promise<PackageInfo> {
+  try {
+    const pkg = JSON.parse(await fs.readFile(path.join(dir, "package.json"), "utf8")) as { name?: unknown; scripts?: Record<string, unknown> };
+    const name = typeof pkg.name === "string" && FILTER_NAME.test(pkg.name) && !pkg.name.includes("...") ? pkg.name : null;
+    const test = pkg.scripts && typeof pkg.scripts.test === "string" ? pkg.scripts.test : "";
+    return { exists: true, name, appTest: APP_TEST_SCRIPT.test(test) };
+  } catch {
+    return { exists: false, name: null, appTest: false }; // no package.json here, or not JSON: not a package
+  }
+}
+
+export interface ChangedScope {
+  /** Packages whose tests the sandbox runs (`--filter` names), sorted. */
+  test: string[];
+  /** Packages whose tests need the running app: named in the note, run in CI, never in the sandbox. Sorted. */
+  app: string[];
+  /** Paths in no package (the workspace root's own files). */
+  loose: string[];
+}
+
+/**
+ * What a change touches, by the nearest package.json above each path (never the workspace root's own): the packages to
+ * test in the sandbox, the packages whose tests need the running app, and the paths in no package.
+ */
+export async function changedScope(cwd: string, paths: readonly string[]): Promise<ChangedScope> {
   const root = path.resolve(cwd);
-  const packages = new Map<string, { exists: boolean; name: string | null }>();
+  const packages = new Map<string, PackageInfo>();
   const packageAt = async (dir: string) => {
     const known = packages.get(dir);
     if (known) return known;
-    let found: { exists: boolean; name: string | null } = { exists: false, name: null };
-    try {
-      const pkg = JSON.parse(await fs.readFile(path.join(dir, "package.json"), "utf8")) as { name?: unknown };
-      const name = typeof pkg.name === "string" && FILTER_NAME.test(pkg.name) && !pkg.name.includes("...") ? pkg.name : null;
-      found = { exists: true, name };
-    } catch {
-      /* no package.json here, or not JSON: not a package */
-    }
+    const found = await readPackageInfo(dir);
     packages.set(dir, found);
     return found;
   };
-  const out = new Set<string>();
+  const test = new Set<string>();
+  const app = new Set<string>();
+  const loose: string[] = [];
   for (const rel of paths) {
     const abs = path.resolve(root, rel);
     if (!abs.startsWith(root + path.sep)) continue;
+    let owned = false;
     for (let dir = path.dirname(abs); dir !== root && dir.startsWith(root + path.sep); dir = path.dirname(dir)) {
       const pkg = await packageAt(dir);
       if (!pkg.exists) continue;
-      if (pkg.name) out.add(pkg.name);
+      owned = true;
+      if (pkg.name) (pkg.appTest ? app : test).add(pkg.name);
       break;
     }
+    if (!owned) loose.push(rel);
   }
+  return { test: [...test].sort(), app: [...app].sort(), loose };
+}
+
+const SCAN_SKIP = new Set(["node_modules", ".git", "dist", ".next", ".turbo", "coverage", ".pnpm-store"]);
+
+/**
+ * The workspace packages whose `test` script needs the running app (up to three directories deep, as pnpm workspaces
+ * are laid out): left out of the every-package fallback, which would otherwise run a browser suite against no server
+ * (the Foundmill business's fifth cycle, Oct 28, 2026: eleven golden-path failures on a branch that changed an API file).
+ */
+export async function workspaceAppTestPackages(cwd: string, maxDepth = 3): Promise<string[]> {
+  const root = path.resolve(cwd);
+  const out = new Set<string>();
+  const walk = async (dir: string, depth: number): Promise<void> => {
+    if (depth > 0) {
+      const info = await readPackageInfo(dir);
+      if (info.exists && info.name && info.appTest) out.add(info.name);
+    }
+    if (depth >= maxDepth) return;
+    let entries: Dirent[];
+    try {
+      entries = await fs.readdir(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const e of entries) {
+      if (!e.isDirectory() || SCAN_SKIP.has(e.name) || e.name.startsWith(".")) continue;
+      await walk(path.join(dir, e.name), depth + 1);
+    }
+  };
+  await walk(root, 0);
   return [...out].sort();
+}
+
+/** The note when a change leaves the sandbox nothing to test. */
+export function nothingToTestNote(scoped: ChangedScope): string {
+  const parts: string[] = [];
+  if (scoped.loose.length > 0) parts.push(`documentation only (${scoped.loose.slice(0, 5).join(", ")}${scoped.loose.length > 5 ? ` and ${scoped.loose.length - 5} more` : ""}), which has no tests`);
+  if (scoped.app.length > 0) parts.push(`${scoped.app.join(", ")}, whose tests need the running app and run in CI`);
+  return `Acceptance tests not run: the task changed ${parts.join("; and ")}.`;
 }
 
 const DOCUMENTATION_EXTENSIONS = new Set([".md", ".mdx", ".markdown", ".txt", ".rst", ".adoc"]);
@@ -2110,7 +2205,7 @@ export function acceptancePrepareScript(toolchain: AcceptanceToolchain = EMPTY_T
   const pnpmSpec = toolchain.pnpm ? `pnpm@${toolchain.pnpm}` : SANDBOX_PNPM;
   const pnpmWanted = toolchain.pnpm ? `[ "$(pnpm --version 2>/dev/null)" = "${toolchain.pnpm}" ]` : "command -v pnpm >/dev/null 2>&1";
   const filter = toolchain.filters.map((name) => ` --filter ${JSON.stringify(`${name}...`)}`).join("");
-  return withOutputTail("/tmp/fm-acceptance-prepare.log", [
+  return withOutputTail(ACCEPTANCE_PREPARE_LOG, [
     'export PATH="$HOME/.fm-tools/bin:$PATH"',
     PNPM_SAFE_ENV,
     // "$1 is older than $2": the smaller of the two by version sort is $1 and they differ.
@@ -2132,15 +2227,36 @@ export function acceptancePrepareScript(toolchain: AcceptanceToolchain = EMPTY_T
  * is where the agent's code runs, with no network at all.
  */
 export function acceptanceRunScript(command: string): string {
-  return withOutputTail("/tmp/fm-acceptance.log", [
+  return withOutputTail(ACCEPTANCE_RUN_LOG, [
     'export PATH="$HOME/.fm-tools/bin:$PATH"',
     PNPM_SAFE_ENV,
     // The sandbox has a few GB at most: a test runner that forks one worker per CPU was killed (exit 137) on the
     // first web test run of the Foundmill business (Oct 27, 2026). Vitest reads this; other runners ignore it.
     "export VITEST_MAX_WORKERS=2",
-    `if [ -f package.json ]; then pnpm rebuild ${PNPM_SAFE_FLAGS} >/dev/null 2>&1 || echo "(some dependency build scripts failed offline)"; fi`,
+    // The network is closed and its packets are dropped, not refused: anything pnpm would still ask the registry (an
+    // update check, a metadata fetch) must give up at once rather than wait out retries.
+    PNPM_OFFLINE_ENV,
+    // Offline, so pnpm never waits on a registry it cannot reach, and bounded: the task's command gets the run's time.
+    `if [ -f package.json ]; then timeout ${ACCEPTANCE_REBUILD_TIMEOUT_SECONDS} pnpm rebuild --offline ${PNPM_SAFE_FLAGS} >/dev/null 2>&1 || echo "(some dependency build scripts failed offline)"; fi`,
     command,
   ]);
+}
+
+/** The dependencies' build scripts get this long offline; what is not built by then is left to the tests to miss. */
+export const ACCEPTANCE_REBUILD_TIMEOUT_SECONDS = 300;
+
+/**
+ * The tail of a sandbox script's log when the script timed out: the sandbox answers a timed-out command with no output
+ * (the log's tail is printed by the script's last line, which never ran), so the log is read back for the note. The
+ * two 15-minute timeouts of the Foundmill business's fifth cycle (Oct 28, 2026) left no trace of what had stalled.
+ */
+async function sandboxLogTail(sandbox: Pick<Sandbox, "readFile">, log: string): Promise<string> {
+  try {
+    const text = await sandbox.readFile(log);
+    return text.slice(-ACCEPTANCE_OUTPUT_TAIL_BYTES);
+  } catch {
+    return "";
+  }
 }
 
 /** Text from the sandbox for a session note: credential-shaped values masked, host paths gone, within the note limit. */
@@ -2272,7 +2388,7 @@ async function runAcceptanceIn(deps: OrchestratorDeps, recorder: SessionRecorder
   await recorder.publishRaw({ kind: "note", at: at(), source: "system", level: "info", text: `Installing dependencies in the sandbox${asked ? ` with ${asked} (the project's own)` : ""}${toolchain.filters.length > 0 ? `, for ${toolchain.filters.join(", ")} and what ${toolchain.filters.length === 1 ? "it depends" : "they depend"} on` : ""}.` });
   const prep = await sandbox.exec(acceptancePrepareScript(toolchain), { timeoutMs: ACCEPTANCE_PREPARE_TIMEOUT_MS });
   if (prep.code !== 0) {
-    const prepOutput = sandboxOutputForNote(prep.stdout + prep.stderr);
+    const prepOutput = sandboxOutputForNote(prep.timedOut ? `${await sandboxLogTail(sandbox, ACCEPTANCE_PREPARE_LOG)}\n${prep.stderr}` : prep.stdout + prep.stderr);
     await recorder.publishRaw({ kind: "note", at: at(), source: "agent", level: "warn", text: `Installing the project's dependencies failed (exit ${prep.code}${prep.timedOut ? ", timed out" : ""}):\n${prepOutput}` });
     return failed("Dependency install failed", prep.durationMs, prepOutput);
   }
@@ -2284,7 +2400,7 @@ async function runAcceptanceIn(deps: OrchestratorDeps, recorder: SessionRecorder
   }
 
   const res = await sandbox.exec(acceptanceRunScript(command), { timeoutMs: ACCEPTANCE_RUN_TIMEOUT_MS });
-  const output = res.stdout + res.stderr;
+  const output = res.timedOut ? `${await sandboxLogTail(sandbox, ACCEPTANCE_RUN_LOG)}\n${res.stderr}` : res.stdout + res.stderr;
   const counts = parseTestCounts(output);
   // The output comes from the task's own scripts, so it is shown as the agent's, never as a system message.
   if (res.code !== 0) await recorder.publishRaw({ kind: "note", at: at(), source: "agent", level: "warn", text: `Acceptance run exited with code ${res.code}${res.timedOut ? " (timed out)" : ""}. Last output:\n${sandboxOutputForNote(output)}` });
@@ -2303,16 +2419,20 @@ export const ACCEPTANCE_FALLBACK_COMMAND = "pnpm -r --workspace-concurrency=1 ru
 
 /**
  * The task's acceptance command: the one its acceptance criteria name; else the tests of the packages the task changed
- * (`scope`, from `changedPackageNames`); else `ACCEPTANCE_FALLBACK_COMMAND`. Null for a task that is not code.
+ * (`scope`, from `changedScope`); else `ACCEPTANCE_FALLBACK_COMMAND`, less the packages whose tests need the running app
+ * (`exclude`, from `workspaceAppTestPackages`). Null for a task that is not code.
  */
-export function acceptanceCommandFor(task: Pick<Task, "acceptance" | "kind">, scope: readonly string[] = []): string | null {
+export function acceptanceCommandFor(task: Pick<Task, "acceptance" | "kind">, scope: readonly string[] = [], exclude: readonly string[] = []): string | null {
   if (task.kind !== "code") return null;
   for (const a of task.acceptance) {
     if (a && typeof a === "object" && typeof (a as { command?: unknown }).command === "string") return (a as { command: string }).command;
   }
-  const packages = [...new Set(scope.filter((name) => FILTER_NAME.test(name) && !name.includes("...")))].sort();
+  const safe = (names: readonly string[]) => [...new Set(names.filter((name) => FILTER_NAME.test(name) && !name.includes("...")))].sort();
+  const packages = safe(scope);
   if (packages.length > 0) return `pnpm ${packages.map((name) => `--filter ${name}`).join(" ")} run --if-present test`;
-  return ACCEPTANCE_FALLBACK_COMMAND;
+  const excluded = safe(exclude);
+  if (excluded.length === 0) return ACCEPTANCE_FALLBACK_COMMAND;
+  return ACCEPTANCE_FALLBACK_COMMAND.replace(" run --if-present test", ` ${excluded.map((name) => `--filter=!${name}`).join(" ")} run --if-present test`);
 }
 
 /** Parse "N passed, M failed" style summaries (vitest / jest / pytest). */

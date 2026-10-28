@@ -208,6 +208,39 @@ export async function disposeCheckout(checkout: Pick<Checkout, "archivePath"> | 
   await rm(path.dirname(checkout.archivePath), { recursive: true, force: true }).catch(() => undefined);
 }
 
+export type BranchChanges = { status: "compared"; ref: string; commitSha: string; changed: string[] } | { status: "failed"; reason: string };
+
+/**
+ * The paths that differ between a checkout of the task's branch and the repository's default branch (changed, added
+ * and removed files, sorted): what the task's branch changed, for scoping its acceptance tests when the session itself
+ * changed nothing and no saved snapshot says. The default branch's archive is unpacked in a private temp directory
+ * (the same extraction as the checkout, so the hashes compare) and removed. Never throws.
+ */
+export async function defaultBranchChanges(deps: { db: Db; gateway: GatewayClient }, input: CheckoutInput, checkout: Pick<Checkout, "base">, limits: CheckoutLimits = CHECKOUT_LIMITS, options: CheckoutOptions = {}): Promise<BranchChanges> {
+  const target = await repos.integrations.codeRepository(deps.db, input.businessId);
+  if (!target) return { status: "failed", reason: "no repository is chosen on the Code tab" };
+  let dir: string | null = null;
+  try {
+    dir = await mkdtemp(path.join(options.tmpDir ?? os.tmpdir(), "fm-default-branch-"));
+    const file = path.join(dir, "archive.tgz");
+    const token = await deps.gateway.mintSessionToken({ businessId: input.businessId, agentId: input.agentId, sessionId: input.sessionId, allowedTools: [`github:${DOWNLOAD_ARCHIVE_TOOL}`], ttlSeconds: CHECKOUT_TOKEN_TTL_SECONDS });
+    const got = await fetchArchive(deps.gateway, token.token, target, "HEAD", file, limits.maxArchiveBytes, options.sleep ?? realSleep);
+    if ("missing" in got) return { status: "failed", reason: "the repository's default branch was not found" };
+    if ("error" in got) return { status: "failed", reason: got.error };
+    const workspace = path.join(dir, "tree");
+    await mkdir(workspace, { recursive: true, mode: 0o700 });
+    const extracted = await extractArchive(file, workspace, limits);
+    const changed = new Set<string>();
+    for (const [rel, sha] of checkout.base.files) if (extracted.files.get(rel) !== sha) changed.add(rel);
+    for (const rel of extracted.files.keys()) if (!checkout.base.files.has(rel)) changed.add(rel);
+    return { status: "compared", ref: got.archive.ref, commitSha: got.archive.sha, changed: [...changed].sort() };
+  } catch (err) {
+    return { status: "failed", reason: String((err as Error).message ?? err).slice(0, 300) };
+  } finally {
+    if (dir) await rm(dir, { recursive: true, force: true }).catch(() => undefined);
+  }
+}
+
 export interface Extracted {
   files: Map<string, string>;
   bytes: number;

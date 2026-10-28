@@ -9,7 +9,7 @@ import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { ACCEPTANCE_FALLBACK_COMMAND, acceptanceCommandFor, acceptancePrepareScript, acceptanceRunScript, acceptanceToolchainOf, changedPackageNames, documentationOnly, readAcceptanceToolchain, SANDBOX_PNPM } from "../activities/session";
+import { ACCEPTANCE_FALLBACK_COMMAND, ACCEPTANCE_REBUILD_TIMEOUT_SECONDS, PNPM_OFFLINE_ENV, acceptanceCommandFor, acceptancePrepareScript, acceptanceRunScript, acceptanceToolchainOf, changedPackageNames, changedScope, documentationOnly, nothingToTestNote, readAcceptanceToolchain, SANDBOX_PNPM, workspaceAppTestPackages } from "../activities/session";
 
 describe("acceptanceToolchainOf", () => {
   it("reads the lowest Node of engines.node, the pinned pnpm and the command's --filter", () => {
@@ -59,6 +59,15 @@ describe("acceptanceCommandFor", () => {
     expect(acceptanceCommandFor(code([]), ["$(rm -rf /)", "a b", "@scope/pkg..."])).toBe(ACCEPTANCE_FALLBACK_COMMAND);
     expect(acceptanceCommandFor(code([]), ["$(rm -rf /)", "@foundmill/api"])).toBe("pnpm --filter @foundmill/api run --if-present test");
   });
+
+  it("leaves the packages whose tests need the running app out of the every-package fallback, and the install never reads them as filters", () => {
+    const command = acceptanceCommandFor(code([]), [], ["@foundmill/e2e", "$(rm -rf /)"]);
+    expect(command).toBe("pnpm -r --workspace-concurrency=1 --filter=!@foundmill/e2e run --if-present test");
+    expect(acceptanceToolchainOf({}, command!).filters).toEqual([]);
+    // A scoped run never includes them: the scope is the sandbox-testable packages alone.
+    expect(acceptanceCommandFor(code([]), ["@foundmill/api"], ["@foundmill/e2e"])).toBe("pnpm --filter @foundmill/api run --if-present test");
+    expect(acceptanceCommandFor(code([]), [], [])).toBe(ACCEPTANCE_FALLBACK_COMMAND);
+  });
 });
 
 describe("changedPackageNames", () => {
@@ -87,6 +96,46 @@ describe("changedPackageNames", () => {
     ]);
     expect(scope).toEqual(["@foundmill/dugout", "@foundmill/web"]);
     expect(await changedPackageNames(cwd, [])).toEqual([]);
+  });
+});
+
+describe("changedScope and the packages whose tests need the running app", () => {
+  async function workspace(): Promise<string> {
+    const cwd = await mkdtemp(path.join(tmpdir(), "fm-app-scope-"));
+    await writeFile(path.join(cwd, "package.json"), JSON.stringify({ name: "foundmill", private: true, scripts: { test: "turbo run test" } }));
+    for (const [dir, name, test] of [
+      ["apps/web", "@foundmill/web", "vitest run --passWithNoTests"],
+      ["apps/api", "@foundmill/api", "vitest run"],
+      ["e2e", "@foundmill/e2e", "playwright test"],
+      ["packages/deep/nested/pkg", "@foundmill/too-deep", "playwright test"],
+    ] as const) {
+      await mkdir(path.join(cwd, dir, "tests"), { recursive: true });
+      await writeFile(path.join(cwd, dir, "package.json"), JSON.stringify({ name, scripts: { test } }));
+    }
+    await mkdir(path.join(cwd, "node_modules", "ghost"), { recursive: true });
+    await writeFile(path.join(cwd, "node_modules", "ghost", "package.json"), JSON.stringify({ name: "ghost", scripts: { test: "playwright test" } }));
+    return cwd;
+  }
+
+  it("splits a change into sandbox-testable packages, app-test packages and loose files", async () => {
+    const cwd = await workspace();
+    const scope = await changedScope(cwd, ["apps/api/src/routers/team.ts", "e2e/tests/golden-path.spec.ts", "docs/PROGRESS.md", "README.md", "apps/web/src/page.tsx"]);
+    expect(scope).toEqual({ test: ["@foundmill/api", "@foundmill/web"], app: ["@foundmill/e2e"], loose: ["docs/PROGRESS.md", "README.md"] });
+    // The union keeps the older contract.
+    expect(await changedPackageNames(cwd, ["e2e/tests/a.spec.ts", "apps/api/src/a.ts"])).toEqual(["@foundmill/api", "@foundmill/e2e"]);
+  });
+
+  it("finds the workspace's app-test packages three directories deep, never inside node_modules", async () => {
+    const cwd = await workspace();
+    expect(await workspaceAppTestPackages(cwd)).toEqual(["@foundmill/e2e"]);
+    expect(await workspaceAppTestPackages(cwd, 5)).toEqual(["@foundmill/e2e", "@foundmill/too-deep"]);
+    expect(await workspaceAppTestPackages(await mkdtemp(path.join(tmpdir(), "fm-empty-")))).toEqual([]);
+  });
+
+  it("says what left the sandbox nothing to test", () => {
+    expect(nothingToTestNote({ test: [], app: [], loose: ["docs/a.md", "README.md"] })).toBe("Acceptance tests not run: the task changed documentation only (docs/a.md, README.md), which has no tests.");
+    expect(nothingToTestNote({ test: [], app: ["@foundmill/e2e"], loose: [] })).toBe("Acceptance tests not run: the task changed @foundmill/e2e, whose tests need the running app and run in CI.");
+    expect(nothingToTestNote({ test: [], app: ["@foundmill/e2e"], loose: ["docs/a.md"] })).toBe("Acceptance tests not run: the task changed documentation only (docs/a.md), which has no tests; and @foundmill/e2e, whose tests need the running app and run in CI.");
   });
 });
 
@@ -131,6 +180,15 @@ describe("acceptancePrepareScript", () => {
     expect(script).toContain("pnpm --filter @foundmill/gateway test");
     // A worker per CPU was killed (exit 137) on the first web test run; vitest reads this cap.
     expect(script).toContain("export VITEST_MAX_WORKERS=2");
+    // Offline and bounded: pnpm never waits on a registry it cannot reach, and the build scripts cannot eat the run's time.
+    expect(script).toContain(`timeout ${ACCEPTANCE_REBUILD_TIMEOUT_SECONDS} pnpm rebuild --offline`);
+    expect(script.indexOf("pnpm rebuild")).toBeLessThan(script.indexOf("pnpm --filter @foundmill/gateway test"));
+    // The closed network drops packets rather than refusing them: pnpm is told not to ask the registry at all.
+    expect(script).toContain(PNPM_OFFLINE_ENV);
+    expect(PNPM_OFFLINE_ENV).toContain("npm_config_offline=true");
+    expect(script.indexOf(PNPM_OFFLINE_ENV)).toBeLessThan(script.indexOf("pnpm rebuild"));
+    // The install phase, online, keeps the registry.
+    expect(acceptancePrepareScript({ node: "22.23.3", pnpm: "12.9.1", filters: ["@foundmill/gateway"] })).not.toContain("npm_config_offline");
   });
 
   it("pins pnpm's package-manager settings through the environment, never through `pnpm config set` (pnpm 12 refuses those keys in its global config)", () => {

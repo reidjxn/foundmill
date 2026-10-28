@@ -12,7 +12,7 @@ import { makeToolContext } from "@foundmill/connectors/testing/contract-suite";
 import { isUntrusted } from "@foundmill/connectors";
 import { repos } from "@foundmill/db";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
-import { CHECKOUT_BUSY_RETRIES, CHECKOUT_BUSY_WAIT_MS, CHECKOUT_LIMITS, checkoutMissingNote, checkoutRepository, describeCheckout, disposeCheckout, extractArchive, isTestFile, isTestRunnerConfig, packageTestSettings, testSetupChanges, testSetupReviewReason } from "../activities/checkout";
+import { CHECKOUT_BUSY_RETRIES, CHECKOUT_BUSY_WAIT_MS, CHECKOUT_LIMITS, checkoutMissingNote, checkoutRepository, defaultBranchChanges, describeCheckout, disposeCheckout, extractArchive, isTestFile, isTestRunnerConfig, packageTestSettings, testSetupChanges, testSetupReviewReason } from "../activities/checkout";
 import { pushWorkspace } from "../activities/workspace-push";
 import { restoreWorkspace, saveWorkspace } from "../activities/workspace-store";
 import { readWorkspaceChanges, removeSandboxLinksCommand, syncCheckoutToSandbox } from "../activities/workspace-sync";
@@ -167,6 +167,31 @@ describe("checkoutRepository", () => {
     expect(offline.archives.map((a) => a.ref)).toEqual([`agent/${task.id}`]);
     expect(second.status === "checked_out" && second.checkout.base.ref).toBe(`agent/${task.id}`);
     expect(await list(cwd2)).toContain("BRANCH.md");
+  });
+
+  it("names what a branch changed against the default branch: added, changed and removed files, and leaves no files behind", async () => {
+    await repos.integrations.upsert(t.deps.db, t.businessId, { connectorKey: "github", status: "mock", authKind: "app", settings: { repo: "acme/shop", writeEnabled: true } });
+    const { github, gateway, offline, ctx } = githubGateway();
+    const task = await repos.tasks.create(t.db, t.businessId, { kind: "code", title: "Compare", goalMd: "x", assigneeAgentId: t.workerId, status: "ready" });
+    const branch = `agent/${task.id}`;
+    await github.callTool("commit_files", { owner: "acme", repo: "shop", branch, message: "m", files: [{ path: "BRANCH.md", content: "on the branch\n" }, { path: "src/index.ts", content: "export const changed = true;\n" }], deletions: ["README.md"] }, ctx);
+    const cwd = await freshDir();
+    const checked = await checkoutRepository({ db: t.deps.db, gateway }, await input(task.id), cwd);
+    expect(checked.status === "checked_out" && checked.checkout.base.ref).toBe(branch);
+    if (checked.status !== "checked_out") return;
+    offline.archives.length = 0;
+    const tmpDir = await freshDir();
+    const compared = await defaultBranchChanges({ db: t.deps.db, gateway }, await input(task.id), checked.checkout, CHECKOUT_LIMITS, { tmpDir });
+    expect(compared).toMatchObject({ status: "compared", ref: "main", changed: ["BRANCH.md", "README.md", "src/index.ts"] });
+    expect(offline.archives.map((a) => a.ref)).toEqual(["HEAD"]);
+    expect(offline.minted.at(-1)).toMatchObject({ allowedTools: ["github:download_archive"] });
+    // The default branch's tree was unpacked in a private temp directory and removed; the workspace is untouched.
+    expect(await readdir(tmpDir)).toEqual([]);
+    expect(await list(cwd)).toContain("BRANCH.md");
+
+    // Without a repository, or when the gateway refuses, it says why and the tests fall back to every package.
+    const denied = githubGateway(undefined, { archive: () => ({ outcome: "deny", reasons: ["paused agent"] }) });
+    expect(await defaultBranchChanges({ db: t.deps.db, gateway: denied.gateway }, await input(task.id), checked.checkout)).toEqual({ status: "failed", reason: "refused by policy (paused agent)" });
   });
 
   it("fails with the reason when the gateway refuses, GitHub errs or the archive is unsafe", async () => {
