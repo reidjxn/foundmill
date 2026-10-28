@@ -281,8 +281,12 @@ describe("failed tasks and failing agents come back (bounded backoff)", () => {
     expect(b.agents.find((a) => a.id === t.workerId)?.status).toBe("failing");
     let mine = b.openTasks.find((x) => x.id === task.id)!;
     expect(mine.retry).toMatchObject({ failures: 1, due: false, exhausted: false });
-    let plan = await cycle.planCycle({ businessId: B(), cycleNumber: 1, trigger: "continue", brief: b });
+    // On an automatic cycle (the schedule, autopilot, a wake) the retry waits hold; the founder's Continue is the restart
+    // the rule waits for and retries the task at once (decision 2026-10-28).
+    let plan = await cycle.planCycle({ businessId: B(), cycleNumber: 1, trigger: "schedule", brief: b });
     expect(plan.deferred.find((d) => d.taskId === task.id)?.reason).toMatch(/retrying after 1 failed session/);
+    plan = await cycle.planCycle({ businessId: B(), cycleNumber: 1, trigger: "continue", brief: b });
+    expect(plan.deferred.find((d) => d.taskId === task.id)?.reason ?? "").not.toMatch(/retrying|failed/);
 
     // After the agent's rest and the task's first wait, both are back in the loop.
     await t.clock.advance(Math.max(AGENT_COOLDOWN_BASE_MS, TASK_RETRY_BASE_MS) + 1_000);
@@ -290,7 +294,7 @@ describe("failed tasks and failing agents come back (bounded backoff)", () => {
     expect(b.agents.find((a) => a.id === t.workerId)?.status).toBe("idle");
     mine = b.openTasks.find((x) => x.id === task.id)!;
     expect(mine.retry).toMatchObject({ failures: 1, due: true });
-    plan = await cycle.planCycle({ businessId: B(), cycleNumber: 2, trigger: "continue", brief: b });
+    plan = await cycle.planCycle({ businessId: B(), cycleNumber: 2, trigger: "schedule", brief: b });
     expect(plan.deferred.find((d) => d.taskId === task.id)?.reason ?? "").not.toMatch(/retrying|failed/);
 
     // Each failure in a row doubles the wait; past the limit only the founder restarts it.
@@ -303,9 +307,12 @@ describe("failed tasks and failing agents come back (bounded backoff)", () => {
     expect(mine.retry).toMatchObject({ failures: TASK_RETRY_LIMIT + 1, exhausted: true });
     await t.clock.advance(7 * 24 * 60 * 60 * 1000);
     b = await brief.loadBrief({ businessId: B() });
-    plan = await cycle.planCycle({ businessId: B(), cycleNumber: 3, trigger: "continue", brief: b });
+    plan = await cycle.planCycle({ businessId: B(), cycleNumber: 3, trigger: "autopilot", brief: b });
     expect(plan.deferred.find((d) => d.taskId === task.id)?.reason).toMatch(/start it from the Plan/);
     expect(plan.starts.some((s) => s.taskId === task.id)).toBe(false);
+    // The founder's Continue is that restart: the task is a candidate again, never held for its count.
+    plan = await cycle.planCycle({ businessId: B(), cycleNumber: 3, trigger: "continue", brief: b });
+    expect(plan.deferred.find((d) => d.taskId === task.id)?.reason ?? "").not.toMatch(/start it from the Plan|retrying/);
   });
 
   it("a session that fails while its team is stopped does not fail the task or overwrite the pause", async () => {
