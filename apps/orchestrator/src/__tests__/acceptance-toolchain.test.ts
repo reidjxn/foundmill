@@ -9,7 +9,7 @@ import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { ACCEPTANCE_FALLBACK_COMMAND, acceptanceCommandFor, acceptancePrepareScript, acceptanceRunScript, acceptanceToolchainOf, changedPackageNames, changedScope, documentationOnly, nothingToTestNote, readAcceptanceToolchain, SANDBOX_PNPM, workspaceAppTestPackages } from "../activities/session";
+import { ACCEPTANCE_FALLBACK_COMMAND, ACCEPTANCE_REBUILD_TIMEOUT_SECONDS, PNPM_OFFLINE_ENV, acceptanceCommandFor, acceptancePrepareScript, acceptanceRunScript, acceptanceToolchainOf, changedPackageNames, changedScope, documentationOnly, nothingToTestNote, readAcceptanceToolchain, SANDBOX_PNPM, workspaceAppTestPackages } from "../activities/session";
 
 describe("acceptanceToolchainOf", () => {
   it("reads the lowest Node of engines.node, the pinned pnpm and the command's --filter", () => {
@@ -180,6 +180,15 @@ describe("acceptancePrepareScript", () => {
     expect(script).toContain("pnpm --filter @foundmill/gateway test");
     // A worker per CPU was killed (exit 137) on the first web test run; vitest reads this cap.
     expect(script).toContain("export VITEST_MAX_WORKERS=2");
+    // Offline and bounded: pnpm never waits on a registry it cannot reach, and the build scripts cannot eat the run's time.
+    expect(script).toContain(`timeout ${ACCEPTANCE_REBUILD_TIMEOUT_SECONDS} pnpm rebuild --offline`);
+    expect(script.indexOf("pnpm rebuild")).toBeLessThan(script.indexOf("pnpm --filter @foundmill/gateway test"));
+    // The closed network drops packets rather than refusing them: pnpm is told not to ask the registry at all.
+    expect(script).toContain(PNPM_OFFLINE_ENV);
+    expect(PNPM_OFFLINE_ENV).toContain("npm_config_offline=true");
+    expect(script.indexOf(PNPM_OFFLINE_ENV)).toBeLessThan(script.indexOf("pnpm rebuild"));
+    // The install phase, online, keeps the registry.
+    expect(acceptancePrepareScript({ node: "22.23.3", pnpm: "12.9.1", filters: ["@foundmill/gateway"] })).not.toContain("npm_config_offline");
   });
 
   it("pins pnpm's package-manager settings through the environment, never through `pnpm config set` (pnpm 12 refuses those keys in its global config)", () => {

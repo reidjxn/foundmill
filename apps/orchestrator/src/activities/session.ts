@@ -1988,6 +1988,9 @@ export const SANDBOX_PNPM = "pnpm@10";
 /** Bytes of a phase's output that come back to the orchestrator; the rest stays in a log inside the sandbox. */
 export const ACCEPTANCE_OUTPUT_TAIL_BYTES = 32 * 1024;
 const PNPM_SAFE_FLAGS = "--config.manage-package-manager-versions=false --config.package-manager-strict=false";
+/** The two scripts' logs inside the sandbox (their tails are printed at the end, and read back after a timeout). */
+export const ACCEPTANCE_PREPARE_LOG = "/tmp/fm-acceptance-prepare.log";
+export const ACCEPTANCE_RUN_LOG = "/tmp/fm-acceptance.log";
 /**
  * The same two settings for every pnpm command the scripts run, the task's own included, through the environment pnpm
  * reads (`npm_config_<key>`). Not `pnpm config set --location=global`: pnpm 12 refuses these keys in its global
@@ -1995,6 +1998,8 @@ const PNPM_SAFE_FLAGS = "--config.manage-package-manager-versions=false --config
  * business on Oct 27, 2026 before a single package was installed.
  */
 const PNPM_SAFE_ENV = "export npm_config_manage_package_manager_versions=false npm_config_package_manager_strict=false";
+/** pnpm's settings for the offline phase: no registry calls, no update check, and whatever still tries gives up in seconds. */
+export const PNPM_OFFLINE_ENV = "export npm_config_offline=true npm_config_update_notifier=false npm_config_fetch_retries=0 npm_config_fetch_timeout=10000 CI=1";
 
 /**
  * What the acceptance sandbox must run the project with (read from the workspace's package.json and the task's
@@ -2200,7 +2205,7 @@ export function acceptancePrepareScript(toolchain: AcceptanceToolchain = EMPTY_T
   const pnpmSpec = toolchain.pnpm ? `pnpm@${toolchain.pnpm}` : SANDBOX_PNPM;
   const pnpmWanted = toolchain.pnpm ? `[ "$(pnpm --version 2>/dev/null)" = "${toolchain.pnpm}" ]` : "command -v pnpm >/dev/null 2>&1";
   const filter = toolchain.filters.map((name) => ` --filter ${JSON.stringify(`${name}...`)}`).join("");
-  return withOutputTail("/tmp/fm-acceptance-prepare.log", [
+  return withOutputTail(ACCEPTANCE_PREPARE_LOG, [
     'export PATH="$HOME/.fm-tools/bin:$PATH"',
     PNPM_SAFE_ENV,
     // "$1 is older than $2": the smaller of the two by version sort is $1 and they differ.
@@ -2222,15 +2227,36 @@ export function acceptancePrepareScript(toolchain: AcceptanceToolchain = EMPTY_T
  * is where the agent's code runs, with no network at all.
  */
 export function acceptanceRunScript(command: string): string {
-  return withOutputTail("/tmp/fm-acceptance.log", [
+  return withOutputTail(ACCEPTANCE_RUN_LOG, [
     'export PATH="$HOME/.fm-tools/bin:$PATH"',
     PNPM_SAFE_ENV,
     // The sandbox has a few GB at most: a test runner that forks one worker per CPU was killed (exit 137) on the
     // first web test run of the Foundmill business (Oct 27, 2026). Vitest reads this; other runners ignore it.
     "export VITEST_MAX_WORKERS=2",
-    `if [ -f package.json ]; then pnpm rebuild ${PNPM_SAFE_FLAGS} >/dev/null 2>&1 || echo "(some dependency build scripts failed offline)"; fi`,
+    // The network is closed and its packets are dropped, not refused: anything pnpm would still ask the registry (an
+    // update check, a metadata fetch) must give up at once rather than wait out retries.
+    PNPM_OFFLINE_ENV,
+    // Offline, so pnpm never waits on a registry it cannot reach, and bounded: the task's command gets the run's time.
+    `if [ -f package.json ]; then timeout ${ACCEPTANCE_REBUILD_TIMEOUT_SECONDS} pnpm rebuild --offline ${PNPM_SAFE_FLAGS} >/dev/null 2>&1 || echo "(some dependency build scripts failed offline)"; fi`,
     command,
   ]);
+}
+
+/** The dependencies' build scripts get this long offline; what is not built by then is left to the tests to miss. */
+export const ACCEPTANCE_REBUILD_TIMEOUT_SECONDS = 300;
+
+/**
+ * The tail of a sandbox script's log when the script timed out: the sandbox answers a timed-out command with no output
+ * (the log's tail is printed by the script's last line, which never ran), so the log is read back for the note. The
+ * two 15-minute timeouts of the Foundmill business's fifth cycle (Oct 28, 2026) left no trace of what had stalled.
+ */
+async function sandboxLogTail(sandbox: Pick<Sandbox, "readFile">, log: string): Promise<string> {
+  try {
+    const text = await sandbox.readFile(log);
+    return text.slice(-ACCEPTANCE_OUTPUT_TAIL_BYTES);
+  } catch {
+    return "";
+  }
 }
 
 /** Text from the sandbox for a session note: credential-shaped values masked, host paths gone, within the note limit. */
@@ -2362,7 +2388,7 @@ async function runAcceptanceIn(deps: OrchestratorDeps, recorder: SessionRecorder
   await recorder.publishRaw({ kind: "note", at: at(), source: "system", level: "info", text: `Installing dependencies in the sandbox${asked ? ` with ${asked} (the project's own)` : ""}${toolchain.filters.length > 0 ? `, for ${toolchain.filters.join(", ")} and what ${toolchain.filters.length === 1 ? "it depends" : "they depend"} on` : ""}.` });
   const prep = await sandbox.exec(acceptancePrepareScript(toolchain), { timeoutMs: ACCEPTANCE_PREPARE_TIMEOUT_MS });
   if (prep.code !== 0) {
-    const prepOutput = sandboxOutputForNote(prep.stdout + prep.stderr);
+    const prepOutput = sandboxOutputForNote(prep.timedOut ? `${await sandboxLogTail(sandbox, ACCEPTANCE_PREPARE_LOG)}\n${prep.stderr}` : prep.stdout + prep.stderr);
     await recorder.publishRaw({ kind: "note", at: at(), source: "agent", level: "warn", text: `Installing the project's dependencies failed (exit ${prep.code}${prep.timedOut ? ", timed out" : ""}):\n${prepOutput}` });
     return failed("Dependency install failed", prep.durationMs, prepOutput);
   }
@@ -2374,7 +2400,7 @@ async function runAcceptanceIn(deps: OrchestratorDeps, recorder: SessionRecorder
   }
 
   const res = await sandbox.exec(acceptanceRunScript(command), { timeoutMs: ACCEPTANCE_RUN_TIMEOUT_MS });
-  const output = res.stdout + res.stderr;
+  const output = res.timedOut ? `${await sandboxLogTail(sandbox, ACCEPTANCE_RUN_LOG)}\n${res.stderr}` : res.stdout + res.stderr;
   const counts = parseTestCounts(output);
   // The output comes from the task's own scripts, so it is shown as the agent's, never as a system message.
   if (res.code !== 0) await recorder.publishRaw({ kind: "note", at: at(), source: "agent", level: "warn", text: `Acceptance run exited with code ${res.code}${res.timedOut ? " (timed out)" : ""}. Last output:\n${sandboxOutputForNote(output)}` });

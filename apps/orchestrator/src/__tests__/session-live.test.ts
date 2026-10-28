@@ -25,7 +25,7 @@ import { isUntrusted } from "@foundmill/connectors";
 import { createGithubMock } from "@foundmill/connectors/connectors/github/mock";
 import { makeToolContext } from "@foundmill/connectors/testing/contract-suite";
 import { openAgentSession } from "../activities/dispatch";
-import { ACCEPTANCE_EGRESS, ACCEPTANCE_FALLBACK_COMMAND, classifyTurnEnd, createSessionActivities, NO_CHANGES_REASON, SANDBOX_TTL_MINUTES } from "../activities/session";
+import { ACCEPTANCE_EGRESS, ACCEPTANCE_FALLBACK_COMMAND, ACCEPTANCE_RUN_LOG, classifyTurnEnd, createSessionActivities, NO_CHANGES_REASON, SANDBOX_TTL_MINUTES } from "../activities/session";
 import { emitEvent } from "../events";
 import type { SessionResult } from "../activities/types";
 import type { SessionControlBus } from "../control-bus";
@@ -69,8 +69,8 @@ const SECRET_HOST_ENV = {
 type ExecReply = { code: number; stdout: string; stderr: string; timedOut: boolean; durationMs: number };
 
 /** A non-mock sandbox that records what runs inside it; `runAgentSession` takes the live path for anything but MockSandbox. */
-function fakeSandboxProvider(): SandboxProvider & { execs: string[]; stopped: number; specs: ReturnType<typeof parseSandboxSpec>[]; writes: Map<string, string>[]; replies: ExecReply[]; log: string[]; closeFails: boolean; createFails: boolean } {
-  const state = { execs: [] as string[], stopped: 0, specs: [] as ReturnType<typeof parseSandboxSpec>[], writes: [] as Map<string, string>[], replies: [] as ExecReply[], log: [] as string[], closeFails: false, createFails: false };
+function fakeSandboxProvider(): SandboxProvider & { execs: string[]; stopped: number; specs: ReturnType<typeof parseSandboxSpec>[]; writes: Map<string, string>[]; replies: ExecReply[]; log: string[]; files: Map<string, string>; closeFails: boolean; createFails: boolean } {
+  const state = { execs: [] as string[], stopped: 0, specs: [] as ReturnType<typeof parseSandboxSpec>[], writes: [] as Map<string, string>[], replies: [] as ExecReply[], log: [] as string[], files: new Map<string, string>(), closeFails: false, createFails: false };
   return {
     mode: "docker",
     execs: state.execs,
@@ -78,6 +78,7 @@ function fakeSandboxProvider(): SandboxProvider & { execs: string[]; stopped: nu
     writes: state.writes,
     replies: state.replies,
     log: state.log,
+    files: state.files,
     get closeFails() {
       return state.closeFails;
     },
@@ -122,8 +123,8 @@ function fakeSandboxProvider(): SandboxProvider & { execs: string[]; stopped: nu
           state.log.push("closeEgress");
           if (state.closeFails) throw new Error("network update rejected");
         },
-        async readFile() {
-          return "";
+        async readFile(p) {
+          return state.files.get(p) ?? "";
         },
         async listFiles() {
           return [];
@@ -1640,6 +1641,25 @@ describe("honest outcomes: a code session ends done only when it did the work (d
     expect(events).toHaveLength(1);
     expect(events[0]!.payload).toMatchObject({ taskId: task.id, reason: "error", detail: expect.stringMatching(/^acceptance tests failed.*No package\.json/s) });
     expect((await repos.agents.get(t.db, t.businessId, t.workerId)).status).toBe("idle");
+  });
+
+  it("a timed-out acceptance run reports the tail of its log, which the sandbox never printed", async () => {
+    const { task, sessionId, input, launch } = await freshCodeTask("Scope the chip tests");
+    script = async function* (call) {
+      await writeFile(path.join(call.options.cwd as string, "chip.ts"), "export const chip = 1;\n");
+      yield* success(sessionId)();
+    };
+    // The sandbox answers a timed-out command with its error alone; the script's log holds where it was.
+    provider.files.set(ACCEPTANCE_RUN_LOG, "$ vitest run\n ✓ src/a.test.ts 3 passed\n ❯ src/slow.test.ts\n");
+    provider.replies.push({ code: 0, stdout: "", stderr: "", timedOut: false, durationMs: 5 }, { code: 124, stdout: "", stderr: "[deadline_exceeded] the operation timed out", timedOut: true, durationMs: 900_000 });
+    const result = await acts.runAgentSession(input, launch);
+    expect(result).toMatchObject({ outcome: "blocked", blockedReason: "error", reason: expect.stringMatching(/^acceptance tests failed \(exit 124, 3 passed, 1 failed\)\. Last output:\n[\s\S]*❯ src\/slow\.test\.ts[\s\S]*deadline_exceeded/) });
+    const notes = (await readSessionEvents(t.redis, sessionId, { kinds: ["note"] })).map((r) => (r.event.kind === "note" ? r.event.text : ""));
+    expect(notes.some((n) => n.startsWith("Acceptance run exited with code 124 (timed out). Last output:") && n.includes("❯ src/slow.test.ts"))).toBe(true);
+    const finish = await acts.finishSession(input, launch, result);
+    expect(finish.taskStatus).toBe("blocked");
+    expect((await repos.tasks.get(t.db, t.businessId, task.id)).status).toBe("blocked");
+    provider.files.clear();
   });
 
   it("a code session that changes files and passes its acceptance run still ends done", async () => {
