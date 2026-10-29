@@ -1975,9 +1975,12 @@ export function describeLeftOut(leftOut: readonly LeftOut[], masked: readonly st
 
 /**
  * Hosts a code task's sandbox may reach, and only until `closeEgress()`: the npm registry, for pnpm itself and the
- * project's dependencies. Every other kind gets none. Gateway tools run on the host through MCP, not in the sandbox.
+ * project's dependencies, and Temporal's download host, for the test server the workflow tests start (see
+ * `temporalTestServerPrepareLines`). Every other kind gets none. Gateway tools run on the host through MCP, not in
+ * the sandbox.
  */
-export const ACCEPTANCE_EGRESS: readonly string[] = ["registry.npmjs.org"];
+export const TEMPORAL_DOWNLOAD_HOST = "temporal.download";
+export const ACCEPTANCE_EGRESS: readonly string[] = ["registry.npmjs.org", TEMPORAL_DOWNLOAD_HOST];
 
 export function sandboxEgressFor(task: Pick<Task, "kind">): string[] {
   return task.kind === "code" ? [...ACCEPTANCE_EGRESS] : [];
@@ -2219,6 +2222,8 @@ export function acceptancePrepareScript(toolchain: AcceptanceToolchain = EMPTY_T
     `${pnpmWanted} || ${npmGlobal(pnpmSpec)}`,
     'hash -r; echo "pnpm $(pnpm --version)"',
     `if [ -f package.json ]; then pnpm install --no-frozen-lockfile --ignore-scripts --ignore-pnpmfile ${PNPM_SAFE_FLAGS} --reporter=append-only${filter}; fi`,
+    // Still online: the test server the workflow tests start, which the offline phase could not fetch.
+    ...temporalTestServerPrepareLines(),
   ]);
 }
 
@@ -2236,6 +2241,8 @@ export function acceptanceRunScript(command: string): string {
     // The network is closed and its packets are dropped, not refused: anything pnpm would still ask the registry (an
     // update check, a metadata fetch) must give up at once rather than wait out retries.
     PNPM_OFFLINE_ENV,
+    // The test server the online phase downloaded, by name: a suite that cannot find it fails at once, never waits.
+    ...temporalTestServerRunLines(),
     // Offline, so pnpm never waits on a registry it cannot reach, and bounded: the task's command gets the run's time.
     `if [ -f package.json ]; then timeout ${ACCEPTANCE_REBUILD_TIMEOUT_SECONDS} pnpm rebuild --offline ${PNPM_SAFE_FLAGS} >/dev/null 2>&1 || echo "(some dependency build scripts failed offline)"; fi`,
     command,
@@ -2244,6 +2251,70 @@ export function acceptanceRunScript(command: string): string {
 
 /** The dependencies' build scripts get this long offline; what is not built by then is left to the tests to miss. */
 export const ACCEPTANCE_REBUILD_TIMEOUT_SECONDS = 300;
+
+/*
+ * The Temporal test server. `@temporalio/testing` fetches its time-skipping test server from `TEMPORAL_DOWNLOAD_HOST`
+ * the first time a test starts one (metadata, then the archive; no redirect elsewhere). The sandbox's `/tmp` is empty,
+ * so with the network closed that fetch hangs until the suite's hook timeout, file after file: Hiba's orchestrator run
+ * of Oct 29, 2026 lost 20 of 66 test files to it, and a run with more such files would show only the run timeout.
+ */
+/** Where the run finds the test server (set by the run script when `@temporalio/testing` is installed; read by the repository's own test rig). */
+export const TEMPORAL_TEST_SERVER_ENV = "TEMPORAL_TEST_SERVER";
+/** Core's cache name for the time-skipping test server of the TypeScript SDK; `<dir>/<this>-<sdk version>`. */
+const TEMPORAL_TEST_SERVER_CACHE_PREFIX = "temporal-test-server-sdk-typescript";
+/** Seconds the online phase gives the download (about 30 MB) before it gives up and the note says so. */
+export const TEMPORAL_TEST_SERVER_DOWNLOAD_TIMEOUT_SECONDS = 300;
+
+/**
+ * `fm_temporal_testing_version`: prints the installed `@temporalio/testing` version (pnpm's store layout first, then a
+ * plain node_modules), or fails when the package is not installed. Reads the package.json as data; runs no package code.
+ */
+const TEMPORAL_TESTING_VERSION_FN = [
+  "fm_temporal_testing_version() {",
+  "  for p in node_modules/.pnpm/@temporalio+testing@*/node_modules/@temporalio/testing/package.json node_modules/@temporalio/testing/package.json; do",
+  `    if [ -f "$p" ]; then node -e 'console.log(JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")).version)' "$p"; return 0; fi`,
+  "  done",
+  "  return 1",
+  "}",
+].join("\n");
+
+/**
+ * The online phase's download of the Temporal test server, when the install brought `@temporalio/testing`: the same
+ * metadata call core makes (`https://temporal.download/temporal-test-server/default?...`), the archive it names (same
+ * host; anything else is refused), the one file extracted to the path core would cache it at (`$TMPDIR` or /tmp, which
+ * the run phase shares), so a suite that asks for the default cached download finds it. Nothing from the project runs:
+ * curl, tar and Node's JSON parser only. A failure is a line in the prepare log, not a failed prepare; the run then
+ * fails fast on the missing file (`TEMPORAL_TEST_SERVER`) instead of waiting out a download that cannot happen.
+ */
+export function temporalTestServerPrepareLines(): string[] {
+  const metadata = `https://${TEMPORAL_DOWNLOAD_HOST}/temporal-test-server/default?arch=$arch&platform=linux&sdk-name=sdk-typescript&sdk-version=$ver`;
+  const field = (name: string) => `node -e 'let s = ""; process.stdin.on("data", (d) => (s += d)).on("end", () => process.stdout.write(String(JSON.parse(s).${name} ?? "")))'`;
+  return [
+    TEMPORAL_TESTING_VERSION_FN,
+    "fm_temporal_test_server() {",
+    '  ver="$(fm_temporal_testing_version)" || return 0',
+    `  dest="\${TMPDIR:-/tmp}/${TEMPORAL_TEST_SERVER_CACHE_PREFIX}-$ver"`,
+    '  if [ -x "$dest" ]; then echo "Temporal test server for @temporalio/testing $ver already at $dest"; return 0; fi',
+    '  case "$(uname -m)" in x86_64) arch=amd64 ;; aarch64|arm64) arch=arm64 ;; *) echo "(no Temporal test server build for $(uname -m))"; return 1 ;; esac',
+    `  info="$(curl -fsSL --max-time 60 "${metadata}")"`,
+    `  url="$(printf %s "$info" | ${field("archiveUrl")})"`,
+    `  file="$(printf %s "$info" | ${field("fileToExtract")})"`,
+    `  case "$url" in https://${TEMPORAL_DOWNLOAD_HOST}/*) ;; *) echo "(the Temporal test server archive is not on ${TEMPORAL_DOWNLOAD_HOST}: $url)"; return 1 ;; esac`,
+    '  work="$(mktemp -d)"',
+    `  curl -fsSL --max-time ${TEMPORAL_TEST_SERVER_DOWNLOAD_TIMEOUT_SECONDS} -o "$work/archive" "$url"`,
+    '  tar -xzf "$work/archive" -C "$work" "$file"',
+    '  mv "$work/$file" "$dest" && chmod +x "$dest"',
+    '  rm -rf "$work"',
+    '  echo "Downloaded the Temporal test server for @temporalio/testing $ver to $dest (the workflow tests start it offline)"',
+    "}",
+    'fm_temporal_test_server || echo "(the Temporal test server could not be downloaded; the workflow tests cannot start offline)"',
+  ];
+}
+
+/** The offline phase's line naming the downloaded test server for the tests, when `@temporalio/testing` is installed. */
+export function temporalTestServerRunLines(): string[] {
+  return [TEMPORAL_TESTING_VERSION_FN, `if ver="$(fm_temporal_testing_version)"; then export ${TEMPORAL_TEST_SERVER_ENV}="\${TMPDIR:-/tmp}/${TEMPORAL_TEST_SERVER_CACHE_PREFIX}-$ver"; fi`];
+}
 
 /**
  * The tail of a sandbox script's log when the script timed out: the sandbox answers a timed-out command with no output

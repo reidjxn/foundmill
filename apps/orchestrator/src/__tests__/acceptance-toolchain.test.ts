@@ -5,11 +5,15 @@
  * the root `pnpm test` (every package at once) was killed for memory even on the project's own template: a task's
  * tests now run for the packages it changed.
  */
-import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
+import { execFile } from "node:child_process";
+import { chmod, mkdir, mkdtemp, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { promisify } from "node:util";
 import { describe, expect, it } from "vitest";
-import { ACCEPTANCE_FALLBACK_COMMAND, ACCEPTANCE_REBUILD_TIMEOUT_SECONDS, PNPM_OFFLINE_ENV, acceptanceCommandFor, acceptancePrepareScript, acceptanceRunScript, acceptanceToolchainOf, changedPackageNames, changedScope, documentationOnly, nothingToTestNote, readAcceptanceToolchain, SANDBOX_PNPM, workspaceAppTestPackages } from "../activities/session";
+import { ACCEPTANCE_EGRESS, ACCEPTANCE_FALLBACK_COMMAND, ACCEPTANCE_REBUILD_TIMEOUT_SECONDS, PNPM_OFFLINE_ENV, TEMPORAL_DOWNLOAD_HOST, TEMPORAL_TEST_SERVER_ENV, acceptanceCommandFor, acceptancePrepareScript, acceptanceRunScript, acceptanceToolchainOf, changedPackageNames, changedScope, documentationOnly, nothingToTestNote, readAcceptanceToolchain, SANDBOX_PNPM, temporalTestServerPrepareLines, temporalTestServerRunLines, workspaceAppTestPackages } from "../activities/session";
+
+const run = promisify(execFile);
 
 describe("acceptanceToolchainOf", () => {
   it("reads the lowest Node of engines.node, the pinned pnpm and the command's --filter", () => {
@@ -189,6 +193,68 @@ describe("acceptancePrepareScript", () => {
     expect(script.indexOf(PNPM_OFFLINE_ENV)).toBeLessThan(script.indexOf("pnpm rebuild"));
     // The install phase, online, keeps the registry.
     expect(acceptancePrepareScript({ node: "22.23.3", pnpm: "12.9.1", filters: ["@foundmill/gateway"] })).not.toContain("npm_config_offline");
+  });
+
+  it("downloads the Temporal test server while online, from temporal.download only, and names it for the offline run", () => {
+    // The sandbox may reach the registry and Temporal's download host, nothing else; the download lines name no other host.
+    expect(ACCEPTANCE_EGRESS).toEqual(["registry.npmjs.org", TEMPORAL_DOWNLOAD_HOST]);
+    const prepare = acceptancePrepareScript({ node: "22.23.3", pnpm: "12.9.1", filters: ["@foundmill/orchestrator"] });
+    const lines = prepare.split("\n");
+    expect(lines.findIndex((l) => l.includes("fm_temporal_test_server ||"))).toBeGreaterThan(lines.findIndex((l) => l.includes("pnpm install")));
+    expect(prepare).toContain(`https://${TEMPORAL_DOWNLOAD_HOST}/temporal-test-server/default?arch=$arch&platform=linux&sdk-name=sdk-typescript&sdk-version=$ver`);
+    expect(prepare).toContain(`case "$url" in https://${TEMPORAL_DOWNLOAD_HOST}/*) ;;`);
+    for (const host of temporalTestServerPrepareLines().join("\n").match(/https:\/\/[^/"'\s]+/g) ?? []) expect(host).toBe(`https://${TEMPORAL_DOWNLOAD_HOST}`);
+    // A failed download is a line in the log, never a failed prepare (the whole script runs under set -e).
+    expect(prepare).toContain('fm_temporal_test_server || echo "(the Temporal test server could not be downloaded');
+    // Offline: the run names the file for the tests, before the rebuild and the task's command, when the package is installed.
+    const runScript = acceptanceRunScript("pnpm --filter @foundmill/orchestrator run --if-present test").split("\n");
+    const named = runScript.findIndex((l) => l.includes(`export ${TEMPORAL_TEST_SERVER_ENV}=`));
+    expect(named).toBeGreaterThan(-1);
+    expect(runScript[named]).toContain('if ver="$(fm_temporal_testing_version)"; then');
+    expect(named).toBeLessThan(runScript.findIndex((l) => l.includes("pnpm rebuild")));
+    expect(named).toBeLessThan(runScript.indexOf("pnpm --filter @foundmill/orchestrator run --if-present test"));
+    // Nothing from the project runs in either block: the version is read from package.json as data.
+    expect(temporalTestServerRunLines().join("\n")).not.toMatch(/require\((?!"fs")/);
+  });
+
+  it("the download block fetches the archive the metadata names, unpacks the one file where core caches it, and is a no-op without the package or on a second run", async () => {
+    // A workspace with pnpm's store layout for @temporalio/testing, a curl stub standing in for temporal.download, and
+    // a TMPDIR of its own: the real shell lines run against them, with no network.
+    const dir = await mkdtemp(path.join(tmpdir(), "fm-temporal-"));
+    const pkg = path.join(dir, "work/node_modules/.pnpm/@temporalio+testing@1.24.0_abc/node_modules/@temporalio/testing");
+    await mkdir(pkg, { recursive: true });
+    await writeFile(path.join(pkg, "package.json"), JSON.stringify({ name: "@temporalio/testing", version: "1.24.0" }));
+    const archive = path.join(dir, "server/temporal-test-server_1.40.0_linux_amd64");
+    await mkdir(archive, { recursive: true });
+    await writeFile(path.join(archive, "temporal-test-server"), "#!/bin/sh\necho test-server\n");
+    await run("tar", ["-czf", path.join(dir, "archive.tgz"), "-C", path.join(dir, "server"), "temporal-test-server_1.40.0_linux_amd64"]);
+    await mkdir(path.join(dir, "bin"));
+    const metadata = JSON.stringify({ archiveUrl: `https://${TEMPORAL_DOWNLOAD_HOST}/assets/temporalio/sdk-java/releases/download/v1.40.0/temporal-test-server_1.40.0_linux_amd64.tar.gz`, fileToExtract: "temporal-test-server_1.40.0_linux_amd64/temporal-test-server" });
+    // The stub answers the metadata URL with the JSON and any archive URL with the tarball; it records what it was asked.
+    await writeFile(
+      path.join(dir, "bin/curl"),
+      ['#!/bin/sh', 'out=""; url=""', 'while [ $# -gt 0 ]; do case "$1" in -o) out="$2"; shift 2 ;; http*) url="$1"; shift ;; *) shift ;; esac; done', `echo "$url" >> "${dir}/requests"`, `case "$url" in *"/temporal-test-server/default?"*) printf %s '${metadata}' ;; *) cp "${dir}/archive.tgz" "$out" ;; esac`].join("\n"),
+    );
+    await chmod(path.join(dir, "bin/curl"), 0o755);
+    const tmp = path.join(dir, "tmp");
+    await mkdir(tmp);
+    const env = { ...process.env, PATH: `${path.join(dir, "bin")}:${process.env.PATH ?? ""}`, TMPDIR: tmp };
+    const sh = async (lines: string[], cwd: string) => (await run("bash", ["-c", ["set -e", ...lines].join("\n")], { cwd, env })).stdout;
+
+    const first = await sh(temporalTestServerPrepareLines(), path.join(dir, "work"));
+    const dest = path.join(tmp, "temporal-test-server-sdk-typescript-1.24.0");
+    expect(first).toContain(`Downloaded the Temporal test server for @temporalio/testing 1.24.0 to ${dest}`);
+    expect((await stat(dest)).mode & 0o111).not.toBe(0);
+    expect((await run(dest)).stdout.trim()).toBe("test-server");
+    expect((await run("cat", [path.join(dir, "requests")])).stdout).toBe(`https://${TEMPORAL_DOWNLOAD_HOST}/temporal-test-server/default?arch=${process.arch === "arm64" ? "arm64" : "amd64"}&platform=linux&sdk-name=sdk-typescript&sdk-version=1.24.0\n${JSON.parse(metadata).archiveUrl}\n`);
+    // Already there: nothing is fetched again.
+    expect(await sh(temporalTestServerPrepareLines(), path.join(dir, "work"))).toContain("already at");
+    expect((await run("cat", [path.join(dir, "requests")])).stdout.split("\n").filter(Boolean)).toHaveLength(2);
+    // The offline line names the same file; without the package neither block does anything.
+    expect(await sh([...temporalTestServerRunLines(), `echo "$${TEMPORAL_TEST_SERVER_ENV}"`], path.join(dir, "work"))).toBe(`${dest}\n`);
+    const bare = await mkdtemp(path.join(dir, "bare-"));
+    expect(await sh(temporalTestServerPrepareLines(), bare)).toBe("");
+    expect(await sh([...temporalTestServerRunLines(), `echo "[$${TEMPORAL_TEST_SERVER_ENV}]"`], bare)).toBe("[]\n");
   });
 
   it("pins pnpm's package-manager settings through the environment, never through `pnpm config set` (pnpm 12 refuses those keys in its global config)", () => {
