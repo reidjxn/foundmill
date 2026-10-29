@@ -6,7 +6,7 @@
  * main queue never completes and the test shows it. Nothing listens on a fixed port.
  */
 import { randomUUID } from "node:crypto";
-import { TestWorkflowEnvironment } from "@temporalio/testing";
+import { TestWorkflowEnvironment, type TimeSkippingTestWorkflowEnvironmentOptions } from "@temporalio/testing";
 import { DefaultLogger, Runtime, Worker } from "@temporalio/worker";
 import type { Client } from "@temporalio/client";
 import { WORKFLOWS_PATH } from "../../index";
@@ -39,9 +39,19 @@ export interface TemporalRig {
   teardown(): Promise<void>;
 }
 
+/**
+ * Which test server binary the rig starts: the file `TEMPORAL_TEST_SERVER` names when it is set (the acceptance
+ * sandbox downloads it while its network is open and sets this for the offline run, where the SDK's own cached
+ * download would wait on a host it cannot reach), else the SDK's cached download (CI, a developer's machine).
+ */
+export function testServerOptions(env: NodeJS.ProcessEnv = process.env): TimeSkippingTestWorkflowEnvironmentOptions | undefined {
+  const path = env.TEMPORAL_TEST_SERVER?.trim();
+  return path ? { server: { executable: { type: "existing-path", path } } } : undefined;
+}
+
 export async function createTemporalRig(): Promise<TemporalRig> {
   quietRuntime();
-  const env = await TestWorkflowEnvironment.createTimeSkipping();
+  const env = await TestWorkflowEnvironment.createTimeSkipping(testServerOptions());
   return {
     env,
     client: env.client,
