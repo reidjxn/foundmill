@@ -16,6 +16,8 @@ export interface GhFixtureRepo {
   repo: GhRepository;
   branches: Record<string, string>;
   files: GhFixtureFile[];
+  /** The commit each branch `commit_files` or `create_branch` made was created from (the mock's merge base for `compare_refs`). */
+  bases?: Record<string, string>;
 }
 
 const blobSha = (path: string, content: string) => stableHash(`blob:${path}:${content}`, 40);

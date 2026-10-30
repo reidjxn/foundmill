@@ -30,7 +30,8 @@ import os from "node:os";
 import path from "node:path";
 import { createGunzip } from "node:zlib";
 import { readTar, readTarGz, TarError, type TarEntry, type TarReadLimits } from "@foundmill/connectors/connectors/github/tarball";
-import { DOWNLOAD_ARCHIVE_TOOL, MAX_ARCHIVE_BYTES } from "@foundmill/connectors/connectors/github/tools";
+import { isUntrusted } from "@foundmill/connectors";
+import { COMPARE_REFS_TOOL, CompareRefsOutput, DOWNLOAD_ARCHIVE_TOOL, MAX_ARCHIVE_BYTES } from "@foundmill/connectors/connectors/github/tools";
 import { repos, type Db } from "@foundmill/db";
 import type { GatewayClient } from "../gateway-client";
 import { collectRecipients, credentialMatches, isSecretFileName, isStartupFile, restorablePath, scanText, type FoundRecipients } from "./workspace-store";
@@ -217,13 +218,42 @@ export type BranchChanges =
       commitSha: string;
       changed: string[];
       /**
-       * `fork_point`: the commit the task's branch was created from (its first save's checkout), so the list is the
-       * branch's own changes; `default_branch`: the default branch's head, so a branch the default branch has moved
-       * past since also lists what moved (nothing on the task says where the branch started).
+       * `merge_base`: GitHub's own answer (`compare_refs`): the commit the branch left the default branch at, so the
+       * list is the branch's own changes whatever the default branch did since. `fork_point`: the commit the task's
+       * first save's checkout was on, the next best when GitHub could not be asked. `default_branch`: the default
+       * branch's head, so a branch the default branch has moved past since also lists what moved.
        */
-      against: "fork_point" | "default_branch";
+      against: "merge_base" | "fork_point" | "default_branch";
+      /** `merge_base` only: GitHub listed more files than the pages read; the list is a prefix. */
+      truncated?: boolean;
     }
   | { status: "failed"; reason: string };
+
+/**
+ * GitHub's compare of the task's branch with the default branch (`compare_refs`, three-dot: what the branch changed
+ * since it left the default branch), as the changed paths and the merge base. Null when the gateway refused or GitHub
+ * could not answer (the caller falls back to an archive comparison), never a throw.
+ */
+async function compareWithDefaultBranch(gateway: GatewayClient, token: string, target: { owner: string; repo: string }, branch: string): Promise<{ mergeBaseSha: string; changed: string[]; truncated: boolean } | null> {
+  try {
+    const res = await gateway.call(token, { connector: "github", tool: COMPARE_REFS_TOOL, args: { owner: target.owner, repo: target.repo, base: "HEAD", head: branch } }, { timeoutMs: CHECKOUT_TIMEOUT_MS });
+    if (res.outcome !== "allow") return null;
+    const result = res.result as { ok?: boolean; data?: unknown } | undefined;
+    if (!result?.ok || result.data === undefined) return null;
+    const raw = isUntrusted(result.data) ? result.data.content : result.data;
+    const parsed = CompareRefsOutput.safeParse(raw);
+    if (!parsed.success) return null;
+    const changed = new Set<string>();
+    for (const f of parsed.data.files) {
+      if (f.status === "unchanged") continue;
+      changed.add(f.path);
+      if (f.previousPath) changed.add(f.previousPath);
+    }
+    return { mergeBaseSha: parsed.data.mergeBaseSha, changed: [...changed].sort(), truncated: parsed.data.truncated };
+  } catch {
+    return null;
+  }
+}
 
 /**
  * The paths that differ between a checkout of the task's branch and the repository's default branch (changed, added
@@ -238,11 +268,16 @@ export async function defaultBranchChanges(deps: { db: Db; gateway: GatewayClien
   try {
     dir = await mkdtemp(path.join(options.tmpDir ?? os.tmpdir(), "fm-default-branch-"));
     const file = path.join(dir, "archive.tgz");
-    const token = await deps.gateway.mintSessionToken({ businessId: input.businessId, agentId: input.agentId, sessionId: input.sessionId, allowedTools: [`github:${DOWNLOAD_ARCHIVE_TOOL}`], ttlSeconds: CHECKOUT_TOKEN_TTL_SECONDS });
+    const token = await deps.gateway.mintSessionToken({ businessId: input.businessId, agentId: input.agentId, sessionId: input.sessionId, allowedTools: [`github:${COMPARE_REFS_TOOL}`, `github:${DOWNLOAD_ARCHIVE_TOOL}`], ttlSeconds: CHECKOUT_TOKEN_TTL_SECONDS });
+    // GitHub's own comparison first: the branch's changes since it left the default branch, whatever the default branch
+    // did since, for any branch however it was created. Against the default branch's head, a branch the default branch
+    // moved past lists every file that moved and its tests run for all of them: Linh's documentation branch of Oct 25
+    // was read as the whole orchestrator on Oct 30, 2026, and the five code branches the agents created on Oct 25 with
+    // their own commits (no save on a checkout, so no fork point below) ran nearly every package and timed out.
+    const compared = await compareWithDefaultBranch(deps.gateway, token.token, target, checkout.base.ref);
+    if (compared) return { status: "compared", ref: "the default branch", commitSha: compared.mergeBaseSha, changed: compared.changed, against: "merge_base", truncated: compared.truncated };
     // The commit the branch started from, when a save of the task was made on a checkout of another ref (the default
-    // branch): the branch's changes are what differs from there. Against the default branch's head instead, a branch the
-    // default branch moved past would list every file that moved, and its tests would run for all of them (Linh's
-    // documentation branch of Oct 25 was read as the whole orchestrator on Oct 30, 2026).
+    // branch): the branch's changes are what differs from there.
     const fork = await repos.workspaces.forkPoint(deps.db, input.businessId, input.taskId, target.fullName, `agent/${input.taskId}`);
     let against: "fork_point" | "default_branch" = fork ? "fork_point" : "default_branch";
     let got = await fetchArchive(deps.gateway, token.token, target, fork?.commitSha ?? "HEAD", file, limits.maxArchiveBytes, options.sleep ?? realSleep);

@@ -262,7 +262,28 @@ export function createGithubMock(limits: { bytesPerBusiness?: number; bytesTotal
         if (existing) return { branch, sha: existing, created: false };
         const sha = g.resolveRef(r, fromRef ?? "HEAD");
         r.branches[branch] = sha;
+        (r.bases ??= {})[branch] = sha;
         return { branch, sha, created: true };
+      },
+      compare_refs: async ({ owner, repo, base, head }, ctx) => {
+        const g = world(ctx.businessId);
+        const r = g.find(owner, repo);
+        const baseSha = g.resolveRef(r, base);
+        const headSha = g.resolveRef(r, head);
+        const headBranch = g.branchOf(r, head);
+        // A branch the mock saw created started at a recorded commit; anything else shares the base's commit.
+        const mergeBaseSha = (headBranch && r.bases?.[headBranch]) ?? baseSha;
+        const before = g.filesAt(r, base);
+        const after = g.filesAt(r, head);
+        const files: { path: string; status: "added" | "removed" | "modified"; previousPath: null }[] = [];
+        for (const [path, content] of after) {
+          const was = before.get(path);
+          if (!was) files.push({ path, status: "added", previousPath: null });
+          else if (!was.equals(content)) files.push({ path, status: "modified", previousPath: null });
+        }
+        for (const path of before.keys()) if (!after.has(path)) files.push({ path, status: "removed", previousPath: null });
+        files.sort((a, b) => (a.path < b.path ? -1 : 1));
+        return { mergeBaseSha, baseSha, headSha, aheadBy: headSha === mergeBaseSha ? 0 : 1, behindBy: baseSha === mergeBaseSha ? 0 : 1, files, truncated: false };
       },
       commit_files: async ({ owner, repo, branch, fromRef, message, files, deletions, expectedHeadSha }, ctx) => {
         const g = world(ctx.businessId);
@@ -283,6 +304,7 @@ export function createGithubMock(limits: { bytesPerBusiness?: number; bytesTotal
         }
         let deleted = 0;
         for (const d of deletions) if (next.delete(d)) deleted++;
+        if (!existed) (r.bases ??= {})[branch] = parentSha;
         if (written + deleted === 0) {
           if (!existed) {
             r.branches[branch] = parentSha;

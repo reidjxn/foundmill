@@ -127,7 +127,7 @@ export function isFirstPartyRef(ref: unknown): boolean {
 }
 
 /** GitHub reads whose result can be the business's own code. */
-export const FIRST_PARTY_REPO_TOOLS: ReadonlySet<string> = new Set(["list_repos", "read_tree", "read_file", "download_archive"]);
+export const FIRST_PARTY_REPO_TOOLS: ReadonlySet<string> = new Set(["list_repos", "read_tree", "read_file", "download_archive", "compare_refs"]);
 
 export type FirstPartyVerdict =
   /** First-party; `pin` is the id to pin for a Code-tab repository chosen before pinning existed (null when already pinned). */
@@ -163,7 +163,10 @@ export function firstPartyCandidate(input: Omit<FirstPartyInput, "repository" | 
   if (input.connector !== "github" || !FIRST_PARTY_REPO_TOOLS.has(input.tool) || input.tool === "list_repos" || !input.codeRepository) return null;
   const named = namedRepository(input.args);
   if (!named || `${named.owner}/${named.repo}`.toLowerCase() !== input.codeRepository.fullName.toLowerCase()) return null;
-  return isFirstPartyRef(argsOf(input.args).ref) ? named : null;
+  // A compare names two refs; both must be the repository's own (HEAD or a branch).
+  const a = argsOf(input.args);
+  const refs = input.tool === "compare_refs" ? [a.base, a.head] : [a.ref];
+  return refs.every(isFirstPartyRef) ? named : null;
 }
 
 /**

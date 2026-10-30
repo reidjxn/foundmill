@@ -44,7 +44,7 @@ describe("the capability map", () => {
 describe("resolveGrants", () => {
   it("turns template capabilities into the real tools that serve them", () => {
     const r = resolveGrants([{ connectorKey: "github", tools: ["repos.read", "pulls.merge"] }, { connectorKey: "platform", tools: ["tasks.list", "messages.request", "inbox.request_human_action"] }]);
-    expect(r.toolRefs).toEqual(["github:list_repos", "github:read_tree", "github:read_file", "github:merge_pr", "platform:list_tasks", "platform:get_task", "platform:send_message", "platform:list_messages", "platform:request_human_action"]);
+    expect(r.toolRefs).toEqual(["github:list_repos", "github:read_tree", "github:read_file", "github:compare_refs", "github:merge_pr", "platform:list_tasks", "platform:get_task", "platform:send_message", "platform:list_messages", "platform:request_human_action"]);
     expect(r.mcpTools).toContain("mcp__platform__request_human_action");
     expect(r.servers).toEqual(["github", "platform"]);
     expect(r.unresolved).toEqual([]);
@@ -78,7 +78,7 @@ describe("resolveGrants", () => {
   it("never puts a route-only tool (the repository archive) in an agent's token: not by capability, by name or through *", () => {
     expect([...ROUTE_ONLY_TOOLS].sort()).toEqual(["github:download_archive", "github:get_repository"]);
     const r = resolveGrants([{ connectorKey: "github", tools: ["repos.read", "download_archive", "get_repository"] }]);
-    expect(r.toolRefs).toEqual(["github:list_repos", "github:read_tree", "github:read_file"]);
+    expect(r.toolRefs).toEqual(["github:list_repos", "github:read_tree", "github:read_file", "github:compare_refs"]);
     expect(r.unresolved).toEqual([
       { connectorKey: "github", capability: "download_archive", reason: ROUTE_ONLY_REASON },
       { connectorKey: "github", capability: "get_repository", reason: ROUTE_ONLY_REASON },
