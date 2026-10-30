@@ -313,6 +313,12 @@ describe("failed tasks and failing agents come back (bounded backoff)", () => {
     // The founder's Continue is that restart: the task is a candidate again, never held for its count.
     plan = await cycle.planCycle({ businessId: B(), cycleNumber: 3, trigger: "continue", brief: b });
     expect(plan.deferred.find((d) => d.taskId === task.id)?.reason ?? "").not.toMatch(/start it from the Plan|retrying/);
+    // The follow-ups of that Continue retry it too, once a slot frees; a scheduled cycle's follow-ups keep the limit
+    // (the Foundmill business's five retried code tasks were skipped by the follow-ups for three cycles, Oct 30, 2026).
+    const followUps = (trigger?: "continue" | "schedule") => cycle.followUpStarts({ businessId: B(), cycleId: "cycle-3", exclude: [], busyAgentIds: [], ...(trigger ? { trigger } : {}) });
+    expect((await followUps()).some((s) => s.taskId === task.id)).toBe(false);
+    expect((await followUps("schedule")).some((s) => s.taskId === task.id)).toBe(false);
+    expect((await followUps("continue")).some((s) => s.taskId === task.id)).toBe(true);
   });
 
   it("a session that fails while its team is stopped does not fail the task or overwrite the pause", async () => {

@@ -120,6 +120,7 @@ export const CAPABILITY_TOOLS: Readonly<Record<string, Readonly<Record<string, r
     "tasks.claim": ["claim_task"],
     "tasks.assign": ["assign_task"],
     "tasks.reprioritise": ["assign_task"],
+    "tasks.update": ["update_task"],
     "sessions.reassign": ["assign_task", "list_sessions"],
     "tasks.block": ["block_task"],
     "tasks.handoff": ["handoff_task"],

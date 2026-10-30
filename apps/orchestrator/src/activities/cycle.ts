@@ -330,7 +330,7 @@ export function createCycleActivities(deps: OrchestratorDeps) {
       const starts: CycleStart[] = [];
       for (const t of facts.openTasks) {
         if (starts.length >= limit) break;
-        if (exclude.has(t.id) || t.blocked || !DISPATCHABLE.has(t.status) || deferralOf(t, facts) !== null) continue;
+        if (exclude.has(t.id) || t.blocked || !DISPATCHABLE.has(t.status) || deferralOf(t, facts, input.trigger ?? null) !== null) continue;
         const agent = pickAssignee(t, facts.agents, null, chosen);
         if (!agent) continue;
         chosen.add(agent.id);

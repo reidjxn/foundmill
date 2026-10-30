@@ -122,6 +122,17 @@ export function createDbPlatformHost({ db, log, now = () => new Date() }: DbPlat
       if (agentId) await agentOf(caller, agentId);
       return summary(await repos.tasks.update(db, caller.businessId, t.id, { ...(agentId ? { assigneeAgentId: agentId } : {}), ...(priority !== undefined ? { priority } : {}) }));
     },
+    async updateTask(caller, { taskId, title, goal, acceptance, fileScope }) {
+      const t = await taskOf(caller, taskId);
+      open(t);
+      // Leads and planners re-scope the team's tasks (the grant decides who holds the tool); the task's status, assignee
+      // and dependencies are not theirs to change here. The founder's Plan shows the new scope; the audit row says who.
+      const changed = { ...(title !== undefined ? { title } : {}), ...(goal !== undefined ? { goalMd: goal } : {}), ...(acceptance !== undefined ? { acceptance } : {}), ...(fileScope !== undefined ? { fileScope } : {}) };
+      const updated = await repos.tasks.update(db, caller.businessId, t.id, changed);
+      await repos.audit.append(db, caller.businessId, { actorKind: "agent", actorId: caller.agentId, action: "platform.task.updated", target: { kind: "task", id: t.id }, details: { sessionId: caller.sessionId, fields: Object.keys(changed) } });
+      const edges = await repos.tasks.listEdges(db, caller.businessId, [t.id]);
+      return { ...summary(updated), goalMd: updated.goalMd, acceptance: Array.isArray(updated.acceptance) ? updated.acceptance : [], fileScope: updated.fileScope, dependsOn: edges.filter((e) => e.toTask === t.id).map((e) => e.fromTask) };
+    },
     async blockTask(caller, { taskId, reason }) {
       const t = await taskOf(caller, taskId);
       mine(caller, t, "block");

@@ -104,6 +104,22 @@ describe("platform tools on the real database (INTEGRATIONS_MODE=mock)", () => {
     expect(blocked.items[0]?.payload).toMatchObject({ taskId: workerTaskId, assigneeAgentId: worker.agentId, detail: "Waiting for the second quote." });
   });
 
+  it("a lead re-scopes a task with update_task: scope, criteria and the test command change, status and assignee do not, audited", async () => {
+    const leadToken = await tokenFor(lead, ["platform:update_task", "platform:get_task"]);
+    const before = await repos.tasks.get(db, worker.businessId, workerTaskId);
+    const updated = data<{ status: string; assigneeAgentId: string | null; fileScope: string[]; acceptance: unknown[]; title: string }>(
+      await client.call(leadToken, { connector: "platform", tool: "update_task", args: { taskId: workerTaskId, title: "Compare three suppliers", fileScope: ["docs/suppliers.md"], acceptance: ["The three suppliers are listed with prices.", { command: "pnpm --filter @foundmill/web run --if-present test" }] } }),
+    );
+    expect(updated).toMatchObject({ title: "Compare three suppliers", status: before.status, assigneeAgentId: worker.agentId, fileScope: ["docs/suppliers.md"], acceptance: ["The three suppliers are listed with prices.", { command: "pnpm --filter @foundmill/web run --if-present test" }] });
+    expect(data<{ fileScope: string[] }>(await client.call(leadToken, { connector: "platform", tool: "get_task", args: { taskId: workerTaskId } })).fileScope).toEqual(["docs/suppliers.md"]);
+    expect((await repos.tasks.get(db, worker.businessId, workerTaskId))).toMatchObject({ title: "Compare three suppliers", status: before.status, assigneeAgentId: before.assigneeAgentId, fileScope: ["docs/suppliers.md"] });
+    const audit = await repos.audit.list(db, worker.businessId, { action: "platform.task.updated" });
+    expect(audit.items[0]).toMatchObject({ actorId: lead.agentId, details: { sessionId: lead.sessionId, fields: ["title", "acceptance", "fileScope"] } });
+    // Nothing to change is refused, and so is a task of another business.
+    expect(asAllow(await client.call(leadToken, { connector: "platform", tool: "update_task", args: { taskId: workerTaskId } })).result.ok).toBe(false);
+    expect(asAllow(await client.call(leadToken, { connector: "platform", tool: "update_task", args: { taskId: outsiderTaskId, title: "Mine now" } })).result).toMatchObject({ ok: false, error: { code: "not_found" } });
+  });
+
   it("never reaches another business's board: its task ids are not found and its tasks are not listed", async () => {
     const token = await tokenFor(worker, ["platform:*"]);
     for (const tool of ["get_task", "claim_task"]) {

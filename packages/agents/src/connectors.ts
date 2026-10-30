@@ -162,7 +162,7 @@ export const PLATFORM_BASE_TOOLS: [string, ...string[]] = [
 ];
 
 /** Extra platform tools for leads: they create tasks and assign them (BUILD §9.9 "Leads assign; workers report"). */
-export const PLATFORM_LEAD_TOOLS: [string, ...string[]] = [...PLATFORM_BASE_TOOLS, "tasks.create", "tasks.assign", "tasks.reprioritise", "budgets.read"];
+export const PLATFORM_LEAD_TOOLS: [string, ...string[]] = [...PLATFORM_BASE_TOOLS, "tasks.create", "tasks.assign", "tasks.reprioritise", "tasks.update", "budgets.read"];
 
 export const SANDBOX_TOOLS: [string, ...string[]] = ["shell", "read_file", "write_file", "run_tests", "playwright", "git.commit", "git.push_branch"];
 export const WEB_TOOLS: [string, ...string[]] = ["search", "fetch"];
