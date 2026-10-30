@@ -21,6 +21,39 @@ export interface GatewayConfig {
   /** Upper bound a caller may ask for. */
   sessionTokenMaxTtlSeconds: number;
   redisUrl: string | undefined;
+  /** Railway deploy provider settings; undefined unless RAILWAY_TOKEN is set. Holds the token: never serialize or log. */
+  railway: RailwayConfig | undefined;
+}
+
+export interface RailwayConfig {
+  token: string;
+  projectId: string;
+  environmentId: string;
+  /** Allowlisted service name -> Railway service id. */
+  serviceIds: Readonly<Record<string, string>>;
+}
+
+export function railwayConfig(env: Env): RailwayConfig | undefined {
+  const token = env.RAILWAY_TOKEN?.trim();
+  if (!token) return undefined;
+  const projectId = env.RAILWAY_PROJECT_ID?.trim();
+  const environmentId = env.RAILWAY_ENVIRONMENT_ID?.trim();
+  if (!projectId || !environmentId || !env.RAILWAY_SERVICE_IDS) {
+    throw new Error("RAILWAY_PROJECT_ID, RAILWAY_ENVIRONMENT_ID and RAILWAY_SERVICE_IDS are required when RAILWAY_TOKEN is set");
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(env.RAILWAY_SERVICE_IDS);
+  } catch {
+    throw new Error("RAILWAY_SERVICE_IDS must be a JSON object");
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error("RAILWAY_SERVICE_IDS must be a JSON object");
+  const serviceIds: Record<string, string> = {};
+  for (const [name, id] of Object.entries(parsed)) {
+    if (typeof id !== "string" || !id.trim()) throw new Error("RAILWAY_SERVICE_IDS values must be non-empty strings");
+    serviceIds[name] = id.trim();
+  }
+  return { token, projectId, environmentId, serviceIds: Object.freeze(serviceIds) };
 }
 
 /** Only accepted when APP_ENV is development or test; staging and production must set SESSION_TOKEN_SECRET. */
@@ -45,5 +78,6 @@ export function gatewayConfig(env: Env = loadEnv()): GatewayConfig {
     sessionTokenTtlSeconds: DEFAULT_SESSION_TTL_SECONDS,
     sessionTokenMaxTtlSeconds: MAX_SESSION_TTL_SECONDS,
     redisUrl: env.REDIS_URL,
+    railway: railwayConfig(env),
   };
 }

@@ -55,6 +55,13 @@ const Env = z.object({
   KMS_KEY_ID: z.string().optional(),
   DEV_MASTER_KEY: z.string().optional(),
   SESSION_TOKEN_SECRET: z.string().optional(),
+  /** apps/gateway only: Railway API token behind the deploy connector. Never set on any other service, never returned or logged. */
+  RAILWAY_TOKEN: z.string().optional(),
+  /** apps/gateway only: Railway production project and environment ids. */
+  RAILWAY_PROJECT_ID: z.string().optional(),
+  RAILWAY_ENVIRONMENT_ID: z.string().optional(),
+  /** apps/gateway only: JSON object mapping allowlisted service names to Railway service ids, e.g. {"api":"<id>"}. */
+  RAILWAY_SERVICE_IDS: z.string().optional(),
   STRIPE_SECRET_KEY: z.string().optional(),
   STRIPE_WEBHOOK_SECRET: z.string().optional(),
   /**
