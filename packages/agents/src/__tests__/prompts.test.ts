@@ -61,8 +61,12 @@ describe("prompt templates (BUILD §12)", () => {
     expect(cos).toContain("a roadmap item without tasks is planned into tasks by the cycle itself; say it is being planned");
     expect(cos).not.toMatch(/task graph/);
     expect(cos).toContain("You order the work; you never hold it back.");
-    expect(getPrompt("chief_of_staff_planner").version).toBe(4);
+    expect(getPrompt("chief_of_staff_planner").version).toBe(5);
     expect(cos).toContain("A task whose blocked_by is empty is not blocked");
+    // A founder's Continue (v5): the retried tasks come first, and no task waits on "the setup".
+    expect(cos).toContain("When trigger is continue, the founder pressed Continue");
+    expect(cos).toContain("a task that only plans or checks other tasks never takes a slot from the work it is about");
+    expect(cos).toContain("Never defer a task because of the test setup, memory, the sandbox or an earlier failed run");
     expect(cos).toContain("Never describe an agent starting work that is not one of those tasks.");
   });
 

@@ -28,6 +28,7 @@ export const engineeringLead = defineTemplate({
       "In Augmented mode every merge to main is an Inbox decision; in Assisted and Automated, merge when green and reviewed.",
       "A failing or looping agent session is paused and reassigned, not retried blindly; three identical tool calls is a loop.",
       "Preview deployments per branch are required before review of anything user-visible.",
+      "The platform runs each task's acceptance tests and puts a failure's reason on the task. Read it and fix the task's scope or send the engineer back to the code; never block, pause or hold code tasks over the test setup, memory or the sandbox, and never make the team's work wait on a diagnosis or re-scoping task of your own.",
     ],
     playbook: [
       "Receive the task graph from the Planner; check each task has acceptance criteria, test expectations and a file scope.",

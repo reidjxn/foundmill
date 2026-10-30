@@ -53,6 +53,13 @@ export type AgentMessageT = z.infer<typeof AgentMessage>;
 
 const Text = (max: number) => z.string().trim().min(1).max(max);
 
+/** One acceptance criterion: a sentence a test can check, or the test command the platform runs for the task. */
+export const AcceptanceCriterion = z.union([Text(2000), z.object({ command: Text(500) }).strict()]);
+export const UpdateTaskInput = z
+  .object({ taskId: Id, title: Text(200).optional(), goal: z.string().max(8000).optional(), acceptance: z.array(AcceptanceCriterion).max(30).optional(), fileScope: z.array(z.string().trim().min(1).max(400)).max(100).optional() })
+  .refine((v) => v.title !== undefined || v.goal !== undefined || v.acceptance !== undefined || v.fileScope !== undefined, "set title, goal, acceptance or fileScope");
+export type UpdateTaskInputT = z.infer<typeof UpdateTaskInput>;
+
 export const platformTools = [
   // ---- task board ----------------------------------------------------------------------------------------------
   defineTool({
@@ -77,6 +84,13 @@ export const platformTools = [
     description: "Assign a task to an agent of the team and/or change its priority (leads).",
     input: z.object({ taskId: Id, agentId: Id.optional(), priority: z.number().int().min(0).max(100).optional() }).refine((v) => v.agentId !== undefined || v.priority !== undefined, "set agentId, priority or both"),
     output: TaskSummary,
+    hints: {},
+  }),
+  defineTool({
+    name: "update_task",
+    description: "Change what a task asks for (leads and planners): its title, goal, acceptance criteria (sentences a test can check, or {command} entries naming the test command the platform runs) and file scope (the paths it changes). Set at least one. Status, assignee and dependencies stay as they are; use assign_task, block_task and complete_task for those.",
+    input: UpdateTaskInput,
+    output: TaskDetail,
     hints: {},
   }),
   defineTool({ name: "block_task", description: "Mark a task blocked and say why (what or whom it waits on).", input: z.object({ taskId: Id, reason: Text(2000) }), output: TaskSummary, hints: {} }),
@@ -246,6 +260,7 @@ export interface PlatformHost {
   createTask(caller: PlatformCaller, args: PlatformArgs<"create_task">): Promise<PlatformResult<"create_task">>;
   claimTask(caller: PlatformCaller, args: PlatformArgs<"claim_task">): Promise<PlatformResult<"claim_task">>;
   assignTask(caller: PlatformCaller, args: PlatformArgs<"assign_task">): Promise<PlatformResult<"assign_task">>;
+  updateTask(caller: PlatformCaller, args: PlatformArgs<"update_task">): Promise<PlatformResult<"update_task">>;
   blockTask(caller: PlatformCaller, args: PlatformArgs<"block_task">): Promise<PlatformResult<"block_task">>;
   handoffTask(caller: PlatformCaller, args: PlatformArgs<"handoff_task">): Promise<PlatformResult<"handoff_task">>;
   completeTask(caller: PlatformCaller, args: PlatformArgs<"complete_task">): Promise<PlatformResult<"complete_task">>;

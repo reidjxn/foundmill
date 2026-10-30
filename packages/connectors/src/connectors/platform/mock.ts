@@ -16,6 +16,7 @@ export function platformHandlers(host: PlatformHost) {
     create_task: async (args: Parameters<PlatformHost["createTask"]>[1], ctx: ToolContext) => host.createTask(caller(ctx), args),
     claim_task: async (args: Parameters<PlatformHost["claimTask"]>[1], ctx: ToolContext) => host.claimTask(caller(ctx), args),
     assign_task: async (args: Parameters<PlatformHost["assignTask"]>[1], ctx: ToolContext) => host.assignTask(caller(ctx), args),
+    update_task: async (args: Parameters<PlatformHost["updateTask"]>[1], ctx: ToolContext) => host.updateTask(caller(ctx), args),
     block_task: async (args: Parameters<PlatformHost["blockTask"]>[1], ctx: ToolContext) => host.blockTask(caller(ctx), args),
     handoff_task: async (args: Parameters<PlatformHost["handoffTask"]>[1], ctx: ToolContext) => host.handoffTask(caller(ctx), args),
     complete_task: async (args: Parameters<PlatformHost["completeTask"]>[1], ctx: ToolContext) => host.completeTask(caller(ctx), args),
@@ -73,6 +74,11 @@ export function createMemoryPlatformHost(): PlatformHost {
     async assignTask(caller, { taskId, agentId, priority }) {
       const t = mustTask(caller, taskId);
       return summary(touch(t, { ...(agentId ? { assigneeAgentId: agentId } : {}), ...(priority !== undefined ? { priority } : {}) }));
+    },
+    async updateTask(caller, { taskId, title, goal, acceptance, fileScope }) {
+      const t = mustTask(caller, taskId);
+      if (t.status === "done" || t.status === "failed" || t.status === "stopped") throw new PlatformToolError("invalid_state", `the task is already ${t.status}`);
+      return { ...touch(t, { ...(title !== undefined ? { title } : {}), ...(goal !== undefined ? { goalMd: goal } : {}), ...(acceptance !== undefined ? { acceptance } : {}), ...(fileScope !== undefined ? { fileScope } : {}) }) };
     },
     async blockTask(caller, { taskId }) {
       const t = mustTask(caller, taskId);

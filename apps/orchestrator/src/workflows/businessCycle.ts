@@ -302,7 +302,7 @@ export async function businessCycle(input: BusinessCycleInput): Promise<Business
       // means the next wake, or the next cycle, picks them up.
       if (finished.length > before && !stopped && !paused && patched(CYCLE_FOLLOW_UPS_PATCH)) {
         try {
-          const more = await acts.followUpStarts({ businessId: input.businessId, cycleId, exclude: [...seenTasks], busyAgentIds: [...running.values()].map((r) => r.start.agentId), limit: maxConcurrent });
+          const more = await acts.followUpStarts({ businessId: input.businessId, cycleId, exclude: [...seenTasks], busyAgentIds: [...running.values()].map((r) => r.start.agentId), limit: maxConcurrent, trigger: input.trigger });
           for (const s of more) {
             if (seenTasks.has(s.taskId)) continue;
             seenTasks.add(s.taskId);

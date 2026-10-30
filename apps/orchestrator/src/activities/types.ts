@@ -86,6 +86,13 @@ export interface FollowUpStartsInput {
   busyAgentIds?: string[];
   /** Most starts to hand back (the cycle's concurrency); every dispatchable task when absent. */
   limit?: number;
+  /**
+   * What started the cycle. A founder's Continue retries every failed or blocked task whatever its wait or count
+   * (`retryDeferral`), in the follow-ups as in the first plan: the Foundmill business's five retried code tasks were
+   * left out of the plan by four coordination tasks and then skipped by the follow-ups, which read the retry limit
+   * again (Oct 30, 2026). Absent: the limit and the doubling waits apply.
+   */
+  trigger?: CycleTrigger;
 }
 
 export interface BusinessBrief {
