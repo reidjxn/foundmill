@@ -39,7 +39,8 @@ describe("StopAllAgents", () => {
   it("a stop that never answers stops holding the dialog after the escape time (audit RES-13)", async () => {
     const user = userEvent.setup();
     const onConfirm = vi.fn(() => new Promise<void>(() => {}));
-    render(<StopAllAgents onConfirm={onConfirm} pendingEscapeMs={40} />);
+    // Long enough that the held state is still on screen after two clicks on a loaded CI runner (40 ms raced it).
+    render(<StopAllAgents onConfirm={onConfirm} pendingEscapeMs={1_500} />);
     await user.click(screen.getByTestId("stop-all-trigger"));
     await user.click(screen.getByRole("button", { name: "Stop all agents" }));
     // Pending: Esc and Cancel are held while the server has its budget.
@@ -47,7 +48,7 @@ describe("StopAllAgents", () => {
     await user.keyboard("{Escape}");
     expect(screen.getByRole("dialog")).toBeTruthy();
     // Past it: the founder may close the dialog; the request keeps going.
-    await waitFor(() => expect(screen.getByTestId("stop-all-slow")).toBeTruthy());
+    await waitFor(() => expect(screen.getByTestId("stop-all-slow")).toBeTruthy(), { timeout: 5_000 });
     // The dialog's own close mark and the footer button are both back.
     const closers = screen.getAllByRole("button", { name: "Close" });
     expect(closers.length).toBeGreaterThanOrEqual(2);
