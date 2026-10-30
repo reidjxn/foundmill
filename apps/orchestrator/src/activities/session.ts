@@ -1852,7 +1852,9 @@ async function runLiveSession(deps: OrchestratorDeps, recorder: SessionRecorder,
       const compared = await defaultBranchChanges(deps, { businessId: input.businessId, agentId: agent.id, sessionId: input.sessionId, taskId: task.id }, checkout);
       if (compared.status === "compared") {
         scopePaths = compared.changed;
-        await recorder.publishRaw({ kind: "note", at: deps.clock.now().toISOString(), source: "system", level: "info", text: `Compared ${checkout.base.ref} with the default branch (commit ${compared.commitSha.slice(0, 7)}): ${compared.changed.length === 1 ? "1 file differs" : `${compared.changed.length} files differ`}.` });
+        const count = compared.changed.length === 1 ? "1 file differs" : `${compared.changed.length} files differ`;
+        const basis = compared.against === "fork_point" ? `with the commit it started from on ${compared.ref} (${compared.commitSha.slice(0, 7)})` : `with the default branch (commit ${compared.commitSha.slice(0, 7)})`;
+        await recorder.publishRaw({ kind: "note", at: deps.clock.now().toISOString(), source: "system", level: "info", text: `Compared ${checkout.base.ref} ${basis}: ${count}.` });
       } else {
         await recorder.publishRaw({ kind: "note", at: deps.clock.now().toISOString(), source: "system", level: "warn", text: `Could not compare ${checkout.base.ref} with the default branch (${compared.reason}), so the acceptance tests run for every package.` });
       }

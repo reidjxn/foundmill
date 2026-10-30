@@ -182,7 +182,8 @@ describe("checkoutRepository", () => {
     offline.archives.length = 0;
     const tmpDir = await freshDir();
     const compared = await defaultBranchChanges({ db: t.deps.db, gateway }, await input(task.id), checked.checkout, CHECKOUT_LIMITS, { tmpDir });
-    expect(compared).toMatchObject({ status: "compared", ref: "main", changed: ["BRANCH.md", "README.md", "src/index.ts"] });
+    // Nothing saved on the task says where the branch started, so it is compared with the default branch's head.
+    expect(compared).toMatchObject({ status: "compared", ref: "main", against: "default_branch", changed: ["BRANCH.md", "README.md", "src/index.ts"] });
     expect(offline.archives.map((a) => a.ref)).toEqual(["HEAD"]);
     expect(offline.minted.at(-1)).toMatchObject({ allowedTools: ["github:download_archive"] });
     // The default branch's tree was unpacked in a private temp directory and removed; the workspace is untouched.
@@ -192,6 +193,49 @@ describe("checkoutRepository", () => {
     // Without a repository, or when the gateway refuses, it says why and the tests fall back to every package.
     const denied = githubGateway(undefined, { archive: () => ({ outcome: "deny", reasons: ["paused agent"] }) });
     expect(await defaultBranchChanges({ db: t.deps.db, gateway: denied.gateway }, await input(task.id), checked.checkout)).toEqual({ status: "failed", reason: "refused by policy (paused agent)" });
+  });
+
+  it("a branch the default branch has moved past is compared with the commit it started from, so only its own changes count", async () => {
+    await repos.integrations.upsert(t.deps.db, t.businessId, { connectorKey: "github", status: "mock", authKind: "app", settings: { repo: "acme/shop", writeEnabled: true } });
+    const { github, gateway, offline, ctx } = githubGateway();
+    const task = await repos.tasks.create(t.db, t.businessId, { kind: "code", title: "Review the docs", goalMd: "x", assigneeAgentId: t.workerId, status: "ready" });
+    const branch = `agent/${task.id}`;
+    // Session 1 checks out the default branch, changes one file, saves on that checkout (the fork point) and pushes: the
+    // branch is created from the checkout's commit.
+    const first = await input(task.id);
+    const cwd1 = await freshDir();
+    const checked1 = await checkoutRepository({ db: t.deps.db, gateway }, first, cwd1);
+    if (checked1.status !== "checked_out") throw new Error(checked1.status);
+    const forkSha = checked1.checkout.base.commitSha;
+    await writeFile(path.join(cwd1, "README.md"), "# Reviewed\n");
+    const owner = { businessId: t.businessId, taskId: task.id, sessionId: first.sessionId, agentId: t.workerId, branch };
+    const saved = await saveWorkspace(t.db, owner, cwd1, { base: checked1.checkout.base });
+    if (saved.status === "refused" || !saved.snapshot) throw new Error("not saved");
+    expect(await pushWorkspace(t.db, gateway, { ...owner, agentName: "Reviewer", holdBack: null }, saved.snapshot)).toMatchObject({ status: "pushed", filesWritten: 1 });
+    expect(await repos.workspaces.forkPoint(t.db, t.businessId, task.id, "acme/shop", branch)).toMatchObject({ ref: "main", commitSha: forkSha });
+
+    // Meanwhile the default branch moves on: another change lands (served here as HEAD, in place of the mock's unmoving main).
+    await github.callTool("commit_files", { owner: "acme", repo: "shop", branch: "agent/other", message: "m", files: [{ path: "src/index.ts", content: "export const moved = true;\n" }, { path: "src/new.ts", content: "export {};\n" }] }, ctx);
+    const other = await github.callTool("download_archive", { owner: "acme", repo: "shop", ref: "agent/other" }, ctx);
+    const movedMain = (isUntrusted(other.data) ? other.data.content : other.data) as { sha: string; archive: Uint8Array };
+    const moved = githubGateway(github, { archive: (req) => (req.ref === "HEAD" ? { outcome: "allow", archive: { ref: "main", sha: movedMain.sha, data: new Uint8Array(movedMain.archive) } } : null) });
+
+    // Session 2 starts on the branch and changes nothing: the branch is compared with its fork point, not with today's main.
+    const second = await input(task.id);
+    const cwd2 = await freshDir();
+    const checked2 = await checkoutRepository({ db: t.deps.db, gateway: moved.gateway }, second, cwd2);
+    expect(checked2.status === "checked_out" && checked2.checkout.base.ref).toBe(branch);
+    if (checked2.status !== "checked_out") return;
+    moved.offline.archives.length = 0;
+    const compared = await defaultBranchChanges({ db: t.deps.db, gateway: moved.gateway }, second, checked2.checkout, CHECKOUT_LIMITS, { tmpDir: await freshDir() });
+    expect(compared).toEqual({ status: "compared", ref: "main", commitSha: forkSha, against: "fork_point", changed: ["README.md"] });
+    expect(moved.offline.archives.map((a) => a.ref)).toEqual([forkSha]);
+    // Against today's main the same branch would also list what main changed (the files below), which is what the
+    // acceptance tests must not run for.
+    const againstHead = await defaultBranchChanges({ db: t.deps.db, gateway: githubGateway(github, { archive: (req) => (req.ref === forkSha ? { outcome: "allow", error: { code: "not_found", message: "gone" } } : req.ref === "HEAD" ? { outcome: "allow", archive: { ref: "main", sha: movedMain.sha, data: new Uint8Array(movedMain.archive) } } : null) }).gateway }, second, checked2.checkout, CHECKOUT_LIMITS, { tmpDir: await freshDir() });
+    // A fork commit the repository no longer has falls back to the default branch's head, and says so.
+    expect(againstHead).toMatchObject({ status: "compared", against: "default_branch", commitSha: movedMain.sha, changed: ["README.md", "src/index.ts", "src/new.ts"] });
+    expect(offline.archives.length).toBeGreaterThan(0);
   });
 
   it("fails with the reason when the gateway refuses, GitHub errs or the archive is unsafe", async () => {
