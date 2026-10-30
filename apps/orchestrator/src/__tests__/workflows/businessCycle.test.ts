@@ -3,7 +3,7 @@
  * runs two tasks with overlapping file scopes at once (AC-11.6.2), narrates and completes; stop ends it early.
  */
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import type { Activities, BusinessBrief, CyclePlan, CycleStart, RoadmapPlanResult, SessionLaunch, SessionResult } from "../../activities";
+import type { Activities, BusinessBrief, CyclePlan, CycleStart, MergeInput, RoadmapPlanResult, SessionLaunch, SessionResult } from "../../activities";
 import { ApplicationFailure } from "@temporalio/common";
 import { CYCLE_PLAN_FAILURE, PLAN_FAILED_MESSAGE } from "../../cycle-contract";
 import { businessCycle, fileScopesOverlap, pauseSignal, resumeSignal, stopSignal } from "../../workflows";
@@ -85,13 +85,15 @@ interface Calls {
   briefs: number;
   /** Every followUpStarts input as received. */
   followUps: { exclude: string[]; busyAgentIds?: string[]; limit?: number }[];
+  /** Tasks whose merge review the cycle started (`prepareMerge` is its first step). */
+  merges: string[];
 }
 
 /** Each test's sessions get their own ids: children an earlier test abandoned may still run under theirs. */
 let rigRun = 0;
 
-function mockActivities(opts: { holdSessions?: boolean; holdOpen?: boolean; stoppedBrief?: boolean; refuseAfter?: number; planned?: number; planError?: () => Error; budgetMinor?: number; idle?: boolean; planFails?: boolean; openFailsOnce?: boolean; startFailsOnce?: boolean; untaskedNow?: boolean; roadmapResult?: RoadmapPlanResult; followUp?: CycleStart } = {}): { acts: Partial<Activities>; calls: Calls; release: () => void; releaseOpen: () => void } {
-  const calls: Calls = { opened: [], sessionIds: [], openInputs: [], running: new Set(), maxConcurrent: 0, overlapSeen: false, narrated: [], completed: [], started: 0, opening: false, plans: 0, startedPlans: [], planFailures: [], failed: [], startInputs: [], idleNotes: [], roadmapPlanned: [], roadmapPlans: 0, briefs: 0, followUps: [] };
+function mockActivities(opts: { holdSessions?: boolean; holdOpen?: boolean; stoppedBrief?: boolean; refuseAfter?: number; planned?: number; planError?: () => Error; budgetMinor?: number; idle?: boolean; planFails?: boolean; openFailsOnce?: boolean; startFailsOnce?: boolean; untaskedNow?: boolean; roadmapResult?: RoadmapPlanResult; followUp?: CycleStart; merges?: MergeInput[] } = {}): { acts: Partial<Activities>; calls: Calls; release: () => void; releaseOpen: () => void } {
+  const calls: Calls = { opened: [], sessionIds: [], openInputs: [], running: new Set(), maxConcurrent: 0, overlapSeen: false, narrated: [], completed: [], started: 0, opening: false, plans: 0, startedPlans: [], planFailures: [], failed: [], startInputs: [], idleNotes: [], roadmapPlanned: [], roadmapPlans: 0, briefs: 0, followUps: [], merges: [] };
   const run = String((rigRun += 1)).padStart(4, "0");
   const scopes = new Map(tasks.map((t) => [t.id, t.fileScope]));
   let release = () => {};
@@ -101,6 +103,13 @@ function mockActivities(opts: { holdSessions?: boolean; holdOpen?: boolean; stop
   let releaseOpen = () => {};
   const openHeld = new Promise<void>((r) => (releaseOpen = r));
   const acts: Partial<Activities> = {
+    async pendingMerges() {
+      return opts.merges ?? [];
+    },
+    async prepareMerge(input) {
+      calls.merges.push(input.taskId);
+      return { status: "skipped", reason: "test" };
+    },
     async loadBrief() {
       calls.briefs += 1;
       return { ...brief(), agentsStopped: opts.stoppedBrief ?? false, budgetRemainingMinor: opts.budgetMinor ?? null, ...(opts.untaskedNow ? { untaskedRoadmap: [{ id: id(300), title: "Repository context for code sessions", horizon: "now" }] } : {}) };
@@ -218,6 +227,20 @@ describe("businessCycle workflow", () => {
     expect(m.calls.maxConcurrent).toBeLessThanOrEqual(3);
     expect(m.calls.narrated[0]).toEqual([id(777), id(777), id(777), id(777)]);
     expect(m.calls.completed[0]).toMatchObject({ cycleId: result.cycleId, outcome: "completed", tasksDispatched: 4, tasksCompleted: 4, inboxItemIds: [id(555)], currency: "USD" });
+  });
+
+  it("starts the merge review of each code task that waits in review with nothing moving it, once per task, outliving the cycle", async () => {
+    const waiting: MergeInput = { businessId: B, taskId: id(901), agentId: id(902), sessionId: id(903), branch: `agent/${id(901)}`, acceptance: { passing: 145, total: 145 }, summary: "Hydration fix" };
+    const m = mockActivities({ merges: [waiting] });
+    const result = await rig.run(m.acts, async (client, taskQueue) => {
+      const cycle = await client.workflow.execute(businessCycle, { workflowId: `cycle:${B}:2`, taskQueue, args: [{ businessId: B, cycleNumber: 2, trigger: "continue" }] });
+      return { cycle, review: await client.workflow.getHandle(`merge:${id(901)}`).result() };
+    });
+    expect(result.cycle.outcome).toBe("completed");
+    expect(result.review).toEqual({ status: "skipped", reason: "test" });
+    expect(m.calls.merges).toEqual([id(901)]);
+    // The planned work is unaffected: every task still dispatched.
+    expect(result.cycle.tasksDispatched).toBe(4);
   });
 
   it("stop ends the cycle early and fans the stop out to the running sessions", async () => {

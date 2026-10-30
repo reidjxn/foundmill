@@ -17,6 +17,7 @@ import { ActivityFailure, ApplicationFailure, CancellationScope, ParentClosePoli
 import type { Activities, BusinessBrief, BusinessCycleInput, BusinessCycleResult, CyclePlan, CycleStart, RoadmapPlanResult } from "../activities";
 import { CYCLE_PLAN_FAILURE, DEFAULT_TASK_RESERVE_MINOR, PLAN_FAILED_MESSAGE, type PlanFailureDetails } from "../cycle-contract";
 import { agentSession, type AgentSessionOutcome } from "./agentSession";
+import { mergeReview } from "./mergeReview";
 import { decisionSignal, pauseSignal, resumeSignal, shoutSignal, stopSignal } from "./signals";
 
 const acts = proxyActivities<Activities>({ startToCloseTimeout: "10 minutes", retry: { maximumAttempts: 3, initialInterval: "2 seconds" } });
@@ -105,6 +106,21 @@ async function endUnplanned(input: BusinessCycleInput, brief: BusinessBrief, err
 /** The activity's own error rather than Temporal's "Activity task failed" wrapper. */
 const failureMessage = (err: unknown): string => (err instanceof ActivityFailure && err.cause ? err.cause.message : (err as Error).message ?? String(err));
 
+/**
+ * Since 2026-10-30 every cycle starts the merge of code tasks that passed their tests and wait in review with nothing
+ * moving them (activities/merge.ts `pendingMerges`): one `mergeReview` per task, abandoned, so it outlives the cycle. A
+ * patch, so cycles recorded before it replay unchanged.
+ */
+export const MERGE_SWEEP_PATCH = "merge-sweep";
+
+async function startPendingMerges(businessId: string): Promise<void> {
+  // The sweep never holds a cycle back: a failed read, or a review already running for a task, is left for the next cycle.
+  const pendingMerges = await acts.pendingMerges({ businessId }).catch(() => []);
+  for (const merge of pendingMerges) {
+    await startChild(mergeReview, { workflowId: `merge:${merge.taskId}`, args: [merge], parentClosePolicy: ParentClosePolicy.ABANDON }).catch(() => undefined);
+  }
+}
+
 export async function businessCycle(input: BusinessCycleInput): Promise<BusinessCycleResult> {
   const info = workflowInfo();
   const startedAt = Date.now();
@@ -186,6 +202,7 @@ export async function businessCycle(input: BusinessCycleInput): Promise<Business
     }
     const timeBoxHours = input.timeBoxAgentHours ?? plan.timeBoxHours;
     await acts.startCycle({ businessId: input.businessId, cycleNumber: input.cycleNumber, workflowId: info.workflowId, trigger: input.trigger, plan, brief, cycleId });
+    if (patched(MERGE_SWEEP_PATCH)) await startPendingMerges(input.businessId);
 
     const maxConcurrent = Math.max(1, Math.min(input.maxConcurrent ?? brief.maxAgents, brief.maxAgents));
     let budgetRemaining = brief.budgetRemainingMinor;

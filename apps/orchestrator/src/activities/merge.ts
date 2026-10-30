@@ -30,6 +30,21 @@ const MERGE_CALL_TIMEOUT_MS = 120_000;
 const MERGE_TOOLS = ["github:list_pull_requests", "github:open_pr", "github:run_checks", "github:merge_pr"];
 /** Audit actions of the merge step. */
 export const MERGE_AUDIT = { prepared: "merge.prepared", merged: "merge.merged", notMerged: "merge.not_merged" } as const;
+/** How many review tasks, and how much of their history, one sweep reads. */
+const SWEEP_TASKS = 50;
+const SWEEP_HISTORY = 500;
+/** The reason a session gives when it changed how the tests run: the founder looks at it first (session.ts). */
+const TEST_SETUP_REVIEW = "needs review:";
+
+interface CompletedPayload {
+  taskId: string;
+  assigneeAgentId: string;
+  sessionId: string;
+  acceptanceTestsPassing: number;
+  acceptanceTests: number;
+  branch?: string | null;
+  summary?: string;
+}
 
 interface PullRequestSummary {
   number: number;
@@ -87,6 +102,43 @@ export function createMergeActivities(deps: OrchestratorDeps) {
   }
 
   return {
+    /**
+     * Code tasks that wait in review with nothing moving them to the default branch: the work passed its tests on the
+     * task's own branch, and no merge was made, refused by the founder, or held for the founder's look at a change to the
+     * test setup. The cycle starts a `mergeReview` for each. It covers tasks that reached review before the merge step
+     * existed (Oct 30, 2026) and a merge whose start was lost; a review already under way for a task is left running.
+     */
+    async pendingMerges(input: { businessId: string }): Promise<MergeInput[]> {
+      const waiting = (await repos.tasks.list(db, input.businessId, { status: "review", kind: "code", limit: SWEEP_TASKS })).items;
+      if (waiting.length === 0) return [];
+      const target = await repos.integrations.codeRepository(db, input.businessId);
+      if (!target?.writeEnabled) return [];
+      const [completed, merges, finishes] = await Promise.all([
+        repos.events.list(db, input.businessId, { type: "task.completed", limit: SWEEP_HISTORY }),
+        repos.audit.list(db, input.businessId, { action: [MERGE_AUDIT.merged, MERGE_AUDIT.notMerged], limit: SWEEP_HISTORY }),
+        repos.audit.list(db, input.businessId, { action: "session.finish", limit: SWEEP_HISTORY }),
+      ]);
+      // Newest first: the first completion seen for a task is its latest.
+      const latest = new Map<string, CompletedPayload>();
+      for (const e of completed.items) {
+        const p = e.payload as unknown as CompletedPayload;
+        if (p?.taskId && !latest.has(p.taskId)) latest.set(p.taskId, p);
+      }
+      const settled = new Set(merges.items.filter((a) => a.action === MERGE_AUDIT.merged || (a.details as { step?: string } | null)?.step === "decision").map((a) => (a.target as { id?: unknown } | null)?.id).filter((id): id is string => typeof id === "string"));
+      const heldForSetup = new Set(finishes.items.filter((a) => String((a.details as { reason?: unknown } | null)?.reason ?? "").startsWith(TEST_SETUP_REVIEW)).map((a) => (a.target as { id?: unknown } | null)?.id).filter((id): id is string => typeof id === "string"));
+      const out: MergeInput[] = [];
+      for (const task of waiting) {
+        const done = latest.get(task.id);
+        if (!done || settled.has(task.id) || heldForSetup.has(done.sessionId)) continue;
+        if (done.branch !== `agent/${task.id}`) continue;
+        const tests = done.acceptanceTests ?? 0;
+        if (tests > 0 && (done.acceptanceTestsPassing ?? 0) < tests) continue;
+        if (task.assigneeAgentId && task.assigneeAgentId !== done.assigneeAgentId) continue;
+        out.push({ businessId: input.businessId, taskId: task.id, agentId: done.assigneeAgentId, sessionId: done.sessionId, branch: done.branch, acceptance: tests > 0 ? { passing: done.acceptanceTestsPassing, total: tests } : null, summary: (done.summary ?? "").slice(0, 2000) });
+      }
+      return out;
+    },
+
     /**
      * The pull request for the task's branch and the merge, or the approval that decides it. Skips when there is nothing
      * to merge (not a code task in review, no repository, pushing off); holds the task in review when GitHub or the
