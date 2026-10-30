@@ -379,8 +379,8 @@ export const githubTools = [
   }),
   defineTool({
     name: "open_pr",
-    description: "Open a pull request from head to base. Draft by default so humans see it before review requests go out.",
-    input: RepoRef.extend({ title: z.string().min(1).max(256), body: z.string().max(60_000).default(""), head: BranchName, base: BranchName, draft: z.boolean().default(true) }),
+    description: "Open a pull request from head to base (HEAD, the default, is the repository's default branch). Draft by default so humans see it before review requests go out.",
+    input: RepoRef.extend({ title: z.string().min(1).max(256), body: z.string().max(60_000).default(""), head: BranchName, base: BranchName.default("HEAD"), draft: z.boolean().default(true) }),
     output: PullRequest,
     hints: {},
     annotations: { readOnlyHint: false },

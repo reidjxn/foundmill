@@ -14,10 +14,17 @@
  * hand-off, and the next run starts at once, on the next worker, where the last one stopped. A run whose worker died
  * without handing off (no heartbeat for three minutes) is tried again and continues from its last heartbeat.
  */
-import { ActivityCancellationType, ActivityFailure, ApplicationFailure, CancellationScope, TimeoutFailure, allHandlersFinished, condition, isCancellation, patched, proxyActivities, setHandler, workflowInfo, type ActivityOptions } from "@temporalio/workflow";
+import { ActivityCancellationType, ActivityFailure, ApplicationFailure, CancellationScope, ParentClosePolicy, TimeoutFailure, allHandlersFinished, condition, isCancellation, patched, proxyActivities, setHandler, startChild, workflowInfo, type ActivityOptions } from "@temporalio/workflow";
 import type { Activities, AgentSessionInput, ProgressSnapshot, SessionCommand, SessionFinish, SessionLaunch, SessionResult, SessionRunOptions } from "../activities";
 import { AGENT_PAUSED_FAILURE, CANCELLED_REASON, SESSION_QUEUE_PATCH, sessionTaskQueue, usageFromHeartbeat, type RunUsage } from "../session-contract";
+import { mergeReview } from "./mergeReview";
 import { decisionSignal, pauseSignal, progressQuery, resumeSignal, shoutSignal, stopSignal } from "./signals";
+
+/**
+ * Since 2026-10-30 a finished code session whose task passed its tests starts the merge (`mergeReview`, one per task);
+ * a patch, so histories recorded before it replay unchanged.
+ */
+export const MERGE_REVIEW_PATCH = "merge-review";
 
 const acts = proxyActivities<Activities>({ startToCloseTimeout: "5 minutes", retry: { maximumAttempts: 3, initialInterval: "2 seconds" } });
 const control = proxyActivities<Activities>({ startToCloseTimeout: "30 seconds", retry: { maximumAttempts: 5 } });
@@ -242,6 +249,15 @@ export async function agentSession(input: AgentSessionWorkflowInput): Promise<Ag
     finish = await acts.finishSession(input, launch, result);
   } catch (err) {
     snapshot.detail = `finish failed: ${failureMessage(err)}`;
+  }
+  // The task passed its tests and waits in review: the merge is the platform's to open and ask for, in its own workflow
+  // (one per task, outliving this session). A merge already under way for the task is left to run.
+  if (finish?.merge && patched(MERGE_REVIEW_PATCH)) {
+    try {
+      await startChild(mergeReview, { workflowId: `merge:${input.taskId}`, args: [finish.merge], parentClosePolicy: ParentClosePolicy.ABANDON });
+    } catch (err) {
+      if ((err as Error).name !== "WorkflowExecutionAlreadyStartedError") snapshot.detail = `merge not started: ${failureMessage(err)}`;
+    }
   }
   snapshot.state = result.outcome === "done" ? "done" : result.outcome === "failed" ? "failed" : result.outcome === "blocked" ? "blocked" : "stopped";
   await condition(allHandlersFinished);

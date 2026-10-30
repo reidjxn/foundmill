@@ -85,6 +85,10 @@ describe("github mock: merge flow and simulation", () => {
     expect(fresh.data).toMatchObject({ created: true, committed: true, url: expect.stringContaining("https://github.com/acme/new-shop/commit/") });
     // The PR flow works on top of the pushed branch.
     expect((await mock.callTool("open_pr", { owner: "acme", repo: "new-shop", title: "Agent work", head: "agent/t9", base: "main" }, ctx)).ok).toBe(true);
+    // Without a base, the pull request targets the repository's default branch (the merge step never names it).
+    const defaulted = await mock.callTool("open_pr", { owner: "acme", repo: "new-shop", title: "Agent work", head: "agent/t9" }, ctx);
+    expect(defaulted.ok).toBe(true);
+    expect((isUntrusted(defaulted.data) ? defaulted.data.content : defaulted.data) as { base: { ref: string } }).toMatchObject({ base: { ref: "main" } });
     expect(mock.policyHints.commit_files).toEqual({});
   });
   it("compare_refs names the commit a branch left the default branch at and the branch's own changes, with nothing for the default branch itself", async () => {

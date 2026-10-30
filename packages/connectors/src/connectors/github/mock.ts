@@ -348,9 +348,10 @@ export function createGithubMock(limits: { bytesPerBusiness?: number; bytesTotal
         const run: GhWorkflowRun | null = dispatched ? { status: "completed", conclusion: failing ? "failure" : "success" } : null;
         return { headSha, state: ciState(run, checks), checks };
       },
-      open_pr: async ({ owner, repo, title, body, head, base, draft }, ctx) => {
+      open_pr: async ({ owner, repo, title, body, head, base: givenBase, draft }, ctx) => {
         const g = world(ctx.businessId);
         const r = g.find(owner, repo);
+        const base = givenBase === "HEAD" ? r.repo.default_branch : givenBase;
         const list = g.prList(r.repo.full_name);
         const open = list.find((p) => p.state === "open" && p.head.ref === head && p.base.ref === base);
         if (open) return toPr(open);

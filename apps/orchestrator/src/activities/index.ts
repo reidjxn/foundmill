@@ -14,6 +14,7 @@ import { createFoundationsActivities } from "./foundations";
 import { createHealthActivities } from "./health";
 import { createHolidayActivities } from "./holiday";
 import { createJourneyActivities } from "./journey";
+import { createMergeActivities } from "./merge";
 import { createMiscActivities } from "./misc";
 import { createPlanActivities } from "./plan";
 import { createRoadmapPlanActivities } from "./roadmap-plan";
@@ -32,6 +33,7 @@ export function createActivities(deps: OrchestratorDeps) {
     ...createCycleActivities(deps),
     ...createRoadmapPlanActivities(deps),
     ...createSessionActivities(deps),
+    ...createMergeActivities(deps),
     ...createPlanActivities(deps),
     ...createApprovalActivities(deps),
     ...createTrainingActivities(deps),
