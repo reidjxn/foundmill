@@ -135,3 +135,39 @@ describe("prepareMerge", () => {
     expect(await acts.prepareMerge({ ...input, taskId: research.id })).toEqual({ status: "skipped", reason: "research tasks have no branch to merge" });
   });
 });
+
+describe("pendingMerges", () => {
+  /** A code task in review whose last session finished on its branch with these tests, as `finishSession` records it. */
+  async function finishedInReview(title: string, tests: { passing: number; total: number }, options: { branch?: string; reason?: string } = {}) {
+    const { task, input } = await reviewTask(title);
+    await repos.events.write(t.db, t.businessId, { type: "task.completed", actor: { kind: "agent", id: t.workerId }, payload: { taskId: task.id, kind: "code", title, assigneeAgentId: t.workerId, sessionId: input.sessionId, outcome: "success", durationMs: 1000, cost: { amountMinor: 1, currency: "USD" }, acceptanceTestsPassing: tests.passing, acceptanceTests: tests.total, prNumber: null, branch: options.branch ?? input.branch, summary: `${title} done` } });
+    await repos.audit.append(t.db, t.businessId, { actorKind: "agent", actorId: t.workerId, action: "session.finish", target: { kind: "session", id: input.sessionId }, details: { outcome: "done", reason: options.reason ?? null, taskStatus: "review" } });
+    return { task, input };
+  }
+
+  it("finds the code tasks that passed on their own branch and wait in review, and leaves the rest", async () => {
+    const { acts } = githubGateway();
+    // Nothing is offered without a repository to push to.
+    await finishedInReview("No repo yet", { passing: 3, total: 3 });
+    expect(await acts.pendingMerges({ businessId: t.businessId })).toEqual([]);
+
+    await connectRepo();
+    const passed = await finishedInReview("Hydration fix", { passing: 145, total: 145 });
+    const docs = await finishedInReview("Docs only", { passing: 0, total: 0 });
+    const failing = await finishedInReview("Still failing", { passing: 140, total: 144 });
+    const otherBranch = await finishedInReview("Other branch", { passing: 2, total: 2 }, { branch: "feature/x" });
+    const setup = await finishedInReview("Changed the test setup", { passing: 9, total: 9 }, { reason: "needs review: package.json scripts changed" });
+    const rejected = await finishedInReview("Rejected merge", { passing: 4, total: 4 });
+    await repos.audit.append(t.db, t.businessId, { actorKind: "agent", actorId: t.workerId, action: MERGE_AUDIT.notMerged, target: { kind: "task", id: rejected.task.id }, details: { step: "decision", outcome: "rejected" } });
+    const held = await finishedInReview("Held by GitHub", { passing: 4, total: 4 });
+    await repos.audit.append(t.db, t.businessId, { actorKind: "agent", actorId: t.workerId, action: MERGE_AUDIT.notMerged, target: { kind: "task", id: held.task.id }, details: { step: "merge_pr", reason: "GitHub is down" } });
+
+    const found = await acts.pendingMerges({ businessId: t.businessId });
+    const ids = found.map((m) => m.taskId);
+    expect(ids).toEqual(expect.arrayContaining([passed.task.id, docs.task.id, held.task.id]));
+    for (const left of [failing, otherBranch, setup, rejected]) expect(ids).not.toContain(left.task.id);
+    expect(found.find((m) => m.taskId === passed.task.id)).toEqual({ ...passed.input, acceptance: { passing: 145, total: 145 }, summary: "Hydration fix done" });
+    expect(found.find((m) => m.taskId === docs.task.id)?.acceptance).toBeNull();
+  });
+});
+
