@@ -4,13 +4,13 @@ Use this after you push a branch and before you open or update a pull request.
 
 ## What the checks are
 
-The CI workflow `.github/workflows/ci.yml` runs on pull requests, pushes, and when started by hand. Its jobs:
+The CI workflow `.github/workflows/ci.yml` runs on pull requests, on pushes to `main` only, and when started by hand. A push to an `agent/` branch does not start it. Its jobs:
 
 - **Typecheck, lint, unit tests**: the longest job, about 40 to 50 minutes.
 - **Playwright** in three shards, plus the golden path. These run the real app against a seeded database. They take about 15 to 30 minutes each.
 - **Storybook build**, **Docker image (build and boot)**, **Banned terms, vocabulary and US English**, **Plain-language linter**: short jobs.
 
-Your branch's commits carry `[skip ci]`. That means a push does not start CI. The only run on your branch is the one you start with `run_checks`.
+Your branch's commits carry `[skip ci]`, so opening or updating a pull request does not start CI either. The only run on your branch is the one you start with `run_checks`.
 
 ## How to start the checks
 
