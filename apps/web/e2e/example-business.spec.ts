@@ -101,8 +101,41 @@ async function viewerApi(playwright: PlaywrightWorkerArgs["playwright"]): Promis
   return playwright.request.newContext({ baseURL: API_URL, extraHTTPHeaders: { authorization: `Bearer dev:${EXAMPLE_VIEWER_ID}` } });
 }
 
+/** What React and Next.js log when server and client markup disagree. */
+export const HYDRATION_PATTERNS: readonly RegExp[] = [/hydration failed/i, /did not match/i, /hydration mismatch/i, /text content does not match/i, /hydrat\w* error/i];
+
+/** Records console errors and uncaught page errors; call before the first navigation so nothing is missed. */
+function captureErrors(page: Page): string[] {
+  const messages: string[] = [];
+  page.on("console", (msg) => {
+    if (msg.type() === "error" || msg.type() === "warning") messages.push(msg.text());
+  });
+  page.on("pageerror", (err) => messages.push(err.message));
+  return messages;
+}
+
+const hydrationErrors = (messages: readonly string[]) => messages.filter((m) => HYDRATION_PATTERNS.some((p) => p.test(m)));
+
 test.describe("the example business, as an example viewer", () => {
   test.setTimeout(240_000);
+
+  test("Home of the example business logs no hydration errors (Example chip renders without a server/client mismatch)", async ({ page }) => {
+    // Listeners first: the sign-in and every navigation after it are covered.
+    const messages = captureErrors(page);
+    await signInAsExampleViewer(page);
+    await page.locator("[data-door='example']").click();
+    await page.waitForURL(new RegExp(`/b/${NORTHWIND_BUSINESS_ID}/home$`), { timeout: LONG });
+    await expect(page.getByTestId("app-shell")).toBeVisible({ timeout: LONG });
+    await expect(page.getByTestId("example-chip")).toBeVisible({ timeout: LONG });
+    await page.waitForLoadState("networkidle", { timeout: LONG });
+    await settled(page);
+    // A direct load of Home exercises server rendering, which is where a mismatch shows.
+    await page.goto(`/b/${NORTHWIND_BUSINESS_ID}/home`);
+    await expect(page.getByTestId("example-chip")).toBeVisible({ timeout: LONG });
+    await page.waitForLoadState("networkidle", { timeout: LONG });
+    await settled(page);
+    expect(hydrationErrors(messages), "hydration errors were logged on Home").toEqual([]);
+  });
 
   test("the third door opens Northwind as a read-only example: the chip, Start your own, no Stop all agents, every write refused", async ({ page }) => {
     await signInAsExampleViewer(page);
