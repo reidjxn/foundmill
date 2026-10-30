@@ -208,7 +208,22 @@ export async function disposeCheckout(checkout: Pick<Checkout, "archivePath"> | 
   await rm(path.dirname(checkout.archivePath), { recursive: true, force: true }).catch(() => undefined);
 }
 
-export type BranchChanges = { status: "compared"; ref: string; commitSha: string; changed: string[] } | { status: "failed"; reason: string };
+export type BranchChanges =
+  | {
+      status: "compared";
+      /** The ref compared with: the default branch's name, or the ref of the checkout the branch started from. */
+      ref: string;
+      /** The commit the comparison was made against (the archive's commit). */
+      commitSha: string;
+      changed: string[];
+      /**
+       * `fork_point`: the commit the task's branch was created from (its first save's checkout), so the list is the
+       * branch's own changes; `default_branch`: the default branch's head, so a branch the default branch has moved
+       * past since also lists what moved (nothing on the task says where the branch started).
+       */
+      against: "fork_point" | "default_branch";
+    }
+  | { status: "failed"; reason: string };
 
 /**
  * The paths that differ between a checkout of the task's branch and the repository's default branch (changed, added
@@ -224,7 +239,18 @@ export async function defaultBranchChanges(deps: { db: Db; gateway: GatewayClien
     dir = await mkdtemp(path.join(options.tmpDir ?? os.tmpdir(), "fm-default-branch-"));
     const file = path.join(dir, "archive.tgz");
     const token = await deps.gateway.mintSessionToken({ businessId: input.businessId, agentId: input.agentId, sessionId: input.sessionId, allowedTools: [`github:${DOWNLOAD_ARCHIVE_TOOL}`], ttlSeconds: CHECKOUT_TOKEN_TTL_SECONDS });
-    const got = await fetchArchive(deps.gateway, token.token, target, "HEAD", file, limits.maxArchiveBytes, options.sleep ?? realSleep);
+    // The commit the branch started from, when a save of the task was made on a checkout of another ref (the default
+    // branch): the branch's changes are what differs from there. Against the default branch's head instead, a branch the
+    // default branch moved past would list every file that moved, and its tests would run for all of them (Linh's
+    // documentation branch of Oct 25 was read as the whole orchestrator on Oct 30, 2026).
+    const fork = await repos.workspaces.forkPoint(deps.db, input.businessId, input.taskId, target.fullName, `agent/${input.taskId}`);
+    let against: "fork_point" | "default_branch" = fork ? "fork_point" : "default_branch";
+    let got = await fetchArchive(deps.gateway, token.token, target, fork?.commitSha ?? "HEAD", file, limits.maxArchiveBytes, options.sleep ?? realSleep);
+    if (fork && "missing" in got) {
+      // The commit is gone (a rewritten default branch): the default branch's head is the next best base.
+      against = "default_branch";
+      got = await fetchArchive(deps.gateway, token.token, target, "HEAD", file, limits.maxArchiveBytes, options.sleep ?? realSleep);
+    }
     if ("missing" in got) return { status: "failed", reason: "the repository's default branch was not found" };
     if ("error" in got) return { status: "failed", reason: got.error };
     const workspace = path.join(dir, "tree");
@@ -233,7 +259,7 @@ export async function defaultBranchChanges(deps: { db: Db; gateway: GatewayClien
     const changed = new Set<string>();
     for (const [rel, sha] of checkout.base.files) if (extracted.files.get(rel) !== sha) changed.add(rel);
     for (const rel of extracted.files.keys()) if (!checkout.base.files.has(rel)) changed.add(rel);
-    return { status: "compared", ref: got.archive.ref, commitSha: got.archive.sha, changed: [...changed].sort() };
+    return { status: "compared", ref: against === "fork_point" && fork ? fork.ref : got.archive.ref, commitSha: got.archive.sha, changed: [...changed].sort(), against };
   } catch (err) {
     return { status: "failed", reason: String((err as Error).message ?? err).slice(0, 300) };
   } finally {

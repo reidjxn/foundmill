@@ -9,7 +9,7 @@
  */
 import { createHash } from "node:crypto";
 import { ValidationError } from "@foundmill/shared";
-import { and, count, desc, eq, inArray, isNotNull, notExists, sql, sum } from "drizzle-orm";
+import { and, asc, count, desc, eq, inArray, isNotNull, ne, notExists, sql, sum } from "drizzle-orm";
 import { z } from "zod";
 import { agentSessions, tasks, workspaceBlobs, workspaceSnapshots, type WorkspaceManifestEntry, type WorkspaceSnapshot } from "../schema";
 import { Id, parseInput, type Executor } from "./_shared";
@@ -368,6 +368,23 @@ export const workspacesRepo = {
       .orderBy(desc(workspaceSnapshots.createdAt), desc(workspaceSnapshots.id))
       .limit(1);
     return rows[0] ?? null;
+  },
+
+  /**
+   * Where the task's branch started: the checkout its first save on a *different* ref of `repo` (the default branch) was
+   * made on. The branch `agent/<taskId>` is created from that commit when the save is pushed (workspace-push), so a
+   * comparison of the branch with this commit is the branch's own changes, whatever the default branch did since. Null
+   * when no save of the task was made on a checkout of another ref (the branch came from the agent's own commits).
+   */
+  async forkPoint(db: Executor, businessId: string, taskId: string, repo: string, branch: string): Promise<{ ref: string; commitSha: string; at: Date } | null> {
+    const rows = await db
+      .select({ ref: workspaceSnapshots.baseRef, commitSha: workspaceSnapshots.baseCommitSha, at: workspaceSnapshots.createdAt })
+      .from(workspaceSnapshots)
+      .where(and(eq(workspaceSnapshots.businessId, businessId), eq(workspaceSnapshots.taskId, taskId), eq(workspaceSnapshots.baseRepo, repo), isNotNull(workspaceSnapshots.baseCommitSha), isNotNull(workspaceSnapshots.baseRef), ne(workspaceSnapshots.baseRef, branch)))
+      .orderBy(asc(workspaceSnapshots.createdAt), asc(workspaceSnapshots.id))
+      .limit(1);
+    const row = rows[0];
+    return row?.ref && row.commitSha ? { ref: row.ref, commitSha: row.commitSha, at: row.at } : null;
   },
 
   /** Record where a save was pushed (its branch head after the push) or why it was not. Service role only. */
