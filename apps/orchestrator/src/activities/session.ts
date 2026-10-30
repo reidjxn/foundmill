@@ -1853,8 +1853,8 @@ async function runLiveSession(deps: OrchestratorDeps, recorder: SessionRecorder,
       if (compared.status === "compared") {
         scopePaths = compared.changed;
         const count = compared.changed.length === 1 ? "1 file differs" : `${compared.changed.length} files differ`;
-        const basis = compared.against === "fork_point" ? `with the commit it started from on ${compared.ref} (${compared.commitSha.slice(0, 7)})` : `with the default branch (commit ${compared.commitSha.slice(0, 7)})`;
-        await recorder.publishRaw({ kind: "note", at: deps.clock.now().toISOString(), source: "system", level: "info", text: `Compared ${checkout.base.ref} ${basis}: ${count}.` });
+        const basis = compared.against === "merge_base" ? `with the commit it left the default branch at (${compared.commitSha.slice(0, 7)})` : compared.against === "fork_point" ? `with the commit it started from on ${compared.ref} (${compared.commitSha.slice(0, 7)})` : `with the default branch (commit ${compared.commitSha.slice(0, 7)})`;
+        await recorder.publishRaw({ kind: "note", at: deps.clock.now().toISOString(), source: "system", level: "info", text: `Compared ${checkout.base.ref} ${basis}: ${count}${compared.truncated ? " (GitHub listed only the first of them)" : ""}.` });
       } else {
         await recorder.publishRaw({ kind: "note", at: deps.clock.now().toISOString(), source: "system", level: "warn", text: `Could not compare ${checkout.base.ref} with the default branch (${compared.reason}), so the acceptance tests run for every package.` });
       }

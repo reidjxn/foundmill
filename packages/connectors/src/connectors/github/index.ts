@@ -19,7 +19,7 @@ import { buildLiveConnector, healthResult } from "../../define";
 import { resolveLiveOptions, type LiveConnectorOptions } from "../../platform";
 import { githubMock } from "./mock";
 import { branchMoved } from "./moved";
-import { archiveTooLargeMessage, ciState, CI_WORKFLOW, fileWriteBuffer, MAX_ARCHIVE_BYTES, githubChangedMessage, gitBlobSha, GITHUB_APP_SCOPES, GITHUB_KEY, GITHUB_RATE_LIMITS, githubTools, mapCheckRun, mapPullRequest, mapRepository, mapTreeEntry, MAX_FILE_BYTES, MAX_TREE_ENTRIES, type GhCheckRun, type GhPullRequest, type GhRepository } from "./tools";
+import { archiveTooLargeMessage, ciState, CI_WORKFLOW, COMPARE_FILE_PAGES, COMPARE_FILES_PER_PAGE, fileWriteBuffer, MAX_ARCHIVE_BYTES, githubChangedMessage, gitBlobSha, GITHUB_APP_SCOPES, GITHUB_KEY, GITHUB_RATE_LIMITS, githubTools, mapCheckRun, mapCompareFile, mapPullRequest, mapRepository, mapTreeEntry, MAX_FILE_BYTES, MAX_TREE_ENTRIES, type GhCheckRun, type GhCompareFile, type GhPullRequest, type GhRepository } from "./tools";
 import { createGithubWebhook } from "./webhooks";
 
 type RestOctokit = InstanceType<typeof Octokit>;
@@ -252,6 +252,30 @@ export function createGithubConnector(options: LiveConnectorOptions = {}): Conne
           const text = raw.toString("utf8");
           const binary = text.includes("�");
           return { path, sha: res.data.sha, size: res.data.size, encoding: binary ? ("base64" as const) : ("utf-8" as const), content: binary ? raw.toString("base64") : text, url: res.data.html_url ?? null };
+        },
+        compare_refs: async ({ owner, repo, base, head }, ctx) => {
+          const o = await octokitFor(ctx);
+          const baseRef = base === "HEAD" ? await defaultBranch(o, owner, repo) : base;
+          // GitHub answers 404 for a ref that names no commit on either side.
+          const notThere = (e: { status?: number }) => Promise.reject(e.status === 404 || e.status === 422 ? Object.assign(new Error(`ref ${baseRef} or ${head} not found in ${owner}/${repo}`), { status: 404 }) : e);
+          interface GhCompare { merge_base_commit: { sha: string }; base_commit: { sha: string }; ahead_by: number; behind_by: number; files?: GhCompareFile[]; commits: { sha: string }[] }
+          const files: GhCompareFile[] = [];
+          let truncated = false;
+          let first: GhCompare | null = null;
+          let headSha = "";
+          for (let page = 1; page <= COMPARE_FILE_PAGES; page++) {
+            const res = await o.rest.repos.compareCommitsWithBasehead({ owner, repo, basehead: `${baseRef}...${head}`, per_page: COMPARE_FILES_PER_PAGE, page }).catch(notThere);
+            const data = res.data as unknown as GhCompare;
+            if (!first) first = data;
+            if (!headSha) headSha = data.commits.at(-1)?.sha ?? "";
+            const got = data.files ?? [];
+            files.push(...got);
+            if (got.length < COMPARE_FILES_PER_PAGE) break;
+            if (page === COMPARE_FILE_PAGES) truncated = true;
+          }
+          const summary: GhCompare = first!;
+          const mergeBaseSha = summary.merge_base_commit.sha;
+          return { mergeBaseSha, baseSha: summary.base_commit.sha, headSha: headSha || mergeBaseSha, aheadBy: summary.ahead_by, behindBy: summary.behind_by, files: files.map(mapCompareFile).filter((f): f is NonNullable<typeof f> => f !== null), truncated };
         },
         download_archive: async ({ owner, repo, ref }, ctx) => {
           const o = await octokitFor(ctx);

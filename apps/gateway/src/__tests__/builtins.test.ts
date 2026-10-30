@@ -98,6 +98,12 @@ describe("platform tools on the real database (INTEGRATIONS_MODE=mock)", () => {
     const leadToken = await tokenFor(lead, ["platform:*"]);
     const refused = asAllow(await client.call(leadToken, { connector: "platform", tool: "complete_task", args: { taskId: workerTaskId, summary: "Not mine." } }));
     expect(refused.result).toMatchObject({ ok: false, error: { code: "not_yours", status: 403 } });
+    // Nor taken over: a lead assigning another agent's task to itself (to block or complete it) is refused; moving it
+    // to a third agent, or changing its priority, is the lead's call.
+    const taken = asAllow(await client.call(leadToken, { connector: "platform", tool: "assign_task", args: { taskId: workerTaskId, agentId: lead.agentId } }));
+    expect(taken.result).toMatchObject({ ok: false, error: { code: "not_yours", status: 403 } });
+    expect((await repos.tasks.get(db, worker.businessId, workerTaskId)).assigneeAgentId).toBe(worker.agentId);
+    expect(data(await client.call(leadToken, { connector: "platform", tool: "assign_task", args: { taskId: workerTaskId, priority: 70 } }))).toMatchObject({ priority: 70, assigneeAgentId: worker.agentId });
     const workerToken = await tokenFor(worker, ["platform:block_task"]);
     expect(data(await client.call(workerToken, { connector: "platform", tool: "block_task", args: { taskId: workerTaskId, reason: "Waiting for the second quote." } }))).toMatchObject({ status: "blocked" });
     const blocked = await repos.events.list(db, worker.businessId, { type: "task.blocked" });
@@ -186,7 +192,7 @@ describe("the MCP servers a template's grants configure", () => {
     expect(await listTools(token, "platform")).toEqual(["claim_task", "complete_task", "get_task", "list_messages", "list_tasks", "request_human_action", "send_message"]);
     expect(await listTools(token, "web")).toEqual(["fetch_page", "search_web"]);
     expect(await listTools(token, "quarantine")).toEqual(["read_untrusted"]);
-    expect(await listTools(token, "github")).toEqual(["list_repos", "read_file", "read_tree"]);
+    expect(await listTools(token, "github")).toEqual(["compare_refs", "list_repos", "read_file", "read_tree"]);
     const sandbox = await fetch(client.mcpUrl("sandbox"), { method: "POST", headers: { ...client.sessionHeaders(token), "content-type": "application/json", accept: "application/json, text/event-stream" }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list" }) });
     expect(sandbox.status).toBe(404);
   });

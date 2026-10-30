@@ -71,7 +71,7 @@ export const CAPABILITY_TOOLS: Readonly<Record<string, Readonly<Record<string, r
   anthropic: { "panel.query": ["ask_panel"] },
   github: {
     // download_archive is the platform's own checkout (the gateway's archive route, ROUTE_ONLY_TOOLS): never an agent's tool.
-    "repos.read": ["list_repos", "read_tree", "read_file"],
+    "repos.read": ["list_repos", "read_tree", "read_file", "compare_refs"],
     "pulls.list": ["list_pull_requests"],
     "pulls.read": ["list_pull_requests", "get_pull_request"],
     // A pull request reports its merge state (get_pull_request); get_checks reads the check runs of an agent's branch head.

@@ -87,6 +87,20 @@ describe("github mock: merge flow and simulation", () => {
     expect((await mock.callTool("open_pr", { owner: "acme", repo: "new-shop", title: "Agent work", head: "agent/t9", base: "main" }, ctx)).ok).toBe(true);
     expect(mock.policyHints.commit_files).toEqual({});
   });
+  it("compare_refs names the commit a branch left the default branch at and the branch's own changes, with nothing for the default branch itself", async () => {
+    const mock = createGithubMock();
+    const ctx = makeToolContext(mock);
+    const mainSha = GH_REPOS[0]!.branches.main;
+    await mock.callTool("commit_files", { owner: MOCK_OWNER, repo: "northwind-site", branch: "agent/t2", message: "Session 1", files: [{ path: "src/lib/pricing.ts", content: "export const PLANS = { starter: 3900 } as const;\n" }, { path: "NOTES.md", content: "notes\n" }], deletions: ["tests/pricing.test.ts"] }, ctx);
+    const compared = await mock.callTool("compare_refs", { owner: MOCK_OWNER, repo: "northwind-site", head: "agent/t2" }, ctx);
+    expect(compared.ok).toBe(true);
+    const out = isUntrusted(compared.data) ? (compared.data.content as Record<string, unknown>) : (compared.data as Record<string, unknown>);
+    expect(out).toMatchObject({ mergeBaseSha: mainSha, baseSha: mainSha, aheadBy: 1, behindBy: 0, truncated: false, files: [{ path: "NOTES.md", status: "added", previousPath: null }, { path: "src/lib/pricing.ts", status: "modified", previousPath: null }, { path: "tests/pricing.test.ts", status: "removed", previousPath: null }] });
+    const same = await mock.callTool("compare_refs", { owner: MOCK_OWNER, repo: "northwind-site", base: "main", head: "main" }, ctx);
+    expect(isUntrusted(same.data) ? same.data.content : same.data).toMatchObject({ mergeBaseSha: mainSha, aheadBy: 0, behindBy: 0, files: [] });
+    expect((await mock.callTool("compare_refs", { owner: MOCK_OWNER, repo: "northwind-site", head: "agent/nowhere" }, ctx)).error?.code).toBe("not_found");
+    expect(mock.policyHints.compare_refs).toEqual({});
+  });
   it("keeps each business's repositories and branches to itself, and bounds what it holds", async () => {
     const mock = createGithubMock();
     const a = makeToolContext(mock);

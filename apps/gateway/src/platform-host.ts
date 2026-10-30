@@ -120,6 +120,10 @@ export function createDbPlatformHost({ db, log, now = () => new Date() }: DbPlat
       const t = await taskOf(caller, taskId);
       open(t);
       if (agentId) await agentOf(caller, agentId);
+      // A lead moves work between others; nobody takes another agent's task for themselves (the Chief of Staff assigned the
+      // Foundmill business's five code tasks to herself and blocked them to "pause retries", Oct 30, 2026). An unassigned
+      // task is claimed; an assigned one is handed over by its assignee.
+      if (agentId === caller.agentId && t.assigneeAgentId && t.assigneeAgentId !== caller.agentId) throw new PlatformToolError("not_yours", "this task is assigned to another agent; its assignee hands it over (handoff_task), or you assign it to someone else");
       return summary(await repos.tasks.update(db, caller.businessId, t.id, { ...(agentId ? { assigneeAgentId: agentId } : {}), ...(priority !== undefined ? { priority } : {}) }));
     },
     async updateTask(caller, { taskId, title, goal, acceptance, fileScope }) {

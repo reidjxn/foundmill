@@ -16,7 +16,7 @@ import { CHECKOUT_BUSY_RETRIES, CHECKOUT_BUSY_WAIT_MS, CHECKOUT_LIMITS, checkout
 import { pushWorkspace } from "../activities/workspace-push";
 import { restoreWorkspace, saveWorkspace } from "../activities/workspace-store";
 import { readWorkspaceChanges, removeSandboxLinksCommand, syncCheckoutToSandbox } from "../activities/workspace-sync";
-import { createOfflineGatewayClient, type ArchiveResponse, type GatewayClient } from "../gateway-client";
+import { createOfflineGatewayClient, type ArchiveResponse, type GatewayCallResponse, type GatewayClient } from "../gateway-client";
 import { openSessionRow, setupOrchestratorHarness, type OrchestratorTestHarness } from "./harness";
 
 let t: OrchestratorTestHarness;
@@ -53,13 +53,15 @@ const list = async (dir: string): Promise<string[]> => {
 };
 
 /** A gateway whose archives and commits come from one GitHub mock (so a pushed branch can be checked out). */
-function githubGateway(github = createGithubMock(), options: { archive?: (req: { ref: string }) => ArchiveResponse | null } = {}) {
+function githubGateway(github = createGithubMock(), options: { archive?: (req: { ref: string }) => ArchiveResponse | null; call?: (req: { tool: string; args: Record<string, unknown> }) => GatewayCallResponse | null } = {}) {
   const offline = createOfflineGatewayClient();
   const ctx = makeToolContext(github);
   const gateway: GatewayClient = {
     ...offline,
     async call(_token, req) {
       offline.calls.push(req);
+      const forced = options.call?.(req);
+      if (forced) return forced;
       return { outcome: "allow", result: await github.callTool(req.tool, req.args, ctx), costMinor: 0 };
     },
     async downloadArchive(_token, req) {
@@ -182,16 +184,28 @@ describe("checkoutRepository", () => {
     offline.archives.length = 0;
     const tmpDir = await freshDir();
     const compared = await defaultBranchChanges({ db: t.deps.db, gateway }, await input(task.id), checked.checkout, CHECKOUT_LIMITS, { tmpDir });
-    // Nothing saved on the task says where the branch started, so it is compared with the default branch's head.
-    expect(compared).toMatchObject({ status: "compared", ref: "main", against: "default_branch", changed: ["BRANCH.md", "README.md", "src/index.ts"] });
-    expect(offline.archives.map((a) => a.ref)).toEqual(["HEAD"]);
-    expect(offline.minted.at(-1)).toMatchObject({ allowedTools: ["github:download_archive"] });
-    // The default branch's tree was unpacked in a private temp directory and removed; the workspace is untouched.
+    // GitHub's compare answers first: the branch's changes since it left the default branch, and the commit it left at.
+    expect(compared).toMatchObject({ status: "compared", ref: "the default branch", against: "merge_base", truncated: false, changed: ["BRANCH.md", "README.md", "src/index.ts"] });
+    // The merge base is the default branch's commit the branch was created from (the mock's main has not moved).
+    const mainTree = await github.callTool("read_tree", { owner: "acme", repo: "shop" }, ctx);
+    expect(compared.status === "compared" && compared.commitSha).toBe((isUntrusted(mainTree.data) ? (mainTree.data.content as { sha: string }) : (mainTree.data as { sha: string })).sha);
+    expect(offline.calls.at(-1)).toMatchObject({ connector: "github", tool: "compare_refs", args: { owner: "acme", repo: "shop", base: "HEAD", head: branch } });
+    expect(offline.archives).toEqual([]);
+    expect(offline.minted.at(-1)).toMatchObject({ allowedTools: ["github:compare_refs", "github:download_archive"] });
     expect(await readdir(tmpDir)).toEqual([]);
     expect(await list(cwd)).toContain("BRANCH.md");
 
-    // Without a repository, or when the gateway refuses, it says why and the tests fall back to every package.
-    const denied = githubGateway(undefined, { archive: () => ({ outcome: "deny", reasons: ["paused agent"] }) });
+    // When GitHub cannot be asked (the compare is refused), nothing saved on the task says where the branch started, so
+    // the default branch's head is unpacked in a private temp directory and compared, and the directory removed.
+    const noCompare = githubGateway(github, { call: (req) => (req.tool === "compare_refs" ? { outcome: "deny", reasons: ["paused agent"] } : null) });
+    const tmpDir2 = await freshDir();
+    const archived = await defaultBranchChanges({ db: t.deps.db, gateway: noCompare.gateway }, await input(task.id), checked.checkout, CHECKOUT_LIMITS, { tmpDir: tmpDir2 });
+    expect(archived).toMatchObject({ status: "compared", ref: "main", against: "default_branch", changed: ["BRANCH.md", "README.md", "src/index.ts"] });
+    expect(noCompare.offline.archives.map((a) => a.ref)).toEqual(["HEAD"]);
+    expect(await readdir(tmpDir2)).toEqual([]);
+
+    // Without a repository, or when the gateway refuses everything, it says why and the tests fall back to every package.
+    const denied = githubGateway(undefined, { archive: () => ({ outcome: "deny", reasons: ["paused agent"] }), call: () => ({ outcome: "deny", reasons: ["paused agent"] }) });
     expect(await defaultBranchChanges({ db: t.deps.db, gateway: denied.gateway }, await input(task.id), checked.checkout)).toEqual({ status: "failed", reason: "refused by policy (paused agent)" });
   });
 
@@ -218,22 +232,32 @@ describe("checkoutRepository", () => {
     await github.callTool("commit_files", { owner: "acme", repo: "shop", branch: "agent/other", message: "m", files: [{ path: "src/index.ts", content: "export const moved = true;\n" }, { path: "src/new.ts", content: "export {};\n" }] }, ctx);
     const other = await github.callTool("download_archive", { owner: "acme", repo: "shop", ref: "agent/other" }, ctx);
     const movedMain = (isUntrusted(other.data) ? other.data.content : other.data) as { sha: string; archive: Uint8Array };
-    const moved = githubGateway(github, { archive: (req) => (req.ref === "HEAD" ? { outcome: "allow", archive: { ref: "main", sha: movedMain.sha, data: new Uint8Array(movedMain.archive) } } : null) });
+    const movedHead = (req: { ref: string }): ArchiveResponse | null => (req.ref === "HEAD" ? { outcome: "allow", archive: { ref: "main", sha: movedMain.sha, data: new Uint8Array(movedMain.archive) } } : null);
+    // GitHub's compare, as it answers for a branch the default branch moved past: the merge base and the branch's own file.
+    const githubCompare = (req: { tool: string }): GatewayCallResponse | null => (req.tool === "compare_refs" ? { outcome: "allow", costMinor: 0, result: { ok: true, data: { mergeBaseSha: forkSha, baseSha: movedMain.sha, headSha: "c".repeat(40), aheadBy: 1, behindBy: 1, files: [{ path: "README.md", status: "modified", previousPath: null }], truncated: false } } } : null);
 
-    // Session 2 starts on the branch and changes nothing: the branch is compared with its fork point, not with today's main.
+    // Session 2 starts on the branch and changes nothing: GitHub's compare names the one file, never what main changed.
     const second = await input(task.id);
     const cwd2 = await freshDir();
+    const moved = githubGateway(github, { archive: movedHead, call: githubCompare });
     const checked2 = await checkoutRepository({ db: t.deps.db, gateway: moved.gateway }, second, cwd2);
     expect(checked2.status === "checked_out" && checked2.checkout.base.ref).toBe(branch);
     if (checked2.status !== "checked_out") return;
     moved.offline.archives.length = 0;
     const compared = await defaultBranchChanges({ db: t.deps.db, gateway: moved.gateway }, second, checked2.checkout, CHECKOUT_LIMITS, { tmpDir: await freshDir() });
-    expect(compared).toEqual({ status: "compared", ref: "main", commitSha: forkSha, against: "fork_point", changed: ["README.md"] });
-    expect(moved.offline.archives.map((a) => a.ref)).toEqual([forkSha]);
-    // Against today's main the same branch would also list what main changed (the files below), which is what the
-    // acceptance tests must not run for.
-    const againstHead = await defaultBranchChanges({ db: t.deps.db, gateway: githubGateway(github, { archive: (req) => (req.ref === forkSha ? { outcome: "allow", error: { code: "not_found", message: "gone" } } : req.ref === "HEAD" ? { outcome: "allow", archive: { ref: "main", sha: movedMain.sha, data: new Uint8Array(movedMain.archive) } } : null) }).gateway }, second, checked2.checkout, CHECKOUT_LIMITS, { tmpDir: await freshDir() });
-    // A fork commit the repository no longer has falls back to the default branch's head, and says so.
+    expect(compared).toEqual({ status: "compared", ref: "the default branch", commitSha: forkSha, against: "merge_base", truncated: false, changed: ["README.md"] });
+    expect(moved.offline.archives).toEqual([]);
+
+    // GitHub could not be asked: the task's fork point (its first save's checkout) is unpacked and compared instead.
+    const noCompare = githubGateway(github, { archive: movedHead, call: (req) => (req.tool === "compare_refs" ? { outcome: "allow", costMinor: 0, result: { ok: false, error: { code: "tool_failed", message: "GitHub is down" } } } : null) });
+    const forkCompared = await defaultBranchChanges({ db: t.deps.db, gateway: noCompare.gateway }, second, checked2.checkout, CHECKOUT_LIMITS, { tmpDir: await freshDir() });
+    expect(forkCompared).toEqual({ status: "compared", ref: "main", commitSha: forkSha, against: "fork_point", changed: ["README.md"] });
+    expect(noCompare.offline.archives.map((a) => a.ref)).toEqual([forkSha]);
+
+    // Neither GitHub's compare nor the fork commit: the default branch's head, which also lists what main changed (the
+    // files below), which is what the acceptance tests must not run for; the note says which comparison was made.
+    const headOnly = githubGateway(github, { archive: (req) => (req.ref === forkSha ? { outcome: "allow", error: { code: "not_found", message: "gone" } } : movedHead(req)), call: (req) => (req.tool === "compare_refs" ? { outcome: "deny", reasons: ["paused agent"] } : null) });
+    const againstHead = await defaultBranchChanges({ db: t.deps.db, gateway: headOnly.gateway }, second, checked2.checkout, CHECKOUT_LIMITS, { tmpDir: await freshDir() });
     expect(againstHead).toMatchObject({ status: "compared", against: "default_branch", commitSha: movedMain.sha, changed: ["README.md", "src/index.ts", "src/new.ts"] });
     expect(offline.archives.length).toBeGreaterThan(0);
   });

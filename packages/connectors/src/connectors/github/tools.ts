@@ -250,6 +250,38 @@ export const branchMovedMessage = (branch: string, expected: string, current: st
 /** Why `run_checks` refuses a branch whose `.github` tree is not the default branch's. */
 export const githubChangedMessage = (branch: string): string => `run_checks refuses to run a workflow that differs from the default branch (.github changed on ${branch}); rebase the branch onto the default branch`;
 
+/**
+ * `compare_refs`: what `head` changed since it left `base` (GitHub's three-dot compare, `GET /repos/{o}/{r}/compare/
+ * {base}...{head}`): the merge base, the counts, and the changed files. GitHub lists at most 300 files per page; the
+ * tool reads up to COMPARE_FILE_PAGES pages and says `truncated` past that. The platform's checkout uses it to scope
+ * a task branch's acceptance tests to the branch's own changes (never to what the default branch did since).
+ */
+export const COMPARE_REFS_TOOL = "compare_refs";
+export const COMPARE_FILES_PER_PAGE = 300;
+export const COMPARE_FILE_PAGES = 4;
+export const CompareFileStatus = z.enum(["added", "removed", "modified", "renamed", "copied", "changed", "unchanged"]);
+export const CompareFile = z.object({ path: z.string(), status: CompareFileStatus, previousPath: z.string().nullable() });
+export const CompareRefsInput = RepoRef.extend({ base: Ref.default("HEAD"), head: Ref });
+export const CompareRefsOutput = z.object({
+  /** The commit `head` and `base` last shared: the branch's own changes are what differs from it. */
+  mergeBaseSha: z.string(),
+  baseSha: z.string(),
+  headSha: z.string(),
+  aheadBy: z.number().int().nonnegative(),
+  behindBy: z.number().int().nonnegative(),
+  files: z.array(CompareFile),
+  /** More files changed than the pages read list. */
+  truncated: z.boolean(),
+});
+export type CompareRefsOutputT = z.infer<typeof CompareRefsOutput>;
+
+/** A file of GitHub's compare answer (`files[]`). */
+export interface GhCompareFile { filename: string; status: string; previous_filename?: string | null }
+export const mapCompareFile = (f: GhCompareFile): z.infer<typeof CompareFile> | null => {
+  const status = CompareFileStatus.safeParse(f.status);
+  return f.filename && status.success ? { path: f.filename, status: status.data, previousPath: f.previous_filename ?? null } : null;
+};
+
 export const githubTools = [
   defineTool({
     name: "list_repos",
@@ -279,6 +311,16 @@ export const githubTools = [
     hints: {},
     untrusted: "repo",
     untrustedRef: (a) => `${a.owner}/${a.repo}@${a.ref}:${a.path}`,
+    annotations: { readOnlyHint: true },
+  }),
+  defineTool({
+    name: COMPARE_REFS_TOOL,
+    description: "What head changed since it left base (default: the default branch): the commit they last shared, how many commits each is ahead, and the changed files with their status. Up to 1,200 files; truncated says when there were more. File names come from the repository: they are quarantined.",
+    input: CompareRefsInput,
+    output: CompareRefsOutput,
+    hints: {},
+    untrusted: "repo",
+    untrustedRef: (a) => `${a.owner}/${a.repo}@${a.base}...${a.head}:compare`,
     annotations: { readOnlyHint: true },
   }),
   defineTool({
