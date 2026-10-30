@@ -1,7 +1,8 @@
 /**
  * The founder answers an agent's gated call (audit FR-01 / O-02; contract 3). The approval's Inbox item is decided with
  * Approve or Reject: the row is resolved once, `approval.resolved` goes through the outbox, and the `decision` signal
- * reaches `session:<sessionId>` while that session waits (or `approval:<id>` for a plan action or a channel launch).
+ * reaches `session:<sessionId>` while that session waits (or `approval:<id>` for a plan action, a channel launch, or
+ * the merge review of a task whose session ended).
  * When the session already ended, Approve makes the task ready and starts a cycle on an idle business (never while the
  * team is stopped); Reject keeps the task blocked and the Chief of Staff says so. Section walls hold, and
  * `team.approvals.resolve` does the same from Team › approvals.
@@ -159,12 +160,16 @@ describe("deciding an approval's Inbox item", () => {
   });
 });
 
+/** The one signal an answer after the session ended sends: the approval's own wait (`approval:<id>`), which a merge review holds. */
+const waitSignal = (approvalId: string, outcome: "approved" | "rejected") => [{ workflowId: `approval:${approvalId}`, signal: "decision", args: [expect.objectContaining({ approvalId, outcome })] }];
+
 describe("an answer that comes after the session ended", () => {
-  it("Approve makes the task ready and starts a cycle on an idle business; no session is signalled", async () => {
+  it("Approve makes the task ready and starts a cycle on an idle business; no session is signalled, only the approval's own wait", async () => {
     const g = await gatedCall({ sessionEnded: true, title: "Index the usage events" });
     await answerOtherBlockingNotes(g.itemId);
     const result = await owner().inbox.decide({ businessId: hz.A.businessId, itemId: g.itemId, chosenOption: APPROVAL_OPTIONS.approve });
-    expect(temporal.signals).toEqual([]);
+    // The ended session is not told; the wait a merge review would hold at `approval:<id>` is (a miss when none does).
+    expect(temporal.signals).toEqual(waitSignal(g.approval.id, "approved"));
     expect((await repos.tasks.get(hz.db, hz.A.businessId, g.taskId)).status).toBe("ready");
     expect(temporal.starts).toHaveLength(1);
     temporalStarted.push({ workflowId: temporal.starts[0]!.workflowId });
@@ -204,7 +209,7 @@ describe("an answer that comes after the session ended", () => {
       const g = await gatedCall({ sessionEnded: true, title: "Book the launch call" });
       const result = await owner().inbox.decide({ businessId: hz.A.businessId, itemId: g.itemId, chosenOption: APPROVAL_OPTIONS.approve });
       expect(temporal.starts).toEqual([]);
-      expect(temporal.signals).toEqual([]);
+      expect(temporal.signals).toEqual(waitSignal(g.approval.id, "approved"));
       expect((await repos.approvals.get(hz.db, hz.A.businessId, g.approval.id)).outcome).toBe("approved");
       expect(result.approval?.cycle).toEqual({ started: false, workflowId: null, reason: "agents are stopped; the task runs once they are resumed" });
       expect(result.approval?.summary).toMatch(/“Book the launch call” runs again once the agents are resumed\.$/);
@@ -223,13 +228,13 @@ describe("an answer that comes after the session ended", () => {
     expect(result.followUp).toBeNull();
     expect(result.approval).toMatchObject({ sessionWaiting: false, cycle: null, task: { id: g.taskId, status: "running" } });
     expect(temporal.starts).toEqual([]);
-    expect(temporal.signals).toEqual([]);
+    expect(temporal.signals).toEqual(waitSignal(g.approval.id, "rejected"));
   });
 
   it("Reject keeps the task blocked on the founder's answer and the Chief of Staff says so", async () => {
     const g = await gatedCall({ sessionEnded: true, title: "Add the composite index" });
     const result = await owner().inbox.decide({ businessId: hz.A.businessId, itemId: g.itemId, chosenOption: APPROVAL_OPTIONS.reject, freeText: "Use a smaller index" });
-    expect(temporal.signals).toEqual([]);
+    expect(temporal.signals).toEqual(waitSignal(g.approval.id, "rejected"));
     expect(temporal.starts).toEqual([]);
     expect((await repos.tasks.get(hz.db, hz.A.businessId, g.taskId)).status).toBe("blocked");
     const blocked = (await repos.events.list(hz.db, hz.A.businessId, { type: "task.blocked", limit: 50 })).items.find((e) => (e.payload as { taskId: string }).taskId === g.taskId);

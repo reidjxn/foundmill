@@ -150,8 +150,10 @@ export async function deliverApprovalAnswer(ctx: BusinessContext, recorded: Reco
   const signalled: TemporalResult[] = [];
   const toSession = recorded.sessionWaiting && approval.sessionId ? await ctx.temporal.signal(workflowIds.session(approval.sessionId), SIGNALS.decision, decision) : null;
   if (toSession) signalled.push(toSession);
-  // A plan action or a channel launch waits in its own approvalWait (`approval:<id>`), not in a session.
-  if (approval.planActionId || !approval.sessionId) signalled.push(await ctx.temporal.signal(workflowIds.approval(approval.id), SIGNALS.decision, decision));
+  // A plan action or a channel launch waits in its own approvalWait (`approval:<id>`), not in a session; so does the
+  // merge review of a task whose session already ended (the review outlives the session that did the work). Told
+  // whenever no session waits for the answer: a wait that is not there is a harmless miss, reported as not queued.
+  if (approval.planActionId || !approval.sessionId || !recorded.sessionWaiting) signalled.push(await ctx.temporal.signal(workflowIds.approval(approval.id), SIGNALS.decision, decision));
   const cycle = recorded.wantsCycle ? await cycleForApprovedTask(ctx, recorded.stopped) : null;
   // The answer is stored either way; do not claim the session carries on when it could not be told.
   const summary = toSession && !toSession.queued ? `${recorded.summary} The team could not be told right now: the answer is saved and the task goes on at the next cycle.` : recorded.summary;

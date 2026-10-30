@@ -388,8 +388,9 @@ export function createGithubConnector(options: LiveConnectorOptions = {}): Conne
           const ci = (await o.rest.actions.listWorkflowRuns({ owner, repo, workflow_id: CI_WORKFLOW, head_sha: headSha, per_page: 1 })).data.workflow_runs[0];
           return { headSha, state: ciState(ci, checks, runs.length >= total), checks };
         },
-        open_pr: async ({ owner, repo, title, body, head, base, draft }, ctx) => {
+        open_pr: async ({ owner, repo, title, body, head, base: givenBase, draft }, ctx) => {
           const o = await octokitFor(ctx);
+          const base = givenBase === "HEAD" ? await defaultBranch(o, owner, repo) : givenBase;
           const open = await o.rest.pulls.list({ owner, repo, state: "open", head: `${owner}:${head}`, base, per_page: 1 });
           if (open.data[0]) return mapPullRequest((await o.rest.pulls.get({ owner, repo, pull_number: open.data[0].number })).data as GhPullRequest);
           const res = await o.rest.pulls.create({ owner, repo, title, body, head, base, draft });

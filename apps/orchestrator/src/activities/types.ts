@@ -296,7 +296,42 @@ export interface SessionFinish {
   taskStatus: TaskStatus;
   eventIds: string[];
   healthChanged: boolean;
+  /**
+   * Set when the task is a code task that passed its acceptance tests and now waits in `review`: the session workflow
+   * starts the `mergeReview` workflow with it, which opens the pull request, starts CI and asks for (or makes) the merge.
+   */
+  merge?: MergeInput | null;
 }
+
+/** What `mergeReview` needs: the task, the branch that carries its work, and what the session reported. */
+export interface MergeInput {
+  businessId: string;
+  taskId: string;
+  /** The agent whose work it is: the merge is asked for in its name (the Inbox decision names it). */
+  agentId: string;
+  /** The session that finished the work; its id scopes the gateway token. */
+  sessionId: string;
+  branch: string;
+  /** Acceptance tests the platform ran on the branch (null when nothing was there to test, such as documentation). */
+  acceptance: { passing: number; total: number } | null;
+  summary: string;
+}
+
+export type MergePrepared =
+  /** The merge ran at once (Assisted or Automated mode, or a delegated decision): the task is done. */
+  | { status: "merged"; prNumber: number; prUrl: string | null; mergeCommitSha: string }
+  /** The founder decides (Augmented mode): the approval and the pull request to merge once approved. */
+  | { status: "awaiting_approval"; approvalId: string; prNumber: number; prUrl: string | null }
+  /** Nothing to merge: not a code task, not in review, no repository, pushing off. */
+  | { status: "skipped"; reason: string }
+  /** The pull request exists but the merge could not be made or asked for; the task stays in review. */
+  | { status: "held"; reason: string; prNumber: number | null; prUrl: string | null };
+
+export type MergeOutcome =
+  | { status: "merged"; prNumber: number; prUrl: string | null; mergeCommitSha: string }
+  | { status: "not_merged"; prNumber: number; prUrl: string | null; reason: string }
+  | { status: "skipped"; reason: string }
+  | { status: "held"; reason: string; prNumber: number | null; prUrl: string | null };
 
 export type { SessionCommand };
 

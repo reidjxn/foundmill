@@ -60,7 +60,7 @@ import { mergeRecipients, restoreWorkspace, saveWorkspace, toSeed, type LeftOut,
 import { readWorkspaceChanges, syncCheckoutToSandbox, syncWorkspaceToSandbox } from "./workspace-sync";
 import { checkoutMissingNote, checkoutNote, checkoutRepository, defaultBranchChanges, describeCheckout, disposeCheckout, extractArchive, testSetupChanges, testSetupReviewReason, type Checkout, type CheckoutBase, type CheckoutInput } from "./checkout";
 import { fingerprintWorkspace, workspaceChanged } from "./workspace-fingerprint";
-import type { AgentSessionInput, SessionFinish, SessionLaunch, SessionParked, SessionResult, SessionRunOptions } from "./types";
+import type { AgentSessionInput, MergeInput, SessionFinish, SessionLaunch, SessionParked, SessionResult, SessionRunOptions } from "./types";
 
 const ToolGrants = z.array(ToolGrant);
 const CONTROL_POLL_MS = 250;
@@ -1020,7 +1020,13 @@ export function createSessionActivities(deps: OrchestratorDeps) {
         healthChanged = true;
       }
       await repos.audit.append(db, input.businessId, { actorKind: "agent", actorId: agent.id, action: "session.finish", target: { kind: "session", id: input.sessionId }, details: { outcome: result.outcome, reason: result.reason, taskStatus, progress: result.progress.progress, toolCalls: result.toolCalls, costMinor: Math.round(result.costMinor) } });
-      return { taskStatus, eventIds, healthChanged };
+      // A code task that passed its acceptance tests on its own branch waits in review for its merge: the session workflow
+      // starts `mergeReview` with this (activities/merge.ts). A session held for review because it changed how the tests
+      // run (`result.review`) is the founder's to look at first, never merged on its own.
+      const tests = result.progress.acceptanceTests;
+      const passed = tests === 0 || result.progress.acceptanceTestsPassing >= tests;
+      const merge: MergeInput | null = taskStatus === "review" && task.kind === "code" && result.outcome === "done" && !result.review && !handedOver && passed && launch.branch === `agent/${task.id}` ? { businessId: input.businessId, taskId: task.id, agentId: agent.id, sessionId: input.sessionId, branch: launch.branch, acceptance: tests > 0 ? { passing: result.progress.acceptanceTestsPassing, total: tests } : null, summary: result.summary.slice(0, 2000) } : null;
+      return { taskStatus, eventIds, healthChanged, merge };
     },
 
     /** Deliver a signal to the running session (pause / resume / shout / stop / decision). */

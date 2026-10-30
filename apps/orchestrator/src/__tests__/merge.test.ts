@@ -1,0 +1,137 @@
+/**
+ * Review to merge (activities/merge.ts): a code task that passed its tests gets its pull request opened, the
+ * repository's CI started and the merge made through the gateway; when the gateway asks (Augmented mode) the step
+ * reports the approval to wait on, and the approved merge ends the task; nothing to merge or a refusal leaves the
+ * task in review with the reason on record.
+ */
+import { createGithubMock } from "@foundmill/connectors/connectors/github/mock";
+import { makeToolContext } from "@foundmill/connectors/testing/contract-suite";
+import { isUntrusted } from "@foundmill/connectors";
+import { repos } from "@foundmill/db";
+import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
+import { createMergeActivities, MERGE_AUDIT, mergeArgs, pullRequestBody } from "../activities/merge";
+import type { MergeInput } from "../activities/types";
+import { createOfflineGatewayClient, type GatewayCallResponse, type GatewayClient } from "../gateway-client";
+import { openSessionRow, setupOrchestratorHarness, type OrchestratorTestHarness } from "./harness";
+
+let t: OrchestratorTestHarness;
+beforeAll(async () => {
+  t = await setupOrchestratorHarness({ prefix: "merge" });
+});
+afterAll(async () => {
+  await t?.close();
+});
+afterEach(async () => {
+  const row = await repos.integrations.getByKey(t.deps.db, t.businessId, "github");
+  if (row && !row.archivedAt) await repos.integrations.disconnect(t.deps.db, t.businessId, row.id);
+});
+
+const APPROVAL = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+
+/** A gateway whose GitHub calls land on one mock; `call` forces an answer for a tool (policy outcomes, refusals). */
+function githubGateway(github = createGithubMock(), force: (req: { tool: string; args: Record<string, unknown> }) => GatewayCallResponse | null = () => null) {
+  const offline = createOfflineGatewayClient();
+  const ctx = makeToolContext(github);
+  const gateway: GatewayClient = {
+    ...offline,
+    async call(_token, req) {
+      offline.calls.push(req);
+      return force(req) ?? { outcome: "allow", result: await github.callTool(req.tool, req.args, ctx), costMinor: 0 };
+    },
+  };
+  return { github, gateway, offline, ctx, acts: createMergeActivities({ ...t.deps, gateway }) };
+}
+
+const unwrap = <T>(r: { data?: unknown }): T => (isUntrusted(r.data) ? r.data.content : r.data) as T;
+
+async function reviewTask(title = "Deploy contract"): Promise<{ task: { id: string; title: string; goalMd: string }; input: MergeInput }> {
+  const task = await repos.tasks.create(t.db, t.businessId, { kind: "code", title, goalMd: "Ship the deploy contract so the deploy tasks can start.", assigneeAgentId: t.workerId, status: "ready" });
+  await repos.tasks.setStatus(t.db, t.businessId, task.id, "review", { force: true });
+  const sessionId = await openSessionRow(t, t.workerId, task.id);
+  return { task, input: { businessId: t.businessId, taskId: task.id, agentId: t.workerId, sessionId, branch: `agent/${task.id}`, acceptance: { passing: 145, total: 145 }, summary: "Added the deploy contract and its tests." } };
+}
+
+const connectRepo = () => repos.integrations.upsert(t.deps.db, t.businessId, { connectorKey: "github", status: "mock", authKind: "app", settings: { repo: "acme/shop", writeEnabled: true } });
+
+describe("prepareMerge", () => {
+  it("opens the pull request on the default branch, starts CI, merges when the gateway allows, and ends the task", async () => {
+    await connectRepo();
+    const { github, offline, ctx, acts } = githubGateway();
+    const { task, input } = await reviewTask();
+    await github.callTool("commit_files", { owner: "acme", repo: "shop", branch: input.branch, message: "deploy contract", files: [{ path: "DEPLOY.md", content: "contract\n" }] }, ctx);
+
+    const prepared = await acts.prepareMerge(input);
+    expect(prepared.status).toBe("merged");
+    if (prepared.status !== "merged") return;
+    expect(prepared.prUrl).toBe(`https://github.com/acme/shop/pull/${prepared.prNumber}`);
+    expect(offline.calls.map((c) => c.tool)).toEqual(["list_pull_requests", "open_pr", "run_checks", "merge_pr"]);
+    expect(offline.calls[1]!.args).toMatchObject({ head: input.branch, base: "HEAD", draft: false, title: "Deploy contract" });
+    expect(offline.calls[3]!.args).toEqual(mergeArgs({ owner: "acme", repo: "shop" }, prepared.prNumber, task.title));
+    expect(offline.minted.at(-1)).toMatchObject({ agentId: t.workerId, sessionId: input.sessionId, allowedTools: ["github:list_pull_requests", "github:open_pr", "github:run_checks", "github:merge_pr"] });
+
+    // The pull request's body says what was tested; the mock's default branch now carries the merge.
+    const pr = unwrap<{ body: string; base: { ref: string }; merged: boolean }>(await github.callTool("get_pull_request", { owner: "acme", repo: "shop", prNumber: prepared.prNumber }, ctx));
+    expect(pr.base.ref).toBe("main");
+    expect(pr.merged).toBe(true);
+    expect(pr.body).toContain("145 of 145 acceptance tests passed");
+    expect(pr.body).toBe(pullRequestBody(input, task));
+
+    expect(await repos.tasks.get(t.db, t.businessId, task.id)).toMatchObject({ status: "done", progress: "1.0000" });
+    const merged = await repos.events.byIdempotencyKey(t.db, t.businessId, `pr.merged:acme/shop#${prepared.prNumber}:${prepared.mergeCommitSha}`);
+    expect(merged).toMatchObject({ type: "pr.merged", payload: { taskId: task.id, repo: "acme/shop", prNumber: prepared.prNumber, branch: input.branch, baseBranch: "main", mergedBy: { kind: "agent", id: t.workerId } } });
+    const audit = await repos.audit.list(t.db, t.businessId, { limit: 10 });
+    expect(audit.items.map((a) => a.action)).toEqual(expect.arrayContaining([MERGE_AUDIT.prepared, MERGE_AUDIT.merged]));
+
+    // A second run finds nothing in review and leaves the done task alone.
+    expect(await acts.prepareMerge(input)).toEqual({ status: "skipped", reason: "the task is done, not in review" });
+  });
+
+  it("reuses the branch's open pull request and reports the approval when the gateway asks for the merge", async () => {
+    await connectRepo();
+    const { github, offline, ctx, acts } = githubGateway(undefined, (req) => (req.tool === "merge_pr" ? { outcome: "ask", approvalId: APPROVAL, reasons: ["merge_to_main needs the founder"] } : null));
+    const { task, input } = await reviewTask("Hydration fix");
+    await github.callTool("commit_files", { owner: "acme", repo: "shop", branch: input.branch, message: "fix", files: [{ path: "src/index.ts", content: "fixed\n" }] }, ctx);
+    const existing = unwrap<{ number: number; url: string }>(await github.callTool("open_pr", { owner: "acme", repo: "shop", title: "Agent's own PR", head: input.branch, base: "main", draft: true }, ctx));
+
+    const prepared = await acts.prepareMerge(input);
+    expect(prepared).toEqual({ status: "awaiting_approval", approvalId: APPROVAL, prNumber: existing.number, prUrl: existing.url });
+    expect(offline.calls.map((c) => c.tool)).toEqual(["list_pull_requests", "run_checks", "merge_pr"]);
+    expect((await repos.tasks.get(t.db, t.businessId, task.id)).status).toBe("review");
+
+    // The founder approved: the same call runs under the approval and the task is done in the founder's name.
+    const approved = githubGateway(github);
+    const done = await approved.acts.completeMerge({ ...input, prNumber: existing.number, approvalId: APPROVAL, decidedBy: t.fixture.ownerId });
+    expect(done.status).toBe("merged");
+    expect(approved.offline.calls.at(-1)).toMatchObject({ tool: "merge_pr", args: mergeArgs({ owner: "acme", repo: "shop" }, existing.number, task.title) });
+    expect((await repos.tasks.get(t.db, t.businessId, task.id)).status).toBe("done");
+    expect(done.status === "merged" && (await repos.events.byIdempotencyKey(t.db, t.businessId, `pr.merged:acme/shop#${existing.number}:${done.mergeCommitSha}`))).toMatchObject({ payload: { mergedBy: { kind: "user", id: t.fixture.ownerId } } });
+  });
+
+  it("holds the task in review when the merge is refused, and records a decision against it", async () => {
+    await connectRepo();
+    const { github, ctx, acts } = githubGateway(undefined, (req) => (req.tool === "merge_pr" ? { outcome: "deny", reasons: ["branch protection: checks pending"] } : null));
+    const { task, input } = await reviewTask("Refused");
+    await github.callTool("commit_files", { owner: "acme", repo: "shop", branch: input.branch, message: "m", files: [{ path: "a.md", content: "a\n" }] }, ctx);
+    const held = await acts.prepareMerge(input);
+    expect(held).toMatchObject({ status: "held", reason: "the merge was refused: branch protection: checks pending" });
+    expect((await repos.tasks.get(t.db, t.businessId, task.id)).status).toBe("review");
+
+    const rejected = await acts.recordMergeDecision({ ...input, prNumber: 7, prUrl: null, approvalId: APPROVAL, outcome: "rejected" });
+    expect(rejected).toEqual({ status: "not_merged", prNumber: 7, prUrl: null, reason: "the founder did not approve the merge" });
+    expect((await repos.tasks.get(t.db, t.businessId, task.id)).status).toBe("review");
+    const audit = await repos.audit.list(t.db, t.businessId, { limit: 5 });
+    expect(audit.items[0]).toMatchObject({ action: MERGE_AUDIT.notMerged, details: { step: "decision", outcome: "rejected" } });
+  });
+
+  it("skips when there is nothing to merge: no repository, pushing off, not a code task, not in review", async () => {
+    const { acts } = githubGateway();
+    const { task, input } = await reviewTask("No repo");
+    expect(await acts.prepareMerge(input)).toEqual({ status: "skipped", reason: "no repository is chosen on the Code tab" });
+    await repos.integrations.upsert(t.deps.db, t.businessId, { connectorKey: "github", status: "mock", authKind: "app", settings: { repo: "acme/shop", writeEnabled: false } });
+    expect(await acts.prepareMerge(input)).toEqual({ status: "skipped", reason: "pushing to acme/shop is turned off (the Code tab)" });
+    await repos.tasks.setStatus(t.db, t.businessId, task.id, "ready", { force: true });
+    expect(await acts.prepareMerge(input)).toEqual({ status: "skipped", reason: "the task is ready, not in review" });
+    const research = await repos.tasks.create(t.db, t.businessId, { kind: "research", title: "Read", goalMd: "x", assigneeAgentId: t.workerId, status: "ready" });
+    expect(await acts.prepareMerge({ ...input, taskId: research.id })).toEqual({ status: "skipped", reason: "research tasks have no branch to merge" });
+  });
+});
