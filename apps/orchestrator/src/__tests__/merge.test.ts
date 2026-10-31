@@ -64,10 +64,10 @@ describe("prepareMerge", () => {
     expect(prepared.status).toBe("merged");
     if (prepared.status !== "merged") return;
     expect(prepared.prUrl).toBe(`https://github.com/acme/shop/pull/${prepared.prNumber}`);
-    expect(offline.calls.map((c) => c.tool)).toEqual(["list_pull_requests", "open_pr", "run_checks", "merge_pr"]);
-    expect(offline.calls[1]!.args).toMatchObject({ head: input.branch, base: "HEAD", draft: false, title: "Deploy contract" });
-    expect(offline.calls[3]!.args).toEqual(mergeArgs({ owner: "acme", repo: "shop" }, prepared.prNumber, task.title));
-    expect(offline.minted.at(-1)).toMatchObject({ agentId: t.workerId, sessionId: input.sessionId, allowedTools: ["github:list_pull_requests", "github:open_pr", "github:run_checks", "github:merge_pr"] });
+    expect(offline.calls.map((c) => c.tool)).toEqual(["list_pull_requests", "compare_refs", "open_pr", "run_checks", "merge_pr"]);
+    expect(offline.calls[2]!.args).toMatchObject({ head: input.branch, base: "HEAD", draft: false, title: "Deploy contract" });
+    expect(offline.calls[4]!.args).toEqual(mergeArgs({ owner: "acme", repo: "shop" }, prepared.prNumber, task.title));
+    expect(offline.minted.at(-1)).toMatchObject({ agentId: t.workerId, sessionId: input.sessionId, allowedTools: ["github:compare_refs", "github:list_pull_requests", "github:open_pr", "github:run_checks", "github:merge_pr"] });
 
     // The pull request's body says what was tested; the mock's default branch now carries the merge.
     const pr = unwrap<{ body: string; base: { ref: string }; merged: boolean }>(await github.callTool("get_pull_request", { owner: "acme", repo: "shop", prNumber: prepared.prNumber }, ctx));
@@ -82,8 +82,9 @@ describe("prepareMerge", () => {
     const audit = await repos.audit.list(t.db, t.businessId, { limit: 10 });
     expect(audit.items.map((a) => a.action)).toEqual(expect.arrayContaining([MERGE_AUDIT.prepared, MERGE_AUDIT.merged]));
 
-    // A second run finds nothing in review and leaves the done task alone.
-    expect(await acts.prepareMerge(input)).toEqual({ status: "skipped", reason: "the task is done, not in review" });
+    // A second run finds the merged pull request and leaves the done task alone, on record for the sweep.
+    expect(await acts.prepareMerge(input)).toEqual({ status: "skipped", reason: `pull request #${prepared.prNumber} is already merged` });
+    expect((await repos.tasks.get(t.db, t.businessId, task.id)).status).toBe("done");
   });
 
   it("reuses the branch's open pull request and reports the approval when the gateway asks for the merge", async () => {
@@ -95,7 +96,7 @@ describe("prepareMerge", () => {
 
     const prepared = await acts.prepareMerge(input);
     expect(prepared).toEqual({ status: "awaiting_approval", approvalId: APPROVAL, prNumber: existing.number, prUrl: existing.url });
-    expect(offline.calls.map((c) => c.tool)).toEqual(["list_pull_requests", "run_checks", "merge_pr"]);
+    expect(offline.calls.map((c) => c.tool)).toEqual(["list_pull_requests", "compare_refs", "run_checks", "merge_pr"]);
     expect((await repos.tasks.get(t.db, t.businessId, task.id)).status).toBe("review");
 
     // The founder approved: the same call runs under the approval and the task is done in the founder's name.
@@ -121,6 +122,27 @@ describe("prepareMerge", () => {
     expect((await repos.tasks.get(t.db, t.businessId, task.id)).status).toBe("review");
     const audit = await repos.audit.list(t.db, t.businessId, { limit: 5 });
     expect(audit.items[0]).toMatchObject({ action: MERGE_AUDIT.notMerged, details: { step: "decision", outcome: "rejected" } });
+  });
+
+  it("a task marked done with its work only on its branch goes back to review and gets its pull request; one with nothing to merge stays done", async () => {
+    await connectRepo();
+    const { github, ctx, acts } = githubGateway();
+    const { task, input } = await reviewTask("Done on its branch");
+    await repos.tasks.setStatus(t.db, t.businessId, task.id, "done", { force: true });
+    await github.callTool("commit_files", { owner: "acme", repo: "shop", branch: input.branch, message: "contract", files: [{ path: "contract.ts", content: "export {};\n" }] }, ctx);
+    const prepared = await acts.prepareMerge(input);
+    expect(prepared.status).toBe("merged");
+    const audit = await repos.audit.list(t.db, t.businessId, { action: MERGE_AUDIT.reopened, limit: 5 });
+    expect(audit.items[0]).toMatchObject({ target: { kind: "task", id: task.id } });
+    expect((await repos.tasks.get(t.db, t.businessId, task.id)).status).toBe("done");
+
+    // A done task whose branch holds nothing new (created, never committed to) is left done, and on record.
+    const empty = await reviewTask("Nothing new");
+    await repos.tasks.setStatus(t.db, t.businessId, empty.task.id, "done", { force: true });
+    await github.callTool("create_branch", { owner: "acme", repo: "shop", branch: empty.input.branch }, ctx);
+    expect(await acts.prepareMerge(empty.input)).toEqual({ status: "skipped", reason: `${empty.input.branch} has nothing the default branch lacks` });
+    expect((await repos.tasks.get(t.db, t.businessId, empty.task.id)).status).toBe("done");
+    expect((await repos.audit.list(t.db, t.businessId, { action: MERGE_AUDIT.notMerged, limit: 1 })).items[0]).toMatchObject({ target: { id: empty.task.id }, details: { step: "nothing_to_merge" } });
   });
 
   it("skips when there is nothing to merge: no repository, pushing off, not a code task, not in review", async () => {
@@ -162,10 +184,16 @@ describe("pendingMerges", () => {
     const held = await finishedInReview("Held by GitHub", { passing: 4, total: 4 });
     await repos.audit.append(t.db, t.businessId, { actorKind: "agent", actorId: t.workerId, action: MERGE_AUDIT.notMerged, target: { kind: "task", id: held.task.id }, details: { step: "merge_pr", reason: "GitHub is down" } });
 
+    const doneUnmerged = await finishedInReview("Done, never merged", { passing: 5, total: 5 });
+    await repos.tasks.setStatus(t.db, t.businessId, doneUnmerged.task.id, "done", { force: true });
+    const doneMerged = await finishedInReview("Done and merged", { passing: 5, total: 5 });
+    await repos.tasks.setStatus(t.db, t.businessId, doneMerged.task.id, "done", { force: true });
+    await repos.events.write(t.db, t.businessId, { type: "pr.merged", actor: { kind: "agent", id: t.workerId }, payload: { taskId: doneMerged.task.id, repo: "acme/shop", prNumber: 9, title: "Done and merged", branch: doneMerged.input.branch, baseBranch: "main", mergeCommitSha: "a".repeat(40), mergedBy: { kind: "agent", id: t.workerId }, additions: 1, deletions: 0, filesChanged: 1, url: "https://github.com/acme/shop/pull/9" } });
+
     const found = await acts.pendingMerges({ businessId: t.businessId });
     const ids = found.map((m) => m.taskId);
-    expect(ids).toEqual(expect.arrayContaining([passed.task.id, docs.task.id, held.task.id]));
-    for (const left of [failing, otherBranch, setup, rejected]) expect(ids).not.toContain(left.task.id);
+    expect(ids).toEqual(expect.arrayContaining([passed.task.id, docs.task.id, held.task.id, doneUnmerged.task.id]));
+    for (const left of [failing, otherBranch, setup, rejected, doneMerged]) expect(ids).not.toContain(left.task.id);
     expect(found.find((m) => m.taskId === passed.task.id)).toEqual({ ...passed.input, acceptance: { passing: 145, total: 145 }, summary: "Hydration fix done" });
     expect(found.find((m) => m.taskId === docs.task.id)?.acceptance).toBeNull();
   });

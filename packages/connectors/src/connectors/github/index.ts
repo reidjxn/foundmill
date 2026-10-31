@@ -399,7 +399,12 @@ export function createGithubConnector(options: LiveConnectorOptions = {}): Conne
         get_pull_request: async ({ owner, repo, prNumber }, ctx) => mapPullRequest((await (await octokitFor(ctx)).rest.pulls.get({ owner, repo, pull_number: prNumber })).data as GhPullRequest),
         list_pull_requests: async ({ owner, repo, state, perPage }, ctx) => ({ items: ((await (await octokitFor(ctx)).rest.pulls.list({ owner, repo, state, per_page: perPage, sort: "created", direction: "desc" })).data as GhPullRequest[]).map(mapPullRequest) }),
         merge_pr: async ({ owner, repo, prNumber, mergeMethod, commitTitle, commitMessage }, ctx) => {
-          const res = await (await octokitFor(ctx)).rest.pulls.merge({ owner, repo, pull_number: prNumber, merge_method: mergeMethod, commit_title: commitTitle, commit_message: commitMessage });
+          const o = await octokitFor(ctx);
+          // GitHub refuses to merge a draft, and agents open theirs as drafts: the merge (already decided by policy, the
+          // founder's approval in Augmented mode) marks it ready first. Only GraphQL can.
+          const current = (await o.rest.pulls.get({ owner, repo, pull_number: prNumber })).data;
+          if (current.draft) await o.graphql("mutation($id: ID!) { markPullRequestReadyForReview(input: { pullRequestId: $id }) { pullRequest { isDraft } } }", { id: current.node_id });
+          const res = await o.rest.pulls.merge({ owner, repo, pull_number: prNumber, merge_method: mergeMethod, commit_title: commitTitle, commit_message: commitMessage });
           if (!res.data.merged) throw Object.assign(new Error(res.data.message || "merge refused"), { status: 405 });
           return { merged: true as const, sha: res.data.sha, prNumber, message: res.data.message };
         },

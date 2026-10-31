@@ -97,7 +97,8 @@ export const finance: FinanceOverview = {
   runway: { months: 8.7, label: "Estimate", warnings: [12, 9], blocksContinue: false },
   revenue: {
     monthly: Array.from({ length: 6 }, (_, i) => {
-      const d = new Date(`${TODAY}T00:00:00.000Z`);
+      // From the first of the month: on the 31st, "a month back" from today would roll over into this month again.
+      const d = new Date(`${TODAY.slice(0, 7)}-01T00:00:00.000Z`);
       d.setUTCMonth(d.getUTCMonth() - (5 - i));
       return { month: d.toISOString().slice(0, 7), inflowMinor: 300_000 + i * 50_000, outflowMinor: 800_000, netMinor: 300_000 + i * 50_000 - 800_000, count: 20 };
     }),

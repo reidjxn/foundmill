@@ -27,11 +27,13 @@ import type { MergeInput, MergeOutcome, MergePrepared } from "./types";
 export const MERGE_TOKEN_TTL_SECONDS = 300;
 /** How long one GitHub call of the merge may take. */
 const MERGE_CALL_TIMEOUT_MS = 120_000;
-const MERGE_TOOLS = ["github:list_pull_requests", "github:open_pr", "github:run_checks", "github:merge_pr"];
+const MERGE_TOOLS = ["github:compare_refs", "github:list_pull_requests", "github:open_pr", "github:run_checks", "github:merge_pr"];
 /** Audit actions of the merge step. */
-export const MERGE_AUDIT = { prepared: "merge.prepared", merged: "merge.merged", notMerged: "merge.not_merged" } as const;
+export const MERGE_AUDIT = { prepared: "merge.prepared", merged: "merge.merged", notMerged: "merge.not_merged", reopened: "merge.reopened" } as const;
 /** How many review tasks, and how much of their history, one sweep reads. */
-const SWEEP_TASKS = 50;
+const SWEEP_TASKS = 100;
+/** The audit step of a merge with nothing to do: the work is already on the default branch. */
+const NOTHING_TO_MERGE = "nothing_to_merge";
 const SWEEP_HISTORY = 500;
 /** The reason a session gives when it changed how the tests run: the founder looks at it first (session.ts). */
 const TEST_SETUP_REVIEW = "needs review:";
@@ -48,6 +50,7 @@ interface CompletedPayload {
 
 interface PullRequestSummary {
   number: number;
+  merged?: boolean;
   title: string;
   url: string;
   base: { ref: string };
@@ -103,33 +106,36 @@ export function createMergeActivities(deps: OrchestratorDeps) {
 
   return {
     /**
-     * Code tasks that wait in review with nothing moving them to the default branch: the work passed its tests on the
-     * task's own branch, and no merge was made, refused by the founder, or held for the founder's look at a change to the
-     * test setup. The cycle starts a `mergeReview` for each. It covers tasks that reached review before the merge step
-     * existed (Oct 30, 2026) and a merge whose start was lost; a review already under way for a task is left running.
+     * Code tasks whose work passed its tests on the task's own branch and never reached the default branch: in review with
+     * nothing moving them, or marked done (until Oct 31, 2026 a code session ended done whatever its branch held) with no
+     * `pr.merged`. Skipped: a merge made, refused by the founder, or found unnecessary (`nothing_to_merge`), and a session
+     * held for the founder's look at a change to the test setup. The cycle starts a `mergeReview` for each; a review
+     * already under way for a task is left running.
      */
     async pendingMerges(input: { businessId: string }): Promise<MergeInput[]> {
-      const waiting = (await repos.tasks.list(db, input.businessId, { status: "review", kind: "code", limit: SWEEP_TASKS })).items;
+      const waiting = (await repos.tasks.list(db, input.businessId, { status: ["review", "done"], kind: "code", limit: SWEEP_TASKS })).items;
       if (waiting.length === 0) return [];
       const target = await repos.integrations.codeRepository(db, input.businessId);
       if (!target?.writeEnabled) return [];
-      const [completed, merges, finishes] = await Promise.all([
+      const [completed, merges, finishes, mergedEvents] = await Promise.all([
         repos.events.list(db, input.businessId, { type: "task.completed", limit: SWEEP_HISTORY }),
         repos.audit.list(db, input.businessId, { action: [MERGE_AUDIT.merged, MERGE_AUDIT.notMerged], limit: SWEEP_HISTORY }),
         repos.audit.list(db, input.businessId, { action: "session.finish", limit: SWEEP_HISTORY }),
+        repos.events.list(db, input.businessId, { type: "pr.merged", limit: SWEEP_HISTORY }),
       ]);
+      const mergedTasks = new Set(mergedEvents.items.map((e) => (e.payload as { taskId?: unknown }).taskId).filter((id): id is string => typeof id === "string"));
       // Newest first: the first completion seen for a task is its latest.
       const latest = new Map<string, CompletedPayload>();
       for (const e of completed.items) {
         const p = e.payload as unknown as CompletedPayload;
         if (p?.taskId && !latest.has(p.taskId)) latest.set(p.taskId, p);
       }
-      const settled = new Set(merges.items.filter((a) => a.action === MERGE_AUDIT.merged || (a.details as { step?: string } | null)?.step === "decision").map((a) => (a.target as { id?: unknown } | null)?.id).filter((id): id is string => typeof id === "string"));
+      const settled = new Set(merges.items.filter((a) => a.action === MERGE_AUDIT.merged || ["decision", NOTHING_TO_MERGE].includes(String((a.details as { step?: unknown } | null)?.step))).map((a) => (a.target as { id?: unknown } | null)?.id).filter((id): id is string => typeof id === "string"));
       const heldForSetup = new Set(finishes.items.filter((a) => String((a.details as { reason?: unknown } | null)?.reason ?? "").startsWith(TEST_SETUP_REVIEW)).map((a) => (a.target as { id?: unknown } | null)?.id).filter((id): id is string => typeof id === "string"));
       const out: MergeInput[] = [];
       for (const task of waiting) {
         const done = latest.get(task.id);
-        if (!done || settled.has(task.id) || heldForSetup.has(done.sessionId)) continue;
+        if (!done || settled.has(task.id) || mergedTasks.has(task.id) || heldForSetup.has(done.sessionId)) continue;
         if (done.branch !== `agent/${task.id}`) continue;
         const tests = done.acceptanceTests ?? 0;
         if (tests > 0 && (done.acceptanceTestsPassing ?? 0) < tests) continue;
@@ -147,16 +153,36 @@ export function createMergeActivities(deps: OrchestratorDeps) {
     async prepareMerge(input: MergeInput): Promise<MergePrepared> {
       const task = await repos.tasks.get(db, input.businessId, input.taskId);
       if (task.kind !== "code") return { status: "skipped", reason: `${task.kind} tasks have no branch to merge` };
-      if (task.status !== "review") return { status: "skipped", reason: `the task is ${task.status}, not in review` };
+      // A task marked done before Oct 31, 2026 may have its work only on its branch (the sweep offers those): it goes back
+      // to review below, once GitHub shows there is something to merge.
+      if (task.status !== "review" && task.status !== "done") return { status: "skipped", reason: `the task is ${task.status}, not in review` };
       const target = await repos.integrations.codeRepository(db, input.businessId);
       if (!target) return { status: "skipped", reason: "no repository is chosen on the Code tab" };
       if (!target.writeEnabled) return { status: "skipped", reason: `pushing to ${target.fullName} is turned off (the Code tab)` };
       const tok = (await token(input)).token;
       const repo = { owner: target.owner, repo: target.repo };
 
+      // Already merged (by an earlier review, or by hand on GitHub), or nothing on the branch differs: nothing to ask.
+      const listed = await call<{ items: PullRequestSummary[] }>(tok, "list_pull_requests", { ...repo, state: "all", perPage: 100 });
+      const ofBranch = listed.result.ok ? listed.result.data.items.filter((p) => p.head.ref === input.branch) : [];
+      const alreadyMerged = ofBranch.find((p) => p.merged);
+      const compared = await call<{ aheadBy: number; files: unknown[] }>(tok, "compare_refs", { ...repo, base: "HEAD", head: input.branch });
+      const nothingToMerge = alreadyMerged !== undefined || (compared.result.ok && (compared.result.data.aheadBy === 0 || compared.result.data.files.length === 0));
+      if (nothingToMerge) {
+        const reason = alreadyMerged ? `pull request #${alreadyMerged.number} is already merged` : `${input.branch} has nothing the default branch lacks`;
+        if (task.status === "review") await repos.tasks.setStatus(db, input.businessId, input.taskId, "done", { force: true });
+        // On record, so the cycle's sweep does not ask GitHub about this task again.
+        await repos.audit.append(db, input.businessId, { actorKind: "agent", actorId: input.agentId, action: MERGE_AUDIT.notMerged, target: { kind: "task", id: input.taskId }, details: { sessionId: input.sessionId, step: NOTHING_TO_MERGE, reason } });
+        return { status: "skipped", reason };
+      }
+      if (!compared.result.ok && compared.result.code === "not_found") return { status: "skipped", reason: `${input.branch} is not in ${target.fullName}` };
+      if (task.status === "done") {
+        await repos.tasks.setStatus(db, input.businessId, input.taskId, "review", { force: true });
+        await repos.audit.append(db, input.businessId, { actorKind: "agent", actorId: input.agentId, action: MERGE_AUDIT.reopened, target: { kind: "task", id: input.taskId }, details: { sessionId: input.sessionId, branch: input.branch, reason: "marked done with its work only on its branch" } });
+      }
+
       // The branch's pull request: the open one when the agent (or an earlier session) opened it, else a new one.
-      const listed = await call<{ items: PullRequestSummary[] }>(tok, "list_pull_requests", { ...repo, state: "open", perPage: 100 });
-      let pr: PullRequestSummary | null = listed.result.ok ? (listed.result.data.items.find((p) => p.head.ref === input.branch) ?? null) : null;
+      let pr: PullRequestSummary | null = ofBranch.find((p) => !p.merged && (p as { state?: string }).state !== "closed") ?? null;
       if (!pr) {
         const opened = await call<PullRequestSummary>(tok, "open_pr", { ...repo, title: task.title.trim().slice(0, 256), body: pullRequestBody(input, task), head: input.branch, base: "HEAD", draft: false });
         if (!opened.result.ok) {
