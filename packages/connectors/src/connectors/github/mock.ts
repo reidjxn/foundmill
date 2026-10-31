@@ -381,6 +381,7 @@ export function createGithubMock(limits: { bytesPerBusiness?: number; bytesTotal
         if (!pr) throw notFound(`pull request #${prNumber}`);
         if (pr.merged) throw conflict(`pull request #${prNumber} is already merged`);
         if (pr.state !== "open") throw conflict(`pull request #${prNumber} is closed`);
+        pr.draft = false; // marked ready first, as the real connector does
         const sha = commitSha(r.repo.name, pr.base.ref, prNumber);
         pr.merged = true;
         pr.state = "closed";

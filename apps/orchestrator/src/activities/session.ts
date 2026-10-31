@@ -936,7 +936,12 @@ export function createSessionActivities(deps: OrchestratorDeps) {
           break;
         case "done": {
           // A session that changed how the tests run (`review`) leaves the task for the founder to look at, never done.
-          taskStatus = result.review ? "review" : result.progress.merged ? "done" : result.progress.reviewPassed || result.progress.phase === "review" || result.progress.phase === "merge" ? "review" : "done";
+          // A code task's work is on its own branch until it is merged: it waits in review for the merge (activities/merge.ts),
+          // whatever phase the agent reported. Marked done instead, the tasks that depend on it started against a default
+          // branch without it (Oct 31, 2026: the deploy contract, done on its branch, and three deploy tasks that could not compile).
+          const testsRun = result.progress.acceptanceTests;
+          const onOwnBranch = task.kind === "code" && launch.branch === `agent/${task.id}` && (testsRun === 0 || result.progress.acceptanceTestsPassing >= testsRun);
+          taskStatus = result.review ? "review" : result.progress.merged ? "done" : onOwnBranch || result.progress.reviewPassed || result.progress.phase === "review" || result.progress.phase === "merge" ? "review" : "done";
           const ev = await emitEvent(db, {
             businessId: input.businessId,
             type: "task.completed",

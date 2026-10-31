@@ -407,7 +407,7 @@ export const githubTools = [
   }),
   defineTool({
     name: "merge_pr",
-    description: "Merge a pull request into its base branch. Irreversible (history on the base branch changes); merges to the default branch are a decision in Augmented mode (BUILD §9.6). Spends no money.",
+    description: "Merge a pull request into its base branch. Irreversible (history on the base branch changes); merges to the default branch are a decision in Augmented mode (BUILD §9.6). A draft is marked ready for review first. Spends no money.",
     input: RepoRef.extend({ prNumber: z.number().int().positive(), mergeMethod: z.enum(["merge", "squash", "rebase"]).default("squash"), commitTitle: z.string().max(256).optional(), commitMessage: z.string().max(10_000).optional() }),
     output: z.object({ merged: z.literal(true), sha: z.string(), prNumber: z.number().int(), message: z.string() }),
     hints: { irreversible: true, spendsMoney: false },
