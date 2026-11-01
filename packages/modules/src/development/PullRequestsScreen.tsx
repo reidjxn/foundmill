@@ -106,7 +106,7 @@ export function toOpenRows(open: readonly OpenPrRow[], agents: Map<string, Agent
 }
 
 /** Who merged, in words, when the event carries a kind but no name. */
-const MERGED_BY_KIND: Record<string, string> = { user: "A staff member", agent: "An agent", system: "Automatic merge" };
+const MERGED_BY_KIND: Record<string, string> = { user: "A staff member", agent: "An agent", system: "Automatic merge", webhook: "Merged on GitHub" };
 
 /**
  * Merged rows: GitHub's `pr.merged` events and the merges the merge queue landed itself (done code tasks, no event).

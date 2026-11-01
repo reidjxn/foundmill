@@ -2482,6 +2482,8 @@ async function runAcceptanceIn(deps: OrchestratorDeps, recorder: SessionRecorder
     await recorder.publishRaw({ kind: "note", at: at(), source: "agent", level: "warn", text: `Installing the project's dependencies failed (exit ${prep.code}${prep.timedOut ? ", timed out" : ""}):\n${prepOutput}` });
     return failed("Dependency install failed", prep.durationMs, prepOutput);
   }
+  // The tile's status line moves on: without this, "Installing dependencies" stood for the whole test run (Nov 1, 2026).
+  await recorder.publishRaw({ kind: "note", at: at(), source: "system", level: "info", text: `Dependencies installed in ${Math.max(1, Math.round(prep.durationMs / 1000))} s. Running the acceptance tests: ${command}` });
   try {
     await sandbox.closeEgress();
   } catch (err) {

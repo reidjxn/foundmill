@@ -64,6 +64,8 @@ interface PullRequestSummary {
   state?: string;
   draft?: boolean;
   mergeableState?: string | null;
+  /** The squash or merge commit on the base branch once merged; null before. */
+  mergeCommitSha?: string | null;
   title: string;
   url: string;
   base: { ref: string };
@@ -237,6 +239,21 @@ export function createMergeActivities(deps: OrchestratorDeps) {
       if (nothingToMerge) {
         const reason = alreadyMerged ? `pull request #${alreadyMerged.number} is already merged` : `${input.branch} has nothing the default branch lacks`;
         if (task.status === "review") await repos.tasks.setStatus(db, input.businessId, input.taskId, "done", { force: true });
+        // Merged by hand on GitHub (or before the platform recorded merges): the pull request's own facts go on record, so
+        // the Pull requests table shows its number, lines and commit instead of "—". History, not news: not narrated.
+        if (alreadyMerged?.mergeCommitSha) {
+          const key = `pr.merged:${target.fullName}#${alreadyMerged.number}:${alreadyMerged.mergeCommitSha}`;
+          if (!(await repos.events.byIdempotencyKey(db, input.businessId, key))) {
+            const mergedBy = { kind: "webhook", id: "github" } as const;
+            const event = await emitEvent(db, {
+              businessId: input.businessId,
+              type: "pr.merged",
+              actor: mergedBy,
+              payload: { taskId: input.taskId, repo: target.fullName, prNumber: alreadyMerged.number, title: alreadyMerged.title.slice(0, 300), branch: input.branch, baseBranch: alreadyMerged.base.ref, mergeCommitSha: alreadyMerged.mergeCommitSha, mergedBy, additions: alreadyMerged.additions, deletions: alreadyMerged.deletions, filesChanged: alreadyMerged.changedFiles, url: alreadyMerged.url },
+            }, { idempotencyKey: key });
+            await repos.events.markNarrated(db, input.businessId, [event.id]);
+          }
+        }
         // On record, so the cycle's sweep does not ask GitHub about this task again.
         await audit(input, MERGE_AUDIT.notMerged, { step: NOTHING_TO_MERGE, reason });
         return { status: "skipped", reason };

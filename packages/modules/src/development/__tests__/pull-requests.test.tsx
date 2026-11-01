@@ -113,6 +113,8 @@ describe("row builders", () => {
     const rows = toMergedRows([{ eventId: null, source: "merge_queue", occurredAt: "2026-10-05T10:00:00Z", taskId: TASK_DONE, title: "Sitemap", branch: `agent/${TASK_DONE}`, mergedBy: { kind: "agent", id: AGENT_PIKE } }], new Map(agents.map((a) => [a.id, a])));
     expect(rows[0]).toMatchObject({ id: `task:${TASK_DONE}`, prLabel: "—", mergedByName: "Pike", title: "Sitemap" });
     expect(toMergedRows([{ eventId: null, source: "merge_queue", occurredAt: "2026-10-05T10:00:00Z", taskId: TASK_DONE, mergedBy: { kind: "agent", id: "unknown" } }])[0]!.mergedByName).toBe("An agent");
+    // A merge found on GitHub (made by hand there) is said so, never "Webhook".
+    expect(toMergedRows([{ eventId: "e3", source: "github", occurredAt: "2026-10-05T10:00:00Z", taskId: TASK_DONE, prNumber: 44, mergedBy: { kind: "webhook", id: "github" } }])[0]).toMatchObject({ mergedByName: "Merged on GitHub", prLabel: "#44" });
   });
   it("toOpenRows never lists a non-code task as a pull request (TPD-13)", () => {
     const rows = toOpenRows([...openPrs, { taskId: "f-1", title: "Q3 investor update", status: "review", branch: "agent/f-1", agentId: null, kind: "finance" }], new Map(), new Map());

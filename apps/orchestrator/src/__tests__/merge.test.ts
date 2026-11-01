@@ -122,6 +122,25 @@ describe("prepareMerge", () => {
     expect((await auditOf(MERGE_AUDIT.notMerged))[0]).toMatchObject({ target: { id: empty.task.id }, details: { step: "nothing_to_merge" } });
   });
 
+  it("a pull request merged by hand on GitHub goes on record from GitHub's own facts, once, as history rather than news", async () => {
+    await connectRepo();
+    const { github, ctx, acts } = githubGateway();
+    const { task, input } = await reviewTask("Merged by hand");
+    await commitOn(github, ctx, input.branch, "src/hand.ts");
+    const opened = unwrap<{ number: number }>(await github.callTool("open_pr", { ...REPO, title: "Merged by hand", head: input.branch, base: "main", draft: false }, ctx));
+    const merged = unwrap<{ sha: string }>(await github.callTool("merge_pr", { ...REPO, prNumber: opened.number, mergeMethod: "squash" }, ctx));
+
+    expect(await acts.prepareMerge(input)).toEqual({ status: "skipped", reason: `pull request #${opened.number} is already merged` });
+    expect((await repos.tasks.get(t.db, t.businessId, task.id)).status).toBe("done");
+    const event = await repos.events.byIdempotencyKey(t.db, t.businessId, `pr.merged:acme/shop#${opened.number}:${merged.sha}`);
+    expect(event).toMatchObject({ type: "pr.merged", narrated: true, payload: { taskId: task.id, prNumber: opened.number, mergeCommitSha: merged.sha, branch: input.branch, baseBranch: "main", mergedBy: { kind: "webhook", id: "github" } } });
+    expect(typeof (event!.payload as { additions: unknown }).additions).toBe("number");
+
+    // A second look writes nothing new.
+    expect(await acts.prepareMerge(input)).toEqual({ status: "skipped", reason: `pull request #${opened.number} is already merged` });
+    expect((await repos.events.list(t.db, t.businessId, { type: "pr.merged", limit: 50 })).items.filter((e) => (e.payload as { taskId?: string }).taskId === task.id)).toHaveLength(1);
+  });
+
   it("skips when there is nothing to merge: no repository, pushing off, not a code task, not in review", async () => {
     const { acts } = githubGateway();
     const { task, input } = await reviewTask("No repo");
