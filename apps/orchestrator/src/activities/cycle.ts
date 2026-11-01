@@ -414,7 +414,7 @@ export function createCycleActivities(deps: OrchestratorDeps) {
     },
 
     /** Record the end of a cycle (`cycle.completed`). */
-    async completeCycle(input: { businessId: string; cycleId: string; cycleNumber: number; workflowId: string; outcome: "completed" | "time_box" | "waiting" | "stopped" | "failed"; tasksDispatched: number; tasksCompleted: number; tasksBlocked: number; agentHours: number; costMinor: number; currency: string; inboxItemIds: string[]; durationMs: number }): Promise<{ eventId: string }> {
+    async completeCycle(input: { businessId: string; cycleId: string; cycleNumber: number; workflowId: string; outcome: "completed" | "time_box" | "waiting" | "stopped" | "failed"; tasksDispatched: number; tasksCompleted: number; tasksBlocked: number; agentHours: number; costMinor: number; currency: string; inboxItemIds: string[]; durationMs: number; failure?: { kind: "billing" | "credential" | "request" | "error"; message: string } | null }): Promise<{ eventId: string }> {
       const out = await deps.db.transaction(async (tx) => {
         const before = await repos.events.byIdempotencyKey(tx, input.businessId, cycleEventKey("completed", input.cycleId));
         if (before) return { eventId: before.id };
@@ -436,6 +436,7 @@ export function createCycleActivities(deps: OrchestratorDeps) {
               cost: { amountMinor: Math.round(input.costMinor), currency: input.currency },
               inboxItemIds: input.inboxItemIds,
               durationMs: Math.max(0, Math.round(input.durationMs)),
+              failure: input.failure ? { kind: input.failure.kind, message: input.failure.message.replace(/\s+/g, " ").trim().slice(0, 500) } : null,
             },
           },
           { idempotencyKey: cycleEventKey("completed", input.cycleId) },
@@ -481,7 +482,7 @@ export function createCycleActivities(deps: OrchestratorDeps) {
             businessId: input.businessId,
             type: "cycle.completed",
             actor: systemActor,
-            payload: { cycleId: input.cycleId, cycleNumber: input.cycleNumber, workflowId: input.workflowId, outcome: "failed", tasksDispatched: input.tasksDispatched, tasksCompleted: input.tasksCompleted, tasksBlocked: input.tasksBlocked, agentHours: 0, cost: { amountMinor: Math.round(input.costMinor), currency: input.currency }, inboxItemIds: item ? [item.id] : [], durationMs: Math.max(0, Math.round(input.durationMs)) },
+            payload: { cycleId: input.cycleId, cycleNumber: input.cycleNumber, workflowId: input.workflowId, outcome: "failed", tasksDispatched: input.tasksDispatched, tasksCompleted: input.tasksCompleted, tasksBlocked: input.tasksBlocked, agentHours: 0, cost: { amountMinor: Math.round(input.costMinor), currency: input.currency }, inboxItemIds: item ? [item.id] : [], durationMs: Math.max(0, Math.round(input.durationMs)), failure: { kind: "error", message: reason } },
           },
           { idempotencyKey: key },
         );

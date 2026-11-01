@@ -12,7 +12,7 @@ import { ComposeTimeoutError, ComposerRejectedError } from "../compose";
 import { isNamedQueryId } from "../exhibits";
 import { isDraftWorthy } from "../persist";
 import { createComposerService, narrationKey } from "../service";
-import { createComposerHarness, silentLog, type ComposerHarness } from "./harness";
+import { countInbox, createComposerHarness, silentLog, type ComposerHarness } from "./harness";
 
 let hz: ComposerHarness;
 beforeAll(async () => {
@@ -210,6 +210,47 @@ describe("narrate is idempotent per event set (audit CML-05)", () => {
     const retry = await hz.service().narrate(hz.A.businessId, [event.id]);
     expect(retry.replayed).toBe(false);
     expect((await repos.inbox.list(hz.db, hz.A.businessId, { limit: 500 })).items.length).toBe(inboxBefore + 1);
+  });
+});
+
+describe("one living warning per problem (Nov 1, 2026)", () => {
+  it("a second warning about the same task revises the open one in place; once answered, the problem coming back is a new item", async () => {
+    const service = hz.service();
+    const taskId = crypto.randomUUID();
+    const blocked = (occurrence: number, detail: string) => hz.writeEvent(hz.A.businessId, "task.blocked", { taskId, kind: "code", title: "Deploy contract", assigneeAgentId: hz.A.agentId, reason: "dependency", detail, occurrence });
+    const first = await service.narrate(hz.A.businessId, [(await blocked(1, "Waits on one change going live.")).id]);
+    expect(first.item.type).toBe("warning");
+    const before = await countInbox(hz.db, hz.A.businessId);
+
+    const second = await service.narrate(hz.A.businessId, [(await blocked(2, "Still waits on that change.")).id]);
+    expect(second.item.id).toBe(first.item.id);
+    expect(second.replayed).toBe(false);
+    expect(await countInbox(hz.db, hz.A.businessId)).toBe(before);
+    expect(second.item.state).toBe("unread");
+    expect(second.item.bodyMd).toMatch(/^\*\*Updated [A-Z][a-z]{2} \d{1,2}, \d{1,2}:\d{2} (AM|PM) UTC\*\*/);
+    expect(second.item.bodyMd).toContain("_Earlier (");
+    expect(second.item.sourceEventIds).toHaveLength(2);
+    const updated = await repos.events.list(hz.db, hz.A.businessId, { type: "inbox.item_updated", limit: 50 });
+    expect(updated.items.some((e) => (e.payload as { inboxItemId: string; change: string }).inboxItemId === first.item.id && (e.payload as { change: string }).change === "revised")).toBe(true);
+    // A third time: still the one item, and the earlier text is kept once, not nested.
+    const third = await service.narrate(hz.A.businessId, [(await blocked(3, "Third day waiting.")).id]);
+    expect(third.item.id).toBe(first.item.id);
+    expect(third.item.bodyMd.match(/_Earlier \(/g)).toHaveLength(1);
+
+    // Answered: what the founder decided stays on record; the problem coming back is a new item.
+    const options = (third.item.decision as { options?: { id: string }[] } | null)?.options ?? [];
+    await repos.inbox.decide(hz.db, hz.A.businessId, first.item.id, options[0] ? { chosenOption: options[0].id } : { freeText: "Noted" });
+    const fourth = await service.narrate(hz.A.businessId, [(await blocked(4, "Back again.")).id]);
+    expect(fourth.item.id).not.toBe(first.item.id);
+    expect(await countInbox(hz.db, hz.A.businessId)).toBe(before + 1);
+  });
+
+  it("a warning about a different task is its own item", async () => {
+    const service = hz.service();
+    const event = (taskId: string) => hz.writeEvent(hz.A.businessId, "task.blocked", { taskId, kind: "code", title: "Another task", assigneeAgentId: hz.A.agentId, reason: "credential", detail: "Needs a key.", occurrence: 1 });
+    const a = await service.narrate(hz.A.businessId, [(await event(crypto.randomUUID())).id]);
+    const b = await service.narrate(hz.A.businessId, [(await event(crypto.randomUUID())).id]);
+    expect(b.item.id).not.toBe(a.item.id);
   });
 });
 

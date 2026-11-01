@@ -95,6 +95,8 @@ export class ComposerService {
       businessId,
       item: composed.item,
       eventIds: composed.eventIds,
+      events,
+      now: this.now(),
       costMinorInt: composed.costMinorInt,
       costCurrency: composed.costCurrency,
       slot: "narrate",

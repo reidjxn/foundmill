@@ -20,7 +20,7 @@ import { TEAM_HEALTH_SOURCE, teamHealth, teamHealthCounts, type TeamHealthCounts
 import { useRecentRibbon } from "../shared/ribbon";
 import { routes } from "../shared/routes";
 import { addDays, dailySeries, lastDays, monthKey, sumInRange } from "../shared/time";
-import type { DepartmentRow, FinanceOverview, LeaderboardPositionRow, RibbonResponse } from "../shared/types";
+import type { DepartmentRow, FinanceOverview, LeaderboardPositionRow, Page, RibbonResponse, TaskRow } from "../shared/types";
 
 export const StatusStripSettings = z.object({
   /** Show the leaderboard tile in LIVE mode. */
@@ -32,6 +32,8 @@ export interface StatusStripInputs {
   finance?: FinanceOverview;
   ribbon?: RibbonResponse;
   departments?: DepartmentRow[];
+  /** The team's open and recently ended tasks: the Team health tile reads work shipped and blocked, not only agent statuses. */
+  tasks?: { blocked: number; doneLast7Days: number };
   positions?: LeaderboardPositionRow[];
   live: boolean;
   today: string;
@@ -66,6 +68,20 @@ export function squadHealthCounts(departments: readonly DepartmentRow[] | undefi
 export function teamHealthCaption(c: TeamHealthCounts): string {
   if (c.total === 0) return "No agents hired yet";
   return `${c.total - c.needsYou} of ${c.total} ${c.total === 1 ? "agent" : "agents"} healthy`;
+}
+
+/** Blocked tasks from which the team reads as stalled when nothing finished this week (the department cards' rule). */
+export const STRIP_STALLED_BLOCKED_TASKS = 5;
+export const TEAM_WORK_SOURCE = "Tasks finished in the last 7 days and tasks blocked now";
+
+/** Nothing shipped this week and many tasks blocked: "100% healthy" would be false whatever the agents' statuses say. */
+export function teamStalled(tasks: { blocked: number; doneLast7Days: number } | undefined): boolean {
+  return tasks !== undefined && tasks.blocked >= STRIP_STALLED_BLOCKED_TASKS && tasks.doneLast7Days === 0;
+}
+
+/** "3 finished this week · 9 blocked": the work behind the health figure. */
+export function teamWorkCaption(tasks: { blocked: number; doneLast7Days: number }): string {
+  return `${tasks.doneLast7Days} finished this week · ${tasks.blocked} blocked`;
 }
 
 /** The runway caption in words (UX plan B9); the formula stays in the provenance tooltip. */
@@ -159,7 +175,9 @@ export function statusTiles(i: StatusStripInputs): StatusTile[] {
       : { label: "Customers this week", plain: PLAIN_LINES.customers, value: i.ribbon ? customersWeek : null, format: "integer", loading: i.loading.ribbon, caption: "Paying customers, last 7 days", delta: i.ribbon ? { value: customersWeek - customersPrev, label: "vs last week" } : undefined, spark: i.ribbon ? dailySeries(rows, lastDays(14, i.today), (r) => r.payments) : undefined, provenance: { source: "Payments (first payments count as customers)" }, onClick: () => i.open("customers") },
     departmentsError
       ? unavailableTile("Team health", departmentsError, "The team", () => i.open("team"))
-      : { label: "Team health", metricId: "team_health", value: health === null ? (i.loading.departments ? null : "—") : health, format: "percent", loading: i.loading.departments, caption: i.departments ? teamHealthCaption(healthCounts) : undefined, provenance: { source: TEAM_HEALTH_SOURCE }, onClick: () => i.open("team") },
+      : teamStalled(i.tasks)
+        ? { label: "Team health", metricId: "team_health", value: "Stalled", loading: false, caption: teamWorkCaption(i.tasks!), provenance: { source: TEAM_WORK_SOURCE }, onClick: () => i.open("team") }
+        : { label: "Team health", metricId: "team_health", value: health === null ? (i.loading.departments ? null : "—") : health, format: "percent", loading: i.loading.departments, caption: i.departments ? (i.tasks && i.tasks.blocked > 0 ? `${teamHealthCaption(healthCounts)} · ${teamWorkCaption(i.tasks)}` : teamHealthCaption(healthCounts)) : undefined, provenance: { source: i.tasks ? `${TEAM_HEALTH_SOURCE}; ${TEAM_WORK_SOURCE}` : TEAM_HEALTH_SOURCE }, onClick: () => i.open("team") },
   ];
   if (i.live) {
     const best = (i.positions ?? []).slice().sort((a, b) => a.position - b.position)[0];
@@ -186,6 +204,9 @@ function StatusStripWidget({ settings }: WidgetProps<StatusStripSettings>) {
   const ribbon = useRecentRibbon();
   const departments = useDepartments();
   const positions = useWidgetQuery<LeaderboardPositionRow[]>("live.leaderboards.positions", {}, { enabled: live });
+  // The work behind the health figure: blocked tasks now, and tasks finished in the last 7 days (the same page the department cards read).
+  const blockedTasks = useWidgetQuery<Page<TaskRow>>("dev.tasks.list", { status: ["blocked"], limit: 100 });
+  const endedTasks = useWidgetQuery<Page<TaskRow>>("dev.tasks.list", { status: ["done", "failed"], limit: 100 });
   useBusinessEvents(() => {
     finance.refetch();
     ribbon.refetch();
@@ -198,6 +219,7 @@ function StatusStripWidget({ settings }: WidgetProps<StatusStripSettings>) {
         finance: finance.data,
         ribbon: ribbon.data,
         departments: departments.data ? orderedDepartments(departments.data) : undefined,
+        tasks: blockedTasks.data && endedTasks.data ? { blocked: blockedTasks.data.items.length, doneLast7Days: endedTasks.data.items.filter((t) => t.status === "done" && (t.endedAt ? Date.parse(t.endedAt) : 0) >= Date.parse(`${addDays(today, -6)}T00:00:00.000Z`)).length } : undefined,
         positions: positions.data,
         live,
         today,
@@ -211,7 +233,7 @@ function StatusStripWidget({ settings }: WidgetProps<StatusStripSettings>) {
           else navigate(id ? routes.leaderboard(id) : "/leaderboards");
         },
       }),
-    [finance.data, finance.isLoading, finance.error, ribbon.data, ribbon.isLoading, ribbon.error, departments.data, departments.isLoading, departments.error, positions.data, positions.isLoading, live, today, currency, navigate, businessId],
+    [finance.data, finance.isLoading, finance.error, ribbon.data, ribbon.isLoading, ribbon.error, departments.data, departments.isLoading, departments.error, blockedTasks.data, endedTasks.data, positions.data, positions.isLoading, live, today, currency, navigate, businessId],
   );
   // Tile labels, captions and plain lines in the business's words ("Customers this week" → "Clients this week"); a label
   // that is a defined term becomes a `Term` (lifted above the tile's covering button) with the map's definition.

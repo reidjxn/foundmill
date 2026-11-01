@@ -136,8 +136,12 @@ export function inBusinessWords(v: ParsedComposerItem, glossary: Record<string, 
 export const INBOX_TABS = ["all", "respond", "customers", "updates", "messages", "archive"] as const;
 export type InboxTab = (typeof INBOX_TABS)[number];
 
-/** Types that ask the founder for something; they sit in Respond until answered. */
-export const RESPOND_TYPES: readonly InboxItemType[] = ["decision", "customer_won", "warning"];
+/**
+ * Types that ask the founder for something; they sit in Respond until answered. A warning sits there only when it
+ * carries a decision or holds Continue (a runway warning): fifteen "no action needed" warnings in Respond trained the
+ * founder to ignore the tab (Nov 1, 2026), so the rest read as updates.
+ */
+export const RESPOND_TYPES: readonly InboxItemType[] = ["decision", "customer_won"];
 
 /**
  * The item's plan waits for the founder's go-ahead ("Here is what will happen", `plan.confirm`): it was answered, so
@@ -162,13 +166,14 @@ function tabCondition(tab: InboxTab) {
       return sql`${inboxItems.state} <> 'archived'`;
     case "respond":
       return or(
-        and(inArray(inboxItems.state, ["unread", "read"]), or(eq(inboxItems.blocksContinue, true), inArray(inboxItems.type, [...RESPOND_TYPES]))),
+        and(inArray(inboxItems.state, ["unread", "read"]), or(eq(inboxItems.blocksContinue, true), inArray(inboxItems.type, [...RESPOND_TYPES]), and(eq(inboxItems.type, "warning"), isNotNull(inboxItems.decision)))),
         and(eq(inboxItems.state, "answered"), awaitingConfirmation),
       );
     case "customers":
       return and(sql`${inboxItems.state} <> 'archived'`, eq(inboxItems.type, "customer_won"));
     case "updates":
-      return and(sql`${inboxItems.state} <> 'archived'`, inArray(inboxItems.type, ["update", "milestone", "report"]));
+      // A warning with nothing to decide and nothing holding Continue is news, not a request.
+      return and(sql`${inboxItems.state} <> 'archived'`, or(inArray(inboxItems.type, ["update", "milestone", "report"]), and(eq(inboxItems.type, "warning"), isNull(inboxItems.decision), eq(inboxItems.blocksContinue, false))));
     case "messages":
       return and(sql`${inboxItems.state} <> 'archived'`, eq(inboxItems.type, "human_message"));
     case "archive":
@@ -340,6 +345,35 @@ export const inboxRepo = {
       .where(and(eq(inboxItems.businessId, businessId), isNotNull(inboxItems.fromAgentId), openedByFounder))
       .limit(1);
     return rows.length > 0;
+  },
+
+  /**
+   * Revises a note in place (the Chief of Staff updating a warning about a problem it already told the founder about):
+   * the replacement's subject, body, decision and flags (validated and in the business's words like a new note), its
+   * source events and entities appended, and the note unread again so it surfaces once more as one item, never a second
+   * copy. Only an open note (unread or read) is revised, and it keeps its type.
+   */
+  async revise(db: Executor, businessId: string, itemId: string, replacement: ComposerItem): Promise<InboxItem> {
+    const item = await inboxRepo.get(db, businessId, itemId);
+    if (item.state !== "unread" && item.state !== "read") throw new ValidationError("Only an open note can be revised", { itemId, state: item.state });
+    const parsed = parseInput(ComposerItem, withPlainOptionLines(replacement), "composer item");
+    if (parsed.type !== item.type) throw new ValidationError("A note keeps its type when revised", { itemId, type: item.type, replacement: parsed.type });
+    await assertOwnedIds(db, businessId, parsed);
+    const v = inBusinessWords(parsed, await businessGlossary(db, businessId));
+    const sourceEventIds = [...new Set([...item.sourceEventIds, ...v.source_event_ids])];
+    const entityIds = [...new Set([...item.entityIds, ...v.entity_ids])];
+    const updated = one(
+      await db
+        .update(inboxItems)
+        .set({ subject: v.subject, bodyMd: v.body_md, statusStrip: v.status_strip, exhibit: v.exhibit, decision: v.decision, blocksContinue: v.blocks_continue, sourceEventIds, entityIds, state: "unread", updatedAt: new Date() })
+        .where(scoped(businessId, itemId))
+        .returning(),
+      "inbox item",
+      itemId,
+    );
+    // Everyone reads it afresh: the receipts of the earlier version no longer count.
+    await db.delete(inboxItemReads).where(and(eq(inboxItemReads.businessId, businessId), eq(inboxItemReads.inboxItemId, itemId)));
+    return updated;
   },
 
   async markRead(db: Executor, businessId: string, itemId: string, userId?: string | null): Promise<InboxItem> {

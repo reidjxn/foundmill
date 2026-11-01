@@ -224,3 +224,40 @@ test.describe("home > Autopilot chip", () => {
     await expect(settingsScreen(page).getByTestId("autopilot-section")).toBeVisible({ timeout: LONG });
   });
 });
+
+/**
+ * Home's blocker banner (Nov 1, 2026): when the team's last round of work could not start (the model account out of
+ * credit, no key) and nothing has run since, Home says so at the top, with the way to fix it, instead of "Healthy". The
+ * seed has no failed cycle, so `cycle.status` is rewritten on the way to the page.
+ */
+test.describe("home > blocker banner", () => {
+  test("a last cycle that failed for credit is a banner at the top of Home with the way to Settings › Keys", async ({ page }) => {
+    await page.route(/\/trpc\/[^?]*cycle\.status/, async (route) => {
+      const response = await route.fetch();
+      const body = (await response.json()) as unknown;
+      const failed = { lastOutcome: "failed", running: false, lastFailure: { kind: "billing", message: "The model account has no credit left, so the team could not start.", at: new Date().toISOString() } };
+      const rewrite = (entry: unknown) => {
+        const data = (entry as { result?: { data?: { json?: Record<string, unknown> } } }).result?.data?.json;
+        if (data && "completedCount" in data) Object.assign(data, failed);
+      };
+      if (Array.isArray(body)) body.forEach(rewrite);
+      else rewrite(body);
+      await route.fulfill({ response, body: JSON.stringify(body), headers: { ...response.headers(), "content-type": "application/json" } });
+    });
+    await openBusiness(page);
+    const banner = page.getByTestId("home-blocker");
+    await expect(banner).toBeVisible({ timeout: LONG });
+    await expect(banner).toHaveAttribute("data-blocker-kind", "billing");
+    await expect(banner.getByRole("heading", { name: "The team's model account is out of credit" })).toBeVisible();
+    await expect(banner).toContainText("no credit left");
+    await expect(banner).toContainText("Team stopped");
+    await banner.getByRole("button", { name: "Open Settings › Keys" }).click();
+    await expect(page).toHaveURL(/\/settings\/keys$/, { timeout: LONG });
+  });
+
+  test("a completed last cycle shows no banner", async ({ page }) => {
+    await openBusiness(page);
+    await expect(page.getByTestId("home-screen")).toBeVisible({ timeout: LONG });
+    await expect(page.getByTestId("home-blocker")).toHaveCount(0);
+  });
+});

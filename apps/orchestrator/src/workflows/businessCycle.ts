@@ -99,7 +99,7 @@ async function endUnplanned(input: BusinessCycleInput, brief: BusinessBrief, err
   } catch {
     inboxItemIds = [];
   }
-  await acts.completeCycle({ businessId: input.businessId, cycleId, cycleNumber: input.cycleNumber, workflowId: info.workflowId, outcome: "failed", tasksDispatched: 0, tasksCompleted: 0, tasksBlocked: 0, agentHours: 0, costMinor: 0, currency: brief.creditsCurrency, inboxItemIds, durationMs: Date.now() - startedAt });
+  await acts.completeCycle({ businessId: input.businessId, cycleId, cycleNumber: input.cycleNumber, workflowId: info.workflowId, outcome: "failed", tasksDispatched: 0, tasksCompleted: 0, tasksBlocked: 0, agentHours: 0, costMinor: 0, currency: brief.creditsCurrency, inboxItemIds, durationMs: Date.now() - startedAt, failure: { kind: failure.details?.kind ?? "error", message: failure.message } });
   return { cycleId, outcome: "failed", tasksDispatched: 0, tasksCompleted: 0, tasksBlocked: 0, inboxItemIds, costMinor: 0 };
 }
 

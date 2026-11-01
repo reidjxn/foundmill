@@ -133,6 +133,28 @@ describe("inbox tabs, blocking count and decide", () => {
     expect(counts.archive).toBe(1);
   });
 
+  it("a warning sits in Respond only when it asks something or holds Continue; the rest are updates (Nov 1, 2026)", async () => {
+    const ids = (page: { items: { id: string }[] }) => page.items.map((i) => i.id);
+    const plain = await repos.inbox.createItem(r.db, r.A.businessId, note({ type: "warning", subject: "Engineering is stalled" }));
+    const asking = await repos.inbox.createItem(r.db, r.A.businessId, { ...decisionNote(), type: "warning", subject: "Engineering is stalled: what next?", blocks_continue: false });
+    const respond = ids(await repos.inbox.list(r.db, r.A.businessId, { tab: "respond", limit: 100 }));
+    expect(respond).toContain(asking.id);
+    expect(respond).not.toContain(plain.id);
+    const updates = ids(await repos.inbox.list(r.db, r.A.businessId, { tab: "updates", limit: 100 }));
+    expect(updates).toContain(plain.id);
+    expect(updates).not.toContain(asking.id);
+
+    // Revised in place: new words, the new source event appended, unread again, the same id; the type never changes and
+    // only an open note is revised.
+    const revised = await repos.inbox.revise(r.db, r.A.businessId, plain.id, note({ type: "warning", subject: "Engineering is still stalled", body_md: "Nine tasks wait on one change.", source_event_ids: [r.A.eventIds[0]!] }));
+    expect(revised).toMatchObject({ id: plain.id, subject: "Engineering is still stalled", bodyMd: "Nine tasks wait on one change.", state: "unread", sourceEventIds: [r.A.eventIds[0]] });
+    await expect(repos.inbox.revise(r.db, r.A.businessId, plain.id, note({ type: "update" }))).rejects.toThrow(/keeps its type/);
+    await expect(repos.inbox.revise(r.db, r.B.businessId, plain.id, note({ type: "warning", from_agent_id: r.B.agentId }))).rejects.toThrow(/not found/);
+    await repos.inbox.archive(r.db, r.A.businessId, plain.id);
+    await expect(repos.inbox.revise(r.db, r.A.businessId, plain.id, note({ type: "warning" }))).rejects.toThrow(/open note/);
+    await repos.inbox.decide(r.db, r.A.businessId, asking.id, { chosenOption: "a" });
+  });
+
   it("filters by state/type and the service role is still scoped to the business", async () => {
     const decisions = await r.svc((tx) => repos.inbox.list(tx, r.A.businessId, { type: "decision", state: ["unread", "read"] }));
     expect(decisions.items).toHaveLength(2); // fixture decision + the one above

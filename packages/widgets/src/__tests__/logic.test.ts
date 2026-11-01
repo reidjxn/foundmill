@@ -178,6 +178,10 @@ describe("status strip", () => {
     expect(teamHealthCaption(teamHealthCounts([]))).toBe("No agents hired yet");
     expect(teamHealthCaption(teamHealthCounts(["failing", "injured"]))).toBe("0 of 2 agents healthy");
     expect(statusTiles({ ...base, live: false, departments: [] })[4]).toMatchObject({ label: "Team health", value: "—", caption: "No agents hired yet" });
+    // Work, not only liveness (Nov 1, 2026): nothing finished this week and many blocked tasks reads Stalled, whatever the agents say.
+    expect(statusTiles({ ...base, live: false, tasks: { blocked: 9, doneLast7Days: 0 } })[4]).toMatchObject({ label: "Team health", value: "Stalled", caption: "0 finished this week · 9 blocked" });
+    expect(statusTiles({ ...base, live: false, tasks: { blocked: 2, doneLast7Days: 3 } })[4]).toMatchObject({ value: 5 / 6, caption: "5 of 6 agents healthy · 3 finished this week · 2 blocked" });
+    expect(statusTiles({ ...base, live: false, tasks: { blocked: 0, doneLast7Days: 3 } })[4]!.caption).toBe("5 of 6 agents healthy");
     const live = statusTiles({ ...base, live: true, positions: [{ ...leaderboardEntries[7]!, board: leaderboards[0]! }] });
     expect(live.length).toBe(6);
     expect(live[5]).toMatchObject({ label: "Leaderboard position", value: "#8" });
