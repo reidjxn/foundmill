@@ -67,7 +67,8 @@ describe("prepareMerge", () => {
     expect(offline.calls.map((c) => c.tool)).toEqual(["list_pull_requests", "compare_refs", "open_pr", "run_checks", "merge_pr"]);
     expect(offline.calls[2]!.args).toMatchObject({ head: input.branch, base: "HEAD", draft: false, title: "Deploy contract" });
     expect(offline.calls[4]!.args).toEqual(mergeArgs({ owner: "acme", repo: "shop" }, prepared.prNumber, task.title));
-    expect(offline.minted.at(-1)).toMatchObject({ agentId: t.workerId, sessionId: input.sessionId, allowedTools: ["github:compare_refs", "github:list_pull_requests", "github:open_pr", "github:run_checks", "github:merge_pr"] });
+    // Reads and writes on separate tokens: the reads' token can do nothing else, so the gateway answers them as data.
+    expect(offline.minted.slice(-2)).toEqual([expect.objectContaining({ agentId: t.workerId, sessionId: input.sessionId, allowedTools: ["github:compare_refs", "github:list_pull_requests"] }), expect.objectContaining({ allowedTools: ["github:open_pr", "github:run_checks", "github:merge_pr"] })]);
 
     // The pull request's body says what was tested; the mock's default branch now carries the merge.
     const pr = unwrap<{ body: string; base: { ref: string }; merged: boolean }>(await github.callTool("get_pull_request", { owner: "acme", repo: "shop", prNumber: prepared.prNumber }, ctx));
@@ -143,6 +144,35 @@ describe("prepareMerge", () => {
     expect(await acts.prepareMerge(empty.input)).toEqual({ status: "skipped", reason: `${empty.input.branch} has nothing the default branch lacks` });
     expect((await repos.tasks.get(t.db, t.businessId, empty.task.id)).status).toBe("done");
     expect((await repos.audit.list(t.db, t.businessId, { action: MERGE_AUDIT.notMerged, limit: 1 })).items[0]).toMatchObject({ target: { id: empty.task.id }, details: { step: "nothing_to_merge" } });
+  });
+
+  it("works against the real gateway's quarantine: a token that can write gets the pull request list as a summary, never as data", async () => {
+    await connectRepo();
+    const github = createGithubMock();
+    const offline = createOfflineGatewayClient();
+    const ctx = makeToolContext(github);
+    const tools = new Map<string, string[]>();
+    // As the gateway does (BUILD §9.8): untrusted reads on a session that can also act come back as the reader's digest.
+    const gateway: GatewayClient = {
+      ...offline,
+      async mintSessionToken(req) {
+        const minted = await offline.mintSessionToken(req);
+        tools.set(minted.token, req.allowedTools ?? []);
+        return minted;
+      },
+      async call(token, req) {
+        offline.calls.push(req);
+        const result = await github.callTool(req.tool, req.args, ctx);
+        const canAct = (tools.get(token) ?? []).some((t) => ["github:open_pr", "github:merge_pr", "github:run_checks"].includes(t));
+        if (canAct && req.tool === "list_pull_requests" && isUntrusted(result.data)) return { outcome: "allow", costMinor: 0, result: { ...result, data: { ...result.data, content: "Three pull requests, all open.", quarantined: true } } };
+        return { outcome: "allow", result, costMinor: 0 };
+      },
+    };
+    const acts = createMergeActivities({ ...t.deps, gateway });
+    const { task, input } = await reviewTask("Quarantine-proof");
+    await github.callTool("commit_files", { owner: "acme", repo: "shop", branch: input.branch, message: "m", files: [{ path: "q.md", content: "q\n" }] }, ctx);
+    expect((await acts.prepareMerge(input)).status).toBe("merged");
+    expect((await repos.tasks.get(t.db, t.businessId, task.id)).status).toBe("done");
   });
 
   it("skips when there is nothing to merge: no repository, pushing off, not a code task, not in review", async () => {
