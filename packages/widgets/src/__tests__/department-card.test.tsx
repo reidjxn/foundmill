@@ -6,7 +6,7 @@ import { getWidget, parseWidgetSettings } from "../registry";
 import { createFakeSource } from "../testing";
 import "../widgets";
 import { GuidanceProvider, formatDate, type DateFormatPrefs } from "@foundmill/dugout";
-import { departmentHealth, headlineMetric, metricKeyFor, monthEndCash, nowLines, quietLine, toSquad } from "../widgets/department-card";
+import { departmentHealth, doneLast7Days, headlineMetric, metricKeyFor, monthEndCash, nowLines, quietLine, toSquad } from "../widgets/department-card";
 import { addDays } from "../shared/time";
 import type { InboxItemRow } from "../shared/types";
 import { AGENT, BID, DEPT, TODAY, dataResponses, departments, inbox, ribbon, tasks } from "./fixtures";
@@ -190,6 +190,23 @@ describe("department card logic", () => {
     expect(departmentHealth(toSquad(dev, { [AGENT.cove]: "degraded" }, []), [])).toEqual({ health: "warn", word: "Degraded" });
     // Idle and paused agents are healthy; tasks that failed to load never turn into a health word.
     expect(departmentHealth(toSquad(dev, { [AGENT.atlas]: "idle", [AGENT.beacon]: "paused" }, []), null)).toEqual({ health: "good", word: "Healthy" });
+  });
+  it("reads work, not only liveness: many blocked tasks and nothing finished this week is Stalled, never Healthy", () => {
+    const squad = toSquad(dev, {}, []);
+    const blocked = (n: number) => Array.from({ length: n }, (_, i) => ({ ...tasks.items[4]!, id: `blocked-${i}`, departmentId: DEPT.development, status: "blocked" as const }));
+    expect(departmentHealth(squad, blocked(5), { doneLast7Days: 0 })).toEqual({ health: "bad", word: "Stalled" });
+    expect(departmentHealth(squad, blocked(9), { doneLast7Days: 0 })).toEqual({ health: "bad", word: "Stalled" });
+    // Something shipped, or the finished page could not be read: stuck, not stalled.
+    expect(departmentHealth(squad, blocked(5), { doneLast7Days: 2 })).toEqual({ health: "warn", word: "Stuck" });
+    expect(departmentHealth(squad, blocked(5), null)).toEqual({ health: "warn", word: "Stuck" });
+    expect(departmentHealth(squad, blocked(4), { doneLast7Days: 0 })).toEqual({ health: "warn", word: "Waiting" });
+    // A down agent still reads first.
+    expect(departmentHealth(toSquad(dev, { [AGENT.cove]: "injured" }, []), blocked(5), { doneLast7Days: 0 })).toEqual({ health: "bad", word: "Down" });
+    // The finished count comes from the department's own done tasks in the last seven days.
+    expect(doneLast7Days(tasks.items, DEPT.development, TODAY)).toBe(1);
+    expect(doneLast7Days(tasks.items, DEPT.distribution, TODAY)).toBe(0);
+    expect(doneLast7Days(undefined, DEPT.development, TODAY)).toBe(0);
+    expect(doneLast7Days([{ ...tasks.items[3]!, endedAt: `${addDays(TODAY, -8)}T11:00:00.000Z` }], DEPT.development, TODAY)).toBe(0);
   });
   it("writes Now lines with entity markup and caps them at three", () => {
     const squad = toSquad(dev, {}, tasks.items);

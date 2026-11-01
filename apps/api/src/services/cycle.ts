@@ -43,6 +43,8 @@ export interface CycleStatus {
   completedCount: number;
   lastCompletedAt: string | null;
   lastOutcome: CycleOutcome | null;
+  /** When the last cycle ended `failed`: what stopped it (Home shows it as a banner until a cycle runs again). */
+  lastFailure: { kind: "billing" | "credential" | "request" | "error"; message: string; at: string } | null;
   nextCycleNumber: number;
   /** "temporal" when the current cycle runs on the orchestrator, "local" when it was an in-process step. */
   mode: "temporal" | "local" | null;
@@ -127,9 +129,20 @@ export async function cycleStatus(ctx: CycleScope): Promise<CycleStatus> {
     completedCount: completed.length,
     lastCompletedAt: lastDone ? lastDone.occurredAt.toISOString() : null,
     lastOutcome: (CYCLE_OUTCOMES as readonly string[]).includes(str(lastDonePayload.outcome) ?? "") ? (str(lastDonePayload.outcome) as CycleOutcome) : null,
+    lastFailure: lastDone && str(lastDonePayload.outcome) === "failed" ? failureOf(lastDonePayload.failure, lastDone.occurredAt) : null,
     nextCycleNumber: maxNumber + 1,
     mode: startedOpen ? (latestStart?.actor.kind === "system" && latestStart.actor.id === LOCAL_ACTOR_ID ? "local" : "temporal") : queuedEntry ? "temporal" : null,
   };
+}
+
+const FAILURE_KINDS = new Set(["billing", "credential", "request", "error"]);
+/** The failed cycle's `failure` as the status carries it; a cycle recorded before the field existed says so in general words. */
+export function failureOf(raw: unknown, at: Date): CycleStatus["lastFailure"] {
+  const f = asRecord(raw);
+  const kind = str(f.kind);
+  const message = str(f.message);
+  if (kind && FAILURE_KINDS.has(kind) && message) return { kind: kind as "billing" | "credential" | "request" | "error", message, at: at.toISOString() };
+  return { kind: "error", message: "The last round of work could not start. Press Continue to try again.", at: at.toISOString() };
 }
 
 /**

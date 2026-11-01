@@ -26,6 +26,7 @@ const status = (over: Partial<ContinueResult["status"]> = {}): ContinueResult["s
   completedCount: 0,
   lastCompletedAt: null,
   lastOutcome: null,
+  lastFailure: null,
   nextCycleNumber: 1,
   mode: null,
   ...over,

@@ -6,7 +6,7 @@
  * milestones.
  */
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Copy, LayoutDashboard, Link2, Pencil, Plus, Share2, Star, Trash2 } from "lucide-react";
+import { CircleX, Copy, LayoutDashboard, Link2, Pencil, Plus, Share2, Star, Trash2 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -26,11 +26,13 @@ import {
   DropdownMenuTrigger,
   EmptyState,
   Field,
+  Icon,
   IconButton,
   Input,
   Kbd,
   NextStep,
   Panel,
+  StatusPill,
   TrophyCabinet,
   WidgetGrid,
   nextStepsFor,
@@ -252,6 +254,7 @@ export function HomeScreen({ dashboardId: routeId }: HomeScreenProps) {
   // while it loads they mount out of sight, so their answers are in the cache when they take their place above the grid.
   const lead = (
     <>
+      <HomeBlockers />
       <HomeFoundations />
       <HomeAutopilot />
       <HomeLead businessId={businessId} currency={currency} />
@@ -470,6 +473,43 @@ function HomeFoundations() {
     ensureOnce();
   });
   return <FoundationsBanner foundations={foundations} showReady detail={{ vision: true, roadmap: true }} />;
+}
+
+/**
+ * An account-level blocker at the top of Home (UX plan §5): the last round of work could not start (the model account out
+ * of credit, a missing key, an error) and no round has run since. A one-line note in the Inbox was not enough: Home
+ * read "Healthy" over three days of nothing starting (Nov 1, 2026). Gone the moment a cycle runs again.
+ */
+function HomeBlockers() {
+  const trpc = useTRPC();
+  const router = useRouter();
+  const { businessId } = useBusiness();
+  const inputs = useMemo(() => shellQueryInputs(businessId), [businessId]);
+  const cycleQ = useQuery(trpc.cycle.status.queryOptions(inputs.cycle, { staleTime: 10_000, retry: false }));
+  const failure = cycleQ.data?.lastOutcome === "failed" && !cycleQ.data.running ? cycleQ.data.lastFailure : null;
+  if (!failure) return null;
+  const title = failure.kind === "billing" ? "The team's model account is out of credit" : failure.kind === "credential" ? "The team has no model key to work with" : "The team's last round of work could not start";
+  const keys = failure.kind === "billing" || failure.kind === "credential";
+  return (
+    <Panel title={title} span={12} data-testid="home-blocker" data-blocker-kind={failure.kind} actions={<StatusPill tone="bad">Team stopped</StatusPill>}>
+      <div role="status" aria-live="polite" className="flex items-start gap-3">
+        <span className="mt-0.5 shrink-0" aria-hidden>
+          <Icon icon={CircleX} size={20} className="text-status-bad" />
+        </span>
+        <div className="flex min-w-0 flex-1 flex-col gap-2">
+          <p className="text-body text-pretty text-primary">{failure.message}</p>
+          <p className="text-small text-secondary">{keys ? "Nothing runs until this is fixed. Once it is, press Continue and the team picks up where it stopped." : "Press Continue to try again."}</p>
+          {keys ? (
+            <div>
+              <Button size="sm" variant="default" onClick={() => router.push(routes.settings(businessId, "keys"))}>
+                Open Settings › Keys
+              </Button>
+            </div>
+          ) : null}
+        </div>
+      </div>
+    </Panel>
+  );
 }
 
 /* ---------- The next step and Day one ---------- */

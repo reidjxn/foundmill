@@ -2,7 +2,7 @@ import { repos } from "@foundmill/db";
 import { createWireDb, type WireDb } from "@foundmill/db/testing/wire";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createCaller } from "../router";
-import { untilWords } from "../services/cycle";
+import { failureOf, untilWords } from "../services/cycle";
 import { createApiHarness, fakeTemporalClient, type ApiHarness } from "./harness";
 
 async function blockingItem(hz: ApiHarness, subject: string) {
@@ -217,6 +217,17 @@ describe("business.continue reads the cycle status once (audit realtime-bg F2)",
     expect(again).toMatchObject({ action: "already_running", continueState: { kind: "processing" }, status: { running: true, queued: true, cycleNumber: 1 } });
     expect(wire.statements().filter((q) => /from "events" where/.test(q) && /order by/.test(q))).toHaveLength(1);
     expect(temporal.starts.filter((x) => x.type === "businessCycle")).toHaveLength(1);
+  });
+});
+
+describe("cycle.status lastFailure (Home's blocker banner)", () => {
+  it("carries the failed cycle's kind and message, and general words for a cycle recorded before the field existed", () => {
+    const at = new Date("2026-11-01T10:00:00Z");
+    expect(failureOf({ kind: "billing", message: "The model account is out of credit." }, at)).toEqual({ kind: "billing", message: "The model account is out of credit.", at: at.toISOString() });
+    expect(failureOf({ kind: "credential", message: "No key." }, at)!.kind).toBe("credential");
+    expect(failureOf(null, at)).toMatchObject({ kind: "error", at: at.toISOString() });
+    expect(failureOf({ kind: "weird", message: "x" }, at)!.kind).toBe("error");
+    expect(failureOf(null, at)!.message).not.toMatch(/orchestrator|workflow|activity/i);
   });
 });
 

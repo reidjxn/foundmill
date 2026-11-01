@@ -74,12 +74,27 @@ const TASK_VERB: Record<string, string> = {
  * agent → "Degraded". Idle and paused agents are healthy (shared/health.ts). `tasks` null: the open tasks could not be
  * loaded, so the word comes from the team alone rather than from an empty list.
  */
-export function departmentHealth(squad: readonly SquadMember[], tasks: readonly TaskRow[] | null): { health: HealthTone; word: string } {
+export function departmentHealth(squad: readonly SquadMember[], tasks: readonly TaskRow[] | null, throughput?: { doneLast7Days: number } | null): { health: HealthTone; word: string } {
   if (squad.some((m) => m.status === "failing")) return { health: "bad", word: "Failing" };
   if (squad.some((m) => m.status === "injured")) return { health: "bad", word: "Down" };
-  if (tasks?.some((t) => t.status === "blocked")) return { health: "warn", word: "Waiting" };
+  // Work, not liveness (Nov 1, 2026: "Healthy · Quiet" over three days of nothing shipped and nine blocked tasks): a
+  // department with many blocked tasks and nothing finished this week is stalled, whatever its agents' statuses say.
+  const blocked = tasks?.filter((t) => t.status === "blocked").length ?? 0;
+  if (blocked >= STALLED_BLOCKED_TASKS && throughput && throughput.doneLast7Days === 0) return { health: "bad", word: "Stalled" };
+  if (blocked >= STALLED_BLOCKED_TASKS) return { health: "warn", word: "Stuck" };
+  if (blocked > 0) return { health: "warn", word: "Waiting" };
   if (squad.some((m) => m.status === "degraded")) return { health: "warn", word: "Degraded" };
   return { health: "good", word: "Healthy" };
+}
+
+/** Blocked tasks from which a department reads as stuck (stalled when nothing finished this week either). */
+export const STALLED_BLOCKED_TASKS = 5;
+
+/** Tasks a department finished in the last seven days, from the business-wide ended-tasks page the cards share. */
+export function doneLast7Days(done: readonly TaskRow[] | undefined, departmentId: string, today: string): number {
+  if (!done) return 0;
+  const from = Date.parse(`${addDays(today, -6)}T00:00:00.000Z`);
+  return done.filter((t) => t.departmentId === departmentId && t.status === "done" && (toMs(t.endedAt) ?? 0) >= from).length;
 }
 
 /** "Working on now" lines: one per active task, the agent as an entity mention so it links to the profile. */
@@ -355,7 +370,7 @@ function DepartmentCardWidget({ settings }: WidgetProps<DepartmentCardSettings>)
     if (!dept) return null;
     const metric = headlineMetric({ key: metricKey, rows, days: lastDays(14, today), squad: toSquad(dept, overrides, taskItems), roadmap: roadmap.data, channels: channels.data, finance: finance.data, compliance: compliance.data, currency, today, error: metricError });
     const squad = toSquad(dept, overrides, taskItems);
-    const { health, word } = departmentHealth(squad, tasksFailed ? null : taskItems);
+    const { health, word } = departmentHealth(squad, tasksFailed ? null : taskItems, done.data ? { doneLast7Days: doneLast7Days(done.data.items, dept.id, today) } : null);
     const leadRow = dept.lead ?? dept.squad.find((a) => a.id === dept.leadAgentId) ?? dept.squad[0] ?? null;
     const next = taskItems.find((t) => (NEXT_TASK_STATUSES as readonly string[]).includes(t.status));
     const now = nowLines(taskItems, squad);

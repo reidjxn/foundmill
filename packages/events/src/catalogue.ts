@@ -1080,6 +1080,8 @@ const cycleCompleted = declareEvent(
     /** Inbox items the composer wrote during the cycle. */
     inboxItemIds: z.array(Id),
     durationMs: Count,
+    /** A cycle that ended `failed`: what stopped it, for Home's banner (a model account out of credit, a missing key, an error). */
+    failure: z.object({ kind: z.enum(["billing", "credential", "request", "error"]), message: z.string().min(1).max(500) }).nullable().default(null),
   }),
   {
     doc: "The businessCycle ended (all branches done, time box reached, waiting on decisions, stopped or failed). The composer narrates the cycle summary.",
@@ -1147,8 +1149,8 @@ const inboxItemUpdated = declareEvent(
   "inbox.item_updated",
   z.object({
     inboxItemId: Id,
-    /** Archived by a member, or the plan the item was answered with confirmed (its follow-up Update written). */
-    change: z.enum(["archived", "plan_confirmed"]),
+    /** Archived by a member, the plan the item was answered with confirmed (its follow-up Update written), or the note revised in place (the Chief of Staff updating a warning about the same problem). */
+    change: z.enum(["archived", "plan_confirmed", "revised"]),
     /** The confirmed plan (`plan_confirmed`); null otherwise. */
     planId: Id.nullable().default(null),
     /** The follow-up Update the confirmation wrote; null when none. */
