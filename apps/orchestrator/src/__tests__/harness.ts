@@ -110,7 +110,8 @@ export async function setupOrchestratorHarness(options: HarnessOptions = {}): Pr
 /** Open an agent_sessions row the way apps/api does before starting the agentSession workflow (its workflow id is `session:<id>`). */
 export async function openSessionRow(t: OrchestratorTestHarness, agentId: string, taskId: string): Promise<string> {
   const agent = await repos.agents.get(t.db, t.businessId, agentId);
-  const session = await repos.agents.createSession(t.db, t.businessId, { agentId, versionId: agent.currentVersionId, taskId, modelKey: agent.modelKey });
+  // Started on the harness clock, as the dispatcher starts its sessions, so ordering never depends on the real date.
+  const session = await repos.agents.createSession(t.db, t.businessId, { agentId, versionId: agent.currentVersionId, taskId, modelKey: agent.modelKey, startedAt: t.clock.now() });
   return session.id;
 }
 
