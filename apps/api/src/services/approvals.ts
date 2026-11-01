@@ -16,7 +16,7 @@
  * Answering never moves money by itself: the approval lets one call run exactly as it was asked, within the amount it
  * named, and only when the agent makes it again; hard gates are never approvals of this kind.
  */
-import { APPROVAL_OPTIONS, approvalAction, approvalArgsText, approvalSection, approvalTaskTitle, repos, type Approval, type DbTx, type InboxItem, type Task } from "@foundmill/db";
+import { APPROVAL_OPTIONS, approvalAction, approvalArgsText, approvalSection, approvalTaskTitle, founderReasons, isReleaseApproval, repos, type Approval, type DbTx, type InboxItem, type Task } from "@foundmill/db";
 import { ForbiddenError, hasSectionAccess, ValidationError, type SectionMembership, type TaskStatus } from "@foundmill/shared";
 import type { BusinessContext } from "../trpc";
 import { audit, emit } from "../trpc";
@@ -239,13 +239,57 @@ export async function pendingApprovals(tx: DbTx, ctx: Pick<BusinessContext, "bus
  * it would send and the amount), or null for any other item. A reader walled from Finance sees no amount, and one who
  * cannot read the section the call changes sees no arguments; `canAnswer` says whether Approve and Reject are theirs.
  */
+/** The merge audit rows that carry a release's outcome against its approval (apps/orchestrator/src/activities/merge.ts). */
+const MERGE_AUDIT_ACTIONS = ["merge.merged", "merge.not_merged", "merge.waiting", "merge.handed_back"];
+
+/**
+ * What happened after the founder approved (audit FR-01): the Decided panel shows the outcome, never only the answer.
+ * A release's steps are on record against the approval (`merge.*` audit rows with its id): went live, waiting for the
+ * repository's tests, did not go through (and why), or handed back to its agent. Any other call "ran" once the gateway
+ * used the approval (`usedAt`), else it waits for the agent's next session. Null until the approval is approved.
+ */
+export async function approvalExecution(tx: DbTx, businessId: string, approval: Pick<Approval, "id" | "outcome" | "usedAt" | "connectorKey" | "tool">): Promise<{ state: "ran" | "waiting" | "failed" | "handed_back"; detail: string | null; at: string | null } | null> {
+  if (approval.outcome !== "approved") return null;
+  if (isReleaseApproval(approval)) {
+    const rows = (await repos.audit.list(tx, businessId, { action: MERGE_AUDIT_ACTIONS, limit: 500 })).items.filter((a) => (a.details as { approvalId?: unknown } | null)?.approvalId === approval.id);
+    const latest = rows[0];
+    if (latest) {
+      const at = new Date(latest.createdAt).toISOString();
+      const d = latest.details as { step?: string; why?: string; reason?: string; retryable?: boolean };
+      if (latest.action === "merge.merged") return { state: "ran", detail: "It is live.", at };
+      if (latest.action === "merge.waiting") return { state: "waiting", detail: "Waiting for the repository's automatic tests to pass.", at };
+      if (latest.action === "merge.handed_back") return { state: "handed_back", detail: handBackWords(d.why), at };
+      if (d.step === "decision") return null;
+      return { state: "failed", detail: d.step === "checks_timeout" ? "The automatic tests did not finish in time; the team tries again in its next round of work." : d.retryable ? "The repository refused it for the moment; the team tries again in its next round of work." : "The repository refused it; the team tries again in its next round of work.", at };
+    }
+    return { state: "waiting", detail: "Waiting for the repository's automatic tests to pass.", at: null };
+  }
+  if (approval.usedAt) return { state: "ran", detail: "It ran once, as asked.", at: new Date(approval.usedAt).toISOString() };
+  return { state: "waiting", detail: "It runs when the agent next works on the task.", at: null };
+}
+
+/** Why a release went back to its agent, for the founder. */
+function handBackWords(why: string | undefined): string {
+  switch (why) {
+    case "conflicts":
+      return "It clashes with newer work on the live product; the agent is bringing it up to date and will ask again.";
+    case "behind":
+      return "The live product moved on since; the agent is bringing the change up to date and will ask again.";
+    case "checks_failed":
+      return "The repository's automatic tests failed on it; the agent is fixing that and will ask again.";
+    default:
+      return "It went back to the agent, who will ask again when it is ready.";
+  }
+}
+
 export async function approvalView(tx: DbTx, ctx: Pick<BusinessContext, "businessId" | "business" | "membership" | "userId" | "role">, itemId: string) {
   const approval = await repos.approvals.forInboxItem(tx, ctx.businessId, itemId);
   if (!approval) return null;
-  const [agent, task, session] = await Promise.all([
+  const [agent, task, session, execution] = await Promise.all([
     approval.agentId ? repos.agents.get(tx, ctx.businessId, approval.agentId).catch(() => null) : Promise.resolve(null),
     approval.taskId ? repos.tasks.get(tx, ctx.businessId, approval.taskId).catch(() => null) : Promise.resolve(null),
     approval.sessionId ? repos.agents.getSession(tx, ctx.businessId, approval.sessionId).catch(() => null) : Promise.resolve(null),
+    approvalExecution(tx, ctx.businessId, approval),
   ]);
   const section = approvalSection(approval);
   const financeWalled = !hasSectionAccess(ctx.membership, "finance", "read");
@@ -265,9 +309,14 @@ export async function approvalView(tx: DbTx, ctx: Pick<BusinessContext, "busines
     amountHidden: spends && financeWalled,
     // "spend above the per-decision cap (£500.00)" is a figure too.
     reasons: financeWalled ? approval.reasons.map(maskFinance) : approval.reasons,
+    /** Why the founder is asked, in their words (the rules' own sentences stay in `reasons` for the Details). */
+    why: founderReasons(approval.reasons),
     agent: agent ? { id: agent.id, name: agent.name } : null,
     task: task ? { id: task.id, title: task.title, status: task.status } : null,
     sessionWaiting: session !== null && session.endedAt === null,
+    /** A release: the founder is asked to put a finished change live. */
+    release: isReleaseApproval(approval),
+    execution,
     section,
     canAnswer: hasSectionAccess(ctx.membership, section ?? "inbox", "write") && canResolveApproval(approval, { userId: ctx.userId, role: ctx.role }),
   };

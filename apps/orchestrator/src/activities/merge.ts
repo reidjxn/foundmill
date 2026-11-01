@@ -1,46 +1,50 @@
 /**
  * Review to merge (BUILD §9.6, §11.6): a code task that passed its acceptance tests sits in `review` until its branch
- * reaches the default branch, and every task that depends on it waits meanwhile. Until Oct 30, 2026 nothing moved it:
- * the agents were meant to open the pull request and route the review themselves, and on the Foundmill business they
- * did not (the deploy contract passed, sat on its branch, and three deploy tasks waited on it for a day).
+ * reaches the default branch, and every task that depends on it waits meanwhile. The platform carries it there, through
+ * the gateway like any agent call, in the task's agent's name, and going live is the founder's one tap in every business
+ * mode (decision 2026-11-01):
  *
- * The platform does it now, through the gateway like any agent call, in the task's agent's name:
- * - `prepareMerge`: the pull request for the branch (an open one, else a new one on the default branch, with the task
- *   and the test counts in its body), the repository's CI started on the branch (`run_checks`, best effort), then
- *   `merge_pr`. The gateway's policy decides what a merge is in this business: it runs (Assisted and Automated modes, or
- *   a decision Team › Responsibilities delegates) or it asks (Augmented mode: an approval and one Inbox decision for the
- *   founder, with the pull request and the tests). A refusal holds the task in review with the reason.
- * - `completeMerge`: after the founder approved, the same call again, which the gateway runs under that approval.
- * - A merged pull request ends the task (`done`, phase done, `pr.merged`), so the tasks that depend on it can start.
+ * - `prepareMerge`: the pull request for the branch (an open one, else a new one on the default branch, with the task and
+ *   the test counts in its body) and the repository's own tests on the branch (`run_checks`, best effort).
+ * - `assessMerge`: what GitHub says before anyone is asked: a branch that conflicts with the default branch or has fallen
+ *   behind it, or whose checks already failed, never reaches the founder; it goes back to its agent (`handBack`).
+ * - `askMerge`: `merge_pr` through the gateway, whose policy makes it the founder's decision (an approval and one Inbox
+ *   item) or runs it when Team › Responsibilities delegated the decision.
+ * - After the founder approved: `awaitChecks` until the repository's tests conclude (the workflow polls), then
+ *   `completeMerge`, the same call again, which the gateway runs under that approval. Tests that fail hand the branch back;
+ *   tests that never conclude hold the merge for the next cycle.
+ * - Every outcome after the founder's answer is on record against the approval (`merge.*` audit rows with `approvalId`),
+ *   which is what the Inbox's Decided panel shows: went live, waiting for the tests, or did not go through and why.
  *
- * Never a push to the default branch, never a merge in Augmented mode without the founder, never a second Inbox item
- * for the same merge (the gateway reuses an open approval for the same call).
+ * Never a push to the default branch, never a merge the founder did not approve (or delegate), never a second Inbox item
+ * for the same merge (the gateway reuses an open approval for the same call, and an approved one covers the retry).
  */
 import { APP_NAME } from "@foundmill/config";
 import { isUntrusted } from "@foundmill/connectors";
 import { repos } from "@foundmill/db";
 import type { OrchestratorDeps } from "../deps";
 import { emitEvent, systemActor } from "../events";
-import type { MergeInput, MergeOutcome, MergePrepared } from "./types";
+import type { MergeAsked, MergeAssessment, MergeHoldReason, MergeInput, MergeOutcome, MergePrepared, MergePullRequest } from "./types";
 
 /** Lifetime of the token minted for one merge step (a few GitHub calls). */
 export const MERGE_TOKEN_TTL_SECONDS = 300;
 /** How long one GitHub call of the merge may take. */
 const MERGE_CALL_TIMEOUT_MS = 120_000;
 /**
- * Two tokens, never one: the reads (pull requests, the compare) on a token that can only read, so the gateway returns
- * GitHub's answer as data; a token that can also open and merge would have the pull request list read by the quarantined
- * reader and handed back as a summary (BUILD §9.8), which the merge cannot parse (Nov 1, 2026: every merge failed there).
+ * Two tokens, never one: the reads (pull requests, checks, the compare) on a token that can only read, so the gateway
+ * returns GitHub's answer as data; a token that can also open and merge would have the pull request list read by the
+ * quarantined reader and handed back as a summary (BUILD §9.8), which the merge cannot parse (Nov 1, 2026: every merge
+ * failed there).
  */
-const MERGE_READ_TOOLS = ["github:compare_refs", "github:list_pull_requests"];
+const MERGE_READ_TOOLS = ["github:compare_refs", "github:list_pull_requests", "github:get_pull_request", "github:get_checks"];
 const MERGE_WRITE_TOOLS = ["github:open_pr", "github:run_checks", "github:merge_pr"];
-/** Audit actions of the merge step. */
-export const MERGE_AUDIT = { prepared: "merge.prepared", merged: "merge.merged", notMerged: "merge.not_merged", reopened: "merge.reopened" } as const;
+/** Audit actions of the merge step; `approvalId` in their details ties them to the founder's decision. */
+export const MERGE_AUDIT = { prepared: "merge.prepared", asked: "merge.asked", waiting: "merge.waiting", merged: "merge.merged", notMerged: "merge.not_merged", reopened: "merge.reopened", handedBack: "merge.handed_back" } as const;
 /** How many review tasks, and how much of their history, one sweep reads. */
 const SWEEP_TASKS = 100;
+const SWEEP_HISTORY = 500;
 /** The audit step of a merge with nothing to do: the work is already on the default branch. */
 const NOTHING_TO_MERGE = "nothing_to_merge";
-const SWEEP_HISTORY = 500;
 /** The reason a session gives when it changed how the tests run: the founder looks at it first (session.ts). */
 const TEST_SETUP_REVIEW = "needs review:";
 
@@ -57,6 +61,9 @@ interface CompletedPayload {
 interface PullRequestSummary {
   number: number;
   merged?: boolean;
+  state?: string;
+  draft?: boolean;
+  mergeableState?: string | null;
   title: string;
   url: string;
   base: { ref: string };
@@ -80,7 +87,7 @@ function resultOf<T>(res: { outcome: string; result?: unknown; reasons?: string[
 export function pullRequestBody(input: MergeInput, task: { id: string; title: string; goalMd: string }): string {
   const tests = input.acceptance ? `${input.acceptance.passing} of ${input.acceptance.total} acceptance tests passed in the platform's sandbox.` : "Nothing in this change had tests the sandbox could run (documentation, or suites that need the running app).";
   const goal = task.goalMd.trim().slice(0, 1500);
-  return [`## Task\n${task.title}${goal ? `\n\n${goal}` : ""}`, `## Tests\n${tests}`, `## Summary\n${input.summary.trim().slice(0, 2000) || "(none)"}`, `Opened by ${APP_NAME} when task ${task.id} passed its tests. Merging follows the business mode: the founder's decision in Augmented mode, automatic when green in Assisted and Automated.`].join("\n\n");
+  return [`## Task\n${task.title}${goal ? `\n\n${goal}` : ""}`, `## Tests\n${tests}`, `## Summary\n${input.summary.trim().slice(0, 2000) || "(none)"}`, `Opened by ${APP_NAME} when task ${task.id} passed its tests. Nothing goes live until the founder says so: once the repository's checks pass, the founder's one tap in the Inbox merges it.`].join("\n\n");
 }
 
 /** The `merge_pr` arguments for a task's pull request: the same on every call, so an approval of the first covers the second. */
@@ -88,23 +95,69 @@ export function mergeArgs(target: { owner: string; repo: string }, prNumber: num
   return { owner: target.owner, repo: target.repo, prNumber, mergeMethod: "squash", commitTitle: `${title.trim()} (#${prNumber})`.slice(0, 256) };
 }
 
+/** What GitHub's merge state means for the review. */
+export function mergeableOf(state: string | null | undefined, draft: boolean | undefined): MergeAssessment["mergeable"] {
+  switch (state) {
+    case "dirty":
+      return "conflicts";
+    case "behind":
+      return "behind";
+    case "clean":
+    case "blocked":
+    case "unstable":
+    case "has_hooks":
+      return "ready";
+    case "draft":
+      return draft === false ? "unknown" : "ready"; // the merge marks a draft ready first
+    default:
+      return "unknown";
+  }
+}
+
+/**
+ * The instruction a handed-back task carries to its agent and the founder: what happened, in both their words, and what
+ * the next session must do. The founder reads the first sentence in the Chief of Staff's note; the agent reads all of it.
+ */
+export function handBackDetail(why: MergeHoldReason, branch: string, detail: string | null): string {
+  const what =
+    why === "conflicts"
+      ? "This change clashes with newer work on the live product, so it could not go live as it is."
+      : why === "behind"
+        ? "The live product moved on since this change was made, and the repository wants the change brought up to date before it goes live."
+        : why === "checks_failed"
+          ? "The repository's automatic tests failed on this change, so it could not go live."
+          : why === "checks_timeout"
+            ? "The repository's automatic tests did not finish in time, so this change did not go live yet."
+            : "The repository refused to take this change.";
+  const todo =
+    why === "checks_failed"
+      ? `Bring your working copy (${branch}) up to date with the newest version of the product, fix what the repository's tests found, keep every test passing, and finish; it is offered to go live again when the tests pass.`
+      : `Bring your working copy (${branch}) up to date with the newest version of the product: your session starts from the live product's newest files with your earlier change applied on top. Reconcile the files the product changed since, keep every test passing, and finish; it is offered to go live again when the tests pass.`;
+  return [what, detail ? `Details: ${detail}` : "", todo].filter(Boolean).join(" ").slice(0, 2000);
+}
+
 export function createMergeActivities(deps: OrchestratorDeps) {
   const { db } = deps;
   const mint = (input: MergeInput, allowedTools: string[]) => deps.gateway.mintSessionToken({ businessId: input.businessId, agentId: input.agentId, sessionId: input.sessionId, allowedTools, ttlSeconds: MERGE_TOKEN_TTL_SECONDS });
   const tokens = async (input: MergeInput) => ({ read: (await mint(input, MERGE_READ_TOOLS)).token, write: (await mint(input, MERGE_WRITE_TOOLS)).token });
+  const call = async <T>(tok: string, tool: string, args: Record<string, unknown>) => {
+    const res = await deps.gateway.call(tok, { connector: "github", tool, args }, { timeoutMs: MERGE_CALL_TIMEOUT_MS });
+    return { res, result: resultOf<T>(res) };
+  };
   /** The branch's pull requests (every state), or null when GitHub's answer is not the list it should be. */
   const pullRequestsOf = async (tok: string, repo: { owner: string; repo: string }, branch: string): Promise<PullRequestSummary[] | null> => {
     const listed = await call<{ items?: unknown }>(tok, "list_pull_requests", { ...repo, state: "all", perPage: 100 });
     if (!listed.result.ok || !Array.isArray(listed.result.data.items)) return null;
     return (listed.result.data.items as PullRequestSummary[]).filter((p) => p && typeof p.number === "number" && p.head?.ref === branch);
   };
-  const call = async <T>(tok: string, tool: string, args: Record<string, unknown>) => {
-    const res = await deps.gateway.call(tok, { connector: "github", tool, args }, { timeoutMs: MERGE_CALL_TIMEOUT_MS });
-    return { res, result: resultOf<T>(res) };
+  const repository = async (input: MergeInput) => {
+    const target = await repos.integrations.codeRepository(db, input.businessId);
+    return target ? { target, repo: { owner: target.owner, repo: target.repo } } : null;
   };
+  const audit = (input: MergeInput, action: string, details: Record<string, unknown>) => repos.audit.append(db, input.businessId, { actorKind: "agent", actorId: input.agentId, action, target: { kind: "task", id: input.taskId }, details: { sessionId: input.sessionId, ...details } });
 
   /** The task is done: status, progress and the `pr.merged` event the journey and the composer read. */
-  async function finishMerged(input: MergeInput, target: { fullName: string }, pr: PullRequestSummary, sha: string, mergedBy: { kind: "agent" | "user" | "system"; id: string }): Promise<void> {
+  async function finishMerged(input: MergeInput, target: { fullName: string }, pr: PullRequestSummary, sha: string, mergedBy: { kind: "agent" | "user" | "system"; id: string }, approvalId: string | null): Promise<void> {
     const task = await repos.tasks.get(db, input.businessId, input.taskId);
     if (task.status !== "done") await repos.tasks.setStatus(db, input.businessId, input.taskId, "done", { force: true });
     await repos.tasks.setProgress(db, input.businessId, input.taskId, { progress: 1, phase: "done" });
@@ -114,16 +167,16 @@ export function createMergeActivities(deps: OrchestratorDeps) {
       actor: mergedBy,
       payload: { taskId: input.taskId, repo: target.fullName, prNumber: pr.number, title: pr.title.slice(0, 300), branch: input.branch, baseBranch: pr.base.ref, mergeCommitSha: sha, mergedBy, additions: pr.additions, deletions: pr.deletions, filesChanged: pr.changedFiles, url: pr.url },
     }, { idempotencyKey: `pr.merged:${target.fullName}#${pr.number}:${sha}` });
-    await repos.audit.append(db, input.businessId, { actorKind: "agent", actorId: input.agentId, action: MERGE_AUDIT.merged, target: { kind: "task", id: input.taskId }, details: { sessionId: input.sessionId, prNumber: pr.number, mergeCommitSha: sha, branch: input.branch } });
+    await audit(input, MERGE_AUDIT.merged, { prNumber: pr.number, prUrl: pr.url, mergeCommitSha: sha, branch: input.branch, approvalId });
   }
 
   return {
     /**
      * Code tasks whose work passed its tests on the task's own branch and never reached the default branch: in review with
      * nothing moving them, or marked done (until Oct 31, 2026 a code session ended done whatever its branch held) with no
-     * `pr.merged`. Skipped: a merge made, refused by the founder, or found unnecessary (`nothing_to_merge`), and a session
-     * held for the founder's look at a change to the test setup. The cycle starts a `mergeReview` for each; a review
-     * already under way for a task is left running.
+     * `pr.merged`. Skipped: a merge made, refused by the founder, found unnecessary (`nothing_to_merge`) or handed back
+     * to its agent (the task is blocked, not in review), and a session held for the founder's look at a change to the
+     * test setup. The cycle starts a `mergeReview` for each; a review already under way for a task is left running.
      */
     async pendingMerges(input: { businessId: string }): Promise<MergeInput[]> {
       const waiting = (await repos.tasks.list(db, input.businessId, { status: ["review", "done"], kind: "code", limit: SWEEP_TASKS })).items;
@@ -159,9 +212,9 @@ export function createMergeActivities(deps: OrchestratorDeps) {
     },
 
     /**
-     * The pull request for the task's branch and the merge, or the approval that decides it. Skips when there is nothing
-     * to merge (not a code task in review, no repository, pushing off); holds the task in review when GitHub or the
-     * gateway refuses, with the reason.
+     * The pull request for the task's branch and the repository's tests on it. Skips when there is nothing to merge (not a
+     * code task in review, no repository, pushing off, already merged, nothing new); holds the task in review when the
+     * pull request cannot be opened, with the reason.
      */
     async prepareMerge(input: MergeInput): Promise<MergePrepared> {
       const task = await repos.tasks.get(db, input.businessId, input.taskId);
@@ -169,11 +222,11 @@ export function createMergeActivities(deps: OrchestratorDeps) {
       // A task marked done before Oct 31, 2026 may have its work only on its branch (the sweep offers those): it goes back
       // to review below, once GitHub shows there is something to merge.
       if (task.status !== "review" && task.status !== "done") return { status: "skipped", reason: `the task is ${task.status}, not in review` };
-      const target = await repos.integrations.codeRepository(db, input.businessId);
-      if (!target) return { status: "skipped", reason: "no repository is chosen on the Code tab" };
+      const found = await repository(input);
+      if (!found) return { status: "skipped", reason: "no repository is chosen on the Code tab" };
+      const { target, repo } = found;
       if (!target.writeEnabled) return { status: "skipped", reason: `pushing to ${target.fullName} is turned off (the Code tab)` };
-      const { read, write: tok } = await tokens(input);
-      const repo = { owner: target.owner, repo: target.repo };
+      const { read, write } = await tokens(input);
 
       // Already merged (by an earlier review, or by hand on GitHub), or nothing on the branch differs: nothing to ask.
       const ofBranch = (await pullRequestsOf(read, repo, input.branch)) ?? [];
@@ -185,63 +238,130 @@ export function createMergeActivities(deps: OrchestratorDeps) {
         const reason = alreadyMerged ? `pull request #${alreadyMerged.number} is already merged` : `${input.branch} has nothing the default branch lacks`;
         if (task.status === "review") await repos.tasks.setStatus(db, input.businessId, input.taskId, "done", { force: true });
         // On record, so the cycle's sweep does not ask GitHub about this task again.
-        await repos.audit.append(db, input.businessId, { actorKind: "agent", actorId: input.agentId, action: MERGE_AUDIT.notMerged, target: { kind: "task", id: input.taskId }, details: { sessionId: input.sessionId, step: NOTHING_TO_MERGE, reason } });
+        await audit(input, MERGE_AUDIT.notMerged, { step: NOTHING_TO_MERGE, reason });
         return { status: "skipped", reason };
       }
       if (!compared.result.ok && compared.result.code === "not_found") return { status: "skipped", reason: `${input.branch} is not in ${target.fullName}` };
       if (task.status === "done") {
         await repos.tasks.setStatus(db, input.businessId, input.taskId, "review", { force: true });
-        await repos.audit.append(db, input.businessId, { actorKind: "agent", actorId: input.agentId, action: MERGE_AUDIT.reopened, target: { kind: "task", id: input.taskId }, details: { sessionId: input.sessionId, branch: input.branch, reason: "marked done with its work only on its branch" } });
+        await audit(input, MERGE_AUDIT.reopened, { branch: input.branch, reason: "marked done with its work only on its branch" });
       }
 
       // The branch's pull request: the open one when the agent (or an earlier session) opened it, else a new one.
-      let pr: PullRequestSummary | null = ofBranch.find((p) => !p.merged && (p as { state?: string }).state !== "closed") ?? null;
+      let pr: PullRequestSummary | null = ofBranch.find((p) => !p.merged && p.state !== "closed") ?? null;
       if (!pr) {
-        const opened = await call<PullRequestSummary>(tok, "open_pr", { ...repo, title: task.title.trim().slice(0, 256), body: pullRequestBody(input, task), head: input.branch, base: "HEAD", draft: false });
+        const opened = await call<PullRequestSummary>(write, "open_pr", { ...repo, title: task.title.trim().slice(0, 256), body: pullRequestBody(input, task), head: input.branch, base: "HEAD", draft: false });
         if (!opened.result.ok) {
-          await repos.audit.append(db, input.businessId, { actorKind: "agent", actorId: input.agentId, action: MERGE_AUDIT.notMerged, target: { kind: "task", id: input.taskId }, details: { sessionId: input.sessionId, step: "open_pr", reason: opened.result.message } });
+          await audit(input, MERGE_AUDIT.notMerged, { step: "open_pr", reason: opened.result.message });
           return { status: "held", reason: `the pull request could not be opened: ${opened.result.message}`.slice(0, 500), prNumber: null, prUrl: null };
         }
         pr = opened.result.data;
       }
-      // The repository's own CI on the branch, so the founder (or the merge queue) sees the full suite's verdict next to
-      // the sandbox's. Best effort: a repository without the workflow, or a branch whose .github differs, is noted.
-      const checks = await call<{ dispatched: true }>(tok, "run_checks", { ...repo, branch: input.branch });
-      await repos.audit.append(db, input.businessId, { actorKind: "agent", actorId: input.agentId, action: MERGE_AUDIT.prepared, target: { kind: "task", id: input.taskId }, details: { sessionId: input.sessionId, prNumber: pr.number, prUrl: pr.url, ci: checks.result.ok ? "started" : checks.result.message.slice(0, 300), acceptance: input.acceptance } });
-
-      // The merge itself: the gateway's policy makes it the founder's decision (Augmented) or runs it (Assisted, Automated).
-      const merged = await call<{ merged: true; sha: string }>(tok, "merge_pr", mergeArgs(repo, pr.number, task.title));
-      if (merged.res.outcome === "ask" && merged.res.approvalId) return { status: "awaiting_approval", approvalId: merged.res.approvalId, prNumber: pr.number, prUrl: pr.url };
-      if (merged.result.ok) {
-        await finishMerged(input, target, pr, merged.result.data.sha, { kind: "agent", id: input.agentId });
-        return { status: "merged", prNumber: pr.number, prUrl: pr.url, mergeCommitSha: merged.result.data.sha };
-      }
-      await repos.audit.append(db, input.businessId, { actorKind: "agent", actorId: input.agentId, action: MERGE_AUDIT.notMerged, target: { kind: "task", id: input.taskId }, details: { sessionId: input.sessionId, step: "merge_pr", prNumber: pr.number, reason: merged.result.message } });
-      return { status: "held", reason: `the merge was refused: ${merged.result.message}`.slice(0, 500), prNumber: pr.number, prUrl: pr.url };
+      // The repository's own tests on the branch, so the founder decides with the full suite's verdict next to the
+      // sandbox's, and the merge waits for them. Best effort: a repository without the workflow, or a branch whose
+      // .github differs, is noted and the merge is tried once the founder approves (the repository's rules decide).
+      const checks = await call<{ dispatched: true }>(write, "run_checks", { ...repo, branch: input.branch });
+      const checksNote = checks.result.ok ? null : checks.result.message.slice(0, 300);
+      await audit(input, MERGE_AUDIT.prepared, { prNumber: pr.number, prUrl: pr.url, ci: checksNote ?? "started", acceptance: input.acceptance });
+      return { status: "ready", prNumber: pr.number, prUrl: pr.url, checksStarted: checks.result.ok, checksNote };
     },
 
-    /** After the founder approved: the same merge call, which the gateway runs under that approval, and the task is done. */
-    async completeMerge(input: MergeInput & { prNumber: number; approvalId: string; decidedBy: string | null }): Promise<MergeOutcome> {
+    /** GitHub's merge state and the checks on the branch head, before anyone is asked. */
+    async assessMerge(input: MergeInput & MergePullRequest): Promise<MergeAssessment> {
+      const found = await repository(input);
+      if (!found) return { mergeable: "unknown", checks: "unknown", detail: "no repository is chosen on the Code tab" };
+      const { read } = await tokens(input);
+      const [pr, checks] = await Promise.all([call<PullRequestSummary>(read, "get_pull_request", { ...found.repo, prNumber: input.prNumber }), call<{ state?: unknown }>(read, "get_checks", { ...found.repo, branch: input.branch })]);
+      const mergeable = pr.result.ok ? mergeableOf(pr.result.data.mergeableState, pr.result.data.draft) : "unknown";
+      const state = checks.result.ok && typeof checks.result.data.state === "string" ? checks.result.data.state : "unknown";
+      const checksState: MergeAssessment["checks"] = state === "pending" || state === "success" || state === "failure" ? state : "unknown";
+      const detail = pr.result.ok ? (pr.result.data.mergeableState ? `GitHub reports the pull request as ${pr.result.data.mergeableState}` : null) : pr.result.message.slice(0, 300);
+      return { mergeable, checks: checksState, detail };
+    },
+
+    /** The merge, asked for: the gateway's policy makes it the founder's decision, or runs it when the decision was delegated. */
+    async askMerge(input: MergeInput & MergePullRequest): Promise<MergeAsked> {
       const task = await repos.tasks.get(db, input.businessId, input.taskId);
-      const target = await repos.integrations.codeRepository(db, input.businessId);
-      if (!target) return { status: "skipped", reason: "no repository is chosen on the Code tab" };
-      const { read, write: tok } = await tokens(input);
-      const repo = { owner: target.owner, repo: target.repo };
-      const current = ((await pullRequestsOf(read, repo, input.branch)) ?? []).find((p) => p.number === input.prNumber) ?? null;
-      const merged = await call<{ merged: true; sha: string }>(tok, "merge_pr", mergeArgs(repo, input.prNumber, task.title));
+      const found = await repository(input);
+      if (!found) return { status: "held", reason: "no repository is chosen on the Code tab", prNumber: input.prNumber, prUrl: input.prUrl };
+      const { read, write } = await tokens(input);
+      const merged = await call<{ merged: true; sha: string }>(write, "merge_pr", mergeArgs(found.repo, input.prNumber, task.title));
+      if (merged.res.outcome === "ask" && merged.res.approvalId) {
+        await audit(input, MERGE_AUDIT.asked, { prNumber: input.prNumber, prUrl: input.prUrl, approvalId: merged.res.approvalId });
+        return { status: "awaiting_approval", approvalId: merged.res.approvalId, prNumber: input.prNumber, prUrl: input.prUrl };
+      }
       if (merged.result.ok) {
-        const pr: PullRequestSummary = current ?? { number: input.prNumber, title: task.title, url: `https://github.com/${target.fullName}/pull/${input.prNumber}`, base: { ref: "main" }, head: { ref: input.branch }, additions: 0, deletions: 0, changedFiles: 0 };
-        await finishMerged(input, target, pr, merged.result.data.sha, input.decidedBy ? { kind: "user", id: input.decidedBy } : systemActor);
+        const pr = ((await pullRequestsOf(read, found.repo, input.branch)) ?? []).find((p) => p.number === input.prNumber) ?? { number: input.prNumber, title: task.title, url: input.prUrl ?? `https://github.com/${found.target.fullName}/pull/${input.prNumber}`, base: { ref: "main" }, head: { ref: input.branch }, additions: 0, deletions: 0, changedFiles: 0 };
+        await finishMerged(input, found.target, pr, merged.result.data.sha, { kind: "agent", id: input.agentId }, null);
         return { status: "merged", prNumber: input.prNumber, prUrl: pr.url, mergeCommitSha: merged.result.data.sha };
       }
-      const reason = merged.res.outcome === "ask" ? "the merge asked for approval again instead of running under the one given" : merged.result.ok ? "unknown" : merged.result.message;
-      await repos.audit.append(db, input.businessId, { actorKind: "agent", actorId: input.agentId, action: MERGE_AUDIT.notMerged, target: { kind: "task", id: input.taskId }, details: { sessionId: input.sessionId, step: "merge_pr_approved", prNumber: input.prNumber, approvalId: input.approvalId, reason } });
-      return { status: "held", reason: `the approved merge did not run: ${reason}`.slice(0, 500), prNumber: input.prNumber, prUrl: current?.url ?? null };
+      await audit(input, MERGE_AUDIT.notMerged, { step: "merge_pr", prNumber: input.prNumber, reason: merged.result.message });
+      return { status: "held", reason: `the merge was refused: ${merged.result.message}`.slice(0, 500), prNumber: input.prNumber, prUrl: input.prUrl };
+    },
+
+    /**
+     * The repository's checks on the branch head, after the founder approved. The first look is on record against the
+     * approval (`merge.waiting`), which the Inbox shows as "waiting for the automatic tests".
+     */
+    async awaitChecks(input: MergeInput & MergePullRequest & { approvalId: string; first: boolean }): Promise<{ state: MergeAssessment["checks"] }> {
+      const found = await repository(input);
+      if (!found) return { state: "unknown" };
+      const { read } = await tokens(input);
+      const checks = await call<{ state?: unknown }>(read, "get_checks", { ...found.repo, branch: input.branch });
+      const state = checks.result.ok && typeof checks.result.data.state === "string" ? checks.result.data.state : "unknown";
+      if (input.first) await audit(input, MERGE_AUDIT.waiting, { step: "checks", prNumber: input.prNumber, prUrl: input.prUrl, approvalId: input.approvalId, checks: state });
+      return { state: state === "pending" || state === "success" || state === "failure" ? state : "unknown" };
+    },
+
+    /** After the founder approved and the checks passed: the same merge call, which the gateway runs under that approval, and the task is done. */
+    async completeMerge(input: MergeInput & MergePullRequest & { approvalId: string; decidedBy: string | null }): Promise<MergeOutcome & { retryable?: boolean }> {
+      const task = await repos.tasks.get(db, input.businessId, input.taskId);
+      const found = await repository(input);
+      if (!found) return { status: "skipped", reason: "no repository is chosen on the Code tab" };
+      const { read, write } = await tokens(input);
+      const current = ((await pullRequestsOf(read, found.repo, input.branch)) ?? []).find((p) => p.number === input.prNumber) ?? null;
+      const merged = await call<{ merged: true; sha: string }>(write, "merge_pr", mergeArgs(found.repo, input.prNumber, task.title));
+      if (merged.result.ok) {
+        const pr: PullRequestSummary = current ?? { number: input.prNumber, title: task.title, url: input.prUrl ?? `https://github.com/${found.target.fullName}/pull/${input.prNumber}`, base: { ref: "main" }, head: { ref: input.branch }, additions: 0, deletions: 0, changedFiles: 0 };
+        await finishMerged(input, found.target, pr, merged.result.data.sha, input.decidedBy ? { kind: "user", id: input.decidedBy } : systemActor, input.approvalId);
+        return { status: "merged", prNumber: input.prNumber, prUrl: pr.url, mergeCommitSha: merged.result.data.sha };
+      }
+      const reason = merged.res.outcome === "ask" ? "the merge asked for approval again instead of running under the one given" : merged.result.message;
+      // GitHub answers 405 "not mergeable" for a moment after the last check passes; the workflow tries again shortly.
+      const retryable = merged.res.outcome === "allow" && /not mergeable|405/i.test(reason);
+      await audit(input, MERGE_AUDIT.notMerged, { step: "merge_pr_approved", prNumber: input.prNumber, prUrl: input.prUrl, approvalId: input.approvalId, reason, retryable });
+      return { status: "held", reason: `the approved merge did not run: ${reason}`.slice(0, 500), prNumber: input.prNumber, prUrl: input.prUrl, retryable };
+    },
+
+    /**
+     * The branch goes back to its agent: the task is blocked with the instruction (`needs_update`), which the next session
+     * starts from (the default branch's newest files with the change applied on top) and the Chief of Staff tells the
+     * founder about. On record against the approval when the founder had already approved.
+     */
+    async handBack(input: MergeInput & MergePullRequest & { approvalId: string | null; why: MergeHoldReason; detail: string | null }): Promise<MergeOutcome> {
+      const task = await repos.tasks.get(db, input.businessId, input.taskId);
+      const reason = handBackDetail(input.why, input.branch, input.detail);
+      if (task.status === "review" || task.status === "done") await repos.tasks.setStatus(db, input.businessId, input.taskId, "blocked", { force: true });
+      await emitEvent(db, {
+        businessId: input.businessId,
+        type: "task.blocked",
+        actor: { kind: "agent", id: input.agentId },
+        payload: { taskId: input.taskId, kind: task.kind, title: task.title.slice(0, 200), assigneeAgentId: input.agentId, sessionId: input.sessionId, reason: "needs_update", detail: reason, approvalId: input.approvalId, occurrence: 1 },
+      }, { idempotencyKey: `task.blocked:merge:${input.taskId}:${input.prNumber}:${input.why}:${Date.now()}` });
+      await audit(input, MERGE_AUDIT.handedBack, { prNumber: input.prNumber, prUrl: input.prUrl, approvalId: input.approvalId, why: input.why, detail: input.detail });
+      return { status: "handed_back", why: input.why, reason, prNumber: input.prNumber, prUrl: input.prUrl };
+    },
+
+    /** The merge is held for the next cycle (the checks never concluded, or GitHub kept refusing): on record against the approval. */
+    async holdMerge(input: MergeInput & MergePullRequest & { approvalId: string | null; why: MergeHoldReason; detail: string | null }): Promise<MergeOutcome> {
+      const reason = handBackDetail(input.why, input.branch, input.detail).split(" Bring your working copy")[0]!;
+      await audit(input, MERGE_AUDIT.notMerged, { step: input.why, prNumber: input.prNumber, prUrl: input.prUrl, approvalId: input.approvalId, reason: input.detail ?? reason });
+      return { status: "held", reason, prNumber: input.prNumber, prUrl: input.prUrl };
     },
 
     /** The founder rejected the merge, or the approval expired or was withdrawn: the task stays in review, on record. */
-    async recordMergeDecision(input: MergeInput & { prNumber: number; prUrl: string | null; approvalId: string; outcome: "rejected" | "expired" | "withdrawn" }): Promise<MergeOutcome> {
-      await repos.audit.append(db, input.businessId, { actorKind: "agent", actorId: input.agentId, action: MERGE_AUDIT.notMerged, target: { kind: "task", id: input.taskId }, details: { sessionId: input.sessionId, step: "decision", prNumber: input.prNumber, approvalId: input.approvalId, outcome: input.outcome } });
+    async recordMergeDecision(input: MergeInput & MergePullRequest & { approvalId: string; outcome: "rejected" | "expired" | "withdrawn" }): Promise<MergeOutcome> {
+      await audit(input, MERGE_AUDIT.notMerged, { step: "decision", prNumber: input.prNumber, prUrl: input.prUrl, approvalId: input.approvalId, outcome: input.outcome });
       const reason = input.outcome === "rejected" ? "the founder did not approve the merge" : input.outcome === "expired" ? "the approval expired" : "the wait for the approval was withdrawn";
       return { status: "not_merged", prNumber: input.prNumber, prUrl: input.prUrl, reason };
     },

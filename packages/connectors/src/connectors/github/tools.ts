@@ -58,6 +58,12 @@ export const PullRequest = z.object({
   draft: z.boolean(),
   merged: z.boolean(),
   mergeable: z.boolean().nullable(),
+  /**
+   * GitHub's merge state: `clean` (ready), `blocked` (required checks or reviews outstanding), `unstable` (a non-required
+   * check failed), `behind` (the base moved and the ruleset wants it up to date), `dirty` (conflicts), `draft`, `has_hooks`,
+   * or `unknown` while GitHub is still computing it (a pull request just opened). Null when GitHub did not say.
+   */
+  mergeableState: z.enum(["clean", "blocked", "unstable", "behind", "dirty", "draft", "has_hooks", "unknown"]).nullable(),
   head: z.object({ ref: z.string(), sha: z.string() }),
   base: z.object({ ref: z.string(), sha: z.string() }),
   url: z.url(),
@@ -420,7 +426,7 @@ export const GITHUB_RATE_LIMITS = { perMinute: 80, perDay: 5_000 };
 export interface GhRepository { id: number; full_name: string; name: string; private: boolean; default_branch: string; description: string | null; html_url: string; pushed_at?: string | null; language?: string | null; owner: { login: string } }
 export interface GhTreeEntry { path?: string; type?: string; sha?: string; size?: number }
 export interface GhPullRequest {
-  number: number; title: string; body: string | null; state: string; draft?: boolean; merged?: boolean | null; mergeable?: boolean | null; merged_at?: string | null; created_at: string; html_url: string;
+  number: number; title: string; body: string | null; state: string; draft?: boolean; merged?: boolean | null; mergeable?: boolean | null; mergeable_state?: string | null; merged_at?: string | null; created_at: string; html_url: string;
   head: { ref: string; sha: string }; base: { ref: string; sha: string }; user?: { login: string } | null; additions?: number; deletions?: number; changed_files?: number; merge_commit_sha?: string | null;
 }
 
@@ -432,7 +438,7 @@ export const mapCheckRun = (c: GhCheckRun): CheckRunT => ({ name: c.name, status
 export const mapRepository =(r: GhRepository): RepositoryT => ({ id: r.id, fullName: r.full_name, owner: r.owner.login, name: r.name, private: r.private, defaultBranch: r.default_branch, description: r.description ?? null, url: r.html_url, pushedAt: r.pushed_at ?? null, language: r.language ?? null });
 
 export const mapPullRequest = (p: GhPullRequest): PullRequestT => ({
-  number: p.number, title: p.title, body: p.body ?? null, state: p.state === "closed" ? "closed" : "open", draft: p.draft ?? false, merged: Boolean(p.merged ?? p.merged_at), mergeable: p.mergeable ?? null,
+  number: p.number, title: p.title, body: p.body ?? null, state: p.state === "closed" ? "closed" : "open", draft: p.draft ?? false, merged: Boolean(p.merged ?? p.merged_at), mergeable: p.mergeable ?? null, mergeableState: mergeableStateOf(p.mergeable_state),
   head: { ref: p.head.ref, sha: p.head.sha }, base: { ref: p.base.ref, sha: p.base.sha }, url: p.html_url, author: p.user?.login ?? null, additions: p.additions ?? 0, deletions: p.deletions ?? 0, changedFiles: p.changed_files ?? 0,
   createdAt: p.created_at, mergedAt: p.merged_at ?? null, mergeCommitSha: p.merge_commit_sha ?? null,
 });
@@ -443,4 +449,10 @@ export const mapTreeEntry = (e: GhTreeEntry): z.infer<typeof TreeEntry> | null =
 };
 
 export const MAX_TREE_ENTRIES = 2_000;
-export const MAX_FILE_BYTES = 1_000_000;
+export const MAX_FILE_BYTES = 1_000_000;const MERGEABLE_STATES = new Set(["clean", "blocked", "unstable", "behind", "dirty", "draft", "has_hooks", "unknown"]);
+/** GitHub's `mergeable_state`, or null for a value this code does not know (never read as ready). */
+export function mergeableStateOf(state: string | null | undefined): z.infer<typeof PullRequest>["mergeableState"] {
+  return state && MERGEABLE_STATES.has(state) ? (state as z.infer<typeof PullRequest>["mergeableState"]) : null;
+}
+
+

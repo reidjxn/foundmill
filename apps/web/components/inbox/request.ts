@@ -174,11 +174,10 @@ export function describeRequest(r: RequestLike): string {
       const template = str(p, "template", "templateKey", "role");
       return `${who} wants to hire ${template ? `a ${keyWords(template)} agent` : "an agent"}`;
     }
-    case "merge_pull_request": {
-      const n = str(p, "number", "pull_number", "pr", "pullRequest");
-      // plain-allow: ApprovalPanel defines "pull request" in its help tip when the request is a merge.
-      return `${who} wants to merge ${n ? `pull request #${n.replace(/^#/, "")}` : "a pull request"}${service && service !== "GitHub" ? ` on ${service}` : ""}`;
-    }
+    case "merge_pr":
+    case "merge_pull_request":
+      // A release, in the founder's words (decision 2026-11-01): the pull request's number is a developer detail.
+      return `${who} wants to put a finished change live`;
     default: {
       if (!tool) return `${who} wants to run ${r.action}`;
       const label = toolWords(tool);

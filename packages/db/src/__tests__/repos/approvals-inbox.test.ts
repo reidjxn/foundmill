@@ -4,7 +4,7 @@
  * used once by the same call (`useGranted`), and a task waits while its approval is open or was just rejected (`holds`).
  */
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { APPROVAL_OPTIONS, approvalArgsText, approvalItem, approvalOutcomeOf, approvalSection, closeApprovalItem, isApprovalOption, openApprovalItem } from "../../approvals";
+import { APPROVAL_OPTIONS, founderReasons, approvalArgsText, approvalItem, approvalOutcomeOf, approvalSection, closeApprovalItem, isApprovalOption, openApprovalItem } from "../../approvals";
 import { repos } from "../../repos";
 import { setupRepoHarness, type RepoHarness } from "./helpers";
 
@@ -50,10 +50,15 @@ describe("the decision item", () => {
     expect(item.type).toBe("decision");
     expect(item.blocksContinue).toBe(true);
     expect(item.fromAgentId).toBe(r.A.agentId);
-    expect(item.subject).toBe("Finance Lead asks to run Stripe › create coupon");
+    expect(item.subject).toBe("Finance Lead needs your OK: Stripe › create coupon");
     expect(item.bodyMd).toContain("“Set up the first runway forecast”");
     expect(item.bodyMd).toContain("$45.00");
-    expect(item.bodyMd).toContain("ANNUAL20: 20% off annual plans");
+    // The three questions, in the founder's words; the arguments stay in the reading pane's Details, never in the note.
+    expect(item.bodyMd).toMatch(/^\*\*What happened:\*\* Finance Lead wants to create coupon on Stripe for “Set up the first runway forecast”, spending \*\*\$45\.00\*\*/);
+    expect(item.bodyMd).toContain("**What I need from you:** your OK.");
+    expect(item.bodyMd).toContain("**If you say yes:** it runs once, exactly as asked. **If you say no:** nothing runs, and the task waits until you start it again.");
+    expect(item.bodyMd).toContain("**Why you are asked:** This would spend more than you allowed without asking.");
+    expect(item.bodyMd).not.toContain("ANNUAL20");
     const options = (item.decision as { options: { id: string; label: string }[] }).options;
     expect(options.map((o) => [o.id, o.label])).toEqual([
       [APPROVAL_OPTIONS.approve, "Approve"],
@@ -111,8 +116,25 @@ describe("the decision item", () => {
     expect(approvalSection({ connectorKey: "notion", tool: "create_page" })).toBeNull();
     // No amount: no money in the note.
     const plain = approvalItem({ connectorKey: "github", tool: "run_migration", reasons: [], amountMinor: null, currency: null, args: { summary: "create index" } }, { agentId: r.A.agentId, agentName: "Legal Lead" });
-    expect(plain.body_md).not.toMatch(/committing/);
-    expect(plain.body_md).toContain("`create index`");
+    expect(plain.body_md).not.toMatch(/spending|committing/);
+    // The arguments never reach the note (the reading pane's Details hold them).
+    expect(plain.body_md).not.toContain("create index");
+    expect(plain.body_md).toContain("**What happened:** Legal Lead wants to run migration on GitHub, and waits for your answer.");
+    // A release is worded as the moment it is for the founder, with the platform's test counts.
+    const release = approvalItem({ connectorKey: "github", tool: "merge_pr", reasons: ["You chose to be asked before anything goes live"], amountMinor: null, currency: null, args: { owner: "acme", repo: "shop", prNumber: 38, mergeMethod: "squash" } }, { agentId: r.A.agentId, agentName: "Eva", taskTitle: "Assert no hydration errors in the example-business Playwright spec", tests: { passing: 144, total: 144 } });
+    expect(release.subject).toBe("Eva's change is ready to go live");
+    expect(release.body_md).toBe(
+      [
+        "**What happened:** Eva finished “Assert no hydration errors in the example-business Playwright spec”. The platform ran 144 tests on it and all passed. The repository's own automatic tests run next (about 10 minutes).",
+        "**What I need from you:** OK to put it live?",
+        "**If you say yes:** it goes live once the automatic tests pass; if they fail, Eva fixes it and asks again. **If you say no:** nothing changes, and the work waits.",
+        "**Why you are asked:** You chose to be asked before anything goes live.",
+      ].join("\n\n"),
+    );
+    expect(release.body_md).not.toMatch(/prNumber|squash|merge|#38|\{/);
+    expect((release.decision.options as { label: string }[]).map((o) => o.label)).toEqual(["Put it live", "Not now"]);
+    expect(approvalItem({ connectorKey: "github", tool: "merge_pr", reasons: [], amountMinor: null, currency: null, args: {} }, { agentId: r.A.agentId, agentName: "Eva", tests: null }).body_md).toContain("Eva finished a change. The platform found nothing in it to test.");
+    expect(founderReasons(["Assisted mode: irreversible actions need approval", "spend above the approval threshold", "something this table does not know"])).toEqual(["You chose to be asked before anything that can't be undone.", "This would spend more than you allowed without asking."]);
   });
 });
 

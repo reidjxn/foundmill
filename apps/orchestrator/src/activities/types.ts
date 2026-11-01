@@ -231,7 +231,7 @@ export type SessionOutcome = "done" | "blocked" | "failed" | "stopped";
 export interface SessionResult {
   outcome: SessionOutcome;
   reason: string | null;
-  blockedReason: "awaiting_approval" | "approval_rejected" | "dependency" | "credential" | "budget" | "rate_limit" | "loop_detected" | "error" | "shout" | "stopped" | null;
+  blockedReason: "awaiting_approval" | "approval_rejected" | "dependency" | "credential" | "budget" | "rate_limit" | "loop_detected" | "error" | "shout" | "stopped" | "needs_update" | null;
   approvalId: string | null;
   progress: ProgressState;
   eventsEmitted: number;
@@ -317,21 +317,48 @@ export interface MergeInput {
   summary: string;
 }
 
+/** One pull request of a merge review, as the workflow carries it between activities. */
+export interface MergePullRequest {
+  prNumber: number;
+  prUrl: string | null;
+}
+
 export type MergePrepared =
-  /** The merge ran at once (Assisted or Automated mode, or a delegated decision): the task is done. */
-  | { status: "merged"; prNumber: number; prUrl: string | null; mergeCommitSha: string }
-  /** The founder decides (Augmented mode): the approval and the pull request to merge once approved. */
-  | { status: "awaiting_approval"; approvalId: string; prNumber: number; prUrl: string | null }
-  /** Nothing to merge: not a code task, not in review, no repository, pushing off. */
+  /** The pull request exists and the repository's tests were asked for; the review goes on to GitHub's merge state. */
+  | ({ status: "ready"; checksStarted: boolean; checksNote: string | null } & MergePullRequest)
+  /** Nothing to merge: not a code task, not in review, no repository, pushing off, already merged, nothing new. */
   | { status: "skipped"; reason: string }
-  /** The pull request exists but the merge could not be made or asked for; the task stays in review. */
+  /** The pull request could not be opened; the task stays in review. */
   | { status: "held"; reason: string; prNumber: number | null; prUrl: string | null };
 
+/** GitHub's view of the pull request before anyone is asked. */
+export interface MergeAssessment {
+  /** `ready` (clean, or only waiting on checks), `conflicts` (dirty), `behind` (the base moved and must be brought in), `unknown` (GitHub still computing). */
+  mergeable: "ready" | "conflicts" | "behind" | "unknown";
+  /** The repository's own checks on the branch head. */
+  checks: "pending" | "success" | "failure" | "unknown";
+  detail: string | null;
+}
+
+export type MergeAsked =
+  /** The founder decides (every mode, decision 2026-11-01): the approval and its pull request. */
+  | ({ status: "awaiting_approval"; approvalId: string } & MergePullRequest)
+  /** The gateway ran the merge (a decision Team › Responsibilities delegated): the task is done. */
+  | ({ status: "merged"; mergeCommitSha: string } & MergePullRequest)
+  | ({ status: "held"; reason: string } & MergePullRequest);
+
+/** Why a merge was not made after the pull request existed. */
+export type MergeHoldReason = "conflicts" | "behind" | "checks_failed" | "checks_timeout" | "refused";
+
 export type MergeOutcome =
-  | { status: "merged"; prNumber: number; prUrl: string | null; mergeCommitSha: string }
-  | { status: "not_merged"; prNumber: number; prUrl: string | null; reason: string }
+  | ({ status: "merged"; mergeCommitSha: string } & MergePullRequest)
+  /** The founder decided against it (or the approval expired or was withdrawn); the task stays in review. */
+  | ({ status: "not_merged"; reason: string } & MergePullRequest)
   | { status: "skipped"; reason: string }
-  | { status: "held"; reason: string; prNumber: number | null; prUrl: string | null };
+  /** The merge could not be made; the task stays in review and the next cycle tries again. */
+  | { status: "held"; reason: string; prNumber: number | null; prUrl: string | null }
+  /** The branch went back to its agent (conflicts, behind, or the checks failed): the task is blocked with the instruction. */
+  | ({ status: "handed_back"; why: MergeHoldReason; reason: string } & MergePullRequest);
 
 export type { SessionCommand };
 

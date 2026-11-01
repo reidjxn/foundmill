@@ -395,8 +395,8 @@ test.describe("inbox", () => {
     await signIn(page);
     await page.goto(`/b/${LEDGERLY_BUSINESS_ID}/inbox?tab=all`);
     await expect(page.getByTestId("inbox-list")).toBeVisible({ timeout: LONG });
-    // The seed's pending approval has its decision item: "<agent> asks to run Foundmill › set budget".
-    const request = rowsOf(page).filter({ hasText: /asks to run .+ › set budget/ }).first();
+    // The seed's pending approval has its decision item: "<agent> needs your OK: Foundmill › set budget".
+    const request = rowsOf(page).filter({ hasText: /needs your OK: .+ › set budget/ }).first();
     await expect(request, "the seed gives Ledgerly an agent's request to approve").toBeVisible({ timeout: LONG });
     await request.click();
     const panel = page.getByTestId("approval-panel");

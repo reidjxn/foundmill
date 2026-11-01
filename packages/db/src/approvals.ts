@@ -101,6 +101,30 @@ export function approvalSection(approval: Pick<Approval, "connectorKey" | "tool"
   return CONNECTOR_SECTIONS[approval.connectorKey] ?? null;
 }
 
+/**
+ * Why the platform asked, in the founder's words. Policy reasons are the Cedar rules' own sentences ("Assisted mode:
+ * irreversible actions need approval"): mode names and "irreversible" mean nothing to a solo founder, so each known kind
+ * maps to what they chose; a reason this table does not know is left out of the note (the reading pane's Details keep it).
+ */
+export function founderReason(reason: string): string | null {
+  const r = reason.toLowerCase();
+  if (/goes live|go live/.test(r)) return "You chose to be asked before anything goes live.";
+  if (/contract/.test(r)) return "You chose to be asked before any contract.";
+  if (/threshold|spend|amount/.test(r)) return "This would spend more than you allowed without asking.";
+  if (/irreversible|undone/.test(r)) return "You chose to be asked before anything that can't be undone.";
+  if (/external|third.part|contact|recipient/.test(r)) return "You chose to be asked before the team contacts anyone outside the business.";
+  if (/augmented/.test(r)) return "You chose to be asked before the team acts on its own.";
+  return null;
+}
+
+/** The distinct founder-worded reasons of an approval, in order; empty when none of them maps. */
+export function founderReasons(reasons: readonly string[]): string[] {
+  return [...new Set(reasons.map(founderReason).filter((r): r is string => r !== null))];
+}
+
+/** A release: `merge_pr` on GitHub, which the Inbox words as "goes live" (decision 2026-11-01). */
+export const isReleaseApproval = (approval: Pick<Approval, "connectorKey" | "tool">): boolean => approval.connectorKey === "github" && (approval.tool === "merge_pr" || approval.tool === "merge_pull_request");
+
 export interface ApprovalItemDetails {
   /** The agent who asked (the item is from it); the Chief of Staff when the approval names no agent. */
   agentId: string;
@@ -114,6 +138,8 @@ export interface ApprovalItemDetails {
   argsSummary?: string | null;
   /** The `approval.requested` event(s) this item narrates. */
   sourceEventIds?: readonly string[];
+  /** A release: what the platform's own tests found on the change (null: nothing to test), read from the task when omitted. */
+  tests?: { passing: number; total: number } | null;
 }
 
 const clip = (text: string, max: number) => (text.length > max ? `${text.slice(0, max - 3)}...` : text);
@@ -142,30 +168,66 @@ export function approvalAmount(approval: Pick<Approval, "amountMinor" | "currenc
   return approval.amountMinor && approval.amountMinor > 0 && approval.currency ? formatMoney({ amountMinor: approval.amountMinor, currency: approval.currency }) : null;
 }
 
-/** The Inbox item for one approval: a blocking decision from the agent who asked. */
+/**
+ * The Inbox item for one approval: a blocking decision from the agent who asked, written for the founder (UX plan §5.2):
+ * what happened, what is needed from them, and what yes or no does, in under sixty words and without an id, a tool, a
+ * branch or a mode name. The call itself and its arguments stay in the reading pane's Details (ApprovalPanel), for a
+ * developer. A release ("goes live") is worded as the moment it is for the founder; every other call says what the agent
+ * wants to do and for which task.
+ */
 export function approvalItem(approval: Pick<Approval, "connectorKey" | "tool" | "reasons" | "amountMinor" | "currency" | "args">, details: ApprovalItemDetails) {
   const action = approvalAction(approval, details.connectorName, details.businessName);
   const amount = approvalAmount(approval);
-  const what = approvalArgsText(approval, details.argsSummary);
-  const reasons = approval.reasons.map((r) => r.trim()).filter(Boolean);
   const task = details.taskTitle?.trim() || null;
+  const who = details.agentName.trim() || "The team";
+  const why = founderReasons(approval.reasons);
+  const whyLine = why.length ? `**Why you are asked:** ${why.join(" ")}` : "";
+  if (isReleaseApproval(approval)) {
+    const tests = details.tests === undefined ? null : details.tests;
+    const tested = tests && tests.total > 0 ? `The platform ran ${tests.total} test${tests.total === 1 ? "" : "s"} on it and ${tests.passing === tests.total ? "all passed" : `${tests.passing} passed`}.` : tests === null && details.tests !== undefined ? "The platform found nothing in it to test." : "";
+    const body = [
+      `**What happened:** ${who} finished${task ? ` “${task}”` : " a change"}. ${tested} The repository's own automatic tests run next (about 10 minutes).`.replace(/\s+/g, " "),
+      "**What I need from you:** OK to put it live?",
+      `**If you say yes:** it goes live once the automatic tests pass; if they fail, ${who} fixes it and asks again. **If you say no:** nothing changes, and the work waits.`,
+      whyLine,
+    ].filter(Boolean);
+    return {
+      type: "decision" as const,
+      from_agent_id: details.agentId,
+      subject: clip(`${who}'s change is ready to go live`, 80),
+      body_md: body.join("\n\n"),
+      status_strip: [],
+      exhibit: { kind: "none" as const, spec_ref: null },
+      decision: {
+        options: [
+          { id: APPROVAL_OPTIONS.approve, label: "Put it live", recommended: true, consequence: "It goes live once the automatic tests pass.", cost_minor: 0, reversible: false },
+          { id: APPROVAL_OPTIONS.reject, label: "Not now", recommended: false, consequence: "Nothing changes; the work waits for you.", cost_minor: 0, reversible: true },
+        ],
+        free_text: false,
+        expires_at: null,
+      },
+      blocks_continue: true,
+      source_event_ids: [...(details.sourceEventIds ?? [])],
+      entity_ids: [],
+    };
+  }
   const body = [
-    `**${details.agentName}** wants to run **${action}**${task ? ` for the task “${task}”` : ""}${amount ? `, committing **${amount}**` : ""}. The call waits for your answer.`,
-    what ? `What it would send: \`${clip(what.replace(/`/g, "'"), 400)}\`` : "",
-    reasons.length ? `Why it asks: ${reasons.map((r) => clip(r.replace(/\.$/, ""), 200)).join("; ")}.` : "",
-    `Approve and it runs once, exactly as asked. Reject and nothing runs${task ? "; the task stays blocked until you start it again" : ""}.`,
+    `**What happened:** ${who} wants to ${toolWords(approval.tool)}${approval.connectorKey && approval.connectorKey !== PLATFORM_CONNECTOR ? ` on ${connectorLabel(approval.connectorKey)}` : ""}${task ? ` for “${task}”` : ""}${amount ? `, spending **${amount}**` : ""}, and waits for your answer.`,
+    "**What I need from you:** your OK.",
+    `**If you say yes:** it runs once, exactly as asked. **If you say no:** nothing runs${task ? ", and the task waits until you start it again" : ""}.`,
+    whyLine,
   ].filter(Boolean);
   return {
     type: "decision" as const,
     from_agent_id: details.agentId,
-    subject: clip(`${details.agentName} asks to run ${action}`, 80),
+    subject: clip(`${who} needs your OK: ${action}`, 80),
     body_md: body.join("\n\n"),
     status_strip: [],
     exhibit: { kind: "none" as const, spec_ref: null },
     decision: {
       options: [
-        { id: APPROVAL_OPTIONS.approve, label: "Approve", recommended: true, consequence: `${details.agentName} runs ${action} once${amount ? ` (${amount})` : ""} and carries on.`, cost_minor: 0, reversible: false },
-        { id: APPROVAL_OPTIONS.reject, label: "Reject", recommended: false, consequence: task ? `Nothing runs; “${clip(task, 60)}” stays blocked until you start it again.` : "Nothing runs.", cost_minor: 0, reversible: true },
+        { id: APPROVAL_OPTIONS.approve, label: "Approve", recommended: true, consequence: `${who} runs ${action} once${amount ? ` (${amount})` : ""} and carries on.`, cost_minor: 0, reversible: false },
+        { id: APPROVAL_OPTIONS.reject, label: "Reject", recommended: false, consequence: task ? `Nothing runs; “${clip(task, 60)}” waits until you start it again.` : "Nothing runs.", cost_minor: 0, reversible: true },
       ],
       free_text: false,
       expires_at: null,
@@ -174,6 +236,16 @@ export function approvalItem(approval: Pick<Approval, "connectorKey" | "tool" | 
     source_event_ids: [...(details.sourceEventIds ?? [])],
     entity_ids: [],
   };
+}
+
+/** What the platform's own tests found on a task's latest finished session (its `task.completed`), or null when nothing was there to test. */
+export async function approvalTaskTests(db: Executor, businessId: string, approval: Pick<Approval, "taskId">): Promise<{ passing: number; total: number } | null> {
+  if (!approval.taskId) return null;
+  const completed = await repos.events.list(db, businessId, { type: "task.completed", limit: 200 });
+  const latest = completed.items.find((e) => (e.payload as { taskId?: unknown }).taskId === approval.taskId);
+  const p = latest?.payload as { acceptanceTests?: unknown; acceptanceTestsPassing?: unknown } | undefined;
+  if (!p || typeof p.acceptanceTests !== "number" || p.acceptanceTests <= 0) return null;
+  return { passing: typeof p.acceptanceTestsPassing === "number" ? p.acceptanceTestsPassing : 0, total: p.acceptanceTests };
 }
 
 /** The title of an approval's task, when it has one in this business. */
@@ -192,7 +264,8 @@ export async function openApprovalItem(db: Executor, businessId: string, approva
   return db.transaction(async (tx) => {
     const taskTitle = details.taskTitle !== undefined ? details.taskTitle : await approvalTaskTitle(tx, businessId, approval);
     const businessName = details.businessName ?? (approval.connectorKey === PLATFORM_CONNECTOR ? (await repos.businesses.get(tx, businessId)).name : null);
-    const item = await repos.inbox.createItem(tx, businessId, approvalItem(approval, { ...details, taskTitle, businessName }));
+    const tests = details.tests !== undefined ? details.tests : isReleaseApproval(approval) ? await approvalTaskTests(tx, businessId, approval) : undefined;
+    const item = await repos.inbox.createItem(tx, businessId, approvalItem(approval, { ...details, taskTitle, businessName, ...(tests !== undefined ? { tests } : {}) }));
     await repos.approvals.linkInboxItem(tx, businessId, approval.id, item.id);
     if (details.sourceEventIds?.length) await repos.events.markNarrated(tx, businessId, details.sourceEventIds);
     return { item, created: true };

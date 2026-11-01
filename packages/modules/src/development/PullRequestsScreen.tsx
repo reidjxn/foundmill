@@ -131,8 +131,8 @@ export const PULL_REQUESTS_LEDE = "A bundle of finished code waiting for review.
 export const PULL_REQUESTS_EXPLAINER = {
   screenId: "development/pull-requests",
   purpose: PULL_REQUESTS_LEDE,
-  action: "Open the preview to try the change; merges follow the business mode.",
-  watchFor: "In Augmented mode a merge waits for your approval in the Inbox.",
+  action: "Open the preview to try the change; when its automatic tests pass, your Inbox asks whether to put it live.",
+  watchFor: "Nothing goes live until you say so, whatever the business mode.",
 } as const;
 
 export function PullRequestsScreen({ businessId, departmentId }: ModuleScreenProps) {
@@ -273,7 +273,7 @@ export function PullRequestsScreen({ businessId, departmentId }: ModuleScreenPro
             {openRows.filter((r) => r.status === "review").length} in review · {openRows.filter((r) => r.status === "merging").length} in the merge queue
           </span>
         }
-        footer={<span>Merges follow the business mode: automatic when the checks are green in Assisted and Automated, your approval in Augmented.</span>}
+        footer={<span>Nothing goes live until you say so: when an agent's change passes the automatic tests, you get one decision in your Inbox, whatever the business mode.</span>}
       >
         {/* What a pull request is, in the tab's intro while guidance is on (UX plan §7.12). */}
         <Explainer {...PULL_REQUESTS_EXPLAINER} className="m-panel-pad mb-2" />

@@ -50,7 +50,7 @@ describe("one approval per gated call", () => {
     const approval = await repos.approvals.get(g.db, g.businessId, first.approvalId);
     expect(approval.inboxItemId).not.toBeNull();
     const item = await repos.inbox.get(g.db, g.businessId, approval.inboxItemId!);
-    expect(item).toMatchObject({ type: "decision", blocksContinue: true, fromAgentId: g.agentId, subject: "Test Worker asks to run Test connector › send message" });
+    expect(item).toMatchObject({ type: "decision", blocksContinue: true, fromAgentId: g.agentId, subject: "Test Worker needs your OK: Test connector › send message" });
     expect((item.decision as { options: { id: string }[] }).options.map((o) => o.id)).toEqual([APPROVAL_OPTIONS.approve, APPROVAL_OPTIONS.reject]);
     expect(item.sourceEventIds).toEqual([requested[0]!.id]);
     const created = (await repos.events.list(g.db, g.businessId, { type: "inbox.item_created", limit: 200 })).items.find((e) => (e.payload as { inboxItemId?: string }).inboxItemId === item.id);

@@ -58,7 +58,7 @@ import { createSessionWorkspace, guardToolCall, hookOutputFor, removeSessionWork
 import { commitShaOf, describePush, pushWorkspace, type PushContext } from "./workspace-push";
 import { mergeRecipients, restoreWorkspace, saveWorkspace, toSeed, type LeftOut, type RestoredWorkspace, type SaveWorkspaceOptions } from "./workspace-store";
 import { readWorkspaceChanges, syncCheckoutToSandbox, syncWorkspaceToSandbox } from "./workspace-sync";
-import { checkoutMissingNote, checkoutNote, checkoutRepository, defaultBranchChanges, describeCheckout, disposeCheckout, extractArchive, testSetupChanges, testSetupReviewReason, type Checkout, type CheckoutBase, type CheckoutInput } from "./checkout";
+import { checkoutMissingNote, checkoutNote, checkoutRepository, defaultBranchChanges, describeCheckout, disposeCheckout, extractArchive, testSetupChanges, testSetupReviewReason, updateConflicts, updateNote, type Checkout, type CheckoutBase, type CheckoutInput } from "./checkout";
 import { fingerprintWorkspace, workspaceChanged } from "./workspace-fingerprint";
 import type { AgentSessionInput, MergeInput, SessionFinish, SessionLaunch, SessionParked, SessionResult, SessionRunOptions } from "./types";
 
@@ -1415,6 +1415,9 @@ async function runLiveSession(deps: OrchestratorDeps, recorder: SessionRecorder,
   let restored: RestoredWorkspace | null = null;
   let restoreFailed = false;
   let checkout: Checkout | null = null;
+  /** The merge handed this task back to its agent (its latest block says `needs_update`): what the session must reconcile. */
+  const handedBack = policy.fileTools ? await latestHandBack(deps, input.businessId, task.id) : null;
+  let updateNoteText: string | null = null;
   /** The Code tab has a repository but this session has no checkout of it: why (the agent is told, not only the founder). */
   let checkoutMissing: string | null = null;
   /** That repository (`owner/name`): this session's save is kept but never pushed over it (no checkout, no push). */
@@ -1422,7 +1425,10 @@ async function runLiveSession(deps: OrchestratorDeps, recorder: SessionRecorder,
   let token: Awaited<ReturnType<typeof deps.gateway.mintSessionToken>>;
   try {
     if (policy.fileTools) {
-      const checked = await checkoutRepository(deps, { businessId: input.businessId, agentId: agent.id, sessionId: input.sessionId, taskId: task.id }, cwd);
+      // A branch handed back to be brought up to date (activities/merge.ts) starts from the default branch's newest files.
+      const checkoutInput = { businessId: input.businessId, agentId: agent.id, sessionId: input.sessionId, taskId: task.id, fromDefaultBranch: handedBack !== null };
+      if (handedBack) updateNoteText = updateNote(launch.branch, await updateConflicts(deps, checkoutInput, launch.branch));
+      const checked = await checkoutRepository(deps, checkoutInput, cwd);
       if (checked.status === "checked_out") checkout = checked.checkout;
       else if (checked.status === "failed") {
         // Never a partial checkout: the session starts as it did before checkouts, and the note says why.
@@ -1471,7 +1477,7 @@ async function runLiveSession(deps: OrchestratorDeps, recorder: SessionRecorder,
   const traceparent = currentTraceparent();
   const mcpServers = Object.fromEntries(grants.servers.map((key) => [key, { type: "http" as const, url: deps.gateway.mcpUrl(key), headers: { ...deps.gateway.sessionHeaders(token.token), ...(traceparent ? { traceparent } : {}) } }]));
 
-  const continuing = [checkout ? checkoutNote(checkout) : checkoutMissing ? checkoutMissingNote(checkoutMissing) : "", restored && restored.files > 0 ? restoredWorkspaceNote(restored.files) : ""].filter(Boolean).join("\n\n");
+  const continuing = [handedBack ? `## Why this task is back\n${handedBack}` : "", checkout ? checkoutNote(checkout) : checkoutMissing ? checkoutMissingNote(checkoutMissing) : "", updateNoteText ?? "", restored && restored.files > 0 ? restoredWorkspaceNote(restored.files) : ""].filter(Boolean).join("\n\n");
   const resumed = !ctx.run.resume ? "" : ctx.run.resume.reason === "handoff" || ctx.run.resume.reason === "retry" ? "This session moved to another worker mid-task and has been resumed. Continue the task from where the work stands, and check what is already done before you repeat any external action." : "This session was paused for a while and has been resumed. Continue the task from where the work stands.";
   const taskPrompt = [`# Task: ${task.title}`, task.goalMd || "", Array.isArray(task.acceptance) && task.acceptance.length ? `## Acceptance criteria\n${task.acceptance.map((a) => `- ${typeof a === "string" ? a : JSON.stringify(a)}`).join("\n")}` : "", policy.fileTools ? `Work on branch ${launch.branch} inside your working directory; it is the only place you can read or write files.` : "Keep every action inside the tools you were given; this task has no file access.", continuing, resumed, "Report each phase change and keep every external action inside the tools you were given."].filter(Boolean).join("\n\n");
 
@@ -2527,3 +2533,19 @@ export function parseTestCounts(output: string): { passed: number; failed: numbe
 }
 
 export type { ModelKey };
+
+/**
+ * The instruction a handed-back task carries (activities/merge.ts `handBack`: its latest `task.blocked` says
+ * `needs_update`), or null when the task's latest block is something else, or it completed since.
+ */
+export async function latestHandBack(deps: Pick<OrchestratorDeps, "db">, businessId: string, taskId: string): Promise<string | null> {
+  const [blocked, completed] = await Promise.all([repos.events.list(deps.db, businessId, { type: "task.blocked", limit: 200 }), repos.events.list(deps.db, businessId, { type: "task.completed", limit: 200 })]);
+  const block = blocked.items.find((e) => (e.payload as { taskId?: unknown }).taskId === taskId);
+  if (!block) return null;
+  const p = block.payload as { reason?: unknown; detail?: unknown };
+  if (p.reason !== "needs_update" || typeof p.detail !== "string") return null;
+  const done = completed.items.find((e) => (e.payload as { taskId?: unknown }).taskId === taskId);
+  if (done && new Date(done.occurredAt).getTime() > new Date(block.occurredAt).getTime()) return null;
+  return p.detail;
+}
+
