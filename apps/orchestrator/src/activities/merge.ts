@@ -27,7 +27,13 @@ import type { MergeInput, MergeOutcome, MergePrepared } from "./types";
 export const MERGE_TOKEN_TTL_SECONDS = 300;
 /** How long one GitHub call of the merge may take. */
 const MERGE_CALL_TIMEOUT_MS = 120_000;
-const MERGE_TOOLS = ["github:compare_refs", "github:list_pull_requests", "github:open_pr", "github:run_checks", "github:merge_pr"];
+/**
+ * Two tokens, never one: the reads (pull requests, the compare) on a token that can only read, so the gateway returns
+ * GitHub's answer as data; a token that can also open and merge would have the pull request list read by the quarantined
+ * reader and handed back as a summary (BUILD §9.8), which the merge cannot parse (Nov 1, 2026: every merge failed there).
+ */
+const MERGE_READ_TOOLS = ["github:compare_refs", "github:list_pull_requests"];
+const MERGE_WRITE_TOOLS = ["github:open_pr", "github:run_checks", "github:merge_pr"];
 /** Audit actions of the merge step. */
 export const MERGE_AUDIT = { prepared: "merge.prepared", merged: "merge.merged", notMerged: "merge.not_merged", reopened: "merge.reopened" } as const;
 /** How many review tasks, and how much of their history, one sweep reads. */
@@ -84,7 +90,14 @@ export function mergeArgs(target: { owner: string; repo: string }, prNumber: num
 
 export function createMergeActivities(deps: OrchestratorDeps) {
   const { db } = deps;
-  const token = (input: MergeInput) => deps.gateway.mintSessionToken({ businessId: input.businessId, agentId: input.agentId, sessionId: input.sessionId, allowedTools: MERGE_TOOLS, ttlSeconds: MERGE_TOKEN_TTL_SECONDS });
+  const mint = (input: MergeInput, allowedTools: string[]) => deps.gateway.mintSessionToken({ businessId: input.businessId, agentId: input.agentId, sessionId: input.sessionId, allowedTools, ttlSeconds: MERGE_TOKEN_TTL_SECONDS });
+  const tokens = async (input: MergeInput) => ({ read: (await mint(input, MERGE_READ_TOOLS)).token, write: (await mint(input, MERGE_WRITE_TOOLS)).token });
+  /** The branch's pull requests (every state), or null when GitHub's answer is not the list it should be. */
+  const pullRequestsOf = async (tok: string, repo: { owner: string; repo: string }, branch: string): Promise<PullRequestSummary[] | null> => {
+    const listed = await call<{ items?: unknown }>(tok, "list_pull_requests", { ...repo, state: "all", perPage: 100 });
+    if (!listed.result.ok || !Array.isArray(listed.result.data.items)) return null;
+    return (listed.result.data.items as PullRequestSummary[]).filter((p) => p && typeof p.number === "number" && p.head?.ref === branch);
+  };
   const call = async <T>(tok: string, tool: string, args: Record<string, unknown>) => {
     const res = await deps.gateway.call(tok, { connector: "github", tool, args }, { timeoutMs: MERGE_CALL_TIMEOUT_MS });
     return { res, result: resultOf<T>(res) };
@@ -159,15 +172,15 @@ export function createMergeActivities(deps: OrchestratorDeps) {
       const target = await repos.integrations.codeRepository(db, input.businessId);
       if (!target) return { status: "skipped", reason: "no repository is chosen on the Code tab" };
       if (!target.writeEnabled) return { status: "skipped", reason: `pushing to ${target.fullName} is turned off (the Code tab)` };
-      const tok = (await token(input)).token;
+      const { read, write: tok } = await tokens(input);
       const repo = { owner: target.owner, repo: target.repo };
 
       // Already merged (by an earlier review, or by hand on GitHub), or nothing on the branch differs: nothing to ask.
-      const listed = await call<{ items: PullRequestSummary[] }>(tok, "list_pull_requests", { ...repo, state: "all", perPage: 100 });
-      const ofBranch = listed.result.ok ? listed.result.data.items.filter((p) => p.head.ref === input.branch) : [];
+      const ofBranch = (await pullRequestsOf(read, repo, input.branch)) ?? [];
       const alreadyMerged = ofBranch.find((p) => p.merged);
-      const compared = await call<{ aheadBy: number; files: unknown[] }>(tok, "compare_refs", { ...repo, base: "HEAD", head: input.branch });
-      const nothingToMerge = alreadyMerged !== undefined || (compared.result.ok && (compared.result.data.aheadBy === 0 || compared.result.data.files.length === 0));
+      const compared = await call<{ aheadBy?: unknown; files?: unknown }>(read, "compare_refs", { ...repo, base: "HEAD", head: input.branch });
+      const comparedOk = compared.result.ok && typeof compared.result.data.aheadBy === "number" && Array.isArray(compared.result.data.files);
+      const nothingToMerge = alreadyMerged !== undefined || (comparedOk && compared.result.ok && (compared.result.data.aheadBy === 0 || (compared.result.data.files as unknown[]).length === 0));
       if (nothingToMerge) {
         const reason = alreadyMerged ? `pull request #${alreadyMerged.number} is already merged` : `${input.branch} has nothing the default branch lacks`;
         if (task.status === "review") await repos.tasks.setStatus(db, input.businessId, input.taskId, "done", { force: true });
@@ -212,9 +225,9 @@ export function createMergeActivities(deps: OrchestratorDeps) {
       const task = await repos.tasks.get(db, input.businessId, input.taskId);
       const target = await repos.integrations.codeRepository(db, input.businessId);
       if (!target) return { status: "skipped", reason: "no repository is chosen on the Code tab" };
-      const tok = (await token(input)).token;
+      const { read, write: tok } = await tokens(input);
       const repo = { owner: target.owner, repo: target.repo };
-      const current = await call<PullRequestSummary>(tok, "list_pull_requests", { ...repo, state: "all", perPage: 100 }).then((r) => (r.result.ok ? ((r.result.data as unknown as { items: PullRequestSummary[] }).items.find((p) => p.number === input.prNumber) ?? null) : null));
+      const current = ((await pullRequestsOf(read, repo, input.branch)) ?? []).find((p) => p.number === input.prNumber) ?? null;
       const merged = await call<{ merged: true; sha: string }>(tok, "merge_pr", mergeArgs(repo, input.prNumber, task.title));
       if (merged.result.ok) {
         const pr: PullRequestSummary = current ?? { number: input.prNumber, title: task.title, url: `https://github.com/${target.fullName}/pull/${input.prNumber}`, base: { ref: "main" }, head: { ref: input.branch }, additions: 0, deletions: 0, changedFiles: 0 };

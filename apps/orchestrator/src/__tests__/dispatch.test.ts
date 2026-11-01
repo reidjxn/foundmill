@@ -150,7 +150,9 @@ describe("the stop flag reaches every work-starting path", () => {
     await repos.holidays.end(t.db, B(), holiday.id, { endedAt: t.clock.now() });
 
     const task = await readyTask("Prepared while stopped", t.workerId);
-    const session = await repos.agents.createSession(t.db, B(), { agentId: t.workerId, taskId: task.id });
+    // On the test's clock, like every other session here: a row started on the real clock sorts as the agent's newest
+    // once the real date passes the test's (Nov 1, 2026), and its "done" broke the next test's failure streak.
+    const session = await repos.agents.createSession(t.db, B(), { agentId: t.workerId, taskId: task.id, startedAt: t.clock.now() });
     await expect(createSessionActivities(t.deps).prepareSession({ businessId: B(), agentId: t.workerId, taskId: task.id, sessionId: session.id })).rejects.toThrow(/paused|stopped/);
   });
 

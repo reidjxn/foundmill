@@ -51,6 +51,10 @@ test.describe("finance fixes", () => {
   });
 
   test("cash: the This month view lists this month's transactions", async ({ page }) => {
+    // The seed books its first transactions of a month on the 3rd, so on the 1st and 2nd "this month" is rightly empty
+    // (Nov 1, 2026). The browser's "this month" is pinned to the 20th of last month, which the seed always covers.
+    const now = new Date();
+    await page.clock.setFixedTime(new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 20, 12)));
     await openTab(page, "finance", "cash");
     // The table opens on whichever view is current (Simple while guidance is on, UX plan §7.10); pick This month from it.
     await page.getByRole("button", { name: /^View: / }).click();
