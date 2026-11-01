@@ -150,12 +150,14 @@ export const MOCK_BUSINESSES = 200;
  * Written files are bounded per business (the oldest written branches are dropped first) and the least recently used
  * businesses are forgotten beyond MOCK_BUSINESSES.
  */
-export function createGithubMock(limits: { bytesPerBusiness?: number; bytesTotal?: number; businesses?: number; failingBranches?: readonly string[]; publicRepos?: readonly string[]; branchesWithChangedGithub?: readonly string[]; inaccessibleRepos?: readonly string[] } = {}) {
+export function createGithubMock(limits: { bytesPerBusiness?: number; bytesTotal?: number; businesses?: number; failingBranches?: readonly string[]; conflictingBranches?: readonly string[]; publicRepos?: readonly string[]; branchesWithChangedGithub?: readonly string[]; inaccessibleRepos?: readonly string[] } = {}) {
   const bytesTotal = limits.bytesTotal ?? MOCK_BYTES_TOTAL;
   const bytesPerBusiness = limits.bytesPerBusiness ?? MOCK_BYTES_PER_BUSINESS;
   const businesses = limits.businesses ?? MOCK_BUSINESSES;
   /** Branches whose mock CI fails (its `test` check concludes "failure"); every other branch passes. */
   const failingBranches = new Set(limits.failingBranches ?? []);
+  /** Branches whose pull requests conflict with the default branch (`mergeable_state: dirty`); GitHub refuses to merge them. */
+  const conflictingBranches = new Set(limits.conflictingBranches ?? []);
   /**
    * Branches whose `.github` tree differs from the default branch's (someone else pushed a workflow change there). Every
    * other branch shares the default branch's `.github`: `commit_files` refuses `.github` paths, so a commit through it
@@ -188,7 +190,8 @@ export function createGithubMock(limits: { bytesPerBusiness?: number; bytesTotal
     }
   };
   const webhook = createGithubWebhook({ secret: MOCK_GITHUB_WEBHOOK_SECRET, replay: new ReplayGuard({ now: () => MOCK_NOW.getTime() }), now: () => MOCK_NOW });
-  const toPr = (p: GhPullRequest): PullRequestT => mapPullRequest(p);
+  /** A pull request as the tool returns it; the merge state follows the branch (conflicting branches are `dirty`). */
+  const toPr = (p: GhPullRequest): PullRequestT => mapPullRequest({ ...p, mergeable: p.merged || p.state !== "open" ? null : !conflictingBranches.has(p.head.ref), mergeable_state: p.merged || p.state !== "open" ? "unknown" : conflictingBranches.has(p.head.ref) ? "dirty" : p.draft ? "draft" : "clean" });
 
   const connector = buildMockConnector({
     key: GITHUB_KEY,
@@ -381,6 +384,7 @@ export function createGithubMock(limits: { bytesPerBusiness?: number; bytesTotal
         if (!pr) throw notFound(`pull request #${prNumber}`);
         if (pr.merged) throw conflict(`pull request #${prNumber} is already merged`);
         if (pr.state !== "open") throw conflict(`pull request #${prNumber} is closed`);
+        if (conflictingBranches.has(pr.head.ref)) throw Object.assign(new Error(`Pull Request #${prNumber} is not mergeable`), { status: 405 });
         pr.draft = false; // marked ready first, as the real connector does
         const sha = commitSha(r.repo.name, pr.base.ref, prNumber);
         pr.merged = true;

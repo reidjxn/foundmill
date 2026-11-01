@@ -260,8 +260,9 @@ describe("approvals a plan action or a channel launch waits on", () => {
     const approval = await repos.approvals.create(hz.db, hz.A.businessId, { planActionId: hz.A.planActionId, agentId: hz.A.agentId, connectorKey: "platform", tool: "launch_campaign", args: { channelKey: "seo" } });
     const { item } = await openApprovalItem(hz.db, hz.A.businessId, approval, { agentId: hz.A.agentId, agentName: "Lead Generation Engine" });
     const name = (await repos.businesses.get(hz.db, hz.A.businessId)).name;
-    expect(item.subject).toBe(`Lead Generation Engine asks to run ${name} › launch campaign`.slice(0, 80));
-    expect(item.bodyMd).toContain(`wants to run **${name} › launch campaign**`);
+    expect(item.subject).toBe(`Lead Generation Engine needs your OK: ${name} › launch campaign`.slice(0, 80));
+    expect(item.bodyMd).toContain("Lead Generation Engine wants to launch campaign, and waits for your answer.");
+    expect(item.bodyMd).not.toContain("platform");
     expect(item.bodyMd).not.toContain(APP_NAME);
     expect(approvalAction({ connectorKey: "github", tool: "run_migration" }, null, name)).toBe("GitHub › run migration");
   });

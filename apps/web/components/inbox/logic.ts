@@ -578,24 +578,45 @@ export interface ApprovalLike {
   task: { id: string; title: string } | null;
   canAnswer: boolean;
   section: string | null;
+  /** A release: the founder was asked to put a finished change live. */
+  release?: boolean;
+  /** What happened after the approval (the api's `approvalExecution`); null until approved. */
+  execution?: { state: "ran" | "waiting" | "failed" | "handed_back"; detail: string | null; at: string | null } | null;
 }
 
+export type ApprovalStatusTone = "good" | "warn" | "bad" | "neutral" | "info";
+
 /**
- * Where an agent's request stands, in words: waiting (and what Approve does from here), or how it was answered. The
- * session may still wait for the answer, or it ended while waiting, in which case Approve runs the task again on the
- * next cycle.
+ * Where an agent's request stands, in words: waiting (and what Approve does from here), or how it was answered and what
+ * came of it. An approval is never "done" on the answer alone (Nov 1, 2026: four releases were approved and none went
+ * live, while the Inbox said done): approved reads as live, waiting for the tests, did not go through, or sent back,
+ * from the outcome the api records. The session may still wait for the answer, or it ended while waiting, in which case
+ * Approve runs the task again on the next cycle.
  */
-export function approvalStatus(a: ApprovalLike): { word: string; tone: "good" | "warn" | "bad" | "neutral"; detail: string } {
+export function approvalStatus(a: ApprovalLike): { word: string; tone: ApprovalStatusTone; detail: string } {
   switch (a.outcome) {
-    case "approved":
-      return { word: "Approved", tone: "good", detail: "The call runs once, exactly as asked." };
+    case "approved": {
+      const e = a.execution ?? null;
+      if (!e) return { word: "Approved", tone: "good", detail: a.release ? "It goes live once the repository's automatic tests pass." : "The call runs once, exactly as asked." };
+      switch (e.state) {
+        case "ran":
+          return { word: a.release ? "Live" : "Done", tone: "good", detail: e.detail ?? (a.release ? "It is live." : "It ran once, as asked.") };
+        case "waiting":
+          return { word: "Approved, waiting", tone: "info", detail: e.detail ?? "It runs when the agent next works on the task." };
+        case "handed_back":
+          return { word: "Sent back to the agent", tone: "warn", detail: e.detail ?? "The agent will ask again when it is ready." };
+        case "failed":
+          return { word: "Didn't go through", tone: "bad", detail: e.detail ?? "The team tries again in its next round of work." };
+      }
+      return { word: "Approved", tone: "good", detail: "" };
+    }
     case "rejected":
-      return { word: "Rejected", tone: "bad", detail: a.task ? "Nothing ran. The task stays blocked until you start it again." : "Nothing ran." };
+      return { word: "Rejected", tone: "bad", detail: a.task ? "Nothing ran. The task waits until you start it again." : "Nothing ran." };
     case "expired":
       return { word: "Expired", tone: "neutral", detail: "Nobody answered in time, so nothing ran." };
     default:
-      if (a.sessionWaiting) return { word: "Needs your answer", tone: "warn", detail: "The agent's session is waiting for your answer. Approve and it carries on." };
-      return { word: "Needs your answer", tone: "warn", detail: a.task ? "The session stopped waiting and freed its place. Approve and the task runs again in the team's next round of work." : "Approve and it runs once, exactly as asked." };
+      if (a.sessionWaiting) return { word: "Needs your answer", tone: "warn", detail: "The agent is waiting for your answer. Approve and it carries on." };
+      return { word: "Needs your answer", tone: "warn", detail: a.task ? "The agent stopped waiting and freed its place. Approve and the task runs again in the team's next round of work." : "Approve and it runs once, exactly as asked." };
   }
 }
 

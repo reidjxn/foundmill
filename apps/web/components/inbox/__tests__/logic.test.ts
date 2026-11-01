@@ -576,12 +576,23 @@ describe("an agent's request in the Inbox (audit FR-01)", () => {
   const departments = [{ slug: "build", moduleKeys: ["development", "product"], tabs: [{ slug: "training-ground", position: 1 }, { slug: "plan", position: 2 }] }];
   const waiting = { outcome: null, sessionWaiting: true, task: { id: "t-1", title: "Index the usage events" }, canAnswer: true, section: "development" } as const;
   it("says where the request stands and what Approve does from here", () => {
-    expect(approvalStatus(waiting)).toEqual({ word: "Needs your answer", tone: "warn", detail: "The agent's session is waiting for your answer. Approve and it carries on." });
-    expect(approvalStatus({ ...waiting, sessionWaiting: false }).detail).toBe("The session stopped waiting and freed its place. Approve and the task runs again in the team's next round of work.");
+    expect(approvalStatus(waiting)).toEqual({ word: "Needs your answer", tone: "warn", detail: "The agent is waiting for your answer. Approve and it carries on." });
+    expect(approvalStatus({ ...waiting, sessionWaiting: false }).detail).toBe("The agent stopped waiting and freed its place. Approve and the task runs again in the team's next round of work.");
     expect(approvalStatus({ ...waiting, sessionWaiting: false, task: null }).detail).toBe("Approve and it runs once, exactly as asked.");
     expect(approvalStatus({ ...waiting, outcome: "approved" })).toMatchObject({ word: "Approved", tone: "good" });
-    expect(approvalStatus({ ...waiting, outcome: "rejected" })).toMatchObject({ word: "Rejected", tone: "bad", detail: "Nothing ran. The task stays blocked until you start it again." });
+    expect(approvalStatus({ ...waiting, outcome: "rejected" })).toMatchObject({ word: "Rejected", tone: "bad", detail: "Nothing ran. The task waits until you start it again." });
     expect(approvalStatus({ ...waiting, outcome: "expired" })).toMatchObject({ word: "Expired", tone: "neutral" });
+  });
+  it("an approval is never done on the answer alone: approved reads as what came of it", () => {
+    const release = { ...waiting, outcome: "approved" as const, release: true };
+    expect(approvalStatus(release)).toEqual({ word: "Approved", tone: "good", detail: "It goes live once the repository's automatic tests pass." });
+    expect(approvalStatus({ ...release, execution: { state: "waiting", detail: "Waiting for the repository's automatic tests to pass.", at: null } })).toEqual({ word: "Approved, waiting", tone: "info", detail: "Waiting for the repository's automatic tests to pass." });
+    expect(approvalStatus({ ...release, execution: { state: "ran", detail: "It is live.", at: "2026-11-01T15:02:00.000Z" } })).toEqual({ word: "Live", tone: "good", detail: "It is live." });
+    expect(approvalStatus({ ...release, execution: { state: "failed", detail: "The repository refused it for the moment; the team tries again in its next round of work.", at: null } })).toMatchObject({ word: "Didn't go through", tone: "bad" });
+    expect(approvalStatus({ ...release, execution: { state: "handed_back", detail: "It clashes with newer work on the live product; the agent is bringing it up to date and will ask again.", at: null } })).toMatchObject({ word: "Sent back to the agent", tone: "warn" });
+    // Any other call: ran once the gateway used the approval, else it waits for the agent's next session.
+    expect(approvalStatus({ ...waiting, outcome: "approved", execution: { state: "ran", detail: "It ran once, as asked.", at: null } })).toEqual({ word: "Done", tone: "good", detail: "It ran once, as asked." });
+    expect(approvalStatus({ ...waiting, outcome: "approved", execution: { state: "waiting", detail: "It runs when the agent next works on the task.", at: null } }).word).toBe("Approved, waiting");
   });
   it("names the section a reader needs to answer, and links the task to the Plan", () => {
     expect(approvalLockedReason(waiting)).toBeNull();

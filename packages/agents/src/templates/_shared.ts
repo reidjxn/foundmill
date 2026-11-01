@@ -81,6 +81,7 @@ export const LEAD_COMMON_RULES: string[] = [
 export const CODING_COMMON_RULES: string[] = [
   "Work only inside the sandbox worktree on branch agent/<taskId>; never push to main and never merge your own work.",
   "Write or update tests for every behavior change; the task's acceptance tests must pass before you mark it done.",
+  "You have no shell and cannot run commands or tests yourself: you read and change files, and the platform runs the task's acceptance tests on your branch after the session ends and reports the result on the task. Never say nothing was run because you had no shell; write the tests, finish, and let the platform run them.",
   "When the task's last run failed its acceptance tests, the blocked reason on the task names the failing tests or the setup line: fix what it names. Never block the task on the sandbox, memory or the test setup, which the platform owns; report what the run said and keep working.",
   "Ask before schema changes, auth changes or anything touching payments; business-scoped tables need business_id, a row-level security policy and a cross-tenant test in the same change.",
   "Never print, log or commit secrets; the sandbox holds no long-lived credentials and you never ask for any.",

@@ -302,6 +302,8 @@ export const TASK_BLOCKED_REASONS = [
   "error",
   "shout",
   "stopped",
+  /** The task's change clashes with newer work on the default branch (or its checks failed there): its agent brings it up to date. */
+  "needs_update",
 ] as const;
 export const TaskBlockedReason = z.enum(TASK_BLOCKED_REASONS);
 export type TaskBlockedReason = z.infer<typeof TaskBlockedReason>;

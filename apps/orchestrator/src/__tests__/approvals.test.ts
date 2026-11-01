@@ -69,9 +69,10 @@ describe("a gated call waits for the founder's answer in the Inbox", () => {
     expect(approval).toMatchObject({ taskId: task.id, connectorKey: "github", tool: "run_migration", outcome: null });
     expect(approval.inboxItemId).not.toBeNull();
     const item = await repos.inbox.get(t.db, t.businessId, approval.inboxItemId!);
-    expect(item).toMatchObject({ type: "decision", blocksContinue: true, fromAgentId: t.workerId, subject: "Test Engineer asks to run GitHub › run migration" });
+    expect(item).toMatchObject({ type: "decision", blocksContinue: true, fromAgentId: t.workerId, subject: "Test Engineer needs your OK: GitHub › run migration" });
     expect(item.bodyMd).toContain("“Customer usage report endpoint”");
-    expect(item.bodyMd).toContain("create index concurrently");
+    // The call's arguments are a developer detail (the reading pane's Details), never in the founder's note.
+    expect(item.bodyMd).not.toContain("create index concurrently");
     expect((item.decision as { options: { id: string }[] }).options.map((o) => o.id)).toEqual([APPROVAL_OPTIONS.approve, APPROVAL_OPTIONS.reject]);
     const requested = (await repos.events.list(t.db, t.businessId, { type: "approval.requested", limit: 50 })).items.filter((e) => (e.payload as { approvalId: string }).approvalId === approval.id);
     expect(requested).toHaveLength(1);

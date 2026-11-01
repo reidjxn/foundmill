@@ -69,10 +69,10 @@ export function ApprovalPanel({ approval, businessId, departments, reason, onRea
         ]
       : []),
     ...(approval.amount || approval.amountHidden ? [{ label: "Amount", value: approval.amount ? <span data-testid="approval-amount">{formatMoney(approval.amount)}</span> : HIDDEN, numeric: true }] : []),
-    ...(approval.reasons.length ? [{ label: "Why it asks", value: approval.reasons.join("; ") }] : []),
+    ...(approval.why?.length ? [{ label: "Why you are asked", value: approval.why.join(" ") }] : []),
   ];
   return (
-    <Panel title="Agent request" span={12} help={toolKeyOf(approval) === "merge_pull_request" ? "A pull request is a finished piece of code an agent asks to add to the product, with its changes laid out for review. Merging adds it." : undefined} actions={<StatusPill tone={status.tone}>{status.word}</StatusPill>} footer={<span data-testid="approval-status-detail">{status.detail}</span>} data-testid="approval-panel">
+    <Panel title="Agent request" span={12} help={toolKeyOf(approval) === "merge_pr" || toolKeyOf(approval) === "merge_pull_request" ? "A finished change is code an agent wrote and tested on its own working copy. Putting it live adds it to the product everyone uses." : undefined} actions={<StatusPill tone={status.tone}>{status.word}</StatusPill>} footer={<span data-testid="approval-status-detail">{status.detail}</span>} data-testid="approval-panel">
       <div className="flex flex-col gap-3">
         {/* The business thing first (UX plan §5.2); the system's words wait behind Details. */}
         <p className="text-body-strong text-pretty text-primary" data-testid="approval-summary">
@@ -91,6 +91,14 @@ export function ApprovalPanel({ approval, businessId, departments, reason, onRea
                 {approval.action}
               </dd>
             </div>
+            {approval.reasons.length ? (
+              <div className="flex flex-col gap-0.5">
+                <dt className="t-data">The rule that asked</dt>
+                <dd className="text-small text-secondary" data-testid="approval-reasons">
+                  {approval.reasons.join("; ")}
+                </dd>
+              </div>
+            ) : null}
             <div className="flex flex-col gap-0.5">
               <dt className="t-data">What it sends</dt>
               <dd>{approval.argsHidden ? HIDDEN : approval.args ? <span className="break-words font-mono text-mono text-secondary" data-testid="approval-args">{approval.args}</span> : <span className="text-small text-secondary">No arguments</span>}</dd>

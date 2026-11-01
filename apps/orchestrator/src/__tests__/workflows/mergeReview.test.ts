@@ -1,13 +1,14 @@
 /**
- * mergeReview workflow: the merge step's answer decides the rest. A merge the gateway ran ends the workflow at once;
- * one the gateway asked for waits on the founder's approval (the same `approval:<id>` wait the Inbox signals) and
- * merges under it when approved, or records the refusal; a session that finished with a merge to make starts the
- * review as its own child, once per task, and does not wait for it.
+ * mergeReview workflow: GitHub's merge state decides whether anyone is asked (a conflicting branch goes back to its agent
+ * before the founder sees it); the merge is asked for, waits on the founder's approval (the same `approval:<id>` wait the
+ * Inbox signals), then on the repository's checks, and runs under the approval; checks that fail hand the branch back,
+ * checks that never conclude hold the merge, a refusal is retried and then held; a session that finished with a merge to
+ * make starts the review as its own child, once per task, and does not wait for it.
  */
-import type { Client } from "@temporalio/client";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import type { Activities, MergeInput, SessionLaunch, SessionResult } from "../../activities";
+import type { Activities, MergeAssessment, MergeInput, MergeOutcome, SessionLaunch, SessionResult } from "../../activities";
 import { agentSession, decisionSignal, mergeReview } from "../../workflows";
+import { ASSESS_TRIES, MERGE_RETRIES } from "../../workflows/mergeReview";
 import { createTemporalRig, wfId, type TemporalRig } from "./temporal";
 
 let rig: TemporalRig;
@@ -21,82 +22,183 @@ afterAll(async () => {
 const BUSINESS = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
 const TASK = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
 const APPROVAL = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
-const REJECTED = "dddddddd-dddd-4ddd-8ddd-dddddddddddd";
 const input: MergeInput = { businessId: BUSINESS, taskId: TASK, agentId: "11111111-1111-4111-8111-111111111111", sessionId: "22222222-2222-4222-8222-222222222222", branch: `agent/${TASK}`, acceptance: { passing: 12, total: 12 }, summary: "done" };
+const PR = { prNumber: 7, prUrl: "https://github.com/acme/shop/pull/7" };
+let approvals = 0;
+/** A fresh approval id per test: the approval's own wait is a workflow named after it. */
+const nextApproval = () => `${APPROVAL.slice(0, -4)}${String((approvals += 1)).padStart(4, "0")}`;
 
-/** The approval's own wait, once the review started it (the Inbox signals that workflow, as it does for a plan action). */
-async function approvalWaitOf(client: Client, approvalId: string) {
-  const handle = client.workflow.getHandle(`approval:${approvalId}`);
-  for (let i = 0; i < 400; i++) {
-    try {
-      if ((await handle.describe()).status.name === "RUNNING") return handle;
-    } catch {
-      // not started yet
-    }
-    await new Promise((r) => setTimeout(r, 25));
-  }
-  throw new Error(`the wait for approval ${approvalId} did not start`);
+interface Script {
+  prepared?: Awaited<ReturnType<Activities["prepareMerge"]>>;
+  /** Answers to `assessMerge`, in order; the last repeats. */
+  assess?: MergeAssessment[];
+  /** Answers to `awaitChecks`, in order; the last repeats. */
+  checks?: MergeAssessment["checks"][];
+  /** Answers to `completeMerge`, in order; the last repeats. */
+  complete?: (MergeOutcome & { retryable?: boolean })[];
+  approvalId?: string;
 }
 
-function mockActivities(prepared: Awaited<ReturnType<Activities["prepareMerge"]>>, approvalId = APPROVAL) {
+function mockActivities(script: Script) {
+  const approvalId = script.approvalId ?? nextApproval();
   const calls: string[] = [];
+  const next = <T>(list: T[] | undefined, i: number, fallback: T): T => (list && list.length ? list[Math.min(i, list.length - 1)]! : fallback);
+  let assessed = 0;
+  let checked = 0;
+  let completed = 0;
   const acts: Partial<Activities> = {
     async prepareMerge() {
       calls.push("prepareMerge");
-      return prepared;
+      return script.prepared ?? { status: "ready", ...PR, checksStarted: true, checksNote: null };
+    },
+    async assessMerge() {
+      calls.push("assessMerge");
+      return next(script.assess, assessed++, { mergeable: "ready", checks: "pending", detail: null });
+    },
+    async askMerge(given) {
+      calls.push("askMerge");
+      return { status: "awaiting_approval", approvalId, prNumber: given.prNumber, prUrl: given.prUrl };
     },
     async loadApproval() {
       calls.push("loadApproval");
-      return { approvalId, outcome: null, agentId: null, planActionId: null, createdAt: "2026-10-30T08:00:00.000Z" };
+      return { approvalId, outcome: null, agentId: null, planActionId: null, createdAt: "2026-11-01T08:00:00.000Z" };
     },
     async resolveApproval({ decision }) {
       calls.push(`resolveApproval:${decision.outcome}`);
       return { outcome: decision.outcome, alreadyResolved: false, eventId: null };
     },
+    async awaitChecks(given) {
+      calls.push(`awaitChecks:${given.first ? "first" : "again"}`);
+      return { state: next(script.checks, checked++, "success") };
+    },
     async completeMerge(given) {
       calls.push(`completeMerge:${given.prNumber}:${given.approvalId}:${given.decidedBy}`);
-      return { status: "merged", prNumber: given.prNumber, prUrl: "https://github.com/acme/shop/pull/7", mergeCommitSha: "f".repeat(40) };
+      return next(script.complete, completed++, { status: "merged", prNumber: given.prNumber, prUrl: given.prUrl, mergeCommitSha: "f".repeat(40) });
+    },
+    async handBack(given) {
+      calls.push(`handBack:${given.why}:${given.approvalId}`);
+      return { status: "handed_back", why: given.why, reason: given.why, prNumber: given.prNumber, prUrl: given.prUrl };
+    },
+    async holdMerge(given) {
+      calls.push(`holdMerge:${given.why}:${given.approvalId}`);
+      return { status: "held", reason: given.why, prNumber: given.prNumber, prUrl: given.prUrl };
     },
     async recordMergeDecision(given) {
       calls.push(`recordMergeDecision:${given.outcome}`);
       return { status: "not_merged", prNumber: given.prNumber, prUrl: given.prUrl, reason: given.outcome };
     },
   };
-  return { acts, calls };
+  return { acts, calls, approvalId };
+}
+
+/**
+ * The review sleeps between its looks at GitHub (15 s while the merge state is computed, a minute between checks, half a
+ * minute between merge retries): the test server's clock is moved past them, five minutes at a time, until the workflow
+ * ends (or the approval's wait appears), so no test waits in real time.
+ */
+async function skipUntil(done: () => Promise<boolean>): Promise<void> {
+  for (let i = 0; i < 60; i++) {
+    if (await done()) return;
+    await rig.env.sleep("5 minutes");
+  }
+  throw new Error("the review did not get there within 5 skipped hours");
+}
+
+/** Runs the review and answers its approval with `outcome` once the wait is up. */
+async function reviewDecided(m: ReturnType<typeof mockActivities>, outcome: "approved" | "rejected") {
+  return rig.run(m.acts, async (client, taskQueue) => {
+    const handle = await client.workflow.start(mergeReview, { workflowId: wfId("merge"), taskQueue, args: [input] });
+    const wait = client.workflow.getHandle(`approval:${m.approvalId}`);
+    await skipUntil(() => wait.describe().then((d) => d.status.name === "RUNNING").catch(() => false));
+    await wait.signal(decisionSignal, { approvalId: m.approvalId, outcome, by: "founder-1" });
+    await skipUntil(() => handle.describe().then((d) => d.status.name !== "RUNNING"));
+    return handle.result();
+  });
 }
 
 describe("mergeReview workflow", () => {
-  it("ends at once when the gateway ran the merge, and when there was nothing to merge", async () => {
-    const merged = mockActivities({ status: "merged", prNumber: 7, prUrl: null, mergeCommitSha: "a".repeat(40) });
-    expect(await rig.run(merged.acts, (client, taskQueue) => client.workflow.execute(mergeReview, { workflowId: wfId("merge"), taskQueue, args: [input] }))).toMatchObject({ status: "merged", prNumber: 7 });
-    expect(merged.calls).toEqual(["prepareMerge"]);
-    const skipped = mockActivities({ status: "skipped", reason: "no repository is chosen on the Code tab" });
+  it("ends at once when there is nothing to merge, or the pull request could not be opened", async () => {
+    const skipped = mockActivities({ prepared: { status: "skipped", reason: "no repository is chosen on the Code tab" } });
     expect(await rig.run(skipped.acts, (client, taskQueue) => client.workflow.execute(mergeReview, { workflowId: wfId("merge"), taskQueue, args: [input] }))).toEqual({ status: "skipped", reason: "no repository is chosen on the Code tab" });
+    expect(skipped.calls).toEqual(["prepareMerge"]);
+    const held = mockActivities({ prepared: { status: "held", reason: "the pull request could not be opened: no", prNumber: null, prUrl: null } });
+    expect(await rig.run(held.acts, (client, taskQueue) => client.workflow.execute(mergeReview, { workflowId: wfId("merge"), taskQueue, args: [input] }))).toMatchObject({ status: "held" });
   });
 
-  it("waits on the founder's approval and merges under it when approved", async () => {
-    const m = mockActivities({ status: "awaiting_approval", approvalId: APPROVAL, prNumber: 7, prUrl: "https://github.com/acme/shop/pull/7" });
+  it("a conflicting branch goes back to its agent before anyone is asked; GitHub is given time to compute the state", async () => {
+    const m = mockActivities({ assess: [{ mergeable: "unknown", checks: "unknown", detail: null }, { mergeable: "unknown", checks: "unknown", detail: null }, { mergeable: "conflicts", checks: "pending", detail: "GitHub reports the pull request as dirty" }] });
     const result = await rig.run(m.acts, async (client, taskQueue) => {
       const handle = await client.workflow.start(mergeReview, { workflowId: wfId("merge"), taskQueue, args: [input] });
-      // The Inbox signals the approval's own wait, as it does for a plan action.
-      const wait = await approvalWaitOf(client, APPROVAL);
-      await wait.signal(decisionSignal, { approvalId: APPROVAL, outcome: "approved", by: "founder-1" });
+      await skipUntil(() => handle.describe().then((d) => d.status.name !== "RUNNING"));
       return handle.result();
     });
+    expect(result).toMatchObject({ status: "handed_back", why: "conflicts", prNumber: 7 });
+    expect(m.calls).toEqual(["prepareMerge", "assessMerge", "assessMerge", "assessMerge", "handBack:conflicts:null"]);
+    // A state GitHub never computes is read as ready: the merge itself decides.
+    const never = mockActivities({ assess: [{ mergeable: "unknown", checks: "unknown", detail: null }] });
+    await reviewDecided(never, "approved");
+    expect(never.calls.filter((c) => c === "assessMerge")).toHaveLength(ASSESS_TRIES);
+    expect(never.calls).toContain("askMerge");
+  });
+
+  it("checks that already failed hand the branch back without asking", async () => {
+    const m = mockActivities({ assess: [{ mergeable: "ready", checks: "failure", detail: null }] });
+    const result = await rig.run(m.acts, (client, taskQueue) => client.workflow.execute(mergeReview, { workflowId: wfId("merge"), taskQueue, args: [input] }));
+    expect(result).toMatchObject({ status: "handed_back", why: "checks_failed" });
+    expect(m.calls).toEqual(["prepareMerge", "assessMerge", "handBack:checks_failed:null"]);
+  });
+
+  it("asks the founder, waits for the approval and then for the checks, and merges under the approval", async () => {
+    const m = mockActivities({ assess: [{ mergeable: "ready", checks: "pending", detail: null }], checks: ["pending", "pending", "success"] });
+    const result = await reviewDecided(m, "approved");
     expect(result).toMatchObject({ status: "merged", prNumber: 7 });
-    expect(m.calls).toEqual(["prepareMerge", "loadApproval", "resolveApproval:approved", `completeMerge:7:${APPROVAL}:founder-1`]);
+    expect(result).not.toHaveProperty("retryable");
+    expect(m.calls).toEqual(["prepareMerge", "assessMerge", "askMerge", "loadApproval", "resolveApproval:approved", "awaitChecks:first", "awaitChecks:again", "awaitChecks:again", `completeMerge:7:${m.approvalId}:founder-1`]);
+  });
+
+  it("without a test run to wait for, the approved merge is tried at once and the repository's rules decide", async () => {
+    const m = mockActivities({ prepared: { status: "ready", ...PR, checksStarted: false, checksNote: "no workflow" } });
+    const result = await reviewDecided(m, "approved");
+    expect(result).toMatchObject({ status: "merged" });
+    expect(m.calls.filter((c) => c.startsWith("awaitChecks"))).toEqual([]);
+  });
+
+  it("checks that fail after the approval hand the branch back, on record against the approval", async () => {
+    const m = mockActivities({ checks: ["pending", "failure"] });
+    const result = await reviewDecided(m, "approved");
+    expect(result).toMatchObject({ status: "handed_back", why: "checks_failed" });
+    expect(m.calls.at(-1)).toBe(`handBack:checks_failed:${m.approvalId}`);
+  });
+
+  it("checks that never conclude hold the merge for the next cycle (time skipped to the limit)", async () => {
+    const m = mockActivities({ checks: ["pending"] });
+    const result = await reviewDecided(m, "approved");
+    expect(result).toMatchObject({ status: "held", reason: "checks_timeout" });
+    expect(m.calls.at(-1)).toBe(`holdMerge:checks_timeout:${m.approvalId}`);
+    expect(m.calls.filter((c) => c.startsWith("awaitChecks")).length).toBeGreaterThan(10);
+  });
+
+  it("a merge GitHub refuses right after the checks passed is tried again, then held; conflicts found meanwhile hand the branch back", async () => {
+    const refused: MergeOutcome & { retryable?: boolean } = { status: "held", reason: "the approved merge did not run: Pull Request #7 is not mergeable", ...PR, retryable: true };
+    const eventually = mockActivities({ complete: [refused, refused, { status: "merged", ...PR, mergeCommitSha: "e".repeat(40) }] });
+    expect(await reviewDecided(eventually, "approved")).toMatchObject({ status: "merged" });
+    expect(eventually.calls.filter((c) => c.startsWith("completeMerge"))).toHaveLength(3);
+
+    const always = mockActivities({ complete: [refused] });
+    expect(await reviewDecided(always, "approved")).toMatchObject({ status: "held", reason: "refused" });
+    expect(always.calls.filter((c) => c.startsWith("completeMerge"))).toHaveLength(1 + MERGE_RETRIES);
+    expect(always.calls.at(-1)).toBe(`holdMerge:refused:${always.approvalId}`);
+
+    const conflicted = mockActivities({ complete: [refused], assess: [{ mergeable: "ready", checks: "pending", detail: null }, { mergeable: "conflicts", checks: "success", detail: "dirty" }] });
+    expect(await reviewDecided(conflicted, "approved")).toMatchObject({ status: "handed_back", why: "conflicts" });
+    expect(conflicted.calls.at(-1)).toBe(`handBack:conflicts:${conflicted.approvalId}`);
   });
 
   it("records the founder's refusal and leaves the task in review", async () => {
-    const m = mockActivities({ status: "awaiting_approval", approvalId: REJECTED, prNumber: 7, prUrl: null }, REJECTED);
-    const result = await rig.run(m.acts, async (client, taskQueue) => {
-      const handle = await client.workflow.start(mergeReview, { workflowId: wfId("merge"), taskQueue, args: [input] });
-      const wait = await approvalWaitOf(client, REJECTED);
-      await wait.signal(decisionSignal, { approvalId: REJECTED, outcome: "rejected", by: "founder-1" });
-      return handle.result();
-    });
-    expect(result).toEqual({ status: "not_merged", prNumber: 7, prUrl: null, reason: "rejected" });
-    expect(m.calls).toEqual(["prepareMerge", "loadApproval", "resolveApproval:rejected", "recordMergeDecision:rejected"]);
+    const m = mockActivities({});
+    const result = await reviewDecided(m, "rejected");
+    expect(result).toEqual({ status: "not_merged", prNumber: 7, prUrl: PR.prUrl, reason: "rejected" });
+    expect(m.calls).toEqual(["prepareMerge", "assessMerge", "askMerge", "loadApproval", "resolveApproval:rejected", "recordMergeDecision:rejected"]);
   });
 
   it("a session that finished with a merge to make starts the review once, as a child it does not wait for", async () => {

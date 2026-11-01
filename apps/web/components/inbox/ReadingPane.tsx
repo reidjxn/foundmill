@@ -97,6 +97,7 @@ import {
   planConfirmationLines,
   metricKey,
   planStatusLine,
+  approvalStatus,
   statusStripTiles,
   stripSources,
   toDecisionOptions,
@@ -443,7 +444,9 @@ function ReadingPaneBody({ data, currency, departments, onArchived }: BodyProps)
   const lines: ConfirmationLine[] = useMemo(() => (pendingConfirmation && plan ? (result?.plan.id === plan.id ? confirmationLines(result.evaluations, currency) : planConfirmationLines(plan.actions, currency)) : []), [pendingConfirmation, plan, result, currency]);
   // Nothing exists yet while the plan waits, so there is nothing to open.
   const links = useMemo(() => (plan && !pendingConfirmation ? followUpLinks(plan.actions, businessId, departments) : []), [plan, pendingConfirmation, businessId, departments]);
-  const planLine = planStatusLine(plan, attribution && !attribution.mine ? attribution.by : "You");
+  // An approval's Decided panel shows what came of the answer (live, waiting for the tests, did not go through), never
+  // the reply-only plan's "1 of 1 action done", which says only that the answer was recorded.
+  const planLine = approval && approval.outcome !== null ? approvalStatus(approval) : planStatusLine(plan, attribution && !attribution.mine ? attribution.by : "You");
   const roleLine = senderLabelled ? null : roleBesideName(fromAgent?.name ?? persona?.name, persona?.role);
   // An agent's record opens the agent's profile, every other record its CRM profile (audit GTM-19).
   const relatedEntities = entities.map((e) => ({ id: e.id, kind: e.kind as EntityKind, name: e.displayName, href: entityHref(businessId, e, (id) => agents.has(id)) }));

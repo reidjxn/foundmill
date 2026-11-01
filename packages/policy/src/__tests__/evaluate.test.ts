@@ -24,7 +24,9 @@ function run(mode: BusinessMode, t: Partial<ToolCtxInput> = {}, ctx: CallContext
 const TOOLS = {
   internalDraft: { connector: "notion", name: "write_page" },
   codeOnBranch: { connector: "github", name: "push_branch" },
-  mergeToMain: { connector: "github", name: "merge_pull_request", irreversible: true },
+  mergeToMain: { connector: "github", name: "merge_pr", irreversible: true },
+  /** An irreversible step that is not a release: the mode rules alone decide it. */
+  deleteBranch: { connector: "github", name: "delete_branch", irreversible: true },
   sendEmail: { connector: "sendgrid", name: "send_email", contactsThirdParty: true },
   adSpend: { connector: "meta_ads", name: "set_daily_budget", spendsMoney: true },
   payInvoice: { connector: "mercury", name: "send_payment", spendsMoney: true, hardGate: true, irreversible: true },
@@ -42,7 +44,8 @@ type Row = { name: string; tool: ToolCtxInput; ctx?: CallContextInput; expect: R
 const TABLE: Row[] = [
   { name: "internal draft", tool: TOOLS.internalDraft, expect: { augmented: "allow", assisted: "allow", automated: "allow" } },
   { name: "code on a branch", tool: TOOLS.codeOnBranch, expect: { augmented: "allow", assisted: "allow", automated: "allow" } },
-  { name: "merge to main (irreversible)", tool: TOOLS.mergeToMain, expect: { augmented: "ask", assisted: "ask", automated: "allow" } },
+  // Going live is the founder's one tap in every mode (decision 2026-11-01).
+  { name: "merge to the default branch", tool: TOOLS.mergeToMain, expect: { augmented: "ask", assisted: "ask", automated: "ask" }, policy: "release-asks-founder" },
   { name: "send email (external)", tool: TOOLS.sendEmail, expect: { augmented: "ask", assisted: "allow", automated: "allow" } },
   { name: "ad spend within threshold", tool: TOOLS.adSpend, ctx: { amountMinor: 10_000 }, expect: { augmented: "ask", assisted: "allow", automated: "allow" } },
   { name: "ad spend at threshold (boundary)", tool: TOOLS.adSpend, ctx: { amountMinor: THRESHOLD }, expect: { augmented: "ask", assisted: "allow", automated: "allow" } },
@@ -165,13 +168,21 @@ describe("ask is derived from the @outcome annotation", () => {
     expect(r.policyIds).toEqual(["automated-ask-above-threshold"]);
   });
   it("assisted irreversible asks even with zero amount", () => {
-    expect(run("assisted", TOOLS.mergeToMain).policyIds).toEqual(["assisted-ask-irreversible"]);
+    expect(run("assisted", TOOLS.deleteBranch).policyIds).toEqual(["assisted-ask-irreversible"]);
+  });
+  it("a merge to the default branch asks in every mode, with the founder's own words as the reason", () => {
+    for (const mode of BUSINESS_MODES) {
+      const r = run(mode, TOOLS.mergeToMain);
+      expect(r.outcome).toBe("ask");
+      expect(r.policyIds).toContain("release-asks-founder");
+      expect(r.reasons).toContain("You chose to be asked before anything goes live");
+    }
   });
   it("assisted contract asks", () => {
     expect(run("assisted", TOOLS.draftContract).policyIds).toEqual(["assisted-ask-contract"]);
   });
   it("augmented irreversible internal step asks", () => {
-    expect(run("augmented", TOOLS.mergeToMain).policyIds).toEqual(["augmented-ask-irreversible"]);
+    expect(run("augmented", TOOLS.deleteBranch).policyIds).toEqual(["augmented-ask-irreversible"]);
   });
 });
 
@@ -238,7 +249,7 @@ describe("per-agent autonomy override and holiday", () => {
     expect(effectiveBusinessMode(input)).toBe("augmented");
     const r = evaluate({ principal: agent({ autonomy: "augmented" }), tool: TOOLS.sendEmail, business: business("automated") });
     expect(r.policyIds).toEqual(["augmented-ask-external"]);
-    const r2 = evaluate({ principal: agent({ autonomy: "automated" }), tool: TOOLS.mergeToMain, business: business("augmented") });
+    const r2 = evaluate({ principal: agent({ autonomy: "automated" }), tool: TOOLS.deleteBranch, business: business("augmented") });
     expect(r2.outcome).toBe("allow");
   });
   it("holidayActive defaults from the business and is passed in the context", () => {
@@ -250,8 +261,9 @@ describe("per-agent autonomy override and holiday", () => {
   it("on vacation an Assisted or Augmented business runs as Automated: hard gates still queue (OL-26)", () => {
     const on = (mode: BusinessMode, t: ToolCtxInput, ctx: CallContextInput = {}, a: Partial<AgentCtxInput> = {}) => evaluate({ principal: agent(a), tool: t, business: business(mode, true), context: ctx });
     expect(effectiveBusinessMode(EvaluateInput.parse({ principal: agent(), tool: tool(), business: business("assisted", true) }))).toBe("automated");
-    // What Assisted asks for, the vacation's Automated mode does within caps.
-    expect(on("assisted", TOOLS.mergeToMain).outcome).toBe("allow");
+    // What Assisted asks for, the vacation's Automated mode does within caps; a release still asks the founder.
+    expect(on("assisted", TOOLS.deleteBranch).outcome).toBe("allow");
+    expect(on("assisted", TOOLS.mergeToMain).outcome).toBe("ask");
     expect(on("assisted", TOOLS.draftContract).outcome).toBe("allow");
     expect(on("augmented", TOOLS.sendEmail).outcome).toBe("allow");
     // Above the threshold still asks, and hard gates never lift.
@@ -261,7 +273,7 @@ describe("per-agent autonomy override and holiday", () => {
     // An agent the founder gave its own autonomy keeps it.
     expect(on("assisted", TOOLS.sendEmail, {}, { autonomy: "augmented" }).policyIds).toEqual(["augmented-ask-external"]);
     // Back from vacation, the business's own mode applies again.
-    expect(run("assisted", TOOLS.mergeToMain).outcome).toBe("ask");
+    expect(run("assisted", TOOLS.deleteBranch).outcome).toBe("ask");
   });
 });
 

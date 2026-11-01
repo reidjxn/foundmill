@@ -164,6 +164,12 @@ export const PLATFORM_BASE_TOOLS: [string, ...string[]] = [
 /** Extra platform tools for leads: they create tasks and assign them (BUILD §9.9 "Leads assign; workers report"). */
 export const PLATFORM_LEAD_TOOLS: [string, ...string[]] = [...PLATFORM_BASE_TOOLS, "tasks.create", "tasks.assign", "tasks.reprioritise", "tasks.update", "budgets.read"];
 
-export const SANDBOX_TOOLS: [string, ...string[]] = ["shell", "read_file", "write_file", "run_tests", "playwright", "git.commit", "git.push_branch"];
+/**
+ * What a code session can do in its workspace: read and write files (the SDK's own tools), and have its work saved and
+ * pushed (the session runtime). No shell, no test run, no browser: Bash is disallowed in a live session (SECURITY_REVIEW
+ * SEC-3) and the platform runs the acceptance tests after the session ends, so granting them only promised the agent a
+ * tool no one serves (Nov 1, 2026: every live session logged the gap, and an agent wrote "I had no shell, so nothing was run").
+ */
+export const SANDBOX_TOOLS: [string, ...string[]] = ["read_file", "write_file", "git.commit", "git.push_branch"];
 export const WEB_TOOLS: [string, ...string[]] = ["search", "fetch"];
 export const QUARANTINE_TOOLS: [string, ...string[]] = ["read_untrusted"];
