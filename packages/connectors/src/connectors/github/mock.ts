@@ -377,6 +377,24 @@ export function createGithubMock(limits: { bytesPerBusiness?: number; bytesTotal
         const r = g.find(owner, repo);
         return { items: g.prList(r.repo.full_name).filter((p) => state === "all" || p.state === state).sort((a, b) => b.number - a.number).slice(0, perPage).map(toPr) };
       },
+      update_branch: async ({ owner, repo, prNumber, expectedHeadSha }, ctx) => {
+        const g = world(ctx.businessId);
+        const r = g.find(owner, repo);
+        const pr = g.prList(r.repo.full_name).find((p) => p.number === prNumber);
+        if (!pr) throw notFound(`pull request #${prNumber}`);
+        if (pr.merged || pr.state !== "open") throw conflict(`pull request #${prNumber} is ${pr.merged ? "already merged" : "closed"}`);
+        if (conflictingBranches.has(pr.head.ref)) throw Object.assign(new Error(`Pull Request #${prNumber} conflicts with ${pr.base.ref}; it cannot be brought up to date by GitHub`), { status: 422 });
+        const head = r.branches[pr.head.ref];
+        if (expectedHeadSha && head && head !== expectedHeadSha) throw branchMoved(pr.head.ref, expectedHeadSha, head);
+        const baseSha = g.resolveRef(r, pr.base.ref);
+        // A branch created in this mock remembers where it left the base; one that still points there is up to date.
+        if ((r.bases?.[pr.head.ref] ?? baseSha) === baseSha) return { updated: false, headSha: head ?? null, message: "Already up to date." };
+        const sha = commitSha(r.repo.name, pr.head.ref, `update:${baseSha}`);
+        r.branches[pr.head.ref] = sha;
+        (r.bases ??= {})[pr.head.ref] = baseSha;
+        pr.head.sha = sha;
+        return { updated: true, headSha: sha, message: "Updating pull request branch." };
+      },
       merge_pr: async ({ owner, repo, prNumber, mergeMethod, commitTitle }, ctx) => {
         const g = world(ctx.businessId);
         const r = g.find(owner, repo);

@@ -3,7 +3,9 @@
  * opened (or found) and the repository's tests started (activities/merge.ts `prepareMerge`); GitHub's merge state decides
  * whether anyone is asked at all (`assessMerge`: a branch that conflicts with or fell behind the default branch, or whose
  * checks already failed, goes back to its agent); then the merge is asked for through the gateway's policy (`askMerge`),
- * which makes it the founder's one tap in every mode (decision 2026-11-01). Once approved, the review waits for the
+ * which makes it the founder's one tap in every mode (decision 2026-11-01). A branch the default branch moved past is
+ * brought up to date by GitHub first (`updateBranch`, one merge commit on the agent's branch) and its tests run again, so
+ * the founder approves the change as it would land (Nov 2, 2026). Once approved, the review waits for the
  * repository's checks to conclude (polling `awaitChecks`), merges under the approval (`completeMerge`), and never ends
  * on a silent failure: tests that fail hand the branch back, tests that never conclude hold the merge for the next
  * cycle, and every outcome is on record against the approval, which the Inbox's Decided panel shows.
@@ -27,19 +29,40 @@ export const CHECKS_TIMEOUT_MS = 90 * 60_000;
 export const MERGE_RETRIES = 3;
 export const MERGE_RETRY_WAIT_MS = 30_000;
 
+/** A branch the default branch moved past: GitHub's own word, or the compare's count. */
+const isBehind = (a: MergeAssessment): boolean => a.mergeable === "behind" || (a.behindBy ?? 0) > 0;
+
 export async function mergeReview(input: MergeInput): Promise<MergeOutcome> {
   const prepared = await acts.prepareMerge(input);
   if (prepared.status !== "ready") return prepared;
   const pr = { prNumber: prepared.prNumber, prUrl: prepared.prUrl };
+  let checksStarted = prepared.checksStarted;
 
   // What GitHub says, before anyone is asked. A pull request just opened reads `unknown` for a few seconds.
-  let assessment: MergeAssessment = { mergeable: "unknown", checks: "unknown", detail: null };
-  for (let i = 0; i < ASSESS_TRIES; i++) {
-    assessment = await acts.assessMerge({ ...input, ...pr });
-    if (assessment.mergeable !== "unknown") break;
-    await sleep(ASSESS_WAIT_MS);
+  const assess = async (): Promise<MergeAssessment> => {
+    let a: MergeAssessment = { mergeable: "unknown", checks: "unknown", detail: null };
+    for (let i = 0; i < ASSESS_TRIES; i++) {
+      a = await acts.assessMerge({ ...input, ...pr });
+      if (a.mergeable !== "unknown") break;
+      await sleep(ASSESS_WAIT_MS);
+    }
+    return a;
+  };
+  let assessment = await assess();
+  if (assessment.mergeable === "conflicts") return acts.handBack({ ...input, ...pr, approvalId: null, why: "conflicts", detail: assessment.detail });
+  // The default branch moved on since the branch was cut: GitHub brings the branch up to date (one merge commit on the
+  // agent's branch) and the tests run again on the new head, so what the founder approves is the change as it would
+  // land. A branch GitHub cannot update (conflicts appeared) goes back to its agent, the one case an agent is for.
+  if (isBehind(assessment)) {
+    const updated = await acts.updateBranch({ ...input, ...pr });
+    if (!updated.updated && updated.reason !== null) return acts.handBack({ ...input, ...pr, approvalId: null, why: "conflicts", detail: updated.reason });
+    if (updated.updated) {
+      checksStarted = checksStarted || updated.checksStarted;
+      await sleep(ASSESS_WAIT_MS);
+      assessment = await assess();
+      if (assessment.mergeable === "conflicts") return acts.handBack({ ...input, ...pr, approvalId: null, why: "conflicts", detail: assessment.detail });
+    }
   }
-  if (assessment.mergeable === "conflicts" || assessment.mergeable === "behind") return acts.handBack({ ...input, ...pr, approvalId: null, why: assessment.mergeable, detail: assessment.detail });
   if (assessment.checks === "failure") return acts.handBack({ ...input, ...pr, approvalId: null, why: "checks_failed", detail: assessment.detail });
 
   const asked = await acts.askMerge({ ...input, ...pr });
@@ -49,31 +72,49 @@ export async function mergeReview(input: MergeInput): Promise<MergeOutcome> {
 
   // Approved: the merge waits for the repository's own tests. Without a test run to wait for (the repository has no
   // workflow, or it could not be started) the merge is tried once and the repository's rules decide.
-  if (prepared.checksStarted) {
+  const approvalId = asked.approvalId;
+  const waitForChecks = async (first: boolean): Promise<"success" | "failure" | "timeout"> => {
     const polls = Math.ceil(CHECKS_TIMEOUT_MS / CHECKS_POLL_MS);
-    let concluded = false;
     for (let i = 0; i < polls; i++) {
-      const checks = await acts.awaitChecks({ ...input, ...pr, approvalId: asked.approvalId, first: i === 0 });
-      if (checks.state === "failure") return acts.handBack({ ...input, ...pr, approvalId: asked.approvalId, why: "checks_failed", detail: null });
-      if (checks.state === "success") {
-        concluded = true;
-        break;
-      }
+      const checks = await acts.awaitChecks({ ...input, ...pr, approvalId, first: first && i === 0 });
+      if (checks.state === "failure" || checks.state === "success") return checks.state;
       await sleep(CHECKS_POLL_MS);
     }
-    if (!concluded) return acts.holdMerge({ ...input, ...pr, approvalId: asked.approvalId, why: "checks_timeout", detail: null });
+    return "timeout";
+  };
+  const merge = async () => {
+    let outcome = await acts.completeMerge({ ...input, ...pr, approvalId, decidedBy: decision.decidedBy });
+    for (let i = 0; i < MERGE_RETRIES && outcome.status === "held" && outcome.retryable; i++) {
+      await sleep(MERGE_RETRY_WAIT_MS);
+      outcome = await acts.completeMerge({ ...input, ...pr, approvalId, decidedBy: decision.decidedBy });
+    }
+    return outcome;
+  };
+  if (checksStarted) {
+    const checks = await waitForChecks(true);
+    if (checks === "failure") return acts.handBack({ ...input, ...pr, approvalId, why: "checks_failed", detail: null });
+    if (checks === "timeout") return acts.holdMerge({ ...input, ...pr, approvalId, why: "checks_timeout", detail: null });
   }
 
-  let outcome = await acts.completeMerge({ ...input, ...pr, approvalId: asked.approvalId, decidedBy: decision.decidedBy });
-  for (let i = 0; i < MERGE_RETRIES && outcome.status === "held" && outcome.retryable; i++) {
-    await sleep(MERGE_RETRY_WAIT_MS);
-    outcome = await acts.completeMerge({ ...input, ...pr, approvalId: asked.approvalId, decidedBy: decision.decidedBy });
-  }
+  let outcome = await merge();
   if (outcome.status === "held") {
-    // Refused after the checks passed and the retries: conflicts that appeared meanwhile hand the branch back; anything else holds.
+    // Refused after the checks passed and the retries: conflicts that appeared meanwhile hand the branch back; a default
+    // branch that moved meanwhile is brought in once more and the tests waited for again; anything else holds.
     const again = await acts.assessMerge({ ...input, ...pr });
-    if (again.mergeable === "conflicts" || again.mergeable === "behind") return acts.handBack({ ...input, ...pr, approvalId: asked.approvalId, why: again.mergeable, detail: again.detail });
-    return acts.holdMerge({ ...input, ...pr, approvalId: asked.approvalId, why: "refused", detail: outcome.reason });
+    if (again.mergeable === "conflicts") return acts.handBack({ ...input, ...pr, approvalId, why: "conflicts", detail: again.detail });
+    if (isBehind(again)) {
+      const updated = await acts.updateBranch({ ...input, ...pr });
+      if (!updated.updated && updated.reason !== null) return acts.handBack({ ...input, ...pr, approvalId, why: "conflicts", detail: updated.reason });
+      if (updated.updated) {
+        if (updated.checksStarted) {
+          const checks = await waitForChecks(false);
+          if (checks === "failure") return acts.handBack({ ...input, ...pr, approvalId, why: "checks_failed", detail: null });
+          if (checks === "timeout") return acts.holdMerge({ ...input, ...pr, approvalId, why: "checks_timeout", detail: null });
+        }
+        outcome = await merge();
+      }
+    }
+    if (outcome.status === "held") return acts.holdMerge({ ...input, ...pr, approvalId, why: "refused", detail: outcome.reason });
   }
   const { retryable: _retryable, ...clean } = outcome;
   void _retryable;

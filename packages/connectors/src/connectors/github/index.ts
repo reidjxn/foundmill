@@ -398,6 +398,22 @@ export function createGithubConnector(options: LiveConnectorOptions = {}): Conne
         },
         get_pull_request: async ({ owner, repo, prNumber }, ctx) => mapPullRequest((await (await octokitFor(ctx)).rest.pulls.get({ owner, repo, pull_number: prNumber })).data as GhPullRequest),
         list_pull_requests: async ({ owner, repo, state, perPage }, ctx) => ({ items: ((await (await octokitFor(ctx)).rest.pulls.list({ owner, repo, state, per_page: perPage, sort: "created", direction: "desc" })).data as GhPullRequest[]).map(mapPullRequest) }),
+        update_branch: async ({ owner, repo, prNumber, expectedHeadSha }, ctx) => {
+          const o = await octokitFor(ctx);
+          const current = (await o.rest.pulls.get({ owner, repo, pull_number: prNumber })).data as GhPullRequest;
+          if (current.mergeable_state === "dirty") throw Object.assign(new Error(`Pull Request #${prNumber} conflicts with ${current.base.ref}; it cannot be brought up to date by GitHub`), { status: 422 });
+          // GitHub answers 202 and merges the base in asynchronously; the new head is read on the next look at the pull request.
+          try {
+            const res = await o.rest.pulls.updateBranch({ owner, repo, pull_number: prNumber, ...(expectedHeadSha ? { expected_head_sha: expectedHeadSha } : {}) });
+            return { updated: true, headSha: null, message: res.data.message ?? "Updating pull request branch." };
+          } catch (err) {
+            const status = (err as { status?: number }).status;
+            const message = (err as Error).message ?? "update refused";
+            if (status === 422 && /up to date/i.test(message)) return { updated: false, headSha: current.head.sha, message: "Already up to date." };
+            if (status === 422 || status === 409) throw Object.assign(new Error(`Pull Request #${prNumber} cannot be brought up to date: ${message}`), { status: 422 });
+            throw err;
+          }
+        },
         merge_pr: async ({ owner, repo, prNumber, mergeMethod, commitTitle, commitMessage }, ctx) => {
           const o = await octokitFor(ctx);
           // GitHub refuses to merge a draft, and agents open theirs as drafts: the merge (already decided by policy, the

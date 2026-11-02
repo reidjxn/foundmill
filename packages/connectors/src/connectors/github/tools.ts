@@ -412,6 +412,13 @@ export const githubTools = [
     annotations: { readOnlyHint: true },
   }),
   defineTool({
+    name: "update_branch",
+    description: "Bring a pull request's branch up to date with its base: GitHub merges the base branch into the pull request's branch as one commit (the branch's own commits are untouched; nothing reaches the base). Refused (422) when the branch conflicts with the base, and when expectedHeadSha is given and the branch moved. Already up to date → updated: false. Spends no money.",
+    input: RepoRef.extend({ prNumber: z.number().int().positive(), expectedHeadSha: z.string().min(7).max(64).optional() }),
+    output: z.object({ updated: z.boolean(), headSha: z.string().nullable(), message: z.string() }),
+    hints: { irreversible: false, spendsMoney: false },
+  }),
+  defineTool({
     name: "merge_pr",
     description: "Merge a pull request into its base branch. Irreversible (history on the base branch changes); merges to the default branch are a decision in Augmented mode (BUILD §9.6). A draft is marked ready for review first. Spends no money.",
     input: RepoRef.extend({ prNumber: z.number().int().positive(), mergeMethod: z.enum(["merge", "squash", "rebase"]).default("squash"), commitTitle: z.string().max(256).optional(), commitMessage: z.string().max(10_000).optional() }),
