@@ -105,7 +105,7 @@ export function nowLines(tasks: readonly TaskRow[], squad: readonly SquadMember[
     .slice(0, max)
     .map((t) => {
       const who = t.assigneeAgentId ? `[[ent:${t.assigneeAgentId}|${byId.get(t.assigneeAgentId) ?? "An agent"}]]` : "The team";
-      return `${who} ${TASK_VERB[t.status] ?? "is on"} ${t.title}`;
+      return `${who} ${TASK_VERB[t.status] ?? "is on"} ${t.founderTitle ?? t.title}`;
     });
 }
 

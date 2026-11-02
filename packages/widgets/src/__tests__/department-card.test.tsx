@@ -215,6 +215,9 @@ describe("department card logic", () => {
     expect(lines[0]).toBe(`[[ent:${AGENT.beacon}|Beacon]] is working on Invoice lines`);
     expect(lines[1]).toContain("is in review on Rate-limit");
     expect(lines[2]).toContain("is blocked on Draft the October newsletter");
+    // The founder's title when the Composer has written one (0070); the technical title otherwise.
+    const titled = nowLines([{ ...tasks.items[0]!, founderTitle: "Show every invoice line on the bill" }], squad);
+    expect(titled[0]).toBe(`[[ent:${AGENT.beacon}|Beacon]] is working on Show every invoice line on the bill`);
   });
   it("labels estimates and computes each module metric", () => {
     const today = dayKey();

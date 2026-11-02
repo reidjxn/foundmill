@@ -52,6 +52,7 @@ export const ROUTE_KEYS = [
   "categoriser",
   "quarantinedReader",
   "moderation",
+  "founderTitle",
   "conversation",
 ] as const;
 export const RouteKey = z.enum(ROUTE_KEYS);
@@ -86,6 +87,7 @@ export const ROUTE_DEFAULT_MODEL: Record<RouteKey, ModelKey> = {
   categoriser: "haiku",
   quarantinedReader: "haiku",
   moderation: "haiku",
+  founderTitle: "haiku",
   conversation: "sonnet",
 };
 

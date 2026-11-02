@@ -10,6 +10,7 @@ import { composeChapterTitle, parseQuarter, quarterOf, type ChapterTitleResult }
 import { composeCommentary, type CommentaryResult } from "./commentary";
 import { composeNote } from "./compose";
 import { loadContext } from "./context";
+import { composeFounderTitles, type FounderTitlesResult } from "./founder-titles";
 import { namedQueryCatalogue, runNamedQuery, type ExhibitData } from "./exhibits";
 import { findPersisted, persistDrafts, persistNote, type Persisted } from "./persist";
 import { RefreshEngine, type RefreshEngineOptions, type RefreshResult } from "./refresh";
@@ -139,6 +140,14 @@ export class ComposerService {
       await repos.journeys.setChapterTitle(this.deps.db, businessId, { chapterId: result.quarter, title: result.title, subtitle: result.subtitle, mood: result.mood });
     }
     return result;
+  }
+
+  /**
+   * `POST /v1/founder-titles`: the business's open tasks without a founder title (or exactly `taskIds`) get one, in the
+   * founder's words (0070; founder-titles.ts). Best effort per task: a bad answer leaves the technical title in place.
+   */
+  founderTitles(businessId: string, taskIds?: readonly string[]): Promise<FounderTitlesResult> {
+    return composeFounderTitles(this.deps, businessId, taskIds);
   }
 
   exhibits(): ReturnType<typeof namedQueryCatalogue> {

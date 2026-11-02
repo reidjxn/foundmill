@@ -103,6 +103,10 @@ describe("row builders", () => {
     const rows = toOpenRows(openPrs, new Map(agents.map((a) => [a.id, a])), new Map([[TASK_BUNDLE, "https://p.example"]]));
     expect(rows.find((r) => r.taskId === TASK_BUNDLE)).toMatchObject({ agentName: "Juno", queue: "In merge queue", previewUrl: "https://p.example" });
     expect(rows.find((r) => r.taskId === TASK_INDEX)).toMatchObject({ agentName: "Pike", queue: "In review", previewUrl: null });
+    // The founder's title is the row's title (0070); the technical one stays on the row for the developer's dialog.
+    const titled = toOpenRows([{ ...openPrs[0]!, founderTitle: "Put the usage export live" }], new Map(), new Map());
+    expect(titled[0]).toMatchObject({ title: "Put the usage export live", founderTitle: "Put the usage export live" });
+    expect(toOpenRows([{ ...openPrs[0]!, founderTitle: null }], new Map(), new Map())[0]!.title).toBe(openPrs[0]!.title);
   });
   it("toMergedRows labels PRs and who merged them", () => {
     const rows = toMergedRows([...mergedPrs, { eventId: "e2", occurredAt: "2026-10-05T10:00:00Z", taskId: TASK_DONE, mergedBy: { kind: "user", id: "u-1" } }]);

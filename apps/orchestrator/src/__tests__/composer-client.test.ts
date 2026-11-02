@@ -47,6 +47,19 @@ describe("composer client", () => {
     expect(err).not.toBeInstanceOf(ComposerUnavailableError);
     expect(err).toMatchObject({ code: "composer_rejected", status: 422, details: { unknownIds: ["x"] } });
   });
+
+  it("asks for founder titles (0070) and reads back how many were written and skipped", async () => {
+    const calls: { url: string; body: unknown }[] = [];
+    const client = createComposerClient({
+      baseUrl: "http://composer.test",
+      fetch: async (url, init) => {
+        calls.push({ url: String(url), body: JSON.parse(String(init?.body)) });
+        return json({ written: [{ taskId: "t1", title: "Fix a display bug in the dashboard page", source: "model" }], skipped: [{ taskId: "t2", reason: "too_long" }], cost: { amountMinor: 1, label: "Estimate" } });
+      },
+    });
+    await expect(client.founderTitles({ businessId: "b" })).resolves.toEqual({ written: 1, skipped: 1 });
+    expect(calls).toEqual([{ url: "http://composer.test/v1/founder-titles", body: { businessId: "b" } }]);
+  });
 });
 
 describe("narrateCycle and the journey commentary", () => {
@@ -56,7 +69,7 @@ describe("narrateCycle and the journey commentary", () => {
   }, 120_000);
   afterAll(() => t?.close());
 
-  const failing = (err: Error): ComposerClient => ({ baseUrl: "http://composer.test", narrate: () => Promise.reject(err), commentary: () => Promise.reject(err), chapterTitle: () => Promise.reject(err) });
+  const failing = (err: Error): ComposerClient => ({ baseUrl: "http://composer.test", narrate: () => Promise.reject(err), commentary: () => Promise.reject(err), chapterTitle: () => Promise.reject(err), founderTitles: () => Promise.reject(err) });
   const input = () => ({ businessId: t.businessId, eventIds: [t.fixture.eventIds[0]!], summary: "Cycle 1: done." });
 
   const staging = () => ({ ...t.deps, env: { ...t.deps.env, APP_ENV: "staging" as const } });

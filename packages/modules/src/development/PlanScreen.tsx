@@ -71,7 +71,8 @@ export const PLAN_FIT: Record<string, ColumnFit> = {
 };
 
 export function toPlanRows(tasks: readonly TaskRow[], edges: readonly { fromTask: string; toTask: string }[], agents: Map<string, AgentRow>): PlanRow[] {
-  const titles = new Map(tasks.map((t) => [t.id, t.title]));
+  // Dependencies are named the way the founder reads them (0070): the founder title when there is one.
+  const titles = new Map(tasks.map((t) => [t.id, t.founderTitle ?? t.title]));
   const done = new Set(tasks.filter((t) => t.status === "done").map((t) => t.id));
   return tasks.map((t) => {
     const agent = t.assigneeAgentId ? agents.get(t.assigneeAgentId) : undefined;
@@ -163,8 +164,16 @@ export function PlanScreen({ businessId, departmentId }: ModuleScreenProps) {
         meta: { locked: true },
         cell: ({ row }) => (
           <span className="flex min-w-0 items-center gap-2">
-            <span className="min-w-0 truncate text-body-strong" title={row.original.title}>
-              {row.original.title}
+            {/* The founder's title first (0070); the agents' technical title underneath, for anyone matching it to the code. */}
+            <span className="flex min-w-0 flex-col">
+              <span className="min-w-0 truncate text-body-strong" title={row.original.founderTitle ?? row.original.title}>
+                {row.original.founderTitle ?? row.original.title}
+              </span>
+              {row.original.founderTitle && row.original.founderTitle !== row.original.title ? (
+                <span className="min-w-0 truncate text-small text-tertiary" title={row.original.title} data-technical-title>
+                  {row.original.title}
+                </span>
+              ) : null}
             </span>
             {row.original.priority && row.original.priority >= 10 ? (
               <Chip tone="warn" className="shrink-0">

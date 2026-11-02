@@ -300,6 +300,8 @@ export const tasks = pgTable(
     businessId: businessId(),
     kind: text("kind", { enum: TASK_KINDS }).notNull(),
     title: text("title").notNull(),
+    /** The title in the founder's words (0070), written by the Composer; null until then, and every founder-facing surface falls back to `title`. */
+    founderTitle: text("founder_title"),
     goalMd: text("goal_md").notNull().default(""),
     acceptance: jsonb("acceptance").$type<unknown[]>().notNull().default(emptyList),
     fileScope: text("file_scope").array().notNull().default(emptyArray),

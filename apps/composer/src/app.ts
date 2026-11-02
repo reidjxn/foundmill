@@ -17,6 +17,7 @@ const Id = z.guid();
 export const NarrateBody = z.object({ businessId: Id, eventIds: z.array(Id).min(1).max(LIMITS.narrateMaxEvents) });
 export const RefreshBody = z.object({ businessId: Id });
 export const CommentaryBody = z.object({ businessId: Id, journeyId: Id });
+export const FounderTitlesBody = z.object({ businessId: Id, taskIds: z.array(Id).max(200).optional() });
 export const ChapterTitleBody = z
   .object({ businessId: Id, quarter: z.string().regex(QUARTER_RE).optional(), chapterId: z.string().regex(QUARTER_RE).optional() })
   .transform((v) => ({ businessId: v.businessId, quarter: v.quarter ?? v.chapterId }));
@@ -85,6 +86,12 @@ export function createApp(service: ComposerService, options: AppOptions = {}) {
     const { businessId, quarter } = await body(c, ChapterTitleBody);
     const r = await service.chapterTitle(businessId, quarter);
     return c.json({ quarter: r.quarter, label: r.label, title: r.title, subtitle: r.subtitle, mood: r.mood, source: r.source, facts: r.facts, cost: { amountMinor: r.costMinor, label: ESTIMATE } });
+  });
+
+  app.post("/v1/founder-titles", async (c) => {
+    const { businessId, taskIds } = await body(c, FounderTitlesBody);
+    const r = await service.founderTitles(businessId, taskIds);
+    return c.json({ written: r.written, skipped: r.skipped, cost: { amountMinor: r.costMinor, label: ESTIMATE } });
   });
 
   app.get("/v1/exhibits", (c) => c.json({ queries: service.exhibits() }));

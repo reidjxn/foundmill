@@ -68,6 +68,8 @@ export async function planTaskGraph(ctx: BusinessContext, input: PlanInput, key:
     if (written) return written;
     const created = await repos.tasks.writePlannedGraph(tx, ctx.businessId, { tasks: result.json.tasks, roadmapItemId: roadmapItem?.id ?? null, departmentId: input.departmentId ?? roadmapItemDepartmentId(roadmapItem) });
     await audit(tx, ctx, { action: "dev.tasks.plan", target: { kind: "roadmap_item", id: roadmapItem?.id ?? "" }, details: { tasks: created.length, costMinor: result.cost.costMinorInt, planKey: key, taskIds: created.map((t) => t.id) } });
+    // The founder meets these tasks on the Plan at once: their titles in the founder's words follow (0070), without holding the answer.
+    if (created.length > 0) ctx.composer.requestFounderTitles(ctx.businessId, created.map((t) => t.id));
     return { tasks: created, graph: await repos.tasks.graph(tx, ctx.businessId), costMinor: result.cost.costMinorInt, costLabel: "Estimate" as const, reused: false };
   });
 }

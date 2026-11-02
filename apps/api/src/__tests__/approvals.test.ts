@@ -68,7 +68,7 @@ describe("deciding an approval's Inbox item", () => {
     expect(temporal.signals).toEqual([{ workflowId: `session:${g.sessionId}`, signal: "decision", args: [{ approvalId: g.approval.id, planActionId: null, outcome: "approved", by: hz.A.ownerId, byKind: "user", note: null }] }]);
     expect(temporal.starts).toEqual([]); // the session carries on; no cycle needed
     expect(result.approval).toMatchObject({ approvalId: g.approval.id, outcome: "approved", sessionWaiting: true, cycle: null, signalled: [{ queued: true, workflowId: `session:${g.sessionId}` }] });
-    expect(result.approval?.summary).toBe(`You approved ${agentName}'s request to run GitHub › run migration. ${agentName} carries on.`);
+    expect(result.approval?.summary).toBe(`You approved ${agentName}'s request to run GitHub › run a change to the data layout. ${agentName} carries on.`);
     expect(result.item).toMatchObject({ state: "answered", blocksContinue: false });
     expect(result.plan).toMatchObject({ status: "done", summaryMd: result.approval!.summary });
     expect(result.plan.actions.map((a) => [a.type, a.status])).toEqual([["reply_only", "done"]]);
@@ -86,7 +86,7 @@ describe("deciding an approval's Inbox item", () => {
     const g = await gatedCall();
     const result = await owner().inbox.decide({ businessId: hz.A.businessId, itemId: g.itemId, chosenOption: APPROVAL_OPTIONS.reject, freeText: "Not during the launch week" });
     expect(temporal.signals).toEqual([{ workflowId: `session:${g.sessionId}`, signal: "decision", args: [expect.objectContaining({ approvalId: g.approval.id, outcome: "rejected", note: "Not during the launch week" })] }]);
-    expect(result.approval?.summary).toBe(`You rejected ${agentName}'s request to run GitHub › run migration (Not during the launch week). Nothing runs; ${agentName} is told not to retry it.`);
+    expect(result.approval?.summary).toBe(`You rejected ${agentName}'s request to run GitHub › run a change to the data layout (Not during the launch week). Nothing runs; ${agentName} is told not to retry it.`);
     expect((await repos.approvals.get(hz.db, hz.A.businessId, g.approval.id)).outcome).toBe("rejected");
     await expect(owner().inbox.decide({ businessId: hz.A.businessId, itemId: g.itemId, chosenOption: APPROVAL_OPTIONS.approve })).rejects.toThrow(/already answered/);
     expect(temporal.signals).toHaveLength(1);
@@ -175,7 +175,7 @@ describe("an answer that comes after the session ended", () => {
     temporalStarted.push({ workflowId: temporal.starts[0]!.workflowId });
     expect(temporal.starts[0]).toMatchObject({ type: "businessCycle", workflowId: expect.stringMatching(new RegExp(`^cycle:${hz.A.businessId}:\\d+$`)), args: [expect.objectContaining({ businessId: hz.A.businessId, trigger: "wake" })] });
     expect(result.approval).toMatchObject({ sessionWaiting: false, task: { id: g.taskId, status: "ready" }, cycle: { started: true, workflowId: temporal.starts[0]!.workflowId, reason: null } });
-    expect(result.approval?.summary).toBe(`You approved ${agentName}'s request to run GitHub › run migration. “Index the usage events” runs again on the next cycle.`);
+    expect(result.approval?.summary).toBe(`You approved ${agentName}'s request to run GitHub › run a change to the data layout. “Index the usage events” runs again on the next cycle.`);
   });
 
   it("no cycle starts over another note that still blocks Continue, or while the Chief of Staff runs the vacation; the task is ready for the next one", async () => {
@@ -238,7 +238,7 @@ describe("an answer that comes after the session ended", () => {
     expect(temporal.starts).toEqual([]);
     expect((await repos.tasks.get(hz.db, hz.A.businessId, g.taskId)).status).toBe("blocked");
     const blocked = (await repos.events.list(hz.db, hz.A.businessId, { type: "task.blocked", limit: 50 })).items.find((e) => (e.payload as { taskId: string }).taskId === g.taskId);
-    expect(blocked?.payload).toMatchObject({ reason: "approval_rejected", approvalId: g.approval.id, detail: "The founder rejected the request to run GitHub › run migration: Use a smaller index." });
+    expect(blocked?.payload).toMatchObject({ reason: "approval_rejected", approvalId: g.approval.id, detail: "The founder rejected the request to run GitHub › run a change to the data layout: Use a smaller index." });
     expect(blocked?.narrated).toBe(true);
     const note = result.followUp!;
     expect(note).toMatchObject({ type: "update", fromAgentId: hz.A.agentId, subject: "Add the composite index stays blocked", blocksContinue: false });
@@ -264,7 +264,7 @@ describe("approvals a plan action or a channel launch waits on", () => {
     expect(item.bodyMd).toContain("Lead Generation Engine wants to launch campaign, and waits for your answer.");
     expect(item.bodyMd).not.toContain("platform");
     expect(item.bodyMd).not.toContain(APP_NAME);
-    expect(approvalAction({ connectorKey: "github", tool: "run_migration" }, null, name)).toBe("GitHub › run migration");
+    expect(approvalAction({ connectorKey: "github", tool: "run_migration" }, null, name)).toBe("GitHub › run a change to the data layout");
   });
 });
 
@@ -302,7 +302,7 @@ describe("team.approvals", () => {
   it("lists the open approvals with who asks and for which task, and resolve answers the Inbox item too", async () => {
     const g = await gatedCall({ title: "Publish the pricing page" });
     const pending = await owner().team.approvals.pending({ businessId: hz.A.businessId });
-    expect(pending.find((a) => a.id === g.approval.id)).toMatchObject({ agentName: expect.any(String), taskTitle: "Publish the pricing page", action: "GitHub › run migration", section: "development" });
+    expect(pending.find((a) => a.id === g.approval.id)).toMatchObject({ agentName: expect.any(String), taskTitle: "Publish the pricing page", action: "GitHub › run a change to the data layout", section: "development" });
     const resolved = await owner().team.approvals.resolve({ businessId: hz.A.businessId, approvalId: g.approval.id, outcome: "approved" });
     expect(resolved).toMatchObject({ id: g.approval.id, outcome: "approved", answer: { sessionWaiting: true } });
     expect(temporal.signals).toEqual([{ workflowId: `session:${g.sessionId}`, signal: "decision", args: [expect.objectContaining({ approvalId: g.approval.id, outcome: "approved" })] }]);

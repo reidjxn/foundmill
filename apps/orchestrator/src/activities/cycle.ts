@@ -348,6 +348,12 @@ export function createCycleActivities(deps: OrchestratorDeps) {
     async startCycle(input: { businessId: string; cycleNumber: number; workflowId: string; trigger: CycleTrigger; plan: CyclePlan; brief: BusinessBrief; cycleId?: string }): Promise<{ cycleId: string; eventId: string }> {
       const cycleId = input.cycleId ?? uuid();
       const budget = input.brief.budgetRemainingMinor === null ? null : { amountMinor: input.brief.budgetRemainingMinor, currency: input.brief.creditsCurrency };
+      // Every open task the founder is about to meet (the Plan, the cards, a decision) gets its title in their words
+      // (0070) before the cycle's work starts; the composer's absence costs nothing but the titles until next time.
+      await deps.composer.founderTitles({ businessId: input.businessId }).then(
+        (r) => r.written > 0 && deps.log.info({ businessId: input.businessId, cycleNumber: input.cycleNumber, written: r.written, skipped: r.skipped }, "founder titles written"),
+        (err: unknown) => deps.log.debug({ businessId: input.businessId, err: (err as Error).message }, "founder titles not written this cycle"),
+      );
       return deps.db.transaction(async (tx) => {
         const before = await repos.events.byIdempotencyKey(tx, input.businessId, cycleEventKey("started", cycleId));
         if (before) return { cycleId, eventId: before.id };

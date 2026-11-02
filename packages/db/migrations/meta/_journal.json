@@ -407,6 +407,13 @@
       "when": 1796040720000,
       "tag": "0069_agent_styles",
       "breakpoints": true
+    },
+    {
+      "idx": 58,
+      "version": "7",
+      "when": 1796127120000,
+      "tag": "0070_task_founder_titles",
+      "breakpoints": true
     }
   ]
 }

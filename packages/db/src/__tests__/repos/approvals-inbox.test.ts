@@ -3,6 +3,7 @@
  * opens one decision item that blocks Continue, one gated call has one approval (`claimOpen`), a granted approval is
  * used once by the same call (`useGranted`), and a task waits while its approval is open or was just rejected (`holds`).
  */
+import { founderJargonHits } from "@foundmill/shared";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { APPROVAL_OPTIONS, founderReasons, approvalArgsText, approvalItem, approvalOutcomeOf, approvalSection, closeApprovalItem, isApprovalOption, openApprovalItem } from "../../approvals";
 import { repos } from "../../repos";
@@ -119,10 +120,16 @@ describe("the decision item", () => {
     expect(plain.body_md).not.toMatch(/spending|committing/);
     // The arguments never reach the note (the reading pane's Details hold them).
     expect(plain.body_md).not.toContain("create index");
-    expect(plain.body_md).toContain("**What happened:** Legal Lead wants to run migration on GitHub, and waits for your answer.");
+    // The tool's words in the founder's (the shared map): "run migration" reads "run a change to the data layout".
+    expect(plain.body_md).toContain("**What happened:** Legal Lead wants to run a change to the data layout on GitHub, and waits for your answer.");
     // A release is worded as the moment it is for the founder, with the platform's test counts.
     const release = approvalItem({ connectorKey: "github", tool: "merge_pr", reasons: ["You chose to be asked before anything goes live"], amountMinor: null, currency: null, args: { owner: "acme", repo: "shop", prNumber: 38, mergeMethod: "squash" } }, { agentId: r.A.agentId, agentName: "Eva", taskTitle: "Assert no hydration errors in the example-business Playwright spec", tests: { passing: 144, total: 144 } });
     expect(release.subject).toBe("Eva's change is ready to go live");
+    // The founder-language boundary (2026-11-01): nothing a founder reads in the note names the engineering vocabulary;
+    // the task's own title is quoted as given (the founder title once the Composer has written one).
+    const released = `${release.subject}. ${release.body_md.replace(/“[^”]*”/g, "")}. ${(release.decision?.options ?? []).map((o) => `${o.label}. ${o.consequence}`).join(" ")}`;
+    expect(founderJargonHits(released).map((h) => h.term), released).toEqual([]);
+    expect(founderJargonHits(`${plain.subject}. ${plain.body_md}`).map((h) => h.term)).toEqual([]);
     expect(release.body_md).toBe(
       [
         "**What happened:** Eva finished “Assert no hydration errors in the example-business Playwright spec”. The platform ran 144 tests on it and all passed. The repository's own automatic tests run next (about 10 minutes).",

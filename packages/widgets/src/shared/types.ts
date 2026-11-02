@@ -216,6 +216,8 @@ export interface TaskRow {
   id: string;
   kind: string;
   title: string;
+  /** The title in the founder's words (0070); null or absent until the Composer writes it, and the screens fall back to `title`. */
+  founderTitle?: string | null;
   departmentId: string | null;
   assigneeAgentId: string | null;
   status: TaskStatus;

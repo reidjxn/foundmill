@@ -8,6 +8,7 @@ import { createGithubMock } from "@foundmill/connectors/connectors/github/mock";
 import { makeToolContext } from "@foundmill/connectors/testing/contract-suite";
 import { isUntrusted } from "@foundmill/connectors";
 import { repos } from "@foundmill/db";
+import { founderJargonHits } from "@foundmill/shared";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { createMergeActivities, handBackDetail, MERGE_AUDIT, mergeableOf, mergeArgs, pullRequestBody } from "../activities/merge";
 import type { MergeInput } from "../activities/types";
@@ -189,6 +190,8 @@ describe("assessMerge and handBack", () => {
     for (const why of ["conflicts", "behind", "checks_failed", "checks_timeout", "refused"] as const) {
       const text = handBackDetail(why, "agent/x", null);
       expect(text).not.toMatch(/\bmerge\b|\brebase\b|\bPR\b|mergeable/i);
+      // The founder-language boundary (2026-11-01): no engineering word the shared map names, beyond the branch it has to name.
+      expect(founderJargonHits(text.replace("(agent/x)", "")).map((h) => h.term), text).toEqual([]);
       expect(text).toContain("Bring your working copy (agent/x) up to date");
     }
     expect(handBackDetail("checks_failed", "agent/x", null)).toContain("fix what the repository's tests found");

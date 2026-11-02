@@ -12,6 +12,8 @@ export interface TaskRow {
   id: string;
   kind: TaskKind;
   title: string;
+  /** The title in the founder's words (0070); null or absent until the Composer writes it, and the screens fall back to `title`. */
+  founderTitle?: string | null;
   goalMd?: string;
   acceptance?: unknown[];
   fileScope?: string[];
@@ -101,6 +103,8 @@ export interface AgentsListResponse {
 export interface OpenPrRow {
   taskId: string;
   title: string;
+  /** The task's title in the founder's words (0070), when the Composer has written one. */
+  founderTitle?: string | null;
   status: TaskStatus;
   branch: string;
   agentId: string | null;

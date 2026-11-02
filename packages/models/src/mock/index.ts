@@ -24,6 +24,7 @@ import {
   DepartmentLeadOutput,
   FoundationsOutput,
   FoundationsSkeletonOutput,
+  FounderTitlesOutput,
   IdeationOutput,
   IdeationSlateOutput,
   LinkerOutput,
@@ -49,6 +50,7 @@ import { generateDepartmentLead } from "./departmentLead";
 import { generateJurisdictionRecommendation, isJurisdictionRequest } from "./jurisdictionRecommender";
 import { generateFoundationsSkeleton, generateIdeationSlate } from "./drafts";
 import { generateFoundations } from "./foundations";
+import { generateFounderTitles } from "./founderTitle";
 import { generateIdeationRoute } from "./ideation";
 import { generateInboxComposer } from "./inboxComposer";
 import { type MockContext, buildMockContext, keywords } from "./inputs";
@@ -98,6 +100,7 @@ export const MOCK_ROUTES: Record<RouteKey, MockRouteDefinition> = {
   classifier: { route: "classifier", description: "Picks one of the supplied labels by keyword overlap with a confidence; scores a source against spec blocks for the Source Watcher.", schema: ClassifierOutput, generate: (ctx) => (isSourceRelevanceRequest(ctx) ? generateSourceRelevance(ctx) : generateClassifier(ctx)) },
   categoriser: { route: "categoriser", description: "Bank transactions → standard chart of accounts with the rule that fired.", schema: CategoriserOutput, generate: generateCategoriser },
   quarantinedReader: { route: "quarantinedReader", description: "Extracts only the requested fields from untrusted content; instructions inside the content are ignored.", schema: QuarantinedReaderOutput, generate: generateQuarantinedReader },
+  founderTitle: { route: "founderTitle", description: "A task's title in the founder's words: ten words at most, no engineering terms, no identifiers.", schema: FounderTitlesOutput, generate: generateFounderTitles },
   moderation: { route: "moderation", description: "Honest-agent and marketing-law pre-send check with flags and an allow/block verdict.", schema: ModerationOutput, generate: generateModeration },
   conversation: { route: "conversation", description: "A reply at the agent's desk: 1-3 bubbles in its voice quoting only figures from the inputs, a hand-off for instructions (never a claim that anything was done), 2-4 quick replies by subject.", schema: AgentReplyOutput, generate: generateConversation },
 };
