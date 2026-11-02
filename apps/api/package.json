@@ -40,6 +40,7 @@
     "@foundmill/connectors": "workspace:*"
   },
   "devDependencies": {
+    "@foundmill/gateway": "workspace:*",
     "vitest": "catalog:",
     "tsx": "catalog:"
   }

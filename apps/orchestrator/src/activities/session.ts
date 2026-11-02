@@ -170,14 +170,26 @@ export function mcpToolNames(grants: readonly { connectorKey: string; tools: rea
   return resolveGrants(grants).mcpTools;
 }
 
-function parseGrants(version: AgentVersion | null, template: AgentTemplate): { connectorKey: string; tools: string[] }[] {
-  const parsed = version ? ToolGrants.safeParse(version.tools) : null;
+/**
+ * An agent's live version follows its template when it is the one the platform wrote at hiring (version 1, by the
+ * system) and nobody has edited it since: the template is then the source of its tools and instructions, so a tool or a
+ * rule added to the template reaches every such agent at its next session. Until Nov 2, 2026 the version's copy won:
+ * the Foundmill business's agents, hired Oct 22, never received the Planner's `tasks.update` (added to the template
+ * later), and its Planner ended two re-scoping sessions blocked, "no task-update tool". A version the founder, the coach
+ * or an agent wrote (any later version, or one not by the system) keeps its own tools and instructions.
+ */
+export function followsTemplate(version: Pick<AgentVersion, "version" | "createdByKind"> | null): boolean {
+  return version === null || (version.version === 1 && version.createdByKind === "system");
+}
+
+export function parseGrants(version: AgentVersion | null, template: Pick<AgentTemplate, "tools">): { connectorKey: string; tools: string[] }[] {
+  const parsed = version && !followsTemplate(version) ? ToolGrants.safeParse(version.tools) : null;
   const grants = parsed?.success && parsed.data.length > 0 ? parsed.data : template.tools;
   return grants.map((g) => ({ connectorKey: g.connectorKey, tools: [...g.tools] }));
 }
 
-function instructionsFor(version: AgentVersion | null, template: AgentTemplate) {
-  const parsed = version ? AgentInstructions.safeParse(version.instructions) : null;
+export function instructionsFor(version: AgentVersion | null, template: Pick<AgentTemplate, "instructions">) {
+  const parsed = version && !followsTemplate(version) ? AgentInstructions.safeParse(version.instructions) : null;
   return parsed?.success ? parsed.data : template.instructions;
 }
 
@@ -932,7 +944,11 @@ export function createSessionActivities(deps: OrchestratorDeps) {
       const handedOver = task.assigneeAgentId !== null ? task.assigneeAgentId !== agent.id : agent.archivedAt !== null;
       switch (handedOver ? "handed_over" : outcome) {
         case "handed_over":
-          taskStatus = task.status;
+          // Reassigned while this session ran: the task is the new assignee's, and with this session over nobody is
+          // working on it, so a task still marked running goes back to ready for the next cycle to start it for them.
+          // Left as running, it was never started again (Sam's hydration fix, reassigned to the Engineering Lead
+          // mid-session, Nov 2, 2026).
+          taskStatus = task.status === "running" ? "ready" : task.status;
           break;
         case "done": {
           // A session that changed how the tests run (`review`) leaves the task for the founder to look at, never done.
@@ -1479,7 +1495,7 @@ async function runLiveSession(deps: OrchestratorDeps, recorder: SessionRecorder,
 
   const continuing = [handedBack ? `## Why this task is back\n${handedBack}` : "", checkout ? checkoutNote(checkout) : checkoutMissing ? checkoutMissingNote(checkoutMissing) : "", updateNoteText ?? "", restored && restored.files > 0 ? restoredWorkspaceNote(restored.files) : ""].filter(Boolean).join("\n\n");
   const resumed = !ctx.run.resume ? "" : ctx.run.resume.reason === "handoff" || ctx.run.resume.reason === "retry" ? "This session moved to another worker mid-task and has been resumed. Continue the task from where the work stands, and check what is already done before you repeat any external action." : "This session was paused for a while and has been resumed. Continue the task from where the work stands.";
-  const taskPrompt = [`# Task: ${task.title}`, task.goalMd || "", Array.isArray(task.acceptance) && task.acceptance.length ? `## Acceptance criteria\n${task.acceptance.map((a) => `- ${typeof a === "string" ? a : JSON.stringify(a)}`).join("\n")}` : "", policy.fileTools ? `Work on branch ${launch.branch} inside your working directory; it is the only place you can read or write files.` : "Keep every action inside the tools you were given; this task has no file access.", continuing, resumed, "Report each phase change and keep every external action inside the tools you were given."].filter(Boolean).join("\n\n");
+  const taskPrompt = [`# Task: ${task.title}`, task.goalMd || "", Array.isArray(task.acceptance) && task.acceptance.length ? `## Acceptance criteria\n${task.acceptance.map((a) => `- ${typeof a === "string" ? a : JSON.stringify(a)}`).join("\n")}` : "", policy.fileTools ? codeTaskNote(launch.branch) : "Keep every action inside the tools you were given; this task has no file access.", continuing, resumed, "Report each phase change and keep every external action inside the tools you were given."].filter(Boolean).join("\n\n");
 
   const waits = founderWaits(deps);
   /**
@@ -1948,6 +1964,21 @@ async function runLiveSession(deps: OrchestratorDeps, recorder: SessionRecorder,
       deps.log.warn({ err: (err as Error).message, sessionId: input.sessionId }, "session workspace cleanup failed");
     }
   }
+}
+
+/**
+ * What a code session is told about its place in the loop. Twenty-three of twenty-five sessions on Nov 2, 2026 ended
+ * blocked, most of them for things the platform does after the session ("no shell, so I could not run the tests", "I
+ * cannot rebase or run CI here", "no merge tool"): the agent writes the change; the platform saves and pushes it, runs
+ * the acceptance command in a test copy, brings the branch up to date, runs CI, opens the pull request and asks the
+ * founder. Said up front, so a session finishes instead of blocking on a step that was never its own.
+ */
+export function codeTaskNote(branch: string): string {
+  return [
+    `Work on branch ${branch} inside your working directory; it is the only place you can read or write files.`,
+    "You have no shell, no node_modules and no way to run tests here, and that is expected. When your session ends the platform saves your changes and pushes them to your branch, runs the task's acceptance command in a test copy, brings the branch up to date with the live product, runs the repository's CI and opens the pull request; the founder decides what goes live.",
+    "Never block or stop the task because you cannot run tests, CI, a rebase or a merge yourself, and never plan or ask for those steps: write the change and the tests it needs, then finish. Block only for something the task itself needs and you cannot get (a decision, a missing credential, a dependency that is not done).",
+  ].join(" ");
 }
 
 /**

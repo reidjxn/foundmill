@@ -701,6 +701,9 @@ importers:
         specifier: 'catalog:'
         version: 4.6.5
     devDependencies:
+      '@foundmill/gateway':
+        specifier: workspace:*
+        version: link:../gateway
       tsx:
         specifier: 'catalog:'
         version: 4.23.15

@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import { COMMENTARY_TONES } from "@foundmill/models";
 import { PLAN_ACTION_TYPES } from "@foundmill/shared";
-import { COMPOSER_PLUMBING_WORDS, PROMPTS, PROMPT_LIST, founderExperienceFrom, getPrompt } from "../prompts";
+import { COMPOSER_PLUMBING_WORDS, PROMPTS, PROMPT_LIST, dropPlatformDuties, founderExperienceFrom, getPrompt, platformDutyReason } from "../prompts";
 import { PromptRenderError, definePrompt, extractPlaceholders, formatVariable } from "../prompts/template";
 import { ROUTE_DEFAULT_MODEL } from "../types";
 
@@ -254,3 +254,27 @@ function minLength(field: z.ZodType): number {
   }
   return 1;
 }
+
+describe("the planner never plans the platform's own work", () => {
+  it("names a platform duty from the title and leaves real tasks alone", () => {
+    for (const title of ["Run CI on the agent branch and read the results", "Open a pull request from agent/<task> to main", "Rebase the deploy contract branch (task a5444581) onto main and hand it to the founder", "Review the rebased deploy contract change (a5444581) before the founder merges", "Review the workspace setup and test memory fix (45f17158) before the founder merges it", "Merge the pull request once checks pass", "Bring agent/abc up to date with the default branch"]) {
+      expect(platformDutyReason({ title }), title).toEqual(expect.any(String));
+    }
+    for (const title of ["Define deploy connector contract and tool schemas", "Implement gateway deploy guards (main head + CI success)", "API: enforce founder-only handler for merges", "UI: show merges as founder-only on Team › Responsibilities", "Add a merge button to the branch list", "Diagnose and fix Example chip hydration mismatch", "Record the engineering loop in docs/PROGRESS.md", "Write the CI workflow's documentation page"]) {
+      expect(platformDutyReason({ title }), title).toBeNull();
+    }
+  });
+
+  it("drops the duties from a plan and the dependencies on them", () => {
+    const task = (id: string, title: string, depends_on: string[] = []) => ({ id, title, depends_on });
+    const { kept, dropped } = dropPlatformDuties([task("a", "Add the deploy contract"), task("b", "Run CI on the agent branch", ["a"]), task("c", "Open a pull request to main", ["b"]), task("d", "Document the contract", ["a", "c"])]);
+    expect(kept.map((t) => t.id)).toEqual(["a", "d"]);
+    expect(kept[1]!.depends_on).toEqual(["a"]);
+    expect(dropped.map((d) => d.task.id)).toEqual(["b", "c"]);
+    expect(dropped[0]!.reason).toMatch(/CI/);
+  });
+
+  it("tells the Planner so in its rules", () => {
+    expect(getPrompt("planner").text).toContain("Never plan what the platform does around every code task");
+  });
+});

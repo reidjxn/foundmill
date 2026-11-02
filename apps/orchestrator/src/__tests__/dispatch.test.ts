@@ -323,6 +323,22 @@ describe("failed tasks and failing agents come back (bounded backoff)", () => {
     expect((await followUps("continue")).some((s) => s.taskId === task.id)).toBe(true);
   });
 
+  it("a task reassigned while its session ran goes back to ready when that session ends, never left running for nobody", async () => {
+    const sessions = createSessionActivities(t.deps);
+    const task = await readyTask("Reassigned mid-session", t.workerId);
+    const opened = await cycle.openSession({ businessId: B(), agentId: t.workerId, taskId: task.id });
+    expect((await repos.tasks.get(t.db, B(), task.id)).status).toBe("running");
+    // A lead hands the task to someone else while the worker's session is still running.
+    const lead = await repos.agents.create(t.db, B(), { name: "Lead who takes it", agentType: (await repos.agents.get(t.db, B(), t.workerId)).agentType, status: "idle", initialVersion: { tools: [{ connectorKey: "platform", tools: ["tasks.list"] }] } });
+    await repos.tasks.reassign(t.db, B(), task.id, lead.id);
+    const blocked: SessionResult = { ...failed(), outcome: "blocked", reason: "could not run the tests here", summary: "Blocked." };
+    const finish = await sessions.finishSession({ businessId: B(), agentId: t.workerId, taskId: task.id, sessionId: opened.sessionId! }, launch, blocked);
+    // The session settles only its own row; the task is the new assignee's and waits for the next cycle to start it.
+    expect(finish.taskStatus).toBe("ready");
+    expect(await repos.tasks.get(t.db, B(), task.id)).toMatchObject({ status: "ready", assigneeAgentId: lead.id });
+    expect((await repos.agents.getSession(t.db, B(), opened.sessionId!)).outcome).toBe("blocked");
+  });
+
   it("a session that fails while its team is stopped does not fail the task or overwrite the pause", async () => {
     const sessions = createSessionActivities(t.deps);
     const task = await readyTask("Cut short", t.workerId);

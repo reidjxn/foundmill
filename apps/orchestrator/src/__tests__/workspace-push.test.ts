@@ -300,6 +300,31 @@ describe("pushWorkspace", () => {
     const four = await pushWorkspace(t.deps.db, gateway, ctx(s4, { checkout: { commitSha: main, at: new Date() }, agentPushed: { count: 1, lastSha: ownSha } }), await saveOn(s4, "main", main, { "src/fix.ts": "v4", "src/own.ts": "mine" }));
     expect(four).toMatchObject({ status: "pushed", rebuilt: true });
     expect(offline.calls.at(-1)!.args).toMatchObject({ rebuild: true, expectedHeadSha: ownSha });
+
+    // The branch is at a commit the record never saw (an earlier session's own push): GitHub says branch_moved, and a
+    // rebuild is retried once at the head it names, because the branch is being replaced anyway. A second refusal ends it.
+    const fourSha = (four as { commitSha: string }).commitSha;
+    const unseen = "d".repeat(40);
+    const elsewhere = "e".repeat(40);
+    let refusals = 0;
+    const once = githubGateway((req) => {
+      if (req.tool !== "commit_files" || refusals > 0) return null;
+      refusals += 1;
+      return { outcome: "allow", result: { ok: false, error: { code: "branch_moved", message: "moved", details: { branch, expectedHeadSha: fourSha, currentHeadSha: unseen } } } };
+    });
+    // The branch in this second mock world does not exist yet; the retry creates it, which is enough to see the retry.
+    const s5 = await openSessionRow(t, t.workerId, task.id);
+    const five = await pushWorkspace(t.deps.db, once.gateway, ctx(s5, { checkout: { commitSha: main, at: new Date() } }), await saveOn(s5, "main", main, { "src/fix.ts": "v5" }));
+    const commits = once.offline.calls.filter((c) => c.tool === "commit_files");
+    expect(commits).toHaveLength(2);
+    expect(commits[0]!.args).toMatchObject({ rebuild: true, expectedHeadSha: fourSha });
+    expect(commits[1]!.args).toMatchObject({ rebuild: true, expectedHeadSha: unseen });
+    expect(five).toMatchObject({ status: "pushed" });
+    const twice = githubGateway((req) => (req.tool === "commit_files" ? { outcome: "allow", result: { ok: false, error: { code: "branch_moved", message: "moved", details: { branch, expectedHeadSha: fourSha, currentHeadSha: elsewhere } } } } : null));
+    const s6 = await openSessionRow(t, t.workerId, task.id);
+    const six = await pushWorkspace(t.deps.db, twice.gateway, ctx(s6, { checkout: { commitSha: main, at: new Date() } }), await saveOn(s6, "main", main, { "src/fix.ts": "v6" }));
+    expect(twice.offline.calls.filter((c) => c.tool === "commit_files")).toHaveLength(2);
+    expect(six).toEqual({ status: "moved", repo: "acme/shop", branch, headSha: elsewhere });
   });
 
   it("never pushes a save made without the checkout its base names, and says why on that save only", async () => {

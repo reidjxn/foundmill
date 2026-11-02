@@ -8,7 +8,7 @@
  * same item, goal and department returns that plan (`reused: true`) instead of a second graph; the write holds a
  * per-business planning lock so a plan written on another instance meanwhile is seen, not written twice.
  */
-import { PLANNER_SYSTEM_PROMPT } from "@foundmill/agents";
+import { dropPlatformDuties, PLANNER_SYSTEM_PROMPT } from "@foundmill/agents";
 import { repos, roadmapItemDepartmentId, type DbTx, type Task } from "@foundmill/db";
 import { TaskGraphOutput } from "@foundmill/models";
 import { ValidationError } from "@foundmill/shared";
@@ -66,8 +66,11 @@ export async function planTaskGraph(ctx: BusinessContext, input: PlanInput, key:
     await repos.tasks.lockPlanning(tx, ctx.businessId);
     const written = await repeatedPlan(ctx, tx, key);
     if (written) return written;
-    const created = await repos.tasks.writePlannedGraph(tx, ctx.businessId, { tasks: result.json.tasks, roadmapItemId: roadmapItem?.id ?? null, departmentId: input.departmentId ?? roadmapItemDepartmentId(roadmapItem) });
-    await audit(tx, ctx, { action: "dev.tasks.plan", target: { kind: "roadmap_item", id: roadmapItem?.id ?? "" }, details: { tasks: created.length, costMinor: result.cost.costMinorInt, planKey: key, taskIds: created.map((t) => t.id) } });
+    // What the platform does around every code task (CI, the pull request, bringing the branch up to date, the merge)
+    // is never a task: no agent has a tool for it, and a task planned for it only blocks.
+    const { kept, dropped } = dropPlatformDuties(result.json.tasks);
+    const created = await repos.tasks.writePlannedGraph(tx, ctx.businessId, { tasks: kept, roadmapItemId: roadmapItem?.id ?? null, departmentId: input.departmentId ?? roadmapItemDepartmentId(roadmapItem) });
+    await audit(tx, ctx, { action: "dev.tasks.plan", target: { kind: "roadmap_item", id: roadmapItem?.id ?? "" }, details: { tasks: created.length, costMinor: result.cost.costMinorInt, planKey: key, taskIds: created.map((t) => t.id), ...(dropped.length ? { platformDuties: dropped.map((d) => ({ title: d.task.title.slice(0, 200), reason: d.reason })) } : {}) } });
     // The founder meets these tasks on the Plan at once: their titles in the founder's words follow (0070), without holding the answer.
     if (created.length > 0) ctx.composer.requestFounderTitles(ctx.businessId, created.map((t) => t.id));
     return { tasks: created, graph: await repos.tasks.graph(tx, ctx.businessId), costMinor: result.cost.costMinorInt, costLabel: "Estimate" as const, reused: false };
