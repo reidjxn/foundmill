@@ -7,7 +7,7 @@
  *
  * Callers write `inbox.item_created` through the outbox themselves (the event schemas live in @foundmill/events).
  */
-import { formatMoney, type Section } from "@foundmill/shared";
+import { formatMoney, founderWords, type Section } from "@foundmill/shared";
 import { repos } from "./repos";
 import type { Executor } from "./repos/_shared";
 import type { Approval, InboxItem } from "./schema";
@@ -43,8 +43,8 @@ export function connectorLabel(key: string | null | undefined): string {
   return BRANDS[key] ?? key.split("_").map((w) => (w ? w[0]!.toUpperCase() + w.slice(1) : w)).join(" ");
 }
 
-/** "run migration" from `run_migration`. */
-export const toolWords = (tool: string | null | undefined): string => (tool ? tool.replace(/[_.]+/g, " ").trim() : "an action");
+/** "run a change to the data layout" from `run_migration`: the tool's words, in the founder's (the shared map, 2026-11-01). */
+export const toolWords = (tool: string | null | undefined): string => (tool ? founderWords(tool.replace(/[_.]+/g, " ").trim()) : "an action");
 
 /**
  * "GitHub › run migration": the call an approval is about, as the founder reads it. A platform call is named after the
@@ -252,7 +252,8 @@ export async function approvalTaskTests(db: Executor, businessId: string, approv
 export async function approvalTaskTitle(db: Executor, businessId: string, approval: Pick<Approval, "taskId">): Promise<string | null> {
   if (!approval.taskId) return null;
   const task = await repos.tasks.get(db, businessId, approval.taskId).catch(() => null);
-  return task?.title ?? null;
+  // The founder's title when the Composer has written one (0070); the technical title is for the developer's Details.
+  return task?.founderTitle ?? task?.title ?? null;
 }
 
 /**

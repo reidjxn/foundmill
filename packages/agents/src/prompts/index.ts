@@ -18,6 +18,7 @@ import { reviewAgentPrompt } from "./review-agent";
 import { sourceRelevancePrompt, sourceWatcherPrompt } from "./source-watcher";
 import { entitySweepPrompt } from "./entity-sweep";
 import { chapterTitlePrompt } from "./chapter-title";
+import { taskFounderTitlePrompt } from "./task-founder-title";
 import { agentBuilderPrompt } from "./agent-builder";
 import { customSkillTestsPrompt } from "./custom-skill-tests";
 import { foundationsBriefPrompt, foundationsPrompt, foundationsRoadmapPrompt, foundationsSectionsPrompt, foundationsSkeletonPrompt } from "./foundations";
@@ -44,6 +45,7 @@ export * from "./review-agent";
 export * from "./source-watcher";
 export * from "./entity-sweep";
 export * from "./chapter-title";
+export * from "./task-founder-title";
 export * from "./agent-builder";
 export * from "./custom-skill-tests";
 export * from "./foundations";
@@ -72,6 +74,7 @@ export const PROMPT_LIST = [
   sourceWatcherPrompt,
   entitySweepPrompt,
   chapterTitlePrompt,
+  taskFounderTitlePrompt,
   agentBuilderPrompt,
   customSkillTestsPrompt,
   foundationsPrompt,

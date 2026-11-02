@@ -11,6 +11,7 @@ export { LOGO_BRIEFS, checkLogoSet, forbiddenShapes, runLogoEval, runLogoMarksEv
 export { MODERATION_CASES, runModerationCase, type ModerationCase, type ModerationCaseResult } from "./moderation";
 export { CONVERSATION_CASES, type ConversationCase } from "./conversation/cases";
 export { CONVERSATION_PASS_THRESHOLD, checkConversationReply, checkShippedReply, handOffActions, runConversationCase, summariseConversation, type ConversationCaseResult, type ConversationSuiteSummary } from "./conversation/run";
+export { FOUNDER_TITLE_CORPUS, founderTitlesSystemPrompt, runFounderTitlesCase, summariseFounderTitles, type FounderTitleCase, type FounderTitleCaseResult, type FounderTitlesRunResult, type FounderTitlesSummary } from "./founder-strings";
 export {
   COMPOSER_CASE_KINDS,
   COMPOSER_CORPUS,

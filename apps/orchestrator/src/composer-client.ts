@@ -32,6 +32,8 @@ export interface ComposerClient {
   narrate(input: NarrateRequest): Promise<NarrateResponse>;
   commentary(input: { businessId: string; journeyId: string }): Promise<CommentaryResponse>;
   chapterTitle(input: { businessId: string; chapterId: string }): Promise<{ title: string }>;
+  /** Founder titles for the business's open tasks without one (0070): how many were written. */
+  founderTitles(input: { businessId: string; taskIds?: string[] }): Promise<{ written: number; skipped: number }>;
 }
 
 export class ComposerUnavailableError extends AppError {
@@ -119,11 +121,15 @@ export function createComposerClient(options: ComposerClientOptions): ComposerCl
       const out = await post<Record<string, unknown>>("/v1/chapter-title", input);
       return { title: typeof out.title === "string" ? out.title : "" };
     },
+    async founderTitles(input) {
+      const out = await post<Record<string, unknown>>("/v1/founder-titles", input);
+      return { written: Array.isArray(out.written) ? out.written.length : 0, skipped: Array.isArray(out.skipped) ? out.skipped.length : 0 };
+    },
   };
 }
 
 /** A composer that is never there (tests / no COMPOSER_URL): every call throws ComposerUnavailableError. */
 export function createOfflineComposerClient(): ComposerClient {
   const unavailable = () => Promise.reject(new ComposerUnavailableError("Composer is not configured"));
-  return { baseUrl: "http://composer.offline", narrate: unavailable, commentary: unavailable, chapterTitle: unavailable };
+  return { baseUrl: "http://composer.offline", narrate: unavailable, commentary: unavailable, chapterTitle: unavailable, founderTitles: unavailable };
 }

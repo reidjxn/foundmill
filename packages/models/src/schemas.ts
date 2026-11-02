@@ -377,6 +377,15 @@ export const ClassifierOutput = z.object({
 });
 export type ClassifierOutput = z.infer<typeof ClassifierOutput>;
 
+// ---------------------------------------------------------------------------------------------------------------------
+// Founder titles (founder, 2026-11-01): a task's title in the founder's words, at most ten, no engineering terms.
+// ---------------------------------------------------------------------------------------------------------------------
+
+export const FounderTitlesOutput = z.object({
+  titles: z.array(z.object({ id: z.string().min(1), title: z.string().min(1).max(120) })),
+});
+export type FounderTitlesOutput = z.infer<typeof FounderTitlesOutput>;
+
 export const CHART_OF_ACCOUNTS = [
   "revenue",
   "refunds",

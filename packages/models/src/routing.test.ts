@@ -27,6 +27,7 @@ describe("routing (BUILD §10.1)", () => {
       categoriser: { model: "haiku", maxTokens: 4_096 },
       quarantinedReader: { model: "haiku", maxTokens: 4_096 },
       moderation: { model: "haiku", maxTokens: 4_096 },
+      founderTitle: { model: "haiku", maxTokens: 4_096 },
       conversation: { model: "sonnet", effort: "low", maxTokens: 8_000 },
     });
   });

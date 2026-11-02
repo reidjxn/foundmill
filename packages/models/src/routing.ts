@@ -114,6 +114,8 @@ export const ROUTES = {
   categoriser: { model: "haiku", maxTokens: PLAIN_MAX_TOKENS },
   quarantinedReader: { model: "haiku", maxTokens: PLAIN_MAX_TOKENS },
   moderation: { model: "haiku", maxTokens: PLAIN_MAX_TOKENS },
+  // A task's title in the founder's words (ten words, no engineering terms): a short rewrite of a short text, batched.
+  founderTitle: { model: "haiku", maxTokens: PLAIN_MAX_TOKENS },
   // Talking to an agent at their desk (audit-conversation §4): 1–3 short bubbles and 2–4 quick replies the founder waits
   // on, so Sonnet at low effort (founder, 2026-10-15: replies in seconds over Opus's nuance); callers cache the system
   // prompt (house rules + instructions) and size max_tokens for the reply (~700 tokens) plus the thinking Sonnet 5.5

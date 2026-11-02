@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { founderJargonHits } from "@foundmill/shared";
 import { NOTHING_RUNS, becauseWords, confirmPlanDescription, lineReasons, plainReason, reasonSentence } from "../ConfirmPlanDialog";
 import { HOLDS_CONTINUE_HINT, actionStatusWord, signoffNeedsNotes } from "../logic";
 import {
@@ -615,5 +616,28 @@ describe("sign-off notes (founder, 2026-10-18)", () => {
     expect(signoffNeedsNotes("approve", "")).toBe(false);
     expect(signoffNeedsNotes("start", "")).toBe(false);
     expect(signoffNeedsNotes("not_yet", "")).toBe(false);
+  });
+});
+
+describe("the founder-language boundary (2026-11-01)", () => {
+  it("every word the Decided panel can say about an approval is free of the engineering vocabulary", () => {
+    const base = { outcome: null, sessionWaiting: true, task: { id: "t-1", title: "Index the usage events" }, canAnswer: true, section: "development" } as const;
+    const cases = [
+      base,
+      { ...base, sessionWaiting: false },
+      { ...base, sessionWaiting: false, task: null },
+      { ...base, outcome: "approved" as const },
+      { ...base, outcome: "approved" as const, release: true },
+      { ...base, outcome: "approved" as const, release: true, execution: { state: "ran" as const, detail: null, at: "2026-11-01T15:02:00Z" } },
+      { ...base, outcome: "approved" as const, execution: { state: "waiting" as const, detail: null, at: "2026-11-01T15:02:00Z" } },
+      { ...base, outcome: "approved" as const, execution: { state: "handed_back" as const, detail: null, at: "2026-11-01T15:02:00Z" } },
+      { ...base, outcome: "approved" as const, execution: { state: "failed" as const, detail: null, at: "2026-11-01T15:02:00Z" } },
+      { ...base, outcome: "rejected" as const },
+      { ...base, outcome: "expired" as const },
+    ];
+    for (const c of cases) {
+      const s = approvalStatus(c);
+      expect(founderJargonHits(`${s.word}. ${s.detail}`).map((h) => h.term), `${s.word}: ${s.detail}`).toEqual([]);
+    }
   });
 });

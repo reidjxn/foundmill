@@ -443,7 +443,7 @@ export const devRouter = router({
           .filter((t) => t.status === "done" && !reported.has(t.id))
           .map((t) => ({ eventId: null, occurredAt: t.endedAt ?? t.updatedAt, source: "merge_queue" as const, taskId: t.id, title: t.title, branch: agentBranch(t.id), mergedBy: t.assigneeAgentId ? { kind: "agent", id: t.assigneeAgentId } : { kind: "system", id: null } }));
         return {
-          open: tasks.items.filter((t) => t.status !== "done").map((t) => ({ taskId: t.id, title: t.title, status: t.status, kind: t.kind, branch: agentBranch(t.id), agentId: t.assigneeAgentId })),
+          open: tasks.items.filter((t) => t.status !== "done").map((t) => ({ taskId: t.id, title: t.title, founderTitle: t.founderTitle, status: t.status, kind: t.kind, branch: agentBranch(t.id), agentId: t.assigneeAgentId })),
           merged: [...fromGitHub, ...fromQueue].sort((a, b) => new Date(b.occurredAt).getTime() - new Date(a.occurredAt).getTime()),
         };
       }),

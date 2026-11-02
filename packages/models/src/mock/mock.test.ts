@@ -56,6 +56,7 @@ const SAMPLE_INPUT: Record<RouteKey, Record<string, unknown>> = {
   skillGrader: { rubric: ["Tests pass", "Follows the design system", "Explains trade-offs"], deterministic: [{ criterion: "Tests pass", passed: true }], output: "Implemented the widget with Dugout components, tests pass, trade-offs documented in the PR." },
   coach: { instructions: { role: "Backend engineer", goals: ["Ship reliable APIs"], rules: ["Ask before schema changes"], playbook: ["Read the task"], tone: "Precise", examples: [] }, skill_results: [{ skill: "Testing", tested: 9, proven: 7 }, { skill: "Communication", tested: 11 }], focus_skills: ["Testing", "Communication", "Cost efficiency"] },
   worker: { task: { id: "t1", title: "Fix checkout bug for retail customers", kind: "code" } },
+  founderTitle: { business_name: "Northwind Skincare", tasks: [{ id: "t1", title: "Fix hydration mismatch in /checkout", goal: "The checkout page shows stale prices after a reload.", kind: "code" }, { id: "t2", title: "Rebase agent/a5444581-1234-4abc-8def-123456789abc onto main", goal: "Bring the deploy contract branch up to date so its tests can run.", kind: "code" }] },
   journeyCommentary: {
     customer: { id: ORG_ALDER, name: "Alder & Finch" },
     conversion_kind: "payment",

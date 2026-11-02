@@ -101,7 +101,8 @@ export function isCodePr(pr: Pick<OpenPrRow, "kind">): boolean {
 export function toOpenRows(open: readonly OpenPrRow[], agents: Map<string, AgentRow>, previews: Map<string, string>): OpenPrTableRow[] {
   return open.filter(isCodePr).map((pr) => {
     const agent = pr.agentId ? agents.get(pr.agentId) : undefined;
-    return { ...pr, id: pr.taskId, agent, agentName: agent?.name ?? (pr.agentId ? "Agent" : "Unassigned"), queue: QUEUE_META[pr.status]?.word ?? pr.status, previewUrl: previews.get(pr.branch) ?? previews.get(pr.taskId) ?? null };
+    // The founder's title (0070) is what the row shows; the technical one stays on the row for the developer's dialog.
+    return { ...pr, id: pr.taskId, title: pr.founderTitle ?? pr.title, agent, agentName: agent?.name ?? (pr.agentId ? "Agent" : "Unassigned"), queue: QUEUE_META[pr.status]?.word ?? pr.status, previewUrl: previews.get(pr.branch) ?? previews.get(pr.taskId) ?? null };
   });
 }
 

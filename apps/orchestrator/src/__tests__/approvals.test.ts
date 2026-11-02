@@ -69,7 +69,7 @@ describe("a gated call waits for the founder's answer in the Inbox", () => {
     expect(approval).toMatchObject({ taskId: task.id, connectorKey: "github", tool: "run_migration", outcome: null });
     expect(approval.inboxItemId).not.toBeNull();
     const item = await repos.inbox.get(t.db, t.businessId, approval.inboxItemId!);
-    expect(item).toMatchObject({ type: "decision", blocksContinue: true, fromAgentId: t.workerId, subject: "Test Engineer needs your OK: GitHub › run migration" });
+    expect(item).toMatchObject({ type: "decision", blocksContinue: true, fromAgentId: t.workerId, subject: "Test Engineer needs your OK: GitHub › run a change to the data layout" });
     expect(item.bodyMd).toContain("“Customer usage report endpoint”");
     // The call's arguments are a developer detail (the reading pane's Details), never in the founder's note.
     expect(item.bodyMd).not.toContain("create index concurrently");

@@ -4,7 +4,7 @@
  * arguments. The tool name and the raw arguments stay available behind "Details"; nothing here needs a model call.
  */
 import { formatMoney } from "@foundmill/dugout";
-import type { Money } from "@foundmill/shared";
+import { founderWords, type Money } from "@foundmill/shared";
 
 /** The slice of `inbox.get`'s `approval` the sentence reads. */
 export interface RequestLike {
@@ -70,8 +70,8 @@ export function keyWords(key: string): string {
   return words.map((w) => (branded && w === "ads" ? "Ads" : w)).join(" ");
 }
 
-/** "run_migration" → "run migration". */
-export const toolWords = (tool: string): string => tool.replace(/[_.]+/g, " ").trim();
+/** "run_migration" → "run a change to the data layout": the tool's words in the founder's (the shared map, as the api's subject). */
+export const toolWords = (tool: string): string => founderWords(tool.replace(/[_.]+/g, " ").trim());
 
 /** The arguments as an object when the api sent them as JSON text; an empty object for a summary line or nothing. */
 export function parseArgs(args: string | null | undefined): Record<string, unknown> {
