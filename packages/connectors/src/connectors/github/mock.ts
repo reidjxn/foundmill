@@ -288,14 +288,16 @@ export function createGithubMock(limits: { bytesPerBusiness?: number; bytesTotal
         files.sort((a, b) => (a.path < b.path ? -1 : 1));
         return { mergeBaseSha, baseSha, headSha, aheadBy: headSha === mergeBaseSha ? 0 : 1, behindBy: baseSha === mergeBaseSha ? 0 : 1, files, truncated: false };
       },
-      commit_files: async ({ owner, repo, branch, fromRef, message, files, deletions, expectedHeadSha }, ctx) => {
+      commit_files: async ({ owner, repo, branch, fromRef, message, files, deletions, expectedHeadSha, rebuild }, ctx) => {
         const g = world(ctx.businessId);
         const r = g.findOrCreate(owner, repo);
         if (branch === r.repo.default_branch) throw Object.assign(new Error(`commit_files never writes the default branch (${branch}); merge a pull request instead`), { status: 422 });
         if (!r.repo.private) throw Object.assign(new Error(`${owner}/${repo} is public; agents push only to private repositories`), { status: 422 });
         const existed = Boolean(r.branches[branch]);
         if (existed && expectedHeadSha && r.branches[branch] !== expectedHeadSha) throw branchMoved(branch, expectedHeadSha, r.branches[branch]!);
-        const from = existed ? branch : (fromRef ?? "HEAD");
+        // Rebuilding an existing branch: its new history starts at fromRef, as a branch created there would.
+        const rebuilt = rebuild && existed;
+        const from = existed && !rebuilt ? branch : (fromRef ?? "HEAD");
         const parentSha = g.resolveRef(r, from);
         const next = new Map(g.filesAt(r, from));
         let written = 0;
@@ -307,21 +309,32 @@ export function createGithubMock(limits: { bytesPerBusiness?: number; bytesTotal
         }
         let deleted = 0;
         for (const d of deletions) if (next.delete(d)) deleted++;
-        if (!existed) (r.bases ??= {})[branch] = parentSha;
+        if (!existed || rebuilt) (r.bases ??= {})[branch] = parentSha;
+        if (rebuilt) {
+          // Built on the default branch's newest commit, the branch no longer conflicts with it and shares its `.github`.
+          conflictingBranches.delete(branch);
+          changedGithub.delete(branch);
+        }
+        /** The branch's open pull requests follow its head, as GitHub's do. */
+        const moveHead = (sha: string) => {
+          for (const p of g.prList(r.repo.full_name)) if (p.state === "open" && p.head.ref === branch) p.head.sha = sha;
+        };
         if (written + deleted === 0) {
-          if (!existed) {
+          if (!existed || rebuilt) {
             r.branches[branch] = parentSha;
             g.setTree(r, branch, next);
+            moveHead(parentSha);
           }
-          return { branch, created: !existed, committed: false, sha: parentSha, parentSha, filesWritten: 0, filesDeleted: 0, url: null };
+          return { branch, created: !existed, committed: false, rebuilt, sha: parentSha, parentSha, filesWritten: 0, filesDeleted: 0, url: null };
         }
         // One branch never outgrows the business's budget (older branches give way to it, never the reverse).
         if ([...next.values()].reduce((n, b) => n + b.byteLength, 0) > bytesPerBusiness) throw Object.assign(new Error(`${branch} would hold more than the simulated GitHub keeps for one business (${Math.round(bytesPerBusiness / (1024 * 1024))} MB)`), { status: 413 });
         const sha = stableHash(`commit:${r.repo.full_name}:${branch}:${parentSha}:${message}:${[...next].map(([p, c]) => `${p}=${blobShaOf(p, c)}`).sort().join(",")}`, 40);
         r.branches[branch] = sha;
         g.setTree(r, branch, next);
+        moveHead(sha);
         fitTotal(ctx.businessId);
-        return { branch, created: !existed, committed: true, sha, parentSha, filesWritten: written, filesDeleted: deleted, url: `${r.repo.html_url}/commit/${sha}` };
+        return { branch, created: !existed, committed: true, rebuilt, sha, parentSha, filesWritten: written, filesDeleted: deleted, url: `${r.repo.html_url}/commit/${sha}` };
       },
       run_checks: async ({ owner, repo, branch }, ctx) => {
         const g = world(ctx.businessId);

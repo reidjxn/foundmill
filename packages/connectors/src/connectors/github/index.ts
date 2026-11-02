@@ -303,7 +303,7 @@ export function createGithubConnector(options: LiveConnectorOptions = {}): Conne
           const created = await o.rest.git.createRef({ owner, repo, ref: `refs/heads/${branch}`, sha });
           return { branch, sha: created.data.object.sha, created: true };
         },
-        commit_files: ({ owner, repo, branch, fromRef, message, files, deletions, expectedHeadSha }, ctx) =>
+        commit_files: ({ owner, repo, branch, fromRef, message, files, deletions, expectedHeadSha, rebuild }, ctx) =>
           commitSlots.run(async () => {
             const o = await octokitFor(ctx);
             const info = (await o.rest.repos.get({ owner, repo })).data;
@@ -313,16 +313,29 @@ export function createGithubConnector(options: LiveConnectorOptions = {}): Conne
             const existing = await o.rest.git.getRef({ owner, repo, ref: `heads/${branch}` }).catch((e: { status?: number }) => (e.status === 404 ? null : Promise.reject(e)));
             // The caller's changes are based on a head the branch no longer has: nothing is written over the other commits.
             if (existing && expectedHeadSha && existing.data.object.sha !== expectedHeadSha) throw branchMoved(branch, expectedHeadSha, existing.data.object.sha);
-            const parentSha = existing ? existing.data.object.sha : await refSha(o, owner, repo, fromRef ?? info.default_branch);
+            // Rebuilding: the branch's new history starts at fromRef (the default branch's commit the agent worked from).
+            const rebuilding = rebuild && existing !== null;
+            const parentSha = existing && !rebuilding ? existing.data.object.sha : await refSha(o, owner, repo, fromRef ?? info.default_branch);
             const baseTree = (await o.rest.git.getCommit({ owner, repo, commit_sha: parentSha })).data.tree.sha;
-            // What the branch holds now, so unchanged files are not uploaded and only existing paths are deleted.
+            // What the branch (or, rebuilding, fromRef) holds now, so unchanged files are not uploaded and only existing paths are deleted.
             const current = await o.rest.git.getTree({ owner, repo, tree_sha: baseTree, recursive: "1" });
             const known = current.data.truncated ? null : new Map(current.data.tree.filter((e) => e.type === "blob" && e.path && e.sha).map((e) => [e.path!, e.sha!] as const));
             const writes = files.map((f) => ({ path: f.path, bytes: fileWriteBuffer(f) })).filter((f) => known?.get(f.path) !== gitBlobSha(f.bytes));
             const removals = known ? deletions.filter((d) => known.has(d)) : deletions;
-            const result = (sha: string, committed: boolean, url: string | null) => ({ branch, created: !existing, committed, sha, parentSha, filesWritten: committed ? writes.length : 0, filesDeleted: committed ? removals.length : 0, url });
+            const result = (sha: string, committed: boolean, url: string | null) => ({ branch, created: !existing, committed, rebuilt: rebuilding, sha, parentSha, filesWritten: committed ? writes.length : 0, filesDeleted: committed ? removals.length : 0, url });
+            /** Move an existing branch to `sha` whatever it holds (rebuilding only); `branch_moved` when it moved meanwhile and a head was expected. */
+            const moveTo = (sha: string) =>
+              o.rest.git.updateRef({ owner, repo, ref: `heads/${branch}`, sha, force: true }).catch(async (e: { status?: number }) => {
+                if (expectedHeadSha && e.status === 422) {
+                  const now = await o.rest.git.getRef({ owner, repo, ref: `heads/${branch}` }).then((r) => r.data.object.sha, () => null);
+                  if (now && now !== expectedHeadSha) throw branchMoved(branch, expectedHeadSha, now);
+                }
+                throw e;
+              });
             if (writes.length === 0 && removals.length === 0) {
               if (!existing) await o.rest.git.createRef({ owner, repo, ref: `refs/heads/${branch}`, sha: parentSha });
+              // Nothing differs from fromRef: the rebuilt branch is fromRef itself.
+              else if (rebuilding && existing.data.object.sha !== parentSha) await moveTo(parentSha);
               return result(parentSha, false, null);
             }
             // Text goes inline in the tree (one request however many files); only binary files need a blob each.
@@ -342,12 +355,15 @@ export function createGithubConnector(options: LiveConnectorOptions = {}): Conne
             const tree = await o.rest.git.createTree({ owner, repo, base_tree: baseTree, tree: entries });
             if (tree.data.sha === baseTree) {
               if (!existing) await o.rest.git.createRef({ owner, repo, ref: `refs/heads/${branch}`, sha: parentSha });
+              else if (rebuilding && existing.data.object.sha !== parentSha) await moveTo(parentSha);
               return result(parentSha, false, null);
             }
             const commit = await o.rest.git.createCommit({ owner, repo, message, tree: tree.data.sha, parents: [parentSha] });
-            // Fast-forward only: if the branch moved since it was read, GitHub refuses and nothing is overwritten (with
+            // Rebuilding: the branch is moved to the new commit whatever it held (its history is the point). Otherwise
+            // fast-forward only: if the branch moved since it was read, GitHub refuses and nothing is overwritten (with
             // expectedHeadSha the refusal is the typed branch_moved).
-            if (existing)
+            if (rebuilding) await moveTo(commit.data.sha);
+            else if (existing)
               await o.rest.git.updateRef({ owner, repo, ref: `heads/${branch}`, sha: commit.data.sha, force: false }).catch(async (e: { status?: number }) => {
                 if (expectedHeadSha && e.status === 422) {
                   const now = await o.rest.git.getRef({ owner, repo, ref: `heads/${branch}` }).then((r) => r.data.object.sha, () => null);
