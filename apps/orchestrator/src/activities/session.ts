@@ -58,7 +58,7 @@ import { createSessionWorkspace, guardToolCall, hookOutputFor, removeSessionWork
 import { commitShaOf, describePush, pushWorkspace, type PushContext } from "./workspace-push";
 import { mergeRecipients, restoreWorkspace, saveWorkspace, toSeed, type LeftOut, type RestoredWorkspace, type SaveWorkspaceOptions } from "./workspace-store";
 import { readWorkspaceChanges, syncCheckoutToSandbox, syncWorkspaceToSandbox } from "./workspace-sync";
-import { checkoutMissingNote, checkoutNote, checkoutRepository, defaultBranchChanges, describeCheckout, disposeCheckout, extractArchive, testSetupChanges, testSetupReviewReason, updateConflicts, updateNote, type Checkout, type CheckoutBase, type CheckoutInput } from "./checkout";
+import { checkoutMissingNote, checkoutNote, checkoutRepository, defaultBranchChanges, describeCheckout, disposeCheckout, extractArchive, startsFromDefaultBranch, testSetupChanges, testSetupReviewReason, updateConflicts, updateNote, type Checkout, type CheckoutBase, type CheckoutInput } from "./checkout";
 import { fingerprintWorkspace, workspaceChanged } from "./workspace-fingerprint";
 import type { AgentSessionInput, MergeInput, SessionFinish, SessionLaunch, SessionParked, SessionResult, SessionRunOptions } from "./types";
 
@@ -1441,9 +1441,13 @@ async function runLiveSession(deps: OrchestratorDeps, recorder: SessionRecorder,
   let token: Awaited<ReturnType<typeof deps.gateway.mintSessionToken>>;
   try {
     if (policy.fileTools) {
-      // A branch handed back to be brought up to date (activities/merge.ts) starts from the default branch's newest files.
-      const checkoutInput = { businessId: input.businessId, agentId: agent.id, sessionId: input.sessionId, taskId: task.id, fromDefaultBranch: handedBack !== null };
-      if (handedBack) updateNoteText = updateNote(launch.branch, await updateConflicts(deps, checkoutInput, launch.branch));
+      // A branch handed back to be brought up to date (activities/merge.ts), or one the default branch has moved past
+      // (checkout.ts `startsFromDefaultBranch`), starts from the default branch's newest files with the saved changes on top.
+      const ids = { businessId: input.businessId, agentId: agent.id, sessionId: input.sessionId, taskId: task.id };
+      const update = launch.branch === `agent/${task.id}` ? await updateConflicts(deps, ids, launch.branch) : null;
+      const fromDefaultBranch = startsFromDefaultBranch(handedBack !== null, update);
+      const checkoutInput = { ...ids, fromDefaultBranch };
+      if (fromDefaultBranch) updateNoteText = updateNote(launch.branch, update);
       const checked = await checkoutRepository(deps, checkoutInput, cwd);
       if (checked.status === "checked_out") checkout = checked.checkout;
       else if (checked.status === "failed") {
