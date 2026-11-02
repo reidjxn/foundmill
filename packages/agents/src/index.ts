@@ -47,6 +47,8 @@ export {
   HOUSE_STYLE,
   HOUSE_RULES_FOUNDER_LINE,
   PLANNER_SYSTEM_PROMPT,
+  platformDutyReason,
+  dropPlatformDuties,
   type ClubRule,
   clubRulesPrompt,
   ClubRulesVariables,

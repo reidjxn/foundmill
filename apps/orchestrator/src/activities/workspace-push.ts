@@ -24,7 +24,8 @@
  *   date starts from its newest files, checkout.ts `fromDefaultBranch`) is a diff against a commit the branch does not
  *   have, so it is not added on top of the branch: the branch is rebuilt on that commit (`commit_files` `rebuild`), its
  *   earlier commits left behind, and the push expects the branch at the last head this task knew (its agent's own push
- *   this session, else the last push the task made there). A branch that does not exist yet is simply created there.
+ *   this session, else the last push the task made there); when GitHub names another head, the rebuild is retried once
+ *   there (the branch is the task's own and is being replaced). A branch that does not exist yet is simply created there.
  * - A save made without a checkout on a task whose saves are diffs against one (`saveHeldBack`) is the whole
  *   workspace, not a diff: it is never pushed over the repository.
  * - The result is recorded on the save (commit and link, or why not). A save that did not reach GitHub is pushed again
@@ -212,8 +213,11 @@ export async function pushWorkspace(db: Db, gateway: GatewayClient, ctx: PushCon
     };
     // The agent pushed to its branch itself during this session and no answer named the head: the branch is at one of
     // its own commits, so the save goes on top of the head GitHub reports, once. A second refusal is someone else's push.
+    // A rebuild is retried the same way: the branch is the task's own and is being replaced whatever it holds (an
+    // earlier session's own commit the record never saw is the usual reason the head differs), so the one retry at the
+    // head GitHub names replaces it; a second refusal is a push landing while this one ran.
     const ownHead = movedTo(res);
-    if (ownHead && (ctx.agentPushed?.count ?? 0) > 0 && ownHead !== expectedHeadSha) res = await commit(ownHead);
+    if (ownHead && ((ctx.agentPushed?.count ?? 0) > 0 || rebuild) && ownHead !== expectedHeadSha) res = await commit(ownHead);
     if (res.outcome === "ask") {
       await record({ error: "waiting for the founder's approval" });
       return { status: "awaiting_approval", repo, branch, approvalId: res.approvalId ?? null };
