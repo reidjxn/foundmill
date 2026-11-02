@@ -2,8 +2,9 @@
  * GitHub App connector: repositories the installation can reach, tree/file reads (quarantined — repo
  * content is third-party text), branches, commits to working branches, pull requests. Merging is
  * `irreversible` (never spends money); deleting a repository or force-pushing over history would be permanent
- * deletion and is not offered. `commit_files` only fast-forwards an `agent/` branch of a private repository and never
- * writes `.git` or `.github` (so it cannot add or edit workflow files), a commit can always be reverted, and the
+ * deletion and is not offered. `commit_files` writes only an `agent/` branch of a private repository (fast-forward, or
+ * rebuilt on a named commit when the caller says so: an agent's branch brought up to date with the default branch) and
+ * never writes `.git` or `.github` (so it cannot add or edit workflow files), a commit can always be reverted, and the
  * default branch changes only through `merge_pr`. Code it writes can still run in CI that the repository's own
  * workflows start (scripts, local actions elsewhere, `on: create`): pushing is the founder's opt-in for that reason.
  *
@@ -127,7 +128,17 @@ export const CommitFilesInput = RepoRef.extend({
    * branch does not exist yet.
    */
   expectedHeadSha: z.string().regex(/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/, "a full commit sha").optional(),
+  /**
+   * Rebuild an existing branch on `fromRef` (required with it) instead of committing on top of its head: the commit's
+   * parent is `fromRef`, the files are the diff against it, and the branch is moved there whatever history it held. For
+   * a branch that went back to its agent to be brought up to date, whose session started from the default branch's
+   * files (the saved diff is against those, not against the branch's own commits). `expectedHeadSha` still guards the
+   * branch head: a branch at another commit is refused with `branch_moved` and nothing is written. Only an `agent/`
+   * branch, like every write of this tool.
+   */
+  rebuild: z.boolean().default(false),
 }).superRefine((input, ctx) => {
+  if (input.rebuild && !input.fromRef) ctx.addIssue({ code: "custom", path: ["fromRef"], message: "rebuild needs the commit to rebuild on (fromRef)" });
   const seen = new Set<string>();
   let total = 0;
   for (const f of input.files) {
@@ -147,6 +158,8 @@ export const CommitFilesOutput = z.object({
   created: z.boolean(),
   /** False when every file already matched the branch and nothing was deleted (no empty commits). */
   committed: z.boolean(),
+  /** The branch existed and was rebuilt on `fromRef` (`rebuild`): its earlier commits are no longer its history. */
+  rebuilt: z.boolean(),
   /** The branch head after the call. */
   sha: z.string(),
   parentSha: z.string(),
@@ -359,7 +372,7 @@ export const githubTools = [
   }),
   defineTool({
     name: "commit_files",
-    description: "Write files to an agent's working branch (agent/<name>) of a private repository as one commit: the branch is created from fromRef (default: the default branch) when missing, the files are added or replaced on top of it and the deletions removed. At most 300 files and 10 MB; nothing under .git or .github. Only changed files are uploaded; nothing changed means no commit. With expectedHeadSha, an existing branch whose head is another commit is refused (branch_moved, with the current head) and nothing is written. Never writes the default branch (merge a pull request with merge_pr) and never force-pushes.",
+    description: "Write files to an agent's working branch (agent/<name>) of a private repository as one commit: the branch is created from fromRef (default: the default branch) when missing, the files are added or replaced on top of it and the deletions removed. At most 300 files and 10 MB; nothing under .git or .github. Only changed files are uploaded; nothing changed means no commit. With expectedHeadSha, an existing branch whose head is another commit is refused (branch_moved, with the current head) and nothing is written. With rebuild (and fromRef), an existing branch is rebuilt on fromRef instead: the commit's parent is fromRef and the branch is moved there, its earlier commits left behind. Never writes the default branch (merge a pull request with merge_pr).",
     input: CommitFilesInput,
     output: CommitFilesOutput,
     hints: {},
