@@ -4,7 +4,7 @@
  */
 import { ApplicationFailure } from "@temporalio/common";
 import { LIMITS } from "@foundmill/config";
-import { agentUsable, buildSystemPrompt, getPrompt, getTemplate, modelBillingFacts, modelBillingMessage, pickAssignee as pickAgent } from "@foundmill/agents";
+import { agentUsable, buildSystemPrompt, getPrompt, getTemplate, modelBillingFacts, modelBillingMessage, pickAssignee as pickAgent, platformDutyReason } from "@foundmill/agents";
 import { APP_NAME } from "@foundmill/config";
 import { repos } from "@foundmill/db";
 import { CyclePlanOutput } from "@foundmill/models";
@@ -22,6 +22,8 @@ import type { BriefAgent, BriefTask, BusinessBrief, CyclePlan, CycleStart, Cycle
 export { agentUsable };
 
 const DISPATCHABLE = new Set<string>(PLANNABLE_TASK_STATUSES);
+/** Audit action written per task the cycle stops as the platform's own work (`stopPlatformDuties`). */
+export const PLATFORM_DUTY_STOPPED_AUDIT_ACTION = "cycle.platform_duty_stopped";
 
 /** Why a task the planner left out starts anyway (lead, 2026-10-24: the planner orders, it never gates). */
 export const SLOT_FREE_REASON = "ready, and an agent slot was free";
@@ -192,6 +194,37 @@ export function createCycleActivities(deps: OrchestratorDeps) {
   }
 
   /** The Chief of Staff's plan for one cycle, before the roadmap note is put in front of its summary (`planCycle`). */
+  /**
+   * Open tasks that are the platform's own work (packages/agents `platformDutyReason`: running CI, opening the pull
+   * request, bringing a branch up to date, review before the founder, the merge) are stopped and archived before the
+   * plan is drafted, and the tasks that waited on them wait no longer (the edge is removed: the platform does that step
+   * for every task). New plans never hold such a task (`dropPlatformDuties`); the ones planned before that rule kept
+   * dispatching every cycle, each ending blocked within a minute while real tasks waited behind them (the Foundmill
+   * business, cycles 35 to 37, Nov 2, 2026). Audited per task; a failure to stop one never fails the plan.
+   */
+  async function stopPlatformDuties(businessId: string, cycleNumber: number, openTasks: readonly BriefTask[]): Promise<Set<string>> {
+    const stopped = new Set<string>();
+    for (const task of openTasks) {
+      if (!DISPATCHABLE.has(task.status)) continue;
+      const reason = platformDutyReason(task);
+      if (!reason) continue;
+      try {
+        await deps.db.transaction(async (tx) => {
+          const edges = await repos.tasks.listEdges(tx, businessId, [task.id]);
+          for (const e of edges) if (e.fromTask === task.id) await repos.tasks.removeEdge(tx, businessId, e.fromTask, e.toTask);
+          await repos.tasks.setStatus(tx, businessId, task.id, "stopped", { force: true });
+          await repos.tasks.archive(tx, businessId, task.id);
+          await repos.audit.append(tx, businessId, { actorKind: "system", action: PLATFORM_DUTY_STOPPED_AUDIT_ACTION, target: { kind: "task", id: task.id }, details: { cycleNumber, title: task.title.slice(0, 200), reason, dependentsFreed: edges.filter((e) => e.fromTask === task.id).length } });
+        });
+        stopped.add(task.id);
+      } catch (err) {
+        deps.log.warn({ businessId, cycleNumber, taskId: task.id, err: (err as Error).message }, "cycle: a platform-duty task could not be stopped; it is tried again next cycle");
+      }
+    }
+    if (stopped.size > 0) deps.log.info({ businessId, cycleNumber, stopped: stopped.size }, "cycle: platform-duty tasks stopped");
+    return stopped;
+  }
+
   async function draftPlan(input: { businessId: string; cycleNumber: number; trigger: CycleTrigger; brief: BusinessBrief }): Promise<CyclePlan> {
     const { brief } = input;
     const chiefAgent = brief.agents.find((a) => a.id === brief.chiefOfStaffId) ?? null;
@@ -311,7 +344,10 @@ export function createCycleActivities(deps: OrchestratorDeps) {
      * an agent slot is free. `roadmapPlanned` (what `planRoadmap` did before this plan) opens the summary.
      */
     async planCycle(input: { businessId: string; cycleNumber: number; trigger: CycleTrigger; brief: BusinessBrief; roadmapPlanned?: RoadmapPlanResult | null }): Promise<CyclePlan> {
-      const plan = await draftPlan(input);
+      // Tasks planned before the rule for the platform's own steps (Nov 2, 2026) leave the loop here, never the plan.
+      const stopped = await stopPlatformDuties(input.businessId, input.cycleNumber, input.brief.openTasks);
+      const brief = stopped.size > 0 ? { ...input.brief, openTasks: input.brief.openTasks.filter((t) => !stopped.has(t.id)) } : input.brief;
+      const plan = await draftPlan({ ...input, brief });
       return { ...plan, summary: withRoadmapNote(plan.summary, input.roadmapPlanned) };
     },
 

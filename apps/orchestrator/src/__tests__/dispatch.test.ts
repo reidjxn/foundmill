@@ -7,7 +7,7 @@ import { concurrencyAllowance, modelBudgetState, periodOf, repos, resumeBusiness
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { createBriefActivities } from "../activities/brief";
 import { createChannelActivities, emptyChannelState } from "../activities/channel";
-import { createCycleActivities } from "../activities/cycle";
+import { createCycleActivities, PLATFORM_DUTY_STOPPED_AUDIT_ACTION } from "../activities/cycle";
 import { MODEL_BUDGET_ALERT_ACTION, WAGE_ALERT_ACTION, attemptSessionId, nextPeriodStart, openAgentSession, recoverAgents } from "../activities/dispatch";
 import { createHolidayActivities } from "../activities/holiday";
 import { createPlanActivities } from "../activities/plan";
@@ -259,6 +259,32 @@ describe("wage caps at dispatch (BUILD §10.4)", () => {
     const plan = await cycle.planCycle({ businessId: B(), cycleNumber: 9, trigger: "continue", brief: await brief.loadBrief({ businessId: B() }) });
     expect(plan.starts.some((s) => s.agentId === t.workerId)).toBe(false);
     expect(plan.starts.some((s) => s.taskId === task.id && s.agentId === t.workerId)).toBe(false);
+  });
+});
+
+describe("the platform's own steps leave the loop", () => {
+  it("a planned task that runs CI, opens a pull request or rebases onto main is stopped and archived before the plan, and what waited on it is freed", async () => {
+    const duty = await readyTask("Run CI on the agent branch and read the results", t.workerId);
+    const rebase = await repos.tasks.create(t.db, B(), { kind: "code", title: "Rebase the deploy contract branch onto main and hand it to the founder", status: "blocked", assigneeAgentId: t.workerId });
+    const real = await readyTask("Implement gateway deploy guards (main head + CI success)", t.workerId);
+    await repos.tasks.addEdge(t.db, B(), duty.id, real.id);
+    await repos.tasks.addEdge(t.db, B(), rebase.id, real.id);
+    let b = await brief.loadBrief({ businessId: B() });
+    expect(b.openTasks.find((x) => x.id === real.id)?.blocked).toBe(true);
+    const plan = await cycle.planCycle({ businessId: B(), cycleNumber: 11, trigger: "continue", brief: b });
+    for (const id of [duty.id, rebase.id]) {
+      expect(plan.starts.some((s) => s.taskId === id)).toBe(false);
+      expect(plan.deferred.some((d) => d.taskId === id)).toBe(false);
+      expect(await repos.tasks.get(t.db, B(), id)).toMatchObject({ status: "stopped", archivedAt: expect.any(Date) });
+    }
+    const audits = (await repos.audit.list(t.db, B(), { action: PLATFORM_DUTY_STOPPED_AUDIT_ACTION, limit: 20 })).items.filter((a) => [duty.id, rebase.id].includes((a.target as { id: string }).id));
+    expect(audits).toHaveLength(2);
+    expect(audits.map((a) => (a.details as { reason: string }).reason).sort()).toEqual(["the platform brings a branch up to date and merges it after the founder's approval", "the platform runs the repository's CI on every agent branch"]);
+    // The real task no longer waits on either; the platform does those steps for it.
+    b = await brief.loadBrief({ businessId: B() });
+    expect(b.openTasks.find((x) => x.id === real.id)).toMatchObject({ blocked: false, dependsOn: [] });
+    expect(b.openTasks.some((x) => x.id === duty.id || x.id === rebase.id)).toBe(false);
+    expect((await repos.tasks.get(t.db, B(), real.id)).status).toBe("ready");
   });
 });
 
