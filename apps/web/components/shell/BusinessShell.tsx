@@ -224,8 +224,9 @@ export function exampleFrame(access: Pick<Access, "isExample" | "canChange">, cy
  * it.
  */
 export function ExampleBadge() {
-  // The server and the first client render are the same bare Chip. The tooltip (Radix trigger attributes, pointer
-  // handling) is applied after mount, so hydration never compares it; the chip keeps its place and classes, so nothing shifts.
+  // The chip's markup is the same on the server and on the first client render: a bare Chip. The tooltip (Radix
+  // trigger attributes, pointer handling) is applied after mount, so hydration never compares it and nothing shifts:
+  // the chip is the same element either way.
   const hydrated = useHydrated();
   const chip = (
     <Chip className="shrink-0 text-kit-on-primary" data-testid="example-chip" onPointerMove={hydrated ? (e) => e.stopPropagation() : undefined}>
