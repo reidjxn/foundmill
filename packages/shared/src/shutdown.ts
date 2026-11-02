@@ -112,10 +112,14 @@ export function onShutdown(options: ShutdownOptions): ShutdownHandle {
       }, timeoutMs + 1_000);
       watchdog.unref?.();
       let code = 0;
+      /** A step was cut off at the budget: the budget is spent, whatever the clock says a millisecond later. */
+      let budgetSpent = false;
       const steps = typeof options.steps === "function" ? options.steps() : options.steps;
       for (const step of steps) {
         const remainingMs = deadline - now();
-        if (remainingMs <= 0) {
+        // A timer can fire a millisecond before the wall clock reaches the deadline (CI, Nov 2, 2026: the step after a
+        // cut-off one ran instead of being skipped), so a cut-off settles it as well as the clock does.
+        if (budgetSpent || remainingMs <= 0) {
           code = 1;
           log.warn({ service, step: step.name }, `${service} shutdown: no time left for ${step.name}; skipped`);
           continue;
@@ -126,6 +130,7 @@ export function onShutdown(options: ShutdownOptions): ShutdownHandle {
         if (outcome.status === "ok") log.info({ service, step: step.name, ms }, `${service} shutdown: ${step.name}`);
         else if (outcome.status === "timeout") {
           code = 1;
+          budgetSpent = true;
           log.warn({ service, step: step.name, ms }, `${service} shutdown: ${step.name} did not finish in time; moving on`);
         } else {
           code = 1;
