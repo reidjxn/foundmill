@@ -74,7 +74,7 @@ describe("prepareMerge", () => {
     expect(offline.calls.map((c) => c.tool)).toEqual(["list_pull_requests", "compare_refs", "open_pr", "run_checks"]);
     expect(offline.calls[2]!.args).toMatchObject({ head: input.branch, base: "HEAD", draft: false, title: "Deploy contract" });
     // Reads and writes on separate tokens: the reads' token can do nothing else, so the gateway answers them as data.
-    expect(offline.minted.slice(-2)).toEqual([expect.objectContaining({ agentId: t.workerId, sessionId: input.sessionId, allowedTools: ["github:compare_refs", "github:list_pull_requests", "github:get_pull_request", "github:get_checks"] }), expect.objectContaining({ allowedTools: ["github:open_pr", "github:run_checks", "github:merge_pr"] })]);
+    expect(offline.minted.slice(-2)).toEqual([expect.objectContaining({ agentId: t.workerId, sessionId: input.sessionId, allowedTools: ["github:compare_refs", "github:list_pull_requests", "github:get_pull_request", "github:get_checks"] }), expect.objectContaining({ allowedTools: ["github:open_pr", "github:run_checks", "github:update_branch", "github:merge_pr"] })]);
 
     // The pull request's body says what was tested and that the founder decides; the task waits in review.
     const pr = unwrap<{ body: string; base: { ref: string }; merged: boolean }>(await github.callTool("get_pull_request", { ...REPO, prNumber: prepared.prNumber }, ctx));
@@ -123,6 +123,49 @@ describe("prepareMerge", () => {
     expect((await auditOf(MERGE_AUDIT.notMerged))[0]).toMatchObject({ target: { id: empty.task.id }, details: { step: "nothing_to_merge" } });
   });
 
+  it("a branch the default branch moved past reads as behind, is brought up to date by GitHub and tested again, and a conflicting one is refused", async () => {
+    await connectRepo();
+    const { github, offline, ctx, acts } = githubGateway();
+    const { input } = await reviewTask("Behind main");
+    await commitOn(github, ctx, input.branch, "src/behind.ts");
+    const prepared = await acts.prepareMerge(input);
+    expect(prepared.status).toBe("ready");
+    if (prepared.status !== "ready") return;
+    const pr = { prNumber: prepared.prNumber, prUrl: prepared.prUrl };
+    expect(await acts.assessMerge({ ...input, ...pr })).toMatchObject({ mergeable: "ready", behindBy: 0 });
+
+    // Another change lands on the default branch: the branch is behind it now.
+    const other = await reviewTask("Lands first");
+    await commitOn(github, ctx, other.input.branch, "src/other.ts");
+    const otherPr = unwrap<{ number: number }>(await github.callTool("open_pr", { ...REPO, title: "Lands first", head: other.input.branch, base: "main", draft: false }, ctx));
+    await github.callTool("merge_pr", { ...REPO, prNumber: otherPr.number, mergeMethod: "squash" }, ctx);
+    const behind = await acts.assessMerge({ ...input, ...pr });
+    expect(behind).toMatchObject({ mergeable: "ready", behindBy: 1 });
+    expect(behind.detail).toContain("1 commit behind the default branch");
+
+    offline.calls.length = 0;
+    const headBefore = unwrap<{ head: { sha: string } }>(await github.callTool("get_pull_request", { ...REPO, prNumber: pr.prNumber }, ctx)).head.sha;
+    expect(await acts.updateBranch({ ...input, ...pr })).toEqual({ updated: true, reason: null, checksStarted: true });
+    expect(offline.calls.map((c) => c.tool)).toEqual(["update_branch", "run_checks"]);
+    const headAfter = unwrap<{ head: { sha: string } }>(await github.callTool("get_pull_request", { ...REPO, prNumber: pr.prNumber }, ctx)).head.sha;
+    expect(headAfter).not.toBe(headBefore);
+    expect(await acts.assessMerge({ ...input, ...pr })).toMatchObject({ behindBy: 0 });
+    expect((await auditOf(MERGE_AUDIT.updated))[0]).toMatchObject({ details: { prNumber: pr.prNumber, ci: "started" } });
+    // Up to date already: nothing happens, and that is not a refusal.
+    expect(await acts.updateBranch({ ...input, ...pr })).toEqual({ updated: false, reason: null, checksStarted: false });
+
+    // A conflicting branch: GitHub refuses, and the reason comes back for the hand-back.
+    const dirty = createGithubMock({ conflictingBranches: [`agent/${other.task.id}`] });
+    const dirtyGateway = githubGateway(dirty);
+    const dirtyTask = await reviewTask("Conflicts");
+    const dirtyInput = { ...dirtyTask.input, branch: `agent/${other.task.id}` };
+    await commitOn(dirty, dirtyGateway.ctx, dirtyInput.branch, "src/dirty.ts");
+    const dirtyPr = unwrap<{ number: number }>(await dirty.callTool("open_pr", { ...REPO, title: "Conflicts", head: dirtyInput.branch, base: "main", draft: false }, dirtyGateway.ctx));
+    const refused = await dirtyGateway.acts.updateBranch({ ...dirtyInput, prNumber: dirtyPr.number, prUrl: null });
+    expect(refused.updated).toBe(false);
+    expect(refused.reason).toMatch(/conflicts with main/);
+  });
+
   it("a pull request merged by hand on GitHub goes on record from GitHub's own facts, once, as history rather than news", async () => {
     await connectRepo();
     const { github, ctx, acts } = githubGateway();
@@ -167,7 +210,7 @@ describe("assessMerge and handBack", () => {
     if (prepared[0]!.status !== "ready" || prepared[1]!.status !== "ready") throw new Error("not ready");
 
     // The mock's CI concludes the moment it is dispatched: a clean branch with green checks is ready to ask about.
-    expect(await acts.assessMerge({ ...okInput, prNumber: prepared[0]!.prNumber, prUrl: prepared[0]!.prUrl })).toEqual({ mergeable: "ready", checks: "success", detail: "GitHub reports the pull request as clean" });
+    expect(await acts.assessMerge({ ...okInput, prNumber: prepared[0]!.prNumber, prUrl: prepared[0]!.prUrl })).toEqual({ mergeable: "ready", checks: "success", detail: "GitHub reports the pull request as clean", behindBy: 0 });
     expect(await acts.assessMerge({ ...dirtyInput, prNumber: prepared[1]!.prNumber, prUrl: prepared[1]!.prUrl })).toMatchObject({ mergeable: "conflicts", detail: "GitHub reports the pull request as dirty" });
     expect(mergeableOf("blocked", false)).toBe("ready");
     expect(mergeableOf("behind", false)).toBe("behind");

@@ -36,6 +36,8 @@ interface Script {
   checks?: MergeAssessment["checks"][];
   /** Answers to `completeMerge`, in order; the last repeats. */
   complete?: (MergeOutcome & { retryable?: boolean })[];
+  /** Answers to `updateBranch`, in order; the last repeats. */
+  update?: Awaited<ReturnType<Activities["updateBranch"]>>[];
   approvalId?: string;
 }
 
@@ -46,7 +48,12 @@ function mockActivities(script: Script) {
   let assessed = 0;
   let checked = 0;
   let completed = 0;
+  let updates = 0;
   const acts: Partial<Activities> = {
+    async updateBranch() {
+      calls.push("updateBranch");
+      return next(script.update, updates++, { updated: true, reason: null, checksStarted: true });
+    },
     async prepareMerge() {
       calls.push("prepareMerge");
       return script.prepared ?? { status: "ready", ...PR, checksStarted: true, checksNote: null };
@@ -139,6 +146,43 @@ describe("mergeReview workflow", () => {
     await reviewDecided(never, "approved");
     expect(never.calls.filter((c) => c === "assessMerge")).toHaveLength(ASSESS_TRIES);
     expect(never.calls).toContain("askMerge");
+  });
+
+  it("a branch the default branch moved past is brought up to date and re-read before anyone is asked; one GitHub cannot update goes back to its agent", async () => {
+    const m = mockActivities({ assess: [{ mergeable: "ready", checks: "success", detail: null, behindBy: 3 }, { mergeable: "ready", checks: "pending", detail: null, behindBy: 0 }], checks: ["success"] });
+    const result = await reviewDecided(m, "approved");
+    expect(result).toMatchObject({ status: "merged", prNumber: 7 });
+    // The stale head's green checks are not trusted: the new head's are waited for after the approval.
+    expect(m.calls).toEqual(["prepareMerge", "assessMerge", "updateBranch", "assessMerge", "askMerge", "loadApproval", "resolveApproval:approved", "awaitChecks:first", `completeMerge:7:${m.approvalId}:founder-1`]);
+
+    // GitHub's own word for it, with the compare silent, reads the same.
+    const word = mockActivities({ assess: [{ mergeable: "behind", checks: "unknown", detail: null }, { mergeable: "ready", checks: "pending", detail: null, behindBy: 0 }] });
+    await reviewDecided(word, "approved");
+    expect(word.calls.slice(0, 5)).toEqual(["prepareMerge", "assessMerge", "updateBranch", "assessMerge", "askMerge"]);
+
+    // Conflicts appeared when GitHub tried: the agent's turn, nobody asked.
+    const stuck = mockActivities({ assess: [{ mergeable: "ready", checks: "pending", detail: null, behindBy: 1 }], update: [{ updated: false, reason: "Pull Request #7 conflicts with main", checksStarted: false }] });
+    const handed = await rig.run(stuck.acts, async (client, taskQueue) => {
+      const handle = await client.workflow.start(mergeReview, { workflowId: wfId("merge"), taskQueue, args: [input] });
+      await skipUntil(() => handle.describe().then((d) => d.status.name !== "RUNNING"));
+      return handle.result();
+    });
+    expect(handed).toMatchObject({ status: "handed_back", why: "conflicts" });
+    expect(stuck.calls).toEqual(["prepareMerge", "assessMerge", "updateBranch", "handBack:conflicts:null"]);
+
+    // Nothing to update after all (GitHub says it is current): the review goes straight on.
+    const current = mockActivities({ assess: [{ mergeable: "ready", checks: "pending", detail: null, behindBy: 1 }], update: [{ updated: false, reason: null, checksStarted: false }] });
+    await reviewDecided(current, "approved");
+    expect(current.calls.slice(0, 4)).toEqual(["prepareMerge", "assessMerge", "updateBranch", "askMerge"]);
+  });
+
+  it("a merge refused because the default branch moved after the approval brings the branch in once more and merges", async () => {
+    const m = mockActivities({ complete: [{ status: "held", reason: "not mergeable", prNumber: 7, prUrl: PR.prUrl, retryable: false }, { status: "merged", prNumber: 7, prUrl: PR.prUrl, mergeCommitSha: "e".repeat(40) }], assess: [{ mergeable: "ready", checks: "pending", detail: null, behindBy: 0 }, { mergeable: "ready", checks: "pending", detail: null, behindBy: 2 }] });
+    const result = await reviewDecided(m, "approved");
+    expect(result).toMatchObject({ status: "merged", mergeCommitSha: "e".repeat(40) });
+    expect(m.calls.filter((c) => c === "updateBranch")).toHaveLength(1);
+    expect(m.calls.filter((c) => c.startsWith("completeMerge"))).toHaveLength(2);
+    expect(m.calls.filter((c) => c.startsWith("awaitChecks"))).toEqual(["awaitChecks:first", "awaitChecks:again"]);
   });
 
   it("checks that already failed hand the branch back without asking", async () => {

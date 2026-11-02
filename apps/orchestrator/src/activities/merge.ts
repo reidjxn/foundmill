@@ -24,7 +24,7 @@ import { isUntrusted } from "@foundmill/connectors";
 import { repos } from "@foundmill/db";
 import type { OrchestratorDeps } from "../deps";
 import { emitEvent, systemActor } from "../events";
-import type { MergeAsked, MergeAssessment, MergeHoldReason, MergeInput, MergeOutcome, MergePrepared, MergePullRequest } from "./types";
+import type { MergeAsked, MergeAssessment, MergeBranchUpdated, MergeHoldReason, MergeInput, MergeOutcome, MergePrepared, MergePullRequest } from "./types";
 
 /** Lifetime of the token minted for one merge step (a few GitHub calls). */
 export const MERGE_TOKEN_TTL_SECONDS = 300;
@@ -37,9 +37,9 @@ const MERGE_CALL_TIMEOUT_MS = 120_000;
  * failed there).
  */
 const MERGE_READ_TOOLS = ["github:compare_refs", "github:list_pull_requests", "github:get_pull_request", "github:get_checks"];
-const MERGE_WRITE_TOOLS = ["github:open_pr", "github:run_checks", "github:merge_pr"];
+const MERGE_WRITE_TOOLS = ["github:open_pr", "github:run_checks", "github:update_branch", "github:merge_pr"];
 /** Audit actions of the merge step; `approvalId` in their details ties them to the founder's decision. */
-export const MERGE_AUDIT = { prepared: "merge.prepared", asked: "merge.asked", waiting: "merge.waiting", merged: "merge.merged", notMerged: "merge.not_merged", reopened: "merge.reopened", handedBack: "merge.handed_back" } as const;
+export const MERGE_AUDIT = { prepared: "merge.prepared", updated: "merge.updated", asked: "merge.asked", waiting: "merge.waiting", merged: "merge.merged", notMerged: "merge.not_merged", reopened: "merge.reopened", handedBack: "merge.handed_back" } as const;
 /** How many review tasks, and how much of their history, one sweep reads. */
 const SWEEP_TASKS = 100;
 const SWEEP_HISTORY = 500;
@@ -288,12 +288,38 @@ export function createMergeActivities(deps: OrchestratorDeps) {
       const found = await repository(input);
       if (!found) return { mergeable: "unknown", checks: "unknown", detail: "no repository is chosen on the Code tab" };
       const { read } = await tokens(input);
-      const [pr, checks] = await Promise.all([call<PullRequestSummary>(read, "get_pull_request", { ...found.repo, prNumber: input.prNumber }), call<{ state?: unknown }>(read, "get_checks", { ...found.repo, branch: input.branch })]);
+      const [pr, checks, compared] = await Promise.all([
+        call<PullRequestSummary>(read, "get_pull_request", { ...found.repo, prNumber: input.prNumber }),
+        call<{ state?: unknown }>(read, "get_checks", { ...found.repo, branch: input.branch }),
+        call<{ behindBy?: unknown }>(read, "compare_refs", { ...found.repo, base: "HEAD", head: input.branch }),
+      ]);
       const mergeable = pr.result.ok ? mergeableOf(pr.result.data.mergeableState, pr.result.data.draft) : "unknown";
       const state = checks.result.ok && typeof checks.result.data.state === "string" ? checks.result.data.state : "unknown";
       const checksState: MergeAssessment["checks"] = state === "pending" || state === "success" || state === "failure" ? state : "unknown";
-      const detail = pr.result.ok ? (pr.result.data.mergeableState ? `GitHub reports the pull request as ${pr.result.data.mergeableState}` : null) : pr.result.message.slice(0, 300);
-      return { mergeable, checks: checksState, detail };
+      const behindBy = compared.result.ok && typeof compared.result.data.behindBy === "number" ? compared.result.data.behindBy : null;
+      const detail = pr.result.ok ? (pr.result.data.mergeableState ? `GitHub reports the pull request as ${pr.result.data.mergeableState}${behindBy ? `, ${behindBy} commit${behindBy === 1 ? "" : "s"} behind the default branch` : ""}` : null) : pr.result.message.slice(0, 300);
+      return { mergeable, checks: checksState, detail, behindBy };
+    },
+
+    /**
+     * The branch brought up to date with the default branch by GitHub (one merge commit on the agent's branch, nothing
+     * on the default branch), then the repository's tests started on the new head. A branch's tests mean nothing when
+     * they ran against yesterday's default branch; before this, every such branch went back to its agent for a cycle.
+     * Conflicts are the one case GitHub refuses, and the one case an agent is for.
+     */
+    async updateBranch(input: MergeInput & MergePullRequest): Promise<MergeBranchUpdated> {
+      const found = await repository(input);
+      if (!found) return { updated: false, reason: "no repository is chosen on the Code tab", checksStarted: false };
+      const { write } = await tokens(input);
+      const updated = await call<{ updated?: unknown; message?: unknown }>(write, "update_branch", { ...found.repo, prNumber: input.prNumber });
+      if (!updated.result.ok) {
+        await audit(input, MERGE_AUDIT.notMerged, { step: "update_branch", prNumber: input.prNumber, reason: updated.result.message });
+        return { updated: false, reason: updated.result.message.slice(0, 300), checksStarted: false };
+      }
+      if (updated.result.data.updated !== true) return { updated: false, reason: null, checksStarted: false };
+      const checks = await call<{ dispatched: true }>(write, "run_checks", { ...found.repo, branch: input.branch });
+      await audit(input, MERGE_AUDIT.updated, { prNumber: input.prNumber, prUrl: input.prUrl, ci: checks.result.ok ? "started" : checks.result.message.slice(0, 300) });
+      return { updated: true, reason: null, checksStarted: checks.result.ok };
     },
 
     /** The merge, asked for: the gateway's policy makes it the founder's decision, or runs it when the decision was delegated. */

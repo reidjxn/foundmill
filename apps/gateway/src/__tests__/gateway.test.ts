@@ -571,7 +571,7 @@ describe("GitHub writes follow the founder's push settings", () => {
     expect(guardGithubWrite("commit_files", on, { ...args, message: "x [skip ci]" })).toEqual({ args: { ...args, message: "x [skip ci]" } });
     // An upper-case marker is not GitHub's: the real one is still added.
     expect(guardGithubWrite("commit_files", on, { ...args, message: "x [SKIP CI]" })).toEqual({ args: { ...args, message: "x [SKIP CI]\n\n[skip ci]" } });
-    for (const tool of ["create_branch", "open_pr", "run_checks", "merge_pr"]) {
+    for (const tool of ["create_branch", "open_pr", "run_checks", "update_branch", "merge_pr"]) {
       expect(guardGithubWrite(tool, on, { owner: "evil", repo: "other" }), tool).toMatchObject({ reason: expect.any(String) });
       expect(guardGithubWrite(tool, row({ repo: "acme/shop" }), { owner: "acme", repo: "shop" }), tool).toMatchObject({ reason: expect.any(String) });
       expect(guardGithubWrite(tool, on, { owner: "acme", repo: "shop", title: "t" }), tool).toEqual({ args: { owner: "acme", repo: "shop", title: "t" } });

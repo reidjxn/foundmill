@@ -92,13 +92,18 @@ export async function recordApprovalAnswer(tx: DbTx, ctx: BusinessContext, appro
   const sessionWaiting = session !== null && session.endedAt === null;
   const action = approvalAction(approval, null, ctx.business.name);
   const who = agent?.name ?? "the agent";
-  const asked = `${agent ? `${agent.name}'s` : "the"} request to run ${action}`;
+  // A release is worded as the moment it is for the founder (decision 2026-11-01), never as the call behind it.
+  const release = isReleaseApproval(approval);
+  const asked = release ? `${agent ? `${agent.name}'s` : "the"} change going live` : `${agent ? `${agent.name}'s` : "the"} request to run ${action}`;
 
   let task = approval.taskId ? await repos.tasks.get(tx, ctx.businessId, approval.taskId).catch(() => null) : null;
   let wantsCycle = false;
   let followUp: InboxItem | null = null;
   let next: string;
-  if (sessionWaiting) {
+  if (release) {
+    // The merge review (apps/orchestrator mergeReview) waits for the repository's tests and reports the outcome on the approval.
+    next = outcome === "approved" ? "It goes live once the automatic tests pass; if they fail, the work goes back to the agent." : "Nothing goes live; the work waits.";
+  } else if (sessionWaiting) {
     next = outcome === "approved" ? `${who} carries on.` : `Nothing runs; ${who} is told not to retry it.`;
   } else if (task && MOVED_ON.has(task.status)) {
     // Another session already runs the task (started by hand), or it finished another way: it is left as it is. An

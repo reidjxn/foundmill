@@ -338,6 +338,22 @@ export interface MergeAssessment {
   /** The repository's own checks on the branch head. */
   checks: "pending" | "success" | "failure" | "unknown";
   detail: string | null;
+  /**
+   * Commits the default branch has that the branch lacks (GitHub's compare); null when the compare did not answer. GitHub
+   * says `behind` only under a strict ruleset, so this is how the review knows a branch's tests ran against yesterday's
+   * default branch (Nov 2, 2026: two approved branches failed CI for fixes they lacked, not for their own work).
+   */
+  behindBy?: number | null;
+}
+
+/** The branch brought up to date with the default branch (GitHub's update-branch), before the founder is asked. */
+export interface MergeBranchUpdated {
+  /** True when GitHub merged the default branch in (the head moved); false when it could not (conflicts) or had nothing to do. */
+  updated: boolean;
+  /** Why not, when `updated` is false and it was not already up to date. */
+  reason: string | null;
+  /** The repository's tests were started on the new head. */
+  checksStarted: boolean;
 }
 
 export type MergeAsked =
