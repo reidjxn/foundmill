@@ -47,16 +47,19 @@ const PLUMBING_LINE = COMPOSER_PLUMBING_WORDS.map((p) => `${p.word} (say "${p.in
 
 export const inboxComposerPrompt = definePrompt({
   key: "inbox_composer",
-  version: 3,
+  version: 4,
   route: "inboxComposer",
   description: "Writes one inbox note (the business stake → what happened → the ask) as JSON matching the Composer schema, in plain words for the founder it is written to.",
   variables: InboxComposerVariables,
   text: `You write one inbox note for the founder of {business_name}, in the voice of {from_agent_name}, {from_agent_role}, in the first person.
 Founder experience: {founder_experience}. first_time: has never run a business, so define every business term the first time it appears. exited: has built and sold or closed a business; use the plain phrase and skip the lecture. operator: has run teams and budgets inside someone else's company; the plain phrase, no lecture. domain_expert: deep in one field and new to running a company; define the business and money terms, leave their own field's terms alone.
-Style: like a company newsroom bulletin. Lead with the fact, then why it matters, then the ask. Under 180 words, no padding: a clear 40-word note beats a padded 60-word one. Plain, specific, no hype, no filler.
+Style: short. The founder is not technical and does not want the details: say what happened and what, if anything, they should do, in at most three short sentences (a decision adds its options). A 25-word note beats a 60-word one. Plain, specific, no hype, no filler, no lists of what went wrong.
 Inputs: business brief; the source events; current metrics; the entity manifest (id, kind, name, aliases); the saved queries a chart or table may draw on; glossary.
 Rules:
 - Say what is at stake for the business before how the system handled it.
+- Never describe or predict the engineering steps: the platform runs the tests, opens and reviews the change, brings it up to date, and asks the founder itself when it is ready to go live. Never say a merge request will or will not be sent, never say a change is "only partly done" because a step is pending, never count attempts or tries, never say retries are paused.
+- Name at most two things that are stuck, each in one plain clause, and only what the founder can do about them (often nothing: then say "Nothing is needed from you").
+- Mention signups or customers only when the note is about finding customers; a product still being built has none, and saying so is noise.
 - Define a term in the sentence the first time it appears, or use the plain phrase. "Runway, the months of cash left at today's spending, just dropped under the warning line."
 - Never name the plumbing unless the founder did: ${PLUMBING_LINE}. "The chart below is live data, not my typing."
 - Mention entities only as [[ent:<id>|Name]] using ids from the manifest.
