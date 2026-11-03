@@ -169,59 +169,50 @@ export function approvalAmount(approval: Pick<Approval, "amountMinor" | "currenc
 }
 
 /**
- * The Inbox item for one approval: a blocking decision from the agent who asked, written for the founder (UX plan §5.2):
- * what happened, what is needed from them, and what yes or no does, in under sixty words and without an id, a tool, a
- * branch or a mode name. The call itself and its arguments stay in the reading pane's Details (ApprovalPanel), for a
- * developer. A release ("goes live") is worded as the moment it is for the founder; every other call says what the agent
- * wants to do and for which task.
+ * The Inbox item for one approval: a decision from the agent who asked, written for the founder in two sentences: what
+ * happened and the one question. What yes and no do is on the two options (their consequence lines), why the founder is
+ * asked is the reading pane's own row, and the call itself and its arguments stay in the pane's Details (ApprovalPanel),
+ * for a developer. Until Nov 3, 2026 the note carried four labeled paragraphs (what happened, what is needed, what yes
+ * and no do, why asked) and the founder read it as far too much: "I just want it to work."
+ *
+ * A release ("goes live") never holds Continue: the merge waits for the founder's answer in the background, and the
+ * next round of work needs nothing from it. Every other call holds Continue as before, since its session stopped on it.
  */
 export function approvalItem(approval: Pick<Approval, "connectorKey" | "tool" | "reasons" | "amountMinor" | "currency" | "args">, details: ApprovalItemDetails) {
   const action = approvalAction(approval, details.connectorName, details.businessName);
   const amount = approvalAmount(approval);
   const task = details.taskTitle?.trim() || null;
   const who = details.agentName.trim() || "The team";
-  const why = founderReasons(approval.reasons);
-  const whyLine = why.length ? `**Why you are asked:** ${why.join(" ")}` : "";
   if (isReleaseApproval(approval)) {
     const tests = details.tests === undefined ? null : details.tests;
-    const tested = tests && tests.total > 0 ? `The platform ran ${tests.total} test${tests.total === 1 ? "" : "s"} on it and ${tests.passing === tests.total ? "all passed" : `${tests.passing} passed`}.` : tests === null && details.tests !== undefined ? "The platform found nothing in it to test." : "";
-    const body = [
-      `**What happened:** ${who} finished${task ? ` “${task}”` : " a change"}. ${tested} The repository's own automatic tests run next (about 10 minutes).`.replace(/\s+/g, " "),
-      "**What I need from you:** OK to put it live?",
-      `**If you say yes:** it goes live once the automatic tests pass; if they fail, ${who} fixes it and asks again. **If you say no:** nothing changes, and the work waits.`,
-      whyLine,
-    ].filter(Boolean);
+    const tested = tests && tests.total > 0 ? (tests.passing === tests.total ? `All ${tests.total} test${tests.total === 1 ? "" : "s"} passed.` : `${tests.passing} of ${tests.total} tests passed.`) : tests === null && details.tests !== undefined ? "There was nothing in it to test." : "";
+    const body = `${who} finished${task ? ` “${task}”` : " a change"}. ${tested} OK to put it live?`.replace(/\s+/g, " ");
     return {
       type: "decision" as const,
       from_agent_id: details.agentId,
       subject: clip(`${who}'s change is ready to go live`, 80),
-      body_md: body.join("\n\n"),
+      body_md: body,
       status_strip: [],
       exhibit: { kind: "none" as const, spec_ref: null },
       decision: {
         options: [
-          { id: APPROVAL_OPTIONS.approve, label: "Put it live", recommended: true, consequence: "It goes live once the automatic tests pass.", cost_minor: 0, reversible: false },
+          { id: APPROVAL_OPTIONS.approve, label: "Put it live", recommended: true, consequence: `It goes live once the automatic tests pass; if they fail, ${who} fixes it and asks again.`, cost_minor: 0, reversible: false },
           { id: APPROVAL_OPTIONS.reject, label: "Not now", recommended: false, consequence: "Nothing changes; the work waits for you.", cost_minor: 0, reversible: true },
         ],
         free_text: false,
         expires_at: null,
       },
-      blocks_continue: true,
+      blocks_continue: false,
       source_event_ids: [...(details.sourceEventIds ?? [])],
       entity_ids: [],
     };
   }
-  const body = [
-    `**What happened:** ${who} wants to ${toolWords(approval.tool)}${approval.connectorKey && approval.connectorKey !== PLATFORM_CONNECTOR ? ` on ${connectorLabel(approval.connectorKey)}` : ""}${task ? ` for “${task}”` : ""}${amount ? `, spending **${amount}**` : ""}, and waits for your answer.`,
-    "**What I need from you:** your OK.",
-    `**If you say yes:** it runs once, exactly as asked. **If you say no:** nothing runs${task ? ", and the task waits until you start it again" : ""}.`,
-    whyLine,
-  ].filter(Boolean);
+  const body = `${who} wants to ${toolWords(approval.tool)}${approval.connectorKey && approval.connectorKey !== PLATFORM_CONNECTOR ? ` on ${connectorLabel(approval.connectorKey)}` : ""}${task ? ` for “${task}”` : ""}${amount ? `, spending **${amount}**` : ""}. OK?`;
   return {
     type: "decision" as const,
     from_agent_id: details.agentId,
     subject: clip(`${who} needs your OK: ${action}`, 80),
-    body_md: body.join("\n\n"),
+    body_md: body,
     status_strip: [],
     exhibit: { kind: "none" as const, spec_ref: null },
     decision: {

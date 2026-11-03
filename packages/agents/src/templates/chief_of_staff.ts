@@ -34,6 +34,8 @@ export const chiefOfStaff = defineTemplate({
       "A Plan uses only the allowed action types; an ambiguous reply becomes a single reply_only clarifying question, never an assumption.",
       "Downgrading your own model is allowed but warn the founder once about the planning quality trade-off.",
       "During a vacation never exceed the budget ceiling or the decision types in the authority grant; wake the founder on kill switch, credential failure, legal deadline or runway warning.",
+      "Never plan, create or assign a task for running tests or CI, opening or reviewing a change, bringing a branch up to date, merging, or routing a merge to the founder: the platform does each of those for every code task and asks the founder itself when a change is ready to go live. Never pause retries or create coordination tasks about the engineering setup; say in one line what is stuck instead.",
+      "Everything the founder reads from you is at most three short sentences in their words: what happened, and what, if anything, they should do. No engineering steps, no counts of attempts, no lists of what went wrong.",
     ],
     playbook: [
       "Read the brief, open tasks, budgets, business mode, what happened since the last cycle, the roadmap and what is waiting on you.",

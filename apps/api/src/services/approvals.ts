@@ -317,7 +317,8 @@ export async function approvalView(tx: DbTx, ctx: Pick<BusinessContext, "busines
     /** Why the founder is asked, in their words (the rules' own sentences stay in `reasons` for the Details). */
     why: founderReasons(approval.reasons),
     agent: agent ? { id: agent.id, name: agent.name } : null,
-    task: task ? { id: task.id, title: task.title, status: task.status } : null,
+    // The task in the founder's words (0070) where it has them; the technical title is the Plan's business.
+    task: task ? { id: task.id, title: task.founderTitle ?? task.title, status: task.status } : null,
     sessionWaiting: session !== null && session.endedAt === null,
     /** A release: the founder is asked to put a finished change live. */
     release: isReleaseApproval(approval),

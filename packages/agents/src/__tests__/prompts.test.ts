@@ -87,8 +87,11 @@ describe("prompt templates (BUILD §12)", () => {
     expect(ROUTE_DEFAULT_MODEL.quarantinedReader).toBe("haiku");
     const composer = getPrompt("inbox_composer").render({ business_name: "Ledgerly", from_agent_name: "Nadia", from_agent_role: "Finance lead" });
     expect(composer).toContain("[[ent:<id>|Name]]");
-    expect(composer).toContain("Under 180 words, no padding");
-    expect(composer).not.toContain("60-180 words");
+    // Nov 3, 2026: the founder reads at most three short sentences; the engineering steps are never described.
+    expect(composer).toContain("at most three short sentences");
+    expect(composer).toContain("Never describe or predict the engineering steps");
+    expect(composer).toContain("never count attempts or tries");
+    expect(composer).not.toContain("Under 180 words");
     expect(composer).toContain("mark exactly one recommended");
   });
 
@@ -108,7 +111,7 @@ describe("prompt templates (BUILD §12)", () => {
     expect(text).toContain("Never name the plumbing unless the founder did");
     for (const p of COMPOSER_PLUMBING_WORDS) expect(text).toContain(p.word);
     expect(text).toContain('Give the recommended option a "because"');
-    expect(text).toContain("a clear 40-word note beats a padded 60-word one");
+    expect(text).toContain("A 25-word note beats a 60-word one");
     expect(text).toContain("from the founder's seat");
   });
 
