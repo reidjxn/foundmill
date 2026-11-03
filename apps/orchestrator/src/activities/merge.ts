@@ -24,6 +24,7 @@ import { isUntrusted } from "@foundmill/connectors";
 import { repos } from "@foundmill/db";
 import type { OrchestratorDeps } from "../deps";
 import { emitEvent, systemActor } from "../events";
+import { postNote } from "./dispatch";
 import type { MergeAsked, MergeAssessment, MergeBranchUpdated, MergeHoldReason, MergeInput, MergeOutcome, MergePrepared, MergePullRequest } from "./types";
 
 /** Lifetime of the token minted for one merge step (a few GitHub calls). */
@@ -90,6 +91,16 @@ export function pullRequestBody(input: MergeInput, task: { id: string; title: st
   const tests = input.acceptance ? `${input.acceptance.passing} of ${input.acceptance.total} acceptance tests passed in the platform's sandbox.` : "Nothing in this change had tests the sandbox could run (documentation, or suites that need the running app).";
   const goal = task.goalMd.trim().slice(0, 1500);
   return [`## Task\n${task.title}${goal ? `\n\n${goal}` : ""}`, `## Tests\n${tests}`, `## Summary\n${input.summary.trim().slice(0, 2000) || "(none)"}`, `Opened by ${APP_NAME} when task ${task.id} passed its tests. Nothing goes live until the founder says so: once the repository's checks pass, the founder's one tap in the Inbox merges it.`].join("\n\n");
+}
+
+/**
+ * A merge refusal GitHub takes back a moment later: "not mergeable" (405) right after the last check passes, "Repository
+ * rule violations found … N of N required status checks are expected" while its rules catch up with checks that already
+ * concluded, "Base branch was modified" (409) when the default branch moved under the merge. Anything else (a conflict,
+ * a closed pull request, a rule a retry cannot satisfy) is not.
+ */
+export function mergeRefusalIsMomentary(message: string): boolean {
+  return /not mergeable|\b405\b|\b409\b|status checks? (are|is) (expected|pending)|base branch was modified/i.test(message);
 }
 
 /** The `merge_pr` arguments for a task's pull request: the same on every call, so an approval of the first covers the second. */
@@ -370,8 +381,10 @@ export function createMergeActivities(deps: OrchestratorDeps) {
         return { status: "merged", prNumber: input.prNumber, prUrl: pr.url, mergeCommitSha: merged.result.data.sha };
       }
       const reason = merged.res.outcome === "ask" ? "the merge asked for approval again instead of running under the one given" : merged.result.message;
-      // GitHub answers 405 "not mergeable" for a moment after the last check passes; the workflow tries again shortly.
-      const retryable = merged.res.outcome === "allow" && /not mergeable|405/i.test(reason);
+      // GitHub answers 405 "not mergeable" for a moment after the last check passes, or "Repository rule violations
+      // found … required status checks are expected" while its rules catch up with checks that already concluded
+      // (17 seconds after the last one, Nov 2, 2026), or 409 "Base branch was modified"; the workflow tries again shortly.
+      const retryable = merged.res.outcome === "allow" && mergeRefusalIsMomentary(reason);
       await audit(input, MERGE_AUDIT.notMerged, { step: "merge_pr_approved", prNumber: input.prNumber, prUrl: input.prUrl, approvalId: input.approvalId, reason, retryable });
       return { status: "held", reason: `the approved merge did not run: ${reason}`.slice(0, 500), prNumber: input.prNumber, prUrl: input.prUrl, retryable };
     },
@@ -395,10 +408,27 @@ export function createMergeActivities(deps: OrchestratorDeps) {
       return { status: "handed_back", why: input.why, reason, prNumber: input.prNumber, prUrl: input.prUrl };
     },
 
-    /** The merge is held for the next cycle (the checks never concluded, or GitHub kept refusing): on record against the approval. */
+    /**
+     * The merge is held for the next cycle (the checks never concluded, or GitHub kept refusing): on record against the
+     * approval, and in the founder's Inbox. The `mergeReview` workflow is started abandoned, so nobody reads its outcome:
+     * until Nov 2, 2026 a founder who had approved a merge that GitHub then refused heard nothing (the deploy contract,
+     * approved 8:53 PM, refused 9:15 PM, no Inbox line). The next cycle's sweep tries the merge again.
+     */
     async holdMerge(input: MergeInput & MergePullRequest & { approvalId: string | null; why: MergeHoldReason; detail: string | null }): Promise<MergeOutcome> {
       const reason = handBackDetail(input.why, input.branch, input.detail).split(" Bring your working copy")[0]!;
       await audit(input, MERGE_AUDIT.notMerged, { step: input.why, prNumber: input.prNumber, prUrl: input.prUrl, approvalId: input.approvalId, reason: input.detail ?? reason });
+      try {
+        const [task, agent] = await Promise.all([repos.tasks.get(db, input.businessId, input.taskId), repos.agents.get(db, input.businessId, input.agentId)]);
+        const what = input.why === "refused" ? "GitHub did not accept the merge when the team tried: its rules were still checking the change." : reason;
+        await postNote(deps, input.businessId, input.agentId, {
+          type: "warning",
+          subject: `${agent.name}'s change is not live yet`.slice(0, 80),
+          body: `**What happened:** ${what} ${input.approvalId ? "You had already said yes to putting it live." : ""}\n\n**What happens next:** the team tries again on the next cycle; nothing is needed from you. The work (“${(task.founderTitle ?? task.title).slice(0, 120)}”) stays saved and waits.`.replace(/ {2,}/g, " "),
+          blocksContinue: false,
+        });
+      } catch (err) {
+        deps.log.warn({ businessId: input.businessId, taskId: input.taskId, err: (err as Error).message }, "merge: the held note could not be written");
+      }
       return { status: "held", reason, prNumber: input.prNumber, prUrl: input.prUrl };
     },
 

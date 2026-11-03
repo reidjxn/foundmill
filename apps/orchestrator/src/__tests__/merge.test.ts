@@ -10,7 +10,7 @@ import { isUntrusted } from "@foundmill/connectors";
 import { repos } from "@foundmill/db";
 import { founderJargonHits } from "@foundmill/shared";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
-import { createMergeActivities, handBackDetail, MERGE_AUDIT, mergeableOf, mergeArgs, pullRequestBody } from "../activities/merge";
+import { createMergeActivities, handBackDetail, MERGE_AUDIT, mergeableOf, mergeArgs, mergeRefusalIsMomentary, pullRequestBody } from "../activities/merge";
 import type { MergeInput } from "../activities/types";
 import { createOfflineGatewayClient, type GatewayCallResponse, type GatewayClient } from "../gateway-client";
 import { openSessionRow, setupOrchestratorHarness, type OrchestratorTestHarness } from "./harness";
@@ -291,6 +291,21 @@ describe("askMerge, awaitChecks and completeMerge", () => {
     expect((await repos.events.list(t.db, t.businessId, { type: "pr.merged", limit: 5 })).items[0]).toMatchObject({ payload: { taskId: task.id, mergedBy: { kind: "agent", id: t.workerId } } });
   });
 
+  it("a refusal while GitHub's rules catch up with checks that already passed is momentary and retried; a conflict or a closed pull request is not", async () => {
+    await connectRepo();
+    const { input } = await reviewTask("Rules catching up");
+    const rules = "Repository rule violations found\n\n4 of 4 required status checks are expected.\n\n - https://docs.github.com/rest/pulls/pulls#merge-a-pull-request";
+    const { github, ctx, acts, offline } = githubGateway(createGithubMock(), (req) => (req.tool === "merge_pr" ? { outcome: "allow", result: { ok: false, error: { code: "vendor_error", message: rules, status: 405 } }, costMinor: 0 } : null));
+    await commitOn(github, ctx, input.branch);
+    const prepared = await acts.prepareMerge(input);
+    if (prepared.status !== "ready") throw new Error("not ready");
+    const held = await acts.completeMerge({ ...input, prNumber: prepared.prNumber, prUrl: prepared.prUrl, approvalId: APPROVAL, decidedBy: t.fixture.ownerId });
+    expect(held).toMatchObject({ status: "held", retryable: true, reason: expect.stringContaining("required status checks are expected") });
+    expect(offline.calls.filter((c) => c.tool === "merge_pr")).toHaveLength(1);
+    for (const momentary of ["Pull Request #7 is not mergeable", rules, "Base branch was modified. Review and try the merge again.", "GitHub answered 409"]) expect(mergeRefusalIsMomentary(momentary), momentary).toBe(true);
+    for (const final of ["pull request #7 is already merged", "pull request #7 is closed", "Repository rule violations found\n\nChanges must be made through a pull request.", "the merge asked for approval again instead of running under the one given"]) expect(mergeRefusalIsMomentary(final), final).toBe(false);
+  });
+
   it("a merge GitHub refuses after approval is held on record against the approval, retryable when GitHub says not mergeable", async () => {
     await connectRepo();
     const { input } = await reviewTask("Refused after approval");
@@ -307,6 +322,15 @@ describe("askMerge, awaitChecks and completeMerge", () => {
     const timeout = await acts.holdMerge({ ...input, ...pr, approvalId: APPROVAL, why: "checks_timeout", detail: null });
     expect(timeout).toMatchObject({ status: "held", reason: "The repository's automatic tests did not finish in time, so this change did not go live yet." });
     expect((await auditOf(MERGE_AUDIT.notMerged))[0]).toMatchObject({ details: { step: "checks_timeout", approvalId: APPROVAL } });
+    // A held merge reaches the founder: one warning, in their words, that does not hold up Continue.
+    const agent = await repos.agents.get(t.db, t.businessId, t.workerId);
+    const notes = (await repos.inbox.list(t.db, t.businessId, { limit: 50 })).items.filter((i) => i.subject === `${agent.name}'s change is not live yet`);
+    expect(notes.length).toBeGreaterThanOrEqual(1);
+    expect(notes[0]).toMatchObject({ type: "warning", blocksContinue: false });
+    expect(notes[0]!.bodyMd).toContain("did not finish in time");
+    expect(notes[0]!.bodyMd).toContain("You had already said yes to putting it live.");
+    expect(notes[0]!.bodyMd).toContain("the team tries again on the next cycle; nothing is needed from you");
+    expect(founderJargonHits(notes[0]!.bodyMd)).toEqual([]);
 
     const rejected = await acts.recordMergeDecision({ ...input, ...pr, approvalId: APPROVAL, outcome: "rejected" });
     expect(rejected).toEqual({ status: "not_merged", ...pr, reason: "the founder did not approve the merge" });
