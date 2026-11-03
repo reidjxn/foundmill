@@ -15,7 +15,7 @@ import type { OrchestratorDeps } from "../deps";
 import { requestJourneyDailyRefresh } from "../journey-refresh";
 import { agentActor, emitEvent, systemActor } from "../events";
 import { foldDuplicates, loadDispatchFacts } from "./brief";
-import { openAgentSession, type DispatchRefusal } from "./dispatch";
+import { openAgentSession, postNote, type DispatchRefusal } from "./dispatch";
 import { roadmapPlanNote } from "./roadmap-plan";
 import type { BriefAgent, BriefTask, BusinessBrief, CyclePlan, CycleStart, CycleTrigger, FollowUpStartsInput, RoadmapPlanResult } from "./types";
 
@@ -24,6 +24,18 @@ export { agentUsable };
 const DISPATCHABLE = new Set<string>(PLANNABLE_TASK_STATUSES);
 /** Audit action written per task the cycle stops as the platform's own work (`stopPlatformDuties`). */
 export const PLATFORM_DUTY_STOPPED_AUDIT_ACTION = "cycle.platform_duty_stopped";
+/** Audit action written per task the cycle stops because no agent has a tool for it (`stopToollessTasks`). */
+export const TOOL_MISSING_STOPPED_AUDIT_ACTION = "cycle.tool_missing_stopped";
+
+/**
+ * An agent's own block reason saying the team has no tool for the task ("No tool is available to create or list
+ * business skills", "none can create or register a business source", "I can't do this import with the tools I have").
+ * Such a task fails the same way on every Continue (the Foundmill business, Nov 2 and 3, 2026: five cents a time, a
+ * blocked line each) because the capability is not in the product; only the founder can do it, from Settings.
+ */
+export function lacksTool(detail: string): boolean {
+  return /\b(no|without|lack(s|ing)?|missing)\b[^.]{0,60}\btools?\b|\btools? (I|we) (don'?t|do not) have\b|\bnot (among|in) my tools?\b|\bnone of my tools\b|\bno such tool\b|\bcan'?t [^.]{0,40}\bwith (the|my) tools\b|\b(no way|none( of (them|my tools))?) (to |can )?(create|register|list|import|write|add)\b/i.test(detail);
+}
 
 /** Why a task the planner left out starts anyway (lead, 2026-10-24: the planner orders, it never gates). */
 export const SLOT_FREE_REASON = "ready, and an agent slot was free";
@@ -225,6 +237,45 @@ export function createCycleActivities(deps: OrchestratorDeps) {
     return stopped;
   }
 
+  /**
+   * A blocked task whose agent said the team has no tool for it (`lacksTool` on its latest `task.blocked` detail) is
+   * stopped and archived after that one attempt, its dependents freed, and the founder told once, in one line, that it
+   * is theirs to do or to drop (founder, Nov 3, 2026: "Yes, do both"). Retrying it costs a few cents a cycle and tells
+   * the founder nothing new. Audited per task; a failure to stop one never fails the plan.
+   */
+  async function stopToollessTasks(businessId: string, cycleNumber: number, openTasks: readonly BriefTask[]): Promise<Set<string>> {
+    const stopped = new Set<string>();
+    const blocked = openTasks.filter((t) => t.status === "blocked");
+    if (blocked.length === 0) return stopped;
+    const events = await repos.events.list(deps.db, businessId, { type: "task.blocked", limit: 300 });
+    const chief = await repos.agents.chiefOfStaff(deps.db, businessId);
+    for (const task of blocked) {
+      const latest = events.items.find((e) => (e.payload as { taskId?: unknown }).taskId === task.id);
+      const p = (latest?.payload ?? {}) as { reason?: unknown; detail?: unknown };
+      const detail = typeof p.detail === "string" ? p.detail : null;
+      if (detail === null || p.reason === "needs_update" || !lacksTool(detail)) continue;
+      try {
+        const row = await repos.tasks.get(deps.db, businessId, task.id);
+        const title = (row.founderTitle ?? row.title).slice(0, 120);
+        const agent = row.assigneeAgentId ? await repos.agents.get(deps.db, businessId, row.assigneeAgentId).catch(() => null) : null;
+        await deps.db.transaction(async (tx) => {
+          const edges = await repos.tasks.listEdges(tx, businessId, [task.id]);
+          for (const e of edges) if (e.fromTask === task.id) await repos.tasks.removeEdge(tx, businessId, e.fromTask, e.toTask);
+          await repos.tasks.setStatus(tx, businessId, task.id, "stopped", { force: true });
+          await repos.tasks.archive(tx, businessId, task.id);
+          await repos.audit.append(tx, businessId, { actorKind: "system", action: TOOL_MISSING_STOPPED_AUDIT_ACTION, target: { kind: "task", id: task.id }, details: { cycleNumber, title: row.title.slice(0, 200), detail: detail.slice(0, 500), dependentsFreed: edges.filter((e) => e.fromTask === task.id).length } });
+        });
+        const from = chief?.id ?? agent?.id ?? row.assigneeAgentId;
+        if (from) await postNote(deps, businessId, from, { type: "warning", subject: `Only you can do this: ${title}`.slice(0, 80), body: `${agent?.name ?? "The team"} could not do “${title}”: the team has no way to do it on its own, so it is stopped. If you want it done, it is yours to do; otherwise nothing more happens.`, blocksContinue: false });
+        stopped.add(task.id);
+      } catch (err) {
+        deps.log.warn({ businessId, cycleNumber, taskId: task.id, err: (err as Error).message }, "cycle: a task no agent has a tool for could not be stopped; it is tried again next cycle");
+      }
+    }
+    if (stopped.size > 0) deps.log.info({ businessId, cycleNumber, stopped: stopped.size }, "cycle: tasks no agent has a tool for stopped");
+    return stopped;
+  }
+
   async function draftPlan(input: { businessId: string; cycleNumber: number; trigger: CycleTrigger; brief: BusinessBrief }): Promise<CyclePlan> {
     const { brief } = input;
     const chiefAgent = brief.agents.find((a) => a.id === brief.chiefOfStaffId) ?? null;
@@ -344,8 +395,11 @@ export function createCycleActivities(deps: OrchestratorDeps) {
      * an agent slot is free. `roadmapPlanned` (what `planRoadmap` did before this plan) opens the summary.
      */
     async planCycle(input: { businessId: string; cycleNumber: number; trigger: CycleTrigger; brief: BusinessBrief; roadmapPlanned?: RoadmapPlanResult | null }): Promise<CyclePlan> {
-      // Tasks planned before the rule for the platform's own steps (Nov 2, 2026) leave the loop here, never the plan.
-      const stopped = await stopPlatformDuties(input.businessId, input.cycleNumber, input.brief.openTasks);
+      // Tasks planned before the rule for the platform's own steps (Nov 2, 2026) leave the loop here, never the plan,
+      // and so does a task no agent has a tool for (Nov 3, 2026), with one line to the founder.
+      const duties = await stopPlatformDuties(input.businessId, input.cycleNumber, input.brief.openTasks);
+      const toolless = await stopToollessTasks(input.businessId, input.cycleNumber, input.brief.openTasks.filter((t) => !duties.has(t.id)));
+      const stopped = new Set([...duties, ...toolless]);
       const brief = stopped.size > 0 ? { ...input.brief, openTasks: input.brief.openTasks.filter((t) => !stopped.has(t.id)) } : input.brief;
       const plan = await draftPlan({ ...input, brief });
       return { ...plan, summary: withRoadmapNote(plan.summary, input.roadmapPlanned) };

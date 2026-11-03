@@ -7,7 +7,8 @@ import { concurrencyAllowance, modelBudgetState, periodOf, repos, resumeBusiness
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { createBriefActivities } from "../activities/brief";
 import { createChannelActivities, emptyChannelState } from "../activities/channel";
-import { createCycleActivities, PLATFORM_DUTY_STOPPED_AUDIT_ACTION } from "../activities/cycle";
+import { founderJargonHits } from "@foundmill/shared";
+import { createCycleActivities, lacksTool, PLATFORM_DUTY_STOPPED_AUDIT_ACTION, TOOL_MISSING_STOPPED_AUDIT_ACTION } from "../activities/cycle";
 import { MODEL_BUDGET_ALERT_ACTION, WAGE_ALERT_ACTION, attemptSessionId, nextPeriodStart, openAgentSession, recoverAgents } from "../activities/dispatch";
 import { createHolidayActivities } from "../activities/holiday";
 import { createPlanActivities } from "../activities/plan";
@@ -285,6 +286,41 @@ describe("the platform's own steps leave the loop", () => {
     expect(b.openTasks.find((x) => x.id === real.id)).toMatchObject({ blocked: false, dependsOn: [] });
     expect(b.openTasks.some((x) => x.id === duty.id || x.id === rebase.id)).toBe(false);
     expect((await repos.tasks.get(t.db, B(), real.id)).status).toBe("ready");
+  });
+});
+
+describe("a task no agent has a tool for leaves the loop after one attempt", () => {
+  it("is stopped and archived before the plan, its dependent freed, the founder told once in one line; a task blocked for any other reason stays", async () => {
+    const noTool = await repos.tasks.create(t.db, B(), { kind: "ops", title: "Register agent-pack skills as business skills", founderTitle: "Import agent skills as business skills", status: "blocked", assigneeAgentId: t.workerId });
+    const other = await repos.tasks.create(t.db, B(), { kind: "ops", title: "Compare three suppliers", status: "blocked", assigneeAgentId: t.workerId });
+    const dependent = await readyTask("Needs the skills", t.workerId);
+    await repos.tasks.addEdge(t.db, B(), noTool.id, dependent.id);
+    const blockedBy = (task: { id: string; title: string; kind: "ops" }, detail: string) => repos.events.write(t.db, B(), { type: "task.blocked", actor: { kind: "agent", id: t.workerId }, payload: { taskId: task.id, kind: task.kind, title: task.title, assigneeAgentId: t.workerId, sessionId: null, reason: "dependency", detail, approvalId: null, occurrence: 1 } });
+    await blockedBy({ id: noTool.id, title: noTool.title, kind: "ops" }, "No tool is available to create or list business skills. My tools cover GitHub, the task board, messages and founder actions only.");
+    await blockedBy({ id: other.id, title: other.title, kind: "ops" }, "Waiting on the supplier's price list; asked by email.");
+    expect(lacksTool("none can create or register a business source")).toBe(true);
+    expect(lacksTool("I can't do this import with the tools I have")).toBe(true);
+    expect(lacksTool("acceptance tests failed (exit 1, 62 passed, 5 failed)")).toBe(false);
+    expect(lacksTool("Scope mismatch: the branch changes none of the three scoped paths")).toBe(false);
+
+    const b = await brief.loadBrief({ businessId: B() });
+    expect(b.openTasks.find((x) => x.id === dependent.id)?.blocked).toBe(true);
+    const plan = await cycle.planCycle({ businessId: B(), cycleNumber: 12, trigger: "continue", brief: b });
+    expect(plan.starts.some((s) => s.taskId === noTool.id)).toBe(false);
+    expect(plan.deferred.some((d) => d.taskId === noTool.id)).toBe(false);
+    expect(await repos.tasks.get(t.db, B(), noTool.id)).toMatchObject({ status: "stopped", archivedAt: expect.any(Date) });
+    expect((await repos.tasks.get(t.db, B(), other.id)).status).toBe("blocked");
+    const audits = (await repos.audit.list(t.db, B(), { action: TOOL_MISSING_STOPPED_AUDIT_ACTION, limit: 20 })).items.filter((a) => (a.target as { id: string }).id === noTool.id);
+    expect(audits).toHaveLength(1);
+    expect(audits[0]!.details).toMatchObject({ cycleNumber: 12, dependentsFreed: 1 });
+    // One line to the founder, in their words, that does not hold Continue.
+    const notes = (await repos.inbox.list(t.db, B(), { limit: 50 })).items.filter((i) => i.subject === "Only you can do this: Import agent skills as business skills");
+    expect(notes).toHaveLength(1);
+    expect(notes[0]).toMatchObject({ type: "warning", blocksContinue: false });
+    expect(notes[0]!.bodyMd).toContain("the team has no way to do it on its own, so it is stopped. If you want it done, it is yours to do; otherwise nothing more happens.");
+    expect(founderJargonHits(notes[0]!.bodyMd)).toEqual([]);
+    const after = await brief.loadBrief({ businessId: B() });
+    expect(after.openTasks.find((x) => x.id === dependent.id)).toMatchObject({ blocked: false, dependsOn: [] });
   });
 });
 
