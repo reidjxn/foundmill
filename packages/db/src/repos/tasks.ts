@@ -128,6 +128,8 @@ export const tasksRepo = {
             businessId,
             kind: v.kind,
             title: v.title,
+            // The founder's words for the task when the caller has them (0070); dropped here until Nov 3, 2026.
+            founderTitle: v.founderTitle ?? null,
             goalMd: v.goalMd,
             acceptance: v.acceptance,
             fileScope: v.fileScope,
