@@ -316,6 +316,7 @@ export const teamRouter = router({
         const departments = await repos.departments.list(tx, ctx.businessId);
         const perDepartment = departments.map((d) => ({ departmentId: d.id, rows: parseApprovers(d.approvers) }));
         const matrix = DECISION_TYPES.map((decisionType) => {
+          if (decisionType === "merge_to_main") return { decisionType, handler: { kind: "founder" as const, id: null }, uniform: true };
           const handlers = perDepartment.map((p) => p.rows.find((r) => r.decisionType === decisionType)?.handler ?? { kind: "founder" as const, id: null });
           const first = handlers[0] ?? { kind: "founder" as const, id: null };
           const uniform = handlers.every((h) => h.kind === first.kind && h.id === first.id);
@@ -330,6 +331,7 @@ export const teamRouter = router({
      */
     set: admin.input(z.object({ decisionType: z.enum(DECISION_TYPES), handler: Handler, departmentId: Id.optional() })).mutation(({ ctx, input }) =>
       ctx.rls(async (tx) => {
+        if (input.decisionType === "merge_to_main" && input.handler.kind !== "founder") throw new ValidationError("Merges into the default branch are always handled by the founder");
         if (input.decisionType === "sign_contracts" && input.handler.kind === "agent") throw new ValidationError("Signing is a hard gate: an agent can never handle it (BUILD §2.2)");
         if (input.handler.kind !== "founder" && !input.handler.id) throw new ValidationError("Name the staff member or agent who handles it");
         if (input.handler.kind === "agent" && input.handler.id) {
