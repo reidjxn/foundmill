@@ -56,7 +56,7 @@ const PLATFORM_DUTIES: readonly { pattern: RegExp; reason: string }[] = [
   { pattern: /\b(open|create|raise|submit)\b[^.]*\bpull requests?\b/i, reason: "the platform opens the pull request when a code task passes its tests" },
   { pattern: /\b(rebase|merge|fast-forward|sync|bring)\b[^.]*\b(onto|into|with|to|up to date with)\b[^.]*\b(main|master|the default branch|the live product|trunk)\b/i, reason: "the platform brings a branch up to date and merges it after the founder's approval" },
   { pattern: /\bmerge\b[^.]*\b(the )?(pull request|pr #?\d+|into (main|master|the default branch))\b/i, reason: "merging is the founder's one tap, through the platform" },
-  { pattern: /\bhand (it |the \w+ )?(back |over )?to the founder\b|\bask the founder to (merge|approve|put .* live)\b/i, reason: "the platform asks the founder itself when a change is ready to go live" },
+  { pattern: /\bhand (it |the \w+ )?(back |over )?to the founder\b|\bask (the )?founder to (merge|approve|put\b.*\blive)\b|\broute\b[^.]*\bmerge\b[^.]*\b(founder|inbox)\b|\b(surface|raise|send)\b[^.]*\bmerge\b[^.]*\b(founder's inbox|as a decision)\b/i, reason: "the platform asks the founder itself when a change is ready to go live" },
   { pattern: /\breview\b[^.]*\b(before|prior to)\b[^.]*\b(the founder|merg|goes live|going live)/i, reason: "the platform's tests and the founder's decision are the review before a change goes live" },
 ];
 
