@@ -5,7 +5,7 @@
  */
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { APPROVAL_OPTIONS, repos } from "@foundmill/db";
-import { SAFE_EMAIL, setupGateway, type GatewayFixture } from "./harness";
+import { SAFE_EMAIL, sendRefusals, setupGateway, type GatewayFixture } from "./harness";
 import type { AllowResponse, AskResponse, CallResponse } from "../types";
 
 let g: GatewayFixture;
@@ -74,6 +74,36 @@ describe("one approval per gated call", () => {
     const next = asAsk(await g.client.call(token, { connector: "test", tool: "send_message", args }));
     expect(next.approvalId).not.toBe(asked.approvalId);
     expect(g.seen).toHaveLength(1);
+  });
+
+  it("a call the vendor refused outright keeps the approval for the next try; one that may have run spends it", async () => {
+    const token = await g.token();
+    const args = { to: SAFE_EMAIL, body: "Your change is live" };
+    const asked = asAsk(await g.client.call(token, { connector: "test", tool: "send_message", args }));
+    await repos.approvals.resolve(g.db, g.businessId, asked.approvalId, { outcome: "approved", byKind: "user" });
+
+    // GitHub's "not mergeable" a moment after the checks pass (Nov 6, 2026): nothing happened, so the founder's yes stays.
+    sendRefusals.push(405);
+    const refused = asAllow(await g.client.call(token, { connector: "test", tool: "send_message", args }));
+    expect(refused.result).toMatchObject({ ok: false, error: { status: 405 } });
+    expect(await repos.approvals.get(g.db, g.businessId, asked.approvalId)).toMatchObject({ usedAt: null, usedBySessionId: null });
+
+    // The retry runs under the same approval, without a second question.
+    const ran = asAllow(await g.client.call(token, { connector: "test", tool: "send_message", args }));
+    expect(ran.result.ok).toBe(true);
+    expect((await repos.audit.get(g.db, g.businessId, ran.auditId)).details).toMatchObject({ approvalId: asked.approvalId });
+    expect(g.seen.map((s) => s.tool)).toEqual(["send_message"]);
+    expect(await repos.approvals.get(g.db, g.businessId, asked.approvalId)).toMatchObject({ usedBySessionId: g.sessionId });
+
+    // An error with no answer from the vendor (or a 5xx) may have done the thing: that approval is spent.
+    const second = asAsk(await g.client.call(token, { connector: "test", tool: "send_message", args: { ...args, body: "Second change" } }));
+    await repos.approvals.resolve(g.db, g.businessId, second.approvalId, { outcome: "approved", byKind: "user" });
+    sendRefusals.push(null);
+    const dropped = asAllow(await g.client.call(token, { connector: "test", tool: "send_message", args: { ...args, body: "Second change" } }));
+    expect(dropped.result.ok).toBe(false);
+    expect((await repos.approvals.get(g.db, g.businessId, second.approvalId)).usedAt).toBeInstanceOf(Date);
+    const again = asAsk(await g.client.call(token, { connector: "test", tool: "send_message", args: { ...args, body: "Second change" } }));
+    expect(again.approvalId).not.toBe(second.approvalId);
   });
 
   it("a rejected call stays refused: asking again opens a new request and runs nothing", async () => {
