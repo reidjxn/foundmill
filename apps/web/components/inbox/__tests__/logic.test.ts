@@ -580,6 +580,8 @@ describe("an agent's request in the Inbox (audit FR-01)", () => {
     expect(approvalStatus(waiting)).toEqual({ word: "Needs your answer", tone: "warn", detail: "The agent is waiting for your answer. Approve and it carries on." });
     expect(approvalStatus({ ...waiting, sessionWaiting: false }).detail).toBe("The agent stopped waiting and freed its place. Approve and the task runs again in the team's next round of work.");
     expect(approvalStatus({ ...waiting, sessionWaiting: false, task: null }).detail).toBe("Approve and it runs once, exactly as asked.");
+    // A release waits in the background: the detail says so, never that the agent freed its place.
+    expect(approvalStatus({ ...waiting, sessionWaiting: false, release: true })).toEqual({ word: "Needs your answer", tone: "warn", detail: "Say yes and it goes live once the automatic tests pass. Nothing else waits on this." });
     expect(approvalStatus({ ...waiting, outcome: "approved" })).toMatchObject({ word: "Approved", tone: "good" });
     expect(approvalStatus({ ...waiting, outcome: "rejected" })).toMatchObject({ word: "Rejected", tone: "bad", detail: "Nothing ran. The task waits until you start it again." });
     expect(approvalStatus({ ...waiting, outcome: "expired" })).toMatchObject({ word: "Expired", tone: "neutral" });

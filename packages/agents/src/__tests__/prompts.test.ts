@@ -87,8 +87,11 @@ describe("prompt templates (BUILD §12)", () => {
     expect(ROUTE_DEFAULT_MODEL.quarantinedReader).toBe("haiku");
     const composer = getPrompt("inbox_composer").render({ business_name: "Ledgerly", from_agent_name: "Nadia", from_agent_role: "Finance lead" });
     expect(composer).toContain("[[ent:<id>|Name]]");
-    expect(composer).toContain("Under 180 words, no padding");
-    expect(composer).not.toContain("60-180 words");
+    // Nov 3, 2026: the founder reads at most three short sentences; the engineering steps are never described.
+    expect(composer).toContain("at most three short sentences");
+    expect(composer).toContain("Never describe or predict the engineering steps");
+    expect(composer).toContain("never count attempts or tries");
+    expect(composer).not.toContain("Under 180 words");
     expect(composer).toContain("mark exactly one recommended");
   });
 
@@ -108,7 +111,7 @@ describe("prompt templates (BUILD §12)", () => {
     expect(text).toContain("Never name the plumbing unless the founder did");
     for (const p of COMPOSER_PLUMBING_WORDS) expect(text).toContain(p.word);
     expect(text).toContain('Give the recommended option a "because"');
-    expect(text).toContain("a clear 40-word note beats a padded 60-word one");
+    expect(text).toContain("A 25-word note beats a 60-word one");
     expect(text).toContain("from the founder's seat");
   });
 
@@ -257,7 +260,7 @@ function minLength(field: z.ZodType): number {
 
 describe("the planner never plans the platform's own work", () => {
   it("names a platform duty from the title and leaves real tasks alone", () => {
-    for (const title of ["Run CI on the agent branch and read the results", "Open a pull request from agent/<task> to main", "Rebase the deploy contract branch (task a5444581) onto main and hand it to the founder", "Review the rebased deploy contract change (a5444581) before the founder merges", "Review the workspace setup and test memory fix (45f17158) before the founder merges it", "Merge the pull request once checks pass", "Bring agent/abc up to date with the default branch"]) {
+    for (const title of ["Run CI on the agent branch and read the results", "Open a pull request from agent/<task> to main", "Rebase the deploy contract branch (task a5444581) onto main and hand it to the founder", "Review the rebased deploy contract change (a5444581) before the founder merges", "Review the workspace setup and test memory fix (45f17158) before the founder merges it", "Merge the pull request once checks pass", "Bring agent/abc up to date with the default branch", "Route the deploy contract merge (a5444581) to the founder's Inbox, then restart guards, mock and Railway", "Route the merge to the founder's Inbox as a decision", "Ask founder to put live the rules for releases"]) {
       expect(platformDutyReason({ title }), title).toEqual(expect.any(String));
     }
     for (const title of ["Define deploy connector contract and tool schemas", "Implement gateway deploy guards (main head + CI success)", "API: enforce founder-only handler for merges", "UI: show merges as founder-only on Team › Responsibilities", "Add a merge button to the branch list", "Diagnose and fix Example chip hydration mismatch", "Record the engineering loop in docs/PROGRESS.md", "Write the CI workflow's documentation page"]) {

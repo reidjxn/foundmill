@@ -615,6 +615,8 @@ export function approvalStatus(a: ApprovalLike): { word: string; tone: ApprovalS
     case "expired":
       return { word: "Expired", tone: "neutral", detail: "Nobody answered in time, so nothing ran." };
     default:
+      // A release waits in the background, never in a session: nothing else is held while the founder decides.
+      if (a.release) return { word: "Needs your answer", tone: "warn", detail: "Say yes and it goes live once the automatic tests pass. Nothing else waits on this." };
       if (a.sessionWaiting) return { word: "Needs your answer", tone: "warn", detail: "The agent is waiting for your answer. Approve and it carries on." };
       return { word: "Needs your answer", tone: "warn", detail: a.task ? "The agent stopped waiting and freed its place. Approve and the task runs again in the team's next round of work." : "Approve and it runs once, exactly as asked." };
   }
