@@ -241,7 +241,10 @@ export interface PreparedWorkspace extends WorktreeInfo {
 export async function prepareAgentWorkspace(sandbox: Sandbox, repo: SandboxRepo, opts: PrepareWorkspaceOptions): Promise<PreparedWorkspace> {
   const repoDir = opts.repoDir ?? sandbox.workdir;
   const { taskId, baseRef, ...clone } = opts;
-  await cloneRepo(sandbox, repo, repoDir, clone);
+  // `E2bSandbox.start()` and the Docker sandbox already clone `spec.repo` into the workdir; a second clone into that
+  // non-empty directory fails. Clone only when the checkout is not the sandbox's own.
+  const alreadyCloned = repoDir === sandbox.workdir && Boolean(sandbox.spec.repo);
+  if (!alreadyCloned) await cloneRepo(sandbox, repo, repoDir, clone);
   const worktree = await createAgentWorktree(sandbox, {
     taskId,
     repoDir,

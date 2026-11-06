@@ -11,7 +11,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 import { describe, expect, it } from "vitest";
-import { ACCEPTANCE_EGRESS, ACCEPTANCE_FALLBACK_COMMAND, ACCEPTANCE_REBUILD_TIMEOUT_SECONDS, PNPM_OFFLINE_ENV, TEMPORAL_DOWNLOAD_HOST, TEMPORAL_TEST_SERVER_ENV, acceptanceCommandFor, acceptancePrepareScript, acceptanceRunScript, acceptanceToolchainOf, changedPackageNames, changedScope, documentationOnly, nothingToTestNote, readAcceptanceToolchain, SANDBOX_PNPM, temporalTestServerPrepareLines, temporalTestServerRunLines, workspaceAppTestPackages } from "../activities/session";
+import { ACCEPTANCE_EGRESS, ACCEPTANCE_NODE_HEAP_MB,ACCEPTANCE_FALLBACK_COMMAND, ACCEPTANCE_REBUILD_TIMEOUT_SECONDS, PNPM_OFFLINE_ENV, TEMPORAL_DOWNLOAD_HOST, TEMPORAL_TEST_SERVER_ENV, acceptanceCommandFor, acceptancePrepareScript, acceptanceRunScript, acceptanceToolchainOf, changedPackageNames, changedScope, documentationOnly, nothingToTestNote, readAcceptanceToolchain, SANDBOX_PNPM, temporalTestServerPrepareLines, temporalTestServerRunLines, workspaceAppTestPackages } from "../activities/session";
 
 const run = promisify(execFile);
 
@@ -184,6 +184,10 @@ describe("acceptancePrepareScript", () => {
     expect(script).toContain("pnpm --filter @foundmill/gateway test");
     // A worker per CPU was killed (exit 137) on the first web test run; vitest reads this cap.
     expect(script).toContain("export VITEST_MAX_WORKERS=2");
+    // A bounded Node heap below the template's 4096 MB, set before the command runs.
+    expect(ACCEPTANCE_NODE_HEAP_MB).toBeLessThan(4096);
+    expect(script).toContain(`--max-old-space-size=${ACCEPTANCE_NODE_HEAP_MB}`);
+    expect(script.indexOf("--max-old-space-size")).toBeLessThan(script.indexOf("pnpm --filter @foundmill/gateway test"));
     // Offline and bounded: pnpm never waits on a registry it cannot reach, and the build scripts cannot eat the run's time.
     expect(script).toContain(`timeout ${ACCEPTANCE_REBUILD_TIMEOUT_SECONDS} pnpm rebuild --offline`);
     expect(script.indexOf("pnpm rebuild")).toBeLessThan(script.indexOf("pnpm --filter @foundmill/gateway test"));

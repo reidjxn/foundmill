@@ -58,7 +58,7 @@ import { createSessionWorkspace, guardToolCall, hookOutputFor, removeSessionWork
 import { commitShaOf, describePush, pushWorkspace, type PushContext } from "./workspace-push";
 import { mergeRecipients, restoreWorkspace, saveWorkspace, toSeed, type LeftOut, type RestoredWorkspace, type SaveWorkspaceOptions } from "./workspace-store";
 import { readWorkspaceChanges, syncCheckoutToSandbox, syncWorkspaceToSandbox } from "./workspace-sync";
-import { checkoutMissingNote, checkoutNote, checkoutRepository, defaultBranchChanges, describeCheckout, disposeCheckout, extractArchive, startsFromDefaultBranch, testSetupChanges, testSetupReviewReason, updateConflicts, updateNote, type Checkout, type CheckoutBase, type CheckoutInput } from "./checkout";
+import { checkoutMissingNote, checkoutNote, checkoutRepository, defaultBranchChanges, describeCheckout, disposeCheckout, extractArchive, testSetupChanges, testSetupReviewReason, updateConflicts, updateNote, type Checkout, type CheckoutBase, type CheckoutInput } from "./checkout";
 import { fingerprintWorkspace, workspaceChanged } from "./workspace-fingerprint";
 import type { AgentSessionInput, MergeInput, SessionFinish, SessionLaunch, SessionParked, SessionResult, SessionRunOptions } from "./types";
 
@@ -1441,13 +1441,9 @@ async function runLiveSession(deps: OrchestratorDeps, recorder: SessionRecorder,
   let token: Awaited<ReturnType<typeof deps.gateway.mintSessionToken>>;
   try {
     if (policy.fileTools) {
-      // A branch handed back to be brought up to date (activities/merge.ts), or one the default branch has moved past
-      // (checkout.ts `startsFromDefaultBranch`), starts from the default branch's newest files with the saved changes on top.
-      const ids = { businessId: input.businessId, agentId: agent.id, sessionId: input.sessionId, taskId: task.id };
-      const update = launch.branch === `agent/${task.id}` ? await updateConflicts(deps, ids, launch.branch) : null;
-      const fromDefaultBranch = startsFromDefaultBranch(handedBack !== null, update);
-      const checkoutInput = { ...ids, fromDefaultBranch };
-      if (fromDefaultBranch) updateNoteText = updateNote(launch.branch, update);
+      // A branch handed back to be brought up to date (activities/merge.ts) starts from the default branch's newest files.
+      const checkoutInput = { businessId: input.businessId, agentId: agent.id, sessionId: input.sessionId, taskId: task.id, fromDefaultBranch: handedBack !== null };
+      if (handedBack) updateNoteText = updateNote(launch.branch, await updateConflicts(deps, checkoutInput, launch.branch));
       const checked = await checkoutRepository(deps, checkoutInput, cwd);
       if (checked.status === "checked_out") checkout = checked.checkout;
       else if (checked.status === "failed") {
@@ -2292,6 +2288,9 @@ export function acceptanceRunScript(command: string): string {
     // The sandbox has a few GB at most: a test runner that forks one worker per CPU was killed (exit 137) on the
     // first web test run of the Foundmill business (Oct 27, 2026). Vitest reads this; other runners ignore it.
     "export VITEST_MAX_WORKERS=2",
+    // The template has 4096 MB shared by pnpm, a runner and two workers: bound each Node heap so a runaway process fails
+    // as a named out-of-memory error instead of the kernel's silent kill (exit 137). A task command may set its own.
+    `export NODE_OPTIONS="\${NODE_OPTIONS:-} --max-old-space-size=${ACCEPTANCE_NODE_HEAP_MB}"`,
     // The network is closed and its packets are dropped, not refused: anything pnpm would still ask the registry (an
     // update check, a metadata fetch) must give up at once rather than wait out retries.
     PNPM_OFFLINE_ENV,
@@ -2302,6 +2301,9 @@ export function acceptanceRunScript(command: string): string {
     command,
   ]);
 }
+
+/** Heap ceiling (MB) for each Node process of an acceptance run; the sandbox template has 4096 MB in all. */
+export const ACCEPTANCE_NODE_HEAP_MB = 1536;
 
 /** The dependencies' build scripts get this long offline; what is not built by then is left to the tests to miss. */
 export const ACCEPTANCE_REBUILD_TIMEOUT_SECONDS = 300;

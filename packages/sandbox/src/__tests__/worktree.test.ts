@@ -142,4 +142,18 @@ describe("clone and worktree commands", () => {
     expect(mock.execLog.map((e) => e.cmd)).toEqual([cloneCommand(repo, mock.workdir), `git worktree add -B agent/task-42 ${mock.workdir}-agent-task-42 HEAD`, "git rev-parse HEAD"]);
     await mock.stop();
   });
+
+  it("prepareAgentWorkspace does not clone again into a workdir the sandbox already cloned", async () => {
+    const { sandbox, calls } = scripted([[/rev-parse/, { stdout: "abc\n" }]]);
+    const cloned: Sandbox = { ...sandbox, spec: { ...sandbox.spec, repo } };
+    const ws = await prepareAgentWorkspace(cloned, repo, { taskId: "task-42" });
+    expect(ws.path).toBe("/home/user/work-agent-task-42");
+    expect(calls.some((c) => c.cmd.includes("git clone"))).toBe(false);
+    expect(calls.some((c) => c.cmd.includes("git worktree add"))).toBe(true);
+
+    // A checkout in another directory is still cloned.
+    const other = scripted([[/rev-parse/, { stdout: "abc\n" }]]);
+    await prepareAgentWorkspace({ ...other.sandbox, spec: { ...other.sandbox.spec, repo } }, repo, { taskId: "task-42", repoDir: "/home/user/other" });
+    expect(other.calls[0]?.cmd).toContain("git clone");
+  });
 });
