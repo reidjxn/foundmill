@@ -74,6 +74,14 @@ describe("agent templates (BUILD §9.1, §9.2, §11.6, §11.7, §11.10)", () => 
     for (const t of ALL_TEMPLATES) if (t.key !== "chief_of_staff") expect(t.tools.flatMap((g) => g.tools), t.key).not.toContain("skills.manage");
   });
 
+  it("every agent with platform tools reads the team's documents in the code repository (Nov 6, 2026)", () => {
+    for (const t of ALL_TEMPLATES) {
+      const platform = t.tools.find((g) => g.connectorKey === "platform");
+      // Every agent on the task board; a utility handed its inputs (the entity linker's one manifest read) is not one.
+      if (platform?.tools.includes("tasks.list")) expect(platform.tools, t.key).toContain("docs.read");
+    }
+  });
+
   it("models follow §9.1: assistant and leads on Opus, workers/channels/specialists on Sonnet, utilities on Haiku", () => {
     expect(chiefOfStaff.modelKey).toBe("opus");
     for (const t of LEAD_TEMPLATES) expect(t.modelKey, t.key).toBe("opus");

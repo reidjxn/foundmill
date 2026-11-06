@@ -156,6 +156,8 @@ export const CAPABILITY_TOOLS: Readonly<Record<string, Readonly<Record<string, r
     "legal.compliance.calendar": ["read_legal"],
     "legal.contracts.list": ["read_legal"],
     "campaigns.list": ["read_distribution"],
+    // The team's documents in the code repository, default branch only (Nov 6, 2026: every agent).
+    "docs.read": ["list_repository_docs", "read_repository_doc"],
     // The team's skills: the Chief of Staff gives agents library skills and the business's own skill files (Nov 6, 2026).
     "skills.manage": ["list_skills", "assign_skill", "remove_skill"],
   },
