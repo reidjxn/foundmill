@@ -11,7 +11,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 import { describe, expect, it } from "vitest";
-import { ACCEPTANCE_EGRESS, ACCEPTANCE_FALLBACK_COMMAND, ACCEPTANCE_REBUILD_TIMEOUT_SECONDS, PNPM_OFFLINE_ENV, TEMPORAL_DOWNLOAD_HOST, TEMPORAL_TEST_SERVER_ENV, acceptanceCommandFor, acceptancePrepareScript, acceptanceRunScript, acceptanceToolchainOf, changedPackageNames, changedScope, documentationOnly, nothingToTestNote, readAcceptanceToolchain, SANDBOX_PNPM, temporalTestServerPrepareLines, temporalTestServerRunLines, workspaceAppTestPackages } from "../activities/session";
+import { ACCEPTANCE_EGRESS, ACCEPTANCE_FALLBACK_COMMAND, ACCEPTANCE_REBUILD_TIMEOUT_SECONDS, PNPM_OFFLINE_ENV, TEMPORAL_DOWNLOAD_HOST, TEMPORAL_TEST_SERVER_ENV, acceptanceCommandFor, acceptancePrepareScript, acceptanceRunScript, acceptanceToolchainOf, changedPackageNames, changedScope, documentationOnly, filesOutsideEveryPackage, outsidePackagesReason, nothingToTestNote, readAcceptanceToolchain, SANDBOX_PNPM, temporalTestServerPrepareLines, temporalTestServerRunLines, workspaceAppTestPackages } from "../activities/session";
 
 const run = promisify(execFile);
 
@@ -134,6 +134,15 @@ describe("changedScope and the packages whose tests need the running app", () =>
     expect(await workspaceAppTestPackages(cwd)).toEqual(["@foundmill/e2e"]);
     expect(await workspaceAppTestPackages(cwd, 5)).toEqual(["@foundmill/e2e", "@foundmill/too-deep"]);
     expect(await workspaceAppTestPackages(await mkdtemp(path.join(tmpdir(), "fm-empty-")))).toEqual([]);
+  });
+
+  it("flags code in directories that belong to no package, never docs, dot-directories or root files", async () => {
+    const cwd = await workspace();
+    const scope = await changedScope(cwd, ["gateway/src/a.ts", "api/routes.ts", "docs/a.md", "README.md", "package.json", ".github/x.yml", "config/readme.md"]);
+    const outside = filesOutsideEveryPackage(scope);
+    expect(outside).toEqual(["gateway/src/a.ts", "api/routes.ts"]);
+    expect(outsidePackagesReason(outside)).toBe("files outside any package: gateway/src/a.ts, api/routes.ts; move them into apps/* or packages/*");
+    expect(filesOutsideEveryPackage({ loose: ["docs/a.md", "README.md"] })).toEqual([]);
   });
 
   it("says what left the sandbox nothing to test", () => {

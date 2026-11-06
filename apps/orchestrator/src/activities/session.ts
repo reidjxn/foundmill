@@ -1902,6 +1902,14 @@ async function runLiveSession(deps: OrchestratorDeps, recorder: SessionRecorder,
     // the running app (Playwright; CI runs them). The fallback would run every package's tests for a Markdown edit.
     const named = acceptanceCommandFor(task) !== ACCEPTANCE_FALLBACK_COMMAND;
     const nothingToTest = !named && scopePaths.length > 0 && scope.length === 0 && (scoped.loose.length === 0 || documentationOnly(scoped.loose));
+    // Code outside every package (root paths like gateway/ or api/ that the workspace does not list): the every-package
+    // fallback would install and test the whole workspace, which the sandbox cannot hold, and a retry repeats it. Refuse.
+    const outside = named ? [] : filesOutsideEveryPackage(scoped);
+    if (outside.length > 0 && !agentBlock && !nothingWritten) {
+      const reason = outsidePackagesReason(outside);
+      await recorder.publishRaw({ kind: "note", at: deps.clock.now().toISOString(), source: "system", level: "warn", text: `Acceptance tests not run: ${reason}.` });
+      return { outcome: "blocked", reason, blockedReason: "error", approvalId: null, summary: `Blocked: ${reason}.`.slice(0, 1800), providerSessionId: sdkSessionId, ...usageNow() };
+    }
     // Acceptance tests run inside a sandbox, never on the orchestrator host, on a copy of the agent's workspace. Not
     // for a task the agent blocked or a session that wrote nothing: neither can end done, so the sandbox is not paid for.
     const acceptanceCommand = nothingToTest ? null : acceptanceCommandFor(task, scope, appTestPackages);
@@ -2215,6 +2223,26 @@ export async function workspaceAppTestPackages(cwd: string, maxDepth = 3): Promi
   };
   await walk(root, 0);
   return [...out].sort();
+}
+
+/**
+ * Changed non-documentation files inside a directory that belongs to no package. Files at the workspace root itself
+ * (package.json, lockfiles), dot-directories (.github) and docs/ are not counted: they are legitimate loose files.
+ */
+export function filesOutsideEveryPackage(scoped: Pick<ChangedScope, "loose">): string[] {
+  return scoped.loose.filter((rel) => {
+    const norm = rel.replace(/\\/g, "/").replace(/^\.\//, "");
+    const parts = norm.split("/");
+    if (parts.length < 2) return false;
+    if (parts[0]!.startsWith(".") || parts[0] === "docs") return false;
+    return !documentationOnly([norm]);
+  });
+}
+
+/** The typed, readable reason when files sit outside every package. */
+export function outsidePackagesReason(paths: readonly string[]): string {
+  const shown = paths.slice(0, 5).join(", ") + (paths.length > 5 ? ` and ${paths.length - 5} more` : "");
+  return `files outside any package: ${shown}; move them into apps/* or packages/*`;
 }
 
 /** The note when a change leaves the sandbox nothing to test. */
