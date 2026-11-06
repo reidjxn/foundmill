@@ -108,7 +108,8 @@ describe("profile derivations", () => {
     expect(items.find((i) => i.id === "c-c2")?.description).toBe("€49.00");
     const gbp = activityItems({ interactions: [], mentions: [], conversions: [{ id: "g1", kind: "payment", amountMinor: 3534999, currency: "GBP", occurredAt: new Date("2026-10-01"), journeyId: null }, { id: "y1", kind: "payment", amountMinor: 5000, currency: "JPY", occurredAt: new Date("2026-10-02"), journeyId: null }] } as never, { inbox: (id) => id, journey: (id) => id });
     expect(gbp.map((i) => i.description)).toEqual(["¥5,000", "£35,349.99"]);
-    const docs = documentItems({ interactions: [{ id: "i1", kind: "email", occurredAt: new Date(), summary: "", contentRef: "vault://x" }], mentions: [{ id: "m2", containerKind: "spec_block", containerId: "s1", createdAt: new Date() }] } as never, { inbox: (id) => id });
+    // Fixed dates, newest first: two `new Date()` calls a millisecond apart flipped the order (CI, Nov 6, 2026).
+    const docs = documentItems({ interactions: [{ id: "i1", kind: "email", occurredAt: new Date("2026-06-02"), summary: "", contentRef: "vault://x" }], mentions: [{ id: "m2", containerKind: "spec_block", containerId: "s1", createdAt: new Date("2026-06-01") }] } as never, { inbox: (id) => id });
     expect(docs.map((d) => [d.kind, d.encrypted])).toEqual([
       ["email", true],
       ["spec_block", false],

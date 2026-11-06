@@ -193,6 +193,12 @@ describe("one approval per gated call", () => {
     expect(used?.usedAt).toBeInstanceOf(Date);
     // Once only.
     expect(await repos.approvals.useGranted(r.db, r.A.businessId, { sessionId: next.id, ...ask, amountMinor: 5_000 })).toBeNull();
+    // Given back by the session that used it (the vendor refused the call), it can be used again; by anyone else, never.
+    expect(await repos.approvals.releaseUse(r.db, r.A.businessId, a.id, first.id)).toBe(false);
+    expect(await repos.approvals.releaseUse(r.db, r.B.businessId, a.id, next.id)).toBe(false);
+    expect(await repos.approvals.releaseUse(r.db, r.A.businessId, a.id, next.id)).toBe(true);
+    expect(await repos.approvals.releaseUse(r.db, r.A.businessId, a.id, next.id)).toBe(false);
+    expect((await repos.approvals.useGranted(r.db, r.A.businessId, { sessionId: next.id, ...ask, amountMinor: 5_000 }))?.id).toBe(a.id);
   });
 });
 

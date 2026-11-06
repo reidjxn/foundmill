@@ -375,6 +375,21 @@ export const approvalsRepo = {
   },
 
   /**
+   * Gives back an approval `useGranted` took for a call that never ran: the vendor refused it outright (GitHub's 405
+   * "not mergeable", a 409 or 422), or the gateway stopped it before the vendor saw it. Only the session that used it
+   * can give it back, and only while it is still marked used by that session. Until Nov 6, 2026 a merge the founder
+   * approved that GitHub refused for a moment spent the approval, and the retry put the same question in the Inbox again.
+   */
+  async releaseUse(db: Executor, businessId: string, approvalId: string, sessionId: string | null): Promise<boolean> {
+    const released = await db
+      .update(approvals)
+      .set({ usedAt: null, usedBySessionId: null, updatedAt: new Date() })
+      .where(and(scoped(businessId, approvalId), sql`${approvals.usedAt} is not null`, sessionId ? eq(approvals.usedBySessionId, sessionId) : isNull(approvals.usedBySessionId)))
+      .returning({ id: approvals.id });
+    return released.length > 0;
+  },
+
+  /**
    * Tasks waiting on the founder (0030), from `taskIds`: the task's latest approval is still open, or it was rejected
    * after the task's last session started (a session started since, by a cycle or by hand, asks again).
    */

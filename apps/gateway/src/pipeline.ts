@@ -330,7 +330,20 @@ export async function executeToolCall(deps: GatewayDeps, session: SessionToken, 
     const granted = await repos.approvals.useGranted(deps.db, businessId, { sessionId: session.sessionId, agentId: session.agentId, connectorKey: connector.key, tool: tool.name, args: argsObject(args), amountMinor: req.context.amountMinor ?? 0, currency: req.context.currency ?? loaded.agent.currency });
     if (granted) {
       log.info({ approvalId: granted.id }, "tool call runs under the founder's approval");
-      return allow(deps, session, req, loaded, { ...decision, reasons: [...decision.reasons, `Approved by the founder (approval ${granted.id})`] }, args, log, now, granted.id);
+      // A call the vendor refused outright, or the gateway stopped before the vendor saw it, did nothing: the approval
+      // goes back, so the retry (or the next cycle) runs under it instead of asking the founder the same question again.
+      const giveBack = async (why: string) => {
+        if (await repos.approvals.releaseUse(deps.db, businessId, granted.id, session.sessionId).catch(() => false)) log.info({ approvalId: granted.id, why }, "the call did not run; the founder's approval is kept for the next try");
+      };
+      try {
+        const out = await allow(deps, session, req, loaded, { ...decision, reasons: [...decision.reasons, `Approved by the founder (approval ${granted.id})`] }, args, log, now, granted.id);
+        if (out.body.outcome === "deny") await giveBack("refused before the vendor call");
+        else if (out.body.outcome === "allow" && !out.body.result.ok && vendorRefusedOutright(out.body.result.error)) await giveBack(out.body.result.error?.code ?? "refused");
+        return out;
+      } catch (e) {
+        if (e instanceof GatewayError && NOT_RUN_ERRORS.has(e.code)) await giveBack(e.code);
+        throw e;
+      }
     }
     return ask(deps, session, req, loaded, decision, args, log, now);
   }
@@ -356,6 +369,22 @@ const rethrowNotFound =
     if (e instanceof NotFoundError) throw new GatewayError(`${what}_not_found`, `${what} ${id} is not available to this gateway`, 404, { [what]: id });
     throw e;
   };
+
+/** Gateway errors raised before the vendor is called: the call did nothing. */
+const NOT_RUN_ERRORS = new Set(["vault_unavailable", "integration_not_connected", "connector_unconfigured"]);
+
+/**
+ * The vendor answered and refused (a 4xx other than a timeout: GitHub's 405 "not mergeable" or 409 "base branch was
+ * modified", a 422), or the connector stopped the call before it reached the vendor (bad arguments, an unknown tool).
+ * Nothing happened, so an approval used for it can be used again. A 5xx, a timeout or an error with no status may have
+ * run: the approval stays spent.
+ */
+export function vendorRefusedOutright(error: { code?: string; status?: number } | undefined): boolean {
+  if (!error) return false;
+  if (error.code === "invalid_args" || error.code === "unknown_tool") return true;
+  const status = error.status;
+  return typeof status === "number" && status >= 400 && status < 500 && status !== 408;
+}
 
 /**
  * The amount the spend policy sees: never less than what the connector says the call costs (a number it derives from the
