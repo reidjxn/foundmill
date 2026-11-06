@@ -7,7 +7,7 @@
  * fallback → graceful shutdown flushes pending stores before closing.
  */
 import { closeDb, createServiceDb, watchPoolOrExit } from "@foundmill/db";
-import { admittedBy, loadEnv, parseSignupAllowlist, servicePort } from "@foundmill/shared";
+import { admittedBy, bootSummary, loadEnv, parseSignupAllowlist, servicePort } from "@foundmill/shared";
 import { createLogger } from "@foundmill/shared/logger";
 import { createCollabAuthenticator } from "./auth";
 import { prepareDb } from "./db-boot";
@@ -46,6 +46,7 @@ export async function main(): Promise<void> {
   const allowlist = parseSignupAllowlist(env.SIGNUP_ALLOWLIST);
   const server = createCollabServer({ db, auth, log, dbReady: () => readiness.ok, admit: (user) => admittedBy(allowlist, user, auth.devUserId) });
   await server.listen(servicePort(env, "COLLAB_PORT"));
+  log.info(bootSummary(env), "collab environment");
   log.info({ db: readiness.ok, driver: readiness.driver }, "collab ready");
 
   const shutdown = async (signal: string) => {

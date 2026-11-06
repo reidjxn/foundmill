@@ -11,7 +11,7 @@
  * client lives in `./client` (`@foundmill/stream/client`) and pulls in none of this.
  */
 import { createServiceDb, closeDb, keepPoolWarm, type PoolWarmer } from "@foundmill/db";
-import { admittedBy, loadEnv, parseSignupAllowlist, servicePort } from "@foundmill/shared";
+import { admittedBy, bootSummary, loadEnv, parseSignupAllowlist, servicePort } from "@foundmill/shared";
 import { createLogger } from "@foundmill/shared/logger";
 import { onShutdown } from "@foundmill/shared/shutdown";
 import { installTelemetry } from "@foundmill/shared/telemetry";
@@ -95,6 +95,7 @@ export async function main(): Promise<void> {
     },
   });
   const address = await server.listen(servicePort(env, "STREAM_PORT"));
+  log.info(bootSummary(env), "stream environment");
   log.info({ port: address.port, host: address.address, db: readiness.ok, driver: readiness.driver, redis: probe.ok }, "stream listening");
 }
 

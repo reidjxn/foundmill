@@ -38,6 +38,7 @@ import { createActivities } from "./activities";
 import { MemoryControlBus } from "./control-bus";
 import { prepareDb } from "./db-boot";
 import { createDeps, type OrchestratorDeps } from "./deps";
+import { bootSummary } from "@foundmill/shared";
 import { loadOrchestratorEnv } from "./env";
 import { orchestratorHealth, startHealthServer, type HealthServer, type QueueBacklog, type WorkerSlots } from "./health-server";
 import { chooseRedisBackend, probeRedis } from "./redis";
@@ -280,6 +281,7 @@ export async function main(): Promise<void> {
     deps.log.warn({ err: (err as Error).message }, "orchestrator health server could not listen; /health is unavailable");
     return null;
   });
+  deps.log.info(bootSummary(env), "orchestrator environment");
   deps.log.info({ app: APP_NAME, taskQueue: env.TEMPORAL_TASK_QUEUE, sessionTaskQueue: sessionTaskQueue(env.TEMPORAL_TASK_QUEUE), maxActivities: env.ORCHESTRATOR_MAX_ACTIVITIES, maxSessions: env.ORCHESTRATOR_MAX_SESSIONS, address: env.TEMPORAL_ADDRESS, integrations: env.INTEGRATIONS_MODE, models: env.MODEL_MODE, db: readiness.ok, driver: readiness.driver, redis: backend.kind }, "orchestrator starting");
   connection = await connectWithRetry(deps, abort.signal);
   if (!connection || lifecycle.stopping) return;

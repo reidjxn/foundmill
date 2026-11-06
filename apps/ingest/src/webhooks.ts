@@ -15,7 +15,7 @@
  */
 import { DROPBOX_SIGN_CALLBACK_RESPONSE, mockWebhooksAllowed, type ConnectorMode, type ConnectorWebhook } from "@foundmill/connectors";
 import { repos } from "@foundmill/db";
-import { AppError, NotFoundError, isUuid, type IntegrationStatus } from "@foundmill/shared";
+import { AppError, NotFoundError, isUuid, resolveConnectorMode, type IntegrationStatus } from "@foundmill/shared";
 import { ingestPlatformEvents, isValidationError, type IngestResult } from "./ingest";
 import { nonceKey } from "./nonce-store";
 import { identifyDelivery, splitConnectorSegment, withinReplayWindow, type DeliveryIdentity } from "./replay";
@@ -73,7 +73,7 @@ export const findWebhook = (mounted: readonly MountedWebhook[], segment: string)
 /** Whether `/webhooks/<segment>` belongs to a connector whose mock webhooks this deployment refuses. */
 function refusedSegment(deps: IngestDeps, segment: string): boolean {
   const { connector } = splitConnectorSegment(segment);
-  return !mockWebhooksAllowed(deps.env.APP_ENV) && deps.registry.has(connector) && !(deps.mode === "live" || deps.liveConnectors.includes(connector));
+  return !mockWebhooksAllowed(deps.env.APP_ENV) && deps.registry.has(connector) && resolveConnectorMode(deps.mode, deps.liveConnectors, connector) === "mock";
 }
 
 export type WebhookOutcome =

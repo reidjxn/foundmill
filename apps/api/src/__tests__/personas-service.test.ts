@@ -102,7 +102,7 @@ const log = {
 } as unknown as PortraitDeps["log"];
 
 let clock = 1_000_000;
-const depsWith = (gateway: ApiGatewayClient, env: PortraitDeps["env"] = { INTEGRATIONS_MODE: "live", LIVE_CONNECTORS: "" }, redis: PortraitRedis | null = null): PortraitDeps => ({ db: hz.db, env, gateway, log, now: () => clock, redis });
+const depsWith = (gateway: ApiGatewayClient, env: PortraitDeps["env"] = { INTEGRATIONS_MODE: "live", LIVE_CONNECTORS: "openai_images" }, redis: PortraitRedis | null = null): PortraitDeps => ({ db: hz.db, env, gateway, log, now: () => clock, redis });
 
 /** A Redis double with the three commands the shared backoff uses (PX expiry on the test clock). */
 function fakeRedis() {

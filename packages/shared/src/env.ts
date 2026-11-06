@@ -4,7 +4,7 @@ import { z } from "zod";
 const Env = z.object({
   APP_ENV: z.enum(["development", "test", "staging", "production"]).default("development"),
   INTEGRATIONS_MODE: z.enum(["mock", "live"]).default("mock"),
-  /** Connectors that run live while INTEGRATIONS_MODE is mock, comma-separated (e.g. "github"). */
+  /** The allowlist of connectors that run live, comma-separated (e.g. "github"); every other connector stays mock, also with INTEGRATIONS_MODE=live. Empty: none live. Unknown names fail boot. */
   LIVE_CONNECTORS: z.string().default(""),
   MODEL_MODE: z.enum(["mock", "live"]).default("mock"),
   /** apps/api: multiplies every model-backed allowance (services/model-limits.ts). Honored only when APP_ENV is development or test: the Playwright stack presses Take charge and the other model-backed buttons far more often than a person does. */
@@ -155,6 +155,7 @@ export function loadEnv(overrides: Partial<NodeJS.ProcessEnv> = {}): Env {
   const parsed = Env.safeParse({ ...process.env, ...overrides });
   if (!parsed.success) throw new Error(`Invalid environment: ${parsed.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; ")}`);
   const env = parsed.data;
+  assertKnownLiveConnectors(env);
   if (env.APP_ENV !== "development" && env.APP_ENV !== "test") {
     env.DEV_AUTH_USER_ID = undefined; // never honoured outside development/test (docs/DECISIONS.md)
     // Simulated model latency is a development knob: a deployed service's mock client (a live service without its key
@@ -167,10 +168,39 @@ export function loadEnv(overrides: Partial<NodeJS.ProcessEnv> = {}): Env {
 }
 export const resetEnvCache = () => { cached = undefined; };
 export const isMockIntegrations = (env = loadEnv()) => env.INTEGRATIONS_MODE === "mock";
-/** Connectors named in LIVE_CONNECTORS. */
-export const liveConnectorKeys = (env: Pick<Env, "LIVE_CONNECTORS">): string[] => env.LIVE_CONNECTORS.split(",").map((k) => k.trim()).filter(Boolean);
-/** The mode one connector runs in: live everywhere in live mode, or when LIVE_CONNECTORS names it. */
-export const connectorMode = (env: Pick<Env, "INTEGRATIONS_MODE" | "LIVE_CONNECTORS">, connectorKey: string): "mock" | "live" => (env.INTEGRATIONS_MODE === "live" || liveConnectorKeys(env).includes(connectorKey) ? "live" : "mock");
+/** Connectors named in LIVE_CONNECTORS (empty or unset: none). */
+export const liveConnectorKeys = (env: Pick<Env, "LIVE_CONNECTORS">): string[] => (env.LIVE_CONNECTORS ?? "").split(",").map((k) => k.trim()).filter(Boolean);
+/**
+ * The mode one connector runs in: live only when LIVE_CONNECTORS names it, whatever INTEGRATIONS_MODE says. With
+ * INTEGRATIONS_MODE=live an unlisted connector stays mock, and an empty list means nothing is live.
+ */
+export const connectorMode = (env: Pick<Env, "INTEGRATIONS_MODE" | "LIVE_CONNECTORS">, connectorKey: string): "mock" | "live" => (liveConnectorKeys(env).includes(connectorKey) ? "live" : "mock");
+/**
+ * Same rule for hosts that already hold the parsed list (gateway, ingest). `liveConnectors` undefined is a host that was
+ * never given the allowlist (unit-test wiring): it falls back to `mode`; every service entry point passes the list.
+ */
+export const resolveConnectorMode = (mode: "mock" | "live", liveConnectors: readonly string[] | undefined, connectorKey: string): "mock" | "live" =>
+  liveConnectors === undefined ? mode : liveConnectors.includes(connectorKey) ? "live" : "mock";
+/**
+ * Every name LIVE_CONNECTORS may hold: the catalogue connectors, the gateway's built-ins and `stripe_billing`
+ * (packages/connectors has a test keeping this equal to CONNECTOR_KEYS + BUILTIN_CONNECTOR_KEYS).
+ */
+export const KNOWN_CONNECTOR_KEYS: readonly string[] = Object.freeze([
+  "anthropic", "voyage", "openai_images", "github", "google_drive", "gmail", "google_calendar", "notion", "cloudflare_dns",
+  "opencorporates", "bolagsverket", "companies_house", "e2b", "dropbox_sign", "ecb_rates", "domains", "stripe", "sendgrid",
+  "shopify", "tink", "plaid", "platform", "web", "quarantine", "stripe_billing",
+]);
+/** Throws a clear error naming every LIVE_CONNECTORS entry that is not a known connector (boot fails on it). */
+export function assertKnownLiveConnectors(env: Pick<Env, "LIVE_CONNECTORS">): void {
+  const unknown = liveConnectorKeys(env).filter((k) => !KNOWN_CONNECTOR_KEYS.includes(k));
+  if (unknown.length > 0) throw new Error(`Invalid environment: LIVE_CONNECTORS names unknown connector(s) ${unknown.map((k) => `"${k}"`).join(", ")}. Known connectors: ${KNOWN_CONNECTOR_KEYS.join(", ")}`);
+}
+/** What every service logs at startup: no secrets, only the three resolved values. */
+export const bootSummary = (env: Pick<Env, "APP_ENV" | "INTEGRATIONS_MODE" | "LIVE_CONNECTORS">): { appEnv: string; integrationsMode: string; liveConnectors: string[] } => ({
+  appEnv: env.APP_ENV,
+  integrationsMode: env.INTEGRATIONS_MODE,
+  liveConnectors: liveConnectorKeys(env),
+});
 /**
  * The LIVE_CONNECTORS entry for the platform's own billing (credit top-ups through Stripe Checkout on the platform
  * account, docs/DEPLOY.md §5). Separate from `stripe`, the businesses' own Stripe connector, so taking real payments

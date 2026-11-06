@@ -17,7 +17,7 @@
  */
 import { createHash } from "node:crypto";
 import { LIMITS } from "@foundmill/config";
-import { AppError, NotFoundError } from "@foundmill/shared";
+import { AppError, NotFoundError, resolveConnectorMode } from "@foundmill/shared";
 import type { Vault } from "@foundmill/shared/crypto";
 import { bookUsage, codeRepositoryOf, openApprovalItem, repos, type Db, type Agent, type AppInstallation, type Business, type Integration } from "@foundmill/db";
 import { agentAutonomy, businessApprovalThreshold, evaluate, getPolicyEngine, type AgentCtxInput, type EvaluateInputInput, type EvaluateResult, type PolicyEngine, type ToolCtxInput } from "@foundmill/policy";
@@ -104,7 +104,7 @@ export interface ToolCallResult {
  * their live side is the platform's own database and model client (ALWAYS_LIVE_CONNECTORS), never a vendor.
  */
 export function modeFor(deps: Pick<GatewayDeps, "mode" | "liveConnectors">, connectorKey: string): ConnectorMode {
-  return deps.mode === "live" || deps.liveConnectors?.includes(connectorKey) || ALWAYS_LIVE_CONNECTORS.has(connectorKey) ? "live" : deps.mode;
+  return ALWAYS_LIVE_CONNECTORS.has(connectorKey) ? "live" : resolveConnectorMode(deps.mode, deps.liveConnectors, connectorKey);
 }
 
 /** Thrown for request errors that are not policy outcomes (unknown connector/tool, missing integration...). */

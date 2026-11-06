@@ -158,8 +158,8 @@ describe("billing.topUp (live)", () => {
     ]);
     expect(await code(live.billing.checkout.completeMock({ businessId: hz.A.businessId, checkoutId: r.checkout.id }))).toBe("BAD_REQUEST");
     expect((await repos.checkouts.get(hz.db, hz.A.businessId, r.checkout.id)).externalId).toMatch(/^cs_test_/);
-    // INTEGRATIONS_MODE=live takes real payments too.
-    expect((await callerWith({ INTEGRATIONS_MODE: "live", APP_ENV: "production", MODEL_MODE: "live" }, { userId: hz.A.ownerId }).billing.plan({ businessId: hz.A.businessId })).topUp).toMatchObject({ mode: "live", available: true });
+    // INTEGRATIONS_MODE=live takes real payments only when stripe_billing is listed.
+    expect((await callerWith({ INTEGRATIONS_MODE: "live", LIVE_CONNECTORS: "stripe_billing", APP_ENV: "production", MODEL_MODE: "live" },{ userId: hz.A.ownerId }).billing.plan({ businessId: hz.A.businessId })).topUp).toMatchObject({ mode: "live", available: true });
   });
 
   it("the businesses' own Stripe connector going live does not take real payments", async () => {

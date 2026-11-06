@@ -11,7 +11,7 @@
 import { serve } from "@hono/node-server";
 import { createServiceDb, closeDb, keepPoolWarm, watchPoolOrExit, type PoolWarmer, type PoolWatchdog } from "@foundmill/db";
 import { createModelClient, effectiveModelMode, gateModelClient } from "@foundmill/models";
-import { loadEnv, servicePort } from "@foundmill/shared";
+import { bootSummary, loadEnv, servicePort } from "@foundmill/shared";
 import { createLogger } from "@foundmill/shared/logger";
 import { drainHttpServer, onShutdown } from "@foundmill/shared/shutdown";
 import { installTelemetry } from "@foundmill/shared/telemetry";
@@ -84,6 +84,7 @@ export async function main(): Promise<void> {
 
   if (lifecycle.stopping) return;
   server = await listen(app, port, log);
+  log.info(bootSummary(env), "composer environment");
   log.info({ db: readiness.ok, driver: readiness.driver, modes: { integrations: env.INTEGRATIONS_MODE, models: env.MODEL_MODE } }, "composer ready (refresh debounce and buffer refills are in-process; no Redis needed)");
 }
 

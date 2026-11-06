@@ -3,7 +3,7 @@
  * mock; the default mode is `INTEGRATIONS_MODE` from the environment, so `registry.get("stripe")` in
  * development is always the mock unless the operator opted into live integrations.
  */
-import { loadEnv, NotFoundError } from "@foundmill/shared";
+import { loadEnv, NotFoundError, resolveConnectorMode } from "@foundmill/shared";
 import type { Connector, ConnectField, ConnectorMode, ConnectorPhase, MockConnector, PolicyHints, McpToolDefinition, ConnectorAuth } from "./contract";
 import { isMockConnector } from "./define";
 import { mockWebhooksAllowed } from "./webhooks";
@@ -99,7 +99,7 @@ export class ConnectorRegistry {
     const mounted: MountableWebhook[] = [];
     const refused: string[] = [];
     for (const key of this.keys()) {
-      const mode: ConnectorMode = opts.mode === "live" || (opts.liveConnectors ?? []).includes(key) ? "live" : "mock";
+      const mode: ConnectorMode = resolveConnectorMode(opts.mode, opts.liveConnectors, key);
       const connector = this.get(key, mode);
       const hooks = connector.webhooks ?? [];
       if (hooks.length === 0) continue;

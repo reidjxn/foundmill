@@ -461,7 +461,14 @@ describe("LIVE_CONNECTORS", () => {
     }
     expect(modeFor({ mode: "mock", liveConnectors: ["github"] }, "github")).toBe("live");
     expect(modeFor({ mode: "mock", liveConnectors: ["github"] }, "stripe")).toBe("mock");
-    expect(modeFor({ mode: "live" }, "stripe")).toBe("live");
+    expect(modeFor({ mode: "live" }, "stripe")).toBe("live"); // no allowlist handed to the host (unit wiring only)
+  });
+
+  it("AC-allowlist: with INTEGRATIONS_MODE=live only the listed connectors are live; an empty list means none", () => {
+    expect(modeFor({ mode: "live", liveConnectors: ["github"] }, "github")).toBe("live");
+    expect(modeFor({ mode: "live", liveConnectors: ["github"] }, "stripe")).toBe("mock");
+    expect(modeFor({ mode: "live", liveConnectors: [] }, "github")).toBe("mock");
+    expect(modeFor({ mode: "live", liveConnectors: [] }, "platform")).toBe("live"); // the platform's own data stays live
   });
 });
 

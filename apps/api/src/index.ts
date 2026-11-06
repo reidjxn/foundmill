@@ -15,7 +15,7 @@
  */
 import { serve } from "@hono/node-server";
 import { closeDb, isMigrationLockTimeout, keepPoolWarm, migrateDb, watchPoolOrExit, type PoolWarmer, type PoolWatchdog } from "@foundmill/db";
-import { loadEnv, servicePort } from "@foundmill/shared";
+import { bootSummary, loadEnv, servicePort } from "@foundmill/shared";
 import { drainHttpServer, flushLog, onShutdown } from "@foundmill/shared/shutdown";
 import { installTelemetry } from "@foundmill/shared/telemetry";
 import { createApp } from "./app";
@@ -105,6 +105,7 @@ export function listen(app: ReturnType<typeof createApp>, port: number, deps: Ap
     let settled = false;
     const server = serve({ fetch: app.fetch, port, hostname }, (info) => {
       settled = true;
+      deps.log.info(bootSummary(deps.env), "api environment");
       deps.log.info({ port: info.port, hostname, env: deps.env.APP_ENV, integrations: deps.env.INTEGRATIONS_MODE, models: deps.env.MODEL_MODE }, "api listening");
       resolve(server);
     });

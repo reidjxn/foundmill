@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { allowMockPayments, connectorMode, liveConnectorKeys, loadEnv, platformBillingMode } from "./env";
+import { allowMockPayments, bootSummary, connectorMode, KNOWN_CONNECTOR_KEYS, liveConnectorKeys, loadEnv, platformBillingMode, resolveConnectorMode } from "./env";
 
 describe("ALLOW_MOCK_PAYMENTS (SEC2 S10)", () => {
   it("defaults to on only in development and test; an explicit value wins anywhere", () => {
@@ -20,8 +20,34 @@ describe("per-connector integrations mode", () => {
     expect(liveConnectorKeys(env)).toEqual(["github", "stripe"]);
     expect(connectorMode(env, "github")).toBe("live");
     expect(connectorMode(env, "gmail")).toBe("mock");
-    expect(connectorMode(loadEnv({ INTEGRATIONS_MODE: "live", LIVE_CONNECTORS: "" }), "gmail")).toBe("live");
     expect(connectorMode(loadEnv({ INTEGRATIONS_MODE: "mock" }), "github")).toBe("mock");
+  });
+
+  it("AC-1 with INTEGRATIONS_MODE=live, connectors not in LIVE_CONNECTORS resolve to mock", () => {
+    const env = loadEnv({ INTEGRATIONS_MODE: "live", LIVE_CONNECTORS: "github" });
+    expect(connectorMode(env, "github")).toBe("live");
+    expect(connectorMode(env, "gmail")).toBe("mock");
+    expect(resolveConnectorMode("live", ["github"], "gmail")).toBe("mock");
+  });
+
+  it("AC-2 an empty or unset LIVE_CONNECTORS means no connector is live", () => {
+    for (const LIVE_CONNECTORS of ["", "  ", " , ,", undefined]) {
+      const env = loadEnv({ INTEGRATIONS_MODE: "live", LIVE_CONNECTORS });
+      expect(liveConnectorKeys(env)).toEqual([]);
+      for (const key of KNOWN_CONNECTOR_KEYS) expect(connectorMode(env, key)).toBe("mock");
+    }
+  });
+
+  it("AC-3 unknown connector names in LIVE_CONNECTORS fail boot with a clear error", () => {
+    expect(() => loadEnv({ INTEGRATIONS_MODE: "live", LIVE_CONNECTORS: "github, gitub,nope" })).toThrow(/LIVE_CONNECTORS names unknown connector\(s\) "gitub", "nope"/);
+    expect(() => loadEnv({ LIVE_CONNECTORS: "github,stripe_billing,platform" })).not.toThrow();
+  });
+
+  it("AC-4 the boot summary holds APP_ENV, INTEGRATIONS_MODE and the live list, nothing else", () => {
+    const env = loadEnv({ APP_ENV: "staging", INTEGRATIONS_MODE: "live", LIVE_CONNECTORS: "github, stripe", SESSION_TOKEN_SECRET: "super-secret-value-123" });
+    const summary = bootSummary(env);
+    expect(summary).toEqual({ appEnv: "staging", integrationsMode: "live", liveConnectors: ["github", "stripe"] });
+    expect(JSON.stringify(summary)).not.toContain("super-secret");
   });
 
   it("switches the platform's own billing separately from the businesses' Stripe connector", () => {
@@ -29,7 +55,8 @@ describe("per-connector integrations mode", () => {
     expect(platformBillingMode(billing)).toBe("live");
     expect(connectorMode(billing, "stripe")).toBe("mock");
     expect(platformBillingMode(loadEnv({ INTEGRATIONS_MODE: "mock", LIVE_CONNECTORS: "stripe" }))).toBe("mock");
-    expect(platformBillingMode(loadEnv({ INTEGRATIONS_MODE: "live" }))).toBe("live");
+    expect(platformBillingMode(loadEnv({ INTEGRATIONS_MODE: "live" }))).toBe("mock");
+    expect(platformBillingMode(loadEnv({ INTEGRATIONS_MODE: "live", LIVE_CONNECTORS: "stripe_billing" }))).toBe("live");
   });
 });
 

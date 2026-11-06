@@ -15,7 +15,7 @@ import { Redis } from "ioredis";
 import { APP_NAME, FLAGS } from "@foundmill/config";
 import { createDefaultRegistry, mockWebhooksAllowed, platformSecretsFromEnv, type BusinessResolver, type ConnectorRegistry } from "@foundmill/connectors";
 import { closeDb, createServiceDb, watchPoolOrExit, type Db } from "@foundmill/db";
-import { liveConnectorKeys, loadEnv, servicePort, type Env } from "@foundmill/shared";
+import { bootSummary, liveConnectorKeys, loadEnv, servicePort, type Env } from "@foundmill/shared";
 import { createLogger } from "@foundmill/shared/logger";
 import { createVault, type Vault } from "@foundmill/shared/crypto";
 import { drainHttpServer, onShutdown } from "@foundmill/shared/shutdown";
@@ -94,6 +94,7 @@ export function buildIngest(options: BuildIngestOptions = {}): BuiltIngest {
   const now = options.now ?? (() => new Date());
 
   const liveConnectors = liveConnectorKeys({ LIVE_CONNECTORS: env.LIVE_CONNECTORS ?? "" });
+  log.info(bootSummary({ APP_ENV: env.APP_ENV, INTEGRATIONS_MODE: env.INTEGRATIONS_MODE, LIVE_CONNECTORS: env.LIVE_CONNECTORS ?? "" }), "ingest environment");
   let vault: Vault | null = options.vault === undefined ? null : options.vault;
   // Any live webhook may verify with a business's own secret (Stripe endpoint secret, Shopify custom app...).
   if (options.vault === undefined && (env.INTEGRATIONS_MODE === "live" || liveConnectors.length > 0)) {

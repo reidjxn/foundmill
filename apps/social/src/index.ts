@@ -8,7 +8,7 @@
  */
 import { serve } from "@hono/node-server";
 import { closeDb, createServiceDb } from "@foundmill/db";
-import { loadEnv, servicePort } from "@foundmill/shared";
+import { bootSummary, loadEnv, servicePort } from "@foundmill/shared";
 import { createLogger } from "@foundmill/shared/logger";
 import { createApp } from "./app";
 import { prepareDb } from "./db-boot";
@@ -52,6 +52,7 @@ export function listen(app: ReturnType<typeof createApp>, port: number, log: Lis
     let settled = false;
     const server = serve({ fetch: app.fetch, port, hostname }, (info) => {
       settled = true;
+      log.info(bootSummary(env), "social environment");
       log.info({ port: info.port, hostname }, "social listening");
       resolve(server);
     });
