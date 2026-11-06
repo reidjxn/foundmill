@@ -13,7 +13,7 @@ import { createBuiltinConnectors, quarantinedReaderRequest, type Connector, type
 import { createModelClient, QuarantinedReaderOutput, type ModelClient, type ModelMode, type UsageSink } from "@foundmill/models";
 import { AppError } from "@foundmill/shared";
 import type { Vault } from "@foundmill/shared/crypto";
-import { createDbPlatformHost } from "./platform-host";
+import { createDbPlatformHost, type RepositoryFiles } from "./platform-host";
 import { safeError, type GatewayLogger } from "./pipeline";
 
 /**
@@ -84,9 +84,11 @@ export function createQuarantinedReader(deps: QuarantinedReaderDeps): Quarantine
 export interface GatewayBuiltinsDeps extends QuarantinedReaderDeps {
   /** The live options of the vendor connectors (platform secrets, fetch, clock). */
   live?: LiveConnectorOptions;
+  /** The business's code repository for the skill tools; late-bound (the pipeline is built after the connectors). */
+  repository?: () => RepositoryFiles | null;
 }
 
 /** The built-in connectors, wired to this gateway's database and model client. */
 export function createGatewayBuiltins(deps: GatewayBuiltinsDeps): Connector[] {
-  return createBuiltinConnectors({ ...deps.live, platform: createDbPlatformHost({ db: deps.db, log: deps.log }), quarantinedReader: createQuarantinedReader(deps) });
+  return createBuiltinConnectors({ ...deps.live, platform: createDbPlatformHost({ db: deps.db, log: deps.log, ...(deps.repository ? { repository: deps.repository } : {}) }), quarantinedReader: createQuarantinedReader(deps) });
 }

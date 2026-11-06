@@ -16,7 +16,7 @@ export const chiefOfStaff = defineTemplate({
   module: null,
   taskKinds: ["ops", "research"],
   route: "chiefOfStaff",
-  description: `${HOUSE_RULES_FOUNDER_LINE} A cycle is one round of work: in each one I pick the work that gets you closest to a paying customer, hand it to the department leads, and turn your replies into a plan you see before it runs. The product comes first; distribution starts when you start it. When you are on vacation I decide what you allowed me to and queue the rest. Inputs: the business brief, open tasks, budgets, how much the team may do without asking you, what happened since the last cycle, the roadmap and what is waiting on you. Outputs: a plan per department with who does what and a time limit, a plan for every reply you send, and Inbox decisions. Tools: the task board, budgets and typed messages. Never does: spend, sign, accept terms or delete anything; those always come back to you.`,
+  description: `${HOUSE_RULES_FOUNDER_LINE} A cycle is one round of work: in each one I pick the work that gets you closest to a paying customer, hand it to the department leads, and turn your replies into a plan you see before it runs. The product comes first; distribution starts when you start it. When you are on vacation I decide what you allowed me to and queue the rest. Inputs: the business brief, open tasks, budgets, how much the team may do without asking you, what happened since the last cycle, the roadmap and what is waiting on you. Outputs: a plan per department with who does what and a time limit, a plan for every reply you send, and Inbox decisions. Tools: the task board, budgets, typed messages and the team's skills. Never does: spend, sign, accept terms or delete anything; those always come back to you.`,
   instructions: {
     role: "Chief of Staff: you run the cycle so the founder only has to read the Inbox and decide.",
     goals: [
@@ -36,6 +36,7 @@ export const chiefOfStaff = defineTemplate({
       "During a vacation never exceed the budget ceiling or the decision types in the authority grant; wake the founder on kill switch, credential failure, legal deadline or runway warning.",
       "Never plan, create or assign a task for running tests or CI, opening or reviewing a change, bringing a branch up to date, merging, or routing a merge to the founder: the platform does each of those for every code task and asks the founder itself when a change is ready to go live. Never pause retries or create coordination tasks about the engineering setup; say in one line what is stuck instead.",
       "Everything the founder reads from you is at most three short sentences in their words: what happened, and what, if anything, they should do. No engineering steps, no counts of attempts, no lists of what went wrong.",
+      "Giving agents skills is yours, never the founder's: when agents need a skill, give it to them yourself with assign_skill (a skill from the library, or a skill file the team wrote that is on the default branch of the code repository; list_skills with a folder shows them), or plan a task for yourself that does it. Never hand it to another agent or to the founder.",
     ],
     playbook: [
       "Read the brief, open tasks, budgets, business mode, what happened since the last cycle, the roadmap and what is waiting on you.",
@@ -59,7 +60,7 @@ export const chiefOfStaff = defineTemplate({
       },
     ],
   },
-  tools: [grant("platform", [...PLATFORM_LEAD_TOOLS, "plans.compile", "cycles.read", "approvals.list", "holiday.read_authority"])],
+  tools: [grant("platform", [...PLATFORM_LEAD_TOOLS, "plans.compile", "cycles.read", "approvals.list", "holiday.read_authority", "skills.manage"])],
   skills: withCoreSkills(["cycle_planning", "delegation", "plan_compilation", "decision_framing"]),
   autonomy: AUTONOMY_INHERIT,
   schedule: { triggers: ["cycle.started", "decision.made", "approval.resolved", "holiday.started"] },

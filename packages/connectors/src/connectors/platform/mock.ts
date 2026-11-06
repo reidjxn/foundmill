@@ -32,6 +32,9 @@ export function platformHandlers(host: PlatformHost) {
     read_finance: async (args: Parameters<PlatformHost["readFinance"]>[1], ctx: ToolContext) => host.readFinance(caller(ctx), args),
     read_legal: async (_args: unknown, ctx: ToolContext) => host.readLegal(caller(ctx)),
     read_distribution: async (_args: unknown, ctx: ToolContext) => host.readDistribution(caller(ctx)),
+    list_skills: async (args: Parameters<PlatformHost["listSkills"]>[1], ctx: ToolContext) => host.listSkills(caller(ctx), args),
+    assign_skill: async (args: Parameters<PlatformHost["assignSkill"]>[1], ctx: ToolContext) => host.assignSkill(caller(ctx), args),
+    remove_skill: async (args: Parameters<PlatformHost["removeSkill"]>[1], ctx: ToolContext) => host.removeSkill(caller(ctx), args),
   };
 }
 
@@ -42,7 +45,7 @@ export function createMemoryPlatformHost(): PlatformHost {
   const world = perBusiness((businessId) => {
     const task = (n: number, title: string, kind: TaskDetailT["kind"], status: TaskDetailT["status"]): TaskDetailT => ({ id: uuidFromSeed("mock-platform", businessId, "task", n), title, kind, status, priority: 10 * n, progress: 0, assigneeAgentId: null, updatedAt: MOCK_NOW.toISOString(), goalMd: `${title}.`, acceptance: [], fileScope: [], dependsOn: [] });
     const tasks = new Map<string, TaskDetailT>([task(1, "Draft the pricing page", "code", "ready"), task(2, "Research three competitors", "research", "ready"), task(3, "Reconcile last month's bank feed", "finance", "planned")].map((t) => [t.id, t]));
-    return { tasks, messages: [] as AgentMessageT[], proposals: 0 };
+    return { tasks, messages: [] as AgentMessageT[], proposals: 0, skills: new Map<string, { skillKey: string; name: string; source: string }[]>() };
   });
   const summary = ({ goalMd: _g, acceptance: _a, fileScope: _f, dependsOn: _d, ...s }: TaskDetailT) => s;
   const mustTask = (caller: PlatformCaller, taskId: string) => {
@@ -137,6 +140,34 @@ export function createMemoryPlatformHost(): PlatformHost {
     },
     async readDistribution() {
       return { channels: [], campaigns: [] };
+    },
+    async listSkills(caller, { agentId }) {
+      const w = world(caller.businessId);
+      const agents = [...w.skills.entries()].filter(([id]) => !agentId || id === agentId).map(([id, skills]) => ({ agentId: id, name: "Mock agent", role: "developer", skills }));
+      return { library: [{ key: "code-review", name: "Code review", description: "Reviews changes for correctness.", category: "engineering" }], agents, files: null, note: null };
+    },
+    async assignSkill(caller, { agentIds, library, file }) {
+      const w = world(caller.businessId);
+      const skill = library ? { skillKey: `library:${library}`, name: library, source: "library" } : { skillKey: `upload:${file}`, name: file!.split("/").pop()!.replace(/\.md$/i, ""), source: "upload" };
+      const assigned: { agentId: string; name: string }[] = [];
+      const skipped: { agentId: string; name: string; reason: string }[] = [];
+      for (const id of agentIds) {
+        const has = w.skills.get(id) ?? [];
+        if (has.some((x) => x.skillKey === skill.skillKey)) skipped.push({ agentId: id, name: "Mock agent", reason: "already has this skill" });
+        else {
+          w.skills.set(id, [...has, skill]);
+          assigned.push({ agentId: id, name: "Mock agent" });
+        }
+      }
+      return { skill, assigned, skipped };
+    },
+    async removeSkill(caller, { agentId, skillKey }) {
+      const w = world(caller.businessId);
+      const has = w.skills.get(agentId) ?? [];
+      const found = has.find((x) => x.skillKey === skillKey);
+      if (!found) throw new PlatformToolError("not_found", `agent ${agentId} has no skill ${skillKey}`);
+      w.skills.set(agentId, has.filter((x) => x !== found));
+      return { removed: true as const, name: found.name };
     },
   };
 }

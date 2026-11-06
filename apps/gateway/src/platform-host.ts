@@ -9,8 +9,8 @@
  * Errors the agent can act on come back as `PlatformToolError`s; any other failure is logged without its parameters
  * and answered with a plain "try again".
  */
-import { AppError, NotFoundError, uuid, type TaskStatus } from "@foundmill/shared";
-import { repos, type Db, type Task } from "@foundmill/db";
+import { AppError, ConflictError, NotFoundError, uuid, type TaskStatus } from "@foundmill/shared";
+import { attachAddedSkills, repos, resolveLibrarySkill, resolveSkillFile, skillLibraryEntries, type Agent, type Db, type ResolvedSkill, type Task } from "@foundmill/db";
 import { PlatformToolError, type PlatformCaller, type PlatformHost, type TaskSummaryT } from "@foundmill/connectors";
 import { writeGatewayEvent } from "./events";
 import { hashRecipient } from "./recipients";
@@ -47,13 +47,25 @@ export function docPlainText(doc: unknown): string {
 
 const paragraphDoc = (text: string) => ({ type: "doc", content: text.split(/\n{2,}/).map((p) => ({ type: "paragraph", content: [{ type: "text", text: p }] })) });
 
+/**
+ * The business's code repository on its default branch, read by the platform for `list_skills` and `assign_skill` (a
+ * skill file the team wrote reached the default branch only through the founder's merge). Null where no gateway pipeline
+ * is wired (tests that never read files); each method answers null when the repository cannot be read, with why.
+ */
+export interface RepositoryFiles {
+  listFolder(caller: PlatformCaller, folder: string): Promise<{ paths: string[] } | { error: string }>;
+  readFile(caller: PlatformCaller, path: string): Promise<{ content: string } | { error: string }>;
+}
+
 export interface DbPlatformHostOptions {
   db: Db;
   log: GatewayLogger;
   now?: () => Date;
+  /** Late-bound: the gateway's pipeline exists only after the connectors are registered. */
+  repository?: () => RepositoryFiles | null;
 }
 
-export function createDbPlatformHost({ db, log, now = () => new Date() }: DbPlatformHostOptions): PlatformHost {
+export function createDbPlatformHost({ db, log, now = () => new Date(), repository = () => null }: DbPlatformHostOptions): PlatformHost {
   const notFound = (what: string, id: string) => new PlatformToolError("not_found", `${what} ${id} is not part of this business`);
   const taskOf = async (caller: PlatformCaller, taskId: string): Promise<Task> => {
     try {
@@ -272,6 +284,66 @@ export function createDbPlatformHost({ db, log, now = () => new Date() }: DbPlat
         channels: channels.map((c) => ({ id: c.id, key: c.channelKey, enabled: c.enabled, budgetMinor: c.budgetMinor, currency: c.currency, offlineTracking: c.kitMode })),
         campaigns: campaigns.items.map((c) => ({ id: c.id, name: c.name, channelKey: keyOf.get(c.channelId) ?? null, status: c.status })),
       };
+    },
+
+    // ---- the team's skills (Nov 6, 2026: the Chief of Staff assigns them, the founder never has to) ----------------
+    async listSkills(caller, { agentId, folder }) {
+      const team = agentId ? [await agentOf(caller, agentId)] : (await repos.agents.list(db, caller.businessId, { limit: 200 })).items;
+      const agents = await Promise.all(
+        team.map(async (a) => ({ agentId: a.id, name: a.name, role: a.agentType, skills: (await repos.skills.listAddedForAgent(db, caller.businessId, a.id, a.agentType)).map((x) => ({ skillKey: x.skillKey, name: x.name, source: x.source })) })),
+      );
+      let files: { path: string }[] | null = null;
+      let note: string | null = null;
+      if (folder !== undefined) {
+        const reader = repository();
+        const listed = reader ? await reader.listFolder(caller, folder) : { error: "the code repository cannot be read here" };
+        if ("error" in listed) note = `No skill files listed: ${listed.error}.`;
+        else files = listed.paths.filter((p) => /\.(md|markdown)$/i.test(p)).map((path) => ({ path }));
+      }
+      return { library: skillLibraryEntries(), agents, files, note };
+    },
+    async assignSkill(caller, { agentIds, library, file }) {
+      let skill: ResolvedSkill;
+      if (library !== undefined) skill = resolveLibrarySkill(library);
+      else {
+        const reader = repository();
+        const read = reader ? await reader.readFile(caller, file!) : { error: "the code repository cannot be read here" };
+        if ("error" in read) throw new PlatformToolError("invalid_state", `${file} could not be read from the business's code repository: ${read.error}`);
+        skill = resolveSkillFile({ fileName: file!, content: read.content });
+      }
+      const assigned: { agentId: string; name: string }[] = [];
+      const skipped: { agentId: string; name: string; reason: string }[] = [];
+      for (const id of [...new Set(agentIds)]) {
+        let agent: Agent;
+        try {
+          agent = await agentOf(caller, id);
+        } catch (e) {
+          skipped.push({ agentId: id, name: "", reason: e instanceof AppError ? e.message : "not found" });
+          continue;
+        }
+        try {
+          await db.transaction((tx) =>
+            attachAddedSkills(tx, caller.businessId, agent, [skill], async (definition, s) => {
+              await repos.audit.append(tx, caller.businessId, { actorKind: "agent", actorId: caller.agentId, action: "agent.skills.add", target: { kind: "skill_definition", id: definition.id }, details: { agentId: agent.id, skillKey: s.skillKey, source: s.source, fileName: s.fileName, contentHash: s.contentHash, ...(file ? { path: file } : {}), sessionId: caller.sessionId } });
+            }),
+          );
+          assigned.push({ agentId: agent.id, name: agent.name });
+        } catch (e) {
+          if (!(e instanceof AppError)) throw e;
+          skipped.push({ agentId: agent.id, name: agent.name, reason: e instanceof ConflictError ? "already has this skill" : e.message });
+        }
+      }
+      return { skill: { skillKey: skill.skillKey, name: skill.name, source: skill.source }, assigned, skipped };
+    },
+    async removeSkill(caller, { agentId, skillKey }) {
+      const agent = await agentOf(caller, agentId);
+      const added = (await repos.skills.listAddedForAgent(db, caller.businessId, agent.id, agent.agentType)).find((a) => a.skillKey === skillKey);
+      if (!added) throw new PlatformToolError("not_found", `${agent.name} has no skill ${skillKey} from the library or a file`);
+      await db.transaction(async (tx) => {
+        await repos.skills.removeFromAgent(tx, caller.businessId, agent.id, skillKey);
+        await repos.audit.append(tx, caller.businessId, { actorKind: "agent", actorId: caller.agentId, action: "agent.skills.remove", target: { kind: "skill_definition", id: added.definitionId }, details: { agentId: agent.id, skillKey, source: added.source, fileName: added.fileName, sessionId: caller.sessionId } });
+      });
+      return { removed: true as const, name: added.name };
     },
   };
 

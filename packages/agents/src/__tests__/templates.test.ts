@@ -67,6 +67,13 @@ describe("agent templates (BUILD §9.1, §9.2, §11.6, §11.7, §11.10)", () => 
     }
   });
 
+  it("the Chief of Staff gives agents their skills itself, never the founder (Nov 6, 2026)", () => {
+    expect(chiefOfStaff.tools.find((g) => g.connectorKey === "platform")?.tools).toContain("skills.manage");
+    expect(chiefOfStaff.instructions.rules.some((r) => /assign_skill/.test(r) && /never the founder's/i.test(r))).toBe(true);
+    // Only the Chief of Staff changes what other agents carry.
+    for (const t of ALL_TEMPLATES) if (t.key !== "chief_of_staff") expect(t.tools.flatMap((g) => g.tools), t.key).not.toContain("skills.manage");
+  });
+
   it("models follow §9.1: assistant and leads on Opus, workers/channels/specialists on Sonnet, utilities on Haiku", () => {
     expect(chiefOfStaff.modelKey).toBe("opus");
     for (const t of LEAD_TEMPLATES) expect(t.modelKey, t.key).toBe("opus");
