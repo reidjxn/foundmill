@@ -168,16 +168,18 @@ describe("platform tools on the real database (INTEGRATIONS_MODE=mock)", () => {
   });
 });
 
-describe("the MCP servers a template's grants configure", () => {
-  async function listTools(token: string, connector: string): Promise<string[]> {
-    const mcp = new Client({ name: "builtins-test", version: "0.0.1" });
-    await mcp.connect(new StreamableHTTPClientTransport(new URL(client.mcpUrl(connector)), { requestInit: { headers: client.sessionHeaders(token) } }));
-    try {
-      return (await mcp.listTools()).tools.map((t) => t.name).sort();
-    } finally {
-      await mcp.close();
-    }
+async function listTools(token: string, connector: string): Promise<string[]> {
+  const mcp = new Client({ name: "builtins-test", version: "0.0.1" });
+  await mcp.connect(new StreamableHTTPClientTransport(new URL(client.mcpUrl(connector)), { requestInit: { headers: client.sessionHeaders(token) } }));
+  try {
+    return (await mcp.listTools()).tools.map((t) => t.name).sort();
+  } finally {
+    await mcp.close();
   }
+}
+
+describe("the MCP servers a template's grants configure", () => {
+
 
   it("list the real tools behind the template's capabilities on every server, and no server the gateway lacks", async () => {
     const grants = resolveGrants([
@@ -223,5 +225,20 @@ describe("web reads and the quarantined reader", () => {
     const read = tokens.items.find((u) => (u.details as { route?: string }).route === "quarantinedReader");
     expect(read).toMatchObject({ agentId: worker.agentId, sessionId: worker.sessionId, billedTo: "credits", details: { service: "gateway", kind: "quarantined_reader" } });
     expect(Number(read!.quantity)).toBeGreaterThan(0);
+  });
+
+  it("the team's skills (Nov 6, 2026): the Chief of Staff's grant serves list_skills, assign_skill and remove_skill, and a library skill lands on the agent", async () => {
+    const grants = resolveGrants([{ connectorKey: "platform", tools: ["skills.manage"] }]);
+    const token = await tokenFor(lead, grants.toolRefs);
+    expect(await listTools(token, "platform")).toEqual(["assign_skill", "list_skills", "remove_skill"]);
+    const out = data<{ assigned: { agentId: string }[]; skipped: unknown[] }>(await client.call(token, { connector: "platform", tool: "assign_skill", args: { agentIds: [worker.agentId, outsider.agentId], library: "interview_synthesis" } }));
+    expect(out.assigned).toEqual([{ agentId: worker.agentId, name: "Theo" }]);
+    expect(out.skipped).toHaveLength(1);
+    const listed = data<{ agents: { agentId: string; skills: { name: string }[] }[] }>(await client.call(token, { connector: "platform", tool: "list_skills", args: { agentId: worker.agentId } }));
+    expect(listed.agents[0]!.skills.map((s) => s.name)).toEqual(["Interview synthesis"]);
+    // No Code-tab repository is chosen in this business: a file is refused with the reason, nothing is added.
+    const refused = asAllow(await client.call(token, { connector: "platform", tool: "assign_skill", args: { agentIds: [worker.agentId], file: "docs/agent-pack/branch-rules.md" } }));
+    expect(refused.result.ok).toBe(false);
+    expect(refused.result.error?.message).toMatch(/no repository is chosen/);
   });
 });

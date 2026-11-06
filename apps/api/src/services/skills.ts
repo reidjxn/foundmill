@@ -9,23 +9,9 @@
  * The rows are written on the service connection after the team-write check (agent_skills is service-written), as
  * hiring and custom skills are.
  */
-import { createHash } from "node:crypto";
-import {
-  ADDED_SKILLS_MAX_TOTAL_CHARS,
-  MAX_ADDED_SKILLS_PER_AGENT,
-  SKILL_FILE_MAX_BYTES,
-  SKILL_LIBRARY,
-  SKILL_LIBRARY_CATEGORY_LABELS,
-  getLibrarySkill,
-  getTemplateByAgentType,
-  librarySkillKey,
-  parseSkillFile,
-  uploadSkillKey,
-  type AgentSkillPrompt,
-  type ParsedSkillFile,
-} from "@foundmill/agents";
-import { repos, type AddedAgentSkill, type Agent, type Executor } from "@foundmill/db";
-import { ConflictError, ValidationError, type AddedSkillSource, type SkillGroup } from "@foundmill/shared";
+import { SKILL_FILE_MAX_BYTES, SKILL_LIBRARY, SKILL_LIBRARY_CATEGORY_LABELS, librarySkillKey, parseSkillFile, type AgentSkillPrompt, type ParsedSkillFile } from "@foundmill/agents";
+import { attachAddedSkills, repos, resolveLibrarySkill, resolveSkillFile, type AddedAgentSkill, type Agent, type Executor, type ResolvedSkill } from "@foundmill/db";
+import { ValidationError } from "@foundmill/shared";
 import { z } from "zod";
 import { audit, type BusinessContext } from "../trpc";
 
@@ -40,17 +26,8 @@ export const SkillFileUpload = z.object({
 export const SkillChoice = z.discriminatedUnion("source", [z.object({ source: z.literal("library"), key: z.string().min(1).max(80) }), SkillFileUpload.extend({ source: z.literal("upload") })]);
 export type SkillChoice = z.infer<typeof SkillChoice>;
 
-/** A skill ready to attach: what the definition stores. */
-export interface ResolvedSkill {
-  skillKey: string;
-  name: string;
-  description: string;
-  group: SkillGroup;
-  source: AddedSkillSource;
-  instructionsMd: string;
-  fileName: string | null;
-  contentHash: string | null;
-}
+/** A skill ready to attach: what the definition stores (packages/db skill-attach). */
+export type { ResolvedSkill };
 
 /** The library as the hire flow and the profile list it: grouped by category, with each skill's attribute and text. */
 export function libraryView() {
@@ -90,45 +67,16 @@ export function uploadPreview(upload: z.infer<typeof SkillFileUpload>) {
 }
 
 export function resolveSkillChoice(choice: SkillChoice): ResolvedSkill {
-  if (choice.source === "library") {
-    const s = getLibrarySkill(choice.key);
-    if (!s) throw new ValidationError("That skill is not in the skills library", { key: choice.key });
-    return { skillKey: librarySkillKey(s.key), name: s.attribute.name, description: s.description, group: s.attribute.group, source: "library", instructionsMd: s.instructionsMd, fileName: null, contentHash: null };
-  }
-  const skill = parseUpload(choice);
-  const contentHash = createHash("sha256").update(skill.normalized, "utf8").digest("hex");
-  const fileName = (choice.fileName.split(/[\\/]/).pop() ?? choice.fileName).slice(0, 255);
-  return { skillKey: uploadSkillKey(skill.name, contentHash), name: skill.name, description: skill.description, group: "craft", source: "upload", instructionsMd: skill.instructionsMd, fileName, contentHash };
+  return choice.source === "library" ? resolveLibrarySkill(choice.key) : resolveSkillFile(choice);
 }
 
-const sameName = (a: string, b: string) => a.trim().toLowerCase() === b.trim().toLowerCase();
-
 /**
- * Attaches resolved skills to an agent in the caller's (service) transaction: the definitions for the agent's type and
- * the rating rows at the template's baseline (untested), one audit entry each. Refuses (409) a skill the agent already
- * has, by key or by name, and (400) more than `MAX_ADDED_SKILLS_PER_AGENT` added skills or more than
- * `ADDED_SKILLS_MAX_TOTAL_CHARS` of their instructions.
+ * Attaches resolved skills to an agent in the caller's (service) transaction (packages/db `attachAddedSkills`: the
+ * definitions, the rating rows at the template's baseline, the same limits for the founder and the Chief of Staff),
+ * one audit entry each.
  */
 export async function attachSkills(tx: Executor, ctx: Pick<BusinessContext, "businessId" | "userId">, agent: Pick<Agent, "id" | "name" | "agentType">, skills: readonly ResolvedSkill[]): Promise<AddedAgentSkill[]> {
-  if (skills.length === 0) return [];
-  const [existing, ratings] = await Promise.all([repos.skills.listAddedForAgent(tx, ctx.businessId, agent.id, agent.agentType), repos.skills.listForAgent(tx, ctx.businessId, agent.id)]);
-  const seen: { key: string; name: string }[] = existing.map((e) => ({ key: e.skillKey, name: e.name }));
-  for (const s of skills) {
-    if (ratings.some((r) => r.skillKey === s.skillKey) || seen.some((x) => x.key === s.skillKey || sameName(x.name, s.name))) throw new ConflictError(`${agent.name} already has a skill called "${s.name}"`, { skillKey: s.skillKey });
-    seen.push({ key: s.skillKey, name: s.name });
-  }
-  if (seen.length > MAX_ADDED_SKILLS_PER_AGENT) throw new ValidationError(`An agent carries at most ${MAX_ADDED_SKILLS_PER_AGENT} skills from the library or files; remove one first`);
-  const total = existing.reduce((n, e) => n + e.instructionsMd.length, 0) + skills.reduce((n, s) => n + s.instructionsMd.length, 0);
-  if (total > ADDED_SKILLS_MAX_TOTAL_CHARS) throw new ValidationError(`${agent.name}'s skills would pass ${ADDED_SKILLS_MAX_TOTAL_CHARS.toLocaleString("en-US")} characters of instructions; remove one or upload a shorter file`);
-  const baseline = getTemplateByAgentType(agent.agentType)?.baselineRating ?? 8;
-  for (const s of skills) {
-    const definition = await repos.skills.upsertAddedDefinition(tx, ctx.businessId, { agentType: agent.agentType, skillKey: s.skillKey, name: s.name, description: s.description, group: s.group, source: s.source, instructionsMd: s.instructionsMd, fileName: s.fileName, contentHash: s.contentHash });
-    await audit(tx, ctx, { action: "agent.skills.add", target: { kind: "skill_definition", id: definition.id }, details: { agentId: agent.id, skillKey: s.skillKey, source: s.source, fileName: s.fileName, contentHash: s.contentHash } });
-  }
-  // Untested: no tested rating until a training run scores the skill; displayed at the template's baseline meanwhile.
-  await repos.skills.upsertForAgent(tx, ctx.businessId, agent.id, skills.map((s) => ({ skillKey: s.skillKey, group: s.group, tested: null, proven: null, nLive: 0, displayed: baseline, potential: baseline })));
-  const added = await repos.skills.listAddedForAgent(tx, ctx.businessId, agent.id, agent.agentType);
-  return added.filter((a) => skills.some((s) => s.skillKey === a.skillKey));
+  return attachAddedSkills(tx, ctx.businessId, agent, skills, (definition, s) => audit(tx, ctx, { action: "agent.skills.add", target: { kind: "skill_definition", id: definition.id }, details: { agentId: agent.id, skillKey: s.skillKey, source: s.source, fileName: s.fileName, contentHash: s.contentHash } }).then(() => undefined));
 }
 
 /** Takes an added skill off an agent (its definition stays as the record) and audits it; 400 when it has none. */

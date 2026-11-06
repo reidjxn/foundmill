@@ -159,6 +159,8 @@ export const PLATFORM_BASE_TOOLS: [string, ...string[]] = [
   "messages.review",
   "inbox.request_human_action",
   "memory.search",
+  // The team's documents in the code repository (default branch), so research and planning read the handover too.
+  "docs.read",
 ];
 
 /** Extra platform tools for leads: they create tasks and assign them (BUILD §9.9 "Leads assign; workers report"). */

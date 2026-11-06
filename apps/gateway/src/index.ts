@@ -16,6 +16,8 @@ import { createDefaultRegistry, platformSecretsFromEnv, type ConnectorRegistry }
 import { createModelClient, effectiveModelMode, type ModelClient } from "@foundmill/models";
 import { createGatewayApp, type GatewayApp } from "./app";
 import { createGatewayBuiltins, gatewayUsageSink } from "./builtins";
+import type { RepositoryFiles } from "./platform-host";
+import { createRepositoryFiles } from "./repository-files";
 import { gatewayConfig, type GatewayConfig } from "./config";
 import { prepareDb, type DbReadiness } from "./db-boot";
 import { type GatewayDeps, type GatewayLogger } from "./pipeline";
@@ -87,6 +89,8 @@ export function buildGateway(options: BuildDepsOptions = {}): BuiltGateway {
 
   const secrets = platformSecretsFromEnv(env);
   let registry = options.registry;
+  // The skill tools read the business's repository through this gateway's own pipeline, built further down.
+  let repositoryFiles: RepositoryFiles | null = null;
   if (!registry) {
     registry = createDefaultRegistry({
       secrets,
@@ -97,7 +101,7 @@ export function buildGateway(options: BuildDepsOptions = {}): BuiltGateway {
     // Every model call made here (the quarantined reader) is booked to the business that asked, like any other service's.
     const onUsage = gatewayUsageSink(db, log);
     const models = options.models ?? createModelClient({ mode, apiKey: env.ANTHROPIC_API_KEY, logger: log, onUsage });
-    for (const connector of createGatewayBuiltins({ db, vault, models, mode, log, onUsage, live: { secrets } })) registry.register(connector);
+    for (const connector of createGatewayBuiltins({ db, vault, models, mode, log, onUsage, live: { secrets }, repository: () => repositoryFiles })) registry.register(connector);
   }
 
   let rateLimitStoreKind: "memory" | "redis" = "memory";
@@ -126,6 +130,7 @@ export function buildGateway(options: BuildDepsOptions = {}): BuiltGateway {
   const recipients: UntrustedRegister = options.recipients ?? (redisClient ? new RedisUntrustedRegister(redisClient, { onFallback: (e) => log.warn({ err: e }, "the untrusted-recipient register fell back to this process's memory") }) : new UntrustedRecipientRegistry());
   const reader: UntrustedReader = options.reader ?? createUntrustedReader(createReaderModelClient(env, db, log));
   const deps: GatewayDeps = { db, registry, vault, mode: config.integrationsMode, liveConnectors: config.liveConnectors, rateLimits, recipients, reader, log };
+  repositoryFiles = createRepositoryFiles(deps);
   // Until prepare() has run the database is assumed reachable (tests build the graph over an already-migrated PGlite).
   let readiness: DbReadiness | null = null;
   const app = createGatewayApp(deps, {
