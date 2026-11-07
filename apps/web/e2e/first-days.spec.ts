@@ -128,7 +128,8 @@ test.describe("first days", () => {
     // Nothing waits for an answer before distribution starts: the Board's question is not asked yet.
     await page.goto(`/b/${bid}/inbox`);
     await expect(inboxRow(page, SPEC_SIGNOFF)).toBeVisible({ timeout: LONG });
-    await expect(page.getByTestId("inbox-list").locator("[data-inbox-row][data-needs-answer='true']")).toHaveCount(0);
+    // The Chief of Staff's goal proposal (Nov 7, 2026) may already wait in Needs you; it is not a distribution question.
+    await expect(page.getByTestId("inbox-list").locator("[data-inbox-row][data-needs-answer='true']").filter({ hasNotText: /goal/i })).toHaveCount(0);
 
     // Start distribution: the Board's question (the archetype's own words) lands in the Inbox and the channels start.
     const { boardItemId } = await startDistributionFromBoard(page, bid);

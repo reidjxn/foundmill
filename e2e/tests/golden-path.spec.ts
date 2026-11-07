@@ -319,7 +319,8 @@ test.describe("golden path", () => {
     await page.goto(`/b/${bid}/inbox`);
     await expect(inboxRow(page, WELCOME_NOTE)).toBeVisible({ timeout: LONG });
     // Nothing waits for an answer: the Board's question is not asked before distribution starts.
-    await expect(page.getByTestId("inbox-list").locator("[data-inbox-row][data-needs-answer='true']")).toHaveCount(0);
+    // The Chief of Staff's goal proposal (Nov 7, 2026) may already wait in Needs you; it is not a distribution question.
+    await expect(page.getByTestId("inbox-list").locator("[data-inbox-row][data-needs-answer='true']").filter({ hasNotText: /goal/i })).toHaveCount(0);
     // Start distribution: the Board's question is in the Inbox, the channels start, the Board no longer waits.
     const { boardItemId } = await startDistributionFromBoard(page, bid);
     await expect(page.locator(`[data-inbox-row="${boardItemId}"]`)).toHaveAttribute("data-needs-answer", "true", { timeout: LONG });
