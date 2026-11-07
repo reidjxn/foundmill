@@ -100,13 +100,13 @@ test.describe("shell resilience", () => {
     await expect(page.getByTestId("app-shell")).toBeVisible({ timeout: LONG });
   });
 
-  test("Switch business reaches Home, the other businesses and Create a new business (IAE-08, WEB-13)", async ({ page }) => {
+  test("Switch business reaches Today, the other businesses and Create a new business (IAE-08, WEB-13)", async ({ page }) => {
     await openBusiness(page);
     let switcher = await openSwitcher(page);
     // By id: the foundations spec takes charge of throwaways named "Ledgerly <suffix>", which the founder owns too.
     await expect(switcher.locator(`[data-business-id="${LEDGERLY_BUSINESS_ID}"]`)).toBeVisible({ timeout: LONG });
-    await switcher.getByRole("option", { name: /^Home$/ }).click();
-    await expect(page).toHaveURL(new RegExp(`/b/${NORTHWIND_BUSINESS_ID}/home$`));
+    await switcher.getByRole("option", { name: /^Today$/ }).click();
+    await expect(page).toHaveURL(new RegExp(`/b/${NORTHWIND_BUSINESS_ID}/today$`));
     switcher = await openSwitcher(page);
     await switcher.getByRole("option", { name: /Create a new business/ }).click();
     await expect(page).toHaveURL(/\/new$/, { timeout: LONG });
@@ -129,7 +129,7 @@ test.describe("shell resilience", () => {
     const ledgerly = page.getByRole("option", { name: /^Switch to Ledgerly\s*Switch business$/ });
     await expect(ledgerly).toBeVisible({ timeout: LONG });
     await ledgerly.click();
-    await expect(page).toHaveURL(new RegExp(`/b/${LEDGERLY_BUSINESS_ID}/home$`), { timeout: LONG });
+    await expect(page).toHaveURL(new RegExp(`/b/${LEDGERLY_BUSINESS_ID}/today$`), { timeout: LONG });
   });
 
   test("Edit layout is offered only where a layout can be edited (OL-29)", async ({ page }) => {
@@ -186,7 +186,8 @@ test.describe("shell resilience", () => {
       }
       await page.getByRole("link", { name: "Inbox" }).first().click();
       await page.waitForURL(/\/inbox/, { timeout: LONG });
-      await page.getByRole("link", { name: "Home" }).first().click();
+      await page.getByRole("link", { name: "Today", exact: true }).first().click();
+      await page.getByRole("tab", { name: "Details" }).click();
       await expect(screen).toBeVisible({ timeout: LONG });
       await expect(widgets).toHaveCount(before - 1);
       // Opening Home saved nothing by itself.

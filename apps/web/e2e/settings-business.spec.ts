@@ -192,7 +192,9 @@ test.describe("settings › business: the time zone", () => {
     await expect(field).toHaveText("Pacific/Kiritimati");
     const day = shortDayIn("Pacific/Kiritimati");
     await expect(page.getByTestId("kitbar-date")).toContainText(day, { timeout: LONG });
-    await page.getByRole("link", { name: "Home", exact: true }).first().click();
+    // The dashboards (Details) through Today's tab bar: a client-side move.
+    await page.getByRole("link", { name: "Today", exact: true }).first().click();
+    await page.getByRole("tab", { name: "Details" }).click();
     await settled(page);
     await expect(page.locator("[data-today-tag]").first()).toHaveText(new RegExp(`^Today · ${day}\\b`), { timeout: LONG });
     await expect(page.getByTestId("kitbar-date")).toContainText(day);

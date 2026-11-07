@@ -159,8 +159,8 @@ test.describe("shell", () => {
     expect(wordmark.height).toBeGreaterThanOrEqual(12);
     expect(wordmark.height).toBeLessThanOrEqual(14);
     expect(wordmark.x).toBeCloseTo(settingsIcon.x, 0);
-    // Arrow keys: Up from the first item wraps to the last stop, the wordmark; Down returns to Home.
-    const home = nav.getByRole("link", { name: "Home" });
+    // Arrow keys: Up from the first item wraps to the last stop, the wordmark; Down returns to Today.
+    const home = nav.getByRole("link", { name: "Today" });
     await home.focus();
     await page.keyboard.press("ArrowUp");
     await expect(brand).toBeFocused();

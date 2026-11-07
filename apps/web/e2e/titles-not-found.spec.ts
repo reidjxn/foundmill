@@ -15,7 +15,8 @@ test.describe("titles and misses inside a business", () => {
 
   test("each screen has its own browser title", async ({ page }) => {
     for (const [path, title] of [
-      ["home", /^Home · Northwind Skincare · /],
+      ["today", /^Today · Northwind Skincare · /],
+      ["home", /^Details · Northwind Skincare · /],
       ["inbox", /^Inbox · Northwind Skincare · /],
       ["crm", /^Contacts · Northwind Skincare · /],
       ["settings/members", /^Members · Settings · Northwind Skincare · /],

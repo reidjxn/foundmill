@@ -16,7 +16,8 @@ describe("sidebar items", () => {
     expect(deptItems.map((i) => i.id)).toEqual(["d-prod", "d-dev"]);
     expect(deptItems[1]?.href).toBe(`/b/${BID}/d/development/training-ground`);
     expect(departmentHref(BID, depts[0]!)).toBe(`/b/${BID}/d/development/training-ground`);
-    expect(items.find((i) => i.id === "home")?.fixed).toBe("home");
+    // Today is the front door (founder, 2026-11-07): the item keeps its id and `fixed: "home"`, so G H follows it.
+    expect(items.find((i) => i.id === "home")).toMatchObject({ fixed: "home", label: "Today", href: `/b/${BID}/today` });
     expect(items.find((i) => i.id === "inbox")?.fixed).toBe("inbox");
     // The CRM reads "Contacts" (founder, 2026-10-20); its id, slug and G chord keep "crm".
     expect(items.find((i) => i.id === "crm")).toMatchObject({ fixed: "crm", label: "Contacts", hint: "The CRM", href: `/b/${BID}/crm` });
@@ -74,6 +75,7 @@ describe("sidebar items", () => {
 
   it("resolves the active item from the pathname", () => {
     expect(activeSidebarId(`/b/${BID}/home`, BID, depts)).toBe("home");
+    expect(activeSidebarId(`/b/${BID}/today`, BID, depts)).toBe("home");
     expect(activeSidebarId(`/b/${BID}`, BID, depts)).toBe("home");
     expect(activeSidebarId(`/b/${BID}/inbox/123`, BID, depts)).toBe("inbox");
     expect(activeSidebarId(`/b/${BID}/d/development/plan`, BID, depts)).toBe("d-dev");

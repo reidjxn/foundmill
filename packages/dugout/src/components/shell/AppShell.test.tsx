@@ -135,7 +135,7 @@ describe("AppShell", () => {
     expect(mark.querySelector("path")).toBeNull();
   });
 
-  it("the logo and name are Switch business: the founder's other businesses, Create a new business and Home (audit IAE-08)", async () => {
+  it("the logo and name are Switch business: the founder's other businesses, Create a new business and Today (audit IAE-08; Today since Nov 7, 2026)", async () => {
     const user = userEvent.setup();
     const onNavigate = vi.fn();
     const onOpenBusiness = vi.fn();
@@ -150,7 +150,7 @@ describe("AppShell", () => {
     await user.click(await screen.findByRole("option", { name: /Create a new business/ }));
     expect(onNewBusiness).toHaveBeenCalledTimes(1);
     await user.click(trigger);
-    await user.click(await screen.findByRole("option", { name: /^Home$/ }));
+    await user.click(await screen.findByRole("option", { name: /^Today$/ }));
     expect(onNavigate).toHaveBeenLastCalledWith(expect.objectContaining({ id: "home" }));
   });
 

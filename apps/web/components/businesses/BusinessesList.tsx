@@ -63,7 +63,7 @@ export function BusinessesList({ rows, logos, lastBusinessId, prefs, loading, er
                 Settings
               </LinkButton>
             ) : null}
-            <LinkButton size="sm" variant="default" iconRight={ArrowRight} href={routes.home(b.id)} onClick={() => rememberLastBusiness(b.id)} aria-label={`Open ${b.name}`}>
+            <LinkButton size="sm" variant="default" iconRight={ArrowRight} href={routes.today(b.id)} onClick={() => rememberLastBusiness(b.id)} aria-label={`Open ${b.name}`}>
               Open
             </LinkButton>
           </li>

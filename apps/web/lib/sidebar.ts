@@ -6,7 +6,7 @@
  * out). The Anthropic key lives in Settings › Keys (reached from Settings and the palette), not in the foot (B13).
  * Pure and unit-tested; the layout feeds it `department.list` + `inbox.list`.
  */
-import { Globe, Home, Inbox, LogOut, Medal, Settings, Trophy, Users, Users2, type LucideIcon } from "lucide-react";
+import { Globe, Inbox, LogOut, Medal, Settings, Sun, Trophy, Users, Users2, type LucideIcon } from "lucide-react";
 import type { SidebarBrand, SidebarItem } from "@foundmill/dugout";
 import type { DeptColourToken } from "@foundmill/shared";
 import { routes } from "@foundmill/widgets/shared/routes";
@@ -89,7 +89,8 @@ export function buildSidebarItems(input: SidebarInput): SidebarItem[] {
   const respond = input.inboxCounts?.respond ?? 0;
   const badges = departmentBadges(input.departments, input.inboxItems);
   const items: SidebarItem[] = [
-    { id: SIDEBAR_IDS.home, label: "Home", icon: Home, href: routes.home(bid), group: "main", fixed: "home" },
+    // Today, the front door (founder, 2026-11-07): the id and `fixed: "home"` stay, so G H and the tour's target follow.
+    { id: SIDEBAR_IDS.home, label: "Today", icon: Sun, href: routes.today(bid), group: "main", fixed: "home" },
     { id: SIDEBAR_IDS.inbox, label: "Inbox", icon: Inbox, href: routes.inbox(bid), group: "main", fixed: "inbox", badge: respond || undefined, badgeTone: "bad" },
   ];
   for (const d of orderedVisibleDepartments(input.departments)) {
@@ -128,7 +129,8 @@ export function activeSidebarId(pathname: string, businessId: string, department
   const base = `/b/${businessId}`;
   if (!pathname.startsWith(base)) return undefined;
   const rest = pathname.slice(base.length);
-  if (rest === "" || rest === "/" || rest.startsWith("/home")) return SIDEBAR_IDS.home;
+  // Today and its Details (the dashboards) both light the Today item.
+  if (rest === "" || rest === "/" || rest.startsWith("/today") || rest.startsWith("/home")) return SIDEBAR_IDS.home;
   if (rest.startsWith("/inbox")) return SIDEBAR_IDS.inbox;
   if (rest.startsWith("/crm")) return SIDEBAR_IDS.crm;
   if (rest.startsWith("/milestones") || rest.startsWith("/trophies")) return SIDEBAR_IDS.milestones;

@@ -106,11 +106,11 @@ const SpecEditor = dynamic(() => import("@/components/spec/SpecEditor").then((m)
 /** Events after which the shell refetches a router's queries (or one procedure group's, as a dotted path). */
 export const INVALIDATE_ON_EVENT: Record<string, readonly string[]> = {
   // An Inbox item that blocks Continue (or the decision that clears it) moves the Autopilot chip: Needs your answer.
-  "inbox.item_created": ["inbox", "business.autopilot"],
+  "inbox.item_created": ["inbox", "business.autopilot", "today"],
   // Another member archived an item or confirmed its plan (audit RUI-09).
-  "inbox.item_updated": ["inbox", "plan"],
-  "decision.made": ["inbox", "plan", "business.autopilot"],
-  "customer.converted": ["inbox", "journey", "finance", "goal"],
+  "inbox.item_updated": ["inbox", "plan", "today"],
+  "decision.made": ["inbox", "plan", "business.autopilot", "today"],
+  "customer.converted": ["inbox", "journey", "finance", "goal", "today"],
   // A renewal or a repeat order is revenue with no customer.converted (only first payments win a customer).
   "payment.received": ["journey", "finance"],
   // Stop all agents and its resume write one per agent (from any tab or service): the business carries the stop flag.
@@ -123,14 +123,14 @@ export const INVALIDATE_ON_EVENT: Record<string, readonly string[]> = {
   "autopilot.cycle_started": ["business", "cycle"],
   "holiday.started": ["business"],
   "holiday.ended": ["business", "inbox", "cycle"],
-  "cycle.started": ["cycle", "business.autopilot"],
+  "cycle.started": ["cycle", "business.autopilot", "today"],
   // The run one press of Continue starts (Nov 7, 2026): Continue keeps Pause until it ends.
   "cycle.run_started": ["cycle", "business.autopilot"],
   "cycle.run_ended": ["cycle", "business.autopilot"],
-  "cycle.completed": ["inbox", "department", "dev", "finance", "cycle", "business.autopilot", "goal"],
+  "cycle.completed": ["inbox", "department", "dev", "finance", "cycle", "business.autopilot", "goal", "today"],
   "bank.balance_updated": ["finance"],
   "runway.threshold_crossed": ["finance", "inbox"],
-  "approval.requested": ["inbox"],
+  "approval.requested": ["inbox", "today"],
   "credential.expiring": ["integrations", "inbox"],
   // Each part of the first-open drafting as it is stored, and the apply (audit P3): the vision, sections and roadmap
   // items appear on Home and the Product tabs as they land. Only the foundations query: the tabs reload their own data
@@ -138,17 +138,17 @@ export const INVALIDATE_ON_EVENT: Record<string, readonly string[]> = {
   "foundations.progressed": ["product.foundations"],
   // The founder signed off the specification or the roadmap (or declined to start selling): the Product tabs' pills, the
   // business's stage, the Inbox and Development › Plan (the first build) follow.
-  "product.signoff_decided": ["business", "product.signoff", "inbox", "dev"],
+  "product.signoff_decided": ["business", "product.signoff", "inbox", "dev", "today"],
   // Distribution started: the Board and the Channels table drop "Waiting for the product"; the Board question is in the Inbox.
   "distribution.started": ["business", "distribution", "inbox"],
   // The Product Researcher's plan is ready: the Research tab's panel, the Inbox note and the first research tasks.
   "product.research_drafted": ["product.research", "inbox", "dev"],
   // The business's goal (founder, 2026-11-07): the Chief of Staff's proposal and its answer are Inbox notes; a reached
   // goal posts "Goal reached: …".
-  "goal.proposed": ["goal", "inbox"],
-  "goal.approved": ["goal", "inbox"],
-  "goal.change_requested": ["goal", "inbox"],
-  "goal.achieved": ["goal", "inbox"],
+  "goal.proposed": ["goal", "today", "inbox"],
+  "goal.approved": ["goal", "today", "inbox"],
+  "goal.change_requested": ["goal", "today", "inbox"],
+  "goal.achieved": ["goal", "today", "inbox"],
   // Someone's role or section permissions changed (maybe this reader's): the business carries the reader's own role
   // and walls, the Team the staff list. apps/stream has already re-checked the reader's open channels.
   "membership.changed": ["business", "team"],
@@ -688,7 +688,7 @@ function ShellInner({ businessId, initialBusiness, initialDepartments, viewer, c
     (id: string) => {
       rememberLastBusiness(id);
       setSwitchingTo(id);
-      startSwitching(() => router.push(routes.home(id)));
+      startSwitching(() => router.push(routes.today(id)));
     },
     [router],
   );

@@ -104,9 +104,9 @@ test.describe("onboarding", () => {
     await page.goto("/new/ideate");
     await expect(page).toHaveURL(/\/new\/ideate$/);
     await expect(page.getByTestId("prompt-box")).toBeVisible({ timeout: LONG });
-    // `/` now resolves to a business Home (the seed owner owns Northwind and Ledgerly).
+    // `/` now resolves to a business's Today (the seed owner owns Northwind and Ledgerly).
     await page.goto("/");
-    await expect(page).toHaveURL(/\/b\/[0-9a-f-]{36}\/home/, { timeout: LONG });
+    await expect(page).toHaveURL(/\/b\/[0-9a-f-]{36}\/today/, { timeout: LONG });
   });
 
   test("two passes: four questions first, the rest behind Add detail, and the rail counts the optional section as one (§7.3, A1)", async ({

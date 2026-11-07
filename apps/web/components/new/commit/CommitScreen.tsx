@@ -122,7 +122,7 @@ export function CommitScreen({ ideaId, viewer, currency }: CommitScreenProps) {
         // The first days are about the product (founder, 2026-10-18): Home shows the foundations drafting; the Inbox has
         // the Chief of Staff's welcome note and, once drafted, the two sign-off notes.
         toast({ title: res.alreadyCommitted ? `${res.business.name} is already yours` : `${res.business.name} is yours`, description: "Your team is drafting the vision, specification and roadmap; two notes will ask you to sign them off.", tone: "good" });
-        const to = routes.home(res.business.id);
+        const to = routes.today(res.business.id);
         // The new business is in the founder's lists at once (Switch business, Your businesses).
         void queryClient.invalidateQueries({ queryKey: trpcPathPrefix("founder") as unknown[] });
         router.push(to);
@@ -188,7 +188,7 @@ export function CommitScreen({ ideaId, viewer, currency }: CommitScreenProps) {
     return (
       <StudioFrame step="commit" steps={steps} title="Already committed" viewer={viewer} actions={back}>
         <Panel title="Concept">
-          <EmptyState icon={Check} tone="kit" title="This concept already became a business" actions={<LinkButton variant="primary" size="sm" iconRight={ArrowRight} href={routes.home(bid)}>Open the business</LinkButton>}>
+          <EmptyState icon={Check} tone="kit" title="This concept already became a business" actions={<LinkButton variant="primary" size="sm" iconRight={ArrowRight} href={routes.today(bid)}>Open the business</LinkButton>}>
             Its team is already at work. Open it to see what they are doing, or go back and commit another concept.
           </EmptyState>
         </Panel>

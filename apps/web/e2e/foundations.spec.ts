@@ -33,13 +33,13 @@ async function holdEnsure(page: Page): Promise<{ release: () => Promise<void>; h
   };
 }
 
-/** Take charge lands on Home (founder, 2026-10-18); the shell's ensure is held by `holdEnsure` until the test releases it. */
+/** Take charge lands on Today (founder, 2026-10-18; Today since Nov 7, 2026); the shell's ensure is held by `holdEnsure` until the test releases it. */
 async function takeCharge(page: Page, name: string): Promise<{ bid: string }> {
   await expect(page.getByTestId("commit-form")).toBeVisible({ timeout: LONG });
   await page.getByLabel(/Business name/).fill(name);
   await page.getByTestId("take-charge").click();
-  await page.waitForURL(new RegExp(`/b/${UUID}/home`), { timeout: LONG });
-  const m = page.url().match(new RegExp(`/b/(${UUID})/home`))!;
+  await page.waitForURL(new RegExp(`/b/${UUID}/today`), { timeout: LONG });
+  const m = page.url().match(new RegExp(`/b/(${UUID})/today`))!;
   await expect(page.getByTestId("app-shell")).toBeVisible({ timeout: LONG });
   return { bid: m[1]! };
 }
@@ -48,7 +48,7 @@ test.describe("foundations", () => {
   // Each test drafts a card or runs an import, commits a business and visits several routes next dev compiles on first use.
   test.setTimeout(240_000);
 
-  test("Door A: Home shows the drafting, then the vision, specification and roadmap are ready", async ({ page }) => {
+  test("Door A: Today shows the drafting, then the vision, specification and roadmap are ready", async ({ page }) => {
     await signIn(page);
     await ensureDeck(page, 1);
     await page.getByTestId("commit-link").first().click();
@@ -57,8 +57,8 @@ test.describe("foundations", () => {
     const name = `Foundations ${Date.now().toString(36)}`;
     const { bid } = await takeCharge(page, name);
 
-    // Home before the drafting has finished: the drafting state, never a blocked page.
-    await expect(page.getByTestId("home-screen")).toBeVisible({ timeout: LONG });
+    // Today before the drafting has finished: the drafting state, never a blocked page.
+    await expect(page.getByTestId("today-screen")).toBeVisible({ timeout: LONG });
     const status = page.getByTestId("foundations-status");
     await expect(status).toBeVisible({ timeout: LONG });
     await expect(status).toHaveAttribute("data-foundations-state", /pending|drafting/);
@@ -66,7 +66,7 @@ test.describe("foundations", () => {
     await expect(status).toContainText("From your idea and your founder profile.");
     expect(hold.held()).toBeGreaterThanOrEqual(1);
 
-    // The shell's ensure goes through: the drafting starts in the background and Home turns ready by itself.
+    // The shell's ensure goes through: the drafting starts in the background and Today turns ready by itself.
     await hold.release();
     await expect(status).toHaveAttribute("data-foundations-state", "ready", { timeout: LONG });
     await expect(status.getByRole("status")).toContainText("Your vision, specification and roadmap are drafted. Two notes in the Inbox ask for your sign-off.");

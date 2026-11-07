@@ -106,6 +106,6 @@ test.describe("shell chrome", () => {
     await page.getByRole("combobox").fill("north");
     await expect(palette.getByRole("option", { name: /Northwind Skincare/ })).toBeVisible({ timeout: LONG });
     await page.keyboard.press("Enter");
-    await expect(page).toHaveURL(new RegExp(`${B}/home`), { timeout: LONG });
+    await expect(page).toHaveURL(new RegExp(`${B}/today`), { timeout: LONG });
   });
 });

@@ -28,6 +28,6 @@ export default async function StartPage() {
   }
   if (!profile.complete) redirect("/onboarding");
   const target = pickCurrentBusiness(await getLastBusinessId(), profile.businesses);
-  if (target) redirect(routes.home(target.id));
+  if (target) redirect(routes.today(target.id));
   redirect("/new");
 }

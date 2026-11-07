@@ -11,7 +11,9 @@ import { SETTINGS_TABS } from "@/lib/search";
 
 /** The screens with a fixed title. */
 export const SCREEN_TITLES = {
-  home: "Home",
+  // Today is the front door (founder, 2026-11-07); the dashboards at /home read "Details".
+  today: "Today",
+  home: "Details",
   inbox: "Inbox",
   crm: "Contacts",
   milestones: "Milestones",
@@ -79,6 +81,8 @@ function businessPathParts(pathname: string, businessId: string): string[] | nul
 export function businessScreenTitle(pathname: string, businessId: string, departments: readonly TitleDepartment[], entityName: string | null = null): string | null {
   const [section, a = "", b = ""] = businessPathParts(pathname, businessId) ?? [];
   switch (section) {
+    case "today":
+      return SCREEN_TITLES.today;
     case "home":
       return SCREEN_TITLES.home;
     case "inbox":

@@ -33,10 +33,10 @@ test.describe("switch business and Your businesses", () => {
     // By id: the foundations spec takes charge of throwaways named "Ledgerly <suffix>", which the founder owns too.
     const ledgerly = switcher.locator(`[data-business-id="${LEDGERLY_BUSINESS_ID}"]`);
     await expect(ledgerly).toBeVisible({ timeout: LONG });
-    for (const action of ["Create a new business", "Manage businesses", "Home", "Your profile"]) await expect(switcher.getByRole("option", { name: new RegExp(`^${action}$`) })).toBeVisible();
+    for (const action of ["Create a new business", "Manage businesses", "Today", "Your profile"]) await expect(switcher.getByRole("option", { name: new RegExp(`^${action}$`) })).toBeVisible();
 
     await ledgerly.click();
-    await page.waitForURL(new RegExp(`/b/${LEDGERLY_BUSINESS_ID}/home$`), { timeout: LONG });
+    await page.waitForURL(new RegExp(`/b/${LEDGERLY_BUSINESS_ID}/today$`), { timeout: LONG });
     await expect(page.getByTestId("kitbar-business-name")).toHaveText("Ledgerly", { timeout: LONG });
     await expect(page.getByTestId("app-shell")).toHaveAttribute("data-business-id", LEDGERLY_BUSINESS_ID);
 
@@ -51,7 +51,7 @@ test.describe("switch business and Your businesses", () => {
     const cookie = (await page.context().cookies()).find((c) => c.name === "fm_last_business");
     expect(cookie?.value).toBe(LEDGERLY_BUSINESS_ID);
     await page.goto("/");
-    await page.waitForURL(new RegExp(`/b/${LEDGERLY_BUSINESS_ID}/home`), { timeout: LONG });
+    await page.waitForURL(new RegExp(`/b/${LEDGERLY_BUSINESS_ID}/today`), { timeout: LONG });
   });
 
   test("Create a new business opens the doors, with the way back to the business it came from", async ({ page }) => {
@@ -64,7 +64,7 @@ test.describe("switch business and Your businesses", () => {
     await expect(page.getByTestId("door-ideate")).toBeVisible();
     await expect(page.getByTestId("door-import")).toBeVisible();
     await page.getByRole("link", { name: "Back to Northwind Skincare" }).click();
-    await page.waitForURL(new RegExp(`/b/${NORTHWIND_BUSINESS_ID}/home$`), { timeout: LONG });
+    await page.waitForURL(new RegExp(`/b/${NORTHWIND_BUSINESS_ID}/today$`), { timeout: LONG });
   });
 
   test("Your businesses lists every business with role, plan, mode and created date, and opens one", async ({ page }) => {
@@ -87,7 +87,7 @@ test.describe("switch business and Your businesses", () => {
     await expect(page.getByTestId("example-businesses")).toHaveCount(0);
 
     await page.getByRole("link", { name: "Open Ledgerly", exact: true }).click();
-    await page.waitForURL(new RegExp(`/b/${LEDGERLY_BUSINESS_ID}/home$`), { timeout: LONG });
+    await page.waitForURL(new RegExp(`/b/${LEDGERLY_BUSINESS_ID}/today$`), { timeout: LONG });
     await expect(page.getByTestId("kitbar-business-name")).toHaveText("Ledgerly", { timeout: LONG });
   });
 
@@ -103,6 +103,6 @@ test.describe("switch business and Your businesses", () => {
     await expect(switcher.locator(`[data-business-id="${bid}"]`)).toHaveAttribute("data-current", "true");
     await expect(switcher.getByRole("option", { name: /Northwind Skincare/ })).toBeVisible({ timeout: LONG });
     await switcher.getByRole("option", { name: /Northwind Skincare/ }).click();
-    await page.waitForURL(new RegExp(`/b/${NORTHWIND_BUSINESS_ID}/home$`), { timeout: LONG });
+    await page.waitForURL(new RegExp(`/b/${NORTHWIND_BUSINESS_ID}/today$`), { timeout: LONG });
   });
 });

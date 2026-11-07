@@ -63,8 +63,9 @@ describe("page titles", () => {
   it("names each route as its page used to (the strings e2e/titles-not-found.spec.ts reads)", () => {
     const B = "b1e5e5e5-0000-4000-8000-000000000001";
     const title = (path: string, entityName: string | null = null) => businessScreenTitle(`/b/${B}${path}`, B, DEPARTMENTS, entityName);
-    expect(title("/home")).toBe("Home");
-    expect(title("/home/5f2b8c1e-9a4d-4c3b-8e7f-1a2b3c4d5e6f")).toBe("Home");
+    expect(title("/today")).toBe("Today");
+    expect(title("/home")).toBe("Details");
+    expect(title("/home/5f2b8c1e-9a4d-4c3b-8e7f-1a2b3c4d5e6f")).toBe("Details");
     expect(title("/inbox")).toBe("Inbox");
     expect(title("/inbox/item-1")).toBe("Inbox");
     expect(title("/crm")).toBe("Contacts");

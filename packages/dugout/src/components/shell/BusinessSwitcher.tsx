@@ -3,13 +3,13 @@
  * Switch business (founder, 2026-10-16; audit IAE-08, WEB-13): the top bar's logo and name open a glass popover headed
  * "Switch business" with every business the founder belongs to (the current one first and checked, then A to Z, each
  * with its 24 px logo and a role and Demo chip), a filter field once there are more than a handful, then Create a new
- * business, Manage businesses, Home and Your profile. A popover with a filterable list (cmdk, as the command palette),
+ * business, Manage businesses, Today and Your profile. A popover with a filterable list (cmdk, as the command palette),
  * not a menu: a menu's typeahead fights a filter field. The tooltip and the controlled open follow StopAllAgents, since
  * Tooltip and Popover triggers both write `data-state`.
  */
 import { useId, useMemo, useRef, useState, type ReactNode } from "react";
 import { Command } from "cmdk";
-import { Building2, Check, ChevronDown, House, Plus, UserRound } from "lucide-react";
+import { Building2, Check, ChevronDown, Plus, Sun, UserRound } from "lucide-react";
 import { cn } from "../../lib/cn";
 import { BusinessLogo } from "../foundation/BusinessLogo";
 import { Button } from "../foundation/Button";
@@ -91,7 +91,7 @@ const ROW_CLASS = "palette-row group/item flex min-h-row-comfortable cursor-defa
 export interface BusinessSwitcherProps {
   businessName: string;
   menu: KitBarBusinessMenu;
-  /** Picking the current business, or Home. */
+  /** Picking the current business, or Today (the business's front door since Nov 7, 2026). */
   onHome?: () => void;
   /** Open on first render (stories). */
   defaultOpen?: boolean;
@@ -242,7 +242,7 @@ export function BusinessSwitcher({ businessName, menu, onHome, defaultOpen = fal
             {onHome || menu.onProfile ? <div className={menuSeparatorClass} role="separator" /> : null}
             {onHome ? (
               <Command.Item value="action:home" onSelect={() => pick(onHome)} className={ROW_CLASS}>
-                <Icon icon={House} size="inline" className="shrink-0" /> Home
+                <Icon icon={Sun} size="inline" className="shrink-0" /> Today
               </Command.Item>
             ) : null}
             {menu.onProfile ? (

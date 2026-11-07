@@ -77,7 +77,7 @@ describe("BusinessSwitcher", () => {
     for (const [label, fn] of [
       ["Create a new business", menu.onNewBusiness],
       ["Manage businesses", menu.onManageBusinesses],
-      ["Home", onHome],
+      ["Today", onHome],
       ["Your profile", menu.onProfile],
     ] as const) {
       await open();

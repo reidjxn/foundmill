@@ -196,14 +196,15 @@ test.describe("commit", () => {
     await expect(page.getByTestId("logo-option")).toHaveCount(4, { timeout: LONG });
     await page.getByTestId("logo-option").first().click();
     await page.getByTestId("take-charge").click();
-    // The first days are about the product (founder, 2026-10-18): Take charge lands on Home, not on a Board decision.
-    await page.waitForURL(new RegExp(`/b/${UUID}/home`), { timeout: LONG });
+    // The first days are about the product (founder, 2026-10-18): Take charge lands on Today (the front door since
+    // Nov 7, 2026), not on a Board decision.
+    await page.waitForURL(new RegExp(`/b/${UUID}/today`), { timeout: LONG });
     await expect(page.getByTestId("app-shell")).toBeVisible({ timeout: LONG });
     await expect(page.getByTestId("kit-bar")).toContainText(name);
     await expect(page.getByTestId("kitbar-logo")).toHaveAttribute("data-logo", "image", { timeout: LONG });
     await expect(page.getByTestId("kitbar-logo").locator("img")).toHaveAttribute("src", /^data:image\/svg\+xml;base64,/);
-    // Home shows the foundations drafting (or already drafted: the mock model is quick).
-    await expect(page.getByTestId("home-screen")).toBeVisible({ timeout: LONG });
+    // Today shows the foundations drafting (or already drafted: the mock model is quick).
+    await expect(page.getByTestId("today-screen")).toBeVisible({ timeout: LONG });
     await expect(page.getByTestId("foundations-status")).toBeVisible({ timeout: LONG });
     // The sidebar carries the departments the commit created.
     expect(await page.locator("[data-testid=app-shell] nav a[href*='/d/']").count()).toBeGreaterThanOrEqual(1);
@@ -230,7 +231,7 @@ test.describe("commit", () => {
       if (req.url().includes("idea.commit")) commits.push(req.url());
     });
     await page.getByTestId("take-charge").dblclick();
-    await page.waitForURL(new RegExp(`/b/${UUID}/home`), { timeout: LONG });
+    await page.waitForURL(new RegExp(`/b/${UUID}/today`), { timeout: LONG });
     // One call, never a batch of two (`idea.commit,idea.commit`).
     expect(commits).toHaveLength(1);
     expect(commits[0]).not.toContain("idea.commit,idea.commit");

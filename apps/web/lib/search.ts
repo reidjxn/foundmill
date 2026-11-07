@@ -70,7 +70,9 @@ export function localPaletteItems(input: LocalPaletteInput): PaletteItem[] {
   const bid = input.businessId;
   const access = input.access ?? FULL_ACCESS;
   const items: PaletteItem[] = [
-    { id: "screen:home", kind: "screen", label: "Home", href: routes.home(bid), keywords: ["dashboard"], shortcut: ["G", "H"] },
+    // Today is the front door (founder, 2026-11-07) and keeps G H; the dashboards are "Details", found by home too.
+    { id: "screen:today", kind: "screen", label: "Today", href: routes.today(bid), keywords: ["today", "goal", "front door", "start"], shortcut: ["G", "H"] },
+    { id: "screen:home", kind: "screen", label: "Details", href: routes.home(bid), keywords: ["home", "dashboard", "dashboards"] },
     { id: "screen:inbox", kind: "screen", label: "Inbox", href: routes.inbox(bid), shortcut: ["G", "I"] },
     // "Contacts" on screen; "crm" stays a keyword so the old name still finds it.
     ...(access.canRead("crm") ? [{ id: "screen:crm", kind: "screen" as const, label: CRM_LABEL, href: routes.crm(bid), keywords: ["crm", "contacts", "people", "organizations"], shortcut: ["G", "C"] }] : []),
@@ -107,7 +109,7 @@ export function localPaletteItems(input: LocalPaletteInput): PaletteItem[] {
   // Every other business the founder can open, a new one and the list of them all (audit IAE-08, WEB-13).
   for (const b of input.businesses ?? []) {
     if (b.id === bid) continue;
-    items.push({ id: `business:${b.id}`, kind: "command", label: `Switch to ${b.name}`, description: "Switch business", href: routes.home(b.id), keywords: ["switch", "business", "open", b.name] });
+    items.push({ id: `business:${b.id}`, kind: "command", label: `Switch to ${b.name}`, description: "Switch business", href: routes.today(b.id), keywords: ["switch", "business", "open", b.name] });
   }
   items.push({ id: "command:new-business", kind: "command", label: "Create a new business", description: "From an idea in the Ideation Studio, or import what already exists", href: accountRoutes.newBusiness, keywords: ["new business", "create", "start", "another", "business", "idea", "import"] });
   items.push({ id: "command:manage-businesses", kind: "command", label: "Manage businesses", description: "Open one, change its settings or restore an archived one", href: accountRoutes.businesses, keywords: ["businesses", "manage", "archived", "restore", "your businesses"] });

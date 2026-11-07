@@ -49,8 +49,8 @@ test.describe("settings › danger zone", () => {
     test.setTimeout(240_000);
     const name = `Archive ${Date.now().toString(36)}`;
     const bid = await commitThrowaway(page, name);
-    // Take charge moves on to the new business's Home by itself; let that land first, or the goto below is cut short by it.
-    await page.waitForURL(new RegExp(`/b/${bid}/home`), { timeout: LONG });
+    // Take charge moves on to the new business's Today by itself; let that land first, or the goto below is cut short by it.
+    await page.waitForURL(new RegExp(`/b/${bid}/today`), { timeout: LONG });
     await expect(page.getByTestId("kitbar-business-name")).toHaveText(name, { timeout: LONG });
     await page.waitForLoadState("networkidle", { timeout: LONG });
     const screen = await openSettings(page, "danger", bid);
@@ -74,7 +74,7 @@ test.describe("settings › danger zone", () => {
     expect(archive.counts.agents).toBeGreaterThan(0);
 
     await row.getByTestId("archived-restore").click();
-    await page.waitForURL(new RegExp(`/b/${bid}/home`), { timeout: LONG });
+    await page.waitForURL(new RegExp(`/b/${bid}/today`), { timeout: LONG });
     await expect(page.getByTestId("app-shell")).toBeVisible({ timeout: LONG });
     await page.goto("/businesses");
     await expect(page.locator(`[data-business-row="${bid}"]`)).toBeVisible({ timeout: LONG });

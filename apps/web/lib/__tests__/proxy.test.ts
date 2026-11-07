@@ -28,10 +28,10 @@ describe("proxy redirects", () => {
     expect(res.headers.get("location")).toBe("http://localhost:3000/b/abc/inbox?tab=notes");
   });
 
-  it("answers a signed-in `/` with the last business's Home itself, with no render and no API call (audit WEB-4)", async () => {
+  it("answers a signed-in `/` with the last business's Today itself, with no render and no API call (audit WEB-4)", async () => {
     const res = await proxy(signedIn("http://localhost:3000/", `${LAST_BUSINESS_COOKIE}=${LAST}`));
     expect(res.status).toBe(307);
-    expect(res.headers.get("location")).toBe(`http://localhost:3000/b/${LAST}/home`);
+    expect(res.headers.get("location")).toBe(`http://localhost:3000/b/${LAST}/today`);
     // Without the cookie the signed-in index renders under `/` and picks.
     const index = await proxy(signedIn("http://localhost:3000/"));
     expect(index.headers.get("location")).toBeNull();
