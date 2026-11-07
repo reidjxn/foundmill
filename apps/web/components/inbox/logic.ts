@@ -490,7 +490,7 @@ function statusStripFigures(strip: readonly unknown[], sources: MetricSources): 
           return { label: "Cash", value: f ? { amountMinor: f.cash.amountMinor, currency: f.cash.currency } : null, provenance: provenance(m, "Bank balances") };
         case "runway": {
           // No figure: the shared runway words (Home, Finance and the note say the same), never a bare "—"; a balance
-          // below zero reads "Cash is below zero" with its Estimate tag, never "No limit" (widgets/shared/runway).
+          // below zero reads "Cash is below zero" with its Estimate tag, never "Not running out" (widgets/shared/runway).
           const words = runwayWords(f);
           // plain-allow: the strip's labels are wrapped in a Term where they show (ReadingPane tilesWithTerms, STRIP_TERM_IDS).
           if (words) return { label: "Runway", value: words.value, caption: words.caption, estimate: words.estimate ? "estimate" : undefined, provenance: provenance(m, "Cash ÷ net burn") };

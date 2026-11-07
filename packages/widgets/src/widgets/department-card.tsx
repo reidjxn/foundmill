@@ -275,7 +275,7 @@ function metricFigure(i: MetricInputs): DepartmentMetric {
       // The line is the business's month-end cash (the department rows carry no money): what the runway moves with.
       const series = monthEndCash(i.finance);
       const seriesLabel = series.length ? `Cash at month end, last ${series.length} months` : undefined;
-      // The shared runway words when there is no figure ("No limit" when cash-flow positive); Estimate only on a real estimate.
+      // The shared runway words when there is no figure ("Not running out" when cash-flow positive); Estimate only on a real estimate.
       if (months === null) return { label: RUNWAY_METRIC_LABEL, value: runwayWords(i.finance)?.value ?? RUNWAY_WORDS.no_bank.value, series, seriesLabel };
       return { label: RUNWAY_METRIC_LABEL, value: `${formatNumber(months, { maxDigits: 1 })} mo`, series, seriesLabel, provenance: "estimate" };
     }

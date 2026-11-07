@@ -233,16 +233,16 @@ describe("RunwayChip", () => {
   });
 
   it("without a figure says the words it is given (the ones Home's tiles use) and the reason, never a dash or an Estimate tag", () => {
-    const { unmount } = render(<RunwayChip date="2026-10-07" runwayMonths={null} words={{ value: "No limit", caption: "Cash-flow positive, so no limit yet" }} />);
-    expect(screen.getByText("No limit")).toBeTruthy();
+    const { unmount } = render(<RunwayChip date="2026-10-07" runwayMonths={null} words={{ value: "Not running out", caption: "You earn more than you spend" }} />);
+    expect(screen.getByText("Not running out")).toBeTruthy();
     expect(screen.queryByText("Estimate")).toBeNull();
     expect(screen.queryByText("—")).toBeNull();
-    const chip = screen.getByLabelText("Oct 7, 2026. Runway: No limit. Cash-flow positive, so no limit yet");
+    const chip = screen.getByLabelText("Oct 7, 2026. Runway: Not running out. You earn more than you spend");
     expect(chip.getAttribute("data-runway-tone")).toBe("neutral");
     unmount();
-    render(<RunwayChip date="2026-10-07" runwayMonths={null} words={{ value: "Not known yet", caption: "Connect a bank to estimate it" }} />);
+    render(<RunwayChip date="2026-10-07" runwayMonths={null} words={{ value: "Not known yet", caption: "Not enough data yet: connect your bank" }} />);
     expect(screen.getByText("Not known yet")).toBeTruthy();
-    expect(screen.getByLabelText(/Runway: Not known yet\. Connect a bank to estimate it$/)).toBeTruthy();
+    expect(screen.getByLabelText(/Runway: Not known yet\. Not enough data yet: connect your bank$/)).toBeTruthy();
   });
 
   it("falls back to \"Not known yet\" when the app passes no words", () => {

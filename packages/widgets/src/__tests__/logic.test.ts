@@ -166,7 +166,7 @@ describe("status strip", () => {
     // Captions in words (UX plan B9, B10); the formula and the accounting basis sit in the provenance tooltip.
     expect(personal[0]!.caption).toBe(`In the bank · ${finance.cash.accounts} accounts`);
     expect(statusTiles({ ...base, live: false, finance: { ...finance, cash: { ...finance.cash, accounts: 1 } } })[0]!.caption).toBe("In the bank · 1 account");
-    expect(personal[1]!.caption).toBe(finance.runway.blocksContinue ? "Under 3 months of cash left: holds Continue" : finance.runway.months! < 9 ? "Under 9 months of cash left" : "Months of cash left at today's spending");
+    expect(personal[1]!.caption).toBe(finance.runway.months! < 3 ? "Under 3 months of cash left" : finance.runway.months! < 9 ? "Under 9 months of cash left" : "Months of cash left at today's spending");
     expect(personal[1]!.provenance?.source).toContain("Cash ÷ net burn");
     expect(personal[2]!.caption).toBe("Money in this month");
     expect(personal[2]!.provenance).toMatchObject({ note: finance.revenue.label });
@@ -177,7 +177,13 @@ describe("status strip", () => {
     expect(teamHealthCaption(teamHealthCounts(["healthy"]))).toBe("1 of 1 agent healthy");
     expect(teamHealthCaption(teamHealthCounts([]))).toBe("No agents hired yet");
     expect(teamHealthCaption(teamHealthCounts(["failing", "injured"]))).toBe("0 of 2 agents healthy");
-    expect(statusTiles({ ...base, live: false, departments: [] })[4]).toMatchObject({ label: "Team health", value: "—", caption: "No agents hired yet" });
+    expect(statusTiles({ ...base, live: false, departments: [] })[4]).toMatchObject({ label: "Team health", value: "No team yet", caption: "No agents hired yet" });
+    // Revenue this month is never a dash (Nov 7, 2026): 0 with a bank and nothing in yet this month, "Not known yet" with
+    // what fills it when there is neither a bank nor revenue history.
+    const quiet = { ...finance, revenue: { ...finance.revenue, monthly: [] } };
+    expect(statusTiles({ ...base, live: false, finance: quiet })[2]).toMatchObject({ label: "Revenue this month", value: { amountMinor: 0 }, caption: "Money in this month" });
+    const empty = { ...quiet, cash: { ...finance.cash, accounts: 0 } };
+    expect(statusTiles({ ...base, live: false, finance: empty })[2]).toMatchObject({ value: "Not known yet", caption: "Not enough data yet: connect your bank" });
     // Work, not only liveness (Nov 1, 2026): nothing finished this week and many blocked tasks reads Stalled, whatever the agents say.
     expect(statusTiles({ ...base, live: false, tasks: { blocked: 9, doneLast7Days: 0 } })[4]).toMatchObject({ label: "Team health", value: "Stalled", caption: "0 finished this week · 9 blocked" });
     expect(statusTiles({ ...base, live: false, tasks: { blocked: 2, doneLast7Days: 3 } })[4]).toMatchObject({ value: 5 / 6, caption: "5 of 6 agents healthy · 3 finished this week · 2 blocked" });
@@ -243,20 +249,20 @@ describe("status strip", () => {
     expect(untitled[5]!.caption).toBe("Customers won");
     expect(statusTiles({ ...base, live: true, positions: [] })[5]).toMatchObject({ value: "Not ranked" });
     const none = runwayTile({ ...finance, runway: { ...finance.runway, months: null } }, false, () => {});
-    // One wording everywhere (shared/runway.ts): cash-flow positive is "No limit", otherwise "Not known yet" with the reason.
-    expect(none).toMatchObject({ label: "Runway", value: finance.burn.netBurnMinor <= 0 ? "No limit" : "Not known yet" });
+    // One wording everywhere (shared/runway.ts): cash-flow positive is "Not running out", otherwise "Not known yet" with the reason.
+    expect(none).toMatchObject({ label: "Runway", value: finance.burn.netBurnMinor <= 0 ? "Not running out" : "Not known yet" });
     expect(none.estimate).toBeUndefined();
     const positive = runwayTile({ ...finance, cash: { ...finance.cash, accounts: 1 }, burn: { ...finance.burn, netBurnMinor: -500 }, runway: { ...finance.runway, months: null } }, false, () => {});
-    expect(positive).toMatchObject({ value: "No limit", caption: "Cash-flow positive, so no limit yet" });
+    expect(positive).toMatchObject({ value: "Not running out", caption: "You earn more than you spend" });
     const noBank = runwayTile({ ...finance, cash: { ...finance.cash, accounts: 0 }, runway: { ...finance.runway, months: null } }, false, () => {});
-    expect(noBank).toMatchObject({ value: "Not known yet", caption: "Connect a bank to estimate it" });
+    expect(noBank).toMatchObject({ value: "Not known yet", caption: "Not enough data yet: connect your bank" });
   });
 });
 
 describe("cash and runway", () => {
   it("says runway in the words the status strip uses, with no Estimate chip on a missing figure", () => {
     const positive = runwayTileProps({ ...finance, burn: { ...finance.burn, netBurnMinor: -2_296_294 }, runway: { ...finance.runway, months: null } });
-    expect(positive).toMatchObject({ value: "No limit", caption: "Cash-flow positive, so no limit yet" });
+    expect(positive).toMatchObject({ value: "Not running out", caption: "You earn more than you spend" });
     expect(positive.estimate).toBeUndefined();
     // The same words as the status strip's tile for the same answer.
     const strip = runwayTile({ ...finance, burn: { ...finance.burn, netBurnMinor: -2_296_294 }, runway: { ...finance.runway, months: null } }, false, () => {});

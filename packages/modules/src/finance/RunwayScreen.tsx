@@ -17,7 +17,7 @@ import { useWidgetData, useWidgetQuery } from "@foundmill/widgets/data";
 import { usePinToHomeMenu } from "@foundmill/widgets/shared/pin";
 import type { ModuleScreenProps } from "../registry";
 import { FORECAST_SCENARIOS, type FinanceOverview, type ForecastDrivers, type ForecastRow, type ForecastScenario, type PnlResponse } from "./types";
-import { runwayFigure, runwayWords } from "@foundmill/widgets/shared/runway";
+import { runwayFigure, runwayState, runwayWords } from "@foundmill/widgets/shared/runway";
 import { RUNWAY_BLOCK_MONTHS, driversHint, forecastStartMonth, formatMonth, monthKey, monthStart, pnlTotals, projectForecast, readDrivers, runwayTone, runwayWarnings, runwayWord, scenarioRunway, seedDrivers, type ScenarioRunway } from "./metrics";
 import { InlineError, Screen, fmtAxisMoney, fmtMoney, fmtMonths, parseAmount, toDate, useAction, useCurrency, useNow } from "./shared";
 
@@ -42,7 +42,7 @@ export function runwayText(r: ScenarioRunway): { pill: string; tone: "good" | "w
     case "months":
       return { pill: runwayWord(r.months), tone: runwayTone(r.months), figure: fmtMonths(r.months), caption: null };
     case "no_limit":
-      return { pill: "No limit", tone: "good", figure: "No limit", caption: "Cash-flow positive every month" };
+      return { pill: "Not running out", tone: "good", figure: "Not running out", caption: "You earn more than you spend every month" };
     case "beyond":
       return { pill: "Runway healthy", tone: "good", figure: `Beyond ${r.horizonMonths} months`, caption: null };
   }
@@ -134,7 +134,7 @@ export function RunwayScreen({ businessId }: ModuleScreenProps) {
   // zero has no runway to count either ("Cash is below zero"): `runwayFigure` is null, and the words stand in.
   const unknownRunway = useMemo(() => {
     const words = runwayWords(overview.data);
-    return words && runwayFigure(overview.data) === null && words.value !== "No limit" ? words : null;
+    return words && runwayFigure(overview.data) === null && runwayState(overview.data) !== "positive" ? words : null;
   }, [overview.data]);
 
   const [drafts, setDrafts] = useState<Record<ForecastScenario, ForecastDrivers>>(storedDrivers);

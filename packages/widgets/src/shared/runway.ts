@@ -1,21 +1,21 @@
 /**
  * Runway in words when there is no figure (finance.overview returns no months, or a figure that is not a runway), one
  * wording for every screen that shows it: the top bar's chip, Home's status strip and Finance card, the Inbox note's
- * metric strip and Finance › Overview. Cash-flow positive reads "No limit" (good news, never a dash or "None yet",
- * which read as "no runway"); without a bank or with too little history it reads "Not known yet" with the reason
- * underneath; a bank balance below zero reads "Cash is below zero" with the Estimate tag, never "No limit"
- * (docs/UX_AUDIT_AND_PLAN.md §7.7, B8).
+ * metric strip and Finance › Overview and Runway. Cash-flow positive reads "Not running out" with "You earn more than you
+ * spend" (good news in the founder's words: "Not running out" read like a setting, Nov 7, 2026); without a bank or with too
+ * little history it reads "Not known yet" with what would fill it; a bank balance below zero reads "Cash is below zero"
+ * with the Estimate tag, never "Not running out" (docs/UX_AUDIT_AND_PLAN.md §7.7, B8).
  */
 export interface RunwayFinanceInput {
   cash: { amountMinor?: number; accounts?: number };
-  burn: { netBurnMinor: number };
+  burn: { netBurnMinor: number; grossBurnMinor?: number };
   runway: { months: number | null };
 }
 
 export type RunwayState = "positive" | "no_bank" | "short_history" | "negative";
 
 export interface RunwayWording {
-  /** The figure's stand-in: "No limit", "Not known yet", "Cash is below zero". */
+  /** The figure's stand-in: "Not running out", "Not known yet", "Cash is below zero". */
   value: string;
   /** The reason, under the tile and in the chip's tooltip. */
   caption: string;
@@ -26,16 +26,16 @@ export interface RunwayWording {
 }
 
 export const RUNWAY_WORDS: Record<RunwayState, RunwayWording> = {
-  positive: { value: "No limit", caption: "Cash-flow positive, so no limit yet" },
-  no_bank: { value: "Not known yet", caption: "Connect a bank to estimate it", brief: "connect a bank" },
-  short_history: { value: "Not known yet", caption: "Needs three months of bank history", brief: "needs 3 months of history" },
+  positive: { value: "Not running out", caption: "You earn more than you spend" },
+  no_bank: { value: "Not known yet", caption: "Not enough data yet: connect your bank", brief: "connect a bank" },
+  short_history: { value: "Not known yet", caption: "Not enough data yet: needs three months of bank history", brief: "needs 3 months of history" },
   negative: { value: "Cash is below zero", caption: "The bank balance is negative, so there is no runway to count", estimate: true },
 };
 
 /**
  * Why there is no runway figure; null when there is one (or no finance data at all). A balance below zero has no
  * runway whatever the months say (the API divides a negative balance by the burn and gets a negative figure, or none
- * at all when the burn is zero, which used to read "No limit").
+ * at all when the burn is zero, which used to read as good news).
  */
 export function runwayState(finance: RunwayFinanceInput | null | undefined): RunwayState | null {
   if (!finance) return null;
@@ -45,7 +45,9 @@ export function runwayState(finance: RunwayFinanceInput | null | undefined): Run
   if (!noBank && (finance.cash.amountMinor ?? 0) < 0) return "negative";
   if (finance.runway.months !== null) return null;
   if (noBank) return "no_bank";
-  return finance.burn.netBurnMinor <= 0 ? "positive" : "short_history";
+  // No money moved at all in the trailing months (a quiet or stale account) is not good news: it is too little history.
+  const quiet = finance.burn.netBurnMinor === 0 && finance.burn.grossBurnMinor === 0;
+  return finance.burn.netBurnMinor <= 0 && !quiet ? "positive" : "short_history";
 }
 
 /** The words for a missing runway figure, or null when the figure exists. */

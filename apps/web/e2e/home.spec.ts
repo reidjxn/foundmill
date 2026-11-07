@@ -54,14 +54,14 @@ test.describe("home", () => {
     await expect(strip).toBeVisible({ timeout: LONG });
     await expect(strip.getByText("Runway", { exact: true })).toBeVisible({ timeout: LONG });
     const bar = page.getByTestId("kit-bar");
-    // No runway figure: the bar and the tile say the same words, never a bare dash: "No limit" when cash-flow
+    // No runway figure: the bar and the tile say the same words, never a bare dash: "Not running out" when cash-flow
     // positive, "Not known yet" without a bank or enough history, "Cash is below zero" when the balance is negative
     // (the shared runway wording, UX plan B8), the reason under the tile and in the bar's tooltip.
     await expect(bar).not.toContainText("No runway yet");
     const barWords = bar.locator("[data-runway-words]");
     if (await barWords.count()) {
       const words = (await barWords.innerText()).trim();
-      expect(words).toMatch(/^(No limit|Not known yet|Cash is below zero)$/);
+      expect(words).toMatch(/^(Not running out|Not known yet|Cash is below zero)$/);
       await expect(strip.getByText(words, { exact: true })).toBeVisible({ timeout: LONG });
     }
     // Inbox preview rows: the subject wraps to two lines; nothing in a row is cut sideways.
@@ -79,7 +79,7 @@ test.describe("home", () => {
     await expect(strip.getByText("Team health", { exact: true })).toBeVisible({ timeout: LONG });
     await expect(strip).not.toContainText("Business health");
     await expect(strip).toContainText(/\d+ of \d+ \w+ healthy|No \w+ hired yet/, { timeout: LONG });
-    await expect(strip).toContainText(/Months of cash left|Under \d+ months of cash left|No limit|Not known yet|Cash is below zero/, { timeout: LONG });
+    await expect(strip).toContainText(/Months of cash left|Under \d+ months of cash left|Not running out|Not known yet|Cash is below zero/, { timeout: LONG });
     await expect(strip).toContainText("Money in this month");
     await expect(strip).toContainText(/Paying \w+, last 7 days/);
     // The formula is the provenance tooltip's, not a caption: nothing on the strip reads "Cash ÷ net burn" or "Cash basis".

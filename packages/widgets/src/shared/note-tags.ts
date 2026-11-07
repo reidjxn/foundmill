@@ -34,7 +34,7 @@ export const NOTE_TAG_ICONS: Record<NoteTagIcon, LucideIcon> = {
 export const NOTE_TAG_LEGEND: Record<NoteTagIcon, string> = {
   win: "A new paying customer, with its Customer Update",
   respond: "Waiting for your answer; the rest of the work carries on",
-  warning: "Something to watch; it holds Continue only if cash is under 3 months",
+  warning: "Something to watch; it holds Continue only when credits run out or a key needs replacing",
   update: "Progress from an agent, nothing to do",
   milestone: "A first your business reached",
   report: "A regular summary",

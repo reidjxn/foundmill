@@ -298,23 +298,23 @@ describe("status strip (AC-11.3.6: numbers come from live queries, never the not
       { finance: { ...finance, runway: { months: null }, burn: { netBurnMinor: -1_000, grossBurnMinor: 5_000 } }, now },
     );
     expect(tiles[0]).toMatchObject({ label: "Cash", value: { amountMinor: 1_250_000, currency: "EUR" }, provenance: { source: "Bank accounts" } });
-    expect(tiles[1]).toMatchObject({ label: "Runway", value: "No limit", provenance: { source: "The cash forecast" } });
+    expect(tiles[1]).toMatchObject({ label: "Runway", value: "Not running out", provenance: { source: "The cash forecast" } });
     expect(tiles[2]).toMatchObject({ label: "Customers", value: "1,101", provenance: { source: "Signups, activations and payments" } });
     expect(tiles[3]).toMatchObject({ label: "Due in", value: "9 days", provenance: { source: "The filing calendar" } });
     expect(tiles.some((t) => t.value === null)).toBe(false);
   });
-  it("runway reads the shared words: a balance below zero says so (with Estimate), never 'No limit' or a negative figure (UX plan B8)", () => {
+  it("runway reads the shared words: a balance below zero says so (with Estimate), never 'Not running out' or a negative figure (UX plan B8)", () => {
     const strip = [{ metric: "runway", source: "forecasts" }];
     const below = statusStripTiles(strip, { finance: { ...finance, cash: { ...finance.cash, amountMinor: -42_000 }, runway: { months: -3 }, burn: { netBurnMinor: 0, grossBurnMinor: 5_000 } }, now });
     expect(below[0]).toMatchObject({ label: "Runway", value: "Cash is below zero", caption: "The bank balance is negative, so there is no runway to count", estimate: "estimate" });
-    expect(below[0]!.value).not.toBe("No limit");
-    // Cash-flow positive with no figure: "No limit" and no Estimate tag (the words are the fact).
+    expect(below[0]!.value).not.toBe("Not running out");
+    // Cash-flow positive with no figure: "Not running out" and no Estimate tag (the words are the fact).
     const positive = statusStripTiles(strip, { finance: { ...finance, runway: { months: null }, burn: { netBurnMinor: -1_000, grossBurnMinor: 5_000 } }, now });
-    expect(positive[0]).toMatchObject({ label: "Runway", value: "No limit", caption: "Cash-flow positive, so no limit yet" });
+    expect(positive[0]).toMatchObject({ label: "Runway", value: "Not running out", caption: "You earn more than you spend" });
     expect(positive[0]!.estimate).toBeUndefined();
     // Too little history: "Not known yet"; a real figure stays a figure.
     const short = statusStripTiles(strip, { finance: { ...finance, runway: { months: null } }, now });
-    expect(short[0]).toMatchObject({ label: "Runway", value: "Not known yet", caption: "Needs three months of bank history" });
+    expect(short[0]).toMatchObject({ label: "Runway", value: "Not known yet", caption: "Not enough data yet: needs three months of bank history" });
     expect(statusStripTiles(strip, { finance, now })[0]).toMatchObject({ value: 12.5, unit: "months", estimate: "estimate" });
   });
   it("parses free-form metrics: money before other figures, estimates flagged, grouping added", () => {

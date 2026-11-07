@@ -68,7 +68,12 @@ describe("OverviewScreen", () => {
     expect(cash.querySelector("svg")).toBeTruthy(); // sparkline
     const runway = document.querySelector("[data-metric='runway']") as HTMLElement;
     expect(within(runway).getByText("7.5")).toBeTruthy();
-    expect(within(runway).getByText("Estimate")).toBeTruthy();
+    // "Estimate" once, in a sentence under the tiles, not a chip on each (Nov 7, 2026).
+    expect(within(runway).queryByText("Estimate")).toBeNull();
+    expect(screen.getByTestId("finance-estimate-note").textContent).toMatch(/^Estimate: .*net burn, runway, .* are worked out, not measured\.$/);
+    // Three numbers first; the rest behind More numbers.
+    expect([...screen.getByTestId("finance-headline").querySelectorAll("[data-metric]")].map((t) => t.getAttribute("data-metric"))).toEqual(["cash", "netBurn", "runway"]);
+    expect(screen.getByTestId("finance-more").querySelectorAll("[data-metric]")).toHaveLength(7);
     expect(within(runway).getByText("Forecast: 14.2 mo")).toBeTruthy();
     expect(document.querySelectorAll("[data-metric-tile]")).toHaveLength(10);
     const warning = screen.getByRole("status", { name: "Runway warning" });
@@ -86,7 +91,7 @@ describe("OverviewScreen", () => {
     renderScreen(fake, <OverviewScreen {...props} />, {}, { guidance: "on" });
     const explainer = document.querySelector("[data-explainer='finance/overview']") as HTMLElement;
     expect(within(explainer).getByText("Where the money is and how long it lasts.")).toBeTruthy();
-    expect(within(explainer).getByText("Numbers marked Estimate are worked out, not measured.")).toBeTruthy();
+    expect(within(explainer).getByText("The line under the numbers says which are estimates: worked out, not measured.")).toBeTruthy();
     // The summary sentence stays above the tiles.
     expect(screen.getByTestId("finance-summary")).toBeTruthy();
     // Runway's label is a defined word; its plain line is the definitions map's sentence.
@@ -106,18 +111,19 @@ describe("OverviewScreen", () => {
     renderScreen(fake, <OverviewScreen {...props} />);
     const runway = document.querySelector("[data-metric='runway']") as HTMLElement;
     expect(within(runway).getByText("Cash is below zero")).toBeTruthy();
-    expect(within(runway).getByText("Estimate")).toBeTruthy();
+    expect(screen.getByTestId("finance-estimate-note").textContent).toContain("runway");
     expect(within(runway).getByText("The bank balance is negative, so there is no runway to count")).toBeTruthy();
     expect(within(runway).queryByText("-1.2")).toBeNull();
     expect(screen.queryByRole("status", { name: "Runway warning" })).toBeNull();
   });
 
-  it("turns the warning red and names the blocked Continue when runway is under 3 months (AC-11.8.3)", () => {
+  it("turns the warning red when runway is under 3 months, and never says Continue is blocked (AC-11.8.3; Nov 7, 2026)", () => {
     const fake = createFakeSource({ businessId: BID, responses: { ...dataResponses, "finance.overview": overviewBlocking } });
     renderScreen(fake, <OverviewScreen {...props} />);
     const warning = screen.getByRole("status", { name: "Runway warning" });
     expect(within(warning).getByText("Runway under 3 months")).toBeTruthy();
-    expect(within(warning).getByText(/Continue is blocked until the warning in the Inbox is acknowledged/)).toBeTruthy();
+    expect(within(warning).getByText(/The finance lead has drafted options in the Inbox/)).toBeTruthy();
+    expect(warning.textContent).not.toMatch(/Continue/);
     expect(warning.className).toContain("status-bad");
   });
 
