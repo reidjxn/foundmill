@@ -510,12 +510,12 @@ describe("who decides what (audit VRUI-X2, RUI-14, RUI-16)", () => {
     expect(r.followUp?.subject.startsWith("Decided: Decided:")).toBe(false);
   });
 
-  it("a blocking decision cannot be archived before it is answered", async () => {
+  it("an open decision cannot be archived before it is answered, though it never holds Continue", async () => {
     const t = await team("archive-guard");
     const item = await boardItem(t, "b2b_saas");
     await expect(owner(t).inbox.archive({ businessId: t.businessId, itemId: item.id })).rejects.toMatchObject({ code: "BAD_REQUEST" });
     const list = await owner(t).inbox.list({ businessId: t.businessId });
-    expect(list.continueState).toMatchObject({ kind: "blocked" });
+    expect(list.continueState).toMatchObject({ kind: "idle" });
     await owner(t).inbox.decide({ businessId: t.businessId, itemId: item.id, chosenOption: "design_partners" });
     expect((await owner(t).inbox.archive({ businessId: t.businessId, itemId: item.id })).state).toBe("archived");
   });

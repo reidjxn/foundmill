@@ -134,7 +134,8 @@ test.describe("first days", () => {
     const { boardItemId } = await startDistributionFromBoard(page, bid);
     await expect(page.getByText(/^\d+ of 15 running( · \d+ starting)?$/)).toBeVisible({ timeout: LONG });
     await openBoardQuestion(page, bid, boardItemId);
-    await expect(page.getByRole("button", { name: /^Respond to \d+ items?$/ })).toBeVisible({ timeout: LONG });
+    // The Board's question waits in Needs you; it never holds Continue (Nov 7, 2026).
+    await expect(page.getByRole("button", { name: /^Continue$/ })).toBeVisible({ timeout: LONG });
     await expect(inboxRow(page, "Distribution has started")).toBeVisible({ timeout: LONG });
     await page.goto(`/b/${bid}/d/distribution/channels`);
     await expect(channels).toBeVisible({ timeout: LONG });

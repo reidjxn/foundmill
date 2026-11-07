@@ -55,7 +55,8 @@ describe("exactly one item, never a fabricated event (AC-11.3.2)", () => {
     }
     expect(decision.slot).toBe("decision");
     expect(decision.item.type).toBe("decision");
-    expect(decision.item.blocksContinue).toBe(true);
+    // A decision waits in Needs you without holding Continue (Nov 7, 2026).
+    expect(decision.item.blocksContinue).toBe(false);
     const options = (decision.item.decision as { options: { recommended: boolean }[] }).options;
     expect(options.length).toBeGreaterThanOrEqual(2);
     expect(options.length).toBeLessThanOrEqual(4);
@@ -167,7 +168,7 @@ describe("a decision that is still waiting is not written twice (audit CML-02)",
     // Never two open copies of the same decision, and never one without its identity.
     expect(keys.every((k) => typeof k === "string")).toBe(true);
     expect(new Set(keys).size).toBe(keys.length);
-    expect(open.every((i) => i.blocksContinue)).toBe(true);
+    expect(open.every((i) => i.type === "decision" && !i.blocksContinue)).toBe(true);
     // Once everything the state calls for is open, a press answers with an open decision and writes nothing.
     const pointers = results.filter((r) => r.source === "open");
     expect(pointers.length).toBeGreaterThan(0);

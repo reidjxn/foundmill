@@ -91,23 +91,23 @@ describe("rows (DESIGN §9)", () => {
     expect(rowModel({ ...base, type: "decision", state: "answered", blocksContinue: true }).needsAnswer).toBe(false);
     expect(rowModel({ ...base, type: "update", state: "unread", blocksContinue: false })).toMatchObject({ needsAnswer: false, tone: "info", typeWord: "Update" });
   });
-  it("tags every row with an icon and a word: a won customer reads Customer, open calls say Respond (DIRECTION #8)", () => {
+  it("tags every row with an icon and a word: a won customer reads Customer, open calls say Needs you (Nov 7, 2026)", () => {
     expect(rowModel({ ...base, type: "customer_won", state: "unread", blocksContinue: true }).tag).toEqual({ word: "Customer", tone: "gold", icon: "win" });
-    expect(rowModel({ ...base, type: "decision", state: "unread", blocksContinue: true }).tag).toMatchObject({ word: "Respond", tone: "bad" });
+    expect(rowModel({ ...base, type: "decision", state: "unread", blocksContinue: true }).tag).toMatchObject({ word: "Needs you", tone: "warn" });
     expect(rowModel({ ...base, type: "decision", state: "answered", blocksContinue: true }).tag).toMatchObject({ word: "Decided", tone: "neutral" });
     expect(rowModel({ ...base, type: "milestone", state: "read", blocksContinue: false }).tag).toMatchObject({ word: "Milestone", icon: "milestone" });
-    expect(rowModel({ ...base, type: "warning", state: "read", blocksContinue: true }).tag.word).toBe("Respond");
+    expect(rowModel({ ...base, type: "warning", state: "read", blocksContinue: true }).tag.word).toBe("Needs you");
     expect(headerTag("customer_won", false, true)).toMatchObject({ word: "Customer won", tone: "gold" });
     // Two families only (UX plan B7): "answer" for an open note, "go-ahead" for a plan that waits; never "your call".
-    expect(headerTag("decision", false, true)).toMatchObject({ word: "Needs your answer", tone: "bad" });
-    expect(headerTag("warning", false, true)).toMatchObject({ word: "Needs your answer", tone: "bad", icon: "respond" });
+    expect(headerTag("decision", false, true)).toMatchObject({ word: "Needs your answer", tone: "warn" });
+    expect(headerTag("warning", false, true)).toMatchObject({ word: "Needs your answer", tone: "warn", icon: "respond" });
     expect(headerTag("decision", true, true)).toMatchObject({ word: "Decided" });
     expect(headerTag("update", false, false)).toMatchObject({ word: "Update" });
-    expect(HOLDS_CONTINUE_HINT).toBe("The team waits for this answer before its next round of work");
+    expect(HOLDS_CONTINUE_HINT).toBe("The team cannot work until this is sorted (only credits or a key do this)");
   });
-  it("an answered note whose plan waits for the go-ahead still asks: Respond in the list, Needs your go-ahead on the note", () => {
+  it("an answered note whose plan waits for the go-ahead still asks: Needs you in the list, Needs your go-ahead on the note", () => {
     const waiting = rowModel({ ...base, type: "decision", state: "answered", blocksContinue: false, awaitingConfirmation: true });
-    expect(waiting).toMatchObject({ needsAnswer: true, tag: { word: "Respond", tone: "bad" } });
+    expect(waiting).toMatchObject({ needsAnswer: true, tag: { word: "Needs you", tone: "warn" } });
     expect(rowModel({ ...base, type: "decision", state: "answered", blocksContinue: false, awaitingConfirmation: false }).tag.word).toBe("Decided");
     expect(headerTag("decision", true, false, true)).toEqual({ word: "Needs your go-ahead", tone: "warn", icon: "respond" });
   });
@@ -581,15 +581,15 @@ describe("an agent's request in the Inbox (audit FR-01)", () => {
     expect(approvalStatus({ ...waiting, sessionWaiting: false }).detail).toBe("The agent stopped waiting and freed its place. Approve and the task runs again in the team's next round of work.");
     expect(approvalStatus({ ...waiting, sessionWaiting: false, task: null }).detail).toBe("Approve and it runs once, exactly as asked.");
     // A release waits in the background: the detail says so, never that the agent freed its place.
-    expect(approvalStatus({ ...waiting, sessionWaiting: false, release: true })).toEqual({ word: "Needs your answer", tone: "warn", detail: "Say yes and it goes live once the automatic tests pass. Nothing else waits on this." });
+    expect(approvalStatus({ ...waiting, sessionWaiting: false, release: true })).toEqual({ word: "Needs your answer", tone: "warn", detail: "Say yes and it goes live once the final quality checks pass. Nothing else waits on this." });
     expect(approvalStatus({ ...waiting, outcome: "approved" })).toMatchObject({ word: "Approved", tone: "good" });
     expect(approvalStatus({ ...waiting, outcome: "rejected" })).toMatchObject({ word: "Rejected", tone: "bad", detail: "Nothing ran. The task waits until you start it again." });
     expect(approvalStatus({ ...waiting, outcome: "expired" })).toMatchObject({ word: "Expired", tone: "neutral" });
   });
   it("an approval is never done on the answer alone: approved reads as what came of it", () => {
     const release = { ...waiting, outcome: "approved" as const, release: true };
-    expect(approvalStatus(release)).toEqual({ word: "Approved", tone: "good", detail: "It goes live once the repository's automatic tests pass." });
-    expect(approvalStatus({ ...release, execution: { state: "waiting", detail: "Waiting for the repository's automatic tests to pass.", at: null } })).toEqual({ word: "Approved, waiting", tone: "info", detail: "Waiting for the repository's automatic tests to pass." });
+    expect(approvalStatus(release)).toEqual({ word: "Approved", tone: "good", detail: "It goes live once the final quality checks pass." });
+    expect(approvalStatus({ ...release, execution: { state: "waiting", detail: "Waiting for the final quality checks.", at: null } })).toEqual({ word: "Approved, waiting", tone: "info", detail: "Waiting for the final quality checks." });
     expect(approvalStatus({ ...release, execution: { state: "ran", detail: "It is live.", at: "2026-11-01T15:02:00.000Z" } })).toEqual({ word: "Live", tone: "good", detail: "It is live." });
     expect(approvalStatus({ ...release, execution: { state: "failed", detail: "The repository refused it for the moment; the team tries again in its next round of work.", at: null } })).toMatchObject({ word: "Didn't go through", tone: "bad" });
     expect(approvalStatus({ ...release, execution: { state: "handed_back", detail: "It clashes with newer work on the live product; the agent is bringing it up to date and will ask again.", at: null } })).toMatchObject({ word: "Sent back to the agent", tone: "warn" });

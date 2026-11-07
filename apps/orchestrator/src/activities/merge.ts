@@ -136,18 +136,21 @@ export function handBackDetail(why: MergeHoldReason, branch: string, detail: str
     why === "conflicts"
       ? "This change clashes with newer work on the live product, so it could not go live as it is."
       : why === "behind"
-        ? "The live product moved on since this change was made, and the repository wants the change brought up to date before it goes live."
+        ? "The live product moved on since this change was made, so the change has to be brought up to date before it goes live."
         : why === "checks_failed"
-          ? "The repository's automatic tests failed on this change, so it could not go live."
+          ? "A final quality check failed on this change, so it could not go live."
           : why === "checks_timeout"
-            ? "The repository's automatic tests did not finish in time, so this change did not go live yet."
-            : "The repository refused to take this change.";
+            ? "The final quality checks did not finish in time, so this change did not go live yet."
+            : "The change could not be put live this time.";
   const todo =
     why === "checks_failed"
-      ? `Bring your working copy (${branch}) up to date with the newest version of the product, fix what the repository's tests found, keep every test passing, and finish; it is offered to go live again when the tests pass.`
-      : `Bring your working copy (${branch}) up to date with the newest version of the product: your session starts from the live product's newest files with your earlier change applied on top. Reconcile the files the product changed since, keep every test passing, and finish; it is offered to go live again when the tests pass.`;
+      ? `Bring your working copy (${branch}) up to date with the newest version of the product, fix what the quality checks found, keep every check passing, and finish; it is offered to go live again when the checks pass.`
+      : `Bring your working copy (${branch}) up to date with the newest version of the product: your session starts from the live product's newest files with your earlier change applied on top. Reconcile the files the product changed since, keep every check passing, and finish; it is offered to go live again when the checks pass.`;
   return [what, detail ? `Details: ${detail}` : "", todo].filter(Boolean).join(" ").slice(0, 2000);
 }
+
+/** The subject of the note a held merge posts, and closes once the change is live. */
+export const notLiveYetSubject = (agentName: string): string => `${agentName}'s change is not live yet`.slice(0, 80);
 
 export function createMergeActivities(deps: OrchestratorDeps) {
   const { db } = deps;
@@ -181,6 +184,12 @@ export function createMergeActivities(deps: OrchestratorDeps) {
       payload: { taskId: input.taskId, repo: target.fullName, prNumber: pr.number, title: pr.title.slice(0, 300), branch: input.branch, baseBranch: pr.base.ref, mergeCommitSha: sha, mergedBy, additions: pr.additions, deletions: pr.deletions, filesChanged: pr.changedFiles, url: pr.url },
     }, { idempotencyKey: `pr.merged:${target.fullName}#${pr.number}:${sha}` });
     await audit(input, MERGE_AUDIT.merged, { prNumber: pr.number, prUrl: pr.url, mergeCommitSha: sha, branch: input.branch, approvalId });
+    // The change is live: an open "… is not live yet" note from this agent is no longer true (Nov 7, 2026).
+    const agent = await repos.agents.get(db, input.businessId, input.agentId).catch(() => null);
+    if (agent) {
+      const open = await repos.inbox.list(db, input.businessId, { type: "update", state: ["unread", "read"], fromAgentId: agent.id, limit: 20 });
+      for (const note of open.items.filter((n) => n.subject === notLiveYetSubject(agent.name))) await repos.inbox.archive(db, input.businessId, note.id, { force: true });
+    }
   }
 
   return {
@@ -355,7 +364,7 @@ export function createMergeActivities(deps: OrchestratorDeps) {
 
     /**
      * The repository's checks on the branch head, after the founder approved. The first look is on record against the
-     * approval (`merge.waiting`), which the Inbox shows as "waiting for the automatic tests".
+     * approval (`merge.waiting`), which the Inbox shows as "Waiting for the final quality checks".
      */
     async awaitChecks(input: MergeInput & MergePullRequest & { approvalId: string; first: boolean }): Promise<{ state: MergeAssessment["checks"] }> {
       const found = await repository(input);
@@ -419,10 +428,11 @@ export function createMergeActivities(deps: OrchestratorDeps) {
       await audit(input, MERGE_AUDIT.notMerged, { step: input.why, prNumber: input.prNumber, prUrl: input.prUrl, approvalId: input.approvalId, reason: input.detail ?? reason });
       try {
         const [task, agent] = await Promise.all([repos.tasks.get(db, input.businessId, input.taskId), repos.agents.get(db, input.businessId, input.agentId)]);
-        const what = input.why === "refused" ? "GitHub did not accept the merge when the team tried: its rules were still checking the change." : reason;
+        const what = input.why === "refused" ? "It could not go live yet: a final check was still running when the team tried." : reason;
+        // An update, not a warning (Nov 7, 2026): nothing is asked of the founder, and it closes itself once the change is live.
         await postNote(deps, input.businessId, input.agentId, {
-          type: "warning",
-          subject: `${agent.name}'s change is not live yet`.slice(0, 80),
+          type: "update",
+          subject: notLiveYetSubject(agent.name),
           body: `**What happened:** ${what} ${input.approvalId ? "You had already said yes to putting it live." : ""}\n\n**What happens next:** the team tries again on the next cycle; nothing is needed from you. The work (“${(task.founderTitle ?? task.title).slice(0, 120)}”) stays saved and waits.`.replace(/ {2,}/g, " "),
           blocksContinue: false,
         });

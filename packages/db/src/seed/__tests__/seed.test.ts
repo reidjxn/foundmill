@@ -151,13 +151,13 @@ describe("seedDemo on PGlite", () => {
       const won = items.find((i) => i.type === "customer_won")!;
       expect(won.sourceEventIds.length).toBeGreaterThan(0);
     }
-    // The composer's type rule (DECISIONS): an open decision and an open win block Continue, in the demo as in a real
-    // business (audit OL-32). Northwind has one of each.
-    expect(await repos.inbox.countBlocking(db, NORTHWIND_BUSINESS_ID)).toBe(2);
+    // Since Nov 7, 2026 (0071) only a hard stop holds Continue, in the demo as in a real business (audit OL-32): the
+    // open decision and the open win wait in the Inbox while the team works.
+    expect(await repos.inbox.countBlocking(db, NORTHWIND_BUSINESS_ID)).toBe(0);
     for (const id of [NORTHWIND_BUSINESS_ID, LEDGERLY_BUSINESS_ID]) {
       const open = (await repos.inbox.list(db, id, { limit: 100 })).items.filter((i) => (i.type === "decision" || i.type === "customer_won") && (i.state === "unread" || i.state === "read"));
       expect(open.length).toBeGreaterThan(0);
-      for (const i of open) expect(i.blocksContinue, `${i.type}: ${i.subject}`).toBe(true);
+      for (const i of open) expect(i.blocksContinue, `${i.type}: ${i.subject}`).toBe(false);
     }
   });
 

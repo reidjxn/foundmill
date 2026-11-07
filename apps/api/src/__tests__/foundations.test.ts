@@ -115,7 +115,7 @@ describe("product.foundations — Door A (Ideation Studio)", () => {
     expect(spec).toHaveLength(1);
     expect(roadmap).toHaveLength(1);
     for (const note of [spec[0]!, roadmap[0]!]) {
-      expect(note).toMatchObject({ type: "decision", blocksContinue: true });
+      expect(note).toMatchObject({ type: "decision", blocksContinue: false });
       const words = note.bodyMd.split(/\s+/).filter(Boolean).length;
       expect(words).toBeGreaterThanOrEqual(60);
       expect(words).toBeLessThanOrEqual(180);
@@ -124,8 +124,8 @@ describe("product.foundations — Door A (Ideation Studio)", () => {
       // Each note is tied to its round; nothing else is asked for.
       expect(await repos.productSignoffs.forInboxItem(hz.db, a.businessId, note.id)).toMatchObject({ status: "pending", round: 1 });
     }
-    expect(inbox.continueState).toEqual({ kind: "blocked", count: 2 });
-    // The welcome note from Take charge blocks nothing; the business waits for the founder's sign-off.
+    // The sign-offs wait in Needs you without holding Continue (0071, Nov 7, 2026); the welcome note blocks nothing either.
+    expect(inbox.continueState).toEqual({ kind: "idle" });
     expect(inbox.items.some((i) => i.id === a.result.firstItem.id && !i.blocksContinue)).toBe(true);
     expect((await a.caller.business.get({ businessId: a.businessId })).productStage).toBe("awaiting_signoff");
   });
@@ -292,7 +292,7 @@ describe("product.foundations — Door B (Import)", () => {
     expect(second.build?.cycle.started).toBe(true);
     expect(second.build?.cycle.reason ?? "").not.toMatch(/Respond to/);
     const board = await f.caller.inbox.get({ businessId: bid, itemId: second.build!.importItemId! });
-    expect(board.item).toMatchObject({ type: "decision", subject: "Where should the team start with what you imported?", blocksContinue: true });
+    expect(board.item).toMatchObject({ type: "decision", subject: "Where should the team start with what you imported?", blocksContinue: false });
     const decision = board.item.decision as { options: { id: string; recommended: boolean }[] } | null;
     expect(decision?.options.map((o) => o.id)).toEqual(report.firstDecisions.map((d) => d.id));
     expect(decision?.options.filter((o) => o.recommended)).toHaveLength(1);

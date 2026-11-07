@@ -61,7 +61,7 @@ describe("InboxList (DESIGN §9 rows)", () => {
     const onSelect = vi.fn();
     const r = render(
       <InboxList
-        rows={[row({}), row({ id: "i2", needsAnswer: true, typeWord: "Decision", tag: { word: "Respond", tone: "bad", icon: "respond" } }), row({ id: "i3", won: true, needsAnswer: true, typeWord: "Customer won", tag: { word: "Customer", tone: "gold", icon: "win" } })]}
+        rows={[row({}), row({ id: "i2", needsAnswer: true, typeWord: "Decision", tag: { word: "Needs you", tone: "warn", icon: "respond" } }), row({ id: "i3", won: true, needsAnswer: true, typeWord: "Customer won", tag: { word: "Customer", tone: "gold", icon: "win" } })]}
         selectedId="i2"
         onSelect={onSelect}
         loading={false}
@@ -71,11 +71,11 @@ describe("InboxList (DESIGN §9 rows)", () => {
       />,
     );
     expect(r.getAllByRole("option")).toHaveLength(3);
-    expect(r.getAllByTestId("row-tag").map((t) => t.getAttribute("data-row-tag"))).toEqual(["Update", "Respond", "Customer"]);
+    expect(r.getAllByTestId("row-tag").map((t) => t.getAttribute("data-row-tag"))).toEqual(["Update", "Needs you", "Customer"]);
     // Every tag carries an icon beside its word (colour is never the only signal) and its legend sentence (UX plan B21).
     for (const t of r.getAllByTestId("row-tag")) expect(t.querySelector("svg")).toBeTruthy();
-    expect(r.getAllByTestId("row-tag").map((t) => t.getAttribute("data-tag-legend"))).toEqual(["Update: Progress from an agent, nothing to do", "Respond: Needs your answer before the team can carry on", "Customer: A new paying customer, with its Customer Update"]);
-    expect(r.container.querySelector("[data-inbox-row='i2']")?.getAttribute("aria-label")).toBe("Approve the launch budget. Respond");
+    expect(r.getAllByTestId("row-tag").map((t) => t.getAttribute("data-tag-legend"))).toEqual(["Update: Progress from an agent, nothing to do", "Needs you: Waiting for your answer; the rest of the work carries on", "Customer: A new paying customer, with its Customer Update"]);
+    expect(r.container.querySelector("[data-inbox-row='i2']")?.getAttribute("aria-label")).toBe("Approve the launch budget. Needs you");
     expect(r.container.querySelector("[data-inbox-row='i3']")?.getAttribute("aria-label")).toBe("Approve the launch budget. Customer, needs your answer, customer won");
     for (const s of r.getAllByTestId("row-subject")) expect(s.className).not.toMatch(/\btruncate\b|line-clamp/);
     const won = r.container.querySelector("[data-inbox-row='i3']");

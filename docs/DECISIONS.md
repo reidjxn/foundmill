@@ -3133,3 +3133,18 @@ The founder asked that skills be assigned by the Chief of Staff, never by hand. 
 
 ### Every agent reads the team's documents, never the code, from the default branch (2026-11-06)
 The founder approved read access for every agent. It covers documents only (Markdown and text files) on the code repository's default branch, through the same first-party reader as the skill tools. Code stays with the engineers' GitHub grants, so a researcher's context holds the handover, not the source. A document reaches the default branch only through the founder's merge, and every read is audited as the agent. Each answer carries a notice that the text is information, never instructions.
+
+### Only a hard stop holds Continue; open decisions wait in Needs you (2026-11-07)
+Founder (phase 1 of the first-time founder report): "When a user clicks continue, all rounds of work should run automatically." A decision no longer stops the team: the work that needs its answer is held on its own (an approval holds its task, a plan waits for its confirmation, the Chief of Staff plans only groundwork before the sign-offs). Only a warning the team cannot work past holds Continue: credits used up, a revoked key (0071, `holdsContinue`). The Respond tab is labeled Needs you, and a customer win is good news that never holds anything or changes the main button. The next change makes one press keep the rounds going automatically.
+
+### Agents keep the founder's naming choice (2026-11-07)
+Founder: whether agents go by people's names (Hung, Mirae) or plain roles "should still be a choice for the user as it is right now." Phase 2's "one name everywhere" follows that setting; it never forces one style.
+
+### Notes that only inform close themselves (2026-11-07)
+An agent's newer update archives its older open ones, and every Continue archives updates, reports and question-less warnings about finished, stopped or failed tasks, or untouched for 7 days. Archived notes stay readable in the Archive tab. Decisions, hard stops, wins and milestones are never closed automatically.
+
+### A missing tool is the platform's gap, not the founder's chore (2026-11-07)
+A task no agent has a tool for is stopped and recorded for the platform (`cycle.tool_missing_stopped`, a `platformGap` log warning). It no longer reaches the founder as "Only you can do this". Supersedes the Nov 3, 2026 one-line note.
+
+### "Quality checks" is the founder's word for tests; "PR" is public relations (2026-11-07)
+Every founder-facing status says "quality checks" (approvals: "It passed every quality check"). The word map's substitutes contain no engineering words themselves. "PR" left the map because a public-relations channel is a marketing word in the founder's vocabulary; "pull request" stays.

@@ -17,8 +17,9 @@ describe("computeContinueState", () => {
     expect(computeContinueState({ blocking: 1, items, cycle: { running: true } })).toEqual({ kind: "blocked", count: 1 });
   });
 
-  it("shows Go to Journey for an unviewed win", () => {
-    expect(computeContinueState({ blocking: 0, items: [item({ type: "customer_won", state: "unread" })], cycle: { running: true } })).toEqual({ kind: "matchday" });
+  it("never turns Continue into Go to Journey for a win: good news stays in the Inbox (Nov 7, 2026)", () => {
+    expect(computeContinueState({ blocking: 0, items: [item({ type: "customer_won", state: "unread" })], cycle: { running: true } })).toEqual({ kind: "processing" });
+    expect(computeContinueState({ blocking: 0, items: [item({ type: "customer_won", state: "unread" })] })).toEqual({ kind: "idle" });
     expect(computeContinueState({ blocking: 0, items: [item({ type: "customer_won", state: "read" })] })).toEqual({ kind: "idle" });
   });
 

@@ -128,7 +128,8 @@ describe("deciding an approval's Inbox item", () => {
     const blockingBefore = await repos.inbox.countBlocking(hz.db, hz.A.businessId);
     await expect(owner().inbox.decide({ businessId: hz.A.businessId, itemId: g.itemId, chosenOption: APPROVAL_OPTIONS.approve })).rejects.toThrow(/already expired/);
     expect((await repos.inbox.get(hz.db, hz.A.businessId, g.itemId)).state).toBe("archived");
-    expect(await repos.inbox.countBlocking(hz.db, hz.A.businessId)).toBe(blockingBefore - 1);
+    // An approval's note never held Continue (0071, Nov 7, 2026): closing it leaves the hard stops as they were.
+    expect(await repos.inbox.countBlocking(hz.db, hz.A.businessId)).toBe(blockingBefore);
     expect(temporal.signals).toEqual([]);
   });
 
@@ -178,11 +179,11 @@ describe("an answer that comes after the session ended", () => {
     expect(result.approval?.summary).toBe(`You approved ${agentName}'s request to run GitHub › run a change to the data layout. “Index the usage events” runs again on the next cycle.`);
   });
 
-  it("no cycle starts over another note that still blocks Continue, or while the Chief of Staff runs the vacation; the task is ready for the next one", async () => {
+  it("no cycle starts over a hard stop (credits used up), or while the Chief of Staff runs the vacation; the task is ready for the next one", async () => {
     await answerOtherBlockingNotes("");
     // The cycle the test before started is over: the workflow of that press reports it finished.
     for (const start of temporalStarted) await repos.events.write(hz.db, hz.A.businessId, { type: "cycle.completed", actor: { kind: "system", id: "orchestrator" }, payload: { cycleId: start.workflowId, cycleNumber: Number(start.workflowId.split(":").at(-1)), workflowId: start.workflowId, outcome: "time_box", tasksStarted: 0 } });
-    const other = await repos.inbox.createItem(hz.db, hz.A.businessId, { type: "decision", from_agent_id: hz.A.agentId, subject: "Pick the launch week", body_md: "Which week?", status_strip: [], exhibit: { kind: "none", spec_ref: null }, decision: { options: [{ id: "w1", label: "Week 1", recommended: true, consequence: "Launch early", cost_minor: 0, reversible: true }, { id: "w2", label: "Week 2", recommended: false, consequence: "Launch later", cost_minor: 0, reversible: true }], free_text: false, expires_at: null }, blocks_continue: true, source_event_ids: [], entity_ids: [] });
+    const other = await repos.inbox.createItem(hz.db, hz.A.businessId, { type: "warning", blocks_continue: true, from_agent_id: hz.A.agentId, subject: "Credits used up", body_md: "Top up to keep working.", status_strip: [], exhibit: { kind: "none", spec_ref: null }, decision: null, source_event_ids: [], entity_ids: [] });
     const first = await gatedCall({ sessionEnded: true, title: "Wire the usage dashboard" });
     const waiting = await owner().inbox.decide({ businessId: hz.A.businessId, itemId: first.itemId, chosenOption: APPROVAL_OPTIONS.approve });
     expect(temporal.starts).toEqual([]);

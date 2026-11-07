@@ -333,7 +333,7 @@ export function EnvironmentsScreen({ businessId, departmentId }: ModuleScreenPro
             </span>
           ) : undefined
         }
-        footer={<span>Every agent branch gets its own preview deployment once its tests pass; the URL, provider and commit appear with the first one. Production releases show on the Journey.</span>}
+        footer={<span>Every agent branch gets its own preview deployment once it passes the quality checks; the URL, provider and commit appear with the first one. Production releases show on the Journey.</span>}
       >
         <div className="min-w-0">
           <DataTable<EnvironmentRow> data={rows} columns={columns} {...savedViews} defaultViewId={defaultViewId} rowActions={rowActions} onRowOpen={(r) => r.url && window.open(r.url, "_blank", "noopener")} height={Math.min(520, Math.max(4, rows.length) * 28 + 42)} hideEmptyColumns exportFileName="environments" empty={{ icon: Boxes, children: "Environments appear here as code tasks start: one preview deployment per agent branch.", action: { label: "Go to Plan", onClick: () => navigate(routes.department(businessId, deptSlug, "plan")) } }} aria-label="Environments" className="border-0" />

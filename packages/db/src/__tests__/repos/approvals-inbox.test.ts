@@ -49,7 +49,8 @@ describe("the decision item", () => {
     expect(opened.created).toBe(true);
     const item = opened.item;
     expect(item.type).toBe("decision");
-    expect(item.blocksContinue).toBe(true);
+    // A question waits in Needs you without holding Continue (0071, Nov 7, 2026).
+    expect(item.blocksContinue).toBe(false);
     expect(item.fromAgentId).toBe(r.A.agentId);
     expect(item.subject).toBe("Finance Lead needs your OK: Stripe › create coupon");
     expect(item.bodyMd).toContain("“Set up the first runway forecast”");
@@ -129,14 +130,14 @@ describe("the decision item", () => {
     const released = `${release.subject}. ${release.body_md.replace(/“[^”]*”/g, "")}. ${(release.decision?.options ?? []).map((o) => `${o.label}. ${o.consequence}`).join(" ")}`;
     expect(founderJargonHits(released).map((h) => h.term), released).toEqual([]);
     expect(founderJargonHits(`${plain.subject}. ${plain.body_md}`).map((h) => h.term)).toEqual([]);
-    expect(release.body_md).toBe("Eva finished “Assert no hydration errors in the example-business Playwright spec”. All 144 tests passed. OK to put it live?");
+    expect(release.body_md).toBe("Eva finished “Assert no hydration errors in the example-business Playwright spec”. It passed every quality check. OK to put it live?");
     expect(release.body_md).not.toMatch(/prNumber|squash|merge|#38|\{/);
     // A release never holds Continue: the merge waits for the answer in the background.
     expect(release.blocks_continue).toBe(false);
     expect((release.decision.options as { label: string; consequence: string }[]).map((o) => o.label)).toEqual(["Put it live", "Not now"]);
-    expect((release.decision.options as { consequence: string }[])[0]!.consequence).toBe("It goes live once the automatic tests pass; if they fail, Eva fixes it and asks again.");
-    expect(approvalItem({ connectorKey: "github", tool: "merge_pr", reasons: [], amountMinor: null, currency: null, args: {} }, { agentId: r.A.agentId, agentName: "Eva", tests: null }).body_md).toBe("Eva finished a change. There was nothing in it to test. OK to put it live?");
-    expect(approvalItem({ connectorKey: "github", tool: "merge_pr", reasons: [], amountMinor: null, currency: null, args: {} }, { agentId: r.A.agentId, agentName: "Eva", taskTitle: "Fix the sign-in page", tests: { passing: 19, total: 25 } }).body_md).toBe("Eva finished “Fix the sign-in page”. 19 of 25 tests passed. OK to put it live?");
+    expect((release.decision.options as { consequence: string }[])[0]!.consequence).toBe("It goes live once the final quality checks pass; if one fails, Eva fixes it and asks again.");
+    expect(approvalItem({ connectorKey: "github", tool: "merge_pr", reasons: [], amountMinor: null, currency: null, args: {} }, { agentId: r.A.agentId, agentName: "Eva", tests: null }).body_md).toBe("Eva finished a change. There was nothing in it to check. OK to put it live?");
+    expect(approvalItem({ connectorKey: "github", tool: "merge_pr", reasons: [], amountMinor: null, currency: null, args: {} }, { agentId: r.A.agentId, agentName: "Eva", taskTitle: "Fix the sign-in page", tests: { passing: 19, total: 25 } }).body_md).toBe("Eva finished “Fix the sign-in page”. It passed most of its quality checks. OK to put it live?");
     expect(founderReasons(["Assisted mode: irreversible actions need approval", "spend above the approval threshold", "something this table does not know"])).toEqual(["You chose to be asked before anything that can't be undone.", "This would spend more than you allowed without asking."]);
   });
 });

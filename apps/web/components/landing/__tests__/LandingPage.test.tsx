@@ -93,10 +93,10 @@ describe("LandingPage (signed-out /)", () => {
     expect(within(panel).getByText(/^Iris, Product lead, writes it from your idea and your profile\. Orla, Chief of Staff, plans the first cycle from the roadmap\.$/)).toBeTruthy();
     // Then the two sign-off notes in the Inbox, each tagged Respond, then Continue.
     const inbox = within(how).getByRole("list", { name: "Inbox" });
-    // Each row: the Product lead's portrait (its name is text too), the subject, the Respond tag.
+    // Each row: the Product lead's portrait (its name is text too), the subject, the Needs you tag.
     const rows = within(inbox).getAllByRole("listitem");
     expect(rows).toHaveLength(2);
-    rows.forEach((li, i) => expect(li.textContent).toBe(`Iris${FIRST_DAY_SIGNOFFS[i]}Respond`));
+    rows.forEach((li, i) => expect(li.textContent).toBe(`Iris${FIRST_DAY_SIGNOFFS[i]}Needs you`));
     const day = panel.parentElement!;
     expect(within(day).getByText("Continue")).toBeTruthy();
     const planned = TUTORLANE.howItWorks.firstCyclePlan.reduce((s, p) => s + p.tasks, 0);
@@ -145,7 +145,7 @@ describe("LandingPage (signed-out /)", () => {
       vi.advanceTimersByTime(DECK_CYCLE_MS);
     });
     expect(deck.getAttribute("data-phase")).toBe("decision");
-    expect(within(deck).getByRole("button", { name: /Respond to 1 item/ })).toBeTruthy();
+    expect(within(deck).getByRole("button", { name: /1 thing needs you/ })).toBeTruthy();
     const decision = screen.getByTestId("deck-decision");
     expect(within(decision).getByText("Merge photo grading to production?")).toBeTruthy();
     // The app's words for an open decision ("Needs your answer"), never the retired "needs you".
@@ -251,10 +251,9 @@ describe("LandingPage (signed-out /)", () => {
     // The Customer Update and the Inbox note are the example business's.
     expect(screen.getByRole("region", { name: "Customer Update" })).toBeTruthy();
     expect(screen.getByRole("article", { name: "Example Inbox note" })).toBeTruthy();
-    // The Inbox note and the thesis use the app's current words, not the retired "Needs you" / "Your calls".
+    // The Inbox note and the thesis use the app's current words ("Needs your answer"), never the retired "Your calls".
     expect(within(screen.getByRole("article", { name: "Example Inbox note" })).getByText("Needs your answer")).toBeTruthy();
     expect(screen.getByRole("link", { name: /Your decisions/ }).getAttribute("href")).toBe("#control");
-    expect(screen.queryByText("Needs you")).toBeNull();
     expect(screen.queryByText(/Your calls/)).toBeNull();
     // Only milestones the example reached, each labelled as the example business's.
     expect(screen.queryByText("Not yet")).toBeNull();

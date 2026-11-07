@@ -50,8 +50,8 @@ describe("POST /v1/founder-titles", () => {
 
   it("titles exactly the tasks named, whatever their state, and never another business's", async () => {
     const service = hz.service();
-    const done = await task(hz.A.businessId, "Open a PR for the usage export", "", "done");
-    const other = await task(hz.B.businessId, "Open a PR for the usage export");
+    const done = await task(hz.A.businessId, "Open a pull request for the usage export", "", "done");
+    const other = await task(hz.B.businessId, "Open a pull request for the usage export");
     const r = await service.founderTitles(hz.A.businessId, [done.id, other.id]);
     expect(r.written.map((w) => w.taskId)).toEqual([done.id]);
     expect((await repos.tasks.get(hz.db, hz.A.businessId, done.id)).founderTitle).toBe("Open a finished change for the usage export");
@@ -63,7 +63,7 @@ describe("POST /v1/founder-titles", () => {
     expect(bannedWordsLine()).toContain("Pull request");
     expect(bannedWordsLine()).toContain("webhook");
     expect(FOUNDER_TITLES_BATCH).toBeGreaterThan(0);
-    expect(titleFallback({ title: "Investigate flaky e2e in apps/web", goalMd: "The inbox page sometimes fails to load. Find out why." })).toEqual({ title: "Investigate unreliable the automatic tests", source: "fallback" });
+    expect(titleFallback({ title: "Investigate flaky e2e in apps/web", goalMd: "The inbox page sometimes fails to load. Find out why." })).toEqual({ title: "Investigate unreliable the quality checks", source: "fallback" });
     expect(titleFallback({ title: "Make CI green on the sitemap branch", goalMd: "Two tests fail on the sitemap page. Fix them." })).toEqual({ title: "Two tests fail on the sitemap page", source: "fallback" });
     expect(titleFallback({ title: "Rebase agent/x onto main and resolve merge conflicts in CI", goalMd: "Rebase onto main and fix merge conflicts." })).toBeNull();
   });

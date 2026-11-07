@@ -46,7 +46,7 @@ test.describe("landing page", () => {
     await expect(firstDay).toContainText("Iris, Product lead, writes it from your idea and your profile. Orla, Chief of Staff, plans the first cycle from the roadmap.");
     const signoffs = how.getByRole("list", { name: "Inbox" }).getByRole("listitem");
     await expect(signoffs).toHaveText([/Sign off the product specification/, /Sign off the product roadmap/]);
-    await expect(how.getByRole("list", { name: "Inbox" }).getByText("Respond", { exact: true })).toHaveCount(2);
+    await expect(how.getByRole("list", { name: "Inbox" }).getByText("Needs you", { exact: true })).toHaveCount(2);
     await expect(how.getByText("Building starts: 11 tasks planned")).toBeVisible();
     await expect(how.getByText("The team drafts; you sign off; then they build. Nothing is spent until you approve it.")).toBeVisible();
 
@@ -98,7 +98,7 @@ test.describe("landing page", () => {
     const deck = page.getByTestId("cycle-deck");
     // The first cycle runs on its own and comes back with a decision; Continue waits for the founder.
     await expect(deck).toHaveAttribute("data-phase", "decision", { timeout: 15_000 });
-    await expect(deck.getByRole("button", { name: /Respond to 1 item/ })).toBeVisible();
+    await expect(deck.getByRole("button", { name: /1 thing needs you/ })).toBeVisible();
     await page.getByTestId("deck-decision").getByRole("button", { name: "Merge" }).click();
     await expect(deck.getByText("Photo grading merged", { exact: true })).toBeVisible();
     // The callout under Continue teaches the loop in the app's own words, until the visitor presses it. It is the

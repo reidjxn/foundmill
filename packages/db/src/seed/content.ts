@@ -322,12 +322,12 @@ export interface InboxSpec {
 export const entityIdsIn = (body: string): string[] => [...new Set([...body.matchAll(ENTITY_MARKUP_RE)].map((m) => m[1]!))];
 
 /**
- * The composer's rule (DECISIONS: `blocks_continue` is set by the type rules): a decision and a win block Continue while
- * they are open, so the demo businesses show the Continue states a real one does (audit OL-32).
+ * The composer's rule since Nov 7, 2026 (0071): no note the team writes holds Continue; only the platform's hard stops
+ * (credits used up, a revoked key) do, and the demo businesses have none, so their Continue reads Continue as a real
+ * one does (audit OL-32). Open decisions wait in the Inbox's Needs you tab.
  */
-function blocksContinueFor(s: Pick<InboxSpec, "type" | "state" | "decided">): boolean {
-  if (s.decided || s.state === "answered" || s.state === "archived") return false;
-  return s.type === "decision" || s.type === "customer_won";
+function blocksContinueFor(_s: Pick<InboxSpec, "type" | "state" | "decided">): boolean {
+  return false;
 }
 
 export async function seedInbox(ctx: SeedCtx, businessId: string, specs: InboxSpec[], currency: string): Promise<InboxItem[]> {

@@ -435,7 +435,8 @@ async function composeLocallyWithSlot(db: Db, models: ModelClient, businessId: s
     status_strip: out.status_strip.slice(0, 4),
     exhibit: NAMED_QUERIES.some((q) => q.id === out.exhibit.spec_ref) ? out.exhibit : { kind: "none" as const, spec_ref: null },
     decision: withSaneDeadline(out.type === "decision" || out.type === "customer_won" ? (out.decision ?? defaultDecision()) : out.decision, grounded),
-    blocks_continue: out.type === "decision" || out.type === "customer_won" ? true : out.blocks_continue,
+    // A Composer note never holds Continue (Nov 7, 2026; 0071): only the platform's hard stops do.
+    blocks_continue: false,
     source_event_ids: eventIds,
     entity_ids: entityIds,
   };

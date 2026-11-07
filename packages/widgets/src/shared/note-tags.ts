@@ -1,7 +1,7 @@
 /**
  * The one vocabulary for an Inbox note's status tag (DIRECTION #8, DESIGN §9 Inbox): an icon and a word, the tone a
  * second signal. The Inbox list, the reading pane and Home's Inbox preview all read it, so a note says the same thing
- * wherever it appears ("Respond", "Customer", "Milestone", never "Needs you" here and "Win" there). Every tag carries
+ * wherever it appears ("Needs you", "Customer", "Milestone", never "Respond" here and "Win" there; "Needs you" since Nov 7, 2026). Every tag carries
  * one legend sentence (UX plan B21), shown as the chip's tooltip.
  */
 import { Check, FileText, Flag, Mail, MessageSquareReply, RefreshCw, TriangleAlert, UserCheck, type LucideIcon } from "lucide-react";
@@ -33,7 +33,7 @@ export const NOTE_TAG_ICONS: Record<NoteTagIcon, LucideIcon> = {
  */
 export const NOTE_TAG_LEGEND: Record<NoteTagIcon, string> = {
   win: "A new paying customer, with its Customer Update",
-  respond: "Needs your answer before the team can carry on",
+  respond: "Waiting for your answer; the rest of the work carries on",
   warning: "Something to watch; it holds Continue only if cash is under 3 months",
   update: "Progress from an agent, nothing to do",
   milestone: "A first your business reached",
@@ -47,7 +47,8 @@ export function noteTagLegend(tag: Pick<NoteTag, "word" | "icon">): string {
   return `${tag.word}: ${NOTE_TAG_LEGEND[tag.icon]}`;
 }
 
-export const RESPOND_TAG: NoteTag = { word: "Respond", tone: "bad", icon: "respond" };
+/** A note waiting on the founder (Nov 7, 2026: "Needs you", amber; a decision is a question, not an alarm). */
+export const RESPOND_TAG: NoteTag = { word: "Needs you", tone: "warn", icon: "respond" };
 
 export const NOTE_TYPE_TAGS: Record<InboxItemType, NoteTag> = {
   decision: { word: "Decided", tone: "neutral", icon: "decided" },
@@ -60,7 +61,7 @@ export const NOTE_TYPE_TAGS: Record<InboxItemType, NoteTag> = {
 };
 
 /**
- * One tag per row: a won customer reads "Customer" (gold), anything waiting on the founder says "Respond" (an answered
+ * One tag per row: a won customer reads "Customer" (gold), anything waiting on the founder says "Needs you" (an answered
  * note whose plan still waits for their go-ahead too: inbox.list's `awaitingConfirmation`), the rest name their kind
  * ("Milestone", "Update", "Report", "Decided" once a decision is answered).
  */

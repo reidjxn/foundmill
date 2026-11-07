@@ -17,7 +17,7 @@ import { formatNumber } from "@/lib/format";
 export const INBOX_TABS = ["all", "respond", "customers", "updates", "messages", "archive"] as const;
 export type InboxTab = (typeof INBOX_TABS)[number];
 
-export const INBOX_TAB_LABELS: Record<InboxTab, string> = { all: "All", respond: "Respond", customers: "Customers", updates: "Updates", messages: "Messages", archive: "Archive" };
+export const INBOX_TAB_LABELS: Record<InboxTab, string> = { all: "All", respond: "Needs you", customers: "Customers", updates: "Updates", messages: "Messages", archive: "Archive" };
 
 export function parseInboxTab(raw: string | null | undefined, live: boolean): InboxTab {
   const tab = (INBOX_TABS as readonly string[]).includes(raw ?? "") ? (raw as InboxTab) : "all";
@@ -94,12 +94,13 @@ export function rowTag(item: Pick<InboxRowInput, "type" | "state" | "blocksConti
 export function headerTag(type: InboxItemType, answered: boolean, blocksContinue: boolean, awaitingConfirmation = false): NoteTag {
   if (type === "customer_won") return { word: "Customer won", tone: "gold", icon: "win" };
   if (awaitingConfirmation) return { word: "Needs your go-ahead", tone: "warn", icon: "respond" };
-  if (!answered && (type === "decision" || blocksContinue)) return { word: "Needs your answer", tone: "bad", icon: "respond" };
+  // A question is amber, not red (Nov 7, 2026): it waits for the founder without stopping the team.
+  if (!answered && (type === "decision" || blocksContinue)) return { word: "Needs your answer", tone: "warn", icon: "respond" };
   return NOTE_TYPE_TAGS[type];
 }
 
 /** The tooltip of the "Holds Continue" chip: what the chip means for the team (UX plan B7). */
-export const HOLDS_CONTINUE_HINT = "The team waits for this answer before its next round of work";
+export const HOLDS_CONTINUE_HINT = "The team cannot work until this is sorted (only credits or a key do this)";
 
 export interface InboxRowModel {
   id: string;
@@ -597,7 +598,7 @@ export function approvalStatus(a: ApprovalLike): { word: string; tone: ApprovalS
   switch (a.outcome) {
     case "approved": {
       const e = a.execution ?? null;
-      if (!e) return { word: "Approved", tone: "good", detail: a.release ? "It goes live once the repository's automatic tests pass." : "The call runs once, exactly as asked." };
+      if (!e) return { word: "Approved", tone: "good", detail: a.release ? "It goes live once the final quality checks pass." : "The call runs once, exactly as asked." };
       switch (e.state) {
         case "ran":
           return { word: a.release ? "Live" : "Done", tone: "good", detail: e.detail ?? (a.release ? "It is live." : "It ran once, as asked.") };
@@ -616,7 +617,7 @@ export function approvalStatus(a: ApprovalLike): { word: string; tone: ApprovalS
       return { word: "Expired", tone: "neutral", detail: "Nobody answered in time, so nothing ran." };
     default:
       // A release waits in the background, never in a session: nothing else is held while the founder decides.
-      if (a.release) return { word: "Needs your answer", tone: "warn", detail: "Say yes and it goes live once the automatic tests pass. Nothing else waits on this." };
+      if (a.release) return { word: "Needs your answer", tone: "warn", detail: "Say yes and it goes live once the final quality checks pass. Nothing else waits on this." };
       if (a.sessionWaiting) return { word: "Needs your answer", tone: "warn", detail: "The agent is waiting for your answer. Approve and it carries on." };
       return { word: "Needs your answer", tone: "warn", detail: a.task ? "The agent stopped waiting and freed its place. Approve and the task runs again in the team's next round of work." : "Approve and it runs once, exactly as asked." };
   }

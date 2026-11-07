@@ -10,7 +10,7 @@
 import { ENTITY_MARKUP_RE, EXHIBIT_KINDS, INBOX_ITEM_TYPES, INBOX_STATES, OptionAction, ValidationError, applyGlossary, type InboxItemType, type InboxState } from "@foundmill/shared";
 import { and, asc, desc, eq, getTableColumns, inArray, isNotNull, isNull, notInArray, or, sql, type SQL } from "drizzle-orm";
 import { z } from "zod";
-import { agents, businesses, composerBuffer, DECIDED_BY_KINDS, decisions, entities, events, inboxItemReads, inboxItems, memberships, plans, type ComposerBufferRow, type Decision, type InboxItem } from "../schema";
+import { agents, businesses, composerBuffer, DECIDED_BY_KINDS, decisions, entities, events, inboxItemReads, inboxItems, memberships, plans, tasks, type ComposerBufferRow, type Decision, type InboxItem } from "../schema";
 import { Currency, Id, MinorAmount, one, PageInput, parseInput, timeKeyset, toPage, type Executor, type Page } from "./_shared";
 
 // --- Composer output schema (BUILD §11.3) ------------------------------------------------------------------------------
@@ -137,11 +137,28 @@ export const INBOX_TABS = ["all", "respond", "customers", "updates", "messages",
 export type InboxTab = (typeof INBOX_TABS)[number];
 
 /**
- * Types that ask the founder for something; they sit in Respond until answered. A warning sits there only when it
- * carries a decision or holds Continue (a runway warning): fifteen "no action needed" warnings in Respond trained the
- * founder to ignore the tab (Nov 1, 2026), so the rest read as updates.
+ * Types that ask the founder for something; they sit in Respond (shown as "Needs you") until answered. A warning sits
+ * there only when it carries a decision or holds Continue (a hard stop): fifteen "no action needed" warnings in Respond
+ * trained the founder to ignore the tab (Nov 1, 2026), so the rest read as updates. A customer win is good news, not a
+ * question: it has its own Customers tab and left Respond on Nov 7, 2026.
  */
-export const RESPOND_TYPES: readonly InboxItemType[] = ["decision", "customer_won"];
+export const RESPOND_TYPES: readonly InboxItemType[] = ["decision"];
+
+/**
+ * Only a hard stop holds Continue (0071, founder, Nov 7, 2026): a warning the team cannot work past until the founder
+ * acts (credits used up, a revoked key). A decision waits for its answer without stopping the team, since the work that
+ * needs it is held on its own; a customer win never holds anything.
+ */
+export function holdsContinue(type: InboxItemType, requested: boolean): boolean {
+  return requested && type === "warning";
+}
+
+/** The task ids an event names (`taskId`, `blockedByTaskId`, `taskIds`), for closing the notes it sourced. */
+function noteTaskIds(payload: unknown): string[] {
+  const p = (payload ?? {}) as { taskId?: unknown; blockedByTaskId?: unknown; taskIds?: unknown };
+  const ids = [p.taskId, p.blockedByTaskId, ...(Array.isArray(p.taskIds) ? p.taskIds : [])];
+  return ids.filter((id): id is string => typeof id === "string" && /^[0-9a-f-]{36}$/i.test(id));
+}
 
 /**
  * The item's plan waits for the founder's go-ahead ("Here is what will happen", `plan.confirm`): it was answered, so
@@ -295,7 +312,7 @@ export const inboxRepo = {
     const o = parseInput(CreateItemOptions, options, "inbox item options");
     await assertOwnedIds(db, businessId, parsed);
     const v = parsed.type === "human_message" ? parsed : inBusinessWords(parsed, await businessGlossary(db, businessId));
-    return one(
+    const created = one(
       await db
         .insert(inboxItems)
         .values({
@@ -308,7 +325,7 @@ export const inboxRepo = {
           statusStrip: v.status_strip,
           exhibit: v.exhibit,
           decision: v.decision,
-          blocksContinue: v.blocks_continue,
+          blocksContinue: holdsContinue(v.type, v.blocks_continue),
           sourceEventIds: v.source_event_ids,
           entityIds: v.entity_ids,
           state: o.state,
@@ -318,6 +335,9 @@ export const inboxRepo = {
         .returning(),
       "inbox item",
     );
+    // One current update per agent: the newer replaces the older open ones (Nov 7, 2026).
+    if (created.type === "update" && created.fromAgentId && created.decision === null && created.state !== "archived") await inboxRepo.supersedeUpdates(db, businessId, { fromAgentId: created.fromAgentId, keepId: created.id });
+    return created;
   },
 
   /** A human-to-human (or human-to-agent) message in the Messages tab. */
@@ -365,7 +385,7 @@ export const inboxRepo = {
     const updated = one(
       await db
         .update(inboxItems)
-        .set({ subject: v.subject, bodyMd: v.body_md, statusStrip: v.status_strip, exhibit: v.exhibit, decision: v.decision, blocksContinue: v.blocks_continue, sourceEventIds, entityIds, state: "unread", updatedAt: new Date() })
+        .set({ subject: v.subject, bodyMd: v.body_md, statusStrip: v.status_strip, exhibit: v.exhibit, decision: v.decision, blocksContinue: holdsContinue(item.type, v.blocks_continue), sourceEventIds, entityIds, state: "unread", updatedAt: new Date() })
         .where(scoped(businessId, itemId))
         .returning(),
       "inbox item",
@@ -397,10 +417,63 @@ export const inboxRepo = {
     const item = await inboxRepo.get(db, businessId, itemId);
     const choices = (item.decision as { options?: unknown[] } | null)?.options;
     // `force`: the system closing a request that was settled some other way (an expired approval), not the founder.
-    if (!options.force && item.blocksContinue && (item.state === "unread" || item.state === "read") && Array.isArray(choices) && choices.length > 0) {
+    // A question waits for its answer: an open decision with options (or a hard stop) is never archived by hand, whether or
+    // not it holds Continue (since Nov 7, 2026 a decision no longer does).
+    if (!options.force && (item.blocksContinue || item.type === "decision") && (item.state === "unread" || item.state === "read") && Array.isArray(choices) && choices.length > 0) {
       throw new ValidationError("This decision is waiting for your answer. Choose an option or write what to do; it can be archived once it is answered.", { itemId, state: item.state });
     }
     return one(await db.update(inboxItems).set({ state: "archived" }).where(scoped(businessId, itemId)).returning(), "inbox item", itemId);
+  },
+
+  /**
+   * A newer update from an agent replaces its older open ones (founder, Nov 7, 2026: "the updates I receive should be
+   * much, much more simplified"): the Inbox keeps one current update per agent instead of a stream, and the older ones go
+   * to Archive, where they stay readable. Only plain updates are touched: never a decision, a warning, a win, a
+   * milestone or a report. Returns how many were archived.
+   */
+  async supersedeUpdates(db: Executor, businessId: string, input: { fromAgentId: string; keepId: string }): Promise<number> {
+    const rows = await db
+      .update(inboxItems)
+      .set({ state: "archived", updatedAt: new Date() })
+      .where(and(eq(inboxItems.businessId, businessId), eq(inboxItems.fromAgentId, input.fromAgentId), eq(inboxItems.type, "update"), isNull(inboxItems.decision), inArray(inboxItems.state, ["unread", "read"]), isNull(inboxItems.archivedAt), sql`${inboxItems.id} <> ${input.keepId}`))
+      .returning({ id: inboxItems.id });
+    return rows.length;
+  },
+
+  /**
+   * Closes notes that only informed and are no longer current (founder, Nov 7, 2026: warnings from Oct 31 about problems
+   * long fixed still sat unread): an open update, report or question-less warning is archived when every task its source
+   * events name has finished, stopped or failed, or when nobody touched it for `olderThan`. A decision, a hard stop, a win
+   * and a milestone are never closed here. Returns the ids archived.
+   */
+  async archiveSettled(db: Executor, businessId: string, input: { olderThan: Date; limit?: number }): Promise<string[]> {
+    const informOnly = and(
+      eq(inboxItems.businessId, businessId),
+      inArray(inboxItems.state, ["unread", "read"]),
+      isNull(inboxItems.archivedAt),
+      eq(inboxItems.blocksContinue, false),
+      or(inArray(inboxItems.type, ["update", "report"]), and(eq(inboxItems.type, "warning"), isNull(inboxItems.decision))),
+    );
+    const open = await db.select({ id: inboxItems.id, updatedAt: inboxItems.updatedAt, sourceEventIds: inboxItems.sourceEventIds }).from(inboxItems).where(informOnly).orderBy(asc(inboxItems.createdAt)).limit(input.limit ?? 500);
+    if (open.length === 0) return [];
+    const eventIds = [...new Set(open.flatMap((n) => n.sourceEventIds))];
+    const sources = eventIds.length > 0 ? await db.select({ id: events.id, payload: events.payload }).from(events).where(and(eq(events.businessId, businessId), inArray(events.id, eventIds))) : [];
+    const taskIdsOf = new Map(sources.map((e) => [e.id, noteTaskIds(e.payload)]));
+    const allTaskIds = [...new Set([...taskIdsOf.values()].flat())];
+    const live = allTaskIds.length > 0 ? await db.select({ id: tasks.id, status: tasks.status, archivedAt: tasks.archivedAt }).from(tasks).where(and(eq(tasks.businessId, businessId), inArray(tasks.id, allTaskIds))) : [];
+    const settledTask = new Set(live.filter((t) => t.archivedAt !== null || t.status === "done" || t.status === "stopped" || t.status === "failed").map((t) => t.id));
+    const close = open.filter((n) => {
+      if (n.updatedAt < input.olderThan) return true;
+      const ids = [...new Set(n.sourceEventIds.flatMap((e) => taskIdsOf.get(e) ?? []))];
+      return ids.length > 0 && ids.every((id) => settledTask.has(id));
+    });
+    if (close.length === 0) return [];
+    const rows = await db
+      .update(inboxItems)
+      .set({ state: "archived", updatedAt: new Date() })
+      .where(and(informOnly, inArray(inboxItems.id, close.map((n) => n.id))))
+      .returning({ id: inboxItems.id });
+    return rows.map((r) => r.id);
   },
 
   /**

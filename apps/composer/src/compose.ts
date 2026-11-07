@@ -14,12 +14,11 @@ import { APP_NAME, LIMITS } from "@foundmill/config";
 import type { ComposerItem, Event } from "@foundmill/db";
 import { checkComposerText, linkComposerText, stripMarkup, type LinkedText, type ValidationResult } from "@foundmill/entity-linker";
 import { ComposerOutput, ModelAbortedError, type ChatMessage, type CompleteResultWithJson, type ComposerOption, type ModelClient, type ModelLogger, type TokenUsage } from "@foundmill/models";
-import { AppError, futureDeadline, type InboxItemType } from "@foundmill/shared";
+import { AppError, founderJargonHits, futureDeadline, type InboxItemType } from "@foundmill/shared";
 import { businessBrief, type ComposeContext } from "./context";
 import type { NextBestDecision } from "./decisions";
 import { namedQueryCatalogue, sanitizeExhibit } from "./exhibits";
 import type { Insight } from "./insights";
-import { blocksForRunway } from "./metrics";
 
 /** The Zod Composer schema (BUILD §11.3), shared with @foundmill/models' mock and the API. */
 export const ComposerSchema = ComposerOutput;
@@ -96,18 +95,26 @@ export const DEFAULT_DECISION_OPTIONS: readonly ComposerOption[] = Object.freeze
   { id: "hold", label: "Hold for now", recommended: false, consequence: "Nothing changes until you decide.", cost_minor: 0, reversible: true },
 ]);
 
-const RUNWAY_EVENT = "runway.threshold_crossed";
+/** The engineering words in a note's subject and body (entity markup read as its display name). */
+export function founderJargonOf(subject: string, bodyMd: string): string[] {
+  const plain = bodyMd.replace(/\[\[ent:[^|\]]+\|([^\]]+)\]\]/g, "$1");
+  return [...new Set(founderJargonHits(`${subject}\n${plain}`).map((h) => h.term.toLowerCase()))];
+}
 
-/** blocks_continue by type (BUILD §11.3 Types): decision and customer_won always; warning only when runway < 3 months. */
-export function blocksContinueFor(type: InboxItemType, ctx: Pick<ComposeContext, "metrics">, events: readonly Event[]): boolean {
-  if (type === "decision" || type === "customer_won") return true;
-  if (type !== "warning") return false;
-  if (blocksForRunway(ctx.metrics.runwayMonths)) return true;
-  return events.some((e) => {
-    if (e.type !== RUNWAY_EVENT) return false;
-    const months = (e.payload as { runwayMonths?: unknown }).runwayMonths;
-    return typeof months === "number" && blocksForRunway(months);
-  });
+/** The re-ask for engineering words: the founder is not technical, so say what happened for the business. */
+export function jargonReask(terms: readonly string[]): string {
+  return `The founder is not technical. Rewrite the note without these words: ${terms.map((t) => `"${t}"`).join(", ")}. Say what happened for the business and what, if anything, the founder should do, in at most three short sentences. Keep the same type, mentions and facts.`;
+}
+
+/**
+ * blocks_continue for a Composer note: never (founder, Nov 7, 2026). A Composer note informs or asks; it is never a hard
+ * stop the team cannot work past, so a decision waits for its answer without stopping the team, a customer win is good
+ * news, and a runway warning below three months says so without freezing the work that might fix it. Until Nov 7 a
+ * decision and a win always held Continue and turned the top bar's button into a red "Respond". Only the platform's own
+ * hard stops (credits used up, a revoked key) hold it, and `inboxRepo.createItem` keeps the flag on warnings alone (0071).
+ */
+export function blocksContinueFor(_type: InboxItemType, _ctx: Pick<ComposeContext, "metrics">, _events: readonly Event[]): boolean {
+  return false;
 }
 
 /** Builds the JSON input block the model (and the mock) reads. */
@@ -214,10 +221,14 @@ async function composeWithin(deps: ComposeDeps, ctx: ComposeContext, brief: Comp
   let stripped = false;
 
   let check = checkComposerText(result.json.body_md, ctx.manifest, 0);
-  if (!check.ok && check.reask) {
+  // Engineering words in a note to the founder (founder, Nov 7, 2026: "I don't really want to see any of these technical
+  // details"): the same single re-ask asks for plain business words. Whatever is left after it is logged, never blocks.
+  const jargon = founderJargonOf(result.json.subject, result.json.body_md);
+  if ((!check.ok && check.reask) || jargon.length > 0) {
     reasked = true;
-    deps.log.debug({ businessId: ctx.businessId, unknown: check.validation.unknownIds, invisible: check.validation.invisibleIds }, "composer output had invalid mentions; re-asking once");
-    result = await call([...messages, { role: "assistant", content: result.text }, check.reask.message]);
+    deps.log.debug({ businessId: ctx.businessId, unknown: check.ok ? [] : check.validation.unknownIds, jargon }, "composer output had invalid mentions or engineering words; re-asking once");
+    const asks = [...(!check.ok && check.reask ? [String(check.reask.message.content)] : []), ...(jargon.length > 0 ? [jargonReask(jargon)] : [])];
+    result = await call([...messages, { role: "assistant", content: result.text }, { role: "user", content: asks.join("\n\n") }]);
     usage = addUsage(usage, result.usage);
     costMinorInt += result.cost.costMinorInt;
     repaired = repaired || result.repaired;

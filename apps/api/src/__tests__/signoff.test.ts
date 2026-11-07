@@ -48,13 +48,15 @@ describe("sign-offs: the specification and the roadmap (founder, 2026-10-18)", (
     expect(view.readyToSell).toBeNull();
     const inbox = await b.caller.inbox.list({ businessId: b.businessId, tab: "respond" });
     expect(inbox.items.map((i) => i.subject).sort()).toEqual(["Sign off the product roadmap", "Sign off the product specification"]);
-    expect(inbox.continueState).toEqual({ kind: "blocked", count: 2 });
+    // Both wait in Needs you; neither holds Continue (0071, Nov 7, 2026): the Chief of Staff plans only groundwork until they are signed.
+    expect(inbox.continueState).toEqual({ kind: "idle" });
     // The note knows it is a sign-off (the reading pane shows its notes field); its options are the fixed pair.
     const got = await b.caller.inbox.get({ businessId: b.businessId, itemId: view.spec!.inboxItemId! });
     expect(got.signoff).toMatchObject({ kind: "spec", round: 1, status: "pending" });
     expect((got.item.decision as { options: { id: string }[] }).options.map((o) => o.id)).toEqual(["approve", "request_changes"]);
-    // Continue is refused while the sign-offs wait; vacation and Automated mode never take them (apps/orchestrator).
-    await expect(b.caller.business.continue({ businessId: b.businessId })).rejects.toMatchObject({ code: "CONFLICT" });
+    // Continue runs while the sign-offs wait (Nov 7, 2026): the Chief of Staff plans only groundwork until they are signed,
+    // and vacation and Automated mode never take them (apps/orchestrator).
+    await expect(b.caller.business.continue({ businessId: b.businessId })).resolves.toMatchObject({ action: expect.any(String) });
     // Nothing on distribution yet: no Board question, no scoring task, no engine.
     expect(await bySubject(b.caller, b.businessId, "Where should the first customer come from?")).toHaveLength(0);
     expect((await repos.tasks.list(hz.db, b.businessId, { limit: 100 })).items.some((t) => t.kind === "channel")).toBe(false);
@@ -80,8 +82,10 @@ describe("sign-offs: the specification and the roadmap (founder, 2026-10-18)", (
     expect(revision!.goalMd).toContain("Move billing ahead of onboarding");
     const events = await repos.events.list(hz.db, b.businessId, { type: "product.signoff_decided" });
     expect(events.items.map((e) => (e.payload as { kind: string; decision: string }).decision)).toEqual(["changes_requested"]);
-    // One sign-off still blocks Continue.
-    expect((await b.caller.inbox.list({ businessId: b.businessId, tab: "respond" })).continueState).toEqual({ kind: "blocked", count: 1 });
+    // One sign-off still waits in Needs you; Continue stays free.
+    const waiting = await b.caller.inbox.list({ businessId: b.businessId, tab: "respond" });
+    expect(waiting.items.some((i) => /^Sign off the /.test(i.subject))).toBe(true);
+    expect(waiting.continueState).toEqual({ kind: "idle" });
   });
 
   it("approving the specification from its tab publishes a numbered version, answers the note and records the round", async () => {
@@ -151,7 +155,7 @@ describe("sign-offs: the specification and the roadmap (founder, 2026-10-18)", (
     const note = await c.caller.inbox.get({ businessId: c.businessId, itemId: reopened.spec!.inboxItemId! });
     expect(note.item.subject).toBe("Sign off the revised specification");
     expect(note.item.bodyMd).toContain("Pricing shortened to three lines.");
-    expect(note.item.blocksContinue).toBe(true);
+    expect(note.item.blocksContinue).toBe(false);
     // Approving the new round from the note (option 1) closes it.
     const decided = await c.caller.inbox.decide({ businessId: c.businessId, itemId: reopened.spec!.inboxItemId!, chosenOption: "approve" });
     expect(decided.item.state).toBe("answered");
@@ -192,7 +196,7 @@ describe("distribution waits for an explicit start", () => {
       expect(c.engineWorkflowId).toBe(`engine:${c.id}`);
     }
     const board = await d.caller.inbox.get({ businessId: d.businessId, itemId: started.boardItemId! });
-    expect(board.item).toMatchObject({ type: "decision", subject: "Where should the first customer come from?", blocksContinue: true });
+    expect(board.item).toMatchObject({ type: "decision", subject: "Where should the first customer come from?", blocksContinue: false });
     expect((board.item.decision as { options: unknown[] }).options.length).toBeGreaterThanOrEqual(2);
     const scoring = await repos.tasks.get(hz.db, d.businessId, started.scoringTaskId!);
     expect(scoring).toMatchObject({ kind: "channel", title: CHANNEL_SCORING_TASK.title, status: "ready" });

@@ -47,7 +47,7 @@ const PLUMBING_LINE = COMPOSER_PLUMBING_WORDS.map((p) => `${p.word} (say "${p.in
 
 export const inboxComposerPrompt = definePrompt({
   key: "inbox_composer",
-  version: 4,
+  version: 5,
   route: "inboxComposer",
   description: "Writes one inbox note (the business stake → what happened → the ask) as JSON matching the Composer schema, in plain words for the founder it is written to.",
   variables: InboxComposerVariables,
@@ -59,6 +59,7 @@ Rules:
 - Say what is at stake for the business before how the system handled it.
 - Never describe or predict the engineering steps: the platform runs the tests, opens and reviews the change, brings it up to date, and asks the founder itself when it is ready to go live. Never say a merge request will or will not be sent, never say a change is "only partly done" because a step is pending, never count attempts or tries, never say retries are paused.
 - Name at most two things that are stuck, each in one plain clause, and only what the founder can do about them (often nothing: then say "Nothing is needed from you").
+- Never pass an agent's request on to the founder as their chore: giving agents skills or tools, finding a document the team keeps with the code, setting up the team's own systems, auditing settings or checking another agent's work are the team's and the platform's to do. Ask the founder only for money, a signature, an account only they can open, or a business decision; when an agent is stuck on anything else, say "Nothing is needed from you".
 - Mention signups or customers only when the note is about finding customers; a product still being built has none, and saying so is noise.
 - Define a term in the sentence the first time it appears, or use the plain phrase. "Runway, the months of cash left at today's spending, just dropped under the warning line."
 - Never name the plumbing unless the founder did: ${PLUMBING_LINE}. "The chart below is live data, not my typing."
