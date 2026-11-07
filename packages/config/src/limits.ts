@@ -80,7 +80,7 @@ export const LIMITS = {
 /**
  * The approval threshold a spend is checked against (Cedar `principal.approvalThresholdMinor`): the agent's own (the
  * policy default when it has none), lowered to the business's "Spend cap per action" when the founder set one (Commit,
- * Settings › Mode; `businesses.spend_cap_minor`). Undefined when neither is set: the policy default applies. The gateway
+ * Settings › What the team can do; `businesses.spend_cap_minor`). Undefined when neither is set: the policy default applies. The gateway
  * sends it and the agent profile shows it, so both read the same number.
  */
 export function effectiveApprovalThresholdMinor(agentThresholdMinor: number | null | undefined, businessCapMinor: number | null | undefined): number | undefined {

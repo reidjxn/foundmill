@@ -310,10 +310,14 @@ export const teamRouter = router({
   }),
 
   responsibilities: router({
-    /** Decision types × handler, kept on each department's `approvers` (business-wide when every department agrees). */
+    /**
+     * Decision types × handler, kept on each department's `approvers` (business-wide when every department agrees), and
+     * the business's Chief of Staff (`chiefOfStaffId`, null before one is hired): Settings › What the team can do offers
+     * "The Chief of Staff approves" for publishing and messaging customers, which writes that agent as the handler.
+     */
     get: read.query(({ ctx }) =>
       ctx.rls(async (tx) => {
-        const departments = await repos.departments.list(tx, ctx.businessId);
+        const [departments, chief] = await Promise.all([repos.departments.list(tx, ctx.businessId), repos.agents.chiefOfStaff(tx, ctx.businessId)]);
         const perDepartment = departments.map((d) => ({ departmentId: d.id, rows: parseApprovers(d.approvers) }));
         const matrix = DECISION_TYPES.map((decisionType) => {
           const handlers = perDepartment.map((p) => p.rows.find((r) => r.decisionType === decisionType)?.handler ?? { kind: "founder" as const, id: null });
@@ -321,7 +325,7 @@ export const teamRouter = router({
           const uniform = handlers.every((h) => h.kind === first.kind && h.id === first.id);
           return { decisionType, handler: uniform ? first : { kind: "founder" as const, id: null }, uniform };
         });
-        return { matrix, perDepartment, decisionTypes: DECISION_TYPES };
+        return { matrix, perDepartment, decisionTypes: DECISION_TYPES, chiefOfStaffId: chief?.id ?? null };
       }),
     ),
     /**

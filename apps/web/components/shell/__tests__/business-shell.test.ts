@@ -65,7 +65,7 @@ describe("Pause and the end of a run (Nov 7, 2026)", () => {
   it("a run's end on the stream: the team is done, a day's limit with its number; nothing for Pause, a stop or another event", () => {
     const ended = (payload: Record<string, unknown>) => ({ type: "cycle.run_ended", payload });
     expect(describeRunEnded(ended({ reason: "done" }))).toEqual({ title: "The team has done all it can for now", description: "Anything waiting for you is in the Inbox's Needs you tab.", tone: "good" });
-    expect(describeRunEnded(ended({ reason: "daily_cycles", maxCyclesPerDay: 6 }))).toMatchObject({ title: "Today's limit of 6 cycles is reached", description: "No more cycles start on their own today. Raise the limit in Settings › Mode, or press Continue for one more." });
+    expect(describeRunEnded(ended({ reason: "daily_cycles", maxCyclesPerDay: 6 }))).toMatchObject({ title: "Today's limit of 6 cycles is reached", description: "No more cycles start on their own today. Raise the limit in Settings › What the team can do, or press Continue for one more." });
     expect(describeRunEnded(ended({ reason: "daily_spend" }))!.title).toBe("Today's spend ceiling is reached (Estimate)");
     expect(describeRunEnded(ended({ reason: "paused" }))).toBeNull();
     expect(describeRunEnded(ended({ reason: "stopped" }))).toBeNull();

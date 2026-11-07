@@ -135,8 +135,8 @@ test.describe("commit", () => {
     // The change-it-later lines are tutoring: there while guidance is on (Settings › Preferences), gone when it is off.
     const reassure = page.getByTestId("reassure-mode");
     if (await reassure.count()) {
-      await expect(reassure).toContainText("You can change this later in Settings › Mode.");
-      await expect(page.getByTestId("reassure-how-it-runs")).toContainText("Settings › Business and Settings › Mode");
+      await expect(reassure).toContainText("You can change this later in Settings › What the team can do.");
+      await expect(page.getByTestId("reassure-how-it-runs")).toContainText("Settings › Business and Settings › What the team can do");
     } else {
       await expect(page.getByTestId("reassure-how-it-runs")).toHaveCount(0);
     }
@@ -215,9 +215,9 @@ test.describe("commit", () => {
     await inboxRow(page, "Your team is drafting the product foundations").click();
     await expect(page.getByTestId("inbox-item")).toHaveAttribute("data-type", "update", { timeout: LONG });
     await expect(page.getByTestId("decision-bar")).toHaveCount(0);
-    // The spend cap per action chosen on Commit (the Assisted default, 250) is kept on the business, editable in Settings › Mode.
+    // The spend cap per action chosen on Commit (the Assisted default, 250) is kept on the business, editable in Settings › What the team can do.
     const mode = await openSettings(page, "mode", bid);
-    await expect(mode.getByTestId("spend-cap-form").getByLabel("Spend cap per action")).toHaveValue("250", { timeout: LONG });
+    await expect(mode.getByTestId("spend-cap-form").getByLabel("Amount per purchase")).toHaveValue("250", { timeout: LONG });
     // A new business starts on the free plan with this month's included credits, in US dollars.
     const billing = await openSettings(page, "billing", bid);
     await expect(billing.getByTestId("credits-balance")).toContainText("$5.00", { timeout: LONG });

@@ -477,7 +477,7 @@ describe("/leaderboards", () => {
     mount(<LeaderboardsScreen />);
     expect(await screen.findByText(/is a Personal business, so it is not ranked/)).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: /Open Settings/ }));
-    expect(ctx.push).toHaveBeenLastCalledWith("/b/b1/settings/mode");
+    expect(ctx.push).toHaveBeenLastCalledWith("/b/b1/settings/business");
   });
 
   it("says what will appear when there are no boards", async () => {

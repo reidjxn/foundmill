@@ -59,6 +59,10 @@ export interface KitBarProps extends Omit<HTMLAttributes<HTMLElement>, "title"> 
   runwayEstimate?: boolean;
   onRunwayClick?: () => void;
   businessMode: BusinessMode;
+  /** The business's spend line for the mode chip (`businesses.spend_cap_minor`): an amount, 0 or null (each agent's own limit). */
+  spendLineMinor?: number | null;
+  /** The business's own currency, for the mode chip's amount ("£50"). */
+  businessCurrency?: string | null;
   onModeClick?: () => void;
   /** Shown as a second chip when LIVE; omitted in Personal mode. */
   gameMode?: GameMode;
@@ -116,8 +120,9 @@ export function kitBarGradient(kit: Kit): string {
  * Left: the 32 px logo tile and the business name (with `businessMenu`, the business switcher: a chevron after the
  * name, the tooltip "Switch business"), back/forward, a hairline, the screen title. Then the universal search
  * and, right: date + runway, the business-mode chip, Continue, Stop all agents — all glass, 34 px. At the widest step
- * the mode and runway chips carry a second phrase ("Assisted · asks before spending", "Not known yet · connect a
- * bank"), the first thing to go as soon as the search is below its whole width (KitBarFit `chips-brief`). Nothing is
+ * the mode chip says the whole setting ("Asks before spending over £50", short "Asks over £50") and the runway chip
+ * carries a second phrase ("Not known yet · connect a bank"); both give way first, as soon as the search is below its
+ * whole width (KitBarFit `chips-brief`). Nothing is
  * clipped at 1280: the search gives way next (its placeholder shortens, then only the icon remains; its ⌘K cap is a
  * control hint and stays whatever the guidance setting); then, while the bar still cannot hold everything whole or the
  * screen title would lose its room, the chips compact one step at a time (KitBarFit: dates drop the year, the vacation
@@ -142,6 +147,8 @@ export const KitBar = forwardRef<HTMLElement, KitBarProps>(function KitBar(
     runwayEstimate = true,
     onRunwayClick,
     businessMode,
+    spendLineMinor,
+    businessCurrency,
     onModeClick,
     gameMode,
     continueButton,
@@ -244,7 +251,7 @@ export const KitBar = forwardRef<HTMLElement, KitBarProps>(function KitBar(
         {connection ? <ConnectionChip {...connection} /> : null}
         <RunwayChip date={date} runwayMonths={runwayMonths} words={runwayWords} cash={cash} estimate={runwayEstimate} onClick={onRunwayClick} />
         {gameMode === "live" ? <GameModeChip mode="live" /> : null}
-        <ModeChip mode={businessMode} holiday={holiday} onClick={onModeClick} />
+        <ModeChip mode={businessMode} holiday={holiday} spendLineMinor={spendLineMinor} currency={businessCurrency} onClick={onModeClick} />
         {continueSlot ? (
           <div className="flex h-kitbar-chip min-w-continue-min shrink-0 items-stretch" data-testid="kitbar-continue-slot">
             {continueSlot}

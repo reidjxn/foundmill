@@ -48,6 +48,9 @@ describe("ResponsibilitiesScreen", () => {
     expect(within(table).getByText("Hard gate")).toBeTruthy();
     expect(within(table).getByText("Differs by department")).toBeTruthy();
     expect(screen.getByTestId("responsibilities-summary").textContent).toBe("7 decision types · 2 delegated · 1 differs by department");
+    // The everyday answers live on one Settings page; this table hands one decision to one person or department.
+    expect(screen.getByTestId("responsibilities-pointer").textContent).toBe("Everyday choices live in Settings › What the team can do. Use this table to hand a decision to one person or department.");
+    expect(within(screen.getByTestId("responsibilities-pointer")).getByRole("link", { name: "Settings › What the team can do" }).getAttribute("href")).toBe(`/b/${BID}/settings/mode`);
     fireEvent.click(within(table).getByText("Message customers"));
     const detail = await screen.findByRole("table", { name: "Message customers by department" });
     expect(within(detail).getByRole("link", { name: "Mara" })).toBeTruthy();

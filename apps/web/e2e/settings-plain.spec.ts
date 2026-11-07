@@ -54,8 +54,9 @@ test.describe("settings, plain words", () => {
     await expect(screen.getByTestId("account-id-copy")).toBeVisible();
   });
 
-  test("Mode: the choice is named in words, with no notes about what comes later", async ({ page }) => {
-    const screen = await openSettings(page, "mode");
+  test("Business: Personal or live is named in words, with no notes about what comes later", async ({ page }) => {
+    // It moved here from the old Settings › Mode (founder, 2026-11-07).
+    const screen = await openSettings(page, "business");
     const modeSwitch = screen.getByTestId("switch-game-mode");
     await expect(modeSwitch).toBeVisible({ timeout: LONG });
     await expect(screen).toContainText("Personal or live");
@@ -83,17 +84,20 @@ test.describe("settings, plain words", () => {
     await expect(dialog).toBeHidden();
   });
 
-  test("Mode: each business mode card carries one concrete day, the words are defined on first use, and Autopilot says what it never does (UX plan §7.17)", async ({ page }) => {
+  test("What the team can do: plain answers with one concrete day each, the words defined on first use, and Autopilot says what it never does (UX plan §7.17)", async ({ page }) => {
     const screen = await openSettings(page, "mode");
-    await expect(screen.getByRole("radio", { name: "Assisted" })).toBeVisible({ timeout: LONG });
-    // The three cards: the business thing, then the example line Commit shows, never "counterparties".
+    await expect(screen.getByRole("radio", { name: /^Routine work alone; ask before big or permanent steps/ })).toBeVisible({ timeout: LONG });
+    // The three answers: the business thing, then the example line Commit shows, never "counterparties".
     const examples = screen.locator("[data-mode-example]");
     await expect(examples).toHaveCount(3);
     await expect(examples.first()).toContainText(/^Example: /);
     await expect(screen).not.toContainText(/counterpart/i);
-    // Defined terms sit where a founder first meets them: the panel titles and the hard-gates line (a dotted word with
-    // guidance on, plain text with it off; `data-term` marks both).
-    for (const id of ["business_mode", "hard_gate", "autopilot", "vacation"]) await expect(screen.locator(`[data-term="${id}"]`).first()).toBeVisible();
+    // No plumbing words reach the founder (DESIGN §10, the voice 3), and the old wrong copy is gone.
+    await expect(screen).not.toContainText(/\b(hard gates?|policy|policies|caps?)\b/i);
+    await expect(screen).not.toContainText(/new people|Empty means no/);
+    // Defined terms sit where a founder first meets them (a dotted word with guidance on, plain text with it off;
+    // `data-term` marks both).
+    for (const id of ["autonomy", "chief_of_staff", "autopilot", "vacation"]) await expect(screen.locator(`[data-term="${id}"]`).first()).toBeVisible();
     const autopilot = screen.getByTestId("autopilot-section");
     await expect(autopilot.getByTestId("autopilot-help")).toHaveText("Autopilot presses Continue for you on a schedule. It never answers notes for you.", { timeout: LONG });
     await expect(autopilot.getByTestId("autopilot-switch")).toHaveAttribute("aria-describedby", "autopilot-help");

@@ -81,7 +81,7 @@ export const businesses = pgTable(
     planTier: text("plan_tier", { enum: PLAN_TIERS }).notNull().default("free"),
     modelBilling: text("model_billing", { enum: MODEL_BILLING }).notNull().default("credits"),
     /**
-     * The founder's "Spend cap per action" (Commit, Settings › Mode; 0024), in minor units of the business currency.
+     * The founder's "Spend cap per action" (Commit, Settings › What the team can do; 0024), in minor units of the business currency.
      * Above it every spend asks first, whatever the mode: the gateway lowers each agent's approval threshold to it.
      * Null: no business cap (each agent's own threshold applies).
      */

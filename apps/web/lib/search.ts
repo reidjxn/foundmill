@@ -33,7 +33,8 @@ export interface SearchInboxItem {
 
 export const SETTINGS_TABS = [
   { slug: "business", label: "Business" },
-  { slug: "mode", label: "Mode" },
+  // "What the team can do" on screen (founder, 2026-11-07); the slug stays "mode", and "mode" stays a keyword.
+  { slug: "mode", label: "What the team can do" },
   { slug: "departments", label: "Departments" },
   // "Your words" on screen (docs/UX_AUDIT_AND_PLAN.md §7.17); the slug stays "glossary", and "glossary" stays a keyword.
   { slug: "glossary", label: "Your words" },
@@ -88,7 +89,7 @@ export function localPaletteItems(input: LocalPaletteInput): PaletteItem[] {
   }
   for (const t of SETTINGS_TABS) {
     if (t.slug === "preferences") continue;
-    items.push({ id: `command:settings:${t.slug}`, kind: "command", label: `Settings · ${t.label}`, href: routes.settings(bid, t.slug), keywords: ["settings", t.slug, ...(t.slug === "glossary" ? ["rename", "words", "nouns"] : [])] });
+    items.push({ id: `command:settings:${t.slug}`, kind: "command", label: `Settings · ${t.label}`, href: routes.settings(bid, t.slug), keywords: ["settings", t.slug, ...(t.slug === "glossary" ? ["rename", "words", "nouns"] : t.slug === "mode" ? ["spending", "approvals", "autopilot", "vacation", "ask first"] : [])] });
   }
   // The person's own preferences (the date format, the guided layer's switch and the text size), found by what they change.
   items.push({

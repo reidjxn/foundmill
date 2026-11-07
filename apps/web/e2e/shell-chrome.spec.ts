@@ -61,13 +61,23 @@ test.describe("shell chrome", () => {
     await expect(search.getByText("Search or jump to…")).toBeVisible();
     const box = (await search.boundingBox())!;
     expect(box.width).toBeLessThanOrEqual(320.5);
-    // The mode chip's "· asks before spending" is the first thing to give way (KitBarFit `chips-brief`): it is visible
-    // exactly when the bar carries no compaction step, and the search never loses its placeholder to it.
+    // The mode chip's whole phrase ("Asks before spending over each agent's limit") is the first thing to give way
+    // (KitBarFit `chips-brief`): it is visible exactly when the bar carries no compaction step, its short form ("Asks
+    // before spending") takes over at that step, and the search never loses its placeholder to it.
     const bar = page.getByTestId("kit-bar");
+    const full = bar.locator("[data-chip-full]");
     const brief = bar.locator("[data-chip-brief]");
     const compact = (await bar.getAttribute("data-compact")) ?? "";
-    if (compact.includes("chips-brief")) await expect(brief).toBeHidden();
-    else await expect(brief).toBeVisible();
+    if (compact.includes("chips-icon")) {
+      await expect(full).toBeHidden();
+      await expect(brief).toBeHidden();
+    } else if (compact.includes("chips-brief")) {
+      await expect(full).toBeHidden();
+      await expect(brief).toBeVisible();
+    } else {
+      await expect(full).toBeVisible();
+      await expect(brief).toBeHidden();
+    }
   });
 
   test("the tab bar's lit bar sits under the active tab and moves with it", async ({ page }) => {

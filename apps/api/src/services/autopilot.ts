@@ -1,6 +1,6 @@
 /**
  * Autopilot (0055): a business that starts its own cycles. The founder's switch and settings (owners and admins, in
- * Settings › Mode or on Commit), the status Home and Settings read, and the `autopilot` workflow's start and nudges.
+ * Settings › What the team can do or on Commit), the status Home and Settings read, and the `autopilot` workflow's start and nudges.
  *
  * Autopilot only decides when the next cycle starts: the workflow starts `businessCycle` the way Continue does, so every
  * approval, hard gate, section wall and policy check applies as for a founder press, and it never approves anything.

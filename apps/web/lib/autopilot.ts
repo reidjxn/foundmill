@@ -1,5 +1,5 @@
 /**
- * Autopilot's settings form (Settings › Mode): the draft the fields edit, its parsing into the `business.autopilot.set`
+ * Autopilot's settings form (Settings › What the team can do): the draft the fields edit, its parsing into the `business.autopilot.set`
  * input, and the labels. Pure so the rules (1 to 24 cycles a day, 1 to 10 idle cycles, a ceiling in dollars) are tested
  * without a screen. The decision itself, and the plain words for each state, live in @foundmill/shared.
  */
@@ -81,6 +81,6 @@ export function draftChanged(d: AutopilotDraft, saved: AutopilotSettingsLike): b
 
 /** "2 of 6 cycles today" */
 export function cyclesTodayLine(done: number, max: number): string {
-  // plain-allow: shown only in Settings › Mode › Autopilot, whose help line defines "cycle" with a Term.
+  // plain-allow: shown only in Settings › What the team can do › Autopilot, whose help line defines "cycle" with a Term.
   return `${done} of ${max} cycle${max === 1 ? "" : "s"} today`;
 }

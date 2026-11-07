@@ -229,9 +229,9 @@ export function continueRunEndedMessage(reason: ContinueRunEndReason, maxCyclesP
     case "done":
       return { title: "The team has done all it can for now", description: "Anything waiting for you is in the Inbox's Needs you tab.", tone: "good" };
     case "daily_cycles":
-      return { title: typeof maxCyclesPerDay === "number" ? `Today's limit of ${maxCyclesPerDay} cycle${maxCyclesPerDay === 1 ? "" : "s"} is reached` : "Today's cycle limit is reached", description: "No more cycles start on their own today. Raise the limit in Settings › Mode, or press Continue for one more.", tone: "warn" };
+      return { title: typeof maxCyclesPerDay === "number" ? `Today's limit of ${maxCyclesPerDay} cycle${maxCyclesPerDay === 1 ? "" : "s"} is reached` : "Today's cycle limit is reached", description: "No more cycles start on their own today. Raise the limit in Settings › What the team can do, or press Continue for one more.", tone: "warn" };
     case "daily_spend":
-      return { title: "Today's spend ceiling is reached (Estimate)", description: "No more cycles start on their own today. Raise the ceiling in Settings › Mode, or press Continue for one more.", tone: "warn" };
+      return { title: "Today's spend ceiling is reached (Estimate)", description: "No more cycles start on their own today. Raise the ceiling in Settings › What the team can do, or press Continue for one more.", tone: "warn" };
     case "hard_stop":
       return { title: "The team stopped working", description: "Something needs you before the team can carry on. Open the Inbox's Needs you tab.", tone: "warn" };
     case "vacation":
@@ -272,7 +272,7 @@ export function pauseNote(reason: AutopilotPauseReason, idleCycles: number = AUT
 
 /**
  * The chip's word while a note holds Continue: the one "needs you" family the product uses (UX plan §5.5, "answer").
- * Shown by the Home chip, Settings › Mode and the department cards.
+ * Shown by the Home chip, Settings › What the team can do and the department cards.
  */
 export const AUTOPILOT_NEEDS_ANSWER_LABEL = "Needs your answer";
 

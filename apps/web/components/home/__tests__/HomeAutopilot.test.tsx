@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 /**
  * Home's Autopilot chip: the state in words (On, Needs your answer, Paused: reason, Off) with the next planned cycle (an
- * Estimate); it nudges the workflow to run only when Autopilot is on and not paused; clicking it opens Settings › Mode.
+ * Estimate); it nudges the workflow to run only when Autopilot is on and not paused; clicking it opens Settings › What the team can do.
  */
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
@@ -104,7 +104,7 @@ describe("Home Autopilot chip", () => {
     expect(screen.getByTestId("home-autopilot").querySelector("[data-autopilot-guide]")).toBeNull();
   });
 
-  it("does not nudge for a viewer, and opens Settings › Mode when clicked", async () => {
+  it("does not nudge for a viewer, and opens Settings › What the team can do when clicked", async () => {
     role = "viewer";
     status = { enabled: true, state: "on", label: "On", detail: "", pausedReason: null, nextAt: null };
     renderChip();

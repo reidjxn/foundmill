@@ -176,16 +176,17 @@ test.describe("keyboard and screen readers", () => {
     await expect(primary).toHaveCSS("color", "rgb(255, 255, 255)");
   });
 
-  test("on vacation the top bar and Settings › Mode show the mode in force, Automated", async ({ page }) => {
+  test("on vacation the top bar and Settings › What the team can do say the team decides on its own", async ({ page }) => {
     await signIn(page);
     await page.goto(`/b/${LEDGERLY_BUSINESS_ID}/settings/mode`);
     await expect(page.getByTestId("app-shell")).toBeVisible({ timeout: LONG });
     await settled(page);
-    const chip = page.getByRole("button", { name: /^Business mode: Automated, on vacation/ });
+    const chip = page.getByRole("button", { name: /^What the team can do: decides alone, .*, on vacation/ });
     await expect(chip).toBeVisible({ timeout: LONG });
-    // The chip's word stays one word; its second phrase is a separate span the top bar may hide (KitBarFit).
-    await expect(chip.locator(".kitbar-chip-word").first()).toHaveText("Automated");
-    await expect(settingsScreen(page).getByTestId("mode-in-force")).toContainText("Automated while on vacation");
+    await expect(chip).toHaveAttribute("data-mode", "automated");
+    // The whole phrase and its short form are separate spans the top bar steps between (KitBarFit).
+    await expect(chip.locator("[data-chip-full]")).toHaveText(/^Decides alone, asks /);
+    await expect(settingsScreen(page).getByTestId("mode-in-force")).toContainText("On vacation: the team decides on its own");
   });
 
   test("the sidebar's \"?\" cap is a named button that opens the keyboard shortcuts and gives focus back on Esc (B15)", async ({ page }) => {

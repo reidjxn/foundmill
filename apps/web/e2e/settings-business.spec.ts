@@ -79,41 +79,48 @@ test.describe("settings › business: the slug", () => {
 });
 
 /**
- * Settings › Mode: the "Spend cap per action" set on Commit is stored on the business and editable here (above it every
- * spend asks first, whatever the mode). The spec leaves Northwind without a cap, as the seed has it.
+ * Settings › What the team can do: the amount above which a purchase always asks (`spend_cap_minor`, first set on
+ * Commit) is stored on the business and editable here: an amount, always ask, or each agent's own limit. The spec leaves
+ * Northwind on each agent's own limit, as the seed has it.
  */
-test.describe("settings › mode: the spend cap per action", () => {
-  test("set, kept after a reload, and removed again", async ({ page }) => {
+test.describe("settings › what the team can do: the amount per purchase", () => {
+  const ownLimit = /^Each agent's own limit \(£250 unless you set one\)/;
+
+  test("set, kept after a reload, and back to each agent's own limit", async ({ page }) => {
     await openBusiness(page, "settings/mode");
     const screen = settingsScreen(page);
     const form = screen.getByTestId("spend-cap-form");
     await expect(form).toBeVisible({ timeout: LONG });
-    await form.getByLabel("Spend cap per action").fill("300");
-    const save = form.getByRole("button", { name: "Save cap" });
+    // The null answer names the real default, so it never reads as "no limit".
+    await expect(form.getByRole("radio", { name: ownLimit })).toHaveAttribute("aria-checked", "true");
+    await form.getByLabel("Amount per purchase").fill("300");
+    const save = form.getByRole("button", { name: "Save" });
     await save.click();
-    await expect(toast(page, "Spend cap saved")).toBeVisible({ timeout: LONG });
+    await expect(toast(page, "Amount saved")).toBeVisible({ timeout: LONG });
     // Saved, so there is nothing left to save: the button says so without dropping keyboard focus (A11Y-07).
     await expect(save).toHaveAttribute("aria-disabled", "true");
     await expect(save).toBeFocused();
+    // Above the agents' default limit an agent still asks at its own: the page says so.
+    await expect(form).toContainText("An agent still asks above its own limit when that is lower: £250");
     await page.reload();
     await settled(page);
-    const field = screen.getByTestId("spend-cap-form").getByLabel("Spend cap per action");
+    const field = screen.getByTestId("spend-cap-form").getByLabel("Amount per purchase");
     await expect(field).toHaveValue("300", { timeout: LONG });
     // A value that is not a number is refused before anything is sent.
     await field.fill("lots");
     await expect(screen.getByTestId("spend-cap-form")).toContainText("Use a number, like 250.");
-    await field.fill("");
-    await screen.getByTestId("spend-cap-form").getByRole("button", { name: "Save cap" }).click();
-    await expect(toast(page, "Spend cap removed")).toBeVisible({ timeout: LONG });
+    await screen.getByTestId("spend-cap-form").getByRole("radio", { name: ownLimit }).click();
+    await screen.getByTestId("spend-cap-form").getByRole("button", { name: "Save" }).click();
+    await expect(toast(page, "Each agent's own limit applies")).toBeVisible({ timeout: LONG });
   });
 
-  test("a cap below an agent's own ask line is the line the agent's profile shows", async ({ page }) => {
+  test("an amount below an agent's own ask line is the line the agent's profile shows", async ({ page }) => {
     await openBusiness(page, "settings/mode");
     const form = settingsScreen(page).getByTestId("spend-cap-form");
     await expect(form).toBeVisible({ timeout: LONG });
-    await form.getByLabel("Spend cap per action").fill("50");
-    await form.getByRole("button", { name: "Save cap" }).click();
-    await expect(toast(page, "Spend cap saved")).toBeVisible({ timeout: LONG });
+    await form.getByLabel("Amount per purchase").fill("50");
+    await form.getByRole("button", { name: "Save" }).click();
+    await expect(toast(page, "Amount saved")).toBeVisible({ timeout: LONG });
     try {
       // The Chief of Staff's template asks above 250, so the founder's 50 is the line the gateway applies.
       await openBusiness(page, "d/team/squad");
@@ -128,9 +135,9 @@ test.describe("settings › mode: the spend cap per action", () => {
       await openBusiness(page, "settings/mode");
       const again = settingsScreen(page).getByTestId("spend-cap-form");
       await expect(again).toBeVisible({ timeout: LONG });
-      await again.getByLabel("Spend cap per action").fill("");
-      await again.getByRole("button", { name: "Save cap" }).click();
-      await expect(toast(page, "Spend cap removed")).toBeVisible({ timeout: LONG });
+      await again.getByRole("radio", { name: ownLimit }).click();
+      await again.getByRole("button", { name: "Save" }).click();
+      await expect(toast(page, "Each agent's own limit applies")).toBeVisible({ timeout: LONG });
     }
   });
 });
@@ -253,14 +260,14 @@ test.describe("settings › your words: the business's own words", () => {
 });
 
 /**
- * Settings > Mode > Autopilot: off by default, turned on with the switch (the chip says so and Home shows the same
+ * Settings > What the team can do > Autopilot: off by default, turned on with the switch (the chip says so and Home shows the same
  * state), the limits are validated and kept after a reload, and it is turned off again so the seed stays as it was.
  * Autopilot starts cycles the way Continue does; the spec never waits for one.
  *
  * Its toasts are looked up with `toast` (the viewport, whole title): the text "Autopilot is off" is also in Radix's
  * hidden announcer for a second ("Notification Autopilot is off"), which made a substring match resolve to two elements.
  */
-test.describe("settings > mode: Autopilot", () => {
+test.describe("settings > what the team can do: Autopilot", () => {
   // A failed run can stop with Autopilot on or the limits changed; a retry would then meet "waiting" instead of "off".
   test.afterEach(async ({ page }, testInfo) => {
     if (testInfo.status === testInfo.expectedStatus) return;

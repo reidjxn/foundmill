@@ -21,6 +21,8 @@ const meta = {
     runwayMonths: 11,
     cash: { amountMinor: 12800000, currency: "EUR" },
     businessMode: "assisted",
+    spendLineMinor: 5_000,
+    businessCurrency: "EUR",
     gameMode: "live",
     continueButton: { state: { kind: "idle" } },
     stopAll: { onConfirm: () => new Promise<void>((r) => setTimeout(r, 800)), runningCount: 7 },
@@ -40,7 +42,7 @@ export const LightBrandColour: Story = {
   name: "Light brand color → dark text",
   args: { kit: { primary: "#F5B841", secondary: "#0F1318" }, businessName: "Aurora Candles", logoSrc: null, businessMode: "augmented", gameMode: "personal", runwayMonths: 8 },
 };
-export const Ledgerly: Story = { args: { kit: LEDGERLY_KIT, businessName: "Ledgerly", logoSrc: SAMPLE_LOGOS.orbit, screenTitle: "Finance · Runway", runwayMonths: null, runwayWords: { value: "Not running out", caption: "You earn more than you spend" } } };
+export const Ledgerly: Story = { args: { kit: LEDGERLY_KIT, businessName: "Ledgerly", logoSrc: SAMPLE_LOGOS.orbit, screenTitle: "Finance · Runway", businessMode: "automated", spendLineMinor: null, businessCurrency: "GBP", runwayMonths: null, runwayWords: { value: "Not running out", caption: "You earn more than you spend" } } };
 /** No logo yet: the initials mark in the primary, separated from the bar by its hairline. */
 /** The Example frame: the neutral "Example" chip after the name, and "Start your own" in Continue's slot (its width kept). */
 export const ExampleFrame: Story = {

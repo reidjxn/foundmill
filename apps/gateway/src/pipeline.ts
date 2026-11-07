@@ -419,7 +419,7 @@ async function buildPolicyInput(deps: GatewayDeps, session: SessionToken, req: C
 
   // Spend cap: the agent's own cap, tightened by a holiday budget ceiling while one is active (BUILD §9.6).
   const caps = [autonomy.spendCapMinor, loaded.holidayActive ? (loaded.holidayBudgetMinor ?? undefined) : undefined].filter((v): v is number => typeof v === "number");
-  // Approval threshold: the agent's own, lowered to the founder's "Spend cap per action" (Commit, Settings › Mode), so
+  // Approval threshold: the agent's own, lowered to the founder's "Spend cap per action" (Commit, Settings › What the team can do), so
   // above the business cap every spend asks first, whatever the mode.
   const approvalThresholdMinor = businessApprovalThreshold(autonomy.approvalThresholdMinor, business.spendCapMinor);
   const principal: AgentCtxInput = {

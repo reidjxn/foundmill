@@ -71,7 +71,7 @@ export function takeLive(userId: string, action: LiveAction): void {
 export const GO_LIVE_ADULTS_ONLY = "Confirm that you are 18 or older to go live: the network is for adults.";
 
 /**
- * A business going LIVE (Settings › Mode, or Take charge as a LIVE business) puts it on the network, which is for adults
+ * A business going LIVE (Settings › Business, or Take charge as a LIVE business) puts it on the network, which is for adults
  * (BUILD §11.14): the founder confirms once that they are 18 or older (`confirm`, from the dialog that asks), or has
  * already. Going back to Personal never asks.
  */

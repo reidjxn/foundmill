@@ -181,6 +181,8 @@ function Shell({ children, sidebar, tabs, rightRail, ...props }: Partial<AppShel
     <AppShell
       mode="live"
       businessMode="assisted"
+      spendLineMinor={5_000}
+      businessCurrency="GBP"
       kit={NORTHWIND_KIT}
       logoSrc={SAMPLE_LOGOS.stack}
       businessName="Northwind Skincare"
@@ -209,6 +211,8 @@ function Shell({ children, sidebar, tabs, rightRail, ...props }: Partial<AppShel
 const baseArgs = {
   mode: "live",
   businessMode: "assisted",
+  spendLineMinor: 5_000,
+  businessCurrency: "GBP",
   kit: NORTHWIND_KIT,
   logoSrc: SAMPLE_LOGOS.stack,
   businessName: "Northwind Skincare",
