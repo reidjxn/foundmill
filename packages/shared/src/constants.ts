@@ -328,6 +328,7 @@ export const EVENT_TYPES = [
   "product.signoff_decided",
   "distribution.started",
   "product.research_drafted",
+  "goal.proposed", "goal.approved", "goal.change_requested", "goal.achieved",
   "guidance.tour_completed", "guidance.tour_skipped", "guidance.explainer_dismissed", "guidance.term_opened", "guidance.turned_off",
 ] as const;
 export type EventType = (typeof EVENT_TYPES)[number];

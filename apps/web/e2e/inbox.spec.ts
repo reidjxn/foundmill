@@ -94,8 +94,8 @@ test.describe("inbox", () => {
     await expect(rows).toHaveCount(before + 1);
   });
 
-  test("the two sign-off notes wait in Needs you without holding Continue; 1 approves each (the second starts the build) and Continue runs a cycle step", async ({ page }) => {
-    test.setTimeout(240_000);
+  test("the two sign-off notes wait in Needs you without holding Continue; 1 approves each (the second starts the build), Continue runs a cycle step, and 1 approves the first goal", async ({ page }) => {
+    test.setTimeout(360_000);
     await signIn(page);
     const { bid } = await commitFreshBusiness(page, `Playwright Inbox ${Date.now().toString(36)}`);
     // The foundations draft in the background (mock models); their two sign-off notes wait in Needs you. Since Nov 7, 2026
@@ -147,6 +147,34 @@ test.describe("inbox", () => {
     // One press of Continue → business.continue (an in-process cycle step without Temporal) → a toast says what happened.
     await idle.click();
     await expect(page.getByText(/Cycle started|One new note|Cycle resumed|already running/).first()).toBeVisible({ timeout: LONG });
+
+    // After both sign-offs and a round of work the Chief of Staff proposes the first goal (founder, 2026-11-07): Home asks
+    // `goal.ensure` once per visit, the proposal is a decision note in Needs you that never holds Continue, and one tap on
+    // the recommended option (1) approves it.
+    const goalRow = () => inboxRow(page, /Your first goal: get 10 paying customers by [A-Z][a-z]{2} \d{1,2}/);
+    await expect(async () => {
+      const ensured = page.waitForResponse((r) => /goal\.ensure/.test(r.url()), { timeout: 20_000 });
+      await page.goto(`/b/${bid}/home`);
+      await ensured;
+      await page.goto(`/b/${bid}/inbox`);
+      await expect(goalRow()).toBeVisible({ timeout: 10_000 });
+    }).toPass({ timeout: LONG * 3 });
+    await expect(page.getByRole("button", { name: /^Continue$/ })).toBeVisible({ timeout: LONG });
+    await goalRow().click();
+    const goalNote = page.getByTestId("inbox-item");
+    await expect(goalNote).toHaveAttribute("data-type", "decision", { timeout: LONG });
+    // From whoever the business's Chief of Staff is (read from the page, never a fixed name).
+    await expect(page.getByTestId("inbox-item-header").getByTestId("persona-link")).not.toHaveText("", { timeout: LONG });
+    const goalBar = page.getByTestId("decision-bar");
+    await expect(goalBar).toHaveAttribute("data-state", "open");
+    await expect(goalBar.getByRole("group", { name: "Options" }).getByRole("button")).toHaveText([/Approve this goal/, /Change it/]);
+    await expect(async () => {
+      await dismissCoachmarks(page);
+      await page.getByTestId("shell-content").focus();
+      await page.keyboard.press("1");
+      await expect(goalNote).toHaveAttribute("data-state", "answered", { timeout: 10_000 });
+    }).toPass({ timeout: LONG * 2 });
+    await expect(page.getByTestId("answered-panel")).toBeVisible({ timeout: LONG });
   });
 
   test("every note has the agent's desk; a quick reply (Alt+2) answers without using up the decision; T talks", async ({ page }) => {

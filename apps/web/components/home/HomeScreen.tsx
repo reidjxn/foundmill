@@ -255,6 +255,7 @@ export function HomeScreen({ dashboardId: routeId }: HomeScreenProps) {
   const lead = (
     <>
       <HomeBlockers />
+      <HomeGoalEnsure />
       <HomeFoundations />
       <HomeAutopilot />
       <HomeLead businessId={businessId} currency={currency} />
@@ -473,6 +474,36 @@ function HomeFoundations() {
     ensureOnce();
   });
   return <FoundationsBanner foundations={foundations} showReady detail={{ vision: true, roadmap: true }} />;
+}
+
+/**
+ * The business's goal (founder, 2026-11-07: "Your goal"): Home asks `goal.ensure` once per business per visit, so the
+ * Chief of Staff proposes the first goal after the sign-offs and a round of work, marks a reached goal and proposes the
+ * next, or proposes a new date for a missed one. Idempotent on the server, which never writes for a reader who cannot;
+ * the proposal itself is a note in the Inbox (Needs you). Renders nothing.
+ */
+function HomeGoalEnsure() {
+  const queryClient = useQueryClient();
+  const trpc = useTRPC();
+  const { businessId, data } = useBusiness();
+  const canWrite = (WRITE_ROLES as readonly string[]).includes(data.role);
+  const ensure = useMutation(
+    trpc.goal.ensure.mutationOptions({
+      retry: 1,
+      onSuccess: (view) => {
+        void queryClient.invalidateQueries({ queryKey: trpcPathPrefix("goal") as unknown[] });
+        if (view.proposedNow || view.achievedNow) void queryClient.invalidateQueries({ queryKey: trpcPathPrefix("inbox") as unknown[] });
+      },
+    }),
+  );
+  const ensureFor = ensure.mutate;
+  const ensuredFor = useRef<string | null>(null);
+  useEffect(() => {
+    if (!canWrite || ensuredFor.current === businessId) return;
+    ensuredFor.current = businessId;
+    ensureFor({ businessId });
+  }, [businessId, canWrite, ensureFor]);
+  return null;
 }
 
 /**

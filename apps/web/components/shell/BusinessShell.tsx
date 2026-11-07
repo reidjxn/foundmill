@@ -110,7 +110,7 @@ export const INVALIDATE_ON_EVENT: Record<string, readonly string[]> = {
   // Another member archived an item or confirmed its plan (audit RUI-09).
   "inbox.item_updated": ["inbox", "plan"],
   "decision.made": ["inbox", "plan", "business.autopilot"],
-  "customer.converted": ["inbox", "journey", "finance"],
+  "customer.converted": ["inbox", "journey", "finance", "goal"],
   // A renewal or a repeat order is revenue with no customer.converted (only first payments win a customer).
   "payment.received": ["journey", "finance"],
   // Stop all agents and its resume write one per agent (from any tab or service): the business carries the stop flag.
@@ -127,7 +127,7 @@ export const INVALIDATE_ON_EVENT: Record<string, readonly string[]> = {
   // The run one press of Continue starts (Nov 7, 2026): Continue keeps Pause until it ends.
   "cycle.run_started": ["cycle", "business.autopilot"],
   "cycle.run_ended": ["cycle", "business.autopilot"],
-  "cycle.completed": ["inbox", "department", "dev", "finance", "cycle", "business.autopilot"],
+  "cycle.completed": ["inbox", "department", "dev", "finance", "cycle", "business.autopilot", "goal"],
   "bank.balance_updated": ["finance"],
   "runway.threshold_crossed": ["finance", "inbox"],
   "approval.requested": ["inbox"],
@@ -143,6 +143,12 @@ export const INVALIDATE_ON_EVENT: Record<string, readonly string[]> = {
   "distribution.started": ["business", "distribution", "inbox"],
   // The Product Researcher's plan is ready: the Research tab's panel, the Inbox note and the first research tasks.
   "product.research_drafted": ["product.research", "inbox", "dev"],
+  // The business's goal (founder, 2026-11-07): the Chief of Staff's proposal and its answer are Inbox notes; a reached
+  // goal posts "Goal reached: …".
+  "goal.proposed": ["goal", "inbox"],
+  "goal.approved": ["goal", "inbox"],
+  "goal.change_requested": ["goal", "inbox"],
+  "goal.achieved": ["goal", "inbox"],
   // Someone's role or section permissions changed (maybe this reader's): the business carries the reader's own role
   // and walls, the Team the staff list. apps/stream has already re-checked the reader's open channels.
   "membership.changed": ["business", "team"],

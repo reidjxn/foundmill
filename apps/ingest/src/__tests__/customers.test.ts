@@ -5,7 +5,7 @@
  * a kind and journey_daily count first payments while revenue counts every payment.
  */
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { repos } from "@foundmill/db";
+import { goalCounters, repos } from "@foundmill/db";
 import { signedShopifyRequest, signedStripeRequest } from "@foundmill/connectors";
 import { SH_CUSTOMERS, SH_ORDERS } from "@foundmill/connectors/connectors/shopify/fixtures/shop";
 import { ST_CHECKOUT_PAID, ST_INVOICES } from "@foundmill/connectors/connectors/stripe/fixtures/stripe";
@@ -152,5 +152,27 @@ describe("milestones from real payments (#58)", () => {
     const repeat = { ...SH_ORDERS[0]!, id: 5_500_000_901, created_at: "2026-10-05T10:00:00Z", customer: { id: 6_100_000_177, email: "anna.lind@example.com", orders_count: 2 } };
     expect((await deliver(hz.base, signedShopifyRequest(A, "orders/paid", repeat, { webhookId: "anna-repeat" }))).status).toBe(200);
     expect(await firstCustomer()).toHaveLength(1);
+  });
+});
+
+describe("the business's goal reached by a payment (founder, 2026-11-07)", () => {
+  it("marks the active goal achieved once, with the Chief of Staff's note and goal.achieved through the outbox", async () => {
+    const B = hz.B.businessId;
+    const before = (await goalCounters(hz.db, B)).payingCustomers;
+    const goal = await repos.goals.seedActive(hz.db, B, { sentence: `Reach ${before + 1} paying customers by Dec 19`, kind: "paying_customers", target: before + 1, dueOn: "2027-12-19", startValue: before, approvedAt: new Date(), agentId: hz.B.agentId });
+    expect(goal).not.toBeNull();
+    const invoice = { ...ST_INVOICES[0]!, id: "in_MockGoal0001Paid", customer: "cus_MockGoalPayer01", customer_email: "goal.payer@example.com", customer_name: "Goal Payer" };
+    expect((await deliver(hz.base, signedStripeRequest(B, stripeEvent("invoice.paid", invoice, "evt_goal_b_1")))).status).toBe(200);
+    expect((await goalCounters(hz.db, B)).payingCustomers).toBe(before + 1);
+    expect(await repos.goals.get(hz.db, B, goal!.id)).toMatchObject({ status: "achieved", achievedValue: before + 1 });
+    const achieved = await hz.events(B, "goal.achieved");
+    expect(achieved).toHaveLength(1);
+    expect(achieved[0]!.payload).toMatchObject({ goalId: goal!.id, achievedValue: before + 1 });
+    const noteId = (achieved[0]!.payload as { inboxItemId: string }).inboxItemId;
+    expect(await repos.inbox.get(hz.db, B, noteId)).toMatchObject({ type: "milestone", subject: `Goal reached: ${before + 1} paying customers`, blocksContinue: false, fromAgentId: hz.B.agentId });
+    // A second payment reaches nothing more.
+    const again = { ...invoice, id: "in_MockGoal0002Paid", customer: "cus_MockGoalPayer02", customer_email: "goal.payer2@example.com" };
+    expect((await deliver(hz.base, signedStripeRequest(B, stripeEvent("invoice.paid", again, "evt_goal_b_2")))).status).toBe(200);
+    expect(await hz.events(B, "goal.achieved")).toHaveLength(1);
   });
 });

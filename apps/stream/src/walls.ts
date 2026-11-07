@@ -97,6 +97,12 @@ export const EVENT_WALLS = {
   "product.signoff_decided": { sections: ["product"], hide: freeText("notes") },
   // Distribution started: ids and a count only.
   "distribution.started": { sections: ["distribution"] },
+  // The business's goal (0072): ids, its kind, target and date. A revenue goal's numbers are money, so a reader walled off
+  // Finance gets the event without them; the founder's change words are their own free text.
+  "goal.proposed": { sections: ["inbox"], hide: { finance: ["targetValue"] } },
+  "goal.approved": { sections: ["inbox"], hide: { finance: ["targetValue", "startValue"] } },
+  "goal.change_requested": { sections: ["inbox"], hide: freeText("words") },
+  "goal.achieved": { sections: ["inbox"], hide: { finance: ["targetValue", "achievedValue"] } },
   // The guided layer's product signals (one founder's own use of tours, explainers and definitions): metrics only, so
   // on the stream they reach no one but the readers of Settings.
   "guidance.tour_completed": { sections: ["settings"] },

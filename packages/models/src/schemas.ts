@@ -386,6 +386,24 @@ export const FounderTitlesOutput = z.object({
 });
 export type FounderTitlesOutput = z.infer<typeof FounderTitlesOutput>;
 
+// ---------------------------------------------------------------------------------------------------------------------
+// The goal (founder, 2026-11-07): the founder's "Change it" words read as a kind, a target and a date. Every word the
+// founder reads is written by packages/shared goals.ts from these fields; the model never writes the sentence.
+// ---------------------------------------------------------------------------------------------------------------------
+
+export const GoalProposalOutput = z.object({
+  /** False when the words name no change the goal can take (then nothing is replaced and the founder is asked again). */
+  changed: z.boolean(),
+  kind: z.enum(["paying_customers", "signups", "revenue_month", "custom"]),
+  /** A count, or an amount in whole units of the business's currency for revenue_month; null for custom. */
+  target: z.number().nonnegative().nullable(),
+  /** "2027-01-31": after today, at most two years ahead. */
+  due_on: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  /** A custom goal's outcome in a few plain words ("Launch the booking page"); null for the measured kinds. */
+  custom_words: z.string().max(120).nullable(),
+});
+export type GoalProposalOutput = z.infer<typeof GoalProposalOutput>;
+
 export const CHART_OF_ACCOUNTS = [
   "revenue",
   "refunds",

@@ -5,12 +5,12 @@
  * sign off the product; the last task of a roadmap item offers Ready to start selling? once, with the demo task.
  */
 import { repos, signoffDecisionBlock } from "@foundmill/db";
-import { CHANNEL_META } from "@foundmill/shared";
+import { CHANNEL_META, defaultGoalFor, goalOptions, goalProposalSubject, goalSentence } from "@foundmill/shared";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createBriefActivities } from "../activities/brief";
 import { createChannelActivities, emptyChannelState } from "../activities/channel";
 import { CHANNEL_WAITS_REASON, createCycleActivities, idleSummary } from "../activities/cycle";
-import { autoDecideBlocking, createHolidayActivities, SIGNOFF_IS_YOURS } from "../activities/holiday";
+import { autoDecideBlocking, createHolidayActivities, GOAL_IS_YOURS, SIGNOFF_IS_YOURS } from "../activities/holiday";
 import { createPlanActivities } from "../activities/plan";
 import { offerReadyToSellAfterTask, READY_TO_SELL_SUBJECT } from "../activities/session";
 import type { BusinessBrief } from "../activities/types";
@@ -110,6 +110,38 @@ describe("vacation and Automated mode never sign off the product", () => {
     expect(reasons[spec.item!.id]).toBe(SIGNOFF_IS_YOURS);
     expect(reasons[roadmap.item!.id]).toBe(SIGNOFF_IS_YOURS);
     for (const id of [spec.item!.id, roadmap.item!.id]) expect((await repos.inbox.get(t.db, t.businessId, id)).state).toBe("unread");
+    await repos.holidays.end(t.db, t.businessId, h.id, { endedAt: t.clock.now() });
+  });
+});
+
+describe("vacation and Automated mode never answer the goal (founder, 2026-11-07)", () => {
+  it("the Chief of Staff's goal note waits for the founder with its reason; Automated mode leaves it queued", async () => {
+    const today = t.clock.now().toISOString().slice(0, 10);
+    const shape = defaultGoalFor({ payingCustomers: 0, today });
+    const sentence = goalSentence(shape, { today, startValue: 0 });
+    const proposed = await repos.goals.propose(t.db, t.businessId, {
+      sentence,
+      kind: shape.kind,
+      target: shape.target,
+      dueOn: shape.dueOn,
+      startValue: 0,
+      reason: "first",
+      agentId: t.chiefId,
+      item: { type: "decision", from_agent_id: t.chiefId, subject: goalProposalSubject(shape, "first", today), body_md: "I suggest we aim for this next. Approve it, or tell me what to change.", status_strip: [], exhibit: { kind: "none", spec_ref: null }, decision: { options: goalOptions(shape, "first"), free_text: true, expires_at: null }, blocks_continue: false, source_event_ids: [], entity_ids: [] },
+    });
+    const itemId = proposed.item!.id;
+    // Its recommended option is free and reversible, and still nobody takes it for the founder.
+    const auto = await autoDecideBlocking(t.deps, t.businessId, { chiefOfStaffId: t.chiefId, authority: ["publish_content", "spend_above_threshold", "merge_to_main", "message_customers", "hire_agents", "change_models"], auditAction: "automated_mode.decide", scope: "Automated mode" });
+    expect(auto.inboxItemIds).not.toContain(itemId);
+    const acts = createHolidayActivities(t.deps);
+    const started = t.clock.now();
+    const h = await repos.holidays.start(t.db, t.businessId, { untilAt: new Date(started.getTime() + 2 * 86_400_000), authority: { decisionTypes: ["publish_content", "spend_above_threshold"] }, wakeEvents: [], startedAt: started });
+    const loaded = await acts.loadHoliday({ businessId: t.businessId, holidayId: h.id });
+    const decided = await acts.holidayAutoDecide({ businessId: t.businessId, holiday: loaded });
+    expect(decided.inboxItemIds).not.toContain(itemId);
+    expect(Object.fromEntries(decided.waiting.map((w) => [w.inboxItemId, w.reason]))[itemId]).toBe(GOAL_IS_YOURS);
+    expect((await repos.inbox.get(t.db, t.businessId, itemId)).state).toBe("unread");
+    expect((await repos.goals.get(t.db, t.businessId, proposed.goal.id))?.status).toBe("proposed");
     await repos.holidays.end(t.db, t.businessId, h.id, { endedAt: t.clock.now() });
   });
 });

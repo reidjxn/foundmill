@@ -77,6 +77,8 @@ const BUDGETS: Array<[path: string, input: (businessId: string) => unknown, trip
   // Home's first-week checklist: the latest sign-off rounds, a cycle event, a note opened, a founder message, the
   // accounts and Stripe, in parallel in one transaction (perf audit item 10).
   ["business.firstWeek.get", (b) => ({ businessId: b }), 4],
+  // The goal Home shows (founder, 2026-11-07): the active and proposed goals and their counters in one wave.
+  ["goal.current", (b) => ({ businessId: b }), 4],
 ];
 
 describe("round trips per procedure, on the wire", () => {

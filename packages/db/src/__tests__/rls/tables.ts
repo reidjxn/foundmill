@@ -63,6 +63,8 @@ export const TENANT_TABLES: TenantTableSpec[] = [
   spec("sources", s.sources, "member", () => ({ kind: "doc", title: uniq("source"), uri: "https://example.test/doc" })),
   // 0062 product sign-offs (one round per kind; the api decides as the user, services open rounds)
   spec("product_signoffs", s.productSignoffs, "member", () => ({ kind: "spec", round: 100 + counter() })),
+  // 0072 goals (one proposal per revision; seeded as replaced so the one-proposed and one-active indexes never collide)
+  spec("goals", s.goals, "member", () => ({ revision: 100 + counter(), sentence: uniq("Get the first 10 paying customers by Dec 19"), metricKind: "paying_customers", targetValue: 10, dueOn: "2026-12-19", status: "replaced" })),
   // 0004 agents, departments, tasks
   spec("agents", s.agents, "member", () => ({ name: uniq("agent"), agentType: "engineer" })),
   spec("agent_versions", s.agentVersions, "member", (f) => ({ agentId: f.agentId, version: 100 + counter() })),
