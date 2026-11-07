@@ -491,7 +491,7 @@ describe("what a scenario's runway is called (#352)", () => {
   const live = { startingCashMinor: 25, monthlyRevenueMinor: 10, revenueGrowthPct: 0, monthlyCostsMinor: 20, costGrowthPct: 0, horizonMonths: 6 };
   it("says 'unknown' with its reason when there is no bank to project from", () => {
     const empty = { ...live, startingCashMinor: 0, monthlyRevenueMinor: 0, monthlyCostsMinor: 0 };
-    expect(scenarioRunway(projectForecast(empty, "2026-10"), empty, { value: "Not known yet", caption: "Connect a bank to estimate it" })).toEqual({ kind: "unknown", value: "Not known yet", caption: "Connect a bank to estimate it" });
+    expect(scenarioRunway(projectForecast(empty, "2026-10"), empty, { value: "Not known yet", caption: "Not enough data yet: connect your bank" })).toEqual({ kind: "unknown", value: "Not known yet", caption: "Not enough data yet: connect your bank" });
     // all-zero drivers are unknown even without a reason from the overview
     expect(scenarioRunway(projectForecast(empty, "2026-10"), empty, null)).toMatchObject({ kind: "unknown", value: "Not known yet" });
   });

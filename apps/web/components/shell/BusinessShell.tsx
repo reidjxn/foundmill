@@ -749,7 +749,7 @@ function ShellInner({ businessId, initialBusiness, initialDepartments, viewer, c
                 date={today}
                 // A balance below zero shows its words, never a negative figure (runway.ts).
                 runwayMonths={runwayFigure(financeQ.data)}
-                // Without a figure the chip says what Home's tiles say ("No limit", "Not known yet", "Cash is below
+                // Without a figure the chip says what Home's tiles say ("Not running out", "Not known yet", "Cash is below
                 // zero") with the reason.
                 runwayWords={runwayWords(financeQ.data)}
                 // A cash figure only when a bank account backs it (no account reads "Not known yet", never "Cash £0").

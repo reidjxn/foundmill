@@ -141,7 +141,7 @@ export interface AppShellProps extends Omit<HTMLAttributes<HTMLDivElement>, "tit
    */
   date: Date | string | number | null;
   runwayMonths: number | null | undefined;
-  /** The words when there is no runway figure ("No limit", "Not known yet") and why; see RunwayChip. */
+  /** The words when there is no runway figure ("Not running out", "Not known yet") and why; see RunwayChip. */
   runwayWords?: RunwayWords | null;
   cash?: Money;
   runwayEstimate?: boolean;

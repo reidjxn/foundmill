@@ -20,7 +20,7 @@ describe("note tags", () => {
     }
     expect(noteTagLegend(NOTE_TYPE_TAGS.customer_won)).toBe("Customer: A new paying customer, with its Customer Update");
     expect(noteTagLegend(RESPOND_TAG)).toBe("Needs you: Waiting for your answer; the rest of the work carries on");
-    expect(noteTagLegend(NOTE_TYPE_TAGS.warning)).toBe("Warning: Something to watch; it holds Continue only if cash is under 3 months");
+    expect(noteTagLegend(NOTE_TYPE_TAGS.warning)).toBe("Warning: Something to watch; it holds Continue only when credits run out or a key needs replacing");
     expect(noteTagLegend(NOTE_TYPE_TAGS.update)).toBe("Update: Progress from an agent, nothing to do");
     expect(noteTagLegend(NOTE_TYPE_TAGS.milestone)).toBe("Milestone: A first your business reached");
     expect(noteTagLegend(NOTE_TYPE_TAGS.report)).toBe("Report: A regular summary");

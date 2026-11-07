@@ -47,8 +47,8 @@ describe("driver fields (#172)", () => {
   it("builds the scenario sentence and the runway words from the drivers", () => {
     expect(scenarioHint("base", { ...drivers })).toBe("Base: what the plan says, revenue up 2.5% and costs up 1% a month, over 18 months.");
     expect(runwayText({ kind: "beyond", horizonMonths: 24 })).toMatchObject({ pill: "Runway healthy", figure: "Beyond 24 months" });
-    expect(runwayText({ kind: "no_limit" })).toMatchObject({ pill: "No limit", figure: "No limit" });
-    expect(runwayText({ kind: "unknown", value: "Not known yet", caption: "Connect a bank to estimate it" })).toMatchObject({ pill: "Runway not known yet", tone: "neutral" });
+    expect(runwayText({ kind: "no_limit" })).toMatchObject({ pill: "Not running out", figure: "Not running out" });
+    expect(runwayText({ kind: "unknown", value: "Not known yet", caption: "Not enough data yet: connect your bank" })).toMatchObject({ pill: "Runway not known yet", tone: "neutral" });
   });
 });
 
@@ -161,13 +161,13 @@ describe("RunwayScreen", () => {
     for (const s of ["base", "upside", "downside"]) {
       const row = list.querySelector(`[data-scenario='${s}']`) as HTMLElement;
       expect(within(row).getByText("Runway not known yet")).toBeTruthy();
-      expect(within(row).getByText("Connect a bank to estimate it")).toBeTruthy();
+      expect(within(row).getByText("Not enough data yet: connect your bank")).toBeTruthy();
       expect(within(row).queryByText("Runway healthy")).toBeNull();
       expect(within(row).queryByText(/Beyond 24 months/)).toBeNull();
     }
   });
 
-  it("a bank balance below zero reads 'Cash is below zero' in red, never 'No limit' or a negative figure (UX plan B8)", () => {
+  it("a bank balance below zero reads 'Cash is below zero' in red, never 'Not running out' or a negative figure (UX plan B8)", () => {
     const base = emptyResponses["finance.overview"] as { cash: Record<string, unknown>; runway: Record<string, unknown> };
     const belowZero = { ...emptyResponses, "finance.overview": { ...base, cash: { ...base.cash, amountMinor: -250_000, accounts: 1 }, runway: { months: null, reason: "negative", label: "Estimate", warnings: [], blocksContinue: false } } };
     const fake = createFakeSource({ businessId: BID, responses: belowZero });
@@ -176,7 +176,7 @@ describe("RunwayScreen", () => {
     const row = list.querySelector("[data-scenario='base']") as HTMLElement;
     expect(within(row).getAllByText("Cash is below zero").length).toBeGreaterThan(0);
     expect(within(row).getByText("The bank balance is negative, so there is no runway to count")).toBeTruthy();
-    expect(within(row).queryByText("No limit")).toBeNull();
+    expect(within(row).queryByText("Not running out")).toBeNull();
     expect(within(row).queryByText("Runway not known yet")).toBeNull();
   });
 

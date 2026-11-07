@@ -49,9 +49,9 @@ export function formatRunway(months: number | null | undefined): string {
 
 /** The words for a missing runway figure and why there is none. */
 export interface RunwayWords {
-  /** "No limit" (cash-flow positive), "Not known yet", "Cash is below zero". */
+  /** "Not running out" (cash-flow positive), "Not known yet", "Cash is below zero". */
   value: string;
-  /** The reason, shown in the tooltip: "Cash-flow positive, so no limit yet", "Connect a bank to estimate it". */
+  /** The reason, shown in the tooltip: "You earn more than you spend", "Not enough data yet: connect your bank". */
   caption: string;
   /** A short form of the reason the chip carries inline at the widest top-bar step: "connect a bank". */
   brief?: string;
@@ -72,7 +72,7 @@ export interface RunwayChipProps {
   runwayMonths: number | null | undefined;
   /**
    * The words when there is no figure, so the chip says what Home's tiles say (the app passes the shared runway
-   * wording: "No limit" when cash-flow positive, "Not known yet" with the reason, "Cash is below zero"). Defaults to
+   * wording: "Not running out" when cash-flow positive, "Not known yet" with the reason, "Cash is below zero"). Defaults to
    * "Not known yet".
    */
   words?: RunwayWords | null;
@@ -103,7 +103,7 @@ export function runwayTooltipLines(input: { runwayMonths: number | null | undefi
  * person's format: "9 Oct 2026", "2026-10-09"; DateFormatProvider) with the dashed "Estimate"
  * tag (a dashed edge always means "not measured"). The runway follows the horizon rule: amber under 9 months, red under
  * 6, with a warning icon and a tinted ring, so the state never rests on color alone. Without a figure it says why in
- * words, the same words as Home's tiles ("No limit", "Not known yet", "Cash is below zero"), the short reason inline at
+ * words, the same words as Home's tiles ("Not running out", "Not known yet", "Cash is below zero"), the short reason inline at
  * the widest top-bar step ("Not known yet · connect a bank") and the whole reason in the tooltip, whose first line says
  * what runway is; never a bare dash.
  */

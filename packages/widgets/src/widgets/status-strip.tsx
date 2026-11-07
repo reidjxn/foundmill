@@ -10,7 +10,7 @@ import { z } from "zod";
 import { Gauge } from "lucide-react";
 import { StatusStrip, Term, formatNumber, type MetricTileProps } from "@foundmill/dugout";
 import { useBusinessEvents, useGlossary, useToday, useWidgetData, useWidgetQuery } from "../data";
-import { monthRevenueMinor } from "../shared/cash";
+import { NOT_KNOWN_YET, monthRevenueMinor, revenueThisMonthMinor } from "../shared/cash";
 import { RUNWAY_WORDS, runwayWords } from "../shared/runway";
 import { registerWidget, type WidgetProps } from "../registry";
 import { moduleHref, orderedDepartments, useDepartments } from "../shared/departments";
@@ -104,7 +104,7 @@ export const PLAIN_LINES = {
 /**
  * The runway tile. With a burn model it is the figure in months with its Estimate chip and a caption in words ("Months
  * of cash left at today's spending", or the warning when it is short); without one it says why in the shared runway
- * words (shared/runway.ts: "No limit" when cash-flow positive, "Not known yet" otherwise) with the reason underneath,
+ * words (shared/runway.ts: "Not running out" when cash-flow positive, "Not known yet" otherwise) with the reason underneath,
  * and no Estimate chip: nothing has been estimated yet. The formula ("Cash ÷ net burn") is the provenance tooltip.
  */
 export function runwayTile(finance: FinanceOverview | undefined, loading: boolean, onClick: () => void): StatusTile {
@@ -122,7 +122,7 @@ export function runwayTile(finance: FinanceOverview | undefined, loading: boolea
     unit: "mo",
     estimate: "estimate",
     loading,
-    caption: finance?.runway.blocksContinue ? "Under 3 months of cash left: holds Continue" : months < 9 ? "Under 9 months of cash left" : RUNWAY_CAPTION,
+    caption: months < 3 ? "Under 3 months of cash left" : months < 9 ? "Under 9 months of cash left" : RUNWAY_CAPTION,
     provenance,
     onClick,
   };
@@ -153,8 +153,7 @@ export function statusTiles(i: StatusStripInputs): StatusTile[] {
   const customersWeek = sumInRange(rows, weekFrom, i.today, (r) => r.payments);
   const customersPrev = sumInRange(rows, prevFrom, prevTo, (r) => r.payments);
   const month = monthKey(i.today);
-  const revenueRow = i.finance?.revenue.monthly.find((m) => m.month === month);
-  const revenueMonth = revenueRow ? monthRevenueMinor(revenueRow) : null;
+  const revenueMonth = revenueThisMonthMinor(i.finance, month);
   const revenueSeries = (i.finance?.revenue.monthly ?? []).slice(-6).map(monthRevenueMinor);
   const healthCounts = squadHealthCounts(i.departments);
   const health = squadHealth(i.departments);
@@ -169,7 +168,7 @@ export function statusTiles(i: StatusStripInputs): StatusTile[] {
     financeError ? unavailableTile("Runway", financeError, "Finance", openFinance, "runway") : runwayTile(i.finance, i.loading.finance, openFinance),
     financeError
       ? unavailableTile("Revenue this month", financeError, "Finance", openFinance, "revenue")
-      : { label: "Revenue this month", termId: "revenue", plain: PLAIN_LINES.revenue, value: revenueMonth === null ? (i.loading.finance ? null : "—") : { amountMinor: revenueMonth, currency }, spark: revenueSeries, loading: i.loading.finance, caption: "Money in this month", provenance: { source: "Bank inflows, counted when the cash arrives; financing and transfers excluded", note: i.finance?.revenue.label }, onClick: openFinance },
+      : { label: "Revenue this month", termId: "revenue", plain: PLAIN_LINES.revenue, value: revenueMonth === null ? (i.loading.finance ? null : NOT_KNOWN_YET.value) : { amountMinor: revenueMonth, currency }, spark: revenueSeries, loading: i.loading.finance, caption: revenueMonth === null && !i.loading.finance ? NOT_KNOWN_YET.caption : "Money in this month", provenance: { source: "Bank inflows, counted when the cash arrives; financing and transfers excluded", note: i.finance?.revenue.label }, onClick: openFinance },
     ribbonError
       ? unavailableTile("Customers this week", ribbonError, "The Journey", () => i.open("customers"))
       : { label: "Customers this week", plain: PLAIN_LINES.customers, value: i.ribbon ? customersWeek : null, format: "integer", loading: i.loading.ribbon, caption: "Paying customers, last 7 days", delta: i.ribbon ? { value: customersWeek - customersPrev, label: "vs last week" } : undefined, spark: i.ribbon ? dailySeries(rows, lastDays(14, i.today), (r) => r.payments) : undefined, provenance: { source: "Payments (first payments count as customers)" }, onClick: () => i.open("customers") },
@@ -177,7 +176,7 @@ export function statusTiles(i: StatusStripInputs): StatusTile[] {
       ? unavailableTile("Team health", departmentsError, "The team", () => i.open("team"))
       : teamStalled(i.tasks)
         ? { label: "Team health", metricId: "team_health", value: "Stalled", loading: false, caption: teamWorkCaption(i.tasks!), provenance: { source: TEAM_WORK_SOURCE }, onClick: () => i.open("team") }
-        : { label: "Team health", metricId: "team_health", value: health === null ? (i.loading.departments ? null : "—") : health, format: "percent", loading: i.loading.departments, caption: i.departments ? (i.tasks && i.tasks.blocked > 0 ? `${teamHealthCaption(healthCounts)} · ${teamWorkCaption(i.tasks)}` : teamHealthCaption(healthCounts)) : undefined, provenance: { source: i.tasks ? `${TEAM_HEALTH_SOURCE}; ${TEAM_WORK_SOURCE}` : TEAM_HEALTH_SOURCE }, onClick: () => i.open("team") },
+        : { label: "Team health", metricId: "team_health", value: health === null ? (i.loading.departments ? null : "No team yet") : health, format: health === null ? undefined : "percent", loading: i.loading.departments, caption: i.departments ? (i.tasks && i.tasks.blocked > 0 ? `${teamHealthCaption(healthCounts)} · ${teamWorkCaption(i.tasks)}` : teamHealthCaption(healthCounts)) : undefined, provenance: { source: i.tasks ? `${TEAM_HEALTH_SOURCE}; ${TEAM_WORK_SOURCE}` : TEAM_HEALTH_SOURCE }, onClick: () => i.open("team") },
   ];
   if (i.live) {
     const best = (i.positions ?? []).slice().sort((a, b) => a.position - b.position)[0];

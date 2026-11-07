@@ -99,7 +99,10 @@ test.describe("distribution, finance and legal read in plain words", () => {
     // Guidance on (the product default): the intro above the summary sentence, inside the metrics region.
     const explainer = metrics.locator("[data-explainer='finance/overview']");
     await expect(explainer).toContainText("Where the money is and how long it lasts.");
-    await expect(explainer).toContainText("Numbers marked Estimate are worked out, not measured.");
+    await expect(explainer).toContainText("The line under the numbers says which are estimates: worked out, not measured.");
+    // Three numbers first, the rest behind More numbers, and "Estimate" once in words (Nov 7, 2026).
+    await expect(page.getByTestId("finance-headline").locator("[data-metric]")).toHaveCount(3);
+    await expect(page.getByTestId("finance-estimate-note")).toContainText(/^Estimate: /);
     // The summary sentence stays, and the runway tile's label is a defined word with its plain line under the figure.
     await expect(page.getByTestId("finance-summary")).toBeVisible();
     const runway = page.locator("[data-metric='runway']");
@@ -114,6 +117,8 @@ test.describe("distribution, finance and legal read in plain words", () => {
 
   test("finance: payback divides by the whole paying base, never by the customers the channels just won", async ({ page }) => {
     await openTab(page, "finance", "overview");
+    // Payback and acquisition cost sit behind More numbers (Nov 7, 2026).
+    await page.getByTestId("finance-more").getByText("More numbers").click();
     const caption = async (metric: string) => (await page.locator(`[data-metric="${metric}"] [data-metric-caption]`).innerText()).trim();
     const payback = await caption("payback");
     // "<n> paying customers": the base at the end of the revenue window, not the customers the channels just won.

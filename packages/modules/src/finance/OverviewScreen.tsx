@@ -5,7 +5,7 @@
  * money in and out. Read-only: nothing here can move money.
  */
 import { useMemo } from "react";
-import { AlertTriangle, Inbox, Landmark } from "lucide-react";
+import { AlertTriangle, ChevronRight, Inbox, Landmark } from "lucide-react";
 import { BarChart, Button, EmptyState, ErrorState, Explainer, LineChart, MetricTile, Panel, ProvenanceChip, StatusPill, Term, formatNumber, useDateFormat, type LineSeries, type MetricTileProps, type MetricProvenance } from "@foundmill/dugout";
 import { routes } from "@foundmill/widgets/shared/routes";
 import { useWidgetData, useWidgetQuery } from "@foundmill/widgets/data";
@@ -45,6 +45,19 @@ import { CHANNEL_WINDOW_DAYS } from "@foundmill/shared/constants";
 
 const TRAILING = 3;
 const HISTORY = 6;
+/** What the Overview opens on (Nov 7, 2026, one number per fact): cash, monthly spend and months left; the rest sit behind "More numbers". */
+export const HEADLINE_METRICS: readonly MetricKey[] = ["cash", "netBurn", "runway"];
+
+/**
+ * The one sentence that says which figures are estimates (Nov 7, 2026: "Estimate" once per screen, in words, not a
+ * chip on every tile). Null when every figure is measured.
+ */
+export function estimateSentence(tiles: readonly { key: MetricKey; estimate?: unknown }[]): string | null {
+  const labels = tiles.filter((t) => t.estimate).map((t) => METRIC_DEFINITIONS[t.key].label.replace(/\s*\(.*\)$/, "").toLowerCase());
+  if (!labels.length) return null;
+  const list = labels.length === 1 ? labels[0]! : `${labels.slice(0, -1).join(", ")} and ${labels.at(-1)}`;
+  return `Estimate: ${list} ${labels.length === 1 ? "is" : "are"} worked out, not measured.`;
+}
 /** Charts fill the rest of a 900 px window under the ten tiles. */
 const CHART_HEIGHT = 320;
 
@@ -53,7 +66,7 @@ export const FINANCE_EXPLAINER = {
   screenId: "finance/overview",
   purpose: "Where the money is and how long it lasts.",
   action: "Connect a bank or Stripe in Settings so the tiles measure instead of estimate; the Runway tab lets you try a forecast.",
-  watchFor: "Numbers marked Estimate are worked out, not measured.",
+  watchFor: "The line under the numbers says which are estimates: worked out, not measured.",
 } as const;
 
 export interface OverviewMetric extends MetricTileProps {
@@ -157,10 +170,10 @@ export function RunwayWarning({ months, warnings, blocksContinue, onOpenInbox }:
       </StatusPill>
       <span className="text-body text-primary">
         {blocksContinue
-          ? `Runway is under ${RUNWAY_BLOCK_MONTHS} months. Continue is blocked until the warning in the Inbox is acknowledged.`
+          ? `Runway is under ${RUNWAY_BLOCK_MONTHS} months. The finance lead has drafted options in the Inbox.`
           : `Runway is ${fmtMonths(months)}, under the ${lowest}-month threshold. The finance lead has drafted options in the Inbox.`}
       </span>
-      <Button size="sm" variant={blocksContinue ? "danger" : "default"} icon={Inbox} className="ml-auto" onClick={onOpenInbox}>
+      <Button size="sm" variant="default" icon={Inbox} className="ml-auto" onClick={onOpenInbox}>
         Open Inbox
       </Button>
     </div>
@@ -211,6 +224,16 @@ export function OverviewScreen({ businessId }: ModuleScreenProps) {
   }, [data, months, datePrefs]);
 
   const openInbox = () => navigate(routes.inbox(businessId));
+  const allKeys = Object.keys(METRIC_DEFINITIONS) as MetricKey[];
+  const headline = allKeys.filter((k) => HEADLINE_METRICS.includes(k));
+  const more = allKeys.filter((k) => !HEADLINE_METRICS.includes(k));
+  const estimates = tiles ? estimateSentence(tiles) : null;
+  const renderTile = (key: MetricKey) => {
+    const tile = tiles?.find((t) => t.key === key);
+    if (!tile) return <MetricTile key={`loading-${key}`} role="listitem" label={METRIC_DEFINITIONS[key].label} value={null} loading />;
+    const { key: _key, estimate: _estimate, ...rest } = tile;
+    return <MetricTile key={key} role="listitem" data-metric={key} {...rest} label={<MetricLabel metric={key} />} />;
+  };
 
   // The months the warning judges: a balance below zero has none (the tile says "Cash is below zero").
   const warningMonths = data ? runwayFigure(data) : null;
@@ -239,11 +262,25 @@ export function OverviewScreen({ businessId }: ModuleScreenProps) {
                 {summary}
               </p>
             ) : null}
-            <div role="list" className="grid grid-cols-5 gap-px overflow-hidden rounded-panel border border-subtle bg-subtle">
-              {tiles
-                ? tiles.map(({ key, ...tile }) => <MetricTile key={key} role="listitem" data-metric={key} {...tile} label={<MetricLabel metric={key} />} />)
-                : (Object.keys(METRIC_DEFINITIONS) as MetricKey[]).map((key) => <MetricTile key={`loading-${key}`} role="listitem" label={METRIC_DEFINITIONS[key].label} value={null} loading />)}
+            {/* Three numbers first (cash, monthly spend, months left); the rest behind "More numbers". No Estimate chip
+                on the tiles: one sentence under them names the figures that are worked out (Nov 7, 2026). */}
+            <div role="list" className="grid grid-cols-3 gap-px overflow-hidden rounded-panel border border-subtle bg-subtle" data-testid="finance-headline">
+              {headline.map((key) => renderTile(key))}
             </div>
+            {estimates ? (
+              <p className="mt-2 text-small text-secondary" data-testid="finance-estimate-note">
+                {estimates}
+              </p>
+            ) : null}
+            <details className="group/more mt-2" data-testid="finance-more">
+              <summary className="flex w-fit cursor-pointer list-none items-center gap-1 rounded-sm text-small text-secondary transition-colors duration-hover ease-out hover:text-primary [&::-webkit-details-marker]:hidden">
+                <ChevronRight size={14} aria-hidden className="transition-transform duration-overlay ease-out group-open/more:rotate-90" />
+                More numbers
+              </summary>
+              <div role="list" className="mt-2 grid grid-cols-4 gap-px overflow-hidden rounded-panel border border-subtle bg-subtle">
+                {more.map((key) => renderTile(key))}
+              </div>
+            </details>
           </>
         )}
       </section>
