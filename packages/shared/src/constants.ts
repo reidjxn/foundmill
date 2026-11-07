@@ -319,7 +319,7 @@ export const EVENT_TYPES = [
   "mode.changed", "holiday.started", "holiday.ended", "business.updated",
   "filing.due", "contract.signed",
   "connection.requested", "message.received", "negotiation.message",
-  "cycle.started", "cycle.completed", "inbox.item_created", "inbox.item_updated", "decision.made",
+  "cycle.started", "cycle.completed", "cycle.run_started", "cycle.run_ended", "inbox.item_created", "inbox.item_updated", "decision.made",
   "autopilot.changed", "autopilot.cycle_started",
   "foundations.progressed",
   "conversation.message_posted",

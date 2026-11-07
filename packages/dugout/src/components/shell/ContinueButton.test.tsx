@@ -7,11 +7,14 @@ import type { ContinueState } from "./types";
 
 describe("ContinueButton", () => {
   it("says what pressing does, in the business's words, per state (B1)", async () => {
-    expect(continueTooltip({ kind: "idle" })).toBe("Let the team work on their next tasks. Their notes land in the Inbox.");
+    expect(continueTooltip({ kind: "idle" })).toBe("Let the team work until nothing is left to do. Their notes land in the Inbox.");
     expect(continueTooltip({ kind: "blocked", count: 2 })).toBe("2 things need you before the team can work (credits used up or a key to replace). Press to open the first.");
     expect(continueTooltip({ kind: "blocked", count: 1 })).toBe("1 thing needs you before the team can work (credits used up or a key to replace). Press to open the first.");
     expect(continueTooltip({ kind: "processing" }, 3)).toBe("The team is working · cycle 3");
     expect(continueTooltip({ kind: "processing" })).toBe("The team is working");
+    // A run (one press, Nov 7, 2026): new cycles start on their own, between cycles too.
+    expect(continueTooltip({ kind: "processing", run: true }, 5)).toBe("The team is working · cycle 5. New cycles start on their own until nothing is left to do.");
+    expect(continueTooltip({ kind: "processing", run: true })).toBe("The team is working. New cycles start on their own until nothing is left to do.");
     expect(continueTooltip({ kind: "matchday" })).toBe("A customer was won");
     expect(continueTooltip({ kind: "holiday", until: "2026-10-14" })).toBe("On vacation until Oct 14, 2026");
     const user = userEvent.setup();
@@ -27,10 +30,10 @@ describe("ContinueButton", () => {
     const short = "One round of work: the team works for a while, then reports back in the Inbox.";
     expect(cycleDefinitionSentence(short)).toBe("A cycle is one round of work: the team works for a while, then reports back in the Inbox.");
     expect(cycleDefinitionSentence("  ")).toBe("");
-    expect(continueTooltip({ kind: "idle" }, null, null, short)).toBe("Let the team work on their next tasks for one cycle. A cycle is one round of work: the team works for a while, then reports back in the Inbox.");
+    expect(continueTooltip({ kind: "idle" }, null, null, short)).toBe("Let the team work, one cycle after another, until nothing is left to do. A cycle is one round of work: the team works for a while, then reports back in the Inbox.");
     // Only idle changes; no definition, no change.
     expect(continueTooltip({ kind: "blocked", count: 1 }, null, null, short)).toBe("1 thing needs you before the team can work (credits used up or a key to replace). Press to open the first.");
-    expect(continueTooltip({ kind: "idle" }, null, null, null)).toBe("Let the team work on their next tasks. Their notes land in the Inbox.");
+    expect(continueTooltip({ kind: "idle" }, null, null, null)).toBe("Let the team work until nothing is left to do. Their notes land in the Inbox.");
 
     const user = userEvent.setup();
     // Outside a provider guidance reads as on: the definition comes from the source map.
@@ -54,7 +57,7 @@ describe("ContinueButton", () => {
       </GuidanceProvider>,
     );
     await user.hover(screen.getByRole("button", { name: /Continue/ }));
-    expect((await screen.findAllByText("Let the team work on their next tasks. Their notes land in the Inbox.")).length).toBeGreaterThan(0);
+    expect((await screen.findAllByText("Let the team work until nothing is left to do. Their notes land in the Inbox.")).length).toBeGreaterThan(0);
     expect(screen.queryByText(/A cycle is/)).toBeNull();
   });
 
@@ -115,6 +118,19 @@ describe("ContinueButton", () => {
     expect(respond.className).toContain("tone-status-warn");
     rerender(<ContinueButton state={{ kind: "matchday" }} />);
     expect(screen.getByRole("button", { name: "Go to Journey" }).getAttribute("data-variant")).toBe("gold");
+  });
+
+  it("keeps the orbit and Pause for a whole run, between cycles too (Nov 7, 2026)", async () => {
+    const user = userEvent.setup();
+    const onPause = vi.fn();
+    render(<ContinueButton state={{ kind: "processing", run: true }} onPause={onPause} />);
+    const pause = screen.getByRole("button", { name: "Pause the running cycle" });
+    expect(pause.className).toContain("orbit");
+    expect(pause.textContent).toBe("Pause");
+    await user.hover(pause);
+    expect((await screen.findAllByText("The team is working. New cycles start on their own until nothing is left to do.")).length).toBeGreaterThan(0);
+    await user.click(pause);
+    expect(onPause).toHaveBeenCalledTimes(1);
   });
 
   it("pulses once for 600 ms when pulseKey changes, not on mount", () => {

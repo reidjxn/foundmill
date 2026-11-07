@@ -4,7 +4,7 @@ import { consequenceText } from "@foundmill/dugout";
 import { BUSINESS_MODES } from "@foundmill/shared/constants";
 import { SETTINGS_TABS } from "@/lib/search";
 import { BUSINESS_MODE_CARDS } from "@/components/new/commit/naming";
-import { AUTOPILOT_HELP } from "../AutopilotSection";
+import { AUTOPILOT_CONTINUE_NOTE, AUTOPILOT_HELP } from "../AutopilotSection";
 import { checkoutNotice, includedCreditsFact, periodLabel, tierFacts, tierPriceLabel } from "../BillingTab";
 import { timeZoneOptions } from "../BusinessTab";
 import { glossaryRows, rowsToGlossary } from "../GlossaryTab";
@@ -99,6 +99,8 @@ describe("settings logic", () => {
       expect(example, mode).not.toMatch(/counterpart/i);
     }
     expect(AUTOPILOT_HELP).toBe("Autopilot presses Continue for you on a schedule. It never answers notes for you.");
+    // Continue runs until done and shares the daily limits (Nov 7, 2026).
+    expect(AUTOPILOT_CONTINUE_NOTE).toBe("Continue keeps the team working, one cycle after another, until nothing is left to do. The daily limits below apply to those cycles too.");
   });
 
   it("going live, going on vacation and revoking the key each carry a consequence line that can be undone", () => {

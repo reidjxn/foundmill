@@ -58,8 +58,11 @@ export interface SidebarBrand {
 export type ContinueState =
   | { kind: "idle" }
   | { kind: "blocked"; count: number }
-  /** `cycle`: the running cycle's number, for "The team is working · cycle 3" (the button's `cycleNumber` prop also carries it). */
-  | { kind: "processing"; label?: string; cycle?: number }
+  /**
+   * `cycle`: the running cycle's number, for "The team is working · cycle 3" (the button's `cycleNumber` prop also carries
+   * it). `run`: one press of Continue keeps the team working, so new cycles start on their own (between cycles too).
+   */
+  | { kind: "processing"; label?: string; cycle?: number; run?: boolean }
   | { kind: "matchday" }
   | { kind: "holiday"; until: Date | string | null; untilLabel?: string };
 

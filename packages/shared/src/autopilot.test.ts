@@ -6,7 +6,11 @@ import {
   AUTOPILOT_DEFAULT_SETTINGS,
   AUTOPILOT_LIMITS,
   autopilotView,
+  CONTINUE_RUN_END_REASONS,
+  CONTINUE_RUN_LIMITS,
+  continueRunEndedMessage,
   decideAutopilot,
+  decideRun,
   effectiveSpendCeiling,
   idleStreak,
   isIdleCycle,
@@ -207,5 +211,93 @@ describe("autopilotView: the chip", () => {
     expect(autopilotView(decideAutopilot(facts({ recentCycles: [empty, empty, empty] })))).toMatchObject({ state: "paused", label: "Paused: nothing got done" });
     expect(autopilotView(decideAutopilot(facts({ pausedReason: "key_revoked" }))).detail).toMatch(/Store a key/);
     expect(autopilotView(decideAutopilot(facts({ vacation: true, lastCycleEndedAt: NOW - 100 * H })))).toMatchObject({ state: "waiting", label: "Waiting: on vacation" });
+  });
+});
+
+describe("decideRun: Continue runs until done (Nov 7, 2026)", () => {
+  const run = { id: "run-1", startedAt: NOW - 2 * H, rounds: 1, lastRound: productive };
+  const live = (patch: Partial<AutopilotFacts> = {}) => facts({ run, lastCycleStartedAt: NOW - 1 * H, lastCycleEndedAt: NOW - 30 * 60_000, ...patch });
+
+  it("is null without a run, so the schedule decides alone", () => {
+    expect(decideRun(facts())).toBeNull();
+    expect(decideRun(facts({ run: null }))).toBeNull();
+  });
+
+  it("starts the next round when the last one got work done, with no 15-minute floor, even with Autopilot off", () => {
+    expect(decideRun(live())).toEqual({ action: "start" });
+    // Two minutes after the last start: Autopilot's own schedule would still wait out its 15 minutes.
+    const soon = live({ enabled: false, lastCycleStartedAt: NOW - 2 * 60_000, lastCycleEndedAt: NOW - 60_000 });
+    expect(decideRun(soon)).toEqual({ action: "start" });
+    expect(decideAutopilot({ ...soon, enabled: true, settings: { ...soon.settings, cadence: "after_cycle" } })).toMatchObject({ action: "wait", why: "schedule" });
+  });
+
+  it("starts the first round as soon as nothing is open (no round finished yet)", () => {
+    expect(decideRun(live({ run: { ...run, rounds: 0, lastRound: null } }))).toEqual({ action: "start" });
+  });
+
+  it("keeps a 1-minute gap between rounds", () => {
+    const start = NOW - 20_000;
+    expect(decideRun(live({ lastCycleStartedAt: start, lastCycleEndedAt: NOW - 5_000 }))).toEqual({ action: "wait", why: "gap", until: start + CONTINUE_RUN_LIMITS.minGapMs });
+  });
+
+  it("waits while another cycle is open", () => {
+    expect(decideRun(live({ cycleOpen: true }))).toEqual({ action: "wait", why: "cycle_running", until: null });
+  });
+
+  it("ends done when the last round did nothing: empty, failed, or only waiting on the founder", () => {
+    expect(decideRun(live({ run: { ...run, lastRound: empty } }))).toEqual({ action: "end", reason: "done" });
+    expect(decideRun(live({ run: { ...run, lastRound: failed } }))).toEqual({ action: "end", reason: "done" });
+    expect(decideRun(live({ run: { ...run, lastRound: { outcome: "waiting", tasksDispatched: 2, tasksCompleted: 0 } } }))).toEqual({ action: "end", reason: "done" });
+    // A round that finished something while others wait on a decision is progress: the run goes on.
+    expect(decideRun(live({ run: { ...run, lastRound: { outcome: "waiting", tasksDispatched: 2, tasksCompleted: 1 } } }))).toEqual({ action: "start" });
+    // A round that failed before writing a cycle ends it too, so a failing start cannot loop.
+    expect(decideRun(live({ run: { ...run, rounds: 0, lastRound: null, unrecordedFailures: 1 } }))).toEqual({ action: "end", reason: "done" });
+  });
+
+  it("decisions waiting in Needs you do not hold a run (0071): only a hard stop counts as blocking", () => {
+    // `blockingItems` counts only hard stops (credits used up, a revoked key); open decisions never reach it.
+    expect(decideRun(live({ blockingItems: 0 }))).toEqual({ action: "start" });
+    expect(decideRun(live({ blockingItems: 1 }))).toEqual({ action: "end", reason: "hard_stop" });
+  });
+
+  it("a hard stop ends it: the stop flag, used-up credits", () => {
+    for (const stopReason of ["kill_switch", "key_revoked", "credits_exhausted"] as const) expect(decideRun(live({ stopReason }))).toEqual({ action: "end", reason: "hard_stop" });
+    expect(decideRun(live({ creditsRemainingMinor: 0 }))).toEqual({ action: "end", reason: "hard_stop" });
+    // A hard stop outranks a running cycle: the run ends at once, the cycle's own stop is the cycle's.
+    expect(decideRun(live({ stopReason: "kill_switch", cycleOpen: true }))).toEqual({ action: "end", reason: "hard_stop" });
+  });
+
+  it("a stopped last round ends it as stopped", () => {
+    expect(decideRun(live({ run: { ...run, lastRound: { outcome: "stopped", tasksDispatched: 1, tasksCompleted: 0 } } }))).toEqual({ action: "end", reason: "stopped" });
+  });
+
+  it("a vacation and an archived business end it", () => {
+    expect(decideRun(live({ vacation: true }))).toEqual({ action: "end", reason: "vacation" });
+    expect(decideRun(live({ archived: true, vacation: true }))).toEqual({ action: "end", reason: "archived" });
+  });
+
+  it("the day's cycle cap and spend ceiling end it (one set of limits with Autopilot)", () => {
+    expect(decideRun(live({ cyclesToday: AUTOPILOT_DEFAULT_SETTINGS.maxCyclesPerDay }))).toEqual({ action: "end", reason: "daily_cycles" });
+    expect(decideRun(live({ cyclesToday: AUTOPILOT_DEFAULT_SETTINGS.maxCyclesPerDay - 1 }))).toEqual({ action: "start" });
+    expect(decideRun(live({ settings: { ...AUTOPILOT_DEFAULT_SETTINGS, spendCeilingMinor: 100 }, spentTodayMinor: 100 }))).toEqual({ action: "end", reason: "daily_spend" });
+    // With no ceiling set the credits left are the ceiling; on the founder's own key there is none.
+    expect(decideRun(live({ creditsRemainingMinor: null, spentTodayMinor: 1_000_000 }))).toEqual({ action: "start" });
+  });
+
+  it("the end words: plain, with the day's limit, and nothing for an end the founder caused", () => {
+    expect(continueRunEndedMessage("done")).toMatchObject({ title: "The team has done all it can for now", description: "Anything waiting for you is in the Inbox's Needs you tab." });
+    expect(continueRunEndedMessage("daily_cycles", 6)!.title).toBe("Today's limit of 6 cycles is reached");
+    expect(continueRunEndedMessage("daily_cycles", 1)!.title).toBe("Today's limit of 1 cycle is reached");
+    expect(continueRunEndedMessage("daily_cycles")!.title).toBe("Today's cycle limit is reached");
+    expect(continueRunEndedMessage("daily_spend")!.title).toBe("Today's spend ceiling is reached (Estimate)");
+    for (const reason of ["paused", "stopped", "archived"] as const) expect(continueRunEndedMessage(reason)).toBeNull();
+    for (const reason of CONTINUE_RUN_END_REASONS) {
+      const m = continueRunEndedMessage(reason);
+      if (m) expect(`${m.title} ${m.description}`).not.toMatch(/workflow|run_|autopilot:/i);
+    }
+  });
+
+  it("the Off chip says Continue keeps the team working", () => {
+    expect(autopilotView({ action: "off" }).detail).toBe("Continue keeps the team working until nothing is left. Turn Autopilot on to start work on a schedule.");
   });
 });

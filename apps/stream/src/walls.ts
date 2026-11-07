@@ -74,6 +74,9 @@ export const EVENT_WALLS = {
   "negotiation.message": { sections: ["live"], hide: { finance: ["proposal.price", "proposal.terms"] } },
   "cycle.started": { sections: [], hide: { finance: ["budget"] } },
   "cycle.completed": { sections: [], hide: { finance: ["cost"] } },
+  // Continue's run (Nov 7, 2026): ids, a count and a reason; the cost goes with the money.
+  "cycle.run_started": { sections: [] },
+  "cycle.run_ended": { sections: [], hide: { finance: ["cost"] } },
   // Autopilot (0055): the chip is Home's; the day's spend ceiling is a money figure, hidden from a reader walled off Finance.
   "autopilot.changed": { sections: [], hide: { finance: ["spendCeiling"] } },
   "autopilot.cycle_started": { sections: [] },

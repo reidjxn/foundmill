@@ -133,16 +133,24 @@ export async function createApiHarness(options: HarnessOptions): Promise<ApiHarn
 }
 
 /** A fake Temporal client that records starts and signals (and can be told to fail). */
-export function fakeTemporalClient(options: { rejectDuplicates?: boolean } = {}): TemporalClientLike & { starts: { type: string; workflowId: string; args: unknown[] }[]; signals: { workflowId: string; signal: string; args: unknown[] }[]; statuses: Map<string, string> } {
+export function fakeTemporalClient(options: { rejectDuplicates?: boolean } = {}): TemporalClientLike & { starts: { type: string; workflowId: string; args: unknown[] }[]; signals: { workflowId: string; signal: string; args: unknown[] }[]; signalStarts: { type: string; workflowId: string; args: unknown[]; signal: string; signalArgs: unknown[] }[]; statuses: Map<string, string> } {
   const starts: { type: string; workflowId: string; args: unknown[] }[] = [];
+  /** Signal-with-start calls (Continue's runs on `autopilot:<businessId>`); the workflow is RUNNING after one. */
+  const signalStarts: { type: string; workflowId: string; args: unknown[]; signal: string; signalArgs: unknown[] }[] = [];
   const signals: { workflowId: string; signal: string; args: unknown[] }[] = [];
   /** Workflow id → Temporal status name; a started workflow is RUNNING until a test sets another. */
   const statuses = new Map<string, string>();
   return {
     starts,
     signals,
+    signalStarts,
     statuses,
     workflow: {
+      async signalWithStart(type, o) {
+        signalStarts.push({ type, workflowId: o.workflowId, args: o.args ?? [], signal: o.signal, signalArgs: o.signalArgs ?? [] });
+        statuses.set(o.workflowId, "RUNNING");
+        return { workflowId: o.workflowId };
+      },
       async start(type, startOptions) {
         if (options.rejectDuplicates && statuses.get(startOptions.workflowId) === "RUNNING") throw Object.assign(new Error("Workflow execution already started"), { name: "WorkflowExecutionAlreadyStartedError" });
         starts.push({ type, workflowId: startOptions.workflowId, args: startOptions.args ?? [] });

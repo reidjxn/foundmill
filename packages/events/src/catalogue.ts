@@ -21,6 +21,7 @@ import {
   AUTOPILOT_PAUSE_REASONS,
   BusinessMode,
   ChannelKey,
+  CONTINUE_RUN_END_REASONS,
   ConversationAuthorKind,
   ConversationSubjectKind,
   ConversionKind,
@@ -1089,6 +1090,46 @@ const cycleCompleted = declareEvent(
   },
 );
 
+const cycleRunStarted = declareEvent(
+  "cycle.run_started",
+  z.object({
+    /** One id per press: the rounds the press runs and the run's end carry it. */
+    runId: Id,
+    /** The first round's cycle number; null when a cycle was already open and the run picks up after it. */
+    firstCycleNumber: z.number().int().positive().nullable(),
+  }),
+  {
+    doc: "One press of Continue started a run: the autopilot workflow starts round after round (businessCycle) until nothing is left the team can do, a hard stop, a vacation, Pause or the day's limits end it.",
+    consumers: ["stream", "metrics"],
+    narratable: false,
+  },
+);
+
+const cycleRunEnded = declareEvent(
+  "cycle.run_ended",
+  z.object({
+    runId: Id,
+    /**
+     * `done`: the last round did nothing (decisions waiting in Needs you never hold a run); `hard_stop`: the stop flag,
+     * used-up credits or an Inbox item that blocks Continue; `paused`: the founder pressed Pause; `stopped`: Stop all
+     * agents or a stopped round; `daily_cycles` / `daily_spend`: the day's limits from Settings › Mode; `lost`: its
+     * workflow was gone (closed by the API's reconciler).
+     */
+    reason: z.enum(CONTINUE_RUN_END_REASONS),
+    /** Rounds of the run that finished. */
+    rounds: Count,
+    /** Model cost of those rounds (an Estimate). */
+    cost: Money,
+    /** The day's cycle cap when the run ended at it (`daily_cycles`), for the founder's words; null otherwise. */
+    maxCyclesPerDay: z.number().int().min(1).max(24).nullable().default(null),
+  }),
+  {
+    doc: "A run that one press of Continue started ended (written once per run, by the workflow or by the API for Pause, Stop all agents and a lost workflow).",
+    consumers: ["stream", "metrics"],
+    narratable: false,
+  },
+);
+
 const autopilotChanged = declareEvent(
   "autopilot.changed",
   z.object({
@@ -1115,8 +1156,10 @@ const autopilotCycleStarted = declareEvent(
     cycleNumber: z.number().int().positive(),
     workflowId: z.string().min(1),
     cadence: z.enum(AUTOPILOT_CADENCES),
-    /** Autopilot cycles started today (UTC), this one included. */
+    /** Cycles started today (UTC) that count toward the daily cap, this one included. */
     cyclesToday: z.number().int().positive(),
+    /** Set when the cycle is a follow-on round of a run one press of Continue started. */
+    runId: Id.optional(),
   }),
   {
     doc: "Autopilot started the next businessCycle through the same entry point as Continue (trigger `autopilot`); every approval, hard gate and policy check applies as for a founder press.",
@@ -1480,6 +1523,8 @@ export const EVENTS = {
   "negotiation.message": negotiationMessage,
   "cycle.started": cycleStarted,
   "cycle.completed": cycleCompleted,
+  "cycle.run_started": cycleRunStarted,
+  "cycle.run_ended": cycleRunEnded,
   "autopilot.changed": autopilotChanged,
   "autopilot.cycle_started": autopilotCycleStarted,
   "inbox.item_created": inboxItemCreated,

@@ -28,6 +28,16 @@ describe("computeContinueState", () => {
     expect(computeContinueState({ blocking: 0, items: [], cycle: { running: true, paused: true } })).toEqual({ kind: "idle" });
   });
 
+  it("keeps processing (Pause) for a whole run, between its cycles too; a paused cycle still shows Continue (Nov 7, 2026)", () => {
+    expect(computeContinueState({ blocking: 0, items: [], cycle: { running: true, run: true } })).toEqual({ kind: "processing", run: true });
+    expect(computeContinueState({ blocking: 0, items: [], cycle: { running: false, run: true } })).toEqual({ kind: "processing", run: true });
+    expect(computeContinueState({ blocking: 0, items: [], cycle: { running: true, paused: true, run: true } })).toEqual({ kind: "idle" });
+    expect(computeContinueState({ blocking: 0, items: [], cycle: { running: false, run: false } })).toEqual({ kind: "idle" });
+    // A hard stop and a vacation still come first.
+    expect(computeContinueState({ blocking: 1, items: [], cycle: { running: false, run: true } })).toEqual({ kind: "blocked", count: 1 });
+    expect(computeContinueState({ blocking: 0, items: [], holiday: { untilAt: null }, cycle: { running: false, run: true } }).kind).toBe("holiday");
+  });
+
   it("holiday wins over everything and carries the until", () => {
     const until = new Date("2026-11-01T00:00:00Z");
     expect(computeContinueState({ blocking: 2, items: [], cycle: { running: true }, holiday: { untilAt: until } })).toEqual({ kind: "holiday", until, untilLabel: undefined });
