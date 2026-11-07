@@ -22,3 +22,4 @@ export * from "./conversations";
 export * from "./payments";
 export * from "./table-views";
 export * from "./personas";
+export * from "./goals";

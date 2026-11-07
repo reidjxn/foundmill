@@ -29,6 +29,8 @@ import {
   EVENT_TYPES,
   EventType,
   GameMode,
+  GOAL_METRIC_KINDS,
+  GOAL_PROPOSAL_REASONS,
   GUIDANCE_OFF_SOURCES,
   InboxItemType,
   MatchdayLevel,
@@ -1477,6 +1479,94 @@ const distributionStarted = declareEvent(
 );
 
 // ---------------------------------------------------------------------------------------------------
+// The business's goal (founder, 2026-11-07: "Your goal"; migration 0072)
+// ---------------------------------------------------------------------------------------------------
+
+/** What the founder reads about a goal, in the words packages/shared goals.ts writes (no free text of anyone's). */
+const GoalFacts = z.object({
+  goalId: Id,
+  revision: z.number().int().positive(),
+  metricKind: z.enum(GOAL_METRIC_KINDS),
+  /** A count, or minor units for revenue_month; null for a custom goal. */
+  targetValue: z.number().int().positive().nullable(),
+  currency: z.string().length(3).nullable().default(null),
+  /** "2026-12-19". */
+  dueOn: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+});
+
+const goalProposed = declareEvent(
+  "goal.proposed",
+  GoalFacts.extend({
+    /** Why: the first goal, a revision of the founder's words, the next after one was reached, a new date after a miss. */
+    reason: z.enum(GOAL_PROPOSAL_REASONS),
+    /** The Chief of Staff who proposed it (null when the business has none). */
+    proposedByAgentId: Id.nullable(),
+    /** The Chief of Staff's decision note. */
+    inboxItemId: Id.nullable(),
+    /** The goal it follows (the changed proposal, the reached goal or the missed one); null for the first. */
+    replacesGoalId: Id.nullable().default(null),
+    /** How the revision was read from the founder's words: the model route, the deterministic reader, or neither (a default). */
+    source: z.enum(["default", "model", "parser"]).default("default"),
+  }),
+  {
+    doc: "The Chief of Staff proposed the business's goal as an Inbox decision note (never holding Continue, 0071): after both sign-offs and a round of work, after a change request, after a goal was reached, or when a goal's date passed. apps/stream pushes it so open tabs refetch `goal.current`. Never narrated: the note is the Chief of Staff's own.",
+    consumers: ["stream", "metrics"],
+    narratable: false,
+  },
+);
+
+const goalApproved = declareEvent(
+  "goal.approved",
+  GoalFacts.extend({
+    approvedBy: z.object({ kind: z.literal("user"), id: Id }),
+    /** Where the number stood at the approval (null for custom). */
+    startValue: z.number().int().nullable(),
+    /** The previous active goal this one replaced; null when there was none. */
+    replacedGoalId: Id.nullable().default(null),
+    via: z.enum(["inbox", "goal"]),
+  }),
+  {
+    doc: "The founder approved the proposed goal: it is the active goal from now and the previous one is replaced. apps/stream pushes it so Home and the Inbox follow. Never narrated.",
+    consumers: ["stream", "metrics"],
+    narratable: false,
+  },
+);
+
+const goalChangeRequested = declareEvent(
+  "goal.change_requested",
+  z.object({
+    goalId: Id,
+    revision: z.number().int().positive(),
+    requestedBy: z.object({ kind: z.literal("user"), id: Id }),
+    /** The founder's own words (at most 2,000 characters). */
+    words: z.string().min(1).max(2000),
+    /** The revised proposal written from them. */
+    revisedGoalId: Id,
+    via: z.enum(["inbox", "goal"]),
+  }),
+  {
+    doc: "The founder asked for a change to a proposed goal in their own words: the proposal is replaced and the Chief of Staff's revised proposal follows as goal.proposed. apps/stream pushes it (the words are hidden from readers who may not see the Inbox). Never narrated.",
+    consumers: ["stream", "metrics"],
+    narratable: false,
+  },
+);
+
+const goalAchieved = declareEvent(
+  "goal.achieved",
+  GoalFacts.extend({
+    /** The value it reached (a count, or minor units). */
+    achievedValue: z.number().int().nullable(),
+    /** The Chief of Staff's "Goal reached: …" note; null when the business has no Chief of Staff. */
+    inboxItemId: Id.nullable().default(null),
+  }),
+  {
+    doc: "The active goal was reached (a payment or a signup arrived, or `goal.ensure` counted it): marked achieved, and the Chief of Staff posted a milestone-style note; the next proposal follows on the next `goal.ensure`. Never narrated.",
+    consumers: ["stream", "metrics"],
+    narratable: false,
+  },
+);
+
+// ---------------------------------------------------------------------------------------------------
 // Registry
 // ---------------------------------------------------------------------------------------------------
 
@@ -1537,6 +1627,10 @@ export const EVENTS = {
   "product.signoff_decided": productSignoffDecided,
   "distribution.started": distributionStarted,
   "product.research_drafted": productResearchDrafted,
+  "goal.proposed": goalProposed,
+  "goal.approved": goalApproved,
+  "goal.change_requested": goalChangeRequested,
+  "goal.achieved": goalAchieved,
   "guidance.tour_completed": guidanceTourCompleted,
   "guidance.tour_skipped": guidanceTourSkipped,
   "guidance.explainer_dismissed": guidanceExplainerDismissed,

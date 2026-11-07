@@ -121,6 +121,9 @@ export const ROUTES = {
   // prompt (house rules + instructions) and size max_tokens for the reply (~700 tokens) plus the thinking Sonnet 5.5
   // always does, which counts toward max_tokens.
   conversation: { model: "sonnet", effort: "low", maxTokens: LOW_EFFORT_MAX_TOKENS },
+  // The founder's "Change it" words on the Chief of Staff's goal (founder, 2026-11-07): the model picks only the kind, the
+  // target and the date (packages/shared writes every word the founder reads), so Sonnet at low effort answers in seconds.
+  goalProposal: { model: "sonnet", effort: "low", maxTokens: LOW_EFFORT_MAX_TOKENS },
 } as const satisfies Record<string, RouteDefinition>;
 export type RouteKey = keyof typeof ROUTES;
 

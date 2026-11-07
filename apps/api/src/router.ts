@@ -12,6 +12,7 @@ import { devRouter } from "./routers/dev";
 import { distributionRouter } from "./routers/distribution";
 import { financeRouter } from "./routers/finance";
 import { founderRouter } from "./routers/founder";
+import { goalRouter } from "./routers/goal";
 import { ideaRouter } from "./routers/idea";
 import { importRouter } from "./routers/import";
 import { inboxRouter, planRouter } from "./routers/inbox";
@@ -38,6 +39,7 @@ export const appRouter = router({
   plan: planRouter,
   journey: journeyRouter,
   product: productRouter,
+  goal: goalRouter,
   dev: devRouter,
   distribution: distributionRouter,
   finance: financeRouter,

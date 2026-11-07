@@ -5,7 +5,7 @@
  */
 import { CREDITS_CURRENCY } from "@foundmill/config";
 import { presetWidgets } from "@foundmill/config";
-import { CHANNEL_KEYS, CHANNEL_META, ENTITY_MARKUP_RE, MODULE_KEYS, type ChannelKey, type InboxItemType, type TaskKind, type TaskStatus } from "@foundmill/shared";
+import { CHANNEL_KEYS, CHANNEL_META, ENTITY_MARKUP_RE, MODULE_KEYS, addDaysToDay, defaultGoalFor, goalSentence, type ChannelKey, type InboxItemType, type TaskKind, type TaskStatus } from "@foundmill/shared";
 import { eq } from "drizzle-orm";
 import { repos, type ComposerItem } from "../repos";
 import { agentSessions, inboxItems as inboxItemsTable, tasks as tasksTable, type Agent, type Channel, type Entity, type InboxItem, type NewAgentSession, type Task } from "../schema";
@@ -120,6 +120,32 @@ export async function seedSpec(ctx: SeedCtx, businessId: string, outline: readon
 export async function seedSignedOffAndSelling(ctx: SeedCtx, businessId: string, specVersionId: string): Promise<void> {
   await repos.productSignoffs.seedApproved(ctx.db, businessId, { spec: { at: addDays(ctx.startDate, 2), specVersionId }, roadmap: { at: addDays(ctx.startDate, 3) }, decidedBy: ctx.owner.userId });
   await repos.businesses.startDistribution(ctx.db, businessId, { at: addDays(ctx.startDate, 14) });
+}
+
+/**
+ * The demo founder approved the Chief of Staff's goal ten days ago (founder, 2026-11-07: "Your goal"): the default rule
+ * over the customers the business had then, due six weeks after the approval, so the seeded Inbox has no open proposal
+ * and Home has a goal to show. Idempotent: a business that has an active goal keeps it.
+ */
+export async function seedActiveGoal(ctx: SeedCtx, businessId: string, chiefAgentId: string | null): Promise<void> {
+  const approvedAt = addDays(ctx.today, -10);
+  const approvedOn = approvedAt.toISOString().slice(0, 10);
+  const before = await repos.journeys.countConversions(ctx.db, businessId, { to: approvedAt });
+  const now = await repos.journeys.countConversions(ctx.db, businessId);
+  const start = before.payment ?? 0;
+  let shape = defaultGoalFor({ payingCustomers: start, today: approvedOn });
+  // Never seeded already reached: the next round number above today's count.
+  if ((shape.target ?? 0) <= (now.payment ?? 0)) shape = defaultGoalFor({ payingCustomers: now.payment ?? 0, today: approvedOn });
+  await repos.goals.seedActive(ctx.db, businessId, {
+    sentence: goalSentence(shape, { today: approvedOn, startValue: start }),
+    kind: shape.kind,
+    target: shape.target,
+    dueOn: addDaysToDay(approvedOn, 42),
+    startValue: start,
+    approvedAt,
+    approvedBy: ctx.owner.userId,
+    agentId: chiefAgentId,
+  });
 }
 
 /**

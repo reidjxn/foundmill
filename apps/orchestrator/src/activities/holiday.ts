@@ -165,6 +165,15 @@ const OWNER: SectionMembership = { role: "owner", sectionPermissions: {} };
 export const AWAITING_GO_AHEAD = "its plan waits for your go-ahead";
 /** A sign-off of the product (the specification, the roadmap, Ready to start selling) is never taken for the founder (founder, 2026-10-18). */
 export const SIGNOFF_IS_YOURS = "signing off the product is yours";
+/** The business's goal (the Chief of Staff's proposal) is the founder's to approve or change (founder, 2026-11-07). */
+export const GOAL_IS_YOURS = "setting the goal is yours";
+
+/** Why a note is the founder's own whatever the authority: a sign-off of the product, or the goal. Null for any other. */
+async function foundersOwnReason(db: OrchestratorDeps["db"], businessId: string, itemId: string): Promise<string | null> {
+  if (await repos.productSignoffs.forInboxItem(db, businessId, itemId)) return SIGNOFF_IS_YOURS;
+  if (await repos.goals.forInboxItem(db, businessId, itemId)) return GOAL_IS_YOURS;
+  return null;
+}
 
 /** The item asks the founder to choose (options), or to confirm the plan they chose: the report lists it as waiting. */
 function asksFounder(item: Pick<InboxItem, "state" | "decision">): boolean {
@@ -211,9 +220,10 @@ export async function autoDecideBlocking(deps: OrchestratorDeps, businessId: str
     const decision = item.decision as { options?: { id: string; recommended?: boolean; reversible?: boolean; cost_minor?: number }[] } | null;
     const choices = decision?.options ?? [];
     const recommended = choices.find((o) => o.recommended) ?? choices[0];
-    // The product's sign-offs and the start of distribution are the founder's, whatever the authority (founder, 2026-10-18).
-    const signoff = await repos.productSignoffs.forInboxItem(db, businessId, item.id);
-    if (!recommended || !chiefId || signoff) {
+    // The product's sign-offs and the start of distribution are the founder's, whatever the authority (founder, 2026-10-18),
+    // and so is the goal (founder, 2026-11-07).
+    const own = await foundersOwnReason(db, businessId, item.id);
+    if (!recommended || !chiefId || own) {
       // Kept for the founder: an open question (since Nov 7, 2026 a decision waits without holding Continue) or a hard stop.
       if (item.blocksContinue || item.type === "decision") queuedGated += 1;
       continue;
@@ -371,8 +381,9 @@ export function createHolidayActivities(deps: OrchestratorDeps) {
       for (const item of items.items) {
         // Answered by the founder, its plan outside policy: only they confirm it ("Here is what will happen"). A sign-off
         // of the product (its round is on the item) is never taken for them.
-        const signoff = item.state === "answered" ? null : await repos.productSignoffs.forInboxItem(db, businessId, item.id);
-        const verdict: VacationVerdict = item.state === "answered" ? { kind: "wait", reason: AWAITING_GO_AHEAD } : signoff ? { kind: "wait", reason: SIGNOFF_IS_YOURS } : vacationVerdict(item, ctx);
+        // The Chief of Staff's goal is never answered for them either (founder, 2026-11-07).
+        const own = item.state === "answered" ? null : await foundersOwnReason(db, businessId, item.id);
+        const verdict: VacationVerdict = item.state === "answered" ? { kind: "wait", reason: AWAITING_GO_AHEAD } : own ? { kind: "wait", reason: own } : vacationVerdict(item, ctx);
         if (verdict.kind === "wait" || !chiefId) {
           // Only a decision the founder has to take counts as queued; a note with nothing to choose is just unread.
           if (item.blocksContinue || asksFounder(item)) queuedGated += 1;
@@ -439,7 +450,7 @@ export function createHolidayActivities(deps: OrchestratorDeps) {
       const chiefDecisions = decisions.items.filter((e) => (e.payload as { decidedBy?: string }).decidedBy === "chief_of_staff");
       const taken = await Promise.all(chiefDecisions.slice(0, 10).map((e) => decisionLine(input.businessId, e)));
       // Every decision still open, and every plan of the founder's still waiting for their go-ahead, with the reason.
-      const waiting = open.items.filter(asksFounder).map((item) => ({ item, reason: waitingReason(item, ctx, stopped) }));
+      const waiting = await Promise.all(open.items.filter(asksFounder).map(async (item) => ({ item, reason: (item.state === "answered" ? null : await foundersOwnReason(db, input.businessId, item.id)) ?? waitingReason(item, ctx, stopped) })));
       // An approval's note is listed with the rest but counted once, as the approval it answers.
       const decisionsWaiting = waiting.filter((w) => !isApprovalItem(w.item)).length;
       const moneyIn = payments.items.reduce((sum, e) => sum + Number((e.payload as { amount?: { amountMinor?: number } }).amount?.amountMinor ?? 0), 0);

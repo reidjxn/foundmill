@@ -18,7 +18,7 @@
  * (`awardMilestonesForConversion`, packages/db): the first, 10th, 100th customer, an MRR line, the first enterprise
  * contract. Each is awarded once; one a concurrent delivery hid is awarded by the orchestrator's nightly catch-up.
  */
-import { awardMilestonesForConversion, repos, type Conversion, type Journey } from "@foundmill/db";
+import { achieveGoalIfReached, awardMilestonesForConversion, repos, type Conversion, type Journey } from "@foundmill/db";
 import type { Executor } from "@foundmill/db/repos/_shared";
 import type { PlatformEvent } from "@foundmill/events";
 import { buildEvent, type WriteEventInput } from "@foundmill/events";
@@ -169,6 +169,25 @@ async function recordConversionTouch(tx: Executor, businessId: string, entityId:
 }
 
 /**
+ * The active goal reached: `achieveGoalIfReached` (packages/db) marks it and posts the note; its `inbox.item_created` and
+ * `goal.achieved` go through the outbox here, in the delivery's transaction, with the delivery's actor (the payment
+ * reached it). Nothing when no goal was reached.
+ */
+export async function recordGoalReached(tx: Executor, businessId: string, actor: Actor, writeEvent: (tx: Executor, input: WriteEventInput) => Promise<{ id: string }>): Promise<string | null> {
+  // Reached when the delivery is recorded (a late webhook still reaches the goal today, never before its approval).
+  const reached = await achieveGoalIfReached(tx, businessId);
+  if (!reached) return null;
+  const { goal, item, fromAgentId } = reached;
+  const write = async (input: Parameters<typeof buildEvent>[0]) => {
+    const built = buildEvent(input);
+    await writeEvent(tx, { businessId, type: built.type, actor: built.actor, entityIds: built.entityIds, occurredAt: built.occurredAt, payload: built.payload, id: built.id });
+  };
+  if (item && fromAgentId) await write({ businessId, type: "inbox.item_created", actor, payload: { inboxItemId: item.id, type: "milestone", fromAgentId, subject: item.subject, blocksContinue: false, sourceEventIds: [], cost: null } });
+  await write({ businessId, type: "goal.achieved", actor, payload: { goalId: goal.id, revision: goal.revision, metricKind: goal.metricKind, targetValue: goal.targetValue, currency: goal.currency, dueOn: goal.dueOn, achievedValue: goal.achievedValue, inboxItemId: item?.id ?? null } });
+  return goal.id;
+}
+
+/**
  * Record the conversion and, when it wins a customer, the first-pass journey and the `customer.converted` event, for a
  * conversion-kind platform event that was just written. `entityId` is the CRM record `linkCustomer` resolved (null when
  * the vendor reported nobody). Runs inside the caller's transaction.
@@ -197,6 +216,9 @@ export async function recordConversionForEvent(
     firstPayment,
   });
   if (facts.kind === "payment") await awardMilestonesForConversion(tx, businessId, conversion.id);
+  // The business's goal reached by this payment or signup (founder, 2026-11-07): marked achieved, the Chief of Staff's
+  // "Goal reached: …" note, and the next proposal on the founder's next visit (apps/api goal.ensure).
+  await recordGoalReached(tx, businessId, actor, writeEvent);
   if (!firstPayment) return { conversion, entityId, firstPayment, win: null };
 
   if (entityId) await recordConversionTouch(tx, businessId, entityId, facts, event.occurredAt);

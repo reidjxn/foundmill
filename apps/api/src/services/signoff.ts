@@ -19,6 +19,7 @@ import { bothSignedOff, loadProductStage, repos, signoffDecisionBlock, type Deci
 import { AppError, CHANNEL_META, ConflictError, ForbiddenError, ValidationError, type ProductStage, type SignoffKind, type SignoffStatus } from "@foundmill/shared";
 import type { BusinessContext } from "../trpc";
 import { audit, emit } from "../trpc";
+import { answerNote as answerDecisionNote, type AnsweredNote } from "./answer-note";
 import { importBoardDecisionFromReport } from "./commit";
 import { startCycle, type StartCycleResult } from "./cycle";
 import type { DecideItemResult } from "./decide";
@@ -111,21 +112,9 @@ async function postUpdate(tx: DbTx, ctx: BusinessContext, from: string, subject:
   return item;
 }
 
-/**
- * Answer the note a round asked with: a one-action `reply_only` plan for the history (as an approval's answer is
- * recorded), the decision, and `decision.made`. Null when the note is gone or already answered.
- */
-async function answerNote(tx: DbTx, ctx: BusinessContext, itemId: string | null, chosenOption: string, freeText: string | null, agentId: string | null, summary: string): Promise<{ item: InboxItem; decision: Decision; plan: PlanWithActions; actionId: string } | null> {
-  if (!itemId) return null;
-  const item = await repos.inbox.get(tx, ctx.businessId, itemId).catch(() => null);
-  if (!item || item.state === "answered" || item.state === "archived") return null;
-  const plan = await repos.plans.create(tx, ctx.businessId, { origin: "option", summaryMd: summary, inboxItemId: item.id, status: "executing", actions: [{ type: "reply_only", params: { acknowledgement: summary, signoff_option: chosenOption }, agentId, policyOutcome: "allow" }] });
-  const decided = await repos.inbox.decide(tx, ctx.businessId, item.id, { chosenOption, freeText, decidedByKind: "user", decidedBy: ctx.userId, planId: plan.id });
-  const action = plan.actions[0]!;
-  await repos.plans.startAction(tx, ctx.businessId, action.id);
-  await repos.plans.finishAction(tx, ctx.businessId, action.id, { status: "done", result: { signoffOption: chosenOption } });
-  await emit(tx, ctx, { type: "decision.made", payload: { decisionId: decided.decision.id, inboxItemId: item.id, chosenOption, freeText, decidedBy: "user", planId: plan.id, planActionCount: 1, hardGateActions: 0 } });
-  return { item: decided.item, decision: decided.decision, plan: await repos.plans.get(tx, ctx.businessId, plan.id), actionId: action.id };
+/** Answer the note a round asked with (./answer-note), recording the sign-off option on the plan's action. */
+function answerNote(tx: DbTx, ctx: BusinessContext, itemId: string | null, chosenOption: string, freeText: string | null, agentId: string | null, summary: string): Promise<AnsweredNote | null> {
+  return answerDecisionNote(tx, ctx, itemId, chosenOption, freeText, agentId, summary, { params: { signoff_option: chosenOption }, result: { signoffOption: chosenOption } });
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -391,7 +380,7 @@ export interface StartDistributionResult {
   engines: TemporalResult[];
   followUp: InboxItem | null;
   /** The Ready to start selling? note, when this start answered it. */
-  answered: { item: InboxItem; decision: Decision; plan: PlanWithActions; actionId: string } | null;
+  answered: AnsweredNote | null;
 }
 
 /**

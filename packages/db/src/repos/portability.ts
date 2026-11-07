@@ -38,6 +38,7 @@ export const EXPORT_TABLES: Readonly<Record<string, ExportTableSpec>> = {
   spec_blocks: t(s.specBlocks, "product"),
   spec_versions: t(s.specVersions, "product"),
   product_signoffs: t(s.productSignoffs, "product"),
+  goals: t(s.goals, "product"),
   change_proposals: t(s.changeProposals, "product"),
   proposal_hunks: t(s.proposalHunks, "product"),
   roadmap_items: t(s.roadmapItems, "product"),

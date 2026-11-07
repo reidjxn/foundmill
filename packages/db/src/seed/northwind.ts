@@ -9,7 +9,7 @@ import { APP_NAME, CREDITS_CURRENCY } from "@foundmill/config";
 import { eq } from "drizzle-orm";
 import { repos } from "../repos";
 import { entities as entitiesTable, type Entity } from "../schema";
-import { agentMention, seedAgentEntities, seedChannels, seedDashboards, seedHistoricalTasks, seedInbox, seedIntegrations, seedRoadmap, seedSignedOffAndSelling, seedSpec, seedTasks, seededRelevance, type InboxSpec, type RoadmapSpec, type TaskSpec } from "./content";
+import { agentMention, seedAgentEntities, seedChannels, seedDashboards, seedHistoricalTasks, seedInbox, seedIntegrations, seedRoadmap, seedActiveGoal, seedSignedOffAndSelling, seedSpec, seedTasks, seededRelevance, type InboxSpec, type RoadmapSpec, type TaskSpec } from "./content";
 import { DEMO_OWNER_DISPLAY_NAME, DEMO_SEED_AUDIT_ACTION, NORTHWIND_BUSINESS_ID, NORTHWIND_NAME, NORTHWIND_SLUG } from "./constants";
 import { addDays, atHour, mention, money, pct, proseDoc, type SeedCtx } from "./context";
 import { seedFinance } from "./finance";
@@ -207,6 +207,7 @@ export async function seedNorthwind(ctx: SeedCtx): Promise<SeededBusiness> {
   const { ids: specIds, versionId: specVersionId } = await seedSpec(ctx, businessId, archetype.specOutline, SPEC_TEXT, productLead?.agent.id ?? null);
   // Signed off in the first days and selling since week three (founder, 2026-10-18): the channels keep running.
   await seedSignedOffAndSelling(ctx, businessId, specVersionId);
+  await seedActiveGoal(ctx, businessId, squad.chief.agent.id);
   const roadmapIds = await seedRoadmap(ctx, businessId, ROADMAP, specIds, squad);
   await repos.product.createSource(db, businessId, {
     kind: "doc",

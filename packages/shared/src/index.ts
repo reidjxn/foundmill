@@ -24,3 +24,4 @@ export * from "./playbook";
 export * from "./terms";
 export * from "./founder-words";
 export * from "./personas";
+export * from "./goals";

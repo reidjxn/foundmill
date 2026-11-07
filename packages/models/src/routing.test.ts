@@ -29,7 +29,12 @@ describe("routing (BUILD §10.1)", () => {
       moderation: { model: "haiku", maxTokens: 4_096 },
       founderTitle: { model: "haiku", maxTokens: 4_096 },
       conversation: { model: "sonnet", effort: "low", maxTokens: 8_000 },
+      goalProposal: { model: "sonnet", effort: "low", maxTokens: 8_000 },
     });
+  });
+
+  it("the goal route (the founder's Change it words) is Sonnet at low effort (founder, 2026-11-07)", () => {
+    expect(resolveModel("goalProposal")).toMatchObject({ route: "goalProposal", modelKey: "sonnet", modelId: MODELS.sonnet, effort: "low", locked: false, maxTokens: LOW_EFFORT_MAX_TOKENS });
   });
 
   it("resolves the default model for a route", () => {

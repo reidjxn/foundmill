@@ -21,6 +21,7 @@ import { eventsRepo } from "./events";
 import { financeRepo } from "./finance";
 import { foundationsRepo } from "./foundations";
 import { foundersRepo } from "./founders";
+import { goalsRepo } from "./goals";
 import { holidaysRepo } from "./holidays";
 import { ideasRepo } from "./ideas";
 import { inboxRepo } from "./inbox";
@@ -57,6 +58,7 @@ export const repos = {
   ideas: ideasRepo,
   product: productRepo,
   productSignoffs: productSignoffsRepo,
+  goals: goalsRepo,
   departments: departmentsRepo,
   screens: screensRepo,
   dashboards: dashboardsRepo,
@@ -117,6 +119,7 @@ export * from "./events";
 export * from "./finance";
 export * from "./foundations";
 export * from "./founders";
+export * from "./goals";
 export * from "./holidays";
 export * from "./ideas";
 export * from "./inbox";

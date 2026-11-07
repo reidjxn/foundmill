@@ -421,6 +421,13 @@
       "when": 1796127180000,
       "tag": "0071_inbox_only_hard_stops_hold",
       "breakpoints": true
+    },
+    {
+      "idx": 60,
+      "version": "7",
+      "when": 1796127240000,
+      "tag": "0072_goals",
+      "breakpoints": true
     }
   ]
 }

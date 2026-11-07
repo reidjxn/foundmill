@@ -85,6 +85,7 @@ describe("journal", () => {
       "0069_agent_styles",
       "0070_task_founder_titles",
       "0071_inbox_only_hard_stops_hold",
+      "0072_goals",
     ]);
     // strictly increasing `when` so drizzle applies them in order
     const whens = ours.map((m) => m.when);

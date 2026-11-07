@@ -19,3 +19,4 @@ export { DEFAULT_PGLITE_DIR, PGLITE_BOOTSTRAP_SQL, findWorkspaceRoot, isPgliteDb
 export type { LazyPgliteClient, PgliteTarget } from "./pglite";
 export { attachAddedSkills, resolveLibrarySkill, resolveSkillFile, skillLibraryEntries, type ResolvedSkill } from "./skill-attach";
 export { awardMilestonesForConversion, catchUpMilestones, MRR_WINDOW_DAYS } from "./milestones";
+export { achieveGoalIfReached, counterFor, goalCounters, goalProgress, type GoalCounters, type GoalProgress } from "./goals";
