@@ -49,9 +49,9 @@ describe("founder-language eval", () => {
   });
 
   it("founderJargonHits reads prose the way the title rules read titles, without the length and case rules", () => {
-    expect(founderJargonHits("Sam's change is ready to go live. The repository's automatic tests run next.")).toEqual([]);
+    expect(founderJargonHits("Sam's change is ready to go live. The quality checks run next.")).toEqual([]);
     expect(founderJargonHits("Approved → went live at 3:02 PM")).toEqual([]);
-    expect(founderJargonHits("Merge the PR once CI is green on the branch").map((h) => h.term)).toEqual(["Merge", "PR", "CI", "branch"]);
+    expect(founderJargonHits("Merge the pull request once CI is green on the branch").map((h) => h.term)).toEqual(["Merge", "pull request", "CI", "branch"]);
     expect(founderJargonHits("The orchestrator held the merge because of the Cedar policy").map((h) => h.term)).toEqual(["orchestrator", "merge", "Cedar"]);
   });
 });
