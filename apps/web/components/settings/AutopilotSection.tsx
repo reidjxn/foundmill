@@ -5,6 +5,7 @@
  * words: Stop all agents, used-up credits, an Inbox item that needs the founder, a vacation, the day's cycle and spend
  * limits, and failed or empty cycles in a row. Autopilot starts cycles exactly as Continue does and never approves anything.
  * The switch's help line says so in one breath (docs/UX_AUDIT_AND_PLAN.md §7.17), and the title defines the word.
+ * Continue's own run (one press, cycles until nothing is left) is bound by the same daily limits, and a line says so.
  */
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { useState } from "react";
@@ -22,6 +23,12 @@ type Status = RouterOutputs["business"]["autopilot"]["get"];
 
 /** The one-line help under the switch: what Autopilot does and what it never does. */
 export const AUTOPILOT_HELP = "Autopilot presses Continue for you on a schedule. It never answers notes for you.";
+
+/**
+ * Continue and Autopilot share one set of limits (Nov 7, 2026): a press keeps the team working until nothing is left,
+ * and the day's cycle and spend limits set here bound those cycles too.
+ */
+export const AUTOPILOT_CONTINUE_NOTE = "Continue keeps the team working, one cycle after another, until nothing is left to do. The daily limits below apply to those cycles too.";
 
 /** The section's title, the word defined on first use; a string while it loads or fails, so nothing moves. */
 const TITLE = <Term id="autopilot">Autopilot</Term>;
@@ -150,6 +157,7 @@ export function AutopilotSection() {
       <Hint>
         Off by default. When on, the next <Term id="cycle">cycle</Term> starts on its own, the way Continue starts one: every approval, <Term id="hard_gate">hard gate</Term> and policy check applies, and Autopilot never approves anything for you. Stop all agents stops it, and Resume does not turn it back on.
       </Hint>
+      <Hint>{AUTOPILOT_CONTINUE_NOTE}</Hint>
       <dl className="grid grid-cols-3 gap-3 text-body" data-testid="autopilot-today">
         <div>
           <dt className="text-label text-secondary">Today (UTC)</dt>

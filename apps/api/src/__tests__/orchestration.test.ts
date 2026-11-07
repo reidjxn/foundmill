@@ -34,7 +34,9 @@ describe("a cycle exists from the press of Continue (audit SOAK-05, RUI-15, OL-2
     // Another tab that never saw the first press asks Temporal for the same cycle: it answers "already started".
     const third = await hz.caller({ userId: hz.A.ownerId }).business.continue({ businessId });
     expect(third.action).toBe("already_running");
-    expect(temporal.starts.filter((s) => s.type === "businessCycle")).toHaveLength(1);
+    // One run, one first round: the workflow starts the cycle (Continue runs until done, Nov 7, 2026).
+    expect(temporal.signalStarts.filter((s) => s.signal === "continueRun")).toHaveLength(1);
+    expect(temporal.starts.filter((s) => s.type === "businessCycle")).toHaveLength(0);
     expect((await repos.audit.list(hz.db, businessId, { action: "business.continue" })).items).toHaveLength(1);
 
     // The cycle number is taken: a failed-before-start cycle cannot be given the same workflow id again.
@@ -94,6 +96,8 @@ describe("a cycle exists from the press of Continue (audit SOAK-05, RUI-15, OL-2
       const press = await o2.business.continue({ businessId: b2 });
       expect(press.status.queued).toBe(true);
       temporal.statuses.set(`cycle:${b2}:1`, "TERMINATED");
+      // The run's workflow is gone as well (it would have ended the run itself on the failed round).
+      temporal.statuses.set(`autopilot:${b2}`, "TERMINATED");
       // Two minutes on: old enough to be asked about.
       vi.useFakeTimers({ toFake: ["Date"], now: Date.now() + 120_000 });
       const status = await o2.cycle.status({ businessId: b2 });

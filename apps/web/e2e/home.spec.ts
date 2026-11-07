@@ -261,3 +261,31 @@ test.describe("home > blocker banner", () => {
     await expect(page.getByTestId("home-blocker")).toHaveCount(0);
   });
 });
+
+/**
+ * Continue runs until done (Nov 7, 2026): between two cycles of a run no cycle runs, yet the button keeps the processing
+ * state and its Pause. The seed has no run, so `cycle.status` is rewritten on the way to the page.
+ */
+test.describe("home > Continue during a run", () => {
+  test("between cycles of a run Continue reads Pause, and its tooltip says new cycles start on their own", async ({ page }) => {
+    await page.route(/\/trpc\/[^?]*cycle\.status/, async (route) => {
+      const response = await route.fetch();
+      const body = (await response.json()) as unknown;
+      const between = { running: false, paused: false, cycleId: null, run: { id: "33333333-3333-4333-8333-333333333333", startedAt: new Date().toISOString(), rounds: 1 } };
+      const rewrite = (entry: unknown) => {
+        const data = (entry as { result?: { data?: { json?: Record<string, unknown> } } }).result?.data?.json;
+        if (data && "completedCount" in data) Object.assign(data, between);
+      };
+      if (Array.isArray(body)) body.forEach(rewrite);
+      else rewrite(body);
+      await route.fulfill({ response, body: JSON.stringify(body), headers: { ...response.headers(), "content-type": "application/json" } });
+    });
+    await openBusiness(page);
+    const button = page.locator('button[data-coachmark="continue"]').first();
+    await expect(button).toHaveAttribute("data-continue-state", "processing", { timeout: LONG });
+    await expect(button).toHaveText("Pause");
+    await button.hover();
+    await expect(page.getByText("New cycles start on their own until nothing is left to do.", { exact: false }).first()).toBeVisible({ timeout: LONG });
+  });
+});
+

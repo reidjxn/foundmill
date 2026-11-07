@@ -52,7 +52,7 @@ export const DISTRIBUTION_TABS: TabItem[] = [
 ];
 
 export const PALETTE_ITEMS: PaletteItem[] = [
-  { id: "cmd-continue", kind: "command", label: "Continue", description: "Let the team work on their next tasks", shortcut: ["Space"] },
+  { id: "cmd-continue", kind: "command", label: "Continue", description: "Let the team work until nothing is left to do", shortcut: ["Space"] },
   { id: "cmd-refresh", kind: "command", label: "Refresh Inbox", description: "Ask the team for one quick note without starting new work", shortcut: ["R"] },
   { id: "cmd-stop", kind: "command", label: "Stop all agents", description: "Pause the whole team. An owner can resume." },
   // plain-allow: the palette's Help rows (HELP_PALETTE_ITEMS, from TERMS) define Chief of Staff in the same list.

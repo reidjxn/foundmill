@@ -26,7 +26,7 @@ export interface ContinueHandlers {
   onContinue?: () => void;
   /** blocked: jump to the first red item. */
   onRespond?: () => void;
-  /** processing: pause the running cycle. */
+  /** processing: pause the running cycle (and end the run: no new cycle starts on its own). */
   onPause?: () => void;
   /** matchday (a Customer Update is ready): open the Journey. */
   onGoToJourney?: () => void;
@@ -105,8 +105,9 @@ export function cycleDefinitionSentence(short: string): string {
 
 /**
  * The tooltip's sentence per state (docs/UX_AUDIT_AND_PLAN.md §7.7, B1): what pressing does, in the business's words.
- * Idle says the loop once; blocked counts the notes and says what the press opens; processing names the cycle; the
- * Customer Update and vacation states keep their words. Exported for tests.
+ * Idle says the loop once (since Nov 7, 2026 one press keeps the team working until nothing is left); blocked counts the
+ * notes and says what the press opens; processing names the cycle, and during a run says new cycles start on their own;
+ * the Customer Update and vacation states keep their words. Exported for tests.
  *
  * `cycleDefinition` (the definitions map's `cycle.short`, passed while guidance is on): the idle sentence names the
  * cycle and defines it in words. A tooltip is a label and cannot hold the Term's button, so the definition is a
@@ -116,12 +117,14 @@ export function continueTooltip(state: ContinueState, cycleNumber?: number | nul
   switch (state.kind) {
     case "idle": {
       const defined = cycleDefinition ? cycleDefinitionSentence(cycleDefinition) : "";
-      return defined ? `Let the team work on their next tasks for one cycle. ${defined}` : "Let the team work on their next tasks. Their notes land in the Inbox.";
+      return defined ? `Let the team work, one cycle after another, until nothing is left to do. ${defined}` : "Let the team work until nothing is left to do. Their notes land in the Inbox.";
     }
     case "blocked":
       return `${state.count} ${state.count === 1 ? "thing needs" : "things need"} you before the team can work (credits used up or a key to replace). Press to open the first.`;
-    case "processing":
-      return typeof cycleNumber === "number" && cycleNumber > 0 ? `The team is working · cycle ${cycleNumber}` : "The team is working";
+    case "processing": {
+      const working = typeof cycleNumber === "number" && cycleNumber > 0 ? `The team is working · cycle ${cycleNumber}` : "The team is working";
+      return state.run ? `${working}. New cycles start on their own until nothing is left to do.` : working;
+    }
     case "matchday":
       return "A customer was won";
     case "holiday":
@@ -148,7 +151,7 @@ export function continueButtonAction(state: ContinueState, handlers: ContinueHan
 /**
  * The Continue button (BUILD §5.4, DESIGN §7). At rest the brand primary with its light (Play, "Continue"). Blocked
  * (only a hard stop since Nov 7, 2026: credits used up, a revoked key) is amber "Needs you" with the count in a capsule
- * and one 600 ms ring pulse when it turns blocked; open decisions never block it. Processing is a dark slab with a light arc orbiting its edge and "Pause". A Customer Update is gold.
+ * and one 600 ms ring pulse when it turns blocked; open decisions never block it. Processing is a dark slab with a light arc orbiting its edge and "Pause", for the whole run one press of Continue starts (between its cycles too). A Customer Update is gold.
  * Vacation is neutral with the caption and "Come back". It keeps one width through its states, so the bar never jumps.
  */
 export const ContinueButton = forwardRef<HTMLButtonElement, ContinueButtonProps>(function ContinueButton(

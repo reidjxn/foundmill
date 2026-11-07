@@ -28,6 +28,7 @@ import { SIDEBAR_COLLAPSED_PREFIX } from "@/lib/auth/constants";
 import { rememberLastBusiness } from "@/lib/auth/last-business";
 import { accountRoutes } from "@/lib/account-routes";
 import { EXAMPLE_CHIP_TOOLTIP, readOnlyReason, type Access } from "@/lib/access";
+import { CONTINUE_RUN_END_REASONS, continueRunEndedMessage, type ContinueRunEndReason } from "@foundmill/shared";
 import { awayReportId, computeContinueState, journeyHref, respondHref, unviewedWin } from "@/lib/continue-state";
 import { CYCLE_EVENT_TYPES, cycleFromSnapshot, initialCycle, nextPulseKey, reduceCycleEvent, setPaused, type CycleEvent, type CycleStatus } from "@/lib/cycle";
 import type { AgentSummary } from "@/lib/entity-links";
@@ -123,6 +124,9 @@ export const INVALIDATE_ON_EVENT: Record<string, readonly string[]> = {
   "holiday.started": ["business"],
   "holiday.ended": ["business", "inbox", "cycle"],
   "cycle.started": ["cycle", "business.autopilot"],
+  // The run one press of Continue starts (Nov 7, 2026): Continue keeps Pause until it ends.
+  "cycle.run_started": ["cycle", "business.autopilot"],
+  "cycle.run_ended": ["cycle", "business.autopilot"],
   "cycle.completed": ["inbox", "department", "dev", "finance", "cycle", "business.autopilot"],
   "bank.balance_updated": ["finance"],
   "runway.threshold_crossed": ["finance", "inbox"],
@@ -171,12 +175,41 @@ export function cycleReducer(status: CycleStatus, action: CycleAction): CycleSta
 
 type ContinueResult = RouterOutputs["business"]["continue"];
 
-/** The toast one press of Continue earns (BUILD §9.4): what happened, and where the new note is in local mode. */
+/** The sentence a press that started a run adds (Nov 7, 2026): new cycles keep starting on their own. */
+export const RUN_UNTIL_DONE = "New cycles start on their own until nothing is left to do, or until you pause.";
+
+/**
+ * The toast one press of Continue earns (BUILD §9.4): what happened, and where the new note is in local mode. With an
+ * orchestrator a press starts a run (`result.run`): the toast says the cycles keep coming until nothing is left.
+ */
 export function describeContinue(result: ContinueResult): { title: string; description: string; tone: "info" | "good" | "warn"; itemId: string | null } {
-  if (result.action === "already_running") return { title: "A cycle is already running", description: "The team is still working; the strip under the top bar shows where.", tone: "info", itemId: null };
-  if (result.action === "resumed") return { title: "Cycle resumed", description: "Paused tasks pick up where they stopped.", tone: "good", itemId: null };
+  const run = Boolean(result.run);
+  if (result.action === "already_running") return { title: "A cycle is already running", description: run ? `The team is still working. ${RUN_UNTIL_DONE}` : "The team is still working; the strip under the top bar shows where.", tone: "info", itemId: null };
+  if (result.action === "resumed") return { title: "Cycle resumed", description: run ? `Paused tasks pick up where they stopped. ${RUN_UNTIL_DONE}` : "Paused tasks pick up where they stopped.", tone: "good", itemId: null };
   if (result.mode === "local" && result.item) return { title: "One new note", description: result.item.subject, tone: "info", itemId: result.item.id };
+  if (run) return { title: "Cycle started", description: `The team is at work. ${RUN_UNTIL_DONE} Their notes land in the Inbox.`, tone: "info", itemId: null };
   return { title: "Cycle started", description: "The team is at work. What they finish and what they need from you come back as notes in the Inbox.", tone: "info", itemId: null };
+}
+
+type PauseResult = RouterOutputs["business"]["pauseCycle"];
+
+/** The toast a press of Pause earns: the round paused, the run ended (so no new cycle starts), or nothing to pause. */
+export function describePause(result: Pick<PauseResult, "paused" | "pausedTasks" | "reason"> & { runEnded?: boolean }): { title: string; description: string; tone: "info" | "warn" } {
+  if (result.paused) return { title: "Paused", description: `${result.pausedTasks} running task${result.pausedTasks === 1 ? "" : "s"} paused. Press Continue to pick up where the team stopped.`, tone: "warn" };
+  if (result.runEnded) return { title: "Paused", description: "No new cycle starts. Press Continue to pick up where the team stopped.", tone: "warn" };
+  return { title: "Nothing to pause", description: result.reason ?? "No cycle is running.", tone: "info" };
+}
+
+/**
+ * The toast a run's end earns on the stream (every member watching sees it): the team has done all it can, a day's
+ * limit, a hard stop, a vacation. Null for an end the reader caused or hears about otherwise (Pause, Stop all agents).
+ */
+export function describeRunEnded(event: { type: string; payload?: Record<string, unknown> | null }): { title: string; description: string; tone: "info" | "good" | "warn" } | null {
+  if (event.type !== "cycle.run_ended") return null;
+  const reason = event.payload?.reason;
+  if (typeof reason !== "string" || !(CONTINUE_RUN_END_REASONS as readonly string[]).includes(reason)) return null;
+  const max = event.payload?.maxCyclesPerDay;
+  return continueRunEndedMessage(reason as ContinueRunEndReason, typeof max === "number" ? max : null);
 }
 
 /**
@@ -351,6 +384,8 @@ function ShellInner({ businessId, initialBusiness, initialDepartments, viewer, c
     if (!event) return;
     if ((CYCLE_EVENT_TYPES as readonly string[]).includes(event.type)) dispatch({ type: "event", event, agentDepartment });
     setPulseKey((k) => nextPulseKey(k, event.type));
+    const ended = describeRunEnded(event);
+    if (ended) toast(ended);
     const reportId = awayReportId(event);
     if (reportId && awaitingAwayReport.current) {
       awaitingAwayReport.current = false;
@@ -472,7 +507,7 @@ function ShellInner({ businessId, initialBusiness, initialDepartments, viewer, c
         dispatch({ type: "snapshot", status: cycleFromSnapshot(result.status) });
         dispatch({ type: "paused", paused: result.paused });
         void invalidate(["cycle", "dev"]);
-        toast(result.paused ? { title: "Cycle paused", description: `${result.pausedTasks} running task${result.pausedTasks === 1 ? "" : "s"} paused. Continue resumes the cycle.`, tone: "warn" } : { title: "Nothing to pause", description: result.reason ?? "No cycle is running.", tone: "info" });
+        toast(describePause(result));
       },
       onError: (err) => toast({ title: "Pause failed", description: errorMessage(err), tone: "bad" }),
     }),

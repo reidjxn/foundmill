@@ -417,6 +417,17 @@ export const EVENT_FIXTURES: { readonly [K in EventType]: EventPayloadInput<K> }
     inboxItemIds: [fixtureId("inbox-1")],
     durationMs: 11_520_000,
   },
+  "cycle.run_started": {
+    runId: fixtureId("run-1"),
+    firstCycleNumber: 12,
+  },
+  "cycle.run_ended": {
+    runId: fixtureId("run-1"),
+    reason: "daily_cycles",
+    rounds: 3,
+    cost: { amountMinor: 420, currency: "USD" },
+    maxCyclesPerDay: 6,
+  },
   "autopilot.changed": {
     change: "paused",
     pausedReason: "idle_cycles",

@@ -10,7 +10,7 @@ import type { ContinueState } from "./types";
 const meta = {
   title: "Shell/ContinueButton",
   component: ContinueButton,
-  parameters: { backgrounds: { value: "panel" }, docs: { description: { component: "At rest the brand primary with its light. Blocked is a solid red with ink text “Respond” and the count in a capsule, a 4 px red halo, and one 600 ms ring pulse when it turns blocked. Processing is a dark slab with a light arc orbiting its edge and “Pause”. A Customer Update is gold. Vacation is neutral with the caption and “Come back”. It keeps one width through its states. One pulse when pulseKey changes, never a loop; Space triggers the state's action." } } },
+  parameters: { backgrounds: { value: "panel" }, docs: { description: { component: "At rest the brand primary with its light. Blocked is a solid red with ink text “Respond” and the count in a capsule, a 4 px red halo, and one 600 ms ring pulse when it turns blocked. Processing is a dark slab with a light arc orbiting its edge and “Pause”, for the whole run one press of Continue starts. A Customer Update is gold. Vacation is neutral with the caption and “Come back”. It keeps one width through its states. One pulse when pulseKey changes, never a loop; Space triggers the state's action." } } },
   args: { state: { kind: "idle" }, bindSpace: true },
 } satisfies Meta<typeof ContinueButton>;
 export default meta;
@@ -20,6 +20,7 @@ const STATES: Array<[string, ContinueState]> = [
   ["Idle", { kind: "idle" }],
   ["Blocked", { kind: "blocked", count: 3 }],
   ["Processing", { kind: "processing" }],
+  ["Processing (a run)", { kind: "processing", run: true }],
   ["Customer Update", { kind: "matchday" }],
   ["Vacation (date)", { kind: "holiday", until: "2026-10-21" }],
   ["Vacation (condition)", { kind: "holiday", until: null, untilLabel: "the launch ships" }],
@@ -28,6 +29,8 @@ const STATES: Array<[string, ContinueState]> = [
 export const Idle: Story = {};
 export const Blocked: Story = { args: { state: { kind: "blocked", count: 3 } } };
 export const Processing: Story = { args: { state: { kind: "processing" } } };
+/** One press of Continue keeps the team working (Nov 7, 2026): Pause stays for the whole run, between cycles too, and the tooltip says new cycles start on their own. */
+export const ProcessingRun: Story = { name: "Processing (a run)", args: { state: { kind: "processing", run: true }, cycleNumber: 5 } };
 export const CustomerUpdate: Story = { args: { state: { kind: "matchday" } } };
 export const Holiday: Story = { name: "Vacation", args: { state: { kind: "holiday", until: "2026-10-21" } } };
 export const AllStates: Story = {
@@ -68,7 +71,7 @@ export const WithStopAllAgents: Story = {
 export const OnTheSlab: Story = {
   render: () => (
     <div className="kitbar-slab flex h-kitbar items-center gap-2 px-3 text-kit-on-primary" style={kitStyle(NORTHWIND_KIT)}>
-      {STATES.slice(0, 5).map(([label, state]) => (
+      {STATES.filter(([label]) => label !== "Processing (a run)").slice(0, 5).map(([label, state]) => (
         <ContinueButton key={label} state={state} className="h-kitbar-chip rounded-track" />
       ))}
     </div>

@@ -5,7 +5,7 @@ import { EMPTY_CYCLE, cycleFromSnapshot } from "@/lib/cycle";
 import { trpcPathPrefix, trpcQueryKey } from "@/lib/trpc";
 import { SAFETY_POLL_MS } from "@/lib/stream-status";
 import { EXAMPLE_CHIP_TOOLTIP, EXAMPLE_READ_ONLY_REASON, accessFor, readOnlyReason } from "@/lib/access";
-import { EXAMPLE_START_CALLOUT, FIRST_CONTINUE_CALLOUT, START_YOUR_OWN_HREF, INVALIDATE_ON_EVENT, cycleReducer, describeContinue, exampleFrame, shellPollIntervals, wantsFirstContinueCallout } from "../BusinessShell";
+import { EXAMPLE_START_CALLOUT, FIRST_CONTINUE_CALLOUT, RUN_UNTIL_DONE, START_YOUR_OWN_HREF, INVALIDATE_ON_EVENT, cycleReducer, describeContinue, describePause, describeRunEnded, exampleFrame, shellPollIntervals, wantsFirstContinueCallout } from "../BusinessShell";
 
 type ContinueResult = Parameters<typeof describeContinue>[0];
 
@@ -29,10 +29,12 @@ const status = (over: Partial<ContinueResult["status"]> = {}): ContinueResult["s
   lastFailure: null,
   nextCycleNumber: 1,
   mode: null,
+  run: null,
   ...over,
 });
 
-const result = (over: Partial<ContinueResult>): ContinueResult => ({ action: "started", mode: "temporal", workflow: null, item: null, status: status(), continueState: { kind: "processing" }, ...over });
+const result = (over: Partial<ContinueResult>): ContinueResult => ({ action: "started", mode: "temporal", workflow: null, item: null, status: status(), continueState: { kind: "processing" }, run: null, ...over });
+const RUN = { id: "22222222-2222-4222-8222-222222222222", startedAt: "2026-11-07T10:00:00.000Z", rounds: 0 };
 
 describe("one press of Continue (BUILD §9.4)", () => {
   it("names what happened: started on Temporal, one local note, resumed, already running", () => {
@@ -41,6 +43,39 @@ describe("one press of Continue (BUILD §9.4)", () => {
     expect(describeContinue(result({ mode: "local", item }))).toMatchObject({ title: "One new note", description: "Three decisions for the Board", itemId: item.id });
     expect(describeContinue(result({ action: "resumed" }))).toMatchObject({ title: "Cycle resumed", tone: "good" });
     expect(describeContinue(result({ action: "already_running" }))).toMatchObject({ title: "A cycle is already running" });
+  });
+
+  it("a press that started a run says new cycles keep starting on their own (Nov 7, 2026); the toast regexes of the e2e specs still match", () => {
+    expect(RUN_UNTIL_DONE).toBe("New cycles start on their own until nothing is left to do, or until you pause.");
+    expect(describeContinue(result({ run: RUN }))).toEqual({ title: "Cycle started", description: `The team is at work. ${RUN_UNTIL_DONE} Their notes land in the Inbox.`, tone: "info", itemId: null });
+    expect(describeContinue(result({ action: "resumed", run: RUN })).description).toBe(`Paused tasks pick up where they stopped. ${RUN_UNTIL_DONE}`);
+    expect(describeContinue(result({ action: "already_running", run: RUN })).description).toBe(`The team is still working. ${RUN_UNTIL_DONE}`);
+    for (const r of [result({ run: RUN }), result({ action: "resumed", run: RUN }), result({ action: "already_running", run: RUN })]) expect(describeContinue(r).title).toMatch(/Cycle started|One new note|Cycle resumed|already running/);
+  });
+});
+
+describe("Pause and the end of a run (Nov 7, 2026)", () => {
+  it("Pause says what stopped and that Continue picks up again", () => {
+    expect(describePause({ paused: true, pausedTasks: 2, runEnded: true })).toEqual({ title: "Paused", description: "2 running tasks paused. Press Continue to pick up where the team stopped.", tone: "warn" });
+    expect(describePause({ paused: true, pausedTasks: 1, runEnded: false }).description).toBe("1 running task paused. Press Continue to pick up where the team stopped.");
+    expect(describePause({ paused: false, pausedTasks: 0, runEnded: true, reason: "no cycle is running; no new cycle starts on its own" })).toEqual({ title: "Paused", description: "No new cycle starts. Press Continue to pick up where the team stopped.", tone: "warn" });
+    expect(describePause({ paused: false, pausedTasks: 0, runEnded: false, reason: "no cycle is running" })).toEqual({ title: "Nothing to pause", description: "no cycle is running", tone: "info" });
+  });
+
+  it("a run's end on the stream: the team is done, a day's limit with its number; nothing for Pause, a stop or another event", () => {
+    const ended = (payload: Record<string, unknown>) => ({ type: "cycle.run_ended", payload });
+    expect(describeRunEnded(ended({ reason: "done" }))).toEqual({ title: "The team has done all it can for now", description: "Anything waiting for you is in the Inbox's Needs you tab.", tone: "good" });
+    expect(describeRunEnded(ended({ reason: "daily_cycles", maxCyclesPerDay: 6 }))).toMatchObject({ title: "Today's limit of 6 cycles is reached", description: "No more cycles start on their own today. Raise the limit in Settings › Mode, or press Continue for one more." });
+    expect(describeRunEnded(ended({ reason: "daily_spend" }))!.title).toBe("Today's spend ceiling is reached (Estimate)");
+    expect(describeRunEnded(ended({ reason: "paused" }))).toBeNull();
+    expect(describeRunEnded(ended({ reason: "stopped" }))).toBeNull();
+    expect(describeRunEnded(ended({ reason: "nonsense" }))).toBeNull();
+    expect(describeRunEnded({ type: "cycle.completed", payload: { reason: "done" } })).toBeNull();
+  });
+
+  it("the run's events refresh the cycle status and the Autopilot chip", () => {
+    expect(INVALIDATE_ON_EVENT["cycle.run_started"]).toEqual(["cycle", "business.autopilot"]);
+    expect(INVALIDATE_ON_EVENT["cycle.run_ended"]).toEqual(["cycle", "business.autopilot"]);
   });
 });
 

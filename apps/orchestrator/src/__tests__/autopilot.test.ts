@@ -7,7 +7,7 @@
 import { createBusinessFixture, type BusinessFixture } from "@foundmill/db/__tests__/rls/fixtures";
 import { repos, resumeBusinessAgents, stopBusinessAgents } from "@foundmill/db";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
-import { AUTOPILOT_MAX_SLEEP_MS, AUTOPILOT_POLL_MS, createAutopilotActivities } from "../activities/autopilot";
+import { AUTOPILOT_MAX_SLEEP_MS, AUTOPILOT_POLL_MS, createAutopilotActivities, runEndedKey } from "../activities/autopilot";
 import { setupOrchestratorHarness, type OrchestratorTestHarness } from "./harness";
 
 let t: OrchestratorTestHarness;
@@ -166,5 +166,76 @@ describe("autopilotCycleStarted and autopilotCycleFailed", () => {
     expect((await repos.events.list(t.db, B(), { type: "cycle.completed" })).items.filter((e) => (e.payload as { cycleNumber?: number }).cycleNumber === 40)).toHaveLength(1);
     // A cycle that never wrote cycle.started cannot be closed: the caller counts it itself.
     expect(await acts.autopilotCycleFailed({ businessId: B(), workflowId: `cycle:${B()}:41`, error: "never started" })).toEqual({ recorded: false });
+  });
+});
+
+describe("Continue runs until done: the run's look and its end (Nov 7, 2026)", () => {
+  const RUN = "5a1d2c3b-4a5e-4f60-8a71-0b2c3d4e5f62";
+
+  it("a run decides before the schedule, with Autopilot off: start, wait for a running cycle, end when a round did nothing", async () => {
+    const now = t.clock.nowMs();
+    const run = { id: RUN, startedAt: now - 3 * H };
+    // No round finished yet and nothing open: the next round starts (Autopilot itself is off).
+    const first = await acts.autopilotEvaluate({ businessId: B(), run });
+    expect(first.decision).toEqual({ action: "off" });
+    expect(first.run).toEqual({ decision: { action: "start" }, waitMs: 0 });
+    // A round is running: look again in a minute.
+    await cycleStarted(50, new Date(now - 2 * H).toISOString(), "continue");
+    expect((await acts.autopilotEvaluate({ businessId: B(), run })).run).toEqual({ decision: { action: "wait", why: "cycle_running", until: null }, waitMs: 60_000 });
+    // It finished work: the next round starts; the round after it found nothing: the run is done.
+    await cycleCompleted(50, new Date(now - 1.5 * H).toISOString(), "completed", 2, 2);
+    expect((await acts.autopilotEvaluate({ businessId: B(), run })).run?.decision).toEqual({ action: "start" });
+    await cycleStarted(51, new Date(now - 1 * H).toISOString());
+    await cycleCompleted(51, new Date(now - 0.5 * H).toISOString(), "completed", 0, 0);
+    expect((await acts.autopilotEvaluate({ businessId: B(), run })).run?.decision).toEqual({ action: "end", reason: "done" });
+    // Without a run nothing about the run comes back.
+    expect((await acts.autopilotEvaluate({ businessId: B() })).run).toBeNull();
+  });
+
+  it("the press and its rounds count toward the day's cycle cap, which ends the run", async () => {
+    const now = t.clock.nowMs();
+    await repos.autopilot.set(t.db, B(), { maxCyclesPerDay: 2 });
+    await cycleStarted(60, new Date(now - 3 * H).toISOString(), "continue");
+    await cycleCompleted(60, new Date(now - 2.5 * H).toISOString(), "completed", 1, 1);
+    await cycleStarted(61, new Date(now - 2 * H).toISOString(), "autopilot");
+    await cycleCompleted(61, new Date(now - 1.5 * H).toISOString(), "completed", 1, 1);
+    const capped = await acts.autopilotEvaluate({ businessId: B(), run: { id: RUN, startedAt: now - 3.5 * H } });
+    expect(capped.cyclesToday).toBe(2);
+    expect(capped.run?.decision).toEqual({ action: "end", reason: "daily_cycles" });
+  });
+
+  it("records the end once (event, audit), and the day's limit leaves one note that does not block Continue", async () => {
+    const now = t.clock.nowMs();
+    await cycleStarted(70, new Date(now - 2 * H).toISOString(), "continue");
+    await cycleCompleted(70, new Date(now - 1.5 * H).toISOString(), "completed", 1, 1);
+    await cycleStarted(71, new Date(now - 1 * H).toISOString());
+    await cycleCompleted(71, new Date(now - 0.5 * H).toISOString(), "completed", 1, 1);
+    const ended = await acts.autopilotRunEnded({ businessId: B(), runId: RUN, startedAt: now - 3 * H, reason: "daily_cycles" });
+    expect(ended).toEqual({ recorded: true, rounds: 2 });
+    const events = (await repos.events.list(t.db, B(), { type: "cycle.run_ended" })).items;
+    expect(events).toHaveLength(1);
+    expect(events[0]!.payload).toEqual({ runId: RUN, reason: "daily_cycles", rounds: 2, cost: { amountMinor: 20, currency: "USD" }, maxCyclesPerDay: 6 });
+    expect((await repos.audit.list(t.db, B(), { action: "cycle.run_end" })).items[0]!.details).toMatchObject({ runId: RUN, reason: "daily_cycles", rounds: 2 });
+    const notes = (await repos.inbox.list(t.db, B(), { limit: 100 })).items.filter((i) => i.subject === "Today's cycle limit is reached");
+    expect(notes).toHaveLength(1);
+    expect(notes[0]).toMatchObject({ type: "update", blocksContinue: false });
+    expect(notes[0]!.bodyMd).toMatch(/Settings › Mode/);
+    // A second end (a retry, or the workflow after the API wrote Pause's end) changes nothing.
+    expect(await acts.autopilotRunEnded({ businessId: B(), runId: RUN, startedAt: now - 3 * H, reason: "done" })).toMatchObject({ recorded: false });
+    expect((await repos.events.list(t.db, B(), { type: "cycle.run_ended" })).items).toHaveLength(1);
+    expect((await repos.inbox.list(t.db, B(), { limit: 100 })).items.filter((i) => i.subject === "Today's cycle limit is reached")).toHaveLength(1);
+  });
+
+  it("a run that is done leaves no extra note (the idle cycle's own note says what is in the way)", async () => {
+    const before = (await repos.inbox.list(t.db, B(), { limit: 200 })).items.length;
+    expect(await acts.autopilotRunEnded({ businessId: B(), runId: RUN, startedAt: t.clock.nowMs() - H, reason: "done" })).toEqual({ recorded: true, rounds: 0 });
+    expect((await repos.inbox.list(t.db, B(), { limit: 200 })).items.length).toBe(before);
+    expect(await repos.events.byIdempotencyKey(t.db, B(), runEndedKey(RUN))).not.toBeNull();
+  });
+
+  it("names the run on a follow-on round's start", async () => {
+    await acts.autopilotCycleStarted({ businessId: B(), cycleNumber: 31, workflowId: `cycle:${B()}:31`, cadence: "every_4h", cyclesToday: 3, runId: RUN });
+    expect((await repos.events.list(t.db, B(), { type: "autopilot.cycle_started" })).items[0]!.payload).toMatchObject({ cycleNumber: 31, runId: RUN });
+    expect((await repos.audit.list(t.db, B(), { action: "autopilot.cycle_start" })).items[0]!.details).toMatchObject({ runId: RUN });
   });
 });

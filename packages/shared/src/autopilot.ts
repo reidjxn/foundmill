@@ -145,13 +145,104 @@ export interface AutopilotFacts {
   cycleOpen: boolean;
   lastCycleStartedAt: number | null;
   lastCycleEndedAt: number | null;
-  /** Autopilot cycles started today (UTC). */
+  /**
+   * Cycles started today (UTC) that count toward the daily cap: Autopilot's and the founder's Continue presses with the
+   * rounds a press runs (triggers `autopilot` and `continue`; one set of limits since Nov 7, 2026). A vacation's cycles
+   * and wake-ups do not count.
+   */
   cyclesToday: number;
   /** Model spend today in USD cents (an Estimate). */
   spentTodayMinor: number;
   /** Finished cycles since `since`, newest first (plus failures that wrote no cycle: `unrecordedFailures`). */
   recentCycles: readonly AutopilotCycleSummary[];
   unrecordedFailures?: number;
+  /** The run one press of Continue started, while it lasts (`decideRun`); null or absent: no run. */
+  run?: ContinueRunFacts | null;
+}
+
+/**
+ * Continue runs until done (founder, Nov 7, 2026): one press starts a run, and the `autopilot:<businessId>` workflow
+ * starts round after round (cycle after cycle) until the run ends. The run is derived from the event log
+ * (`cycle.run_started` / `cycle.run_ended`), never stored on the business row.
+ */
+export const CONTINUE_RUN_END_REASONS = ["done", "hard_stop", "paused", "stopped", "vacation", "daily_cycles", "daily_spend", "archived", "lost"] as const;
+export type ContinueRunEndReason = (typeof CONTINUE_RUN_END_REASONS)[number];
+
+export const CONTINUE_RUN_LIMITS = {
+  /** No two rounds of a run start closer than this (stops a hot loop of empty rounds); no 15-minute floor. */
+  minGapMs: 60 * 1000,
+  /** How often a run looks again while another cycle is open. */
+  pollMs: 60 * 1000,
+  /** A run with no end recorded this long after its start is a lost one, like a stale cycle. */
+  staleMs: 36 * HOUR_MS,
+} as const;
+
+export interface ContinueRunFacts {
+  id: string;
+  /** Epoch ms. */
+  startedAt: number;
+  /** Rounds of this run that finished (cycles completed at or after `startedAt`). */
+  rounds: number;
+  /** The newest finished round of this run; null before the first one ends. */
+  lastRound: AutopilotCycleSummary | null;
+  /** Rounds of this run that failed before writing a cycle (the workflow counts them). */
+  unrecordedFailures?: number;
+}
+
+export type ContinueRunDecision =
+  | { action: "end"; reason: ContinueRunEndReason }
+  /** `cycle_running`: another cycle is open (the run's own first round included); `gap`: the 1-minute gap between rounds. */
+  | { action: "wait"; why: "cycle_running" | "gap"; until: number | null }
+  | { action: "start" };
+
+/**
+ * What a run does now, pure; null when there is no run. Called before `decideAutopilot` (whether or not Autopilot is
+ * on), and once a run ends the scheduled decision applies again unchanged. Order: the business is archived; a hard stop
+ * (the stop flag, used-up credits, an Inbox item that blocks Continue); a vacation; another cycle still running; the
+ * last round did nothing (decisions waiting in Needs you never hold a run: a round that only waited on them is idle,
+ * rule 0071); the day's cycle cap and spend ceiling (the same limits as Autopilot's); the 1-minute gap; then start.
+ */
+export function decideRun(f: AutopilotFacts): ContinueRunDecision | null {
+  const run = f.run;
+  if (!run) return null;
+  if (f.archived) return { action: "end", reason: "archived" };
+  if (f.stopReason || (f.creditsRemainingMinor !== null && f.creditsRemainingMinor <= 0) || f.blockingItems > 0) return { action: "end", reason: "hard_stop" };
+  if (f.vacation) return { action: "end", reason: "vacation" };
+  if (f.cycleOpen) return { action: "wait", why: "cycle_running", until: null };
+  if (run.lastRound?.outcome === "stopped") return { action: "end", reason: "stopped" };
+  if ((run.lastRound && isIdleCycle(run.lastRound)) || (run.unrecordedFailures ?? 0) > 0) return { action: "end", reason: "done" };
+  if (f.cyclesToday >= f.settings.maxCyclesPerDay) return { action: "end", reason: "daily_cycles" };
+  const ceiling = effectiveSpendCeiling(f.settings, f.spentTodayMinor, f.creditsRemainingMinor);
+  if (ceiling !== null && f.spentTodayMinor >= ceiling) return { action: "end", reason: "daily_spend" };
+  const gapUntil = f.lastCycleStartedAt === null ? null : f.lastCycleStartedAt + CONTINUE_RUN_LIMITS.minGapMs;
+  if (gapUntil !== null && gapUntil > f.now) return { action: "wait", why: "gap", until: gapUntil };
+  return { action: "start" };
+}
+
+/**
+ * What the founder reads when a run ends on its own (a toast in the shell; the daily limits also leave a note in the
+ * Inbox). Null for the ends the founder caused or already hears about elsewhere: Pause, Stop all agents, an archived
+ * business. The same words for every member watching the business.
+ */
+export function continueRunEndedMessage(reason: ContinueRunEndReason, maxCyclesPerDay?: number | null): { title: string; description: string; tone: "info" | "good" | "warn" } | null {
+  switch (reason) {
+    case "done":
+      return { title: "The team has done all it can for now", description: "Anything waiting for you is in the Inbox's Needs you tab.", tone: "good" };
+    case "daily_cycles":
+      return { title: typeof maxCyclesPerDay === "number" ? `Today's limit of ${maxCyclesPerDay} cycle${maxCyclesPerDay === 1 ? "" : "s"} is reached` : "Today's cycle limit is reached", description: "No more cycles start on their own today. Raise the limit in Settings › Mode, or press Continue for one more.", tone: "warn" };
+    case "daily_spend":
+      return { title: "Today's spend ceiling is reached (Estimate)", description: "No more cycles start on their own today. Raise the ceiling in Settings › Mode, or press Continue for one more.", tone: "warn" };
+    case "hard_stop":
+      return { title: "The team stopped working", description: "Something needs you before the team can carry on. Open the Inbox's Needs you tab.", tone: "warn" };
+    case "vacation":
+      return { title: "You are on vacation", description: "The Chief of Staff runs the cycles until you come back.", tone: "info" };
+    case "lost":
+      return { title: "New cycles stopped starting", description: "Press Continue to keep the team working.", tone: "warn" };
+    case "paused":
+    case "stopped":
+    case "archived":
+      return null;
+  }
 }
 
 export type AutopilotDecision =
@@ -246,7 +337,7 @@ const PAUSE_SHORT: Record<AutopilotPauseReason, string> = {
 export function autopilotView(d: AutopilotDecision): AutopilotView {
   switch (d.action) {
     case "off":
-      return { state: "off", label: "Off", detail: "Cycles start when you press Continue.", nextAt: null };
+      return { state: "off", label: "Off", detail: "Continue keeps the team working until nothing is left. Turn Autopilot on to start work on a schedule.", nextAt: null };
     case "end":
       return { state: "off", label: "Off", detail: d.note, nextAt: null };
     case "paused":
