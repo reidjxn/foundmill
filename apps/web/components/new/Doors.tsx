@@ -201,7 +201,7 @@ export function Doors({ viewer, profileLine, experience, businessCount, backTo, 
     trpc.business.example.open.mutationOptions({
       onSuccess: (result) => {
         rememberLastBusiness(result.businessId);
-        router.push(routes.home(result.businessId));
+        router.push(routes.today(result.businessId));
       },
       onError: (err) => toast({ title: "Could not open the example", description: errorMessage(err), tone: "bad" }),
     }),
@@ -214,7 +214,7 @@ export function Doors({ viewer, profileLine, experience, businessCount, backTo, 
       viewer={viewer}
       actions={
         backTo ? (
-          <LinkButton variant="ghost" icon={ArrowLeft} href={routes.home(backTo.id)} data-testid="new-back-to-business">
+          <LinkButton variant="ghost" icon={ArrowLeft} href={routes.today(backTo.id)} data-testid="new-back-to-business">
             Back to {backTo.name}
           </LinkButton>
         ) : null

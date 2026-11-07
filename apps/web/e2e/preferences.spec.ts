@@ -78,8 +78,9 @@ test.describe("settings › preferences: date and time format", () => {
     await choose(page, "24-hour");
     await expect(toast(page, "Day first dates, 24-hour times")).toBeVisible({ timeout: LONG });
 
-    // Home: the top bar and the Journey ribbon's Today tag read day first (a client-side move, no reload).
-    await page.getByRole("link", { name: "Home", exact: true }).first().click();
+    // Details (the dashboards, through Today's tab bar): the top bar and the Journey ribbon's Today tag read day first (a client-side move, no reload).
+    await page.getByRole("link", { name: "Today", exact: true }).first().click();
+    await page.getByRole("tab", { name: "Details" }).click();
     await expect(page).toHaveURL(new RegExp(`/b/${NORTHWIND_BUSINESS_ID}/home`), { timeout: LONG });
     await expect(topDate).toHaveText(DAY_FIRST_DATE);
     const todayTag = page.locator("[data-today-tag]").first();

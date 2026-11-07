@@ -114,7 +114,7 @@ test.describe("the example business, as an example viewer", () => {
     await expect(door).toHaveAttribute("data-example-business", NORTHWIND_BUSINESS_ID);
     await expect(page.locator("[data-door='example']")).toContainText("Walk around a running business before you start yours. Nothing you do there is saved.");
     await door.click();
-    await page.waitForURL(new RegExp(`/b/${NORTHWIND_BUSINESS_ID}/home$`), { timeout: LONG });
+    await page.waitForURL(new RegExp(`/b/${NORTHWIND_BUSINESS_ID}/today$`), { timeout: LONG });
     await expect(page.getByTestId("app-shell")).toBeVisible({ timeout: LONG });
     await page.waitForLoadState("networkidle", { timeout: LONG });
     await settled(page);
@@ -178,7 +178,7 @@ test.describe("the example business, as an example viewer", () => {
     await expect(row).toContainText("Northwind Skincare");
     await expect(row.getByTestId("example-row-chip")).toHaveText("Example");
     await expect(row).toContainText("A seeded example business. Nothing you do here is saved.");
-    await expect(row.getByRole("link", { name: "Open Northwind Skincare" })).toHaveAttribute("href", `/b/${NORTHWIND_BUSINESS_ID}/home`);
+    await expect(row.getByRole("link", { name: "Open Northwind Skincare" })).toHaveAttribute("href", `/b/${NORTHWIND_BUSINESS_ID}/today`);
     // Not among their own businesses.
     await expect(page.getByTestId("active-businesses").locator(`[data-business-row="${NORTHWIND_BUSINESS_ID}"]`)).toHaveCount(0);
 

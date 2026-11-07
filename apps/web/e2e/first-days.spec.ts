@@ -36,6 +36,9 @@ test.describe("first days", () => {
     const status = page.getByTestId("foundations-status");
     await expect(status).toBeVisible({ timeout: LONG });
     await expect(status).toHaveAttribute("data-foundations-state", "ready", { timeout: LONG });
+    // Day one lives with the dashboards (Details); Today's tab bar leads there (founder, 2026-11-07).
+    await page.getByRole("tab", { name: "Details" }).click();
+    await page.waitForURL(new RegExp(`/b/${bid}/home`), { timeout: LONG });
 
     // The guided layer on day one (UX plan §7.8): three numbered next steps in the Day one panel above the ghosted
     // milestones, "Your first week" with nothing done yet, and the callout under Continue (which waits while the first

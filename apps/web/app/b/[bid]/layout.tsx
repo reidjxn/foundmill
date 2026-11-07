@@ -46,7 +46,7 @@ export default async function BusinessLayout({ params, children }: { params: Par
   const { bid } = await params;
   if (!UUID_RE.test(bid)) notFound();
   const server = await serverApi();
-  if (!server) redirect(`/login?next=${encodeURIComponent(`/b/${bid}/home`)}`);
+  if (!server) redirect(`/login?next=${encodeURIComponent(`/b/${bid}/today`)}`);
   const { api } = server;
 
   // One round of requests: the profile gate, the business and its departments (the shell's first-screen queries follow

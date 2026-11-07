@@ -137,7 +137,7 @@ export function DepartmentScreen({ deptSlug, tabSlug, subView }: DepartmentScree
     return (
       <div className="p-gutter">
         <Panel title="Department" span={12}>
-          <EmptyState icon={LayoutGrid} title="No such department" action={{ label: "Go to Home", icon: House, onClick: () => router.push(routes.home(businessId)) }}>
+          <EmptyState icon={LayoutGrid} title="No such department" action={{ label: "Go to Today", icon: House, onClick: () => router.push(routes.today(businessId)) }}>
             Nothing is called “{deptSlug}” in this business.
           </EmptyState>
         </Panel>

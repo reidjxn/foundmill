@@ -297,7 +297,7 @@ export const KEYBOARD_SHORTCUTS: readonly KeyboardShortcut[] = [
   { id: "continue", keys: ["Space"], label: "Continue", group: "Navigation" },
   { id: "search", keys: ["/"], label: "Search", group: "Navigation" },
   { id: "search-cmd", keys: ["⌘K"], label: "Search (Ctrl-K on Windows and Linux)", group: "Navigation" },
-  { id: "go-home", keys: ["G", "H"], label: "Go to Home", group: "Navigation" },
+  { id: "go-home", keys: ["G", "H"], label: "Go to Today", group: "Navigation" },
   { id: "go-inbox", keys: ["G", "I"], label: "Go to Inbox", group: "Navigation" },
   // "Contacts" is the sidebar's word (founder decision 2026-10-20, item 1); operators still know it as the CRM.
   { id: "go-crm", keys: ["G", "C"], label: "Go to Contacts (CRM)", group: "Navigation" },

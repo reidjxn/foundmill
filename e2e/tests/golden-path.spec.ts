@@ -41,7 +41,7 @@ async function ensureDeck(page: Page, minimum = 2): Promise<void> {
 }
 
 /**
- * Commits the first drafted concept as a new business. Take charge lands on Home (founder, 2026-10-18: the first days
+ * Commits the first drafted concept as a new business. Take charge lands on Today (founder, 2026-10-18: the first days
  * are about the product), where the vision, specification and roadmap draft in the background; the helper waits for
  * them so the two sign-off notes are in the Inbox when the test looks.
  */
@@ -52,10 +52,14 @@ async function commitFreshBusiness(page: Page, name: string): Promise<{ bid: str
   await expect(page.getByTestId("commit-form")).toBeVisible();
   await page.getByLabel(/Business name/).fill(name);
   await page.getByTestId("take-charge").click();
-  await page.waitForURL(new RegExp(`/b/${UUID}/home`), { timeout: LONG });
-  const bid = page.url().match(new RegExp(`/b/(${UUID})/home`))![1]!;
+  await page.waitForURL(new RegExp(`/b/${UUID}/today`), { timeout: LONG });
+  const bid = page.url().match(new RegExp(`/b/(${UUID})/today`))![1]!;
   await expect(page.getByTestId("app-shell")).toBeVisible({ timeout: LONG });
-  await expect(page.getByTestId("foundations-status")).toHaveAttribute("data-foundations-state", "ready", { timeout: LONG });
+  // The foundations banner shows "ready" only when the drafting finishes during this visit, and a quick mock draft can
+  // finish before Today's first read: wait for what the drafting leaves instead, the specification's sign-off note.
+  await expect(page.getByTestId("today-screen")).toBeVisible({ timeout: LONG });
+  await page.goto(`/b/${bid}/inbox`);
+  await expect(page.getByTestId("inbox-list").getByRole("option").filter({ hasText: "Sign off the product specification" }).first()).toBeVisible({ timeout: LONG });
   return { bid };
 }
 
@@ -227,7 +231,7 @@ test.describe("golden path", () => {
     await expect(page.getByTestId("commit-form")).toBeVisible();
   });
 
-  test("AC-11.1.6 AC-11.1.7: Commit defaults to Assisted; Take charge creates the business and lands on Home with the welcome note", async ({ page }) => {
+  test("AC-11.1.6 AC-11.1.7: Commit defaults to Assisted; Take charge creates the business and lands on Today with the welcome note", async ({ page }) => {
     await signIn(page);
     await ensureDeck(page, 1);
     await page.getByTestId("commit-link").first().click();
@@ -240,14 +244,16 @@ test.describe("golden path", () => {
     const name = `Playwright Business ${Date.now().toString(36)}`;
     await page.getByLabel(/Business name/).fill(name);
     await page.getByTestId("take-charge").click();
-    // The first days are about the product (founder, 2026-10-18): Take charge lands on Home, not on a Board decision.
-    await page.waitForURL(new RegExp(`/b/${UUID}/home`), { timeout: LONG });
-    bid = page.url().match(new RegExp(`/b/(${UUID})/home`))![1]!;
+    // The first days are about the product (founder, 2026-10-18): Take charge lands on Today (the front door since Nov 7, 2026), not on a Board decision.
+    await page.waitForURL(new RegExp(`/b/${UUID}/today`), { timeout: LONG });
+    bid = page.url().match(new RegExp(`/b/(${UUID})/today`))![1]!;
     await expect(page.getByTestId("app-shell")).toBeVisible();
     await expect(page.getByTestId("kit-bar")).toContainText(name);
-    // The foundations draft in the mock model in moments. The Home banner shows only while a draft is in progress (or
+    // The foundations draft in the mock model in moments. The foundations banner shows only while a draft is in progress (or
     // when it turns ready during this visit), so the outcome is checked where it lands: the two sign-off notes below.
-    await expect(page.getByTestId("home-screen")).toBeVisible({ timeout: LONG });
+    // Today: the goal waits for the Chief of Staff (it is proposed after the sign-offs and a round of work).
+    await expect(page.getByTestId("today-screen")).toBeVisible({ timeout: LONG });
+    await expect(page.getByTestId("goal-panel")).toHaveAttribute("data-goal", "waiting", { timeout: LONG });
     // The sidebar carries the departments the commit created.
     expect(await page.locator("[data-testid=app-shell] nav a[href*='/d/']").count()).toBeGreaterThanOrEqual(1);
     // The Inbox opens on the Chief of Staff's welcome note: an Update, with no decision to take.
@@ -318,8 +324,8 @@ test.describe("golden path", () => {
     await expect(channels.getByRole("row").filter({ hasText: /Starting|Running/ })).toHaveCount(0);
     await page.goto(`/b/${bid}/inbox`);
     await expect(inboxRow(page, WELCOME_NOTE)).toBeVisible({ timeout: LONG });
-    // Nothing waits for an answer: the Board's question is not asked before distribution starts.
-    // The Chief of Staff's goal proposal (Nov 7, 2026) may already wait in Needs you; it is not a distribution question.
+    // Nothing waits for an answer but the Chief of Staff's goal (proposed once the sign-offs and a round of work are done,
+    // founder 2026-11-07): the Board's question is not asked before distribution starts.
     await expect(page.getByTestId("inbox-list").locator("[data-inbox-row][data-needs-answer='true']").filter({ hasNotText: /goal/i })).toHaveCount(0);
     // Start distribution: the Board's question is in the Inbox, the channels start, the Board no longer waits.
     const { boardItemId } = await startDistributionFromBoard(page, bid);

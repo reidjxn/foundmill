@@ -243,18 +243,22 @@ export { DEMO_OWNER_DISPLAY_NAME, test, expect };
 /* ---------- The first days (founder, 2026-10-18) ---------- */
 
 /**
- * Take charge from the Commit screen the caller is on: lands on the new business's Home (the Chief of Staff's welcome
- * note is in the Inbox; the foundations draft in the background and two sign-off notes follow).
+ * Take charge from the Commit screen the caller is on: lands on the new business's Today, its front door (founder,
+ * 2026-11-07; the Chief of Staff's welcome note is in the Inbox; the foundations draft in the background and two
+ * sign-off notes follow).
  */
-export async function takeChargeToHome(page: Page, name: string): Promise<{ bid: string }> {
+export async function takeChargeToToday(page: Page, name: string): Promise<{ bid: string }> {
   await expect(page.getByTestId("commit-form")).toBeVisible({ timeout: LONG });
   await page.getByLabel(/Business name/).fill(name);
   await page.getByTestId("take-charge").click();
-  await page.waitForURL(new RegExp(`/b/${UUID}/home`), { timeout: LONG });
-  const bid = page.url().match(new RegExp(`/b/(${UUID})/home`))![1]!;
+  await page.waitForURL(new RegExp(`/b/${UUID}/today`), { timeout: LONG });
+  const bid = page.url().match(new RegExp(`/b/(${UUID})/today`))![1]!;
   await expect(page.getByTestId("app-shell")).toBeVisible({ timeout: LONG });
   return { bid };
 }
+
+/** The name the specs used while Home was the front door; it lands on Today now. */
+export const takeChargeToHome = takeChargeToToday;
 
 export const SPEC_SIGNOFF = "Sign off the product specification";
 export const ROADMAP_SIGNOFF = "Sign off the product roadmap";

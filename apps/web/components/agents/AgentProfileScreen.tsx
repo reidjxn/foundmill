@@ -90,7 +90,7 @@ export function AgentProfileScreen({ agentId, tab }: AgentProfileScreenProps) {
 
   if (loadFailed(profileQ) && isMissing(profileQ.error)) {
     return (
-      <NotFoundPanel title="Agent profile" heading="No such agent" back={squadHref ? { label: "Back to Agents", href: squadHref } : { label: "Go to Home", href: routes.home(businessId) }}>
+      <NotFoundPanel title="Agent profile" heading="No such agent" back={squadHref ? { label: "Back to Agents", href: squadHref } : { label: "Go to Today", href: routes.today(businessId) }}>
         No agent in this business has this address: the agent was let go, or the link is wrong.
       </NotFoundPanel>
     );

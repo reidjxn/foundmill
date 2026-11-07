@@ -79,6 +79,9 @@ const BUDGETS: Array<[path: string, input: (businessId: string) => unknown, trip
   ["business.firstWeek.get", (b) => ({ businessId: b }), 4],
   // The goal Home shows (founder, 2026-11-07): the active and proposed goals and their counters in one wave.
   ["goal.current", (b) => ({ businessId: b }), 4],
+  // Today (founder, 2026-11-07): Needs you, the week's facts and the spend in parallel; then the notes' redaction and
+  // senders, then their kinds, each in one wave.
+  ["today.get", (b) => ({ businessId: b }), 6],
 ];
 
 describe("round trips per procedure, on the wire", () => {

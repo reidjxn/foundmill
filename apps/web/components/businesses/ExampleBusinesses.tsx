@@ -58,7 +58,7 @@ export function ExampleBusinesses({ rows, logos, leaving, onLeave }: ExampleBusi
               <Button size="sm" variant="ghost" icon={LogOut} loading={leaving === b.id} onClick={() => setConfirm(b.id)} aria-label={`Leave ${b.name}`} data-testid="example-leave">
                 Leave
               </Button>
-              <LinkButton size="sm" variant="default" iconRight={ArrowRight} href={routes.home(b.id)} onClick={() => rememberLastBusiness(b.id)} aria-label={`Open ${b.name}`}>
+              <LinkButton size="sm" variant="default" iconRight={ArrowRight} href={routes.today(b.id)} onClick={() => rememberLastBusiness(b.id)} aria-label={`Open ${b.name}`}>
                 Open
               </LinkButton>
             </li>

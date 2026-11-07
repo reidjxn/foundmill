@@ -22,6 +22,7 @@ import { legalRouter } from "./routers/legal";
 import { liveRouter } from "./routers/live";
 import { productRouter } from "./routers/product";
 import { teamRouter } from "./routers/team";
+import { todayRouter } from "./routers/today";
 import { conversationRouter } from "./routers/conversation";
 import { createCallerFactory, mergeRouters, publicProcedure, router } from "./trpc";
 
@@ -40,6 +41,7 @@ export const appRouter = router({
   journey: journeyRouter,
   product: productRouter,
   goal: goalRouter,
+  today: todayRouter,
   dev: devRouter,
   distribution: distributionRouter,
   finance: financeRouter,

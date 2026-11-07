@@ -35,10 +35,10 @@ describe("/auth/callback", () => {
     expect(exchangeCodeForSession).toHaveBeenCalledWith("abc");
   });
 
-  it("without a next, goes straight to the last business's Home when the browser remembers one (as `/` would, one hop sooner)", async () => {
+  it("without a next, goes straight to the last business's Today when the browser remembers one (as `/` would, one hop sooner)", async () => {
     exchangeCodeForSession.mockResolvedValue({ error: null });
     const last = "b1e5e5e5-0000-4000-8000-000000000001";
-    expect(await callback("?code=abc", `fm_last_business=${last}`)).toEqual({ status: 307, location: `https://foundmill.com/b/${last}/home` });
+    expect(await callback("?code=abc", `fm_last_business=${last}`)).toEqual({ status: 307, location: `https://foundmill.com/b/${last}/today` });
     // An explicit next still wins; no usable cookie leaves `/` to pick.
     expect((await callback("?code=abc&next=%2Fb%2Fx%2Finbox", `fm_last_business=${last}`)).location).toBe("https://foundmill.com/b/x/inbox");
     expect((await callback("?code=abc", "fm_last_business=nope")).location).toBe("https://foundmill.com/");

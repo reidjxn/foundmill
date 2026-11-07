@@ -128,6 +128,72 @@ export function runwayTile(finance: FinanceOverview | undefined, loading: boolea
   };
 }
 
+/** The Cash tile: the bank balance in the business's currency, or why there is none. */
+export function cashTile(finance: FinanceOverview | undefined, loading: boolean, currency: string, onClick: () => void): StatusTile {
+  const c = finance?.cash.currency ?? currency;
+  return {
+    label: "Cash",
+    plain: PLAIN_LINES.cash,
+    value: finance ? { amountMinor: finance.cash.amountMinor, currency: c } : null,
+    loading,
+    caption: finance ? (finance.cash.accounts ? `In the bank · ${finance.cash.accounts} account${finance.cash.accounts === 1 ? "" : "s"}` : "Connect a bank in Settings") : undefined,
+    provenance: { source: "Bank balances", asOf: finance?.cash.asOf ?? undefined },
+    onClick,
+  };
+}
+
+/** First payments in the last 7 days against the 7 before, from the ribbon's business-wide rows. */
+export function customersThisWeek(ribbon: RibbonResponse | undefined, today: string): { week: number; previous: number; spark: number[] } | null {
+  if (!ribbon) return null;
+  const rows = ribbon.rows.filter((r) => r.departmentId === null);
+  return {
+    week: sumInRange(rows, addDays(today, -6), today, (r) => r.payments),
+    previous: sumInRange(rows, addDays(today, -13), addDays(today, -7), (r) => r.payments),
+    spark: dailySeries(rows, lastDays(14, today), (r) => r.payments),
+  };
+}
+
+/** The Customers this week tile: first payments in the last 7 days, with the change against the week before. */
+export function customersWeekTile(ribbon: RibbonResponse | undefined, loading: boolean, today: string, onClick: () => void): StatusTile {
+  const c = customersThisWeek(ribbon, today);
+  return { label: "Customers this week", plain: PLAIN_LINES.customers, value: c ? c.week : null, format: "integer", loading, caption: "Paying customers, last 7 days", delta: c ? { value: c.week - c.previous, label: "vs last week" } : undefined, spark: c?.spark, provenance: { source: "Payments (first payments count as customers)" }, onClick };
+}
+
+/**
+ * The week's spend as Today reads it (`today.get`): AI usage in US dollars, channel spend in the business's own
+ * currency, and channel spend kept in any other currency listed apart.
+ */
+export interface WeekSpend {
+  aiUsage: { amountMinor: number; currency: string };
+  channel: { amountMinor: number; currency: string; otherCurrencies: readonly { currency: string; amountMinor: number }[] };
+}
+
+export const SPEND_WORDS = {
+  combined: "Spent this week",
+  ai: "AI usage this week",
+  channel: "Channel spend this week",
+} as const;
+
+/**
+ * The spend tiles (founder, 2026-11-07: two figures, never summed across currencies), each an Estimate. A business in
+ * US dollars with every channel in dollars gets one "Spent this week" tile (AI usage plus channel spend, one currency);
+ * otherwise "AI usage this week" in USD, and "Channel spend this week" in the business's currency when there was any.
+ */
+export function spendWeekTiles(spend: WeekSpend | undefined | null, loading: boolean, onClick: () => void): StatusTile[] {
+  const provenance = { source: "AI usage as the team's work is metered (US dollars); channel spend from each channel's daily figures; last 7 days" };
+  if (!spend) return [{ label: SPEND_WORDS.ai, value: loading ? null : "Not known yet", loading, caption: loading ? undefined : "No usage read yet", provenance, onClick }];
+  const otherNote = spend.channel.otherCurrencies.length ? ` · plus spend in ${spend.channel.otherCurrencies.map((o) => o.currency).join(", ")}, not added` : "";
+  const oneCurrency = spend.aiUsage.currency === spend.channel.currency && spend.channel.otherCurrencies.length === 0;
+  if (oneCurrency) {
+    return [{ label: SPEND_WORDS.combined, value: { amountMinor: spend.aiUsage.amountMinor + spend.channel.amountMinor, currency: spend.aiUsage.currency }, estimate: "estimate", loading, caption: "AI usage and channels, last 7 days", provenance, onClick }];
+  }
+  const tiles: StatusTile[] = [{ label: SPEND_WORDS.ai, value: { amountMinor: spend.aiUsage.amountMinor, currency: spend.aiUsage.currency }, estimate: "estimate", loading, caption: `The team's AI cost, last 7 days (${spend.aiUsage.currency})`, provenance, onClick }];
+  if (spend.channel.amountMinor > 0 || spend.channel.otherCurrencies.length > 0) {
+    tiles.push({ label: SPEND_WORDS.channel, value: { amountMinor: spend.channel.amountMinor, currency: spend.channel.currency }, estimate: "estimate", loading, caption: `Ads and channels, last 7 days${otherNote}`, provenance, onClick });
+  }
+  return tiles;
+}
+
 /** A board's kind in words, for a caption: "customers_won" → "Customers won", "mrr_growth" → "MRR growth". */
 export function boardWords(kind: string): string {
   const words = kind.split(/[_\s-]+/).filter(Boolean).map((w) => (/^(mrr|arr|cpa|ltv)$/i.test(w) ? w.toUpperCase() : w.toLowerCase()));
@@ -136,7 +202,7 @@ export function boardWords(kind: string): string {
 }
 
 /** A tile whose query failed: what happened instead of a figure (shared/errors.ts). */
-function unavailableTile(label: string, error: Error, section: string, onClick: () => void, termId?: string): StatusTile {
+export function unavailableTile(label: string, error: Error, section: string, onClick: () => void, termId?: string): StatusTile {
   const words = unavailableWords(error, section);
   return { label, termId, value: words.value, caption: words.caption, onClick };
 }
@@ -146,32 +212,23 @@ export function statusTiles(i: StatusStripInputs): StatusTile[] {
   const ribbonError = !i.ribbon ? (i.errors?.ribbon ?? null) : null;
   const departmentsError = !i.departments ? (i.errors?.departments ?? null) : null;
   const openFinance = () => i.open("finance");
-  const weekFrom = addDays(i.today, -6);
-  const prevFrom = addDays(i.today, -13);
-  const prevTo = addDays(i.today, -7);
-  const rows = i.ribbon?.rows.filter((r) => r.departmentId === null) ?? [];
-  const customersWeek = sumInRange(rows, weekFrom, i.today, (r) => r.payments);
-  const customersPrev = sumInRange(rows, prevFrom, prevTo, (r) => r.payments);
   const month = monthKey(i.today);
   const revenueMonth = revenueThisMonthMinor(i.finance, month);
   const revenueSeries = (i.finance?.revenue.monthly ?? []).slice(-6).map(monthRevenueMinor);
   const healthCounts = squadHealthCounts(i.departments);
   const health = squadHealth(i.departments);
   const currency = i.finance?.cash.currency ?? i.currency;
+  const openCustomers = () => i.open("customers");
   // Captions in words (UX plan B9); the formula and the accounting basis stay in each tile's provenance tooltip. The
   // plain-words line under each figure (`metricId` / `plain`) shows while guidance is on; the labels that are defined
   // terms carry `termId` (the widget wraps them in a `Term`).
   const tiles: StatusTile[] = [
-    financeError
-      ? unavailableTile("Cash", financeError, "Finance", openFinance)
-      : { label: "Cash", plain: PLAIN_LINES.cash, value: i.finance ? { amountMinor: i.finance.cash.amountMinor, currency } : null, loading: i.loading.finance, caption: i.finance ? (i.finance.cash.accounts ? `In the bank · ${i.finance.cash.accounts} account${i.finance.cash.accounts === 1 ? "" : "s"}` : "Connect a bank in Settings") : undefined, provenance: { source: "Bank balances", asOf: i.finance?.cash.asOf ?? undefined }, onClick: openFinance },
+    financeError ? unavailableTile("Cash", financeError, "Finance", openFinance) : cashTile(i.finance, i.loading.finance, i.currency, openFinance),
     financeError ? unavailableTile("Runway", financeError, "Finance", openFinance, "runway") : runwayTile(i.finance, i.loading.finance, openFinance),
     financeError
       ? unavailableTile("Revenue this month", financeError, "Finance", openFinance, "revenue")
       : { label: "Revenue this month", termId: "revenue", plain: PLAIN_LINES.revenue, value: revenueMonth === null ? (i.loading.finance ? null : NOT_KNOWN_YET.value) : { amountMinor: revenueMonth, currency }, spark: revenueSeries, loading: i.loading.finance, caption: revenueMonth === null && !i.loading.finance ? NOT_KNOWN_YET.caption : "Money in this month", provenance: { source: "Bank inflows, counted when the cash arrives; financing and transfers excluded", note: i.finance?.revenue.label }, onClick: openFinance },
-    ribbonError
-      ? unavailableTile("Customers this week", ribbonError, "The Journey", () => i.open("customers"))
-      : { label: "Customers this week", plain: PLAIN_LINES.customers, value: i.ribbon ? customersWeek : null, format: "integer", loading: i.loading.ribbon, caption: "Paying customers, last 7 days", delta: i.ribbon ? { value: customersWeek - customersPrev, label: "vs last week" } : undefined, spark: i.ribbon ? dailySeries(rows, lastDays(14, i.today), (r) => r.payments) : undefined, provenance: { source: "Payments (first payments count as customers)" }, onClick: () => i.open("customers") },
+    ribbonError ? unavailableTile("Customers this week", ribbonError, "The Journey", openCustomers) : customersWeekTile(i.ribbon, i.loading.ribbon, i.today, openCustomers),
     departmentsError
       ? unavailableTile("Team health", departmentsError, "The team", () => i.open("team"))
       : teamStalled(i.tasks)

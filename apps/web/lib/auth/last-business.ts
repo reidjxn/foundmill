@@ -20,10 +20,10 @@ export function parseLastBusinessId(value: string | null | undefined): string | 
   return value && UUID_RE.test(value) ? value : null;
 }
 
-/** The Home of the business the cookie names, or null without a usable cookie. */
+/** The front door (Today) of the business the cookie names, or null without a usable cookie. */
 export function lastBusinessHome(value: string | null | undefined): string | null {
   const id = parseLastBusinessId(value);
-  return id ? routes.home(id) : null;
+  return id ? routes.today(id) : null;
 }
 
 /** Where the business layout sends a founder whose last-business cookie names `businessId`, a business they cannot open. */

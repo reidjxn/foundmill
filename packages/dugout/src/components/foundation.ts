@@ -39,6 +39,7 @@ export * from "./foundation/StatusPill";
 export * from "./foundation/StarRating";
 export * from "./foundation/Sparkline";
 export * from "./foundation/ProgressRing";
+export * from "./foundation/ProgressBar";
 export * from "./foundation/BusinessLogo";
 export * from "./foundation/Avatar";
 export * from "./foundation/LogoMark";

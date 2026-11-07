@@ -54,7 +54,7 @@ export function BusinessesScreen({ viewer, lastBusiness }: BusinessesScreenProps
       actions={
         <>
           {lastBusiness ? (
-            <LinkButton variant="ghost" icon={ArrowLeft} href={routes.home(lastBusiness.id)} data-testid="businesses-back">
+            <LinkButton variant="ghost" icon={ArrowLeft} href={routes.today(lastBusiness.id)} data-testid="businesses-back">
               Back to {lastBusiness.name}
             </LinkButton>
           ) : null}

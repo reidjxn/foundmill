@@ -148,7 +148,7 @@ describe("staff changes on the stream (security review S1)", () => {
 
 describe("the first days on the stream (founder, 2026-10-18)", () => {
   it("a sign-off decision refetches the business, the Product tabs' sign-offs, the Inbox and the Plan; a distribution start the Board", () => {
-    expect(INVALIDATE_ON_EVENT["product.signoff_decided"]).toEqual(["business", "product.signoff", "inbox", "dev"]);
+    expect(INVALIDATE_ON_EVENT["product.signoff_decided"]).toEqual(["business", "product.signoff", "inbox", "dev", "today"]);
     expect(INVALIDATE_ON_EVENT["distribution.started"]).toEqual(["business", "distribution", "inbox"]);
   });
 });
@@ -168,13 +168,17 @@ describe("foundations progress on the stream (audit P3)", () => {
 
 describe("changes another member makes reach an open Inbox (audit RUI-09)", () => {
   it("an archive or a plan confirmation (inbox.item_updated) refetches the list, the reading pane and the plan", async () => {
-    expect(INVALIDATE_ON_EVENT["inbox.item_updated"]).toEqual(["inbox", "plan"]);
+    expect(INVALIDATE_ON_EVENT["inbox.item_updated"]).toEqual(["inbox", "plan", "today"]);
     const qc = new QueryClient();
     const BID = "00000000-0000-4000-8000-000000000001";
     const pane = trpcQueryKey("inbox.get", { businessId: BID, itemId: "00000000-0000-4000-8000-000000000002" }) as unknown[];
     qc.setQueryData(pane, { item: { state: "unread" } });
     await Promise.all(INVALIDATE_ON_EVENT["inbox.item_updated"]!.map((r) => qc.invalidateQueries({ queryKey: trpcPathPrefix(r) as unknown[] })));
     expect(qc.getQueryState(pane)?.isInvalidated).toBe(true);
+  });
+
+  it("Today refetches on what changes it: a note, an answer, a round of work, a customer and the goal (founder, 2026-11-07)", () => {
+    for (const type of ["inbox.item_created", "inbox.item_updated", "decision.made", "cycle.completed", "customer.converted", "goal.proposed", "goal.approved", "goal.change_requested", "goal.achieved"]) expect(INVALIDATE_ON_EVENT[type], type).toContain("today");
   });
 
   it("maps only events the catalogue declares (a typo would never fire)", () => {

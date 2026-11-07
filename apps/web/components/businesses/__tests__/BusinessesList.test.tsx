@@ -30,7 +30,7 @@ describe("BusinessesList (Your businesses › Active)", () => {
     const { container } = render(<BusinessesList rows={rows} logos={{}} lastBusinessId="b1" onCreate={() => {}} />);
     const nw = within(container.querySelector<HTMLElement>('[data-business-row="b1"]')!);
     for (const text of ["Northwind Skincare", "Owner", "Demo", "Last opened", "Pro plan · Assisted · Personal · Created Oct 7, 2026", "Agents stopped"]) expect(nw.getByText(text)).toBeTruthy();
-    expect(nw.getByRole("link", { name: "Open Northwind Skincare" }).getAttribute("href")).toBe("/b/b1/home");
+    expect(nw.getByRole("link", { name: "Open Northwind Skincare" }).getAttribute("href")).toBe("/b/b1/today");
     expect(nw.getByRole("link", { name: "Settings of Northwind Skincare" }).getAttribute("href")).toBe("/b/b1/settings/business");
     expect(screen.getByRole("link", { name: "Settings of Ledgerly" })).toBeTruthy();
     expect(screen.queryByRole("link", { name: "Settings of Tutorlane" })).toBeNull();

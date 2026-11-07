@@ -22,7 +22,7 @@ export const KeyboardMap: Story = {
       <dt>
         <Keys keys={["G", "H"]} />
       </dt>
-      <dd className="text-secondary">Go to Home</dd>
+      <dd className="text-secondary">Go to Today</dd>
       <dt>
         <Kbd>⌘K</Kbd>
       </dt>
