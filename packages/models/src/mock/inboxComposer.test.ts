@@ -83,7 +83,8 @@ describe("mock inbox composer (BUILD §11.3, §12.2)", () => {
     expect(out.source_event_ids).toEqual([EVENT_1]);
     expect(out.body_md).toContain(`[[ent:${ORG_ALDER}|Alder & Finch]]`);
     expect(out.body_md).toContain("€489");
-    expect(out.blocks_continue).toBe(true);
+    // Good news never holds Continue (Nov 7, 2026).
+    expect(out.blocks_continue).toBe(false);
     expect(out.status_strip.map((s) => s.metric)).toEqual(["mrr", "runway_months", "customers_week"]);
     expect(out.exhibit).toEqual({ kind: "chart", spec_ref: "q_mrr_12w" });
     expect(out.decision?.options.map((o) => o.label)).toContain("Just celebrate");
@@ -111,7 +112,7 @@ describe("mock inbox composer (BUILD §11.3, §12.2)", () => {
 
     const runway = (await client.complete({ route: "inboxComposer", messages: promptWith(VARIANTS[2] as Record<string, unknown>), schema: ComposerOutput })).json;
     expect(runway.type).toBe("warning");
-    expect(runway.blocks_continue).toBe(true); // runway < 3 months blocks Continue
+    expect(runway.blocks_continue).toBe(false); // a Composer note never holds Continue; only the platform's hard stops do (Nov 7, 2026)
 
     const update = (await client.complete({ route: "inboxComposer", messages: promptWith(VARIANTS[3] as Record<string, unknown>), schema: ComposerOutput })).json;
     expect(update.type).toBe("update");

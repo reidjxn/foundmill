@@ -36,7 +36,7 @@ test.describe("inbox", () => {
     await expect(page.getByTestId("reading-pane-empty")).toContainText("Pick a note on the left.");
     // Refresh says what it is (one quick note, not a cycle; UX plan B17).
     await expect(page.getByTestId("inbox-refresh")).toHaveAttribute("title", "Ask the team for one quick note (does not start a cycle)");
-    for (const tab of ["Respond", "Customers", "Updates", "Archive"]) await expect(page.getByRole("tab", { name: new RegExp(`^${tab}`) })).toBeVisible();
+    for (const tab of ["Needs you", "Customers", "Updates", "Archive"]) await expect(page.getByRole("tab", { name: new RegExp(`^${tab}`) })).toBeVisible();
   });
 
   test("J/K select the next and previous rows; the URL carries the selection; the pane shows the note anatomy", async ({ page }) => {
@@ -94,17 +94,17 @@ test.describe("inbox", () => {
     await expect(rows).toHaveCount(before + 1);
   });
 
-  test("AC-11.3.3: the two sign-off notes block Continue; 1 approves each (the second starts the build) and Continue runs a cycle step", async ({ page }) => {
+  test("the two sign-off notes wait in Needs you without holding Continue; 1 approves each (the second starts the build) and Continue runs a cycle step", async ({ page }) => {
     test.setTimeout(240_000);
     await signIn(page);
     const { bid } = await commitFreshBusiness(page, `Playwright Inbox ${Date.now().toString(36)}`);
-    // The foundations draft in the background (mock models); their two sign-off notes block Continue.
+    // The foundations draft in the background (mock models); their two sign-off notes wait in Needs you. Since Nov 7, 2026
+    // a decision never holds Continue: the button stays Continue and the Inbox counts what needs the founder.
     await page.goto(`/b/${bid}/inbox`);
     await expect(inboxRow(page, SPEC_SIGNOFF)).toBeVisible({ timeout: LONG });
     await expect(inboxRow(page, ROADMAP_SIGNOFF)).toBeVisible({ timeout: LONG });
-    const respond = page.getByRole("button", { name: /^Respond to \d+ items?$/ });
-    await expect(respond).toBeVisible({ timeout: LONG });
-    await expect(respond).toHaveText("Respond · 2");
+    await expect(page.getByRole("navigation", { name: "Primary" }).getByRole("link", { name: /^Inbox/ })).toContainText("2", { timeout: LONG });
+    await expect(page.getByRole("button", { name: /^Continue$/ })).toBeVisible({ timeout: LONG });
     await inboxRow(page, SPEC_SIGNOFF).click();
     const item = page.getByTestId("inbox-item");
     await expect(item).toHaveAttribute("data-type", "decision", { timeout: LONG });
@@ -138,7 +138,7 @@ test.describe("inbox", () => {
     await expect(answered).toBeVisible();
     // Decided from the DecisionBar: the desk keeps 2–4 replies but no longer offers "Go with: …" (no second decision).
     await expect(desk.locator('[data-quick-reply="go_with"]')).toHaveCount(0, { timeout: LONG });
-    await expect(page.getByRole("button", { name: "Respond to 1 item" })).toBeVisible({ timeout: LONG });
+    await expect(page.getByRole("navigation", { name: "Primary" }).getByRole("link", { name: /^Inbox/ })).toContainText("1", { timeout: LONG });
     // The second approval starts the build: Development › Plan gets the Planner's first tasks.
     await approveFromInbox(page, bid, ROADMAP_SIGNOFF);
     await expect(inboxRow(page, /Building starts:/)).toBeVisible({ timeout: LONG });
@@ -431,7 +431,7 @@ test.describe("inbox", () => {
     await expect(page.getByTestId("answered-panel")).toBeVisible();
   });
 
-  test("a plan waiting for the go-ahead survives a reload: it stays in Respond, its spend reads as waiting, and Review confirms it once", async ({ page }) => {
+  test("a plan waiting for the go-ahead survives a reload: it stays in Needs you, its spend reads as waiting, and Review confirms it once", async ({ page }) => {
     await signIn(page);
     test.setTimeout(300_000);
     const { bid } = await commitFreshBusiness(page, `Playwright Go-ahead ${Date.now().toString(36)}`);
@@ -485,7 +485,7 @@ test.describe("inbox", () => {
     await expect(page.getByTestId("type-pill")).not.toContainText("Needs your go-ahead");
     // A task is a task: the answered panel never sends "Open the plan" to the unrelated task list (audit FR-08).
     await expect(answered.getByRole("button", { name: "Open the plan" })).toHaveCount(0);
-    // Confirmed, it leaves Respond.
+    // Confirmed, it leaves Needs you.
     await page.reload();
     await expect(page.getByTestId("inbox-screen")).toHaveAttribute("data-tab", "respond", { timeout: LONG });
     await expect(page.locator(`[data-inbox-row="${itemId}"]`)).toHaveCount(0, { timeout: LONG });
@@ -527,7 +527,8 @@ test.describe("inbox", () => {
     const options = bar.getByRole("group", { name: "Options" }).getByRole("button");
     expect(await options.count()).toBeGreaterThanOrEqual(2);
     for (let i = 0; i < (await options.count()); i += 1) await expect(options.nth(i)).toBeEnabled();
-    await expect(page.getByRole("button", { name: /^Respond to \d+ items?$/ })).toBeVisible();
+    // A decision past its deadline still never holds Continue (Nov 7, 2026).
+    await expect(page.getByRole("button", { name: /^Continue$/ })).toBeVisible();
   });
 
   test("a double click on an option sends one decision and shows one outcome (audit RES-10)", async ({ page }) => {

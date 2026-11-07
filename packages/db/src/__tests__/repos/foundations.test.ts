@@ -98,8 +98,8 @@ describe("foundations", () => {
     expect(feed.position).toBeGreaterThanOrEqual(0);
     // The two sign-off notes (founder, 2026-10-18): decisions from the Product lead that block Continue, each with its round.
     expect(res.inboxItems.map((i) => ({ type: i.type, subject: i.subject, bodyMd: i.bodyMd, blocksContinue: i.blocksContinue }))).toEqual([
-      { type: "decision", subject: "Sign off the product specification", bodyMd: "Wrote 3 of 4.", blocksContinue: true },
-      { type: "decision", subject: "Sign off the product roadmap", bodyMd: "1 in Now.", blocksContinue: true },
+      { type: "decision", subject: "Sign off the product specification", bodyMd: "Wrote 3 of 4.", blocksContinue: false },
+      { type: "decision", subject: "Sign off the product roadmap", bodyMd: "1 in Now.", blocksContinue: false },
     ]);
     const rounds = await repos.productSignoffs.latest(r.db, businessId);
     expect(rounds.spec).toMatchObject({ round: 1, status: "pending", inboxItemId: res.inboxItems[0]!.id });

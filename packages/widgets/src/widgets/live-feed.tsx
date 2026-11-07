@@ -126,7 +126,7 @@ export function describeEvent(e: WidgetEvent): Described {
       return { title: `Cycle ${String(p.cycleNumber ?? "")} ${own(CYCLE_OUTCOME, str(p.outcome)) ?? "completed"}`.replace("  ", " "), description: `${countOf(typeof p.tasksCompleted === "number" ? p.tasksCompleted : 0, "task")} done`, icon: CircleCheck, tone: p.outcome === "failed" ? "bad" : p.outcome === "completed" ? "good" : "neutral" };
     case "inbox.item_created":
       // A reader walled from Finance or the CRM gets the note without its subject (apps/stream walls).
-      return { title: str(p.subject) ?? "New inbox note", icon: MessageSquare, tone: p.blocksContinue ? "bad" : "neutral", statusWord: p.blocksContinue ? "Respond" : undefined };
+      return { title: str(p.subject) ?? "New inbox note", icon: MessageSquare, tone: p.blocksContinue ? "bad" : "neutral", statusWord: p.blocksContinue ? "Needs you" : undefined };
     case "inbox.item_updated":
       // Ids only (no subject), so a member walled from the item learns nothing beyond the change itself.
       return p.change === "plan_confirmed" ? { title: "Plan confirmed", icon: CircleCheck, tone: "good", statusWord: "Confirmed" } : { title: "Inbox note archived", icon: MessageSquare, tone: "neutral" };

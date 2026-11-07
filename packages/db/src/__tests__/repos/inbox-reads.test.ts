@@ -125,21 +125,23 @@ describe("read receipts are tenant-safe (0048)", () => {
   });
 });
 
-describe("a blocking decision cannot be archived before it is answered (audit RUI-14)", () => {
+describe("an open decision cannot be archived before it is answered (audit RUI-14)", () => {
   it("is refused while it waits, and allowed once answered", async () => {
     const item = await repos.inbox.createItem(r.db, r.A.businessId, decisionNote());
     await expect(repos.inbox.archive(r.db, r.A.businessId, item.id)).rejects.toThrow(/waiting for your answer/);
     expect((await repos.inbox.get(r.db, r.A.businessId, item.id)).state).toBe("unread");
-    expect(await repos.inbox.countBlocking(r.db, r.A.businessId)).toBeGreaterThanOrEqual(1);
+    // It waits in Needs you without holding Continue (0071, Nov 7, 2026), and still cannot be archived unanswered.
+    expect((await repos.inbox.get(r.db, r.A.businessId, item.id)).blocksContinue).toBe(false);
 
     await repos.inbox.decide(r.db, r.A.businessId, item.id, { chosenOption: "wait", decidedBy: r.A.ownerId });
     expect((await repos.inbox.archive(r.db, r.A.businessId, item.id)).state).toBe("archived");
   });
 
-  it("still archives notes that block with nothing to choose, and decisions that do not block", async () => {
+  it("still archives a hard stop with nothing to choose; an open decision waits for its answer whether or not it holds Continue", async () => {
     const warning = await repos.inbox.createItem(r.db, r.A.businessId, note({ type: "warning", subject: "Runway under 3 months", blocks_continue: true }));
     expect((await repos.inbox.archive(r.db, r.A.businessId, warning.id)).state).toBe("archived");
     const soft = await repos.inbox.createItem(r.db, r.A.businessId, { ...decisionNote(), blocks_continue: false });
-    expect((await repos.inbox.archive(r.db, r.A.businessId, soft.id)).state).toBe("archived");
+    await expect(repos.inbox.archive(r.db, r.A.businessId, soft.id)).rejects.toThrow(/waiting for your answer/);
+    expect((await repos.inbox.archive(r.db, r.A.businessId, soft.id, { force: true })).state).toBe("archived");
   });
 });

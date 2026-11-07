@@ -25,6 +25,9 @@ const DISPATCHABLE = new Set<string>(PLANNABLE_TASK_STATUSES);
 /** Audit action written per task the cycle stops as the platform's own work (`stopPlatformDuties`). */
 export const PLATFORM_DUTY_STOPPED_AUDIT_ACTION = "cycle.platform_duty_stopped";
 /** Audit action written per task the cycle stops because no agent has a tool for it (`stopToollessTasks`). */
+/** Days a note that only informs stays open untouched before a Continue moves it to Archive. */
+export const SETTLED_NOTE_DAYS = 7;
+export const SETTLED_NOTES_ARCHIVED_AUDIT_ACTION = "cycle.settled_notes_archived";
 export const TOOL_MISSING_STOPPED_AUDIT_ACTION = "cycle.tool_missing_stopped";
 
 /**
@@ -238,17 +241,35 @@ export function createCycleActivities(deps: OrchestratorDeps) {
   }
 
   /**
+   * Every Continue closes the notes that only informed and are no longer current (founder, Nov 7, 2026): an update,
+   * report or question-less warning about work that has since finished, stopped or failed, or one nobody touched for
+   * `SETTLED_NOTE_DAYS`. They move to the Inbox's Archive, still readable; decisions and hard stops are never closed
+   * here. On record per cycle; a failure never fails the plan.
+   */
+  async function closeSettledNotes(businessId: string, cycleNumber: number): Promise<void> {
+    try {
+      const closed = await repos.inbox.archiveSettled(deps.db, businessId, { olderThan: new Date(Date.now() - SETTLED_NOTE_DAYS * 24 * 60 * 60 * 1000) });
+      if (closed.length === 0) return;
+      await repos.audit.append(deps.db, businessId, { actorKind: "system", action: SETTLED_NOTES_ARCHIVED_AUDIT_ACTION, target: { kind: "cycle", id: String(cycleNumber) }, details: { cycleNumber, archived: closed.length, itemIds: closed.slice(0, 100) } });
+      deps.log.info({ businessId, cycleNumber, archived: closed.length }, "cycle: settled Inbox notes archived");
+    } catch (err) {
+      deps.log.warn({ businessId, cycleNumber, err: (err as Error).message }, "cycle: settled Inbox notes could not be archived; tried again next cycle");
+    }
+  }
+
+  /**
    * A blocked task whose agent said the team has no tool for it (`lacksTool` on its latest `task.blocked` detail) is
-   * stopped and archived after that one attempt, its dependents freed, and the founder told once, in one line, that it
-   * is theirs to do or to drop (founder, Nov 3, 2026: "Yes, do both"). Retrying it costs a few cents a cycle and tells
-   * the founder nothing new. Audited per task; a failure to stop one never fails the plan.
+   * stopped and archived after that one attempt and its dependents freed (founder, Nov 3, 2026: "Yes, do both"). A
+   * missing tool is the platform's gap, not the founder's chore (founder, Nov 7, 2026, phase 1 of the first-time
+   * founder report): it goes on record for the platform (`cycle.tool_missing_stopped`, and a warning in the log), never
+   * into the founder's Inbox. Until Nov 7 it posted "Only you can do this: …", which handed the founder work such as
+   * "Audit current environment values on all services". Audited per task; a failure to stop one never fails the plan.
    */
   async function stopToollessTasks(businessId: string, cycleNumber: number, openTasks: readonly BriefTask[]): Promise<Set<string>> {
     const stopped = new Set<string>();
     const blocked = openTasks.filter((t) => t.status === "blocked");
     if (blocked.length === 0) return stopped;
     const events = await repos.events.list(deps.db, businessId, { type: "task.blocked", limit: 300 });
-    const chief = await repos.agents.chiefOfStaff(deps.db, businessId);
     for (const task of blocked) {
       const latest = events.items.find((e) => (e.payload as { taskId?: unknown }).taskId === task.id);
       const p = (latest?.payload ?? {}) as { reason?: unknown; detail?: unknown };
@@ -265,8 +286,8 @@ export function createCycleActivities(deps: OrchestratorDeps) {
           await repos.tasks.archive(tx, businessId, task.id);
           await repos.audit.append(tx, businessId, { actorKind: "system", action: TOOL_MISSING_STOPPED_AUDIT_ACTION, target: { kind: "task", id: task.id }, details: { cycleNumber, title: row.title.slice(0, 200), detail: detail.slice(0, 500), dependentsFreed: edges.filter((e) => e.fromTask === task.id).length } });
         });
-        const from = chief?.id ?? agent?.id ?? row.assigneeAgentId;
-        if (from) await postNote(deps, businessId, from, { type: "warning", subject: `Only you can do this: ${title}`.slice(0, 80), body: `${agent?.name ?? "The team"} could not do “${title}”: the team has no way to do it on its own, so it is stopped. If you want it done, it is yours to do; otherwise nothing more happens.`, blocksContinue: false });
+        // Reported to the platform, not the founder: the log line is what Foundmill's own monitoring reads.
+        deps.log.warn({ businessId, cycleNumber, taskId: task.id, agent: agent?.name ?? null, title, platformGap: "tool_missing" }, "cycle: a task stopped because no agent has a tool for it (platform gap)");
         stopped.add(task.id);
       } catch (err) {
         deps.log.warn({ businessId, cycleNumber, taskId: task.id, err: (err as Error).message }, "cycle: a task no agent has a tool for could not be stopped; it is tried again next cycle");
@@ -396,9 +417,10 @@ export function createCycleActivities(deps: OrchestratorDeps) {
      */
     async planCycle(input: { businessId: string; cycleNumber: number; trigger: CycleTrigger; brief: BusinessBrief; roadmapPlanned?: RoadmapPlanResult | null }): Promise<CyclePlan> {
       // Tasks planned before the rule for the platform's own steps (Nov 2, 2026) leave the loop here, never the plan,
-      // and so does a task no agent has a tool for (Nov 3, 2026), with one line to the founder.
+      // and so does a task no agent has a tool for (Nov 3, 2026; on record for the platform, not the founder's Inbox).
       const duties = await stopPlatformDuties(input.businessId, input.cycleNumber, input.brief.openTasks);
       const toolless = await stopToollessTasks(input.businessId, input.cycleNumber, input.brief.openTasks.filter((t) => !duties.has(t.id)));
+      await closeSettledNotes(input.businessId, input.cycleNumber);
       const stopped = new Set([...duties, ...toolless]);
       const brief = stopped.size > 0 ? { ...input.brief, openTasks: input.brief.openTasks.filter((t) => !stopped.has(t.id)) } : input.brief;
       const plan = await draftPlan({ ...input, brief });

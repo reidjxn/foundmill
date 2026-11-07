@@ -5,22 +5,16 @@ import { createCaller } from "../router";
 import { failureOf, untilWords } from "../services/cycle";
 import { createApiHarness, fakeTemporalClient, type ApiHarness } from "./harness";
 
+/** A hard stop: the one kind of note that holds Continue since Nov 7, 2026 (0071), like "credits used up". */
 async function blockingItem(hz: ApiHarness, subject: string) {
   return repos.inbox.createItem(hz.db, hz.A.businessId, {
-    type: "decision",
+    type: "warning",
     from_agent_id: hz.A.agentId,
     subject,
-    body_md: "Pick one.",
+    body_md: "Top up to keep working.",
     status_strip: [],
     exhibit: { kind: "none", spec_ref: null },
-    decision: {
-      options: [
-        { id: "a", label: "Option A", recommended: true, consequence: "A happens.", cost_minor: 0, reversible: true },
-        { id: "b", label: "Option B", recommended: false, consequence: "B happens.", cost_minor: 0, reversible: true },
-      ],
-      free_text: true,
-      expires_at: null,
-    },
+    decision: null,
     blocks_continue: true,
     source_event_ids: [],
     entity_ids: [],
@@ -91,7 +85,7 @@ describe("business.continue without an orchestrator (BUILD §9.4 in-process cycl
     const cs = await owner.cycle.continueState({ businessId: hz.A.businessId });
     expect(cs).toMatchObject({ kind: "blocked", count: 1 });
     await expect(owner.business.continue({ businessId: hz.A.businessId })).rejects.toMatchObject({ code: "CONFLICT" });
-    await owner.inbox.decide({ businessId: hz.A.businessId, itemId: item.id, chosenOption: "a" });
+    await owner.inbox.archive({ businessId: hz.A.businessId, itemId: item.id });
     expect((await owner.cycle.continueState({ businessId: hz.A.businessId })).kind).toBe("idle");
   });
 

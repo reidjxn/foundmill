@@ -149,7 +149,8 @@ async function decideByFreeText(page: Page, text: string): Promise<{ confirmed: 
 }
 
 const continueIdle = (page: Page) => page.getByRole("button", { name: /^Continue$/ });
-const respondButton = (page: Page) => page.getByRole("button", { name: /^Respond to \d+ items?$/ });
+/** The sidebar Inbox link, whose badge counts what needs the founder (the Needs you tab). */
+const inboxLink = (page: Page) => page.getByRole("navigation", { name: "Primary" }).getByRole("link", { name: /^Inbox/ });
 
 test.describe("golden path", () => {
   test.describe.configure({ mode: "serial" });
@@ -259,15 +260,15 @@ test.describe("golden path", () => {
     await expect(page.getByTestId("decision-bar")).toHaveCount(0);
   });
 
-  test("AC-11.3.3: Continue reads Respond · 2 while the sign-off notes wait; approving both releases it and Continue runs a cycle step", async ({ page }) => {
+  test("the sign-off notes wait in Needs you without holding Continue; approving both starts the build and Continue runs a cycle step", async ({ page }) => {
     test.skip(!bid, "the Commit step did not produce a business");
     await signIn(page);
     await page.goto(`/b/${bid}/inbox`);
     await expect(inboxRow(page, SPEC_SIGNOFF)).toBeVisible({ timeout: LONG });
     await expect(inboxRow(page, ROADMAP_SIGNOFF)).toBeVisible({ timeout: LONG });
-    const respond = respondButton(page);
-    await expect(respond).toBeVisible({ timeout: LONG });
-    await expect(respond).toHaveText("Respond · 2");
+    // Since Nov 7, 2026 a decision never holds Continue: the Inbox counts them and the button stays Continue.
+    await expect(inboxLink(page)).toContainText("2", { timeout: LONG });
+    await expect(continueIdle(page)).toBeVisible({ timeout: LONG });
 
     // The specification first: a sign-off note is a decision from the Product lead with Approve and Request changes.
     await inboxRow(page, SPEC_SIGNOFF).click();
@@ -280,9 +281,9 @@ test.describe("golden path", () => {
     await ((await recommended.count()) ? recommended : options.getByRole("button").first()).click();
     await expect(item).toHaveAttribute("data-state", "answered", { timeout: LONG });
     await expect(page.getByTestId("answered-panel")).toBeVisible();
-    await expect(page.getByRole("button", { name: "Respond to 1 item" })).toBeVisible({ timeout: LONG });
+    await expect(inboxLink(page)).toContainText("1", { timeout: LONG });
 
-    // The roadmap: the second approval starts the build and releases Continue.
+    // The roadmap: the second approval starts the build.
     await approveFromInbox(page, bid, ROADMAP_SIGNOFF);
     await expect(inboxRow(page, /Building starts:/)).toBeVisible({ timeout: LONG });
     await expect(continueIdle(page)).toBeVisible({ timeout: LONG });
@@ -322,7 +323,8 @@ test.describe("golden path", () => {
     // Start distribution: the Board's question is in the Inbox, the channels start, the Board no longer waits.
     const { boardItemId } = await startDistributionFromBoard(page, bid);
     await expect(page.locator(`[data-inbox-row="${boardItemId}"]`)).toHaveAttribute("data-needs-answer", "true", { timeout: LONG });
-    await expect(respondButton(page)).toBeVisible({ timeout: LONG });
+    // The Board question waits in Needs you; Continue stays Continue (Nov 7, 2026).
+    await expect(continueIdle(page)).toBeVisible({ timeout: LONG });
     await expect(inboxRow(page, "Distribution has started")).toBeVisible({ timeout: LONG });
     await page.goto(`/b/${bid}/d/distribution/channels`);
     await expect(channels).toBeVisible({ timeout: LONG });

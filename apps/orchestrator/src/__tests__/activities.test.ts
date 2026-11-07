@@ -527,7 +527,7 @@ describe("holiday activities (BUILD §9.6)", () => {
     expect(decided.inboxItemIds).not.toContain(item.id);
     expect(decided.queuedGated).toBeGreaterThanOrEqual(1);
     // Answering the note here would close it while nothing resolved the approval or told the session that waits on it.
-    expect(await repos.inbox.get(t.db, t.businessId, item.id)).toMatchObject({ state: "unread", blocksContinue: true });
+    expect(await repos.inbox.get(t.db, t.businessId, item.id)).toMatchObject({ state: "unread", blocksContinue: false });
     expect((await repos.approvals.get(t.db, t.businessId, approval.id)).outcome).toBeNull();
     await repos.holidays.end(t.db, t.businessId, h.id, { reportInboxItemId: null, endedAt: t.clock.now() });
   });

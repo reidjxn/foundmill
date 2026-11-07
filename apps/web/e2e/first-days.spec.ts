@@ -134,7 +134,8 @@ test.describe("first days", () => {
     const { boardItemId } = await startDistributionFromBoard(page, bid);
     await expect(page.getByText(/^\d+ of 15 running( · \d+ starting)?$/)).toBeVisible({ timeout: LONG });
     await openBoardQuestion(page, bid, boardItemId);
-    await expect(page.getByRole("button", { name: /^Respond to \d+ items?$/ })).toBeVisible({ timeout: LONG });
+    // The Board's question waits in Needs you; it never holds Continue (Nov 7, 2026).
+    await expect(page.getByRole("button", { name: /^Continue$/ })).toBeVisible({ timeout: LONG });
     await expect(inboxRow(page, "Distribution has started")).toBeVisible({ timeout: LONG });
     await page.goto(`/b/${bid}/d/distribution/channels`);
     await expect(channels).toBeVisible({ timeout: LONG });
@@ -151,7 +152,8 @@ test.describe("first days", () => {
     await page.getByTestId("commit-link").first().click();
     await expect(page).toHaveURL(/\/new\/commit\/[0-9a-f-]+/);
     const { bid } = await takeChargeToHome(page, `Changes Asked ${Date.now().toString(36)}`);
-    await expect(page.getByTestId("foundations-status")).toHaveAttribute("data-foundations-state", "ready", { timeout: LONG });
+    // The Specification tab's sign-off banner waits for the drafting itself (Home's ready panel shows only when the visit
+    // saw the drafting, which a fast mock draft can finish before Home's first read).
     await page.goto(`/b/${bid}/d/product/specification`);
     const banner = page.getByTestId("signoff-banner");
     await expect(banner).toHaveAttribute("data-signoff-status", "pending", { timeout: LONG });

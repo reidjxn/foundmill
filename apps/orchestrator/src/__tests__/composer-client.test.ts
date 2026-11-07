@@ -15,6 +15,13 @@ const json = (body: unknown, status = 200) => new Response(JSON.stringify(body),
 
 afterEach(() => vi.useRealTimers());
 
+/** Every note, archived ones included: a newer update archives its agent's older open one (Nov 7, 2026). */
+async function allNotes(h: { db: Parameters<typeof repos.inbox.list>[0]; businessId: string }): Promise<number> {
+  const open = await repos.inbox.list(h.db, h.businessId, { limit: 500 });
+  const archived = await repos.inbox.list(h.db, h.businessId, { limit: 500, tab: "archive" });
+  return open.items.length + archived.items.length;
+}
+
 describe("composer client", () => {
   it("waits past the old 20 s for a narration (default LIMITS.composerClientTimeoutMs) and reports a replayed answer", async () => {
     vi.useFakeTimers();
@@ -120,13 +127,13 @@ describe("narrateCycle and the journey commentary", () => {
   });
 
   it("in development a 4xx ends in the plain cycle update without an outage notice; an outage's plain update says so", async () => {
-    const before = (await repos.inbox.list(t.db, t.businessId, { limit: 500 })).items.length;
+    const before = (await allNotes(t));
     const out = await createCycleActivities({ ...t.deps, composer: failing(new ComposerRequestError("validation", "Invalid request body", 400)) }).narrateCycle(input());
     expect(out.viaComposer).toBe(false);
     expect(out.inboxItemIds).toHaveLength(1);
     expect(await itemBody(out.inboxItemIds[0]!)).toBe("Cycle 1: done.");
     const down = await createCycleActivities({ ...t.deps, composer: failing(new ComposerUnavailableError("Composer /v1/narrate unreachable")) }).narrateCycle(input());
     expect(await itemBody(down.inboxItemIds[0]!)).toMatch(/without the Inbox Composer \(service unavailable\)/);
-    expect((await repos.inbox.list(t.db, t.businessId, { limit: 500 })).items.length).toBe(before + 2);
+    expect((await allNotes(t))).toBe(before + 2);
   });
 });

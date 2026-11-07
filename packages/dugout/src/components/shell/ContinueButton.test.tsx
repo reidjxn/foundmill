@@ -8,8 +8,8 @@ import type { ContinueState } from "./types";
 describe("ContinueButton", () => {
   it("says what pressing does, in the business's words, per state (B1)", async () => {
     expect(continueTooltip({ kind: "idle" })).toBe("Let the team work on their next tasks. Their notes land in the Inbox.");
-    expect(continueTooltip({ kind: "blocked", count: 2 })).toBe("2 notes need your answer before the team can carry on. Press to open the first.");
-    expect(continueTooltip({ kind: "blocked", count: 1 })).toBe("1 note needs your answer before the team can carry on. Press to open the first.");
+    expect(continueTooltip({ kind: "blocked", count: 2 })).toBe("2 things need you before the team can work (credits used up or a key to replace). Press to open the first.");
+    expect(continueTooltip({ kind: "blocked", count: 1 })).toBe("1 thing needs you before the team can work (credits used up or a key to replace). Press to open the first.");
     expect(continueTooltip({ kind: "processing" }, 3)).toBe("The team is working · cycle 3");
     expect(continueTooltip({ kind: "processing" })).toBe("The team is working");
     expect(continueTooltip({ kind: "matchday" })).toBe("A customer was won");
@@ -29,7 +29,7 @@ describe("ContinueButton", () => {
     expect(cycleDefinitionSentence("  ")).toBe("");
     expect(continueTooltip({ kind: "idle" }, null, null, short)).toBe("Let the team work on their next tasks for one cycle. A cycle is one round of work: the team works for a while, then reports back in the Inbox.");
     // Only idle changes; no definition, no change.
-    expect(continueTooltip({ kind: "blocked", count: 1 }, null, null, short)).toBe("1 note needs your answer before the team can carry on. Press to open the first.");
+    expect(continueTooltip({ kind: "blocked", count: 1 }, null, null, short)).toBe("1 thing needs you before the team can work (credits used up or a key to replace). Press to open the first.");
     expect(continueTooltip({ kind: "idle" }, null, null, null)).toBe("Let the team work on their next tasks. Their notes land in the Inbox.");
 
     const user = userEvent.setup();
@@ -60,7 +60,7 @@ describe("ContinueButton", () => {
 
   it("labels every state (BUILD §5.4)", () => {
     expect(continueButtonLabel({ kind: "idle" })).toBe("Continue");
-    expect(continueButtonLabel({ kind: "blocked", count: 3 })).toBe("Respond · 3");
+    expect(continueButtonLabel({ kind: "blocked", count: 3 })).toBe("Needs you · 3");
     expect(continueButtonLabel({ kind: "processing" })).toBe("Pause");
     expect(continueButtonLabel({ kind: "matchday" })).toBe("Go to Journey");
     expect(continueButtonLabel({ kind: "holiday", until: null })).toBe("Come back");
@@ -89,9 +89,9 @@ describe("ContinueButton", () => {
     await user.keyboard(" ");
     expect(handlers.onContinue).toHaveBeenCalledTimes(2);
     rerender(<ContinueButton state={{ kind: "blocked", count: 2 }} bindSpace {...handlers} />);
-    const respond = screen.getByRole("button", { name: "Respond to 2 items" });
-    expect(respond.getAttribute("data-variant")).toBe("danger");
-    expect(respond.textContent).toContain("Respond · 2");
+    const respond = screen.getByRole("button", { name: "2 things need you before the team can work" });
+    expect(respond.getAttribute("data-variant")).toBe("default");
+    expect(respond.textContent).toContain("Needs you · 2");
     await user.keyboard(" ");
     expect(handlers.onRespond).toHaveBeenCalledTimes(1);
     rerender(<ContinueButton state={{ kind: "holiday", until: "2026-10-14" }} bindSpace {...handlers} />);
@@ -100,7 +100,7 @@ describe("ContinueButton", () => {
     expect(handlers.onComeBack).toHaveBeenCalledTimes(1);
   });
 
-  it("renders processing as a dark slab with an orbiting edge and Pause, blocked as Respond with a count capsule, Customer Update in gold", () => {
+  it("renders processing as a dark slab with an orbiting edge and Pause, blocked as amber Needs you with a count capsule, Customer Update in gold", () => {
     const { rerender } = render(<ContinueButton state={{ kind: "processing" }} />);
     const pause = screen.getByRole("button", { name: "Pause the running cycle" });
     expect(pause.getAttribute("data-continue-state")).toBe("processing");
@@ -108,11 +108,11 @@ describe("ContinueButton", () => {
     expect(pause.className).toContain("continue-skin");
     expect(pause.textContent).toBe("Pause");
     rerender(<ContinueButton state={{ kind: "blocked", count: 7 }} />);
-    const respond = screen.getByRole("button", { name: "Respond to 7 items" });
+    const respond = screen.getByRole("button", { name: "7 things need you before the team can work" });
     expect(respond.querySelector("[data-continue-count]")?.textContent).toBe("7");
-    // The separator is for assistive tech and text checks only: the eye reads "Respond [7]".
-    expect(respond.textContent).toBe("Respond · 7");
-    expect(respond.className).toContain("tone-status-bad");
+    // The separator is for assistive tech and text checks only: the eye reads "Needs you [7]".
+    expect(respond.textContent).toBe("Needs you · 7");
+    expect(respond.className).toContain("tone-status-warn");
     rerender(<ContinueButton state={{ kind: "matchday" }} />);
     expect(screen.getByRole("button", { name: "Go to Journey" }).getAttribute("data-variant")).toBe("gold");
   });
@@ -134,19 +134,19 @@ describe("ContinueButton", () => {
     }
   });
 
-  it("pulses once in red when it turns blocked, never on mount", () => {
+  it("pulses once when it turns blocked, never on mount", () => {
     vi.useFakeTimers();
     try {
       const { rerender } = render(<ContinueButton state={{ kind: "blocked", count: 1 }} />);
-      expect(screen.getByRole("button", { name: "Respond to 1 item" }).getAttribute("data-pulsing")).toBeNull();
+      expect(screen.getByRole("button", { name: "1 thing needs you before the team can work" }).getAttribute("data-pulsing")).toBeNull();
       rerender(<ContinueButton state={{ kind: "idle" }} />);
       expect(screen.getByRole("button", { name: "Continue" }).getAttribute("data-pulsing")).toBeNull();
       rerender(<ContinueButton state={{ kind: "blocked", count: 2 }} />);
-      const respond = screen.getByRole("button", { name: "Respond to 2 items" });
+      const respond = screen.getByRole("button", { name: "2 things need you before the team can work" });
       expect(respond.getAttribute("data-pulsing")).toBe("true");
       expect(respond.className).toContain("animate-ring-pulse");
       act(() => vi.advanceTimersByTime(CONTINUE_PULSE_MS + 1));
-      expect(screen.getByRole("button", { name: "Respond to 2 items" }).getAttribute("data-pulsing")).toBeNull();
+      expect(screen.getByRole("button", { name: "2 things need you before the team can work" }).getAttribute("data-pulsing")).toBeNull();
     } finally {
       vi.useRealTimers();
     }

@@ -102,7 +102,7 @@ export async function recordApprovalAnswer(tx: DbTx, ctx: BusinessContext, appro
   let next: string;
   if (release) {
     // The merge review (apps/orchestrator mergeReview) waits for the repository's tests and reports the outcome on the approval.
-    next = outcome === "approved" ? "It goes live once the automatic tests pass; if they fail, the work goes back to the agent." : "Nothing goes live; the work waits.";
+    next = outcome === "approved" ? "It goes live once the final quality checks pass; if one fails, the work goes back to the agent." : "Nothing goes live; the work waits.";
   } else if (sessionWaiting) {
     next = outcome === "approved" ? `${who} carries on.` : `Nothing runs; ${who} is told not to retry it.`;
   } else if (task && MOVED_ON.has(task.status)) {
@@ -262,12 +262,12 @@ export async function approvalExecution(tx: DbTx, businessId: string, approval: 
       const at = new Date(latest.createdAt).toISOString();
       const d = latest.details as { step?: string; why?: string; reason?: string; retryable?: boolean };
       if (latest.action === "merge.merged") return { state: "ran", detail: "It is live.", at };
-      if (latest.action === "merge.waiting") return { state: "waiting", detail: "Waiting for the repository's automatic tests to pass.", at };
+      if (latest.action === "merge.waiting") return { state: "waiting", detail: "Waiting for the final quality checks.", at };
       if (latest.action === "merge.handed_back") return { state: "handed_back", detail: handBackWords(d.why), at };
       if (d.step === "decision") return null;
-      return { state: "failed", detail: d.step === "checks_timeout" ? "The automatic tests did not finish in time; the team tries again in its next round of work." : d.retryable ? "The repository refused it for the moment; the team tries again in its next round of work." : "The repository refused it; the team tries again in its next round of work.", at };
+      return { state: "failed", detail: d.step === "checks_timeout" ? "The final quality checks did not finish in time; the team tries again in its next round of work." : d.retryable ? "The repository refused it for the moment; the team tries again in its next round of work." : "The repository refused it; the team tries again in its next round of work.", at };
     }
-    return { state: "waiting", detail: "Waiting for the repository's automatic tests to pass.", at: null };
+    return { state: "waiting", detail: "Waiting for the final quality checks.", at: null };
   }
   if (approval.usedAt) return { state: "ran", detail: "It ran once, as asked.", at: new Date(approval.usedAt).toISOString() };
   return { state: "waiting", detail: "It runs when the agent next works on the task.", at: null };
@@ -281,7 +281,7 @@ function handBackWords(why: string | undefined): string {
     case "behind":
       return "The live product moved on since; the agent is bringing the change up to date and will ask again.";
     case "checks_failed":
-      return "The repository's automatic tests failed on it; the agent is fixing that and will ask again.";
+      return "A final quality check failed on it; the agent is fixing that and will ask again.";
     default:
       return "It went back to the agent, who will ask again when it is ready.";
   }

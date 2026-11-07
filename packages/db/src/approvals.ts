@@ -185,7 +185,7 @@ export function approvalItem(approval: Pick<Approval, "connectorKey" | "tool" | 
   const who = details.agentName.trim() || "The team";
   if (isReleaseApproval(approval)) {
     const tests = details.tests === undefined ? null : details.tests;
-    const tested = tests && tests.total > 0 ? (tests.passing === tests.total ? `All ${tests.total} test${tests.total === 1 ? "" : "s"} passed.` : `${tests.passing} of ${tests.total} tests passed.`) : tests === null && details.tests !== undefined ? "There was nothing in it to test." : "";
+    const tested = tests && tests.total > 0 ? (tests.passing === tests.total ? "It passed every quality check." : "It passed most of its quality checks.") : tests === null && details.tests !== undefined ? "There was nothing in it to check." : "";
     const body = `${who} finished${task ? ` “${task}”` : " a change"}. ${tested} OK to put it live?`.replace(/\s+/g, " ");
     return {
       type: "decision" as const,
@@ -196,7 +196,7 @@ export function approvalItem(approval: Pick<Approval, "connectorKey" | "tool" | 
       exhibit: { kind: "none" as const, spec_ref: null },
       decision: {
         options: [
-          { id: APPROVAL_OPTIONS.approve, label: "Put it live", recommended: true, consequence: `It goes live once the automatic tests pass; if they fail, ${who} fixes it and asks again.`, cost_minor: 0, reversible: false },
+          { id: APPROVAL_OPTIONS.approve, label: "Put it live", recommended: true, consequence: `It goes live once the final quality checks pass; if one fails, ${who} fixes it and asks again.`, cost_minor: 0, reversible: false },
           { id: APPROVAL_OPTIONS.reject, label: "Not now", recommended: false, consequence: "Nothing changes; the work waits for you.", cost_minor: 0, reversible: true },
         ],
         free_text: false,

@@ -29,7 +29,7 @@ export const FOUNDER_TITLE_CORPUS: readonly FounderTitleCase[] = Object.freeze([
   { id: "t01", title: "Rebase agent/a5444581-1234-4abc-8def-123456789abc onto main and resolve merge conflicts", goal: "Bring the deploy contract branch up to date with main so its tests can run and it can be merged.", kind: "code" },
   { id: "t02", title: "Fix hydration mismatch in /dashboard", goal: "The dashboard renders different markup on the server and the client; the console shows a hydration warning.", kind: "code" },
   { id: "t03", title: "Add deploy contract and guards for Railway", goal: "Define what every service must expose (healthcheck, watch patterns) and fail CI when a service lacks it.", kind: "code" },
-  { id: "t04", title: "Open a PR for the usage export", goal: "The usage export is finished on its branch; open the pull request so it can be reviewed and merged.", kind: "code" },
+  { id: "t04", title: "Open a pull request for the usage export", goal: "The usage export is finished on its branch; open the pull request so it can be reviewed and merged.", kind: "code" },
   { id: "t05", title: "Make CI green on the sitemap branch", goal: "Two unit tests fail on the sitemap branch after the rebase; fix them so the checks pass.", kind: "code" },
   { id: "t06", title: "Wire webhook endpoint for Stripe payouts", goal: "Receive Stripe payout events and record them as finance transactions.", kind: "code" },
   { id: "t07", title: "Add rate limiting to the webhook receiver", goal: "Protect the receiver from bursts: 100 requests a minute per sender, then 429.", kind: "code" },

@@ -94,11 +94,12 @@ test.describe("foundations", () => {
     await expect(outline.getByRole("button").first()).toBeVisible({ timeout: LONG });
     await expect(outline.getByLabel("Agent-written").first()).toBeVisible();
 
-    // The Product lead's two sign-off notes are in the Inbox, each a decision; both block Continue ("Respond · 2").
+    // The Product lead's two sign-off notes are in the Inbox, each a decision waiting in Needs you; neither holds Continue.
     await page.goto(`/b/${bid}/inbox`);
     await expect(inboxRow(page, SPEC_SIGNOFF)).toBeVisible({ timeout: LONG });
     await expect(inboxRow(page, ROADMAP_SIGNOFF)).toBeVisible({ timeout: LONG });
-    await expect(page.getByRole("button", { name: "Respond to 2 items" })).toBeVisible({ timeout: LONG });
+    await expect(page.getByRole("navigation", { name: "Primary" }).getByRole("link", { name: /^Inbox/ })).toContainText("2", { timeout: LONG });
+    await expect(page.getByRole("button", { name: /^Continue$/ })).toBeVisible({ timeout: LONG });
     await inboxRow(page, SPEC_SIGNOFF).click();
     await expect(page.getByTestId("inbox-item")).toHaveAttribute("data-type", "decision", { timeout: LONG });
     await expect(page.getByTestId("signoff-panel")).toHaveAttribute("data-signoff-kind", "spec");

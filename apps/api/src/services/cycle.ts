@@ -155,22 +155,19 @@ export function untilWords(text: string | null | undefined): string {
 }
 
 /**
- * The Continue button state (BUILD §5.4, AC-11.3.3): holiday › blocked › win waiting for its Customer Update › processing › idle.
+ * The Continue button state (BUILD §5.4, AC-11.3.3): holiday › a hard stop › processing › idle. Since Nov 7, 2026 a won
+ * customer no longer turns the button into "Go to Journey" (the win is good news in the Inbox, never the main control's
+ * state), and only a hard stop counts as blocking (0071).
  * `status` is the cycle status when the caller has it, or is reading it (a promise: its reads then go out with these).
  */
 export async function continueStateFor(ctx: CycleScope, status?: CycleStatus | Promise<CycleStatus>): Promise<ContinueState> {
   const { db, businessId } = ctx;
-  const [holiday, blocking, wins] = await Promise.all([repos.holidays.current(db, businessId), repos.inbox.countBlocking(db, businessId), repos.inbox.list(db, businessId, { type: "customer_won", state: "unread", limit: 1 }, ctx.userId)]);
+  const [holiday, blocking] = await Promise.all([repos.holidays.current(db, businessId), repos.inbox.countBlocking(db, businessId)]);
   if (holiday) {
     const condition = holiday.untilCondition as { text?: string } | null;
     return { kind: "holiday", until: holiday.untilAt ? holiday.untilAt.toISOString() : null, untilLabel: holiday.untilAt ? null : vacationUntilLabel(condition?.text) };
   }
   if (blocking > 0) return { kind: "blocked", count: blocking };
-  const win = wins.items[0];
-  if (win) {
-    const journeyId = str(asRecord(asRecord(win.decision).meta).journeyId);
-    return { kind: "matchday", journeyId, itemId: win.id };
-  }
   return cycleContinueState(await (status ?? cycleStatus(ctx)));
 }
 
@@ -214,9 +211,9 @@ export async function startCycle(ctx: BusinessContext): Promise<StartCycleResult
   if (ready.status === "rejected") throw ready.reason;
   const [before, read] = ready.value;
   if (before.kind === "holiday") throw new ContinueBlockedError("The Chief of Staff is running the business while you are away. End the vacation to take over.", { continueState: before });
-  if (before.kind === "blocked") throw new ContinueBlockedError(`Respond to ${before.count} item${before.count === 1 ? "" : "s"} in the Inbox before the next cycle.`, { continueState: before });
-  // Neither a vacation nor a blocking item comes after this point: a win waiting for its Customer Update still shows, else the cycle's state.
-  const continueStateAfter = (s: CycleStatus): ContinueState => (before.kind === "matchday" ? before : cycleContinueState(s));
+  if (before.kind === "blocked") throw new ContinueBlockedError(`${before.count} thing${before.count === 1 ? " needs" : "s need"} you before the team can work: open the Inbox's Needs you tab.`, { continueState: before });
+  // Neither a vacation nor a hard stop comes after this point: the cycle's own state.
+  const continueStateAfter = (s: CycleStatus): ContinueState => cycleContinueState(s);
 
   // Plans an earlier decision could not hand to the orchestrator start now that the founder moves on (audit api-services-15).
   await redispatchPlans(ctx).catch((err: unknown) => ctx.log.warn({ err: (err as Error).message }, "plan redispatch failed"));

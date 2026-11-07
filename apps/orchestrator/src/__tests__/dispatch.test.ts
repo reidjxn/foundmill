@@ -7,7 +7,6 @@ import { concurrencyAllowance, modelBudgetState, periodOf, repos, resumeBusiness
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { createBriefActivities } from "../activities/brief";
 import { createChannelActivities, emptyChannelState } from "../activities/channel";
-import { founderJargonHits } from "@foundmill/shared";
 import { createCycleActivities, lacksTool, PLATFORM_DUTY_STOPPED_AUDIT_ACTION, TOOL_MISSING_STOPPED_AUDIT_ACTION } from "../activities/cycle";
 import { MODEL_BUDGET_ALERT_ACTION, WAGE_ALERT_ACTION, attemptSessionId, nextPeriodStart, openAgentSession, recoverAgents } from "../activities/dispatch";
 import { createHolidayActivities } from "../activities/holiday";
@@ -313,12 +312,9 @@ describe("a task no agent has a tool for leaves the loop after one attempt", () 
     const audits = (await repos.audit.list(t.db, B(), { action: TOOL_MISSING_STOPPED_AUDIT_ACTION, limit: 20 })).items.filter((a) => (a.target as { id: string }).id === noTool.id);
     expect(audits).toHaveLength(1);
     expect(audits[0]!.details).toMatchObject({ cycleNumber: 12, dependentsFreed: 1 });
-    // One line to the founder, in their words, that does not hold Continue.
-    const notes = (await repos.inbox.list(t.db, B(), { limit: 50 })).items.filter((i) => i.subject === "Only you can do this: Import agent skills as business skills");
-    expect(notes).toHaveLength(1);
-    expect(notes[0]).toMatchObject({ type: "warning", blocksContinue: false });
-    expect(notes[0]!.bodyMd).toContain("the team has no way to do it on its own, so it is stopped. If you want it done, it is yours to do; otherwise nothing more happens.");
-    expect(founderJargonHits(notes[0]!.bodyMd)).toEqual([]);
+    // A missing tool is the platform's gap, never a founder chore: nothing reaches the Inbox (Nov 7, 2026).
+    const notes = (await repos.inbox.list(t.db, B(), { limit: 50 })).items.filter((i) => i.subject.includes("Import agent skills as business skills") || i.subject.startsWith("Only you can do this"));
+    expect(notes).toEqual([]);
     const after = await brief.loadBrief({ businessId: B() });
     expect(after.openTasks.find((x) => x.id === dependent.id)).toMatchObject({ blocked: false, dependsOn: [] });
   });

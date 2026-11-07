@@ -214,7 +214,8 @@ export async function autoDecideBlocking(deps: OrchestratorDeps, businessId: str
     // The product's sign-offs and the start of distribution are the founder's, whatever the authority (founder, 2026-10-18).
     const signoff = await repos.productSignoffs.forInboxItem(db, businessId, item.id);
     if (!recommended || !chiefId || signoff) {
-      if (item.blocksContinue) queuedGated += 1;
+      // Kept for the founder: an open question (since Nov 7, 2026 a decision waits without holding Continue) or a hard stop.
+      if (item.blocksContinue || item.type === "decision") queuedGated += 1;
       continue;
     }
     const kind = classifyDecision(item);

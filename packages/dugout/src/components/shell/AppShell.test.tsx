@@ -288,11 +288,11 @@ describe("AppShell", () => {
     expect(onEscape).toHaveBeenCalledTimes(1);
   });
 
-  it("Space does nothing while Continue is blocked without a respond handler, and shows Respond · N (AC-11.3.3)", async () => {
+  it("Space does nothing while Continue is blocked without a respond handler, and shows Needs you · N (AC-11.3.3)", async () => {
     const user = userEvent.setup();
     const onContinue = vi.fn();
     render(<AppShell {...shellProps({ continueButton: { state: { kind: "blocked", count: 3 }, onContinue } })} />);
-    expect(screen.getByRole("button", { name: "Respond to 3 items" }).textContent).toContain("Respond · 3");
+    expect(screen.getByRole("button", { name: "3 things need you before the team can work" }).textContent).toContain("Needs you · 3");
     document.body.focus();
     await user.keyboard(" ");
     expect(onContinue).not.toHaveBeenCalled();

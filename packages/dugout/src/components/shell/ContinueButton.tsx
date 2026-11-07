@@ -58,7 +58,7 @@ export function continueButtonLabel(state: ContinueState): string {
     case "idle":
       return "Continue";
     case "blocked":
-      return `Respond · ${state.count}`;
+      return `Needs you · ${state.count}`;
     case "processing":
       return state.label ?? "Pause";
     case "matchday":
@@ -119,7 +119,7 @@ export function continueTooltip(state: ContinueState, cycleNumber?: number | nul
       return defined ? `Let the team work on their next tasks for one cycle. ${defined}` : "Let the team work on their next tasks. Their notes land in the Inbox.";
     }
     case "blocked":
-      return `${state.count} ${state.count === 1 ? "note needs" : "notes need"} your answer before the team can carry on. Press to open the first.`;
+      return `${state.count} ${state.count === 1 ? "thing needs" : "things need"} you before the team can work (credits used up or a key to replace). Press to open the first.`;
     case "processing":
       return typeof cycleNumber === "number" && cycleNumber > 0 ? `The team is working · cycle ${cycleNumber}` : "The team is working";
     case "matchday":
@@ -146,9 +146,9 @@ export function continueButtonAction(state: ContinueState, handlers: ContinueHan
 }
 
 /**
- * The Continue button (BUILD §5.4, DESIGN §7). At rest the brand primary with its light (Play, "Continue"). Blocked is
- * a solid red with ink text "Respond" and the count in a capsule, a 4 px red halo, and one 600 ms ring pulse when it
- * turns blocked. Processing is a dark slab with a light arc orbiting its edge and "Pause". A Customer Update is gold.
+ * The Continue button (BUILD §5.4, DESIGN §7). At rest the brand primary with its light (Play, "Continue"). Blocked
+ * (only a hard stop since Nov 7, 2026: credits used up, a revoked key) is amber "Needs you" with the count in a capsule
+ * and one 600 ms ring pulse when it turns blocked; open decisions never block it. Processing is a dark slab with a light arc orbiting its edge and "Pause". A Customer Update is gold.
  * Vacation is neutral with the caption and "Come back". It keeps one width through its states, so the bar never jumps.
  */
 export const ContinueButton = forwardRef<HTMLButtonElement, ContinueButtonProps>(function ContinueButton(
@@ -248,14 +248,16 @@ export const ContinueButton = forwardRef<HTMLButtonElement, ContinueButtonProps>
       break;
     case "blocked":
       button = (
+        // Only a hard stop (credits used up, a revoked key) gets here since Nov 7, 2026: amber, never the red "Respond"
+        // that every open decision and customer win used to turn Continue into.
         <Button
           {...common}
-          variant="danger"
+          variant="default"
           icon={CircleAlert}
-          className={cn(skin, "tone-status-bad font-semibold", pulseClass, className)}
-          aria-label={`Respond to ${state.count} ${state.count === 1 ? "item" : "items"}`}
+          className={cn(skin, "tone-status-warn text-status-warn font-semibold", pulseClass, className)}
+          aria-label={`${state.count} ${state.count === 1 ? "thing needs" : "things need"} you before the team can work`}
         >
-          <span>Respond</span>
+          <span>Needs you</span>
           <span className="sr-only"> · </span>
           <span className="continue-count" data-continue-count>
             {state.count > 99 ? "99+" : state.count}

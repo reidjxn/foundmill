@@ -60,10 +60,11 @@ describe("inbox.decide answers an item exactly once", () => {
   });
 
   it("an archived item cannot be answered either, even from a stale read", async () => {
-    // Not a blocking decision: one that blocks Continue cannot be archived while it waits (audit RUI-14).
+    // An open decision cannot be archived by hand while it waits (audit RUI-14): the system closes it, as when its
+    // question was settled some other way.
     const item = await repos.inbox.createItem(r.db, r.A.businessId, { ...decisionNote(), blocks_continue: false });
     const stale = await repos.inbox.get(r.db, r.A.businessId, item.id);
-    await repos.inbox.archive(r.db, r.A.businessId, item.id);
+    await repos.inbox.archive(r.db, r.A.businessId, item.id, { force: true });
     const get = vi.spyOn(repos.inbox, "get").mockResolvedValueOnce(stale);
     try {
       await expect(repos.inbox.decide(r.db, r.A.businessId, item.id, { chosenOption: "pay" })).rejects.toThrow(/already (answered|archived)/);

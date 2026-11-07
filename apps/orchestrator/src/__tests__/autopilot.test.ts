@@ -59,15 +59,19 @@ describe("autopilotEvaluate", () => {
     expect((await repos.businesses.get(t.db, B())).autopilotNextAt?.getTime()).toBe(now + 3 * H);
   });
 
-  it("waits for the founder while an Inbox item blocks Continue, and does not decide it", async () => {
+  it("an open decision never stops the rounds (Nov 7, 2026); a hard stop makes it wait, and nothing is decided for the founder", async () => {
     await repos.autopilot.set(t.db, B(), { enabled: true }, new Date(t.clock.nowMs() - 10 * H));
     const chief = await repos.agents.chiefOfStaff(t.db, B());
-    const item = await repos.inbox.createItem(t.db, B(), { type: "decision", from_agent_id: chief!.id, subject: "Pick one", body_md: "x", status_strip: [], exhibit: { kind: "none", spec_ref: null }, decision: { options: [{ id: "a", label: "A", recommended: true, consequence: "c", cost_minor: 0, reversible: true }, { id: "b", label: "B", recommended: false, consequence: "d", cost_minor: 0, reversible: true }], free_text: false, expires_at: null }, blocks_continue: true, source_event_ids: [], entity_ids: [] });
+    const base = { from_agent_id: chief!.id, body_md: "x", status_strip: [], exhibit: { kind: "none" as const, spec_ref: null }, source_event_ids: [], entity_ids: [] };
+    const item = await repos.inbox.createItem(t.db, B(), { ...base, type: "decision", subject: "Pick one", decision: { options: [{ id: "a", label: "A", recommended: true, consequence: "c", cost_minor: 0, reversible: true }, { id: "b", label: "B", recommended: false, consequence: "d", cost_minor: 0, reversible: true }], free_text: false, expires_at: null }, blocks_continue: true });
+    expect((await acts.autopilotEvaluate({ businessId: B() })).decision.action).not.toBe("wait");
+    const stop = await repos.inbox.createItem(t.db, B(), { ...base, type: "warning", subject: "Credits used up", decision: null, blocks_continue: true });
     const e = await acts.autopilotEvaluate({ businessId: B() });
     expect(e.decision).toMatchObject({ action: "wait", why: "inbox" });
     expect(e.waitMs).toBe(AUTOPILOT_POLL_MS);
-    const after = await repos.inbox.get(t.db, B(), item.id);
-    expect(after.state).not.toBe("decided");
+    expect((await repos.inbox.get(t.db, B(), item.id)).state).not.toBe("answered");
+    await repos.inbox.archive(t.db, B(), stop.id, { force: true });
+    await repos.inbox.archive(t.db, B(), item.id, { force: true });
   });
 
   it("never starts while stopped or out of credits, and a vacation or a running cycle holds it", async () => {
