@@ -152,7 +152,8 @@ test.describe("first days", () => {
     await page.getByTestId("commit-link").first().click();
     await expect(page).toHaveURL(/\/new\/commit\/[0-9a-f-]+/);
     const { bid } = await takeChargeToHome(page, `Changes Asked ${Date.now().toString(36)}`);
-    await expect(page.getByTestId("foundations-status")).toHaveAttribute("data-foundations-state", "ready", { timeout: LONG });
+    // The Specification tab's sign-off banner waits for the drafting itself (Home's ready panel shows only when the visit
+    // saw the drafting, which a fast mock draft can finish before Home's first read).
     await page.goto(`/b/${bid}/d/product/specification`);
     const banner = page.getByTestId("signoff-banner");
     await expect(banner).toHaveAttribute("data-signoff-status", "pending", { timeout: LONG });

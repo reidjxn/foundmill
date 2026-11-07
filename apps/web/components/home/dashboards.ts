@@ -118,7 +118,7 @@ export function isDayOne(input: DayOneInput): boolean {
 export interface NextStepInputs {
   /** `business.get` foundationsStatus: none, pending, drafting, ready or failed. */
   foundationsStatus: string | null | undefined;
-  /** Notes in Respond that hold Continue (`inbox.list` blocking, else `business.get` blockingItems). */
+  /** Notes that need the founder: the Inbox's Needs you count (`inbox.list` counts.respond), else the hard stops (`blocking`). */
   blocking: number;
   /** Notes from the team not opened yet (`unreadNotes`). */
   unread: number;

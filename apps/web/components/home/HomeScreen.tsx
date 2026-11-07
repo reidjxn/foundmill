@@ -546,7 +546,9 @@ function HomeLead({ businessId, currency }: { businessId: string; currency: stri
   const visionHref = moduleHref(businessId, departments, "product", "vision") ?? routes.department(businessId, "product", "vision");
   const boardHref = moduleHref(businessId, departments, "distribution", "formation") ?? routes.department(businessId, "distribution", "formation");
   const items = inboxQ.data?.items;
-  const blocking = inboxQ.data?.blocking ?? business.blockingItems ?? 0;
+  // What needs the founder: the Inbox's Needs you count (open decisions wait there without holding Continue since Nov 7,
+  // 2026), else the hard stops the shell knows.
+  const blocking = inboxQ.data?.counts?.respond ?? inboxQ.data?.blocking ?? business.blockingItems ?? 0;
   const steps = useMemo(() => {
     if (!cycleQ.data) return [];
     const facts = nextStepFacts({ foundationsStatus: business.foundationsStatus, blocking, unread: unreadNotes(items), cycle: cycleQ.data, distributionStartedAt: business.distributionStartedAt });
