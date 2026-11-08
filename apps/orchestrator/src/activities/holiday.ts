@@ -12,7 +12,7 @@
  * waiting for the founder with the reason. A stopped team decides nothing.
  */
 import { LIMITS } from "@foundmill/config";
-import { repos, type Agent, type Business, type Executor, type InboxItem } from "@foundmill/db";
+import { isApprovalOption, repos, type Agent, type Business, type Executor, type InboxItem } from "@foundmill/db";
 import { PRICING_CURRENCY, compileOptionPlan, type PlanAction } from "@foundmill/models";
 import { DECISION_TYPES, formatMoney, planSectionWalls, type DecisionType, type EventType, type SectionMembership } from "@foundmill/shared";
 import type { OrchestratorDeps } from "../deps";
@@ -103,16 +103,21 @@ export interface VacationContext {
 }
 
 /**
- * Option ids of an approval's decision item (an agent's gated call the policy asked the founder about; the Inbox answers
- * it through `inbox.decide`, which resolves the approval, never through an option plan). The policy already said "ask",
- * so it is the founder's like any `ask` below. Kept in step with packages/db's `APPROVAL_OPTIONS` (B-approvals).
+ * The item is an approval's (its Approve and Reject options, packages/db's `APPROVAL_OPTIONS`): an agent's gated call the
+ * policy asked the founder about. The Inbox answers it through `inbox.decide`, which resolves the approval and wakes
+ * whatever waits on it, never through an option plan; the policy already said "ask", so it is the founder's like any
+ * `ask` below, and it counts as an approval.
  */
-const APPROVAL_OPTION_IDS: ReadonlySet<string> = new Set(["approve_request", "reject_request"]);
-
-/** The item is an approval's (its Approve and Reject options): the founder answers it, and it counts as an approval. */
 export function isApprovalItem(item: Pick<InboxItem, "decision">): boolean {
-  return ((item.decision as { options?: { id?: unknown }[] } | null)?.options ?? []).some((o) => typeof o?.id === "string" && APPROVAL_OPTION_IDS.has(o.id));
+  return ((item.decision as { options?: { id?: unknown }[] } | null)?.options ?? []).some((o) => typeof o?.id === "string" && isApprovalOption(o.id));
 }
+
+/**
+ * Why an approval's note waits, whatever the authority (founder, 2026-11-07): its options cost nothing themselves and the
+ * spend is the approval's, so the line the founder set ("It still asks you before spending over £X") would not hold if
+ * the Chief of Staff answered it, and answering the note alone would leave the approval pending and its session waiting.
+ */
+export const APPROVAL_IS_YOURS = "an agent's call waits for your approval";
 
 const MONEY_WORDS: Partial<Record<PlanAction["type"], string>> = { set_budget: "a budget", approve_spend: "approving spend", train_agent: "a paid training run", create_task: "a task with a budget" };
 
@@ -128,7 +133,7 @@ export function vacationVerdict(item: Pick<InboxItem, "subject" | "bodyMd" | "de
   const options = ((item.decision as { options?: HolidayOption[] } | null)?.options ?? []).filter((o) => typeof o?.id === "string");
   const recommended = options.find((o) => o.recommended) ?? options[0];
   if (!recommended) return { kind: "wait", reason: "it has no option to choose" };
-  if (isApprovalItem(item)) return { kind: "wait", reason: "an agent's call waits for your approval" };
+  if (isApprovalItem(item)) return { kind: "wait", reason: APPROVAL_IS_YOURS };
   if (!ctx.chiefOfStaffId) return { kind: "wait", reason: "there is no Chief of Staff to decide it" };
   // Every authority the recommended option needs must be granted: a costed customer decision needs the spend authority as
   // well as the messaging one (audit VO-E1).
@@ -168,10 +173,14 @@ export const SIGNOFF_IS_YOURS = "signing off the product is yours";
 /** The business's goal (the Chief of Staff's proposal) is the founder's to approve or change (founder, 2026-11-07). */
 export const GOAL_IS_YOURS = "setting the goal is yours";
 
-/** Why a note is the founder's own whatever the authority: a sign-off of the product, or the goal. Null for any other. */
-async function foundersOwnReason(db: OrchestratorDeps["db"], businessId: string, itemId: string): Promise<string | null> {
-  if (await repos.productSignoffs.forInboxItem(db, businessId, itemId)) return SIGNOFF_IS_YOURS;
-  if (await repos.goals.forInboxItem(db, businessId, itemId)) return GOAL_IS_YOURS;
+/**
+ * Why a note is the founder's own whatever the authority: an agent's approval (its Approve and Reject options, or an
+ * approval linked to it), a sign-off of the product, or the goal. Null for any other.
+ */
+async function foundersOwnReason(db: OrchestratorDeps["db"], businessId: string, item: Pick<InboxItem, "id" | "decision">): Promise<string | null> {
+  if (isApprovalItem(item) || (await repos.approvals.forInboxItem(db, businessId, item.id))) return APPROVAL_IS_YOURS;
+  if (await repos.productSignoffs.forInboxItem(db, businessId, item.id)) return SIGNOFF_IS_YOURS;
+  if (await repos.goals.forInboxItem(db, businessId, item.id)) return GOAL_IS_YOURS;
   return null;
 }
 
@@ -221,8 +230,9 @@ export async function autoDecideBlocking(deps: OrchestratorDeps, businessId: str
     const choices = decision?.options ?? [];
     const recommended = choices.find((o) => o.recommended) ?? choices[0];
     // The product's sign-offs and the start of distribution are the founder's, whatever the authority (founder, 2026-10-18),
-    // and so is the goal (founder, 2026-11-07).
-    const own = await foundersOwnReason(db, businessId, item.id);
+    // and so are the goal and an agent's approval (founder, 2026-11-07): an approval's options cost nothing, so neither the
+    // spend authority nor the cap would stop it, and `inbox.decide` here would close the note without resolving the approval.
+    const own = await foundersOwnReason(db, businessId, item);
     if (!recommended || !chiefId || own) {
       // Kept for the founder: an open question (since Nov 7, 2026 a decision waits without holding Continue) or a hard stop.
       if (item.blocksContinue || item.type === "decision") queuedGated += 1;
@@ -382,7 +392,7 @@ export function createHolidayActivities(deps: OrchestratorDeps) {
         // Answered by the founder, its plan outside policy: only they confirm it ("Here is what will happen"). A sign-off
         // of the product (its round is on the item) is never taken for them.
         // The Chief of Staff's goal is never answered for them either (founder, 2026-11-07).
-        const own = item.state === "answered" ? null : await foundersOwnReason(db, businessId, item.id);
+        const own = item.state === "answered" ? null : await foundersOwnReason(db, businessId, item);
         const verdict: VacationVerdict = item.state === "answered" ? { kind: "wait", reason: AWAITING_GO_AHEAD } : own ? { kind: "wait", reason: own } : vacationVerdict(item, ctx);
         if (verdict.kind === "wait" || !chiefId) {
           // Only a decision the founder has to take counts as queued; a note with nothing to choose is just unread.
@@ -450,9 +460,9 @@ export function createHolidayActivities(deps: OrchestratorDeps) {
       const chiefDecisions = decisions.items.filter((e) => (e.payload as { decidedBy?: string }).decidedBy === "chief_of_staff");
       const taken = await Promise.all(chiefDecisions.slice(0, 10).map((e) => decisionLine(input.businessId, e)));
       // Every decision still open, and every plan of the founder's still waiting for their go-ahead, with the reason.
-      const waiting = await Promise.all(open.items.filter(asksFounder).map(async (item) => ({ item, reason: (item.state === "answered" ? null : await foundersOwnReason(db, input.businessId, item.id)) ?? waitingReason(item, ctx, stopped) })));
+      const waiting = await Promise.all(open.items.filter(asksFounder).map(async (item) => ({ item, reason: (item.state === "answered" ? null : await foundersOwnReason(db, input.businessId, item)) ?? waitingReason(item, ctx, stopped) })));
       // An approval's note is listed with the rest but counted once, as the approval it answers.
-      const decisionsWaiting = waiting.filter((w) => !isApprovalItem(w.item)).length;
+      const decisionsWaiting = waiting.filter((w) => w.reason !== APPROVAL_IS_YOURS).length;
       const moneyIn = payments.items.reduce((sum, e) => sum + Number((e.payload as { amount?: { amountMinor?: number } }).amount?.amountMinor ?? 0), 0);
       // Money in is the business's (the vacation's currency, the business's own unless the founder priced the ceiling
       // otherwise); team spend is model cost, metered in the pricing currency. Narrow symbols, US grouping ("£1,240.00").

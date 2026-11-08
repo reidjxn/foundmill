@@ -209,12 +209,14 @@ export const ORCHESTRATOR_DOWN_CAVEAT = "The orchestrator is not reachable right
  * founder report, Nov 8, 2026): the cycle and what is ready to build, nothing ready and why, the orchestrator not
  * reachable (a warning; the note that stood in opens from the toast), resumed, already running.
  */
-export function describeContinue(result: ContinueResult): { title: string; description: string; tone: "info" | "good" | "warn"; itemId: string | null } {
+export function describeContinue(result: ContinueResult, builder = false): { title: string; description: string; tone: "info" | "good" | "warn"; itemId: string | null } {
   const s = result.summary;
+  // Cycle numbers are Builder view's (docs/DESIGN.md): everyone else reads the plain line.
+  const title = builder ? s.headline : s.plainHeadline;
   const itemId = result.mode === "local" && result.item ? result.item.id : null;
-  if (s.kind === "orchestrator_unreachable") return { title: s.headline, description: s.detail, tone: "warn", itemId };
-  if (s.kind === "resumed") return { title: s.headline, description: s.detail, tone: "good", itemId: null };
-  return { title: s.headline, description: s.detail, tone: "info", itemId };
+  if (s.kind === "orchestrator_unreachable") return { title, description: s.detail, tone: "warn", itemId };
+  if (s.kind === "resumed") return { title, description: s.detail, tone: "good", itemId: null };
+  return { title, description: s.detail, tone: "info", itemId };
 }
 
 /**
@@ -557,7 +559,7 @@ function ShellInner({ businessId, initialBusiness, initialDepartments, viewer, c
       onSuccess: (result) => {
         dispatch({ type: "snapshot", status: cycleFromSnapshot(result.status) });
         void invalidate(["cycle", "inbox", "dev"]);
-        const t = describeContinue(result);
+        const t = describeContinue(result, builder);
         announce(t.title, CONTINUE_NOTICE_MS);
         toast({ title: t.title, description: t.description, tone: t.tone, action: t.itemId ? { label: "Open", onClick: () => router.push(routes.inbox(businessId, t.itemId!)) } : undefined });
       },

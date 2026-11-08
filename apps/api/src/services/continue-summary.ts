@@ -11,8 +11,10 @@ export type ContinueSummaryKind = "started" | "nothing_ready" | "orchestrator_un
 
 export interface ContinueSummary {
   kind: ContinueSummaryKind;
-  /** The first line: "Cycle 2 started: 6 tasks ready to build". */
+  /** The first line, Builder view's: "Cycle 2 started: 6 tasks ready to build" (cycle numbers are Builder view's, docs/DESIGN.md). */
   headline: string;
+  /** The same line for everyone else, with no cycle number: "The next cycle started: 6 tasks ready to build". */
+  plainHeadline: string;
   /** What that means and what comes next, one or two sentences. */
   detail: string;
   /** Tasks the cycle can start now (planned or ready, nothing open before them). */
@@ -52,6 +54,7 @@ export function startedSummary(f: ContinueSummaryFacts): ContinueSummary {
     return {
       kind: "started",
       headline: `Cycle ${f.cycleNumber} started: ${tasks(f.readyTasks)} ready to build`,
+      plainHeadline: `The next cycle started: ${tasks(f.readyTasks)} ready to build`,
       detail: `The team is at work. What they finish and what they need from you come back as notes in the Inbox.${after}`,
       readyTasks: f.readyTasks,
       stage: f.stage,
@@ -61,6 +64,7 @@ export function startedSummary(f: ContinueSummaryFacts): ContinueSummary {
   return {
     kind: "nothing_ready",
     headline: `Cycle ${f.cycleNumber} started: nothing is ready to build yet`,
+    plainHeadline: "The next cycle started: nothing is ready to build yet",
     detail: `${nothingReadyDetail(f.stage)}${after}`,
     readyTasks: 0,
     stage: f.stage,
@@ -73,6 +77,7 @@ export function orchestratorUnreachableSummary(f: Omit<ContinueSummaryFacts, "ru
   return {
     kind: "orchestrator_unreachable",
     headline: "The team cannot run right now: the orchestrator is not reachable",
+    plainHeadline: "The team cannot run right now: the orchestrator is not reachable",
     detail: `No agent worked. One note was written from what the business already knows: “${f.noteSubject}”. Start the orchestrator (or ask whoever runs this server to), then press Continue again.`,
     readyTasks: f.readyTasks,
     stage: f.stage,
@@ -85,6 +90,7 @@ export function resumedSummary(f: ContinueSummaryFacts & { resumedTasks: number 
   return {
     kind: "resumed",
     headline: `Cycle ${f.cycleNumber} resumed`,
+    plainHeadline: "The cycle resumed",
     detail: `${f.resumedTasks > 0 ? `${tasks(f.resumedTasks)} pick${f.resumedTasks === 1 ? "s" : ""} up where ${f.resumedTasks === 1 ? "it" : "they"} stopped.` : "Paused tasks pick up where they stopped."}${after}`,
     readyTasks: f.readyTasks,
     stage: f.stage,
@@ -96,6 +102,7 @@ export function alreadyRunningSummary(f: ContinueSummaryFacts): ContinueSummary 
   return {
     kind: "already_running",
     headline: `Cycle ${f.cycleNumber} is already running`,
+    plainHeadline: "A cycle is already running",
     detail: f.run ? `The team is still working. ${RUN_UNTIL_DONE}` : "The team is still working; the strip under the top bar shows where.",
     readyTasks: f.readyTasks,
     stage: f.stage,

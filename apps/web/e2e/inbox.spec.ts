@@ -158,8 +158,8 @@ test.describe("inbox", () => {
     // a toast carries the api's one sentence: the cycle and what is ready to build, or, without an orchestrator, that no
     // agent worked and one note stood in.
     await idle.click();
-    await expect(page.locator("[data-coachmark='processing-strip'][data-notice]")).toHaveAttribute("aria-label", /Starting the next cycle|Cycle \d+ started|cannot run right now|Cycle \d+ resumed|already running/, { timeout: 1_000 });
-    await expect(page.getByText(/Cycle \d+ started|cannot run right now|Cycle \d+ resumed|already running/).first()).toBeVisible({ timeout: LONG });
+    await expect(page.locator("[data-coachmark='processing-strip'][data-notice]")).toHaveAttribute("aria-label", /Starting the next cycle|cycle (\d+ )?started|cannot run right now|cycle (\d+ )?resumed|already running/i, { timeout: 1_000 });
+    await expect(page.getByText(/cycle (\d+ )?started|cannot run right now|cycle (\d+ )?resumed|already running/i).first()).toBeVisible({ timeout: LONG });
 
     // After both sign-offs and a round of work the Chief of Staff proposes the first goal (founder, 2026-11-07): Home asks
     // `goal.ensure` once per visit, the proposal is a decision note in Needs you that never holds Continue, and one tap on

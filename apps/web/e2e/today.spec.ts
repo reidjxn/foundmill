@@ -123,7 +123,7 @@ test.describe("today", () => {
     await expect(idle).toBeVisible({ timeout: LONG });
     await dismissCoachmarks(page);
     await idle.click();
-    await expect(page.getByText(/Cycle \d+ started|cannot run right now|Cycle \d+ resumed|already running/).first()).toBeVisible({ timeout: LONG });
+    await expect(page.getByText(/cycle (\d+ )?started|cannot run right now|cycle (\d+ )?resumed|already running/i).first()).toBeVisible({ timeout: LONG });
 
     // Today asks `goal.ensure` once per visit: the Chief of Staff's proposal, by its stored name (read from the page).
     await untilOnToday(page, bid, async () => {

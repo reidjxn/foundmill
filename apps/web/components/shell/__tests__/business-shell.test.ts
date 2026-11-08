@@ -35,24 +35,26 @@ const status = (over: Partial<ContinueResult["status"]> = {}): ContinueResult["s
 });
 
 type Summary = ContinueResult["summary"];
-const summary = (over: Partial<Summary> = {}): Summary => ({ kind: "started", headline: "Cycle 2 started: 6 tasks ready to build", detail: `The team is at work. What they finish and what they need from you come back as notes in the Inbox. ${RUN_UNTIL_DONE}`, readyTasks: 6, stage: "building", orchestrator: true, ...over });
+const summary = (over: Partial<Summary> = {}): Summary => ({ kind: "started", headline: "Cycle 2 started: 6 tasks ready to build", plainHeadline: "The next cycle started: 6 tasks ready to build", detail: `The team is at work. What they finish and what they need from you come back as notes in the Inbox. ${RUN_UNTIL_DONE}`, readyTasks: 6, stage: "building", orchestrator: true, ...over });
 const result = (over: Partial<ContinueResult>): ContinueResult => ({ action: "started", mode: "temporal", workflow: null, item: null, status: status(), continueState: { kind: "processing" }, run: null, summary: summary(), ...over });
 const RUN = { id: "22222222-2222-4222-8222-222222222222", startedAt: "2026-11-07T10:00:00.000Z", rounds: 0 };
 
 describe("one press of Continue (BUILD §9.4; first-time founder report, Nov 8, 2026: the api's one sentence is the toast)", () => {
-  it("the toast is the api's sentence: the cycle and what is ready, nothing ready and why, resumed, already running", () => {
-    expect(describeContinue(result({}))).toEqual({ title: "Cycle 2 started: 6 tasks ready to build", description: summary().detail, tone: "info", itemId: null });
-    expect(describeContinue(result({ summary: summary({ kind: "nothing_ready", headline: "Cycle 1 started: nothing is ready to build yet", detail: "The specification and the roadmap are waiting for your sign-off in the Inbox.", readyTasks: 0, stage: "awaiting_signoff" }) }))).toMatchObject({ title: "Cycle 1 started: nothing is ready to build yet", tone: "info" });
-    expect(describeContinue(result({ action: "resumed", summary: summary({ kind: "resumed", headline: "Cycle 4 resumed", detail: "2 tasks pick up where they stopped." }) }))).toMatchObject({ title: "Cycle 4 resumed", tone: "good", itemId: null });
-    expect(describeContinue(result({ action: "already_running", summary: summary({ kind: "already_running", headline: "Cycle 5 is already running", detail: "The team is still working." }) }))).toMatchObject({ title: "Cycle 5 is already running", tone: "info" });
+  it("the toast is the api's sentence: the cycle and what is ready, nothing ready and why, resumed, already running; cycle numbers only in Builder view", () => {
+    // Builder view off (the founder's default): the plain line, no cycle number.
+    expect(describeContinue(result({}))).toEqual({ title: "The next cycle started: 6 tasks ready to build", description: summary().detail, tone: "info", itemId: null });
+    expect(describeContinue(result({}), true).title).toBe("Cycle 2 started: 6 tasks ready to build");
+    expect(describeContinue(result({ summary: summary({ kind: "nothing_ready", headline: "Cycle 1 started: nothing is ready to build yet", plainHeadline: "The next cycle started: nothing is ready to build yet", detail: "The specification and the roadmap are waiting for your sign-off in the Inbox.", readyTasks: 0, stage: "awaiting_signoff" }) }), true)).toMatchObject({ title: "Cycle 1 started: nothing is ready to build yet", tone: "info" });
+    expect(describeContinue(result({ action: "resumed", summary: summary({ kind: "resumed", headline: "Cycle 4 resumed", plainHeadline: "The cycle resumed", detail: "2 tasks pick up where they stopped." }) }))).toMatchObject({ title: "The cycle resumed", tone: "good", itemId: null });
+    expect(describeContinue(result({ action: "already_running", summary: summary({ kind: "already_running", headline: "Cycle 5 is already running", plainHeadline: "A cycle is already running", detail: "The team is still working." }) }), true)).toMatchObject({ title: "Cycle 5 is already running", tone: "info" });
   });
 
   it("no orchestrator: a warning that says no agent worked, with the note that stood in to open", () => {
     const item = { id: "11111111-1111-4111-8111-111111111111", subject: "Three decisions for the Board" } as unknown as NonNullable<ContinueResult["item"]>;
-    const local = result({ mode: "local", item, summary: summary({ kind: "orchestrator_unreachable", headline: "The team cannot run right now: the orchestrator is not reachable", detail: "No agent worked. One note was written from what the business already knows: “Three decisions for the Board”.", orchestrator: false }) });
+    const local = result({ mode: "local", item, summary: summary({ kind: "orchestrator_unreachable", headline: "The team cannot run right now: the orchestrator is not reachable", plainHeadline: "The team cannot run right now: the orchestrator is not reachable", detail: "No agent worked. One note was written from what the business already knows: “Three decisions for the Board”.", orchestrator: false }) });
     expect(describeContinue(local)).toEqual({ title: "The team cannot run right now: the orchestrator is not reachable", description: "No agent worked. One note was written from what the business already knows: “Three decisions for the Board”.", tone: "warn", itemId: item.id });
-    // The e2e specs' toast regex matches every headline the api writes.
-    for (const t of ["Cycle 2 started: 6 tasks ready to build", "Cycle 1 started: nothing is ready to build yet", "The team cannot run right now: the orchestrator is not reachable", "Cycle 4 resumed", "Cycle 5 is already running"]) expect(t).toMatch(/Cycle \d+ started|cannot run right now|Cycle \d+ resumed|already running/);
+    // The e2e specs' toast regex matches every headline the api writes, Builder view on or off.
+    for (const t of ["Cycle 2 started: 6 tasks ready to build", "The next cycle started: 6 tasks ready to build", "The next cycle started: nothing is ready to build yet", "The team cannot run right now: the orchestrator is not reachable", "Cycle 4 resumed", "The cycle resumed", "A cycle is already running"]) expect(t).toMatch(/cycle (\d+ )?started|cannot run right now|cycle (\d+ )?resumed|already running/i);
     expect(RUN_UNTIL_DONE).toBe("New cycles start on their own until nothing is left to do, or until you pause.");
     expect(RUN).toBeTruthy();
   });

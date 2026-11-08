@@ -9,6 +9,7 @@
 import { useState } from "react";
 import { Check, MessageSquareText } from "lucide-react";
 import { Button, Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, Panel, StatusPill, Term, Textarea, useFormatters, type StatusTone } from "@foundmill/dugout";
+import { useBuilderView } from "@foundmill/dugout";
 import { useBusinessEvents, useWidgetQuery } from "@foundmill/widgets";
 import { InlineError, useAction } from "./shared";
 import type { SignoffView, SignoffViews } from "./types";
@@ -65,6 +66,8 @@ export function SignoffBanner({ kind, signoffs, canWrite, onDecided }: SignoffBa
   const [changesOpen, setChangesOpen] = useState(false);
   const [notes, setNotes] = useState("");
   const view = kind === "spec" ? signoffs.data?.spec : signoffs.data?.roadmap;
+  // The round number is Builder view's (docs/DESIGN.md): off, the line opens "Read the specification…".
+  const builder = useBuilderView();
   const status = signoffStatusWord(view, formatDate);
   if (!view || !status) return null;
   const words = WORDS[kind];
@@ -84,7 +87,7 @@ export function SignoffBanner({ kind, signoffs, canWrite, onDecided }: SignoffBa
       ? `You approved ${words.the}${view.specVersion ? ` as version ${view.specVersion}` : ""}${view.decidedAt ? ` on ${formatDate(view.decidedAt)}` : ""}. Later changes arrive as suggested edits you accept.`
       : view.status === "changes_requested"
         ? `You asked for changes${view.notes ? `: “${view.notes.length > 140 ? `${view.notes.slice(0, 140)}…` : view.notes}”` : ""}. The Product lead revises ${words.the}; approve it here once it reads right.`
-        : `Round ${view.round}: read ${words.the} and approve it, or ask for changes in your own words. Building starts when the specification and the roadmap are both signed off.`;
+        : `${builder ? `Round ${view.round}: read` : "Read"} ${words.the} and approve it, or ask for changes in your own words. Building starts when the specification and the roadmap are both signed off.`;
   return (
     <Panel
       title={

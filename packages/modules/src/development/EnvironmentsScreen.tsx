@@ -3,11 +3,12 @@
  * Development › Environments (BUILD §6.3, §11.6 "preview deployment per branch"): one row per agent branch with its
  * latest preview deployment. Branches come from the tasks (`agent/<taskId>` for code tasks in flight or review) and
  * the open PRs; deployments arrive as `deploy.succeeded` business events (no persisted deployment list exists in
- * BUILD §8.3, so rows start as "Awaiting deployment" and fill in live).
+ * BUILD §8.3, so rows start as "Awaiting deployment" and fill in live). With Builder view off the tab reads "Live product"
+ * and renders the founder's card and previews instead (founder-views.tsx), from `dev.deployments.list` and the live events.
  */
 import { useMemo, useState } from "react";
 import { Boxes, CircleDashed, CircleStop, ExternalLink, GitBranch, GitMerge, Hourglass, MonitorPlay, Network, Radio } from "lucide-react";
-import { DataTable, FitText, useAgentPersona, Panel, StatusPill, type DataTableColumn, type IconComponent, type RowAction, type SavedView, type StatusTone } from "@foundmill/dugout";
+import { DataTable, FitText, useAgentPersona, useBuilderView, Panel, StatusPill, type DataTableColumn, type IconComponent, type RowAction, type SavedView, type StatusTone } from "@foundmill/dugout";
 import type { TaskStatus } from "@foundmill/shared";
 import { routes } from "@foundmill/widgets/shared/routes";
 import { useBusinessEvents, useWidgetData, useWidgetQuery, type WidgetEvent } from "@foundmill/widgets/data";
@@ -15,9 +16,10 @@ import { useSavedViews } from "@foundmill/widgets/shared/saved-views";
 import { RelativeDateText } from "../dates";
 import { fitColumns, fitToGrow, humanise, type ColumnFit } from "../fit";
 import type { ModuleScreenProps } from "../registry";
+import { LiveProduct, deploymentAt, founderTitleOf, liveProductOf, type FounderPreviewRow } from "./founder-views";
 import { useDevScreenOptions } from "./options";
 import { SIMPLE_VIEW_ID, Screen, WhatExistsNow, agentBranch, shortSha, toDate, useAgentIndex, useAgents, useDefaultViewId, useDevDepartment, useRepository } from "./shared";
-import type { AgentRow, PrsListResponse, TaskRow, TasksListResponse } from "./types";
+import type { AgentRow, DeploymentsListResponse, PrsListResponse, TaskRow, TasksListResponse } from "./types";
 
 export type Environment = "preview" | "staging" | "production";
 
@@ -42,6 +44,8 @@ export interface EnvironmentRow {
   branchName: string;
   taskId: string | null;
   title: string;
+  /** The task's title in the founder's words (0070), when it has one: what Live product shows with Builder view off. */
+  founderTitle?: string | null;
   taskStatus: TaskStatus | null;
   agentName: string;
   environment: Environment;
@@ -190,14 +194,14 @@ export function toEnvironmentRows(tasks: readonly TaskRow[], prs: PrsListRespons
     const branch = agentBranch(t.id);
     const d = latest.get(branch) ?? latest.get(agentBranch(t.id));
     const agent = t.assigneeAgentId ? agents.get(t.assigneeAgentId) : undefined;
-    rows.set(branch, { id: branch, branch, branchName: readableBranch(branch, t.title), taskId: t.id, title: t.title, taskStatus: t.status, agentName: agent ? nameFor(agent) : "Unassigned", environment: d?.environment ?? "preview", state: stateFor(t.status, d), url: d?.url ?? null, provider: d?.provider ?? null, commitSha: d?.commitSha ?? null, deployedAt: d?.occurredAt ?? null });
+    rows.set(branch, { id: branch, branch, branchName: readableBranch(branch, t.title), taskId: t.id, title: t.title, founderTitle: t.founderTitle ?? null, taskStatus: t.status, agentName: agent ? nameFor(agent) : "Unassigned", environment: d?.environment ?? "preview", state: stateFor(t.status, d), url: d?.url ?? null, provider: d?.provider ?? null, commitSha: d?.commitSha ?? null, deployedAt: d?.occurredAt ?? null });
   }
   for (const pr of prs?.open ?? []) {
     // A non-code task never has a branch to preview, whatever the API sends.
     if (rows.has(pr.branch) || (pr.kind !== undefined && pr.kind !== "code")) continue;
     const d = latest.get(pr.branch);
     const agent = pr.agentId ? agents.get(pr.agentId) : undefined;
-    rows.set(pr.branch, { id: pr.branch, branch: pr.branch, branchName: readableBranch(pr.branch, pr.title), taskId: pr.taskId, title: pr.title, taskStatus: pr.status, agentName: agent ? nameFor(agent) : "Unassigned", environment: d?.environment ?? "preview", state: stateFor(pr.status, d), url: d?.url ?? null, provider: d?.provider ?? null, commitSha: d?.commitSha ?? null, deployedAt: d?.occurredAt ?? null });
+    rows.set(pr.branch, { id: pr.branch, branch: pr.branch, branchName: readableBranch(pr.branch, pr.title), taskId: pr.taskId, title: pr.title, founderTitle: pr.founderTitle ?? null, taskStatus: pr.status, agentName: agent ? nameFor(agent) : "Unassigned", environment: d?.environment ?? "preview", state: stateFor(pr.status, d), url: d?.url ?? null, provider: d?.provider ?? null, commitSha: d?.commitSha ?? null, deployedAt: d?.occurredAt ?? null });
   }
   for (const [key, d] of latest) {
     if (rows.has(key)) continue;
@@ -237,6 +241,18 @@ export function EnvironmentsScreen({ businessId, departmentId }: ModuleScreenPro
   const rows = useMemo(() => toEnvironmentRows(tasks.data?.items ?? [], prs.data, deployments, agentIndex, persona.labelFor, pushed), [tasks.data, prs.data, deployments, agentIndex, persona, pushed]);
   const optionNow = options.now;
   const now = useMemo(() => optionNow ?? new Date(), [optionNow]);
+  // Builder view off: the founder's Live product reads the recorded deployments too (`dev.deployments.list`), so its
+  // address and previews are there after a reload, and the live ones on top.
+  const builder = useBuilderView();
+  const recorded = useWidgetQuery<DeploymentsListResponse>("dev.deployments.list", {}, { enabled: !builder });
+  const founder = useMemo(() => {
+    if (builder) return null;
+    const all: Deployment[] = [...(recorded.data?.items ?? []).flatMap((d) => (typeof d.commitSha === "string" ? [{ branch: d.branch, taskId: d.taskId, environment: d.environment, provider: d.provider, url: d.url, commitSha: d.commitSha, occurredAt: deploymentAt(d.occurredAt) }] : [])), ...deployments];
+    const previews: FounderPreviewRow[] = toEnvironmentRows(tasks.data?.items ?? [], prs.data, all, agentIndex, persona.labelFor)
+      .filter((r) => r.environment === "preview" && r.taskId && (r.state === "live" || r.state === "awaiting"))
+      .map((r) => ({ id: r.id, taskId: r.taskId, title: founderTitleOf(r.founderTitle, r.title), agentName: r.agentName === "Unassigned" || r.agentName === "—" ? "The team" : r.agentName, url: r.url, updatedAt: r.deployedAt }));
+    return { live: liveProductOf(all), previews };
+  }, [builder, recorded.data, deployments, tasks.data, prs.data, agentIndex, persona]);
   // Each column at its minimum; the table shares the spare width by ENVIRONMENT_FIT's weights itself (`meta.grow`),
   // among the columns it shows (empty ones are hidden).
   const sizes = useMemo(() => fitColumns(null, ENVIRONMENT_FIT, []), []);
@@ -316,6 +332,25 @@ export function EnvironmentsScreen({ businessId, departmentId }: ModuleScreenPro
     ], ENVIRONMENT_FIT),
     [now, sizes],
   );
+
+  if (founder) {
+    return (
+      <LiveProduct
+        businessId={businessId}
+        deptSlug={deptSlug}
+        live={founder.live}
+        previews={founder.previews}
+        loading={tasks.isLoading || (prs.isLoading && !prs.data) || (recorded.isLoading && !recorded.data)}
+        error={tasks.error ? tasks.error.message : prs.error ? prs.error.message : recorded.error ? recorded.error.message : undefined}
+        onRetry={() => {
+          tasks.refetch();
+          prs.refetch();
+          recorded.refetch();
+        }}
+        now={now}
+      />
+    );
+  }
 
   const rowActions = (row: EnvironmentRow): RowAction<EnvironmentRow>[] => [
     { id: "open", label: "Open preview", icon: ExternalLink, disabled: !row.url, onSelect: (r) => r.url && window.open(r.url, "_blank", "noopener") },

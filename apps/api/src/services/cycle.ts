@@ -30,6 +30,9 @@ import { assertAgentsRunning } from "./stop-guard";
 import { SIGNALS, WORKFLOWS, workflowIds, type TemporalResult } from "./temporal";
 
 export const CYCLE_OUTCOMES = ["completed", "time_box", "waiting", "stopped", "failed"] as const;
+
+/** The subject of the note for a round of work that stopped unfinished (the orchestrator's `CYCLE_NOT_FINISHED_SUBJECT`). */
+export const CYCLE_NOT_FINISHED_SUBJECT = "The team's last round of work did not finish";
 export type CycleOutcome = (typeof CYCLE_OUTCOMES)[number];
 
 export interface CycleStatus {
@@ -413,15 +416,17 @@ export async function reconcileCycle(ctx: BusinessContext, known?: CycleStatus):
   if (!fresh.running || fresh.workflowId !== s.workflowId) return fresh;
   const cycleId = fresh.cycleId ?? crypto.randomUUID();
   const cycleNumber = fresh.cycleNumber ?? 1;
-  const reason = state.found ? `its workflow ended as ${(state.status ?? "stopped").toLowerCase().replace(/_/g, " ")} without finishing the cycle` : "its workflow could not be found";
+  // Founder words (Nov 8, 2026: Builder view): the note is stored once and read by everyone, so it names no cycle number;
+  // the workflow's own status stays in the audit and the event (apps/orchestrator cycle-contract CYCLE_NOT_FINISHED_SUBJECT).
+  const reason = state.found ? `it ended (${(state.status ?? "stopped").toLowerCase().replace(/_/g, " ")}) before the work was done` : "the system that runs the team lost track of it";
   const chief = await repos.agents.chiefOfStaff(ctx.db, ctx.businessId);
   await ctx.rls(async (tx) => {
     const item = chief
       ? await repos.inbox.createItem(tx, ctx.businessId, {
           type: "warning",
           from_agent_id: chief.id,
-          subject: `Cycle ${cycleNumber} did not finish`,
-          body_md: `The cycle stopped before it finished: ${reason}. Open work is still on the board. Press Continue to start the next cycle.`,
+          subject: CYCLE_NOT_FINISHED_SUBJECT,
+          body_md: `The round of work stopped before it finished: ${reason}. Open work is still on the board. Press Continue to start the next round.`,
           status_strip: [],
           exhibit: { kind: "none", spec_ref: null },
           decision: null,

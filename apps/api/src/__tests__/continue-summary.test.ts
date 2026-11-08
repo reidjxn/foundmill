@@ -9,7 +9,9 @@ import { alreadyRunningSummary, nothingReadyDetail, orchestratorUnreachableSumma
 describe("the sentence a press of Continue earns", () => {
   it("a cycle the orchestrator took says how many tasks are ready, and that cycles keep coming during a run", () => {
     const s = startedSummary({ cycleNumber: 2, readyTasks: 6, stage: "building", run: true });
-    expect(s).toMatchObject({ kind: "started", headline: "Cycle 2 started: 6 tasks ready to build", readyTasks: 6, orchestrator: true });
+    expect(s).toMatchObject({ kind: "started", headline: "Cycle 2 started: 6 tasks ready to build", plainHeadline: "The next cycle started: 6 tasks ready to build", readyTasks: 6, orchestrator: true });
+    // Cycle numbers are Builder view's: every plain headline reads without one.
+    for (const plain of [s.plainHeadline, startedSummary({ cycleNumber: 1, readyTasks: 0, stage: "drafting", run: false }).plainHeadline, resumedSummary({ cycleNumber: 4, readyTasks: 0, stage: "building", run: false, resumedTasks: 1 }).plainHeadline, alreadyRunningSummary({ cycleNumber: 5, readyTasks: 0, stage: "selling", run: false }).plainHeadline]) expect(plain).not.toMatch(/cycle \d+/i);
     expect(s.detail).toContain(RUN_UNTIL_DONE);
     expect(startedSummary({ cycleNumber: 3, readyTasks: 1, stage: "building", run: false }).headline).toBe("Cycle 3 started: 1 task ready to build");
     expect(startedSummary({ cycleNumber: 3, readyTasks: 1, stage: "building", run: false }).detail).not.toContain(RUN_UNTIL_DONE);
