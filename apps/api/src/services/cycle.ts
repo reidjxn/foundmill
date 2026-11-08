@@ -55,6 +55,11 @@ export interface CycleStatus {
   lastOutcome: CycleOutcome | null;
   /** When the last cycle ended `failed`: what stopped it (Home shows it as a banner until a cycle runs again). */
   lastFailure: { kind: "billing" | "credential" | "request" | "error"; message: string; at: string } | null;
+  /**
+   * What the last finished cycle cost in model credits (its `cycle.completed` payload), an Estimate the shell shows next
+   * to Continue so the next press has a price (first-time founder report, Nov 8, 2026). Null before the first cycle.
+   */
+  lastCost: { amountMinor: number; currency: string } | null;
   nextCycleNumber: number;
   /** "temporal" when the current cycle runs on the orchestrator, "local" when it was an in-process step. */
   mode: "temporal" | "local" | null;
@@ -90,6 +95,13 @@ const QUEUED_MAX_AGE_MS = 6 * 60 * 60 * 1000;
 const asRecord = (v: unknown): Record<string, unknown> => (v && typeof v === "object" ? (v as Record<string, unknown>) : {});
 const str = (v: unknown): string | null => (typeof v === "string" ? v : null);
 const num = (v: unknown): number | null => (typeof v === "number" && Number.isFinite(v) ? v : null);
+/** A `cycle.completed` cost (`{ amountMinor, currency }`), or null when the payload carries none. */
+const costOf = (v: unknown): { amountMinor: number; currency: string } | null => {
+  const c = asRecord(v);
+  const amountMinor = num(c.amountMinor);
+  const currency = str(c.currency);
+  return amountMinor !== null && amountMinor >= 0 && currency ? { amountMinor, currency } : null;
+};
 
 /** Read the business's cycle state. Pure over repositories; safe on the service db or inside an RLS transaction. */
 export interface CycleScope {
@@ -159,6 +171,7 @@ export async function cycleStatus(ctx: CycleScope): Promise<CycleStatus> {
     lastCompletedAt: lastDone ? lastDone.occurredAt.toISOString() : null,
     lastOutcome: (CYCLE_OUTCOMES as readonly string[]).includes(str(lastDonePayload.outcome) ?? "") ? (str(lastDonePayload.outcome) as CycleOutcome) : null,
     lastFailure: lastDone && str(lastDonePayload.outcome) === "failed" ? failureOf(lastDonePayload.failure, lastDone.occurredAt) : null,
+    lastCost: costOf(lastDonePayload.cost),
     nextCycleNumber: maxNumber + 1,
     mode: startedOpen ? (latestStart?.actor.kind === "system" && latestStart.actor.id === LOCAL_ACTOR_ID ? "local" : "temporal") : queuedEntry ? "temporal" : null,
     run,

@@ -11,6 +11,7 @@ import { Icon, type IconComponent } from "../../foundation/Icon";
 import { IconButton } from "../../foundation/IconButton";
 import { StarRating } from "../../foundation/StarRating";
 import { Tooltip } from "../../foundation/Tooltip";
+import { Term } from "../../guidance/Term";
 import { CONCEPT_ATTRIBUTE_HINTS, CONCEPT_ATTRIBUTE_LABELS, type Concept, type ConceptAction } from "../types";
 import { AttributeBar } from "./AttributeBar";
 
@@ -117,7 +118,10 @@ export function ConceptCard({ concept, onAction, shortlisted, selected, onToggle
       <div className="flex flex-col gap-3 px-panel-pad pb-panel-pad">
         <p className="text-body text-pretty text-primary">{concept.pitch}</p>
         <div className="flex items-center gap-2 text-small text-secondary">
-          <span className="t-data">Overall</span>
+          {/* The figure's scale is a defined word (first-time founder report, Nov 8, 2026: "Rating /20" met nobody who explained it). */}
+          <span className="t-data">
+            <Term id="rating">Overall</Term>
+          </span>
           <span className={cn("font-display text-display-md font-semibold tabular-nums", ratingClass(overall))}>{overall}</span>
           {concept.citations !== undefined ? <span className="text-tertiary">· {concept.citations} citations</span> : null}
         </div>

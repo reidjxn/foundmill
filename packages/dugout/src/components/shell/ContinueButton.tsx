@@ -54,6 +54,11 @@ export interface ContinueButtonProps extends ContinueHandlers {
    * button as `data-continue-caveat`, so a screen can read it.
    */
   caveat?: string | null;
+  /**
+   * A quiet line after the state's sentence: what the last cycle cost, as an Estimate ("Last cycle cost $0.52 ·
+   * Estimate"), so a press has a price before it is made (first-time founder report, Nov 8, 2026).
+   */
+  hint?: string | null;
   size?: ButtonSize;
   className?: string;
 }
@@ -161,7 +166,7 @@ export function continueButtonAction(state: ContinueState, handlers: ContinueHan
  * Vacation is neutral with the caption and "Come back". It keeps one width through its states, so the bar never jumps.
  */
 export const ContinueButton = forwardRef<HTMLButtonElement, ContinueButtonProps>(function ContinueButton(
-  { state, cycleNumber, pulseKey, bindSpace = false, disabled, pending = false, caveat = null, size = "md", className, ...handlers },
+  { state, cycleNumber, pulseKey, bindSpace = false, disabled, pending = false, caveat = null, hint = null, size = "md", className, ...handlers },
   ref,
 ) {
   const reduced = usePrefersReducedMotion();
@@ -327,6 +332,7 @@ export const ContinueButton = forwardRef<HTMLButtonElement, ContinueButtonProps>
             <Kbd>Space</Kbd>
           </span>
           {caveat ? <span className="text-status-warn">{caveat}</span> : null}
+          {hint ? <span className="text-secondary" data-continue-hint="">{hint}</span> : null}
         </span>
       }
       side="bottom"

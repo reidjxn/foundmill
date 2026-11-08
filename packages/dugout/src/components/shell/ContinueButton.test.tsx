@@ -73,6 +73,15 @@ describe("ContinueButton", () => {
     expect(screen.getAllByText(/^Let the team work/).length).toBeGreaterThan(0);
   });
 
+  it("a hint gives the press a price under the tooltip: what the last cycle cost, as an Estimate", async () => {
+    const user = userEvent.setup();
+    render(<ContinueButton state={{ kind: "idle" }} hint="Last cycle cost $0.52 · Estimate" />);
+    await user.hover(screen.getByRole("button", { name: "Continue" }));
+    const hint = (await screen.findAllByText("Last cycle cost $0.52 · Estimate"))[0]!;
+    expect(hint.hasAttribute("data-continue-hint")).toBe(true);
+    expect(hint.className).toContain("text-secondary");
+  });
+
   it("labels every state (BUILD §5.4)", () => {
     expect(continueButtonLabel({ kind: "idle" })).toBe("Continue");
     expect(continueButtonLabel({ kind: "blocked", count: 3 })).toBe("Needs you · 3");

@@ -24,6 +24,7 @@ import { readWidgetEvent, type WidgetEvent } from "@foundmill/widgets/data";
 import { routes } from "@foundmill/widgets/shared/routes";
 import { runwayFigure, runwayWords } from "@foundmill/widgets/shared/runway";
 import { agentsStoppedView } from "@/lib/agents-stopped";
+import { formatMoney as formatCredits } from "@/lib/format";
 import { SIDEBAR_COLLAPSED_PREFIX } from "@/lib/auth/constants";
 import { rememberLastBusiness } from "@/lib/auth/last-business";
 import { accountRoutes } from "@/lib/account-routes";
@@ -214,6 +215,16 @@ export function describeContinue(result: ContinueResult): { title: string; descr
   if (s.kind === "orchestrator_unreachable") return { title: s.headline, description: s.detail, tone: "warn", itemId };
   if (s.kind === "resumed") return { title: s.headline, description: s.detail, tone: "good", itemId: null };
   return { title: s.headline, description: s.detail, tone: "info", itemId };
+}
+
+/**
+ * "Last cycle cost $0.52 · Estimate" under Continue's tooltip (first-time founder report, Nov 8, 2026: a founder had
+ * no way to see what a cycle costs before pressing). Credits are counted in their own currency; a cycle that cost
+ * nothing still says so. Null before the first finished cycle.
+ */
+export function lastCycleCostLine(cost: { amountMinor: number; currency: string } | null): string | null {
+  if (!cost) return null;
+  return `Last cycle cost ${formatCredits(cost)} · Estimate`;
 }
 
 /**
@@ -807,6 +818,8 @@ function ShellInner({ businessId, initialBusiness, initialDepartments, viewer, c
                   disabled: !access.canChange,
                   // Before the press: what it can and cannot do while the orchestrator is down (never a surprise after).
                   caveat: orchestratorDown(data) && continueState.kind === "idle" ? ORCHESTRATOR_DOWN_CAVEAT : null,
+                  // What the last cycle cost, so a press has a price (an Estimate: the next cycle's work is its own).
+                  hint: lastCycleCostLine(cycleQ.data?.lastCost ?? null),
                   onContinue,
                   onRespond,
                   onPause,

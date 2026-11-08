@@ -5,7 +5,7 @@ import { EMPTY_CYCLE, cycleFromSnapshot } from "@/lib/cycle";
 import { trpcPathPrefix, trpcQueryKey } from "@/lib/trpc";
 import { SAFETY_POLL_MS } from "@/lib/stream-status";
 import { EXAMPLE_CHIP_TOOLTIP, EXAMPLE_READ_ONLY_REASON, accessFor, readOnlyReason } from "@/lib/access";
-import { CONTINUE_PRESSED_NOTICE, EXAMPLE_START_CALLOUT, FIRST_CONTINUE_CALLOUT, ORCHESTRATOR_DOWN_CAVEAT, RUN_UNTIL_DONE, START_YOUR_OWN_HREF, INVALIDATE_ON_EVENT, cycleReducer, describeContinue, describePause, describeRunEnded, exampleFrame, orchestratorDown, shellConnection, shellPollIntervals, wantsFirstContinueCallout } from "../BusinessShell";
+import { CONTINUE_PRESSED_NOTICE, EXAMPLE_START_CALLOUT, FIRST_CONTINUE_CALLOUT, ORCHESTRATOR_DOWN_CAVEAT, RUN_UNTIL_DONE, START_YOUR_OWN_HREF, INVALIDATE_ON_EVENT, cycleReducer, describeContinue, describePause, describeRunEnded, exampleFrame, lastCycleCostLine, orchestratorDown, shellConnection, shellPollIntervals, wantsFirstContinueCallout } from "../BusinessShell";
 
 type ContinueResult = Parameters<typeof describeContinue>[0];
 
@@ -27,6 +27,7 @@ const status = (over: Partial<ContinueResult["status"]> = {}): ContinueResult["s
   lastCompletedAt: null,
   lastOutcome: null,
   lastFailure: null,
+  lastCost: null,
   nextCycleNumber: 1,
   mode: null,
   run: null,
@@ -63,6 +64,12 @@ describe("one press of Continue (BUILD §9.4; first-time founder report, Nov 8, 
     expect(orchestratorDown(undefined)).toBe(false);
     expect(ORCHESTRATOR_DOWN_CAVEAT).toMatch(/^The orchestrator is not reachable right now/);
     expect(CONTINUE_PRESSED_NOTICE).toBe("Starting the next cycle…");
+  });
+
+  it("the last cycle's cost rides under Continue's tooltip as an Estimate; none before the first cycle", () => {
+    expect(lastCycleCostLine({ amountMinor: 52, currency: "USD" })).toBe("Last cycle cost $0.52 · Estimate");
+    expect(lastCycleCostLine({ amountMinor: 0, currency: "USD" })).toBe("Last cycle cost $0.00 · Estimate");
+    expect(lastCycleCostLine(null)).toBeNull();
   });
 
   it("the connection chip reads 'Live updates off' for everyone when the stream was never live this page", () => {

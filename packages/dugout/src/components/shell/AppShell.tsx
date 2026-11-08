@@ -45,6 +45,8 @@ export interface AppShellContinue extends ContinueHandlers {
   pending?: boolean;
   /** What a press can and cannot do right now, under the tooltip's sentence (ContinueButton `caveat`). */
   caveat?: string | null;
+  /** What the last cycle cost, as an Estimate (ContinueButton `hint`). */
+  hint?: string | null;
 }
 
 export interface AppShellProcessing {
@@ -299,7 +301,7 @@ export const AppShell = forwardRef<HTMLDivElement, AppShellProps>(function AppSh
   const [helpOpen, setHelpOpen] = useState(false);
   const guided = useGuided();
 
-  const { state, cycleNumber, pulseKey, disabled: continueDisabled, pending: continuePending, caveat: continueCaveat, ...continueHandlers } = continueButton;
+  const { state, cycleNumber, pulseKey, disabled: continueDisabled, pending: continuePending, caveat: continueCaveat, hint: continueHint, ...continueHandlers } = continueButton;
   const continueAction = continueButtonAction(state, continueHandlers);
   const notice = processing.notice?.trim() || null;
   const processingText = notice ?? processingStatusText(processing.segments, processing.active, processing.cycleNumber);
@@ -410,7 +412,7 @@ export const AppShell = forwardRef<HTMLDivElement, AppShellProps>(function AppSh
             businessCurrency={businessCurrency}
             onModeClick={onModeClick}
             gameMode={mode}
-            continueButton={{ state, cycleNumber, pulseKey, disabled: continueDisabled, pending: continuePending, caveat: continueCaveat, ...continueHandlers }}
+            continueButton={{ state, cycleNumber, pulseKey, disabled: continueDisabled, pending: continuePending, caveat: continueCaveat, hint: continueHint, ...continueHandlers }}
             continueSlot={continueSlot}
             businessBadge={businessBadge}
             stopAll={stopAll}
