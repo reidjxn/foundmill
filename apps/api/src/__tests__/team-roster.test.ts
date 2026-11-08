@@ -173,6 +173,18 @@ describe("team.humans and team.responsibilities (W19)", () => {
     expect(await owner.team.responsibilities.set({ businessId, decisionType: "message_customers", handler: { kind: "user", id: memberId }, departmentId })).toEqual({ updated: 1 });
   });
 
+  it("responsibilities.get names the business's own Chief of Staff, or null before one is hired (Settings › What the team can do)", async () => {
+    const { businessId, viewerId } = hz.A;
+    const before = await hz.caller({ userId: viewerId }).team.responsibilities.get({ businessId });
+    const existing = await repos.agents.chiefOfStaff(hz.db, businessId);
+    expect(before.chiefOfStaffId).toBe(existing?.id ?? null);
+    const chief = existing ?? (await repos.agents.create(hz.db, businessId, { name: "Chief", agentType: "chief_of_staff", layer: "assistant" }));
+    expect((await hz.caller({ userId: hz.A.ownerId }).team.responsibilities.get({ businessId })).chiefOfStaffId).toBe(chief.id);
+    // Another business never reads this one's Chief of Staff.
+    const other = await hz.caller({ userId: hz.B.ownerId }).team.responsibilities.get({ businessId: hz.B.businessId });
+    expect(other.chiefOfStaffId).not.toBe(chief.id);
+  });
+
   it("approvals are routed to the handler, who sees them as theirs; others cannot answer them (TPD-04, VARB-B4-X2)", async () => {
     const { businessId, ownerId, memberId, departmentId, agent2Id } = hz.A;
     await repos.agents.update(hz.db, businessId, agent2Id, { departmentIds: [departmentId] });

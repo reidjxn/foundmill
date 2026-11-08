@@ -25,7 +25,7 @@ export const CreateBusinessInput = z.object({
   region: z.enum(DATA_REGIONS).default("eu"),
   planTier: z.enum(PLAN_TIERS).default("free"),
   modelBilling: z.enum(MODEL_BILLING).default("credits"),
-  /** "Spend cap per action" (Commit, Settings › Mode) in minor units of the business currency; null: no business cap. */
+  /** "Spend cap per action" (Commit, Settings › What the team can do) in minor units of the business currency; null: no business cap. */
   spendCapMinor: MinorAmount.nonnegative().nullable().default(null),
   glossary: z.record(z.string(), z.string()).default({}),
   /** The business's own currency (0025); commit passes the founder's choice. Mirrors the column default. */
@@ -329,7 +329,7 @@ export const businessesRepo = {
     return one(await db.update(businesses).set({ timeZone: zone }).where(and(eq(businesses.id, businessId), notArchived)).returning(), "business", businessId);
   },
 
-  /** The founder's "Spend cap per action" (Settings › Mode); null removes the business cap. */
+  /** The founder's "Spend cap per action" (Settings › What the team can do); null removes the business cap. */
   async setSpendCap(db: Executor, businessId: string, spendCapMinor: number | null): Promise<Business> {
     const cap = parseInput(MinorAmount.nonnegative().nullable(), spendCapMinor, "spend cap");
     return one(await db.update(businesses).set({ spendCapMinor: cap }).where(and(eq(businesses.id, businessId), notArchived)).returning(), "business", businessId);

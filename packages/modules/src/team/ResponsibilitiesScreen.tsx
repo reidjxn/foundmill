@@ -6,8 +6,9 @@
  */
 import { useEffect, useId, useMemo, useState } from "react";
 import { ArrowLeftRight, Bot, Lock, ScrollText, Undo2, UserRound, UserRoundPlus } from "lucide-react";
-import { Avatar, useAgentPersona, Button, Chip, DataTable, Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, EntityLink, Field, IconButton, MiniTable, Panel, RadioCard, RadioGroup, SimpleSelect, Term, type DataTableColumn, type RowAction, type SavedView } from "@foundmill/dugout";
+import { Avatar, useAgentPersona, Button, Chip, DataTable, ShellLink, Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, EntityLink, Field, IconButton, MiniTable, Panel, RadioCard, RadioGroup, SimpleSelect, Term, type DataTableColumn, type RowAction, type SavedView } from "@foundmill/dugout";
 import { DECISION_TYPES, type DecisionType } from "@foundmill/shared/constants";
+import { TEAM_CAN_DO_TITLE } from "@foundmill/shared/team-can-do";
 import { departmentForModule, useDepartments } from "@foundmill/widgets/shared/departments";
 import { routes } from "@foundmill/widgets/shared/routes";
 import { useWidgetData, useWidgetQuery } from "@foundmill/widgets/data";
@@ -377,6 +378,11 @@ export function ResponsibilitiesScreen({ businessId }: ModuleScreenProps) {
           </span>
         }
       >
+        {/* The everyday answers (publishing, messaging customers, who answers) live on one Settings page; this table is
+            for handing one decision to one person or department (founder, 2026-11-07). */}
+        <p className="border-b border-line-faint px-panel-pad py-2.5 text-small text-secondary" data-testid="responsibilities-pointer">
+          Everyday choices live in <ShellLink href={routes.settings(businessId, "mode")}>{`Settings › ${TEAM_CAN_DO_TITLE}`}</ShellLink>. Use this table to hand a decision to one person or department.
+        </p>
         <div className="min-w-0">
           {/* Remounted when the detail opens or closes, so the Covers column leaves and returns without marking the view as edited. */}
           <DataTable<ResponsibilityRowView> key={narrow ? "with-detail" : "full"} aria-label="Responsibilities" data={rows} columns={columns} {...savedViews} defaultViewId={defaultViewId} getRowId={(r) => r.decisionType} selectedIds={selectedRow ? [selectedRow.decisionType] : []} rowActions={rowActions} onRowClick={(row) => setSelected(row.decisionType)} onRowOpen={(row) => (row.gated && otherStaff === 0 ? setSelected(row.decisionType) : setDelegate(row))} height={Math.max(3, rows.length) * ROW_PX + 44} density="comfortable" exportFileName="responsibilities" footer={null} className="border-0" />

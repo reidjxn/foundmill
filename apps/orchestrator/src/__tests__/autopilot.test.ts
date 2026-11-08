@@ -219,7 +219,7 @@ describe("Continue runs until done: the run's look and its end (Nov 7, 2026)", (
     const notes = (await repos.inbox.list(t.db, B(), { limit: 100 })).items.filter((i) => i.subject === "Today's cycle limit is reached");
     expect(notes).toHaveLength(1);
     expect(notes[0]).toMatchObject({ type: "update", blocksContinue: false });
-    expect(notes[0]!.bodyMd).toMatch(/Settings › Mode/);
+    expect(notes[0]!.bodyMd).toMatch(/Settings › What the team can do/);
     // A second end (a retry, or the workflow after the API wrote Pause's end) changes nothing.
     expect(await acts.autopilotRunEnded({ businessId: B(), runId: RUN, startedAt: now - 3 * H, reason: "done" })).toMatchObject({ recorded: false });
     expect((await repos.events.list(t.db, B(), { type: "cycle.run_ended" })).items).toHaveLength(1);

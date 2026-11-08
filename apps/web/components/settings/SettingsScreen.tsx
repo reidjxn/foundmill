@@ -23,7 +23,7 @@ import { IntegrationsTab } from "./IntegrationsTab";
 import { KeysTab } from "./KeysTab";
 import { KEY_STATUS_WORDS, keyStatus } from "./key-status";
 import { MembersTab } from "./MembersTab";
-import { ModeTab } from "./ModeTab";
+import { TeamCanDoTab } from "./TeamCanDoTab";
 import { PreferencesTab } from "./PreferencesTab";
 
 const ICONS: Record<SettingsTabSlug, LucideIcon> = {
@@ -41,7 +41,7 @@ const ICONS: Record<SettingsTabSlug, LucideIcon> = {
 
 const TABS: Record<SettingsTabSlug, () => ReactNode> = {
   business: () => <BusinessTab />,
-  mode: () => <ModeTab />,
+  mode: () => <TeamCanDoTab />,
   departments: () => <DepartmentsTab />,
   glossary: () => <GlossaryTab />,
   members: () => <MembersTab />,

@@ -4,7 +4,8 @@ import { useLayoutEffect, useRef } from "react";
 /**
  * The top bar's compaction steps, in the order they apply (DESIGN §8 "never clip"):
  *
- * 1. `chips-brief`: the chips drop their second phrase (the mode chip's "· asks before spending", the runway chip's
+ * 1. `chips-brief`: the chips drop their long words (the mode chip's "Asks before spending over £50" becomes "Asks over
+ *    £50"; `KITBAR_BRIEF_ONLY_CLASS`), and the runway chip its second phrase (the runway chip's
  *    "· connect a bank"; `KITBAR_BRIEF_CLASS` in ModeChip.tsx). Unlike the later steps it applies as soon as the search
  *    is below its whole width, so the extra words never cost the search its placeholder: they are the first thing to go.
  * 2. `year`: dates drop the current year ("Oct 10", "On vacation until Oct 21"); the tooltips keep it.

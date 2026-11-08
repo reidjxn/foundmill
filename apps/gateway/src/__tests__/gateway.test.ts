@@ -196,7 +196,7 @@ describe("business modes", () => {
     }
   });
 
-  it("the founder's Spend cap per action (Commit, Settings › Mode) makes every agent ask above it, whatever the mode", async () => {
+  it("the founder's Spend cap per action (Commit, Settings › What the team can do) makes every agent ask above it, whatever the mode", async () => {
     expect(businessApprovalThreshold(undefined, null)).toBeUndefined();
     expect(businessApprovalThreshold(300, null)).toBe(300);
     expect(businessApprovalThreshold(undefined, 5_000)).toBe(5_000);

@@ -1,6 +1,6 @@
 "use client";
 /**
- * Settings › Mode › Autopilot: the business starts its own cycles (business.autopilot.get / set). Off by default; an
+ * Settings › What the team can do › Autopilot: the business starts its own cycles (business.autopilot.get / set). Off by default; an
  * owner or admin turns it on and chooses the cadence and the limits. The guard rails always win and are shown in plain
  * words: Stop all agents, used-up credits, an Inbox item that needs the founder, a vacation, the day's cycle and spend
  * limits, and failed or empty cycles in a row. Autopilot starts cycles exactly as Continue does and never approves anything.
@@ -155,7 +155,7 @@ export function AutopilotSection() {
         </div>
       ) : null}
       <Hint>
-        Off by default. When on, the next <Term id="cycle">cycle</Term> starts on its own, the way Continue starts one: every approval, <Term id="hard_gate">hard gate</Term> and policy check applies, and Autopilot never approves anything for you. Stop all agents stops it, and Resume does not turn it back on.
+        Off by default. When on, the next <Term id="cycle">cycle</Term> starts on its own, the way Continue starts one: every answer on this page still applies, what always comes to you still waits, and Autopilot never approves anything for you. Stop all agents stops it, and Resume does not turn it back on.
       </Hint>
       <Hint>{AUTOPILOT_CONTINUE_NOTE}</Hint>
       <dl className="grid grid-cols-3 gap-3 text-body" data-testid="autopilot-today">

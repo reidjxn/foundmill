@@ -357,7 +357,7 @@ export const businessRouter = router({
   }),
 
   /**
-   * The "Spend cap per action" (Settings › Mode; first set on Commit), in minor units of the business currency: above it
+   * The "Spend cap per action" (Settings › What the team can do; first set on Commit), in minor units of the business currency: above it
    * every spend asks the founder first, whatever the mode (the gateway lowers each agent's approval threshold to it).
    * Null removes the business cap; each agent's own threshold then applies.
    */

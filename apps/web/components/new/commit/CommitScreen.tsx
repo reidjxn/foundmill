@@ -254,7 +254,7 @@ export function spendCapSummary(spendCap: string, currency: string): string {
 }
 
 /** Where "How it runs" is changed later, under its summary (§7.6). */
-export const HOW_IT_RUNS_REASSURANCE = "You can change all of this later in Settings › Business and Settings › Mode.";
+export const HOW_IT_RUNS_REASSURANCE = "You can change all of this later in Settings › Business and Settings › What the team can do.";
 
 export interface CommitFormProps {
   idea: IdeaLike;
@@ -621,7 +621,7 @@ export function CommitForm({ idea, viewer, currency, initialName, suggestedArche
                     <ModeCardOption key={m.value} id={`game-${m.value}`} value={m.value} label={m.label} tagline={m.tagline} details={m.details} selected={form.gameMode === m.value} icon={m.value === "live" ? Globe : Lock} />
                   ))}
                 </RadioGroup>
-                {/* A LIVE business is on the network from the start, and the network is for adults: asked once (Settings › Mode asks the same). */}
+                {/* A LIVE business is on the network from the start, and the network is for adults: asked once (Settings › Business asks the same). */}
                 {form.gameMode === "live" && !adultConfirmed ? (
                   <Field htmlFor="commit-adult" label="The network is for adults" error={show("adult")} className="mt-3">
                     <span className="flex items-start gap-2" data-testid="commit-adult">
@@ -719,7 +719,7 @@ export function CommitForm({ idea, viewer, currency, initialName, suggestedArche
                     </div>
                   </div>
                   <ReassuranceLine icon="settings" data-testid="reassure-mode">
-                    You can change this later in Settings › Mode.
+                    You can change this later in Settings › What the team can do.
                   </ReassuranceLine>
                 </div>
               </Panel>

@@ -194,7 +194,7 @@ export function canSpeakAsBusiness(input: {
  * business the founder may speak for (the API's `live.connections.request` rule).
  */
 export function askToConnectBlocker(input: Parameters<typeof canSpeakAsBusiness>[0]): string | null {
-  if (input.business.gameMode !== "live") return "Connection requests are sent from a LIVE business. Open one, or make this business LIVE in Settings › Mode.";
+  if (input.business.gameMode !== "live") return "Connection requests are sent from a LIVE business. Open one, or make this business LIVE in Settings › Business.";
   if (!canSpeakAsBusiness(input)) return "Your role in this business cannot send connection requests for it.";
   return null;
 }

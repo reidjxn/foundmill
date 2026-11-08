@@ -14,7 +14,7 @@
  * signals `continueRun` to the business's `autopilot:<businessId>` workflow (signal-with-start, so it runs with
  * Autopilot off too), which starts the press's cycle with the number reserved here and then round after round until
  * nothing is left the team can do, a hard stop, a vacation, Pause, or the day's cycle cap and spend ceiling from
- * Settings › Mode end the run. The run lives in the event log (`cycle.run_started` / `cycle.run_ended`, no table):
+ * Settings › What the team can do end the run. The run lives in the event log (`cycle.run_started` / `cycle.run_ended`, no table):
  * `cycleStatus` reads it as `run`, and Continue shows processing for as long as it lasts, the gap between rounds
  * included. Pause ends the run (and pauses the round in progress); the next press starts a new one. Without Temporal
  * the in-process step is unchanged: one step, no run.

@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 /**
- * Settings › Mode › Autopilot: the switch and the limits (business.autopilot.set), the state in words (the chip and its
+ * Settings › What the team can do › Autopilot: the switch and the limits (business.autopilot.set), the state in words (the chip and its
  * sentence), and the validation of the limits (1 to 24 cycles a day, 1 to 10 idle cycles, a ceiling in dollars).
  */
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -69,6 +69,8 @@ describe("Autopilot section", () => {
     renderSection();
     const toggle = await screen.findByRole("switch", { name: "Run this business on Autopilot" });
     expect(toggle.getAttribute("aria-checked")).toBe("false");
+    // Settings › What the team can do never says "hard gate" or "policy" to the founder (DESIGN §10).
+    expect(document.body.textContent).not.toMatch(/\b(hard gates?|policy|policies)\b/i);
     expect(screen.getByTestId("autopilot-chip").getAttribute("data-autopilot-state")).toBe("off");
     fireEvent.click(toggle);
     await waitFor(() => expect(set).toHaveBeenCalledTimes(1));

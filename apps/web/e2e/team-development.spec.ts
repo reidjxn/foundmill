@@ -171,6 +171,10 @@ for (const width of [1280, 1440]) {
       const team = await departmentBase(page, /^team$/i);
 
       await openTab(page, team, "responsibilities", "team/responsibilities");
+      // The everyday answers live in Settings › What the team can do; this table hands one decision to one person.
+      const pointer = page.getByTestId("responsibilities-pointer");
+      await expect(pointer).toContainText("Everyday choices live in Settings › What the team can do.", { timeout: LONG });
+      await expect(pointer.getByRole("link", { name: "Settings › What the team can do" })).toHaveAttribute("href", /\/settings\/mode$/);
       const matrix = page.getByRole("grid", { name: "Responsibilities" });
       await expect(matrix.getByText("Sign contracts")).toBeVisible({ timeout: LONG });
       const signRow = matrix.getByRole("row").filter({ hasText: "Sign contracts" });

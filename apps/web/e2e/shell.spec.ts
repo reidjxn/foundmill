@@ -223,7 +223,8 @@ test.describe("shell", () => {
         await check();
       }).toPass({ timeout: LONG });
     };
-    await hoverFor(page.getByRole("button", { name: /^Business mode: / }), () => expect(tooltip).toContainText(/^(Assisted|Augmented|Automated) mode: the .*Change it in Settings › Mode\./, { timeout: 2_000 }));
+    // The mode chip says what the team can do in plain words, and its tooltip where to change it (founder, 2026-11-07).
+    await hoverFor(page.getByRole("button", { name: /^What the team can do: / }), () => expect(tooltip).toContainText(/^(On vacation\. )?The team .*Change it in Settings › What the team can do\./, { timeout: 2_000 }));
     await hoverFor(page.getByTestId("kit-bar").locator("[data-runway-tone]"), () => expect(tooltip).toContainText("Runway: how many months your cash lasts", { timeout: 2_000 }));
     await hoverFor(page.getByTestId("stop-all-trigger"), () => expect(tooltip).toHaveText("Stop all agents (pauses everything, nothing is lost)", { timeout: 2_000 }));
     // The strip under the top bar has a sentence too, as its name.

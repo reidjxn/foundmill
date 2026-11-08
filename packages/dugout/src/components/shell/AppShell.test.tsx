@@ -45,6 +45,15 @@ describe("AppShell", () => {
     expect(screen.queryByText("Content")).toBeNull();
   });
 
+  it("passes the business's spend line and currency to the top bar's chip, which says the setting in words", () => {
+    const onModeClick = vi.fn();
+    render(<AppShell {...shellProps({ viewportWidth: 1440, spendLineMinor: 5_000, businessCurrency: "GBP", onModeClick })} />);
+    const chip = screen.getByRole("button", { name: "What the team can do: asks before spending over £50" });
+    expect(chip.querySelector("[data-chip-full]")?.textContent).toBe("Asks before spending over £50");
+    chip.click();
+    expect(onModeClick).toHaveBeenCalledOnce();
+  });
+
   it("renders the shell at 1280 px with the kit as CSS variables", () => {
     render(<AppShell {...shellProps({ viewportWidth: 1280 })} />);
     const root = screen.getByTestId("app-shell");

@@ -156,6 +156,8 @@ export interface ResponsibilitiesResponse {
   matrix: ResponsibilityRow[];
   perDepartment?: { departmentId: string; rows: { decisionType: DecisionType; handler: ResponsibilityHandler }[] }[];
   decisionTypes?: readonly DecisionType[];
+  /** The business's Chief of Staff, or null before one is hired (Settings › What the team can do delegates to it). */
+  chiefOfStaffId?: string | null;
 }
 
 /* agent.model.compare */

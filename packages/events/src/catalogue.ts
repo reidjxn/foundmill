@@ -1114,7 +1114,7 @@ const cycleRunEnded = declareEvent(
     /**
      * `done`: the last round did nothing (decisions waiting in Needs you never hold a run); `hard_stop`: the stop flag,
      * used-up credits or an Inbox item that blocks Continue; `paused`: the founder pressed Pause; `stopped`: Stop all
-     * agents or a stopped round; `daily_cycles` / `daily_spend`: the day's limits from Settings › Mode; `lost`: its
+     * agents or a stopped round; `daily_cycles` / `daily_spend`: the day's limits from Settings › What the team can do; `lost`: its
      * workflow was gone (closed by the API's reconciler).
      */
     reason: z.enum(CONTINUE_RUN_END_REASONS),
