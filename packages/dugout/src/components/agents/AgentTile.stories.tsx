@@ -71,8 +71,16 @@ function LiveTile(args: AgentTileProps) {
 export const Live: Story = { render: (args) => <LiveTile {...args} /> };
 
 export const Terminal: Story = { args: { defaultView: "terminal" } };
-/** Builder view off: the footer keeps elapsed and the cost Estimate, without tokens or the ETA. */
-export const BuilderViewOff: Story = { name: "Builder view off", args: { defaultView: "plan" }, globals: { builderView: "off" } };
+/**
+ * Builder view off (Working now): the tile opens on the plan and offers Plan and Preview only (no terminal, no diff);
+ * the phase reads in the founder's words ("Checking"), and the footer keeps elapsed and the cost Estimate, without
+ * tokens or the ETA.
+ */
+export const BuilderViewOff: Story = { name: "Builder view off", args: { defaultView: "terminal" }, globals: { builderView: "off" } };
+/** Builder view off with the controls: Nudge, Pause, Reassign and Stop stay; Open in Claude Code is the builder's. */
+export const BuilderViewOffControls: Story = { name: "Builder view off · controls", args: { focused: true, controls: controls(() => {}) }, globals: { builderView: "off" } };
+/** Builder view off on a change being put live: "Putting live", not "Merging". */
+export const BuilderViewOffPuttingLive: Story = { name: "Builder view off · putting live", args: { session: { ...session(4, "running"), status: "merging", phase: "merge" } }, globals: { builderView: "off" } };
 export const Diff: Story = { args: { defaultView: "diff" } };
 export const DiffLocalEngine: Story = { name: "Diff (local engine fallback)", args: { defaultView: "diff", diffEngine: "local" } };
 export const Plan: Story = { args: { defaultView: "plan" } };

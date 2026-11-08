@@ -10,7 +10,7 @@ import { repos } from "@foundmill/db";
 import { CyclePlanOutput } from "@foundmill/models";
 import { PLANNABLE_TASK_STATUSES, uuid } from "@foundmill/shared";
 import { ComposerRequestError, ComposerUnavailableError } from "../composer-client";
-import { CYCLE_PLAN_FAILURE, type PlanFailureDetails } from "../cycle-contract";
+import { CYCLE_NOT_FINISHED_SUBJECT, CYCLE_NOT_STARTED_SUBJECT, CYCLE_PLAN_FAILURE, type PlanFailureDetails } from "../cycle-contract";
 import type { OrchestratorDeps } from "../deps";
 import { requestJourneyDailyRefresh } from "../journey-refresh";
 import { agentActor, emitEvent, systemActor } from "../events";
@@ -510,8 +510,8 @@ export function createCycleActivities(deps: OrchestratorDeps) {
         const item = await repos.inbox.createItem(deps.db, input.businessId, {
           type: "warning",
           from_agent_id: chief.id,
-          subject: `Cycle ${input.cycleNumber} did not start`.slice(0, 80),
-          body_md: `${input.message.trim()}\n\nNo new work started this cycle; work already under way carries on.`,
+          subject: CYCLE_NOT_STARTED_SUBJECT,
+          body_md: `${input.message.trim()}\n\nNo new work started in this round; work already under way carries on.`,
           status_strip: [],
           exhibit: { kind: "none", spec_ref: null },
           decision: null,
@@ -584,8 +584,8 @@ export function createCycleActivities(deps: OrchestratorDeps) {
           ? await repos.inbox.createItem(tx, input.businessId, {
               type: "warning",
               from_agent_id: chief.id,
-              subject: `Cycle ${input.cycleNumber} did not finish`,
-              body_md: `The cycle stopped because of an error: ${reason}. Nothing was lost; open work is still on the board. Press Continue to try again, and check Settings › Integrations or credits if it keeps happening.`,
+              subject: CYCLE_NOT_FINISHED_SUBJECT,
+              body_md: `The round of work stopped because of an error: ${reason}. Nothing was lost; open work is still on the board. Press Continue to try again, and check Settings › Integrations or credits if it keeps happening.`,
               status_strip: [],
               exhibit: { kind: "none", spec_ref: null },
               decision: null,

@@ -2,11 +2,12 @@
 /**
  * Development › Pull requests (BUILD §6.3, §11.6): open PRs (code tasks in review or the merge queue) from
  * `dev.prs.list` with their merge-queue status and preview links, and the merged PRs (GitHub's `pr.merged` events and
- * the code tasks the merge queue landed) in a second table.
+ * the code tasks the merge queue landed) in a second table. With Builder view off the tab reads "What changed" and renders
+ * the founder's lists instead (founder-views.tsx).
  */
 import { useMemo, useState } from "react";
 import { ExternalLink, GitMerge, GitPullRequest, MonitorPlay, Network, SearchCheck } from "lucide-react";
-import { Avatar, DataTable, EntityLink, useAgentPersona, Explainer, FitText, Panel, StatusPill, Term, formatNumber, type DataTableColumn, type RowAction, type SavedView, type StatusTone } from "@foundmill/dugout";
+import { Avatar, DataTable, EntityLink, useAgentPersona, useBuilderView, Explainer, FitText, Panel, StatusPill, Term, formatNumber, type DataTableColumn, type RowAction, type SavedView, type StatusTone } from "@foundmill/dugout";
 import type { TaskStatus } from "@foundmill/shared";
 import { routes } from "@foundmill/widgets/shared/routes";
 import { useBusinessEvents, useWidgetData, useWidgetQuery, type WidgetEvent } from "@foundmill/widgets/data";
@@ -15,6 +16,7 @@ import { RelativeDateText } from "../dates";
 import { fitColumns, fitToGrow, humanise, type ColumnFit } from "../fit";
 import type { ModuleScreenProps } from "../registry";
 import { OpenInClaudeCodeDialog } from "./dialogs";
+import { WhatChanged, toFounderChangeRows, toFounderLiveRows } from "./founder-views";
 import { useDevScreenOptions } from "./options";
 import { SIMPLE_VIEW_ID, Screen, agentHref, shortSha, toDate, toTileAgent, useAgentIndex, useAgents, useDefaultViewId, useDevDepartment } from "./shared";
 import type { AgentRow, MergedPrRow, OpenPrRow, PrsListResponse } from "./types";
@@ -177,6 +179,9 @@ export function PullRequestsScreen({ businessId, departmentId }: ModuleScreenPro
 
   const openRows = useMemo(() => toOpenRows(prs.data?.open ?? [], agentIndex, previews, persona.labelFor), [prs.data, agentIndex, previews, persona]);
   const mergedRows = useMemo(() => toMergedRows(prs.data?.merged ?? [], agentIndex, persona.labelFor), [prs.data, agentIndex, persona]);
+  const builder = useBuilderView();
+  const founderOpen = useMemo(() => toFounderChangeRows(prs.data?.open ?? [], agentIndex, previews, persona.labelFor), [prs.data, agentIndex, previews, persona]);
+  const founderLive = useMemo(() => toFounderLiveRows(prs.data?.merged ?? [], agentIndex, persona.labelFor), [prs.data, agentIndex, persona]);
   const optionNow = options.now;
   const now = useMemo(() => optionNow ?? new Date(), [optionNow]);
 
@@ -254,6 +259,11 @@ export function PullRequestsScreen({ businessId, departmentId }: ModuleScreenPro
     ], MERGED_PR_FIT),
     [now, mergedSizes],
   );
+
+  // Builder view off: the founder's What changed (no PR number, branch, lines or commit; founder titles and words).
+  if (!builder) {
+    return <WhatChanged businessId={businessId} deptSlug={deptSlug} open={founderOpen} live={founderLive} loading={prs.isLoading} error={prs.error ? prs.error.message : undefined} onRetry={prs.refetch} now={now} />;
+  }
 
   const openActions = (row: OpenPrTableRow): RowAction<OpenPrTableRow>[] => [
     { id: "preview", label: "Open preview", icon: MonitorPlay, disabled: !row.previewUrl, onSelect: (r) => r.previewUrl && window.open(r.previewUrl, "_blank", "noopener") },

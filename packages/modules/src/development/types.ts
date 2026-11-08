@@ -125,6 +125,10 @@ export interface MergedPrRow {
   repo?: string;
   prNumber?: number;
   title?: string;
+  /** The task's title in the founder's words (0070), when the change belongs to a task that has one. */
+  founderTitle?: string | null;
+  /** The agent the change's task was assigned to. */
+  agentId?: string | null;
   branch?: string;
   baseBranch?: string;
   mergeCommitSha?: string;
@@ -133,6 +137,24 @@ export interface MergedPrRow {
   deletions?: number;
   filesChanged?: number;
   url?: string | null;
+}
+
+/* dev.deployments.list (the business's `deploy.succeeded` events, newest first) */
+export interface DeploymentListRow {
+  eventId: string;
+  occurredAt: Iso;
+  taskId: string | null;
+  environment: "preview" | "staging" | "production";
+  provider: string;
+  url: string | null;
+  commitSha: string;
+  branch: string | null;
+  title?: string | null;
+  founderTitle?: string | null;
+}
+
+export interface DeploymentsListResponse {
+  items: DeploymentListRow[];
 }
 
 export interface PrsListResponse {

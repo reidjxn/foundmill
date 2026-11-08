@@ -10,7 +10,7 @@ import { funnelStages } from "../widgets/funnel";
 import { previewLine } from "../widgets/inbox-preview";
 import { forecastCone, journeyHref, rippleFor, roadmapFlags } from "../widgets/journey-ribbon";
 import { pickBoard, windowRows } from "../widgets/league-table";
-import { describeEvent } from "../widgets/live-feed";
+import { describeEvent, seedFromTasks } from "../widgets/live-feed";
 import { customersPerWeek, monthLabel, revenueBars, weekLines, weeksFrom } from "../widgets/revenue-customers";
 import { formatDate } from "@foundmill/dugout";
 import { groupByHorizon, roadmapStatus, taskProgress } from "../widgets/roadmap-timeline";
@@ -503,6 +503,31 @@ describe("text helpers", () => {
       const d = describeEvent({ type, payload: { to: "injured", kind: "signup", outcome: "approved", scope: "business" } });
       expect(`${d.title} ${d.statusWord ?? ""}`, type).not.toMatch(/injured|holiday|Customer won|Approval approved|_|\./);
     }
+  });
+
+  it("Builder view off: rounds of work and Gone live, with no cycle or PR numbers; on: the engine's words", () => {
+    const off = { builder: false };
+    expect(describeEvent({ type: "cycle.started", payload: { cycleNumber: 4 } }, off).title).toBe("The team started a round of work");
+    expect(describeEvent({ type: "cycle.completed", payload: { cycleNumber: 4, outcome: "completed", tasksCompleted: 3 } }, off)).toMatchObject({ title: "Round of work finished · 3 tasks done", tone: "good" });
+    expect(describeEvent({ type: "cycle.completed", payload: { cycleNumber: 4, outcome: "failed", tasksCompleted: 0 } }, off)).toMatchObject({ title: "Round of work did not finish · 0 tasks done", tone: "bad" });
+    expect(describeEvent({ type: "pr.merged", payload: { prNumber: 41, title: "Merge the pricing page fix" } }, off)).toMatchObject({ title: "Gone live: Put live the pricing page fix", statusWord: "Live" });
+    expect(describeEvent({ type: "pr.merged", payload: { prNumber: 41 } }, off).title).toBe("Gone live: a change to the product");
+    expect(describeEvent({ type: "task.completed", payload: { title: "Checkout", summary: "Shipped it; 105 tests passed." } }, off).description).toBe("Shipped it; the quality checks passed");
+    expect(describeEvent({ type: "task.completed", payload: { title: "Checkout", summary: "Customers can now pay by card." } }, off).description).toBe("Customers can now pay by card.");
+    for (const e of [{ type: "cycle.started", payload: { cycleNumber: 4 } }, { type: "cycle.completed", payload: { cycleNumber: 4, outcome: "time_box", tasksCompleted: 1 } }, { type: "pr.merged", payload: { prNumber: 41, title: "Sitemap fixes" } }]) {
+      const d = describeEvent(e, off);
+      expect(`${d.title} ${d.description ?? ""}`, e.type).not.toMatch(/cycle|#\d|PR\b|\d+ tasks? done.*\d/i);
+    }
+    // On (and by default): today's words.
+    expect(describeEvent({ type: "cycle.started", payload: { cycleNumber: 4 } }, { builder: true }).title).toBe("Cycle 4 started");
+    expect(describeEvent({ type: "pr.merged", payload: { prNumber: 41, title: "Sitemap fixes" } }).title).toBe("Merged PR #41");
+    expect(describeEvent({ type: "task.completed", payload: { title: "Checkout", summary: "105 tests passed" } }).description).toBe("105 tests passed");
+  });
+
+  it("the feed's seed names tasks by their founder title while Builder view is off", () => {
+    const rows = [{ id: "t1", title: "Fix hydration mismatch in /checkout", founderTitle: "Fix a display bug in the checkout page", status: "done", endedAt: "2026-11-07T10:00:00Z" }] as never;
+    expect(seedFromTasks(rows, { builder: false })[0]?.title).toBe("Done: Fix a display bug in the checkout page");
+    expect(seedFromTasks(rows)[0]?.title).toBe("Done: Fix hydration mismatch in /checkout");
   });
 });
 

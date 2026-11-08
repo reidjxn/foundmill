@@ -58,8 +58,9 @@ describe("a failed cycle is closed and announced once (audit O-07)", () => {
     const ev = await repos.events.byIdempotencyKey(t.db, t.businessId, cycleEventKey("completed", cycleId));
     expect(ev?.payload).toMatchObject({ cycleId, outcome: "failed", workflowId: input.workflowId });
     const item = await repos.inbox.get(t.db, t.businessId, a.inboxItemId!);
-    expect(item.subject).toBe("Cycle 2 did not finish");
+    expect(item.subject).toBe("The team's last round of work did not finish");
     expect(item.bodyMd).toContain("The planner is unavailable");
+    expect(item.bodyMd).toMatch(/^The round of work stopped because of an error/);
     expect(item.blocksContinue).toBe(false);
     const late = await acts.completeCycle({ businessId: t.businessId, cycleId, cycleNumber: 2, workflowId: input.workflowId, outcome: "completed", tasksDispatched: 0, tasksCompleted: 0, tasksBlocked: 0, agentHours: 0, costMinor: 0, currency: "USD", inboxItemIds: [], durationMs: 5 });
     expect(late.eventId).toBe(a.eventId);
