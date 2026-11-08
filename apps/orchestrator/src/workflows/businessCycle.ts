@@ -15,7 +15,7 @@
  */
 import { ActivityFailure, ApplicationFailure, CancellationScope, ParentClosePolicy, allHandlersFinished, condition, isCancellation, patched, proxyActivities, setHandler, startChild, uuid4, workflowInfo, type ChildWorkflowHandle } from "@temporalio/workflow";
 import type { Activities, BusinessBrief, BusinessCycleInput, BusinessCycleResult, CyclePlan, CycleStart, RoadmapPlanResult } from "../activities";
-import { CYCLE_PLAN_FAILURE, DEFAULT_TASK_RESERVE_MINOR, PLAN_FAILED_MESSAGE, type PlanFailureDetails } from "../cycle-contract";
+import { CYCLE_PLAN_FAILURE, DEFAULT_TASK_RESERVE_MINOR, PLAN_FAILED_MESSAGE, cycleOutcomeSubject, cycleTallyLine, type PlanFailureDetails } from "../cycle-contract";
 import { agentSession, type AgentSessionOutcome } from "./agentSession";
 import { mergeReview } from "./mergeReview";
 import { decisionSignal, pauseSignal, resumeSignal, shoutSignal, stopSignal } from "./signals";
@@ -341,7 +341,8 @@ export async function businessCycle(input: BusinessCycleInput): Promise<Business
     if (outcome === "completed" && finished.some((f) => f.error) && tasksCompleted === 0) outcome = "failed";
 
     const eventIds = outcomes.flatMap((o) => o.finish?.eventIds ?? []);
-    const summary = `${plan.summary}\n\nCycle ${input.cycleNumber}: ${finished.length + running.size} session${finished.length + running.size === 1 ? "" : "s"} dispatched, ${tasksCompleted} finished, ${tasksBlocked} blocked${running.size ? `, ${running.size} still running past the time box` : ""}${skipped.length ? `; ${skipped.length} task${skipped.length === 1 ? "" : "s"} deferred` : ""}.`;
+    // Founder words (Nov 8, 2026): the note is read by everyone, so no cycle number. String arguments only: replay-safe.
+    const summary = `${plan.summary}\n\n${cycleTallyLine({ started: finished.length + running.size, finished: tasksCompleted, blocked: tasksBlocked, stillRunning: running.size, deferred: skipped.length })}`;
     let inboxItemIds: string[];
     try {
       if (plan.idle) {
@@ -349,7 +350,7 @@ export async function businessCycle(input: BusinessCycleInput): Promise<Business
         const note = await acts.noteIdleCycle({ businessId: input.businessId, cycleNumber: input.cycleNumber, summary: plan.summary });
         inboxItemIds = note.inboxItemId ? [note.inboxItemId] : [];
       } else {
-        const narrated = await acts.narrateCycle({ businessId: input.businessId, eventIds, summary, fallbackSubject: `Cycle ${input.cycleNumber} ${outcome.replace("_", " ")}` });
+        const narrated = await acts.narrateCycle({ businessId: input.businessId, eventIds, summary, fallbackSubject: cycleOutcomeSubject(outcome) });
         inboxItemIds = narrated.inboxItemIds;
       }
     } catch {

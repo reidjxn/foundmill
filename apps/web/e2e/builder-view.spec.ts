@@ -5,8 +5,9 @@ import { LONG, NORTHWIND_BUSINESS_ID, openBusiness, openSettings, setBuilderView
  * Builder view (founder, 2026-11-08; docs/DESIGN.md "Builder view"): one account-wide switch, off by default, that shows
  * how the platform runs the team. Off: the Development tabs read "Working now · Plan · What changed · Live product ·
  * Specialists", nothing links to Code, Health or Hierarchy, a gated tab opened by URL says "This is part of Builder
- * view", the Agents table has no Form or "Rating /20", and no cycle number, tokens, ETA or test count shows. On:
- * everything comes back. The dev founder is shared by every spec, so the switch is restored afterwards.
+ * view", the Agents table has no Form or "Rating /20", and no cycle number, tokens, ETA or test count shows; What
+ * changed reads "Waiting for your go-ahead" and "Gone live", Live product shows "Your live product" and the previews,
+ * and a Working now tile has no terminal. On: everything comes back. The dev founder is shared by every spec, so the switch is restored afterwards.
  */
 let before = false;
 test.beforeAll(async ({ playwright }) => {
@@ -69,9 +70,40 @@ test.describe("Builder view", () => {
     await expect(grid.getByRole("columnheader", { name: /^Form/ })).toHaveCount(0);
     await expect(page.getByTestId("module-screen")).not.toContainText(/Rating \/20|of 20\b/);
 
-    // Working now: tiles without tokens or ETA.
+    // Working now: tiles without tokens or ETA, terminals, diffs or the Task graph.
     await openTab(page, `${dev}/training-ground`, "development/training-ground");
     await expect(page.getByTestId("module-screen")).not.toContainText(ENGINE_WORDS);
+    await expect(page.getByTestId("module-screen")).toContainText("Working now");
+    await expect(page.getByRole("tab", { name: "Terminal" })).toHaveCount(0);
+    await expect(page.getByRole("tab", { name: "Diff" })).toHaveCount(0);
+    await expect(page.getByRole("log", { name: /Terminal output/ })).toHaveCount(0);
+    await expect(page.getByRole("radio", { name: "Task graph" })).toHaveCount(0);
+  });
+
+  test("off: What changed and Live product read in the founder's words, with no PR numbers, branches or commits", async ({ page }) => {
+    await openBusiness(page);
+    // The Live feed on Home names no cycle and no pull request number.
+    await expect(page.getByTestId("app-shell")).not.toContainText(/\bCycle \d+|Merged PR #\d+/);
+    const dev = await departmentBase(page, /development/i);
+
+    await openTab(page, `${dev}/pull-requests`, "development/pull-requests");
+    const screen = page.getByTestId("module-screen");
+    await expect(page.getByRole("grid", { name: "Waiting for your go-ahead" })).toBeVisible({ timeout: LONG });
+    await expect(page.getByRole("grid", { name: "Gone live" })).toBeVisible();
+    await expect(page.getByTestId("what-changed-waiting")).toContainText("Waiting for your go-ahead");
+    await expect(page.getByTestId("what-changed-live")).toContainText("Gone live");
+    await expect(page.getByRole("grid", { name: "Open pull requests" })).toHaveCount(0);
+    // The seed's done code tasks are listed as put live, each with its date.
+    await expect(page.getByRole("grid", { name: "Gone live" }).getByText(/^Put live [A-Z][a-z]{2} \d{1,2}(, \d{4})?$/).first()).toBeVisible({ timeout: LONG });
+    await expect(screen).not.toContainText(/#\d+|agent\/|\bMerged\b|\bBranch\b|\bCommit\b|pull request/i);
+
+    await openTab(page, `${dev}/environments`, "development/environments");
+    const card = page.getByTestId("live-product-card");
+    await expect(card).toBeVisible({ timeout: LONG });
+    await expect(card).toContainText("Your live product");
+    await expect(page.getByRole("grid", { name: "Previews of changes" })).toBeVisible();
+    await expect(page.getByRole("grid", { name: "Environments" })).toHaveCount(0);
+    await expect(page.getByTestId("module-screen")).not.toContainText(/agent\/|\bBranch\b|\bCommit\b|\bProvider\b|Vercel|Netlify|Railway/);
   });
 
   test("Settings › Preferences turns it on: the engine comes back, then off again", async ({ page }) => {
@@ -90,6 +122,12 @@ test.describe("Builder view", () => {
     await expect(page.getByRole("tab")).toHaveText(["Live sessions", "Plan", "Pull requests", "Code", "Environments", "Specialists"]);
     await openTab(page, `${dev}/code`, "development/code");
     await expect(page.getByTestId("builder-gate")).toHaveCount(0);
+    // The change and preview lists are the builder's tables again.
+    await openTab(page, `${dev}/pull-requests`, "development/pull-requests");
+    await expect(page.getByRole("grid", { name: "Merged pull requests" })).toBeVisible({ timeout: LONG });
+    await expect(page.getByRole("grid", { name: "Waiting for your go-ahead" })).toHaveCount(0);
+    await openTab(page, `${dev}/environments`, "development/environments");
+    await expect(page.getByRole("grid", { name: "Environments" })).toBeVisible({ timeout: LONG });
     await openTab(page, `${team}/squad`, "team/squad");
     const teamTabs = await page.getByRole("tab").allTextContents();
     expect(teamTabs).toEqual(expect.arrayContaining(["Health", "Hierarchy"]));

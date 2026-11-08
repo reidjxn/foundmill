@@ -437,14 +437,43 @@ export const devRouter = router({
     list: read.query(({ ctx }) =>
       ctx.rls(async (tx) => {
         const [tasks, events] = await Promise.all([repos.tasks.list(tx, ctx.businessId, { kind: "code", status: ["review", "merging", "done"], limit: 200 }), repos.events.list(tx, ctx.businessId, { type: "pr.merged", limit: 200 })]);
-        const fromGitHub: MergedPr[] = events.items.map((e) => ({ ...(e.payload as Record<string, unknown>), eventId: e.id, occurredAt: e.occurredAt, source: "github" as const }));
+        // Each merged row carries its task's founder title and agent (Builder view off reads "Gone live: <founder title>").
+        const byTask = new Map(tasks.items.map((t) => [t.id, t]));
+        const fromGitHub: MergedPr[] = events.items.map((e) => {
+          const payload = e.payload as Record<string, unknown>;
+          const task = typeof payload.taskId === "string" ? byTask.get(payload.taskId) : undefined;
+          return { ...payload, founderTitle: task?.founderTitle ?? null, agentId: task?.assigneeAgentId ?? null, eventId: e.id, occurredAt: e.occurredAt, source: "github" as const };
+        });
         const reported = new Set(fromGitHub.map((m) => m.taskId).filter((id): id is string => typeof id === "string"));
         const fromQueue: MergedPr[] = tasks.items
           .filter((t) => t.status === "done" && !reported.has(t.id))
-          .map((t) => ({ eventId: null, occurredAt: t.endedAt ?? t.updatedAt, source: "merge_queue" as const, taskId: t.id, title: t.title, branch: agentBranch(t.id), mergedBy: t.assigneeAgentId ? { kind: "agent", id: t.assigneeAgentId } : { kind: "system", id: null } }));
+          .map((t) => ({ eventId: null, occurredAt: t.endedAt ?? t.updatedAt, source: "merge_queue" as const, taskId: t.id, title: t.title, founderTitle: t.founderTitle, agentId: t.assigneeAgentId, branch: agentBranch(t.id), mergedBy: t.assigneeAgentId ? { kind: "agent", id: t.assigneeAgentId } : { kind: "system", id: null } }));
         return {
           open: tasks.items.filter((t) => t.status !== "done").map((t) => ({ taskId: t.id, title: t.title, founderTitle: t.founderTitle, status: t.status, kind: t.kind, branch: agentBranch(t.id), agentId: t.assigneeAgentId })),
           merged: [...fromGitHub, ...fromQueue].sort((a, b) => new Date(b.occurredAt).getTime() - new Date(a.occurredAt).getTime()),
+        };
+      }),
+    ),
+  }),
+
+  deployments: router({
+    /**
+     * The business's recent deployments, newest first, from its `deploy.succeeded` events (there is no deployment table,
+     * BUILD §8.3): what Development › Live product reads after a reload, so "Your live product" and its previews do not
+     * wait for the next live event. Each row carries its task's founder title when the deployment belongs to a task.
+     */
+    list: read.input(z.object({ limit: z.number().int().min(1).max(200).optional() })).query(({ ctx, input }) =>
+      ctx.rls(async (tx) => {
+        const events = await repos.events.list(tx, ctx.businessId, { type: "deploy.succeeded", limit: input.limit ?? 100 });
+        const taskIds = [...new Set(events.items.map((e) => (e.payload as { taskId?: unknown }).taskId).filter((id): id is string => typeof id === "string"))];
+        const tasks = taskIds.length ? await repos.tasks.list(tx, ctx.businessId, { kind: "code", limit: 500 }) : { items: [] as Task[] };
+        const byTask = new Map(tasks.items.map((t) => [t.id, t]));
+        return {
+          items: events.items.map((e) => {
+            const p = e.payload as { taskId?: string | null; environment: "preview" | "staging" | "production"; provider: string; url: string | null; commitSha: string; branch?: string | null };
+            const task = p.taskId ? byTask.get(p.taskId) : undefined;
+            return { eventId: e.id, occurredAt: e.occurredAt, taskId: p.taskId ?? null, environment: p.environment, provider: p.provider, url: p.url ?? null, commitSha: p.commitSha, branch: p.branch ?? null, title: task?.title ?? null, founderTitle: task?.founderTitle ?? null };
+          }),
         };
       }),
     ),

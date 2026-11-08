@@ -33,6 +33,14 @@ describe("founder titles (0070)", () => {
     expect(prs.open.find((p) => p.taskId === display.id)).toMatchObject({ founderTitle: "Fix a display bug in the checkout page" });
   });
 
+  it("a merged change carries its task's founder title and agent, for the founder's What changed list", async () => {
+    const owner = hz.caller({ userId: hz.A.ownerId });
+    const done = await repos.tasks.create(hz.db, hz.A.businessId, { kind: "code", title: "Merge the pricing page fix", status: "done" });
+    await repos.tasks.update(hz.db, hz.A.businessId, done.id, { founderTitle: "Fix the pricing page" });
+    const prs = await owner.dev.prs.list({ businessId: hz.A.businessId });
+    expect(prs.merged.find((m) => m.taskId === done.id)).toMatchObject({ title: "Merge the pricing page fix", founderTitle: "Fix the pricing page", source: "merge_queue" });
+  });
+
   it("the approval note names the task in the founder's words once there are any", async () => {
     const task = await repos.tasks.create(hz.db, hz.A.businessId, { kind: "code", title: "Open a PR for the usage export", status: "review" });
     expect(await approvalTaskTitle(hz.db, hz.A.businessId, { taskId: task.id })).toBe("Open a PR for the usage export");

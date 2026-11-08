@@ -46,6 +46,49 @@ describe("sessionPill", () => {
     expect(sessionPill({ status: "failed", phase: "implementing" }).tone).toBe("bad");
   });
 
+  it("Builder view off reads the phases in the founder's words", () => {
+    const off = { builder: false };
+    expect(sessionPill({ status: "running", phase: "implementing" }, off).word).toBe("Building");
+    expect(sessionPill({ status: "running", phase: "testing" }, off).word).toBe("Checking");
+    expect(sessionPill({ status: "review", phase: "review" }, off).word).toBe("Being checked");
+    expect(sessionPill({ status: "merging", phase: "merge" }, off).word).toBe("Putting live");
+    expect(sessionPill({ status: "running", phase: "planning" }, off).word).toBe("Planning");
+    expect(sessionPill({ status: "blocked", phase: "testing" }, off).word).toBe("Waiting");
+  });
+});
+
+describe("AgentTile with Builder view off (Working now)", () => {
+  const renderOff = (ui: ReactElement) => rtlRender(<BuilderViewProvider on={false}>{ui}</BuilderViewProvider>);
+
+  it("keeps the agent, the task, progress, elapsed and the cost Estimate; no terminal, diff, tokens or ETA", () => {
+    renderOff(<AgentTile session={session} now={NOW} terminalRenderer="plain" diffEngine="local" />);
+    expect(screen.getByRole("article", { name: /Juno: Add a bundle picker/ })).toBeTruthy();
+    expect(screen.getByText("Checking")).toBeTruthy();
+    expect(screen.getByRole("progressbar", { name: /Progress/ })).toBeTruthy();
+    expect(screen.getAllByRole("tab").map((t) => t.getAttribute("aria-label"))).toEqual(["Plan", "Preview"]);
+    expect(screen.queryByRole("log", { name: /Terminal output/ })).toBeNull();
+    // The tile opens on the plan (the default terminal view is the builder's), without the acceptance tally.
+    expect(screen.getByText("Write Playwright tests")).toBeTruthy();
+    expect(document.querySelector("[data-plan-tests]")).toBeNull();
+    const footer = screen.getByTestId("tile-footer");
+    expect(footer.textContent).toContain("12m 00s");
+    expect(footer.textContent).toContain("Estimate");
+    expect(footer.textContent).not.toMatch(/tokens|ETA/);
+  });
+
+  it("offers Nudge and the other controls, but not Open in Claude Code", async () => {
+    const user = userEvent.setup();
+    const controls = { onPause: vi.fn(), onShout: vi.fn(), onOpenInClaudeCode: vi.fn() };
+    renderOff(<AgentTile session={session} view="terminal" now={NOW} terminalRenderer="plain" controls={controls} />);
+    const toolbar = screen.getByRole("toolbar", { name: /Controls for Juno/ });
+    expect(within(toolbar).queryByRole("button", { name: "Open in Claude Code" })).toBeNull();
+    // A controlled builder view falls back to the first founder view.
+    expect(screen.getByRole("tab", { name: "Plan" }).getAttribute("aria-selected")).toBe("true");
+    await user.click(within(toolbar).getByRole("button", { name: /Nudge Juno/ }));
+    await user.click(await screen.findByRole("menuitem", { name: /Focus on tests/ }));
+    expect(controls.onShout).toHaveBeenCalledWith("session-1", { preset: "focus_on_tests", text: "Focus on tests" });
+  });
+
   it("isInteractiveTarget detects buttons and links", () => {
     const root = document.createElement("div");
     root.innerHTML = '<div><button><span id="s"></span></button><p id="p"></p></div>';
