@@ -428,6 +428,13 @@
       "when": 1796127240000,
       "tag": "0072_goals",
       "breakpoints": true
+    },
+    {
+      "idx": 61,
+      "version": "7",
+      "when": 1796127300000,
+      "tag": "0073_founder_devices",
+      "breakpoints": true
     }
   ]
 }

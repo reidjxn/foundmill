@@ -414,6 +414,24 @@ export const DEFAULT_DATE_FORMAT_PREFS: Readonly<DateFormatPrefs> = Object.freez
 export const GUIDANCE_MODES = ["on", "off"] as const;
 export type GuidanceMode = (typeof GUIDANCE_MODES)[number];
 
+/**
+ * The mobile companion app (docs/mobile, founder 2026-11-08). A signed-in person's phones register for push
+ * (`founder_devices`, 0073): the platform, the push provider the app ships with and the provider's subscription id.
+ */
+export const DEVICE_PLATFORMS = ["ios", "android"] as const;
+export type DevicePlatform = (typeof DEVICE_PLATFORMS)[number];
+export const PUSH_PROVIDERS = ["onesignal"] as const;
+export type PushProvider = (typeof PUSH_PROVIDERS)[number];
+/**
+ * What a phone may be told about (Settings › Preferences › Notifications in the app; `account_preferences.notifications`,
+ * 0073): a note that needs an answer, a go-ahead request, a customer won, an agent down, a runway threshold, a run of
+ * cycles finished, the goal reached. Every kind is on until the person turns it off.
+ */
+export const NOTIFICATION_KINDS = ["decision", "approval", "customer", "agent_down", "runway", "run_finished", "goal"] as const;
+export type NotificationKind = (typeof NOTIFICATION_KINDS)[number];
+export type NotificationPrefs = Record<NotificationKind, boolean>;
+export const DEFAULT_NOTIFICATION_PREFS: Readonly<NotificationPrefs> = Object.freeze({ decision: true, approval: true, customer: true, agent_down: true, runway: true, run_finished: true, goal: true });
+
 /** The account's type size (`account_preferences.text_size`, 0064): comfortable grows body and small text; the structure keeps its sizes. */
 export const TEXT_SIZES = ["standard", "comfortable"] as const;
 export type TextSize = (typeof TEXT_SIZES)[number];

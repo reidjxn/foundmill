@@ -18,7 +18,8 @@ Keep these four values in `app.json` under `expo.extra` and read them from one `
 ## 1. Sign-in
 
 - The founder types an email. Call `supabase.auth.signInWithOtp({ email, options: { emailRedirectTo: "foundmill://auth/callback", shouldCreateUser: true } })`.
-- Show a six-digit code screen. The email carries both a link and a code. Verify a typed code with `supabase.auth.verifyOtp({ email, token, type: "email" })`. If the person taps the link instead, the app opens on `foundmill://auth/callback?...`; hand the URL to `supabase.auth.exchangeCodeForSession` (PKCE `code`) or `verifyOtp` with the `token_hash` it carries.
+- Show a six-digit code screen. The email carries both a link and a code; both expire after 15 minutes and work once. Verify a typed code with `supabase.auth.verifyOtp({ email, token, type: "email" })`. If the person taps the link instead, the app opens on `foundmill://auth/callback?...`; hand the URL to `supabase.auth.exchangeCodeForSession` (PKCE `code`) or `verifyOtp` with the `token_hash` it carries.
+- Send `x-foundmill-client: mobile/<app version> <ios|android>` on every API request (letters, digits, dots, slashes and dashes only). The API logs it so mobile traffic can be told apart; it grants nothing.
 - Persist the session in `expo-secure-store` through a custom storage adapter passed to `createClient`. Turn on `autoRefreshToken` and `persistSession`; turn off `detectSessionInUrl` (we handle the deep link ourselves).
 - The API wants `Authorization: Bearer <access_token>` on every call. Read the current token with `supabase.auth.getSession()` right before each request; the SDK refreshes it. Never cache a token for longer than one request.
 - The API accepts only tokens whose email was proven by an inbox method (magic link, OTP, invite, recovery). Anonymous sessions are refused. There is no password, Google, Apple or GitHub sign-in on Foundmill. Do not add any. Do not add Newly Backend sign-in.
@@ -138,7 +139,9 @@ Q = query (GET), M = mutation (POST). Every call below also takes `businessId` u
 
 - `founder.businesses.list` Q P → the businesses the person belongs to, with role, logo and `isDemo`.
 - `founder.profile.get` Q P, `founder.profile.update` M P.
-- `founder.preferences.get` Q P, `founder.preferences.update` M P (`guidance`, `textSize`, `dateFormat`, `anthropomorphicAgents`, `agentStyle`).
+- `founder.preferences.get` Q P → `{ date, time }`; `founder.preferences.guidance` Q P → `{ guidance, textSize, explainersSeen, toursDone, checklistDismissedAt, anthropomorphicAgents, agentStyle }`; `founder.preferences.notifications` Q P → `{ notifications: { decision, approval, customer, agent_down, runway, run_finished, goal }, hideAmountsOnLockScreen }` (every kind true until turned off).
+- `founder.preferences.update` M P takes any of `date`, `time`, `guidance`, `textSize`, `anthropomorphicAgents`, `agentStyle`, `notifications` (a partial map of the kinds above to booleans; kinds merge over what is stored), `hideAmountsOnLockScreen`, and answers the whole preferences row.
+- `founder.devices.list` Q P → `[{ id, platform, provider, token, appVersion, lastSeenAt, createdAt }]`, newest first; `founder.devices.register` M P `{ platform: "ios" | "android", provider: "onesignal", token, appVersion }` → `{ device, created }` (call after sign-in and on every launch; a token another account held on this phone moves to this one); `founder.devices.unregister` M P `{ token }` → `{ removed }` (call on sign-out).
 - `business.example.get` Q P, `business.example.open` M P (joins the read-only example business), `business.example.leave` M P.
 - `business.listArchived` Q P.
 
@@ -250,7 +253,7 @@ Note bodies and chat bubbles are markdown with entity mentions: `[[ent:<uuid>|Di
 
 ## 9. Push notifications (two steps)
 
-1. In the app: OneSignal through Newly's integration. On sign-in, read the OneSignal subscription id and send it to `founder.devices.register` M P `{ platform: "ios" | "android", provider: "onesignal", token, appVersion }`; on sign-out call `founder.devices.unregister` M P `{ token }`. **These two procedures are being added by Foundmill.** Until they answer, treat a `NOT_FOUND` from them as "not yet" and carry on quietly; do not block sign-in on them.
-2. On the server Foundmill sends pushes for: a note that needs an answer, a go-ahead request, a customer won, an agent down, runway thresholds, a run finished, goal reached. The payload will carry `{ businessId, kind, itemId?, journeyId? }` and the app routes on it: `kind: "inbox"` opens the note, `"journey"` opens the Customer Update, `"team"` opens the agent, anything else opens Today of that business.
+1. In the app: OneSignal through Newly's integration. On sign-in and on every launch, read the OneSignal subscription id and send it to `founder.devices.register` M P `{ platform: "ios" | "android", provider: "onesignal", token, appVersion }`; on sign-out call `founder.devices.unregister` M P `{ token }`. Both exist (Nov 8, 2026). Never block sign-in on them: a failure is logged and retried on the next launch. The per-kind switches live in `founder.preferences.notifications` / `founder.preferences.update`.
+2. On the server Foundmill sends pushes for: a note that needs an answer (`decision`), a go-ahead request (`approval`), a customer won (`customer`), an agent down (`agent_down`), runway thresholds (`runway`), a run finished (`run_finished`), goal reached (`goal`). **The sending side is still being built by Foundmill**; registration works today and pushes start arriving when it ships. The payload will carry `{ businessId, kind, itemId?, journeyId?, agentId? }` and the app routes on it: `kind: "inbox"` opens the note, `"journey"` opens the Customer Update, `"team"` opens the agent, anything else opens Today of that business.
 
 While the app is in the foreground the stream already delivers these; show in-app toasts and skip local notifications.

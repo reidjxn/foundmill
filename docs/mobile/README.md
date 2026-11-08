@@ -23,7 +23,7 @@ This folder is everything Newly (app.newly.app) needs to build the Foundmill iOS
 5. **Connect GitHub early** (Integrations › GitHub, a new private repository `foundmill-mobile` under the founder's account). Then `AGENTS.md` and `.skills/` can also be edited in the repo and sync both ways, and every chat turn is versioned outside Newly.
 6. **Follow `PROMPTS.md` in order.** Use the mode in each heading. After each Build step open the preview, check the acceptance list, and attach a screenshot with the next message when something is off. Prefer Ask mode to diagnose; use Restore to here rather than piling fixes.
 7. **Test against the example business first.** After sign-in, tap Explore an example (Northwind Skincare). It is read-only, so decisions and Continue must be tested on a real business of the founder's own.
-8. **Do the Foundmill-side work in parallel.** `BACKEND_CHANGES.md` lists it. The first four items (Supabase redirect URL, OTP code in the email template, the mobile origin in the API's allowed origins, the device-registration procedures) gate prompts 3 and 13.
+8. **Do the Foundmill-side work in parallel.** `BACKEND_CHANGES.md` lists it. The gating items (the Supabase redirect URL and OTP code, the API's acceptance of a native client, the device-registration procedures) are in the repo as of Nov 8, 2026; the Supabase settings still need `supabase config push` by the founder before prompt 3's sign-in test, and the push fan-out (item 4) is the remaining backend work before pushes arrive.
 
 ## Why the crawler is not enough
 

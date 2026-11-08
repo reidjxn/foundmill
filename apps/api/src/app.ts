@@ -92,6 +92,16 @@ export function trpcBodyLimitFor(pathname: string): number {
   return trpcPaths(pathname).some((p) => LOGO_UPLOAD_PROCEDURES.has(p)) ? LIMITS.trpcMaxLogoBodyBytes : LIMITS.trpcMaxBodyBytes;
 }
 
+/**
+ * The `x-foundmill-client` header as the request log records it: a short, printable token such as `mobile/1.0.0 ios`,
+ * or null when the request carries none (the web) or something that is not one (never log an arbitrary header).
+ */
+export function clientOf(header: string | undefined): string | null {
+  if (!header) return null;
+  const value = header.trim();
+  return /^[A-Za-z0-9._/+-]+(?: [A-Za-z0-9._/+-]+){0,2}$/.test(value) && value.length <= 64 ? value : null;
+}
+
 export function createApp(deps: ApiDeps) {
   const app = new Hono<{ Variables: AppVariables }>();
   const origins = allowedOrigins(deps.env);
@@ -112,14 +122,16 @@ export function createApp(deps: ApiDeps) {
         span.setAttributes({ "http.status_code": c.res.status });
       }, { kind: 2, parent: c.req.header("traceparent") ?? undefined });
     }
-    if (path !== "/health") deps.log.info({ requestId, method: c.req.method, path, status: c.res.status, ms: Date.now() - started }, "request");
+    // `client`: which client sent it when it says so (the mobile app sends `x-foundmill-client: mobile/<version> <platform>`,
+    // docs/mobile); the web sends nothing. Lets mobile traffic be told apart in the logs and the rate-limit reports.
+    if (path !== "/health") deps.log.info({ requestId, method: c.req.method, path, status: c.res.status, ms: Date.now() - started, client: clientOf(c.req.header("x-foundmill-client")) }, "request");
   });
 
   app.use(
     "*",
     cors({
       origin: (origin) => (origin && origins.includes(origin) ? origin : null),
-      allowHeaders: ["authorization", "content-type", "x-request-id", "trpc-accept", "x-trpc-source"],
+      allowHeaders: ["authorization", "content-type", "x-request-id", "trpc-accept", "x-trpc-source", "x-foundmill-client"],
       allowMethods: ["GET", "POST", "OPTIONS"],
       exposeHeaders: ["x-request-id"],
       credentials: true,

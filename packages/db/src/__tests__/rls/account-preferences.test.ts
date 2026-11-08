@@ -70,7 +70,8 @@ describe("account_preferences (table)", () => {
 });
 
 /** The defaults everyone reads until they choose. */
-const DEFAULTS = { date: "us", time: "12h", guidance: "on", textSize: "standard", explainersSeen: {}, toursDone: {}, checklistDismissedAt: null, anthropomorphicAgents: false, agentStyle: "humans" };
+const NOTIFICATIONS_ON = { decision: true, approval: true, customer: true, agent_down: true, runway: true, run_finished: true, goal: true };
+const DEFAULTS = { date: "us", time: "12h", guidance: "on", textSize: "standard", explainersSeen: {}, toursDone: {}, checklistDismissedAt: null, anthropomorphicAgents: false, agentStyle: "humans", notifications: NOTIFICATIONS_ON, hideAmountsOnLockScreen: false };
 
 describe("repos.preferences under RLS", () => {
   it("reads the defaults without writing a row, then upserts only what changed", async () => {
@@ -128,6 +129,20 @@ describe("repos.preferences: the guided layer (0064)", () => {
     // A reset on an account with no row yet reads as the defaults too.
     const hal = await h.createUser("hal@test.local");
     expect(await h.asUser(hal).run((tx) => preferencesRepo.update(tx, hal, { reset: true }))).toEqual(DEFAULTS);
+  });
+
+  it("0073: notification kinds merge over the defaults, the lock-screen switch saves alone, a reset keeps both, unknown kinds are refused", async () => {
+    const ivy = await h.createUser("ivy@test.local");
+    expect(await h.asUser(ivy).run((tx) => preferencesRepo.update(tx, ivy, { notifications: { customer: false } }))).toEqual({ ...DEFAULTS, notifications: { ...NOTIFICATIONS_ON, customer: false } });
+    expect(await h.asUser(ivy).run((tx) => preferencesRepo.update(tx, ivy, { notifications: { run_finished: false }, hideAmountsOnLockScreen: true }))).toEqual({ ...DEFAULTS, notifications: { ...NOTIFICATIONS_ON, customer: false, run_finished: false }, hideAmountsOnLockScreen: true });
+    // Turning a kind back on overwrites the stored choice; the stored map holds only what was chosen.
+    expect(await h.asUser(ivy).run((tx) => preferencesRepo.update(tx, ivy, { notifications: { customer: true } }))).toMatchObject({ notifications: { ...NOTIFICATIONS_ON, run_finished: false } });
+    expect((await h.service().run((tx) => tx.select({ n: s.accountPreferences.notifications }).from(s.accountPreferences).where(eq(s.accountPreferences.userId, ivy))))[0]!.n).toEqual({ customer: true, run_finished: false });
+    expect(await h.asUser(ivy).run((tx) => preferencesRepo.update(tx, ivy, { reset: true }))).toMatchObject({ notifications: { ...NOTIFICATIONS_ON, run_finished: false }, hideAmountsOnLockScreen: true });
+    await expect(h.asUser(ivy).run((tx) => preferencesRepo.update(tx, ivy, { notifications: {} }))).rejects.toThrow(/Invalid preferences/);
+    await expect(h.asUser(ivy).run((tx) => preferencesRepo.update(tx, ivy, { notifications: { marketing: true } } as never))).rejects.toThrow(/Invalid preferences/);
+    await expect(h.asUser(ivy).run((tx) => preferencesRepo.update(tx, ivy, { notifications: { customer: "no" } } as never))).rejects.toThrow(/Invalid preferences/);
+    await expect(h.asUser(ivy).run((tx) => preferencesRepo.update(tx, ivy, { hideAmountsOnLockScreen: "yes" } as never))).rejects.toThrow(/Invalid preferences/);
   });
 
   it("refuses unknown modes, a mark that is not true, too many marks, and a reset that also marks", async () => {

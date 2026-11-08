@@ -10,4 +10,17 @@ additional_redirect_urls = [
   "https://foundmill.vercel.app/**",
   "https://*-fm-2f083c2b.vercel.app/**",
   "http://localhost:3000/**",
+  # The mobile companion app (docs/mobile): a magic link tapped on the phone opens the app on its own scheme.
+  "foundmill://auth/callback",
 ]
+
+[auth.email]
+# The mobile app signs in by typing the six-digit code from the email (`verifyOtp` with type "email"); the link in the
+# same message keeps working on the web. 15 minutes is enough to type a code and short enough for a link left in an inbox.
+otp_length = 6
+otp_expiry = 900
+
+# One template for every client: the link (which carries `emailRedirectTo`, docs/DEPLOY.md §2) and the code. Copy in US English.
+[auth.email.template.magic_link]
+subject = "Sign in to Foundmill"
+content_path = "./supabase/templates/magic_link.html"

@@ -169,6 +169,8 @@ export const NON_TENANT_TABLES = [
   "businesses",
   "founder_profiles",
   "account_preferences",
+  // 0073: a person's phones (user-owned, no business_id); covered by rls/founder-devices.test.ts.
+  "founder_devices",
   "ideas",
   "idea_versions",
   "idea_comparisons",

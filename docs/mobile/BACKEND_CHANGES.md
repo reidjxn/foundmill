@@ -1,27 +1,25 @@
 # What Foundmill must add or configure for the mobile app
 
-The mobile app is a second client of the existing backend. Nothing below changes a product rule; each item makes an existing capability reachable from a native app, or adds the one thing no client has needed before (push). Items 1–4 gate the first sign-in and the push step of the Newly sequence (`PROMPTS.md` 3 and 13).
+The mobile app is a second client of the existing backend. Nothing below changes a product rule; each item makes an existing capability reachable from a native app, or adds the one thing no client has needed before (push). Items 1–3 gate the first sign-in and the push step of the Newly sequence (`PROMPTS.md` 3 and 13) and were done on Nov 8, 2026 (status per item); item 4 is the next piece of backend work.
 
-## 1. Supabase Auth: mobile redirect and the one-time code
+## 1. Supabase Auth: mobile redirect and the one-time code ✅ in the repo, ⬜ pushed
 
-- Add `foundmill://auth/callback` to Authentication › URL Configuration › Redirect URLs on the `foundermanager` project. Keep the web callback.
-- The magic-link email template must also carry the six-digit code: include `{{ .Token }}` next to the link in the "Magic Link" template, so `verifyOtp({ type: "email" })` works from the phone. The API already accepts `amr` values `otp` and `magiclink` (`apps/api/src/auth.ts`), so no API change is needed.
-- Decide the OTP expiry (Supabase default 1 hour; 10 minutes is enough for a code typed on a phone).
+- `supabase/config.toml` now lists `foundmill://auth/callback` among the redirect URLs, sets the email OTP to 6 digits and 900 seconds, and points the Magic Link template at `supabase/templates/magic_link.html`, which carries both `{{ .ConfirmationURL }}` (the link) and `{{ .Token }}` (the code the phone types). The API already accepts `amr` values `otp` and `magiclink` (`apps/api/src/auth.ts`), so no API change was needed.
+- **Left for the founder:** run `supabase link --project-ref sdruubitufjqibsjyxlc` once and `supabase config push` from the repo root (Supabase CLI 2.x; it shows the diff and asks), or set the three in the dashboard (Auth › URL Configuration; Auth › Providers › Email; Auth › Emails › Templates › Magic Link). docs/DEPLOY.md §4 and its status table say which.
 
-## 2. API: allow the native client
+## 2. API: allow the native client ✅
 
-- CORS does not apply to a native app, but the API's origin checks on streaming procedures and the same-origin query path should be reviewed: the mobile client sends every call, including reads, straight to `https://api.foundmill.com/trpc` with a bearer. Confirm `apps/api` accepts bearer-only requests with no `Origin` header on all procedures (it should; the web's server renders already do this).
-- Add `User-Agent` / `x-foundmill-client: mobile/<version>` to the request log so mobile traffic is distinguishable in Railway logs and rate-limit reports.
+- Checked: the CORS layer only adds headers for a browser origin; a request with no `Origin` and a bearer passes through to every procedure (`apps/api/src/__tests__/cors-origins.test.ts`, "a native client without an Origin"). The mobile client sends every call, reads included, straight to `https://api.foundmill.com/trpc`.
+- The request log now records `x-foundmill-client` (`mobile/<version> <platform>`, printable and at most 64 characters; anything else logs as null), so mobile traffic is distinguishable in Railway logs; the header is also on the CORS allow list.
 
-## 3. Device registration (new, `apps/api/src/routers/founder.ts`)
+## 3. Device registration ✅ (`packages/db/migrations/0073_founder_devices.sql`, `repos/devices.ts`, `apps/api/src/routers/founder.ts`)
 
-Two person-level procedures, both `protectedProcedure`:
+- `founder_devices`: `id`, `user_id`, `platform` (ios | android), `provider` (onesignal), `token` unique (8–512 chars), `app_version`, `last_seen_at`, timestamps. Account-scoped; RLS `user_id = auth.uid()` for select, insert, update and delete; the service role reads them all. Cross-user tests in `packages/db/src/__tests__/rls/founder-devices.test.ts` and `apps/api/src/__tests__/founder-devices.test.ts`.
+- `founder.devices.list` Q, `founder.devices.register` M `{ platform, provider, token, appVersion }` → `{ device, created }` (an upsert on the token, run with the service role so a token follows the latest sign-in on a phone), `founder.devices.unregister` M `{ token }` → `{ removed }`.
+- `account_preferences.notifications` (jsonb, a partial map of the seven kinds; absent is on) and `hide_amounts_on_lock_screen`; `founder.preferences.notifications` Q answers the merged map and the switch; `founder.preferences.update` takes `notifications` (kinds merge) and `hideAmountsOnLockScreen`. `NOTIFICATION_KINDS` and `DEFAULT_NOTIFICATION_PREFS` live in `packages/shared/src/constants.ts`.
+- `repos.devices.forUsers(db, userIds)` is the read the push fan-out (item 4) will use.
 
-- `founder.devices.register` M `{ platform: "ios" | "android", provider: "onesignal", token: string, appVersion: string }` → upserts into a new table `founder_devices` (`id`, `user_id`, `platform`, `provider`, `token` unique, `app_version`, `last_seen_at`, `created_at`). Not business-scoped (a person's devices follow them across businesses), so RLS is `user_id = auth.uid()`; add the cross-user test anyway.
-- `founder.devices.unregister` M `{ token }` → deletes the row.
-- Also store the per-kind notification switches on `account_preferences.notifications` (JSON: `{ decision, approval, customer, agent_down, runway, run_finished, goal }` booleans, default all on) and `account_preferences.hide_amounts_on_lock_screen` (boolean). Extend `AccountPreferencesPatch` and `founder.preferences.update`.
-
-## 4. Push fan-out (new consumer in `apps/orchestrator` or a small worker next to the api's outbox relay)
+## 4. Push fan-out ⬜ (new consumer in `apps/orchestrator` or a small worker next to the api's outbox relay)
 
 - Consume `ev:*` and `u:*` streams (or the outbox relay directly) for these event types and send a push through OneSignal's REST API **from the gateway** (vendor calls only through `apps/gateway`; add a `onesignal` connector with real and mock implementations, `packages/connectors`): `inbox.item_created` with `blocksContinue` (decision), `approval.requested` (go-ahead), `customer.converted` (customer), `agent.health_changed` to `injured` (agent_down), `runway.threshold_crossed` (runway), `cycle.run_ended` (run_finished), `goal.achieved` (goal).
 - Recipients: every member of the business whose role may read the relevant section, minus anyone whose preference for that kind is off; the person-addressed `u:` signals go to that person only.
