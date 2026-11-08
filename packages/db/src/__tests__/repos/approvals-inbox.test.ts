@@ -235,3 +235,73 @@ describe("tasks waiting on the founder", () => {
     expect((await repos.approvals.holds(r.db, r.A.businessId, [])).size).toBe(0);
   });
 });
+
+describe("approvals must be decidable (first-time founder report, Nov 8, 2026)", () => {
+  it("a GitHub call with no repository connected asks to connect first; with a connection it asks as before", async () => {
+    const noGithub = approvalItem({ connectorKey: "github", tool: "run_migration", reasons: [], amountMinor: null, currency: null, args: { file: "0019_idx.sql" } }, { agentId: r.A.agentId, agentName: "Legal Lead", businessName: "ShiftMate", githubConnected: false });
+    expect(noGithub.subject).toBe("Legal Lead needs GitHub connected: run a change to the data layout");
+    expect(noGithub.body_md).toMatch(/no GitHub repository is connected to ShiftMate yet, so it has nowhere to run\. Connect one first\.$/);
+    const options = noGithub.decision.options as { id: string; label: string; recommended: boolean; consequence: string }[];
+    expect(options.map((o) => [o.id, o.label, o.recommended])).toEqual([
+      [APPROVAL_OPTIONS.reject, "Connect GitHub first", true],
+      [APPROVAL_OPTIONS.approve, "Approve anyway", false],
+    ]);
+    expect(options[0]!.consequence).toMatch(/Settings › Integrations/);
+    // Opened through openApprovalItem the connection is read from the integrations: none in this harness.
+    const task = await newTask("Add the usage index");
+    const session = await newSession(task.id);
+    const a = await repos.approvals.create(r.db, r.A.businessId, { agentId: r.A.agentId, sessionId: session.id, ...call });
+    const opened = await openApprovalItem(r.db, r.A.businessId, a, { agentId: r.A.agentId, agentName: "Legal Lead" });
+    expect(opened.item.subject).toMatch(/^Legal Lead needs GitHub connected/);
+    // A mock installation counts as connected: it has somewhere to run.
+    await repos.integrations.upsert(r.db, r.A.businessId, { connectorKey: "github", status: "mock", accountLabel: "mock installation" });
+    const b = await repos.approvals.create(r.db, r.A.businessId, { agentId: r.A.agentId, sessionId: (await newSession((await newTask("Second index")).id)).id, ...call });
+    const openedB = await openApprovalItem(r.db, r.A.businessId, b, { agentId: r.A.agentId, agentName: "Legal Lead" });
+    expect(openedB.item.subject).toBe("Legal Lead needs your OK: GitHub › run a change to the data layout");
+    await repos.integrations.upsert(r.db, r.A.businessId, { connectorKey: "github", status: "disconnected" });
+  });
+
+  it("a request that says nothing about what it would run asks for the details instead of a yes", () => {
+    const vague = approvalItem({ connectorKey: "sendgrid", tool: "send_mail", reasons: ["contacts a third party"], amountMinor: null, currency: null, args: {} }, { agentId: r.A.agentId, agentName: "Priya", taskTitle: "Reach the first venues" });
+    expect(vague.subject).toBe("Priya asks without saying what: SendGrid › send mail");
+    expect(vague.body_md).toBe(`[[ent:${r.A.agentId}|Priya]] wants to send mail on SendGrid for “Reach the first venues”, but did not say exactly what it would run. Ask for the details before deciding.`);
+    const options = vague.decision.options as { id: string; label: string; recommended: boolean; consequence: string }[];
+    expect(options[0]).toMatchObject({ id: APPROVAL_OPTIONS.reject, label: "Ask for the details", recommended: true });
+    expect(options[0]!.consequence).toBe("Nothing runs; Priya is told to describe exactly what it would run and ask again.");
+    expect(options[1]).toMatchObject({ id: APPROVAL_OPTIONS.approve, label: "Approve anyway", recommended: false });
+    // The same call with its recipient and message is an ordinary question.
+    const told = approvalItem({ connectorKey: "sendgrid", tool: "send_mail", reasons: [], amountMinor: null, currency: null, args: { to: "maria@venue.example", subject: "Shifts", body: "Hi Maria" } }, { agentId: r.A.agentId, agentName: "Priya" });
+    expect(told.subject).toBe("Priya needs your OK: SendGrid › send mail");
+    expect(founderJargonHits(`${vague.subject}. ${vague.body_md}`).map((h) => h.term)).toEqual([]);
+  });
+
+  it("same-kind campaign launches share one decision: the second joins the first's note, which counts them both", async () => {
+    const launch = (channelKey: string, budgetMinor: number) => repos.approvals.create(r.db, r.A.businessId, { agentId: r.A.agentId, connectorKey: "platform", tool: "launch_campaign", args: { campaignId: crypto.randomUUID(), channelKey, assetIds: [] }, reasons: ["first campaign"], amountMinor: budgetMinor, currency: "GBP" });
+    const first = await launch("paid_ads", 60_000);
+    const one = await openApprovalItem(r.db, r.A.businessId, first, { agentId: r.A.agentId, agentName: "Priya", businessName: "ShiftMate" });
+    expect(one.created).toBe(true);
+    expect(one.item.subject).toBe("Priya needs your OK: ShiftMate › launch campaign");
+    const second = await launch("social", 20_000);
+    const two = await openApprovalItem(r.db, r.A.businessId, second, { agentId: r.A.agentId, agentName: "Priya", businessName: "ShiftMate" });
+    expect(two).toMatchObject({ created: false, joined: true });
+    expect(two.item.id).toBe(one.item.id);
+    expect(two.item.subject).toBe("2 channels want to launch a campaign");
+    expect(two.item.bodyMd).toContain("Paid advertising (£600.00), Social media (£200.00), **£800.00** in all");
+    expect((two.item.decision as { options: { label: string; recommended: boolean }[] }).options.map((o) => [o.label, o.recommended])).toEqual([["Approve all", true], ["Reject all", false]]);
+    // A decision waits in Needs you without holding Continue (Nov 7, 2026), batched or not.
+    expect(two.item.blocksContinue).toBe(one.item.blocksContinue);
+    const linked = await repos.approvals.listForInboxItem(r.db, r.A.businessId, one.item.id);
+    expect(linked.map((a) => a.id)).toEqual([first.id, second.id]);
+    expect((await repos.approvals.get(r.db, r.A.businessId, second.id)).inboxItemId).toBe(one.item.id);
+    // Once the note is answered, the next launch opens a note of its own.
+    await repos.inbox.decide(r.db, r.A.businessId, one.item.id, { chosenOption: APPROVAL_OPTIONS.approve, decidedByKind: "user", decidedBy: r.A.ownerId });
+    await repos.approvals.resolve(r.db, r.A.businessId, first.id, { outcome: "approved", byKind: "user", byId: r.A.ownerId });
+    await repos.approvals.resolve(r.db, r.A.businessId, second.id, { outcome: "approved", byKind: "user", byId: r.A.ownerId });
+    const third = await launch("seo", 0);
+    const three = await openApprovalItem(r.db, r.A.businessId, third, { agentId: r.A.agentId, agentName: "Priya", businessName: "ShiftMate" });
+    expect(three.created).toBe(true);
+    expect(three.item.id).not.toBe(one.item.id);
+    // Another business never joins this one's batch.
+    expect(await repos.approvals.listForInboxItem(r.db, r.B.businessId, one.item.id)).toEqual([]);
+  });
+});

@@ -16,7 +16,7 @@
  * Answering never moves money by itself: the approval lets one call run exactly as it was asked, within the amount it
  * named, and only when the agent makes it again; hard gates are never approvals of this kind.
  */
-import { APPROVAL_OPTIONS, approvalAction, approvalArgsText, approvalSection, approvalTaskTitle, founderReasons, isReleaseApproval, repos, type Approval, type DbTx, type InboxItem, type Task } from "@foundmill/db";
+import { APPROVAL_OPTIONS, ASK_FOR_DETAILS_NOTE, approvalAction, approvalArgsText, approvalSection, approvalTaskTitle, approvalWhatExactly, founderReasons, integrationConnected, isReleaseApproval, repos, type Approval, type ApprovalWhat, type ApprovalWhatContext, type DbTx, type InboxItem, type Task } from "@foundmill/db";
 import { ForbiddenError, agentMention, hasSectionAccess, ValidationError, type SectionMembership, type TaskStatus } from "@foundmill/shared";
 import type { BusinessContext } from "../trpc";
 import { audit, emit } from "../trpc";
@@ -75,7 +75,10 @@ const quoted = (title: string) => `“${title.length > 80 ? `${title.slice(0, 77
 /** A task no longer waiting on the answer: running again in another session, or finished another way. */
 const MOVED_ON: ReadonlySet<TaskStatus> = new Set<TaskStatus>(["running", "review", "merging", "done", "stopped"]);
 
-export async function recordApprovalAnswer(tx: DbTx, ctx: BusinessContext, approval: Approval, outcome: ApprovalOutcome, note: string | null): Promise<RecordedAnswer> {
+export async function recordApprovalAnswer(tx: DbTx, ctx: BusinessContext, approval: Approval, outcome: ApprovalOutcome, givenNote: string | null): Promise<RecordedAnswer> {
+  // A rejection of a request that said nothing about what it would run carries the ask for the details, so the agent
+  // reads why and asks again properly (first-time founder report, Nov 8, 2026).
+  const note = givenNote ?? (outcome === "rejected" && !isReleaseApproval(approval) && approvalWhatExactly(approval).empty ? ASK_FOR_DETAILS_NOTE : null);
   // Owners and admins, or the member Team › Responsibilities names for this kind of decision (SEC-7).
   // The handler Responsibilities named when the approval opened answers it (owners and admins can step in).
   assertCanResolveApproval(approval, { userId: ctx.userId, role: ctx.role });
@@ -196,7 +199,9 @@ export async function resolveApproval(ctx: BusinessContext, input: { approvalId:
     const r = await recordApprovalAnswer(tx, ctx, approval, input.outcome, input.note?.trim() || null);
     if (approval.inboxItemId) {
       const item = await repos.inbox.get(tx, ctx.businessId, approval.inboxItemId);
-      if (item.state !== "answered" && item.state !== "archived") await repos.inbox.decide(tx, ctx.businessId, item.id, { chosenOption: input.outcome === "approved" ? APPROVAL_OPTIONS.approve : APPROVAL_OPTIONS.reject, freeText: input.note?.trim() || null, decidedByKind: "user", decidedBy: ctx.userId });
+      // A batched note (several requests, one decision) stays open while a sibling is still unanswered.
+      const siblingsOpen = (await repos.approvals.listForInboxItem(tx, ctx.businessId, item.id)).some((a) => a.id !== approval.id && a.outcome === null);
+      if (item.state !== "answered" && item.state !== "archived" && !siblingsOpen) await repos.inbox.decide(tx, ctx.businessId, item.id, { chosenOption: input.outcome === "approved" ? APPROVAL_OPTIONS.approve : APPROVAL_OPTIONS.reject, freeText: input.note?.trim() || null, decidedByKind: "user", decidedBy: ctx.userId });
     }
     await audit(tx, ctx, { action: "team.approvals.resolve", target: { kind: "approval", id: approval.id }, details: { outcome: input.outcome } });
     return r;
@@ -288,8 +293,33 @@ function handBackWords(why: string | undefined): string {
   }
 }
 
+/**
+ * What exactly the call would run, with what the arguments only name loaded (a campaign and its drafts), for the reading
+ * pane's "What exactly" block (first-time founder report, Nov 8, 2026). Walled from the section the call changes, the
+ * founder's walls hide it as they hide the arguments; walled from Finance, every figure is masked.
+ */
+async function approvalWhatFor(tx: DbTx, businessId: string, approval: Approval, walls: { argsWalled: boolean; financeWalled: boolean }): Promise<ApprovalWhat | null> {
+  if (walls.argsWalled) return null;
+  const context: ApprovalWhatContext = {};
+  const args = (approval.args ?? {}) as Record<string, unknown>;
+  const campaignId = typeof args.campaignId === "string" ? args.campaignId : typeof args.campaign_id === "string" ? args.campaign_id : null;
+  if (approval.tool === "launch_campaign" && campaignId) {
+    const campaign = await repos.campaigns.get(tx, businessId, campaignId).catch(() => null);
+    if (campaign) {
+      context.campaign = { name: campaign.name, goal: campaign.goal, budgetMinor: campaign.budgetMinor === null ? null : Number(campaign.budgetMinor), currency: campaign.currency };
+      const assets = await repos.campaigns.listAssets(tx, businessId, { campaignId }).catch(() => []);
+      context.assets = assets.filter((a) => a.approvalState !== "rejected").map((a) => ({ kind: a.kind, title: a.title, body: a.body }));
+    }
+  }
+  const what = approvalWhatExactly(approval, context);
+  if (!walls.financeWalled) return what;
+  return { ...what, headline: what.headline ? maskFinance(what.headline) : null, rows: what.rows.map((r) => ({ ...r, value: maskFinance(r.value) })) };
+}
+
 export async function approvalView(tx: DbTx, ctx: Pick<BusinessContext, "businessId" | "business" | "membership" | "userId" | "role">, itemId: string) {
-  const approval = await repos.approvals.forInboxItem(tx, ctx.businessId, itemId);
+  const linked = await repos.approvals.listForInboxItem(tx, ctx.businessId, itemId);
+  // The note's request: the oldest of a batch (its subject counts them), the one for an ordinary note.
+  const approval = linked[0];
   if (!approval) return null;
   const [agent, task, session, execution] = await Promise.all([
     approval.agentId ? repos.agents.get(tx, ctx.businessId, approval.agentId).catch(() => null) : Promise.resolve(null),
@@ -302,6 +332,29 @@ export async function approvalView(tx: DbTx, ctx: Pick<BusinessContext, "busines
   const argsWalled = section !== null && !hasSectionAccess(ctx.membership, section, "read");
   const args = argsWalled ? null : approvalArgsText(approval);
   const spends = (approval.amountMinor ?? 0) > 0 && approval.currency !== null;
+  const walls = { argsWalled, financeWalled };
+  const what = await approvalWhatFor(tx, ctx.businessId, approval, walls);
+  // A GitHub call: whether there is anywhere for it to run (null for every other call).
+  const githubConnected = approval.connectorKey === "github" ? integrationConnected(await repos.integrations.getByKey(tx, ctx.businessId, "github")) : null;
+  // A batched note: every request it covers, each with what it would run, so the pane can show one expander per channel.
+  const agents = linked.length > 1 ? new Map((await repos.agents.list(tx, ctx.businessId, { limit: 500 })).items.map((a) => [a.id, a])) : null;
+  const batch =
+    linked.length > 1
+      ? await Promise.all(
+          linked.map(async (a) => {
+            const by = a.agentId ? agents?.get(a.agentId) : null;
+            const money = (a.amountMinor ?? 0) > 0 && a.currency !== null;
+            return {
+              id: a.id,
+              outcome: a.outcome,
+              agent: by ? { id: by.id, name: by.name, role: by.role || null, personaKey: by.personaKey ?? null, layer: by.layer ?? null } : null,
+              action: approvalAction(a, null, ctx.business.name),
+              amount: money && !financeWalled ? { amountMinor: a.amountMinor!, currency: a.currency! } : null,
+              what: await approvalWhatFor(tx, ctx.businessId, a, walls),
+            };
+          }),
+        )
+      : [];
   return {
     id: approval.id,
     outcome: approval.outcome,
@@ -327,5 +380,11 @@ export async function approvalView(tx: DbTx, ctx: Pick<BusinessContext, "busines
     execution,
     section,
     canAnswer: hasSectionAccess(ctx.membership, section ?? "inbox", "write") && canResolveApproval(approval, { userId: ctx.userId, role: ctx.role }),
+    /** What exactly would run (first-time founder report, Nov 8, 2026); null when the reader's walls hide the call's arguments. */
+    what,
+    /** A GitHub call with no repository connected has nowhere to run: the pane says so and points to Settings › Integrations. */
+    githubConnected,
+    /** Every request a batched note covers (empty for an ordinary note): one answer decides them all. */
+    batch,
   };
 }
