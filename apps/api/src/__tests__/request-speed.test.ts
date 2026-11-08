@@ -4,6 +4,7 @@
  * with the same answer as before, `journey.ribbon`'s slim mode, and gzip on tRPC answers that never touches a stream.
  */
 import { repos } from "@foundmill/db";
+import { agentTier, leadAgentIds } from "@foundmill/shared";
 import { createBusinessFixture } from "@foundmill/db/__tests__/rls/fixtures";
 import { TRPCError } from "@trpc/server";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
@@ -132,7 +133,10 @@ describe("department.list", () => {
     const departments = await repos.departments.list(hz.db, bid, { includeHidden: true });
     const agents = await repos.agents.list(hz.db, bid, { limit: 500 });
     const screens = await Promise.all(departments.map((d) => repos.screens.list(hz.db, bid, d.id)));
-    const pick = (a: (typeof agents.items)[number]) => ({ id: a.id, name: a.name, role: a.role, status: a.status, modelKey: a.modelKey, avatarSeed: a.avatarSeed, personaKey: a.personaKey, layer: a.layer });
+    // Leads first: each agent's tier, from the departments' leads and the oldest assistant (the Chief of Staff).
+    const leads = leadAgentIds(departments);
+    const chiefId = agents.items.find((a) => a.layer === "assistant")?.id;
+    const pick = (a: (typeof agents.items)[number]) => ({ id: a.id, name: a.name, role: a.role, status: a.status, modelKey: a.modelKey, avatarSeed: a.avatarSeed, personaKey: a.personaKey, layer: a.layer, tier: agentTier({ ...a, chiefOfStaff: a.layer === "assistant" ? a.id === chiefId : undefined }, leads) });
     const expected = departments.map((d, i) => {
       const lead = agents.items.find((a) => a.id === d.leadAgentId);
       return {

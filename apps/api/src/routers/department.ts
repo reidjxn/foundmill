@@ -1,7 +1,7 @@
 /** department.list/create/update/merge/split/reorder/archive/restore/resetDefaults + screen.* + dashboard.* (BUILD §11.2, §11.13). */
 import { DEPARTMENT_DEFAULTS, getArchetypeSeed } from "@foundmill/agents";
 import { CreateDepartmentInput, repos, ScreenLayout, UpdateDepartmentInput, type DashboardLayout, type Department, type Executor } from "@foundmill/db";
-import { MODULE_KEYS, ValidationError, WRITE_ROLES, type ModuleKey } from "@foundmill/shared";
+import { MODULE_KEYS, ValidationError, WRITE_ROLES, agentTier, leadAgentIds, type ModuleKey } from "@foundmill/shared";
 import { z } from "zod";
 import { DASHBOARD_PRESETS, presetLayout, type DashboardPreset } from "../presets";
 import { moveModuleScreens, syncModuleScreens } from "../services/department-screens";
@@ -70,7 +70,12 @@ export const departmentRouter = router({
         list.push({ id: s.id, slug: s.tabSlug, title: s.title, position: s.position });
         tabsByDepartment.set(s.departmentId, list);
       }
-      const member = (a: (typeof roster)[number]) => ({ id: a.id, name: a.name, role: a.role, status: a.status, modelKey: a.modelKey, avatarSeed: a.avatarSeed, personaKey: a.personaKey, layer: a.layer });
+      // Each agent's tier (packages/shared team-tiers): the founder's lists and counts leave `background` helpers out.
+      const leads = leadAgentIds(departments);
+      // The Chief of Staff is the oldest live assistant; the roster is oldest first.
+      const chiefId = roster.find((a) => a.layer === "assistant")?.id ?? null;
+      const tierOf = (a: (typeof roster)[number]) => agentTier({ id: a.id, layer: a.layer, agentType: a.agentType, chiefOfStaff: a.layer === "assistant" ? a.id === chiefId : undefined }, leads);
+      const member = (a: (typeof roster)[number]) => ({ id: a.id, name: a.name, role: a.role, status: a.status, modelKey: a.modelKey, avatarSeed: a.avatarSeed, personaKey: a.personaKey, layer: a.layer, tier: tierOf(a) });
       return departments.map((d) => {
         const lead = roster.find((a) => a.id === d.leadAgentId);
         return {

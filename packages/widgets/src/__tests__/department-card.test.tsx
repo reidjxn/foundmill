@@ -197,9 +197,9 @@ describe("department card widget", () => {
     const lead = screen.getByRole("button", { name: "Malik (Engineering lead), department lead" });
     lead.click();
     expect(fake.navigations.at(-1)).toBe(`/b/${BID}/agents/${AGENT.atlas}/overview`);
-    // The team strip: the same first names (toSquad keeps the persona key), a background helper keeps its role name.
+    // The team strip: the same first names (toSquad keeps the persona key); a background helper is not in it (Leads first).
     const names = [...container.querySelectorAll("[data-squad-member]")].map((b) => b.getAttribute("aria-label")?.split(",")[0]);
-    expect(names).toEqual(["Mei", "Malik", "Amara", "Cove"]);
+    expect(names).toEqual(["Mei", "Malik", "Amara"]);
   });
 });
 

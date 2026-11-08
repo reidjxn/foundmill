@@ -9,6 +9,7 @@ import { ArrowLeftRight, Bot, Lock, ScrollText, Undo2, UserRound, UserRoundPlus 
 import { Avatar, useAgentPersona, Button, Chip, DataTable, ShellLink, Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, EntityLink, Field, IconButton, MiniTable, Panel, RadioCard, RadioGroup, SimpleSelect, Term, type DataTableColumn, type RowAction, type SavedView } from "@foundmill/dugout";
 import { DECISION_TYPES, type DecisionType } from "@foundmill/shared/constants";
 import { TEAM_CAN_DO_TITLE } from "@foundmill/shared/team-can-do";
+import { isBackgroundAgent } from "@foundmill/shared/team-tiers";
 import { departmentForModule, useDepartments } from "@foundmill/widgets/shared/departments";
 import { routes } from "@foundmill/widgets/shared/routes";
 import { useWidgetData, useWidgetQuery } from "@foundmill/widgets/data";
@@ -117,7 +118,8 @@ export function DelegateDialog({ row, onOpenChange, agents, humans, departments,
   const humanOptions = humans.filter((h) => h.userId !== me.userId).map((h) => ({ value: h.userId, label: memberName(h, me) }));
   // "Malik (Head of Engineering)" with anthropomorphic agents on (the role is in the label), else "Name · Role".
   const persona = useAgentPersona();
-  const agentOptions = agents.filter((a) => !a.archivedAt).map((a) => ({ value: a.id, label: persona.hasPersona(a) ? persona.labelFor(a) : a.role ? `${a.name} · ${a.role}` : a.name }));
+  // Background helpers never decide anything for the founder (Leads first), so they are not offered.
+  const agentOptions = agents.filter((a) => !a.archivedAt && !isBackgroundAgent(a)).map((a) => ({ value: a.id, label: persona.hasPersona(a) ? persona.labelFor(a) : a.role ? `${a.name} · ${a.role}` : a.name }));
   const options = kind === "user" ? humanOptions : agentOptions;
   const deptOptions = [{ value: "all", label: "All departments" }, ...(departments ?? []).filter((d) => !d.hidden).map((d) => ({ value: d.id, label: `Only ${d.name}` }))];
   const confirm = async () => {

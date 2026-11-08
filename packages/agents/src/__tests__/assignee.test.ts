@@ -32,6 +32,14 @@ describe("pickAssignee (lead, 2026-10-24: the cycle and Start by hand choose the
     expect(agentUsable(agent("ok", "backend_engineer", { wageRemainingMinor: 5 }))).toBe(true);
   });
 
+  it("never gives a task to a background helper, even when a planner names one or the task row holds one (Leads first)", () => {
+    const linker = agent("linker", "entity_linker", { layer: "utility" });
+    expect(pickAssignee({ kind: "ops", departmentId: DEV }, [linker])).toBeNull();
+    expect(pickAssignee({ kind: "ops", departmentId: DEV, assigneeAgentId: "linker" }, [linker, backend], { requested: "linker" })?.id).toBe("backend");
+    // The Planner is a specialist: it takes the work it is staffed for.
+    expect(pickAssignee({ kind: "research", departmentId: DEV }, [agent("planner", "planner")])?.id).toBe("planner");
+  });
+
   it("falls back to any worker in the department when none of them does the kind", () => {
     const writer = agent("writer", "copywriter_engine_x", { departmentIds: [DEV] });
     expect(agentFitsKind(writer, "code")).toBe(false);

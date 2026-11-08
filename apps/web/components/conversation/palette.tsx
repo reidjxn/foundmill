@@ -5,7 +5,8 @@
  */
 import type { ReactNode } from "react";
 import type { PaletteItem } from "@foundmill/dugout";
-import type { DeptColourToken } from "@foundmill/shared";
+import type { AgentTier, DeptColourToken } from "@foundmill/shared";
+import { isBackgroundAgent } from "@foundmill/shared/team-tiers";
 import { MODULE_TABS, type ModuleKey } from "@foundmill/shared/constants";
 import { routes } from "@foundmill/widgets/shared/routes";
 
@@ -30,20 +31,20 @@ interface DepartmentForPalette {
   colourToken: string;
   hidden?: boolean;
   moduleKeys: readonly string[];
-  lead?: { id: string; name: string; role: string | null; avatarSeed: string | null; personaKey?: string | null } | null;
-  squad: readonly { id: string; name: string; role: string | null; avatarSeed: string | null; personaKey?: string | null }[];
+  lead?: { id: string; name: string; role: string | null; avatarSeed: string | null; personaKey?: string | null; layer?: string | null; tier?: AgentTier | null } | null;
+  squad: readonly { id: string; name: string; role: string | null; avatarSeed: string | null; personaKey?: string | null; layer?: string | null; tier?: AgentTier | null }[];
   tabs: readonly { slug: string; position: number; title?: string }[];
 }
 
-/** Every agent of the visible departments once, leads first. */
+/** Every agent of the visible departments once, leads first. Background helpers are never asked anything (Leads first). */
 export function paletteAgents(departments: readonly DepartmentForPalette[]): PaletteAgent[] {
   const out = new Map<string, PaletteAgent>();
   const visible = departments.filter((d) => !d.hidden);
   for (const d of visible) {
-    if (d.lead && !out.has(d.lead.id)) out.set(d.lead.id, { id: d.lead.id, name: d.lead.name, role: d.lead.role, avatarSeed: d.lead.avatarSeed || d.lead.id, personaKey: d.lead.personaKey ?? null, dept: d.colourToken as DeptColourToken, departmentName: d.name, lead: true });
+    if (d.lead && !out.has(d.lead.id) && !isBackgroundAgent(d.lead)) out.set(d.lead.id, { id: d.lead.id, name: d.lead.name, role: d.lead.role, avatarSeed: d.lead.avatarSeed || d.lead.id, personaKey: d.lead.personaKey ?? null, dept: d.colourToken as DeptColourToken, departmentName: d.name, lead: true });
   }
   for (const d of visible) {
-    for (const a of d.squad) if (!out.has(a.id)) out.set(a.id, { id: a.id, name: a.name, role: a.role, avatarSeed: a.avatarSeed || a.id, personaKey: a.personaKey ?? null, dept: d.colourToken as DeptColourToken, departmentName: d.name, lead: false });
+    for (const a of d.squad) if (!out.has(a.id) && !isBackgroundAgent(a)) out.set(a.id, { id: a.id, name: a.name, role: a.role, avatarSeed: a.avatarSeed || a.id, personaKey: a.personaKey ?? null, dept: d.colourToken as DeptColourToken, departmentName: d.name, lead: false });
   }
   return [...out.values()];
 }

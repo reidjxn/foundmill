@@ -7,7 +7,7 @@
  * config and shared), so the shapes are declared structurally; vocabulary enums come from @foundmill/shared.
  */
 import type { ReactNode } from "react";
-import type { AgentStatus, ChannelKey, ConversionKind, DeptColourToken, MatchdayLevel, MilestoneKind } from "@foundmill/shared";
+import type { AgentStatus, AgentTier, ChannelKey, ConversionKind, DeptColourToken, MatchdayLevel, MilestoneKind } from "@foundmill/shared";
 import type { Kit } from "../shell/types";
 
 export type DayKey = string; // YYYY-MM-DD (UTC)
@@ -355,6 +355,8 @@ export interface SquadMember {
   personaKey?: string | null;
   /** The agent's layer: a `utility` agent is a background helper and keeps its role name. */
   layer?: string | null;
+  /** Its tier (`department.list`): a `background` helper stays out of the team strip and its count. */
+  tier?: AgentTier | null;
   status: AgentStatus;
   role: string;
   model: string;

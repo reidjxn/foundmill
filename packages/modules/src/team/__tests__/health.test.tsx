@@ -3,7 +3,7 @@ import { act, fireEvent, screen, waitFor, within } from "@testing-library/react"
 import { describe, expect, it } from "vitest";
 import { HealthScreen, groupByHealth, healthDetails, healthReason } from "../HealthScreen";
 import { STATUS_DESCRIPTION, agentRoleLine } from "../shared";
-import { AGENT_JUNO, AGENT_MARA, BID, DEPT_TEAM, agents, agentsResponse, dataResponses, emptyResponses } from "./fixtures";
+import { AGENT_JUNO, AGENT_LINK, AGENT_MARA, BID, DEPT_TEAM, agents, agentsResponse, dataResponses, emptyResponses } from "./fixtures";
 import { createFakeSource, renderScreen } from "./fake-source";
 
 const props = { businessId: BID, departmentId: DEPT_TEAM };
@@ -44,7 +44,9 @@ describe("HealthScreen", () => {
     renderScreen(fake, <HealthScreen {...props} />);
     expect(await screen.findByRole("list", { name: "Agents by health" })).toBeTruthy();
     expect(screen.getByTestId("health-summary").textContent).toBe("2 agents need you");
-    expect(document.querySelectorAll("[data-health-group]")).toHaveLength(4);
+    // Healthy, degraded and down: the idle background helper is not in a group (Leads first).
+    expect(document.querySelectorAll("[data-health-group]")).toHaveLength(3);
+    expect(document.querySelector("[data-health-group='idle']")).toBeNull();
     const down = document.querySelector("[data-health-group='injured']") as HTMLElement;
     expect(within(down).getByRole("heading", { name: "Down" })).toBeTruthy();
     expect(within(down).getByText("1 agent")).toBeTruthy();
@@ -76,13 +78,26 @@ describe("HealthScreen", () => {
     await waitFor(() => expect(fake.refetches["team.agents.list"]).toBe(1));
   });
 
+  it("leaves a down background helper out of the groups, the tiles and the summary, and lists it behind one line (Leads first)", async () => {
+    const downHelper = agents.map((a) => (a.id === AGENT_LINK ? { ...a, status: "injured" as const } : a));
+    const fake = createFakeSource({ businessId: BID, responses: { ...dataResponses, "team.agents.list": { ...agentsResponse, agents: downHelper } } });
+    renderScreen(fake, <HealthScreen {...props} />);
+    await screen.findByRole("list", { name: "Agents by health" });
+    expect(screen.getByTestId("health-summary").textContent).toBe("2 agents need you");
+    const down = document.querySelector("[data-health-group='injured']") as HTMLElement;
+    expect(within(down).getByText("1 agent")).toBeTruthy();
+    expect(within(down).queryByRole("link", { name: "Linker" })).toBeNull();
+    expect(screen.getByTestId("background-helpers-line").textContent).toContain("1 background helper also runs");
+  });
+
   it("never says everyone is working when nobody is: an idle team needs nobody, with the counts beside it", async () => {
     const idle = agents.map((a) => ({ ...a, status: "idle" as const, currentTask: null }));
     const fake = createFakeSource({ businessId: BID, responses: { ...dataResponses, "team.agents.list": { ...agentsResponse, agents: idle } } });
     renderScreen(fake, <HealthScreen {...props} />);
     await screen.findByRole("list", { name: "Agents by health" });
     expect(screen.getByTestId("health-summary").textContent).toBe("Nobody needs you");
-    expect(screen.getByText(`0 working · ${idle.length} idle`)).toBeTruthy();
+    // The background helper is not counted.
+    expect(screen.getByText(`0 working · ${idle.length - 1} idle`)).toBeTruthy();
     expect(screen.queryByText("Everyone is working")).toBeNull();
   });
 
