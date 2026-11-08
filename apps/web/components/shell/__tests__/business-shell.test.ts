@@ -5,7 +5,7 @@ import { EMPTY_CYCLE, cycleFromSnapshot } from "@/lib/cycle";
 import { trpcPathPrefix, trpcQueryKey } from "@/lib/trpc";
 import { SAFETY_POLL_MS } from "@/lib/stream-status";
 import { EXAMPLE_CHIP_TOOLTIP, EXAMPLE_READ_ONLY_REASON, accessFor, readOnlyReason } from "@/lib/access";
-import { EXAMPLE_START_CALLOUT, FIRST_CONTINUE_CALLOUT, RUN_UNTIL_DONE, START_YOUR_OWN_HREF, INVALIDATE_ON_EVENT, cycleReducer, describeContinue, describePause, describeRunEnded, exampleFrame, shellPollIntervals, wantsFirstContinueCallout } from "../BusinessShell";
+import { CONTINUE_PRESSED_NOTICE, EXAMPLE_START_CALLOUT, FIRST_CONTINUE_CALLOUT, ORCHESTRATOR_DOWN_CAVEAT, RUN_UNTIL_DONE, START_YOUR_OWN_HREF, INVALIDATE_ON_EVENT, cycleReducer, describeContinue, describePause, describeRunEnded, exampleFrame, orchestratorDown, shellConnection, shellPollIntervals, wantsFirstContinueCallout } from "../BusinessShell";
 
 type ContinueResult = Parameters<typeof describeContinue>[0];
 
@@ -33,24 +33,44 @@ const status = (over: Partial<ContinueResult["status"]> = {}): ContinueResult["s
   ...over,
 });
 
-const result = (over: Partial<ContinueResult>): ContinueResult => ({ action: "started", mode: "temporal", workflow: null, item: null, status: status(), continueState: { kind: "processing" }, run: null, ...over });
+type Summary = ContinueResult["summary"];
+const summary = (over: Partial<Summary> = {}): Summary => ({ kind: "started", headline: "Cycle 2 started: 6 tasks ready to build", detail: `The team is at work. What they finish and what they need from you come back as notes in the Inbox. ${RUN_UNTIL_DONE}`, readyTasks: 6, stage: "building", orchestrator: true, ...over });
+const result = (over: Partial<ContinueResult>): ContinueResult => ({ action: "started", mode: "temporal", workflow: null, item: null, status: status(), continueState: { kind: "processing" }, run: null, summary: summary(), ...over });
 const RUN = { id: "22222222-2222-4222-8222-222222222222", startedAt: "2026-11-07T10:00:00.000Z", rounds: 0 };
 
-describe("one press of Continue (BUILD §9.4)", () => {
-  it("names what happened: started on Temporal, one local note, resumed, already running", () => {
-    expect(describeContinue(result({}))).toMatchObject({ title: "Cycle started", itemId: null });
-    const item = { id: "11111111-1111-4111-8111-111111111111", subject: "Three decisions for the Board" } as unknown as NonNullable<ContinueResult["item"]>;
-    expect(describeContinue(result({ mode: "local", item }))).toMatchObject({ title: "One new note", description: "Three decisions for the Board", itemId: item.id });
-    expect(describeContinue(result({ action: "resumed" }))).toMatchObject({ title: "Cycle resumed", tone: "good" });
-    expect(describeContinue(result({ action: "already_running" }))).toMatchObject({ title: "A cycle is already running" });
+describe("one press of Continue (BUILD §9.4; first-time founder report, Nov 8, 2026: the api's one sentence is the toast)", () => {
+  it("the toast is the api's sentence: the cycle and what is ready, nothing ready and why, resumed, already running", () => {
+    expect(describeContinue(result({}))).toEqual({ title: "Cycle 2 started: 6 tasks ready to build", description: summary().detail, tone: "info", itemId: null });
+    expect(describeContinue(result({ summary: summary({ kind: "nothing_ready", headline: "Cycle 1 started: nothing is ready to build yet", detail: "The specification and the roadmap are waiting for your sign-off in the Inbox.", readyTasks: 0, stage: "awaiting_signoff" }) }))).toMatchObject({ title: "Cycle 1 started: nothing is ready to build yet", tone: "info" });
+    expect(describeContinue(result({ action: "resumed", summary: summary({ kind: "resumed", headline: "Cycle 4 resumed", detail: "2 tasks pick up where they stopped." }) }))).toMatchObject({ title: "Cycle 4 resumed", tone: "good", itemId: null });
+    expect(describeContinue(result({ action: "already_running", summary: summary({ kind: "already_running", headline: "Cycle 5 is already running", detail: "The team is still working." }) }))).toMatchObject({ title: "Cycle 5 is already running", tone: "info" });
   });
 
-  it("a press that started a run says new cycles keep starting on their own (Nov 7, 2026); the toast regexes of the e2e specs still match", () => {
+  it("no orchestrator: a warning that says no agent worked, with the note that stood in to open", () => {
+    const item = { id: "11111111-1111-4111-8111-111111111111", subject: "Three decisions for the Board" } as unknown as NonNullable<ContinueResult["item"]>;
+    const local = result({ mode: "local", item, summary: summary({ kind: "orchestrator_unreachable", headline: "The team cannot run right now: the orchestrator is not reachable", detail: "No agent worked. One note was written from what the business already knows: “Three decisions for the Board”.", orchestrator: false }) });
+    expect(describeContinue(local)).toEqual({ title: "The team cannot run right now: the orchestrator is not reachable", description: "No agent worked. One note was written from what the business already knows: “Three decisions for the Board”.", tone: "warn", itemId: item.id });
+    // The e2e specs' toast regex matches every headline the api writes.
+    for (const t of ["Cycle 2 started: 6 tasks ready to build", "Cycle 1 started: nothing is ready to build yet", "The team cannot run right now: the orchestrator is not reachable", "Cycle 4 resumed", "Cycle 5 is already running"]) expect(t).toMatch(/Cycle \d+ started|cannot run right now|Cycle \d+ resumed|already running/);
     expect(RUN_UNTIL_DONE).toBe("New cycles start on their own until nothing is left to do, or until you pause.");
-    expect(describeContinue(result({ run: RUN }))).toEqual({ title: "Cycle started", description: `The team is at work. ${RUN_UNTIL_DONE} Their notes land in the Inbox.`, tone: "info", itemId: null });
-    expect(describeContinue(result({ action: "resumed", run: RUN })).description).toBe(`Paused tasks pick up where they stopped. ${RUN_UNTIL_DONE}`);
-    expect(describeContinue(result({ action: "already_running", run: RUN })).description).toBe(`The team is still working. ${RUN_UNTIL_DONE}`);
-    for (const r of [result({ run: RUN }), result({ action: "resumed", run: RUN }), result({ action: "already_running", run: RUN })]) expect(describeContinue(r).title).toMatch(/Cycle started|One new note|Cycle resumed|already running/);
+    expect(RUN).toBeTruthy();
+  });
+
+  it("the orchestrator's caveat shows only on a known 'not reachable', never on unknown", () => {
+    expect(orchestratorDown({ orchestrator: { reachable: false } })).toBe(true);
+    expect(orchestratorDown({ orchestrator: { reachable: null } })).toBe(false);
+    expect(orchestratorDown({ orchestrator: { reachable: true } })).toBe(false);
+    expect(orchestratorDown(undefined)).toBe(false);
+    expect(ORCHESTRATOR_DOWN_CAVEAT).toMatch(/^The orchestrator is not reachable right now/);
+    expect(CONTINUE_PRESSED_NOTICE).toBe("Starting the next cycle…");
+  });
+
+  it("the connection chip reads 'Live updates off' for everyone when the stream was never live this page", () => {
+    expect(shellConnection("off", false)).toMatchObject({ state: "off" });
+    expect(shellConnection("off", true)).toMatchObject({ state: "off" });
+    expect(shellConnection("reconnecting", false)).toMatchObject({ state: "late" });
+    expect(shellConnection("reconnecting", true)).toMatchObject({ state: "reconnecting" });
+    expect(shellConnection(null, true)).toBeNull();
   });
 });
 

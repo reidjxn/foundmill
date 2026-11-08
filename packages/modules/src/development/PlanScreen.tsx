@@ -120,6 +120,9 @@ export function PlanScreen({ businessId, departmentId }: ModuleScreenProps) {
   useBusinessEvents(() => tasks.refetch(), ["task.started", "task.completed", "task.blocked", "pr.merged", "product.signoff_decided"]);
   // Building starts when the founder has signed off the specification and the roadmap (founder, 2026-10-18).
   const stage = useBusinessStage();
+  // No orchestrator reachable (first-time founder report, Nov 8, 2026): Start is off and the banner says why, instead of
+  // "The orchestrator did not take the session" after every press.
+  const startsBlocked = stage.orchestratorDown;
 
   const rows = useMemo(() => toPlanRows(tasks.data?.items ?? [], tasks.data?.edges ?? [], agentIndex, persona.labelFor), [tasks.data, agentIndex, persona]);
   const initialTask = typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("task") : null;
@@ -154,8 +157,8 @@ export function PlanScreen({ businessId, departmentId }: ModuleScreenProps) {
   const runTask = (path: string, task: TaskRow, extra: Record<string, unknown> = {}) => action.run(path, { taskId: task.id, ...extra }, { key: `${path}:${task.id}`, then: () => tasks.refetch() });
 
   // The Run cell reads the current handler and busy key through a ref, so the column definitions stay stable.
-  const live = useRef({ runTask, pending: action.pending });
-  live.current = { runTask, pending: action.pending };
+  const live = useRef({ runTask, pending: action.pending, startsBlocked });
+  live.current = { runTask, pending: action.pending, startsBlocked };
 
   const columns = useMemo<DataTableColumn<PlanRow>[]>(
     () => fitToGrow<PlanRow>([
@@ -203,8 +206,8 @@ export function PlanScreen({ businessId, departmentId }: ModuleScreenProps) {
           <TaskRunState
             status={row.original.status}
             waitingOn={row.original.waitingOn}
-            onRun={() => void live.current.runTask("dev.tasks.start", row.original)}
-            onResume={() => void live.current.runTask("dev.tasks.resume", row.original)}
+            onRun={live.current.startsBlocked ? undefined : () => void live.current.runTask("dev.tasks.start", row.original)}
+            onResume={live.current.startsBlocked ? undefined : () => void live.current.runTask("dev.tasks.resume", row.original)}
             pending={live.current.pending === `dev.tasks.start:${row.original.id}` || live.current.pending === `dev.tasks.resume:${row.original.id}`}
           />
         ),
@@ -253,7 +256,7 @@ export function PlanScreen({ businessId, departmentId }: ModuleScreenProps) {
     const over = row.status === "done";
     return [
       { id: "deps", label: "Show dependencies", icon: Network, onSelect: (r) => setSelectedId(r.id) },
-      { id: "start", label: "Start", icon: Play, disabled: !canStartTask(row.status, row.waitingOn), onSelect: (r) => void runTask("dev.tasks.start", r), separatorBefore: true },
+      { id: "start", label: "Start", icon: Play, disabled: startsBlocked || !canStartTask(row.status, row.waitingOn), onSelect: (r) => void runTask("dev.tasks.start", r), separatorBefore: true },
       { id: "pause", label: "Pause", icon: Pause, disabled: !live, onSelect: (r) => void runTask("dev.tasks.pause", r) },
       { id: "resume", label: "Resume", icon: Play, disabled: row.status !== "paused", onSelect: (r) => void runTask("dev.tasks.resume", r) },
       { id: "reassign", label: "Reassign", icon: Bot, disabled: over, onSelect: (r) => setReassign(r) },
@@ -297,6 +300,13 @@ export function PlanScreen({ businessId, departmentId }: ModuleScreenProps) {
 
   return (
     <Screen name="development/plan">
+      {startsBlocked ? (
+        <Panel span={12} title="Tasks cannot start right now" help="The orchestrator is the service that runs the team's work: every cycle and every task session goes through it." data-testid="plan-orchestrator-banner">
+          <p className="text-body text-secondary">
+            The orchestrator is not reachable from this server, so no task can start and a press of Continue writes one note in its place. Start comes back by itself once it is reachable again. If you run this server yourself, start the orchestrator; otherwise, whoever runs it has to.
+          </p>
+        </Panel>
+      ) : null}
       {stage.stage === "awaiting_signoff" || stage.stage === "drafting" ? (
         <Panel span={12} title="Building starts on your sign-off" help="The specification is the written description of what the product is and does. Your sign-off is your yes on it and the roadmap, which lets the team build from them." data-testid="plan-stage-banner" data-product-stage={stage.stage}>
           <p className="text-body text-secondary">
@@ -444,7 +454,7 @@ export function PlanScreen({ businessId, departmentId }: ModuleScreenProps) {
               </details>
               </BuilderOnly>
               <div className="mt-3 flex flex-wrap gap-2">
-                <Button size="sm" icon={Play} disabled={!canStartTask(selected.status, selected.waitingOn)} loading={action.pending === `dev.tasks.start:${selected.id}`} onClick={() => void runTask("dev.tasks.start", selected)}>
+                <Button size="sm" icon={Play} disabled={startsBlocked || !canStartTask(selected.status, selected.waitingOn)} loading={action.pending === `dev.tasks.start:${selected.id}`} onClick={() => void runTask("dev.tasks.start", selected)}>
                   Start
                 </Button>
                 <Button size="sm" icon={ExternalLink} onClick={() => setClaudeCode(selected)}>

@@ -88,7 +88,7 @@ describe("foundations eval cases", () => {
 
   it("the founder's words reach the stored draft verbatim, and a draft that paraphrases them away is caught", async () => {
     const c = FOUNDATIONS_CASES.find((x) => x.id === "foundations.door_a_founder_words")!;
-    expect(c.inputs.idea.founderWords).toBe(c.mustStore![0]);
+    expect(c.inputs.idea!.founderWords).toBe(c.mustStore![0]);
     const client = new MockModelClient();
     const result = await client.complete({ ...buildFoundationsRequest(c.inputs) });
     const draft = finaliseFoundations(result.json, c.inputs);

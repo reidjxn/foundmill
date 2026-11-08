@@ -128,8 +128,23 @@ const toNumber = (v: LongLike): number | null => {
   return Number.isFinite(n) ? n : null;
 };
 
+/**
+ * What is known about the orchestrator's reachability without waiting for it: `reachable` null until the first connect
+ * attempt has answered. `reason` is the service's own words (they name Temporal), for logs; never shown to a founder.
+ */
+export interface TemporalHealth {
+  reachable: boolean | null;
+  reason: string | null;
+}
+
 export interface TemporalService {
   reachable(): Promise<boolean>;
+  /**
+   * The last verdict at once, never a wait (first-time founder report, Nov 8, 2026: `business.get` tells the shell
+   * whether Continue and Start can run anything). A verdict that is missing or due for a retry starts a connect attempt
+   * in the background, so the next read knows.
+   */
+  health(): TemporalHealth;
   start(workflowType: string, options: { workflowId: string; args?: unknown[] }): Promise<TemporalResult>;
   signal(workflowId: string, signal: SignalName, ...args: unknown[]): Promise<TemporalResult>;
   /**
@@ -175,6 +190,8 @@ export function createTemporalService(opts: CreateTemporalServiceOptions): Tempo
   let connecting: Promise<TemporalClientLike | null> | null = null;
   let unreachableUntil = 0;
   let lastReason = opts.disabled ? "temporal disabled" : UNREACHABLE;
+  /** A connect attempt has answered at least once (so `health` has a verdict, not a guess). */
+  let probed = opts.disabled;
 
   const defaultConnect = async (): Promise<TemporalClientLike> => {
     const { Client, Connection } = await import("@temporalio/client");
@@ -200,6 +217,7 @@ export function createTemporalService(opts: CreateTemporalServiceOptions): Tempo
           opts.log.warn({ address: opts.address, err: (err as Error).message }, "temporal unreachable; workflow calls will be reported as not queued");
           return null;
         } finally {
+          probed = true;
           connecting = null;
         }
       })();
@@ -215,6 +233,14 @@ export function createTemporalService(opts: CreateTemporalServiceOptions): Tempo
   const service: TemporalService = {
     async reachable() {
       return (await getClient()) !== null;
+    },
+    health() {
+      if (client) return { reachable: true, reason: null };
+      if (opts.disabled) return { reachable: false, reason: lastReason };
+      // Unknown, or the unreachable verdict is due for a retry: ask in the background (one attempt at a time) and
+      // answer with what is known now.
+      if (Date.now() >= unreachableUntil) void getClient();
+      return probed ? { reachable: false, reason: lastReason } : { reachable: null, reason: null };
     },
     async start(workflowType, options) {
       const c = await getClient();

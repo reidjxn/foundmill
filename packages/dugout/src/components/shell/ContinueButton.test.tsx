@@ -61,6 +61,18 @@ describe("ContinueButton", () => {
     expect(screen.queryByText(/A cycle is/)).toBeNull();
   });
 
+  it("a caveat says what a press can and cannot do right now, under the tooltip and on the button (first-time founder report, Nov 8, 2026)", async () => {
+    const user = userEvent.setup();
+    const caveat = "The orchestrator is not reachable: a press writes one note; no agent works.";
+    render(<ContinueButton state={{ kind: "idle" }} caveat={caveat} />);
+    const button = screen.getByRole("button", { name: "Continue" });
+    expect(button.getAttribute("data-continue-caveat")).toBe(caveat);
+    await user.hover(button);
+    expect((await screen.findAllByText(caveat)).length).toBeGreaterThan(0);
+    // The state's own sentence stays first; the caveat follows it.
+    expect(screen.getAllByText(/^Let the team work/).length).toBeGreaterThan(0);
+  });
+
   it("labels every state (BUILD §5.4)", () => {
     expect(continueButtonLabel({ kind: "idle" })).toBe("Continue");
     expect(continueButtonLabel({ kind: "blocked", count: 3 })).toBe("Needs you · 3");

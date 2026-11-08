@@ -28,7 +28,7 @@ import { SIDEBAR_COLLAPSED_PREFIX } from "@/lib/auth/constants";
 import { rememberLastBusiness } from "@/lib/auth/last-business";
 import { accountRoutes } from "@/lib/account-routes";
 import { EXAMPLE_CHIP_TOOLTIP, readOnlyReason, type Access } from "@/lib/access";
-import { CONTINUE_RUN_END_REASONS, continueRunEndedMessage, type ContinueRunEndReason } from "@foundmill/shared";
+import { CONTINUE_RUN_END_REASONS, RUN_UNTIL_DONE, continueRunEndedMessage, type ContinueRunEndReason } from "@foundmill/shared";
 import { awayReportId, computeContinueState, journeyHref, respondHref, unviewedWin } from "@/lib/continue-state";
 import { CYCLE_EVENT_TYPES, cycleFromSnapshot, initialCycle, nextPulseKey, reduceCycleEvent, setPaused, type CycleEvent, type CycleStatus } from "@/lib/cycle";
 import type { AgentSummary } from "@/lib/entity-links";
@@ -176,8 +176,11 @@ type CycleAction = { type: "event"; event: CycleEvent; agentDepartment: (id: str
  * The top bar's connection chip (audit RES-11): in Builder view the state as it is ("Reconnecting…", "Live updates
  * paused"); with it off, either one reads "Updates may be late" (the caller shows it only after `LATE_NOTICE_MS`).
  */
-export function shellConnection(state: "reconnecting" | "paused" | null, builder: boolean): { state: "reconnecting" | "paused" | "late"; detail: string } | null {
+export function shellConnection(state: "reconnecting" | "paused" | "off" | null, builder: boolean): { state: "reconnecting" | "paused" | "late" | "off"; detail: string } | null {
   if (!state) return null;
+  // Never live since the page opened (first-time founder report, Nov 8, 2026): "off" is the truth for everyone, Builder
+  // view or not; "Updates may be late" would promise a connection this server does not have.
+  if (state === "off") return { state, detail: "This server has no live connection right now. Nothing is lost: the Inbox and Continue refresh every 30 s." };
   if (!builder) return { state: "late", detail: "Nothing is lost: the team keeps working. What you see may be a little behind; the Inbox and Continue refresh every 30 s." };
   return { state, detail: state === "reconnecting" ? "The live connection dropped. Nothing is lost. What you see may be out of date; the Inbox and Continue refresh every 30 s until it is back." : "Live updates are paused. Nothing is lost. What you see may be out of date; the Inbox and Continue refresh every 30 s." };
 }
@@ -191,20 +194,34 @@ export function cycleReducer(status: CycleStatus, action: CycleAction): CycleSta
 
 type ContinueResult = RouterOutputs["business"]["continue"];
 
-/** The sentence a press that started a run adds (Nov 7, 2026): new cycles keep starting on their own. */
-export const RUN_UNTIL_DONE = "New cycles start on their own until nothing is left to do, or until you pause.";
+export { RUN_UNTIL_DONE };
+
+/** What the strip says the instant Continue is pressed, before the answer lands (first-time founder report, Nov 8, 2026). */
+export const CONTINUE_PRESSED_NOTICE = "Starting the next cycle…";
+/** How long the answer to a press stays as the strip's sentence when no cycle event replaces it sooner. */
+export const CONTINUE_NOTICE_MS = 15_000;
+/** Under Continue's tooltip while the orchestrator cannot be reached: what a press does and does not do. */
+export const ORCHESTRATOR_DOWN_CAVEAT = "The orchestrator is not reachable right now: a press writes one note; no agent works.";
 
 /**
- * The toast one press of Continue earns (BUILD §9.4): what happened, and where the new note is in local mode. With an
- * orchestrator a press starts a run (`result.run`): the toast says the cycles keep coming until nothing is left.
+ * The toast one press of Continue earns (BUILD §9.4): the api's own sentence about what happened (`summary`, first-time
+ * founder report, Nov 8, 2026): the cycle and what is ready to build, nothing ready and why, the orchestrator not
+ * reachable (a warning; the note that stood in opens from the toast), resumed, already running.
  */
 export function describeContinue(result: ContinueResult): { title: string; description: string; tone: "info" | "good" | "warn"; itemId: string | null } {
-  const run = Boolean(result.run);
-  if (result.action === "already_running") return { title: "A cycle is already running", description: run ? `The team is still working. ${RUN_UNTIL_DONE}` : "The team is still working; the strip under the top bar shows where.", tone: "info", itemId: null };
-  if (result.action === "resumed") return { title: "Cycle resumed", description: run ? `Paused tasks pick up where they stopped. ${RUN_UNTIL_DONE}` : "Paused tasks pick up where they stopped.", tone: "good", itemId: null };
-  if (result.mode === "local" && result.item) return { title: "One new note", description: result.item.subject, tone: "info", itemId: result.item.id };
-  if (run) return { title: "Cycle started", description: `The team is at work. ${RUN_UNTIL_DONE} Their notes land in the Inbox.`, tone: "info", itemId: null };
-  return { title: "Cycle started", description: "The team is at work. What they finish and what they need from you come back as notes in the Inbox.", tone: "info", itemId: null };
+  const s = result.summary;
+  const itemId = result.mode === "local" && result.item ? result.item.id : null;
+  if (s.kind === "orchestrator_unreachable") return { title: s.headline, description: s.detail, tone: "warn", itemId };
+  if (s.kind === "resumed") return { title: s.headline, description: s.detail, tone: "good", itemId: null };
+  return { title: s.headline, description: s.detail, tone: "info", itemId };
+}
+
+/**
+ * Whether the shell says the orchestrator is down: only a known "not reachable" (`business.get` `orchestrator.reachable`
+ * false); unknown reads as fine, so a page never opens with a warning it cannot back.
+ */
+export function orchestratorDown(business: { orchestrator?: { reachable: boolean | null } | null } | null | undefined): boolean {
+  return business?.orchestrator?.reachable === false;
 }
 
 type PauseResult = RouterOutputs["business"]["pauseCycle"];
@@ -382,6 +399,22 @@ function ShellInner({ businessId, initialBusiness, initialDepartments, viewer, c
 
   const invalidate = useCallback((routers: readonly string[]) => Promise.all(routers.map((r) => queryClient.invalidateQueries({ queryKey: trpcPathPrefix(r) as unknown[] }))), [queryClient]);
 
+  // The answer to a press of Continue, as the strip's sentence (first-time founder report, Nov 8, 2026): "Starting the
+  // next cycle…" the instant Continue is pressed, then the api's one sentence about what happened, until the
+  // orchestrator's own `cycle.started` catches the strip up or the notice times out. Never "No cycle running" unchanged
+  // after a press.
+  const [continueNotice, setContinueNotice] = useState<string | null>(null);
+  const noticeTimer = useRef<number | null>(null);
+  const announce = useCallback((text: string | null, forMs: number | null) => {
+    if (noticeTimer.current !== null) window.clearTimeout(noticeTimer.current);
+    noticeTimer.current = null;
+    setContinueNotice(text);
+    if (text && forMs !== null) noticeTimer.current = window.setTimeout(() => setContinueNotice(null), forMs);
+  }, []);
+  useEffect(() => () => {
+    if (noticeTimer.current !== null) window.clearTimeout(noticeTimer.current);
+  }, []);
+
   // --- time zone: the first open by an owner or admin sets the business's zone from their browser (audit #196) -----
   // Until then days read as UTC everywhere; Settings › Business changes it. Once per business per mount, best effort.
   const claimZone = useMutation(trpc.business.setTimeZone.mutationOptions({ onSuccess: () => void invalidate(["business", "journey", "finance"]) }));
@@ -399,6 +432,8 @@ function ShellInner({ businessId, initialBusiness, initialDepartments, viewer, c
     const event: WidgetEvent | null = readWidgetEvent(raw);
     if (!event) return;
     if ((CYCLE_EVENT_TYPES as readonly string[]).includes(event.type)) dispatch({ type: "event", event, agentDepartment });
+    // The orchestrator's own mark catches the strip up: its sentence takes over from the press's answer.
+    if (event.type === "cycle.started") announce(null, null);
     setPulseKey((k) => nextPulseKey(k, event.type));
     const ended = describeRunEnded(event);
     if (ended) toast(ended);
@@ -507,16 +542,20 @@ function ShellInner({ businessId, initialBusiness, initialDepartments, viewer, c
   // cycle status, adopted at once; the stream keeps it current afterwards.
   const continueCycle = useMutation(
     trpc.business.continue.mutationOptions({
+      onMutate: () => announce(CONTINUE_PRESSED_NOTICE, null),
       onSuccess: (result) => {
         dispatch({ type: "snapshot", status: cycleFromSnapshot(result.status) });
         void invalidate(["cycle", "inbox", "dev"]);
         const t = describeContinue(result);
+        announce(t.title, CONTINUE_NOTICE_MS);
         toast({ title: t.title, description: t.description, tone: t.tone, action: t.itemId ? { label: "Open", onClick: () => router.push(routes.inbox(businessId, t.itemId!)) } : undefined });
       },
       onError: (err) => {
         const code = trpcErrorCode(err);
         void invalidate(["cycle", "inbox", "business"]);
-        toast({ title: code === "CONFLICT" ? "Continue is waiting on you" : "Continue failed", description: errorMessage(err), tone: code === "CONFLICT" ? "warn" : "bad" });
+        const title = code === "CONFLICT" ? "Continue is waiting on you" : "Continue failed";
+        announce(`${title}: ${errorMessage(err)}`, CONTINUE_NOTICE_MS);
+        toast({ title, description: errorMessage(err), tone: code === "CONFLICT" ? "warn" : "bad" });
       },
     }),
   );
@@ -766,6 +805,8 @@ function ShellInner({ businessId, initialBusiness, initialDepartments, viewer, c
                   // Viewers and advisors follow the business; they do not run cycles (audit RUI-05). In the Example
                   // frame "Start your own" takes the slot (`continueSlot`) and Continue's shortcut stays disabled.
                   disabled: !access.canChange,
+                  // Before the press: what it can and cannot do while the orchestrator is down (never a surprise after).
+                  caveat: orchestratorDown(data) && continueState.kind === "idle" ? ORCHESTRATOR_DOWN_CAVEAT : null,
                   onContinue,
                   onRespond,
                   onPause,
@@ -781,7 +822,7 @@ function ShellInner({ businessId, initialBusiness, initialDepartments, viewer, c
                   // Hidden in the Example frame: nothing there is the viewer's to stop (the trigger keeps its slot's width rule: it is gone, not blank).
                   className: frame.stopAllHidden ? "hidden" : undefined,
                 }}
-                processing={{ segments, active: cycle.running, cycleNumber }}
+                processing={{ segments, active: cycle.running, cycleNumber, notice: continueNotice }}
                 tabs={chrome.tabs}
                 breadcrumbs={chrome.breadcrumbs}
                 rightRail={chrome.rightRail}

@@ -43,6 +43,8 @@ export interface AppShellContinue extends ContinueHandlers {
   disabled?: boolean;
   /** The action is in flight: Continue keeps focus but refuses presses (ContinueButton `pending`). */
   pending?: boolean;
+  /** What a press can and cannot do right now, under the tooltip's sentence (ContinueButton `caveat`). */
+  caveat?: string | null;
 }
 
 export interface AppShellProcessing {
@@ -51,6 +53,13 @@ export interface AppShellProcessing {
   active: boolean;
   /** The running cycle's number, for the strip's sentence ("Product and Finance are working on cycle 3"). */
   cycleNumber?: number | null;
+  /**
+   * The answer to a press of Continue, the moment it is known (first-time founder report, Nov 8, 2026): "Starting the
+   * next cycle…", then "Cycle 2 started: 6 tasks ready to build" or "The team cannot run right now: …". While set it is
+   * the strip's sentence and the tab bar's line, guidance on or off, so "No cycle running" never stays unchanged after
+   * a press. The app clears it when the strip's own sentence has caught up.
+   */
+  notice?: string | null;
 }
 
 /** The floor the tab bar's processing line steps down to before it truncates (DESIGN §2: 11 px). */
@@ -75,9 +84,11 @@ export function processingLineText(segments: readonly ProcessingSegment[], activ
  * stacks a figure over its words, which would need a second row the bar does not have, and `ConsequenceLine` is for
  * what an action will do, not for what is happening now.
  */
-function ProcessingLine({ text }: { text: string }) {
+function ProcessingLine({ text, notice = false }: { text: string; notice?: boolean }) {
+  // The answer to a press reads in the secondary ink, not the tertiary: it is news, not ambient status, and it is
+  // announced once (role status) so a screen reader hears what the press did.
   return (
-    <FitText minPx={PROCESSING_LINE_MIN_PX} className="t-small max-w-64 min-w-0 text-tertiary" data-testid="processing-line">
+    <FitText minPx={PROCESSING_LINE_MIN_PX} className={cn("t-small max-w-80 min-w-0", notice ? "text-secondary" : "text-tertiary")} data-testid="processing-line" data-notice={notice ? "" : undefined} role={notice ? "status" : undefined}>
       {text}
     </FitText>
   );
@@ -288,9 +299,12 @@ export const AppShell = forwardRef<HTMLDivElement, AppShellProps>(function AppSh
   const [helpOpen, setHelpOpen] = useState(false);
   const guided = useGuided();
 
-  const { state, cycleNumber, pulseKey, disabled: continueDisabled, pending: continuePending, ...continueHandlers } = continueButton;
+  const { state, cycleNumber, pulseKey, disabled: continueDisabled, pending: continuePending, caveat: continueCaveat, ...continueHandlers } = continueButton;
   const continueAction = continueButtonAction(state, continueHandlers);
-  const processingText = processingStatusText(processing.segments, processing.active, processing.cycleNumber);
+  const notice = processing.notice?.trim() || null;
+  const processingText = notice ?? processingStatusText(processing.segments, processing.active, processing.cycleNumber);
+  // The line in the tab bar: the strip's sentence while guidance is on; the answer to a press for everyone, while it stands.
+  const lineText = notice ?? (guided ? processingLineText(processing.segments, processing.active, processing.cycleNumber) : null);
   // The Help group always offers the keyboard shortcuts; the app adds its defined terms (apps/web/lib/search.ts).
   const helpItems = useMemo(() => {
     const given = search?.helpItems ?? [];
@@ -396,7 +410,7 @@ export const AppShell = forwardRef<HTMLDivElement, AppShellProps>(function AppSh
             businessCurrency={businessCurrency}
             onModeClick={onModeClick}
             gameMode={mode}
-            continueButton={{ state, cycleNumber, pulseKey, disabled: continueDisabled, pending: continuePending, ...continueHandlers }}
+            continueButton={{ state, cycleNumber, pulseKey, disabled: continueDisabled, pending: continuePending, caveat: continueCaveat, ...continueHandlers }}
             continueSlot={continueSlot}
             businessBadge={businessBadge}
             stopAll={stopAll}
@@ -404,15 +418,15 @@ export const AppShell = forwardRef<HTMLDivElement, AppShellProps>(function AppSh
             businessMenu={businessMenu}
             connection={connection}
           />
-          <ProcessingStrip segments={processing.segments} active={processing.active} cycleNumber={processing.cycleNumber} label={processingText} />
+          <ProcessingStrip segments={processing.segments} active={processing.active} cycleNumber={processing.cycleNumber} label={processingText} data-notice={notice ? "" : undefined} />
           {tabs ? (
             <TabBar
               {...tabs}
               trailing={
-                guided ? (
+                lineText !== null ? (
                   <>
                     {tabs.trailing}
-                    <ProcessingLine text={processingLineText(processing.segments, processing.active, processing.cycleNumber)} />
+                    <ProcessingLine text={lineText} notice={notice !== null} />
                   </>
                 ) : (
                   tabs.trailing

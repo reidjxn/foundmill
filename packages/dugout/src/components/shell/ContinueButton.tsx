@@ -48,6 +48,12 @@ export interface ContinueButtonProps extends ContinueHandlers {
    * refuses presses but keeps keyboard focus, unlike `disabled`, so the founder does not lose their place.
    */
   pending?: boolean;
+  /**
+   * A sentence the tooltip adds after the state's own (first-time founder report, Nov 8, 2026): what a press can and
+   * cannot do right now, e.g. "The orchestrator is not reachable: a press writes one note; no agent works." Also on the
+   * button as `data-continue-caveat`, so a screen can read it.
+   */
+  caveat?: string | null;
   size?: ButtonSize;
   className?: string;
 }
@@ -155,7 +161,7 @@ export function continueButtonAction(state: ContinueState, handlers: ContinueHan
  * Vacation is neutral with the caption and "Come back". It keeps one width through its states, so the bar never jumps.
  */
 export const ContinueButton = forwardRef<HTMLButtonElement, ContinueButtonProps>(function ContinueButton(
-  { state, cycleNumber, pulseKey, bindSpace = false, disabled, pending = false, size = "md", className, ...handlers },
+  { state, cycleNumber, pulseKey, bindSpace = false, disabled, pending = false, caveat = null, size = "md", className, ...handlers },
   ref,
 ) {
   const reduced = usePrefersReducedMotion();
@@ -231,6 +237,7 @@ export const ContinueButton = forwardRef<HTMLButtonElement, ContinueButtonProps>
     loading: pending,
     onClick: action,
     "data-continue-state": state.kind,
+    "data-continue-caveat": caveat || undefined,
     "data-pulsing": pulsing || undefined,
     "aria-keyshortcuts": "Space",
     // The first-time callout (Coachmark, next wave) anchors here.
@@ -313,10 +320,13 @@ export const ContinueButton = forwardRef<HTMLButtonElement, ContinueButtonProps>
   return (
     <Tooltip
       content={
-        <span className="inline-flex flex-wrap items-center gap-x-1.5 gap-y-1">
-          <span>{continueTooltip(state, cycleNumber, datePrefs, cycleDefinition)}</span>
-          {/* A control hint, like the search's ⌘K: it stays whatever the guidance setting. */}
-          <Kbd>Space</Kbd>
+        <span className="flex max-w-80 flex-col gap-1">
+          <span className="inline-flex flex-wrap items-center gap-x-1.5 gap-y-1">
+            <span>{continueTooltip(state, cycleNumber, datePrefs, cycleDefinition)}</span>
+            {/* A control hint, like the search's ⌘K: it stays whatever the guidance setting. */}
+            <Kbd>Space</Kbd>
+          </span>
+          {caveat ? <span className="text-status-warn">{caveat}</span> : null}
         </span>
       }
       side="bottom"
