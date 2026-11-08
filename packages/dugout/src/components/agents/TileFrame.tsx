@@ -35,6 +35,7 @@ import { IconButton } from "../foundation/IconButton";
 import { ProgressRing } from "../foundation/ProgressRing";
 import { StatusPill, type StatusTone } from "../foundation/StatusPill";
 import { Tooltip } from "../foundation/Tooltip";
+import { useBuilderView } from "../guidance/BuilderView";
 import { useGuided, useTerm } from "../guidance/GuidanceProvider";
 import { elapsedLabel, etaLabel } from "./progress";
 import { SHOUT_PRESETS, ShoutMenu } from "./ShoutMenu";
@@ -141,6 +142,8 @@ export interface TileFrameProps {
 export function TileFrame({ session, views, view, onViewChange, focused, compact, controls = {}, onFocus, onOpenTask, now, children, className }: TileFrameProps) {
   const id = useId();
   const guided = useGuided();
+  // Builder view: the footer's tokens and ETA show only while it is on (elapsed and the cost Estimate always stay).
+  const builder = useBuilderView();
   // Anthropomorphic agents: "Bob (Frontend engineer)" when on, the agent's own name otherwise.
   const persona = useAgentPersona();
   const who = persona.labelFor(session.agent);
@@ -154,7 +157,7 @@ export function TileFrame({ session, views, view, onViewChange, focused, compact
   // A queued session has not started for real: no clock runs and nothing pulses until a worker picks it up.
   const queued = Boolean(session.queued) && session.status === "running";
   const elapsed = queued ? null : elapsedLabel(session, now);
-  const eta = queued ? null : etaLabel(session.etaAt, now);
+  const eta = queued || !builder ? null : etaLabel(session.etaAt, now);
   const live = !queued && (session.status === "running" || session.status === "review" || session.status === "merging");
   const canPause = live && !!controls.onPause;
   const canResume = (session.status === "paused" || session.status === "blocked") && !!controls.onResume;
@@ -411,7 +414,7 @@ export function TileFrame({ session, views, view, onViewChange, focused, compact
             {elapsed}
           </span>
         )}
-        {!compact || focused ? (
+        {builder && (!compact || focused) ? (
           <span className="hidden shrink-0 items-center gap-1 @xl/foot:inline-flex" title={tokensDef ? `${tokensDef.word}: ${tokensDef.short}` : "AI usage"}>
             <Icon icon={CircleDot} size={12} className="text-tertiary" />
             {formatCompact(session.tokens)}

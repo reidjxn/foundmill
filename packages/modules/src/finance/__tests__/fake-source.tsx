@@ -4,7 +4,7 @@
  */
 import { useSyncExternalStore, type ReactElement, type ReactNode } from "react";
 import { render } from "@testing-library/react";
-import { GuidanceProvider, type GuidanceMode } from "@foundmill/dugout";
+import { BuilderViewProvider, GuidanceProvider, type GuidanceMode } from "@foundmill/dugout";
 import { TERMS } from "@foundmill/shared/terms";
 import { WidgetDataProvider, type QueryOptions, type QueryState, type WidgetDataSource } from "@foundmill/widgets";
 import { FinanceScreenOptionsProvider, type FinanceScreenOptions } from "../shared";
@@ -16,6 +16,8 @@ import { FinanceScreenOptionsProvider, type FinanceScreenOptions } from "../shar
  */
 export interface RenderOptions {
   guidance?: GuidanceMode;
+  /** Builder view (docs/DESIGN.md); default on, so the engine these tests read shows. Pass false for the founder view. */
+  builder?: boolean;
 }
 
 export function guidanceValue(guidance: GuidanceMode = "off") {
@@ -135,9 +137,11 @@ export function createFakeSource(opts: { businessId?: string; responses?: Record
 export function renderScreen(fake: FakeSource, ui: ReactNode, options: FinanceScreenOptions = {}, opts: RenderOptions = {}) {
   const el: ReactElement = (
     <GuidanceProvider value={guidanceValue(opts.guidance)}>
-      <FinanceScreenOptionsProvider value={{ now: NOW, ...options }}>
-        <WidgetDataProvider source={fake.source}>{ui}</WidgetDataProvider>
-      </FinanceScreenOptionsProvider>
+      <BuilderViewProvider on={opts.builder ?? true}>
+        <FinanceScreenOptionsProvider value={{ now: NOW, ...options }}>
+          <WidgetDataProvider source={fake.source}>{ui}</WidgetDataProvider>
+        </FinanceScreenOptionsProvider>
+      </BuilderViewProvider>
     </GuidanceProvider>
   );
   return render(el);

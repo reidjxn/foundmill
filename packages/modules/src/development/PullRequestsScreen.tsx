@@ -218,7 +218,8 @@ export function PullRequestsScreen({ businessId, departmentId }: ModuleScreenPro
           );
         },
       },
-      { id: "branch", accessorKey: "branch", header: "Branch", size: openSizes.branch, cell: ({ row }) => <BranchName branch={row.original.branch} />, meta: { term: "branch" } },
+      // Branch, PR number, lines and commit are Builder view's (`meta.builderOnly`): off, the tables have none of them.
+      { id: "branch", accessorKey: "branch", header: "Branch", size: openSizes.branch, cell: ({ row }) => <BranchName branch={row.original.branch} />, meta: { term: "branch", builderOnly: true } },
       {
         id: "previewUrl",
         accessorKey: "previewUrl",
@@ -242,13 +243,13 @@ export function PullRequestsScreen({ businessId, departmentId }: ModuleScreenPro
 
   const mergedColumns = useMemo<DataTableColumn<MergedPrTableRow>[]>(
     () => fitToGrow<MergedPrTableRow>([
-      { id: "prLabel", accessorKey: "prLabel", header: "PR", size: mergedSizes.prLabel, meta: { locked: true }, cell: ({ row }) => (row.original.url ? <a href={row.original.url} target="_blank" rel="noreferrer" className="entity-link font-mono text-mono">{row.original.prLabel}</a> : <span className="font-mono text-mono">{row.original.prLabel}</span>) },
+      { id: "prLabel", accessorKey: "prLabel", header: "PR", size: mergedSizes.prLabel, meta: { locked: true, builderOnly: true }, cell: ({ row }) => (row.original.url ? <a href={row.original.url} target="_blank" rel="noreferrer" className="entity-link font-mono text-mono">{row.original.prLabel}</a> : <span className="font-mono text-mono">{row.original.prLabel}</span>) },
       { id: "title", accessorKey: "title", header: "Title", size: mergedSizes.title, cell: ({ row }) => <span className="block min-w-0 truncate text-body-strong" title={row.original.title ?? undefined}>{row.original.title ?? "—"}</span> },
-      { id: "branch", accessorKey: "branch", header: "Branch", size: mergedSizes.branch, cell: ({ row }) => (row.original.branch ? <BranchName branch={row.original.branch} /> : <span className="text-tertiary">—</span>), meta: { term: "branch" } },
+      { id: "branch", accessorKey: "branch", header: "Branch", size: mergedSizes.branch, cell: ({ row }) => (row.original.branch ? <BranchName branch={row.original.branch} /> : <span className="text-tertiary">—</span>), meta: { term: "branch", builderOnly: true } },
       { id: "mergedByName", accessorKey: "mergedByName", header: "Merged by", size: mergedSizes.mergedByName },
-      { id: "additions", accessorKey: "additions", header: "Added", size: mergedSizes.additions, meta: { numeric: true, label: "Lines added" }, cell: ({ row }) => (row.original.additions === undefined ? <span className="text-tertiary">—</span> : <span className="text-status-good tabular-nums">+{formatNumber(row.original.additions)}</span>) },
-      { id: "deletions", accessorKey: "deletions", header: "Removed", size: mergedSizes.deletions, meta: { numeric: true, label: "Lines removed" }, cell: ({ row }) => (row.original.deletions === undefined ? <span className="text-tertiary">—</span> : <span className="text-status-bad tabular-nums">−{formatNumber(row.original.deletions)}</span>) },
-      { id: "sha", accessorKey: "mergeCommitSha", header: "Commit", size: mergedSizes.sha, cell: ({ row }) => <span className="font-mono text-mono text-secondary">{shortSha(row.original.mergeCommitSha) || "—"}</span> },
+      { id: "additions", accessorKey: "additions", header: "Added", size: mergedSizes.additions, meta: { numeric: true, label: "Lines added", builderOnly: true }, cell: ({ row }) => (row.original.additions === undefined ? <span className="text-tertiary">—</span> : <span className="text-status-good tabular-nums">+{formatNumber(row.original.additions)}</span>) },
+      { id: "deletions", accessorKey: "deletions", header: "Removed", size: mergedSizes.deletions, meta: { numeric: true, label: "Lines removed", builderOnly: true }, cell: ({ row }) => (row.original.deletions === undefined ? <span className="text-tertiary">—</span> : <span className="text-status-bad tabular-nums">−{formatNumber(row.original.deletions)}</span>) },
+      { id: "sha", accessorKey: "mergeCommitSha", header: "Commit", size: mergedSizes.sha, meta: { builderOnly: true }, cell: ({ row }) => <span className="font-mono text-mono text-secondary">{shortSha(row.original.mergeCommitSha) || "—"}</span> },
       { id: "mergedAt", accessorFn: (r) => r.mergedAt?.getTime() ?? 0, header: "Merged", size: mergedSizes.mergedAt, meta: { filter: "date", label: "Merged" }, cell: ({ row }) => (row.original.mergedAt ? <RelativeDateText className="text-secondary" value={row.original.mergedAt} now={now} /> : <span className="text-tertiary">—</span>) },
     ], MERGED_PR_FIT),
     [now, mergedSizes],

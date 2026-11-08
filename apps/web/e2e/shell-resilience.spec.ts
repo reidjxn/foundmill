@@ -1,5 +1,14 @@
 import { expect, test, type APIRequestContext } from "@playwright/test";
-import { LEDGERLY_BUSINESS_ID, LONG, NORTHWIND_BUSINESS_ID, devApi, openBusiness, openSwitcher, signIn } from "./helpers";
+import { LEDGERLY_BUSINESS_ID, LONG, NORTHWIND_BUSINESS_ID, devApi, openBusiness, openSwitcher, signIn, setBuilderView } from "./helpers";
+
+// Builder view on for this file (it reads the "Reconnecting…" chip, which a founder without Builder view sees only as "Updates may be late" after 30 s); global-setup.ts starts every run with it off. Restored afterwards.
+let builderViewBefore = false;
+test.beforeAll(async ({ playwright }) => {
+  builderViewBefore = await setBuilderView(playwright, true);
+});
+test.afterAll(async ({ playwright }) => {
+  await setBuilderView(playwright, builderViewBefore);
+});
 
 /** lib/chunk-error.ts CHUNK_RELOAD_KEY (a spec cannot import app code that reaches for the window). */
 const CHUNK_RELOAD_KEY = "fm.chunk-reload-at";

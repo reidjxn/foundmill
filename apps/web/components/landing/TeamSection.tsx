@@ -8,7 +8,7 @@
  */
 import { useEffect, useState } from "react";
 import { Code2, Compass, FlaskConical, Gamepad2, GraduationCap, Megaphone, Pause, Play, Scale, Store, Users, Wallet, type LucideIcon } from "lucide-react";
-import { Avatar, Button, Chip, DeptChip, Icon, SkillGrid, StarRating, StatusPill, Term, TraitChips, cn, usePrefersReducedMotion } from "@foundmill/dugout";
+import { Avatar, BuilderViewProvider, Button, Chip, DeptChip, Icon, SkillGrid, StarRating, StatusPill, Term, TraitChips, cn, usePrefersReducedMotion } from "@foundmill/dugout";
 import { useExample } from "./examples/context";
 import { departmentScreens, leadOf } from "./examples/helpers";
 import type { ExampleDepartment, ExampleDepartmentIcon, ExampleLead } from "./examples/types";
@@ -160,7 +160,10 @@ function LeadProfile({ department, lead }: { department: ExampleDepartment; lead
       </header>
       <div className="relative flex flex-col gap-3 px-6 pb-2 pt-5">
         <span className="t-label">Attribute ratings · 1 to 20 · change since the last training</span>
-        <SkillGrid skills={lead.skills} showPotential />
+        {/* The marketing page shows the ratings out of 20 on purpose: Builder view is on for the demo card alone. */}
+        <BuilderViewProvider on>
+          <SkillGrid skills={lead.skills} showPotential />
+        </BuilderViewProvider>
       </div>
       <div className="relative grid grid-cols-3 gap-6 border-t border-subtle/70 px-6 py-5">
         <span className="flex flex-col gap-2">

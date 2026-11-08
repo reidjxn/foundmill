@@ -1,3 +1,4 @@
+"use client";
 import { ArrowRight, Check, Minus, Trash2, TrendingDown, TrendingUp } from "lucide-react";
 import type { Money } from "@foundmill/shared";
 import { SKILL_GROUPS, type SkillGroup } from "@foundmill/shared/constants";
@@ -9,6 +10,7 @@ import { Button } from "../foundation/Button";
 import { Chip, ProvenanceChip } from "../foundation/Chip";
 import { Icon } from "../foundation/Icon";
 import { Tooltip } from "../foundation/Tooltip";
+import { useBuilderView } from "../guidance/BuilderView";
 import type { TrainingSkillResult } from "./types";
 
 export const DROP_HIGHLIGHT_THRESHOLD = 1;
@@ -94,6 +96,8 @@ function DeltaWord({ delta }: { delta: number }) {
  */
 export function TrainingResults({ results, coachExplanation, candidateVersion, liveVersion, cost, durationMs, onPromote, onDiscard, promoting, discarding, className }: TrainingResultsProps) {
   const summary = summariseTraining(results);
+  // Builder view: a skill's "N of M tests passed" shows only while it is on.
+  const builder = useBuilderView();
   const groups = SKILL_GROUPS.filter((g) => results.some((r) => r.group === g));
   return (
     <section aria-label="Training results" className={cn("surface-panel flex min-w-0 flex-col overflow-hidden", className)} data-training-results>
@@ -141,8 +145,8 @@ export function TrainingResults({ results, coachExplanation, candidateVersion, l
                     return (
                       <tr key={r.id} data-skill={r.id} data-big-drop={big || undefined} data-no-tests={r.noTests || undefined} className={cn("h-row-comfortable border-b hairline-50", big && "bg-status-bad/8")}>
                         <td className="px-panel-pad text-primary">
-                          <Tooltip content={r.tests ? `${r.tests.passed} of ${r.tests.run} tests passed` : r.noTests ? "This skill has no tests, so the run could not score it; its rating stands." : undefined}>
-                            <span tabIndex={r.tests || r.noTests ? 0 : -1}>{r.name}</span>
+                          <Tooltip content={r.tests && builder ? `${r.tests.passed} of ${r.tests.run} tests passed` : r.noTests ? "This skill has no tests, so the run could not score it; its rating stands." : undefined}>
+                            <span tabIndex={(r.tests && builder) || r.noTests ? 0 : -1}>{r.name}</span>
                           </Tooltip>
                         </td>
                         <td className="px-2 text-right">

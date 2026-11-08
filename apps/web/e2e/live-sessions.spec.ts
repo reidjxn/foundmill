@@ -1,5 +1,14 @@
 import { expect, test } from "@playwright/test";
-import { LONG, openBusiness } from "./helpers";
+import { LONG, openBusiness, setBuilderView } from "./helpers";
+
+// Builder view on for this file (it reads the tiles' tokens and ETA); global-setup.ts starts every run with it off. Restored afterwards.
+let builderViewBefore = false;
+test.beforeAll(async ({ playwright }) => {
+  builderViewBefore = await setBuilderView(playwright, true);
+});
+test.afterAll(async ({ playwright }) => {
+  await setBuilderView(playwright, builderViewBefore);
+});
 
 /**
  * Development › Live sessions (BUILD §11.6) on the seeded Northwind Skincare: the tiles, the focused tile with its

@@ -19,6 +19,7 @@ import { Chip } from "../foundation/Chip";
 import { Icon, type IconComponent } from "../foundation/Icon";
 import { AgentStatusPill } from "../foundation/StatusPill";
 import { Tooltip } from "../foundation/Tooltip";
+import { useBuilderView } from "../guidance/BuilderView";
 import { useTerm } from "../guidance/GuidanceProvider";
 import { FormKey, ScaleLabel, formKeySentence } from "../guidance/ScaleLabel";
 import type { FormResult, SquadRow } from "./types";
@@ -92,6 +93,7 @@ export interface RatingCellProps {
  * (UX plan §5 principle 4). `compact` here folds the word into the tooltip and the accessible name instead.
  */
 export function RatingCell({ value, compact, className }: RatingCellProps) {
+  const builder = useBuilderView();
   if (value === null || value === undefined || !Number.isFinite(value) || value <= 0) {
     return (
       <span className={cn("text-small text-tertiary", className)} aria-label="Not rated yet" title="Rated after the first training run">
@@ -102,6 +104,8 @@ export function RatingCell({ value, compact, className }: RatingCellProps) {
   const v = Math.max(1, Math.min(RATING_MAX, value));
   const figure = formatNumber(v, { digits: 1 });
   const band = ratingBandLabel(v);
+  // Builder view off (docs/DESIGN.md): the band word only, never the figure out of 20.
+  if (!builder) return <ScaleLabel value={v} scale={RATING_MAX} compact className={cn("whitespace-nowrap", className)} aria-label={`Rating ${band}`} data-rating-cell="" data-rating-band="" />;
   return (
     <span className={cn("inline-flex items-baseline gap-1.5 whitespace-nowrap", className)} aria-label={`Rating ${figure} of ${RATING_MAX}, ${band}`} title={compact ? `${figure} of ${RATING_MAX} · ${band}` : undefined} data-rating-cell>
       <span className={cn("t-display-sm", ratingClass(v))} aria-hidden>
@@ -258,22 +262,23 @@ export function squadColumns(opts: SquadColumnOptions = {}): DataTableColumn<Squ
     { id: "departments", accessorFn: (r) => r.departments.join(", "), header: "Departments", size: 140 },
     { id: "status", accessorKey: "status", header: "Status", size: 150, cell: ({ row }) => <StatusCell status={row.original.status} expectedReturnAt={row.original.expectedReturnAt} now={now} />, meta: { filter: "select", filterOptions: ["healthy", "degraded", "failing", "injured", "paused", "idle"].map((v) => ({ value: v, label: v })) } },
     { id: "currentTask", accessorFn: (r) => r.currentTask?.title ?? "", header: "Current task", size: 240, cell: ({ row }) => (opts.renderTask ? opts.renderTask(row.original) : <span className="truncate text-secondary">{row.original.currentTask?.title ?? "—"}</span>) },
+    // Form, Rating, Tools and Model are Builder view's (`meta.builderOnly`): off, the table has none of them.
     // The column head carries the key once; every row's cells carry it on hover. Form, Rating, Model and AI cost are
     // defined words (`meta.term`): the word opens its definition card, the arrow beside it sorts (DataTable).
-    { id: "form", accessorFn: (r) => formScore(r.form), header: () => <span title="The last five tasks, oldest left: green went well, amber partly, red failed">Form</span>, size: 80, cell: ({ row }) => <FormCells form={row.original.form} name={`${row.original.name} form`} />, meta: { numeric: true, label: "Form", term: "form" } },
-    { id: "rating", accessorKey: "rating", header: () => <span title={RATING_COLUMN_TOOLTIP}>{RATING_COLUMN_LABEL}</span>, size: 112, cell: ({ getValue }) => <RatingCell value={getValue() as number} />, meta: { numeric: true, label: RATING_COLUMN_LABEL, term: "rating" } },
-    { id: "tools", accessorFn: (r) => r.tools.length, header: "Tools", size: 140, cell: ({ row }) => <ToolIcons tools={row.original.tools} />, meta: { numeric: true } },
-    { id: "model", accessorKey: "model", header: "Model", size: 110, cell: ({ row }) => <ModelChip model={row.original.model} onClick={opts.onModelClick ? () => opts.onModelClick?.(row.original) : undefined} />, meta: { filter: "select", filterOptions: (["opus", "sonnet", "haiku"] as const).map((v) => ({ value: v, label: MODEL_LABELS[v] })), term: "model" } },
+    { id: "form", accessorFn: (r) => formScore(r.form), header: () => <span title="The last five tasks, oldest left: green went well, amber partly, red failed">Form</span>, size: 80, cell: ({ row }) => <FormCells form={row.original.form} name={`${row.original.name} form`} />, meta: { numeric: true, label: "Form", term: "form", builderOnly: true } },
+    { id: "rating", accessorKey: "rating", header: () => <span title={RATING_COLUMN_TOOLTIP}>{RATING_COLUMN_LABEL}</span>, size: 112, cell: ({ getValue }) => <RatingCell value={getValue() as number} />, meta: { numeric: true, label: RATING_COLUMN_LABEL, term: "rating", builderOnly: true } },
+    { id: "tools", accessorFn: (r) => r.tools.length, header: "Tools", size: 140, cell: ({ row }) => <ToolIcons tools={row.original.tools} />, meta: { numeric: true, builderOnly: true } },
+    { id: "model", accessorKey: "model", header: "Model", size: 110, cell: ({ row }) => <ModelChip model={row.original.model} onClick={opts.onModelClick ? () => opts.onModelClick?.(row.original) : undefined} />, meta: { filter: "select", filterOptions: (["opus", "sonnet", "haiku"] as const).map((v) => ({ value: v, label: MODEL_LABELS[v] })), term: "model", builderOnly: true } },
     { id: "wage", accessorFn: (r) => r.wage.amountMinor, header: WAGE_COLUMN_LABEL, size: 120, cell: ({ row }) => <WageCell wage={row.original.wage} />, meta: { numeric: true, csv: (r) => r.wage.amountMinor / 100, term: "wage" } },
     { id: "latestUpdate", accessorFn: (r) => r.latestUpdate?.at ?? "", header: "Latest update", size: 260, cell: ({ row }) => (row.original.latestUpdate ? <span className="truncate text-secondary" title={row.original.latestUpdate.text} data-allow-truncate="">{formatRelative(row.original.latestUpdate.at, now)} · {row.original.latestUpdate.text}</span> : "—") },
   ];
 }
 
-/** Saved views BUILD §11.9 names: General, Health, Tools, Cost, Performance. */
+/** Saved views BUILD §11.9 names: General, Health, Tools, Cost, Performance (Health, Tools and Performance are Builder view's). */
 export const SQUAD_VIEWS: SavedView[] = [
   { id: "general", name: "General", builtIn: true, columns: ["name", "role", "departments", "status", "currentTask", "form", "rating", "model", "latestUpdate"], sort: [{ id: "rating", desc: true }], filters: [] },
-  { id: "health", name: "Health", builtIn: true, columns: ["name", "role", "status", "form", "latestUpdate"], sort: [{ id: "status", desc: false }], filters: [] },
-  { id: "tools", name: "Tools", builtIn: true, columns: ["name", "role", "tools", "model"], sort: [{ id: "tools", desc: true }], filters: [] },
+  { id: "health", name: "Health", builtIn: true, builderOnly: true, columns: ["name", "role", "status", "form", "latestUpdate"], sort: [{ id: "status", desc: false }], filters: [] },
+  { id: "tools", name: "Tools", builtIn: true, builderOnly: true, columns: ["name", "role", "tools", "model"], sort: [{ id: "tools", desc: true }], filters: [] },
   { id: "cost", name: "Cost", builtIn: true, columns: ["name", "role", "model", "wage", "rating"], sort: [{ id: "wage", desc: true }], filters: [] },
-  { id: "performance", name: "Performance", builtIn: true, columns: ["name", "role", "form", "rating", "currentTask"], sort: [{ id: "rating", desc: true }], filters: [] },
+  { id: "performance", name: "Performance", builtIn: true, builderOnly: true, columns: ["name", "role", "form", "rating", "currentTask"], sort: [{ id: "rating", desc: true }], filters: [] },
 ];

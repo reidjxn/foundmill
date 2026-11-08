@@ -3236,3 +3236,18 @@ Judgment calls taken here:
 - **`pickAssignee` skips the utility layer even when a planner names one or a task row holds one**; before, only the worker filter kept them out. `team.agents.catalogue` leaves the utility family out unless `family: "utility"` is asked for.
 - **Today needed no change**: it lists no agent counts, and helpers never write to the founder, so Needs you never holds one. The Today and Inbox naming rosters keep every agent (helpers read by role anyway).
 
+### Builder view: the engine behind one account-wide switch, off by default (PR 1 of 2: plumbing and hide-only gates) (2026-11-08)
+Founder decisions (Nov 8, 2026, final):
+1. **Operator and Exited profiles get Builder view on at their first profile save**, the same save that turns guidance off for them (`founder.profile.update`); everyone else starts off. A later profile edit never touches it.
+2. **Tab names**: Live sessions reads "Working now", Pull requests "What changed", Environments "Live product" ("Live" alone is already a business mode). In this PR those tabs only get the founder titles and lose their technical columns (branch, PR number, lines, commit, provider; tokens and ETA on the tiles); their founder content (What changed panels, the Live product card, Working now tiles) is PR 2.
+3. **Recruitment stays visible** (Hire links there) with its ratings shown as band words.
+4. **A long outage still says something**: with Builder view off, more than 30 seconds without the live connection shows a quiet "Updates may be late" chip; a short reconnect shows nothing.
+Judgment calls taken here:
+- **Migration 0073** (the next free number after 0072_goals; journal idx 61): one boolean column on `account_preferences`, default false. The existing `user_id = auth.uid()` policy and grants cover it; the cross-account test is in `rls/account-preferences.test.ts`.
+- **Off outside a provider.** `useBuilderView()` reads false with no provider, so a page or a test that forgot the provider shows the founder view, never the engine. The test fakes and Storybook default to on so the existing assertions about the engine keep holding; every gated surface has an off test.
+- **The founder title applies only while the stored title is the module default**, so a founder who renamed "Live sessions" keeps their name in both states; Builder view on always shows the stored title.
+- **A gated tab still opens by URL** (a bookmark, a shared link) with the gate state rather than a 404 or a redirect, so the link explains itself; the agent profile's Logs tab uses the same gate.
+- **Settings › Departments lists the gated tabs with a "Builder view: …" chip** on the department row (the page has no per-tab list to put the chip on).
+- **Ratings off are the band word everywhere RatingBar or RatingCell draws one**, CRM relationship strength and concept attributes included (the plan's "ratings everywhere"); the landing page's lead card keeps its figures inside `<BuilderViewProvider on>`. The replay scrubber's test marker keeps its word ("Tests passed") and suite without counts; a skill's hover keeps the task count but not the tested / proven / potential figures.
+- **A view saved while off keeps its Builder view columns** (appended), and a Builder view view deleted or saved over while off is put back in its place, so turning the switch off never loses a builder's views.
+- **Left for PR 2**: live-feed wording ("Cycle N started"), the sign-off pill ("Round N"), the subjects services write, the Composer's founder-words patterns, and the founder content of What changed, Live product and Working now.

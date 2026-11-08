@@ -1,10 +1,15 @@
 import { describe, expect, it, vi } from "vitest";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render as rtlRender, screen } from "@testing-library/react";
+import type { ReactElement } from "react";
+import { BuilderViewProvider } from "../guidance/BuilderView";
 import userEvent from "@testing-library/user-event";
 import { mockSquadRows } from "./mock";
 import { FormCells, ModelChip, RATING_COLUMN_LABEL, RatingCell, SQUAD_VIEWS, StatusCell, ToolIcons, WAGE_COLUMN_LABEL, WageCell, formKey, formScore, squadColumns } from "./SquadCells";
 import { ModelPicker } from "./ModelPicker";
 import { mockModelOptions } from "./mock";
+
+/** Builder view on for every render here (the engine these tests read); BuilderView.test.tsx covers it off. */
+const render = (ui: ReactElement, opts?: Parameters<typeof rtlRender>[1]) => rtlRender(ui, { wrapper: ({ children }) => <BuilderViewProvider on>{children}</BuilderViewProvider>, ...opts });
 
 describe("team cells", () => {
   it("FormCells carries the key in words and pads to five", () => {

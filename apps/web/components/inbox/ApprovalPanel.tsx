@@ -9,7 +9,7 @@
  */
 import { ChevronRight } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { EntityLink, Field, Icon, KeyValueList, Panel, StatusPill, Textarea, fieldDescribedBy, formatMoney, useAgentPersona, type KeyValueItem } from "@foundmill/dugout";
+import { BuilderOnly, EntityLink, Field, Icon, KeyValueList, Panel, StatusPill, Textarea, fieldDescribedBy, formatMoney, useAgentPersona, type KeyValueItem } from "@foundmill/dugout";
 import { routes } from "@foundmill/widgets/shared/routes";
 import type { RouterOutputs } from "@/lib/trpc";
 import { approvalLockedReason, approvalStatus, taskHref, type DepartmentForLinks } from "./logic";
@@ -81,6 +81,8 @@ export function ApprovalPanel({ approval, businessId, departments, reason, onRea
           {describeRequest({ ...approval, agent: approval.agent ? { name: persona.labelFor(approval.agent) } : null })}.
         </p>
         <KeyValueList items={items} />
+        {/* The system's own words (the call, the rule, the arguments) are Builder view's. */}
+        <BuilderOnly>
         <details className="group/detail" data-testid="approval-details">
           <summary className="flex w-fit cursor-pointer list-none items-center gap-1 rounded-sm px-1.5 text-small text-secondary transition-colors duration-hover ease-out hover:text-primary [&::-webkit-details-marker]:hidden">
             <Icon icon={ChevronRight} size="inline" className="transition-transform duration-overlay ease-out group-open/detail:rotate-90" />
@@ -107,6 +109,7 @@ export function ApprovalPanel({ approval, businessId, departments, reason, onRea
             </div>
           </dl>
         </details>
+        </BuilderOnly>
         {open && !locked ? (
           <Field htmlFor={REASON_ID} label="Reason (optional)" hint="Sent with your answer. If you reject, the agent is told why.">
             <Textarea id={REASON_ID} value={reason} onChange={(e) => onReasonChange(e.target.value)} maxLength={2000} rows={2} aria-describedby={fieldDescribedBy(REASON_ID, { hint: true })} data-testid="approval-reason" />

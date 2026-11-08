@@ -1,5 +1,14 @@
 import { expect, test, type Page } from "@playwright/test";
-import { LONG, NORTHWIND_BUSINESS_ID, ROADMAP_SIGNOFF, SPEC_SIGNOFF, UUID, approveBothSignoffs, approveFromInbox, dismissCoachmarks, ensureDeck, inboxRow, openBoardQuestion, openBusiness, signIn, startDistributionFromBoard, takeChargeToHome } from "./helpers";
+import { LONG, NORTHWIND_BUSINESS_ID, ROADMAP_SIGNOFF, SPEC_SIGNOFF, UUID, approveBothSignoffs, approveFromInbox, dismissCoachmarks, ensureDeck, inboxRow, openBoardQuestion, openBusiness, signIn, startDistributionFromBoard, takeChargeToHome, setBuilderView } from "./helpers";
+
+// Builder view on for this file (it opens an approval's Details); global-setup.ts starts every run with it off. Restored afterwards.
+let builderViewBefore = false;
+test.beforeAll(async ({ playwright }) => {
+  builderViewBefore = await setBuilderView(playwright, true);
+});
+test.afterAll(async ({ playwright }) => {
+  await setBuilderView(playwright, builderViewBefore);
+});
 
 /**
  * Inbox (BUILD §11.3; AC-11.3.2 refresh, AC-11.3.3 Continue follows blocking items) on the seeded Northwind Skincare,

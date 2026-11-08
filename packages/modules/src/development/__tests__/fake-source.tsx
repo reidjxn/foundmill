@@ -5,7 +5,7 @@
  */
 import { useSyncExternalStore, type ReactElement, type ReactNode } from "react";
 import { render } from "@testing-library/react";
-import { GuidanceProvider, type GuidanceMode } from "@foundmill/dugout";
+import { BuilderViewProvider, GuidanceProvider, type GuidanceMode } from "@foundmill/dugout";
 import { TERMS } from "@foundmill/shared/terms";
 import { WidgetDataProvider, type QueryOptions, type QueryState, type WidgetDataSource } from "@foundmill/widgets";
 import { DevScreenOptionsProvider, type DevScreenOptions } from "../options";
@@ -17,6 +17,8 @@ import { DevScreenOptionsProvider, type DevScreenOptions } from "../options";
  */
 export interface RenderOptions {
   guidance?: GuidanceMode;
+  /** Builder view (docs/DESIGN.md); default on, so the engine these tests read shows. Pass false for the founder view. */
+  builder?: boolean;
 }
 
 export function guidanceValue(guidance: GuidanceMode = "off") {
@@ -147,9 +149,11 @@ export const NOW = new Date("2026-10-07T10:00:00Z");
 export function renderScreen(fake: FakeSource, ui: ReactNode, options: DevScreenOptions = {}, opts: RenderOptions = {}) {
   const el: ReactElement = (
     <GuidanceProvider value={guidanceValue(opts.guidance)}>
-      <DevScreenOptionsProvider value={{ terminalRenderer: "plain", diffEngine: "local", now: NOW, flushMs: 10, ...options }}>
-        <WidgetDataProvider source={fake.source}>{ui}</WidgetDataProvider>
-      </DevScreenOptionsProvider>
+      <BuilderViewProvider on={opts.builder ?? true}>
+        <DevScreenOptionsProvider value={{ terminalRenderer: "plain", diffEngine: "local", now: NOW, flushMs: 10, ...options }}>
+          <WidgetDataProvider source={fake.source}>{ui}</WidgetDataProvider>
+        </DevScreenOptionsProvider>
+      </BuilderViewProvider>
     </GuidanceProvider>
   );
   return render(el);

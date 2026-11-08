@@ -9,6 +9,7 @@
 import { Globe, Inbox, LogOut, Medal, Settings, Sun, Trophy, Users, Users2, type LucideIcon } from "lucide-react";
 import type { SidebarBrand, SidebarItem } from "@foundmill/dugout";
 import type { DeptColourToken } from "@foundmill/shared";
+import { firstVisibleTab } from "@foundmill/shared/constants";
 import { routes } from "@foundmill/widgets/shared/routes";
 import { canOpenDepartment, FULL_ACCESS, type Access } from "./access";
 import { iconByName } from "./icons";
@@ -48,6 +49,8 @@ export interface SidebarInput {
   network?: { total: number; moderation: number };
   /** What the person may open (audit RUI-05): walled departments and a walled CRM are not listed. Default: everything. */
   access?: Access;
+  /** Builder view (docs/DESIGN.md): a department link never lands on a Builder view tab while it is off. Default off. */
+  builder?: boolean;
 }
 
 export const SIDEBAR_IDS = { home: "home", inbox: "inbox", crm: "crm", milestones: "milestones", settings: "settings", signOut: "sign-out", network: "network", communities: "communities", leaderboards: "leaderboards" } as const;
@@ -60,8 +63,9 @@ export const CRM_HINT = "The CRM";
 /** The Foundmill wordmark closing the sidebar foot (DESIGN §8a). Not an item: Dugout draws it when the sidebar is expanded. */
 export const SIDEBAR_BRAND: SidebarBrand = { href: "/" };
 
-export function departmentHref(businessId: string, d: SidebarDepartment): string {
-  const first = d.tabs.slice().sort((a, b) => a.position - b.position)[0];
+/** A department's link: its first tab the person sees (Builder view's tabs skipped while it is off). */
+export function departmentHref(businessId: string, d: SidebarDepartment, builder = false): string {
+  const first = firstVisibleTab(d, builder);
   return routes.department(businessId, d.slug, first?.slug ?? "overview");
 }
 
@@ -95,7 +99,7 @@ export function buildSidebarItems(input: SidebarInput): SidebarItem[] {
   ];
   for (const d of orderedVisibleDepartments(input.departments)) {
     if (!canOpenDepartment(access, d)) continue;
-    items.push({ id: d.id, label: d.name, icon: iconByName(d.icon) as LucideIcon, href: departmentHref(bid, d), group: "department", dept: d.colourToken, shortcut: d.shortcut ?? null, badge: badges.get(d.id) || undefined });
+    items.push({ id: d.id, label: d.name, icon: iconByName(d.icon) as LucideIcon, href: departmentHref(bid, d, input.builder ?? false), group: "department", dept: d.colourToken, shortcut: d.shortcut ?? null, badge: badges.get(d.id) || undefined });
   }
   if (access.canRead("crm")) items.push({ id: SIDEBAR_IDS.crm, label: CRM_LABEL, icon: Users, href: routes.crm(bid), group: "main", fixed: "crm", hint: CRM_HINT });
   items.push({ id: SIDEBAR_IDS.milestones, label: "Milestones", icon: Trophy, href: `/b/${bid}/milestones`, group: "main" });

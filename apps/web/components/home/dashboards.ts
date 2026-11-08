@@ -124,6 +124,8 @@ export interface NextStepInputs {
   unread: number;
   /** `cycle.status`: running (a paused cycle is not running for the founder), the cycle's number, the agents at work, the cycles finished. */
   cycle: { running: boolean; paused?: boolean; cycleNumber: number | null; nextCycleNumber?: number; activeAgentIds?: readonly string[]; completedCount: number } | null | undefined;
+  /** Builder view (default on for a caller that does not say): off leaves the cycle number out of the facts. */
+  builder?: boolean;
   distributionStartedAt: Date | string | null | undefined;
 }
 
@@ -150,12 +152,14 @@ export function unreadNotes(items: readonly { state: string; fromAgentId?: strin
 export function nextStepFacts(input: NextStepInputs): NextStepFacts {
   const cycle = input.cycle ?? null;
   const running = !!cycle?.running && !cycle.paused;
+  // Builder view off: the checklist says "The team is working", never a cycle number.
+  const builder = input.builder ?? true;
   return {
     foundationsStatus: foundationsForNextStep(input.foundationsStatus),
     blockingNotes: Math.max(0, input.blocking),
     unreadNotes: Math.max(0, input.unread),
     cycleRunning: running,
-    cycleNumber: (running ? cycle?.cycleNumber : null) ?? cycle?.nextCycleNumber ?? 1,
+    cycleNumber: builder ? ((running ? cycle?.cycleNumber : null) ?? cycle?.nextCycleNumber ?? 1) : null,
     agentsWorking: running ? (cycle?.activeAgentIds?.length ?? 0) : 0,
     distributionStarted: input.distributionStartedAt !== null && input.distributionStartedAt !== undefined,
     firstCycleDone: (cycle?.completedCount ?? 0) > 0,
