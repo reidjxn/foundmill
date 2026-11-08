@@ -16,6 +16,8 @@
  * - Agents: the "Anthropomorphic agents" switch (a first name and an AI-generated picture for every agent, with the
  *   position always beside the name; off shows agents by role, exactly as before) and, while it is on, the Style radio
  *   cards (Humans, 3D cartoon humans, 2D cartoon humans and animals, Fantasy). Both save through the same host at once.
+ * - Builder view (0073, founder 2026-11-08): one switch that shows how the platform runs the team (round numbers, tokens,
+ *   live screens, test counts, the technical tabs and columns, ratings). Off by default; saves through the same host.
  *
  * Open to every member, whatever their role: it changes nothing of the business.
  */
@@ -46,6 +48,7 @@ import { ANTHROPOMORPHIC_EXPLAINER, anthropomorphicSavedLine } from "@/lib/anthr
 import { useClientNow } from "@/lib/today";
 import { useDatePreferences } from "@/components/providers/DateFormatHost";
 import { agentStyleOf, useGuidancePreferences, type GuidancePatch, type GuidancePrefs } from "@/components/providers/GuidanceHost";
+import { builderViewSavedLine } from "@/components/providers/guidance-context";
 import { useTRPC } from "@/lib/trpc-react";
 import { AccountId } from "./AccountId";
 import { Hint, SettingsSection, useSettingsToast } from "./shared";
@@ -217,6 +220,40 @@ export function AnthropomorphicAgentsSection() {
   );
 }
 
+/** What Builder view shows, under its switch (docs/DESIGN.md "Builder view"). */
+export const BUILDER_VIEW_HINT =
+  "Shows how the platform runs the team: round numbers, AI usage in tokens, agents' live screens, test counts, finished code changes and previews, and the team's ratings, health and reporting lines. For operators and anyone building software with the team.";
+
+export { builderViewSavedLine };
+
+/** The Builder view section: one switch, saved at once through the GuidanceHost, with a toast. */
+export function BuilderViewSection() {
+  const { prefs, save } = useGuidancePreferences();
+  const t = useSettingsToast();
+  const on = prefs.builderView === true;
+  const change = (next: boolean) =>
+    save({ builderView: next }).then(
+      (saved) => {
+        const line = builderViewSavedLine(saved.builderView === true);
+        t.saved(line.title, line.description);
+      },
+      (err: unknown) => t.failed(err, "Preference not saved"),
+    );
+  return (
+    <SettingsSection title="Builder view" data-testid="builder-view-panel">
+      <div className="flex items-start gap-3" data-testid="builder-view-choice">
+        <Switch id="builder-view-switch" checked={on} onCheckedChange={(next) => void change(next)} aria-describedby="builder-view-switch-hint" data-testid="builder-view-switch" />
+        <div className="flex flex-col gap-1">
+          <Label htmlFor="builder-view-switch">Builder view</Label>
+          <p id="builder-view-switch-hint" className="text-small text-secondary">
+            {BUILDER_VIEW_HINT}
+          </p>
+        </div>
+      </div>
+    </SettingsSection>
+  );
+}
+
 export function PreferencesTab() {
   const { prefs, save } = useDatePreferences();
   const t = useSettingsToast();
@@ -257,6 +294,7 @@ export function PreferencesTab() {
       </SettingsSection>
       <GuidanceSection />
       <AnthropomorphicAgentsSection />
+      <BuilderViewSection />
       <SettingsSection title="Your account ID" data-testid="account-id-panel">
         <AccountId accountId={viewer.data?.userId} />
       </SettingsSection>

@@ -10,7 +10,7 @@ import { useMutation, useQuery } from "@tanstack/react-query";
 import { ArrowDown, ArrowUp, Check, GitMerge, Pencil, Plus, RotateCcw, Scissors, SlidersHorizontal, Trash2, X } from "lucide-react";
 import { useState } from "react";
 import { Button, Checkbox, Chip, DeptChip, Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, Field, IconButton, Input, Label, SimpleSelect, Switch, DEPARTMENT_SHORTCUT_LETTERS, departmentLetters, useToast } from "@foundmill/dugout";
-import { MODULE_KEYS, type ModuleKey } from "@foundmill/shared/constants";
+import { MODULE_KEYS, isBuilderOnlyTab, type ModuleKey } from "@foundmill/shared/constants";
 import { MODULE_WORDS, moduleList } from "@/lib/format";
 import { useTRPC } from "@/lib/trpc-react";
 import { orderedVisibleDepartments } from "@/lib/sidebar";
@@ -132,6 +132,7 @@ export function DepartmentsTab() {
                   <span className="text-body-strong text-primary">{d.name}</span>
                   {moduleList(d.moduleKeys).toLowerCase() !== d.name.toLowerCase() ? <span className="text-small text-tertiary">Covers {moduleList(d.moduleKeys).toLowerCase()}</span> : null}
                   {d.hidden ? <Chip tone="neutral">Hidden</Chip> : null}
+                  <BuilderViewTabsChip department={d} />
                   <IconButton label={`Rename ${d.name}`} icon={Pencil} size="sm" onClick={() => (setEditingId(d.id), setDraftName(d.name))} />
                 </span>
               )}
@@ -272,5 +273,27 @@ export function DepartmentsTab() {
         </DialogContent>
       </Dialog>
     </AdminOnly>
+  );
+}
+
+/**
+ * Settings lists every tab, Builder view's too (docs/DESIGN.md "Builder view"): a department with tabs that show only
+ * while Builder view is on says which, with a "Builder view" chip ("Builder view: Code").
+ */
+export function builderViewTabTitles(d: { moduleKeys?: readonly string[] | null; tabs: readonly { slug: string; title: string; position: number }[] }): string[] {
+  return d.tabs
+    .slice()
+    .sort((a, b) => a.position - b.position)
+    .filter((t) => isBuilderOnlyTab(d.moduleKeys, t.slug))
+    .map((t) => t.title);
+}
+
+function BuilderViewTabsChip({ department }: { department: Pick<DepartmentRow, "moduleKeys" | "tabs"> }) {
+  const titles = builderViewTabTitles(department);
+  if (!titles.length) return null;
+  return (
+    <Chip tone="neutral" title="These tabs show only with Builder view on (Settings › Preferences)." data-testid="builder-view-tabs">
+      {`Builder view: ${titles.join(", ")}`}
+    </Chip>
   );
 }

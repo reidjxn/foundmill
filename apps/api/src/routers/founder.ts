@@ -38,9 +38,9 @@ export function guidanceOffByDefault(experience: string | null | undefined): boo
   return typeof experience === "string" && EXPERIENCED_FOUNDER_EXPERIENCES.includes(experience.trim().toLowerCase());
 }
 
-/** The guided layer's part of the preferences row, the anthropomorphic agents switch and its style (what founder.preferences.guidance answers). */
+/** The guided layer's part of the preferences row, the anthropomorphic agents switch and its style, and Builder view (what founder.preferences.guidance answers). */
 export function guidancePrefsOf(p: AccountPreferencesView): GuidancePrefs {
-  return { guidance: p.guidance, textSize: p.textSize, explainersSeen: p.explainersSeen, toursDone: p.toursDone, checklistDismissedAt: p.checklistDismissedAt, anthropomorphicAgents: p.anthropomorphicAgents, agentStyle: p.agentStyle };
+  return { guidance: p.guidance, textSize: p.textSize, explainersSeen: p.explainersSeen, toursDone: p.toursDone, checklistDismissedAt: p.checklistDismissedAt, anthropomorphicAgents: p.anthropomorphicAgents, agentStyle: p.agentStyle, builderView: p.builderView };
 }
 
 const SignalTourId = z.string().trim().min(1).max(120);
@@ -73,8 +73,9 @@ export const founderRouter = router({
     /**
      * Creates the profile on the first save, updates it after. `guidanceTurnedOff` is true only on the save that created
      * the profile with an Exited or Operator experience: guidance was set off then, once, and the client says so
-     * ("Guidance is off for experienced founders. Turn it on any time in Settings › Preferences."). A later edit never
-     * touches the switch, whatever the experience becomes.
+     * ("Guidance is off for experienced founders. Turn it on any time in Settings › Preferences."). The same save turns
+     * Builder view on (0073; founder, Nov 8, 2026): they see how the platform runs the team from the start. A later edit
+     * never touches either switch, whatever the experience becomes.
      */
     update: protectedProcedure.input(FounderProfilePatch).mutation(async ({ ctx, input }) => {
       const existing = await repos.founders.get(ctx.db, ctx.userId);
@@ -82,7 +83,7 @@ export const founderRouter = router({
       const created = FounderProfileInput.parse({ displayName: input.displayName ?? freeDisplayName(ctx.email?.split("@")[0]), ...input });
       const profile = await repos.founders.upsert(ctx.db, ctx.userId, created);
       const guidanceTurnedOff = guidanceOffByDefault(profile.experience);
-      if (guidanceTurnedOff) await asUser(ctx, (tx) => repos.preferences.update(tx, ctx.userId, { guidance: "off" }));
+      if (guidanceTurnedOff) await asUser(ctx, (tx) => repos.preferences.update(tx, ctx.userId, { guidance: "off", builderView: true }));
       return { ...profile, guidanceTurnedOff };
     }),
   }),
@@ -97,7 +98,8 @@ export const founderRouter = router({
     /**
      * The guided layer's preferences (the switch, the text size, the explainers seen, the tours done, the checklist) and
      * `anthropomorphicAgents` (0067: agents show a persona's first name and face; default false) with `agentStyle` (0069:
-     * humans, cartoon_3d, cartoon_2d or fantasy; default humans, meaningful only while the switch is on).
+     * humans, cartoon_3d, cartoon_2d or fantasy; default humans, meaningful only while the switch is on) and `builderView`
+     * (0073: show how the platform runs the team; default false).
      */
     guidance: protectedProcedure.query(({ ctx }) => asUser(ctx, async (tx) => guidancePrefsOf(await repos.preferences.get(tx, ctx.userId)))),
     /** Change any of the preferences (formats, the switch, the text size, marks, the checklist, a reset, anthropomorphic agents and their style); returns them all. */

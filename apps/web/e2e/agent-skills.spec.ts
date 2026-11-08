@@ -1,5 +1,14 @@
 import { expect, test, type Page } from "@playwright/test";
-import { LONG, openBusiness } from "./helpers";
+import { LONG, openBusiness, setBuilderView } from "./helpers";
+
+// Builder view on for this file (it reads the hired agent's attribute ratings out of 20); global-setup.ts starts every run with it off. Restored afterwards.
+let builderViewBefore = false;
+test.beforeAll(async ({ playwright }) => {
+  builderViewBefore = await setBuilderView(playwright, true);
+});
+test.afterAll(async ({ playwright }) => {
+  await setBuilderView(playwright, builderViewBefore);
+});
 
 /**
  * Skills from the library and skill files (founder request 2026-10-16) on the seeded Northwind business: hire an agent

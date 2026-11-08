@@ -71,6 +71,8 @@ function LiveTile(args: AgentTileProps) {
 export const Live: Story = { render: (args) => <LiveTile {...args} /> };
 
 export const Terminal: Story = { args: { defaultView: "terminal" } };
+/** Builder view off: the footer keeps elapsed and the cost Estimate, without tokens or the ETA. */
+export const BuilderViewOff: Story = { name: "Builder view off", args: { defaultView: "plan" }, globals: { builderView: "off" } };
 export const Diff: Story = { args: { defaultView: "diff" } };
 export const DiffLocalEngine: Story = { name: "Diff (local engine fallback)", args: { defaultView: "diff", diffEngine: "local" } };
 export const Plan: Story = { args: { defaultView: "plan" } };

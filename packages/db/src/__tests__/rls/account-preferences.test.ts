@@ -63,14 +63,14 @@ describe("account_preferences (table)", () => {
     await expect(h.service().execute(sql`insert into account_preferences (user_id, guidance) values (${cy}::uuid, 'quiet')`)).rejects.toThrow(/check constraint/);
     await expect(h.service().execute(sql`insert into account_preferences (user_id, text_size) values (${cy}::uuid, 'large')`)).rejects.toThrow(/check constraint/);
     const [row] = await h.asUser(cy).run((tx) => tx.insert(s.accountPreferences).values({ userId: cy }).returning());
-    expect([row!.guidance, row!.textSize, row!.explainersSeen, row!.toursDone, row!.checklistDismissedAt, row!.anthropomorphicAgents, row!.agentStyle]).toEqual(["on", "standard", {}, {}, null, false, "humans"]);
+    expect([row!.guidance, row!.textSize, row!.explainersSeen, row!.toursDone, row!.checklistDismissedAt, row!.anthropomorphicAgents, row!.agentStyle, row!.builderView]).toEqual(["on", "standard", {}, {}, null, false, "humans", false]);
     await expect(h.service().execute(sql`insert into account_preferences (user_id, agent_style) values (${cy}::uuid, 'anime')`)).rejects.toThrow(/check constraint/);
     await h.db.delete(s.accountPreferences).where(eq(s.accountPreferences.userId, cy));
   });
 });
 
 /** The defaults everyone reads until they choose. */
-const DEFAULTS = { date: "us", time: "12h", guidance: "on", textSize: "standard", explainersSeen: {}, toursDone: {}, checklistDismissedAt: null, anthropomorphicAgents: false, agentStyle: "humans" };
+const DEFAULTS = { date: "us", time: "12h", guidance: "on", textSize: "standard", explainersSeen: {}, toursDone: {}, checklistDismissedAt: null, anthropomorphicAgents: false, agentStyle: "humans", builderView: false };
 
 describe("repos.preferences under RLS", () => {
   it("reads the defaults without writing a row, then upserts only what changed", async () => {
@@ -138,5 +138,29 @@ describe("repos.preferences: the guided layer (0064)", () => {
     await expect(h.asUser(ada).run((tx) => preferencesRepo.update(tx, ada, { reset: true, explainersSeen: { home: true } }))).rejects.toThrow(/Invalid preferences/);
     await expect(h.asUser(ada).run((tx) => preferencesRepo.update(tx, ada, { reset: false } as never))).rejects.toThrow(/Invalid preferences/);
     expect(await h.asUser(ada).run((tx) => preferencesRepo.get(tx, ada))).toMatchObject({ guidance: "on", textSize: "standard", explainersSeen: {} });
+  });
+});
+
+describe("account_preferences: Builder view (0073)", () => {
+  it("is off until chosen, saves on its own, and only its owner can read or change it", async () => {
+    const ivy = await h.createUser("ivy@test.local");
+    const jo = await h.createUser("jo@test.local");
+    expect((await h.asUser(ivy).run((tx) => preferencesRepo.get(tx, ivy))).builderView).toBe(false);
+    expect(await h.asUser(ivy).run((tx) => preferencesRepo.update(tx, ivy, { builderView: true }))).toEqual({ ...DEFAULTS, builderView: true });
+    // Another account reads the defaults for Ivy (her row is invisible) and cannot set her value, through the repo or the table.
+    expect((await h.asUser(jo).run((tx) => preferencesRepo.get(tx, ivy))).builderView).toBe(false);
+    await expect(h.asUser(jo).run((tx) => preferencesRepo.update(tx, ivy, { builderView: false }))).rejects.toThrow(RLS_DENIED);
+    const changed = await h.asUser(jo).run((tx) => tx.update(s.accountPreferences).set({ builderView: false }).where(eq(s.accountPreferences.userId, ivy)).returning());
+    expect(changed).toHaveLength(0);
+    expect(await h.asUser(jo).run((tx) => tx.select({ builderView: s.accountPreferences.builderView }).from(s.accountPreferences).where(eq(s.accountPreferences.userId, ivy)))).toHaveLength(0);
+    // Jo's own switch is Jo's alone.
+    expect((await h.asUser(jo).run((tx) => preferencesRepo.update(tx, jo, { builderView: true }))).builderView).toBe(true);
+    expect((await h.asUser(ivy).run((tx) => preferencesRepo.update(tx, ivy, { builderView: false }))).builderView).toBe(false);
+    expect((await h.asUser(jo).run((tx) => preferencesRepo.get(tx, jo))).builderView).toBe(true);
+    // The other preferences are untouched by it, and a non-boolean is refused.
+    expect(await h.asUser(ivy).run((tx) => preferencesRepo.get(tx, ivy))).toEqual(DEFAULTS);
+    await expect(h.asUser(ivy).run((tx) => preferencesRepo.update(tx, ivy, { builderView: "yes" } as never))).rejects.toThrow(/Invalid preferences/);
+    const truth = await h.service().run((tx) => tx.select({ builderView: s.accountPreferences.builderView }).from(s.accountPreferences).where(eq(s.accountPreferences.userId, ivy)));
+    expect(truth).toEqual([{ builderView: false }]);
   });
 });

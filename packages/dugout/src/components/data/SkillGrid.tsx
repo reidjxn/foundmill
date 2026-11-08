@@ -8,6 +8,7 @@ import { RATING_MAX, ratingBandLabel } from "../../lib/rating";
 import { Chip } from "../foundation/Chip";
 import { Icon } from "../foundation/Icon";
 import { Tooltip } from "../foundation/Tooltip";
+import { useBuilderView } from "../guidance/BuilderView";
 import { ScaleLabel } from "../guidance/ScaleLabel";
 import { RatingBar, RatingFigure } from "./RatingBar";
 import type { SkillRow } from "./types";
@@ -113,6 +114,7 @@ export function SkillGrid({
   density = "comfortable",
   className,
 }: SkillGridProps) {
+  const builder = useBuilderView();
   const groups = useMemo(
     () => SKILL_GROUPS.map((g) => ({ group: g, rows: skills.filter((s) => s.group === g) })),
     [skills],
@@ -154,7 +156,8 @@ export function SkillGrid({
               const disabled = !!focus && !isSelected && full;
               const band = ratingBandLabel(s.value);
               // Compact rows keep the band word in the hover text, so it is never lost, only folded.
-              const hover = [compact ? `${band}` : "", skillHoverText(s)].filter(Boolean).join(" · ");
+              // Builder view off: the figures (tested, proven, potential) stay out of the hover too.
+              const hover = [compact ? `${band}` : "", builder ? skillHoverText(s) : ""].filter(Boolean).join(" · ");
               const drop = s.delta !== undefined && s.delta < -1;
               const row = (
                 <li
@@ -197,15 +200,22 @@ export function SkillGrid({
                       </Chip>
                     ) : null}
                   </span>
-                  <RatingFigure value={s.value} className="w-6 text-right" title={compact ? `${s.value} of ${RATING_MAX} · ${band}` : undefined} aria-label={`${s.value} of ${RATING_MAX}, ${band}`} />
-                  {compact ? null : <ScaleLabel value={s.value} scale={RATING_MAX} className="shrink-0" data-skill-band={band} />}
-                  <span className="w-28 shrink-0">
-                    <RatingBar
-                      value={s.value}
-                      compare={showPotential ? s.potential : undefined}
-                      name={s.name}
-                    />
-                  </span>
+                  {builder ? (
+                    <>
+                      <RatingFigure value={s.value} className="w-6 text-right" title={compact ? `${s.value} of ${RATING_MAX} · ${band}` : undefined} aria-label={`${s.value} of ${RATING_MAX}, ${band}`} />
+                      {compact ? null : <ScaleLabel value={s.value} scale={RATING_MAX} className="shrink-0" data-skill-band={band} />}
+                      <span className="w-28 shrink-0">
+                        <RatingBar
+                          value={s.value}
+                          compare={showPotential ? s.potential : undefined}
+                          name={s.name}
+                        />
+                      </span>
+                    </>
+                  ) : (
+                    // Builder view off: the band word alone, no figure out of 20 and no cells.
+                    <ScaleLabel value={s.value} scale={RATING_MAX} compact={compact} className="shrink-0" data-skill-band={band} aria-label={`${s.name}: ${band}`} />
+                  )}
                   <DeltaArrow delta={s.delta} />
                 </li>
               );

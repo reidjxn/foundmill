@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render as rtlRender, screen, waitFor, within } from "@testing-library/react";
+import type { ReactElement } from "react";
+import { BuilderViewProvider } from "../guidance/BuilderView";
 import userEvent from "@testing-library/user-event";
 
 const term = { open: vi.fn(), write: vi.fn(), reset: vi.fn(), dispose: vi.fn(), loadAddon: vi.fn(), scrollToBottom: vi.fn() };
@@ -28,6 +30,9 @@ import { SpecialistTile, defaultSpecialistView, specialistEmptyCopy } from "./Sp
 import { STRONGEST_MODEL_LABEL, isInteractiveTarget, sessionPill } from "./TileFrame";
 import { GuidanceProvider } from "../guidance/GuidanceProvider";
 import type { StdoutChunk } from "./types";
+
+/** Builder view on for every render here (the engine these tests read); BuilderView.test.tsx covers it off. */
+const render = (ui: ReactElement, opts?: Parameters<typeof rtlRender>[1]) => rtlRender(ui, { wrapper: ({ children }) => <BuilderViewProvider on>{children}</BuilderViewProvider>, ...opts });
 
 const START = "2026-10-07T09:00:00Z";
 const NOW = new Date("2026-10-07T09:12:00Z");

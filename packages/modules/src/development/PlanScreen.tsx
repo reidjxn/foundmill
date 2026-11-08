@@ -7,7 +7,7 @@
  */
 import { useId, useMemo, useRef, useState } from "react";
 import { ArrowUpCircle, Bot, ChevronRight, ExternalLink, ListTree, Network, Pause, Play, Radio, Square } from "lucide-react";
-import { Avatar, Button, Chip, DataTable, EntityLink, useAgentPersona, Field, GenerateControl, KeyValueList, Panel, ProgressRing, ProvenanceChip, STRONGEST_MODEL_LABEL, TASK_STATUS_META, TaskGraph, TaskRunState, Term, Textarea, SimpleSelect, useTerm, canStartTask, taskRunInfo, type DataTableColumn, type RowAction, type SavedView } from "@foundmill/dugout";
+import { Avatar, BuilderOnly, Button, Chip, DataTable, EntityLink, useAgentPersona, Field, GenerateControl, KeyValueList, Panel, ProgressRing, ProvenanceChip, STRONGEST_MODEL_LABEL, TASK_STATUS_META, TaskGraph, TaskRunState, Term, Textarea, SimpleSelect, useTerm, canStartTask, taskRunInfo, type DataTableColumn, type RowAction, type SavedView } from "@foundmill/dugout";
 import type { TaskStatus } from "@foundmill/shared";
 import { routes } from "@foundmill/widgets/shared/routes";
 import { useBusinessEvents, useWidgetData, useWidgetQuery } from "@foundmill/widgets/data";
@@ -173,9 +173,12 @@ export function PlanScreen({ businessId, departmentId }: ModuleScreenProps) {
                 {row.original.founderTitle ?? row.original.title}
               </span>
               {row.original.founderTitle && row.original.founderTitle !== row.original.title ? (
-                <span className="min-w-0 truncate text-small text-tertiary" title={row.original.title} data-technical-title>
-                  {row.original.title}
-                </span>
+                // The agents' technical title is Builder view's.
+                <BuilderOnly>
+                  <span className="min-w-0 truncate text-small text-tertiary" title={row.original.title} data-technical-title>
+                    {row.original.title}
+                  </span>
+                </BuilderOnly>
               ) : null}
             </span>
             {row.original.priority && row.original.priority >= 10 ? (
@@ -420,7 +423,9 @@ export function PlanScreen({ businessId, departmentId }: ModuleScreenProps) {
                   { label: <Term id="acceptance">Acceptance</Term>, value: selected.acceptance?.length ? `${selected.acceptance.length} criteria` : "None recorded" },
                 ]}
               />
-              {/* The plumbing (branch, file scope) behind a disclosure: the business facts above read first (UX plan §7.12). */}
+              {/* The plumbing (branch, file scope) behind a disclosure: the business facts above read first (UX plan §7.12).
+                  Builder view's: with it off there is no Technical disclosure at all. */}
+              <BuilderOnly>
               <details className="group/detail mt-2 text-small" data-testid="task-technical">
                 <summary className="flex w-fit cursor-pointer list-none items-center gap-1 rounded-sm text-secondary transition-colors duration-hover ease-out hover:text-primary [&::-webkit-details-marker]:hidden">
                   <ChevronRight size={14} aria-hidden className="transition-transform duration-overlay ease-out group-open/detail:rotate-90" />
@@ -437,6 +442,7 @@ export function PlanScreen({ businessId, departmentId }: ModuleScreenProps) {
                   />
                 </div>
               </details>
+              </BuilderOnly>
               <div className="mt-3 flex flex-wrap gap-2">
                 <Button size="sm" icon={Play} disabled={!canStartTask(selected.status, selected.waitingOn)} loading={action.pending === `dev.tasks.start:${selected.id}`} onClick={() => void runTask("dev.tasks.start", selected)}>
                   Start

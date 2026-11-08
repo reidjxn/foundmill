@@ -1,3 +1,4 @@
+"use client";
 import type { HTMLAttributes } from "react";
 import { cn } from "../../lib/cn";
 import {
@@ -7,6 +8,8 @@ import {
   ratingCells,
   ratingTone,
 } from "../../lib/rating";
+import { useBuilderView } from "../guidance/BuilderView";
+import { ScaleLabel } from "../guidance/ScaleLabel";
 
 /** Lit cells: the ramp colour with a faint glow in its own tone. */
 const FILL_CLASS: Record<ReturnType<typeof ratingTone>, string> = {
@@ -35,7 +38,8 @@ export interface RatingBarProps extends Omit<HTMLAttributes<HTMLSpanElement>, "c
 
 /**
  * DESIGN §5: 20 discrete cells (2 px apart), lit cells in the ramp colour for the value with a faint glow, empty cells a
- * faint plate; a comparison outlines the cells between the value and it.
+ * faint plate; a comparison outlines the cells between the value and it. With Builder view off (docs/DESIGN.md) the
+ * band word alone ("Good"), compact, with its dot: no cells and no figure out of 20.
  */
 export function RatingBar({
   value,
@@ -45,7 +49,9 @@ export function RatingBar({
   className,
   ...rest
 }: RatingBarProps) {
+  const builder = useBuilderView();
   const v = clampRating(value);
+  if (!builder) return <ScaleLabel value={v} compact role="img" aria-label={`${name ? `${name}: ` : ""}${ratingBandLabel(v)}`} data-rating-band="" className={className} />;
   const tone = ratingTone(v);
   const cells = ratingCells(v);
   const c = compare !== undefined ? clampRating(compare) : undefined;

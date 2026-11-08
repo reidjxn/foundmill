@@ -1,5 +1,14 @@
 import { expect, test } from "@playwright/test";
-import { LONG, openBusiness, settingsScreen, settled } from "./helpers";
+import { LONG, openBusiness, settingsScreen, settled, setBuilderView } from "./helpers";
+
+// Builder view on for this file (it opens the Code tab); global-setup.ts starts every run with it off. Restored afterwards.
+let builderViewBefore = false;
+test.beforeAll(async ({ playwright }) => {
+  builderViewBefore = await setBuilderView(playwright, true);
+});
+test.afterAll(async ({ playwright }) => {
+  await setBuilderView(playwright, builderViewBefore);
+});
 
 /**
  * Development › Code (0013 workspaces): the code agents wrote on code tasks, saved by the orchestrator when each
