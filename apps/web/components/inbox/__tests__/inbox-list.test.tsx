@@ -1,7 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
 import { fireEvent, render } from "@testing-library/react";
 import { APP_NAME } from "@foundmill/config";
-import { AgentPersonaProvider, GuidanceProvider } from "@foundmill/dugout";
+import { AgentPersonaProvider, GuidanceProvider, createAgentPersonaApi } from "@foundmill/dugout";
+import { rowModel } from "../logic";
 import { InboxList, type InboxListRow } from "../InboxList";
 import { goAheadConsequence } from "../ConfirmPlanDialog";
 import { ConfirmPlanDialog } from "../ReadingPane";
@@ -53,6 +54,27 @@ describe("InboxList with anthropomorphic agents", () => {
       </AgentPersonaProvider>,
     );
     expect(on.queryByTestId("row-sender")).toBeNull();
+  });
+
+  it("names the agent in the stored subject and preview as the sender line does (One name everywhere, Nov 8, 2026)", () => {
+    const lead = { ...withPersona, id: "a2", name: "Engineering Lead", role: "Head of Engineering", personaKey: "amara" };
+    const roster = [withPersona, lead];
+    const item = { id: "n1", type: "decision" as const, subject: "Engineering Lead needs your OK: GitHub › open pull request", bodyMd: "[[ent:00000000-0000-4000-8000-000000000002|Engineering Lead]] wants to open a pull request. OK?", state: "unread" as const, blocksContinue: false, fromAgentId: "a2", createdAt: new Date().toISOString() };
+    const on = createAgentPersonaApi({ anthropomorphic: true });
+    const model = rowModel(item, (t) => on.withNames(t, roster));
+    expect(model.subject).toBe("Amara (Head of Engineering) needs your OK: GitHub › open pull request");
+    expect(model.preview).toBe("Amara (Head of Engineering) wants to open a pull request.");
+    const r = render(
+      <AgentPersonaProvider anthropomorphic>
+        <InboxList {...props} rows={[{ ...row({ agent: lead }), ...model }]} />
+      </AgentPersonaProvider>,
+    );
+    // The subject, the sender and the preview share one first name.
+    expect(r.getByTestId("row-subject").textContent).toContain("Amara");
+    expect(r.getByTestId("row-sender").textContent).toBe("Amara (Head of Engineering)");
+    // Off, every line is the stored text.
+    expect(rowModel(item, (t) => createAgentPersonaApi({ anthropomorphic: false }).withNames(t, roster)).subject).toBe(item.subject);
+    expect(rowModel(item).subject).toBe(item.subject);
   });
 });
 

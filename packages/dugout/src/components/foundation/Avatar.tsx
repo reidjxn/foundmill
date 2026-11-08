@@ -190,7 +190,7 @@ export interface AvatarProps extends Omit<HTMLAttributes<HTMLSpanElement>, "chil
    * fails. Without a `src`, `personaKey` asks the AgentPersonaProvider for the face and the first name (only when
    * anthropomorphic agents are on); that path is the one client piece (PersonaAvatar).
    */
-  agent?: { seed: string | number; dept: DeptColourToken; src?: string | null; personaKey?: string | null };
+  agent?: { seed: string | number; dept: DeptColourToken; src?: string | null; personaKey?: string | null; /** `utility`: a background helper, drawn without a persona. */ layer?: string | null };
   /** Status ring (1.5 px, a few px out). Pass `status` from the shared vocabulary or a ring tone directly. */
   status?: AgentStatus;
   ring?: AvatarRing;

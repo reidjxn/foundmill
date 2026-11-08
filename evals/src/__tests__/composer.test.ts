@@ -6,7 +6,7 @@
 import { describe, expect, it } from "vitest";
 import { createModelClient } from "@foundmill/models";
 import { PLAIN_LANGUAGE_TIERS } from "@foundmill/shared";
-import { COMPOSER_CASE_KINDS, COMPOSER_CORPUS, COMPOSER_RUBRIC, composerSystemPrompt, corpusId, plainLanguageHits, replaceTierPatterns, runComposerCase, summariseComposer } from "../composer";
+import { COMPOSER_CASE_KINDS, COMPOSER_CORPUS, COMPOSER_CORPUS_MANIFEST, COMPOSER_RUBRIC, agentNamingHits, composerSystemPrompt, corpusId, plainLanguageHits, replaceTierPatterns, runComposerCase, summariseComposer } from "../composer";
 
 describe("composer eval corpus (AC-11.3.1, 100 notes)", () => {
   it("has 100 cases with unique ids, every note kind and every founder experience", () => {
@@ -72,6 +72,19 @@ describe("the plain-language gate (replace tier of PLAIN_LANGUAGE_TIERS)", () =>
     expect(hits.map((h) => `${h.field}:${h.term}`)).toEqual(["decision.options[0].consequence:exhibit", "decision.options[1].label:CPA", "decision.options[1].because:webhook"]);
   });
 
+  it("the agent naming gate: manifest names only, markup in the body, plain in the subject (Nov 8, 2026)", () => {
+    const chief = COMPOSER_CORPUS_MANIFEST.find((m) => m.kind === "agent" && m.role === "Chief of Staff")!;
+    const finance = COMPOSER_CORPUS_MANIFEST.find((m) => m.kind === "agent" && m.role === "Finance lead")!;
+    const first = chief.name.split(" ")[0]!;
+    const note = (subject: string, body_md: string) => agentNamingHits({ subject, body_md, decision: null }).map((h) => `${h.field}:${h.problem}:${h.text}`);
+    expect(note(`${chief.name} needs a decision`, `[[ent:${finance.id}|${finance.name}]] closed the books.`)).toEqual([]);
+    expect(note("Books closed", `[[ent:${finance.id}|${finance.name.split(" ")[0]}]] closed the books.`)).toEqual([`body_md:renamed:[[ent:${finance.id}|${finance.name.split(" ")[0]}]]`]);
+    expect(note("Books closed", `${finance.name} closed the books.`)).toEqual([`body_md:unlinked:${finance.name}`]);
+    expect(note(`${first} needs a decision`, "Nothing is needed from you.")).toEqual([`subject:short:${first}`]);
+    // The prompt carries the rule.
+    expect(composerSystemPrompt(COMPOSER_CORPUS[0]!)[1]).toMatch(/Name an agent only as \[\[ent:<id>\|Name\]\] markup/);
+  });
+
   it("the rubric has the three lines the plan names", () => {
     expect(COMPOSER_RUBRIC.length).toBe(3);
     expect(COMPOSER_RUBRIC[0]).toMatch(/business stake first/);
@@ -88,6 +101,7 @@ describe("the mock Composer over the corpus (what mock-mode testers read)", () =
     const summary = summariseComposer(results);
     expect(results.filter((r) => r.error).map((r) => `${r.caseId}: ${r.error}`)).toEqual([]);
     expect(results.flatMap((r) => r.hits.map((h) => `${r.caseId} ${h.field}: ${h.text}`))).toEqual([]);
+    expect(results.flatMap((r) => r.namingHits.map((h) => `${r.caseId} ${h.field} ${h.problem}: ${h.text}`))).toEqual([]);
     expect(summary.noBecause).toEqual([]);
     expect(summary.passed).toBe(100);
     for (const r of results) {

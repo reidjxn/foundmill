@@ -115,7 +115,9 @@ export function DelegateDialog({ row, onOpenChange, agents, humans, departments,
     // eslint-disable-next-line react-hooks/exhaustive-deps -- reset per row
   }, [row?.decisionType]);
   const humanOptions = humans.filter((h) => h.userId !== me.userId).map((h) => ({ value: h.userId, label: memberName(h, me) }));
-  const agentOptions = agents.filter((a) => !a.archivedAt).map((a) => ({ value: a.id, label: a.role ? `${a.name} · ${a.role}` : a.name }));
+  // "Malik (Head of Engineering)" with anthropomorphic agents on (the role is in the label), else "Name · Role".
+  const persona = useAgentPersona();
+  const agentOptions = agents.filter((a) => !a.archivedAt).map((a) => ({ value: a.id, label: persona.hasPersona(a) ? persona.labelFor(a) : a.role ? `${a.name} · ${a.role}` : a.name }));
   const options = kind === "user" ? humanOptions : agentOptions;
   const deptOptions = [{ value: "all", label: "All departments" }, ...(departments ?? []).filter((d) => !d.hidden).map((d) => ({ value: d.id, label: `Only ${d.name}` }))];
   const confirm = async () => {

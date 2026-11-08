@@ -20,6 +20,8 @@ export interface SquadAgentRow {
   avatarSeed: string;
   /** `agents.persona_key`: the first name and face shown when anthropomorphic agents are on. */
   personaKey?: string | null;
+  /** The agent's layer: a `utility` agent is a background helper and keeps its role name. */
+  layer?: string | null;
 }
 export interface DepartmentRow {
   id: string;
@@ -31,7 +33,7 @@ export interface DepartmentRow {
   leadAgentId?: string | null;
   moduleKeys: string[];
   hidden?: boolean;
-  lead: { id: string; name: string; status: AgentStatus; avatarSeed: string; role?: string; personaKey?: string | null } | null;
+  lead: { id: string; name: string; status: AgentStatus; avatarSeed: string; role?: string; personaKey?: string | null; layer?: string | null } | null;
   squad: SquadAgentRow[];
   tabs: { id: string; slug: string; title: string; position: number }[];
 }

@@ -17,7 +17,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
 import { useCallback, useMemo, useState } from "react";
-import { GoalPanel, NeedsYouList, PageGrid, Panel, StatusStrip, Term, WeekPlan, useToast, type MetricTileProps, type NeedsYouRow } from "@foundmill/dugout";
+import { GoalPanel, NeedsYouList, PageGrid, Panel, StatusStrip, Term, WeekPlan, useAgentPersona, useToast, type MetricTileProps, type NeedsYouRow } from "@foundmill/dugout";
 import { cashTile, customersWeekTile, moduleHref, routes, runwayTile, spendWeekTiles, unavailableTile, type StatusTile } from "@foundmill/widgets";
 import type { FinanceOverview, RibbonResponse } from "@foundmill/widgets/shared/types";
 import { useGlossary, useToday } from "@foundmill/widgets/data";
@@ -108,7 +108,10 @@ export function TodayScreen() {
     [decide, businessId, toast],
   );
   const needsYou = todayQ.data?.needsYou;
-  const rows = useMemo(() => (needsYou ? toNeedsYouRows(businessId, needsYou.items) : []), [businessId, needsYou]);
+  // Subjects and senders name agents under the reader's preference, as the Inbox does (One name everywhere).
+  const persona = useAgentPersona();
+  const roster = useMemo(() => departments.flatMap((d) => [...(d.lead ? [d.lead] : []), ...d.squad]), [departments]);
+  const rows = useMemo(() => (needsYou ? toNeedsYouRows(businessId, needsYou.items, { labelFor: persona.labelFor, withNames: persona.withNames, roster }) : []), [businessId, needsYou, persona, roster]);
 
   // --- health -----------------------------------------------------------------------------------------------------------
   const currency = business.business.currency;

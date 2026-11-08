@@ -33,7 +33,8 @@ export interface NeedsYouItem {
   createdAt: Date;
   blocksContinue: boolean;
   kind: NeedsYouKind;
-  fromAgent: { id: string; name: string } | null;
+  /** The sender with what the web needs to name it under the reader's preference (role, persona key, layer). */
+  fromAgent: { id: string; name: string; role: string | null; personaKey: string | null; layer: string | null } | null;
   /** The one option a single tap may choose, with its label as the note shows it; null opens the note instead. */
   quickOption: { id: string; label: string } | null;
 }
@@ -104,14 +105,14 @@ export async function needsYouFor(tx: DbTx, ctx: BusinessContext): Promise<{ ite
     repos.plans.awaitingConfirmation(tx, ctx.businessId, rows.map((r) => r.id)),
     repos.agents.byIds(tx, ctx.businessId, [...new Set(rows.map((r) => r.fromAgentId).filter((id): id is string => !!id))]),
   ]);
-  const names = new Map(agents.map((a) => [a.id, a.name]));
+  const byId = new Map(agents.map((a) => [a.id, a]));
   const canAnswer = mayAnswer(ctx);
   // Every note's kind in one wave (three reads per note, sent together).
   const answers = await Promise.all(rows.map((row) => quickAnswerFor(tx, ctx, row, row.state === "answered" && waiting.has(row.id), canAnswer)));
   const items: NeedsYouItem[] = rows.map((row, i) => {
     const { kind, quickOption } = answers[i]!;
-    const name = row.fromAgentId ? names.get(row.fromAgentId) : undefined;
-    return { id: row.id, type: row.type, subject: redactInboxItem(row, source).subject, createdAt: row.createdAt, blocksContinue: row.blocksContinue, kind, fromAgent: row.fromAgentId && name ? { id: row.fromAgentId, name } : null, quickOption };
+    const agent = row.fromAgentId ? byId.get(row.fromAgentId) : undefined;
+    return { id: row.id, type: row.type, subject: redactInboxItem(row, source).subject, createdAt: row.createdAt, blocksContinue: row.blocksContinue, kind, fromAgent: agent ? { id: agent.id, name: agent.name, role: agent.role || null, personaKey: agent.personaKey ?? null, layer: agent.layer ?? null } : null, quickOption };
   });
   return { items, total: Math.max(counts.respond, items.length) };
 }

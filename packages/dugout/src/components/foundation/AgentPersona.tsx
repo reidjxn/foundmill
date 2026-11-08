@@ -13,11 +13,15 @@
  *
  * The style (`agentStyle`: humans, 3D cartoon humans, 2D cartoon humans and animals, fantasy) picks which character a
  * persona key stands for; the key itself never changes, so switching style renames and re-pictures the same agents.
- * The rules themselves (`agentDisplayName`, `agentLabel`, `agentPosition`) live in @foundmill/shared/personas. Outside a
- * provider (stories, tests, the landing page) the preference reads as off and every function returns today's value.
+ * - `withNames(text, roster)`: plain stored text (a subject, a toast, a live-session note) with each roster agent's
+ *   stored name replaced by its label (`withAgentNames`), so a subject names the agent as the sender line does.
+ *
+ * The rules themselves (`agentDisplay`, `withAgentNames`, `agentPosition`) live in @foundmill/shared/personas;
+ * background helpers (the utility layer) always read by their role name. Outside a provider (stories, tests, the
+ * landing page) the preference reads as off and every function returns today's value.
  */
 import { createContext, useContext, useMemo, type ReactNode } from "react";
-import { DEFAULT_AGENT_STYLE, agentDisplayName, agentLabel, agentPosition, characterFor, type AgentIdentity, type AgentStyle } from "@foundmill/shared/personas";
+import { DEFAULT_AGENT_STYLE, agentCharacter, agentDisplay, agentPosition, withAgentNames, type AgentIdentity, type AgentStyle } from "@foundmill/shared/personas";
 
 export interface AgentPersonaProviderValue {
   /** The account's `anthropomorphicAgents` preference. */
@@ -40,8 +44,10 @@ export interface AgentPersonaApi {
   positionFor: (agent: AgentIdentity) => string;
   /** True when this agent is shown under a persona name now (the preference is on and it has a catalog persona). */
   hasPersona: (agent: AgentIdentity) => boolean;
-  /** The face URL, or undefined (preference off, no persona, or the portrait is not made yet). */
-  portraitFor: (agent: Pick<AgentIdentity, "personaKey">) => string | undefined;
+  /** The face URL, or undefined (preference off, no persona, a background helper, or the portrait is not made yet). */
+  portraitFor: (agent: Pick<AgentIdentity, "personaKey" | "layer" | "agentType">) => string | undefined;
+  /** Plain stored text with each roster agent's stored name replaced by its label (unchanged when off). */
+  withNames: (text: string, roster: readonly AgentIdentity[]) => string;
 }
 
 /** Today's behavior: names as stored, no faces. */
@@ -53,6 +59,7 @@ export const AGENT_PERSONA_OFF: AgentPersonaApi = Object.freeze({
   positionFor: (agent: AgentIdentity) => agentPosition(agent),
   hasPersona: () => false,
   portraitFor: () => undefined,
+  withNames: (text: string) => text,
 });
 
 /** The display functions for one preference and portrait lookup. Pure; exported for tests and for non-React callers. */
@@ -60,17 +67,19 @@ export function createAgentPersonaApi(value: AgentPersonaProviderValue): AgentPe
   if (!value.anthropomorphic) return AGENT_PERSONA_OFF;
   const portraitUrl = value.portraitUrl;
   const style = value.style ?? DEFAULT_AGENT_STYLE;
+  const prefs = { anthropomorphic: true, style };
   return {
     anthropomorphic: true,
     style,
-    nameFor: (agent) => agentDisplayName(agent, true, style),
-    labelFor: (agent) => agentLabel(agent, true, style),
+    nameFor: (agent) => agentDisplay(agent, prefs, "name"),
+    labelFor: (agent) => agentDisplay(agent, prefs, "label"),
     positionFor: (agent) => agentPosition(agent),
-    hasPersona: (agent) => characterFor(agent.personaKey, style) !== null,
+    hasPersona: (agent) => agentCharacter(agent, prefs) !== null,
     portraitFor: (agent) => {
-      if (!agent.personaKey || !characterFor(agent.personaKey, style)) return undefined;
+      if (!agent.personaKey || !agentCharacter({ name: "", ...agent }, prefs)) return undefined;
       return portraitUrl?.(agent.personaKey) || undefined;
     },
+    withNames: (text, roster) => withAgentNames(text, roster, prefs),
   };
 }
 

@@ -666,7 +666,7 @@ function ShellInner({ businessId, initialBusiness, initialDepartments, viewer, c
   // Every mention resolves (lib/entity-resolver.tsx): agents (by agent id, or by their CRM record) open their profile,
   // records their CRM profile, with a full hover card and the right-click verbs (audit GTM-19, VFR3-X1, GTM-26).
   const agentSummaries = useMemo<AgentSummary[]>(
-    () => departments.flatMap((d) => d.squad.map((a) => ({ id: a.id, name: a.name, role: a.role, status: a.status, modelKey: a.modelKey, avatarSeed: a.avatarSeed, personaKey: a.personaKey, departmentName: d.name, dept: d.colourToken }))),
+    () => departments.flatMap((d) => d.squad.map((a) => ({ id: a.id, name: a.name, role: a.role, status: a.status, modelKey: a.modelKey, avatarSeed: a.avatarSeed, personaKey: a.personaKey, layer: a.layer, departmentName: d.name, dept: d.colourToken }))),
     [departments],
   );
   const navigate = useCallback((href: string) => router.push(href), [router]);

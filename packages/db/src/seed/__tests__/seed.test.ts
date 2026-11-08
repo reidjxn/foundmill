@@ -137,13 +137,17 @@ describe("seedDemo on PGlite", () => {
       const types = new Set(items.map((i) => i.type));
       for (const t of INBOX_ITEM_TYPES) expect(types.has(t), `${businessId} has a ${t} item`).toBe(true);
       const entities = await db.select({ id: s.entities.id, kind: s.entities.kind, displayName: s.entities.displayName, aliases: s.entities.aliases }).from(s.entities).where(eq(s.entities.businessId, businessId));
-      const manifest = buildManifest(entities.map((e): ManifestEntityInput => ({ id: e.id, kind: e.kind, name: e.displayName, aliases: e.aliases })));
+      // Agents are in the manifest by their own id too, as the Composer lists them: a server-written note (an approval)
+      // names its agent as [[ent:<agent id>|<stored name>]] (One name everywhere, Nov 8, 2026).
+      const agentRows = await db.select({ id: s.agents.id, name: s.agents.name }).from(s.agents).where(eq(s.agents.businessId, businessId));
+      const agentIds = new Set(agentRows.map((a) => a.id));
+      const manifest = buildManifest([...entities.map((e): ManifestEntityInput => ({ id: e.id, kind: e.kind, name: e.displayName, aliases: e.aliases })), ...agentRows.map((a): ManifestEntityInput => ({ id: a.id, kind: "agent", name: a.name, aliases: [] }))], { strictKinds: false });
       let mentions = 0;
       for (const item of items) {
         const v = validateMarkup(item.bodyMd, manifest);
         expect(v.valid, `${item.subject}: ${JSON.stringify(v.problems)}`).toBe(true);
         mentions += v.mentionCount;
-        for (const id of v.entityIds) expect(item.entityIds).toContain(id);
+        for (const id of v.entityIds) if (!agentIds.has(id)) expect(item.entityIds).toContain(id);
       }
       expect(mentions).toBeGreaterThan(5);
       const decision = items.find((i) => i.type === "decision" && i.state === "unread")!;

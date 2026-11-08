@@ -75,6 +75,10 @@ describe("today.get", () => {
     expect(view.needsYou!.total).toBe(3);
     const byKind = new Map(view.needsYou!.items.map((i) => [i.kind, i]));
     expect(byKind.get("signoff")).toMatchObject({ subject: "Sign off the product specification", quickOption: { id: "approve", label: "Approve the specification" }, fromAgent: { id: b.chief.id, name: CHIEF } });
+    // The sender carries its role and persona key, so the web names it as the Inbox does (One name everywhere, Nov 8, 2026).
+    const chief = await repos.agents.get(hz.db, b.id, b.chief.id);
+    expect(byKind.get("signoff")!.fromAgent).toEqual({ id: chief.id, name: chief.name, role: chief.role || null, personaKey: chief.personaKey, layer: chief.layer });
+    expect(chief.personaKey).toBeTruthy();
     expect(byKind.get("goal")).toMatchObject({ quickOption: { id: GOAL_OPTION_IDS.approve, label: "Approve this goal" }, blocksContinue: false });
     expect(byKind.get("decision")).toMatchObject({ subject: "Which channel first?", quickOption: null });
     // The Inbox's own order: the first notes of Needs you.

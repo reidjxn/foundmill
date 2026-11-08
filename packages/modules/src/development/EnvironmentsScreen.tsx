@@ -7,7 +7,7 @@
  */
 import { useMemo, useState } from "react";
 import { Boxes, CircleStop, ExternalLink, GitBranch, GitMerge, Hourglass, MonitorPlay, Network, Radio } from "lucide-react";
-import { DataTable, FitText, Panel, StatusPill, type DataTableColumn, type IconComponent, type RowAction, type SavedView, type StatusTone } from "@foundmill/dugout";
+import { DataTable, FitText, useAgentPersona, Panel, StatusPill, type DataTableColumn, type IconComponent, type RowAction, type SavedView, type StatusTone } from "@foundmill/dugout";
 import type { TaskStatus } from "@foundmill/shared";
 import { routes } from "@foundmill/widgets/shared/routes";
 import { useBusinessEvents, useWidgetData, useWidgetQuery, type WidgetEvent } from "@foundmill/widgets/data";
@@ -168,7 +168,7 @@ export function providerLabel(provider: string | null | undefined): string | nul
  * Rows: one per code-task branch (plus any deployed branch without a task): newest deployment first, then live,
  * awaiting, merged and stopped, then by task title (numbers in order: "fix #2" before "fix #10").
  */
-export function toEnvironmentRows(tasks: readonly TaskRow[], prs: PrsListResponse | undefined, deployments: readonly Deployment[], agents: Map<string, AgentRow>): EnvironmentRow[] {
+export function toEnvironmentRows(tasks: readonly TaskRow[], prs: PrsListResponse | undefined, deployments: readonly Deployment[], agents: Map<string, AgentRow>, nameFor: (agent: AgentRow) => string = (a) => a.name): EnvironmentRow[] {
   const latest = new Map<string, Deployment>();
   for (const d of deployments) {
     const key = d.branch ?? (d.taskId ? agentBranch(d.taskId) : `${d.environment}`);
@@ -186,14 +186,14 @@ export function toEnvironmentRows(tasks: readonly TaskRow[], prs: PrsListRespons
     const branch = agentBranch(t.id);
     const d = latest.get(branch) ?? latest.get(agentBranch(t.id));
     const agent = t.assigneeAgentId ? agents.get(t.assigneeAgentId) : undefined;
-    rows.set(branch, { id: branch, branch, branchName: readableBranch(branch, t.title), taskId: t.id, title: t.title, taskStatus: t.status, agentName: agent?.name ?? "Unassigned", environment: d?.environment ?? "preview", state: stateFor(t.status, d), url: d?.url ?? null, provider: d?.provider ?? null, commitSha: d?.commitSha ?? null, deployedAt: d?.occurredAt ?? null });
+    rows.set(branch, { id: branch, branch, branchName: readableBranch(branch, t.title), taskId: t.id, title: t.title, taskStatus: t.status, agentName: agent ? nameFor(agent) : "Unassigned", environment: d?.environment ?? "preview", state: stateFor(t.status, d), url: d?.url ?? null, provider: d?.provider ?? null, commitSha: d?.commitSha ?? null, deployedAt: d?.occurredAt ?? null });
   }
   for (const pr of prs?.open ?? []) {
     // A non-code task never has a branch to preview, whatever the API sends.
     if (rows.has(pr.branch) || (pr.kind !== undefined && pr.kind !== "code")) continue;
     const d = latest.get(pr.branch);
     const agent = pr.agentId ? agents.get(pr.agentId) : undefined;
-    rows.set(pr.branch, { id: pr.branch, branch: pr.branch, branchName: readableBranch(pr.branch, pr.title), taskId: pr.taskId, title: pr.title, taskStatus: pr.status, agentName: agent?.name ?? "Unassigned", environment: d?.environment ?? "preview", state: stateFor(pr.status, d), url: d?.url ?? null, provider: d?.provider ?? null, commitSha: d?.commitSha ?? null, deployedAt: d?.occurredAt ?? null });
+    rows.set(pr.branch, { id: pr.branch, branch: pr.branch, branchName: readableBranch(pr.branch, pr.title), taskId: pr.taskId, title: pr.title, taskStatus: pr.status, agentName: agent ? nameFor(agent) : "Unassigned", environment: d?.environment ?? "preview", state: stateFor(pr.status, d), url: d?.url ?? null, provider: d?.provider ?? null, commitSha: d?.commitSha ?? null, deployedAt: d?.occurredAt ?? null });
   }
   for (const [key, d] of latest) {
     if (rows.has(key)) continue;
@@ -211,6 +211,8 @@ export function EnvironmentsScreen({ businessId, departmentId }: ModuleScreenPro
   const prs = useWidgetQuery<PrsListResponse>("dev.prs.list", {});
   const agents = useAgents();
   const agentIndex = useAgentIndex(agents.data?.agents);
+  // Agents named under the reader's preference, in the rows' name fields too (One name everywhere).
+  const persona = useAgentPersona();
   // Saved per person, business and table (audit #204): they come back after a reload. Simple opens first while guidance is on.
   const defaultViewId = useDefaultViewId("all");
   const savedViews = useSavedViews("development.environments", ENVIRONMENT_VIEWS, { defaultViewId });
@@ -224,7 +226,7 @@ export function EnvironmentsScreen({ businessId, departmentId }: ModuleScreenPro
     ["deploy.succeeded", "task.started", "task.completed", "pr.merged"],
   );
 
-  const rows = useMemo(() => toEnvironmentRows(tasks.data?.items ?? [], prs.data, deployments, agentIndex), [tasks.data, prs.data, deployments, agentIndex]);
+  const rows = useMemo(() => toEnvironmentRows(tasks.data?.items ?? [], prs.data, deployments, agentIndex, persona.labelFor), [tasks.data, prs.data, deployments, agentIndex, persona]);
   const optionNow = options.now;
   const now = useMemo(() => optionNow ?? new Date(), [optionNow]);
   // Each column at its minimum; the table shares the spare width by ENVIRONMENT_FIT's weights itself (`meta.grow`),

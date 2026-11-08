@@ -19,11 +19,13 @@ describe.skipIf(!live)("inbox composer (live)", () => {
       const results = await runAll(COMPOSER_CORPUS, 3, (c) => runComposerCase(c, client!));
       const summary = summariseComposer(results);
       for (const r of results) {
+        if (r.namingHits.length) console.warn(`[eval] composer ${r.caseId} naming: ${r.namingHits.map((h) => `${h.field} ${h.problem} "${h.text}"`).join(" | ")}`);
         if (r.hits.length) console.warn(`[eval] composer ${r.caseId}: ${r.hits.map((h) => `${h.field} "${h.term}" (${h.text})`).join(" | ")}`);
         if (r.error) console.warn(`[eval] composer ${r.caseId}: ${r.error}`);
       }
       console.warn(`[eval] composer: ${summary.passed}/${summary.total} passed, mean score ${summary.meanScore.toFixed(2)}, cost ${summary.costMinor} minor (Estimate)`);
       expect(summary.plainFailed).toEqual([]);
+      expect(summary.namingFailed).toEqual([]);
       expect(summary.noBecause).toEqual([]);
       expect(summary.meanScore).toBeGreaterThanOrEqual(COMPOSER_PASS_THRESHOLD);
     },

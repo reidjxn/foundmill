@@ -142,7 +142,11 @@ export function TileFrame({ session, views, view, onViewChange, focused, compact
   const id = useId();
   const guided = useGuided();
   // Anthropomorphic agents: "Bob (Frontend engineer)" when on, the agent's own name otherwise.
-  const who = useAgentPersona().labelFor(session.agent);
+  const persona = useAgentPersona();
+  const who = persona.labelFor(session.agent);
+  // A note is plain stored text with the agent's stored name ("Not started: Engineering Lead is paused."): named here
+  // under the reader's preference, as the header is (One name everywhere, Nov 8, 2026).
+  const lastNote = session.lastNote ? persona.withNames(session.lastNote.text, [session.agent]) : null;
   // The footer's token count says what a token is on hover (the definitions map's own sentence; "AI usage" outside a provider).
   const tokensDef = useTerm("tokens");
   const pill = sessionPill(session);
@@ -428,9 +432,9 @@ export function TileFrame({ session, views, view, onViewChange, focused, compact
           </span>
         ) : null}
         {session.lastNote && (!compact || focused) ? (
-          <span className={cn("hidden min-w-0 flex-1 truncate @2xl/foot:block", noteTone)} title={session.lastNote.text} data-allow-truncate="">
+          <span className={cn("hidden min-w-0 flex-1 truncate @2xl/foot:block", noteTone)} title={lastNote ?? undefined} data-allow-truncate="">
             {session.lastNote.source === "shout" ? "Nudge: " : ""}
-            {session.lastNote.text}
+            {lastNote}
           </span>
         ) : null}
       </footer>

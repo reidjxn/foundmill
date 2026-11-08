@@ -117,12 +117,17 @@ export interface InboxRowModel {
   tag: NoteTag;
 }
 
-export function rowModel(item: InboxRowInput): InboxRowModel {
+/**
+ * One row as the list draws it. `names` names agents in the plain stored subject and preview under the reader's
+ * preference (`persona.withNames(text, roster)`), so the subject says what the sender line says; without it the text
+ * is shown as stored.
+ */
+export function rowModel(item: InboxRowInput, names: (text: string) => string = (t) => t): InboxRowModel {
   const answered = item.state === "answered" || item.state === "archived";
   return {
     id: item.id,
-    subject: item.subject,
-    preview: previewLine(item.bodyMd),
+    subject: names(item.subject),
+    preview: names(previewLine(item.bodyMd)),
     createdAt: item.createdAt,
     needsAnswer: item.awaitingConfirmation === true || (!answered && (item.blocksContinue || item.type === "decision" || item.type === "customer_won")),
     won: item.type === "customer_won",
@@ -727,7 +732,7 @@ export interface DepartmentLike {
   id: string;
   name: string;
   colourToken: string;
-  squad: readonly { id: string; name: string; role: string; avatarSeed: string; personaKey?: string | null; status?: string; modelKey?: string }[];
+  squad: readonly { id: string; name: string; role: string; avatarSeed: string; personaKey?: string | null; layer?: string | null; status?: string; modelKey?: string }[];
 }
 
 export interface AgentIndexEntry {
@@ -737,6 +742,8 @@ export interface AgentIndexEntry {
   seed: string;
   /** `agents.persona_key`: the first name and face shown when anthropomorphic agents are on. */
   personaKey?: string | null;
+  /** The agent's layer: a `utility` agent is a background helper and keeps its role name. */
+  layer?: string | null;
   dept: string;
   departmentId: string;
   departmentName: string;
@@ -750,7 +757,7 @@ export function agentIndex(departments: readonly DepartmentLike[]): Map<string, 
   for (const d of departments) {
     for (const a of d.squad) {
       if (out.has(a.id)) continue;
-      out.set(a.id, { id: a.id, name: a.name, role: a.role, seed: a.avatarSeed || a.id, personaKey: a.personaKey ?? null, dept: d.colourToken, departmentId: d.id, departmentName: d.name, status: a.status, modelKey: a.modelKey });
+      out.set(a.id, { id: a.id, name: a.name, role: a.role, seed: a.avatarSeed || a.id, personaKey: a.personaKey ?? null, layer: a.layer ?? null, dept: d.colourToken, departmentId: d.id, departmentName: d.name, status: a.status, modelKey: a.modelKey });
     }
   }
   return out;

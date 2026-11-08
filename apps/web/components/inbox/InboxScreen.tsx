@@ -11,7 +11,7 @@ import { useInfiniteQuery, useMutation, useQuery, useQueryClient, type InfiniteD
 import { Inbox as InboxIcon, RefreshCw } from "lucide-react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { Button, EmptyState, Kbd, useGuided, useToast } from "@foundmill/dugout";
+import { Button, EmptyState, Kbd, useAgentPersona, useGuided, useToast } from "@foundmill/dugout";
 import type { DeptColourToken } from "@foundmill/shared";
 import { humanSender } from "@foundmill/widgets/shared/note-tags";
 import { routes } from "@foundmill/widgets/shared/routes";
@@ -117,6 +117,10 @@ export function InboxScreen({ itemId: routeItemId }: InboxScreenProps) {
   });
   const pages = listQ.data?.pages;
   const agents = useMemo(() => agentIndex(departments), [departments]);
+  // Subjects are plain stored text with the agent's stored name: named here under the reader's preference, so a row says
+  // what its sender line says (One name everywhere, Nov 8, 2026).
+  const persona = useAgentPersona();
+  const roster = useMemo(() => [...agents.values()], [agents]);
   // The founder's own notes carry the founder's initials ("JR"), never the letters of "You".
   const founderQ = useQuery(trpc.founder.profile.get.queryOptions(undefined, { staleTime: 5 * 60_000 }));
   const founderName = founderQ.data?.profile?.displayName?.trim() || undefined;
@@ -131,11 +135,11 @@ export function InboxScreen({ itemId: routeItemId }: InboxScreenProps) {
         const agent = item.fromAgentId ? agents.get(item.fromAgentId) : undefined;
         // The founder's own note, or someone else's (never "You" for another person).
         const sender = humanSender(item.fromUserId, viewerId);
-        out.push({ ...rowModel(item), agent: agent ? { ...agent, dept: agent.dept as DeptColourToken } : undefined, fromUser: sender === "self", fromPerson: sender === "other" });
+        out.push({ ...rowModel(item, (text) => persona.withNames(text, roster)), agent: agent ? { ...agent, dept: agent.dept as DeptColourToken } : undefined, fromUser: sender === "self", fromPerson: sender === "other" });
       }
     }
     return out;
-  }, [pages, agents, viewerId]);
+  }, [pages, agents, viewerId, persona, roster]);
   const ids = useMemo(() => rows.map((r) => r.id), [rows]);
   const counts = pages?.[0]?.counts;
   const invalidate = useCallback((routers: readonly string[]) => Promise.all(routers.map((r) => queryClient.invalidateQueries({ queryKey: trpcPathPrefix(r) as unknown[] }))), [queryClient]);

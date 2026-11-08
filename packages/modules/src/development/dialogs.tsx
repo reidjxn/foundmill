@@ -2,7 +2,7 @@
 /** Dialogs the development tabs share: Reassign, Stop and discard, Open in Claude Code, Forget saved code, GitHub repository. */
 import { useId, useState } from "react";
 import { ExternalLink, FolderGit2, Settings2, Square, Trash2, UserRoundCog } from "lucide-react";
-import { Button, Checkbox, Chip, ConsequenceLine, Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, Field, Input, KeyValueList, SimpleSelect, Skeleton, Term, Textarea } from "@foundmill/dugout";
+import { Button, Checkbox, Chip, ConsequenceLine, useAgentPersona, Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, Field, Input, KeyValueList, SimpleSelect, Skeleton, Term, Textarea } from "@foundmill/dugout";
 import { useWidgetQuery } from "@foundmill/widgets/data";
 import { InlineError, errorMessage } from "./shared";
 import type { AgentRow, OpenInClaudeCodeResponse } from "./types";
@@ -22,7 +22,9 @@ export interface ReassignDialogProps {
 export function ReassignDialog({ open, onOpenChange, taskTitle, currentAgentId, agents, pending, error, onConfirm }: ReassignDialogProps) {
   const id = useId();
   const [agentId, setAgentId] = useState<string>("");
-  const options = agents.filter((a) => a.id !== currentAgentId).map((a) => ({ value: a.id, label: a.role ? `${a.name} · ${a.role}` : a.name }));
+  // "Malik (Head of Engineering)" with anthropomorphic agents on (the role is in the label), else "Name · Role".
+  const persona = useAgentPersona();
+  const options = agents.filter((a) => a.id !== currentAgentId).map((a) => ({ value: a.id, label: persona.hasPersona(a) ? persona.labelFor(a) : a.role ? `${a.name} · ${a.role}` : a.name }));
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent size="sm" aria-describedby={`${id}-desc`}>
