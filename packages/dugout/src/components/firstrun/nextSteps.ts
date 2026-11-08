@@ -24,8 +24,8 @@ export interface NextStepFacts {
   /** Notes from the team the founder has not opened. */
   unreadNotes: number;
   cycleRunning: boolean;
-  /** The current (running or next) cycle's number; 1 on day one. */
-  cycleNumber: number;
+  /** The current (running or next) cycle's number; 1 on day one. Null with Builder view off: the line names no number. */
+  cycleNumber: number | null;
   /** Agents with an active task right now. */
   agentsWorking: number;
   /** Distribution has at least one channel on the Board. */
@@ -65,10 +65,13 @@ function agents(n: number): string {
   return n === 1 ? "1 agent" : `${n} agents`;
 }
 
-/** The line that says a cycle is under way: "Cycle 3 is running · 4 agents at work" (the agents part only when known). */
-export function cycleRunningLine(cycleNumber: number, agentsWorking: number): string {
+/**
+ * The line that says a cycle is under way: "Cycle 3 is running · 4 agents at work" (the agents part only when known);
+ * "The team is working · 4 agents at work" without a number (Builder view off).
+ */
+export function cycleRunningLine(cycleNumber: number | null, agentsWorking: number): string {
   // plain-allow: the strip that shows this line (NextStep.tsx StepLabel) renders "Cycle" as a Term.
-  const base = `Cycle ${Math.max(1, cycleNumber)} is running`;
+  const base = cycleNumber === null ? "The team is working" : `Cycle ${Math.max(1, cycleNumber)} is running`;
   return agentsWorking > 0 ? `${base} · ${agents(agentsWorking)} at work` : base;
 }
 

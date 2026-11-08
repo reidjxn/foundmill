@@ -9,7 +9,7 @@
  */
 import { useState } from "react";
 import { Radio } from "lucide-react";
-import { AgentTile, Chip, FormationBoard, ProvenanceChip, Term, TileGrid, toggleChannel, useLiveMockSessions, usePrefersReducedMotion, type AgentTileSession, type ChannelTokenData, type TileGridItem } from "@foundmill/dugout";
+import { AgentTile, BuilderViewProvider, Chip, FormationBoard, ProvenanceChip, Term, TileGrid, toggleChannel, useLiveMockSessions, usePrefersReducedMotion, type AgentTileSession, type ChannelTokenData, type TileGridItem } from "@foundmill/dugout";
 import { useExample } from "./examples/context";
 import { exampleChannels } from "./examples/helpers";
 import { LIVE_REPLAY } from "./examples/sessions/shared";
@@ -42,7 +42,10 @@ export function LiveSessions({ terminalRenderer }: { terminalRenderer?: "plain" 
             }
             glow="var(--dept-2)"
           >
-            <div className="h-160 bg-base">{mounted && seen ? <LiveTiles terminalRenderer={terminalRenderer} /> : <div className="size-full animate-shimmer" />}</div>
+            {/* The marketing page shows the engine on purpose (ETA, tokens): Builder view is on for the demo alone. */}
+            <BuilderViewProvider on>
+              <div className="h-160 bg-base">{mounted && seen ? <LiveTiles terminalRenderer={terminalRenderer} /> : <div className="size-full animate-shimmer" />}</div>
+            </BuilderViewProvider>
           </ProductWindow>
         </div>
       </Reveal>

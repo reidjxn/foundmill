@@ -31,6 +31,8 @@ export const Blocked: Story = { args: { state: { kind: "blocked", count: 3 } } }
 export const Processing: Story = { args: { state: { kind: "processing" } } };
 /** One press of Continue keeps the team working (Nov 7, 2026): Pause stays for the whole run, between cycles too, and the tooltip says new cycles start on their own. */
 export const ProcessingRun: Story = { name: "Processing (a run)", args: { state: { kind: "processing", run: true }, cycleNumber: 5 } };
+/** Builder view off: the shell passes no cycle number, so the tooltip reads "The team is working". */
+export const ProcessingBuilderViewOff: Story = { name: "Processing (Builder view off)", args: { state: { kind: "processing", run: true }, cycleNumber: null }, globals: { builderView: "off" } };
 export const CustomerUpdate: Story = { args: { state: { kind: "matchday" } } };
 export const Holiday: Story = { name: "Vacation", args: { state: { kind: "holiday", until: "2026-10-21" } } };
 export const AllStates: Story = {

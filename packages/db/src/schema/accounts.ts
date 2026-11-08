@@ -44,7 +44,8 @@ export type SeenMap = Record<string, true>;
  * 0064 adds the guided layer's preferences: the guidance switch, the text size, the explainers seen, the tours done
  * and when the first-week checklist was dismissed (null: showing). 0067 adds `anthropomorphic_agents`: agents show a
  * persona's first name and AI-generated face (off: exactly as before). 0069 adds `agent_style`: which character style
- * the faces and names are drawn in when the switch is on (humans by default; off ignores it).
+ * the faces and names are drawn in when the switch is on (humans by default; off ignores it). 0073 adds `builder_view`:
+ * show how the platform runs the team (cycle numbers, tokens, technical tabs and columns); off by default.
  */
 export const accountPreferences = pgTable("account_preferences", {
   id: id(),
@@ -58,6 +59,7 @@ export const accountPreferences = pgTable("account_preferences", {
   checklistDismissedAt: tstz("checklist_dismissed_at"),
   anthropomorphicAgents: boolean("anthropomorphic_agents").notNull().default(false),
   agentStyle: text("agent_style", { enum: AGENT_STYLES }).notNull().default("humans"),
+  builderView: boolean("builder_view").notNull().default(false),
   ...timestamps(),
 });
 export type AccountPreferences = typeof accountPreferences.$inferSelect;

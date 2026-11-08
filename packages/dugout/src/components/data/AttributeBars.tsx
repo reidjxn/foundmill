@@ -1,7 +1,9 @@
+"use client";
 import { cn } from "../../lib/cn";
 import { FitText } from "../foundation/FitText";
 import { ProvenanceChip } from "../foundation/Chip";
 import { HoverCard, HoverCardContent, HoverCardTrigger } from "../foundation/HoverCard";
+import { useBuilderView } from "../guidance/BuilderView";
 import { ScaleLabel } from "../guidance/ScaleLabel";
 import { Term } from "../guidance/Term";
 import { RatingBar, RatingFigure } from "./RatingBar";
@@ -49,6 +51,7 @@ export function AttributeBars({
   showBand = showValue,
   className,
 }: AttributeBarsProps) {
+  const builder = useBuilderView();
   return (
     <dl
       className={cn(
@@ -83,7 +86,8 @@ export function AttributeBars({
               )}
             </dt>
             <dd className="flex min-w-0 flex-1 items-center gap-2">
-              {showValue ? (
+              {/* Builder view off: the bar is the band word itself (RatingBar), so no figure and no second word. */}
+              {showValue && builder ? (
                 <RatingFigure value={a.value} className="w-6 text-right text-body" />
               ) : null}
               <RatingBar
@@ -94,7 +98,7 @@ export function AttributeBars({
                 className="flex-1"
               />
               {/* A fixed width keeps the bars aligned across rows; wide enough for "Excellent" and its dot, so nothing is cut. */}
-              {showBand ? <ScaleLabel value={a.value} compact className="w-20 shrink-0" aria-hidden /> : null}
+              {showBand && builder ? <ScaleLabel value={a.value} compact className="w-20 shrink-0" aria-hidden /> : null}
               {ev?.provenance ? <ProvenanceChip kind={ev.provenance} /> : null}
             </dd>
           </div>

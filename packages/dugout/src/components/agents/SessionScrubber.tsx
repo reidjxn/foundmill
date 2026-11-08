@@ -8,6 +8,7 @@ import { Icon, type IconComponent } from "../foundation/Icon";
 import { IconButton } from "../foundation/IconButton";
 import { Slider } from "../foundation/Slider";
 import { Tooltip } from "../foundation/Tooltip";
+import { useBuilderView } from "../guidance/BuilderView";
 import type { AgentSessionEvent } from "./types";
 
 export const SCRUBBER_SPEEDS = [1, 2, 4, 8] as const;
@@ -40,7 +41,7 @@ const phaseWord = (phase: string): string => {
  * The events worth a tick on the timeline (stdout and progress are too frequent). A label is the detail only: the
  * marker's word ("Phase", "Nudge") is put in front where the label is read, so it is never said twice.
  */
-export function scrubberMarkers(events: readonly AgentSessionEvent[], startedAt: string): ScrubberMarker[] {
+export function scrubberMarkers(events: readonly AgentSessionEvent[], startedAt: string, builder = true): ScrubberMarker[] {
   const start = Date.parse(startedAt);
   const out: ScrubberMarker[] = [];
   for (const e of events) {
@@ -50,7 +51,7 @@ export function scrubberMarkers(events: readonly AgentSessionEvent[], startedAt:
         out.push({ at, kind: "phase", label: phaseWord(e.to) });
         break;
       case "test_result":
-        out.push({ at, kind: e.failed > 0 ? "tests_fail" : "tests_pass", label: `${e.suite ? `${e.suite}, ` : ""}${e.passed} passed, ${e.failed} failed` });
+        out.push({ at, kind: e.failed > 0 ? "tests_fail" : "tests_pass", label: builder ? `${e.suite ? `${e.suite}, ` : ""}${e.passed} passed, ${e.failed} failed` : (e.suite ?? "") });
         break;
       case "note":
         if (e.source === "shout") out.push({ at, kind: "shout", label: e.text });
@@ -126,7 +127,9 @@ export interface SessionScrubberProps {
  */
 export function SessionScrubber({ events, startedAt, endedAt, position, onPositionChange, playing = false, onPlayingChange, speed = 1, onSpeedChange, now, tickMs = 250, label = "Session replay", className }: SessionScrubberProps) {
   const length = sessionLengthMs(events, startedAt, endedAt, now ?? Date.now());
-  const markers = useMemo(() => scrubberMarkers(events, startedAt), [events, startedAt]);
+  // Builder view off: a test marker says passed or failed, without the counts.
+  const builder = useBuilderView();
+  const markers = useMemo(() => scrubberMarkers(events, startedAt, builder), [events, startedAt, builder]);
   const posRef = useRef(position);
   posRef.current = position;
 
@@ -188,7 +191,8 @@ export function SessionScrubber({ events, startedAt, endedAt, position, onPositi
         <ul className="sr-only" aria-label="Event markers">
           {markers.map((m, i) => (
             <li key={i}>
-              {formatClock(m.at)} {MARKER[m.kind].word}: {m.label}
+              {formatClock(m.at)} {MARKER[m.kind].word}
+              {m.label ? `: ${m.label}` : ""}
             </li>
           ))}
         </ul>

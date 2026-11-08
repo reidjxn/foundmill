@@ -2,7 +2,7 @@
  * founder.profile.update and the guided layer's default (docs/UX_AUDIT_AND_PLAN.md §6.3, decided Oct 20, 2026): the
  * save that creates a profile with an Exited or Operator experience turns guidance off, once, and says so with
  * `guidanceTurnedOff`; a first-time founder keeps it on; later edits never touch the switch, whatever the experience
- * becomes, so a founder who turned guidance back on keeps it.
+ * becomes, so a founder who turned guidance back on keeps it. The same first save turns Builder view on (0073).
  */
 import { eq } from "drizzle-orm";
 import { accountPreferences } from "@foundmill/db";
@@ -37,25 +37,26 @@ describe("founder.profile.update and guidance", () => {
     expect(await caller.founder.preferences.guidance()).toMatchObject({ guidance: "on" });
     const created = await caller.founder.profile.update(profile("Sam", "exited"));
     expect(created).toMatchObject({ displayName: "Sam", experience: "exited", guidanceTurnedOff: true });
-    expect(await caller.founder.preferences.guidance()).toMatchObject({ guidance: "off", textSize: "standard" });
+    // The same save turns Builder view on (founder, Nov 8, 2026).
+    expect(await caller.founder.preferences.guidance()).toMatchObject({ guidance: "off", textSize: "standard", builderView: true });
     // Their own row, written as them (RLS), with the date format untouched.
     const rows = await hz.db.select().from(accountPreferences).where(eq(accountPreferences.userId, user));
-    expect(rows.map((r) => [r.guidance, r.dateFormat, r.timeFormat])).toEqual([["off", "us", "12h"]]);
-    // They turn it on again; a later edit of the profile, even one that keeps "exited", leaves it on.
-    await caller.founder.preferences.update({ guidance: "on" });
+    expect(rows.map((r) => [r.guidance, r.builderView, r.dateFormat, r.timeFormat])).toEqual([["off", true, "us", "12h"]]);
+    // They turn guidance on and Builder view off; a later edit of the profile, even one that keeps "exited", leaves both.
+    await caller.founder.preferences.update({ guidance: "on", builderView: false });
     expect(await caller.founder.profile.update({ displayName: "Samantha" })).toMatchObject({ displayName: "Samantha", guidanceTurnedOff: false });
     expect(await caller.founder.profile.update({ experience: "operator" })).toMatchObject({ experience: "operator", guidanceTurnedOff: false });
-    expect(await caller.founder.preferences.guidance()).toMatchObject({ guidance: "on" });
+    expect(await caller.founder.preferences.guidance()).toMatchObject({ guidance: "on", builderView: false });
   });
 
   it("an operator's first save turns it off too; a first-time founder's keeps it on", async () => {
     const op = await hz.h.createUser("operator-founder@test.local");
     expect(await hz.caller({ userId: op }).founder.profile.update(profile("Ola", "operator"))).toMatchObject({ guidanceTurnedOff: true });
-    expect(await hz.caller({ userId: op }).founder.preferences.guidance()).toMatchObject({ guidance: "off" });
+    expect(await hz.caller({ userId: op }).founder.preferences.guidance()).toMatchObject({ guidance: "off", builderView: true });
 
     const first = await hz.h.createUser("first-time-founder@test.local");
     expect(await hz.caller({ userId: first }).founder.profile.update(profile("Fin", "first_time"))).toMatchObject({ guidanceTurnedOff: false });
-    expect(await hz.caller({ userId: first }).founder.preferences.guidance()).toMatchObject({ guidance: "on" });
+    expect(await hz.caller({ userId: first }).founder.preferences.guidance()).toMatchObject({ guidance: "on", builderView: false });
     expect(await hz.db.select().from(accountPreferences).where(eq(accountPreferences.userId, first))).toHaveLength(0);
   });
 

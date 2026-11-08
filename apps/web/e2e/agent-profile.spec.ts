@@ -1,5 +1,14 @@
 import { expect, test, type Page, type PlaywrightWorkerArgs } from "@playwright/test";
-import { LONG, NORTHWIND_BUSINESS_ID, devApi, openBusiness } from "./helpers";
+import { LONG, NORTHWIND_BUSINESS_ID, devApi, openBusiness, setBuilderView } from "./helpers";
+
+// Builder view on for this file (it opens the Logs tab and reads the ratings out of 20); global-setup.ts starts every run with it off. Restored afterwards.
+let builderViewBefore = false;
+test.beforeAll(async ({ playwright }) => {
+  builderViewBefore = await setBuilderView(playwright, true);
+});
+test.afterAll(async ({ playwright }) => {
+  await setBuilderView(playwright, builderViewBefore);
+});
 
 /**
  * Agent profile (BUILD §11.10; AC-11.10.1 live version untouched until Promote, AC-11.10.5 ApplyScopeDialog on a

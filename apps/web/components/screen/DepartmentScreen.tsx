@@ -16,7 +16,7 @@ import { Button, EmptyState, Kbd, Panel, useGuided, useToast, type TabItem } fro
 import { useModulePacks } from "@foundmill/modules/lazy";
 import { getModuleScreen, type ModuleScreen } from "@foundmill/modules/registry";
 import type { ModuleKey } from "@foundmill/shared";
-import { MODULE_KEYS } from "@foundmill/shared/constants";
+import { MODULE_KEYS, isBuilderOnlyTab, visibleTabs } from "@foundmill/shared/constants";
 import { moduleHref } from "@foundmill/widgets/shared/departments";
 import { routes } from "@foundmill/widgets/shared/routes";
 import { usePageShortcuts } from "@/lib/keys";
@@ -28,6 +28,8 @@ import { useShellChrome } from "@/components/shell/chrome";
 import { ErrorPanel } from "@/components/shell/ErrorPanel";
 import { RefreshFailedNotice, loadFailed, refreshFailed } from "@/components/shell/QueryStates";
 import { ScreenSkeleton } from "@/components/shell/ScreenSkeleton";
+import { useBuilderViewPreference } from "@/components/providers/guidance-context";
+import { BuilderGate } from "./BuilderGate";
 import { DepartmentTour } from "./DepartmentTour";
 
 const WidgetScreen = dynamic(() => import("./WidgetScreen").then((m) => m.WidgetScreen), { loading: () => <ScreenSkeleton /> });
@@ -94,6 +96,7 @@ export function DepartmentScreen({ deptSlug, tabSlug, subView }: DepartmentScree
   }, [relocated, router]);
   const { toast } = useToast();
   const live = data.business.gameMode === "live";
+  const builder = useBuilderViewPreference().on;
 
   const screenQ = useQuery(trpc.screen.get.queryOptions({ businessId, departmentId: department?.id ?? businessId, tabSlug }, { enabled: Boolean(department), staleTime: 30_000 }));
   const screenRow = screenQ.data?.screen ?? null;
@@ -110,14 +113,14 @@ export function DepartmentScreen({ deptSlug, tabSlug, subView }: DepartmentScree
   // Tabs for the shell's TabBar, with the module screen's sub-views in the caret menu.
   const tabs = useMemo<TabItem[]>(() => {
     if (!department) return [];
-    const rows = (screenQ.data?.tabs ?? department.tabs).slice().sort((a, b) => a.position - b.position);
-    return rows.map((t) => {
-      const slug = "slug" in t ? t.slug : (t as { tabSlug: string }).tabSlug;
-      const href = routes.department(businessId, department.slug, slug);
-      const screen = slug === tabSlug ? moduleScreen : null;
-      return { id: slug, label: t.title, href, subViews: screen?.subViews?.map((v) => ({ id: v.slug, label: v.title, href: `${href}?view=${v.slug}` })) };
+    const rows = (screenQ.data?.tabs ?? department.tabs).map((t) => ({ slug: "slug" in t ? t.slug : (t as { tabSlug: string }).tabSlug, title: t.title, position: t.position }));
+    // Builder view's tabs are not offered while it is off, and engine tabs carry the founder's names (shared registry).
+    return visibleTabs({ moduleKeys: department.moduleKeys, tabs: rows }, builder).map((t) => {
+      const href = routes.department(businessId, department.slug, t.slug);
+      const screen = t.slug === tabSlug ? moduleScreen : null;
+      return { id: t.slug, label: t.title, href, subViews: screen?.subViews?.map((v) => ({ id: v.slug, label: v.title, href: `${href}?view=${v.slug}` })) };
     });
-  }, [department, screenQ.data?.tabs, businessId, tabSlug, moduleScreen]);
+  }, [department, screenQ.data?.tabs, businessId, tabSlug, moduleScreen, builder]);
 
   // --- Edit mode (E) for widget layouts ---------------------------------------------------------------------------
   const [editing, setEditing] = useState(false);
@@ -148,6 +151,12 @@ export function DepartmentScreen({ deptSlug, tabSlug, subView }: DepartmentScree
   // so plainly instead of a failed load (audit RUI-05).
   if (!canOpenDepartment(access, department)) {
     return <ErrorPanel title={department.name} message={`${NO_ACCESS_PREFIX}${department.name}. Ask an owner or admin if you need it.`} />;
+  }
+  // A Builder view tab opened by URL (a bookmark, a shared link) while the switch is off: say what it is and offer both
+  // ways on. Until the account's answer arrives, a skeleton, so the gate never flashes for someone who has it on.
+  if (!builder && isBuilderOnlyTab(department.moduleKeys, tabSlug)) {
+    const first = tabs[0];
+    return <BuilderGate title={department.name} open={first?.href ? { label: String(first.label), href: first.href } : null} />;
   }
   // A failed refetch keeps the loaded screen (with a quiet notice); only a first load that failed shows the panel.
   if (loadFailed(screenQ)) return <ErrorPanel title={department.name} message={errorMessage(screenQ.error)} onRetry={() => void screenQ.refetch()} />;

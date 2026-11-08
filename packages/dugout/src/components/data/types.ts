@@ -31,6 +31,8 @@ export interface SavedView {
   density?: TableDensity;
   /** Built-in views cannot be deleted or overwritten; "Save as" creates a copy. */
   builtIn?: boolean;
+  /** Offered only while Builder view is on (docs/DESIGN.md "Builder view"); kept, unseen, while it is off. */
+  builderOnly?: boolean;
 }
 
 export type TableDensity = "compact" | "comfortable";

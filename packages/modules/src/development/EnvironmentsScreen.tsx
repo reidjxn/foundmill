@@ -241,7 +241,8 @@ export function EnvironmentsScreen({ businessId, departmentId }: ModuleScreenPro
         accessorFn: (r) => r.branchName,
         header: "Branch",
         size: sizes.branch,
-        meta: { locked: true, csv: (r) => r.branch, term: "branch" },
+        // Branch, provider and commit are Builder view's (`meta.builderOnly`): off, the table opens on the task.
+        meta: { locked: true, csv: (r) => r.branch, term: "branch", builderOnly: true },
         cell: ({ row }) => (
           <span className="flex min-w-0 items-center gap-1.5 font-mono text-mono" title={row.original.branch === row.original.branchName ? undefined : `Branch ${row.original.branch}`} data-branch={row.original.branch}>
             <GitBranch size={12} aria-hidden className="shrink-0 text-tertiary" />
@@ -301,8 +302,8 @@ export function EnvironmentsScreen({ businessId, departmentId }: ModuleScreenPro
             <span className="text-tertiary">—</span>
           ),
       },
-      { id: "provider", accessorFn: (r) => providerLabel(r.provider) ?? "", header: "Provider", size: sizes.provider, cell: ({ row }) => (providerLabel(row.original.provider) ? <span className="text-secondary">{providerLabel(row.original.provider)}</span> : <span className="text-tertiary">—</span>) },
-      { id: "commitSha", accessorFn: (r) => r.commitSha ?? "", header: "Commit", size: sizes.commitSha, cell: ({ row }) => <span className="font-mono text-mono text-secondary">{shortSha(row.original.commitSha) || "—"}</span> },
+      { id: "provider", accessorFn: (r) => providerLabel(r.provider) ?? "", header: "Provider", size: sizes.provider, meta: { builderOnly: true }, cell: ({ row }) => (providerLabel(row.original.provider) ? <span className="text-secondary">{providerLabel(row.original.provider)}</span> : <span className="text-tertiary">—</span>) },
+      { id: "commitSha", accessorFn: (r) => r.commitSha ?? "", header: "Commit", size: sizes.commitSha, meta: { builderOnly: true }, cell: ({ row }) => <span className="font-mono text-mono text-secondary">{shortSha(row.original.commitSha) || "—"}</span> },
       { id: "deployedAt", accessorFn: (r) => r.deployedAt?.getTime() ?? null, header: "Deployed", size: sizes.deployedAt, meta: { filter: "date", label: "Deployed" }, cell: ({ row }) => (row.original.deployedAt ? <RelativeDateText className="text-secondary" value={row.original.deployedAt} now={now} /> : <span className="text-tertiary">Not yet</span>) },
     ], ENVIRONMENT_FIT),
     [now, sizes],
