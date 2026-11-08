@@ -45,6 +45,9 @@ beforeAll(async () => {
     repository: async () => {
       throw new Error("unused");
     },
+    sendPush: async () => {
+      throw new Error("unused");
+    },
   } satisfies ApiGatewayClient;
   // Live, so the gateway double is the one asked.
   hz = await createApiHarness({ prefix: "team-personas", gateway, env: { LIVE_CONNECTORS: "openai_images" } });

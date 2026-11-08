@@ -35,6 +35,8 @@ import {
   InboxItemType,
   MatchdayLevel,
   Money,
+  NOTIFICATION_KINDS,
+  PUSH_PROVIDERS,
   SIGNOFF_KINDS,
   Severity,
   SkillGroup,
@@ -1352,6 +1354,33 @@ const guidanceTurnedOff = declareEvent(
 );
 
 // ---------------------------------------------------------------------------------------------------
+// Push notifications (the mobile companion app, docs/mobile)
+// ---------------------------------------------------------------------------------------------------
+
+const pushSent = declareEvent(
+  "push.sent",
+  z.object({
+    /** Which kind of notification (`NOTIFICATION_KINDS`): the per-kind switch each person holds in their preferences. */
+    kind: z.enum(NOTIFICATION_KINDS),
+    /** The business event the notification was about. */
+    sourceEventId: Id,
+    sourceEventType: EventType,
+    /** People it went to (after walls and preferences) and the phones among them it was sent to. */
+    recipients: Count,
+    devices: Count,
+    provider: z.enum(PUSH_PROVIDERS),
+    mode: z.enum(["mock", "live"]),
+    /** The provider's notification ids (one per text variant sent); empty when it accepted nothing. */
+    providerMessageIds: z.array(z.string().max(120)).max(50),
+  }),
+  {
+    doc: "The api's push notifier sent a notification about a business event to the registered phones of the people who may see it (section walls and their own switches applied). The audit of what reached a founder's phone; never the title or the body.",
+    consumers: ["metrics"],
+    narratable: false,
+  },
+);
+
+// ---------------------------------------------------------------------------------------------------
 // Founder ↔ agent conversations (audit-conversation §4)
 // ---------------------------------------------------------------------------------------------------
 
@@ -1636,6 +1665,7 @@ export const EVENTS = {
   "guidance.explainer_dismissed": guidanceExplainerDismissed,
   "guidance.term_opened": guidanceTermOpened,
   "guidance.turned_off": guidanceTurnedOff,
+  "push.sent": pushSent,
 } as const satisfies { readonly [K in EventTypeT]: EventDeclaration<K> };
 
 export type EventsRegistry = typeof EVENTS;

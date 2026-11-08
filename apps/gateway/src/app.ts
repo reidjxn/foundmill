@@ -10,6 +10,7 @@
  *   POST /v1/billing/checkout-sessions  service JWT (api) → a Stripe Checkout session on the platform account (billing.ts)
  *   POST /v1/domains/check         service JWT (api) → registry answers for up to 8 domain names (domains.ts)
  *   POST /v1/personas/portrait     service JWT (api) → the AI-generated portrait of one persona catalog key in one character style (portraits.ts)
+ *   POST /v1/push/send             service JWT (api) → one push notification to registered phones of the mobile app (push.ts)
  *   POST /v1/call                  session JWT → the pipeline (allow / ask / deny / rate_limited)
  *   POST /v1/github/archive        session JWT → the Code-tab repository's tarball for a code session's checkout (archive.ts)
  *   POST /v1/github/repository     service JWT (api) → a repository's id and visibility, before it is chosen on the Code tab (code-repository.ts)
@@ -29,6 +30,7 @@ import { appInstallationVerified, GatewayError, modeFor, safeError, type Gateway
 import { CreateCheckoutRequest, createPlatformCheckout } from "./billing";
 import { CheckDomainsRequest, checkDomains } from "./domains";
 import { generatePortrait, PortraitRequest } from "./portraits";
+import { sendPush, SendPushRequest } from "./push";
 import { handleMcpRequest } from "./mcp";
 import { ARCHIVE_ROUTE, ArchiveRequest, routeOnlyCall, serveArchive } from "./archive";
 import { checkRepository, REPOSITORY_CHECK_ROUTE, RepositoryCheckRequest } from "./code-repository";
@@ -90,6 +92,7 @@ export function createGatewayApp(deps: GatewayDeps, options: GatewayAppOptions):
   app.use("/v1/billing/*", limit(MAX_SERVICE_BODY_BYTES));
   app.use("/v1/domains/*", limit(MAX_SERVICE_BODY_BYTES));
   app.use("/v1/personas/*", limit(MAX_SERVICE_BODY_BYTES));
+  app.use("/v1/push/*", limit(MAX_SERVICE_BODY_BYTES));
   app.use(REPOSITORY_CHECK_ROUTE, limit(MAX_SERVICE_BODY_BYTES));
 
   app.get("/health", (c) => {
@@ -150,6 +153,14 @@ export function createGatewayApp(deps: GatewayDeps, options: GatewayAppOptions):
   });
 
   app.post("/v1/personas/portrait", async (c) => c.json(await generatePortrait(deps, PortraitRequest.parse(await c.req.json()), c.var.service.svc)));
+
+  // Push to the mobile app's phones: the api's notifier decided who gets what; the gateway holds the OneSignal keys.
+  app.use("/v1/push/*", requireService);
+  app.use("/v1/push/*", async (c, next) => {
+    if (c.var.service.svc !== "api") throw new GatewayError("forbidden_service", "Only the api sends push notifications", 403);
+    await next();
+  });
+  app.post("/v1/push/send", async (c) => c.json(await sendPush(deps, SendPushRequest.parse(await c.req.json()), c.var.service.svc)));
 
   app.post("/v1/domains/check", async (c) => c.json(await checkDomains(deps, CheckDomainsRequest.parse(await c.req.json()))));
 

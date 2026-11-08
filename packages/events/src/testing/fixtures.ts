@@ -542,6 +542,7 @@ export const EVENT_FIXTURES: { readonly [K in EventType]: EventPayloadInput<K> }
   "guidance.explainer_dismissed": { screenId: "finance/runway" },
   "guidance.term_opened": { termId: "runway", screenId: "home" },
   "guidance.turned_off": { from: "settings", toursDone: 2, explainersSeen: 5 },
+  "push.sent": { kind: "decision", sourceEventId: fixtureId("event-source"), sourceEventType: "inbox.item_created", recipients: 2, devices: 3, provider: "onesignal", mode: "mock", providerMessageIds: [fixtureId("push-1")] },
 };
 
 /** A valid `WriteEventInput` for the given type, with the fixture payload and envelope. */

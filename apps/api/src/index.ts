@@ -22,6 +22,7 @@ import { createApp } from "./app";
 import type { KeyRefresher } from "./auth";
 import { createApiDeps, type ApiDeps } from "./context";
 import type { ApiRedis } from "./services/redis";
+import { createPushNotifier, type PushNotifier } from "./services/push/notifier";
 import { superviseOutboxRelay, type RelaySupervisor } from "./services/relay";
 import { monitorWorker, type WorkerMonitor } from "./services/worker-health";
 import { seedOnBoot } from "./services/seed-on-boot";
@@ -126,6 +127,7 @@ export async function main(): Promise<void> {
   const deps = createApiDeps({ env });
   let server: ReturnType<typeof serve> | null = null;
   let relay: RelaySupervisor | null = null;
+  let pushNotifier: PushNotifier | null = null;
   let reconciler: { stop(): void } | null = null;
   let workerMonitor: WorkerMonitor | null = null;
   let warmer: PoolWarmer | null = null;
@@ -152,6 +154,7 @@ export async function main(): Promise<void> {
       { name: "stop pool warmer", run: () => warmer?.stop() },
       { name: "stop pool watchdog", run: () => watchdog?.stop() },
       { name: "stop outbox relay", run: () => relay?.stop() },
+      { name: "stop push notifier", run: () => pushNotifier?.stop() },
       { name: "stop worker monitor", run: () => workerMonitor?.stop() },
       { name: "close temporal", run: () => deps.temporal.close() },
       {
@@ -173,8 +176,10 @@ export async function main(): Promise<void> {
   // A pool that stops answering while the database answers outside it exits the process, and Railway restarts it with a
   // fresh pool (DECISIONS 2026-10-19 "The api's pool wedged for four hours"); its state is reported on /health.
   watchdog = watchPoolOrExit({ db: deps.db, url: env.DATABASE_URL ?? null, log: deps.log, service: "api", exit: (code) => void flushLog(deps.log as Parameters<typeof flushLog>[0]).finally(() => process.exit(code)) });
-  // The relay's state is reported on /health, so the supervisor exists before the app does.
-  relay = superviseOutboxRelay(deps);
+  // The relay's state is reported on /health, so the supervisor exists before the app does. Every batch it publishes is
+  // also handed to the push notifier (the mobile app's phones, services/push), which never slows the relay down.
+  pushNotifier = createPushNotifier(deps);
+  relay = superviseOutboxRelay(deps, { onPublished: (events) => pushNotifier?.onPublished(events) });
   const app = createApp({ ...deps, relay, poolWatchdog: watchdog });
   const port = servicePort(env, "API_PORT");
 

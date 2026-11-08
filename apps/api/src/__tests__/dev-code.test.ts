@@ -132,6 +132,7 @@ describe("dev.code.setRepository against live GitHub (through the gateway)", () 
     createCheckout: unused,
     checkDomains: unused,
     generatePortrait: unused,
+    sendPush: unused,
     async repository(businessId, owner, repo) {
       asked.push({ businessId, owner, repo });
       const answer = answers[`${owner}/${repo}`.toLowerCase()];
