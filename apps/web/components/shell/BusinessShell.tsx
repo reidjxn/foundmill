@@ -199,6 +199,9 @@ export { RUN_UNTIL_DONE };
 
 /** What the strip says the instant Continue is pressed, before the answer lands (first-time founder report, Nov 8, 2026). */
 export const CONTINUE_PRESSED_NOTICE = "Starting the next cycle…";
+/** The same with Builder view off, in the founder's words ("round of work", as the live feed and the team's notes say). */
+export const CONTINUE_PRESSED_NOTICE_PLAIN = "Starting the next round of work…";
+export const continuePressedNotice = (builder: boolean): string => (builder ? CONTINUE_PRESSED_NOTICE : CONTINUE_PRESSED_NOTICE_PLAIN);
 /** How long the answer to a press stays as the strip's sentence when no cycle event replaces it sooner. */
 export const CONTINUE_NOTICE_MS = 15_000;
 /** Under Continue's tooltip while the orchestrator cannot be reached: what a press does and does not do. */
@@ -555,7 +558,7 @@ function ShellInner({ businessId, initialBusiness, initialDepartments, viewer, c
   // cycle status, adopted at once; the stream keeps it current afterwards.
   const continueCycle = useMutation(
     trpc.business.continue.mutationOptions({
-      onMutate: () => announce(CONTINUE_PRESSED_NOTICE, null),
+      onMutate: () => announce(continuePressedNotice(builder), null),
       onSuccess: (result) => {
         dispatch({ type: "snapshot", status: cycleFromSnapshot(result.status) });
         void invalidate(["cycle", "inbox", "dev"]);
