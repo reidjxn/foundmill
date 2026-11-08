@@ -9,8 +9,7 @@
  */
 import { serverApi } from "@/lib/trpc-server";
 import { errorMessage, type RouterOutputs } from "@/lib/trpc";
-import { formatNumber } from "@/lib/format";
-import { EXPERIENCE_OPTIONS, TIME_OPTIONS } from "@/components/onboarding/profile-form";
+import { EXPERIENCE_OPTIONS, TIME_OPTIONS, budgetWords } from "@/components/onboarding/profile-form";
 
 export type FounderProfileGet = RouterOutputs["founder"]["profile"]["get"];
 
@@ -49,7 +48,7 @@ export function profileLineOf(profile: StudioViewer["profile"]): string | null {
   const parts: string[] = [];
   if (profile.experience) parts.push(EXPERIENCE_OPTIONS.find((o) => o.value === profile.experience)?.label ?? humanise(profile.experience));
   if (profile.timeCommitment) parts.push((TIME_OPTIONS.find((o) => o.value === profile.timeCommitment)?.label ?? humanise(profile.timeCommitment)).toLowerCase());
-  if (typeof profile.budgetMinor === "number") parts.push(`${profile.currency} ${formatNumber(profile.budgetMinor / 100, { maximumFractionDigits: 0 })}`);
+  if (typeof profile.budgetMinor === "number") parts.push(budgetWords(profile.budgetMinor, profile.currency));
   if (profile.targetMarkets?.length) parts.push(profile.targetMarkets.slice(0, 3).join(", "));
   return parts.length ? parts.join(" · ") : null;
 }

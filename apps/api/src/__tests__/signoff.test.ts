@@ -9,6 +9,7 @@ import { CHANNEL_SCORING_TASK } from "@foundmill/agents";
 import { repos, signoffDecisionBlock } from "@foundmill/db";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { runFoundationsLocally } from "../services/foundations";
+import { REVISION_TASK_PRIORITY } from "../services/signoff";
 import { createApiHarness, fakeTemporalClient, type ApiHarness } from "./harness";
 
 let hz: ApiHarness;
@@ -77,9 +78,14 @@ describe("sign-offs: the specification and the roadmap (founder, 2026-10-18)", (
     expect(after.roadmap).toMatchObject({ round: 1, status: "changes_requested", notes: "Move billing ahead of onboarding and drop the reporting item from Now." });
     expect(after.stage).toBe("awaiting_signoff");
     const tasks = await repos.tasks.list(hz.db, b.businessId, { limit: 100 });
-    const revision = tasks.items.find((t) => t.title.startsWith("Revise the roadmap:"));
-    expect(revision).toMatchObject({ kind: "research", status: "ready", assigneeAgentId: decided.item.fromAgentId });
+    // The title is the team's, never the founder's sentence cut off; their words are the goal. The revision is the next
+    // thing the team does: it starts at once (an agentSession on the fake Temporal), ahead of every planned task.
+    const revision = tasks.items.find((t) => t.title === "Revise the roadmap from your notes");
+    expect(revision).toMatchObject({ kind: "research", status: "running", assigneeAgentId: decided.item.fromAgentId, priority: REVISION_TASK_PRIORITY });
     expect(revision!.goalMd).toContain("Move billing ahead of onboarding");
+    expect(temporal.starts.some((s) => s.type === "agentSession" && s.args.some((a) => (a as { taskId: string }).taskId === revision!.id))).toBe(true);
+    expect(decided.followUp?.bodyMd).toMatch(/is revising the roadmap now/);
+    expect(decided.followUp?.bodyMd).toMatch(/nothing else is built until you approve it/);
     const events = await repos.events.list(hz.db, b.businessId, { type: "product.signoff_decided" });
     expect(events.items.map((e) => (e.payload as { kind: string; decision: string }).decision)).toEqual(["changes_requested"]);
     // One sign-off still waits in Needs you; Continue stays free.

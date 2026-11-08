@@ -4,7 +4,7 @@
  * validation (the four first-pass answers: name, experience and time are required, where you live derives the
  * currency and the first market), the two-pass sections and chips. The screen (OnboardingScreen.tsx) only renders this.
  */
-import { formatNumber } from "@/lib/format";
+import { DISPLAY_LOCALE, formatNumber } from "@/lib/format";
 
 export const SKILL_KEYS = ["engineering", "sales", "design", "finance", "domain"] as const;
 export type SkillKey = (typeof SKILL_KEYS)[number];
@@ -337,6 +337,10 @@ export function validateProfileForm(form: ProfileForm): ProfileErrors {
   else if (budget !== null && budget / 100 > PROFILE_LIMITS.budgetMajor) errors.budget = `Use a budget below ${formatNumber(PROFILE_LIMITS.budgetMajor, { maximumFractionDigits: 0 })}.`;
   if (form.citizenship.trim().length > PROFILE_LIMITS.place) errors.citizenship = `Keep it under ${PROFILE_LIMITS.place} characters.`;
   if (form.residence.trim().length > PROFILE_LIMITS.place) errors.residence = `Keep it under ${PROFILE_LIMITS.place} characters.`;
+  const partialResidence = partialCountry(form.residence);
+  if (!errors.residence && partialResidence.length) errors.residence = partialCountryMessage(partialResidence);
+  const partialCitizenship = partialCountry(form.citizenship);
+  if (!errors.citizenship && partialCitizenship.length) errors.citizenship = partialCountryMessage(partialCitizenship);
   if (!/^[A-Z]{3}$/.test(form.currency)) errors.currency = "Pick a currency.";
   // Markets are optional on the first pass: an empty list starts from where the founder lives (`effectiveTargetMarkets`).
   if (form.targetMarkets.some((m) => m.length > PROFILE_LIMITS.place)) errors.targetMarkets = `Keep each market under ${PROFILE_LIMITS.place} characters.`;
@@ -557,8 +561,41 @@ export function profileSummary(form: ProfileForm): string {
   const time = TIME_OPTIONS.find((o) => o.value === form.timeCommitment)?.label;
   if (time) parts.push(time.toLowerCase());
   const budget = form.noBudget ? null : parseBudgetMinor(form.budget);
-  if (budget !== null && !Number.isNaN(budget)) parts.push(`${form.currency} ${formatNumber(budget / 100, { maximumFractionDigits: 0 })}`);
+  if (budget !== null && !Number.isNaN(budget)) parts.push(budgetWords(budget, form.currency));
   const markets = effectiveTargetMarkets(form);
   if (markets.length) parts.push(markets.join(", "));
   return parts.join(" · ");
+}
+
+/**
+ * A budget as money reads everywhere else (CLAUDE.md: the business's currency with its narrow symbol, "£1,500"), never
+ * "GBP 1,500" (first-time founder report, Nov 8, 2026). A code Intl does not know falls back to "1,500 XYZ".
+ */
+export function budgetWords(amountMinor: number, currency: string): string {
+  const major = amountMinor / 100;
+  try {
+    return new Intl.NumberFormat(DISPLAY_LOCALE, { style: "currency", currency, currencyDisplay: "narrowSymbol", maximumFractionDigits: 0 }).format(major);
+  } catch {
+    return `${formatNumber(major, { maximumFractionDigits: 0 })} ${currency}`;
+  }
+}
+
+/**
+ * A country typed only part of the way ("United", "Ger"): the start of one or more countries on the list and not a
+ * country itself. Saving it would count money in the wrong currency and aim the ideas nowhere, so the form asks the
+ * founder to finish picking (first-time founder report, Nov 8, 2026: "United" was accepted and read as US dollars).
+ * A name the list does not hold at all is not a partial pick: it may be a real country the list leaves out.
+ */
+export function partialCountry(value: string): string[] {
+  const typed = value.trim().toLowerCase();
+  if (typed.length < 2) return [];
+  if (COUNTRIES.some((c) => c.toLowerCase() === typed) || COUNTRY_REGION[typed]) return [];
+  return COUNTRIES.filter((c) => c.toLowerCase().startsWith(typed));
+}
+
+/** "Finish picking the country: United Kingdom or United States." */
+export function partialCountryMessage(matches: readonly string[]): string {
+  const named = matches.slice(0, 3);
+  const list = named.length === 1 ? named[0]! : `${named.slice(0, -1).join(", ")} or ${named[named.length - 1]}`;
+  return `Finish picking the country: ${list}${matches.length > 3 ? ", …" : ""}.`;
 }

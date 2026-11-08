@@ -153,6 +153,40 @@ export function buildIdeationCardRequest(brief: IdeationBrief, item: IdeationSla
   };
 }
 
+/** What the founder wrote themselves (the studio's "Use my idea as written"): the card keeps these words as its pitch. */
+export interface FounderCard {
+  /** A short slug, kept as the card's id. */
+  id: string;
+  /** The working name the founder gave it (renamed at Commit). */
+  name: string;
+  /** The kind of business when the founder chose one; null lets the agent choose. */
+  archetype: Archetype | null;
+  /** The founder's own description of the business, verbatim. */
+  words: string;
+}
+
+/**
+ * "Use my idea as written" (first-time founder report, Nov 8, 2026): exactly one card for the concept the founder
+ * described in their own words. The agent rates it and finds its citations; it never rewrites the idea. The api keeps
+ * the founder's name and words on the saved card whatever the model answers, so this request only decides the ratings,
+ * the evidence, the citations and, when the founder left it open, the archetype.
+ */
+export function buildFounderCardRequest(brief: IdeationBrief, card: FounderCard): IdeationCardRequest {
+  const content = [
+    "Rate the founder's own concept as one concept card. Keep its id and name exactly and use the founder's words as the pitch (shorten them only if they run past 40 words, keeping their audience, problem and place names). Choose the archetype only when none is given. Score the ten attributes honestly with evidence and add the citations the Research agent should check; never change what the business is or who it serves.",
+    briefJson(brief, { concept: { id: card.id, name: card.name, ...(card.archetype ? { archetype: card.archetype } : {}), angle: card.words.slice(0, 400) }, founder_words: card.words }),
+  ];
+  return {
+    route: IDEATION_CARD_ROUTE,
+    system: ideationSystem(brief.founder),
+    cacheSystem: true,
+    messages: [{ role: "user", content: content.join("\n\n") }],
+    schema: ConceptCard,
+    maxTokens: IDEATION_CARD_MAX_TOKENS,
+    reserveTokens: IDEATION_CARD_RESERVE_TOKENS,
+  };
+}
+
 /**
  * Import's "Continue to Commit": exactly one card describing the business in the brief as it stands. The brief's
  * `source` (the Import report) follows it inside an <untrusted_content> block: data about the business, never

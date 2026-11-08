@@ -225,3 +225,33 @@ describe("mock conversation route (audit-conversation §4)", () => {
     expectShape(prose.json);
   });
 });
+
+describe("a typed question on a concept is answered as asked (first-time founder report, Nov 8, 2026)", () => {
+  const concept = {
+    kind: "concept",
+    id: "3c4d5e6f-7a8b-4c9d-8e0f-1a2b3c4d5e6f",
+    title: "Shiftnest",
+    attributes: [
+      { key: "market_pull", label: "Market pull", value: 13, evidence: "Estimate — 17 recent forum threads and job posts mention paying for students; pull looks mixed." },
+      { key: "distribution_clarity", label: "Distribution clarity", value: 9, evidence: "No obvious first channel; distribution would need testing across several lines." },
+      { key: "competition", label: "Competition", value: 11, evidence: "11 competitors found; a few are well funded." },
+    ],
+    facts: [],
+    options: [],
+    answered: false,
+  };
+  it("a question about paying quotes the question, says the card holds no price, and offers to find out", async () => {
+    const out = await reply(input(concept, "Would cafes in Manchester actually pay for this, and how much?", null, { task: null, status: "healthy" }));
+    expectShape(out);
+    expect(out.bubbles[0]).toMatch(/On “Would cafes in Manchester actually pay for this, and how much”: the card has no price in it yet/);
+    expect(out.bubbles.join(" ")).toMatch(/market pull is 13 of 20/);
+    expect(out.quick_replies.map((q) => q.id)).toContain("find_out");
+  });
+  it("any other question names the closest evidence the card holds, or says the card does not cover it", async () => {
+    const close = await reply(input(concept, "Which channel would reach them first?", null, { task: null, status: "healthy" }));
+    expect(close.bubbles[0]).toMatch(/On “Which channel would reach them first”: the closest thing the card holds is distribution clarity, rated 9 of 20\./);
+    const far = await reply(input(concept, "Do you like the colour purple?", null, { task: null, status: "healthy" }));
+    expect(far.bubbles[0]).toMatch(/On “Do you like the colour purple”: the card does not cover that yet\./);
+    expect(far.bubbles.join(" ")).not.toMatch(/rated \d+ on the card/);
+  });
+});

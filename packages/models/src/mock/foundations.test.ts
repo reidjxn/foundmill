@@ -103,3 +103,33 @@ describe("foundations mock (BUILD §11.1 first open, §11.5)", () => {
     expect(prose.json.sections.length).toBeGreaterThanOrEqual(5);
   });
 });
+
+describe("foundations mock keeps the founder's words (first-time founder report, Nov 8, 2026)", () => {
+  const WORDS = "Students at my university struggle to find short-notice part-time shifts, and local cafes and bars near campus struggle to fill last-minute gaps. A simple app that matches verified students to same-day shifts at independent venues around Manchester.";
+  const draft = (idea: Record<string, unknown>, ideaText: Record<string, unknown>) =>
+    client.complete({
+      route: "foundations",
+      schema: FoundationsOutput,
+      messages: [...promptWith({ business: { name: "ShiftMate", archetype: "marketplace", currency: "GBP" }, door: "ideation", outline: OUTLINE.map((section) => ({ section, pinned: false })), idea, founder: { target_markets: ["UK"] } }), { role: "user", content: `<untrusted_content kind="idea">\n${JSON.stringify({ idea_text: ideaText })}\n</untrusted_content>` }],
+    });
+
+  it("builds the vision, Problem, Customers and Value proposition from founder_words, never from a template audience", async () => {
+    const r = await draft({ archetype: "marketplace", founder_words: WORDS }, { title: "ShiftMate", pitch: WORDS });
+    expect(r.repaired).toBe(false);
+    expect(r.json.vision.statement).toMatch(/^ShiftMate exists so that students at my university can find short-notice part-time shifts\./);
+    expect(r.json.vision.for_whom).toMatch(/Students at my university in UK/);
+    const text = (section: string) => JSON.stringify(r.json.sections.find((s) => s.section === section));
+    expect(text("Problem")).toMatch(/In the founder's words:/);
+    expect(text("Problem")).toMatch(/same-day shifts at independent venues around Manchester/);
+    expect(text("Customers")).toMatch(/students at my university/);
+    expect(text("Value proposition")).toMatch(/ShiftMate helps students at my university find short-notice part-time shifts/);
+    expect(JSON.stringify(r.json)).not.toMatch(/boutique fitness|renters in big cities|independent providers/);
+    expect(r.json.open_questions[0]).toMatch(/students at my university/);
+  });
+
+  it("uses the business's name where the card still carries its studio working name", async () => {
+    const r = await draft({ archetype: "marketplace" }, { title: "Shiftnest", pitch: "Shiftnest helps boutique fitness instructors turn a recurring panic into a routine through a done-for-you service with a transparent fixed fee." });
+    expect(JSON.stringify(r.json)).not.toMatch(/Shiftnest/);
+    expect(JSON.stringify(r.json.sections.find((s) => s.section === "Problem"))).toMatch(/ShiftMate helps boutique fitness instructors/);
+  });
+});

@@ -11,7 +11,7 @@ import { commitIdea, squadPreview } from "../services/commit";
 import { conceptPersona, conceptStarters, replyAboutConcept, replyStream, type ReplyHooks, type ReplyStreamEvent } from "../services/conversation";
 import { checkDomainAvailability, DomainCheckInput } from "../services/domains";
 import { linkableImportJob } from "../services/foundations";
-import { draftEventStream, draftIdeas, isMeta, readMeta, takeIdeationAllowance, withMeta, type DraftEvent } from "../services/ideation";
+import { draftEventStream, draftIdeas, isMeta, readMeta, takeIdeationAllowance, withMeta, writeIdea, type DraftEvent } from "../services/ideation";
 import { importJobKey } from "../services/import";
 import { requireAdultToGoLive } from "../services/live";
 import { LogoChoice, takeLogoCheck } from "../services/logo";
@@ -181,6 +181,42 @@ export const ideaRouter = router({
       throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: internalErrorMessage(mapped.message, ctx.env.APP_ENV, ctx.requestId), cause: mapped.cause });
     }
   }),
+
+  /**
+   * "Use my idea as written" (first-time founder report, Nov 8, 2026): one card from the founder's own words. The
+   * Ideation agent rates it (one card call, one draft of the allowance); the saved card keeps the founder's name and
+   * words exactly and is flagged as theirs, so Commit and the foundations build on them first.
+   */
+  write: protectedProcedure
+    .input(z.object({ title: z.string().trim().min(1).max(60), pitch: z.string().trim().min(1).max(4000), archetype: Archetype.nullable().default(null) }))
+    .use(modelLimited("ideation"))
+    .mutation(({ ctx, input, signal }) => writeIdea({ db: ctx.db, models: ctx.models, limits: ctx.limits, userId: ctx.userId, log: ctx.log }, input, { signal })),
+
+  /**
+   * Edit a card before commit (first-time founder report, Nov 8, 2026: cards could only be merged or discarded): the
+   * name, the pitch and the kind of business, as a new version with the ratings carried over. Words the founder changes
+   * become the card's `founder_words`, the ground truth the foundations build on. No model call.
+   */
+  edit: protectedProcedure
+    .input(
+      z
+        .object({ ideaId: Id, title: z.string().trim().min(1).max(120).optional(), pitch: z.string().trim().min(1).max(4000).optional(), archetype: Archetype.nullable().optional() })
+        .refine((v) => v.title !== undefined || v.pitch !== undefined || v.archetype !== undefined, { message: "Change the name, the pitch or the kind of business", path: ["pitch"] }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const version = await repos.ideas.addVersion(ctx.db, ctx.userId, input.ideaId, (latest) => {
+        const pitchChanged = input.pitch !== undefined && input.pitch !== (latest.current?.pitch ?? latest.pitch);
+        return {
+          action: "edited",
+          ...(input.title !== undefined ? { title: input.title } : {}),
+          ...(input.pitch !== undefined ? { pitch: input.pitch } : {}),
+          ...(input.archetype !== undefined ? { archetype: input.archetype } : {}),
+          research: pitchChanged ? withMeta(latest.current?.research, { founder_words: input.pitch }) : (latest.current?.research ?? { citations: [] }),
+          parentVersionId: latest.current?.id ?? null,
+        };
+      });
+      return { version, idea: await repos.ideas.get(ctx.db, ctx.userId, input.ideaId) };
+    }),
 
   /**
    * Compare 2–4 cards: side-by-side attributes + agent verdict (AC-11.1.4). One Opus call with no business to book it

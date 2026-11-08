@@ -8,7 +8,7 @@
  */
 import { ARCHETYPES, ARCHETYPE_LABELS, DEFAULT_BUSINESS_CURRENCY, MONEY_LOCALE, type Archetype } from "@foundmill/shared";
 import type { FoundationsOutput, FoundationsRoadmapItem, FoundationsSection, TiptapBlock, TiptapDoc, TiptapParagraph } from "../schemas";
-import { type MockContext, isRecord, keywords, sentenceCase, truncate } from "./inputs";
+import { type MockContext, briefFacts, isRecord, keywords, sentenceCase, truncate } from "./inputs";
 
 const str = (v: unknown): string | undefined => (typeof v === "string" && v.trim() ? v.trim() : undefined);
 const strings = (v: unknown): string[] => (Array.isArray(v) ? v.map((x) => str(x)).filter((x): x is string => Boolean(x)) : []);
@@ -82,6 +82,8 @@ interface Brief {
   audience: string;
   outcome: string;
   pitch: string;
+  /** The founder's own description of the business (the brief they typed, or a card they wrote or edited), verbatim. */
+  founderWords: string | null;
   markets: string;
   constraints: string[];
   strengths: string[];
@@ -103,11 +105,18 @@ function readBrief(ctx: MockContext): Brief {
   const archetypeRaw = str(pick(business, "archetype")) ?? str(pick(idea, "archetype"));
   const archetype: Archetype = (ARCHETYPES as readonly string[]).includes(archetypeRaw ?? "") ? (archetypeRaw as Archetype) : "b2b_saas";
   const name = str(pick(business, "name")) ?? str(pick(ideaText, "title")) ?? str(pick(idea, "title")) ?? str(pick(report, "suggested_name", "suggestedName")) ?? (keywords(ctx.userText, 1)[0] ? sentenceCase(keywords(ctx.userText, 1)[0]!) : "The business");
-  const pitch = str(pick(ideaText, "pitch")) ?? str(pick(idea, "pitch")) ?? str(pick(report, "summary")) ?? `${name} is a ${ARCHETYPE_LABELS[archetype]} business.`;
-  const helps = /helps\s+(.+?)\s+(cut|see|stop|get|replace|turn|prove|run|find|keep|save|ship|sell|book|learn|reach)\s+([^.,;]+)/i.exec(pitch);
-  const audience = helps ? helps[1]!.trim() : DEFAULT_AUDIENCE[archetype];
+  // The card may carry the working name it had in the studio ("Shiftnest helps …") while the business was named
+  // ShiftMate at Commit: the business has one name everywhere a founder reads (first-time founder report, Nov 8, 2026).
+  const workingName = str(pick(ideaText, "title")) ?? str(pick(idea, "title"));
+  const renamed = (s: string) => (workingName && workingName !== name ? s.split(workingName).join(name) : s);
+  // The founder's own words (trusted: they typed them) lead everything the drafting says about who and what.
+  const founderWords = str(pick(idea, "founder_words", "founderWords")) ?? str(pick(idea, "brief")) ?? null;
+  const facts = founderWords ? briefFacts(founderWords) : null;
+  const pitch = renamed(str(pick(ideaText, "pitch")) ?? str(pick(idea, "pitch")) ?? str(pick(report, "summary")) ?? `${name} is a ${ARCHETYPE_LABELS[archetype]} business.`);
+  const helps = /helps\s+(.+?)\s+(cut|see|stop|get|replace|turn|prove|run|find|keep|save|ship|sell|book|learn|reach|match|connect)\s+([^.,;]+)/i.exec(pitch);
+  const audience = facts?.audiences[0] ?? (helps ? helps[1]!.trim() : DEFAULT_AUDIENCE[archetype]);
   // "… helps X get to a first customer through a narrow workflow, built around …": the outcome stops at "through".
-  const outcome = helps ? `${helps[2]!.toLowerCase()} ${helps[3]!.split(/\s+(?:through|by|with|using)\s+/)[0]!.trim()}` : "get the result they came for with less effort";
+  const outcome = facts?.outcomes[0] ?? (helps ? `${helps[2]!.toLowerCase()} ${helps[3]!.split(/\s+(?:through|by|with|using)\s+/)[0]!.trim()}` : "get the result they came for with less effort");
   const markets = strings(pick(founder, "target_markets", "targetMarkets"));
   const evidence = new Map(records(pick(ideaText, "evidence")).map((e) => [str(e.key) ?? str(e.label) ?? "", str(e.evidence)] as const));
   const attributes = records(pick(idea, "attributes"))
@@ -127,6 +136,7 @@ function readBrief(ctx: MockContext): Brief {
     audience,
     outcome,
     pitch,
+    founderWords,
     markets: markets.length ? markets.join(", ") : "its first market",
     constraints: strings(pick(founder, "constraints")),
     strengths: strengths.length ? strengths : [`A clear ${ARCHETYPE_LABELS[archetype]} model with a short path to a first customer`],
@@ -159,12 +169,14 @@ const FEATURES = (b: Brief): { title: string; story: string; criteria: string[] 
 function sectionDoc(section: string, b: Brief): TiptapDoc {
   const key = section.toLowerCase();
   const ns = NORTH_STAR[b.archetype];
+  // The founder's own words open the sections that say who this is for and what it does (never a template audience).
+  const inYourWords = b.founderWords ? [lead("In the founder's words:", truncate(b.founderWords, 600))] : [];
   if (key.includes("problem"))
-    return doc(text(`${sentenceCase(b.audience)} cannot ${b.outcome} without slow, manual work today. ${b.pitch}`), bullets([`The job is done by hand or with tools that were not built for it`, `Mistakes are found late, when they are expensive`, ...(b.imported && b.missing.length ? [`From the import: ${b.missing[0]}`] : [])]));
+    return doc(...inYourWords, text(`${sentenceCase(b.audience)} cannot ${b.outcome} without slow, manual work today.${b.founderWords ? "" : ` ${b.pitch}`}`), bullets([`The job is done by hand or with tools that were not built for it`, `Mistakes are found late, when they are expensive`, ...(b.imported && b.missing.length ? [`From the import: ${b.missing[0]}`] : [])]));
   if (key.includes("customer"))
     return doc(lead("Primary segment:", `${b.audience} in ${b.markets}.`), bullets([`Early adopters: the ones who already pay for a workaround`, `Buyer and user are the same person at first`, `Not for: large organizations with their own team for this`]));
   if (key.includes("value"))
-    return doc(text(`${b.name} helps ${b.audience} ${b.outcome}.`), bullets([...b.strengths.slice(0, 3), "Agents do the repetitive work; the customer keeps every decision"]));
+    return doc(text(`${b.name} helps ${b.audience} ${b.outcome}.`), ...inYourWords, bullets([...b.strengths.slice(0, 3), "Agents do the repetitive work; the customer keeps every decision"]));
   if (key.includes("feature"))
     return doc(
       text(`The first release is the smallest product that delivers the value proposition end to end.${b.seeds.length ? ` It also absorbs ${b.seeds.length} open issues from the imported backlog.` : ""}`),

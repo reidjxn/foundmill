@@ -78,8 +78,8 @@ export const DOORS: LinkDoor[] = [
     icon: Lightbulb,
     kicker: "Door A",
     title: "I have an idea, or none yet",
-    lede: "Describe a problem, a market or nothing at all, and the Ideation agent drafts six to twelve concept cards for you to compare.",
-    steps: ["Describe a problem, or let the agent draft within your profile alone", "Six to twelve concept cards, each rated on ten attributes with its reasoning", "Shortlist, merge, ask the Research agent about any card, compare", "Commit to one and take charge"],
+    lede: "Write your idea in your own words and use it as written, or describe a problem, a market or nothing at all and the Ideation agent drafts six to twelve concept cards for you to compare.",
+    steps: ["Write your idea as it is, or describe a problem, or let the agent draft within your profile alone", "Your own card, rated, or six to twelve concept cards, each rated on ten attributes with its reasoning", "Edit any card in your words, shortlist, merge, ask the Research agent, compare", "Commit to one and take charge: the team builds from your words"],
     cta: "Open the Ideation Studio",
   },
   {

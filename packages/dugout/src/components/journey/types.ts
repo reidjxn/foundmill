@@ -338,9 +338,13 @@ export interface Concept {
   citations?: number;
   archetypeLabel?: string;
   version?: number;
+  /** The pitch is the founder's own words (a card they wrote or edited): the card says so, and the team builds from them. */
+  yourWords?: boolean;
+  /** The card was written by the sample (mock) model: the card says so, so sample prose is never taken for the team's judgment. */
+  sample?: boolean;
 }
 
-export const CONCEPT_ACTIONS = ["shortlist", "merge", "fork", "ask", "discard"] as const;
+export const CONCEPT_ACTIONS = ["shortlist", "edit", "merge", "fork", "ask", "discard"] as const;
 export type ConceptAction = (typeof CONCEPT_ACTIONS)[number];
 
 /* ---------- Department cards, squad pulse, milestones (BUILD §11.2, §11.4) ---------- */

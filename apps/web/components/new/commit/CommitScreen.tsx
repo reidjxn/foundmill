@@ -1,4 +1,5 @@
 "use client";
+import Link from "next/link";
 /**
  * /new/commit/[ideaId] — the Commit screen (BUILD §11.1; AC-11.1.6, AC-11.1.7; docs/UX_AUDIT_AND_PLAN.md §7.6). Name
  * with suggestions, live domain availability (the registry's answer through `idea.domainCheck`) and the trademark
@@ -743,6 +744,20 @@ export function CommitForm({ idea, viewer, currency, initialName, suggestedArche
         <aside className="col-span-4">
           <div className="sticky top-20 flex flex-col gap-gutter">
             <ConceptCard concept={{ ...concept, name: form.name.trim() || concept.name, kit: form.kit, logoSrc: form.logo?.dataUrl ?? null }} hideActions className="w-full" />
+            {/* Whose words the team builds from (first-time founder report, Nov 8, 2026): the founder's, or a drafted card they can still edit in the studio. */}
+            <p className="text-small text-secondary" data-testid="commit-words-note">
+              {concept.yourWords ? (
+                "The pitch is in your words. The team drafts the vision and the specification from them, keeping your audience, problem and place names as written."
+              ) : (
+                <>
+                  The pitch is the Ideation agent's draft. The team drafts the vision and the specification from it{concept.sample ? " (a sample card: add a model key for real drafts)" : ""}.{" "}
+                  <Link href="/new/ideate" className="text-link underline-offset-2 hover:underline">
+                    Edit it in your words first
+                  </Link>{" "}
+                  if it is not quite your idea.
+                </>
+              )}
+            </p>
             <Panel title="Day one" loading={previewLoading} empty={!form.archetype ? "Pick an archetype to see who gets hired." : undefined} data-testid="squad-preview">
               {preview ? (
                 <div className="flex flex-col gap-3">

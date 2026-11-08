@@ -26,6 +26,7 @@ import type { DecideItemResult } from "./decide";
 import { ensureChannelEngines } from "./engines";
 import { assertAgentsRunning } from "./stop-guard";
 import { planTaskGraph } from "./task-graph";
+import { startTaskByHand } from "./task-start";
 import type { TemporalResult } from "./temporal";
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -153,9 +154,18 @@ export interface SignoffResult {
   specVersion: { id: string; version: number } | null;
   /** The revision task Request changes gave the Product lead. */
   task: Task | null;
+  /**
+   * Whether that revision started at once (the Product lead is on it now) or waits for the next cycle, with the reason
+   * in the founder's words when it waits (first-time founder report, Nov 8, 2026: a correction used to join the queue
+   * silently).
+   */
+  revision: { started: boolean; reason: string | null } | null;
   /** The first build, when this decision was the second approval. */
   build: BuildStart | null;
 }
+
+/** Priority of a revision task: ahead of every planned task, so the next cycle takes it first when it did not start now. */
+export const REVISION_TASK_PRIORITY = 10;
 
 /** The one implementation of Approve / Request changes for the specification and the roadmap. */
 export async function decideProductSignoff(ctx: BusinessContext, input: DecideSignoffInput): Promise<SignoffResult> {
@@ -193,18 +203,20 @@ export async function decideProductSignoff(ctx: BusinessContext, input: DecideSi
     const answered = await answerNote(tx, ctx, round.inboxItemId, input.decision === "approve" ? "approve" : "request_changes", notes, voice?.id ?? null, summary);
 
     // Request changes: the founder's own words become the Product lead's revision task (trusted: they are the founder's).
+    // The title stays the team's ("from your notes"), never the founder's sentence cut off mid-word; their words are the goal.
     let task: Task | null = null;
     if (input.decision === "request_changes") {
       const departments = await repos.departments.list(tx, ctx.businessId, { includeHidden: true });
       const product = departments.find((d) => (d.moduleKeys as string[]).includes("product")) ?? null;
       task = await repos.tasks.create(tx, ctx.businessId, {
         kind: "research",
-        title: `Revise ${words.the}: ${notes!.slice(0, 60)}`.slice(0, 200),
-        goalMd: `${notes}\n\nReflect these in ${input.kind === "spec" ? "the specification blocks through proposals" : "the roadmap items"}, then tell the founder it is ready to sign off again.`,
+        title: `Revise ${words.the} from your notes`,
+        goalMd: `The founder asked for these changes to ${words.the}, in their own words:\n\n${notes}\n\nReflect them in ${input.kind === "spec" ? "the specification blocks through proposals, keeping the founder's audience, problem and place names as written" : "the roadmap items"}, then tell the founder it is ready to sign off again. Nothing else is built until they approve the revised version.`,
         acceptance: ["The founder's requested changes are reflected", "The founder was asked to sign off again"],
         assigneeAgentId: voice?.id ?? null,
         departmentId: product?.id ?? null,
         status: "ready",
+        priority: REVISION_TASK_PRIORITY,
         currency: ctx.business.currency,
       });
     }
@@ -216,6 +228,21 @@ export async function decideProductSignoff(ctx: BusinessContext, input: DecideSi
   // The second approval starts the build: the Planner's graph for the first Now items, then the next cycle as Continue does.
   const build = written.bothApproved ? await startBuilding(ctx) : null;
 
+  // Request changes: the founder's correction is the next thing the team does, so the revision starts now, the way
+  // Plan's Start starts a task. When it cannot (no orchestrator, the team stopped, the budget used up), the follow-up
+  // says so and what to press; the task keeps its priority for the next cycle either way.
+  let revision: SignoffResult["revision"] = null;
+  if (written.task) {
+    try {
+      await startTaskByHand(ctx, written.task.id);
+      revision = { started: true, reason: null };
+    } catch (err) {
+      if (!(err instanceof AppError)) throw err;
+      ctx.log.info({ businessId: ctx.businessId, taskId: written.task.id, code: err.code, err: err.message }, "sign-off revision: the task did not start now; it waits for the next cycle");
+      revision = { started: false, reason: err.message };
+    }
+  }
+
   const followUp = await ctx.rls(async (tx) => {
     const { stage } = await loadProductStage(tx, ctx.businessId);
     const day = dayWords(new Date(), ctx.business.timeZone);
@@ -225,7 +252,7 @@ export async function decideProductSignoff(ctx: BusinessContext, input: DecideSi
       else if (input.decision === "approve") {
         const other = input.kind === "spec" ? "roadmap" : "specification";
         note = await postUpdate(tx, ctx, written.voice.id, `${words.tab} signed off`, `You approved ${words.the}${written.specVersion ? ` (version ${written.specVersion.version})` : ""} on ${day}. Sign off the ${other} and the build starts.`);
-      } else note = await postUpdate(tx, ctx, written.voice.id, `Changes requested: ${words.the}`, `Noted: “${clipWords(notes!, 40)}”. ${written.voice.name} revises it and asks for your sign-off again. You can also edit it yourself on the ${words.tab} tab and approve it there.`);
+      } else note = await postUpdate(tx, ctx, written.voice.id, `Changes requested: ${words.the}`, changesRequestedBody(written.voice.name, words, notes!, revision));
     }
     await emit(tx, ctx, {
       type: "product.signoff_decided",
@@ -245,7 +272,17 @@ export async function decideProductSignoff(ctx: BusinessContext, input: DecideSi
     return { note, stage };
   });
 
-  return { signoff: written.round, stage: followUp.stage, item: written.answered?.item ?? null, decision: written.answered?.decision ?? null, plan: written.answered?.plan ?? null, followUp: followUp.note, specVersion: written.specVersion, task: written.task, build };
+  return { signoff: written.round, stage: followUp.stage, item: written.answered?.item ?? null, decision: written.answered?.decision ?? null, plan: written.answered?.plan ?? null, followUp: followUp.note, specVersion: written.specVersion, task: written.task, revision, build };
+}
+
+/**
+ * The note after Request changes: the founder's words quoted back, who is on it and whether it has started, what
+ * happens next (a new round to sign off; nothing else is built until then), and the way to do it by hand.
+ */
+export function changesRequestedBody(voiceName: string, words: { the: string; tab: string }, notes: string, revision: SignoffResult["revision"]): string {
+  const quoted = `Noted: “${clipWords(notes, 40)}”.`;
+  const now = revision?.started ? `${voiceName} is revising ${words.the} now; you are asked to sign off the new version when it is ready, and nothing else is built until you approve it.` : `${voiceName} revises ${words.the} first thing next cycle${revision?.reason ? ` (it could not start right away: ${revision.reason.replace(/\.$/, "")})` : ""}; press Continue to start it now. You are asked to sign off the new version when it is ready, and nothing else is built until you approve it.`;
+  return `${quoted} ${now} You can also edit it yourself on the ${words.tab} tab and approve it there.`;
 }
 
 function buildingStartsBody(build: BuildStart): string {

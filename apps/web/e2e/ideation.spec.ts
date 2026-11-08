@@ -369,3 +369,56 @@ test.describe("ideation studio", () => {
     await expect(cards.nth(4).getByRole("button", { name: /^Compare / })).toHaveAttribute("aria-pressed", "false");
   });
 });
+
+test.describe("the founder's own words (first-time founder report, Nov 8, 2026)", () => {
+  const WORDS = "Students at my university struggle to find short-notice part-time shifts, and local cafes and bars near campus struggle to fill last-minute gaps. A simple app that matches verified students to same-day shifts at independent venues around Manchester.";
+
+  test("Use my idea as written: one card in the founder's words, rated, straight to Commit, where the card says whose words they are", async ({ page }) => {
+    await signIn(page);
+    await openStudio(page);
+    const brief = page.getByRole("textbox", { name: "Brief" });
+    // Nothing to use while the brief is empty; the button appears with the founder's words.
+    await expect(page.getByTestId("use-my-idea")).toHaveCount(0);
+    await brief.fill(WORDS);
+    await page.getByTestId("use-my-idea").click();
+    const dialog = page.getByTestId("write-dialog");
+    await expect(dialog).toBeVisible();
+    // The words are the pitch, untouched; the working name is suggested from them and can be changed.
+    await expect(dialog.getByTestId("write-pitch")).toHaveValue(WORDS);
+    await expect(dialog.getByTestId("write-title")).not.toHaveValue("");
+    await dialog.getByTestId("write-title").fill("ShiftMate");
+    await dialog.getByTestId("write-submit").click();
+    await page.waitForURL(/\/new\/commit\/[0-9a-f-]+/, { timeout: LONG });
+    await expect(page.getByTestId("commit-form")).toBeVisible({ timeout: LONG });
+    // The card on Commit carries the founder's words and says so; the note under it says the team builds from them.
+    const card = page.locator("[data-concept]").first();
+    await expect(card).toContainText(WORDS);
+    await expect(card.locator("[data-concept-your-words]")).toBeVisible();
+    await expect(page.getByTestId("commit-words-note")).toContainText("The pitch is in your words");
+    // The business name follows the working name.
+    await expect(page.getByLabel(/Business name/)).toHaveValue("ShiftMate");
+  });
+
+  test("Edit on any card: the pitch changed in the founder's words becomes a new version that reads 'Your words'", async ({ page }) => {
+    await signIn(page);
+    await openStudio(page);
+    await needCards(page, 1);
+    const card = cardsOf(page).first();
+    const name = (await card.getAttribute("aria-label"))!.replace(/: concept card$/, "");
+    await card.getByRole("button", { name: `More actions for ${name}` }).click();
+    await page.getByRole("menuitem", { name: "Edit" }).click();
+    const dialog = page.getByTestId("edit-dialog");
+    await expect(dialog).toBeVisible();
+    // Nothing changed yet: nothing to save.
+    await expect(dialog.getByTestId("edit-submit")).toBeDisabled();
+    const words = `Cafes near campus fill last-minute shifts with verified students (${Date.now().toString(36)}).`;
+    await dialog.getByTestId("edit-pitch").fill(words);
+    await dialog.getByTestId("edit-submit").click();
+    await expect(dialog).toHaveCount(0, { timeout: LONG });
+    await expect(page.getByTestId("studio-notice")).toContainText(/Your words lead the card now/, { timeout: LONG });
+    const edited = gridOf(page).locator("[data-concept]").filter({ hasText: words }).first();
+    await expect(edited).toBeVisible({ timeout: LONG });
+    await expect(edited.locator("[data-concept-your-words]")).toBeVisible();
+    await expect(edited.getByText(/^Version \d+$/)).toBeVisible();
+  });
+});
