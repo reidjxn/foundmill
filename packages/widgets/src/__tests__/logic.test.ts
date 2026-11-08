@@ -17,7 +17,7 @@ import { groupByHorizon, roadmapStatus, taskProgress } from "../widgets/roadmap-
 import { dayHourIn } from "@foundmill/shared/time-zone";
 import { sessionsToPulseCells, type SessionRow } from "../widgets/squad-pulse";
 import { PLAIN_LINES, boardWords, runwayTile, squadHealth, statusTiles, teamHealthCaption } from "../widgets/status-strip";
-import { METRIC_PLAIN, headlineMetric } from "../widgets/department-card";
+import { METRIC_PLAIN, headlineMetric, toSquad } from "../widgets/department-card";
 import { teamHealth, teamHealthCounts, teamHealthSummary } from "../shared/health";
 import { milestoneKey, trophyCards } from "../widgets/trophy-cabinet";
 import { monthRevenueMinor } from "../shared/cash";
@@ -239,6 +239,18 @@ describe("status strip", () => {
     expect(teamHealthSummary(teamHealthCounts(["idle", "idle", "healthy"]))).toEqual({ tone: "good", text: "Nobody needs you", detail: "1 working · 2 idle" });
     expect(teamHealthSummary(teamHealthCounts(["healthy", "healthy"]))).toEqual({ tone: "good", text: "Everyone is working" });
     expect(teamHealthSummary(teamHealthCounts(["healthy", "injured"]))).toEqual({ tone: "warn", text: "1 agent needs you" });
+  });
+
+  it("counts the team without its background helpers: a down helper never moves Team health or the cards (Leads first)", () => {
+    const base = { finance, ribbon: ribbon(14), departments, today: TODAY, currency: "EUR", loading: { finance: false, ribbon: false, departments: false, positions: false }, open: () => {}, live: false };
+    const before = statusTiles(base)[4]!;
+    const helper = (id: string, extra: Record<string, unknown>) => ({ id, name: "Entity linker", role: "Linking utility", status: "injured" as const, modelKey: "haiku", avatarSeed: id, ...extra });
+    const withHelpers = departments.map((d, i) => (i === 0 ? { ...d, squad: [...d.squad, helper("h-layer", { layer: "utility" }), helper("h-tier", { tier: "background" })] } : d));
+    expect(squadHealth(withHelpers)).toBe(squadHealth(departments));
+    expect(statusTiles({ ...base, departments: withHelpers })[4]).toMatchObject({ value: before.value, caption: before.caption });
+    // The card's team strip leaves them out too, whatever their status.
+    const card = toSquad(withHelpers[0]!, { "h-layer": "failing" }, []);
+    expect(card.map((m) => m.id)).toEqual(departments[0]!.squad.map((a) => a.id));
   });
 
   it("speaks plain words: a board kind is never a stored key, a missing runway says why", () => {

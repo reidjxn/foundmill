@@ -1,7 +1,7 @@
 "use client";
 import type { ReactNode } from "react";
 import { ArrowRight, CircleCheck, CircleX, Clock, Inbox, MessageSquareReply, Moon, RefreshCw, TriangleAlert } from "lucide-react";
-import type { EntityKind } from "@foundmill/shared";
+import { isBackgroundAgent, type EntityKind } from "@foundmill/shared";
 import { cn } from "../../lib/cn";
 import { useAgentPersona } from "../foundation/AgentPersona";
 import { Avatar } from "../foundation/Avatar";
@@ -87,12 +87,14 @@ export function DepartmentCard({ department: d, onOpen, onOpenAgent, onOpenEntit
   const health = HEALTH[d.health];
   const persona = useAgentPersona();
   // The lead is found in the team strip by its id (two agents can share a stored name); by name only when the data has no id.
-  const leadMember = d.lead.id ? d.squad.find((m) => m.id === d.lead.id) : d.squad.find((m) => m.name === d.lead.name);
+  // Background helpers (the utility templates) never join the team strip or its count (Leads first, 2026-11-08).
+  const members = d.squad.filter((m) => !isBackgroundAgent(m));
+  const leadMember = d.lead.id ? members.find((m) => m.id === d.lead.id) : members.find((m) => m.name === d.lead.name);
   const lead = { name: d.lead.name, role: d.lead.role ?? leadMember?.role, personaKey: d.lead.personaKey ?? leadMember?.personaKey, layer: d.lead.layer ?? leadMember?.layer };
   const leadId = d.lead.id ?? leadMember?.id ?? d.lead.name;
-  const squad = d.squad.slice(0, maxSquad);
-  const extra = d.squad.length - squad.length;
-  const stripWords = teamStripWords(d.squad);
+  const squad = members.slice(0, maxSquad);
+  const extra = members.length - squad.length;
+  const stripWords = teamStripWords(members);
   // The leading count stands out ("3 of 4 working", "4 agents, all healthy"); the rest of the words stay secondary.
   const stripParts = /^(\d+)(.*)$/.exec(stripWords);
   const quiet = d.now.length === 0 && !d.nowLoading;

@@ -4,6 +4,7 @@ import { useId, useState } from "react";
 import { ExternalLink, FolderGit2, Settings2, Square, Trash2, UserRoundCog } from "lucide-react";
 import { Button, Checkbox, Chip, ConsequenceLine, useAgentPersona, Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, Field, Input, KeyValueList, SimpleSelect, Skeleton, Term, Textarea } from "@foundmill/dugout";
 import { useWidgetQuery } from "@foundmill/widgets/data";
+import { isBackgroundAgent } from "@foundmill/shared/team-tiers";
 import { InlineError, errorMessage } from "./shared";
 import type { AgentRow, OpenInClaudeCodeResponse } from "./types";
 
@@ -24,7 +25,8 @@ export function ReassignDialog({ open, onOpenChange, taskTitle, currentAgentId, 
   const [agentId, setAgentId] = useState<string>("");
   // "Malik (Head of Engineering)" with anthropomorphic agents on (the role is in the label), else "Name · Role".
   const persona = useAgentPersona();
-  const options = agents.filter((a) => a.id !== currentAgentId).map((a) => ({ value: a.id, label: persona.hasPersona(a) ? persona.labelFor(a) : a.role ? `${a.name} · ${a.role}` : a.name }));
+  // Background helpers never take tasks (Leads first), so they are not offered.
+  const options = agents.filter((a) => a.id !== currentAgentId && !isBackgroundAgent(a)).map((a) => ({ value: a.id, label: persona.hasPersona(a) ? persona.labelFor(a) : a.role ? `${a.name} · ${a.role}` : a.name }));
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent size="sm" aria-describedby={`${id}-desc`}>

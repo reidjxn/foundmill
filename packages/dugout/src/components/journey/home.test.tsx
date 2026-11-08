@@ -96,8 +96,19 @@ describe("DepartmentCard", () => {
     expect(onOpenAgent).toHaveBeenCalledWith("the-lead");
     expect(screen.getByRole("button", { name: /^Mei, Paid ads/ })).toBeTruthy();
     expect(screen.getByRole("button", { name: /^Malik, Distribution lead/ })).toBeTruthy();
-    // A background helper keeps its role name, even with the preference on.
-    expect(screen.getByRole("button", { name: /^Classifier, Classification utility/ })).toBeTruthy();
+    // A background helper is not in the team strip at all (Leads first).
+    expect(screen.queryByRole("button", { name: /Classifier/ })).toBeNull();
+  });
+
+  it("leaves background helpers out of the team strip and its count, by layer or by tier", () => {
+    const base = cards[0]!;
+    const helper = (id: string, extra: Record<string, unknown>) => ({ ...base.squad[0]!, id, name: "Entity linker", role: "Linking utility", task: null, status: "injured" as const, ...extra });
+    const department = { ...base, squad: [...base.squad, helper("h1", { layer: "utility" }), helper("h2", { tier: "background" as const })] };
+    const { container } = render(<DepartmentCard department={department} />);
+    expect(container.querySelectorAll("[data-squad-member]").length).toBe(base.squad.length);
+    // A down helper never reads as "down" on the founder's card.
+    expect(container.querySelector("[data-team-strip-words]")?.textContent).toBe("3 of 4 working");
+    expect(screen.queryByText(/Entity linker/)).toBeNull();
   });
 });
 

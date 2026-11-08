@@ -143,6 +143,8 @@ describe("ResponsibilitiesScreen", () => {
     const dialog = await screen.findByTestId("delegate-dialog");
     await user.click(within(dialog).getByRole("radio", { name: /An agent/ }));
     await user.click(within(dialog).getByRole("combobox", { name: "Agent" }));
+    // Background helpers are never offered (Leads first).
+    expect(screen.queryByRole("option", { name: /Linker/ })).toBeNull();
     await user.click(await screen.findByRole("option", { name: "Pike · Engineering lead" }));
     await user.click(within(dialog).getByRole("combobox", { name: "Where" }));
     await user.click(await screen.findByRole("option", { name: "Only Distribution" }));

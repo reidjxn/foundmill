@@ -145,7 +145,7 @@ export interface AgentDailyActivity {
 }
 
 /** What department.list shows of an agent: the lead and the team strip. */
-export type AgentRosterRow = Pick<Agent, "id" | "name" | "role" | "status" | "modelKey" | "avatarSeed" | "departmentIds" | "personaKey" | "layer">;
+export type AgentRosterRow = Pick<Agent, "id" | "name" | "role" | "status" | "modelKey" | "avatarSeed" | "departmentIds" | "personaKey" | "layer" | "agentType">;
 
 const scoped = (businessId: string, agentId: string) => and(eq(agents.businessId, businessId), eq(agents.id, agentId));
 
@@ -248,7 +248,7 @@ export const agentsRepo = {
     const limit = Math.min(Math.max(Math.trunc(options.limit ?? 500), 1), 1000);
     const ks = timeKeyset<Agent>(agents.createdAt, agents.id, (r) => ({ at: r.createdAt, id: r.id }), "asc");
     return db
-      .select({ id: agents.id, name: agents.name, role: agents.role, status: agents.status, modelKey: agents.modelKey, avatarSeed: agents.avatarSeed, departmentIds: agents.departmentIds, personaKey: agents.personaKey, layer: agents.layer })
+      .select({ id: agents.id, name: agents.name, role: agents.role, status: agents.status, modelKey: agents.modelKey, avatarSeed: agents.avatarSeed, departmentIds: agents.departmentIds, personaKey: agents.personaKey, layer: agents.layer, agentType: agents.agentType })
       .from(agents)
       .where(and(eq(agents.businessId, businessId), isNull(agents.archivedAt)))
       .orderBy(...ks.orderBy)

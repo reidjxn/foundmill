@@ -138,6 +138,29 @@ describe("team.agents (W19)", () => {
     expect(empty.rating20).toBeNull();
     expect(empty.rating).toBeNull();
   });
+
+  it("team.agents.list and department.list carry each agent's tier; the catalog leaves the utility family out unless asked (Leads first)", async () => {
+    const { businessId, ownerId, agentId } = hz.A;
+    const owner = hz.caller({ userId: ownerId });
+    const dept = await repos.departments.create(hz.db, businessId, { name: "Tiers", slug: "tiers", moduleKeys: ["development"] });
+    // A worker that leads a department is a lead; the Planner takes tasks, so it is a specialist; a utility is a background helper.
+    const lead = await repos.agents.create(hz.db, businessId, { name: "Tier lead", agentType: "growth_marketer", layer: "worker", departmentIds: [dept.id] });
+    await repos.departments.setLead(hz.db, businessId, dept.id, lead.id);
+    const planner = await repos.agents.create(hz.db, businessId, { name: "Planner", agentType: "planner", layer: "worker", departmentIds: [dept.id], lineManagerId: lead.id });
+    const helper = await repos.agents.create(hz.db, businessId, { name: "Entity linker", agentType: "entity_linker", layer: "utility", departmentIds: [dept.id] });
+    const { agents } = await owner.team.agents.list({ businessId });
+    const tier = (id: string) => agents.find((a) => a.id === id)?.tier;
+    expect([tier(agentId), tier(lead.id), tier(planner.id), tier(helper.id)]).toEqual(["chief", "lead", "specialist", "background"]);
+    const departments = await owner.department.list({ businessId });
+    const tiers = departments.find((d) => d.id === dept.id)!;
+    expect(tiers.lead).toMatchObject({ id: lead.id, tier: "lead" });
+    expect(Object.fromEntries(tiers.squad.map((m) => [m.name, m.tier]))).toEqual({ "Tier lead": "lead", Planner: "specialist", "Entity linker": "background" });
+    const catalogue = await owner.team.agents.catalogue({ businessId });
+    expect(catalogue.some((t) => t.family === "utility")).toBe(false);
+    expect(catalogue.some((t) => t.key === "planner")).toBe(true);
+    const utilities = await owner.team.agents.catalogue({ businessId, family: "utility" });
+    expect(utilities.map((t) => t.key).sort()).toEqual(["categoriser", "classifier", "entity_linker", "moderation", "triage"]);
+  });
 });
 
 describe("team.humans and team.responsibilities (W19)", () => {

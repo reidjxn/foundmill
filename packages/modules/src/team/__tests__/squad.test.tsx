@@ -4,10 +4,11 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 import { GuidanceProvider, SQUAD_VIEWS } from "@foundmill/dugout";
 import { termsWithGlossary } from "@foundmill/shared/terms";
-import { SIMPLE_VIEW_ID, SquadScreen, TEAM_SQUAD_VIEWS, squadSummary } from "../SquadScreen";
+import { SIMPLE_VIEW_ID, SquadScreen, TEAM_SQUAD_VIEWS, specialistsLabel, squadSummary, squadTreeRows } from "../SquadScreen";
 import { toModelOptions, describeModelSet } from "../ModelChangeDialog";
 import { toSquadRow, toolKeys, skillRating } from "../shared";
-import { BID, AGENT_JUNO, AGENT_MARA, DEPT_TEAM, agents, compareJuno, dataResponses, emptyResponses } from "./fixtures";
+import { teamTree } from "@foundmill/shared/team-tiers";
+import { BID, AGENT_COS, AGENT_JUNO, AGENT_LINK, AGENT_MARA, AGENT_PIKE, DEPT_TEAM, agents, compareJuno, dataResponses, departments, emptyResponses } from "./fixtures";
 import { createFakeSource, renderScreen } from "./fake-source";
 
 const props = { businessId: BID, departmentId: DEPT_TEAM };
@@ -40,7 +41,20 @@ describe("team rows", () => {
     // General carries Wage (DESIGN §9 Team); the latest update lives in the Health and Performance views.
     expect(TEAM_SQUAD_VIEWS[1]!.columns).toEqual(["name", "role", "departments", "status", "currentTask", "form", "rating", "model", "wage"]);
     expect(TEAM_SQUAD_VIEWS.slice(2)).toEqual(SQUAD_VIEWS.slice(1));
-    expect(squadSummary(agents)).toBe("5 agents · 2 healthy · 1 degraded · 1 down · 1 idle");
+    // Leads first: the Chief of Staff named, leads and specialists counted, the background helper left out.
+    expect(squadSummary(agents, departments)).toBe("Chief of Staff · 1 lead · 2 specialists · 2 need you");
+  });
+
+  it("nests each specialist under its lead, the Chief of Staff first, and says who each reports to (Leads first)", () => {
+    const tree = teamTree(agents, departments);
+    const rows = squadTreeRows(tree, "EUR", (a) => a.name);
+    expect(rows.map((r) => [r.id, r.tier, r.reportsTo, (r.reports ?? []).map((c) => [c.id, c.tier, c.reportsTo])])).toEqual([
+      [AGENT_COS, "chief", "You", [[AGENT_MARA, "specialist", "Orla"]]],
+      [AGENT_PIKE, "lead", "Orla", [[AGENT_JUNO, "specialist", "Pike"]]],
+    ]);
+    expect(tree.background.map((a) => a.id)).toEqual([AGENT_LINK]);
+    expect(specialistsLabel(1)).toBe("+1 specialist");
+    expect(specialistsLabel(3)).toBe("+3 specialists");
   });
 
   it("builds model options relative to the current model and describes a set result", () => {
@@ -62,6 +76,11 @@ const headersOf = (table: HTMLElement) => within(table).getAllByRole("columnhead
 /** The grid row that holds an agent's name link. */
 const rowOf = (table: HTMLElement, name: string) => within(table).getByRole("link", { name }).closest("[role='row']") as HTMLElement;
 
+/** Opens every lead's specialists (they start collapsed). */
+const openAll = (table: HTMLElement) => {
+  for (const b of within(table).queryAllByRole("button", { name: /^Show \d+ specialists? under / })) fireEvent.click(b);
+};
+
 /** The definitions map the app hands the provider (the dotted words need an entry to render as Terms). */
 const TERMS = termsWithGlossary(null);
 
@@ -73,15 +92,19 @@ describe("SquadScreen", () => {
     const fake = createFakeSource({ businessId: BID, responses: dataResponses });
     // Guidance off: the operator's General view opens, with no explainer and no defined words under the table.
     renderScreen(fake, operator(<SquadScreen {...props} />));
-    const table = await screen.findByRole("grid", { name: "Agents" });
-    expect(within(table).getAllByRole("row")).toHaveLength(agents.length + 1);
+    const table = await screen.findByRole("treegrid", { name: "Agents" });
+    // Leads first: the Chief of Staff and the lead, collapsed; their specialists open under them; never the helper.
+    expect(within(table).getAllByRole("row")).toHaveLength(3);
+    expect(within(table).getByRole("button", { name: "Show 1 specialist under Pike" }).textContent).toBe("+1 specialist");
+    openAll(table);
+    expect(within(table).getAllByRole("row")).toHaveLength(agents.length);
+    expect(within(table).queryByRole("link", { name: "Linker" })).toBeNull();
     // The General view hides Tools and the latest update (reachable from the column chooser and the other views).
     expect(headersOf(table)).toEqual(["Agent", "Role", "Departments", "Status", "Current task", "Form", "Rating /20", "Model", "AI cost (USD)"]);
     // The rating is the 1–20 mean with its band word (a compact ScaleLabel); an agent with no skills yet is not rated.
     expect(within(table).getByLabelText("Rating 13.0 of 20, Good")).toBeTruthy();
     expect(within(table).getByLabelText("Rating 13.0 of 20, Good").querySelector("[data-scale-label]")?.textContent).toBe("Good");
     expect(within(table).getAllByLabelText("Rating 17.0 of 20, Excellent")).toHaveLength(2);
-    expect(within(table).getByLabelText("Not rated yet")).toBeTruthy();
     expect(screen.queryByTestId("form-caption")).toBeNull();
     expect(screen.queryByTestId("column-terms")).toBeNull();
     expect(document.querySelector("[data-explainer='team-agents']")).toBeNull();
@@ -90,7 +113,17 @@ describe("SquadScreen", () => {
     expect(within(table).getByText(/expected back in 2 hr/)).toBeTruthy();
     expect(within(table).queryByText("Injured")).toBeNull();
     expect(within(table).getByRole("link", { name: "Add a bundle picker to the product page" })).toBeTruthy();
-    expect(screen.getByTestId("squad-summary").textContent).toBe("5 agents · 2 healthy · 1 degraded · 1 down · 1 idle");
+    expect(screen.getByTestId("squad-summary").textContent).toBe("Chief of Staff · 1 lead · 2 specialists · 2 need you");
+    // The helper is reachable through one honest line and its read-only list.
+    expect(screen.getByTestId("background-helpers-line").textContent).toContain("1 background helper also runs, linking names, sorting what comes in and checking drafts. They never take tasks or write to you.");
+    fireEvent.click(screen.getByTestId("background-helpers-show"));
+    const helpers = await screen.findByTestId("background-helpers-dialog");
+    const item = helpers.querySelector(`[data-agent-id="${AGENT_LINK}"]`) as HTMLElement;
+    expect(item.textContent).toContain("Linker");
+    expect(within(item).getByText("Idle")).toBeTruthy();
+    fireEvent.click(within(helpers).getByRole("button", { name: "Open Linker's profile" }));
+    expect(fake.navigations.at(-1)).toBe(`/b/${BID}/agents/${AGENT_LINK}/overview`);
+    fake.navigations.length = 0;
     expect(screen.getByText("General")).toBeTruthy();
     expect(fake.queried.get("team.agents.list")).toEqual({ includeArchived: false });
     fireEvent.click(within(table).getByRole("link", { name: "Juno" }));
@@ -106,7 +139,7 @@ describe("SquadScreen", () => {
         <SquadScreen {...props} />
       </GuidanceProvider>,
     );
-    const table = await screen.findByRole("grid", { name: "Agents" });
+    const table = await screen.findByRole("treegrid", { name: "Agents" });
     expect(headersOf(table)).toEqual(["Agent", "Status", "Current task", "Rating /20"]);
     expect(screen.getByRole("button", { name: "View: Simple" })).toBeTruthy();
     // The intro sits inside the panel body, above the table, and names what the tab is for.
@@ -122,14 +155,16 @@ describe("SquadScreen", () => {
     expect(screen.getByTestId("column-terms").querySelector("[data-term='model']")).not.toBeNull();
     expect(document.querySelector("[data-term='wage']")).not.toBeNull();
     // Rows, cells and the live status work the same in both states.
-    expect(within(table).getAllByRole("row")).toHaveLength(agents.length + 1);
+    openAll(table);
+    expect(within(table).getAllByRole("row")).toHaveLength(agents.length);
     expect(within(table).getByLabelText("Rating 13.0 of 20, Good")).toBeTruthy();
   });
 
   it("flips a row's status the moment agent.health_changed arrives and refetches once (AC-11.9.1)", async () => {
     const fake = createFakeSource({ businessId: BID, responses: dataResponses });
     renderScreen(fake, <SquadScreen {...props} />);
-    const table = await screen.findByRole("grid", { name: "Agents" });
+    const table = await screen.findByRole("treegrid", { name: "Agents" });
+    openAll(table);
     expect(within(table).getAllByText("Healthy")).toHaveLength(2);
     const before = Date.now();
     act(() => {
@@ -138,7 +173,7 @@ describe("SquadScreen", () => {
     expect(within(table).getAllByText("Healthy")).toHaveLength(1);
     expect(within(table).getByText("Failing")).toBeTruthy();
     expect(Date.now() - before).toBeLessThan(2000);
-    expect(screen.getByTestId("squad-summary").textContent).toContain("1 failing");
+    expect(screen.getByTestId("squad-summary").textContent).toContain("3 need you");
     await waitFor(() => expect(fake.refetches["team.agents.list"]).toBe(1));
     // The override is dropped once the server copy agrees.
     act(() => {
@@ -153,7 +188,8 @@ describe("SquadScreen", () => {
     const fake = createFakeSource({ businessId: BID, responses: dataResponses, onMutate: (path) => (path === "agent.model.set" ? { updated: [AGENT_JUNO, "x"], skipped: [], warnings: [], retests: [{ runId: "r1" }, { runId: "r2" }] } : {}) });
     // The Model column is in the General view (Simple keeps four columns), so the operator's state.
     renderScreen(fake, operator(<SquadScreen {...props} />));
-    const table = await screen.findByRole("grid", { name: "Agents" });
+    const table = await screen.findByRole("treegrid", { name: "Agents" });
+    openAll(table);
     const junoRow = within(table).getByRole("link", { name: "Juno" }).closest("[role='row']") as HTMLElement;
     await user.click(within(junoRow).getByRole("button", { name: "Sonnet" }));
     const dialog = await screen.findByTestId("model-dialog");
@@ -173,7 +209,8 @@ describe("SquadScreen", () => {
     const user = userEvent.setup();
     const fake = createFakeSource({ businessId: BID, currency: "GBP", responses: { ...dataResponses, "agent.model.compare": { ...compareJuno, currency: "USD" } } });
     renderScreen(fake, operator(<SquadScreen {...props} />));
-    const table = await screen.findByRole("grid", { name: "Agents" });
+    const table = await screen.findByRole("treegrid", { name: "Agents" });
+    openAll(table);
     const junoRow = within(table).getByRole("link", { name: "Juno" }).closest("[role='row']") as HTMLElement;
     await user.click(within(junoRow).getByRole("button", { name: "Sonnet" }));
     const dialog = await screen.findByTestId("model-dialog");
@@ -187,7 +224,8 @@ describe("SquadScreen", () => {
     const user = userEvent.setup();
     const fake = createFakeSource({ businessId: BID, responses: dataResponses, onMutate: () => ({ id: "new", name: "Juno II" }) });
     renderScreen(fake, <SquadScreen {...props} />);
-    const table = await screen.findByRole("grid", { name: "Agents" });
+    const table = await screen.findByRole("treegrid", { name: "Agents" });
+    openAll(table);
     // The Simple view (guidance on) keeps the Agent column, so rows are found by name; the row itself is right-clicked
     // (the name link has the entity's own menu).
     fireEvent.contextMenu(rowOf(table, "Orla"));
@@ -217,7 +255,8 @@ describe("SquadScreen", () => {
       },
     });
     renderScreen(fake, <SquadScreen {...props} />);
-    const table = await screen.findByRole("grid", { name: "Agents" });
+    const table = await screen.findByRole("treegrid", { name: "Agents" });
+    openAll(table);
     fireEvent.contextMenu(rowOf(table, "Mara"));
     await user.click(await screen.findByRole("menuitem", { name: "Lend to another department…" }));
     const loan = await screen.findByTestId("loan-dialog");

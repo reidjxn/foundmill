@@ -10,7 +10,7 @@
 import { useMemo, useState } from "react";
 import { z } from "zod";
 import { LayoutGrid } from "lucide-react";
-import type { AgentStatus, EntityKind, ModuleKey } from "@foundmill/shared";
+import { isBackgroundAgent, type AgentStatus, type EntityKind, type ModuleKey } from "@foundmill/shared";
 import { MODULE_KEYS } from "@foundmill/shared/constants";
 import { DepartmentCard, formatDate, formatMoney, formatNumber, useDateFormat, useWidgetInstanceLabel, type DateFormatPrefs, type DepartmentCardData, type DepartmentMetric, type DepartmentQuietLine, type HealthTone, type SquadMember } from "@foundmill/dugout";
 import { useBusinessEvents, useGlossary, useToday, useWidgetData, useWidgetQuery, type QueryState } from "../data";
@@ -303,13 +303,15 @@ function metricFigure(i: MetricInputs): DepartmentMetric {
   }
 }
 
+/** The card's team: the department's agents without the background helpers (Leads first, 2026-11-08). */
 export function toSquad(dept: DepartmentRow, overrides: Record<string, AgentStatus>, tasks: readonly TaskRow[]): SquadMember[] {
-  return dept.squad.map((a) => ({
+  return dept.squad.filter((a) => !isBackgroundAgent(a)).map((a) => ({
     id: a.id,
     name: a.name,
     seed: a.avatarSeed || a.id,
     personaKey: a.personaKey ?? null,
     layer: a.layer ?? null,
+    tier: a.tier ?? null,
     status: overrides[a.id] ?? a.status,
     role: a.role,
     model: String(a.modelKey),
@@ -373,7 +375,7 @@ function DepartmentCardWidget({ settings }: WidgetProps<DepartmentCardSettings>)
     const metric = headlineMetric({ key: metricKey, rows, days: lastDays(14, today), squad: toSquad(dept, overrides, taskItems), roadmap: roadmap.data, channels: channels.data, finance: finance.data, compliance: compliance.data, currency, today, error: metricError });
     const squad = toSquad(dept, overrides, taskItems);
     const { health, word } = departmentHealth(squad, tasksFailed ? null : taskItems, done.data ? { doneLast7Days: doneLast7Days(done.data.items, dept.id, today) } : null);
-    const leadRow = dept.lead ?? dept.squad.find((a) => a.id === dept.leadAgentId) ?? dept.squad[0] ?? null;
+    const leadRow = dept.lead ?? dept.squad.find((a) => a.id === dept.leadAgentId) ?? dept.squad.find((a) => !isBackgroundAgent(a)) ?? null;
     const next = taskItems.find((t) => (NEXT_TASK_STATUSES as readonly string[]).includes(t.status));
     const now = nowLines(taskItems, squad);
     const agentIds = new Set([...dept.squad.map((a) => a.id), ...(leadRow ? [leadRow.id] : [])]);

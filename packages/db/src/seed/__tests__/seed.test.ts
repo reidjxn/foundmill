@@ -3,7 +3,7 @@
  * two years of journey_daily rows, inbox items of every type with valid entity links, LIVE extras for Ledgerly,
  * RLS (the demo owner sees both businesses, a stranger none) and idempotent, deterministic re-runs.
  */
-import { CHANNEL_KEYS, INBOX_ITEM_TYPES, VestingSchedule, pickPersonaKeys, readVesting } from "@foundmill/shared";
+import { CHANNEL_KEYS, INBOX_ITEM_TYPES, VestingSchedule, pickPersonaKeys, readVesting, teamTree } from "@foundmill/shared";
 import { projectForecast, type ForecastDrivers } from "@foundmill/shared/forecast";
 import { eq, sql } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -100,6 +100,26 @@ describe("seedDemo on PGlite", () => {
     }
     const statuses = await repos.agents.countByStatus(db, LEDGERLY_BUSINESS_ID);
     expect(statuses.injured).toBe(1);
+  });
+
+  it("reads Leads first from what is stored: the Chief of Staff, the leads, their specialists and the five background helpers", async () => {
+    const expected: Record<string, Record<"chief" | "lead" | "specialist" | "background", number>> = {
+      [NORTHWIND_BUSINESS_ID]: { chief: 1, lead: 6, specialist: 23, background: 5 },
+      [LEDGERLY_BUSINESS_ID]: { chief: 1, lead: 5, specialist: 18, background: 5 },
+    };
+    for (const businessId of [NORTHWIND_BUSINESS_ID, LEDGERLY_BUSINESS_ID]) {
+      const [agents, departments] = await Promise.all([repos.agents.list(db, businessId, { limit: 500 }), repos.departments.list(db, businessId)]);
+      const tree = teamTree(agents.items, departments);
+      expect(tree.counts, businessId).toEqual(expected[businessId]);
+      // The Planner takes tasks: a specialist under the Engineering Lead, never a background helper.
+      const planner = agents.items.find((a) => a.agentType === "planner")!;
+      expect(tree.tierOf.get(planner.id)).toBe("specialist");
+      expect(tree.background.map((a) => a.agentType).sort()).toEqual(["categoriser", "classifier", "entity_linker", "moderation", "triage"]);
+      // The Chief of Staff first, then one group per lead; every specialist sits under one of them.
+      expect(tree.groups[0]!.tier).toBe("chief");
+      expect(tree.groups.filter((g) => g.tier === "lead")).toHaveLength(expected[businessId]!.lead);
+      expect(tree.groups.reduce((n, g) => n + g.specialists.length, 0)).toBe(expected[businessId]!.specialist);
+    }
   });
 
   it("writes two years of journey data: >= 700 journey_daily rows per business, journeys with weights, xC and commentary, milestones", async () => {

@@ -15,6 +15,7 @@ import { useWidgetData, useWidgetQuery } from "@foundmill/widgets/data";
 import type { DepartmentRow } from "@foundmill/widgets/shared/types";
 import { useSavedViews } from "@foundmill/widgets/shared/saved-views";
 import type { ModuleKey } from "@foundmill/shared/constants";
+import { founderVisible } from "@foundmill/shared/team-tiers";
 import { useModuleEnv } from "../env";
 import { fitColumns, fitToGrow, humanise, plural, type ColumnFit } from "../fit";
 import type { ModuleScreenProps } from "../registry";
@@ -37,7 +38,6 @@ export const CATALOGUE_VIEWS: SavedView[] = [
   { id: "workers", name: "Workers", builtIn: true, columns: ["name", "module", "model", "skills", "wage", "hired"], sort: [], filters: [{ id: "f-worker", field: "family", op: "eq", value: "worker" }] },
   { id: "channels", name: "Channel engines", builtIn: true, columns: ["name", "model", "skills", "wage", "hired"], sort: [], filters: [{ id: "f-channel", field: "family", op: "eq", value: "channel" }] },
   { id: "specialists", name: "Specialists", builtIn: true, columns: ["name", "model", "skills", "wage", "hired"], sort: [], filters: [{ id: "f-spec", field: "family", op: "eq", value: "specialist" }] },
-  { id: "utilities", name: "Utilities", builtIn: true, columns: ["name", "model", "wage", "hired"], sort: [], filters: [{ id: "f-util", field: "family", op: "eq", value: "utility" }] },
 ];
 
 export const MOVES_VIEWS: SavedView[] = [
@@ -104,10 +104,15 @@ export const TEAM_RECRUITMENT_EXPLAINER = {
   ),
 } as const;
 
+/**
+ * The catalog's rows, by kind then name, each with how many of the team were hired from it. The utility templates are
+ * background helpers every business already runs (Leads first, 2026-11-08): never offered for hire here.
+ */
 export function toCatalogueRows(catalogue: readonly TemplateRow[] | undefined, agents: readonly AgentRow[] | undefined): CatalogueRow[] {
   const hiredBy = new Map<string, number>();
   for (const a of agents ?? []) if (a.agentType && !a.archivedAt) hiredBy.set(a.agentType, (hiredBy.get(a.agentType) ?? 0) + 1);
   return (catalogue ?? [])
+    .filter((t) => t.family !== "utility")
     .map((t) => ({ ...t, id: t.key, familyLabel: FAMILY_LABELS[t.family], hired: hiredBy.get(t.key) ?? 0 }))
     .sort((a, b) => FAMILY_ORDER[a.family] - FAMILY_ORDER[b.family] || a.name.localeCompare(b.name));
 }
@@ -120,7 +125,8 @@ export function RecruitmentScreen({ businessId, departmentId }: ModuleScreenProp
   const agentsQuery = useAgents();
   const departments = useDepartments();
   const rows = useMemo(() => toCatalogueRows(catalogue.data, agentsQuery.data?.agents), [catalogue.data, agentsQuery.data]);
-  const team = useMemo(() => (agentsQuery.data?.agents ?? []).filter((a) => !a.archivedAt), [agentsQuery.data]);
+  // The founder's team: background helpers are not moved, lent or let go from here.
+  const team = useMemo(() => founderVisible((agentsQuery.data?.agents ?? []).filter((a) => !a.archivedAt)), [agentsQuery.data]);
   // Saved per person, business and table (audit #204): they come back after a reload.
   const defaultViewId = useDefaultViewId("all");
   const catalogueSavedViews = useSavedViews("team.recruitment.catalog", CATALOGUE_VIEWS, { defaultViewId });
@@ -132,7 +138,7 @@ export function RecruitmentScreen({ businessId, departmentId }: ModuleScreenProp
   const [loan, setLoan] = useState<AgentRow | null>(null);
   const [sentence, setSentence] = useState("");
   const [notice, setNotice] = useState<string | null>(null);
-  const suggestions = useMemo(() => suggestTemplates(sentence, catalogue.data ?? []), [sentence, catalogue.data]);
+  const suggestions = useMemo(() => suggestTemplates(sentence, (catalogue.data ?? []).filter((t) => t.family !== "utility")), [sentence, catalogue.data]);
   const best = suggestions[0]?.template ?? null;
   const open = (agentId: string) => navigate(agentHref(businessId, agentId));
   const refetch = () => agentsQuery.refetch();
@@ -157,7 +163,7 @@ export function RecruitmentScreen({ businessId, departmentId }: ModuleScreenProp
         ),
       },
       // "Kind" to the founder (C10); the column id and the enum keep `family`.
-      { id: "family", accessorKey: "family", header: "Kind", size: catalogueSizes.family, cell: ({ row }) => <Chip>{row.original.familyLabel}</Chip>, meta: { filter: "select", filterOptions: (Object.keys(FAMILY_LABELS) as TemplateRow["family"][]).map((f) => ({ value: f, label: FAMILY_LABELS[f] })) }, sortingFn: (a, b) => FAMILY_ORDER[a.original.family] - FAMILY_ORDER[b.original.family] },
+      { id: "family", accessorKey: "family", header: "Kind", size: catalogueSizes.family, cell: ({ row }) => <Chip>{row.original.familyLabel}</Chip>, meta: { filter: "select", filterOptions: (Object.keys(FAMILY_LABELS) as TemplateRow["family"][]).filter((f) => f !== "utility").map((f) => ({ value: f, label: FAMILY_LABELS[f] })) }, sortingFn: (a, b) => FAMILY_ORDER[a.original.family] - FAMILY_ORDER[b.original.family] },
       { id: "module", accessorFn: (r) => moduleLabel(r, departments.data, agentsQuery.data?.agents), header: "Department", size: catalogueSizes.module, meta: { label: "Department" }, cell: ({ row }) => <span className={row.original.module ? "text-primary" : "text-secondary"}>{moduleLabel(row.original, departments.data, agentsQuery.data?.agents)}</span> },
       { id: "model", accessorKey: "modelKey", header: "Model", size: catalogueSizes.model, cell: ({ row }) => <ModelChip model={row.original.modelKey} />, meta: { term: "model" } },
       {

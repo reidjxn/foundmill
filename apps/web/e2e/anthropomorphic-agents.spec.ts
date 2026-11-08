@@ -146,7 +146,7 @@ test.describe("anthropomorphic agents", () => {
     await page.goto(`${base}/squad`);
     await expect(page.getByTestId("module-screen")).toHaveAttribute("data-module", "team/squad", { timeout: LONG });
     // The Agent column shows first names, with the position in the Role column beside it: no brackets in the name.
-    const names = page.getByRole("grid", { name: "Agents" }).locator("[data-entity-kind='agent']");
+    const names = page.getByRole("treegrid", { name: "Agents" }).locator("[data-entity-kind='agent']");
     await expect(names.first()).toBeVisible({ timeout: LONG });
     for (const text of await names.allTextContents()) expect(text).not.toMatch(/\(/);
     // The mock image connector makes a face for each persona; the page asks again every 15 seconds until they are ready.

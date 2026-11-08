@@ -39,6 +39,8 @@ describe("lineManagerOptions (TPD-27)", () => {
     { id: "deep", name: "Ash", role: null, lineManagerId: "report" },
     { id: "gone", name: "Gone", role: null, lineManagerId: null, archivedAt: "2026-10-01T00:00:00Z" },
     { id: "cos", name: "Orla", role: "Chief of Staff", lineManagerId: null },
+    // A background helper manages nobody (Leads first).
+    { id: "helper", name: "Entity linker", role: "Linking utility", lineManagerId: null, layer: "utility" },
   ];
   it("offers live agents that do not report to this one, by name", () => {
     expect(lineManagerOptions("me", agents)).toEqual([
