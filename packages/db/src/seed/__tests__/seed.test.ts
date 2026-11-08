@@ -3,7 +3,7 @@
  * two years of journey_daily rows, inbox items of every type with valid entity links, LIVE extras for Ledgerly,
  * RLS (the demo owner sees both businesses, a stranger none) and idempotent, deterministic re-runs.
  */
-import { CHANNEL_KEYS, INBOX_ITEM_TYPES, VestingSchedule, pickPersonaKeys, readVesting } from "@foundmill/shared";
+import { CHANNEL_KEYS, INBOX_ITEM_TYPES, VestingSchedule, pickPersonaKeys, readVesting, teamTree } from "@foundmill/shared";
 import { projectForecast, type ForecastDrivers } from "@foundmill/shared/forecast";
 import { eq, sql } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -102,6 +102,26 @@ describe("seedDemo on PGlite", () => {
     expect(statuses.injured).toBe(1);
   });
 
+  it("reads Leads first from what is stored: the Chief of Staff, the leads, their specialists and the five background helpers", async () => {
+    const expected: Record<string, Record<"chief" | "lead" | "specialist" | "background", number>> = {
+      [NORTHWIND_BUSINESS_ID]: { chief: 1, lead: 6, specialist: 23, background: 5 },
+      [LEDGERLY_BUSINESS_ID]: { chief: 1, lead: 5, specialist: 18, background: 5 },
+    };
+    for (const businessId of [NORTHWIND_BUSINESS_ID, LEDGERLY_BUSINESS_ID]) {
+      const [agents, departments] = await Promise.all([repos.agents.list(db, businessId, { limit: 500 }), repos.departments.list(db, businessId)]);
+      const tree = teamTree(agents.items, departments);
+      expect(tree.counts, businessId).toEqual(expected[businessId]);
+      // The Planner takes tasks: a specialist under the Engineering Lead, never a background helper.
+      const planner = agents.items.find((a) => a.agentType === "planner")!;
+      expect(tree.tierOf.get(planner.id)).toBe("specialist");
+      expect(tree.background.map((a) => a.agentType).sort()).toEqual(["categoriser", "classifier", "entity_linker", "moderation", "triage"]);
+      // The Chief of Staff first, then one group per lead; every specialist sits under one of them.
+      expect(tree.groups[0]!.tier).toBe("chief");
+      expect(tree.groups.filter((g) => g.tier === "lead")).toHaveLength(expected[businessId]!.lead);
+      expect(tree.groups.reduce((n, g) => n + g.specialists.length, 0)).toBe(expected[businessId]!.specialist);
+    }
+  });
+
   it("writes two years of journey data: >= 700 journey_daily rows per business, journeys with weights, xC and commentary, milestones", async () => {
     for (const businessId of [NORTHWIND_BUSINESS_ID, LEDGERLY_BUSINESS_ID]) {
       const daily = await repos.journeys.dailyRange(db, businessId, {});
@@ -137,13 +157,17 @@ describe("seedDemo on PGlite", () => {
       const types = new Set(items.map((i) => i.type));
       for (const t of INBOX_ITEM_TYPES) expect(types.has(t), `${businessId} has a ${t} item`).toBe(true);
       const entities = await db.select({ id: s.entities.id, kind: s.entities.kind, displayName: s.entities.displayName, aliases: s.entities.aliases }).from(s.entities).where(eq(s.entities.businessId, businessId));
-      const manifest = buildManifest(entities.map((e): ManifestEntityInput => ({ id: e.id, kind: e.kind, name: e.displayName, aliases: e.aliases })));
+      // Agents are in the manifest by their own id too, as the Composer lists them: a server-written note (an approval)
+      // names its agent as [[ent:<agent id>|<stored name>]] (One name everywhere, Nov 8, 2026).
+      const agentRows = await db.select({ id: s.agents.id, name: s.agents.name }).from(s.agents).where(eq(s.agents.businessId, businessId));
+      const agentIds = new Set(agentRows.map((a) => a.id));
+      const manifest = buildManifest([...entities.map((e): ManifestEntityInput => ({ id: e.id, kind: e.kind, name: e.displayName, aliases: e.aliases })), ...agentRows.map((a): ManifestEntityInput => ({ id: a.id, kind: "agent", name: a.name, aliases: [] }))], { strictKinds: false });
       let mentions = 0;
       for (const item of items) {
         const v = validateMarkup(item.bodyMd, manifest);
         expect(v.valid, `${item.subject}: ${JSON.stringify(v.problems)}`).toBe(true);
         mentions += v.mentionCount;
-        for (const id of v.entityIds) expect(item.entityIds).toContain(id);
+        for (const id of v.entityIds) if (!agentIds.has(id)) expect(item.entityIds).toContain(id);
       }
       expect(mentions).toBeGreaterThan(5);
       const decision = items.find((i) => i.type === "decision" && i.state === "unread")!;

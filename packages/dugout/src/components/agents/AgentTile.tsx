@@ -1,6 +1,7 @@
 "use client";
 import { useState } from "react";
 import { GitCompareArrows, ListChecks, MonitorPlay, SquareTerminal } from "lucide-react";
+import { useAgentPersona } from "../foundation/AgentPersona";
 import { DiffPane } from "./DiffPane";
 import { PlanView } from "./PlanView";
 import { PreviewView } from "./PreviewView";
@@ -61,6 +62,10 @@ export function AgentTile({ session, view: viewProp, defaultView = "terminal", o
     setViewState(v as TileView);
     onViewChange?.(v as TileView);
   };
+  // The activity line names the agent under the reader's preference (its notes carry the stored name).
+  const persona = useAgentPersona();
+  const raw = sessionActivity(session);
+  const activity = raw ? persona.withNames(raw, [session.agent]) : null;
   return (
     <TileFrame session={session} views={AGENT_TILE_VIEWS} view={view} onViewChange={setView} focused={focused} compact={compact} controls={controls} onFocus={onFocus} onOpenTask={onOpenTask} now={now} className={className}>
       {view === "terminal" ? (
@@ -73,7 +78,7 @@ export function AgentTile({ session, view: viewProp, defaultView = "terminal", o
           compact={compact && !focused}
           queued={Boolean(session.queued) && session.status === "running"}
           live={!session.queued && (session.status === "running" || session.status === "review" || session.status === "merging")}
-          activity={sessionActivity(session)}
+          activity={activity}
         />
       ) : null}
       {view === "diff" ? <DiffPane files={session.files} engine={diffEngine} hideFiles={compact && !focused} /> : null}

@@ -51,7 +51,7 @@ export function OverviewTab({ businessId, profile, currency }: TabProps) {
   const autonomy = autonomyFromAgent(agent.autonomy);
   const schedule = (agent.schedule ?? {}) as { cron?: string; triggers?: string[] };
   const money = (minor: number | null) => (minor === null ? "No cap" : formatMoney({ amountMinor: minor, currency }));
-  // The founder's "Spend cap per action" (Settings › Mode) lowers every agent's ask line, as the gateway applies it.
+  // The founder's "Spend cap per action" (Settings › What the team can do) lowers every agent's ask line, as the gateway applies it.
   const businessCapMinor = business.data.business.spendCapMinor;
   const capBinds = businessCapMinor !== null && effectiveApprovalThresholdMinor(autonomy.approvalThresholdMinor, businessCapMinor) === businessCapMinor && businessCapMinor !== autonomy.approvalThresholdMinor;
   const asksAbove = capBinds ? (

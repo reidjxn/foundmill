@@ -26,14 +26,46 @@ export default meta;
 type Story = StoryObj<typeof meta>;
 
 export const BusinessMode: Story = {
+  name: "What the team can do",
   render: () => (
-    <div className="flex flex-wrap items-center gap-2">
-      {BUSINESS_MODES.map((m) => (
-        <ModeChip key={m} mode={m} onClick={() => {}} />
-      ))}
-      <ModeChip mode="automated" holiday />
-      <GameModeChip mode="live" />
-      <GameModeChip mode="personal" />
+    <div className="flex flex-col gap-2">
+      <div className="flex flex-wrap items-center gap-2">
+        {BUSINESS_MODES.map((m) => (
+          <ModeChip key={m} mode={m} spendLineMinor={m === "automated" ? 100_000 : 5_000} currency="GBP" onClick={() => {}} />
+        ))}
+        <ModeChip mode="assisted" spendLineMinor={0} currency="GBP" />
+        <ModeChip mode="assisted" spendLineMinor={null} currency="GBP" />
+        <ModeChip mode="assisted" holiday spendLineMinor={5_000} currency="GBP" />
+        <GameModeChip mode="live" />
+        <GameModeChip mode="personal" />
+      </div>
+      <div className="flex flex-wrap items-center gap-2">
+        <ModeChip mode="assisted" spendLineMinor={5_000} currency="USD" />
+        <ModeChip mode="automated" spendLineMinor={100_000} currency="SEK" />
+        <ModeChip mode="automated" spendLineMinor={null} currency="EUR" />
+      </div>
+    </div>
+  ),
+  parameters: {
+    docs: {
+      description: {
+        story:
+          "The mode chip says the setting in plain words, in the business's currency with its narrow symbol: “Asks before spending over £50”, “Asks before any spending” (line 0), “Asks before spending over each agent's limit” (no line), “Asks before acting”, “Decides alone, asks over £1,000”, and on vacation the vacation's words with what comes back in the tooltip. The tooltip ends with “Change it in Settings › What the team can do.”",
+      },
+    },
+  },
+};
+
+/** The short words the chip keeps once the top bar tightens (KitBarFit `chips-brief`). */
+export const BusinessModeBrief: Story = {
+  name: "What the team can do, short",
+  render: () => (
+    <div className="flex flex-wrap items-center gap-2" data-compact="chips-brief">
+      <ModeChip mode="assisted" spendLineMinor={5_000} currency="GBP" />
+      <ModeChip mode="assisted" spendLineMinor={0} currency="GBP" />
+      <ModeChip mode="augmented" spendLineMinor={5_000} currency="GBP" />
+      <ModeChip mode="automated" spendLineMinor={100_000} currency="GBP" />
+      <ModeChip mode="automated" spendLineMinor={1_000_000} currency="SEK" />
     </div>
   ),
 };

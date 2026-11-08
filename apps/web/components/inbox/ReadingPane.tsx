@@ -249,7 +249,11 @@ function ReadingPaneBody({ data, currency, departments, onArchived }: BodyProps)
   const persona = fromAgent ? agents.get(fromAgent.id) : undefined;
   // Anthropomorphic agents: the sender reads "Bob (Chief of Staff)" (the position is in the label, so no role line beside it).
   const agentPersona = useAgentPersona();
-  const agentSender = fromAgent ? { name: fromAgent.name, role: fromAgent.role || persona?.role, personaKey: fromAgent.personaKey ?? persona?.personaKey } : null;
+  const agentSender = fromAgent ? { name: fromAgent.name, role: fromAgent.role || persona?.role, personaKey: fromAgent.personaKey ?? persona?.personaKey, layer: persona?.layer ?? null } : null;
+  // Plain stored text (the subject, an option's consequence, a toast) names agents by their stored name: shown under the
+  // reader's preference, so the subject says what the sender line says (One name everywhere, Nov 8, 2026).
+  const roster = useMemo(() => [...agents.values()], [agents]);
+  const withNames = useCallback((text: string) => agentPersona.withNames(text, roster), [agentPersona, roster]);
   const senderLabelled = agentSender !== null && agentPersona.hasPersona(agentSender);
   const department = persona ? departments.find((d) => d.id === persona.departmentId) : undefined;
   const dates = headerDates(item, decisions[0]?.decidedAt ?? null);
@@ -296,7 +300,7 @@ function ReadingPaneBody({ data, currency, departments, onArchived }: BodyProps)
   }, [journeyId, router, businessId]);
 
   // --- decision ------------------------------------------------------------------------------------------------------
-  const options = useMemo(() => toDecisionOptions(item.decision, currency), [item.decision, currency]);
+  const options = useMemo(() => toDecisionOptions(item.decision, currency).map((o) => (o.consequence ? { ...o, consequence: withNames(o.consequence) } : o)), [item.decision, currency, withNames]);
   const pastDeadline = decisionPastDeadline(item.decision);
   // An agent's request: the founder's optional reason goes with Approve or Reject. A sign-off (founder, 2026-10-18): the
   // founder's notes go with Approve, and Request changes needs them.
@@ -333,14 +337,14 @@ function ReadingPaneBody({ data, currency, departments, onArchived }: BodyProps)
       void invalidate(["inbox", "plan", "dev", "distribution", "team", "business"]);
       if (res.approval) {
         const a = res.approval;
-        toast({ title: a.outcome === "approved" ? "Approved" : "Rejected", description: `${a.summary}${a.cycle?.started ? " A cycle started." : ""}`, tone: a.outcome === "approved" ? "good" : "info", action: res.followUp ? { label: "Open the note", onClick: () => router.push(routes.inbox(businessId, res.followUp!.id)) } : undefined });
+        toast({ title: a.outcome === "approved" ? "Approved" : "Rejected", description: `${withNames(a.summary)}${a.cycle?.started ? " A cycle started." : ""}`, tone: a.outcome === "approved" ? "good" : "info", action: res.followUp ? { label: "Open the note", onClick: () => router.push(routes.inbox(businessId, res.followUp!.id)) } : undefined });
       } else if (res.requiresConfirmation) setConfirmOpen(true);
       else {
         toast({ title: "Decided", description: res.executed.length ? `${res.executed.length} action${res.executed.length === 1 ? "" : "s"} done, ${res.deferred.length} handed to the team.` : res.plan.summaryMd.slice(0, 140), tone: "good", action: res.followUp ? { label: "Open the update", onClick: () => router.push(routes.inbox(businessId, res.followUp!.id)) } : undefined });
         if (won && journeyId) router.push(routes.journey(businessId, journeyId));
       }
     },
-    [invalidate, toast, router, businessId, won, journeyId],
+    [invalidate, toast, router, businessId, won, journeyId, withNames],
   );
   const decide = useMutation(
     trpc.inbox.decide.mutationOptions({
@@ -470,7 +474,7 @@ function ReadingPaneBody({ data, currency, departments, onArchived }: BodyProps)
     <article className="flex min-h-0 flex-1 flex-col" data-testid="inbox-item" data-item-id={item.id} data-type={item.type} data-state={isAnswered ? "answered" : item.state}>
       {/* header */}
       <header className="flex min-h-16 shrink-0 flex-wrap items-center gap-x-3 gap-y-2 border-b border-subtle bg-panel px-gutter py-2.5" data-testid="inbox-item-header">
-        {persona ? <Avatar size={40} name={persona.name} agent={{ seed: persona.seed, dept: persona.dept as DeptColourToken, personaKey: agentSender?.personaKey }} /> : <Avatar size={40} name={senderName} />}
+        {persona ? <Avatar size={40} name={persona.name} agent={{ seed: persona.seed, dept: persona.dept as DeptColourToken, personaKey: agentSender?.personaKey, layer: agentSender?.layer }} /> : <Avatar size={40} name={senderName} />}
         {/* The persona column keeps a 16rem basis, so the tags wrap under it instead of crushing it. */}
         <div className="flex min-w-0 flex-[1_1_16rem] flex-col gap-0.5">
           <p className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
@@ -510,7 +514,7 @@ function ReadingPaneBody({ data, currency, departments, onArchived }: BodyProps)
       <div className="flex min-h-0 flex-1 flex-col gap-gutter overflow-y-auto p-gutter [&>*]:shrink-0">
         <div className="flex flex-col gap-1.5" data-testid="inbox-title">
           {/* The subject has the full width of the pane: it wraps, it is never crushed by chips. */}
-          <h1 className="t-display-md max-w-reading text-balance break-words text-primary">{item.subject}</h1>
+          <h1 className="t-display-md max-w-reading text-balance break-words text-primary" data-testid="inbox-subject">{withNames(item.subject)}</h1>
           {hidden ? (
             <p className="flex items-center gap-1.5 text-small text-secondary" data-testid="redacted-notice">
               <EyeOff size={14} aria-hidden />

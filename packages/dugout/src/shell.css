@@ -475,6 +475,16 @@
     display: none;
   }
 }
+/* The mode chip's short words ("Asks over £50"): only between the `chips-brief` and `chips-icon` steps. */
+@utility kitbar-chip-short {
+  display: none;
+  [data-compact~="chips-brief"] & {
+    display: inline;
+  }
+  [data-compact~="chips-icon"] & {
+    display: none;
+  }
+}
 /* The hairline between the business and the screen title. */
 @utility kitbar-divider {
   flex: none;

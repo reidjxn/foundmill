@@ -9,7 +9,7 @@
  */
 import { ChevronRight } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { EntityLink, Field, Icon, KeyValueList, Panel, StatusPill, Textarea, fieldDescribedBy, formatMoney, type KeyValueItem } from "@foundmill/dugout";
+import { EntityLink, Field, Icon, KeyValueList, Panel, StatusPill, Textarea, fieldDescribedBy, formatMoney, useAgentPersona, type KeyValueItem } from "@foundmill/dugout";
 import { routes } from "@foundmill/widgets/shared/routes";
 import type { RouterOutputs } from "@/lib/trpc";
 import { approvalLockedReason, approvalStatus, taskHref, type DepartmentForLinks } from "./logic";
@@ -33,6 +33,8 @@ const HIDDEN = <span className="text-secondary">Hidden by your section permissio
 
 export function ApprovalPanel({ approval, businessId, departments, reason, onReasonChange, answered }: ApprovalPanelProps) {
   const router = useRouter();
+  // The summary names the agent as the sender line does, under the reader's preference.
+  const persona = useAgentPersona();
   const status = approvalStatus(approval);
   const locked = approvalLockedReason(approval);
   const open = approval.outcome === null && !answered;
@@ -76,7 +78,7 @@ export function ApprovalPanel({ approval, businessId, departments, reason, onRea
       <div className="flex flex-col gap-3">
         {/* The business thing first (UX plan §5.2); the system's words wait behind Details. */}
         <p className="text-body-strong text-pretty text-primary" data-testid="approval-summary">
-          {describeRequest(approval)}.
+          {describeRequest({ ...approval, agent: approval.agent ? { name: persona.labelFor(approval.agent) } : null })}.
         </p>
         <KeyValueList items={items} />
         <details className="group/detail" data-testid="approval-details">

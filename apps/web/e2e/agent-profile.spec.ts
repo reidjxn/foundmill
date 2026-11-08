@@ -183,6 +183,10 @@ test.describe("agent profile", () => {
     // The seed leaves the Frontend Engineer's trained draft awaiting a decision, with a library skill the run found no
     // tests for (packages/db/src/seed/northwind.ts). The stack is seeded once per run, so the run is promoted once.
     await openBusiness(page, "d/team/squad");
+    // Leads first (Nov 8, 2026): specialists sit collapsed under their lead; open every lead to reach the engineer.
+    const expanders = page.getByRole("button", { name: /^Show \d+ specialists? under / });
+    await expect(expanders.first()).toBeVisible({ timeout: LONG });
+    while ((await expanders.count()) > 0) await expanders.first().click();
     const link = page.locator("[data-testid=module-screen] a[href*='/agents/']").filter({ hasText: "Frontend Engineer" }).first();
     await expect(link, "the seed hires a frontend engineer into Northwind").toBeVisible({ timeout: LONG });
     await page.goto((await link.getAttribute("href"))!);

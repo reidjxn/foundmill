@@ -2,7 +2,9 @@ import "./setup";
 import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
+import { createAgentPersonaApi } from "@foundmill/dugout";
 import { PLAN_VIEWS, PlanScreen, toPlanRows, withRunColumn } from "../PlanScreen";
+import { ReassignDialog } from "../dialogs";
 import { BUSINESS_ID, createFakeSource, renderScreen } from "./fake-source";
 import { AGENT_JUNO, ROADMAP_ITEM, TASK_BUNDLE, TASK_INDEX, TASK_PLAYWRIGHT, TASK_RATE, agents, agentsResponse, edges, emptyTasksResponse, roadmapResponse, tasks, tasksResponse } from "./fixtures";
 
@@ -229,6 +231,16 @@ describe("PlanScreen", () => {
     await waitFor(() => expect(fake.mutations.find((m) => m.path === "dev.tasks.reassign")?.input).toEqual({ taskId: TASK_BUNDLE, agentId: agents[2]!.id }));
   });
 
+  it("never offers a background helper in the reassign picker: helpers never take tasks (Leads first)", async () => {
+    const user = userEvent.setup();
+    const helper = { ...agents[2]!, id: "helper-1", name: "Entity linker", role: "Linking utility", layer: "utility", agentType: "entity_linker" };
+    renderScreen(createFakeSource({ responses: responses() }), <ReassignDialog open onOpenChange={() => {}} taskTitle="Ship it" currentAgentId={AGENT_JUNO} agents={[...agents, helper]} onConfirm={() => {}} />);
+    await user.click(screen.getByRole("combobox", { name: "New agent" }));
+    const options = (await screen.findAllByRole("option")).map((o) => o.textContent ?? "");
+    expect(options.some((o) => o.includes("Wren"))).toBe(true);
+    expect(options.some((o) => o.includes("Entity linker"))).toBe(false);
+  });
+
   it("surfaces a failed mutation inline and keeps the table", async () => {
     const user = userEvent.setup();
     const fake = createFakeSource({ responses: freeResponses(), onMutate: () => Promise.reject(new Error("Assign an agent before starting the task")) });
@@ -271,6 +283,15 @@ describe("toPlanRows", () => {
     expect(pw.dependsOn).toEqual(["Add a bundle picker to the product page"]);
     expect(rows.find((r) => r.id === TASK_BUNDLE)?.blocks).toEqual(["Playwright coverage for checkout"]);
     expect(rows.find((r) => r.id === TASK_BUNDLE)?.progressNumber).toBe(35);
+    expect(rows.find((r) => r.id === TASK_RATE)?.agentName).toBe("Unassigned");
+  });
+
+  it("names the agent field as the cell shows it, so sort, filter and CSV follow the reader's preference (One name everywhere)", () => {
+    const withKey = agents.map((a) => (a.id === AGENT_JUNO ? { ...a, personaKey: "malik" } : a));
+    const persona = createAgentPersonaApi({ anthropomorphic: true });
+    const juno = withKey.find((a) => a.id === AGENT_JUNO)!;
+    const rows = toPlanRows(tasks, edges, new Map(withKey.map((a) => [a.id, a])), persona.labelFor);
+    expect(rows.find((r) => r.id === TASK_PLAYWRIGHT)!.agentName).toBe(`Malik (${juno.role || juno.name})`);
     expect(rows.find((r) => r.id === TASK_RATE)?.agentName).toBe("Unassigned");
   });
 

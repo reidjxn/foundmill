@@ -118,7 +118,7 @@ describe("concurrent agents (TIERS.maxConcurrentAgents)", () => {
   });
 });
 
-describe("business.setSpendCap (Settings › Mode)", () => {
+describe("business.setSpendCap (Settings › What the team can do)", () => {
   it("an admin sets and clears the business cap, audited; a member cannot", async () => {
     const admin = hz.caller({ userId: hz.B.adminId });
     const set = await admin.business.setSpendCap({ businessId: hz.B.businessId, spendCapMinor: 5_000 });

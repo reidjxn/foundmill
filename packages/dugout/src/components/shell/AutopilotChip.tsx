@@ -33,7 +33,7 @@ export interface AutopilotChipProps {
   detail?: string;
   /** The next planned cycle. A forecast, so it carries the Estimate tag. */
   nextAt?: Date | string | number | null;
-  /** Makes the chip a button (open Settings › Mode). */
+  /** Makes the chip a button (open Settings › What the team can do). */
   onClick?: () => void;
   /**
    * Guided mode: `AUTOPILOT_GUIDE_LINE` beside the chip, one sentence that says what Autopilot does and never does
@@ -46,7 +46,7 @@ export interface AutopilotChipProps {
 /**
  * Autopilot's state on Home: "Autopilot" + a status pill (icon + word, so the state never rests on color) + the next
  * planned cycle with the dashed Estimate tag. The pill is amber while it waits for the founder, red while a guard rail
- * has paused it. A button when it opens Settings › Mode; the tooltip says why in plain words. With `guide`, in guided
+ * has paused it. A button when it opens Settings › What the team can do; the tooltip says why in plain words. With `guide`, in guided
  * mode, one sentence sits beside it: what Autopilot presses for you and what it never answers for you.
  */
 export function AutopilotChip({ state, label, detail, nextAt, onClick, guide, className }: AutopilotChipProps) {

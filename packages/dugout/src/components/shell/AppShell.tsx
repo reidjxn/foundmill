@@ -146,6 +146,10 @@ export interface AppShellProps extends Omit<HTMLAttributes<HTMLDivElement>, "tit
   cash?: Money;
   runwayEstimate?: boolean;
   onRunwayClick?: () => void;
+  /** The business's spend line for the mode chip (KitBar `spendLineMinor`). */
+  spendLineMinor?: number | null;
+  /** The business's own currency for the mode chip (KitBar `businessCurrency`). */
+  businessCurrency?: string | null;
   onModeClick?: () => void;
   /** The logo and name become the business switcher: the founder's businesses, Create a new business, Manage businesses, Home, Your profile. */
   businessMenu?: KitBarBusinessMenu;
@@ -250,6 +254,8 @@ export const AppShell = forwardRef<HTMLDivElement, AppShellProps>(function AppSh
     cash,
     runwayEstimate,
     onRunwayClick,
+    spendLineMinor,
+    businessCurrency,
     onModeClick,
     businessMenu,
     connection,
@@ -386,6 +392,8 @@ export const AppShell = forwardRef<HTMLDivElement, AppShellProps>(function AppSh
             runwayEstimate={runwayEstimate}
             onRunwayClick={onRunwayClick}
             businessMode={businessMode}
+            spendLineMinor={spendLineMinor}
+            businessCurrency={businessCurrency}
             onModeClick={onModeClick}
             gameMode={mode}
             continueButton={{ state, cycleNumber, pulseKey, disabled: continueDisabled, pending: continuePending, ...continueHandlers }}

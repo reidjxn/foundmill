@@ -5,7 +5,7 @@ import { WidgetDataProvider } from "../data";
 import { getWidget, parseWidgetSettings } from "../registry";
 import { createFakeSource } from "../testing";
 import "../widgets";
-import { GuidanceProvider, formatDate, type DateFormatPrefs } from "@foundmill/dugout";
+import { AgentPersonaProvider, GuidanceProvider, formatDate, type DateFormatPrefs } from "@foundmill/dugout";
 import { departmentHealth, doneLast7Days, headlineMetric, metricKeyFor, monthEndCash, nowLines, quietLine, toSquad } from "../widgets/department-card";
 import { addDays } from "../shared/time";
 import type { InboxItemRow } from "../shared/types";
@@ -168,6 +168,38 @@ describe("department card widget", () => {
     expect(fake.navigations.at(-1)).toBe(`/b/${BID}/agents/${AGENT.beacon}/overview`);
     screen.getByRole("button", { name: "Open" }).click();
     expect(fake.navigations.at(-1)).toBe(`/b/${BID}/d/development/training-ground`);
+  });
+
+  it("names the lead and the team by the persona when anthropomorphic agents are on, as the Agents tab does (One name everywhere)", () => {
+    // Two agents share the stored name "Atlas": the lead is found by its id, never by its name.
+    const withPersonas = departments.map((d, i) =>
+      i !== 0
+        ? d
+        : {
+            ...d,
+            lead: { ...d.lead!, personaKey: "malik" },
+            squad: [
+              { ...d.squad[0]!, name: "Atlas", id: AGENT.ember, personaKey: "mei", role: "Backend" },
+              ...d.squad.map((a) => (a.id === AGENT.atlas ? { ...a, personaKey: "malik" } : a.id === AGENT.beacon ? { ...a, personaKey: "amara" } : { ...a, personaKey: "kofi", layer: "utility" })),
+            ],
+          },
+    );
+    const fake = createFakeSource({ businessId: BID, responses: { ...dataResponses(), "department.list": withPersonas } });
+    const Component = def.Component;
+    const { container } = render(
+      <AgentPersonaProvider anthropomorphic>
+        <WidgetDataProvider source={fake.source}>
+          <Component businessId={BID} instanceId="department_card-1" settings={parseWidgetSettings(def, { slot: 0 })} />
+        </WidgetDataProvider>
+      </AgentPersonaProvider>,
+    );
+    // The lead: its persona name and position, opened by id.
+    const lead = screen.getByRole("button", { name: "Malik (Engineering lead), department lead" });
+    lead.click();
+    expect(fake.navigations.at(-1)).toBe(`/b/${BID}/agents/${AGENT.atlas}/overview`);
+    // The team strip: the same first names (toSquad keeps the persona key); a background helper is not in it (Leads first).
+    const names = [...container.querySelectorAll("[data-squad-member]")].map((b) => b.getAttribute("aria-label")?.split(",")[0]);
+    expect(names).toEqual(["Mei", "Malik", "Amara"]);
   });
 });
 

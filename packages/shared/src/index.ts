@@ -26,3 +26,5 @@ export * from "./founder-words";
 export * from "./personas";
 export * from "./goals";
 export * from "./today-words";
+export * from "./team-can-do";
+export * from "./team-tiers";

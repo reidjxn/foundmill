@@ -18,9 +18,16 @@ describe("hierarchy nodes", () => {
     expect(parent[AGENT_PIKE]).toBe(AGENT_COS); // explicit line manager
     expect(parent[AGENT_JUNO]).toBe(AGENT_PIKE); // explicit line manager
     expect(parent[AGENT_MARA]).toBe(AGENT_COS); // Distribution has no lead → Chief of Staff
-    expect(parent[AGENT_LINK]).toBe(AGENT_COS); // utility
-    expect(nodes.map((n) => n.kind)).toEqual(["founder", "assistant", "worker", "lead", "worker", "utility"]);
+    // Leads first: a background helper is not a node.
+    expect(AGENT_LINK in parent).toBe(false);
+    expect(nodes.map((n) => n.kind)).toEqual(["founder", "assistant", "worker", "lead", "worker"]);
     expect(hierarchyKind({ id: "x", name: "x", status: "idle", modelKey: "haiku", agentType: "finance_lead" })).toBe("lead");
+    // A department's lead is a lead whatever its layer; a utility is a background helper.
+    expect(hierarchyKind({ id: "w", name: "w", status: "idle", modelKey: "haiku", layer: "worker", agentType: "growth_marketer" }, [{ ...departments[0]!, leadAgentId: "w" }])).toBe("lead");
+    expect(hierarchyKind(agents.find((a) => a.id === AGENT_LINK)!)).toBe("utility");
+    // A line manager that is a background helper is not followed: the department's lead takes its place.
+    const underHelper = toHierarchyNodes([...agents, { ...agents.find((a) => a.id === AGENT_JUNO)!, id: "x-3", lineManagerId: AGENT_LINK }], { departments, founderName: "Reid" });
+    expect(underHelper.find((n) => n.id === "x-3")!.parentId).toBe(AGENT_PIKE);
     const withStaff = toHierarchyNodes(agents, { departments, founderName: "Reid", staff: humans, me: readMe(me, BID) });
     expect(withStaff.filter((n) => n.kind === "human").map((n) => [n.name, n.parentId])).toEqual([
       ["ada@northwind.example", FOUNDER_NODE_ID],
@@ -46,10 +53,13 @@ describe("HierarchyScreen", () => {
     renderScreen(fake, <HierarchyScreen {...props} />);
     const tree = await screen.findByRole("tree", { name: "Team hierarchy" });
     const items = within(tree).getAllByRole("treeitem");
-    expect(items).toHaveLength(agents.length + 1);
+    // Every agent but the background helper, under the founder.
+    expect(items).toHaveLength(agents.length);
+    expect(within(tree).queryByRole("treeitem", { name: /Linker/ })).toBeNull();
     expect(items[0]!.getAttribute("aria-label")).toBe("Reid, You, Founder");
     expect(within(tree).getByRole("treeitem", { name: /Orla, Chief of Staff, Team, Chief of Staff/ })).toBeTruthy();
-    expect(screen.getByTestId("hierarchy-summary").textContent).toBe("5 agents · 1 lead · 2 workers");
+    expect(screen.getByTestId("hierarchy-summary").textContent).toBe("Chief of Staff · 1 lead · 2 specialists");
+    expect(screen.getByTestId("background-helpers-line").textContent).toMatch(/^1 background helper also runs, .* Show them$/);
     await user.click(within(tree).getByRole("treeitem", { name: /Pike/ }));
     const detail = await screen.findByTestId("hierarchy-detail");
     expect(within(detail).getByRole("link", { name: "Pike" })).toBeTruthy();
@@ -71,9 +81,9 @@ describe("HierarchyScreen", () => {
     await user.keyboard("{ArrowDown}");
     expect(document.activeElement?.getAttribute("aria-label")).toMatch(/^Orla/);
     await user.keyboard("{ArrowDown}");
-    expect(document.activeElement?.getAttribute("aria-label")).toMatch(/^(Pike|Mara|Linker)/);
+    expect(document.activeElement?.getAttribute("aria-label")).toMatch(/^(Pike|Mara)/);
     await user.click(screen.getByRole("switch", { name: "Show staff" }));
-    expect(within(tree).getAllByRole("treeitem")).toHaveLength(agents.length + 1 + 2);
+    expect(within(tree).getAllByRole("treeitem")).toHaveLength(agents.length + 2);
     expect(within(tree).getByRole("treeitem", { name: /Ben Okafor, Advisor, Staff/ })).toBeTruthy();
   });
 

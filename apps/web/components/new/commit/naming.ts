@@ -10,7 +10,7 @@
  */
 import { LIMITS } from "@foundmill/config";
 import { apcaLc, createRng, hexToRgb, hslToRgb, isHexColour, kitOnPrimaryDetail, rgbToHex, rgbToHsl, type Kit } from "@foundmill/dugout";
-import { ARCHETYPE_LABELS, domainCandidates, domainSlug, type Archetype, type BusinessMode, type GameMode } from "@foundmill/shared";
+import { ARCHETYPE_LABELS, BUSINESS_MODES, domainCandidates, domainSlug, recommendedSpendLineMinor, type Archetype, type BusinessMode, type GameMode } from "@foundmill/shared";
 import { DEFAULT_AGENT_STYLE, type AgentStyle } from "@foundmill/shared/personas";
 import type { LogoDraft } from "@/lib/logo";
 
@@ -273,12 +273,11 @@ export const BUSINESS_MODE_CARDS: ModeCard<BusinessMode>[] = [
   },
 ];
 
-/** Default spend cap per business mode, in minor units of the founder's currency (labelled an estimate in the UI). */
-export const DEFAULT_SPEND_CAP_MINOR: Record<BusinessMode, number> = {
-  augmented: 0,
-  assisted: LIMITS.approvalThresholdMinorDefault,
-  automated: LIMITS.approvalThresholdMinorDefault * 4,
-};
+/**
+ * Default spend line per business mode, in minor units of the founder's currency (labeled an estimate in the UI): the
+ * suggestion Settings › What the team can do makes too (`recommendedSpendLineMinor` in @foundmill/shared).
+ */
+export const DEFAULT_SPEND_CAP_MINOR = Object.fromEntries(BUSINESS_MODES.map((m) => [m, recommendedSpendLineMinor(m, LIMITS.approvalThresholdMinorDefault)])) as Record<BusinessMode, number>;
 
 export interface ArchetypeCard {
   value: Archetype;
@@ -312,7 +311,7 @@ export interface CommitForm {
   /** Major units as typed. */
   spendCap: string;
   currency: string;
-  /** "Run on autopilot": the business starts its own cycles (Settings › Mode can change it later). Off by default. */
+  /** "Run on autopilot": the business starts its own cycles (Settings › What the team can do can change it later). Off by default. */
   autopilot: boolean;
   /** "Anthropomorphic agents": the team shows human first names and AI-generated faces. Starts as the founder's account preference. */
   anthropomorphicAgents: boolean;

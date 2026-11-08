@@ -7,7 +7,7 @@
  * - Stop all agents → business.stopAllAgents; while the team is stopped (`business.get`) the same control is Resume
  *   agents → business.resumeAgents (owners and admins); processing strip from `cycle.status` kept current by the stream;
  * - universal search (CommandPalette, remote) over local screens/commands + crm.search;
- * - date + runway chip from finance.overview, business-mode chip → Settings › Mode;
+ * - date + runway chip from finance.overview, business-mode chip → Settings › What the team can do;
  * - NeedsLargerWindow below 1280 (AppShell measures the window itself); G-then-letter chords (AppShell);
  * - providers for everything below: business context, WidgetDataProvider, ModuleEnv, EntityLink, keyboard registry,
  *   screen chrome, and the definitions in this business's own words (`GuidanceTermsProvider` over the layout's
@@ -666,7 +666,7 @@ function ShellInner({ businessId, initialBusiness, initialDepartments, viewer, c
   // Every mention resolves (lib/entity-resolver.tsx): agents (by agent id, or by their CRM record) open their profile,
   // records their CRM profile, with a full hover card and the right-click verbs (audit GTM-19, VFR3-X1, GTM-26).
   const agentSummaries = useMemo<AgentSummary[]>(
-    () => departments.flatMap((d) => d.squad.map((a) => ({ id: a.id, name: a.name, role: a.role, status: a.status, modelKey: a.modelKey, avatarSeed: a.avatarSeed, personaKey: a.personaKey, departmentName: d.name, dept: d.colourToken }))),
+    () => departments.flatMap((d) => d.squad.map((a) => ({ id: a.id, name: a.name, role: a.role, status: a.status, modelKey: a.modelKey, avatarSeed: a.avatarSeed, personaKey: a.personaKey, layer: a.layer, departmentName: d.name, dept: d.colourToken }))),
     [departments],
   );
   const navigate = useCallback((href: string) => router.push(href), [router]);
@@ -731,6 +731,9 @@ function ShellInner({ businessId, initialBusiness, initialDepartments, viewer, c
               <AppShell
                 mode={business.gameMode}
                 businessMode={business.businessMode}
+                // The mode chip says the setting in words with the business's own currency ("Asks before spending over £50").
+                spendLineMinor={business.spendCapMinor}
+                businessCurrency={currency}
                 kit={data.kit}
                 logoSrc={logoSrc}
                 // The Example frame: the "Example" chip after the name, and "Start your own" in Continue's slot.

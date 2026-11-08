@@ -4,7 +4,7 @@ import { AutopilotChip } from "./AutopilotChip";
 const meta = {
   title: "Shell/AutopilotChip",
   component: AutopilotChip,
-  parameters: { docs: { description: { component: "Autopilot's state on Home: the word Autopilot, a status pill (icon + word, never color alone) and, while it is on or waiting, the next planned cycle with the dashed Estimate tag. Amber while it waits for the founder, red when a guard rail paused it. A button when it opens Settings › Mode; the tooltip says why in plain words. With `guide`, in guided mode, one sentence beside it says what Autopilot does and never does." } } },
+  parameters: { docs: { description: { component: "Autopilot's state on Home: the word Autopilot, a status pill (icon + word, never color alone) and, while it is on or waiting, the next planned cycle with the dashed Estimate tag. Amber while it waits for the founder, red when a guard rail paused it. A button when it opens Settings › What the team can do; the tooltip says why in plain words. With `guide`, in guided mode, one sentence beside it says what Autopilot does and never does." } } },
   args: { state: "on", label: "On", nextAt: "2026-10-14T15:45:00.000Z", detail: "Autopilot is running the business." },
 } satisfies Meta<typeof AutopilotChip>;
 export default meta;

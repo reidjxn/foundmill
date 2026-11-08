@@ -106,7 +106,7 @@ export function LeaderboardsScreen() {
   );
   const rowActions = (): RowAction<BoardRow>[] => [{ id: "open", label: "Open leaderboard", icon: ListOrdered, onSelect: (r) => open(r.id) }];
 
-  const settingsHref = live ? routes.settings(businessId, "integrations") : routes.settings(businessId, "mode");
+  const settingsHref = live ? routes.settings(businessId, "integrations") : routes.settings(businessId, "business");
   return (
     <div className="grid grid-cols-12 gap-gutter p-gutter" data-testid="leaderboards-screen">
       <PersonalNotice className="col-span-12" />
@@ -152,7 +152,7 @@ export function LeaderboardsScreen() {
                 children: live
                   ? `${data.business.name} is not on a leaderboard yet. A business ranks once an integration supplies a verified metric.`
                   : `${data.business.name} is a Personal business, so it is not ranked. Make it live in Settings to take part.`,
-                action: { label: live ? "Open integrations" : "Open Settings › Mode", onClick: () => router.push(settingsHref) },
+                action: { label: live ? "Open integrations" : "Open Settings › Business", onClick: () => router.push(settingsHref) },
               }
             : undefined
         }

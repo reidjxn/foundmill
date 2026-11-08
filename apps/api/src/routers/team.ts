@@ -2,7 +2,7 @@
 import { TEMPLATE_KEYS, getTemplate, hasTemplate, listTemplates } from "@foundmill/agents";
 import { CREDITS_CURRENCY } from "@foundmill/config";
 import { SectionPermissions, assertSeatAvailable, repos, type AgentRosterActivity } from "@foundmill/db";
-import { ConflictError, DECISION_TYPES, DEFAULT_AGENT_STYLE, ForbiddenError, MEMBERSHIP_ROLES, NotFoundError, ValidationError } from "@foundmill/shared";
+import { ConflictError, DECISION_TYPES, DEFAULT_AGENT_STYLE, ForbiddenError, MEMBERSHIP_ROLES, NotFoundError, ValidationError, agentTier, leadAgentIds } from "@foundmill/shared";
 import { z } from "zod";
 import { pendingApprovals, resolveApproval } from "../services/approvals";
 import { modelLimited } from "../services/model-limits";
@@ -105,6 +105,8 @@ export const teamRouter = router({
         ]);
         // The Chief of Staff is the oldest live assistant (`repos.agents.chiefOfStaff`); `list` is oldest first too.
         const chiefId = agents.items.find((a) => a.layer === "assistant" && !a.archivedAt)?.id ?? null;
+        // Leads first (packages/shared team-tiers): chief, lead, specialist or background, from what is stored.
+        const leads = leadAgentIds(departments);
         const rows = agents.items.map((a) => {
           const skills = skillsByAgent.get(a.id) ?? [];
           // One rating scale everywhere (founder, Oct 20, 2026): `rating20` is the 1–20 mean of the displayed skills
@@ -129,6 +131,7 @@ export const teamRouter = router({
             rating,
             wage: { costMinor: wages.find((w) => w.agentId === a.id)?.costMinor ?? 0, currency: CREDITS_CURRENCY, capMinor: a.wageCapMinor, period, label: "Estimate" as const },
             chiefOfStaff: a.id === chiefId,
+            tier: agentTier({ ...a, chiefOfStaff: a.layer === "assistant" ? a.id === chiefId : undefined }, leads),
             tools: Array.isArray(tools) ? (tools as { connectorKey?: unknown; tools?: unknown }[]).filter((t) => typeof t?.connectorKey === "string").map((t) => ({ connectorKey: t.connectorKey as string, tools: Array.isArray(t.tools) ? (t.tools as string[]) : [] })) : [],
             form: seen?.form ?? [],
             latestUpdate: seen?.latest ? latestUpdate(seen.latest) : null,
@@ -148,10 +151,13 @@ export const teamRouter = router({
       }),
     ),
 
-    /** The templates a founder can hire (the Chief of Staff joins with the business and is never hired again). */
+    /**
+     * The templates a founder can hire (the Chief of Staff joins with the business and is never hired again). The
+     * utility family (the background helpers every business already runs) is left out unless asked for by name.
+     */
     catalogue: read.input(z.object({ family: z.enum(["assistant", "lead", "worker", "channel", "specialist", "utility"]).optional() })).query(({ input }) =>
       listTemplates(input ?? {})
-        .filter((t) => t.family !== "assistant")
+        .filter((t) => t.family !== "assistant" && (t.family !== "utility" || input?.family === "utility"))
         .map((t) => ({ key: t.key, name: t.name, role: t.role, family: t.family, layer: t.layer, module: t.module, channelKey: t.channelKey ?? null, modelKey: t.modelKey, description: t.description, skills: t.skills, wageCapMinor: t.wageCapMinor, wageLabel: "Estimate" as const, traits: t.traits })),
     ),
 
@@ -310,10 +316,14 @@ export const teamRouter = router({
   }),
 
   responsibilities: router({
-    /** Decision types × handler, kept on each department's `approvers` (business-wide when every department agrees). */
+    /**
+     * Decision types × handler, kept on each department's `approvers` (business-wide when every department agrees), and
+     * the business's Chief of Staff (`chiefOfStaffId`, null before one is hired): Settings › What the team can do offers
+     * "The Chief of Staff approves" for publishing and messaging customers, which writes that agent as the handler.
+     */
     get: read.query(({ ctx }) =>
       ctx.rls(async (tx) => {
-        const departments = await repos.departments.list(tx, ctx.businessId);
+        const [departments, chief] = await Promise.all([repos.departments.list(tx, ctx.businessId), repos.agents.chiefOfStaff(tx, ctx.businessId)]);
         const perDepartment = departments.map((d) => ({ departmentId: d.id, rows: parseApprovers(d.approvers) }));
         const matrix = DECISION_TYPES.map((decisionType) => {
           const handlers = perDepartment.map((p) => p.rows.find((r) => r.decisionType === decisionType)?.handler ?? { kind: "founder" as const, id: null });
@@ -321,7 +331,7 @@ export const teamRouter = router({
           const uniform = handlers.every((h) => h.kind === first.kind && h.id === first.id);
           return { decisionType, handler: uniform ? first : { kind: "founder" as const, id: null }, uniform };
         });
-        return { matrix, perDepartment, decisionTypes: DECISION_TYPES };
+        return { matrix, perDepartment, decisionTypes: DECISION_TYPES, chiefOfStaffId: chief?.id ?? null };
       }),
     ),
     /**

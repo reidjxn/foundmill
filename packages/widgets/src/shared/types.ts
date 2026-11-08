@@ -3,7 +3,7 @@
  * Declared here (not imported from apps/api) so the package depends only on wave-1 packages; every field a widget
  * reads is optional-tolerant where the API may omit it. Dates arrive as ISO strings on the wire.
  */
-import type { AgentStatus, ChannelKey, ChannelLine, ConversionKind, DeptColourToken, InboxItemType, InboxState, MilestoneKind, ModelKey, TaskStatus } from "@foundmill/shared";
+import type { AgentStatus, AgentTier, ChannelKey, ChannelLine, ConversionKind, DeptColourToken, InboxItemType, InboxState, MilestoneKind, ModelKey, TaskStatus } from "@foundmill/shared";
 import type { Chapter, Conversion, JourneyDailyRow, Milestone } from "@foundmill/dugout";
 
 export type Iso = string;
@@ -20,6 +20,10 @@ export interface SquadAgentRow {
   avatarSeed: string;
   /** `agents.persona_key`: the first name and face shown when anthropomorphic agents are on. */
   personaKey?: string | null;
+  /** The agent's layer: a `utility` agent is a background helper and keeps its role name. */
+  layer?: string | null;
+  /** Its tier (packages/shared team-tiers): `background` helpers stay out of the founder's lists and counts. */
+  tier?: AgentTier | null;
 }
 export interface DepartmentRow {
   id: string;
@@ -31,7 +35,7 @@ export interface DepartmentRow {
   leadAgentId?: string | null;
   moduleKeys: string[];
   hidden?: boolean;
-  lead: { id: string; name: string; status: AgentStatus; avatarSeed: string; role?: string; personaKey?: string | null } | null;
+  lead: { id: string; name: string; status: AgentStatus; avatarSeed: string; role?: string; personaKey?: string | null; layer?: string | null; tier?: AgentTier | null } | null;
   squad: SquadAgentRow[];
   tabs: { id: string; slug: string; title: string; position: number }[];
 }
@@ -236,6 +240,9 @@ export interface TeamAgentRow {
   name: string;
   role: string;
   agentType?: string;
+  layer?: string | null;
+  /** Leads first: a `background` helper is never the agent of the week. */
+  tier?: AgentTier | null;
   status: AgentStatus;
   modelKey: ModelKey | string;
   avatarSeed: string;

@@ -16,6 +16,7 @@ import { registerWidget, type WidgetProps } from "../registry";
 import { moduleHref, orderedDepartments, useDepartments } from "../shared/departments";
 import { WidgetFrame } from "../shared/frame";
 import { unavailableWords } from "../shared/errors";
+import { isBackgroundAgent } from "@foundmill/shared";
 import { TEAM_HEALTH_SOURCE, teamHealth, teamHealthCounts, type TeamHealthCounts } from "../shared/health";
 import { useRecentRibbon } from "../shared/ribbon";
 import { routes } from "../shared/routes";
@@ -52,10 +53,13 @@ export function squadHealth(departments: readonly DepartmentRow[] | undefined): 
   return teamHealth(agentStatuses(departments));
 }
 
-/** Each agent's status once, even when it sits in several departments. */
+/**
+ * Each agent's status once, even when it sits in several departments. Background helpers are not counted: a down
+ * helper never moves the founder's Team health (Leads first, 2026-11-08).
+ */
 function agentStatuses(departments: readonly DepartmentRow[] | undefined): string[] {
   const seen = new Map<string, string>();
-  for (const d of departments ?? []) for (const a of d.squad) seen.set(a.id, a.status);
+  for (const d of departments ?? []) for (const a of d.squad) if (!isBackgroundAgent(a)) seen.set(a.id, a.status);
   return [...seen.values()];
 }
 

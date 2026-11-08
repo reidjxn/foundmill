@@ -3,7 +3,7 @@
  * `dev.*`, `team.agents.list`, `product.roadmap.list`; BUILD §8.3). Declared here, not imported from apps/api, so the
  * package depends only on wave-1 packages. Dates arrive as ISO strings on the wire (a `Date` is tolerated).
  */
-import type { AgentStatus, DeptColourToken, ModelKey, TaskKind, TaskPhase, TaskStatus } from "@foundmill/shared";
+import type { AgentStatus, AgentTier, DeptColourToken, ModelKey, TaskKind, TaskPhase, TaskStatus } from "@foundmill/shared";
 
 export type Iso = string | Date;
 
@@ -89,6 +89,10 @@ export interface AgentRow {
   avatarSeed?: string;
   /** `agents.persona_key`: the first name and face shown when anthropomorphic agents are on. */
   personaKey?: string | null;
+  /** The agent's layer: a `utility` agent is a background helper and keeps its role name. */
+  layer?: string | null;
+  /** Its tier (packages/shared team-tiers): a `background` helper never takes tasks and is not offered for one. */
+  tier?: AgentTier | null;
   departmentIds?: string[];
   departments?: { id: string; name: string; colourToken: DeptColourToken }[];
   currentTask?: { id: string; title: string } | null;

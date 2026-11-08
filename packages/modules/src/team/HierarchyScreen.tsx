@@ -1,9 +1,10 @@
 "use client";
 /**
- * Team › Hierarchy (BUILD §6.3, §11.9): the org chart founder → Chief of Staff → leads → workers on Dugout's
- * HierarchyChart (arrow keys walk the tree). Reporting lines come from `lineManagerId`; an agent without one reports
- * to its first department's lead, leads and utilities to the Chief of Staff, the Chief of Staff to the founder.
- * Selecting a node shows its facts and opens the profile.
+ * Team › Hierarchy (BUILD §6.3, §11.9): the org chart founder → Chief of Staff → leads → specialists on Dugout's
+ * HierarchyChart (arrow keys walk the tree). Reporting lines come from `teamTree` (packages/shared team-tiers):
+ * `lineManagerId`, else a specialist's first department's lead, leads to the Chief of Staff, the Chief of Staff to the
+ * founder. Background helpers are not nodes (Leads first, 2026-11-08): one line under the chart says they run and
+ * opens their read-only list. Selecting a node shows its facts and opens the profile.
  */
 import { useMemo, useState } from "react";
 import { ExternalLink, Network, UserRoundPlus } from "lucide-react";
@@ -12,18 +13,19 @@ import { moduleTabHref, useDepartments } from "@foundmill/widgets/shared/departm
 import { routes } from "@foundmill/widgets/shared/routes";
 import { useWidgetData } from "@foundmill/widgets/data";
 import type { DepartmentRow } from "@foundmill/widgets/shared/types";
-import { plural } from "../fit";
+import { agentTier, teamCaption, teamTree, type AgentTier } from "@foundmill/shared/team-tiers";
 import type { ModuleScreenProps } from "../registry";
-import { AgentStatusWordPill, ROLE_LABELS, Screen, agentDept, agentRoleLine, agentEntity, agentHref, isChiefOfStaff, memberEntity, memberName, readMe, useAgents, useHumans, useLiveAgentStatus, useMe, useNow, useTeamOptions, withLiveStatus, type Me } from "./shared";
+import { BackgroundHelpersLine } from "./BackgroundHelpers";
+import { AgentStatusWordPill, ROLE_LABELS, Screen, agentDept, agentRoleLine, agentEntity, agentHref, memberEntity, memberName, readMe, useAgents, useHumans, useLiveAgentStatus, useMe, useNow, useTeamOptions, withLiveStatus, type Me } from "./shared";
 import type { AgentRow, MembershipRow } from "./types";
 
 export const FOUNDER_NODE_ID = "founder";
 
-export function hierarchyKind(agent: AgentRow): HierarchyKind {
-  if (isChiefOfStaff(agent)) return "assistant";
-  if (agent.layer === "lead" || agent.agentType?.endsWith("_lead")) return "lead";
-  if (agent.layer === "utility") return "utility";
-  return "worker";
+const KIND_OF_TIER: Record<AgentTier, HierarchyKind> = { chief: "assistant", lead: "lead", specialist: "worker", background: "utility" };
+
+/** The chart's kind for an agent: its tier (a department's lead is a lead whatever its layer). */
+export function hierarchyKind(agent: AgentRow, departments?: readonly DepartmentRow[] | null): HierarchyKind {
+  return KIND_OF_TIER[agentTier(agent, departments)];
 }
 
 /**
@@ -37,31 +39,22 @@ export function founderOf(staff: readonly MembershipRow[] | undefined): Membersh
 
 /**
  * Chart nodes. The root is the business's founder (`founder`, the owner), labeled "You" only for that person; a
- * co-founder or staff member looking at it sees the founder there and themselves among the staff. Parents:
- * explicit `lineManagerId` when it points at a live agent; otherwise the first department's lead (not for the lead
- * itself), else the Chief of Staff, else the founder. Staff (humans) hang under the founder when `includeStaff` is on.
+ * co-founder or staff member looking at it sees the founder there and themselves among the staff. Parents come from
+ * `teamTree`: explicit `lineManagerId` when it points at a live, visible agent; otherwise the first department's lead
+ * (not for the lead itself), else the Chief of Staff, else the founder. Background helpers are left out. Staff
+ * (humans) hang under the founder when `includeStaff` is on.
  */
 export function toHierarchyNodes(agents: readonly AgentRow[], opts: { departments?: readonly DepartmentRow[]; founderName: string; founder?: MembershipRow | null; staff?: readonly MembershipRow[]; me?: Me }): HierarchyNode[] {
-  const live = agents.filter((a) => !a.archivedAt);
-  const ids = new Set(live.map((a) => a.id));
-  const cos = live.find(isChiefOfStaff);
-  const leadOfDept = new Map<string, string>();
-  for (const d of opts.departments ?? []) if (d.leadAgentId && ids.has(d.leadAgentId)) leadOfDept.set(d.id, d.leadAgentId);
+  const tree = teamTree(agents, opts.departments);
   // The chart already labels the founder's kind ("Founder"), so the role line says who it is: you, or the owner.
   const founderIsMe = !opts.founder || (!!opts.me?.userId && opts.founder.userId === opts.me.userId);
   const founderName = opts.founder && !founderIsMe ? memberName(opts.founder, opts.me) : opts.founderName;
   const nodes: HierarchyNode[] = [{ id: FOUNDER_NODE_ID, name: founderName, role: founderIsMe ? "You" : ROLE_LABELS.owner, kind: "founder", parentId: null }];
-  for (const a of live) {
-    const kind = hierarchyKind(a);
-    let parentId: string | null = a.lineManagerId && ids.has(a.lineManagerId) && a.lineManagerId !== a.id ? a.lineManagerId : null;
-    if (!parentId) {
-      if (kind === "assistant") parentId = FOUNDER_NODE_ID;
-      else if (kind === "worker") {
-        const deptId = a.departmentIds?.[0] ?? a.departments?.[0]?.id;
-        const lead = deptId ? leadOfDept.get(deptId) : undefined;
-        parentId = lead && lead !== a.id ? lead : (cos?.id ?? FOUNDER_NODE_ID);
-      } else parentId = cos?.id ?? FOUNDER_NODE_ID;
-    }
+  // In the roster's own order (the chart lays its levels out itself).
+  for (const a of agents) {
+    if (!tree.parentOf.has(a.id)) continue;
+    const kind = KIND_OF_TIER[tree.tierOf.get(a.id)!];
+    const parentId = tree.parentOf.get(a.id) ?? FOUNDER_NODE_ID;
     // A role that only repeats the name ("Quality Specialist" / "Quality specialist") gives way to the department.
     const roleLine = agentRoleLine(a);
     const department = a.departments?.[0]?.name;
@@ -100,9 +93,9 @@ export function HierarchyScreen({ businessId }: ModuleScreenProps) {
   const selectedStaff = selectedId?.startsWith("staff:") ? humans.data?.find((m) => `staff:${m.userId}` === selectedId) ?? null : null;
   const reports = selectedId ? nodes.filter((n) => n.parentId === selectedId).length : 0;
   const recruitHref = moduleTabHref(businessId, departments.data, "team", "recruitment");
-  const liveAgents = agents.filter((a) => !a.archivedAt);
-  const leads = liveAgents.filter((a) => hierarchyKind(a) === "lead").length;
-  const workers = liveAgents.filter((a) => hierarchyKind(a) === "worker").length;
+  // Leads first: the founder's agents (background helpers are not in the chart, its counts or its detail).
+  const tree = useMemo(() => teamTree(agents, departments.data), [agents, departments.data]);
+  const liveAgents = tree.visible;
   // The chart area is as tall as the tree, up to the window: the tree scrolls inside it with fades at the edges.
   const treeHeight = useMemo(() => layoutHierarchy(nodes).height, [nodes]);
 
@@ -122,7 +115,7 @@ export function HierarchyScreen({ businessId }: ModuleScreenProps) {
                 title: "Just you",
                 children: (
                   <>
-                    The chart grows as you hire: the <Term id="chief_of_staff">Chief of Staff</Term> reports to you, leads to the Chief of Staff, workers to their department's lead.
+                    The chart grows as you hire: the <Term id="chief_of_staff">Chief of Staff</Term> reports to you, leads to the Chief of Staff, specialists to their department's lead.
                   </>
                 ),
                 action: { label: "Go to Recruitment", icon: UserRoundPlus, onClick: () => navigate(recruitHref) },
@@ -131,9 +124,7 @@ export function HierarchyScreen({ businessId }: ModuleScreenProps) {
         }
         meta={
           liveAgents.length ? (
-            <span data-testid="hierarchy-summary">
-              {plural(liveAgents.length, "agent")} · {plural(leads, "lead")} · {plural(workers, "worker")}
-            </span>
+            <span data-testid="hierarchy-summary">{teamCaption(tree.counts)}</span>
           ) : undefined
         }
         actions={
@@ -143,8 +134,11 @@ export function HierarchyScreen({ businessId }: ModuleScreenProps) {
           </label>
         }
         footer={
-          <span>
-            Reporting lines come from each agent's <Term id="line_manager">line manager</Term>; agents without one report to their department's lead. Change a line manager from the agent's profile.
+          <span className="flex flex-wrap items-center gap-x-3 gap-y-1">
+            <span>
+              Reporting lines come from each agent's <Term id="line_manager">line manager</Term>; agents without one report to their department's lead. Change a line manager from the agent's profile.
+            </span>
+            <BackgroundHelpersLine businessId={businessId} helpers={tree.background} now={now} />
           </span>
         }
       >

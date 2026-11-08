@@ -67,8 +67,8 @@ export function PersonalNotice({ className }: { className?: string }) {
           : `Live is not open yet, so ${data.business.name} stays Personal and is not listed on the network or on leaderboards.`}
       </p>
       {data.liveOpen ? (
-        <ShellLinkButton href={routes.settings(businessId, "mode")} size="sm">
-          Open Settings › Mode
+        <ShellLinkButton href={routes.settings(businessId, "business")} size="sm">
+          Open Settings › Business
         </ShellLinkButton>
       ) : null}
     </div>

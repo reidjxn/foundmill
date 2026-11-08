@@ -26,6 +26,7 @@ import {
   TileGrid,
   cn,
   sessionLengthMs,
+  useAgentPersona,
   type AgentTileSession,
   type GroundView,
   type Nudge,
@@ -129,6 +130,8 @@ export function TrainingGroundScreen({ businessId, subView }: ModuleScreenProps)
   useBusinessEvents(() => refetchAll(), ["task.started", "task.completed", "task.blocked", "pr.merged", "task.progressed"]);
 
   const agentIndex = useAgentIndex(agents.data?.agents);
+  // Agents named under the reader's preference, in the rows' name fields too (One name everywhere).
+  const persona = useAgentPersona();
   const deptSlug = departmentForModule(departments.data, "development")?.slug;
   const openByTask = useMemo(() => openSessionsByTask(sessions.data?.items), [sessions.data]);
   const live = useMemo(() => liveTasks(tasks.data?.items), [tasks.data]);
@@ -199,8 +202,8 @@ export function TrainingGroundScreen({ businessId, subView }: ModuleScreenProps)
   };
 
   const items = useMemo<(TileGridItem & { session: AgentTileSession })[]>(
-    () => streams.sessions.map((s) => ({ id: s.id, label: `${s.agent.name}: ${s.task.title}`, avatar: { name: s.agent.name, seed: s.agent.seed, dept: s.agent.dept, status: s.agent.status, role: s.agent.role, personaKey: s.agent.personaKey }, session: s })),
-    [streams.sessions],
+    () => streams.sessions.map((s) => ({ id: s.id, label: `${persona.labelFor(s.agent)}: ${s.task.title}`, avatar: { name: s.agent.name, seed: s.agent.seed, dept: s.agent.dept, status: s.agent.status, role: s.agent.role, personaKey: s.agent.personaKey }, session: s })),
+    [streams.sessions, persona],
   );
 
   const tier = plan.data?.tier;

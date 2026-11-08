@@ -2,17 +2,21 @@
 /**
  * Team › Health (BUILD §6.3, §9.10, §11.9): a status board grouped by health, the ones that need the founder first
  * (failing, down, degraded, paused, idle, healthy). "Down" shows the expected return once the integration is
- * reconnected. Live: `agent.health_changed` moves an agent between groups within 2 s (AC-11.9.1).
+ * reconnected. Live: `agent.health_changed` moves an agent between groups within 2 s (AC-11.9.1). Background helpers are
+ * not in the groups, the tiles or the summary (a down helper is not the founder's to fix; Leads first, 2026-11-08): one
+ * line in the footer says they run and opens their read-only list.
  */
 import { useMemo } from "react";
 import { Activity, CircleCheck, ExternalLink, HeartPulse, TriangleAlert, UserRoundPlus } from "lucide-react";
 import { Avatar, useAgentPersona, Button, Chip, DeptChip, EntityLink, Panel, StatusPill, StatusStrip, Term, cn, formatPercent, formatRelative, type HealthDetails, type MetricTileProps } from "@foundmill/dugout";
 import { AGENT_STATUSES, type AgentStatus } from "@foundmill/shared/constants";
+import { teamTree } from "@foundmill/shared/team-tiers";
 import { moduleTabHref, useDepartments } from "@foundmill/widgets/shared/departments";
 import { teamHealthCounts, teamHealthSummary } from "@foundmill/widgets/shared/health";
 import { useWidgetData } from "@foundmill/widgets/data";
 import { plural } from "../fit";
 import type { ModuleScreenProps } from "../registry";
+import { BackgroundHelpersLine } from "./BackgroundHelpers";
 import { AgentStatusWordPill, STATUS_DESCRIPTION, STATUS_ORDER, STATUS_WORD, Screen, agentDept, agentRoleLine, agentEntity, agentHref, taskHref, toIso, useAgents, useLiveAgentStatus, useNow, useTeamOptions, withLiveStatus } from "./shared";
 import type { AgentRow } from "./types";
 
@@ -96,7 +100,10 @@ export function HealthScreen({ businessId }: ModuleScreenProps) {
   const agentsQuery = useAgents();
   const departments = useDepartments();
   const live = useLiveAgentStatus(agentsQuery, { debounceMs: liveRefetchMs });
-  const agents = useMemo(() => withLiveStatus(agentsQuery.data?.agents, live).filter((a) => !a.archivedAt), [agentsQuery.data, live]);
+  const roster = useMemo(() => withLiveStatus(agentsQuery.data?.agents, live).filter((a) => !a.archivedAt), [agentsQuery.data, live]);
+  // The founder's agents: everyone but the background helpers.
+  const tree = useMemo(() => teamTree(roster, departments.data), [roster, departments.data]);
+  const agents = tree.visible;
   const groups = useMemo(() => groupByHealth(agents), [agents]);
   const recruitHref = moduleTabHref(businessId, departments.data, "team", "recruitment");
   // The one team-health definition Home's status strip and department cards use (idle and paused agents need nobody).
@@ -133,7 +140,12 @@ export function HealthScreen({ businessId }: ModuleScreenProps) {
             </span>
           )
         }
-        footer="Statuses change as sessions start, end, fail or loop, and when a credential lapses or a wage cap is reached. Last active is the last time the agent did anything; failed sessions is the share of its sessions that failed over the last 24 hours."
+        footer={
+          <span className="flex flex-wrap items-center gap-x-3 gap-y-1">
+            <span>Statuses change as sessions start, end, fail or loop, and when a credential lapses or a wage cap is reached. Last active is the last time the agent did anything; failed sessions is the share of its sessions that failed over the last 24 hours.</span>
+            <BackgroundHelpersLine businessId={businessId} helpers={tree.background} now={now} />
+          </span>
+        }
       >
         <StatusStrip tiles={tiles} className="rounded-none border-0" aria-label="Agents by health" />
       </Panel>

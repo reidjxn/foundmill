@@ -1,8 +1,16 @@
 import { describe, expect, it } from "vitest";
-import { ARCHETYPES, CHANNEL_KEYS, MODULE_KEYS, MODULE_TABS } from "@foundmill/shared";
-import { ARCHETYPE_SEEDS, ARCHETYPE_SEED_LIST, CHANNEL_SCORING_TASK, DEPARTMENT_DEFAULTS, departmentTabs, getArchetypeSeed, templateKeysForArchetype } from "../archetypes";
+import { ARCHETYPES, BACKGROUND_HELPER_AGENT_TYPES, CHANNEL_KEYS, MODULE_KEYS, MODULE_TABS } from "@foundmill/shared";
+import { ARCHETYPE_SEEDS, ARCHETYPE_SEED_LIST, CHANNEL_SCORING_TASK, DEPARTMENT_DEFAULTS, UTILITY_TEMPLATE_KEYS, departmentTabs, getArchetypeSeed, templateKeysForArchetype } from "../archetypes";
 import { ArchetypeSeed } from "../types";
 import { getTemplate, hasTemplate } from "../registry";
+
+describe("background helpers (One name everywhere, Nov 8, 2026)", () => {
+  it("the display rule's helper list is the utility templates, each on the utility layer; the Planner is not one", () => {
+    expect([...BACKGROUND_HELPER_AGENT_TYPES].sort()).toEqual([...UTILITY_TEMPLATE_KEYS].sort());
+    for (const key of UTILITY_TEMPLATE_KEYS) expect(getTemplate(key).layer, key).toBe("utility");
+    expect(BACKGROUND_HELPER_AGENT_TYPES).not.toContain("planner");
+  });
+});
 
 describe("archetype seeds (BUILD §11.1, AC-11.1.6)", () => {
   it("covers all seven archetypes and validates", () => {

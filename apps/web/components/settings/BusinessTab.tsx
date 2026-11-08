@@ -3,7 +3,8 @@
  * Settings › Business (BUILD §11.15): name, slug, archetype and the currency the business keeps its money in (0025);
  * the logo (upload a real one, generate marks, or go back to the initials mark: `business.logo.*`, owner/admin, saved at
  * once and audited); the brand colours (saved with the rest of the form, with a suggestion read from the logo); and the time zone the business counts its days in
- * (`business.setTimeZone`, saved at once; audit #196).
+ * (`business.setTimeZone`, saved at once; audit #196). Personal or live (the game mode, `PersonalOrLiveSection`) sits here
+ * since Nov 7, 2026: whether the business is on the network is a fact about the business.
  */
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
@@ -19,6 +20,7 @@ import { fieldConflictOf, trpcErrorCode, type RouterOutputs } from "@/lib/trpc";
 import { useTRPC, useTRPCClient } from "@/lib/trpc-react";
 import { useBusiness } from "@/components/shell/business-context";
 import { useInvalidateRouters } from "./SettingsScreen";
+import { PersonalOrLiveSection } from "./PersonalOrLiveSection";
 import { AdminOnly, FormRow, Hint, SaveBar, SettingsSection, useSettingsToast } from "./shared";
 import { businessFields, businessSavePayload, changedFields, initialBusinessForm, rebaseBusinessForm, type BusinessFields } from "./business-form";
 
@@ -191,6 +193,7 @@ export function BusinessTab() {
           disabled={!dirty || !validHex || name.trim().length === 0 || !/^[a-z0-9-]+$/.test(slug) || !!slugError}
         />
       </SettingsSection>
+      <PersonalOrLiveSection />
     </AdminOnly>
   );
 }

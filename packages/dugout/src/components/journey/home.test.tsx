@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { AgentPersonaProvider } from "../foundation/AgentPersona";
 import { GuidanceProvider } from "../guidance/GuidanceProvider";
 import { DayDigest } from "./DayDigest";
 import { DepartmentCard, teamStripWords } from "./DepartmentCard";
@@ -77,6 +78,37 @@ describe("DepartmentCard", () => {
     expect(onOpenAgent).toHaveBeenCalledWith("dept-3-2");
     await user.click(screen.getByRole("button", { name: "Open" }));
     expect(onOpen).toHaveBeenCalledWith("d-distribution");
+  });
+  it("finds the lead by id, not by name, and names it as the team strip does with anthropomorphic agents on", async () => {
+    const user = userEvent.setup();
+    const onOpenAgent = vi.fn();
+    const base = cards[0]!;
+    const twin = { ...base.squad[0]!, id: "twin", name: "Twin", role: "Paid ads", personaKey: "mei" };
+    const leadMember = { ...base.squad[1]!, id: "the-lead", name: "Twin", role: "Distribution lead", personaKey: "malik" };
+    const helper = { ...base.squad[2]!, id: "helper", name: "Classifier", role: "Classification utility", personaKey: "amara", layer: "utility" };
+    const department = { ...base, lead: { id: "the-lead", name: "Twin", seed: "lead", status: "healthy" as const }, squad: [twin, leadMember, helper] };
+    render(
+      <AgentPersonaProvider anthropomorphic>
+        <DepartmentCard department={department} onOpenAgent={onOpenAgent} />
+      </AgentPersonaProvider>,
+    );
+    await user.click(screen.getByRole("button", { name: "Malik (Distribution lead), department lead" }));
+    expect(onOpenAgent).toHaveBeenCalledWith("the-lead");
+    expect(screen.getByRole("button", { name: /^Mei, Paid ads/ })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /^Malik, Distribution lead/ })).toBeTruthy();
+    // A background helper is not in the team strip at all (Leads first).
+    expect(screen.queryByRole("button", { name: /Classifier/ })).toBeNull();
+  });
+
+  it("leaves background helpers out of the team strip and its count, by layer or by tier", () => {
+    const base = cards[0]!;
+    const helper = (id: string, extra: Record<string, unknown>) => ({ ...base.squad[0]!, id, name: "Entity linker", role: "Linking utility", task: null, status: "injured" as const, ...extra });
+    const department = { ...base, squad: [...base.squad, helper("h1", { layer: "utility" }), helper("h2", { tier: "background" as const })] };
+    const { container } = render(<DepartmentCard department={department} />);
+    expect(container.querySelectorAll("[data-squad-member]").length).toBe(base.squad.length);
+    // A down helper never reads as "down" on the founder's card.
+    expect(container.querySelector("[data-team-strip-words]")?.textContent).toBe("3 of 4 working");
+    expect(screen.queryByText(/Entity linker/)).toBeNull();
   });
 });
 

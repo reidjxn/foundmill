@@ -76,6 +76,10 @@ test.describe("product research", () => {
     // The tab opens on Simple while guidance is on (Agent, Status, Current task, Rating; UX plan §7.10), which has no
     // Role column; General carries it.
     await chooseTableView(page, "General");
+    // Leads first (Nov 8, 2026): specialists sit collapsed under their lead; open every lead to find the researcher.
+    const expanders = page.getByRole("button", { name: /^Show \d+ specialists? under / });
+    await expect(expanders.first()).toBeVisible({ timeout: LONG });
+    while ((await expanders.count()) > 0) await expanders.first().click();
     await expect(page.getByRole("row").filter({ hasText: "Product research analyst" }).first()).toBeVisible({ timeout: LONG });
     expect(page.url()).toMatch(new RegExp(`/b/${UUID}/d/team/squad`));
   });

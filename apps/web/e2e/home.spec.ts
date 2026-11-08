@@ -211,9 +211,9 @@ test.describe("home", () => {
   });
 });
 
-/** Home's Autopilot chip: always there, in words (Off, On, Needs your answer, Paused: reason); it opens Settings > Mode. */
+/** Home's Autopilot chip: always there, in words (Off, On, Needs your answer, Paused: reason); it opens Settings > What the team can do. */
 test.describe("home > Autopilot chip", () => {
-  test("shows the state and opens Settings > Mode", async ({ page }) => {
+  test("shows the state and opens Settings > What the team can do", async ({ page }) => {
     await openBusiness(page);
     const chip = page.getByTestId("home-autopilot").getByTestId("autopilot-chip");
     await expect(chip).toBeVisible({ timeout: LONG });
@@ -221,6 +221,7 @@ test.describe("home > Autopilot chip", () => {
     await expect(chip).toHaveAttribute("data-autopilot-state", /^(off|on|waiting|paused)$/);
     await chip.click();
     await expect(page).toHaveURL(/\/settings\/mode$/);
+    await expect(settingsScreen(page).getByRole("navigation", { name: "Settings sections" }).getByRole("link", { name: "What the team can do" })).toHaveAttribute("aria-current", "page");
     await expect(settingsScreen(page).getByTestId("autopilot-section")).toBeVisible({ timeout: LONG });
   });
 });

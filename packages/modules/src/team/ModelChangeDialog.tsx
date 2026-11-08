@@ -7,7 +7,7 @@
 import { useEffect, useState } from "react";
 import { Cpu } from "lucide-react";
 import { CREDITS_CURRENCY } from "@foundmill/config";
-import { ApplyScopeDialog, Button, Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, MODEL_LABELS, ModelPicker, SkeletonText, type ApplyScope, type ModelOption } from "@foundmill/dugout";
+import { ApplyScopeDialog, Button, useAgentPersona, Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, MODEL_LABELS, ModelPicker, SkeletonText, type ApplyScope, type ModelOption } from "@foundmill/dugout";
 import type { ModelKey } from "@foundmill/shared";
 import { useWidgetQuery } from "@foundmill/widgets/data";
 import { InlineError, agentTypeNoun, errorMessage, useAction } from "./shared";
@@ -59,6 +59,8 @@ export interface ModelChangeDialogProps {
 }
 
 export function ModelChangeDialog({ agent, onOpenChange, typeCount, allCount, onApplied }: ModelChangeDialogProps) {
+  // The agent as every other surface names it, under the reader's preference (One name everywhere).
+  const shown = useAgentPersona().labelFor(agent ?? { name: "" });
   const compare = useWidgetQuery<ModelCompareResponse>("agent.model.compare", agent ? { agentId: agent.id } : undefined, { enabled: !!agent });
   const action = useAction();
   const [candidate, setCandidate] = useState<ModelKey | null>(null);
@@ -88,7 +90,7 @@ export function ModelChangeDialog({ agent, onOpenChange, typeCount, allCount, on
       <Dialog open={!!agent && !candidate} onOpenChange={onOpenChange}>
         <DialogContent size="md" data-testid="model-dialog">
           <DialogHeader>
-            <DialogTitle>Model for {agent?.name}</DialogTitle>
+            <DialogTitle>Model for {shown}</DialogTitle>
             <DialogDescription>Cost per month is an estimate from this month's usage. Its skills are re-tested on the new model so the ratings stay honest.</DialogDescription>
           </DialogHeader>
           <DialogBody>
@@ -109,7 +111,7 @@ export function ModelChangeDialog({ agent, onOpenChange, typeCount, allCount, on
           onOpenChange={(o) => {
             if (!o) setCandidate(null);
           }}
-          agentName={agent.name}
+          agentName={shown}
           agentType={agentTypeNoun(agent)}
           typeCount={typeCount}
           allCount={allCount}

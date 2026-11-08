@@ -7,7 +7,7 @@
  *
  * Callers write `inbox.item_created` through the outbox themselves (the event schemas live in @foundmill/events).
  */
-import { formatMoney, founderWords, type Section } from "@foundmill/shared";
+import { agentMention, formatMoney, founderWords, type Section } from "@foundmill/shared";
 import { repos } from "./repos";
 import type { Executor } from "./repos/_shared";
 import type { Approval, InboxItem } from "./schema";
@@ -182,11 +182,15 @@ export function approvalItem(approval: Pick<Approval, "connectorKey" | "tool" | 
   const action = approvalAction(approval, details.connectorName, details.businessName);
   const amount = approvalAmount(approval);
   const task = details.taskTitle?.trim() || null;
+  // The subject and the option lines are plain text with the stored name (the web names the agent under each reader's
+  // preference with `withAgentNames`); the body names it as markup, which EntityLink renders the same way. Stored text
+  // never carries a display choice (docs/DECISIONS.md, One name everywhere).
   const who = details.agentName.trim() || "The team";
+  const whoMd = agentMention({ id: details.agentId, name: details.agentName }) || who;
   if (isReleaseApproval(approval)) {
     const tests = details.tests === undefined ? null : details.tests;
     const tested = tests && tests.total > 0 ? (tests.passing === tests.total ? "It passed every quality check." : "It passed most of its quality checks.") : tests === null && details.tests !== undefined ? "There was nothing in it to check." : "";
-    const body = `${who} finished${task ? ` “${task}”` : " a change"}. ${tested} OK to put it live?`.replace(/\s+/g, " ");
+    const body = `${whoMd} finished${task ? ` “${task}”` : " a change"}. ${tested} OK to put it live?`.replace(/\s+/g, " ");
     return {
       type: "decision" as const,
       from_agent_id: details.agentId,
@@ -207,7 +211,7 @@ export function approvalItem(approval: Pick<Approval, "connectorKey" | "tool" | 
       entity_ids: [],
     };
   }
-  const body = `${who} wants to ${toolWords(approval.tool)}${approval.connectorKey && approval.connectorKey !== PLATFORM_CONNECTOR ? ` on ${connectorLabel(approval.connectorKey)}` : ""}${task ? ` for “${task}”` : ""}${amount ? `, spending **${amount}**` : ""}. OK?`;
+  const body = `${whoMd} wants to ${toolWords(approval.tool)}${approval.connectorKey && approval.connectorKey !== PLATFORM_CONNECTOR ? ` on ${connectorLabel(approval.connectorKey)}` : ""}${task ? ` for “${task}”` : ""}${amount ? `, spending **${amount}**` : ""}. OK?`;
   return {
     type: "decision" as const,
     from_agent_id: details.agentId,

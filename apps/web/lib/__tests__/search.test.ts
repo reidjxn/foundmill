@@ -57,6 +57,12 @@ describe("universal search", () => {
     expect(items.find((i) => i.id === "command:refresh-inbox")?.description).toBe("Ask the team for one quick note; no new work starts");
   });
 
+  it("calls the mode tab What the team can do; the slug, spending and approvals still find it (founder, 2026-11-07)", () => {
+    const items = localPaletteItems({ businessId: BID, departments, live: false });
+    expect(items.find((i) => i.id === "command:settings:mode")).toMatchObject({ label: "Settings · What the team can do", href: `/b/${BID}/settings/mode` });
+    for (const q of ["mode", "spending", "approvals", "ask first"]) expect(filterLocal(items, q).some((i) => i.id === "command:settings:mode"), q).toBe(true);
+  });
+
   it("offers Edit layout only where the screen has a layout to edit (audit OL-29)", () => {
     expect(localPaletteItems({ businessId: BID, departments, live: false }).some((i) => i.id === "command:edit-layout")).toBe(false);
     expect(localPaletteItems({ businessId: BID, departments, live: false, canEditLayout: true }).some((i) => i.id === "command:edit-layout")).toBe(true);

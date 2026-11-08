@@ -236,7 +236,7 @@ describe("CommitForm (BUILD §11.1 Commit screen; AC-11.1.6, AC-11.1.7)", () => 
     expect(screen.getByTestId("reassure-name").textContent).toBe("You can change this later in Settings › Business.");
     expect(screen.getByTestId("reassure-logo").textContent).toBe("You can change this later in Settings › Business.");
     expect(screen.getByTestId("reassure-archetype").textContent).toBe("You can change this later in Settings › Business.");
-    expect(screen.getByTestId("reassure-mode").textContent).toBe("You can change this later in Settings › Mode.");
+    expect(screen.getByTestId("reassure-mode").textContent).toBe("You can change this later in Settings › What the team can do.");
     cleanup();
     render(
       <GuidanceProvider value={{ guidance: "off", terms: TERMS }}>

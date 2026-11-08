@@ -86,14 +86,16 @@ describe("the agent's own words", () => {
 
 describe("the command palette's Ask and Generate rows", () => {
   const departments = [
-    { id: "d1", name: "Retail Partnerships", slug: "retail", colourToken: "dept-3", moduleKeys: ["distribution"], lead: { id: "juno", name: "Juno", role: "Head of Retail Partnerships", avatarSeed: "j" }, squad: [{ id: "juno", name: "Juno", role: "Head of Retail Partnerships", avatarSeed: "j" }, { id: "pike", name: "Pike", role: "Wholesale analyst", avatarSeed: null }], tabs: [{ slug: "formation", position: 0 }] },
+    { id: "d1", name: "Retail Partnerships", slug: "retail", colourToken: "dept-3", moduleKeys: ["distribution"], lead: { id: "juno", name: "Juno", role: "Head of Retail Partnerships", avatarSeed: "j" }, squad: [{ id: "juno", name: "Juno", role: "Head of Retail Partnerships", avatarSeed: "j" }, { id: "pike", name: "Pike", role: "Wholesale analyst", avatarSeed: null }, { id: "linker", name: "Entity linker", role: "Linking utility", avatarSeed: null, layer: "utility" }, { id: "sorter", name: "Inbound sorter", role: "Sorting utility", avatarSeed: null, tier: "background" as const }], tabs: [{ slug: "formation", position: 0 }] },
     { id: "d2", name: "Development", slug: "development", colourToken: "dept-2", moduleKeys: ["development"], lead: { id: "eng", name: "Engineering Lead", role: "Head of Engineering", avatarSeed: "e" }, squad: [], tabs: [{ slug: "plan", position: 1 }] },
     { id: "d3", name: "Hidden", slug: "hidden", colourToken: "dept-4", moduleKeys: [], hidden: true, lead: { id: "h", name: "Hidden lead", role: null, avatarSeed: null }, squad: [], tabs: [] },
   ];
   const agents = paletteAgents(departments);
 
   it("leads with the department leads, and with the agents the query names", () => {
+    // Background helpers are never asked anything (Leads first).
     expect(agents.map((a) => a.id)).toEqual(["juno", "eng", "pike"]);
+    expect(askPaletteItems(agents, "entity linker", () => null)).not.toContainEqual(expect.objectContaining({ label: "Ask Entity linker" }));
     expect(askPaletteItems(agents, "", () => null).map((i) => i.label)).toEqual(["Ask Juno", "Ask Engineering Lead"]);
     const named = askPaletteItems(agents, "pike how are the wholesale numbers?", () => null);
     expect(named.map((i) => i.label)).toEqual(["Ask Pike"]);
