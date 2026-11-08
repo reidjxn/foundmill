@@ -4,6 +4,7 @@
  */
 import { useSyncExternalStore, type ReactElement, type ReactNode } from "react";
 import { render } from "@testing-library/react";
+import { BuilderViewProvider } from "@foundmill/dugout";
 import { WidgetDataProvider, type QueryOptions, type QueryState, type WidgetDataSource } from "@foundmill/widgets";
 import { TeamScreenOptionsProvider, type TeamScreenOptions } from "../shared";
 
@@ -117,11 +118,14 @@ export function createFakeSource(opts: { businessId?: string; responses?: Record
 }
 
 /** Render a screen inside the data provider with the fixed clock. */
-export function renderScreen(fake: FakeSource, ui: ReactNode, options: TeamScreenOptions = {}) {
+export function renderScreen(fake: FakeSource, ui: ReactNode, options: TeamScreenOptions = {}, opts: { builder?: boolean } = {}) {
+  // Builder view on by default, so the engine these tests read shows; `{ builder: false }` renders the founder view.
   const el: ReactElement = (
-    <TeamScreenOptionsProvider value={{ now: NOW, liveRefetchMs: 10, ...options }}>
-      <WidgetDataProvider source={fake.source}>{ui}</WidgetDataProvider>
-    </TeamScreenOptionsProvider>
+    <BuilderViewProvider on={opts.builder ?? true}>
+      <TeamScreenOptionsProvider value={{ now: NOW, liveRefetchMs: 10, ...options }}>
+        <WidgetDataProvider source={fake.source}>{ui}</WidgetDataProvider>
+      </TeamScreenOptionsProvider>
+    </BuilderViewProvider>
   );
   return render(el);
 }

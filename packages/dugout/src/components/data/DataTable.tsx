@@ -51,6 +51,7 @@ import { cn } from "../../lib/cn";
 import { formatNumber } from "../../lib/format";
 import { uniqueId } from "../../lib/seed";
 import { Checkbox } from "../foundation/Checkbox";
+import { useBuilderView } from "../guidance/BuilderView";
 import { useGuidanceMode } from "../guidance/GuidanceProvider";
 import { Term } from "../guidance/Term";
 import {
@@ -137,6 +138,12 @@ declare module "@tanstack/react-table" {
      * head, the whole label sorting as before.
      */
     term?: string;
+    /**
+     * Builder view only (docs/DESIGN.md "Builder view"): while the switch is off the column is not part of the table at
+     * all (no head, no chooser entry, no filter, no CSV column); saved views skip it, and a view saved while off keeps
+     * it for when the switch is on again.
+     */
+    builderOnly?: boolean;
   }
 }
 
@@ -144,11 +151,15 @@ export type DataTableColumn<T> = ColumnDef<T, unknown>;
 
 export interface DataTableProps<T> {
   data: readonly T[];
+  /** Columns; one with `meta.builderOnly` is dropped while Builder view is off. */
   columns: DataTableColumn<T>[];
   /** Stable row id; default `row.id` when present, else the index. */
   getRowId?: (row: T, index: number) => string;
 
-  /** Saved views `{id, name, columns, sort, filters}`. Omit for a table without a view switcher. */
+  /**
+   * Saved views `{id, name, columns, sort, filters}`. Omit for a table without a view switcher. A view with
+   * `builderOnly` is not offered while Builder view is off (the first other view opens instead).
+   */
   views?: SavedView[];
   activeViewId?: string | null;
   defaultViewId?: string;
@@ -357,15 +368,51 @@ export function cellTitle(value: unknown): string | undefined {
  */
 const MACHINE_DATE_RE = /^\d{4}-\d{2}-\d{2}(?:[T ]\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:?\d{2})?)?$/;
 
+/** A column definition's id (its `id`, else its `accessorKey`). */
+function defId<T>(def: ColumnDef<T, unknown>): string {
+  return def.id ?? (def as { accessorKey?: string }).accessorKey ?? "";
+}
+
+/**
+ * Builder view's part of a table: while it is off, the `builderOnly` columns and views drop out. `hiddenColumnIds`
+ * are the dropped columns (a view's sort and filters skip them); `restoreViews` puts the dropped views back into a
+ * changed list, in their places, so saving a view while off never deletes one the founder cannot see.
+ */
+export function builderViewTable<T>(columns: readonly DataTableColumn<T>[], views: readonly SavedView[] | undefined, builder: boolean) {
+  if (builder) return { columns: columns as DataTableColumn<T>[], views: views as SavedView[] | undefined, hiddenColumnIds: new Set<string>(), hiddenViewIds: new Set<string>(), restoreViews: (next: SavedView[]) => next };
+  const hiddenColumnIds = new Set(columns.filter((c) => c.meta?.builderOnly).map((c) => defId(c)).filter(Boolean));
+  const hiddenViews = (views ?? []).filter((v) => v.builderOnly);
+  const hiddenViewIds = new Set(hiddenViews.map((v) => v.id));
+  const restoreViews = (next: SavedView[]): SavedView[] => {
+    if (hiddenViews.length === 0) return next;
+    const byId = new Map(next.map((v) => [v.id, v]));
+    const out: SavedView[] = [];
+    for (const v of views ?? []) {
+      if (hiddenViewIds.has(v.id)) out.push(v);
+      else if (byId.has(v.id)) out.push(byId.get(v.id)!);
+    }
+    const known = new Set((views ?? []).map((v) => v.id));
+    for (const v of next) if (!known.has(v.id)) out.push(v);
+    return out;
+  };
+  return {
+    columns: hiddenColumnIds.size ? columns.filter((c) => !hiddenColumnIds.has(defId(c))) : (columns as DataTableColumn<T>[]),
+    views: views && hiddenViewIds.size ? views.filter((v) => !hiddenViewIds.has(v.id)) : (views as SavedView[] | undefined),
+    hiddenColumnIds,
+    hiddenViewIds,
+    restoreViews,
+  };
+}
+
 export function DataTable<T>(props: DataTableProps<T>) {
   const {
     data,
-    columns,
+    columns: columnsProp,
     getRowId = defaultRowId,
-    views,
+    views: viewsProp,
     activeViewId: activeViewIdProp,
     defaultViewId,
-    onViewsChange,
+    onViewsChange: onViewsChangeProp,
     onActiveViewChange,
     density: densityProp,
     defaultDensity = "compact",
@@ -405,6 +452,12 @@ export function DataTable<T>(props: DataTableProps<T>) {
   } = props;
   const nested = !!getSubRows;
 
+  // ---- Builder view: its columns and views are not part of the table while it is off ---------------------------------
+  const builder = useBuilderView();
+  const gated = useMemo(() => builderViewTable(columnsProp, viewsProp, builder), [columnsProp, viewsProp, builder]);
+  const { columns, views, hiddenColumnIds } = gated;
+  const onViewsChange = onViewsChangeProp ? (next: SavedView[]) => onViewsChangeProp(gated.restoreViews(next)) : undefined;
+
   const tableId = useId();
   const scrollRef = useRef<HTMLDivElement>(null);
 
@@ -412,7 +465,9 @@ export function DataTable<T>(props: DataTableProps<T>) {
   const [activeViewIdState, setActiveViewIdState] = useState<string | null>(
     () => activeViewIdProp ?? defaultViewId ?? views?.[0]?.id ?? null,
   );
-  const activeViewId = activeViewIdProp !== undefined ? activeViewIdProp : activeViewIdState;
+  const chosenViewId = activeViewIdProp !== undefined ? activeViewIdProp : activeViewIdState;
+  // A Builder view view chosen while the switch was on opens as the first other view while it is off.
+  const activeViewId = chosenViewId && gated.hiddenViewIds.has(chosenViewId) ? (views?.[0]?.id ?? null) : chosenViewId;
   const activeView = useMemo(
     () => views?.find((v) => v.id === activeViewId) ?? null,
     [views, activeViewId],
@@ -427,11 +482,11 @@ export function DataTable<T>(props: DataTableProps<T>) {
   const viewToState = useCallback(
     (v: SavedView | null): ViewState => ({
       columns: v ? v.columns.filter((id) => allColumnIds.includes(id)) : allColumnIds,
-      sort: v ? v.sort.map((s) => ({ id: s.id, desc: s.desc })) : [],
-      filters: v ? v.filters.map((f) => ({ ...f })) : [],
+      sort: v ? v.sort.filter((s) => !hiddenColumnIds.has(s.id)).map((s) => ({ id: s.id, desc: s.desc })) : [],
+      filters: v ? v.filters.filter((f) => !hiddenColumnIds.has(f.field)).map((f) => ({ ...f })) : [],
       density: v?.density ?? densityProp ?? defaultDensity,
     }),
-    [allColumnIds, densityProp, defaultDensity],
+    [allColumnIds, hiddenColumnIds, densityProp, defaultDensity],
   );
 
   const [sorting, setSorting] = useState<SortingState>(() => viewToState(activeView).sort);
@@ -486,7 +541,8 @@ export function DataTable<T>(props: DataTableProps<T>) {
         v.id === activeView.id
           ? {
               ...v,
-              columns: visibleIds,
+              // Saved while Builder view is off: the view keeps the Builder view columns it had, for when it is on.
+              columns: [...visibleIds, ...v.columns.filter((id) => hiddenColumnIds.has(id))],
               sort: sorting.map((s) => ({ id: s.id, desc: s.desc })),
               filters: chips,
               density,

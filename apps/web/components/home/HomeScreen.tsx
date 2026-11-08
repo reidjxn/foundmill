@@ -34,6 +34,7 @@ import {
   TrophyCabinet,
   WidgetGrid,
   nextStepsFor,
+  useBuilderView,
   useGuided,
   useToast,
   type WidgetLayout,
@@ -469,11 +470,12 @@ function HomeLead({ businessId, currency }: { businessId: string; currency: stri
   // What needs the founder: the Inbox's Needs you count (open decisions wait there without holding Continue since Nov 7,
   // 2026), else the hard stops the shell knows.
   const blocking = inboxQ.data?.counts?.respond ?? inboxQ.data?.blocking ?? business.blockingItems ?? 0;
+  const builder = useBuilderView();
   const steps = useMemo(() => {
     if (!cycleQ.data) return [];
-    const facts = nextStepFacts({ foundationsStatus: business.foundationsStatus, blocking, unread: unreadNotes(items), cycle: cycleQ.data, distributionStartedAt: business.distributionStartedAt });
+    const facts = nextStepFacts({ foundationsStatus: business.foundationsStatus, blocking, unread: unreadNotes(items), cycle: cycleQ.data, distributionStartedAt: business.distributionStartedAt, builder });
     return withContinueAction(nextStepsFor(facts, { vision: visionHref, inboxRespond: respondHref(businessId, items), board: boardHref }), focusContinueButton);
-  }, [cycleQ.data, business.foundationsStatus, business.distributionStartedAt, blocking, items, visionHref, boardHref, businessId]);
+  }, [cycleQ.data, business.foundationsStatus, business.distributionStartedAt, blocking, items, visionHref, boardHref, businessId, builder]);
   if (!ribbon.data || !cycleQ.data) return null;
   if (dayOne) {
     return (

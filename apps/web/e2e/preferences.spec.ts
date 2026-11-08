@@ -132,9 +132,11 @@ test.describe("settings › preferences: date and time format", () => {
     await search.fill("24-hour");
     const option = palette.getByRole("option", { name: /^Preferences/ }).first();
     await expect(option).toBeVisible({ timeout: LONG });
-    await expect(option).toContainText("Your date format, guidance and text size, in every business");
-    // The guided layer's switch lives here too, so "guidance" and "text size" find the same row.
+    await expect(option).toContainText("Your date format, guidance, text size and Builder view, in every business");
+    // The guided layer's switch and Builder view live here too, so "guidance", "builder view" and "text size" find the same row.
     await search.fill("guidance");
+    await expect(palette.getByRole("option", { name: /^Preferences/ }).first()).toBeVisible({ timeout: LONG });
+    await search.fill("builder view");
     await expect(palette.getByRole("option", { name: /^Preferences/ }).first()).toBeVisible({ timeout: LONG });
     await search.fill("text size");
     await expect(palette.getByRole("option", { name: /^Preferences/ }).first()).toBeVisible({ timeout: LONG });

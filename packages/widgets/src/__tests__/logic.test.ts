@@ -518,6 +518,17 @@ describe("moduleTabLabel", () => {
   });
 });
 
+describe("Builder view in department links (docs/DESIGN.md)", () => {
+  it("a module link without a tab skips a Builder view tab while off; a label uses the founder's title only while off", () => {
+    const tabs = [{ id: "c", slug: "code", title: "Code", position: 0 }, { id: "l", slug: "training-ground", title: "Live sessions", position: 1 }];
+    const rows = [{ id: "d", name: "Development", slug: "development", colourToken: "dept-1", position: 0, moduleKeys: ["development"], hidden: false, tabs }] as never;
+    expect(moduleHref("b1", rows, "development")).toBe("/b/b1/d/development/training-ground");
+    expect(moduleHref("b1", rows, "development", undefined, true)).toBe("/b/b1/d/development/code");
+    expect(moduleTabLabel(rows, "development", "training-ground")).toBe("Development › Working now");
+    expect(moduleTabLabel(rows, "development", "training-ground", true)).toBe("Development › Live sessions");
+  });
+});
+
 describe("moduleHref", () => {
   it("links a tab to the first department over the module that shows it (Operations shows only Specialists and Plan)", () => {
     const dev = departments[0]!;

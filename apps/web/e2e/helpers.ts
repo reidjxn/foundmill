@@ -238,6 +238,26 @@ export async function restoreFounderProfile(api: APIRequestContext, before: Foun
   expect(res.ok(), `founder.profile.update answered ${res.status()}: ${await res.text()}`).toBe(true);
 }
 
+/**
+ * Turns the dev founder's Builder view on or off (docs/DESIGN.md "Builder view"; global-setup.ts starts every run with
+ * it off) and answers what it was, so a spec that needs the engine on can restore it in afterAll:
+ *   test.beforeAll(async ({ playwright }) => (before = await setBuilderView(playwright, true)));
+ *   test.afterAll(async ({ playwright }) => void (await setBuilderView(playwright, before)));
+ */
+export async function setBuilderView(playwright: PlaywrightWorkerArgs["playwright"], on: boolean): Promise<boolean> {
+  const api = await devApi(playwright);
+  try {
+    const read = await api.get("/trpc/founder.preferences.guidance");
+    expect(read.ok(), `founder.preferences.guidance answered ${read.status()}`).toBe(true);
+    const was = ((await read.json()) as { result: { data: { json: { builderView?: boolean } } } }).result.data.json.builderView === true;
+    const res = await api.post("/trpc/founder.preferences.update", { data: { json: { builderView: on } } });
+    expect(res.ok(), `founder.preferences.update answered ${res.status()}: ${await res.text()}`).toBe(true);
+    return was;
+  } finally {
+    await api.dispose();
+  }
+}
+
 export { DEMO_OWNER_DISPLAY_NAME, test, expect };
 
 /* ---------- The first days (founder, 2026-10-18) ---------- */

@@ -1,6 +1,7 @@
 import { Circle, CircleCheck, CircleMinus, CirclePlay, FlaskConical, ListChecks } from "lucide-react";
 import { cn } from "../../lib/cn";
 import { Chip } from "../foundation/Chip";
+import { BuilderOnly } from "../guidance/BuilderView";
 import { EmptyState } from "../foundation/EmptyState";
 import { Icon, type IconComponent } from "../foundation/Icon";
 import { Term } from "../guidance/Term";
@@ -56,7 +57,9 @@ export function PlanView({ plan, tests, className }: PlanViewProps) {
           );
         })}
       </ol>
+      {/* The acceptance line (test counts) is Builder view's. */}
       {tests ? (
+        <BuilderOnly>
         <div className="flex shrink-0 flex-col gap-1 border-t border-line bg-surface-1 px-panel-pad py-2 text-small">
           <div className="flex items-center gap-1.5 text-primary">
             <Icon icon={FlaskConical} size="inline" className="text-secondary" />
@@ -79,6 +82,7 @@ export function PlanView({ plan, tests, className }: PlanViewProps) {
             </ul>
           ) : null}
         </div>
+        </BuilderOnly>
       ) : null}
     </div>
   );

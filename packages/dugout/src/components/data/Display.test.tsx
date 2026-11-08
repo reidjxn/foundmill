@@ -1,5 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import { fireEvent, render as rtlRender, screen, within } from "@testing-library/react";
+import type { ReactElement } from "react";
+import { BuilderViewProvider } from "../guidance/BuilderView";
 import userEvent from "@testing-library/user-event";
 import { useState } from "react";
 import { GuidanceProvider } from "../guidance/GuidanceProvider";
@@ -18,6 +20,9 @@ import {
   SPEC_PROPOSED,
 } from "./fixtures";
 import type { HunkDecisions } from "./diff";
+
+/** Builder view on for every render here (the engine these tests read); BuilderView.test.tsx covers it off. */
+const render = (ui: ReactElement, opts?: Parameters<typeof rtlRender>[1]) => rtlRender(ui, { wrapper: ({ children }) => <BuilderViewProvider on>{children}</BuilderViewProvider>, ...opts });
 
 describe("RatingBar", () => {
   it("draws 20 cells, fills the value in the ramp tone and names the band", () => {

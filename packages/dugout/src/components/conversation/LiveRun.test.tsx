@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { render, screen, within } from "@testing-library/react";
+import { render as rtlRender, screen, within } from "@testing-library/react";
+import type { ReactElement } from "react";
+import { BuilderViewProvider } from "../guidance/BuilderView";
 import {
   LiveRun,
   formatLogTime,
@@ -8,6 +10,9 @@ import {
   type LiveRunItem,
 } from "./LiveRun";
 import { RUN_ACTIVITY, RUN_ITEMS, RUN_LOG, RUN_STEPS } from "./fixtures";
+
+/** Builder view on for every render here (the engine these tests read); BuilderView.test.tsx covers it off. */
+const render = (ui: ReactElement, opts?: Parameters<typeof rtlRender>[1]) => rtlRender(ui, { wrapper: ({ children }) => <BuilderViewProvider on>{children}</BuilderViewProvider>, ...opts });
 
 const METER = {
   tokens: 4812,

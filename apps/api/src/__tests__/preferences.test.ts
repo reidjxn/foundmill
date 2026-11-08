@@ -26,7 +26,7 @@ const code = async (p: Promise<unknown>) => {
 };
 
 /** The guided layer's defaults, until the person chooses. */
-const GUIDED = { guidance: "on", textSize: "standard", explainersSeen: {}, toursDone: {}, checklistDismissedAt: null, anthropomorphicAgents: false, agentStyle: "humans" };
+const GUIDED = { guidance: "on", textSize: "standard", explainersSeen: {}, toursDone: {}, checklistDismissedAt: null, anthropomorphicAgents: false, agentStyle: "humans", builderView: false };
 
 describe("founder.preferences", () => {
   it("reads US dates and 12-hour times until the person chooses, without writing a row", async () => {
@@ -102,6 +102,26 @@ describe("founder.preferences", () => {
     expect((await hz.caller({ userId: hz.B.memberId }).founder.preferences.guidance()).anthropomorphicAgents).toBe(false);
     expect(await me.founder.preferences.update({ anthropomorphicAgents: false })).toMatchObject({ anthropomorphicAgents: false });
     expect(await code(me.founder.preferences.update({ anthropomorphicAgents: "on" } as never))).toBe("BAD_REQUEST");
+  });
+
+  it("Builder view (0073): off until chosen, round-trips through update and guidance, kept by a reset, the account's own", async () => {
+    const fresh = await hz.h.createUser("builder-view-preferences@test.local");
+    const me = hz.caller({ userId: fresh });
+    expect((await me.founder.preferences.guidance()).builderView).toBe(false);
+    expect(await me.founder.preferences.update({ builderView: true })).toMatchObject({ date: "us", time: "12h", guidance: "on", builderView: true });
+    expect(await me.founder.preferences.guidance()).toEqual({ ...GUIDED, builderView: true });
+    // Another preference, and a reset of the tours, keep it.
+    expect(await me.founder.preferences.update({ guidance: "off" })).toMatchObject({ builderView: true, guidance: "off" });
+    expect(await me.founder.preferences.update({ reset: true })).toMatchObject({ builderView: true });
+    // A second account neither sees it nor changes it: its own switch is its own, and no user id can be named.
+    const other = hz.caller({ userId: hz.B.memberId });
+    expect((await other.founder.preferences.guidance()).builderView).toBe(false);
+    expect(await code(other.founder.preferences.update({ builderView: false, userId: fresh } as never))).toBe("BAD_REQUEST");
+    expect((await me.founder.preferences.guidance()).builderView).toBe(true);
+    const rows = await hz.db.select().from(accountPreferences).where(eq(accountPreferences.userId, fresh));
+    expect(rows.map((r) => r.builderView)).toEqual([true]);
+    expect(await me.founder.preferences.update({ builderView: false })).toMatchObject({ builderView: false });
+    expect(await code(me.founder.preferences.update({ builderView: "on" } as never))).toBe("BAD_REQUEST");
   });
 
   it("agent style (0069): humans until chosen, each style round-trips with or without the switch, is kept by a reset, and an unknown one is refused", async () => {

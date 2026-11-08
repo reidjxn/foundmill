@@ -6,6 +6,7 @@ import { Chip } from "../foundation/Chip";
 import { Input } from "../foundation/Input";
 import { StatusPill, type StatusTone } from "../foundation/StatusPill";
 import { GuidanceProvider } from "../guidance/GuidanceProvider";
+import { BuilderViewProvider } from "../guidance/BuilderView";
 import { DataTable, type DataTableColumn } from "./DataTable";
 import { EntityLink } from "./EntityLink";
 import { RatingFigure } from "./RatingBar";
@@ -272,6 +273,28 @@ export const SmallWithoutViews: Story = {
       height={380}
     />
   ),
+};
+
+/**
+ * Builder view (docs/DESIGN.md): a column with `meta.builderOnly` and a view with `builderOnly` are part of the table
+ * only while the switch is on. Off on the left, on on the right (the toolbar toggle does not change this one).
+ */
+export const BuilderOnlyColumns: Story = {
+  name: "Builder view columns",
+  args: { data: [], columns: [] },
+  render: () => {
+    const gated = columns.slice(0, 7).map((c, i) => (i === 5 ? { ...c, meta: { ...c.meta, builderOnly: true } } : c));
+    return (
+      <div className="grid grid-cols-2 gap-gutter">
+        <BuilderViewProvider on={false}>
+          <DataTable title="Builder view off" data={generateLeads(12, "builder-off")} columns={gated} height={380} />
+        </BuilderViewProvider>
+        <BuilderViewProvider on>
+          <DataTable title="Builder view on" data={generateLeads(12, "builder-on")} columns={gated} height={380} />
+        </BuilderViewProvider>
+      </div>
+    );
+  },
 };
 
 /**

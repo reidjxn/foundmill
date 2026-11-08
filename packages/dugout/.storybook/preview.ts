@@ -1,8 +1,31 @@
-import type { Preview } from "@storybook/react-vite";
+import type { Decorator, Preview } from "@storybook/react-vite";
+import { createElement } from "react";
+import { BuilderViewProvider } from "../src/components/guidance/BuilderView";
 import "../src/fonts.css";
 import "../src/dugout.css";
 
+/**
+ * Builder view (docs/DESIGN.md "Builder view"): the toolbar's "Builder view" toggle. On by default here, so every story
+ * shows the engine as before; switch it off to see what a founder sees. A story can pin it with `globals.builderView`.
+ */
+const withBuilderView: Decorator = (Story, context) => createElement(BuilderViewProvider, { on: context.globals.builderView !== "off" }, createElement(Story));
+
 const preview: Preview = {
+  decorators: [withBuilderView],
+  globalTypes: {
+    builderView: {
+      description: "Builder view: show how the platform runs the team (cycle numbers, tokens, technical columns)",
+      toolbar: {
+        title: "Builder view",
+        icon: "wrench",
+        items: [
+          { value: "on", title: "Builder view on" },
+          { value: "off", title: "Builder view off" },
+        ],
+        dynamicTitle: true,
+      },
+    },
+  },
   parameters: {
     layout: "padded",
     backgrounds: {
@@ -27,6 +50,7 @@ const preview: Preview = {
   },
   initialGlobals: {
     backgrounds: { value: "base" },
+    builderView: "on",
   },
   tags: ["autodocs"],
 };

@@ -1,5 +1,14 @@
 import { expect, test, type Page } from "@playwright/test";
-import { chooseTableView, devApi, LONG, NORTHWIND_BUSINESS_ID, signIn } from "./helpers";
+import { chooseTableView, devApi, LONG, NORTHWIND_BUSINESS_ID, signIn, setBuilderView } from "./helpers";
+
+// Builder view on for this file (it walks every tab, Builder view's too); global-setup.ts starts every run with it off. Restored afterwards.
+let builderViewBefore = false;
+test.beforeAll(async ({ playwright }) => {
+  builderViewBefore = await setBuilderView(playwright, true);
+});
+test.afterAll(async ({ playwright }) => {
+  await setBuilderView(playwright, builderViewBefore);
+});
 
 /**
  * Nothing the founder reads is ever cut off (founder, 2026-10-09: "some buttons cut off text ... make sure the spacing

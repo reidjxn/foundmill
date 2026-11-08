@@ -89,6 +89,11 @@ export function useStreamStatus(): StreamStatus {
 
 /** How long a business's channel may be down before the shell says so: a blip never flashes a chip. */
 export const CONNECTION_GRACE_MS = 3_000;
+/**
+ * With Builder view off (founder, 2026-11-08): only an outage longer than this shows anything, and then only the quiet
+ * "Updates may be late" chip; a short reconnect shows nothing.
+ */
+export const LATE_NOTICE_MS = 30_000;
 export type ConnectionNoticeState = "reconnecting" | "paused";
 
 /**

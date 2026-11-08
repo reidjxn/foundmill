@@ -7,6 +7,7 @@
  */
 import { KEYBOARD_SHORTCUTS_HELP_ITEM, type PaletteHelpItem, type PaletteItem, type SearchQuery } from "@foundmill/dugout";
 import type { DeptColourToken, EntityKind, Glossary } from "@foundmill/shared";
+import { visibleTabs } from "@foundmill/shared/constants";
 import { learnPath, termsWithGlossary } from "@foundmill/shared/terms";
 import { routes } from "@foundmill/widgets/shared/routes";
 import { accountRoutes } from "./account-routes";
@@ -65,6 +66,8 @@ export interface LocalPaletteInput {
   businesses?: readonly SearchBusiness[];
   /** What the person may open and change (walled departments, the CRM, admin-only commands). Default: everything. */
   access?: Access;
+  /** Builder view: its tabs are offered only while it is on, and engine tabs carry the founder's names while off. Default off. */
+  builder?: boolean;
 }
 
 export function localPaletteItems(input: LocalPaletteInput): PaletteItem[] {
@@ -82,7 +85,7 @@ export function localPaletteItems(input: LocalPaletteInput): PaletteItem[] {
   for (const d of input.departments) {
     // Hidden departments, and those whose every module is walled for this person, are not offered.
     if (d.hidden || !canOpenDepartment(access, d)) continue;
-    const tabs = d.tabs.slice().sort((a, b) => a.position - b.position);
+    const tabs = visibleTabs(d, input.builder ?? false);
     const first = tabs[0];
     items.push({ id: `department:${d.id}`, kind: "department", label: d.name, dept: d.colourToken, href: first ? routes.department(bid, d.slug, first.slug) : undefined, keywords: [d.slug] });
     for (const t of tabs) items.push({ id: `screen:${d.id}:${t.slug}`, kind: "screen", label: `${d.name} · ${t.title}`, dept: d.colourToken, href: routes.department(bid, d.slug, t.slug), keywords: [d.slug, t.slug] });
@@ -96,9 +99,9 @@ export function localPaletteItems(input: LocalPaletteInput): PaletteItem[] {
     id: "command:preferences",
     kind: "command",
     label: "Preferences",
-    description: "Your date format, guidance and text size, in every business",
+    description: "Your date format, guidance, text size and Builder view, in every business",
     href: routes.settings(bid, "preferences"),
-    keywords: ["settings", "date format", "time format", "24-hour", "12-hour", "clock", "day first", "ISO 8601", "guidance", "explain", "text size", "comfortable", "checklist", "tour"],
+    keywords: ["settings", "date format", "time format", "24-hour", "12-hour", "clock", "day first", "ISO 8601", "guidance", "explain", "text size", "comfortable", "checklist", "tour", "builder view", "technical", "tokens"],
   });
   // Commands a role cannot use are not offered (they would only answer with a refusal).
   if (access.canChange) items.push({ id: "command:refresh-inbox", kind: "command", label: "Refresh Inbox", description: "Ask the team for one quick note; no new work starts", shortcut: ["R"] });

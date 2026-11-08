@@ -5,7 +5,7 @@
  */
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
-import { TooltipProvider } from "@foundmill/dugout";
+import { BuilderViewProvider, TooltipProvider } from "@foundmill/dugout";
 
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn(), replace: vi.fn() }), usePathname: () => "/", useSearchParams: () => new URLSearchParams() }));
 
@@ -36,9 +36,11 @@ const approval: ApprovalPanelProps["approval"] = {
 describe("ApprovalPanel", () => {
   it("leads with the sentence, keeps the call and the arguments behind Details, and says Needs your answer", () => {
     render(
-      <TooltipProvider>
-        <ApprovalPanel approval={approval} businessId={BID} departments={[]} reason="" onReasonChange={vi.fn()} answered={false} />
-      </TooltipProvider>,
+      <BuilderViewProvider on>
+        <TooltipProvider>
+          <ApprovalPanel approval={approval} businessId={BID} departments={[]} reason="" onReasonChange={vi.fn()} answered={false} />
+        </TooltipProvider>
+      </BuilderViewProvider>,
     );
     const panel = screen.getByTestId("approval-panel");
     expect(screen.getByTestId("approval-summary").textContent).toBe("Priya wants to set the paid ads budget to £600.00.");
@@ -58,13 +60,28 @@ describe("ApprovalPanel", () => {
 
   it("leaves out what the reader's walls hide, and locks the reason once answered", () => {
     render(
-      <TooltipProvider>
-        <ApprovalPanel approval={{ ...approval, args: null, argsHidden: true, amount: null, amountHidden: true, outcome: "rejected" }} businessId={BID} departments={[]} reason="" onReasonChange={vi.fn()} answered />
-      </TooltipProvider>,
+      <BuilderViewProvider on>
+        <TooltipProvider>
+          <ApprovalPanel approval={{ ...approval, args: null, argsHidden: true, amount: null, amountHidden: true, outcome: "rejected" }} businessId={BID} departments={[]} reason="" onReasonChange={vi.fn()} answered />
+        </TooltipProvider>
+      </BuilderViewProvider>,
     );
     expect(screen.getByTestId("approval-summary").textContent).toBe("Priya wants to set the budget.");
     expect(screen.getAllByText("Hidden by your section permissions").length).toBe(2);
     expect(screen.queryByTestId("approval-reason")).toBeNull();
     expect(screen.getByText("Rejected")).toBeTruthy();
+  });
+
+  it("Builder view off: the sentence, the amount and the answer stay; Details (the call, the rule, the arguments) is not there", () => {
+    render(
+      <TooltipProvider>
+        <ApprovalPanel approval={approval} businessId={BID} departments={[]} reason="" onReasonChange={vi.fn()} answered={false} />
+      </TooltipProvider>,
+    );
+    expect(screen.getByTestId("approval-summary").textContent).toBe("Priya wants to set the paid ads budget to £600.00.");
+    expect(screen.queryByTestId("approval-details")).toBeNull();
+    expect(screen.getByTestId("approval-panel").textContent).not.toContain("Ledgerly › set budget");
+    expect(screen.getByTestId("approval-amount").textContent).toBe("£600.00");
+    expect(screen.getByTestId("approval-reason")).toBeTruthy();
   });
 });

@@ -1,5 +1,14 @@
 import { expect, test, type Page, type PlaywrightWorkerArgs } from "@playwright/test";
-import { COACHMARK_CARD, LONG, chooseTableView, devApi, dismissCoachmarks, openBusiness } from "./helpers";
+import { COACHMARK_CARD, LONG, chooseTableView, devApi, dismissCoachmarks, openBusiness, setBuilderView } from "./helpers";
+
+// Builder view on for this file (it reads the Code, Health and Hierarchy tabs, ratings out of 20 and the cycle number); global-setup.ts starts every run with it off. Restored afterwards.
+let builderViewBefore = false;
+test.beforeAll(async ({ playwright }) => {
+  builderViewBefore = await setBuilderView(playwright, true);
+});
+test.afterAll(async ({ playwright }) => {
+  await setBuilderView(playwright, builderViewBefore);
+});
 
 /**
  * Team and Development screens on the seeded Northwind business at the two desktop widths (1280, the minimum, and

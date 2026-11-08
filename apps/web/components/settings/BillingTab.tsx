@@ -20,7 +20,7 @@ import { Coins, CreditCard, X } from "lucide-react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import { APP_NAME, CREDITS_CURRENCY, includedCreditsMinor, PRICE_TBA_LABEL, tierIncludedCreditPlaces, TIERS, type TierKey } from "@foundmill/config";
-import { Button, Chip, IconButton, KeyValueList, MiniTable, ProvenanceChip, SimpleSelect, StatusPill, Term, formatCompact, useDateFormat, type DateFormatPrefs, type StatusTone } from "@foundmill/dugout";
+import { Button, Chip, IconButton, KeyValueList, MiniTable, ProvenanceChip, SimpleSelect, StatusPill, Term, formatCompact, useBuilderView, useDateFormat, type DateFormatPrefs, type StatusTone } from "@foundmill/dugout";
 import { PLAN_TIERS } from "@foundmill/shared/constants";
 import { formatMoney, formatMonthYear, formatNumber, plainWords, plural } from "@/lib/format";
 import { errorMessage, type RouterOutputs } from "@/lib/trpc";
@@ -159,6 +159,7 @@ function CheckoutPanel({ checkoutId, canceled, onDone }: { checkoutId: string; c
 
 export function BillingTab() {
   const datePrefs = useDateFormat();
+  const builder = useBuilderView();
   const { businessId, isOwner } = useBusiness();
   const trpc = useTRPC();
   const invalidate = useInvalidateRouters();
@@ -291,7 +292,8 @@ export function BillingTab() {
               caption={`By agent · ${periodLabel(usage.data.period, datePrefs)} · Estimate`}
               columns={[
                 { id: "agent", header: "Agent", cell: (r) => <span title={r.name ?? "Platform"}>{r.name ?? "Platform"}</span> },
-                { id: "tokens", header: <Term id="tokens">Tokens</Term>, numeric: true, cell: (r) => formatCompact(r.tokens) },
+                // AI usage in tokens is Builder view's (docs/DESIGN.md); the cost Estimate always shows.
+                ...(builder ? [{ id: "tokens", header: <Term id="tokens">Tokens</Term>, numeric: true, cell: (r: (typeof usage.data.byAgent)[number]) => formatCompact(r.tokens) }] : []),
                 { id: "calls", header: "Tool calls", numeric: true, cell: (r) => formatNumber(r.toolCalls) },
                 { id: "cost", header: "Cost", numeric: true, cell: (r) => formatMoney({ amountMinor: r.costMinor, currency }) },
               ]}

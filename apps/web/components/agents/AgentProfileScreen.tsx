@@ -10,7 +10,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Dumbbell, MessageCircle, UserRoundCog } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
-import { Avatar, Button, EntityLink, HealthBadge, useAgentPersona, IconButton, ModelChip, ProfileHeader, StatusPill, formatMoney, useDateFormat, type ProfileChip, type ProfileFact, type TabItem } from "@foundmill/dugout";
+import { Avatar, Button, EntityLink, HealthBadge, useAgentPersona, useBuilderView, IconButton, ModelChip, ProfileHeader, StatusPill, formatMoney, useDateFormat, type ProfileChip, type ProfileFact, type TabItem } from "@foundmill/dugout";
 import { routes } from "@foundmill/widgets/shared/routes";
 import { errorMessage } from "@/lib/trpc";
 import { useTRPC } from "@/lib/trpc-react";
@@ -25,11 +25,13 @@ import { AutonomyTab } from "./AutonomyTab";
 import { HistoryTab } from "./HistoryTab";
 import { LineManagerDialog } from "./LineManagerDialog";
 import { LogsTab } from "./LogsTab";
+import { BuilderGate } from "@/components/screen/BuilderGate";
+import { visibleAgentTabs } from "./tabs";
 import { ModelChangeDialog } from "./ModelChangeDialog";
 import { OverviewTab } from "./OverviewTab";
 import { ToolsTab } from "./ToolsTab";
 import { TrainingTab } from "./TrainingTab";
-import { AGENT_TABS, departmentColour, humaniseKey, localPeriod, meanRating, ownerManagerLabel, profileChips, starsFor, toSkillRows, trainingFlow, wageLabel, type AgentProfile, type AgentTab } from "./logic";
+import { departmentColour, humaniseKey, localPeriod, meanRating, ownerManagerLabel, profileChips, starsFor, toSkillRows, trainingFlow, wageLabel, type AgentProfile, type AgentTab } from "./logic";
 
 export interface AgentProfileScreenProps {
   agentId: string;
@@ -75,7 +77,9 @@ export function AgentProfileScreen({ agentId, tab }: AgentProfileScreenProps) {
   const personaView = useAgentPersona();
   const shownName = profile ? personaView.nameFor(profile.agent) : "Agent";
 
-  const tabs = useMemo<TabItem[]>(() => AGENT_TABS.map((t) => ({ id: t.id, label: t.label, href: routes.agent(businessId, agentId, t.id) })), [businessId, agentId]);
+  // The Logs tab is Builder view's: not offered while it is off (opened by URL, the Builder view gate).
+  const builder = useBuilderView();
+  const tabs = useMemo<TabItem[]>(() => visibleAgentTabs(builder).map((t) => ({ id: t.id, label: t.label, href: routes.agent(businessId, agentId, t.id) })), [businessId, agentId, builder]);
   const teamDept = useMemo(() => departments.find((d) => d.moduleKeys.includes("team")), [departments]);
   const squadHref = teamDept ? routes.department(businessId, teamDept.slug, teamDept.tabs.slice().sort((a, b) => a.position - b.position)[0]?.slug ?? "squad") : undefined;
 
@@ -185,7 +189,7 @@ export function AgentProfileScreen({ agentId, tab }: AgentProfileScreenProps) {
         {tab === "autonomy" ? <AutonomyTab {...tabProps} typeCount={typeCount} allCount={allCount} /> : null}
         {tab === "tools" ? <ToolsTab {...tabProps} /> : null}
         {tab === "history" ? <HistoryTab {...tabProps} /> : null}
-        {tab === "logs" ? <LogsTab {...tabProps} /> : null}
+        {tab === "logs" ? builder ? <LogsTab {...tabProps} /> : <BuilderGate title={shownName} open={{ label: "Overview", href: routes.agent(businessId, agentId, "overview") }} /> : null}
       </div>
       <ModelChangeDialog businessId={businessId} profile={profile} open={modelOpen && !released} onOpenChange={setModelOpen} typeCount={typeCount} allCount={allCount} />
       <LineManagerDialog businessId={businessId} profile={profile} agents={squadQ.data?.agents} open={managerOpen && !released} onOpenChange={setManagerOpen} onSaved={() => void profileQ.refetch()} />

@@ -1,11 +1,14 @@
 import type { HTMLAttributes } from "react";
-import { RefreshCw, WifiOff } from "lucide-react";
+import { Clock, RefreshCw, WifiOff } from "lucide-react";
 import { cn } from "../../lib/cn";
 import { Icon } from "../foundation/Icon";
 import { Tooltip } from "../foundation/Tooltip";
 
-/** The live connection's trouble: trying to come back, or not coming back by itself for now. */
-export type ConnectionState = "reconnecting" | "paused";
+/**
+ * The live connection's trouble: trying to come back, or not coming back by itself for now; or, with Builder view off,
+ * the one quiet word a long outage earns ("Updates may be late"), whichever of the two it is.
+ */
+export type ConnectionState = "reconnecting" | "paused" | "late";
 
 export interface ConnectionChipProps extends Omit<HTMLAttributes<HTMLSpanElement>, "children"> {
   state: ConnectionState;
@@ -13,11 +16,13 @@ export interface ConnectionChipProps extends Omit<HTMLAttributes<HTMLSpanElement
   detail?: string;
 }
 
-const WORD: Record<ConnectionState, string> = { reconnecting: "Reconnecting…", paused: "Live updates paused" };
+const WORD: Record<ConnectionState, string> = { reconnecting: "Reconnecting…", paused: "Live updates paused", late: "Updates may be late" };
+const ICON = { reconnecting: RefreshCw, paused: WifiOff, late: Clock } as const;
 /** The defaults say that nothing is lost (UX plan §7.7): the team's work and notes are on the server; only this screen may lag. */
 const DETAIL: Record<ConnectionState, string> = {
   reconnecting: "The live connection dropped. Nothing is lost. What you see may be out of date until it is back.",
   paused: "Live updates are paused. Nothing is lost. What you see may be out of date; screens still refresh on their own.",
+  late: "Nothing is lost: the team keeps working. What you see may be a little behind; screens still refresh on their own.",
 };
 
 /**
@@ -28,7 +33,7 @@ export function ConnectionChip({ state, detail, className, ...rest }: Connection
   return (
     <Tooltip content={detail ?? DETAIL[state]}>
       <span role="status" aria-live="polite" aria-label={WORD[state]} data-connection={state} data-chip="" data-testid="connection-chip" className={cn("kitbar-glass", className)} {...rest}>
-        <Icon icon={state === "reconnecting" ? RefreshCw : WifiOff} size="inline" />
+        <Icon icon={ICON[state]} size="inline" />
         <span className="kitbar-chip-word">{WORD[state]}</span>
       </span>
     </Tooltip>

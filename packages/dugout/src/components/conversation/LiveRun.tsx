@@ -5,6 +5,7 @@ import { cn } from "../../lib/cn";
 import type { DateFormatPrefs } from "../../lib/date-preferences";
 import { formatDate, formatMoney, formatNumber } from "../../lib/format";
 import { Avatar } from "../foundation/Avatar";
+import { BuilderOnly } from "../guidance/BuilderView";
 import { ProvenanceChip } from "../foundation/Chip";
 import { Icon } from "../foundation/Icon";
 import { StreamingText } from "./StreamingText";
@@ -275,14 +276,15 @@ export function LiveRun({
             <div className="run-meter" data-testid="live-run-meter">
               {items.length ? <span>{`${summary.landed} of ${summary.total}`}</span> : null}
               {typeof meter.tokens === "number" ? (
-                <>
+                // AI usage in tokens is Builder view's (docs/DESIGN.md); the cost Estimate always shows.
+                <BuilderOnly>
                   {items.length ? (
                     <span aria-hidden data-sep="">
                       ·
                     </span>
                   ) : null}
                   <span title={TOKENS_HINT}>{`${formatNumber(meter.tokens)} tokens`}</span>
-                </>
+                </BuilderOnly>
               ) : null}
               {typeof meter.elapsedMs === "number" ? (
                 <>

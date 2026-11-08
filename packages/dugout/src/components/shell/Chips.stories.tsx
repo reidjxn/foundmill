@@ -74,6 +74,8 @@ export const Connection: Story = {
     <div className="flex flex-wrap items-center gap-2">
       <ConnectionChip state="reconnecting" />
       <ConnectionChip state="paused" detail="Live updates are paused. Screens refresh every 30 s until they resume." />
+      {/* Builder view off: a long outage (over 30 s) earns this one quiet word; a short reconnect shows nothing. */}
+      <ConnectionChip state="late" />
     </div>
   ),
   parameters: { docs: { description: { story: "The live connection is down: icon + word in an amber ring, announced politely. Nothing moves by itself." } } },
