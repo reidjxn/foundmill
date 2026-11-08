@@ -245,6 +245,10 @@ describe("an answer that comes after the session ended", () => {
     expect(note).toMatchObject({ type: "update", fromAgentId: hz.A.agentId, subject: "Add the composite index stays blocked", blocksContinue: false });
     expect(note.bodyMd).toContain("“Use a smaller index”");
     expect(note.bodyMd).toContain("Start it again from the Plan");
+    // The agent is named as markup with its stored name, never a display choice (One name everywhere, Nov 8, 2026).
+    const asker = await repos.agents.get(hz.db, hz.A.businessId, g.approval.agentId!);
+    expect(note.bodyMd).toContain(`You rejected the request from [[ent:${asker.id}|${asker.name}]] to run **GitHub › run a change to the data layout**`);
+    expect(note.bodyMd).not.toContain(`**${asker.name}**`);
     expect((await repos.approvals.holds(hz.db, hz.A.businessId, [g.taskId])).get(g.taskId)).toEqual({ approvalId: g.approval.id, outcome: "rejected" });
   });
 });
@@ -262,7 +266,7 @@ describe("approvals a plan action or a channel launch waits on", () => {
     const { item } = await openApprovalItem(hz.db, hz.A.businessId, approval, { agentId: hz.A.agentId, agentName: "Lead Generation Engine" });
     const name = (await repos.businesses.get(hz.db, hz.A.businessId)).name;
     expect(item.subject).toBe(`Lead Generation Engine needs your OK: ${name} › launch campaign`.slice(0, 80));
-    expect(item.bodyMd).toBe("Lead Generation Engine wants to launch campaign. OK?");
+    expect(item.bodyMd).toBe(`[[ent:${hz.A.agentId}|Lead Generation Engine]] wants to launch campaign. OK?`);
     expect(item.bodyMd).not.toContain("platform");
     expect(item.bodyMd).not.toContain(APP_NAME);
     expect(approvalAction({ connectorKey: "github", tool: "run_migration" }, null, name)).toBe("GitHub › run a change to the data layout");

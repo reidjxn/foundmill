@@ -86,8 +86,10 @@ export function teamStripWords(squad: readonly { status: SquadMember["status"]; 
 export function DepartmentCard({ department: d, onOpen, onOpenAgent, onOpenEntity, onOpenQuiet, entityKinds, maxSquad = 8, metricId, metricPlain, className }: DepartmentCardProps) {
   const health = HEALTH[d.health];
   const persona = useAgentPersona();
-  const leadMember = d.squad.find((m) => m.name === d.lead.name);
-  const lead = { name: d.lead.name, role: d.lead.role ?? leadMember?.role, personaKey: d.lead.personaKey ?? leadMember?.personaKey };
+  // The lead is found in the team strip by its id (two agents can share a stored name); by name only when the data has no id.
+  const leadMember = d.lead.id ? d.squad.find((m) => m.id === d.lead.id) : d.squad.find((m) => m.name === d.lead.name);
+  const lead = { name: d.lead.name, role: d.lead.role ?? leadMember?.role, personaKey: d.lead.personaKey ?? leadMember?.personaKey, layer: d.lead.layer ?? leadMember?.layer };
+  const leadId = d.lead.id ?? leadMember?.id ?? d.lead.name;
   const squad = d.squad.slice(0, maxSquad);
   const extra = d.squad.length - squad.length;
   const stripWords = teamStripWords(d.squad);
@@ -104,8 +106,8 @@ export function DepartmentCard({ department: d, onOpen, onOpenAgent, onOpenEntit
           <FitText minPx={11}>{d.name}</FitText>
         </h3>
         <Tooltip content={`${persona.labelFor(lead)} · lead`}>
-          <button type="button" className="ml-1 inline-flex min-w-0 shrink-2 items-center gap-1.5 rounded-pill pr-1 text-small text-secondary outline-none transition-colors duration-hover hover:text-primary focus-visible:shadow-ring" onClick={() => onOpenAgent?.(d.squad.find((m) => m.name === d.lead.name)?.id ?? d.lead.name)} aria-label={`${persona.labelFor(lead)}, department lead`}>
-            <Avatar size={22} name={persona.nameFor(lead)} agent={{ seed: d.lead.seed, dept: d.dept, personaKey: lead.personaKey }} status={d.lead.status} />
+          <button type="button" className="ml-1 inline-flex min-w-0 shrink-2 items-center gap-1.5 rounded-pill pr-1 text-small text-secondary outline-none transition-colors duration-hover hover:text-primary focus-visible:shadow-ring" onClick={() => onOpenAgent?.(leadId)} aria-label={`${persona.labelFor(lead)}, department lead`}>
+            <Avatar size={22} name={persona.nameFor(lead)} agent={{ seed: d.lead.seed, dept: d.dept, personaKey: lead.personaKey, layer: lead.layer }} status={d.lead.status} />
             {/* The lead's name only where the header has room for it beside the department's own name. */}
             <span className="hidden min-w-0 truncate @md:inline" aria-hidden>
               {persona.nameFor(lead)}
@@ -138,7 +140,7 @@ export function DepartmentCard({ department: d, onOpen, onOpenAgent, onOpenEntit
                     }
                   >
                     <button type="button" className="inline-flex rounded-full outline-none transition-transform duration-hover ease-out hover:-translate-y-0.5 focus-visible:shadow-ring" onClick={() => onOpenAgent?.(m.id)} aria-label={`${persona.nameFor(m)}, ${m.role}, ${word}${m.task ? `: ${m.task}` : ""}`} data-squad-member={m.id}>
-                      <Avatar size={26} name={persona.nameFor(m)} agent={{ seed: m.seed, dept: d.dept, personaKey: m.personaKey }} status={m.status} stacked surface="surface-1" />
+                      <Avatar size={26} name={persona.nameFor(m)} agent={{ seed: m.seed, dept: d.dept, personaKey: m.personaKey, layer: m.layer }} status={m.status} stacked surface="surface-1" />
                     </button>
                   </Tooltip>
                 </li>

@@ -308,6 +308,8 @@ export function toSquad(dept: DepartmentRow, overrides: Record<string, AgentStat
     id: a.id,
     name: a.name,
     seed: a.avatarSeed || a.id,
+    personaKey: a.personaKey ?? null,
+    layer: a.layer ?? null,
     status: overrides[a.id] ?? a.status,
     role: a.role,
     model: String(a.modelKey),
@@ -379,7 +381,8 @@ function DepartmentCardWidget({ settings }: WidgetProps<DepartmentCardSettings>)
       id: dept.id,
       name: dept.name,
       dept: dept.colourToken,
-      lead: leadRow ? { name: leadRow.name, seed: leadRow.avatarSeed || leadRow.id, status: overrides[leadRow.id] ?? leadRow.status } : { name: "No lead yet", seed: dept.id, status: "idle" },
+      // The lead carries its id, role and persona key, so the card names it as the team strip and the Agents tab do.
+      lead: leadRow ? { id: leadRow.id, name: leadRow.name, seed: leadRow.avatarSeed || leadRow.id, status: overrides[leadRow.id] ?? leadRow.status, role: leadRow.role ?? undefined, personaKey: leadRow.personaKey ?? null, layer: leadRow.layer ?? null } : { name: "No lead yet", seed: dept.id, status: "idle" },
       health,
       healthWord: word,
       squad,

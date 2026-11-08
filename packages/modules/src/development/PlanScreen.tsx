@@ -7,7 +7,7 @@
  */
 import { useId, useMemo, useRef, useState } from "react";
 import { ArrowUpCircle, Bot, ChevronRight, ExternalLink, ListTree, Network, Pause, Play, Radio, Square } from "lucide-react";
-import { Avatar, Button, Chip, DataTable, EntityLink, Field, GenerateControl, KeyValueList, Panel, ProgressRing, ProvenanceChip, STRONGEST_MODEL_LABEL, TASK_STATUS_META, TaskGraph, TaskRunState, Term, Textarea, SimpleSelect, useTerm, canStartTask, taskRunInfo, type DataTableColumn, type RowAction, type SavedView } from "@foundmill/dugout";
+import { Avatar, Button, Chip, DataTable, EntityLink, useAgentPersona, Field, GenerateControl, KeyValueList, Panel, ProgressRing, ProvenanceChip, STRONGEST_MODEL_LABEL, TASK_STATUS_META, TaskGraph, TaskRunState, Term, Textarea, SimpleSelect, useTerm, canStartTask, taskRunInfo, type DataTableColumn, type RowAction, type SavedView } from "@foundmill/dugout";
 import type { TaskStatus } from "@foundmill/shared";
 import { routes } from "@foundmill/widgets/shared/routes";
 import { useBusinessEvents, useWidgetData, useWidgetQuery } from "@foundmill/widgets/data";
@@ -70,7 +70,9 @@ export const PLAN_FIT: Record<string, ColumnFit> = {
   priority: { min: 88 },
 };
 
-export function toPlanRows(tasks: readonly TaskRow[], edges: readonly { fromTask: string; toTask: string }[], agents: Map<string, AgentRow>): PlanRow[] {
+export function toPlanRows(tasks: readonly TaskRow[], edges: readonly { fromTask: string; toTask: string }[], agents: Map<string, AgentRow>, nameFor: (agent: AgentRow) => string = (a) => a.name): PlanRow[] {
+  // `nameFor` names the agent as the cell shows it (the persona label under the reader's preference), so sort, filter and
+  // CSV match what is shown (One name everywhere, Nov 8, 2026).
   // Dependencies are named the way the founder reads them (0070): the founder title when there is one.
   const titles = new Map(tasks.map((t) => [t.id, t.founderTitle ?? t.title]));
   const done = new Set(tasks.filter((t) => t.status === "done").map((t) => t.id));
@@ -79,7 +81,7 @@ export function toPlanRows(tasks: readonly TaskRow[], edges: readonly { fromTask
     return {
       ...t,
       agent,
-      agentName: agent?.name ?? (t.assigneeAgentId ? "Agent" : "Unassigned"),
+      agentName: agent ? nameFor(agent) : t.assigneeAgentId ? "Agent" : "Unassigned",
       dependsOn: edges.filter((e) => e.toTask === t.id).map((e) => titles.get(e.fromTask) ?? e.fromTask),
       // A dependency is open while its task is not done; one the list does not hold cannot be waited on.
       waitingOn: edges.filter((e) => e.toTask === t.id && titles.has(e.fromTask) && !done.has(e.fromTask)).map((e) => titles.get(e.fromTask)!),
@@ -107,6 +109,7 @@ export function PlanScreen({ businessId, departmentId }: ModuleScreenProps) {
   const agents = useAgents();
   const deptSlug = useDevDepartment(departmentId)?.slug ?? "development";
   const agentIndex = useAgentIndex(agents.data?.agents);
+  const persona = useAgentPersona();
   const action = useAction();
   const planner = useAction();
   // Saved per person, business and table (audit #204): they come back after a reload. Simple opens first while guidance is on.
@@ -118,7 +121,7 @@ export function PlanScreen({ businessId, departmentId }: ModuleScreenProps) {
   // Building starts when the founder has signed off the specification and the roadmap (founder, 2026-10-18).
   const stage = useBusinessStage();
 
-  const rows = useMemo(() => toPlanRows(tasks.data?.items ?? [], tasks.data?.edges ?? [], agentIndex), [tasks.data, agentIndex]);
+  const rows = useMemo(() => toPlanRows(tasks.data?.items ?? [], tasks.data?.edges ?? [], agentIndex, persona.labelFor), [tasks.data, agentIndex, persona]);
   const initialTask = typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("task") : null;
   const [selectedId, setSelectedId] = useState<string | null>(initialTask);
   const selected = rows.find((r) => r.id === selectedId) ?? null;
@@ -216,8 +219,8 @@ export function PlanScreen({ businessId, departmentId }: ModuleScreenProps) {
           const tile = toTileAgent(a, a.id);
           return (
             <span className="flex min-w-0 items-center gap-1.5">
-              <Avatar size={20} name={a.name} agent={{ seed: tile.seed, dept: tile.dept, personaKey: tile.personaKey }} status={a.status} />
-              <EntityLink entity={{ id: a.id, kind: "agent", name: a.name, href: agentHref(businessId, a.id) }} hideIcon hoverCard={false} className="min-w-0 truncate" />
+              <Avatar size={20} name={a.name} agent={{ seed: tile.seed, dept: tile.dept, personaKey: tile.personaKey, layer: a.layer }} status={a.status} />
+              <EntityLink entity={{ id: a.id, kind: "agent", name: a.name, href: agentHref(businessId, a.id) }} display={row.original.agentName} hideIcon hoverCard={false} className="min-w-0 truncate" />
             </span>
           );
         },

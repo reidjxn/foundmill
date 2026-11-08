@@ -132,7 +132,7 @@ describe("department.list", () => {
     const departments = await repos.departments.list(hz.db, bid, { includeHidden: true });
     const agents = await repos.agents.list(hz.db, bid, { limit: 500 });
     const screens = await Promise.all(departments.map((d) => repos.screens.list(hz.db, bid, d.id)));
-    const pick = (a: (typeof agents.items)[number]) => ({ id: a.id, name: a.name, role: a.role, status: a.status, modelKey: a.modelKey, avatarSeed: a.avatarSeed, personaKey: a.personaKey });
+    const pick = (a: (typeof agents.items)[number]) => ({ id: a.id, name: a.name, role: a.role, status: a.status, modelKey: a.modelKey, avatarSeed: a.avatarSeed, personaKey: a.personaKey, layer: a.layer });
     const expected = departments.map((d, i) => {
       const lead = agents.items.find((a) => a.id === d.leadAgentId);
       return {

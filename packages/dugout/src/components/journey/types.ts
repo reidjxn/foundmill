@@ -353,6 +353,8 @@ export interface SquadMember {
   seed: string | number;
   /** `agents.persona_key`: the name and face shown when anthropomorphic agents are on. */
   personaKey?: string | null;
+  /** The agent's layer: a `utility` agent is a background helper and keeps its role name. */
+  layer?: string | null;
   status: AgentStatus;
   role: string;
   model: string;
@@ -382,7 +384,8 @@ export interface DepartmentCardData {
   id: string;
   name: string;
   dept: DeptColourToken;
-  lead: { name: string; seed: string | number; status: AgentStatus; role?: string; personaKey?: string | null };
+  /** The lead; `id` (when there is one) is how the card finds it in the team strip, never its name. */
+  lead: { id?: string | null; name: string; seed: string | number; status: AgentStatus; role?: string; personaKey?: string | null; layer?: string | null };
   health: HealthTone;
   /** Word next to the health icon ("Healthy", "Waiting", "Failing"). */
   healthWord?: string;

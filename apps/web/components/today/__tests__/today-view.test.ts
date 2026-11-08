@@ -1,5 +1,6 @@
 /** Today's mapping (founder, 2026-11-07): the goal's pill and bar words, the proposer, and Needs you's links. */
 import { describe, expect, it } from "vitest";
+import { createAgentPersonaApi } from "@foundmill/dugout";
 import { goalPaceState, goalValueText, needsYouHref, toNeedsYouRows, toPanelGoal, toPanelProposal, type GoalViewLike } from "../today-view";
 
 const TODAY = "2026-11-07";
@@ -47,5 +48,15 @@ describe("Needs you on Today", () => {
     ]);
     expect(rows[0]).toEqual({ id: "n1", subject: "Your first goal", from: "Ines Park", kindLabel: "Goal", href: "/b/b1/inbox/n1?tab=respond", quickOption: { id: "approve", label: "Approve this goal" }, holdsContinue: false });
     expect(rows[1]).toMatchObject({ from: null, kindLabel: "Your decision", quickOption: null, holdsContinue: true });
+  });
+
+  it("names the sender and the agents in the subject under the reader's preference (One name everywhere)", () => {
+    const lead = { id: "a1", name: "Engineering Lead", role: "Head of Engineering", personaKey: "malik" };
+    const items = [{ id: "n1", subject: "Engineering Lead needs your OK: GitHub › open pull request", blocksContinue: false, kind: "approval" as const, fromAgent: lead, quickOption: null }];
+    const on = createAgentPersonaApi({ anthropomorphic: true });
+    const rows = toNeedsYouRows("b1", items, { labelFor: on.labelFor, withNames: on.withNames, roster: [] });
+    expect(rows[0]).toMatchObject({ subject: "Malik (Head of Engineering) needs your OK: GitHub › open pull request", from: "Malik (Head of Engineering)" });
+    const off = createAgentPersonaApi({ anthropomorphic: false });
+    expect(toNeedsYouRows("b1", items, { labelFor: off.labelFor, withNames: off.withNames, roster: [] })[0]).toMatchObject({ subject: "Engineering Lead needs your OK: GitHub › open pull request", from: "Engineering Lead" });
   });
 });

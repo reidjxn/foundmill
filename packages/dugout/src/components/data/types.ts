@@ -103,6 +103,8 @@ export interface EntityDetails extends EntityRef {
    */
   personaKey?: string | null;
   role?: string | null;
+  /** Agents only: the layer; a `utility` agent is a background helper and keeps its role name with the preference on. */
+  layer?: string | null;
   chips?: EntityChip[];
   /** Up to three; extra facts are dropped. */
   facts?: EntityFact[];

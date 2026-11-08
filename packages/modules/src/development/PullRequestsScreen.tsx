@@ -6,7 +6,7 @@
  */
 import { useMemo, useState } from "react";
 import { ExternalLink, GitMerge, GitPullRequest, MonitorPlay, Network, SearchCheck } from "lucide-react";
-import { Avatar, DataTable, EntityLink, Explainer, FitText, Panel, StatusPill, Term, formatNumber, type DataTableColumn, type RowAction, type SavedView, type StatusTone } from "@foundmill/dugout";
+import { Avatar, DataTable, EntityLink, useAgentPersona, Explainer, FitText, Panel, StatusPill, Term, formatNumber, type DataTableColumn, type RowAction, type SavedView, type StatusTone } from "@foundmill/dugout";
 import type { TaskStatus } from "@foundmill/shared";
 import { routes } from "@foundmill/widgets/shared/routes";
 import { useBusinessEvents, useWidgetData, useWidgetQuery, type WidgetEvent } from "@foundmill/widgets/data";
@@ -98,11 +98,13 @@ export function isCodePr(pr: Pick<OpenPrRow, "kind">): boolean {
   return pr.kind === undefined || pr.kind === "code";
 }
 
-export function toOpenRows(open: readonly OpenPrRow[], agents: Map<string, AgentRow>, previews: Map<string, string>): OpenPrTableRow[] {
+export function toOpenRows(open: readonly OpenPrRow[], agents: Map<string, AgentRow>, previews: Map<string, string>, nameFor: (agent: AgentRow) => string = (a) => a.name): OpenPrTableRow[] {
+  // `nameFor` names the agent as the cell shows it (the persona label under the reader's preference), so sort, filter and
+  // CSV match what is shown (One name everywhere, Nov 8, 2026).
   return open.filter(isCodePr).map((pr) => {
     const agent = pr.agentId ? agents.get(pr.agentId) : undefined;
     // The founder's title (0070) is what the row shows; the technical one stays on the row for the developer's dialog.
-    return { ...pr, id: pr.taskId, title: pr.founderTitle ?? pr.title, agent, agentName: agent?.name ?? (pr.agentId ? "Agent" : "Unassigned"), queue: QUEUE_META[pr.status]?.word ?? pr.status, previewUrl: previews.get(pr.branch) ?? previews.get(pr.taskId) ?? null };
+    return { ...pr, id: pr.taskId, title: pr.founderTitle ?? pr.title, agent, agentName: agent ? nameFor(agent) : pr.agentId ? "Agent" : "Unassigned", queue: QUEUE_META[pr.status]?.word ?? pr.status, previewUrl: previews.get(pr.branch) ?? previews.get(pr.taskId) ?? null };
   });
 }
 
@@ -113,9 +115,10 @@ const MERGED_BY_KIND: Record<string, string> = { user: "A staff member", agent: 
  * Merged rows: GitHub's `pr.merged` events and the merges the merge queue landed itself (done code tasks, no event).
  * An agent who merged is named from the team; a queue merge has no PR number, line counts or commit to show.
  */
-export function toMergedRows(merged: readonly MergedPrRow[], agents: Map<string, AgentRow> = new Map()): MergedPrTableRow[] {
+export function toMergedRows(merged: readonly MergedPrRow[], agents: Map<string, AgentRow> = new Map(), nameFor: (agent: AgentRow) => string = (a) => a.name): MergedPrTableRow[] {
   return merged.map((m) => {
-    const agentName = m.mergedBy?.kind === "agent" && m.mergedBy.id ? agents.get(m.mergedBy.id)?.name : undefined;
+    const merger = m.mergedBy?.kind === "agent" && m.mergedBy.id ? agents.get(m.mergedBy.id) : undefined;
+    const agentName = merger ? nameFor(merger) : undefined;
     return {
       ...m,
       id: m.eventId ?? `task:${m.taskId ?? m.occurredAt}`,
@@ -147,6 +150,8 @@ export function PullRequestsScreen({ businessId, departmentId }: ModuleScreenPro
   const prs = useWidgetQuery<PrsListResponse>("dev.prs.list", {});
   const agents = useAgents();
   const agentIndex = useAgentIndex(agents.data?.agents);
+  // Agents named under the reader's preference, in the rows' name fields too (One name everywhere).
+  const persona = useAgentPersona();
   // Saved per person, business and table (audit #204): they come back after a reload. Simple opens first while guidance is on.
   const openDefaultViewId = useDefaultViewId("open");
   const mergedDefaultViewId = useDefaultViewId("recent");
@@ -170,8 +175,8 @@ export function PullRequestsScreen({ businessId, departmentId }: ModuleScreenPro
     ["pr.merged", "task.completed", "deploy.succeeded"],
   );
 
-  const openRows = useMemo(() => toOpenRows(prs.data?.open ?? [], agentIndex, previews), [prs.data, agentIndex, previews]);
-  const mergedRows = useMemo(() => toMergedRows(prs.data?.merged ?? [], agentIndex), [prs.data, agentIndex]);
+  const openRows = useMemo(() => toOpenRows(prs.data?.open ?? [], agentIndex, previews, persona.labelFor), [prs.data, agentIndex, previews, persona]);
+  const mergedRows = useMemo(() => toMergedRows(prs.data?.merged ?? [], agentIndex, persona.labelFor), [prs.data, agentIndex, persona]);
   const optionNow = options.now;
   const now = useMemo(() => optionNow ?? new Date(), [optionNow]);
 
@@ -207,8 +212,8 @@ export function PullRequestsScreen({ businessId, departmentId }: ModuleScreenPro
           const tile = toTileAgent(a, a.id);
           return (
             <span className="flex min-w-0 items-center gap-1.5">
-              <Avatar size={20} name={a.name} agent={{ seed: tile.seed, dept: tile.dept, personaKey: tile.personaKey }} status={a.status} />
-              <EntityLink entity={{ id: a.id, kind: "agent", name: a.name, href: agentHref(businessId, a.id) }} hideIcon hoverCard={false} className="min-w-0 truncate" />
+              <Avatar size={20} name={a.name} agent={{ seed: tile.seed, dept: tile.dept, personaKey: tile.personaKey, layer: a.layer }} status={a.status} />
+              <EntityLink entity={{ id: a.id, kind: "agent", name: a.name, href: agentHref(businessId, a.id) }} display={row.original.agentName} hideIcon hoverCard={false} className="min-w-0 truncate" />
             </span>
           );
         },

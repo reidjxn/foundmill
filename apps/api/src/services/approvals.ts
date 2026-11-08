@@ -17,7 +17,7 @@
  * named, and only when the agent makes it again; hard gates are never approvals of this kind.
  */
 import { APPROVAL_OPTIONS, approvalAction, approvalArgsText, approvalSection, approvalTaskTitle, founderReasons, isReleaseApproval, repos, type Approval, type DbTx, type InboxItem, type Task } from "@foundmill/db";
-import { ForbiddenError, hasSectionAccess, ValidationError, type SectionMembership, type TaskStatus } from "@foundmill/shared";
+import { ForbiddenError, agentMention, hasSectionAccess, ValidationError, type SectionMembership, type TaskStatus } from "@foundmill/shared";
 import type { BusinessContext } from "../trpc";
 import { audit, emit } from "../trpc";
 import { continueStateFor, cycleStatus } from "./cycle";
@@ -139,7 +139,8 @@ async function rejectionNote(tx: DbTx, ctx: BusinessContext, approval: Approval,
     : null;
   if (!chief) return null;
   const body = [
-    `You rejected ${agent ? `**${agent.name}**'s` : "the"} request to run **${action}**${reason ? `, saying: “${reason}”` : ""}.`,
+    // The agent as markup with its stored name: each reader sees it under their own preference (One name everywhere).
+    `You rejected the request${agent && agentMention(agent) ? ` from ${agentMention(agent)}` : ""} to run **${action}**${reason ? `, saying: “${reason}”` : ""}.`,
     `${quoted(task.title)} stays blocked: the next cycles leave it alone, and nothing runs in its place. Start it again from the Plan when it should try another way.`,
   ].join("\n\n");
   const item = await repos.inbox.createItem(tx, ctx.businessId, { type: "update", from_agent_id: chief.id, subject: `${task.title} stays blocked`.slice(0, 80), body_md: body, status_strip: [], exhibit: { kind: "none", spec_ref: null }, decision: null, blocks_continue: false, source_event_ids: eventId ? [eventId] : [], entity_ids: [] });
@@ -316,7 +317,8 @@ export async function approvalView(tx: DbTx, ctx: Pick<BusinessContext, "busines
     reasons: financeWalled ? approval.reasons.map(maskFinance) : approval.reasons,
     /** Why the founder is asked, in their words (the rules' own sentences stay in `reasons` for the Details). */
     why: founderReasons(approval.reasons),
-    agent: agent ? { id: agent.id, name: agent.name } : null,
+    // With what the web needs to name the agent under the reader's preference (One name everywhere).
+    agent: agent ? { id: agent.id, name: agent.name, role: agent.role || null, personaKey: agent.personaKey ?? null, layer: agent.layer ?? null } : null,
     // The task in the founder's words (0070) where it has them; the technical title is the Plan's business.
     task: task ? { id: task.id, title: task.founderTitle ?? task.title, status: task.status } : null,
     sessionWaiting: session !== null && session.endedAt === null,

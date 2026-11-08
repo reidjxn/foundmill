@@ -23,6 +23,7 @@ export {
   composerCase,
   composerCorpus,
   composerSystemPrompt,
+  agentNamingHits,
   plainLanguageHits,
   replaceTierPatterns,
   runComposerCase,
@@ -31,5 +32,6 @@ export {
   type ComposerCaseResult,
   type ComposerEvalCase,
   type ComposerSuiteSummary,
+  type AgentNamingHit,
   type PlainLanguageHit,
 } from "./composer";

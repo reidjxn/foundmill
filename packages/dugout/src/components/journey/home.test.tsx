@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { AgentPersonaProvider } from "../foundation/AgentPersona";
 import { GuidanceProvider } from "../guidance/GuidanceProvider";
 import { DayDigest } from "./DayDigest";
 import { DepartmentCard, teamStripWords } from "./DepartmentCard";
@@ -77,6 +78,26 @@ describe("DepartmentCard", () => {
     expect(onOpenAgent).toHaveBeenCalledWith("dept-3-2");
     await user.click(screen.getByRole("button", { name: "Open" }));
     expect(onOpen).toHaveBeenCalledWith("d-distribution");
+  });
+  it("finds the lead by id, not by name, and names it as the team strip does with anthropomorphic agents on", async () => {
+    const user = userEvent.setup();
+    const onOpenAgent = vi.fn();
+    const base = cards[0]!;
+    const twin = { ...base.squad[0]!, id: "twin", name: "Twin", role: "Paid ads", personaKey: "mei" };
+    const leadMember = { ...base.squad[1]!, id: "the-lead", name: "Twin", role: "Distribution lead", personaKey: "malik" };
+    const helper = { ...base.squad[2]!, id: "helper", name: "Classifier", role: "Classification utility", personaKey: "amara", layer: "utility" };
+    const department = { ...base, lead: { id: "the-lead", name: "Twin", seed: "lead", status: "healthy" as const }, squad: [twin, leadMember, helper] };
+    render(
+      <AgentPersonaProvider anthropomorphic>
+        <DepartmentCard department={department} onOpenAgent={onOpenAgent} />
+      </AgentPersonaProvider>,
+    );
+    await user.click(screen.getByRole("button", { name: "Malik (Distribution lead), department lead" }));
+    expect(onOpenAgent).toHaveBeenCalledWith("the-lead");
+    expect(screen.getByRole("button", { name: /^Mei, Paid ads/ })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /^Malik, Distribution lead/ })).toBeTruthy();
+    // A background helper keeps its role name, even with the preference on.
+    expect(screen.getByRole("button", { name: /^Classifier, Classification utility/ })).toBeTruthy();
   });
 });
 

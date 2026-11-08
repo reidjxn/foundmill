@@ -89,6 +89,8 @@ export interface AgentRow {
   avatarSeed?: string;
   /** `agents.persona_key`: the first name and face shown when anthropomorphic agents are on. */
   personaKey?: string | null;
+  /** The agent's layer: a `utility` agent is a background helper and keeps its role name. */
+  layer?: string | null;
   departmentIds?: string[];
   departments?: { id: string; name: string; colourToken: DeptColourToken }[];
   currentTask?: { id: string; title: string } | null;

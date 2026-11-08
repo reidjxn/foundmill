@@ -11,7 +11,7 @@ export function PersonaAvatar(props: AvatarProps) {
   const persona = useAgentPersona();
   const agent = props.agent;
   if (!agent) return <AvatarBase {...props} />;
-  const src = agent.src || persona.portraitFor({ personaKey: agent.personaKey });
-  const name = persona.nameFor({ name: props.name, personaKey: agent.personaKey });
+  const src = agent.src || persona.portraitFor({ personaKey: agent.personaKey, layer: agent.layer });
+  const name = persona.nameFor({ name: props.name, personaKey: agent.personaKey, layer: agent.layer });
   return <AvatarBase {...props} name={name} agent={{ ...agent, src }} />;
 }

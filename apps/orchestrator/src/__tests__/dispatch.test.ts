@@ -203,6 +203,10 @@ describe("wage caps at dispatch (BUILD §10.4)", () => {
     expect(await repos.agents.get(t.db, B(), t.workerId)).toMatchObject({ status: "paused", pausedReason: "wage_cap" });
     const note = (await repos.inbox.list(t.db, B(), { limit: 20 })).items.find((i) => /reached its wage cap/.test(i.subject));
     expect(note?.bodyMd).toMatch(/until Nov 1, 2026/);
+    // The agent is named as markup with its stored name; the subject stays plain (One name everywhere, Nov 8, 2026).
+    const worker = await repos.agents.get(t.db, B(), t.workerId);
+    expect(note?.bodyMd.startsWith(`[[ent:${worker.id}|${worker.name}]] has spent`)).toBe(true);
+    expect(note?.subject).toBe(`${worker.name} reached its wage cap: paused`);
     // The brief shows it and the planner gives it nothing.
     const b = await brief.loadBrief({ businessId: B() });
     expect(b.agents.find((a) => a.id === t.workerId)).toMatchObject({ status: "paused", wageRemainingMinor: -50 });

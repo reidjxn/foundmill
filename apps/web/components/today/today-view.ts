@@ -25,8 +25,15 @@ export interface NeedsYouItemLike {
   subject: string;
   blocksContinue: boolean;
   kind: "approval" | "signoff" | "goal" | "decision" | "warning" | "go_ahead";
-  fromAgent: { id: string; name: string } | null;
+  fromAgent: { id: string; name: string; role?: string | null; personaKey?: string | null; layer?: string | null } | null;
   quickOption: { id: string; label: string } | null;
+}
+
+/** How Today names agents: the persona display functions in force (`useAgentPersona()`) and the business's roster. */
+export interface NeedsYouNames {
+  labelFor: (agent: { name: string; role?: string | null; personaKey?: string | null; layer?: string | null }) => string;
+  withNames: (text: string, roster: readonly { name: string; role?: string | null; personaKey?: string | null; layer?: string | null }[]) => string;
+  roster: readonly { name: string; role?: string | null; personaKey?: string | null; layer?: string | null }[];
 }
 
 /** "4 of 10 paying customers", "£1,200 of £5,000": the bar's value in words. */
@@ -73,11 +80,16 @@ const KIND_LABEL: Record<NeedsYouItemLike["kind"], string> = {
 /** The Inbox's Needs you tab, where "See all in the Inbox" goes. */
 export const needsYouHref = (businessId: string): string => `${routes.inbox(businessId)}?tab=respond`;
 
-export function toNeedsYouRows(businessId: string, items: readonly NeedsYouItemLike[]): NeedsYouRow[] {
+/**
+ * The Needs you rows. With `names`, the sender and the plain stored subject name agents under the reader's preference
+ * (One name everywhere, Nov 8, 2026), as the Inbox list does; without it, as stored.
+ */
+export function toNeedsYouRows(businessId: string, items: readonly NeedsYouItemLike[], names?: NeedsYouNames): NeedsYouRow[] {
+  const roster = names ? [...names.roster, ...items.flatMap((i) => (i.fromAgent ? [i.fromAgent] : []))] : [];
   return items.map((i) => ({
     id: i.id,
-    subject: i.subject,
-    from: i.fromAgent?.name ?? null,
+    subject: names ? names.withNames(i.subject, roster) : i.subject,
+    from: i.fromAgent ? (names ? names.labelFor(i.fromAgent) : i.fromAgent.name) : null,
     kindLabel: KIND_LABEL[i.kind],
     href: `${routes.inbox(businessId, i.id)}?tab=respond`,
     quickOption: i.quickOption,
