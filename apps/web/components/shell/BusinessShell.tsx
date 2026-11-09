@@ -56,6 +56,7 @@ import { termsFor } from "@/components/providers/GuidanceHost";
 import { agentOfAskItem, askPaletteItems, askQuestion, generatePaletteItems, paletteAgents } from "@/components/conversation/palette";
 import { BusinessProvider, makeBusinessContext, type BusinessGet, type DepartmentList } from "./business-context";
 import { switcherBusinesses } from "./business-switcher";
+import { AskChief } from "./AskChief";
 import { ShellChromeProvider, useShellChromeValue } from "./chrome";
 import { isShellLinkClick, renderNextShellLink } from "./NextShellLink";
 
@@ -784,6 +785,8 @@ function ShellInner({ businessId, initialBusiness, initialDepartments, viewer, c
                 processing={{ segments, active: cycle.running, cycleNumber }}
                 tabs={chrome.tabs}
                 breadcrumbs={chrome.breadcrumbs}
+                // "Ask <Chief of Staff>" beside "Explain this page" on every page (nothing without a Chief of Staff).
+                pageActions={<AskChief desk={deskApi} />}
                 rightRail={chrome.rightRail}
                 search={{
                   items: paletteItems,

@@ -18,7 +18,7 @@ import { CREDITS_CURRENCY } from "@foundmill/config";
 import { GOAL_OPTION_IDS, WRITE_ROLES, addDaysToDay, dayKeyIn, hasSectionAccess, weekPlanWords, type WeekFacts, type WeekPlanWords } from "@foundmill/shared";
 import type { BusinessContext } from "../trpc";
 import { autopilotStatus } from "./autopilot";
-import { cycleStatus } from "./cycle";
+import { cycleStatus, type CycleStatus } from "./cycle";
 import { idsOfItem, inboxWalls, loadRedactionSource, redactInboxItem } from "./inbox-redaction";
 
 /** How many notes Today shows (the rest wait in the Inbox behind "See all in the Inbox"). */
@@ -117,12 +117,12 @@ export async function needsYouFor(tx: DbTx, ctx: BusinessContext): Promise<{ ite
   return { items, total: Math.max(counts.respond, items.length) };
 }
 
-const titleOf = (t: Pick<Task, "founderTitle" | "title">): string => (t.founderTitle ?? t.title).trim();
+export const titleOf = (t: Pick<Task, "founderTitle" | "title">): string => (t.founderTitle ?? t.title).trim();
 const DONE_LOOKBACK = 200;
 const ROADMAP_FINISHED: ReadonlySet<string> = new Set(["done", "shipped", "archived"]);
 
 /** The facts behind "This week and next", in the business's time zone. */
-export async function weekFactsFor(tx: DbTx, ctx: BusinessContext, options: { now?: Date; autopilotNextOn?: string | null } = {}): Promise<WeekFacts> {
+export async function weekFactsFor(tx: DbTx, ctx: BusinessContext, options: { now?: Date; autopilotNextOn?: string | null; cycle?: CycleStatus } = {}): Promise<WeekFacts> {
   const now = options.now ?? new Date();
   const zone = ctx.business.timeZone;
   const today = dayKeyIn(now, zone);
@@ -133,7 +133,7 @@ export async function weekFactsFor(tx: DbTx, ctx: BusinessContext, options: { no
     repos.tasks.list(tx, ctx.businessId, { status: ["ready", "planned"], limit: 100 }),
     repos.tasks.countByStatus(tx, ctx.businessId),
     hasSectionAccess(ctx.membership, "product", "read") ? repos.product.listRoadmap(tx, ctx.businessId) : Promise.resolve([]),
-    cycleStatus({ db: tx, businessId: ctx.businessId }),
+    options.cycle ?? cycleStatus({ db: tx, businessId: ctx.businessId }),
   ]);
   const finished = done.items.filter((t) => t.endedAt && t.endedAt.getTime() >= since);
   const titles = new Map(roadmap.map((r) => [r.id, r.title]));

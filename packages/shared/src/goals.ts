@@ -114,6 +114,35 @@ export function goalValueWords(kind: GoalMetricKind, value: number, currency: st
   return kind === "revenue_month" ? moneyWords(value, currency ?? "USD") : count(value);
 }
 
+/** What the goal's bar and pill read from a goal view (the shape of `goal.current`'s `active`). */
+export interface GoalStandingLike {
+  kind: GoalMetricKind;
+  target: number | null;
+  currency: string | null;
+  dueOn: string;
+  achievedAt: Date | string | null;
+  progress: { current: number; pace: string } | null;
+}
+
+/** "4 of 10 paying customers", "£1,200 of £5,000": the bar's value in words. Today and the Chief of Staff's answers share it. */
+export function goalValueText(view: Pick<GoalStandingLike, "kind" | "currency" | "target" | "progress">): string {
+  if (!view.progress || view.target === null) return "No number to track yet";
+  const v = (n: number) => goalValueWords(view.kind, n, view.currency);
+  const unit = view.kind === "paying_customers" ? " paying customers" : view.kind === "signups" ? " signups" : "";
+  return `${v(view.progress.current)} of ${v(view.target)}${unit}`;
+}
+
+export type GoalPaceKey = "on_pace" | "behind" | "overdue" | "reached" | "untracked";
+
+/** Where an active goal stands: reached, its date passed, on pace, behind, or nothing to track. */
+export function goalPaceState(view: Pick<GoalStandingLike, "achievedAt" | "progress" | "target" | "dueOn">, today: string): GoalPaceKey {
+  if (view.achievedAt) return "reached";
+  if (!view.progress || view.target === null) return "untracked";
+  if (view.dueOn < today) return "overdue";
+  if (view.progress.current >= view.target || /\bon pace\b|: reached\./.test(view.progress.pace)) return "on_pace";
+  return "behind";
+}
+
 // ---------------------------------------------------------------------------------------------------------------------
 // The default proposal
 // ---------------------------------------------------------------------------------------------------------------------

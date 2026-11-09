@@ -29,3 +29,4 @@ export * from "./shell/Breadcrumbs";
 export * from "./shell/AreaLine";
 export * from "./shell/PageGrid";
 export * from "./shell/KeyboardHelp";
+export * from "./shell/AskChiefOfStaff";
