@@ -98,7 +98,8 @@ test.describe("shell resilience", () => {
     let blocked = true;
     // Only the chunks the Inbox did not need fail (blocking the shell's own would leave nothing to show the panel).
     await page.route("**/_next/static/chunks/**", (route) => (blocked && !loaded.has(route.request().url()) ? route.fulfill({ status: 404, body: "" }) : route.continue()));
-    await page.getByRole("link", { name: "Milestones" }).first().click();
+    // A client navigation to a screen the Inbox did not load (the sidebar has no Milestones item since the founder areas: Plan holds it).
+    await page.locator("[data-testid=app-shell] nav [data-sidebar-item='area-plan']").click();
     const panel = page.getByTestId("error-panel");
     await expect(panel).toBeVisible({ timeout: LONG });
     await expect(panel).toContainText("was updated");

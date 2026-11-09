@@ -31,6 +31,11 @@ test.describe("crm", () => {
   test("lists records with grouped views, importers and the data duties panel", async ({ page }) => {
     // "Contacts" is the screen's name in the chrome (founder decision 2026-10-20, item 1); the grid keeps "CRM records".
     await expect(page.getByTestId("kitbar-screen-title")).toHaveText("Contacts", { timeout: LONG });
+    // Contacts is a Customers tab (founder areas, 2026-11-09): the Customers bar, with Contacts selected and the area lit.
+    const bar = page.getByRole("tablist", { name: "Customers tabs" });
+    await expect(bar.getByRole("tab")).toHaveText([/^Leads/, /^Campaigns/, /^Contacts/]);
+    await expect(bar.getByRole("tab", { name: "Contacts" })).toHaveAttribute("aria-selected", "true");
+    await expect(page.locator("[data-testid=app-shell] nav [data-sidebar-item='area-customers']")).toHaveAttribute("aria-current", "page");
     await expect(page.getByTestId("crm-importers")).toContainText("Affinity");
     await expect(page.getByTestId("crm-data-duties")).toContainText("Lawful basis");
     // Dugout's DataTable is an ARIA grid; the seed gives Northwind records to list.

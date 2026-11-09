@@ -70,12 +70,48 @@ export const BUILDER_ONLY_TABS: Partial<Record<ModuleKey, readonly string[]>> = 
  * module's default (`MODULE_TABS`), so a founder's rename is kept; Builder view on shows the stored title.
  */
 export const FOUNDER_TAB_TITLES: Partial<Record<ModuleKey, Readonly<Record<string, string>>>> = {
-  development: { "training-ground": "Working now", "pull-requests": "What changed", environments: "Live product" },
+  // "Work list", so Development's list of tasks never reads like the Plan area (docs/DESIGN.md §9, founder areas).
+  development: { "training-ground": "Working now", plan: "Work list", "pull-requests": "What changed", environments: "Live product" },
+  // The legal entity is the founder's company (Money's Company section, founder decision 2026-11-09).
+  legal: { entity: "Company" },
 };
+
+/**
+ * The tabs each module shows inline in its founder area's tab bar (docs/DESIGN.md §9 "More detail", founder
+ * 2026-11-09). The module's other tabs sit behind the bar's "More detail" menu while Builder view is off, and Builder
+ * view's own tabs (`BUILDER_ONLY_TABS`) are not offered at all then. With Builder view on every tab shows inline.
+ */
+export const DEFAULT_TABS: Readonly<Record<ModuleKey, readonly string[]>> = {
+  product: ["specification", "roadmap"],
+  development: ["pull-requests", "environments"],
+  distribution: ["leads", "campaigns"],
+  finance: ["overview", "runway"],
+  team: ["squad", "recruitment"],
+  legal: ["entity", "compliance"],
+};
+
+/** Where a tab sits in its area's tab bar: inline ("default"), behind "More detail" ("detail"), or Builder view only. */
+export type TabTier = "default" | "detail" | "builder";
 
 /** The modules a tab check reads: a department's own, or every module when the caller does not know them. */
 const tabModules = (moduleKeys: readonly string[] | null | undefined): ModuleKey[] =>
   (moduleKeys ?? MODULE_KEYS).filter((k): k is ModuleKey => (MODULE_KEYS as readonly string[]).includes(k));
+
+/** The module of a department's that owns a tab slug (slugs are unique across modules), or null for a founder's own tab. */
+export function tabModule(moduleKeys: readonly string[] | null | undefined, slug: string): ModuleKey | null {
+  return tabModules(moduleKeys).find((k) => MODULE_TABS[k].some((t) => t.slug === slug)) ?? null;
+}
+
+/**
+ * A tab's tier in a department over these modules: Builder view's tabs are "builder", a module's `DEFAULT_TABS` are
+ * "default" and its other tabs "detail". A slug no module of the department has (a founder's own tab) is "default".
+ */
+export function tabTier(moduleKeys: readonly string[] | null | undefined, slug: string): TabTier {
+  if (isBuilderOnlyTab(moduleKeys, slug)) return "builder";
+  const owner = tabModule(moduleKeys, slug);
+  if (!owner) return "default";
+  return DEFAULT_TABS[owner].includes(slug) ? "default" : "detail";
+}
 
 /** Whether a tab slug of a department over these modules is shown only in Builder view. */
 export function isBuilderOnlyTab(moduleKeys: readonly string[] | null | undefined, slug: string): boolean {

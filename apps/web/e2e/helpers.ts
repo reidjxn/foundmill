@@ -60,6 +60,34 @@ export async function openBusiness(page: Page, path = "home"): Promise<string> {
   return NORTHWIND_BUSINESS_ID;
 }
 
+/** The founder areas of the sidebar (docs/DESIGN.md §8): Plan, Customers, Money, Product, Team. */
+export type AreaKey = "plan" | "customers" | "money" | "product" | "team";
+
+/** An area's sidebar item (founder areas, 2026-11-09): departments are no longer sidebar items. */
+export function areaLink(page: Page, area: AreaKey): Locator {
+  return page.locator(`[data-testid=app-shell] nav [data-sidebar-item='area-${area}']`);
+}
+
+/**
+ * The base of a department's tabs ("/b/<id>/d/<slug>"). The sidebar lists areas, not departments, so a spec names the
+ * department by its slug; the seeded businesses keep the module keys as slugs (renames change only the names), and a
+ * module key whose department moved is forwarded by the department screen.
+ */
+export function departmentBase(slug: string, businessId = NORTHWIND_BUSINESS_ID): string {
+  return `/b/${businessId}/d/${slug}`;
+}
+
+/** The current area's tab bar ("Product tabs") and its "More detail" menu trigger. */
+export function areaTabBar(page: Page, areaLabel: string): Locator {
+  return page.getByRole("tablist", { name: `${areaLabel} tabs` });
+}
+
+/** Opens a tab that sits behind the tab bar's "More detail" menu (docs/DESIGN.md §9). */
+export async function openMoreDetail(page: Page, label: string | RegExp): Promise<void> {
+  await page.getByRole("button", { name: /^More detail/ }).click();
+  await page.getByTestId("more-detail-menu").getByRole("menuitem", { name: label }).click();
+}
+
 /**
  * React's parked copy of a streamed screen: the server sends the shell with a skeleton in the main region, then the
  * screen itself in a hidden `<div hidden id="S:0">` at the end of the body, and a reveal script moves it in once the

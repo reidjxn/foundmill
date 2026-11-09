@@ -36,7 +36,7 @@ test.describe("Gate 0 screenshots (seeded Northwind Skincare)", () => {
     const shell = page.getByTestId("app-shell");
     await expect(shell).toBeVisible({ timeout: LONG });
     await expect(page.getByTestId("needs-larger-window")).toHaveCount(0);
-    // Seeded data, not an empty shell: the business name in the brand-colour bar, the department links in the sidebar,
+    // Seeded data, not an empty shell: the business name in the brand-colour bar, the area links in the sidebar,
     // the Ribbon summary over the seeded history and at least three department cards.
     await expect(page.getByTestId("kit-bar")).toContainText(/Northwind/);
     expect(await page.locator("[data-testid=app-shell] nav a[href*='/d/']").count()).toBeGreaterThanOrEqual(3);

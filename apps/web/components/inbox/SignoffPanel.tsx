@@ -50,7 +50,7 @@ export function SignoffPanel({ signoff, notes, onNotesChange, answered, needsNot
       <div className="flex flex-col gap-3">
         <p className="text-body text-secondary">
           {ready
-            ? "Start distribution now and the channel engines start; Not yet keeps building, and you can start it any time from Distribution › Board."
+            ? "Start distribution now and the channel engines start; Not yet keeps building, and you can start it any time from Customers › Board."
             : `Approve ${KIND_WORDS[signoff.kind]} and the team builds from it, or ask for changes in your own words: they become the Product lead's revision task and you are asked to sign off again. You can also decide on the Product tabs.`}
         </p>
         {open ? (

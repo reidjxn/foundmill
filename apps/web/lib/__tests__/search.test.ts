@@ -108,7 +108,9 @@ describe("universal search", () => {
 
   it("calls the CRM Contacts on screen and still finds it by its old name; Stop all agents says what it does in plain words (B13, B6)", () => {
     const items = localPaletteItems({ businessId: BID, departments, live: false });
-    expect(items.find((i) => i.id === "screen:crm")).toMatchObject({ label: "Contacts", href: `/b/${BID}/crm`, shortcut: ["G", "C"] });
+    expect(items.find((i) => i.id === "screen:crm")).toMatchObject({ label: "Contacts", description: "Customers", href: `/b/${BID}/crm` });
+    // G C opens Customers now (founder, 2026-11-09): Contacts is one of its tabs.
+    expect(items.find((i) => i.id === "area:customers")).toMatchObject({ label: "Customers", shortcut: ["G", "C"] });
     expect(filterLocal(items, "crm")[0]?.id).toBe("screen:crm");
     expect(filterLocal(items, "contacts")[0]?.id).toBe("screen:crm");
     const stop = items.find((i) => i.id === "command:stop-all");

@@ -35,7 +35,7 @@ export interface TourDefinition {
 export const HOME_TOUR: TourDefinition = {
   id: "home",
   steps: [
-    { targetId: "sidebar", title: "Your departments", body: "Your business, one place per department.", side: "right", align: "center" },
+    { targetId: "sidebar", title: "Your areas", body: "Your business, one place per question.", side: "right", align: "center" },
     { targetId: "continue", title: "Continue", body: "This runs the team; what they need from you lands in the Inbox.", side: "bottom", align: "end" },
     { targetId: "processing-strip", title: "The working light", body: "A light here means the team is working.", side: "bottom" },
     { targetId: "status-strip", title: "The status strip", body: "Your numbers; anything marked Estimate is worked out, not measured.", side: "bottom" },
@@ -67,7 +67,7 @@ export const INBOX_TOUR: TourDefinition = {
 export const DEPARTMENT_TOUR: TourDefinition = {
   id: "department",
   steps: [
-    { targetId: "tabs", title: "This department's screens", body: "Each tab is one screen of this department.", side: "bottom" },
+    { targetId: "tabs", title: "This area's screens", body: "Each tab is one screen; More detail holds the rest.", side: "bottom" },
     { targetId: "explainer", title: "What a screen is for", body: "Every screen starts with what it is for.", side: "bottom" },
     { targetId: "table-views", title: "Simple view and row actions", body: "Tables start in the Simple view, and the … at the end of a row holds what you can do with it.", side: "bottom" },
   ],

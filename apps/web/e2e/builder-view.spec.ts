@@ -1,10 +1,10 @@
 import { expect, test, type Page } from "@playwright/test";
-import { LONG, NORTHWIND_BUSINESS_ID, openBusiness, openSettings, setBuilderView, settled, toast } from "./helpers";
+import { LONG, NORTHWIND_BUSINESS_ID, areaTabBar, departmentBase, openBusiness, openSettings, setBuilderView, settled, toast } from "./helpers";
 
 /**
  * Builder view (founder, 2026-11-08; docs/DESIGN.md "Builder view"): one account-wide switch, off by default, that shows
- * how the platform runs the team. Off: the Development tabs read "Working now · Plan · What changed · Live product ·
- * Specialists", nothing links to Code, Health or Hierarchy, a gated tab opened by URL says "This is part of Builder
+ * how the platform runs the team. Off: the Product area shows Specification, What changed and Live product inline (Working now,
+ * Work list and Specialists behind More detail), nothing links to Code, Health or Hierarchy, a gated tab opened by URL says "This is part of Builder
  * view", the Agents table has no Form or "Rating /20", and no cycle number, tokens, ETA or test count shows; What
  * changed reads "Waiting for your go-ahead" and "Gone live", Live product shows "Your live product" and the previews,
  * and a Working now tile has no terminal. On: everything comes back. The dev founder is shared by every spec, so the switch is restored afterwards.
@@ -17,13 +17,6 @@ test.afterAll(async ({ playwright }) => {
   await setBuilderView(playwright, before);
 });
 
-/** The base of a department's tabs ("/b/<id>/d/<slug>"), from its sidebar link. */
-async function departmentBase(page: Page, label: RegExp): Promise<string> {
-  const link = page.locator("[data-testid=app-shell] nav a[href*='/d/']").filter({ hasText: label }).first();
-  await expect(link, `the seed gives Northwind a ${label} department`).toBeVisible({ timeout: LONG });
-  return (await link.getAttribute("href"))!.replace(/(\/d\/[^/]+)\/.*$/, "$1");
-}
-
 async function openTab(page: Page, href: string, module: string): Promise<void> {
   await page.goto(href);
   await expect(page.getByTestId("module-screen")).toHaveAttribute("data-module", module, { timeout: LONG });
@@ -35,14 +28,19 @@ const ENGINE_WORDS = /\bcycle \d+\b|\b\d[\d,.]*K? tokens\b|\bETA\b|\b\d+ (?:of \
 test.describe("Builder view", () => {
   test("off: the founder's tabs, no links to the engine tabs, and the gate on a URL visit", async ({ page }) => {
     await openBusiness(page);
-    const dev = await departmentBase(page, /development/i);
-    const team = await departmentBase(page, /^team/i);
+    const dev = departmentBase("development");
+    const team = departmentBase("team");
     // Nothing on the page links to a Builder view tab.
     const hrefs = await page.locator("a[href]").evaluateAll((as) => as.map((a) => a.getAttribute("href") ?? ""));
     expect(hrefs.filter((h) => /\/d\/[^/]+\/(code|health|hierarchy)(\?|$)/.test(h))).toEqual([]);
 
+    // The Product area's bar: its defaults, the open Work list, and Formulation Lab's promoted tab; the rest behind
+    // More detail, never Code (docs/DESIGN.md §9).
     await openTab(page, `${dev}/plan`, "development/plan");
-    await expect(page.getByRole("tab")).toHaveText(["Working now", "Plan", "What changed", "Live product", "Specialists"]);
+    await expect(areaTabBar(page, "Product").getByRole("tab")).toHaveText(["Specification", "Work list · Development", "What changed", "Live product", "Specialists · Formulation Lab"]);
+    await page.getByRole("button", { name: /^More detail/ }).click();
+    await expect(page.getByTestId("more-detail-menu").getByRole("menuitem")).toHaveText(["Vision", "Changes", "Sources", "Research", "Working now", "Specialists · Development", "Work list · Formulation Lab"]);
+    await page.keyboard.press("Escape");
     const tabHrefs = await page.locator("a[href]").evaluateAll((as) => as.map((a) => a.getAttribute("href") ?? ""));
     expect(tabHrefs.filter((h) => /\/(code|health|hierarchy)(\?|$)/.test(h))).toEqual([]);
     await expect(page.getByTestId("app-shell")).not.toContainText(ENGINE_WORDS);
@@ -55,8 +53,9 @@ test.describe("Builder view", () => {
     await expect(gate).toContainText("This is part of Builder view");
     await expect(gate).toContainText("It shows how the team's work runs underneath. Turn on Builder view to see it, here and in every business.");
     await expect(gate.getByRole("button", { name: "Turn on Builder view" })).toBeVisible();
+    // "Open" goes to the department's first inline tab in its area: What changed.
     await gate.getByTestId("builder-gate-open").click();
-    await page.waitForURL(/\/d\/[^/]+\/training-ground/, { timeout: LONG });
+    await page.waitForURL(/\/d\/[^/]+\/pull-requests/, { timeout: LONG });
 
     // Team: no Health or Hierarchy tab; the Agents table has no Form or Rating /20; Recruitment is still there.
     await openTab(page, `${team}/squad`, "team/squad");
@@ -84,7 +83,7 @@ test.describe("Builder view", () => {
     await openBusiness(page);
     // The Live feed on Home names no cycle and no pull request number.
     await expect(page.getByTestId("app-shell")).not.toContainText(/\bCycle \d+|Merged PR #\d+/);
-    const dev = await departmentBase(page, /development/i);
+    const dev = departmentBase("development");
 
     await openTab(page, `${dev}/pull-requests`, "development/pull-requests");
     const screen = page.getByTestId("module-screen");
@@ -116,10 +115,13 @@ test.describe("Builder view", () => {
     await expect(toast(page, "Builder view on")).toBeVisible({ timeout: LONG });
     await expect(sw).toHaveAttribute("aria-checked", "true");
 
-    const dev = await departmentBase(page, /development/i);
-    const team = await departmentBase(page, /^team/i);
+    const dev = departmentBase("development");
+    const team = departmentBase("team");
     await openTab(page, `${dev}/plan`, "development/plan");
-    await expect(page.getByRole("tab")).toHaveText(["Live sessions", "Plan", "Pull requests", "Code", "Environments", "Specialists"]);
+    // Every tab inline under its stored title, no More detail menu (founder decision 3); a long bar still overflows into More.
+    const all = await areaTabBar(page, "Product").locator("[role=tab]").allTextContents();
+    expect(all).toEqual(expect.arrayContaining(["Vision", "Live sessions", "Plan · Development", "Pull requests", "Code", "Environments", "Specialists · Development", "Specialists · Formulation Lab"]));
+    await expect(page.getByRole("button", { name: /^More detail/ })).toHaveCount(0);
     await openTab(page, `${dev}/code`, "development/code");
     await expect(page.getByTestId("builder-gate")).toHaveCount(0);
     // The change and preview lists are the builder's tables again.
@@ -140,7 +142,7 @@ test.describe("Builder view", () => {
 
   test("the gate's own button turns it on, for every business", async ({ page }) => {
     await openBusiness(page);
-    const team = await departmentBase(page, /^team/i);
+    const team = departmentBase("team");
     await page.goto(`${team}/hierarchy`);
     const gate = page.getByTestId("builder-gate");
     await expect(gate).toBeVisible({ timeout: LONG });

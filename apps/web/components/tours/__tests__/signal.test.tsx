@@ -51,7 +51,7 @@ describe("Tour signals", () => {
     const signal = vi.fn<GuidanceSignalFn>();
     const onDone = vi.fn();
     const markTourDone = mountTour(signal, { onDone });
-    await screen.findByRole("dialog", { name: "Your departments" });
+    await screen.findByRole("dialog", { name: "Your areas" });
     for (const title of ["Continue", "The working light", "The status strip", "A department card"]) {
       click("Next");
       await screen.findByRole("dialog", { name: title });
@@ -68,7 +68,7 @@ describe("Tour signals", () => {
   it("a tour with a step missing its target counts only the steps it could show", async () => {
     const signal = vi.fn<GuidanceSignalFn>();
     mountTour(signal, { card: false });
-    await screen.findByRole("dialog", { name: "Your departments" });
+    await screen.findByRole("dialog", { name: "Your areas" });
     for (const title of ["Continue", "The working light", "The status strip"]) {
       click("Next");
       await screen.findByRole("dialog", { name: title });
@@ -80,7 +80,7 @@ describe("Tour signals", () => {
   it("Skip tour sends tour_skipped with the step the founder left on", async () => {
     const signal = vi.fn<GuidanceSignalFn>();
     mountTour(signal);
-    await screen.findByRole("dialog", { name: "Your departments" });
+    await screen.findByRole("dialog", { name: "Your areas" });
     click("Next");
     await screen.findByRole("dialog", { name: "Continue" });
     click("Skip tour");
@@ -94,7 +94,7 @@ describe("Tour signals", () => {
     });
     const onDone = vi.fn();
     mountTour(signal, { onDone });
-    await screen.findByRole("dialog", { name: "Your departments" });
+    await screen.findByRole("dialog", { name: "Your areas" });
     click("Skip tour");
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
     expect(onDone).toHaveBeenCalledWith("skipped");

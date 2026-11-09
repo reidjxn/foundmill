@@ -112,7 +112,7 @@ test.describe("inbox", () => {
     await page.goto(`/b/${bid}/inbox`);
     await expect(inboxRow(page, SPEC_SIGNOFF)).toBeVisible({ timeout: LONG });
     await expect(inboxRow(page, ROADMAP_SIGNOFF)).toBeVisible({ timeout: LONG });
-    await expect(page.getByRole("navigation", { name: "Primary" }).getByRole("link", { name: /^Inbox/ })).toContainText("2", { timeout: LONG });
+    await expect(page.getByRole("navigation", { name: "Primary" }).getByRole("link", { name: /^Needs you/ })).toContainText("2", { timeout: LONG });
     await expect(page.getByRole("button", { name: /^Continue$/ })).toBeVisible({ timeout: LONG });
     await inboxRow(page, SPEC_SIGNOFF).click();
     const item = page.getByTestId("inbox-item");
@@ -147,7 +147,7 @@ test.describe("inbox", () => {
     await expect(answered).toBeVisible();
     // Decided from the DecisionBar: the desk keeps 2–4 replies but no longer offers "Go with: …" (no second decision).
     await expect(desk.locator('[data-quick-reply="go_with"]')).toHaveCount(0, { timeout: LONG });
-    await expect(page.getByRole("navigation", { name: "Primary" }).getByRole("link", { name: /^Inbox/ })).toContainText("1", { timeout: LONG });
+    await expect(page.getByRole("navigation", { name: "Primary" }).getByRole("link", { name: /^Needs you/ })).toContainText("1", { timeout: LONG });
     // The second approval starts the build: Development › Plan gets the Planner's first tasks.
     await approveFromInbox(page, bid, ROADMAP_SIGNOFF);
     await expect(inboxRow(page, /Building starts:/)).toBeVisible({ timeout: LONG });

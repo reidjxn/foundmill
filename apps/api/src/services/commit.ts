@@ -150,7 +150,7 @@ export function welcomeNote(input: { agents: number; departments: number; produc
       prompts.HOUSE_RULES_FOUNDER_LINE,
       `The team is hired: ${input.agents} agents in ${input.departments} departments.`,
       `${who} is drafting the vision, the specification and the roadmap from ${from}; you will get two notes asking you to sign off each. Building starts when both are approved.`,
-      "Nothing is spent on distribution until you start it from Distribution › Board.",
+      "Nothing is spent on distribution until you start it from Customers › Board.",
     ].join("\n\n"),
   };
 }

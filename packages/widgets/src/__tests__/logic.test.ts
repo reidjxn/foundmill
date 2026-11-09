@@ -532,12 +532,15 @@ describe("text helpers", () => {
 });
 
 describe("moduleTabLabel", () => {
-  it("names a screen by the department that owns the module and the tab's own title, never a hard-coded name", () => {
+  it("names a screen by its founder area and the tab's own title in the department that owns the module, never a hard-coded name", () => {
     const tabs = [{ id: "t1", slug: "plan", title: "Plan", position: 0 }];
     const dept = (name: string, moduleKeys: string[], hidden = false) => ({ id: name, name, slug: name.toLowerCase(), colourToken: "dept-1", position: 0, moduleKeys, hidden, tabs }) as never;
-    expect(moduleTabLabel([dept("Formulation Lab", ["development"])], "development", "plan")).toBe("Formulation Lab › Plan");
+    expect(moduleTabLabel([dept("Formulation Lab", ["development"])], "development", "plan")).toBe("Product › Work list");
+    expect(moduleTabLabel([dept("Retail Partnerships", ["distribution"])], "distribution", "leads")).toBe("Customers › Leads");
+    expect(moduleTabLabel([dept("Product", ["product"])], "product", "roadmap")).toBe("Plan › Roadmap");
+    expect(moduleTabLabel([dept("Legal", ["legal"])], "legal", "entity")).toBe("Money › Company");
     // A tab the department does not list falls back to the module's default title.
-    expect(moduleTabLabel([dept("Editorial", ["product"])], "product", "changes")).toBe("Editorial › Changes");
+    expect(moduleTabLabel([dept("Editorial", ["product"])], "product", "changes")).toBe("Product › Changes");
     expect(moduleTabLabel([dept("Hidden", ["team"], true)], "team", "recruitment")).toBeNull();
     expect(moduleTabLabel(undefined, "team", "recruitment")).toBeNull();
   });
@@ -549,8 +552,8 @@ describe("Builder view in department links (docs/DESIGN.md)", () => {
     const rows = [{ id: "d", name: "Development", slug: "development", colourToken: "dept-1", position: 0, moduleKeys: ["development"], hidden: false, tabs }] as never;
     expect(moduleHref("b1", rows, "development")).toBe("/b/b1/d/development/training-ground");
     expect(moduleHref("b1", rows, "development", undefined, true)).toBe("/b/b1/d/development/code");
-    expect(moduleTabLabel(rows, "development", "training-ground")).toBe("Development › Working now");
-    expect(moduleTabLabel(rows, "development", "training-ground", true)).toBe("Development › Live sessions");
+    expect(moduleTabLabel(rows, "development", "training-ground")).toBe("Product › Working now");
+    expect(moduleTabLabel(rows, "development", "training-ground", true)).toBe("Product › Live sessions");
   });
 });
 

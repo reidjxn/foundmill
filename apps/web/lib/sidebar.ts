@@ -1,17 +1,20 @@
 /**
- * Sidebar items for the shell (BUILD §5.3, DESIGN §8): Home, Inbox (badge: items to respond to), departments in the
- * founder's order (badge: unread items from that department's agents), Contacts (the CRM: the slug and the fixed
- * surface keep "crm", the label follows docs/UX_AUDIT_AND_PLAN.md §12), Milestones, the LIVE block (Network in every
- * mode, badged with what waits for the founder; Communities and Leaderboards once LIVE), foot items (Settings, Sign
- * out). The Anthropic key lives in Settings › Keys (reached from Settings and the palette), not in the foot (B13).
- * Pure and unit-tested; the layout feeds it `department.list` + `inbox.list`.
+ * Sidebar items for the shell (BUILD §5.3, DESIGN §8; founder areas, 2026-11-09): Today, Needs you (the Inbox on its
+ * Respond tab; badge: items to respond to), the founder areas Plan, Customers, Money, Product and Team (each a mapping
+ * over module tabs, lib/areas.ts; badge: unread items from its departments' agents), then each department with no
+ * modules as its own item (its dot and letter), the LIVE block (Network in every mode, badged with what waits for the
+ * founder; Communities and Leaderboards once LIVE) and the foot (Settings, Sign out). Contacts (the CRM) is a Customers
+ * tab and Milestones a Plan tab. The Anthropic key lives in Settings › Keys (reached from Settings and the palette),
+ * not in the foot (B13). Pure and unit-tested; the layout feeds it `department.list` + `inbox.list`.
  */
-import { Globe, Inbox, LogOut, Medal, Settings, Sun, Trophy, Users, Users2, type LucideIcon } from "lucide-react";
+import { BookOpen, Compass, Globe, Inbox, LogOut, Medal, Megaphone, PiggyBank, Settings, Sun, Users, Users2, type LucideIcon } from "lucide-react";
 import type { SidebarBrand, SidebarItem } from "@foundmill/dugout";
 import type { DeptColourToken } from "@foundmill/shared";
+import { AREA_LABELS, departmentArea, moduleLessDepartments, type AreaKey } from "@foundmill/shared/areas";
 import { firstVisibleTab } from "@foundmill/shared/constants";
 import { routes } from "@foundmill/widgets/shared/routes";
 import { canOpenDepartment, FULL_ACCESS, type Access } from "./access";
+import { areaHref, areaNav, areaOfRoute } from "./areas";
 import { iconByName } from "./icons";
 
 export interface SidebarDepartment {
@@ -22,11 +25,11 @@ export interface SidebarDepartment {
   colourToken: DeptColourToken;
   position: number;
   hidden?: boolean;
-  /** The stored G-chord letter (departments.shortcut); null until the API settles one. */
+  /** The stored G-chord letter (departments.shortcut); only a department with no modules shows one. */
   shortcut?: string | null;
   moduleKeys?: readonly string[];
   squad?: readonly { id: string }[];
-  tabs: readonly { slug: string; position: number }[];
+  tabs: readonly { slug: string; position: number; title?: string }[];
 }
 
 export interface SidebarInboxItem {
@@ -39,7 +42,7 @@ export interface SidebarInput {
   departments: readonly SidebarDepartment[];
   /** `counts` from inbox.list. */
   inboxCounts?: Partial<Record<string, number>>;
-  /** First page of inbox items; unread ones from a department's agents badge that department. */
+  /** First page of inbox items; unread ones from a department's agents badge that department's area. */
   inboxItems?: readonly SidebarInboxItem[];
   live: boolean;
   /**
@@ -49,21 +52,31 @@ export interface SidebarInput {
   network?: { total: number; moderation: number };
   /** What the person may open (audit RUI-05): walled departments and a walled CRM are not listed. Default: everything. */
   access?: Access;
-  /** Builder view (docs/DESIGN.md): a department link never lands on a Builder view tab while it is off. Default off. */
+  /** Builder view (docs/DESIGN.md): an area link never lands on a Builder view tab while it is off. Default off. */
   builder?: boolean;
 }
 
-export const SIDEBAR_IDS = { home: "home", inbox: "inbox", crm: "crm", milestones: "milestones", settings: "settings", signOut: "sign-out", network: "network", communities: "communities", leaderboards: "leaderboards" } as const;
+export const SIDEBAR_IDS = { home: "home", inbox: "inbox", settings: "settings", signOut: "sign-out", network: "network", communities: "communities", leaderboards: "leaderboards" } as const;
 
-/** The CRM's display label (founder, 2026-10-20: "Contacts"); its slug, id and G chord keep "crm". */
+/** The sidebar id of an area's item. */
+export const areaSidebarId = (area: AreaKey) => `area-${area}`;
+
+/** The Inbox's sidebar label: what it holds for the founder (founder areas, 2026-11-09); the id and G I stay. */
+export const NEEDS_YOU_LABEL = "Needs you";
+
+/** The CRM's display label (founder, 2026-10-20: "Contacts"), now a Customers tab; its slug keeps "crm". */
 export const CRM_LABEL = "Contacts";
-/** The Contacts item's tooltip line: the old name, for operators who look for it (B13). */
-export const CRM_HINT = "The CRM";
+
+/** Each area's icon (lucide, through Dugout's Icon). */
+const AREA_ICONS: Readonly<Record<AreaKey, LucideIcon>> = { plan: Compass, customers: Megaphone, money: PiggyBank, product: BookOpen, team: Users };
+
+/** The collapsed tooltip's words for an area whose name does not say everything it holds. */
+const AREA_HINTS: Partial<Record<AreaKey, string>> = { customers: "leads, campaigns and contacts", plan: "roadmap and milestones" };
 
 /** The Foundmill wordmark closing the sidebar foot (DESIGN §8a). Not an item: Dugout draws it when the sidebar is expanded. */
 export const SIDEBAR_BRAND: SidebarBrand = { href: "/" };
 
-/** A department's link: its first tab the person sees (Builder view's tabs skipped while it is off). */
+/** A module-less department's link: its first tab the person sees (Builder view's tabs skipped while it is off). */
 export function departmentHref(businessId: string, d: SidebarDepartment, builder = false): string {
   const first = firstVisibleTab(d, builder);
   return routes.department(businessId, d.slug, first?.slug ?? "overview");
@@ -87,6 +100,8 @@ export function departmentBadges(departments: readonly SidebarDepartment[], item
   return out;
 }
 
+const withTitles = (departments: readonly SidebarDepartment[]) => departments.map((d) => ({ ...d, tabs: d.tabs.map((t) => ({ ...t, title: t.title ?? t.slug })) }));
+
 export function buildSidebarItems(input: SidebarInput): SidebarItem[] {
   const bid = input.businessId;
   const access = input.access ?? FULL_ACCESS;
@@ -95,18 +110,30 @@ export function buildSidebarItems(input: SidebarInput): SidebarItem[] {
   const items: SidebarItem[] = [
     // Today, the front door (founder, 2026-11-07): the id and `fixed: "home"` stay, so G H and the tour's target follow.
     { id: SIDEBAR_IDS.home, label: "Today", icon: Sun, href: routes.today(bid), group: "main", fixed: "home" },
-    { id: SIDEBAR_IDS.inbox, label: "Inbox", icon: Inbox, href: routes.inbox(bid), group: "main", fixed: "inbox", badge: respond || undefined, badgeTone: "bad" },
+    // Needs you opens the Inbox on what needs a response; the id and `fixed: "inbox"` stay, so G I follows it.
+    { id: SIDEBAR_IDS.inbox, label: NEEDS_YOU_LABEL, icon: Inbox, href: `${routes.inbox(bid)}?tab=respond`, group: "main", fixed: "inbox", badge: respond || undefined, badgeTone: "bad" },
   ];
+  const departments = withTitles(input.departments);
+  const nav = areaNav({ businessId: bid, departments, access, builder: input.builder });
+  // An area's badge: the unread notes of the departments whose first module is the area's (each department counted once).
+  const areaBadge = new Map<AreaKey, number>();
   for (const d of orderedVisibleDepartments(input.departments)) {
-    if (!canOpenDepartment(access, d)) continue;
-    items.push({ id: d.id, label: d.name, icon: iconByName(d.icon) as LucideIcon, href: departmentHref(bid, d, input.builder ?? false), group: "department", dept: d.colourToken, shortcut: d.shortcut ?? null, badge: badges.get(d.id) || undefined });
+    const area = departmentArea(d.moduleKeys);
+    const n = badges.get(d.id) ?? 0;
+    if (area && n && canOpenDepartment(access, d)) areaBadge.set(area, (areaBadge.get(area) ?? 0) + n);
   }
-  if (access.canRead("crm")) items.push({ id: SIDEBAR_IDS.crm, label: CRM_LABEL, icon: Users, href: routes.crm(bid), group: "main", fixed: "crm", hint: CRM_HINT });
-  items.push({ id: SIDEBAR_IDS.milestones, label: "Milestones", icon: Trophy, href: `/b/${bid}/milestones`, group: "main" });
+  for (const [area, tabs] of nav) {
+    items.push({ id: areaSidebarId(area), label: AREA_LABELS[area], icon: AREA_ICONS[area], href: areaHref(bid, tabs), group: "area", area, badge: areaBadge.get(area) || undefined, hint: AREA_HINTS[area] });
+  }
+  // A department with no modules is no area's: it keeps its own item, dot and letter after Team.
+  for (const d of moduleLessDepartments(departments)) {
+    const row = input.departments.find((x) => x.id === d.id)!;
+    if (!canOpenDepartment(access, row)) continue;
+    items.push({ id: row.id, label: row.name, icon: iconByName(row.icon) as LucideIcon, href: departmentHref(bid, row, input.builder ?? false), group: "department", dept: row.colourToken, shortcut: row.shortcut ?? null, badge: badges.get(row.id) || undefined });
+  }
   // Network is the founder's own (their connections, messages and invitations), so it is there in every mode with its
   // badge: a request or a message must reach a founder whichever business they have open. Communities and Leaderboards
-  // are about the business on the network, so they appear once it is LIVE (Leaderboards with its own Medal: the
-  // Trophy is Milestones', B22).
+  // are about the business on the network, so they appear once it is LIVE.
   items.push({ id: SIDEBAR_IDS.network, label: "Network", icon: Globe, href: "/network", group: "live", badge: input.network?.total || undefined });
   if (input.live) {
     items.push({ id: SIDEBAR_IDS.communities, label: "Communities", icon: Users2, href: "/communities", group: "live", badge: input.network?.moderation || undefined });
@@ -127,7 +154,11 @@ const LIVE_ROUTE_ITEMS = [
   ["/leaderboards", SIDEBAR_IDS.leaderboards],
 ] as const;
 
-/** Which sidebar item is active for a pathname. */
+/**
+ * Which sidebar item is active for a pathname: a department route lights the area of its tab's module (a merged
+ * department lights a different area per tab), or its own item for a department with no modules; Milestones lights
+ * Plan and Contacts lights Customers.
+ */
 export function activeSidebarId(pathname: string, businessId: string, departments: readonly SidebarDepartment[]): string | undefined {
   for (const [prefix, id] of LIVE_ROUTE_ITEMS) if (pathname === prefix || pathname.startsWith(`${prefix}/`)) return id;
   const base = `/b/${businessId}`;
@@ -136,11 +167,16 @@ export function activeSidebarId(pathname: string, businessId: string, department
   // Today and its Details (the dashboards) both light the Today item.
   if (rest === "" || rest === "/" || rest.startsWith("/today") || rest.startsWith("/home")) return SIDEBAR_IDS.home;
   if (rest.startsWith("/inbox")) return SIDEBAR_IDS.inbox;
-  if (rest.startsWith("/crm")) return SIDEBAR_IDS.crm;
-  if (rest.startsWith("/milestones") || rest.startsWith("/trophies")) return SIDEBAR_IDS.milestones;
+  if (rest.startsWith("/crm")) return areaSidebarId("customers");
+  if (rest.startsWith("/milestones") || rest.startsWith("/trophies")) return areaSidebarId("plan");
   // Settings › Keys included: the key is a Settings tab, not a sidebar item.
   if (rest.startsWith("/settings")) return SIDEBAR_IDS.settings;
-  const m = /^\/d\/([^/]+)/.exec(rest);
-  if (m) return departments.find((d) => d.slug === m[1])?.id;
+  const m = /^\/d\/([^/]+)(?:\/([^/?#]+))?/.exec(rest);
+  if (m) {
+    const d = departments.find((x) => x.slug === m[1]);
+    if (!d) return undefined;
+    const area = areaOfRoute(d, m[2]);
+    return area ? areaSidebarId(area) : d.id;
+  }
   return undefined;
 }

@@ -1,5 +1,5 @@
 "use client";
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type HTMLAttributes, type KeyboardEvent, type ReactNode } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type HTMLAttributes, type KeyboardEvent, type ReactNode } from "react";
 import { ChevronDown, Ellipsis } from "lucide-react";
 import { cn } from "../../lib/cn";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuRadioGroup, DropdownMenuRadioItem, DropdownMenuTrigger } from "../foundation/DropdownMenu";
@@ -61,6 +61,20 @@ export function visibleTabCount(widths: readonly number[], available: number, ga
   return Math.max(1, count);
 }
 
+/** The words on the tier menu's trigger (docs/DESIGN.md §9). */
+export const MORE_DETAIL_LABEL = "More detail";
+
+/**
+ * Tabs in the bar and tabs in the "More detail" menu, each in their given order: a "detail" tab goes to the menu
+ * unless it is the active tab, which shows in the bar where it stands. Pure; exported for tests.
+ */
+export function splitTabTiers(tabs: readonly TabItem[], activeId: string): { inline: TabItem[]; detail: TabItem[] } {
+  const inline: TabItem[] = [];
+  const detail: TabItem[] = [];
+  for (const t of tabs) (t.tier === "detail" && t.id !== activeId ? detail : inline).push(t);
+  return { inline, detail };
+}
+
 const useIsoLayoutEffect = typeof window === "undefined" ? useEffect : useLayoutEffect;
 
 /**
@@ -70,13 +84,16 @@ const useIsoLayoutEffect = typeof window === "undefined" ? useEffect : useLayout
  * ink text when `badgeTone="bad"`). Tabs with sub-views show a 12 px caret (a 24 px target beside the tablist, not in
  * it) that opens a dropdown. Tabs never shrink
  * below their label: when they do not fit beside the trailing slot, the last ones move into a "More" menu (which takes
- * the active tab's name and the bar when the active tab is one of them). Arrow keys move focus (manual activation),
- * Enter opens.
+ * the active tab's name and the bar when the active tab is one of them). Tabs of the "detail" tier (an area's tabs past
+ * its defaults, docs/DESIGN.md §9) sit in a "More detail" menu after the tabs; the active one shows in the bar instead.
+ * Arrow keys move focus (manual activation), Enter opens.
  */
-export function TabBar({ tabs, activeId, activeSubViewId, onChange, trailing, className, "aria-label": ariaLabel = "Screen tabs", ...rest }: TabBarProps) {
+export function TabBar({ tabs: allTabs, activeId, activeSubViewId, onChange, trailing, className, "aria-label": ariaLabel = "Screen tabs", ...rest }: TabBarProps) {
+  const { inline: tabs, detail } = useMemo(() => splitTabTiers(allTabs, activeId), [allTabs, activeId]);
   const listRef = useRef<HTMLDivElement | null>(null);
   const areaRef = useRef<HTMLDivElement | null>(null);
   const moreRef = useRef<HTMLButtonElement | null>(null);
+  const detailRef = useRef<HTMLButtonElement | null>(null);
   const tabRefs = useRef<Array<HTMLElement | null>>([]);
   const cellRefs = useRef<Array<HTMLDivElement | null>>([]);
   const caretSlotRefs = useRef<Array<HTMLSpanElement | null>>([]);
@@ -100,7 +117,9 @@ export function TabBar({ tabs, activeId, activeSubViewId, onChange, trailing, cl
     const widths = tabs.map((_, i) => cellRefs.current[i]?.offsetWidth ?? 0);
     const gap = Number.parseFloat(getComputedStyle(list).columnGap) || TAB_GAP_FALLBACK;
     const moreWidth = (moreRef.current?.offsetWidth ?? 0) || 72;
-    const next = visibleTabCount(widths, area.clientWidth, gap, moreWidth + gap);
+    // "More detail" always keeps its place after the tabs.
+    const detailWidth = detailRef.current ? detailRef.current.offsetWidth + gap : 0;
+    const next = visibleTabCount(widths, area.clientWidth - detailWidth, gap, moreWidth + gap);
     setVisible((v) => (v === next ? v : next));
     // Offsets are all relative to the bar area (the only positioned ancestor), like the carets and the bar themselves.
     const carets = tabs.map((_, i) => caretSlotRefs.current[i]?.offsetLeft ?? null);
@@ -293,6 +312,33 @@ export function TabBar({ tabs, activeId, activeSubViewId, onChange, trailing, cl
             <Icon icon={ChevronDown} size={12} />
           </button>
         )}
+        {detail.length > 0 ? (
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button ref={detailRef} type="button" className="shell-tab shrink-0" data-tab-more-detail aria-label={`${MORE_DETAIL_LABEL}, ${detail.length} ${detail.length === 1 ? "tab" : "tabs"}`}>
+                <span>{MORE_DETAIL_LABEL}</span>
+                <Icon icon={ChevronDown} size={12} />
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start" data-testid="more-detail-menu">
+              {detail.map((tab) =>
+                tab.href ? (
+                  <DropdownMenuItem key={tab.id} asChild disabled={tab.disabled} data-tab-id={tab.id}>
+                    <ShellLink href={tab.href} onClick={() => onChange?.(tab.id)}>
+                      {tab.label}
+                      {tab.badge ? <span className="tab-count ml-auto" data-tone={tab.badgeTone === "bad" ? "bad" : undefined}>{tab.badge}</span> : null}
+                    </ShellLink>
+                  </DropdownMenuItem>
+                ) : (
+                  <DropdownMenuItem key={tab.id} disabled={tab.disabled} onSelect={() => onChange?.(tab.id)} data-tab-id={tab.id}>
+                    {tab.label}
+                    {tab.badge ? <span className="tab-count ml-auto" data-tone={tab.badgeTone === "bad" ? "bad" : undefined}>{tab.badge}</span> : null}
+                  </DropdownMenuItem>
+                ),
+              )}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        ) : null}
       </div>
       {trailing ? <div className="ml-auto flex shrink-0 items-center gap-2 pl-2">{trailing}</div> : null}
     </div>

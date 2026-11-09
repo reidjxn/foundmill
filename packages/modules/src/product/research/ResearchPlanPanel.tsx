@@ -235,7 +235,7 @@ export function ResearchPlanPanel({ businessId, blocks, onOpenBlock, span = 12, 
                   {taskCount} research task{taskCount === 1 ? "" : "s"} for the next cycles (recruiting, the page, the survey), each ending with your approval before anyone is contacted.
                 </span>
                 <Button size="sm" variant="ghost" onClick={() => navigate(planHref)}>
-                  Open Development › Plan
+                  Open Product › Work list
                 </Button>
               </>
             ) : (

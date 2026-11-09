@@ -214,7 +214,7 @@ test.describe("commit", () => {
     // Today shows the foundations drafting (or already drafted: the mock model is quick).
     await expect(page.getByTestId("today-screen")).toBeVisible({ timeout: LONG });
     await expect(page.getByTestId("foundations-status")).toBeVisible({ timeout: LONG });
-    // The sidebar carries the departments the commit created.
+    // The sidebar carries the areas over the departments the commit created (each links to a department tab).
     expect(await page.locator("[data-testid=app-shell] nav a[href*='/d/']").count()).toBeGreaterThanOrEqual(1);
     const bid = /\/b\/([0-9a-f-]+)\//.exec(page.url())![1]!;
     // The Inbox has the Chief of Staff's welcome note (an Update); Continue is not "Respond" for it.

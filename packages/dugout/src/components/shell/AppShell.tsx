@@ -1,6 +1,6 @@
 "use client";
 import { forwardRef, useCallback, useEffect, useMemo, useState, type CSSProperties, type HTMLAttributes, type ReactNode } from "react";
-import type { BusinessMode, GameMode, Money } from "@foundmill/shared";
+import type { AreaKey, BusinessMode, GameMode, Money } from "@foundmill/shared";
 import { cn } from "../../lib/cn";
 import { BusinessLogo } from "../foundation/BusinessLogo";
 import { FitText } from "../foundation/FitText";
@@ -20,7 +20,7 @@ import type { RunwayWords } from "./RunwayChip";
 import { Sidebar } from "./Sidebar";
 import type { StopAllAgentsProps } from "./StopAllAgents";
 import { TabBar, type TabBarProps } from "./TabBar";
-import { departmentLetters, RESERVED_SECTION_LETTERS, useKeyboardMap, type DepartmentForKeys, type GoToTarget, type KeyboardMapContext } from "./keyboard";
+import { AREA_LETTERS, SHELL_FIXED_LETTERS, shellDepartmentLetters, useKeyboardMap, type DepartmentForKeys, type GoToTarget, type KeyboardMapContext } from "./keyboard";
 import type { BreadcrumbItem, ContinueState, Kit, ProcessingSegment, SidebarBrand, SidebarItem } from "./types";
 import { isViewportTooSmall, MIN_VIEWPORT_WIDTH, useViewportWidth } from "./useViewportWidth";
 
@@ -177,21 +177,30 @@ export interface AppShellProps extends Omit<HTMLAttributes<HTMLDivElement>, "tit
   children?: ReactNode;
 }
 
-/** The departments in sidebar order, with their stored letters, for the G chord. */
+/** The module-less departments in sidebar order, with their stored letters, for the G chord. */
 function departmentsForKeys(items: readonly SidebarItem[]): DepartmentForKeys[] {
   return items.filter((it) => it.group === "department").map((it) => ({ id: it.id, name: it.label, shortcut: it.shortcut }));
 }
 
-/** Sidebar items with their chords filled in: fixed surfaces from `fixed`, departments from `departmentLetters`. Exported for tests. */
+/** The founder areas the sidebar shows, in its order, for the G chord. */
+function areasForKeys(items: readonly SidebarItem[]): AreaKey[] {
+  return items.flatMap((it) => (it.group === "area" && it.area ? [it.area] : []));
+}
+
+/**
+ * Sidebar items with their chords filled in: Today and Needs you from `fixed` (G H, G I), the areas from
+ * `AREA_LETTERS` (G P, G C, G M, G R, G T) and module-less departments from `shellDepartmentLetters`. Exported for tests.
+ */
 export function withSidebarKeys(items: readonly SidebarItem[]): SidebarItem[] {
-  const letters = departmentLetters(departmentsForKeys(items));
-  const fixedLetter = (fixed: NonNullable<SidebarItem["fixed"]>) => Object.entries(RESERVED_SECTION_LETTERS).find(([, v]) => v === fixed)?.[0];
+  const letters = shellDepartmentLetters(departmentsForKeys(items));
+  const fixedLetter = (fixed: NonNullable<SidebarItem["fixed"]>) => Object.entries(SHELL_FIXED_LETTERS).find(([, v]) => v === fixed)?.[0];
   return items.map((it) => {
     if (it.keys) return it;
     if (it.fixed) {
       const l = fixedLetter(it.fixed);
       return l ? { ...it, keys: ["G", l] } : it;
     }
+    if (it.group === "area" && it.area) return { ...it, keys: ["G", AREA_LETTERS[it.area]] };
     if (it.group === "department") {
       const l = letters.get(it.id);
       return l ? { ...it, keys: ["G", l] } : it;
@@ -203,6 +212,7 @@ export function withSidebarKeys(items: readonly SidebarItem[]): SidebarItem[] {
 /** The sidebar item a G chord targets. Exported for tests. */
 export function sidebarItemForTarget(items: readonly SidebarItem[], target: GoToTarget): SidebarItem | undefined {
   if (target.kind === "department") return items.find((it) => it.group === "department" && it.id === target.id);
+  if (target.kind === "area") return items.find((it) => it.group === "area" && it.area === target.area);
   return items.find((it) => it.fixed === target.kind);
 }
 
@@ -288,6 +298,7 @@ export const AppShell = forwardRef<HTMLDivElement, AppShellProps>(function AppSh
 
   const items = useMemo(() => withSidebarKeys(sidebar.items), [sidebar.items]);
   const departments = useMemo(() => departmentsForKeys(items), [items]);
+  const areas = useMemo(() => areasForKeys(items), [items]);
 
   const [searchOpenState, setSearchOpenState] = useState(false);
   const searchOpen = search?.open ?? searchOpenState;
@@ -336,6 +347,7 @@ export const AppShell = forwardRef<HTMLDivElement, AppShellProps>(function AppSh
 
   const { chordPending, cancelChord } = useKeyboardMap({
     enabled: keyboard?.enabled ?? true,
+    areas,
     departments,
     onContinue: continueAction && !continueDisabled && !continuePending ? continueAction : undefined,
     onRefreshInbox: keyboard?.onRefreshInbox,
@@ -462,7 +474,7 @@ export const AppShell = forwardRef<HTMLDivElement, AppShellProps>(function AppSh
             onOpenChange={setSearchOpen}
           />
         ) : null}
-        <KeyboardHelp open={helpOpen} onOpenChange={setHelpOpen} departments={departments} />
+        <KeyboardHelp open={helpOpen} onOpenChange={setHelpOpen} departments={departments} areas={areas} />
       </div>
     </TooltipProvider>
   );

@@ -79,10 +79,10 @@ describe("WageBillScreen", () => {
     const empty = createFakeSource({ businessId: BID, responses: emptyResponses });
     const { unmount } = renderScreen(empty, <WageBillScreen {...props} />);
     expect(screen.getByText("No agents hired yet")).toBeTruthy();
-    // The department over the Team module is named and linked as the founder named it, never a hard-coded "Team".
-    expect(screen.getByText(/Hire agents from People › Recruitment/)).toBeTruthy();
-    expect(screen.getByText(/Invite staff from People › Staff/)).toBeTruthy();
-    expect(screen.queryByText(/Team › /)).toBeNull();
+    // Copy names the founder area over the Team module (docs/DESIGN.md §9), whatever the department is called ("People" here).
+    expect(screen.getByText(/Hire agents from Team › Recruitment/)).toBeTruthy();
+    expect(screen.getByText(/Invite staff from Team › Staff/)).toBeTruthy();
+    expect(screen.queryByText(/People › /)).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Open recruitment" }));
     expect(empty.navigations[0]).toBe(`/b/${BID}/d/people/recruitment`);
     unmount();

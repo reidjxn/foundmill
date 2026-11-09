@@ -67,6 +67,15 @@ test.describe("settings, departments", () => {
     await expect(screen.getByTestId("archived-departments")).toContainText(NAME, { timeout: LONG });
   });
 
+  test("each department says where its tabs show (area, inline or More detail), and the letter picker is gone", async ({ page }) => {
+    const list = settingsScreen(page).getByTestId("department-list");
+    // Northwind: Formulation Lab's tabs are Product's, its first one promoted inline; Legal is Money's Company section.
+    await expect(list.locator("li", { hasText: "Formulation Lab" }).getByTestId("department-tab-areas")).toHaveText("Product: Specialists · More detail: Work list");
+    await expect(list.locator("li", { hasText: /^Product/ }).first().getByTestId("department-tab-areas")).toContainText("Plan: Roadmap");
+    await expect(list.locator("li", { hasText: "Legal" }).getByTestId("department-tab-areas")).toContainText("Money: Company, Compliance · More detail:");
+    await expect(list.getByRole("combobox", { name: /^Shortcut for / })).toHaveCount(0);
+  });
+
   test("Reset to defaults brings an archived default department back instead of failing", async ({ page }) => {
     await settingsScreen(page).getByRole("button", { name: "Reset to defaults" }).click();
     await page.getByRole("dialog").getByRole("button", { name: "Reset" }).click();
