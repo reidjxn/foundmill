@@ -24,6 +24,7 @@ import {
   type SavedView,
 } from "@foundmill/dugout";
 import { ASSET_KINDS, CAMPAIGN_STATUSES, type CampaignStatus } from "@foundmill/shared/constants";
+import { emptyWhy } from "@foundmill/shared/empty-why";
 import { moduleTabHref, useDepartments } from "@foundmill/widgets/shared/departments";
 import { routes } from "@foundmill/widgets/shared/routes";
 import { useBusinessEvents, useWidgetData, useWidgetQuery } from "@foundmill/widgets/data";
@@ -221,7 +222,7 @@ export function CampaignsScreen({ businessId }: ModuleScreenProps) {
           rowClassName={(r) => (selected && r.id === selected.id ? "bg-white/4" : undefined)}
           height={fitTableHeight(rows.length, { minRows: 12, maxRows: 18 })}
           exportFileName="campaigns"
-          empty={{ title: "No campaigns yet", children: "Each channel on the board plans its first campaign here and asks for your approval before launch." }}
+          empty={{ title: emptyWhy("campaigns").title, children: emptyWhy("campaigns").text }}
         />
         </div>
       </Panel>

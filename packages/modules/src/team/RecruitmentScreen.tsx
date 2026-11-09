@@ -16,6 +16,7 @@ import type { DepartmentRow } from "@foundmill/widgets/shared/types";
 import { useSavedViews } from "@foundmill/widgets/shared/saved-views";
 import type { ModuleKey } from "@foundmill/shared/constants";
 import { founderVisible } from "@foundmill/shared/team-tiers";
+import { emptyWhy } from "@foundmill/shared/empty-why";
 import { useModuleEnv } from "../env";
 import { fitColumns, fitToGrow, humanise, plural, type ColumnFit } from "../fit";
 import type { ModuleScreenProps } from "../registry";
@@ -356,7 +357,7 @@ export function RecruitmentScreen({ businessId, departmentId }: ModuleScreenProp
         loading={agentsQuery.isLoading && !agentsQuery.data}
         error={agentsQuery.error ? agentsQuery.error.message : undefined}
         onRetry={refetch}
-        empty={agentsQuery.data && team.length === 0 ? { icon: Users, children: "Hired agents appear here; use the … on a row to duplicate one, lend it to another department or let it go." } : undefined}
+        empty={agentsQuery.data && team.length === 0 ? { icon: Users, children: emptyWhy("hired_agents").text } : undefined}
         footer={`Letting an agent go: ${RELEASE_CONSEQUENCE} Duplicating copies instructions, tools, model and skills. Lending adds a department; moving replaces it.`}
       >
         <div className="min-w-0">

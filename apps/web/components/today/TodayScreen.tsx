@@ -3,6 +3,7 @@
  * Today, the business's front door (founder, 2026-11-07; DESIGN §9 "Today"): the goal, what needs the founder, the week
  * in plain sentences and four health figures, under the same blocker, foundations and goal check as Details.
  *
+ * 0. Your first week (`today.get` › `firstWeek`): Day 1, Days 2–3 and Week 1, only in a business's first days.
  * 1. Your goal (`goal.current`): the active goal with its progress bar and pace sentence, the Chief of Staff's proposal
  *    with Approve this goal (one tap, `goal.approve`) and Change it (`goal.requestChange`), or the waiting line.
  * 2. Needs you (`today.get`): up to three notes of the Inbox's Needs you tab, one tap only where it needs no plan
@@ -14,10 +15,11 @@
  *
  * The tab bar is Today | Details. `goal.ensure` runs once per visit (lead.tsx).
  */
+import { emptyWhy } from "@foundmill/shared/empty-why";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
 import { useCallback, useMemo, useState } from "react";
-import { GoalPanel, NeedsYouList, PageGrid, Panel, StatusStrip, Term, WeekPlan, useAgentPersona, useToast, type MetricTileProps, type NeedsYouRow } from "@foundmill/dugout";
+import { FirstWeekTimeline, GoalPanel, NeedsYouList, PageGrid, Panel, StatusStrip, Term, WeekPlan, useAgentPersona, useToast, type MetricTileProps, type NeedsYouRow } from "@foundmill/dugout";
 import { cashTile, customersWeekTile, moduleHref, routes, runwayTile, spendWeekTiles, unavailableTile, type StatusTile } from "@foundmill/widgets";
 import type { FinanceOverview, RibbonResponse } from "@foundmill/widgets/shared/types";
 import { useGlossary, useToday } from "@foundmill/widgets/data";
@@ -158,12 +160,15 @@ export function TodayScreen() {
   useShellChrome({ title: TODAY_WORDS.title, tabs: { tabs, activeId: "today", onChange: (id) => router.push(id === "details" ? routes.home(businessId) : routes.today(businessId)), "aria-label": "Today and Details" } }, [tabs, businessId]);
 
   const week = todayQ.data?.week;
+  // "Your first week": the API answers it only while the business is in its first days and not yet selling (packages/shared first-week.ts).
+  const firstWeek = todayQ.data?.firstWeek ?? null;
   return (
     <div className="flex min-h-full flex-col gap-gutter p-gutter" data-testid="today-screen">
       <HomeBlockers />
       <GoalEnsure />
       <HomeFoundations />
       <PageGrid flush>
+        {firstWeek ? <FirstWeekTimeline span={12} steps={firstWeek.steps} paused={firstWeek.paused} /> : null}
         <GoalPanel
           span={6}
           active={active}
@@ -183,7 +188,7 @@ export function TodayScreen() {
           seeAllHref={needsYouHref(businessId)}
           onQuickAnswer={onQuickAnswer}
           pendingId={pendingId}
-          emptyText={todayQ.data && !needsYou ? TODAY_WORDS.noInbox : undefined}
+          emptyText={todayQ.data && !needsYou ? TODAY_WORDS.noInbox : emptyWhy("today_needs_you", { firstDays: firstWeek !== null }).text}
           loading={todayQ.isLoading}
           error={todayQ.error && !todayQ.data ? errorMessage(todayQ.error) : undefined}
           onRetry={() => void todayQ.refetch()}

@@ -26,6 +26,8 @@ export * from "./playbook";
 export * from "./terms";
 export * from "./founder-words";
 export * from "./personas";
+export * from "./empty-why";
+export * from "./first-week";
 export * from "./goals";
 export * from "./today-words";
 export * from "./chief-answers";

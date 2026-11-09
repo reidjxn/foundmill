@@ -21,6 +21,7 @@ import { ErrorPanel } from "@/components/shell/ErrorPanel";
 import { RefreshFailedNotice, loadFailed, refreshFailed } from "@/components/shell/QueryStates";
 import { ScreenSkeleton } from "@/components/shell/ScreenSkeleton";
 import { TIMELINE_KIND_WORD, milestoneForTrophy, otherMilestones, replayRefOf, shareText, trophyCards } from "./milestones";
+import { emptyWhy } from "@foundmill/shared/empty-why";
 
 const KIND_ICON = { release: Flag, decision: Gem, incorporation: Rocket, funding: Rocket, launch: Rocket, customer: Trophy, revenue: Trophy, trophy: Trophy } as const;
 
@@ -123,7 +124,7 @@ export function MilestonesScreen() {
       >
         <TrophyCabinet trophies={cards} columns={4} onOpen={onOpen} onShare={live ? setShareKey : undefined} />
       </Panel>
-      <Panel title="Releases, decisions and launches" help="Every reached milestone links to its Customer Update, the replay of how that customer was won." meta={events.length ? plural(events.length, "milestone") : undefined} span={12} empty={events.length === 0 ? { icon: Flag, children: "Releases, decisions, incorporation, funding and launches appear here as they happen." } : undefined} data-testid="milestones-timeline">
+      <Panel title="Releases, decisions and launches" help="Every reached milestone links to its Customer Update, the replay of how that customer was won." meta={events.length ? plural(events.length, "milestone") : undefined} span={12} empty={events.length === 0 ? { icon: Flag, children: emptyWhy("milestones").text } : undefined} data-testid="milestones-timeline">
         <Timeline events={events} absolute />
       </Panel>
       <ShareDialog card={shareCard} businessName={data.business.name} onClose={() => setShareKey(null)} />

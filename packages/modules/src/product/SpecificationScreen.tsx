@@ -18,6 +18,7 @@ import { AuthorRef, InlineError, PinnedChip, Screen, blockTitle, findBlock, grou
 import { SPEC_EDITOR_STATUS_LABEL, specDocumentName } from "./spec/contract";
 import { PlainBlockEditor } from "./spec/PlainBlockEditor";
 import type { SpecBlockRow, SpecCompareResponse, SpecGetResponse, SpecVersionRow } from "./types";
+import { emptyWhy } from "@foundmill/shared/empty-why";
 
 /** The whole spec as text, section by section, for version comparison. */
 export function snapshotText(version: Pick<SpecVersionRow, "snapshot"> | null | undefined): string {
@@ -223,8 +224,8 @@ function HistoryPanel({ versions, canWrite, onRestored, onPublished }: { version
       empty={
         versions.data && list.length === 0
           ? canWrite
-            ? { icon: History, children: "Versions appear when a change proposal is accepted or you publish the current spec.", action: { label: "Publish version", icon: Upload, onClick: () => setPublishOpen(true) } }
-            : { icon: History, children: "Versions appear when a change proposal is accepted or the spec is published." }
+            ? { icon: History, children: emptyWhy("spec_versions").text, action: { label: "Publish version", icon: Upload, onClick: () => setPublishOpen(true) } }
+            : { icon: History, children: emptyWhy("spec_versions").text }
           : undefined
       }
       actions={
@@ -392,7 +393,7 @@ export function SpecificationScreen({ businessId }: ModuleScreenProps) {
         loading={spec.isLoading}
         error={spec.error ? spec.error.message : undefined}
         onRetry={spec.refetch}
-        empty={spec.data && spec.data.blocks.length === 0 ? { icon: FileText, title: "No spec yet", children: "The outline starts from the kind of business this is; the Product lead fills it in during the team's first round of work." } : undefined}
+        empty={spec.data && spec.data.blocks.length === 0 ? { icon: FileText, title: emptyWhy("spec").title, children: emptyWhy("spec").text } : undefined}
         footer={spec.data ? <span className="tabular-nums">{spec.data.blocks.length} paragraph{spec.data.blocks.length === 1 ? "" : "s"} in {groups.length} section{groups.length === 1 ? "" : "s"} · ↑↓ to move</span> : undefined}
         flush
       >

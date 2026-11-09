@@ -32,6 +32,7 @@ import {
 import { moduleHref, useDepartments } from "@foundmill/widgets/shared/departments";
 import { routes } from "@foundmill/widgets/shared/routes";
 import { useBusinessEvents, useWidgetData, useWidgetQuery } from "@foundmill/widgets/data";
+import { emptyWhy } from "@foundmill/shared/empty-why";
 import { useSavedViews } from "@foundmill/widgets/shared/saved-views";
 import type { ModuleScreenProps } from "../registry";
 import { LAWFUL_BASES, lawfulBasisLabel, suppressionOf } from "./channel-data";
@@ -211,7 +212,7 @@ export function LeadsScreen({ businessId }: ModuleScreenProps) {
           onRowOpen={openProfile}
           height={fitTableHeight(rows.length, { minRows: 12, maxRows: 18 })}
           exportFileName="leads"
-          empty={{ title: "No leads yet", children: "Qualified leads arrive here with their lawful basis once Lead generation runs on the board.", action: boardHref ? { label: "Open Lead generation", icon: ArrowUpToLine, onClick: () => navigate(`${boardHref}?channel=lead_generation`) } : undefined }}
+          empty={{ title: emptyWhy("leads").title, children: emptyWhy("leads").text, action: boardHref ? { label: "Open Lead generation", icon: ArrowUpToLine, onClick: () => navigate(`${boardHref}?channel=lead_generation`) } : undefined }}
         />
         </div>
       </Panel>

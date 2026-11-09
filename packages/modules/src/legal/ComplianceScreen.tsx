@@ -17,6 +17,7 @@ import { DUE_WINDOW_DAYS, calendarMonths, calendarRows, daysToNextDeadline, type
 import { CALENDAR_PILL, Pill, SIMPLE_VIEW_ID, Screen, fitTableHeight, humanise, useDefaultViewId, useNow } from "./shared";
 import type { ComplianceListResponse } from "./types";
 import { DateText } from "../dates";
+import { emptyWhy } from "@foundmill/shared/empty-why";
 
 const COMPLIANCE_INPUT = { pendingOnly: false, days: 365 } as const;
 
@@ -92,7 +93,7 @@ export function ComplianceScreen({ businessId, subView }: ModuleScreenProps) {
     { id: "inbox", label: "Open the Inbox", icon: Inbox, separatorBefore: true, onSelect: () => navigate(routes.inbox(businessId)) },
   ];
 
-  const emptyState = { icon: CalendarRange, title: "No deadlines yet", children: "Importing a company fills the calendar from the registry; incorporation adds the first filings. Compliance events the legal lead records appear here too." };
+  const emptyState = { icon: CalendarRange, title: emptyWhy("compliance").title, children: emptyWhy("compliance").text };
 
   return (
     <Screen name="legal/compliance">

@@ -247,7 +247,7 @@ describe("RecruitmentScreen", () => {
     const empty = createFakeSource({ businessId: BID, responses: emptyResponses });
     const { unmount } = renderScreen(empty, <RecruitmentScreen {...props} />);
     expect(await screen.findByText(/The catalog lists every agent template/)).toBeTruthy();
-    expect(screen.getByText(/Hired agents appear here/)).toBeTruthy();
+    expect(screen.getByText(/Nothing hired yet/)).toBeTruthy();
     unmount();
 
     const loading = createFakeSource({ businessId: BID, responses: { "department.list": [] } });

@@ -1412,3 +1412,13 @@ One "Ask <name>" control on every business page, next to "Explain this page": th
 - **Design system.** `AskChiefOfStaff` (`packages/dugout/src/components/shell/`), story `Shell/AskChiefOfStaff`; `AppShell` gains `pageActions` (tab row, breadcrumb row, or a thin `page-actions-row` for a page with neither).
 - **Web.** `components/shell/AskChief.tsx` (host: `chiefOfStaff.who`, the answer query, page context from the path, the area and the registered Explainer's plain purpose, the desk), `ask-chief.ts` (pure helpers), mounted by `BusinessShell`.
 - **Tests.** shared `chief-answers.test.ts`; api `chief-of-staff.test.ts` (answers, walls, other-business refusal, no usage cost); dugout `AskChiefOfStaff.test.tsx` (keyboard, Escape and focus, states, placement in all three rows); web `ask-chief.test.ts`, `ask-chief-host.test.tsx`; Playwright `e2e/ask-chief-of-staff.spec.ts` (Northwind: Today, an area tab, Needs you, the three answers, keyboard, Continue in chat, Ask something else) with today, areas, explain-page, shell, shell-chrome, keyboard-a11y and no-clip re-run. Docs: DESIGN guidance section, DECISIONS, ARCHITECTURE.
+
+## 2026-11-09 — Phase 3, part 5: a first-week timeline on Today; empty screens say what will fill them
+
+"Your first week" on Today: Day 1, Days 2–3 and Week 1, each with its state (done, now, next), a real US date when done or an Estimate window otherwise, what the team does and what you will be asked. Shown for a business under 10 days old that has not started distribution. Fifteen empty screens and panels now say what will fill them and when.
+- **Words (shared).** `first-week.ts` (`firstWeekTimeline`, `firstWeekVisible`, `dayRangeWords`) and `empty-why.ts` (`emptyWhy`), with tests.
+- **API.** `today.get` returns `firstWeek` (null once past the rule, with no extra read); tests in `today.test.ts` (new business, from sign-offs, past its days, already selling).
+- **Design system.** `FirstWeekTimeline` with a story and test; `WeekPlan`'s default empty line says when.
+- **Screens using `emptyWhy`.** Today › Needs you, Customers › Leads, Campaigns, Contacts, Plan › Milestones, Roadmap, Product › Specification (and its versions), Money › Overview (bank, cash history, cash flow), Company › Entity (and officers), Compliance, Team › Recruitment (hired agents).
+- **Tests.** Playwright `today.spec.ts` (no timeline for Northwind; on a fresh business Day 1 now, Estimate windows, Done after both sign-offs; Leads says when). Updated module tests for leads, specification and recruitment.
+- **Not done.** Items 3 and 4 of group K (sample business says it is a sample; small first-run fixes) are out of scope. Development › Pull requests and Environments wait for the other change.
