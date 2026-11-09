@@ -47,7 +47,7 @@ export const SIGNOFF_OPTIONS: Record<SignoffKind, readonly SignoffOption[]> = {
   ],
   ready_to_sell: [
     { id: "start", label: "Start distribution now", recommended: true, consequence: "The channel engines start and the Board asks which route to the first customer comes first.", cost_minor: 0, reversible: true },
-    { id: "not_yet", label: "Not yet", recommended: false, consequence: "Nothing changes; start it any time from Distribution › Board.", cost_minor: 0, reversible: true },
+    { id: "not_yet", label: "Not yet", recommended: false, consequence: "Nothing changes; start it any time from Customers › Board.", cost_minor: 0, reversible: true },
   ],
 };
 
