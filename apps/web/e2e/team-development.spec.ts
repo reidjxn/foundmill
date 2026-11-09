@@ -1,5 +1,5 @@
 import { expect, test, type Page, type PlaywrightWorkerArgs } from "@playwright/test";
-import { COACHMARK_CARD, LONG, chooseTableView, departmentBase as departmentBaseFor, devApi, dismissCoachmarks, openBusiness, setBuilderView } from "./helpers";
+import { COACHMARK_CARD, LONG, chooseTableView, departmentBase as departmentBaseFor, devApi, dismissCoachmarks, openBusiness, openExplainer, setBuilderView } from "./helpers";
 
 // Builder view on for this file (it reads the Code, Health and Hierarchy tabs, ratings out of 20 and the cycle number); global-setup.ts starts every run with it off. Restored afterwards.
 let builderViewBefore = false;
@@ -96,7 +96,9 @@ for (const width of [1280, 1440]) {
         await expect(agents.getByRole("columnheader", { name: /AI cost/ })).toHaveCount(0);
         expect(await headersInside(page, "Agents"), "every Simple column fits the panel").toEqual([]);
         await expect(explainer).toBeVisible();
-        await expect(explainer).toContainText("Everyone who works here. Agents have skills 1–20");
+        await expect(explainer).toContainText("Explain this page");
+        await expect(await openExplainer(page, "team-agents")).toContainText("Everyone who works here. Agents have skills 1–20");
+        await page.keyboard.press("Escape");
         await expect(page.getByTestId("form-caption")).toContainText("Form: the last five tasks");
         await expect(page.getByTestId("form-caption").locator("[data-term='form']")).toHaveClass(/term-link/);
         await expect(page.getByTestId("column-terms").locator("[data-term='rating']")).toBeVisible();
@@ -263,7 +265,8 @@ for (const width of [1280, 1440]) {
       const recruitExplainer = page.locator("[data-explainer='team-recruitment']");
       if (guided) {
         await expect(recruitExplainer).toBeVisible();
-        await expect(recruitExplainer).toContainText("Hire new agents");
+        await expect(await openExplainer(page, "team-recruitment")).toContainText("Hire new agents");
+        await page.keyboard.press("Escape");
         await expect(draft.locator("kbd")).toHaveCount(0);
       } else {
         await expect(recruitExplainer).toHaveCount(0);

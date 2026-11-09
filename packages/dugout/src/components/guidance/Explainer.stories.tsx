@@ -12,7 +12,7 @@ const meta = {
     docs: {
       description: {
         component:
-          "The per-screen intro (UX plan §6.2): a surface-2 strip inside the first panel's body, never floating, never pushing the 40 px header. A BookOpen in kit-lift, three data labels with one body line each, a ghost “Got it” and an optional “Show me an example”. After “Got it” it collapses to one line with a chevron and the screen is remembered in `explainers_seen`. Guidance off: not rendered.",
+          "The per-screen explanation. A screen renders it where it always did and it draws nothing in place: it registers its three lines with the page (`PageExplainProvider`, mounted by the shell), and the shell's one “Explain this page” button shows them. Last mounted wins. Outside a provider, as in these stories, it falls back to the same button and panel in place. Guidance off: not rendered.",
       },
     },
   },
@@ -27,7 +27,7 @@ const meta = {
       <PageGrid flush>
         <Panel title="Home" span={12}>
           <Story />
-          <p className="mt-3 text-body text-secondary">The panel's own content follows the strip.</p>
+          <p className="mt-3 text-body text-secondary">The panel's own content starts with itself; there is no banner above it.</p>
         </Panel>
       </PageGrid>
     ),
@@ -36,11 +36,12 @@ const meta = {
 export default meta;
 type Story = StoryObj<typeof meta>;
 
-export const Open: Story = {};
+/** Inline fallback: the button, with the unread dot until it is opened. */
+export const Default: Story = {};
 export const WithExample: Story = { name: "With Show me an example", args: { onExample: () => {} } };
 
-/** Collapsed: the screen was already seen. The chevron opens it again. */
-export const Collapsed: Story = {
+/** Already seen: no unread dot. */
+export const Seen: Story = {
   decorators: [
     (Story) => (
       <GuidanceProvider value={{ explainersSeen: { home: true } }}>
@@ -60,13 +61,13 @@ function Remembered(args: ExplainerProps) {
   );
 }
 
-/** Wired to a provider: “Got it” records the screen the way the account preference does. */
+/** Wired to a provider: opening the panel records the screen the way the account preference does. */
 export const Stateful: Story = {
-  name: "Got it, remembered",
+  name: "Opened, remembered",
   render: (args) => <Remembered {...args} />,
 };
 
-/** Guidance off: nothing renders, and the panel body starts with its own content. */
+/** Guidance off: nothing renders. */
 export const GuidanceOff: Story = {
   decorators: [
     (Story) => (

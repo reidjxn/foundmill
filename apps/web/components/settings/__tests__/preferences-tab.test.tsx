@@ -385,7 +385,7 @@ describe("helpers", () => {
     expect(guidanceSavedLine({ guidance: "off", textSize: "standard" }, "guidance")).toEqual({ title: "Guidance off", description: "Consequences, provenance and Estimate labels still show. Turn it on again any time from here." });
     expect(guidanceSavedLine({ guidance: "on", textSize: "comfortable" }, "textSize").title).toBe("Comfortable text");
     expect(guidanceSavedLine({ guidance: "on", textSize: "standard" }, "textSize").title).toBe("Standard text");
-    expect(guidanceSavedLine({ guidance: "on", textSize: "standard" }, "reset")).toEqual({ title: "Starting over", description: "The intros, the first-week checklist and the tours show again." });
+    expect(guidanceSavedLine({ guidance: "on", textSize: "standard" }, "reset")).toEqual({ title: "Starting over", description: "The unread dots on Explain this page, the first-week checklist and the tours show again." });
     for (const line of [guidanceSavedLine({ guidance: "on", textSize: "standard" }, "guidance"), guidanceSavedLine({ guidance: "on", textSize: "standard" }, "reset")]) {
       expect(line.title).not.toMatch(/!/);
       expect(line.description).not.toMatch(/!/);

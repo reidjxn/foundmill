@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import { LONG, openBusiness } from "./helpers";
+import { LONG, openBusiness, openExplainer } from "./helpers";
 
 /**
  * Product (BUILD §11.5) on the seeded Northwind Skincare: Vision, Roadmap (board and timeline), Sources and Research
@@ -29,23 +29,24 @@ test.describe("product", () => {
 
   test("Vision: the department's intro sits inside the first panel and the summary's first word is defined (UX plan §7.10, guidance on by default)", async ({ page }) => {
     await openProductTab(page, "vision");
-    const explainer = page.locator("[data-explainer='product/vision']");
-    await expect(explainer).toBeVisible({ timeout: LONG });
+    const button = page.locator("button[data-explainer='product/vision']");
+    await expect(button).toBeVisible({ timeout: LONG });
+    // No banner in the panel; the one button sits in the tab row and opens the three lines.
+    await expect(page.locator("[data-panel-body] [data-explainer]")).toHaveCount(0);
+    await expect(page.getByText("What this screen is for")).toHaveCount(0);
+    const explainer = await openExplainer(page, "product/vision");
     await expect(explainer).toContainText("What your business is building.");
-    // Inside a panel's body, never floating (DESIGN §2: structure never moves).
-    expect(await explainer.evaluate((el) => !!el.closest("[data-panel-body]"))).toBe(true);
+    await page.keyboard.press("Escape");
+    await expect(button).toBeFocused();
     // The defined word carries the dotted underline; its definition opens on hover.
     const term = page.getByTestId("spec-summary").locator("[data-term='specification']");
     await expect(term).toBeVisible();
     await term.hover();
     await expect(page.locator("[data-definition-card]")).toContainText(/specification/i, { timeout: LONG });
-    // "Got it" collapses the intro to one line; the collapse is remembered per account.
-    await explainer.getByRole("button", { name: "Got it" }).click();
-    await expect(explainer).toHaveAttribute("data-state", "collapsed");
+    // Opening it marked the page read; the unread dot stays gone after a reload (remembered per account).
+    await expect(button).not.toHaveAttribute("data-unread", /.*/);
     await page.reload();
-    await expect(page.locator("[data-explainer='product/vision']")).toHaveAttribute("data-state", "collapsed", { timeout: LONG });
-    await page.locator("[data-explainer='product/vision']").getByRole("button", { name: "Show more about this screen" }).click();
-    await expect(page.locator("[data-explainer='product/vision']")).toHaveAttribute("data-state", "open");
+    await expect(page.locator("button[data-explainer='product/vision']")).not.toHaveAttribute("data-unread", /.*/, { timeout: LONG });
   });
 
   test("Vision: a pinned paragraph's author link opens the agent, and the paragraph opens the Specification (audit #397)", async ({ page }) => {

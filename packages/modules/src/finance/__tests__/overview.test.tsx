@@ -6,6 +6,7 @@ import { TooltipProvider, formatMoney } from "@foundmill/dugout";
 import { TERMS } from "@foundmill/shared/terms";
 import { OverviewScreen, forecastRunway, overviewTiles } from "../OverviewScreen";
 import { NOW, createFakeSource, renderScreen } from "./fake-source";
+import { openExplainer } from "../../explainer.testing";
 import { BID, channels, dataResponses, emptyResponses, overview, overviewBlocking, pnl } from "./fixtures";
 
 const props = { businessId: BID, departmentId: "d-fin" };
@@ -90,7 +91,7 @@ describe("OverviewScreen", () => {
   it("guidance on: the intro, the defined words on the tile labels and the plain line under each figure (UX plan §7.14)", () => {
     const fake = createFakeSource({ businessId: BID, responses: dataResponses });
     renderScreen(fake, <OverviewScreen {...props} />, {}, { guidance: "on" });
-    const explainer = document.querySelector("[data-explainer='finance/overview']") as HTMLElement;
+    const explainer = openExplainer("finance/overview");
     expect(within(explainer).getByText("Where the money is and how long it lasts.")).toBeTruthy();
     expect(within(explainer).getByText("The line under the numbers says which are estimates: worked out, not measured.")).toBeTruthy();
     // The summary sentence stays above the tiles.

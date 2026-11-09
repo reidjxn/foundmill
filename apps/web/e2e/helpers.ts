@@ -400,3 +400,16 @@ export async function openBoardQuestion(page: Page, bid: string, boardItemId: st
   expect(await page.getByTestId("decision-bar").getByRole("group", { name: "Options" }).getByRole("button").count()).toBeGreaterThanOrEqual(2);
   await expect(page.locator(`[data-inbox-row="${boardItemId}"]`)).toHaveAttribute("data-needs-answer", "true", { timeout: LONG });
 }
+
+/**
+ * Opens the page's "Explain this page" panel and returns it. The button carries the screen's id (`data-explainer`) and
+ * sits once in the shell's tab row (or inline on a full-screen page without a shell); the panel is a popover.
+ */
+export async function openExplainer(page: Page, screenId: string): Promise<Locator> {
+  const button = page.locator(`button[data-explainer='${screenId}']`);
+  await expect(button).toBeVisible({ timeout: LONG });
+  await button.click();
+  const panel = page.getByTestId("explain-page-panel");
+  await expect(panel).toBeVisible();
+  return panel;
+}

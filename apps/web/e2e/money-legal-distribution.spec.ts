@@ -1,5 +1,5 @@
 import { expect, test, type Page, type PlaywrightWorkerArgs } from "@playwright/test";
-import { LONG, NORTHWIND_BUSINESS_ID, chooseTableView, devApi, openBusiness } from "./helpers";
+import { LONG, NORTHWIND_BUSINESS_ID, chooseTableView, devApi, openBusiness, openExplainer } from "./helpers";
 
 /**
  * Distribution, Finance and Legal on the seeded Northwind Skincare (its Distribution department is named "Retail
@@ -96,10 +96,12 @@ test.describe("distribution, finance and legal read in plain words", () => {
     await openTab(page, "finance", "overview");
     const metrics = page.getByRole("region", { name: "Finance metrics" });
     await expect(metrics.locator("[data-metric-tile]").first()).toBeVisible({ timeout: LONG });
-    // Guidance on (the product default): the intro above the summary sentence, inside the metrics region.
-    const explainer = metrics.locator("[data-explainer='finance/overview']");
+    // Guidance on (the product default): the page's one "Explain this page" button, no banner in the metrics region.
+    await expect(metrics.locator("[data-explainer]")).toHaveCount(0);
+    const explainer = await openExplainer(page, "finance/overview");
     await expect(explainer).toContainText("Where the money is and how long it lasts.");
     await expect(explainer).toContainText("The line under the numbers says which are estimates: worked out, not measured.");
+    await page.keyboard.press("Escape");
     // Three numbers first, the rest behind More numbers, and "Estimate" once in words (Nov 7, 2026).
     await expect(page.getByTestId("finance-headline").locator("[data-metric]")).toHaveCount(3);
     await expect(page.getByTestId("finance-estimate-note")).toContainText(/^Estimate: /);
@@ -360,7 +362,8 @@ test.describe("distribution, finance and legal read in plain words", () => {
     // Guidance on (the product default): the department's intro inside the Board's body, Fit as a defined word in the
     // caption, the panel's one-sentence help tip, and the key's defined word under the board (UX plan §7.10, §7.13).
     const board = page.getByRole("region", { name: "Board" }).first();
-    await expect(board.locator("[data-explainer='distribution/board']")).toContainText("How customers will find you.");
+    await expect(await openExplainer(page, "distribution/board")).toContainText("How customers will find you.");
+    await page.keyboard.press("Escape");
     await expect(page.getByTestId("board-caption").locator("[data-term='fit']")).toBeVisible();
     await expect(board.getByRole("button", { name: "About Board" })).toBeVisible();
     await expect(page.locator("[data-board-key] [data-term='fit']")).toBeVisible();
@@ -404,9 +407,10 @@ test.describe("distribution, finance and legal read in plain words", () => {
     await expect(facts.getByText("United Kingdom", { exact: true })).toBeVisible();
     // Guidance on (the product default): the department's intro sits in the entity panel's body, above the facts, and
     // Jurisdiction is a defined word (UX plan §7.10, §7.16).
-    const explainer = facts.locator("[data-explainer='legal/entity']");
+    const explainer = await openExplainer(page, "legal/entity");
     await expect(explainer).toContainText("The company itself: where it is registered, what it must file, what it has signed.");
     await expect(explainer).toContainText("Information, not legal advice.");
+    await page.keyboard.press("Escape");
     await expect(facts.locator("[data-term='jurisdiction']").first()).toBeVisible();
     await openTab(page, "legal", "policies");
     await expect(page.getByText(/private limited company, registration number \d+ \(United Kingdom\)/)).toBeVisible();
