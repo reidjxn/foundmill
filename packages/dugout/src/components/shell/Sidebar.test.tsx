@@ -6,21 +6,28 @@ import { MONOGRAM_HEIGHT, MONOGRAM_WIDTH, WORDMARK_HEIGHT, WORDMARK_WIDTH } from
 import { WORDMARK_ASPECT } from "../foundation/Wordmark";
 import { NORTHWIND_SIDEBAR } from "./fixtures";
 import { SIDEBAR_BRAND_HEIGHT, SIDEBAR_BRAND_ID, SIDEBAR_HELP_LABEL, Sidebar, nextSidebarIndex, sidebarBadgeClass, sidebarItemName, sidebarItemTooltip } from "./Sidebar";
-import { TabBar, nextTabIndex, visibleTabCount } from "./TabBar";
-import { DISTRIBUTION_TABS } from "./fixtures";
+import { MORE_DETAIL_LABEL, TabBar, nextTabIndex, splitTabTiers, visibleTabCount } from "./TabBar";
+import { DISTRIBUTION_TABS, PRODUCT_AREA_TABS } from "./fixtures";
 
 describe("Sidebar", () => {
   it("renders groups, the active edge, badges in department colour and the accessible count", () => {
-    render(<Sidebar items={NORTHWIND_SIDEBAR} activeId="d-distribution" collapsed={false} onCollapsedChange={() => {}} showLive />);
+    render(<Sidebar items={NORTHWIND_SIDEBAR} activeId="area-customers" collapsed={false} onCollapsedChange={() => {}} showLive />);
     const nav = screen.getByRole("navigation", { name: "Primary" });
     expect(nav.getAttribute("data-collapsed")).toBeNull();
-    const active = screen.getByRole("link", { name: "Distribution, 2 items" });
+    // An area: no department dot, a neutral badge summed from its departments.
+    const active = screen.getByRole("link", { name: "Customers, 2 items" });
     expect(active.getAttribute("aria-current")).toBe("page");
     expect(active.getAttribute("data-active")).toBe("true");
     expect(active.querySelector("[data-active-edge]")?.className).toContain("sidebar-edge");
-    expect(active.querySelector("[data-badge]")?.className).toContain("tone-dept-3");
-    expect(active.querySelector("[data-dept-dot]")?.className).toContain("tone-dept-3");
-    expect(screen.getByRole("link", { name: "Inbox, 3 items" }).querySelector("[data-badge]")?.className).toContain("tone-status-bad");
+    expect(active.querySelector("[data-badge]")?.getAttribute("data-tone")).toBe("neutral");
+    expect(active.querySelector("[data-dept-dot]")).toBeNull();
+    // A department with no modules keeps its own item and its dot, after the areas.
+    const studio = screen.getByRole("link", { name: "Studio, 1 item" });
+    expect(studio.querySelector("[data-badge]")?.className).toContain("tone-dept-7");
+    expect(studio.querySelector("[data-dept-dot]")?.className).toContain("tone-dept-7");
+    const labels = Array.from(nav.querySelectorAll("[data-sidebar-label]")).map((n) => n.textContent);
+    expect(labels.slice(0, 8)).toEqual(["Today", "Needs you", "Plan", "Customers", "Money", "Product", "Team", "Studio"]);
+    expect(screen.getByRole("link", { name: "Needs you, 3 items" }).querySelector("[data-badge]")?.className).toContain("tone-status-bad");
     expect(screen.getByRole("link", { name: "Network" })).toBeTruthy();
     expect(screen.getByText("Live")).toBeTruthy();
     expect(screen.getByRole("link", { name: "Settings" })).toBeTruthy();
@@ -45,17 +52,16 @@ describe("Sidebar", () => {
     expect(screen.getByText("Live")).toBeTruthy();
   });
 
-  it("calls Contacts what the slug still calls CRM, and says both in the collapsed tooltip (B13)", async () => {
+  it("says what an area holds in the collapsed tooltip, so a word that became a tab is still found (B13)", async () => {
     const user = userEvent.setup();
-    const crm = NORTHWIND_SIDEBAR.find((it) => it.fixed === "crm")!;
-    expect(crm.label).toBe("Contacts");
-    expect(crm.href).toContain("/crm");
-    expect(sidebarItemTooltip(crm)).toBe("Contacts (CRM)");
-    expect(sidebarItemTooltip({ ...crm, label: "CRM" })).toBe("CRM");
-    expect(sidebarItemTooltip(NORTHWIND_SIDEBAR[0]!)).toBe("Home");
+    const customers = NORTHWIND_SIDEBAR.find((it) => it.area === "customers")!;
+    expect(customers.group).toBe("area");
+    expect(sidebarItemTooltip(customers)).toBe("Customers, 2 items (leads, campaigns and contacts)");
+    expect(sidebarItemTooltip({ ...customers, badge: 0, label: "leads, campaigns and contacts" })).toBe("leads, campaigns and contacts");
+    expect(sidebarItemTooltip(NORTHWIND_SIDEBAR[0]!)).toBe("Today");
     render(<Sidebar items={NORTHWIND_SIDEBAR} collapsed onCollapsedChange={() => {}} />);
-    await user.hover(screen.getByRole("link", { name: "Contacts" }));
-    expect((await screen.findAllByText("Contacts (CRM)")).length).toBeGreaterThan(0);
+    await user.hover(screen.getByRole("link", { name: "Customers, 2 items" }));
+    expect((await screen.findAllByText("Customers, 2 items (leads, campaigns and contacts)")).length).toBeGreaterThan(0);
   });
 
   it("offers a \"?\" cap beside the collapse toggle that opens the keyboard shortcuts, expanded only (B15)", async () => {
@@ -84,10 +90,10 @@ describe("Sidebar", () => {
     const nav = screen.getByRole("navigation", { name: "Primary" });
     expect(nav.getAttribute("data-collapsed")).toBe("true");
     expect(nav.className).toContain("w-sidebar-collapsed");
-    const home = screen.getByRole("link", { name: "Home" });
-    expect(home.querySelector(".sr-only")?.textContent).toBe("Home");
+    const home = screen.getByRole("link", { name: "Today" });
+    expect(home.querySelector(".sr-only")?.textContent).toBe("Today");
     // Badges survive collapse.
-    expect(screen.getByRole("link", { name: "Inbox, 3 items" }).querySelector("[data-badge]")).not.toBeNull();
+    expect(screen.getByRole("link", { name: "Needs you, 3 items" }).querySelector("[data-badge]")).not.toBeNull();
     const toggle = screen.getByTestId("sidebar-toggle");
     expect(toggle.getAttribute("aria-expanded")).toBe("false");
     await user.click(toggle);
@@ -98,12 +104,12 @@ describe("Sidebar", () => {
     const user = userEvent.setup();
     const onSelect = vi.fn();
     render(<Sidebar items={NORTHWIND_SIDEBAR} activeId="home" collapsed={false} onCollapsedChange={() => {}} onSelect={onSelect} />);
-    const home = screen.getByRole("link", { name: "Home" });
+    const home = screen.getByRole("link", { name: "Today" });
     expect(home.tabIndex).toBe(0);
-    expect(screen.getByRole("link", { name: "Contacts" }).tabIndex).toBe(-1);
+    expect(screen.getByRole("link", { name: "Plan" }).tabIndex).toBe(-1);
     home.focus();
     await user.keyboard("{ArrowDown}");
-    expect(document.activeElement).toBe(screen.getByRole("link", { name: "Inbox, 3 items" }));
+    expect(document.activeElement).toBe(screen.getByRole("link", { name: "Needs you, 3 items" }));
     await user.keyboard("{ArrowUp}{ArrowUp}");
     expect(document.activeElement).toBe(screen.getByRole("link", { name: "Settings" }));
     await user.keyboard("{Home}");
@@ -193,7 +199,7 @@ describe("Sidebar brand (the Foundmill wordmark in the foot)", () => {
   it("takes part in arrow-key navigation as the last stop, wrapping to the first", async () => {
     const user = userEvent.setup();
     render(<Sidebar items={NORTHWIND_SIDEBAR} activeId="home" collapsed={false} onCollapsedChange={() => {}} brand={brand} />);
-    const home = screen.getByRole("link", { name: "Home" });
+    const home = screen.getByRole("link", { name: "Today" });
     const link = screen.getByRole("link", { name: APP_NAME });
     expect(link.tabIndex).toBe(-1);
     home.focus();
@@ -212,7 +218,7 @@ describe("Sidebar brand (the Foundmill wordmark in the foot)", () => {
   it("leaves the remaining items' arrow-key order unchanged when collapsed", async () => {
     const user = userEvent.setup();
     render(<Sidebar items={NORTHWIND_SIDEBAR} activeId="home" collapsed onCollapsedChange={() => {}} brand={brand} />);
-    const home = screen.getByRole("link", { name: "Home" });
+    const home = screen.getByRole("link", { name: "Today" });
     home.focus();
     await user.keyboard("{ArrowUp}");
     expect(document.activeElement).toBe(screen.getByRole("link", { name: "Settings" }));
@@ -318,5 +324,38 @@ describe("TabBar", () => {
       if (client) Object.defineProperty(HTMLElement.prototype, "clientWidth", client);
       else delete (HTMLElement.prototype as { clientWidth?: number }).clientWidth;
     }
+  });
+});
+
+describe("TabBar tiers (docs/DESIGN.md §9)", () => {
+  it("splits detail tabs into the More detail menu, except the active one, keeping the given order", () => {
+    const { inline, detail } = splitTabTiers(PRODUCT_AREA_TABS, "product/specification");
+    expect(inline.map((t) => t.label)).toEqual(["Specification", "What changed", "Live product", "Specialists · Formulation Lab"]);
+    expect(detail.map((t) => t.label)).toEqual(["Vision", "Changes", "Sources", "Research", "Working now", "Work list · Development", "Specialists · Development", "Work list · Formulation Lab"]);
+    // The active detail tab shows in the bar, where it stands.
+    expect(splitTabTiers(PRODUCT_AREA_TABS, "product/vision").inline.map((t) => t.id).slice(0, 2)).toEqual(["product/vision", "product/specification"]);
+    expect(splitTabTiers(DISTRIBUTION_TABS, "leads").detail).toEqual([]);
+  });
+
+  it("offers the detail tabs from a More detail button beside the tablist, never inside it", async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    render(<TabBar tabs={PRODUCT_AREA_TABS} activeId="product/specification" onChange={onChange} />);
+    const tabs = screen.getAllByRole("tab").map((t) => t.textContent);
+    expect(tabs).toEqual(["Specification", "What changed2", "Live product", "Specialists · Formulation Lab"]);
+    const trigger = screen.getByRole("button", { name: `${MORE_DETAIL_LABEL}, 8 tabs` });
+    expect(trigger.closest("[role=tablist]")).toBeNull();
+    expect(trigger.textContent).toBe(MORE_DETAIL_LABEL);
+    await user.click(trigger);
+    const items = await screen.findAllByRole("menuitem");
+    expect(items.map((i) => i.textContent)).toEqual(["Vision", "Changes", "Sources", "Research", "Working now", "Work list · Development", "Specialists · Development", "Work list · Formulation Lab"]);
+    await user.click(screen.getByRole("menuitem", { name: "Research" }));
+    expect(onChange).toHaveBeenCalledWith("product/research");
+  });
+
+  it("draws no More detail button when every tab is inline (Builder view on)", () => {
+    render(<TabBar tabs={PRODUCT_AREA_TABS.map(({ tier: _tier, ...t }) => t)} activeId="product/vision" />);
+    expect(screen.queryByRole("button", { name: /More detail/ })).toBeNull();
+    expect(screen.getAllByRole("tab")).toHaveLength(PRODUCT_AREA_TABS.length);
   });
 });

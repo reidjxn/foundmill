@@ -17,6 +17,7 @@ import { useTableViews } from "@/lib/table-views";
 import { errorMessage } from "@/lib/trpc";
 import { useBusiness } from "@/components/shell/business-context";
 import { useShellChrome } from "@/components/shell/chrome";
+import { useAreaTabBar } from "@/components/shell/useAreaNav";
 import { MergeDialog, NewEntityDialog } from "./dialogs";
 import { CRM_VIEWS, KIND_WORD, LAWFUL_BASIS_LABEL, RETENTION_COPY, STAGE_TONE, groupByForView, groupCounts, groupLabel, loadedSummary, nextActiveHit, roleWord, sourceWord, stageWord, type CrmRow, type OwnerRef } from "./logic";
 import { formatNumber, plainWords } from "@/lib/format";
@@ -46,7 +47,8 @@ export function CrmScreen() {
   const trpc = useTRPC();
   const router = useRouter();
   // "Contacts" is the word a first-timer expects (founder decision 2026-10-20, item 1); operators find CRM in the palette.
-  useShellChrome({ title: "Contacts" });
+  const areaTabs = useAreaTabBar("customers", "crm");
+  useShellChrome({ title: "Contacts", tabs: areaTabs }, [areaTabs]);
 
   // --- search box state ---------------------------------------------------------------------------------------------
   const [raw, setRaw] = useState("");

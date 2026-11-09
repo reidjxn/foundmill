@@ -184,21 +184,26 @@ test.describe("shell", () => {
 
   test("Continue stays Continue while notes wait for an answer, and the Inbox's Needs you tab holds them (Nov 7, 2026)", async ({ page }) => {
     // The seed leaves Northwind with decisions waiting (inbox.list counts.respond ≥ 1). A decision never holds Continue:
-    // the button keeps its one meaning, and the sidebar's Inbox counts what needs the founder.
+    // the button keeps its one meaning, and the sidebar's Needs you counts what needs the founder.
     await expect(page.getByRole("button", { name: /^Continue$/ })).toBeVisible({ timeout: LONG });
     await expect(page.getByRole("button", { name: /needs? you before the team can work/ })).toHaveCount(0);
-    await expect(page.getByRole("navigation", { name: "Primary" }).getByRole("link", { name: /^Inbox/ }), "the seeded Northwind inbox has notes waiting for an answer; re-seed if none are left").toContainText(/\d/, { timeout: LONG });
+    await expect(page.getByRole("navigation", { name: "Primary" }).getByRole("link", { name: /^Needs you/ }), "the seeded Northwind inbox has notes waiting for an answer; re-seed if none are left").toContainText(/\d/, { timeout: LONG });
     await page.goto(`/b/${NORTHWIND_BUSINESS_ID}/inbox?tab=respond`);
     await expect(page.getByTestId("inbox-screen")).toHaveAttribute("data-tab", "respond", { timeout: LONG });
     await expect(page.getByRole("tab", { name: /^Needs you/ })).toHaveAttribute("aria-selected", "true");
     await expect(page.getByTestId("inbox-list").locator("[data-inbox-row][data-needs-answer='true']").first()).toBeVisible({ timeout: LONG });
   });
 
-  test("the sidebar calls the CRM Contacts, keeps the Anthropic key out of its foot, and its \"?\" cap opens the keyboard shortcuts (B13, B15)", async ({ page }) => {
+  test("the sidebar asks the founder's questions, Contacts is a Customers tab, the Anthropic key stays out of its foot, and its \"?\" cap opens the keyboard shortcuts (B13, B15)", async ({ page }) => {
     const nav = page.getByRole("navigation", { name: "Primary" });
-    await expect(nav.getByRole("link", { name: "Contacts" })).toHaveAttribute("href", /\/crm$/);
+    // Founder areas (2026-11-09): no department and no Contacts item; the CRM is a Customers tab.
+    await expect(nav.locator("[data-sidebar-item='area-customers']")).toBeVisible({ timeout: LONG });
+    await expect(nav.getByRole("link", { name: "Contacts" })).toHaveCount(0);
     await expect(nav.getByRole("link", { name: "CRM" })).toHaveCount(0);
     await expect(nav.getByRole("link", { name: "Anthropic key" })).toHaveCount(0);
+    await page.goto(`/b/${NORTHWIND_BUSINESS_ID}/crm`);
+    await expect(page.getByRole("tablist", { name: "Customers tabs" }).getByRole("tab", { name: "Contacts" })).toHaveAttribute("aria-selected", "true", { timeout: LONG });
+    await expect(nav.locator("[data-sidebar-item='area-customers']")).toHaveAttribute("aria-current", "page");
     // Settings › Keys is still a Settings tab (its own spec covers the key), reached from Settings.
     await expect(nav.getByRole("link", { name: "Settings" })).toBeVisible();
     await nav.getByRole("button", { name: "Keyboard shortcuts" }).click();
@@ -239,20 +244,17 @@ test.describe("shell", () => {
     await expect(page.getByTestId("app-shell")).toBeVisible();
   });
 
-  test("G then letter navigates to a department; settings tabs resolve", async ({ page }) => {
+  test("G then an area's letter opens the area (G M Money); settings tabs resolve", async ({ page }) => {
     const shell = page.getByTestId("app-shell");
-    const dept = shell.locator("nav a[href*='/d/'][aria-keyshortcuts^='G ']").first();
-    await expect(dept).toBeVisible();
-    const chord = (await dept.getAttribute("aria-keyshortcuts")) ?? "";
-    const letter = chord.split(" ")[1];
-    expect(letter, "every department link carries a G chord").toMatch(/^[A-Z]$/);
-    const target = (await dept.getAttribute("href"))!;
+    const money = shell.locator("nav [data-sidebar-item='area-money']");
+    await expect(money).toBeVisible({ timeout: LONG });
+    await expect(money).toHaveAttribute("aria-keyshortcuts", "G M");
     // The chord is pending between the two keys (data-chord-pending on the shell), so the letter is not sent too early.
     await page.keyboard.press("g");
     await expect(shell).toHaveAttribute("data-chord-pending", "true");
-    await page.keyboard.press(letter!.toLowerCase());
-    await expect(page).toHaveURL(new RegExp(`${target.replace(/\/[^/]+$/, "")}(/|$)`));
-    await expect(page).toHaveURL(/\/d\//);
+    await page.keyboard.press("m");
+    await expect(page).toHaveURL(/\/d\/finance\/overview$/);
+    await expect(money).toHaveAttribute("aria-current", "page");
     for (const tab of ["business", "mode", "departments", "glossary", "members", "integrations", "keys", "billing", "preferences", "danger"]) {
       await openSettings(page, tab);
     }

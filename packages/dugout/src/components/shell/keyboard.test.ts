@@ -1,8 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
 import { act, renderHook } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { CHORD_TIMEOUT_MS, KEYBOARD_SHORTCUTS, departmentLetters, letterCandidates, shortcutList, spaceBelongsTo, useKeyboardMap, type KeyboardMapContext } from "./keyboard";
-import { DEPARTMENTS_FOR_KEYS } from "./fixtures";
+import { CHORD_TIMEOUT_MS, KEYBOARD_SHORTCUTS, departmentLetters, letterCandidates, shellDepartmentLetters, shortcutList, spaceBelongsTo, useKeyboardMap, type KeyboardMapContext } from "./keyboard";
+import { AREAS_FOR_KEYS, DEPARTMENTS_FOR_KEYS } from "./fixtures";
 
 describe("letterCandidates", () => {
   it("prefers initials, then the remaining letters, de-duplicated, accents stripped", () => {
@@ -42,17 +42,34 @@ describe("departmentLetters", () => {
   });
 });
 
+describe("shellDepartmentLetters", () => {
+  it("keeps a module-less department off Today's, Needs you's and the areas' letters, stored letters included", () => {
+    const letters = shellDepartmentLetters([
+      { id: "a", name: "Partners", shortcut: "P" },
+      { id: "b", name: "Merch" },
+      { id: "c", name: "Studio", shortcut: "Q" },
+    ]);
+    expect(Object.fromEntries(letters)).toEqual({ a: "A", b: "E", c: "Q" });
+  });
+});
+
 describe("shortcutList", () => {
-  it("contains every BUILD §5.5 shortcut and inserts department chords before Go to CRM", () => {
-    const list = shortcutList(DEPARTMENTS_FOR_KEYS);
+  it("lists every BUILD §5.5 shortcut, then the area chords and the module-less departments' after Go to Needs you", () => {
+    const list = shortcutList([{ id: "d-studio", name: "Studio" }], AREAS_FOR_KEYS);
     const ids = list.map((s) => s.id);
     for (const s of KEYBOARD_SHORTCUTS) expect(ids).toContain(s.id);
-    const crm = ids.indexOf("go-crm");
-    const dept = ids.indexOf("go-dept-d-finance");
-    expect(dept).toBeGreaterThan(ids.indexOf("go-inbox"));
-    expect(dept).toBeLessThan(crm);
-    expect(list.find((s) => s.id === "go-dept-d-finance")?.keys).toEqual(["G", "N"]);
-    expect(list.find((s) => s.id === "go-dept-d-finance")?.label).toBe("Go to Finance");
+    expect(ids).not.toContain("go-crm");
+    expect(ids.slice(ids.indexOf("go-inbox"), ids.indexOf("go-inbox") + 7)).toEqual(["go-inbox", "go-area-plan", "go-area-customers", "go-area-money", "go-area-product", "go-area-team", "go-dept-d-studio"]);
+    expect(list.filter((s) => s.id.startsWith("go-")).map((s) => `${s.keys.join(" ")} ${s.label}`)).toEqual([
+      "G H Go to Today",
+      "G I Go to Needs you",
+      "G P Go to Plan",
+      "G C Go to Customers",
+      "G M Go to Money",
+      "G R Go to Product",
+      "G T Go to Team",
+      "G S Go to Studio",
+    ]);
   });
 });
 
@@ -100,9 +117,9 @@ describe("useKeyboardMap", () => {
     expect(handlers.onHelp).toHaveBeenCalledTimes(1);
   });
 
-  it("G then a letter goes to a fixed surface or a department, and swallows the single-key shortcut", async () => {
+  it("G then a letter goes to Today, Needs you, an area or a module-less department, and swallows the single-key shortcut", async () => {
     const user = userEvent.setup();
-    const { handlers, hook } = setup();
+    const { handlers, hook } = setup({ areas: AREAS_FOR_KEYS, departments: [{ id: "d-studio", name: "Studio" }] });
     await user.keyboard("g");
     expect(hook.result.current.chordPending).toBe(true);
     await user.keyboard("h");
@@ -110,17 +127,31 @@ describe("useKeyboardMap", () => {
     expect(hook.result.current.chordPending).toBe(false);
     await user.keyboard("gi");
     expect(handlers.onGoTo).toHaveBeenCalledWith({ kind: "inbox" });
+    // G C is Customers now (Contacts is one of its tabs).
     await user.keyboard("gc");
-    expect(handlers.onGoTo).toHaveBeenCalledWith({ kind: "crm" });
-    await user.keyboard("gn");
-    expect(handlers.onGoTo).toHaveBeenCalledWith({ kind: "department", id: "d-finance" });
-    // "G R": R is not a department letter, so nothing navigates and Refresh must not fire either.
+    expect(handlers.onGoTo).toHaveBeenLastCalledWith({ kind: "area", area: "customers" });
+    await user.keyboard("gm");
+    expect(handlers.onGoTo).toHaveBeenLastCalledWith({ kind: "area", area: "money" });
+    // "G R" is Product: Refresh (R) must not fire.
     await user.keyboard("gr");
+    expect(handlers.onGoTo).toHaveBeenLastCalledWith({ kind: "area", area: "product" });
     expect(handlers.onRefreshInbox).not.toHaveBeenCalled();
-    expect(handlers.onGoTo).toHaveBeenCalledTimes(4);
-    // "G T" reaches Team even though T is not a single-key shortcut.
+    await user.keyboard("gs");
+    expect(handlers.onGoTo).toHaveBeenLastCalledWith({ kind: "department", id: "d-studio" });
+    // "G X": no one's letter, so nothing navigates.
+    await user.keyboard("gx");
+    expect(handlers.onGoTo).toHaveBeenCalledTimes(6);
+    await user.keyboard("gp");
     await user.keyboard("gt");
-    expect(handlers.onGoTo).toHaveBeenLastCalledWith({ kind: "department", id: "d-team" });
+    expect(handlers.onGoTo).toHaveBeenCalledWith({ kind: "area", area: "plan" });
+    expect(handlers.onGoTo).toHaveBeenLastCalledWith({ kind: "area", area: "team" });
+  });
+
+  it("an area the sidebar does not show has no chord", async () => {
+    const user = userEvent.setup();
+    const { handlers } = setup({ areas: ["plan", "product"], departments: [] });
+    await user.keyboard("gc");
+    expect(handlers.onGoTo).not.toHaveBeenCalled();
   });
 
   it("Esc or a second G cancels a pending chord without firing onEscape; the chord times out", async () => {

@@ -2,7 +2,7 @@
  * Seeded demo data for shell stories and tests: Northwind Skincare (BUILD §17.2), a DTC skincare business with
  * six departments. Deterministic; no network. Not exported from the package barrel.
  */
-import { Bot, BookOpen, Code2, Globe, Home, Inbox, Medal, Megaphone, PiggyBank, Scale, Settings, Users, Users2, Wrench } from "lucide-react";
+import { Bot, BookOpen, Compass, Globe, Home, Inbox, Medal, Megaphone, PiggyBank, Settings, Users, Users2, Wrench } from "lucide-react";
 import { TERMS, type TermId } from "@foundmill/shared/terms";
 import { SAMPLE_LOGOS } from "../foundation/logo-samples";
 import type { SwitcherBusiness } from "./BusinessSwitcher";
@@ -14,18 +14,20 @@ export const NORTHWIND_KIT: Kit = { primary: "#2B6CB0", secondary: "#FFFFFF" };
 export const LEDGERLY_KIT: Kit = { primary: "#1F6F5F", secondary: "#E8C56B" };
 export const FIXTURE_TODAY = new Date("2026-10-07T09:30:00Z");
 
+/**
+ * The founder-area sidebar (docs/DESIGN.md §8): Today, Needs you, the five areas (badges summed from their
+ * departments), then a department with no modules ("Studio", its own item with its dot and letter), the LIVE block and
+ * the foot.
+ */
 export const NORTHWIND_SIDEBAR: SidebarItem[] = [
-  { id: "home", label: "Home", icon: Home, href: "/b/northwind", group: "main", fixed: "home" },
-  { id: "inbox", label: "Inbox", icon: Inbox, href: "/b/northwind/inbox", group: "main", fixed: "inbox", badge: 3, badgeTone: "bad" },
-  { id: "d-product", label: "Product", icon: BookOpen, href: "/b/northwind/d/product/vision", group: "department", dept: "dept-1", badge: 1 },
-  { id: "d-development", label: "Formulation Lab", icon: Code2, href: "/b/northwind/d/formulation-lab/training-ground", group: "department", dept: "dept-2", badge: 4 },
-  { id: "d-distribution", label: "Distribution", icon: Megaphone, href: "/b/northwind/d/distribution/formation", group: "department", dept: "dept-3", badge: 2 },
-  { id: "d-finance", label: "Finance", icon: PiggyBank, href: "/b/northwind/d/finance/overview", group: "department", dept: "dept-4" },
-  { id: "d-team", label: "Team", icon: Users, href: "/b/northwind/d/team/squad", group: "department", dept: "dept-5" },
-  { id: "d-legal", label: "Legal", icon: Scale, href: "/b/northwind/d/legal/entity", group: "department", dept: "dept-6" },
-  { id: "d-operations", label: "Operations", icon: Wrench, href: "/b/northwind/d/operations/specialists", group: "department", dept: "dept-7", badge: 1 },
-  // The display label is "Contacts"; the slug and the fixed surface keep "crm" (the collapsed tooltip says both).
-  { id: "crm", label: "Contacts", icon: Users2, href: "/b/northwind/crm", group: "main", fixed: "crm" },
+  { id: "home", label: "Today", icon: Home, href: "/b/northwind/today", group: "main", fixed: "home" },
+  { id: "inbox", label: "Needs you", icon: Inbox, href: "/b/northwind/inbox?tab=respond", group: "main", fixed: "inbox", badge: 3, badgeTone: "bad" },
+  { id: "area-plan", label: "Plan", icon: Compass, href: "/b/northwind/d/product/roadmap", group: "area", area: "plan" },
+  { id: "area-customers", label: "Customers", icon: Megaphone, href: "/b/northwind/d/distribution/leads", group: "area", area: "customers", badge: 2, hint: "leads, campaigns and contacts" },
+  { id: "area-money", label: "Money", icon: PiggyBank, href: "/b/northwind/d/finance/overview", group: "area", area: "money" },
+  { id: "area-product", label: "Product", icon: BookOpen, href: "/b/northwind/d/product/specification", group: "area", area: "product", badge: 6 },
+  { id: "area-team", label: "Team", icon: Users, href: "/b/northwind/d/team/squad", group: "area", area: "team" },
+  { id: "d-studio", label: "Studio", icon: Wrench, href: "/b/northwind/d/studio/notes", group: "department", dept: "dept-7", badge: 1 },
   { id: "network", label: "Network", icon: Globe, href: "/live/network", group: "live" },
   { id: "communities", label: "Communities", icon: Users2, href: "/live/communities", group: "live", badge: 2 },
   { id: "leaderboards", label: "Leaderboards", icon: Medal, href: "/live/leaderboards", group: "live" },
@@ -105,7 +107,38 @@ export const REORDER_OPTIONS: DecisionOption[] = [
   { id: "d", label: "Pause the serum", consequence: "Hide the product and pause its campaigns until stock is planned.", cost: null, reversible: true },
 ];
 
-export const DEPARTMENTS_FOR_KEYS = NORTHWIND_SIDEBAR.filter((it) => it.group === "department").map((it) => ({ id: it.id, name: it.label }));
+/** Northwind's departments by name, for the letter rule (stored department letters; the shell gives letters only to module-less ones). */
+export const DEPARTMENTS_FOR_KEYS = [
+  { id: "d-product", name: "Product" },
+  { id: "d-development", name: "Formulation Lab" },
+  { id: "d-distribution", name: "Distribution" },
+  { id: "d-finance", name: "Finance" },
+  { id: "d-team", name: "Team" },
+  { id: "d-legal", name: "Legal" },
+  { id: "d-operations", name: "Operations" },
+];
+
+/** The areas Northwind's sidebar shows, in order. */
+export const AREAS_FOR_KEYS = ["plan", "customers", "money", "product", "team"] as const;
+
+/**
+ * Northwind's Product area tab bar (docs/DESIGN.md §9): Product's and the two development departments' tabs, three
+ * inline and the rest behind "More detail"; Formulation Lab's first tab is promoted so the department shows.
+ */
+export const PRODUCT_AREA_TABS: TabItem[] = [
+  { id: "product/vision", label: "Vision", href: "#vision", tier: "detail" },
+  { id: "product/specification", label: "Specification", href: "#specification" },
+  { id: "product/changes", label: "Changes", href: "#changes", tier: "detail" },
+  { id: "product/sources", label: "Sources", href: "#sources", tier: "detail" },
+  { id: "product/research", label: "Research", href: "#research", tier: "detail" },
+  { id: "development/training-ground", label: "Working now", href: "#working-now", tier: "detail" },
+  { id: "development/plan", label: "Work list · Development", href: "#work-list", tier: "detail" },
+  { id: "development/pull-requests", label: "What changed", href: "#what-changed", badge: 2 },
+  { id: "development/environments", label: "Live product", href: "#live-product" },
+  { id: "development/specialists", label: "Specialists · Development", href: "#specialists-dev", tier: "detail" },
+  { id: "operations/specialists", label: "Specialists · Formulation Lab", href: "#specialists-lab" },
+  { id: "operations/plan", label: "Work list · Formulation Lab", href: "#work-list-lab", tier: "detail" },
+];
 
 /** The founder's businesses in the top bar's Switch business: Northwind is open (logo), Ledgerly a demo, Tutorlane as an admin. */
 export const SWITCHER_BUSINESSES: SwitcherBusiness[] = [

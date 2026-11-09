@@ -3,6 +3,7 @@
 import { useMemo } from "react";
 import type { ModuleKey } from "@foundmill/shared";
 import { MODULE_KEYS, MODULE_TABS, firstVisibleTab, tabTitleFor } from "@foundmill/shared/constants";
+import { AREA_LABELS, areaOfTab } from "@foundmill/shared/areas";
 import type { RibbonDepartment } from "@foundmill/dugout";
 import { useWidgetData, useWidgetQuery, type QueryState } from "../data";
 import { routes } from "./routes";
@@ -66,9 +67,10 @@ export function moduleTabHref(bid: string, rows: readonly DepartmentRow[] | unde
 }
 
 /**
- * "<department> › <tab>" as the founder named them ("Team › Recruitment", "Editorial › Changes" on a Content / media
- * business): copy that points at a screen names the department that owns the module, never a hard-coded name
- * (CLAUDE.md: departments are labels over modules). Null when no visible department carries the module.
+ * "<area> › <tab>" as the founder reads them in the sidebar and the tab bar ("Customers › Leads", "Team ›
+ * Recruitment"; docs/DESIGN.md §9): copy that points at a screen names the founder area over the tab's module and the
+ * tab's own title in the department that owns the module, never a hard-coded name (CLAUDE.md: departments are labels
+ * over modules). Null when no visible department carries the module.
  */
 export function moduleTabLabel(
   rows: readonly (Pick<DepartmentRow, "name" | "position" | "moduleKeys" | "hidden"> & { tabs: readonly { slug: string; title: string }[] })[] | undefined,
@@ -80,7 +82,8 @@ export function moduleTabLabel(
   if (!d) return null;
   const title = d.tabs.find((t) => t.slug === tabSlug)?.title ?? MODULE_TABS[moduleKey].find((t) => t.slug === tabSlug)?.title ?? tabSlug;
   // The tab as the person reads it in the TabBar ("Working now" while Builder view is off and the title is the default).
-  return `${d.name} › ${tabTitleFor(d.moduleKeys, tabSlug, title, builder)}`;
+  const area = areaOfTab([moduleKey], tabSlug);
+  return `${area ? AREA_LABELS[area] : d.name} › ${tabTitleFor(d.moduleKeys, tabSlug, title, builder)}`;
 }
 
 /** Hook form of `moduleHref` plus a navigate callback. */

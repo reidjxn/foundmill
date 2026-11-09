@@ -3,12 +3,12 @@ import type { Meta, StoryObj } from "@storybook/react-vite";
 import { Pencil } from "lucide-react";
 import { Button } from "../foundation/Button";
 import { TabBar } from "./TabBar";
-import { DISTRIBUTION_TABS } from "./fixtures";
+import { DISTRIBUTION_TABS, PRODUCT_AREA_TABS } from "./fixtures";
 
 const meta = {
   title: "Shell/TabBar",
   component: TabBar,
-  parameters: { layout: "fullscreen", docs: { description: { component: "40 px, transparent over the lit canvas with a hairline under it. 3–7 tabs in the action style, sentence case, text-3 → text-1. The active tab's 2 px lit bar slides to the new tab in 260 ms. Counts sit in a pill (red with ink when the count needs the founder). Tabs with sub-views show a 12 px caret that opens a dropdown. Tabs never shrink below their label: what does not fit moves into a “More” menu. Arrow keys move focus, Enter opens." } } },
+  parameters: { layout: "fullscreen", docs: { description: { component: "40 px, transparent over the lit canvas with a hairline under it. 3–7 tabs in the action style, sentence case, text-3 → text-1. The active tab's 2 px lit bar slides to the new tab in 260 ms. Counts sit in a pill (red with ink when the count needs the founder). Tabs with sub-views show a 12 px caret that opens a dropdown. Tabs never shrink below their label: what does not fit moves into a “More” menu. Tabs of the `detail` tier (an area's tabs past its defaults) sit in a “More detail” menu after the tabs; the active one shows in the bar. Arrow keys move focus, Enter opens." } } },
   args: { tabs: DISTRIBUTION_TABS, activeId: "channels", activeSubViewId: "paid" },
 } satisfies Meta<typeof TabBar>;
 export default meta;
@@ -44,6 +44,28 @@ export const WithDisabled: Story = { args: { tabs: [...DISTRIBUTION_TABS.slice(0
 export const RespondCount: Story = {
   name: "Counts (Respond in red)",
   args: { tabs: [{ id: "all", label: "All" }, { id: "respond", label: "Respond", badge: 4, badgeTone: "bad" }, { id: "customers", label: "Customers", badge: 2 }, { id: "updates", label: "Updates" }, { id: "archive", label: "Archive" }], activeId: "all", activeSubViewId: undefined },
+  render: (args) => <Frame {...args} />,
+};
+/**
+ * An area's tab bar (docs/DESIGN.md §9): the defaults inline and the rest behind “More detail” at the end of the bar.
+ * Northwind's Product area: Formulation Lab's first tab is promoted so the department shows; two departments' tabs with
+ * one title carry their department. Opening a detail tab shows it in the bar until another tab is chosen.
+ */
+export const MoreDetail: Story = {
+  name: "Tiers: More detail",
+  args: { tabs: PRODUCT_AREA_TABS, activeId: "product/specification", activeSubViewId: undefined },
+  render: (args) => <Frame {...args} />,
+};
+/** The active tab is a detail tab (opened from the menu, search or a link): it shows in the bar where it stands. */
+export const MoreDetailActive: Story = {
+  name: "Tiers: a detail tab open",
+  args: { tabs: PRODUCT_AREA_TABS, activeId: "product/research", activeSubViewId: undefined },
+  render: (args) => <Frame {...args} />,
+};
+/** Builder view on: every tab inline, no “More detail”; what does not fit still moves into More. */
+export const BuilderViewFlat: Story = {
+  name: "Tiers: Builder view (every tab inline)",
+  args: { tabs: PRODUCT_AREA_TABS.map(({ tier: _tier, ...t }) => t), activeId: "product/specification", activeSubViewId: undefined },
   render: (args) => <Frame {...args} />,
 };
 /** Not enough room beside the trailing slot: the last tabs move into More, which takes the active tab's name when it holds it. */

@@ -53,7 +53,7 @@ describe("HomeTour", () => {
         </HomeStandIn>
       </GuidanceProvider>,
     );
-    const card = await screen.findByRole("dialog", { name: "Your departments" });
+    const card = await screen.findByRole("dialog", { name: "Your areas" });
     expect(card.getAttribute("data-tour")).toBe("home");
     expect(screen.getByText("1 of 5")).toBeTruthy();
     expect(document.querySelector("[data-coachmark='sidebar'][data-coachmark-active]")).toBeTruthy();
@@ -79,7 +79,7 @@ describe("HomeTour", () => {
         </HomeStandIn>
       </GuidanceProvider>,
     );
-    await screen.findByRole("dialog", { name: "Your departments" });
+    await screen.findByRole("dialog", { name: "Your areas" });
     click("Next");
     await screen.findByRole("dialog", { name: "Continue" });
     click("Next");
@@ -140,9 +140,9 @@ describe("HomeTour", () => {
     }
     render(<WithDialog />);
     await settle();
-    expect(screen.queryByRole("dialog", { name: "Your departments" })).toBeNull();
+    expect(screen.queryByRole("dialog", { name: "Your areas" })).toBeNull();
     click("Close the dialog");
-    await screen.findByRole("dialog", { name: "Your departments" });
+    await screen.findByRole("dialog", { name: "Your areas" });
     click("Skip tour");
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
     expect(markTourDone).toHaveBeenCalledWith("home");
@@ -213,7 +213,7 @@ describe("DepartmentTour", () => {
         <DepartmentTour />
       </GuidanceProvider>,
     );
-    await screen.findByRole("dialog", { name: "This department's screens" });
+    await screen.findByRole("dialog", { name: "This area's screens" });
     expect(document.querySelector("[data-coachmark='tabs'][data-coachmark-active]")).toBeTruthy();
     click("Next");
     await screen.findByRole("dialog", { name: "What a screen is for" });
@@ -261,7 +261,7 @@ describe("LazyTour", () => {
     expect(screen.queryByRole("dialog")).toBeNull();
     expect(document.querySelector("[data-coachmark='status-strip']")).toBeNull();
     view.rerender(<Account loaded />);
-    await screen.findByRole("dialog", { name: "Your departments" });
+    await screen.findByRole("dialog", { name: "Your areas" });
     expect(document.querySelector("[data-widget='status_strip']")?.getAttribute("data-coachmark")).toBe("status-strip");
     click("Skip tour");
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
@@ -269,7 +269,7 @@ describe("LazyTour", () => {
     await waitFor(() => expect(document.querySelector("[data-coachmark='status-strip']")).toBeNull());
     expect(signal).toHaveBeenCalledWith("guidance.tour_skipped", { tourId: "home", atStep: 1, steps: 5 });
     click("Replay the tour");
-    await screen.findByRole("dialog", { name: "Your departments" });
+    await screen.findByRole("dialog", { name: "Your areas" });
     expect(screen.getByText("1 of 5")).toBeTruthy();
   });
 });
