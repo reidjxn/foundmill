@@ -284,7 +284,9 @@ test.describe("onboarding", () => {
   });
 
   // A country picked only part of the way (first-time founder report, Nov 8, 2026). Runs with the profile saved by the
-  // test above, so the form opens pre-filled and the only refusal is the half-picked country.
+  // tests above, so the form opens pre-filled and the only refusal is the half-picked country. A stored profile keeps
+  // its own currency whatever the residence says (A11; the new-profile derivation is OnboardingForm.test.tsx's), so the
+  // check here is the refusal and that the finished country saves, not which currency the derived line names.
   test("'United' asks the founder to finish picking instead of counting money in the wrong currency", async ({ page }) => {
     await page.goto("/onboarding");
     await expect(page.getByTestId("onboarding-form")).toBeVisible({ timeout: LONG });
@@ -293,8 +295,11 @@ test.describe("onboarding", () => {
     await residence.blur();
     await page.getByTestId("profile-submit").click();
     await expect(page.getByRole("alert").filter({ hasText: /Finish picking the country: .*United Kingdom or United States/ })).toBeVisible();
+    await expect(page).toHaveURL(/\/onboarding$/);
     await residence.fill("United Kingdom");
     await expect(page.getByRole("alert").filter({ hasText: /Finish picking the country/ })).toHaveCount(0);
-    await expect(page.getByTestId("profile-place-derived")).toContainText(/British Pound/);
+    await expect(page.getByTestId("profile-place-derived")).toContainText(/count(ed)? money in|Money is counted in/);
+    await page.getByTestId("profile-submit").click();
+    await expect(page).toHaveURL(/\/new$/, { timeout: LONG });
   });
 });
