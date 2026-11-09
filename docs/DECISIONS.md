@@ -3264,3 +3264,7 @@ The founder asked for a Foundmill mobile app, built with Newly (app.newly.app, E
 - **Which wins are pushed.** `customer.converted` is pushed only while `fullMatchDay` is true: past the 100th win of a kind the Journey already rolls the rest into the daily round-up, and the phone follows the same rule. A signup, an activation and a first payment each push once, with their own words.
 - **The Newly project must connect Foundmill's own OneSignal app**, not the Newly-managed one: the server sends through that app's REST API key, so the app id in the phone's SDK and the key on the gateway must belong to the same app.
 
+## Nov 9, 2026: a cycle's pause is matched by workflow id, not by time
+
+- **`cycleStatus` reads a pause as the open cycle's when the audit row names its workflow id.** The time test ("pause row after `cycle.started`") missed a pause pressed while the orchestrator was still planning, because `cycle.started` is written after `planCycle`; the API then said "running, not paused" while the workflow held on the pause signal, and neither Continue nor Resume could free it. Workflow ids are unique per cycle (`cycle:<business>:<n>`, never reused), so the id is the right key; the time test stays only for rows written before the id was recorded.
+- **The mobile Continue pill confirms a pause.** A single tap on a working round opens "Pause the round?" with Pause and Keep going; a paused round resumes on one tap. A stray double tap paused Commutair's first round after the key fix, which is how the status bug surfaced.
