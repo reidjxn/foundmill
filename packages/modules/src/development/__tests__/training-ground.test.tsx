@@ -5,6 +5,7 @@ import { describe, expect, it, vi } from "vitest";
 import { LIVE_SESSIONS_LEDE, TrainingGroundScreen } from "../TrainingGroundScreen";
 import { shoutInput, toGraphNodes } from "../TrainingGroundScreen";
 import { BUSINESS_ID, createFakeSource, renderScreen } from "./fake-source";
+import { openExplainer } from "../../explainer.testing";
 import { AGENT_JUNO, SESSION_BUNDLE, SESSION_INDEX, SESSION_SOURCING, TASK_BUNDLE, TASK_PLAYWRIGHT, bundleEvents, edges, emptyTasksResponse, rawFrame, tasks, trainingGroundResponses } from "./fixtures";
 import type { TasksListResponse } from "../types";
 
@@ -29,8 +30,7 @@ describe("TrainingGroundScreen", () => {
     expect(screen.getByText(/your plan runs 16 agents at once/)).toBeTruthy();
     expect(fake.queried.get("dev.tasks.list")).toMatchObject({ status: ["running", "paused", "blocked", "review", "merging"] });
     // Guidance on: the department's intro says what a tile is (UX plan §7.10, §7.12), inside the panel's body.
-    const explainer = document.querySelector("[data-explainer='development/live-sessions']") as HTMLElement;
-    expect(explainer.getAttribute("data-state")).toBe("open");
+    const explainer = openExplainer("development/live-sessions");
     expect(within(explainer).getByText(LIVE_SESSIONS_LEDE)).toBeTruthy();
     expect(within(explainer).getByText("The team building it. Watch work live, see the plan, review finished code.")).toBeTruthy();
     // Every tile carries the visible "…" beside its hover toolbar.

@@ -10,6 +10,8 @@ export * from "./guidance/Term";
 export * from "./guidance/InfoTip";
 export * from "./guidance/ProvenanceTip";
 export * from "./guidance/Explainer";
+export { PageExplainProvider, usePageExplain, type PageExplainEntry } from "./guidance/PageExplain";
+export { ExplainPageButton, ExplainTrigger, EXPLAIN_PAGE_LABEL, type ExplainTriggerProps } from "./guidance/ExplainPageButton";
 export * from "./guidance/ConsequenceLine";
 export * from "./guidance/ReassuranceLine";
 export * from "./guidance/PlainFigure";

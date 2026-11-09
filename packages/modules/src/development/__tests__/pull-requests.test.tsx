@@ -4,6 +4,7 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 import { PullRequestsScreen, previewFromEvent, toMergedRows, toOpenRows } from "../PullRequestsScreen";
 import { BUSINESS_ID, createFakeSource, renderScreen } from "./fake-source";
+import { openExplainer } from "../../explainer.testing";
 import { AGENT_PIKE, TASK_BUNDLE, TASK_DONE, TASK_INDEX, agents, agentsResponse, emptyPrsResponse, mergedPrs, openPrs, prsResponse } from "./fixtures";
 
 const props = { businessId: BUSINESS_ID, departmentId: "d-dev" };
@@ -14,7 +15,7 @@ describe("PullRequestsScreen", () => {
     const fake = createFakeSource({ responses: responses() });
     renderScreen(fake, <PullRequestsScreen {...props} />, {}, { guidance: "on" });
     const open = await screen.findByRole("grid", { name: "Open pull requests" });
-    const explainer = document.querySelector("[data-explainer='development/pull-requests']") as HTMLElement;
+    const explainer = openExplainer("development/pull-requests");
     expect(within(explainer).getByText("A bundle of finished code waiting for review.")).toBeTruthy();
     expect(screen.getAllByRole("button", { name: /^View: Simple/ })).toHaveLength(2);
     expect(within(open).getAllByRole("columnheader").map((h) => h.textContent)).toEqual(["Pull request", "Merge queue", "Agent", "Preview", "Actions"]);

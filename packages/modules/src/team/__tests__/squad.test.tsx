@@ -10,6 +10,7 @@ import { toSquadRow, toolKeys, skillRating } from "../shared";
 import { teamTree } from "@foundmill/shared/team-tiers";
 import { BID, AGENT_COS, AGENT_JUNO, AGENT_LINK, AGENT_MARA, AGENT_PIKE, DEPT_TEAM, agents, compareJuno, dataResponses, departments, emptyResponses } from "./fixtures";
 import { createFakeSource, renderScreen } from "./fake-source";
+import { openExplainer } from "../../explainer.testing";
 
 const props = { businessId: BID, departmentId: DEPT_TEAM };
 
@@ -143,8 +144,7 @@ describe("SquadScreen", () => {
     expect(headersOf(table)).toEqual(["Agent", "Status", "Current task", "Rating /20"]);
     expect(screen.getByRole("button", { name: "View: Simple" })).toBeTruthy();
     // The intro sits inside the panel body, above the table, and names what the tab is for.
-    const explainer = document.querySelector("[data-explainer='team-agents']") as HTMLElement;
-    expect(explainer.getAttribute("data-state")).toBe("open");
+    const explainer = openExplainer("team-agents");
     expect(explainer.textContent).toContain("Everyone who works here. Agents have skills 1–20");
     expect(explainer.querySelector("[data-term='rating']")).not.toBeNull();
     expect(explainer.querySelector("[data-term='training']")).not.toBeNull();

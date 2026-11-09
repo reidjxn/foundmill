@@ -365,7 +365,7 @@ describe("GuidanceHost product signals", () => {
     expect(probe()).toBe("on standard - - Cost to win a customer");
   });
 
-  it("an explainer's first Got it is its dismissal signal; one already seen sends nothing", async () => {
+  it("an explainer's first opening is its read signal; one already seen sends nothing", async () => {
     stored = { ...defaults(), explainersSeen: { inbox: true } };
     mount();
     await waitFor(() => expect(guided?.explainersSeen).toEqual({ inbox: true }));

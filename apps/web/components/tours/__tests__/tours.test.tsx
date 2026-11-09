@@ -206,7 +206,9 @@ describe("DepartmentTour", () => {
             Vision
           </button>
         </div>
-        <section data-explainer="product/vision">What this screen is for</section>
+        <button type="button" data-explainer="product/vision">
+          Explain this page
+        </button>
         <button type="button" aria-label="View: Simple">
           Simple
         </button>

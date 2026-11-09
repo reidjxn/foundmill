@@ -22,8 +22,8 @@
  *   `learnPath` with the route's business id (LearnLinkProvider); outside a business only absolute URLs open.
  * - The product signals (UX plan §11, `founder.preferences.signal`, the five guidance.* events): `signal(kind, payload)`
  *   on `useGuidancePreferences()` and `useGuidanceSignal()` sends one, fire and forget (never awaited, a failure is
- *   dropped, nothing on screen waits for it). The host sends three itself: an explainer's first "Got it"
- *   (`markExplainerSeen`), a definition card opened (the Term calls the provider's `onTermOpen`; once per term id per
+ *   dropped, nothing on screen waits for it). The host sends three itself: a page's first "Explain this page"
+ *   opening (`markExplainerSeen`), a definition card opened (the Term calls the provider's `onTermOpen`; once per term id per
  *   session), and a save that turns guidance off (the Preferences switch, `from: "settings"` unless the caller says
  *   otherwise). The tours send theirs through `useGuidanceSignal` (components/tours/signal.ts). A signal belongs to the
  *   business on screen: outside a business route there is none to record it in, so it is not sent.
@@ -315,8 +315,9 @@ export function GuidanceHost({ initial, signedIn: signedInProp, textSizeOwner = 
     [signal, signedIn],
   );
 
-  // The primitives' actions: fire and forget (a failed "Got it" is rolled back and asked again next time). The first
-  // "Got it" on a screen's explainer is its dismissal signal; a second one after reopening it is not.
+  // The primitives' actions: fire and forget (a failed save is rolled back and asked again next time). The first
+  // opening of a screen's "Explain this page" panel is its read signal (the event keeps its name,
+  // `guidance.explainer_dismissed`); a later one is not.
   const actions = useMemo<GuidanceActions & TermOpenAction>(
     () => ({
       setGuidance: (mode) => void save({ guidance: mode }).catch(noop),

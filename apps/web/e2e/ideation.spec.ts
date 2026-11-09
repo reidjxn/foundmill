@@ -116,23 +116,24 @@ test.describe("ideation studio", () => {
   test("the deck explains itself: the 'How to read a card' Explainer collapses on Got it and stays so per account; 'Pick 2–4 cards to compare them'", async ({ page, playwright }) => {
     await needCards(page, 1);
     const guided = await guidanceOn(playwright);
-    const explainer = page.locator('[data-explainer="ideate-cards"]');
+    const explainer = page.locator('[data-testid="how-to-read-card"]');
     const kbdTip = page.getByTestId("compare-kbd-tip");
     if (guided) {
-      // The Explainer (UX plan §6.2): three labels and Got it while open; one line with a chevron once seen, and the
-      // account remembers it (explainers_seen), so a reload keeps it collapsed.
-      await expect(explainer).toBeVisible();
-      await expect(explainer).toHaveAttribute("data-testid", "how-to-read-card");
-      if ((await explainer.getAttribute("data-state")) === "open") {
-        await expect(explainer).toContainText("What this screen is for");
-        await expect(explainer).toContainText("Every bar runs 1–20 and higher is always the better side");
-        await explainer.getByRole("button", { name: "Got it" }).click();
-      }
-      await expect(explainer).toHaveAttribute("data-state", "collapsed");
-      await expect(explainer.getByRole("button", { name: "Show more about this screen" })).toBeVisible();
+      // The Explainer (UX plan §6.2) on this full-screen page has no shell header, so it draws the "Explain this page"
+      // button in place: no banner, nothing open by itself; opening it shows the lines and marks the page read
+      // (explainers_seen), so the unread dot stays gone after a reload.
+      const button = explainer.getByRole("button", { name: /^Explain this page/ });
+      await expect(button).toBeVisible();
+      await expect(page.getByText("What this screen is for")).toHaveCount(0);
+      await button.click();
+      const panel = page.getByTestId("explain-page-panel");
+      await expect(panel).toContainText("What this screen is for");
+      await expect(panel).toContainText("Every bar runs 1–20 and higher is always the better side");
+      await page.keyboard.press("Escape");
+      await expect(button).not.toHaveAttribute("data-unread", /.*/);
       await page.reload();
       await openStudio(page);
-      await expect(explainer).toHaveAttribute("data-state", "collapsed", { timeout: LONG });
+      await expect(explainer.getByRole("button", { name: "Explain this page", exact: true })).toBeVisible({ timeout: LONG });
       // Key caps are for operators: the shortcuts tip is not there while guidance is on.
       await expect(kbdTip).toHaveCount(0);
     } else {

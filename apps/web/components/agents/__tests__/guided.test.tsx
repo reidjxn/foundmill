@@ -4,7 +4,7 @@
  * (C5), the Skills footer with Tested and Proven as defined words (C3) and the "Why this matters" line that renders
  * only while guidance is on, and the "About Skills" tip.
  */
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import { Explainer, GuidanceProvider, Panel, TooltipProvider } from "@foundmill/dugout";
 import { termsWithGlossary } from "@foundmill/shared/terms";
@@ -20,9 +20,12 @@ describe("Training explainer (C5)", () => {
     expect(AGENT_TRAINING_EXPLAINER.action).toBe("1 Edit the instructions · 2 Train (2–5 minutes) · 3 Promote if the scores improved");
     expect(AGENT_TRAINING_EXPLAINER.watchFor).toBe("A drop of more than one point is highlighted; the Coach explains it.");
     const { rerender } = render(<Explainer {...AGENT_TRAINING_EXPLAINER} />);
-    const strip = document.querySelector("[data-explainer='agent-training']") as HTMLElement;
-    expect(strip.getAttribute("data-state")).toBe("open");
-    expect(strip.textContent).toContain("1 Edit the instructions");
+    // Without a shell the Explainer draws the one button in place; the three steps open behind it.
+    const button = document.querySelector("[data-explainer='agent-training']") as HTMLElement;
+    expect(button.textContent).toContain("Explain this page");
+    expect(screen.queryByText(/1 Edit the instructions/)).toBeNull();
+    fireEvent.click(button);
+    expect(screen.getByTestId("explain-page-panel").textContent).toContain("1 Edit the instructions");
     rerender(
       <GuidanceProvider value={{ guidance: "off" }}>
         <Explainer {...AGENT_TRAINING_EXPLAINER} />

@@ -6,7 +6,9 @@ import { BusinessLogo } from "../foundation/BusinessLogo";
 import { FitText } from "../foundation/FitText";
 import { useToastPlacement } from "../foundation/Toast";
 import { TooltipProvider } from "../foundation/Tooltip";
+import { ExplainPageButton } from "../guidance/ExplainPageButton";
 import { useGuided } from "../guidance/GuidanceProvider";
+import { PageExplainProvider } from "../guidance/PageExplain";
 import { Breadcrumbs } from "./Breadcrumbs";
 import { CommandPalette, KEYBOARD_SHORTCUTS_HELP_ITEM, type CommandPaletteProps, type PaletteItem } from "./CommandPalette";
 import { continueButtonAction, type ContinueHandlers } from "./ContinueButton";
@@ -362,6 +364,7 @@ export const AppShell = forwardRef<HTMLDivElement, AppShellProps>(function AppSh
 
   return (
     <TooltipProvider delayDuration={400} skipDelayDuration={300}>
+      <PageExplainProvider>
       <div
         ref={ref}
         data-testid="app-shell"
@@ -421,20 +424,20 @@ export const AppShell = forwardRef<HTMLDivElement, AppShellProps>(function AppSh
             <TabBar
               {...tabs}
               trailing={
-                guided ? (
-                  <>
-                    {tabs.trailing}
-                    <ProcessingLine text={processingLineText(processing.segments, processing.active, processing.cycleNumber)} />
-                  </>
-                ) : (
-                  tabs.trailing
-                )
+                <>
+                  {tabs.trailing}
+                  {guided ? <ProcessingLine text={processingLineText(processing.segments, processing.active, processing.cycleNumber)} /> : null}
+                  {/* The page's one "Explain this page" button, at the right end of the tab row; nothing until a screen registered. */}
+                  <ExplainPageButton />
+                </>
               }
             />
           ) : null}
           {breadcrumbs && breadcrumbs.length > 0 ? (
             <div className="rule-under flex h-control-md shrink-0 items-center px-gutter">
               <Breadcrumbs items={breadcrumbs} />
+              {/* A page with breadcrumbs and no tab row keeps the button here, so there is still exactly one. */}
+              {tabs ? null : <ExplainPageButton className="ml-auto" />}
             </div>
           ) : null}
           <div className="flex min-h-0 flex-1">
@@ -460,6 +463,7 @@ export const AppShell = forwardRef<HTMLDivElement, AppShellProps>(function AppSh
         ) : null}
         <KeyboardHelp open={helpOpen} onOpenChange={setHelpOpen} departments={departments} areas={areas} />
       </div>
+      </PageExplainProvider>
     </TooltipProvider>
   );
 });
