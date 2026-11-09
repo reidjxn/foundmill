@@ -20,7 +20,8 @@ import { getModuleScreen, type ModuleScreen } from "@foundmill/modules/registry"
 import type { ModuleKey } from "@foundmill/shared";
 import { MODULE_KEYS, isBuilderOnlyTab, visibleTabs } from "@foundmill/shared/constants";
 import { AREA_LABELS } from "@foundmill/shared/areas";
-import { areaBreadcrumbs, areaOfRoute, areaTabId, areaTabItems } from "@/lib/areas";
+import { AreaOpening } from "@foundmill/modules/areas";
+import { areaBreadcrumbs, areaOfRoute, areaOpeningOf, areaTabId, areaTabItems } from "@/lib/areas";
 import { useAreaNav } from "@/components/shell/useAreaNav";
 import { moduleHref } from "@foundmill/widgets/shared/departments";
 import { routes } from "@foundmill/widgets/shared/routes";
@@ -137,6 +138,10 @@ export function DepartmentScreen({ deptSlug, tabSlug, subView }: DepartmentScree
   const ownTabs = tabs.filter((t) => !inArea || t.id.startsWith(`${deptSlug}/`));
   const firstTab = ownTabs.find((t) => t.tier !== "detail") ?? ownTabs[0] ?? tabs[0];
   const breadcrumbs = area && department ? areaBreadcrumbs(businessId, area, areaTabs ?? [], department.name) : undefined;
+  // The area's opening line, first on every tab of the area (docs/DESIGN.md §9 "Opening line"); a department with no
+  // modules (no area) has none. The kind line names the department when its name is not the area's.
+  const openingOf = areaOpeningOf(department, tabSlug, area, inArea);
+  const opening = openingOf ? <AreaOpening {...openingOf} className="px-gutter pt-gutter" /> : null;
 
   // --- Edit mode (E) for widget layouts ---------------------------------------------------------------------------
   const [editing, setEditing] = useState(false);
@@ -212,6 +217,7 @@ export function DepartmentScreen({ deptSlug, tabSlug, subView }: DepartmentScree
     return (
       // Each module screen pads itself (its own Screen wrapper, p-gutter), so the content gutter is 16 px as on Home.
       <div className="min-h-full" data-testid="module-screen" data-module={`${moduleScreen.moduleKey}/${moduleScreen.tabSlug}`}>
+        {opening}
         {stale}
         <Component businessId={businessId} departmentId={department.id} subView={subView} />
         {/* The first-visit tour (once per account, guidance on), on whichever department tab is opened first. */}
@@ -222,6 +228,7 @@ export function DepartmentScreen({ deptSlug, tabSlug, subView }: DepartmentScree
 
   return (
     <>
+      {opening}
       {stale}
       <DepartmentTour />
       <WidgetScreen

@@ -18,6 +18,7 @@ import { errorMessage } from "@/lib/trpc";
 import { useBusiness } from "@/components/shell/business-context";
 import { useShellChrome } from "@/components/shell/chrome";
 import { useAreaTabBar } from "@/components/shell/useAreaNav";
+import { AreaOpening } from "@foundmill/modules/areas";
 import { MergeDialog, NewEntityDialog } from "./dialogs";
 import { CRM_VIEWS, KIND_WORD, LAWFUL_BASIS_LABEL, RETENTION_COPY, STAGE_TONE, groupByForView, groupCounts, groupLabel, loadedSummary, nextActiveHit, roleWord, sourceWord, stageWord, type CrmRow, type OwnerRef } from "./logic";
 import { formatNumber, plainWords } from "@/lib/format";
@@ -158,6 +159,8 @@ export function CrmScreen() {
 
   return (
     <div className="grid grid-cols-12 gap-gutter p-gutter" data-testid="crm-screen" data-mode={index.mode}>
+      {/* The Customers area's opening line, first on each of its tabs (docs/DESIGN.md §9). */}
+      <AreaOpening area="customers" className="col-span-12" />
       {/* search ------------------------------------------------------------------------------------------------------ */}
       <div className="col-span-12 flex flex-col gap-2" data-testid="crm-search">
         <Popover open={popoverOpen} onOpenChange={setOpen}>

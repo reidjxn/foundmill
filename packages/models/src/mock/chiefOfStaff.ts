@@ -22,7 +22,7 @@ export interface TaskIn {
 /** The statuses the orchestrator offers a planner (one list with its DISPATCHABLE set: a failed task is retried, never skipped). */
 const OPEN = new Set<string>(PLANNABLE_TASK_STATUSES);
 /** Why a channel task waits before the founder has started distribution (the orchestrator's `planCycle` uses the same words). */
-export const CHANNEL_WAITS_REASON = "distribution starts when you start it from Distribution › Board";
+export const CHANNEL_WAITS_REASON = "distribution starts when you start it from Customers › Board";
 const CUSTOMER_UNBLOCK = /\b(customer|checkout|payment|signup|onboarding|activation|bug|outage|fix|broken|churn|refund|support|invoice)\b/i;
 
 export function readTasks(ctx: MockContext): TaskIn[] {

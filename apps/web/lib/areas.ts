@@ -4,7 +4,7 @@
  * /milestones, search and the palette show, so they always agree. Pure and unit-tested.
  */
 import type { TabItem } from "@foundmill/dugout";
-import { AREA_LABELS, areaLanding, areaOfTab, areaTabsByArea, departmentArea, type AreaDepartment, type AreaKey, type AreaTab } from "@foundmill/shared/areas";
+import { AREA_LABELS, areaLanding, areaOfTab, areaTabsByArea, departmentArea, sectionOfTab, type AreaDepartment, type AreaKey, type AreaSectionKey, type AreaTab } from "@foundmill/shared/areas";
 import { routes } from "@foundmill/widgets/shared/routes";
 import { canOpenDepartment, FULL_ACCESS, type Access } from "./access";
 
@@ -53,6 +53,15 @@ export function areaOfRoute(department: Pick<AreaDepartment, "moduleKeys"> | und
 /** The breadcrumb of a department route: "Product › Formulation Lab" (the area links to its landing tab). */
 export function areaBreadcrumbs(businessId: string, area: AreaKey, tabs: readonly AreaTab[], departmentName: string): { label: string; href?: string }[] {
   return [{ label: AREA_LABELS[area], href: areaHref(businessId, tabs) }, { label: departmentName }];
+}
+
+/**
+ * What a department route's opening line reads from (docs/DESIGN.md §9 "Opening line"): the area, the department for
+ * the kind line and the tab's section (Company). Null for a department the area does not list (no modules, hidden).
+ */
+export function areaOpeningOf(department: Pick<AreaDepartment, "name" | "moduleKeys"> | undefined, tabSlug: string, area: AreaKey | null, inArea: boolean): { area: AreaKey; departmentName: string; section: AreaSectionKey | null } | null {
+  if (!department || !area || !inArea) return null;
+  return { area, departmentName: department.name, section: sectionOfTab(department.moduleKeys, tabSlug) };
 }
 
 /** "Customers › Leads": how copy names a screen (the area the founder sees in the sidebar and the tab as its bar reads it). */

@@ -26,5 +26,6 @@ export * from "./shell/ConnectionChip";
 export * from "./shell/AutopilotChip";
 export * from "./shell/RunwayChip";
 export * from "./shell/Breadcrumbs";
+export * from "./shell/AreaLine";
 export * from "./shell/PageGrid";
 export * from "./shell/KeyboardHelp";
