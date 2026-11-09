@@ -103,8 +103,10 @@ test.describe("distribution, finance and legal read in plain words", () => {
     // Three numbers first, the rest behind More numbers, and "Estimate" once in words (Nov 7, 2026).
     await expect(page.getByTestId("finance-headline").locator("[data-metric]")).toHaveCount(3);
     await expect(page.getByTestId("finance-estimate-note")).toContainText(/^Estimate: /);
-    // The summary sentence stays, and the runway tile's label is a defined word with its plain line under the figure.
-    await expect(page.getByTestId("finance-summary")).toBeVisible();
+    // The Money area's opening line carries the plain sentence (Nov 9, 2026); the screen does not repeat it. The runway
+    // tile's label is a defined word with its plain line under the figure.
+    await expect(page.getByTestId("area-line")).toContainText(/You have .+/);
+    await expect(page.getByTestId("finance-summary")).toHaveCount(0);
     const runway = page.locator("[data-metric='runway']");
     await expect(runway.locator("[data-term='runway']")).toBeVisible();
     await expect(runway.locator("[data-plain-line]")).toContainText("How many months your cash lasts at today's spending.");

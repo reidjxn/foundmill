@@ -14,7 +14,6 @@ import {
   METRIC_DEFINITIONS,
   acquisitionCost,
   cashHistory,
-  financeSummarySentence,
   formatMonth,
   monthKey,
   monthStart,
@@ -197,8 +196,6 @@ export function OverviewScreen({ businessId }: ModuleScreenProps) {
   const months = useMemo(() => trailingMonths(now, HISTORY), [now]);
   const cur = data?.cash.currency || currency;
   const hasData = !!data && (data.cash.accounts > 0 || (data.revenue.monthly?.length ?? 0) > 0);
-  // The one plain sentence above the tiles, from the same figures the tiles show (UX plan §7.14).
-  const summary = data && hasData ? financeSummarySentence({ cashMinor: data.cash.amountMinor, accounts: data.cash.accounts, netBurnMinor: data.burn.netBurnMinor, runwayMonths: data.runway.months, currency: cur }) : null;
 
   const cashSeries = useMemo(() => {
     if (!data) return [];
@@ -255,13 +252,9 @@ export function OverviewScreen({ businessId }: ModuleScreenProps) {
           </>
         ) : (
           <>
-            {/* The department's intro while guidance is on, then the one plain sentence the tiles add up to (UX plan §7.14). */}
+            {/* The department's intro while guidance is on. The plain sentence the tiles add up to is the Money area's
+                opening line above every tab (Nov 9, 2026), so the screen does not repeat it. */}
             <Explainer {...FINANCE_EXPLAINER} className="mb-3" />
-            {summary ? (
-              <p className="mb-2 max-w-reading text-body text-primary" data-testid="finance-summary">
-                {summary}
-              </p>
-            ) : null}
             {/* Three numbers first (cash, monthly spend, months left); the rest behind "More numbers". No Estimate chip
                 on the tiles: one sentence under them names the figures that are worked out (Nov 7, 2026). */}
             <div role="list" className="grid grid-cols-3 gap-px overflow-hidden rounded-panel border border-subtle bg-subtle" data-testid="finance-headline">
