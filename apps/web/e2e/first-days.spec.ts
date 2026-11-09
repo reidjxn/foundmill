@@ -93,7 +93,7 @@ test.describe("first days", () => {
     const building = inboxRow(page, /Building starts: \d+ tasks? planned/);
     await expect(building).toBeVisible({ timeout: LONG });
     await building.click();
-    await expect(page.getByTestId("inbox-note")).toContainText("Distribution waits until you start it from Distribution › Board.", { timeout: LONG });
+    await expect(page.getByTestId("inbox-note")).toContainText("Distribution waits until you start it from Customers › Board.", { timeout: LONG });
 
     // Both sign-offs tick off on the first-week checklist. So does "Read a note from an agent": the sign-off and
     // "Building starts:" notes opened above are agents' notes. The second sign-off also starts the first cycle the way

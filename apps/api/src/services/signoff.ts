@@ -6,7 +6,7 @@
  *   round) or from the Product screens (`product.signoff.decide`). Approving the specification publishes it as a
  *   numbered version; approving the roadmap keeps a snapshot; Request changes needs the founder's words and gives the
  *   Product lead a revision task. The second approval starts the build (`startBuilding`): the Planner's task graph for
- *   the first Now items through the same service as Development › Plan, then the next cycle exactly as Continue does.
+ *   the first Now items through the same service as Product › Work list, then the next cycle exactly as Continue does.
  * - `startDistribution` is the explicit step before any channel engine runs: `businesses.distribution_started_at`,
  *   the channel-scoring task, the archetype's Board question, the engines, one note from the Distribution strategist.
  * - `reopenSpecSignoffAfterPublish`: a specification published while its round was sent back asks for sign-off again.
@@ -134,7 +134,7 @@ export interface BuildStart {
   plannedTaskIds: string[];
   /** The roadmap items (or the archetype's first build) that were planned. */
   planned: string[];
-  /** Items the Planner could not plan, with the reason (the founder plans them from Development › Plan). */
+  /** Items the Planner could not plan, with the reason (the founder plans them from Product › Work list). */
   failed: { title: string; reason: string }[];
   /** The next cycle: started on Temporal, run in-process, resumed, or not started (`reason`). */
   cycle: { started: boolean; mode: "temporal" | "local" | null; workflowId: string | null; reason: string | null };
@@ -286,10 +286,10 @@ export function changesRequestedBody(voiceName: string, words: { the: string; ta
 }
 
 function buildingStartsBody(build: BuildStart): string {
-  const planned = build.planned.length ? `The Planner turned ${build.planned.map((t) => `“${t}”`).join(" and ")} into ${build.plannedTaskIds.length} task${build.plannedTaskIds.length === 1 ? "" : "s"} on Development › Plan.` : "Nothing was planned yet: open Development › Plan and build a task graph for the first roadmap item.";
-  const failed = build.failed.length ? ` ${build.failed.map((f) => `“${f.title}” could not be planned (${f.reason}); plan it from Development › Plan.`).join(" ")}` : "";
+  const planned = build.planned.length ? `The Planner turned ${build.planned.map((t) => `“${t}”`).join(" and ")} into ${build.plannedTaskIds.length} task${build.plannedTaskIds.length === 1 ? "" : "s"} on Product › Work list.` : "Nothing was planned yet: open Product › Work list and build a task graph for the first roadmap item.";
+  const failed = build.failed.length ? ` ${build.failed.map((f) => `“${f.title}” could not be planned (${f.reason}); plan it from Product › Work list.`).join(" ")}` : "";
   const cycle = build.cycle.started ? "The first build cycle is under way." : `Press Continue to start the first build cycle${build.cycle.reason ? `: ${build.cycle.reason}` : "."}`;
-  return `Signed off: the specification and the roadmap. ${planned}${failed} ${cycle} Distribution waits until you start it from Distribution › Board.`;
+  return `Signed off: the specification and the roadmap. ${planned}${failed} ${cycle} Distribution waits until you start it from Customers › Board.`;
 }
 
 /**
@@ -382,7 +382,7 @@ export async function decideSignoffItem(ctx: BusinessContext, item: InboxItem, s
       const row = await repos.productSignoffs.decide(tx, ctx.businessId, signoff.id, { status: "declined", notes: input.freeText, decidedBy: ctx.userId, decidedByKind: "user" });
       if (!row) throw new ConflictError("This note was answered a moment ago.", { itemId: item.id, code: "already_decided" });
       const answered = await answerNote(tx, ctx, item.id, "not_yet", input.freeText, item.fromAgentId, "Not yet: distribution waits.");
-      const followUp = item.fromAgentId ? await postUpdate(tx, ctx, item.fromAgentId, "Noted: distribution waits", "Noted. Start distribution any time from Distribution › Board.") : null;
+      const followUp = item.fromAgentId ? await postUpdate(tx, ctx, item.fromAgentId, "Noted: distribution waits", "Noted. Start distribution any time from Customers › Board.") : null;
       await emit(tx, ctx, { type: "product.signoff_decided", payload: { signoffId: row.id, kind: "ready_to_sell", round: row.round, decision: "declined", decidedBy: { kind: "user", id: ctx.userId }, notes: input.freeText, specVersionId: null, buildStarted: false, plannedTaskIds: [], cycle: null } });
       await audit(tx, ctx, { action: "product.signoff.decide", target: { kind: "product_signoff", id: row.id }, details: { kind: "ready_to_sell", round: row.round, decision: "declined" } });
       return { answered, followUp };
@@ -421,7 +421,7 @@ export interface StartDistributionResult {
 }
 
 /**
- * The explicit step that lets distribution spend effort (Distribution › Board › Start distribution, or the Chief of
+ * The explicit step that lets distribution spend effort (Customers › Board › Start distribution, or the Chief of
  * Staff's Ready to start selling? note): owners and admins only. One transaction sets `distribution_started_at` (a
  * second start changes nothing), approves a pending Ready to start selling round, creates the channel-scoring task and
  * posts the archetype's Board question; then the enabled channels' engines start and the Distribution strategist says so.

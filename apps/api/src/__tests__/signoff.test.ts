@@ -138,7 +138,7 @@ describe("sign-offs: the specification and the roadmap (founder, 2026-10-18)", (
     expect(temporal.starts.filter((s) => s.type === "businessCycle" && s.workflowId.startsWith(`cycle:${b.businessId}:`)).length).toBeGreaterThanOrEqual(1);
     // The follow-up and the event say the build started; distribution still waits.
     const note = (await bySubject(b.caller, b.businessId, `Building starts: ${build.plannedTaskIds.length} tasks planned`))[0];
-    expect(note?.bodyMd).toContain("Distribution waits until you start it from Distribution › Board.");
+    expect(note?.bodyMd).toContain("Distribution waits until you start it from Customers › Board.");
     const events = await repos.events.list(hz.db, b.businessId, { type: "product.signoff_decided" });
     const last = events.items[0]!.payload as { buildStarted: boolean; plannedTaskIds: string[]; cycle: { queued: boolean; workflowId: string } | null };
     expect(last.buildStarted).toBe(true);
@@ -236,7 +236,7 @@ describe("distribution waits for an explicit start", () => {
     expect(offered.item.blocksContinue).toBe(false);
     const declined = await e.caller.inbox.decide({ businessId: e.businessId, itemId: offered.item.id, chosenOption: "not_yet" });
     expect(declined.item.state).toBe("answered");
-    expect(declined.followUp?.bodyMd).toContain("Start distribution any time from Distribution › Board.");
+    expect(declined.followUp?.bodyMd).toContain("Start distribution any time from Customers › Board.");
     expect((await e.caller.product.signoff.get({ businessId: e.businessId })).readyToSell).toMatchObject({ status: "declined" });
     expect((await e.caller.business.get({ businessId: e.businessId })).distributionStartedAt).toBeNull();
     // Offered once per business: no second note.
