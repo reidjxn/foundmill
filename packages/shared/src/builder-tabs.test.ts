@@ -18,8 +18,8 @@ describe("Builder view tabs", () => {
     expect(isBuilderOnlyTab(["development"], "plan")).toBe(false);
   });
 
-  it("off: Development reads Working now · Plan · What changed · Live product · Specialists; Team drops Health and Hierarchy", () => {
-    expect(visibleTabs(development, false).map((t) => t.title)).toEqual(["Working now", "Plan", "What changed", "Live product", "Specialists"]);
+  it("off: Development reads Working now · Work list · What changed · Live product · Specialists; Team drops Health and Hierarchy", () => {
+    expect(visibleTabs(development, false).map((t) => t.title)).toEqual(["Working now", "Work list", "What changed", "Live product", "Specialists"]);
     expect(visibleTabs(team, false).map((t) => t.slug)).toEqual(["squad", "staff", "responsibilities", "recruitment"]);
   });
 
@@ -32,7 +32,9 @@ describe("Builder view tabs", () => {
     expect(tabTitleFor(["development"], "training-ground", "Live sessions", false)).toBe("Working now");
     expect(tabTitleFor(["development"], "training-ground", "Build room", false)).toBe("Build room");
     expect(tabTitleFor(["development"], "training-ground", "Live sessions", true)).toBe("Live sessions");
-    expect(tabTitleFor(["development"], "plan", "Plan", false)).toBe("Plan");
+    expect(tabTitleFor(["development"], "plan", "Plan", false)).toBe("Work list");
+    expect(tabTitleFor(["legal"], "entity", "Entity", false)).toBe("Company");
+    expect(tabTitleFor(["finance"], "runway", "Runway", false)).toBe("Runway");
   });
 
   it("sorts by position and the first visible tab skips a gated one", () => {

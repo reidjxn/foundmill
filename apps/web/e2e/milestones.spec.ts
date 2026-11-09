@@ -11,6 +11,11 @@ test.describe("milestones", () => {
     await page.goto(`/b/${NORTHWIND_BUSINESS_ID}/trophies`);
     await expect(page).toHaveURL(new RegExp(`/b/${NORTHWIND_BUSINESS_ID}/milestones$`), { timeout: LONG });
     await expect(page.getByTestId("milestones-screen")).toBeVisible({ timeout: LONG });
+    // Milestones is a Plan tab (founder areas, 2026-11-09): Roadmap beside it, and the Plan item lit.
+    const bar = page.getByRole("tablist", { name: "Plan tabs" });
+    await expect(bar.getByRole("tab")).toHaveText(["Roadmap", "Milestones"]);
+    await expect(bar.getByRole("tab", { name: "Milestones" })).toHaveAttribute("aria-selected", "true");
+    await expect(page.locator("[data-testid=app-shell] nav [data-sidebar-item='area-plan']")).toHaveAttribute("aria-current", "page");
     await expect(page.locator("[data-trophy]")).toHaveCount(8);
     await expect(page.getByTestId("milestones-timeline")).toBeVisible();
     // Guidance on (the product default): the timeline panel's one-sentence help tip, named after its title.

@@ -1,15 +1,17 @@
 "use client";
 /**
- * Settings › Departments (BUILD §11.13): add (blank, template or from a sentence), rename, reorder, hide, choose the G
- * shortcut, merge, split, per-department settings (lead, icon, color, budget, approvals), archive behind a confirmation
- * with Undo, an Archived list to restore from, and reset to the archetype's defaults. Every change goes through
- * department.* and re-renders the sidebar (AC-11.13.1, AC-11.13.2; audits MLSL-08, WEB-19, AC-06).
- * Each department keeps its stored letter, so renaming one never moves another's chord.
+ * Settings › Departments (BUILD §11.13): add (blank, template or from a sentence), rename, reorder, hide, merge,
+ * split, per-department settings (lead, icon, color, budget, approvals), archive behind a confirmation with Undo, an
+ * Archived list to restore from, and reset to the archetype's defaults. Each row says where its tabs show: the founder
+ * area of each tab and whether it is inline or behind "More detail" (docs/DESIGN.md §9). Every change goes through
+ * department.* and re-renders the sidebar (AC-11.13.1, AC-11.13.2; audits MLSL-08, WEB-19, AC-06). The G chord
+ * follows the areas (founder, 2026-11-09), so the letter picker is gone; the stored letter column stays.
  */
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { ArrowDown, ArrowUp, Check, GitMerge, Pencil, Plus, RotateCcw, Scissors, SlidersHorizontal, Trash2, X } from "lucide-react";
 import { useState } from "react";
-import { Button, Checkbox, Chip, DeptChip, Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, Field, IconButton, Input, Label, SimpleSelect, Switch, DEPARTMENT_SHORTCUT_LETTERS, departmentLetters, useToast } from "@foundmill/dugout";
+import { Button, Checkbox, Chip, DeptChip, Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, Field, IconButton, Input, Label, SimpleSelect, Switch, shellDepartmentLetters, useToast } from "@foundmill/dugout";
+import { AREA_LABELS, AREA_LETTERS, areaTabsByArea, departmentArea, type AreaDepartment } from "@foundmill/shared/areas";
 import { MODULE_KEYS, isBuilderOnlyTab, type ModuleKey } from "@foundmill/shared/constants";
 import { MODULE_WORDS, moduleList } from "@/lib/format";
 import { useTRPC } from "@/lib/trpc-react";
@@ -46,23 +48,18 @@ export function DepartmentsTab() {
     }),
   );
   const reset = useMutation(trpc.department.resetDefaults.mutationOptions({ onSuccess: after("Defaults restored"), onError: (e) => t.failed(e) }));
-  const setShortcut = useMutation(trpc.department.setShortcut.mutationOptions({ onSuccess: after("Shortcut saved"), onError: (e) => t.failed(e) }));
-
   const ordered = departments.slice().sort((a, b) => a.position - b.position);
-  const letters = departmentLetters(orderedVisibleDepartments(departments).map((d) => ({ id: d.id, name: d.name, shortcut: d.shortcut })));
-  // Which department holds each letter, so the picker can say what a choice swaps with.
-  const holderOf = new Map<string, DepartmentRow>();
-  for (const d of ordered) {
-    const l = letters.get(d.id) ?? d.shortcut;
-    if (l) holderOf.set(l, d);
-  }
-  const shortcutOptions = (d: DepartmentRow) => [
-    { value: "auto", label: letters.get(d.id) && !d.shortcutChosen ? `Automatic (G ${letters.get(d.id)})` : "Automatic" },
-    ...DEPARTMENT_SHORTCUT_LETTERS.map((l) => {
-      const holder = holderOf.get(l);
-      return { value: l, label: holder && holder.id !== d.id ? `G ${l} (swaps with ${holder.name})` : `G ${l}` };
-    }),
-  ];
+  // The G chord follows the founder areas (founder, 2026-11-09): a department's chord is its area's letter; only a
+  // department with no modules has one of its own, chosen around the area letters. The letter picker is gone; the
+  // stored `shortcut` column stays.
+  const ownLetters = shellDepartmentLetters(orderedVisibleDepartments(departments).filter((d) => !departmentArea(d.moduleKeys)).map((d) => ({ id: d.id, name: d.name, shortcut: d.shortcut })));
+  const chordOf = (d: DepartmentRow): string | null => {
+    if (d.hidden) return null;
+    const area = departmentArea(d.moduleKeys);
+    if (area) return `G ${AREA_LETTERS[area]} (${AREA_LABELS[area]})`;
+    const own = ownLetters.get(d.id);
+    return own ? `G ${own}` : null;
+  };
   const [editingId, setEditingId] = useState<string | null>(null);
   const [draftName, setDraftName] = useState("");
   const [mergeFrom, setMergeFrom] = useState<DepartmentRow | null>(null);
@@ -94,7 +91,7 @@ export function DepartmentsTab() {
             <Button size="sm" variant="ghost" icon={RotateCcw} onClick={() => setConfirmReset(true)}>Reset to defaults</Button>
           </span>
         }>
-        <Hint>This order is the sidebar's. Press G, then the letter beside a department, to jump to it. Hidden departments keep their agents and tabs.</Hint>
+        <Hint>The sidebar groups these tabs by what they answer: Plan, Customers, Money, Product and Team. This order is the order of their tabs inside each one. Press G, then P, C, M, R or T, to jump to an area. Hidden departments keep their agents and tabs.</Hint>
         <ul className="flex flex-col" data-testid="department-list">
           {ordered.map((d, i) => (
             <li key={d.id} className="flex min-h-row-comfortable items-center gap-2 border-b border-line-faint py-1 last:border-b-0" data-department-id={d.id}>
@@ -102,18 +99,6 @@ export function DepartmentsTab() {
                 <IconButton label="Move up" icon={ArrowUp} size="sm" disabled={i === 0 || reorder.isPending} onClick={() => move(i, -1)} />
                 <IconButton label="Move down" icon={ArrowDown} size="sm" disabled={i === ordered.length - 1 || reorder.isPending} onClick={() => move(i, 1)} />
               </span>
-              <SimpleSelect
-                aria-label={`Shortcut for ${d.name}`}
-                controlSize="sm"
-                className="w-auto shrink-0"
-                value={d.shortcutChosen && d.shortcut ? d.shortcut : "auto"}
-                onValueChange={(v) => setShortcut.mutate({ businessId, departmentId: d.id, letter: v === "auto" ? null : v })}
-                // Not turned off while the choice saves: the picker keeps keyboard focus (a disabled trigger drops it to
-                // <body>). A hidden department has no chord until it is shown again.
-                disabled={d.hidden}
-                options={shortcutOptions(d)}
-                data-shortcut={letters.get(d.id) ?? ""}
-              />
               {editingId === d.id ? (
                 <form
                   className="flex flex-1 items-center gap-1"
@@ -134,6 +119,9 @@ export function DepartmentsTab() {
                   {d.hidden ? <Chip tone="neutral">Hidden</Chip> : null}
                   <BuilderViewTabsChip department={d} />
                   <IconButton label={`Rename ${d.name}`} icon={Pencil} size="sm" onClick={() => (setEditingId(d.id), setDraftName(d.name))} />
+                  <span className="basis-full text-small text-tertiary" data-testid="department-tab-areas">
+                    {tabPlacementLines(d).join(". ")}
+                  </span>
                 </span>
               )}
               <Label htmlFor={`hide-${d.id}`} className="text-secondary">
@@ -176,7 +164,7 @@ export function DepartmentsTab() {
 
       <DepartmentSettingsDialog
         department={settingsOf}
-        shortcut={settingsOf && letters.get(settingsOf.id) ? `G ${letters.get(settingsOf.id)}` : null}
+        shortcut={settingsOf ? chordOf(settingsOf) : null}
         onOpenChange={(o) => !o && setSettingsOf(null)}
         onSaved={(what) => (void invalidate(["department", "screen", "business", "team"]), t.saved(what))}
         onFailed={(e) => t.failed(e)}
@@ -286,6 +274,23 @@ export function builderViewTabTitles(d: { moduleKeys?: readonly string[] | null;
     .sort((a, b) => a.position - b.position)
     .filter((t) => isBuilderOnlyTab(d.moduleKeys, t.slug))
     .map((t) => t.title);
+}
+
+/**
+ * Where a department's tabs show (docs/DESIGN.md §9), one line per founder area, as with Builder view off: "Product:
+ * Specification · More detail: Vision, Changes". A department with no modules is its own sidebar item. Builder view's
+ * own tabs are named by the Builder view chip, not here. Exported for tests.
+ */
+export function tabPlacementLines(d: AreaDepartment): string[] {
+  if (!departmentArea(d.moduleKeys)) return ["Its own sidebar item"];
+  // Read as a visible department on its own, so the promotion rule (a department always shows one tab) applies as it does in the sidebar.
+  const byArea = areaTabsByArea([{ ...d, hidden: false }], { builder: false, fixed: { milestones: false, crm: false } });
+  return [...byArea].map(([area, tabs]) => {
+    const inline = tabs.filter((t) => t.tier === "default").map((t) => t.title);
+    const detail = tabs.filter((t) => t.tier === "detail").map((t) => t.title);
+    const parts = [inline.length ? inline.join(", ") : null, detail.length ? `More detail: ${detail.join(", ")}` : null].filter(Boolean);
+    return `${AREA_LABELS[area]}: ${parts.join(" · ")}`;
+  });
 }
 
 function BuilderViewTabsChip({ department }: { department: Pick<DepartmentRow, "moduleKeys" | "tabs"> }) {

@@ -75,11 +75,12 @@ describe("access (audit RUI-05: the app followed only isAdmin)", () => {
       { id: "d2", name: "Product", slug: "product", icon: "box", colourToken: "dept-2", position: 2, moduleKeys: ["product"], tabs: [{ slug: "vision", position: 1 }] },
     ] as never;
     const labels = (access?: ReturnType<typeof accessFor>) => buildSidebarItems({ businessId: BID, departments, live: false, access }).map((i) => i.label);
-    // The CRM reads "Contacts" on screen (founder, 2026-10-20); the wall is still the `crm` section.
-    expect(labels()).toEqual(expect.arrayContaining(["Finance", "Product", "Contacts"]));
+    // Areas are listed by what the person may open: Money over Finance, Customers over the CRM (Contacts, a Customers tab).
+    // The wall is still the `crm` section.
+    expect(labels()).toEqual(expect.arrayContaining(["Money", "Product", "Customers", "Plan"]));
     const member = accessFor(membership("member", { finance: "none", crm: "none" }));
     expect(labels(member)).toEqual(expect.arrayContaining(["Product"]));
-    expect(labels(member)).not.toContain("Finance");
-    expect(labels(member)).not.toContain("Contacts");
+    expect(labels(member)).not.toContain("Money");
+    expect(labels(member)).not.toContain("Customers");
   });
 });

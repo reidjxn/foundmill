@@ -84,7 +84,7 @@ test.describe("tours", () => {
     await expect(home).toBeVisible({ timeout: LONG });
     await expect(home).toHaveAttribute("data-step", "1");
     await expect(home).toHaveAttribute("role", "dialog");
-    await expect(home).toContainText("Your business, one place per department.");
+    await expect(home).toContainText("Your business, one place per question.");
     await expect(home.locator("[data-coachmark-count]")).toHaveText("1 of 5");
     await expect(page.locator("[data-coachmark='sidebar'][data-coachmark-active]")).toHaveCount(1);
     await expect(page.locator("[data-coachmark-ring][data-tour='home']")).toHaveCount(1);
@@ -181,7 +181,7 @@ test.describe("tours", () => {
     await settled(page);
     const department = page.locator("[data-coachmark][data-tour='department']");
     await pastFirstContinue(page, department);
-    await expect(department).toContainText("Each tab is one screen of this department.");
+    await expect(department).toContainText("Each tab is one screen; More detail holds the rest.");
     await expect(department.locator("[data-coachmark-count]")).toHaveText("1 of 3");
     await expect(page.locator("[role='tablist'][data-coachmark='tabs'][data-coachmark-active]")).toHaveCount(1);
     await department.getByRole("button", { name: "Skip tour" }).click();

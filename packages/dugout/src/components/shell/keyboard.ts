@@ -2,8 +2,8 @@
 /**
  * The keyboard map (BUILD §5.5):
  * Space = Continue (unless a control has focus: then Space is the control's) · R = refresh Inbox · G then letter = go to
- * section (G H Home, G I Inbox, G C Contacts (the CRM); departments keep their stored letter, or get one from their name,
- * de-duplicated) · / or Cmd-K = search · J/K = next/prev inbox item · 1–4 = choose decision option · E = edit layout ·
+ * section (G H Today, G I Needs you, then the founder areas: G P Plan, G C Customers, G M Money, G R Product, G T
+ * Team; a department with no modules keeps its stored letter, or gets one from its name, around those) · / or Cmd-K = search · J/K = next/prev inbox item · 1–4 = choose decision option · E = edit layout ·
  * Esc = close overlay.
  *
  * `departmentLetters` (in @foundmill/shared, so the API stores the same letters) is pure and tested; `useKeyboardMap`
@@ -13,10 +13,15 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useHotkeys } from "react-hotkeys-hook";
-import { CHORD_LETTER, RESERVED_SECTION_LETTERS, departmentLetters, type DepartmentForKeys } from "@foundmill/shared";
+import { AREA_LABELS, AREA_LETTERS, CHORD_LETTER, SHELL_FIXED_LETTERS, SHELL_RESERVED_LETTERS, departmentLetters, type AreaKey, type DepartmentForKeys } from "@foundmill/shared";
 
 // The letter rules are pure and shared with the API, which stores each department's letter (departments.shortcut).
-export { CHORD_LETTER, DEPARTMENT_SHORTCUT_LETTERS, RESERVED_SECTION_LETTERS, departmentLetters, isDepartmentShortcut, letterCandidates, type DepartmentForKeys } from "@foundmill/shared";
+export { AREA_LETTERS, CHORD_LETTER, DEPARTMENT_SHORTCUT_LETTERS, RESERVED_SECTION_LETTERS, SHELL_FIXED_LETTERS, SHELL_RESERVED_LETTERS, departmentLetters, isDepartmentShortcut, letterCandidates, type DepartmentForKeys } from "@foundmill/shared";
+
+/** The letters of the shell's module-less departments: stored or from the name, never Today's, Needs you's or an area's. */
+export function shellDepartmentLetters(departments: readonly DepartmentForKeys[]): Map<string, string> {
+  return departmentLetters(departments, SHELL_RESERVED_LETTERS);
+}
 
 /** Milliseconds a pending G chord waits for its letter. */
 export const CHORD_TIMEOUT_MS = 1000;
@@ -65,7 +70,7 @@ export function spaceBelongsTo(target: EventTarget | null): boolean {
   return role ? role.split(/\s+/).some((r) => SPACE_ROLES.has(r)) : false;
 }
 
-export type GoToTarget = { kind: "home" } | { kind: "inbox" } | { kind: "crm" } | { kind: "department"; id: string };
+export type GoToTarget = { kind: "home" } | { kind: "inbox" } | { kind: "area"; area: AreaKey } | { kind: "department"; id: string };
 
 export interface KeyboardMapContext {
   /** Space. */
@@ -74,7 +79,9 @@ export interface KeyboardMapContext {
   onRefreshInbox?: () => void;
   /** G then a letter. */
   onGoTo?: (target: GoToTarget) => void;
-  /** Departments in the founder's order; their letters come from `departmentLetters`. */
+  /** The founder areas the sidebar shows; each takes its `AREA_LETTERS` letter. */
+  areas?: readonly AreaKey[];
+  /** Module-less departments in the founder's order; their letters come from `shellDepartmentLetters`. */
   departments?: readonly DepartmentForKeys[];
   /** / or Cmd-K (Ctrl-K elsewhere). */
   onSearch?: () => void;
@@ -113,7 +120,7 @@ export function useKeyboardMap(ctx: KeyboardMapContext): KeyboardMapResult {
   const enabled = ctx.enabled ?? true;
   const ctxRef = useRef(ctx);
   ctxRef.current = ctx;
-  const letters = useMemo(() => departmentLetters(ctx.departments ?? []), [ctx.departments]);
+  const letters = useMemo(() => shellDepartmentLetters(ctx.departments ?? []), [ctx.departments]);
   const lettersRef = useRef(letters);
   lettersRef.current = letters;
 
@@ -179,10 +186,16 @@ export function useKeyboardMap(ctx: KeyboardMapContext): KeyboardMapResult {
       cancelChord();
       const go = ctxRef.current.onGoTo;
       if (!go || !letter) return;
-      const fixed = RESERVED_SECTION_LETTERS[letter];
+      const fixed = SHELL_FIXED_LETTERS[letter];
       if (fixed) {
         e.preventDefault();
         go({ kind: fixed });
+        return;
+      }
+      const area = (ctxRef.current.areas ?? []).find((a) => AREA_LETTERS[a] === letter);
+      if (area) {
+        e.preventDefault();
+        go({ kind: "area", area });
         return;
       }
       for (const [id, l] of lettersRef.current) {
@@ -292,15 +305,14 @@ export interface KeyboardShortcut {
   group: ShortcutGroup;
 }
 
-/** The fixed list from BUILD §5.5. Department chords are appended by `shortcutList`. */
+/** The fixed list from BUILD §5.5. Area and department chords are inserted by `shortcutList`. */
 export const KEYBOARD_SHORTCUTS: readonly KeyboardShortcut[] = [
   { id: "continue", keys: ["Space"], label: "Continue", group: "Navigation" },
   { id: "search", keys: ["/"], label: "Search", group: "Navigation" },
   { id: "search-cmd", keys: ["⌘K"], label: "Search (Ctrl-K on Windows and Linux)", group: "Navigation" },
   { id: "go-home", keys: ["G", "H"], label: "Go to Today", group: "Navigation" },
-  { id: "go-inbox", keys: ["G", "I"], label: "Go to Inbox", group: "Navigation" },
-  // "Contacts" is the sidebar's word (founder decision 2026-10-20, item 1); operators still know it as the CRM.
-  { id: "go-crm", keys: ["G", "C"], label: "Go to Contacts (CRM)", group: "Navigation" },
+  // The sidebar's "Needs you" opens the Inbox on what needs a response (founder areas, 2026-11-09).
+  { id: "go-inbox", keys: ["G", "I"], label: "Go to Needs you", group: "Navigation" },
   { id: "refresh", keys: ["R"], label: "Refresh Inbox: one new note", group: "Inbox" },
   { id: "next", keys: ["J"], label: "Next inbox item", group: "Inbox" },
   { id: "prev", keys: ["K"], label: "Previous inbox item", group: "Inbox" },
@@ -310,14 +322,18 @@ export const KEYBOARD_SHORTCUTS: readonly KeyboardShortcut[] = [
   { id: "help", keys: ["?"], label: "Keyboard shortcuts", group: "Help" },
 ];
 
-/** The fixed shortcuts plus one "Go to <department>" chord per department. */
-export function shortcutList(departments: readonly DepartmentForKeys[] = []): KeyboardShortcut[] {
-  const letters = departmentLetters(departments);
+/**
+ * The fixed shortcuts plus, after Go to Needs you, one "Go to <area>" chord per area the sidebar shows (Contacts is a
+ * Customers tab now, so G C opens Customers) and one "Go to <department>" chord per module-less department.
+ */
+export function shortcutList(departments: readonly DepartmentForKeys[] = [], areas: readonly AreaKey[] = []): KeyboardShortcut[] {
+  const letters = shellDepartmentLetters(departments);
+  const areaChords: KeyboardShortcut[] = areas.map((a) => ({ id: `go-area-${a}`, keys: ["G", AREA_LETTERS[a]], label: `Go to ${AREA_LABELS[a]}`, group: "Navigation" }));
   const depts: KeyboardShortcut[] = departments
     .filter((d) => letters.has(d.id))
     .map((d) => ({ id: `go-dept-${d.id}`, keys: ["G", letters.get(d.id) as string], label: `Go to ${d.name}`, group: "Navigation" }));
   const fixed = [...KEYBOARD_SHORTCUTS];
-  const crmIndex = fixed.findIndex((s) => s.id === "go-crm");
-  fixed.splice(crmIndex, 0, ...depts);
+  const after = fixed.findIndex((s) => s.id === "go-inbox") + 1;
+  fixed.splice(after, 0, ...areaChords, ...depts);
   return fixed;
 }

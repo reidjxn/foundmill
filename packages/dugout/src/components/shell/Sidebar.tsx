@@ -21,12 +21,6 @@ export const SIDEBAR_BRAND_HEIGHT = 12;
 /** The accessible name of the "?" cap in the foot, and its tooltip. */
 export const SIDEBAR_HELP_LABEL = "Keyboard shortcuts";
 
-/**
- * A fixed surface whose display label changed while its old name stays a word people know: the collapsed tooltip
- * keeps the old name in brackets ("Contacts (CRM)"), so a founder who looks for "CRM" still finds it (B13).
- */
-const FIXED_SURFACE_ALIASES: Partial<Record<NonNullable<SidebarItem["fixed"]>, string>> = { crm: "CRM" };
-
 export interface SidebarProps extends Omit<HTMLAttributes<HTMLElement>, "onSelect"> {
   items: SidebarItem[];
   activeId?: string;
@@ -99,11 +93,13 @@ export function sidebarItemName(item: SidebarItem): string {
   return item.label;
 }
 
-/** The collapsed tooltip's words: the accessible name, plus the old name of a renamed fixed surface. Exported for tests. */
+/**
+ * The collapsed tooltip's words: the accessible name, plus the item's hint in brackets ("Customers (leads, campaigns
+ * and contacts)"), so a founder who looks for a word that is now a tab still finds where it went. Exported for tests.
+ */
 export function sidebarItemTooltip(item: SidebarItem): string {
-  const alias = item.fixed ? FIXED_SURFACE_ALIASES[item.fixed] : undefined;
   const name = sidebarItemName(item);
-  return alias && !item.label.includes(alias) ? `${name} (${alias})` : name;
+  return item.hint && !item.label.includes(item.hint) ? `${name} (${item.hint})` : name;
 }
 
 function Badge({ item, collapsed }: { item: SidebarItem; collapsed: boolean }) {
@@ -122,7 +118,8 @@ function Badge({ item, collapsed }: { item: SidebarItem; collapsed: boolean }) {
  * 32 px, 10 px in from the edges, sentence case: a 16 px icon in text-3 and an action-style label in text-2; hover adds a
  * 3.5 % plate. The active item takes a brand plate with a kit-lift ring and icon, and a lit 3 px edge with its glow at
  * the rail's edge. Department icons carry a small dot in their colour; badges are 18 px glowing pills in the department
- * colour. Groups: main (Home, Inbox, departments in the founder's order, Contacts, Milestones), a fading hairline, the
+ * colour. Groups: main (Today, Needs you), the areas (Plan, Customers, Money, Product, Team), departments with no
+ * modules (each with its dot), a fading hairline, the
  * LIVE block (labelled "Live" only while the business is LIVE), foot (Settings, Sign out, then the "?" cap, the collapse
  * toggle and the Foundmill wordmark). A long founder-defined label wraps to two lines and steps down to fit, never
  * silently clipped (its full text in a tooltip only as the last resort). Collapsed to 64 px it keeps icons, dots and
@@ -134,7 +131,7 @@ export const Sidebar = forwardRef<HTMLElement, SidebarProps>(function Sidebar(
   ref,
 ) {
   const visible = items.filter((it) => it.group !== "live" || showLive);
-  const main = visible.filter((it) => it.group === "main" || it.group === "department");
+  const main = visible.filter((it) => it.group === "main" || it.group === "area" || it.group === "department");
   const liveItems = visible.filter((it) => it.group === "live");
   const foot = visible.filter((it) => it.group === "foot");
   const ordered = [...main, ...liveItems, ...foot];

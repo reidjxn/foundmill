@@ -131,12 +131,12 @@ describe("the command palette's Ask and Generate rows", () => {
     expect(generatePaletteItems("b1", []).map((r) => r.id)).toEqual(["generate:logos"]);
   });
 
-  it("names the department as the founder named it, never a hard-coded 'Distribution › Board' (AC-11.13.1)", () => {
+  it("names the screen by its founder area and the tab as its bar reads it, never a hard-coded department (AC-11.13.1)", () => {
     const rows = generatePaletteItems("b1", departments);
-    expect(rows.find((r) => r.id === "generate:channels")?.description).toBe("Scores every channel for this business · Retail Partnerships › Board");
-    expect(rows.find((r) => r.id === "generate:task-graph")?.description).toMatch(/· Development › Plan$/);
+    expect(rows.find((r) => r.id === "generate:channels")?.description).toBe("Scores every channel for this business · Customers › Board");
+    expect(rows.find((r) => r.id === "generate:task-graph")?.description).toMatch(/· Product › Work list$/);
     const renamed = departments.map((d) => (d.id === "d2" ? { ...d, name: "Formulation Lab", tabs: [{ slug: "plan", position: 1, title: "Roadmap plan" }] } : d));
-    expect(generatePaletteItems("b1", renamed).find((r) => r.id === "generate:task-graph")?.description).toMatch(/· Formulation Lab › Roadmap plan$/);
+    expect(generatePaletteItems("b1", renamed).find((r) => r.id === "generate:task-graph")?.description).toMatch(/· Product › Roadmap plan$/);
   });
 });
 

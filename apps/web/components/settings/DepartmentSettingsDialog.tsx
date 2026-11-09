@@ -172,7 +172,7 @@ export function DepartmentSettingsDialog({ department, shortcut, onOpenChange, o
                 </Field>
               </div>
               <p className="text-small text-secondary" data-testid="dept-shortcut">
-                Shortcut: {shortcut ? <Chip tone="neutral">{shortcut}</Chip> : "none while the department is hidden"}. The letter comes from the name, so renaming the department can change it.
+                Shortcut: {shortcut ? <Chip tone="neutral">{shortcut}</Chip> : "none while the department is hidden"}. A department opens with its area's letter; one with no modules takes a letter from its name.
               </p>
             </section>
 

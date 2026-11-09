@@ -56,13 +56,19 @@ test.describe("keyboard and screen readers", () => {
     await expect(visible).toBeFocused();
   });
 
-  test("each department's shortcut is its own: the picker names the letter and what a choice swaps with", async ({ page }) => {
+  test("the G chords follow the areas: the sidebar names them and the help overlay lists them, with no department letters", async ({ page }) => {
     await openBusiness(page, "settings/departments");
     const list = settingsScreen(page).getByTestId("department-list");
     await expect(list).toBeVisible({ timeout: LONG });
-    const pickers = list.getByRole("combobox", { name: /^Shortcut for / });
-    expect(await pickers.count()).toBeGreaterThan(1);
-    await expect(pickers.first()).toHaveAttribute("data-shortcut", /^[A-Z]$/);
+    await expect(list.getByRole("combobox", { name: /^Shortcut for / })).toHaveCount(0);
+    const nav = page.getByRole("navigation", { name: "Primary" });
+    const chords = await nav.locator("[data-sidebar-item^='area-']").evaluateAll((els) => els.map((el) => el.getAttribute("aria-keyshortcuts")));
+    expect(chords).toEqual(["G P", "G C", "G M", "G R", "G T"]);
+    await nav.getByRole("button", { name: "Keyboard shortcuts" }).click();
+    const help = page.getByTestId("keyboard-help");
+    for (const label of ["Go to Today", "Go to Needs you", "Go to Plan", "Go to Customers", "Go to Money", "Go to Product", "Go to Team"]) await expect(help).toContainText(label);
+    await expect(help).not.toContainText("Go to Formulation Lab");
+    await page.keyboard.press("Escape");
   });
 
   test("the tab bar's tablist holds only tabs; the sub-view caret is a 24 px button beside it", async ({ page }) => {

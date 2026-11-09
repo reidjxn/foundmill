@@ -26,8 +26,9 @@ describe("department links", () => {
     expect(departmentHref(BID, dev)).toBe(`/b/${BID}/d/development/training-ground`);
     expect(departmentHref(BID, dev, true)).toBe(`/b/${BID}/d/development/code`);
     const items = buildSidebarItems({ businessId: BID, departments: [dev, team], live: false });
-    expect(items.find((i) => i.id === "d-dev")?.href).toBe(`/b/${BID}/d/development/training-ground`);
-    expect(buildSidebarItems({ businessId: BID, departments: [dev, team], live: false, builder: true }).find((i) => i.id === "d-dev")?.href).toBe(`/b/${BID}/d/development/code`);
+    // The Product area opens on its first inline tab (What changed), never on Code while off; with Builder view on every tab is inline, Code first.
+    expect(items.find((i) => i.id === "area-product")?.href).toBe(`/b/${BID}/d/development/pull-requests`);
+    expect(buildSidebarItems({ businessId: BID, departments: [dev, team], live: false, builder: true }).find((i) => i.id === "area-product")?.href).toBe(`/b/${BID}/d/development/code`);
   });
 });
 
@@ -35,22 +36,22 @@ describe("search and the palette", () => {
   it("off: no Code, Health or Hierarchy row, and the engine tabs carry the founder's names", () => {
     const items = localPaletteItems({ businessId: BID, departments: [dev, team], live: false });
     const labels = items.map((i) => i.label);
-    expect(labels).toContain("Development · Working now");
-    expect(labels).toContain("Development · What changed");
-    expect(labels).toContain("Development · Live product");
-    for (const l of ["Development · Code", "Team · Health", "Team · Hierarchy", "Development · Live sessions", "Development · Pull requests"]) expect(labels).not.toContain(l);
+    expect(labels).toContain("Product · Working now");
+    expect(labels).toContain("Product · What changed");
+    expect(labels).toContain("Product · Live product");
+    for (const l of ["Product · Code", "Team · Health", "Team · Hierarchy", "Product · Live sessions", "Product · Pull requests"]) expect(labels).not.toContain(l);
     expect(items.some((i) => /\/(code|health|hierarchy)$/.test(i.href ?? ""))).toBe(false);
     expect(items.find((i) => i.id === "department:d-dev")?.href).toBe(`/b/${BID}/d/development/training-ground`);
   });
 
   it("on: every tab under its stored title", () => {
     const labels = localPaletteItems({ businessId: BID, departments: [dev, team], live: false, builder: true }).map((i) => i.label);
-    for (const l of ["Development · Code", "Team · Health", "Team · Hierarchy", "Development · Live sessions", "Development · Pull requests"]) expect(labels).toContain(l);
+    for (const l of ["Product · Code", "Team · Health", "Team · Hierarchy", "Product · Live sessions", "Product · Pull requests"]) expect(labels).toContain(l);
   });
 
   it("the Generate rows name the department's tab as the person reads it", () => {
     const deps = [{ ...dev, moduleKeys: ["development"], squad: [], lead: null }];
-    expect(generatePaletteItems(BID, deps).find((r) => r.id === "generate:task-graph")?.description).toContain("Development › Plan");
+    expect(generatePaletteItems(BID, deps).find((r) => r.id === "generate:task-graph")?.description).toContain("Product › Work list");
   });
 });
 

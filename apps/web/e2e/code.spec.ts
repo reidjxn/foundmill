@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { LONG, openBusiness, settingsScreen, settled, setBuilderView } from "./helpers";
+import { LONG, departmentBase, openBusiness, settingsScreen, settled, setBuilderView } from "./helpers";
 
 // Builder view on for this file (it opens the Code tab); global-setup.ts starts every run with it off. Restored afterwards.
 let builderViewBefore = false;
@@ -19,13 +19,12 @@ test.afterAll(async ({ playwright }) => {
 test.describe("development code tab", () => {
   test("sits after Pull requests and explains where saved code comes from", async ({ page }) => {
     await openBusiness(page);
-    const development = page.locator("[data-testid=app-shell] nav a[href*='/d/']").filter({ hasText: /development/i }).first();
-    await expect(development, "the seed gives Northwind a Development department").toBeVisible({ timeout: LONG });
-    const href = (await development.getAttribute("href"))!;
-    await page.goto(href.replace(/\/d\/([^/]+)\/.*$/, "/d/$1/code"));
+    // The sidebar lists areas, not departments: the seeded Development department keeps the module's slug.
+    await page.goto(`${departmentBase("development")}/code`);
     await expect(page.getByTestId("module-screen")).toHaveAttribute("data-module", "development/code", { timeout: LONG });
 
-    const tabs = await page.getByRole("tab").allTextContents();
+    // Builder view on: the Product area's every tab inline (a long bar overflows into More, so read the hidden ones too).
+    const tabs = await page.getByRole("tablist", { name: "Product tabs" }).locator("[role=tab]").allTextContents();
     const pr = tabs.findIndex((t) => /pull requests/i.test(t));
     expect(pr, "the Development tabs include Pull requests").toBeGreaterThanOrEqual(0);
     expect(tabs[pr + 1]).toMatch(/^code$/i);
@@ -40,10 +39,8 @@ test.describe("development code tab", () => {
 
   test("setting up GitHub starts from Settings › Integrations when it is not connected", async ({ page }) => {
     await openBusiness(page);
-    const development = page.locator("[data-testid=app-shell] nav a[href*='/d/']").filter({ hasText: /development/i }).first();
-    await expect(development).toBeVisible({ timeout: LONG });
-    const href = (await development.getAttribute("href"))!;
-    await page.goto(href.replace(/\/d\/([^/]+)\/.*$/, "/d/$1/code"));
+    // The sidebar lists areas, not departments: the seeded Development department keeps the module's slug.
+    await page.goto(`${departmentBase("development")}/code`);
     await settled(page);
     await page.getByRole("button", { name: "Set up GitHub" }).click();
     const dialog = page.getByRole("dialog", { name: "Push saved code to GitHub" });

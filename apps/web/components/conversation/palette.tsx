@@ -8,6 +8,7 @@ import type { PaletteItem } from "@foundmill/dugout";
 import type { AgentTier, DeptColourToken } from "@foundmill/shared";
 import { isBackgroundAgent } from "@foundmill/shared/team-tiers";
 import { MODULE_TABS, isBuilderOnlyTab, tabTitleFor, type ModuleKey } from "@foundmill/shared/constants";
+import { AREA_LABELS, areaOfTab } from "@foundmill/shared/areas";
 import { routes } from "@foundmill/widgets/shared/routes";
 
 export interface PaletteAgent {
@@ -98,8 +99,9 @@ export function agentOfAskItem(item: Pick<PaletteItem, "id">, agents: readonly P
 }
 
 /**
- * A module tab as the founder named it: the href and "<department> › <tab>" from the department that owns the module
- * ("Retail Partnerships › Board" once Distribution is renamed), never a hard-coded department name.
+ * A module tab as the founder reads it: the href (the department that owns the module, never a hard-coded slug) and
+ * "<area> › <tab>" ("Customers › Board"), the area the sidebar shows over the tab's module (docs/DESIGN.md §9). A
+ * department with no area keeps its own name.
  */
 function moduleTab(businessId: string, departments: readonly DepartmentForPalette[], moduleKey: ModuleKey, tabSlug: string, builder: boolean): { href: string; where: string } | null {
   const d = departments.find((x) => !x.hidden && x.moduleKeys.includes(moduleKey));
@@ -109,7 +111,8 @@ function moduleTab(businessId: string, departments: readonly DepartmentForPalett
   const tab = d.tabs.find((t) => t.slug === tabSlug);
   if (!tab) return null;
   const title = tab.title ?? MODULE_TABS[moduleKey].find((t) => t.slug === tabSlug)?.title ?? tabSlug;
-  return { href: routes.department(businessId, d.slug, tab.slug), where: `${d.name} › ${tabTitleFor(d.moduleKeys, tabSlug, title, builder)}` };
+  const area = areaOfTab(d.moduleKeys, tabSlug);
+  return { href: routes.department(businessId, d.slug, tab.slug), where: `${area ? AREA_LABELS[area] : d.name} › ${tabTitleFor(d.moduleKeys, tabSlug, title, builder)}` };
 }
 
 /** The Generate rows: where a real model call drafts something, each opening the surface with its generate control. */

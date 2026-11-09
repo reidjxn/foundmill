@@ -1,5 +1,5 @@
 import { expect, test, type Page, type PlaywrightWorkerArgs } from "@playwright/test";
-import { COACHMARK_CARD, LONG, chooseTableView, devApi, dismissCoachmarks, openBusiness, setBuilderView } from "./helpers";
+import { COACHMARK_CARD, LONG, chooseTableView, departmentBase as departmentBaseFor, devApi, dismissCoachmarks, openBusiness, setBuilderView } from "./helpers";
 
 // Builder view on for this file (it reads the Code, Health and Hierarchy tabs, ratings out of 20 and the cycle number); global-setup.ts starts every run with it off. Restored afterwards.
 let builderViewBefore = false;
@@ -321,7 +321,8 @@ for (const width of [1280, 1440]) {
 
     test("Development: plan, pull requests, environments and specialists read as words and fit", async ({ page }) => {
       await openBusiness(page);
-      const dev = await departmentBase(page, /development/i);
+      // The sidebar lists areas, not departments: the seeded Development keeps the module's slug.
+      const dev = departmentBaseFor("development");
 
       await openTab(page, dev, "plan", "development/plan");
       const tasks = page.getByRole("grid", { name: "Tasks" });
@@ -372,11 +373,12 @@ for (const width of [1280, 1440]) {
       // The Formulation Lab (Operations) shows the Specialists and Plan tabs only, not a copy of Development (DB-11). The
       // name is a label over the operations module: Settings › Departments › Reset to defaults (settings-departments.spec)
       // gives it back its default name, so either label finds it.
-      const lab = await departmentBase(page, /^(formulation lab|operations)$/i);
+      const lab = departmentBaseFor("operations");
       await page.goto(`${lab}/specialists`);
       await expect(page.getByTestId("module-screen")).toHaveAttribute("data-module", "development/specialists", { timeout: LONG });
-      const labTabs = page.getByRole("tablist").first().getByRole("tab");
-      await expect(labTabs).toHaveText([/Specialists/, /Plan/]);
+      // Its tabs sit in the Product area's bar (by module, docs/DESIGN.md §9), each naming the lab beside Development's.
+      const labTabs = page.getByRole("tablist", { name: "Product tabs" }).locator(`[role=tab][id^="tab-${lab.split("/").pop()}/"]`);
+      await expect(labTabs).toHaveText([/^Specialists · (Formulation Lab|Operations)/, /^Plan · (Formulation Lab|Operations)/]);
 
       await openTab(page, dev, "environments", "development/environments");
       const envs = page.getByRole("grid", { name: "Environments" });

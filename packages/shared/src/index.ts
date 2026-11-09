@@ -13,6 +13,7 @@ export * from "./ids";
 export * from "./permissions";
 export * from "./allowlist";
 export * from "./shortcuts";
+export * from "./areas";
 export * from "./env";
 export * from "./import-routes";
 export * from "./domains";

@@ -3263,3 +3263,23 @@ Judgment calls taken here:
 - **The sign-off pill reads "Waiting for you"** with Builder view off; the Product banner's line drops "Round N:" the same way. Nothing else in those files changed (the Request changes flow is being edited elsewhere).
 - **Service-written notes are always in founder words**, since one stored note is read by founders and builders alike: "The team's last round of work did not finish" (the api's reconcile and the orchestrator's `failCycle`), "The team could not start work" (`notePlanFailure`), and the narrated note's fallback subject by outcome ("The team finished a round of work", "…reached its time limit", "The team is waiting on you", "…stopped"). The narrated tally reads "This round of work: 4 tasks started, 4 finished, 0 blocked." (tasks, not sessions). The words live in `apps/orchestrator/src/cycle-contract.ts` (pure, so the workflow bundles it); the change in `businessCycle` is string arguments only (no activity added, removed or reordered), so it is replay-safe, and there is no businessCycle replay test to update. The api's reconcile note names why without "workflow".
 - **The Composer's word gate catches the engine's numbers**: `cycle \d+`, `round \d+`, `\d+ (of \d+ )?tests? (passed|passing|failing|failed)`, `\d+ tokens`, `PR #\d+` and `ETA` are hits for `founderJargonHits` and `founderTitleProblems`, and `founderPhrase` rewrites them first ("a round of work", "the quality checks passed", "some AI usage", "a finished change", "expected finish"). "PR" alone (public relations) and a funding round without a number stay plain.
+
+### Founder areas: a sidebar built on the founder's questions (PR A: registry, design system, navigation) (2026-11-09)
+Founder decisions (Nov 9, 2026, final):
+1. **Company is a section inside Money**: the legal module's tabs go to Money (`AREA_SECTIONS.company`), and its Entity tab reads "Company" while Builder view is off. No Settings › Company route.
+2. **G chords follow the areas**: G P Plan, G C Customers, G M Money, G R Product, G T Team; G H Today and G I Needs you stay. Departments lose their sidebar letters and Settings › Departments loses the letter picker; the `departments.shortcut` column and `department.setShortcut` stay (no migration).
+3. **Builder view on shows every tab inline**, with no "More detail" menu.
+Judgment calls taken here:
+- **Plan always shows**, because Milestones is always one of its tabs (it was always in the sidebar before); Customers shows when the person may open a department over distribution or read the CRM; Money, Product and Team only through their departments. The plan said "a department in the area"; this keeps Milestones reachable for someone walled from Product.
+- **An area's badge** sums the unread notes of the departments whose first module is the area's, so a merged department is counted once (in its first module's area).
+- **A department with no modules** is its own sidebar item after Team (dot, badge, letter), its letter chosen by `departmentLetters` with the shell's reserved letters (H, I, P, C, M, R, T, G) on top; a stored letter that is now an area's is ignored in the shell, not rewritten in the database. The api's stored-letter rules are unchanged.
+- **A founder's own tab** (a slug no module has) is "default" tier and goes with the department's first module's area.
+- **The promotion rule is per department**: a visible department with no inline tab shows its first visible tab inline (Formulation Lab › Specialists), so Northwind shows 15 area tabs and Ledgerly 14.
+- **A hidden department opened by URL** keeps its own tab bar (the area does not list it), with the area still in the breadcrumb.
+- **Development's Plan reads "Work list"** while Builder view is off, so it never reads like the Plan area; Builder view keeps the stored "Plan" (the Code screen's "Go to Plan" button is module copy and stays).
+- **Breadcrumbs only on department routes** ("Product › Formulation Lab"); `/crm` and `/milestones` show their area's tab bar and keep their titles without a breadcrumb row.
+- **The gate's "Open" button and "No such tab"** go to the department's first inline tab in its area (Development: What changed), not its first tab.
+- **Copy names a screen by its area** (`moduleTabLabel`, the palette's Generate rows: "Customers › Board", "Team › Recruitment"); service-written notes that name a department tab ("Distribution › Board" in the start-distribution note) are left for PR B.
+- **The sidebar's Needs you keeps the id `inbox`** and links to `inbox?tab=respond`; the screen keeps the title "Inbox" and the palette row "Inbox" (with "needs you" as a keyword).
+- **Not in this PR**: the AreaLine opening sentences and `area-words.ts` (PR B), "Explain this page" (group L).
+

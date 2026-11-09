@@ -8,8 +8,8 @@ import { LEDGERLY_KIT, NORTHWIND_KIT, NORTHWIND_SIDEBAR } from "./fixtures";
 const meta = {
   title: "Shell/Sidebar",
   component: Sidebar,
-  parameters: { layout: "fullscreen", docs: { description: { component: "232 px on the rail (64 px collapsed), its inner hairline catching light at the top. Items are 32 px, 10 px in from the edges, sentence case: a 16 px icon in text-3 (department icons carry a small dot in their color) and an action-style label; hover adds a 3.5% plate. Active: a brand plate (primary 30% → 7%) with a kit-lift ring and icon, and a lit 3 px edge with its glow at the rail's edge. Badges are 18 px glowing pills in the department color (red for the Inbox). Groups are separated by fading hairlines; the LIVE block's “Live” label is drawn only for a LIVE business (`live`), a Personal one keeps its Network item without it. The CRM reads “Contacts” (its collapsed tooltip says both). A long founder-defined label wraps to two lines and steps down to fit — never silently clipped. Arrow keys move, Enter opens; collapsed items show their label and chord as a tooltip. The foot ends with a ghost “?” cap that opens the keyboard shortcuts (`onHelp`, expanded only), the collapse toggle and, with the `brand` prop, the Foundmill wordmark aligned with the item icons; the wordmark is drawn only while expanded and the sidebar never shows the FM monogram." } } },
-  args: { items: withSidebarKeys(NORTHWIND_SIDEBAR), activeId: "d-distribution", collapsed: false, showLive: true, live: true, brand: { href: "#" }, onCollapsedChange: () => {}, onHelp: () => {} },
+  parameters: { layout: "fullscreen", docs: { description: { component: "232 px on the rail (64 px collapsed), its inner hairline catching light at the top. Items are 32 px, 10 px in from the edges, sentence case: a 16 px icon in text-3 (department icons carry a small dot in their color) and an action-style label; hover adds a 3.5% plate. Active: a brand plate (primary 30% → 7%) with a kit-lift ring and icon, and a lit 3 px edge with its glow at the rail's edge. Badges are 18 px glowing pills in the department color (red for the Inbox). Groups are separated by fading hairlines; the LIVE block's “Live” label is drawn only for a LIVE business (`live`), a Personal one keeps its Network item without it. Founder areas (`group: \"area\"`, docs/DESIGN.md §8): Today, Needs you, then Plan, Customers, Money, Product and Team, each with its fixed chord (G P, G C, G M, G R, G T) and a neutral badge summed from its departments; a department with no modules keeps its own item, dot and letter after Team. Contacts is a Customers tab (the item's collapsed tooltip says so). A long founder-defined label wraps to two lines and steps down to fit — never silently clipped. Arrow keys move, Enter opens; collapsed items show their label and chord as a tooltip. The foot ends with a ghost “?” cap that opens the keyboard shortcuts (`onHelp`, expanded only), the collapse toggle and, with the `brand` prop, the Foundmill wordmark aligned with the item icons; the wordmark is drawn only while expanded and the sidebar never shows the FM monogram." } } },
+  args: { items: withSidebarKeys(NORTHWIND_SIDEBAR), activeId: "area-customers", collapsed: false, showLive: true, live: true, brand: { href: "#" }, onCollapsedChange: () => {}, onHelp: () => {} },
 } satisfies Meta<typeof Sidebar>;
 export default meta;
 type Story = StoryObj<typeof meta>;
@@ -41,14 +41,19 @@ export const SideBySide: Story = {
     </div>
   ),
 };
-/** A founder may name a department up to 80 characters: the label wraps to two lines and steps down; it is never cut silently. */
+/** The area group on its own: Product active (its badge sums its departments' unread notes), no module-less department. */
+export const Areas: Story = {
+  args: { items: withSidebarKeys(NORTHWIND_SIDEBAR.filter((it) => it.group !== "department")), activeId: "area-product" },
+  render: (args) => <Frame {...args} />,
+};
+/** A founder may name a module-less department up to 80 characters: the label wraps to two lines and steps down; it is never cut silently. */
 export const LongDepartmentNames: Story = {
   args: {
     items: withSidebarKeys([
-      ...NORTHWIND_SIDEBAR.slice(0, 3),
-      { id: "d-long", label: "Retail Partnerships and Wholesale", icon: NORTHWIND_SIDEBAR[4]!.icon, href: "#", group: "department", dept: "dept-3", badge: 12 },
-      { id: "d-longer", label: "Regulatory, Certification and Product Safety across the EU and UK", icon: NORTHWIND_SIDEBAR[7]!.icon, href: "#", group: "department", dept: "dept-6" },
-      ...NORTHWIND_SIDEBAR.slice(9),
+      ...NORTHWIND_SIDEBAR.filter((it) => it.group === "main" || it.group === "area"),
+      { id: "d-long", label: "Retail Partnerships and Wholesale", icon: NORTHWIND_SIDEBAR[3]!.icon, href: "#", group: "department", dept: "dept-3", badge: 12 },
+      { id: "d-longer", label: "Regulatory, Certification and Product Safety across the EU and UK", icon: NORTHWIND_SIDEBAR[4]!.icon, href: "#", group: "department", dept: "dept-6" },
+      ...NORTHWIND_SIDEBAR.filter((it) => it.group === "live" || it.group === "foot"),
     ]),
     activeId: "d-long",
   },

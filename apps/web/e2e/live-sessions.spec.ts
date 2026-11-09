@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { LONG, openBusiness, setBuilderView } from "./helpers";
+import { LONG, departmentBase, openBusiness, setBuilderView } from "./helpers";
 
 // Builder view on for this file (it reads the tiles' tokens and ETA); global-setup.ts starts every run with it off. Restored afterwards.
 let builderViewBefore = false;
@@ -19,10 +19,8 @@ test.describe("live sessions", () => {
     test.setTimeout(180_000); // the elapsed clock ticks by the minute once a session has run for an hour
     await page.setViewportSize({ width: 1280, height: 900 });
     await openBusiness(page);
-    const dev = page.locator("[data-testid=app-shell] nav a[href*='/d/']").filter({ hasText: /development/i }).first();
-    await expect(dev, "the seed gives Northwind a Development department").toBeVisible({ timeout: LONG });
-    const href = (await dev.getAttribute("href"))!;
-    await page.goto(href.replace(/\/d\/([^/]+)\/.*$/, "/d/$1/training-ground"));
+    // The sidebar lists areas, not departments: the seeded Development keeps the module's slug.
+    await page.goto(`${departmentBase("development")}/training-ground`);
     await expect(page.getByTestId("module-screen")).toHaveAttribute("data-module", "development/training-ground", { timeout: LONG });
     const tiles = page.locator("[data-tile-id]");
     await expect(tiles.first(), "the seed has agents working").toBeVisible({ timeout: LONG});
@@ -83,10 +81,7 @@ test.describe("live sessions", () => {
   test("a nudge that reached no session says so instead of showing the agent's answer (audit OL-04, TPD-16)", async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 900 });
     await openBusiness(page);
-    const dev = page.locator("[data-testid=app-shell] nav a[href*='/d/']").filter({ hasText: /development/i }).first();
-    await expect(dev).toBeVisible({ timeout: LONG });
-    const href = (await dev.getAttribute("href"))!;
-    await page.goto(href.replace(/\/d\/([^/]+)\/.*$/, "/d/$1/training-ground"));
+    await page.goto(`${departmentBase("development")}/training-ground`);
     await expect(page.getByTestId("module-screen")).toHaveAttribute("data-module", "development/training-ground", { timeout: LONG });
     // The seeded sessions have no workflow behind them, so no nudge can arrive.
     const tiles = page.locator("[data-tile-id]");

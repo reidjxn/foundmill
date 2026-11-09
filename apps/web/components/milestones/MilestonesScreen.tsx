@@ -15,6 +15,7 @@ import { errorMessage } from "@/lib/trpc";
 import { useTRPC } from "@/lib/trpc-react";
 import { useBusiness, useBusinessCurrency } from "@/components/shell/business-context";
 import { useShellChrome } from "@/components/shell/chrome";
+import { useAreaTabBar } from "@/components/shell/useAreaNav";
 import { ErrorPanel } from "@/components/shell/ErrorPanel";
 import { RefreshFailedNotice, loadFailed, refreshFailed } from "@/components/shell/QueryStates";
 import { ScreenSkeleton } from "@/components/shell/ScreenSkeleton";
@@ -39,7 +40,8 @@ export function MilestonesScreen() {
   const others = useMemo(() => otherMilestones(milestones), [milestones]);
   const won = cards.filter((c) => c.achievedAt).length;
 
-  useShellChrome({ title: "Milestones" });
+  const areaTabs = useAreaTabBar("plan", "milestones");
+  useShellChrome({ title: "Milestones", tabs: areaTabs }, [areaTabs]);
 
   const [shareKey, setShareKey] = useState<string | null>(null);
   useEffect(() => {
