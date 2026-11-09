@@ -1,11 +1,12 @@
 import { expect, test } from "@playwright/test";
-import { LONG, NORTHWIND_BUSINESS_ID, areaLink, areaTabBar, departmentBase, dismissCoachmarks, openBusiness, setBuilderView, settled } from "./helpers";
+import { LEDGERLY_BUSINESS_ID, LONG, NORTHWIND_BUSINESS_ID, areaLink, areaTabBar, departmentBase, dismissCoachmarks, openBusiness, setBuilderView, settled } from "./helpers";
 
 /**
  * Founder areas (founder decisions 2026-11-09; docs/DESIGN.md §8–§9) on the seeded Northwind Skincare: the sidebar asks
  * the founder's questions (Today, Needs you, Plan, Customers, Money, Product, Team), each area's tab bar spans the
  * departments over its modules with the defaults inline and the rest behind "More detail", breadcrumbs say which area
- * a department page belongs to ("Product › Formulation Lab"), and the G chords follow the areas. Builder view is off
+ * a department page belongs to ("Product › Formulation Lab"), each area opens on one plain sentence (the shapes, never
+ * the seeded numbers, are asserted, on Northwind and Ledgerly), and the G chords follow the areas. Builder view is off
  * for this file (global-setup.ts starts every run with it off); restored afterwards. Stack: e2e/README.md.
  */
 const B = `/b/${NORTHWIND_BUSINESS_ID}`;
@@ -80,6 +81,65 @@ test.describe("founder areas", () => {
     await expect(crumbs.getByRole("listitem")).toHaveText(["Money", "Legal"]);
     await expect(areaTabBar(page, "Money").getByRole("tab")).toHaveText([/^Overview/, /^Runway/, /^Company/, /^Compliance/]);
     await expect(areaLink(page, "money")).toHaveAttribute("aria-current", "page");
+  });
+
+  test("each area opens on one plain sentence, first on every tab, with the kind line for a department with its own name", async ({ page }) => {
+    await openBusiness(page);
+    await dismissCoachmarks(page);
+    const opening = async (path: string, area: string, sentence: RegExp, kind?: string | null) => {
+      await page.goto(`${B}/${path}`);
+      const line = page.getByRole("region", { name: `${area} at a glance` });
+      await expect(line.locator("[data-area-sentence]")).toHaveText(sentence, { timeout: LONG });
+      if (kind === undefined) return line;
+      if (kind === null) await expect(line.locator("[data-area-kind]")).toHaveCount(0);
+      else await expect(line.locator("[data-area-kind]")).toHaveText(kind);
+      return line;
+    };
+
+    // Money: cash, spending and months of cash (Estimate) in Northwind's pounds, with the Company line under it.
+    const MONEY = /^(You have £[\d,.]+[KM]? and (spend about £[\d,.]+[KM]? a month( more than comes in)?, so you have (about [\d.]+ months?|less than a month) of cash|earn more than you spend, so cash is not running out)\.Estimate|You have £[\d,.]+[KM]?; how long it lasts .*|Connect your bank and this line shows your cash and how long it lasts\.|Your bank balance is £[\d,.]+[KM]? below zero, .*)$/;
+    const money = await opening("d/finance/overview", "Money", MONEY, "Finance is part of Money.");
+    await expect(money.locator("[data-area-section='company']")).toHaveText(/^Company: (Northwind Skincare Ltd: (nothing is due|\d+ filings? (is|are) (due|overdue))[^.]*\.|Your company is (not incorporated yet|being incorporated)\.)$/);
+    await opening("d/finance/runway", "Money", MONEY);
+    const legal = await opening("d/legal/entity", "Money", MONEY, "Legal is part of Money, in its Company section.");
+    await expect(legal.locator("[data-area-section='company']")).toBeVisible();
+
+    // Plan: the goal (or that none is set) and what is in Now, on the Roadmap and on Milestones.
+    const PLAN = /^(Your goal: .+\.|A goal waits for your answer: .+\.|No goal is set yet\.)( .+)?( \d+ things? (is|are) in Now.*| \d+ things? in Now (is|are) done\.| Nothing is in Now on the roadmap yet\.)(Estimate|Forecast)?$/;
+    await opening("d/product/roadmap", "Plan", PLAN, "Product is part of Plan.");
+    await opening("milestones", "Plan", PLAN, null);
+
+    // Customers: the 35-day channel window and the live campaigns (or not selling yet), on Leads, Campaigns and Contacts.
+    const CUSTOMERS = /^(In the last 35 days: (no new leads|[\d,]+ new leads?)[^.]*\.( (No campaign is|\d+ campaigns? (is|are)) live\.)?|Selling has not started yet\.)$/;
+    await opening("d/distribution/leads", "Customers", CUSTOMERS, "Retail Partnerships is part of Customers.");
+    await opening("d/distribution/campaigns", "Customers", CUSTOMERS);
+    await opening("crm", "Customers", CUSTOMERS, null);
+
+    // Product: what went live in the last 7 days and what waits for the founder (or the sign-off), Formulation Lab named.
+    const PRODUCT = /^((\d+ changes? went live|Nothing went live) in the last 7 days( and (nothing waits|\d+ waits?) for your go-ahead)?\.( Your live product last changed on [A-Z][a-z]{2} \d{1,2}(, \d{4})?\.)?|Your specification and roadmap (wait for your sign-off|are being drafted)\.|The team builds from your signed-off specification and roadmap\.)$/;
+    await opening("d/product/specification", "Product", PRODUCT, null);
+    await opening("d/development/pull-requests", "Product", PRODUCT, "Development is part of Product.");
+    await opening("d/operations/specialists", "Product", PRODUCT, "Formulation Lab is part of Product.");
+
+    // Team: the Chief of Staff, named through an EntityLink, runs the leads and the specialists.
+    const team = await opening("d/team/squad", "Team", /^(.+, your Chief of Staff, runs|Your .+ runs) (\d+ leads?( and \d+ specialists?)?|\d+ specialists?|the team on its own so far)(; \d+ (is|are) down or failing)?\.$/, null);
+    await expect(team.locator("[data-area-sentence] a.entity-link").first()).toHaveAttribute("href", new RegExp(`^${B}/agents/[0-9a-f-]{36}`));
+  });
+
+  test("Ledgerly's areas open on their sentences too, money in the business's own pounds", async ({ page }) => {
+    await openBusiness(page);
+    const L = `/b/${LEDGERLY_BUSINESS_ID}`;
+    const sentence = (area: string) => page.getByRole("region", { name: `${area} at a glance` }).locator("[data-area-sentence]");
+    await page.goto(`${L}/d/finance/overview`);
+    await expect(sentence("Money")).toHaveText(/^(You have £[\d,.]+[KM]? and .+\.Estimate|Connect your bank and this line shows your cash and how long it lasts\.|You have £[\d,.]+[KM]?; .+|Your bank balance is £.+)$/, { timeout: LONG });
+    await expect(sentence("Money")).not.toContainText("$");
+    await page.goto(`${L}/d/distribution/leads`);
+    await expect(sentence("Customers")).toHaveText(/^(In the last 35 days: .+\.|Selling has not started yet\.)$/, { timeout: LONG });
+    await expect(page.getByRole("region", { name: "Customers at a glance" }).locator("[data-area-kind]")).toHaveText("Distribution is part of Customers.");
+    await page.goto(`${L}/d/product/roadmap`);
+    await expect(sentence("Plan")).toHaveText(/^(Your goal: |A goal waits for your answer: |No goal is set yet\.).+/, { timeout: LONG });
+    await page.goto(`${L}/d/team/squad`);
+    await expect(sentence("Team")).toContainText(/Chief of Staff/, { timeout: LONG });
   });
 
   test("G chords follow the areas: G P Plan, G C Customers, G M Money, G R Product, G T Team, G I Needs you, G H Today", async ({ page }) => {

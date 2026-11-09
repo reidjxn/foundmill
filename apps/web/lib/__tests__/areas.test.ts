@@ -5,7 +5,7 @@
 import { describe, expect, it } from "vitest";
 import { MODULE_TABS, type ModuleKey } from "@foundmill/shared/constants";
 import { accessFor } from "../access";
-import { areaBreadcrumbs, areaHref, areaNav, areaOfRoute, areaTabId, areaTabItems, areaTabLabel } from "../areas";
+import { areaBreadcrumbs, areaHref, areaNav, areaOfRoute, areaOpeningOf, areaTabId, areaTabItems, areaTabLabel } from "../areas";
 import { filterLocal, localPaletteItems } from "../search";
 import { tabPlacementLines } from "@/components/settings/DepartmentsTab";
 
@@ -82,5 +82,21 @@ describe("Settings › Departments", () => {
     expect(tabPlacementLines(NORTHWIND[2]!)).toEqual(["Product: Specialists · More detail: Work list"]);
     expect(tabPlacementLines(NORTHWIND[6]!)).toEqual(["Money: Company, Compliance · More detail: Incorporate, Contracts, IP, Policies, Regulatory"]);
     expect(tabPlacementLines({ id: "x", name: "Studio", slug: "studio", position: 0, moduleKeys: [], tabs: [] })).toEqual(["Its own sidebar item"]);
+  });
+});
+
+describe("the opening line on department routes", () => {
+  it("reads the area, the department for the kind line and the Company section", () => {
+    const [product, , lab, retail, , , legal] = NORTHWIND;
+    expect(areaOpeningOf(lab, "specialists", "product", true)).toEqual({ area: "product", departmentName: "Formulation Lab", section: null });
+    expect(areaOpeningOf(retail, "leads", "customers", true)).toEqual({ area: "customers", departmentName: "Retail Partnerships", section: null });
+    expect(areaOpeningOf(legal, "entity", "money", true)).toEqual({ area: "money", departmentName: "Legal", section: "company" });
+    expect(areaOpeningOf(product, "roadmap", areaOfRoute(product, "roadmap"), true)).toEqual({ area: "plan", departmentName: "Product", section: null });
+  });
+
+  it("has none for a department the area does not list (no modules, hidden, unknown)", () => {
+    expect(areaOpeningOf({ name: "Studio", moduleKeys: [] }, "notes", null, false)).toBeNull();
+    expect(areaOpeningOf(NORTHWIND[0], "vision", "product", false)).toBeNull();
+    expect(areaOpeningOf(undefined, "vision", "product", true)).toBeNull();
   });
 });

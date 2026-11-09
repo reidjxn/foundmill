@@ -58,7 +58,7 @@ describe("the brief and the cycle planner", () => {
     const onlyChannel: BusinessBrief = { ...building, openTasks: building.openTasks.filter((task) => task.id === channelTask.id) };
     const idle = await cycle.planCycle({ businessId: t.businessId, cycleNumber: 3, trigger: "continue", brief: onlyChannel });
     expect(idle).toMatchObject({ starts: [], costMinor: 0, idle: true });
-    expect(idle.summary).toContain("1 channel task waits until you start distribution from Distribution › Board");
+    expect(idle.summary).toContain("1 channel task waits until you start distribution from Customers › Board");
     expect(idleSummary({ ...onlyChannel, productStage: "awaiting_signoff" }, [])).toContain("The specification and roadmap are waiting for your sign-off in the Inbox; building starts when both are approved");
     await repos.tasks.setStatus(t.db, t.businessId, channelTask.id, "stopped", { force: true });
     await repos.tasks.setStatus(t.db, t.businessId, financeTask.id, "stopped", { force: true });

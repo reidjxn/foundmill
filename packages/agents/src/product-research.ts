@@ -292,7 +292,7 @@ export function researchPlanNote(plan: ResearchPlan, icp: string): { subject: st
   const lines = [
     `${drafted} artifacts are drafted on Product › Research for testing the specification with ${md(who)}: ${parts.join(", ")}.`,
     riskiest ? `The riskiest assumption comes from the ${md(riskiest.fromSection)} section: ${md(clipWords(riskiest.assumption, 30))} ${md(clipWords(riskiest.whyItMatters, 24))}` : `The assumptions are listed with the sections they come from.`,
-    `Nothing is sent to anyone without your approval: recruiting, the page and the survey wait for you. ${plan.firstSteps.length ? `${plan.firstSteps.length} research tasks are on Development › Plan for the next cycles.` : ""}`.trim(),
+    `Nothing is sent to anyone without your approval: recruiting, the page and the survey wait for you. ${plan.firstSteps.length ? `${plan.firstSteps.length} research tasks are on Product › Work list for the next cycles.` : ""}`.trim(),
     `Tell me which test to run first, or read the plan and ask for changes.`,
   ];
   if (plan.openQuestions[0]) lines.splice(3, 0, `First open question: ${md(clipWords(plan.openQuestions[0], 25))}`);

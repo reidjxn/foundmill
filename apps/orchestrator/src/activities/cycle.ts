@@ -108,7 +108,7 @@ export function idleSummary(brief: BusinessBrief, waiting: readonly BriefTask[])
   if (approvals > 0) parts.push(`${approvals} task${approvals === 1 ? " waits" : "s wait"} for your approval in the Inbox`);
   if (retrying > 0) parts.push(`${retrying} task${retrying === 1 ? " is" : "s are"} waiting to be retried or need${retrying === 1 ? "s" : ""} you to start ${retrying === 1 ? "it" : "them"} from the Plan`);
   if (byDeps > 0) parts.push(`${byDeps} task${byDeps === 1 ? " waits" : "s wait"} on earlier tasks`);
-  if (held > 0) parts.push(`${held} channel task${held === 1 ? " waits" : "s wait"} until you start distribution from Distribution › Board`);
+  if (held > 0) parts.push(`${held} channel task${held === 1 ? " waits" : "s wait"} until you start distribution from Customers › Board`);
   const reason = parts.length > 0 ? `${parts.join("; ")}.` : "The board is clear.";
   return `Nothing is ready to start for ${brief.businessName}, so no cycle was planned. ${reason}`;
 }
@@ -161,7 +161,7 @@ export function approvalDeferral(task: BriefTask): string | null {
 }
 
 /** Why a channel task waits before the founder has started distribution (the mock planner uses the same words). */
-export const CHANNEL_WAITS_REASON = "distribution starts when you start it from Distribution › Board";
+export const CHANNEL_WAITS_REASON = "distribution starts when you start it from Customers › Board";
 
 /**
  * Channel work is held back in code, not left to the model (founder, 2026-10-18): until the business sells, every
