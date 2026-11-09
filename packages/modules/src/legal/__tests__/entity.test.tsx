@@ -4,6 +4,7 @@ import { act, fireEvent, screen, waitFor, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event";
 import { EntityScreen } from "../EntityScreen";
 import { createFakeSource, renderScreen } from "./fake-source";
+import { openExplainer } from "../../explainer.testing";
 import { BID, PERSON, dataResponses, emptyResponses, lookupResult } from "./fixtures";
 
 const props = { businessId: BID, departmentId: "d-legal" };
@@ -36,7 +37,8 @@ describe("EntityScreen", () => {
     const fake = createFakeSource({ businessId: BID, responses: dataResponses });
     const { unmount } = renderScreen(fake, <EntityScreen {...props} />, {}, { guidance: "on" });
     const facts = screen.getByRole("region", { name: "Legal entity" });
-    const explainer = facts.querySelector("[data-explainer='legal/entity']") as HTMLElement;
+    expect(facts.querySelector("[data-explainer='legal/entity']")).toBeTruthy();
+    const explainer = openExplainer("legal/entity");
     expect(within(explainer).getByText("The company itself: where it is registered, what it must file, what it has signed.")).toBeTruthy();
     expect(within(explainer).getByText("Information, not legal advice. Signing, filing and paying are always yours.")).toBeTruthy();
     expect(within(facts).getAllByRole("button", { name: "Jurisdiction" })[0]!.className).toContain("term-link");

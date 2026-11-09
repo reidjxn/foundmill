@@ -1,18 +1,21 @@
 "use client";
 /**
- * The per-screen intro (docs/UX_AUDIT_AND_PLAN.md §6.2 `Explainer`): a surface-2 strip inside the first panel's body,
- * never floating and never pushing the 40 px header. A BookOpen in kit-lift, three data labels (What this screen is
- * for / What to do here / Watch for) each with one body line, a ghost "Got it" and an optional ghost "Show me an
- * example". After "Got it" it collapses to one line with a chevron; the screen is remembered in
- * `account_preferences.explainers_seen` through `markExplainerSeen`. Guidance off: not rendered.
+ * The per-screen explanation (docs/UX_AUDIT_AND_PLAN.md §6.2 `Explainer`), now one "Explain this page" button per page
+ * instead of a banner on every tab. A screen still renders `<Explainer screenId purpose action watchFor onExample />`
+ * where it always did; the component registers those lines with the page (`PageExplainProvider`, mounted by the shell)
+ * and draws nothing in place. The shell's `ExplainPageButton` shows them on request. If two Explainers are mounted on
+ * one page, the last mounted wins; unmounting it hands the page back to the one below.
+ *
+ * Outside a provider (stories, isolated tests, the full-screen ideation studio) there is no button in a header to find,
+ * so the Explainer draws the same button and panel in place, which keeps it usable. Guidance off or not yet loaded:
+ * nothing, in both modes. The screen is remembered in `account_preferences.explainers_seen` when the panel is opened.
  */
-import { useId, useState, type HTMLAttributes, type ReactNode } from "react";
-import { BookOpen, Check, ChevronDown, ChevronUp, Eye } from "lucide-react";
+import { useEffect, useId, useMemo, useRef, type HTMLAttributes, type ReactNode } from "react";
 import { cn } from "../../lib/cn";
-import { Button } from "../foundation/Button";
-import { Icon } from "../foundation/Icon";
-import { IconButton } from "../foundation/IconButton";
-import { useGuidanceMode, useGuidanceProgress } from "./GuidanceProvider";
+import { ExplainTrigger } from "./ExplainPageButton";
+import { EXPLAINER_LABELS, usePageExplainSetters } from "./PageExplain";
+
+export { EXPLAINER_LABELS };
 
 export interface ExplainerProps extends Omit<HTMLAttributes<HTMLElement>, "children"> {
   /** The screen's stable id ("home", "inbox", "finance/runway"); the key in `explainersSeen`. */
@@ -27,83 +30,27 @@ export interface ExplainerProps extends Omit<HTMLAttributes<HTMLElement>, "child
   onExample?: () => void;
 }
 
-export const EXPLAINER_LABELS = { purpose: "What this screen is for", action: "What to do here", watchFor: "Watch for" } as const;
-
 export function Explainer({ screenId, purpose, action, watchFor, onExample, className, ...rest }: ExplainerProps) {
-  const { guidance, loaded, markExplainerSeen } = useGuidanceMode();
-  const { explainersSeen } = useGuidanceProgress();
-  const id = useId();
-  // Local state too: outside a provider (stories, tests) the actions are no-ops, and "Got it" still has to collapse.
-  const [dismissed, setDismissed] = useState(false);
-  const [reopened, setReopened] = useState(false);
-  // Not before the account has answered: an account with guidance off never sees an explainer flash in and out.
-  if (guidance !== "on" || !loaded) return null;
-  const seen = dismissed || explainersSeen[screenId] === true;
-  const collapsed = seen && !reopened;
-  const gotIt = () => {
-    setDismissed(true);
-    setReopened(false);
-    markExplainerSeen(screenId);
-  };
+  const setters = usePageExplainSetters();
+  const token = useId();
+  // A fresh arrow each render must not re-register the entry each time: the entry calls through a ref.
+  const exampleRef = useRef(onExample);
+  exampleRef.current = onExample;
+  const hasExample = Boolean(onExample);
+  const entry = useMemo(
+    () => ({ screenId, purpose, action, watchFor, onExample: hasExample ? () => exampleRef.current?.() : undefined }),
+    [screenId, purpose, action, watchFor, hasExample],
+  );
+  useEffect(() => {
+    if (!setters) return;
+    setters.register(token, entry);
+    return () => setters.unregister(token);
+  }, [setters, token, entry]);
 
-  if (collapsed)
-    return (
-      <section
-        aria-labelledby={`${id}-title`}
-        data-explainer={screenId}
-        data-state="collapsed"
-        data-coachmark="explainer"
-        className={cn("flex min-w-0 items-center gap-2 rounded-md bg-surface-2 py-1.5 pl-3 pr-1.5 text-primary", className)}
-        {...rest}
-      >
-        <Icon icon={BookOpen} size="inline" className="text-kit-lift" />
-        <span id={`${id}-title`} className="t-data shrink-0">
-          {EXPLAINER_LABELS.purpose}
-        </span>
-        <span className="min-w-0 flex-1 text-small text-secondary text-pretty">{purpose}</span>
-        <IconButton icon={ChevronDown} label="Show more about this screen" size="sm" aria-expanded={false} aria-controls={`${id}-body`} onClick={() => setReopened(true)} />
-      </section>
-    );
-
+  if (setters) return null;
   return (
-    <section
-      aria-labelledby={`${id}-title`}
-      data-explainer={screenId}
-      data-state="open"
-      data-coachmark="explainer"
-      className={cn("flex min-w-0 gap-3 rounded-md bg-surface-2 p-3 text-primary", className)}
-      {...rest}
-    >
-      <Icon icon={BookOpen} className="mt-0.5 text-kit-lift" />
-      <div id={`${id}-body`} className="flex min-w-0 flex-1 flex-col gap-3">
-        <dl className="grid min-w-0 grid-cols-explainer gap-x-6 gap-y-2">
-          <div className="min-w-0">
-            <dt id={`${id}-title`} className="t-data">
-              {EXPLAINER_LABELS.purpose}
-            </dt>
-            <dd className="mt-0.5 text-body text-pretty text-primary">{purpose}</dd>
-          </div>
-          <div className="min-w-0">
-            <dt className="t-data">{EXPLAINER_LABELS.action}</dt>
-            <dd className="mt-0.5 text-body text-pretty text-primary">{action}</dd>
-          </div>
-          <div className="min-w-0">
-            <dt className="t-data">{EXPLAINER_LABELS.watchFor}</dt>
-            <dd className="mt-0.5 text-body text-pretty text-primary">{watchFor}</dd>
-          </div>
-        </dl>
-        <div className="-mb-1 -ml-2.5 flex flex-wrap items-center gap-1">
-          <Button variant="ghost" size="sm" icon={Check} onClick={gotIt}>
-            Got it
-          </Button>
-          {onExample ? (
-            <Button variant="ghost" size="sm" icon={Eye} onClick={onExample}>
-              Show me an example
-            </Button>
-          ) : null}
-          {seen ? <IconButton icon={ChevronUp} label="Show less about this screen" size="sm" aria-expanded aria-controls={`${id}-body`} className="ml-auto" onClick={() => setReopened(false)} /> : null}
-        </div>
-      </div>
-    </section>
+    <div className={cn("flex min-w-0", className)} {...rest}>
+      <ExplainTrigger entry={entry} />
+    </div>
   );
 }

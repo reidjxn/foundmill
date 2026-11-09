@@ -75,12 +75,12 @@ export const TEXT_SIZE_OPTIONS: readonly SegmentedOption<TextSize>[] = [
 ];
 
 /** What the switch changes, for the InfoTip beside it ("About what guidance changes"). */
-export const WHAT_GUIDANCE_CHANGES = "The intro on each screen, the first-week checklist, the coach marks and the dotted underline under defined words. Keyboard caps on buttons show only when it is off; the shortcuts work either way.";
+export const WHAT_GUIDANCE_CHANGES = "The “Explain this page” button on each screen, the first-week checklist, the coach marks and the dotted underline under defined words. Keyboard caps on buttons show only when it is off; the shortcuts work either way.";
 
 /** The reassurance under the switch; hidden with guidance off, like every reassurance line. */
 export const GUIDANCE_REASSURANCE = "You can switch this any time.";
 
-/** Which reset buttons have something to undo: the checklist once it was dismissed; the tour once a tour or an intro was seen. */
+/** Which reset buttons have something to undo: the checklist once it was dismissed; the tour once a tour was done or a page was explained. */
 export function resettable(prefs: Pick<GuidancePrefs, "explainersSeen" | "toursDone" | "checklistDismissedAt">): { checklist: boolean; tour: boolean } {
   return {
     checklist: prefs.checklistDismissedAt !== null,
@@ -94,7 +94,7 @@ export type GuidanceChange = "guidance" | "textSize" | "reset";
 export function guidanceSavedLine(saved: Pick<GuidancePrefs, "guidance" | "textSize">, changed: GuidanceChange): { title: string; description: string } {
   if (changed === "guidance") {
     return saved.guidance === "on"
-      ? { title: "Guidance on", description: "Intros, defined words and the first-week checklist show as you go." }
+      ? { title: "Guidance on", description: "The Explain this page button, defined words and the first-week checklist show as you go." }
       : { title: "Guidance off", description: "Consequences, provenance and Estimate labels still show. Turn it on again any time from here." };
   }
   if (changed === "textSize") {
@@ -102,7 +102,7 @@ export function guidanceSavedLine(saved: Pick<GuidancePrefs, "guidance" | "textS
       ? { title: "Comfortable text", description: "Body text reads a little larger, in every business." }
       : { title: "Standard text", description: "Body text is back to its usual size, in every business." };
   }
-  return { title: "Starting over", description: "The intros, the first-week checklist and the tours show again." };
+  return { title: "Starting over", description: "The unread dots on Explain this page, the first-week checklist and the tours show again." };
 }
 
 /** The Guidance section (plan §6.3): the switch, the text size and the two resets, each with one line of help. */
@@ -150,7 +150,7 @@ export function GuidanceSection() {
             </InfoTip>
           </div>
           <p id="guidance-switch-hint" className="text-small text-secondary">
-            An intro on each screen, defined words you can hover, the first-week checklist and the tours.
+            An “Explain this page” button on each screen, defined words you can hover, the first-week checklist and the tours.
           </p>
           <ReassuranceLine data-testid="guidance-reassurance">{GUIDANCE_REASSURANCE}</ReassuranceLine>
         </div>
@@ -169,7 +169,7 @@ export function GuidanceSection() {
             Replay the tour
           </Button>
         </div>
-        <p className="text-small text-secondary">Either one puts the intros, the checklist and the tours back to the first day.</p>
+        <p className="text-small text-secondary">Either one puts the unread dots on “Explain this page”, the checklist and the tours back to the first day.</p>
       </div>
     </SettingsSection>
   );

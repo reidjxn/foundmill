@@ -4,6 +4,7 @@ import { act, fireEvent, screen, waitFor, within } from "@testing-library/react"
 import { ChangesScreen, PROPOSAL_LIST_BUDGET, PROPOSAL_VIEWS, proposalColumns } from "../ChangesScreen";
 import { SIMPLE_VIEW_ID } from "../shared";
 import { createFakeSource, renderScreen } from "./fake-source";
+import { openExplainer } from "../../explainer.testing";
 import { BID, HUNK, PROPOSAL, dataResponses, emptyResponses, proposalAnnual, proposals } from "./fixtures";
 
 const departments = [{ id: "d1", name: "Product", slug: "product", colourToken: "dept-1", position: 0, moduleKeys: ["product"], lead: null, squad: [], tabs: [{ id: "t1", slug: "specification", title: "Specification", position: 1 }] }];
@@ -13,7 +14,7 @@ describe("ChangesScreen", () => {
   it("guidance on: the intro says what a proposal is, the list opens on Simple and the words are defined (UX plan §7.11)", () => {
     const fake = createFakeSource({ businessId: BID, responses });
     renderScreen(fake, <ChangesScreen businessId={BID} departmentId="d1" />, {}, { guidance: "on" });
-    const explainer = document.querySelector("[data-explainer='product/changes']") as HTMLElement;
+    const explainer = openExplainer("product/changes");
     expect(within(explainer).getByText("An agent suggests an edit; nothing changes until you accept it.")).toBeTruthy();
     expect(screen.getByRole("button", { name: /^View: Simple/ })).toBeTruthy();
     const table = screen.getByRole("grid", { name: "Change proposals" });

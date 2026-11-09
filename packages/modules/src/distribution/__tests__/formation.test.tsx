@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { FormationScreen } from "../FormationScreen";
 import { createFakeSource, renderScreen } from "./fake-source";
+import { openExplainer } from "../../explainer.testing";
 import { BID, CAMPAIGN, CHANNEL, channelsList, dataResponses, emptyResponses, recommendResponse } from "./fixtures";
 
 // The Strategist re-scores right after a toggle here; rescore.test.tsx covers the two-second wait.
@@ -14,17 +15,16 @@ describe("FormationScreen", () => {
     const fake = createFakeSource({ businessId: BID, responses: dataResponses });
     renderScreen(fake, <FormationScreen {...props} />, { guidance: "on" });
     const panel = screen.getByRole("region", { name: "Board" });
-    const explainer = panel.querySelector("[data-explainer='distribution/board']") as HTMLElement;
-    expect(explainer).toBeTruthy();
+    expect(panel.querySelector("[data-explainer='distribution/board']")).toBeTruthy();
+    const explainer = openExplainer("distribution/board");
     expect(within(explainer).getByText("How customers will find you.")).toBeTruthy();
     expect(within(explainer).getByText("Cost per customer is an Estimate until the ad platform reports which customers it actually brought.")).toBeTruthy();
     const caption = screen.getByTestId("board-caption");
     expect(caption.textContent).toBe("Fit 1–20: how well a channel suits this business, scored by the Distribution Strategist. Closer to the center means a better fit.");
     expect(within(caption).getByRole("button", { name: "Fit" }).className).toContain("term-link");
     expect(within(panel).getByRole("button", { name: "About Board" })).toBeTruthy();
-    // "Got it" collapses the intro to one line.
-    fireEvent.click(within(explainer).getByRole("button", { name: "Got it" }));
-    expect((panel.querySelector("[data-explainer='distribution/board']") as HTMLElement).getAttribute("data-state")).toBe("collapsed");
+    // No banner and no "Got it": the explanation lives behind the one button.
+    expect(screen.queryByRole("button", { name: "Got it" })).toBeNull();
   });
 
   it("guidance off: no intro, the caption's words are plain", () => {
