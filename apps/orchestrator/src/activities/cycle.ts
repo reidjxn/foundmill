@@ -8,10 +8,11 @@ import { agentUsable, buildSystemPrompt, getPrompt, getTemplate, modelBillingFac
 import { APP_NAME } from "@foundmill/config";
 import { repos } from "@foundmill/db";
 import { CyclePlanOutput } from "@foundmill/models";
-import { PLANNABLE_TASK_STATUSES, uuid } from "@foundmill/shared";
+import { PLANNABLE_TASK_STATUSES, uuid, type ModelBilling } from "@foundmill/shared";
 import { ComposerRequestError, ComposerUnavailableError } from "../composer-client";
 import { CYCLE_PLAN_FAILURE, type PlanFailureDetails } from "../cycle-contract";
 import type { OrchestratorDeps } from "../deps";
+import type { BusinessModelClient } from "../models";
 import { requestJourneyDailyRefresh } from "../journey-refresh";
 import { agentActor, emitEvent, systemActor } from "../events";
 import { foldDuplicates, loadDispatchFacts } from "./brief";
@@ -63,14 +64,32 @@ export const PLAN_PAYLOAD_TASKS = 60;
  * refused request are final at once (non-retryable `CYCLE_PLAN_FAILURE`, readable message); anything else (a rate limit,
  * an outage, an unreadable answer) is returned unchanged so Temporal retries it as before.
  */
-export function planFailure(err: unknown): unknown {
+export function planFailure(err: unknown, billedTo: ModelBilling = "byok"): unknown {
   const billing = modelBillingFacts(err);
   if (billing) return ApplicationFailure.create({ type: CYCLE_PLAN_FAILURE, message: modelBillingMessage(billing, "This cycle's plan"), nonRetryable: true, details: [{ kind: "billing", billedTo: billing.billedTo, reason: billing.reason } satisfies PlanFailureDetails] });
   const e = err as { name?: unknown; code?: unknown; apiErrorType?: unknown } | null;
   if (e?.name !== "ModelRequestError") return err;
-  if (e.apiErrorType === "missing_api_key") return ApplicationFailure.create({ type: CYCLE_PLAN_FAILURE, message: "This cycle's plan could not run: this business works on its own Anthropic key and none is stored. Add one in Settings › Keys, then press Continue.", nonRetryable: true, details: [{ kind: "credential" } satisfies PlanFailureDetails] });
-  if (e.code === "auth") return ApplicationFailure.create({ type: CYCLE_PLAN_FAILURE, message: "This cycle's plan could not run: Anthropic refused the key. Check the key in Settings › Keys, then press Continue.", nonRetryable: true, details: [{ kind: "credential" } satisfies PlanFailureDetails] });
+  // A missing key is only ever the business's own: the platform client cannot be built without one.
+  if (e.apiErrorType === "missing_api_key") return ApplicationFailure.create({ type: CYCLE_PLAN_FAILURE, message: "This cycle's plan could not run: this business works on its own Anthropic key and none is stored. Add one in Settings › Keys, then press Continue.", nonRetryable: true, details: [{ kind: "credential", billedTo: "byok" } satisfies PlanFailureDetails] });
+  if (e.code === "auth") {
+    // Whose key was refused decides who can mend it (Nov 9, 2026): a business on credits has no key to check, so it is
+    // told the platform's account refused, as the billing sentence does, and the operator is alerted (notePlanFailure).
+    const message = billedTo === "byok" ? "This cycle's plan could not run: Anthropic refused the key. Check the key in Settings › Keys, then press Continue." : `This cycle's plan could not run: the model account that runs ${APP_NAME} refused its key. Our team has been alerted, and nothing was charged to your credits. Try again later.`;
+    return ApplicationFailure.create({ type: CYCLE_PLAN_FAILURE, message, nonRetryable: true, details: [{ kind: "credential", billedTo } satisfies PlanFailureDetails] });
+  }
   return ApplicationFailure.create({ type: CYCLE_PLAN_FAILURE, message: "This cycle's plan could not run: the model service refused the request. Press Continue to try again; if it happens again, the team has the details.", nonRetryable: true, details: [{ kind: "request" } satisfies PlanFailureDetails] });
+}
+
+/** Whose key a business's planning call runs on: the routed client says; a plain client is the platform's. */
+async function billedToOf(models: OrchestratorDeps["models"], businessId: string): Promise<ModelBilling> {
+  const routed = models as Partial<BusinessModelClient>;
+  if (typeof routed.routeFor !== "function") return "credits";
+  try {
+    return (await routed.routeFor(businessId)).billedTo;
+  } catch {
+    // The route cannot be read only when the business's own key is missing.
+    return "byok";
+  }
 }
 
 /**
@@ -352,8 +371,8 @@ export function createCycleActivities(deps: OrchestratorDeps) {
         scope: `cycle:${input.businessId}`,
         attribution: { businessId: input.businessId, agentId: chiefAgent?.id, kind: "cycle_plan" },
       })
-      .catch((err: unknown) => {
-        throw planFailure(err);
+      .catch(async (err: unknown) => {
+        throw planFailure(err, await billedToOf(deps.models, input.businessId));
       });
     const plan = result.json;
     const byId = new Map(shown.map((t) => [t.id, t]));
@@ -503,6 +522,7 @@ export function createCycleActivities(deps: OrchestratorDeps) {
     async notePlanFailure(input: { businessId: string; cycleNumber: number; message: string; details: PlanFailureDetails | null }): Promise<{ inboxItemIds: string[] }> {
       const kind = input.details?.kind ?? "error";
       if (kind === "billing" && input.details?.billedTo !== "byok") deps.log.error({ alert: "model_billing", businessId: input.businessId, cycleNumber: input.cycleNumber, reason: input.details?.reason }, "cycle not planned: Anthropic refused to bill the platform key");
+      else if (kind === "credential" && input.details?.billedTo === "credits") deps.log.error({ alert: "model_credential", businessId: input.businessId, cycleNumber: input.cycleNumber }, "cycle not planned: Anthropic refused the platform key");
       else deps.log.warn({ businessId: input.businessId, cycleNumber: input.cycleNumber, kind }, "cycle not planned");
       const chief = await repos.agents.chiefOfStaff(deps.db, input.businessId);
       const inboxItemIds: string[] = [];

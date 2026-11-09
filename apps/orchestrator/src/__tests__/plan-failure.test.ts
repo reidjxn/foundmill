@@ -52,9 +52,20 @@ describe("planCycle failures", () => {
     const missing = (await planWith(new ModelRequestError("no key", undefined, "missing_api_key"))) as ApplicationFailure;
     expect(missing).toMatchObject({ type: CYCLE_PLAN_FAILURE, nonRetryable: true });
     expect(missing.message).toMatch(/none is stored\. Add one in Settings › Keys/);
-    expect(missing.details?.[0]).toEqual({ kind: "credential" });
-    const refused = planFailure(new ModelRequestError("bad key", 401, "authentication_error")) as ApplicationFailure;
-    expect(refused.details?.[0]).toEqual({ kind: "credential" });
+    expect(missing.details?.[0]).toEqual({ kind: "credential", billedTo: "byok" });
+    const refused = planFailure(new ModelRequestError("bad key", 401, "authentication_error"), "byok") as ApplicationFailure;
+    expect(refused.details?.[0]).toEqual({ kind: "credential", billedTo: "byok" });
+    expect(refused.message).toMatch(/Anthropic refused the key\. Check the key in Settings › Keys/);
+    // A business on credits has no key to check (Nov 9, 2026: Commutair read "check the key in Settings › Keys" when the
+    // platform key was the one Anthropic refused): it hears the platform's account refused, as the billing sentence says.
+    const platformRefused = planFailure(new ModelRequestError("bad key", 401, "authentication_error"), "credits") as ApplicationFailure;
+    expect(platformRefused.details?.[0]).toEqual({ kind: "credential", billedTo: "credits" });
+    expect(platformRefused.message).toMatch(/^This cycle's plan could not run: the model account that runs .+ refused its key\. Our team has been alerted, and nothing was charged to your credits\./);
+    expect(platformRefused.message).not.toMatch(/Settings › Keys/);
+    // Through planCycle the routed client says whose key it was: the harness business runs on credits.
+    const viaPlan = (await planWith(new ModelRequestError("bad key", 401, "authentication_error"))) as ApplicationFailure;
+    expect(viaPlan.details?.[0]).toEqual({ kind: "credential", billedTo: "credits" });
+    expect(viaPlan.message).not.toMatch(/Settings › Keys/);
     const outage = new ModelUnavailableError("Anthropic unavailable");
     expect(planFailure(outage)).toBe(outage);
     expect(await planWith(outage)).toBe(outage);
