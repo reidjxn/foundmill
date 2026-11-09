@@ -68,7 +68,10 @@ export function Hero() {
                 Starts with {INCLUDED_CREDITS} of included <Term id="credits">credits</Term> · no card
               </span>
             </Assurance>
-            <Assurance icon={Monitor}>A desktop app, built for focus</Assurance>
+            {/* Said where the button is, not only in the footer (first-time founder report, Nov 8, 2026: a 13-inch laptop at 125 % met the wall unannounced). */}
+            <Assurance icon={Monitor}>
+              <span data-testid="hero-desktop-only">Desktop only · 1280 px and wider</span>
+            </Assurance>
           </ul>
         </div>
         <div className="flex w-full flex-col gap-5">

@@ -45,7 +45,9 @@ describe("doors copy (§7.4, A8)", () => {
 
 describe("the example door (§12 item 5)", () => {
   it("says what it is for, that nothing is saved, and what pressing it does", () => {
-    expect(EXAMPLE_DOOR).toMatchObject({ id: "example", kicker: "Example", title: "Explore an example", lede: "Walk around a running business before you start yours. Nothing you do there is saved.", cta: "Open the example" });
+    expect(EXAMPLE_DOOR).toMatchObject({ id: "example", kicker: "Example", title: "Explore an example", lede: "Walk around a business two years in, with paying customers and a team at full stretch. Your first weeks will look like its Day one, much smaller. Nothing you do there is saved.", cta: "Open the example" });
+    // The example is introduced, never passed off as a forecast of the founder's own first weeks (first-time founder report, Nov 8, 2026).
+    expect(EXAMPLE_DOOR.steps.some((s) => /not a forecast of yours/.test(s))).toBe(true);
   });
 
   it("shows only when the deployment has an example the founder does not belong to for real", () => {

@@ -112,7 +112,7 @@ test.describe("the example business, as an example viewer", () => {
     const door = page.getByTestId("door-example");
     await expect(door).toBeVisible();
     await expect(door).toHaveAttribute("data-example-business", NORTHWIND_BUSINESS_ID);
-    await expect(page.locator("[data-door='example']")).toContainText("Walk around a running business before you start yours. Nothing you do there is saved.");
+    await expect(page.locator("[data-door='example']")).toContainText("Walk around a business two years in, with paying customers and a team at full stretch. Your first weeks will look like its Day one, much smaller. Nothing you do there is saved.");
     await door.click();
     await page.waitForURL(new RegExp(`/b/${NORTHWIND_BUSINESS_ID}/today$`), { timeout: LONG });
     await expect(page.getByTestId("app-shell")).toBeVisible({ timeout: LONG });

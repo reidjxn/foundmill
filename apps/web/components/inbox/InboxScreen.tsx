@@ -28,7 +28,7 @@ import { RefreshFailedNotice, loadFailed, refreshFailed } from "@/components/she
 import { InboxList, type InboxListRow } from "./InboxList";
 import { InboxTour } from "./InboxTour";
 import { ReadingPane } from "./ReadingPane";
-import { INBOX_TAB_LABELS, OLDER_PAGE_REUSE_MS, REFRESH_DEBOUNCE_MS, agentIndex, inboxTabs, itemIdFromPath, mergeFirstPage, neighbourId, parseInboxTab, refreshGate, rowModel, type InboxTab } from "./logic";
+import { INBOX_TAB_LABELS, OLDER_PAGE_REUSE_MS, REFRESH_DEBOUNCE_MS, agentIndex, inboxTabs, inboxTourStarts, itemIdFromPath, mergeFirstPage, neighbourId, parseInboxTab, refreshGate, rowModel, type InboxTab } from "./logic";
 
 /** Fresh for minutes while the business's event channel keeps the inbox current, 10 s otherwise. */
 const INBOX_LIST_STALE = streamAwareStaleTime(10_000);
@@ -72,6 +72,11 @@ export function InboxScreen({ itemId: routeItemId }: InboxScreenProps) {
   const live = data.business.gameMode === "live";
   const tab = parseInboxTab(search.get("tab"), live);
   const selectedId = itemIdFromPath(pathname) ?? routeItemId ?? null;
+  // The tour waits for a moment with the list in front and no note open, then stays (see `inboxTourStarts`).
+  const [tourStarted, setTourStarted] = useState(false);
+  useEffect(() => {
+    if (inboxTourStarts(selectedId, tourStarted)) setTourStarted(true);
+  }, [selectedId, tourStarted]);
 
   // --- list --------------------------------------------------------------------------------------------------------
   // The shell refetches the inbox on every event that adds or settles an item; polling every 30 s while the business's
@@ -243,8 +248,9 @@ export function InboxScreen({ itemId: routeItemId }: InboxScreenProps) {
           </EmptyState>
         )}
       </section>
-      {/* The first-visit tour (once per account, guidance on). */}
-      <InboxTour />
+      {/* The first-visit tour (once per account, guidance on). It starts from the list, never over a note the founder
+          opened first (first-time founder report, Nov 8, 2026); once started it stays through the notes they open. */}
+      {tourStarted ? <InboxTour /> : null}
     </div>
   );
 }

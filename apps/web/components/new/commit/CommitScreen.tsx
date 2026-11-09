@@ -416,6 +416,9 @@ export function CommitForm({ idea, viewer, currency, initialName, suggestedArche
   // Domains: the registry's answer for the name's candidates, asked once the name settles. A newer name cancels the
   // request in flight and an answer for an older name is dropped, so a slow reply never overwrites a newer list.
   const [domainList, setDomainList] = useState<{ name: string; rows: DomainCheck[] } | null>(null);
+  // When this browser received the answer: the registry's own `checkedAt` can be a cached or a mock time ("Checked
+  // 9:00 AM" at 2:50 PM, first-time founder report, Nov 8, 2026); what the founder wants to know is how fresh the list is.
+  const [checkedClientAt, setCheckedClientAt] = useState<Date | null>(null);
   const [retrying, setRetrying] = useState<ReadonlySet<string>>(new Set());
   const { formatTime } = useFormatters();
   useEffect(() => {
@@ -434,11 +437,15 @@ export function CommitForm({ idea, viewer, currency, initialName, suggestedArche
     const t = setTimeout(() => {
       domainApi.check({ name }, controller.signal).then(
         (rows) => {
-          if (!controller.signal.aborted) setDomainList({ name, rows });
+          if (controller.signal.aborted) return;
+          setDomainList({ name, rows });
+          setCheckedClientAt(new Date());
         },
-        // The call itself failed (not one registry): every row says so, nothing is guessed.
+        // The call itself failed (not one registry): every row says so, nothing is guessed, and nothing was checked.
         () => {
-          if (!controller.signal.aborted) setDomainList({ name, rows: couldNotCheck(candidates) });
+          if (controller.signal.aborted) return;
+          setDomainList({ name, rows: couldNotCheck(candidates) });
+          setCheckedClientAt(null);
         },
       );
     }, DEBOUNCE_MS);
@@ -456,6 +463,8 @@ export function CommitForm({ idea, viewer, currency, initialName, suggestedArche
     setRetrying((r) => new Set(r).add(domain));
     const settle = (row: DomainCheck) => {
       setDomainList((cur) => (cur && cur.name === name ? { name, rows: cur.rows.map((r) => (r.domain === domain ? row : r)) } : cur));
+      // A retry that answered counts as a check; one the checker could not answer does not.
+      if (row.checkedAt) setCheckedClientAt(new Date());
       setRetrying((r) => {
         const next = new Set(r);
         next.delete(domain);
@@ -468,7 +477,8 @@ export function CommitForm({ idea, viewer, currency, initialName, suggestedArche
     );
   }
   const domainProvenances = (["Registry", "DNS", "Mock"] as const).filter((p) => domainList?.rows.some((r) => r.provenance === p));
-  const lastChecked = domainList?.rows.reduce<string | null>((latest, r) => (r.checkedAt && (!latest || r.checkedAt > latest) ? r.checkedAt : latest), null) ?? null;
+  // The moment this list was received here, not the registry's stamp (see `checkedClientAt`); nothing until a list is in.
+  const lastChecked = domainList && domainList.rows.length ? checkedClientAt : null;
 
   const suggestions = useMemo(() => nameSuggestions(idea.current?.title ?? idea.title, idea.current?.pitch ?? idea.pitch, idea.archetype), [idea]);
   const generateWith = useCallback<LogoActions["generate"]>((round, onProgress, signal) => logoApi.generate({ name: form.name, colours: form.kit, archetype: form.archetype, round }, onProgress, signal), [logoApi, form.name, form.kit, form.archetype]);

@@ -100,8 +100,10 @@ export const EXAMPLE_DOOR: Door = {
   icon: Compass,
   kicker: "Example",
   title: "Explore an example",
-  lede: "Walk around a running business before you start yours. Nothing you do there is saved.",
-  steps: ["Open a running example business as a viewer: Home, the Inbox, every department and its agents", "Read what the team drafted and how it reports back", "Nothing you do there is saved: the team does no work and no decision is taken", "Leave it from Your businesses, or start your own from its top bar"],
+  // What the founder is about to see, before they see it (first-time founder report, Nov 8, 2026): a business two years
+  // in, with paying customers and spend to match; their own first weeks look like Day one on Home, much smaller.
+  lede: "Walk around a business two years in, with paying customers and a team at full stretch. Your first weeks will look like its Day one, much smaller. Nothing you do there is saved.",
+  steps: ["Open a running example business as a viewer: Home, the Inbox, every department and its agents", "Read what the team drafted and how it reports back; its spend and customer figures are the example's, not a forecast of yours", "Nothing you do there is saved: the team does no work and no decision is taken", "Leave it from Your businesses, or start your own from its top bar"],
   cta: "Open the example",
 };
 

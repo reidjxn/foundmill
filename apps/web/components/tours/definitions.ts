@@ -51,7 +51,8 @@ export const HOME_TOUR: TourDefinition = {
 export const INBOX_TOUR: TourDefinition = {
   id: "inbox",
   steps: [
-    { targetId: "inbox-pane", title: "Notes from the team", body: "Notes land in this list; the tag on each one says what kind of note it is.", side: "right" },
+    // At the list's foot, not its head (first-time founder report, Nov 8, 2026): the card sat over the top of the note being read.
+    { targetId: "inbox-pane", title: "Notes from the team", body: "Notes land in this list; the tag on each one says what kind of note it is.", side: "right", align: "end" },
     { targetId: "reading-pane", title: "The note", body: "A note says the fact, why it matters and what it asks.", side: "left" },
     { targetId: "decision-bar", title: "Your decision", body: "Every option says what it costs and whether you can undo it.", side: "top" },
     { targetId: "decision-ask", title: "Ask the agent", body: "Talk it through before you decide.", side: "top", align: "end" },
