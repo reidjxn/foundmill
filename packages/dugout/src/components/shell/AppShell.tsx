@@ -145,6 +145,12 @@ export interface AppShellProps extends Omit<HTMLAttributes<HTMLDivElement>, "tit
   processing: AppShellProcessing;
   tabs?: TabBarProps;
   breadcrumbs?: BreadcrumbItem[];
+  /**
+   * The page's one "Ask <Chief of Staff>" control (`AskChiefOfStaff`), drawn beside "Explain this page" at the right end
+   * of the tab row; in the breadcrumb row on a page with breadcrumbs and no tabs; and in a thin row of its own on a page
+   * with neither, so every business page has exactly one. Omit when the business has no Chief of Staff.
+   */
+  pageActions?: ReactNode;
   rightRail?: AppShellRightRail;
   /** Universal search. Without it the search trigger calls `keyboard.onSearch`‐style fallbacks only. */
   search?: AppShellSearch;
@@ -270,6 +276,7 @@ export const AppShell = forwardRef<HTMLDivElement, AppShellProps>(function AppSh
     processing,
     tabs,
     breadcrumbs,
+    pageActions,
     rightRail,
     search,
     onSearch,
@@ -443,6 +450,7 @@ export const AppShell = forwardRef<HTMLDivElement, AppShellProps>(function AppSh
                 <>
                   {tabs.trailing}
                   {lineText !== null ? <ProcessingLine text={lineText} notice={notice !== null} /> : null}
+                  {pageActions}
                   {/* The page's one "Explain this page" button, at the right end of the tab row; nothing until a screen registered. */}
                   <ExplainPageButton />
                 </>
@@ -452,8 +460,19 @@ export const AppShell = forwardRef<HTMLDivElement, AppShellProps>(function AppSh
           {breadcrumbs && breadcrumbs.length > 0 ? (
             <div className="rule-under flex h-control-md shrink-0 items-center px-gutter">
               <Breadcrumbs items={breadcrumbs} />
-              {/* A page with breadcrumbs and no tab row keeps the button here, so there is still exactly one. */}
-              {tabs ? null : <ExplainPageButton className="ml-auto" />}
+              {/* A page with breadcrumbs and no tab row keeps the buttons here, so there is still exactly one of each. */}
+              {tabs ? null : (
+                <div className="ml-auto flex items-center gap-1">
+                  {pageActions}
+                  <ExplainPageButton />
+                </div>
+              )}
+            </div>
+          ) : null}
+          {/* A page with neither row: a thin row of its own for the Ask control, so no page is without it. */}
+          {pageActions && !tabs && !(breadcrumbs && breadcrumbs.length > 0) ? (
+            <div className="rule-under flex h-control-md shrink-0 items-center justify-end px-gutter" data-testid="page-actions-row">
+              {pageActions}
             </div>
           ) : null}
           <div className="flex min-h-0 flex-1">

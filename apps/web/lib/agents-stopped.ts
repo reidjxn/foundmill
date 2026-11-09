@@ -3,6 +3,7 @@
  * revoked key, used-up credits), the kill switch in the top bar turns into Resume agents with the reason, the time
  * and what else brings the team back by itself. Owners and admins resume; everyone else sees why.
  */
+import { AGENT_STOP_REASON_WORDS } from "@foundmill/shared/chief-answers";
 import type { AgentStopReason, MembershipRole } from "@foundmill/shared/constants";
 
 export interface AgentsStoppedView {
@@ -13,11 +14,8 @@ export interface AgentsStoppedView {
   hint: string | null;
 }
 
-const REASON: Record<AgentStopReason, string> = {
-  kill_switch: "Stop all agents was pressed",
-  key_revoked: "the Anthropic key was revoked",
-  credits_exhausted: "this month's credits ran out",
-};
+// The same words the Chief of Staff's answers use (packages/shared chief-answers.ts).
+const REASON: Record<AgentStopReason, string> = AGENT_STOP_REASON_WORDS;
 
 const HINT: Record<AgentStopReason, string | null> = {
   kill_switch: null,

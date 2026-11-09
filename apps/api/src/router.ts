@@ -23,6 +23,7 @@ import { liveRouter } from "./routers/live";
 import { productRouter } from "./routers/product";
 import { teamRouter } from "./routers/team";
 import { todayRouter } from "./routers/today";
+import { chiefOfStaffRouter } from "./routers/chief-of-staff";
 import { conversationRouter } from "./routers/conversation";
 import { createCallerFactory, mergeRouters, publicProcedure, router } from "./trpc";
 
@@ -42,6 +43,7 @@ export const appRouter = router({
   product: productRouter,
   goal: goalRouter,
   today: todayRouter,
+  chiefOfStaff: chiefOfStaffRouter,
   dev: devRouter,
   distribution: distributionRouter,
   finance: financeRouter,
