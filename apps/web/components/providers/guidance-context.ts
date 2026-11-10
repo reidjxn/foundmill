@@ -4,7 +4,7 @@
  * providers (GuidanceRoot) can provide the signed-out defaults without shipping the definitions map: this module never
  * imports `@foundmill/shared/terms`. GuidanceHost re-exports everything here, so callers import from either.
  */
-import { createContext, useContext } from "react";
+import { createContext, useContext, useMemo } from "react";
 import type { GuidanceOffSource } from "@foundmill/shared/constants";
 import { DEFAULT_AGENT_STYLE, isAgentStyle, type AgentStyle } from "@foundmill/shared/personas";
 import { isFounderPath } from "@/lib/auth/redirects";
@@ -46,7 +46,7 @@ export function useGuidanceSignal(): GuidanceSignalFn {
 }
 
 /** What everyone reads until the account answers, and on every signed-out page. */
-export const DEFAULT_GUIDANCE_PREFS: Readonly<GuidancePrefs> = Object.freeze({ guidance: "on", textSize: "standard", explainersSeen: {}, toursDone: {}, checklistDismissedAt: null, anthropomorphicAgents: false, agentStyle: DEFAULT_AGENT_STYLE });
+export const DEFAULT_GUIDANCE_PREFS: Readonly<GuidancePrefs> = Object.freeze({ guidance: "on", textSize: "standard", explainersSeen: {}, toursDone: {}, checklistDismissedAt: null, anthropomorphicAgents: false, agentStyle: DEFAULT_AGENT_STYLE, builderView: false });
 
 /** True on the pages the proxy reserves for a signed-in founder; `/` is the landing page for a visitor, so it is not one. */
 export function isSignedInPath(pathname: string | null | undefined): boolean {
@@ -70,6 +70,11 @@ export interface GuidancePreferencesApi {
   saving: boolean;
   /** False on a signed-out page: nothing is read, nothing can be saved, everything reads as the default. */
   signedIn: boolean;
+  /**
+   * False while a signed-in account's answer is still on its way (the values above are the defaults until then). Missing
+   * reads as true (a fake in a story or a test).
+   */
+  loaded?: boolean;
 }
 
 /** Outside a signed-in layout: the defaults, nothing saved, no signal. */
@@ -91,4 +96,33 @@ export function useGuidancePreferences(): GuidancePreferencesApi {
   const ctx = useContext(GuidancePreferencesCtx);
   if (!ctx) throw new Error("useGuidancePreferences must be used inside <GuidanceHost>");
   return ctx;
+}
+
+/** The toast after Builder view is saved (Settings › Preferences, and the gated tab's "Turn on Builder view"). */
+export function builderViewSavedLine(on: boolean): { title: string; description: string } {
+  return on
+    ? { title: "Builder view on", description: "How the platform runs the team now shows, in every business." }
+    : { title: "Builder view off", description: "The technical details are hidden again, in every business." };
+}
+
+/** The account's Builder view switch, whether it is known yet, and a way to change it. */
+export interface BuilderViewPreference {
+  /** Builder view is on (false until the account answers, and on every signed-out page). */
+  on: boolean;
+  /** The account's answer has arrived (a builder-only route shows a skeleton until then, never the gate). */
+  loaded: boolean;
+  /** Saves the switch for the account, in every business; rejects when the save fails (it is rolled back). */
+  setOn: (on: boolean) => Promise<GuidancePrefs>;
+}
+
+/**
+ * Builder view as the app reads and changes it (docs/DESIGN.md "Builder view"). The design system's `useBuilderView()`
+ * reads the same value from the BuilderViewProvider GuidanceHost mounts; this hook adds `loaded` and the save. Outside
+ * a host it reads off, loaded, and saving rejects.
+ */
+export function useBuilderViewPreference(): BuilderViewPreference {
+  const api = useContext(GuidancePreferencesCtx) ?? SIGNED_OUT_GUIDANCE;
+  const { prefs, save } = api;
+  const loaded = api.loaded ?? true;
+  return useMemo(() => ({ on: prefs.builderView === true, loaded, setOn: (on: boolean) => save({ builderView: on }) }), [prefs.builderView, loaded, save]);
 }

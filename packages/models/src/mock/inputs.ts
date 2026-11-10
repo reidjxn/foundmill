@@ -281,6 +281,80 @@ export function keywords(text: string, max = 8): string[] {
   return order.sort((a, b) => (counts.get(b) ?? 0) - (counts.get(a) ?? 0) || order.indexOf(a) - order.indexOf(b)).slice(0, max);
 }
 
+/**
+ * What a founder's brief says, read the way a careful reader would (first-time founder report, Nov 8, 2026: the mock
+ * cards and foundations used to invent an audience while the founder had named one). Pure pattern matching on the
+ * founder's own sentences, so every phrase returned is the founder's; nothing is added.
+ *
+ * - `audiences`: the people named before a struggle ("Students at my university struggle to…", "cafes and bars near
+ *   campus struggle to…"), or after "for" / "helps" / "serving".
+ * - `outcomes`: what they struggle, want or need to do ("find short-notice part-time shifts").
+ * - `mechanism`: the sentence that says what the product is ("a simple app that matches verified students to…").
+ */
+export interface BriefFacts {
+  audiences: string[];
+  outcomes: string[];
+  mechanism: string | null;
+  /** True when at least one audience or outcome was read from the brief. */
+  specific: boolean;
+}
+
+const STRUGGLE_RE = /\b(?:struggles?|cannot|can't|can not|find it hard|finds it hard|are tired of|is tired of|wastes?|loses?|lack|lacks|need|needs|want|wants|have to|has to|spend|spends)\b/i;
+const OUTCOME_RE = /\b(?:struggles?|find it hard|finds it hard|need|needs|want|wants|have|has)\s+to\s+([^.,;]+?)(?=\s+(?:and|but|because|while|so)\b|[.,;]|$)|\b(?:cannot|can't|can not)\s+([^.,;]+?)(?=\s+(?:and|but|because|while|so)\b|[.,;]|$)/i;
+const FOR_RE = /\b(?:for|helps?|helping|serving|aimed at|built for|made for)\s+((?:[a-z][a-z'-]*\s+){0,7}?[a-z][a-z'-]*)(?=\s+(?:who|that|to|by|in|at|with|around|near|without|send|get|find|keep|see|stop|turn|prove|run|save|ship|sell|book|learn|reach|match|connect|cut|replace|manage|track|plan|pay|hire|build|write|fill|spend)\b|[,.;]|$)/i;
+const MECHANISM_RE = /\b(?:an?|the|one)\s+(?:[a-z-]+\s+){0,3}?(?:app|platform|service|marketplace|tool|newsletter|subscription|device|kit|agency|site|website|bot|course|community|box|network)\b[^.;]*/i;
+const LEAD_IN_RE = /^(?:i think|i believe|i've noticed|i have noticed|i noticed|it seems|many|most|lots of|a lot of|some|so many|every|most of the|the)\s+/i;
+const STOP_AUDIENCE_RE = /^(?:i|we|it|this|that|there|they|you|people who|someone|anyone)\b/i;
+/** A phrase after "for" or "helps" counts as an audience only when it names people or places people run (never a product: "a subscription for refillable skincare"). */
+const PEOPLE_RE =
+  /\b(?:people|folks|founders?|students?|teams?|owners?|parents?|tutors?|users?|customers?|clients?|clinics?|caf[eé]s?|bars?|pubs?|shops?|stores?|restaurants?|businesses|companies|firms?|startups?|freelancers?|creators?|developers?|managers?|professionals?|instructors?|technicians?|accountants?|operators?|renters?|tenants?|landlords?|runners?|investors?|nurses?|teachers?|workers?|families|hotels?|venues?|gyms?|agencies|studios?|brands?|retailers?|sellers?|buyers?|drivers?|artists?|musicians?|coaches|dentists?|doctors?|lawyers?|schools?|universities|charities|non-?profits?|organi[sz]ations?|employees|staff|employers?|recruiters?|hosts?|guests?|travell?ers|patients|members|subscribers|readers|listeners|players|gamers|growers|farmers|makers|builders|engineers|designers|marketers|consultants|advisors|practices?|salons?|bakeries|breweries|roasters|couriers|fleets|who)\b/i;
+
+const cleanPhrase = (s: string, maxWords: number): string => {
+  const t = s
+    .replace(/\s+/g, " ")
+    .replace(/^[\s,;:-]+|[\s,;:.-]+$/g, "")
+    .replace(LEAD_IN_RE, "")
+    .trim();
+  const w = t.split(" ");
+  return (w.length > maxWords ? w.slice(0, maxWords).join(" ") : t).trim();
+};
+
+export function briefFacts(text: string): BriefFacts {
+  const audiences: string[] = [];
+  const outcomes: string[] = [];
+  const push = (list: string[], value: string, min = 2) => {
+    const v = value.trim();
+    if (v.split(" ").length < min || v.length < 4) return;
+    if (!list.some((x) => x.toLowerCase() === v.toLowerCase())) list.push(v);
+  };
+  const sentences = text
+    .replace(/\s+/g, " ")
+    .split(/(?<=[.!?])\s+/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+  for (const sentence of sentences) {
+    // "<audience> struggle(s) to <outcome>", also after "and": "…, and local cafes and bars near campus struggle to fill…".
+    for (const clause of sentence.split(/,\s*(?:and|while|but)\s+|;\s*/i)) {
+      const m = STRUGGLE_RE.exec(clause);
+      const subject = m && m.index > 0 ? cleanPhrase(clause.slice(0, m.index), 8).replace(/^[A-Z]/, (c) => c.toLowerCase()) : "";
+      // "I want to build an app…" is the founder's intention, not a customer's struggle: neither an audience nor an outcome.
+      const founderSpeaking = !subject || STOP_AUDIENCE_RE.test(subject);
+      if (subject && !founderSpeaking) push(audiences, subject);
+      const o = OUTCOME_RE.exec(clause);
+      const outcome = o?.[1] ?? o?.[2];
+      if (outcome && !founderSpeaking) push(outcomes, cleanPhrase(outcome, 7).replace(/^[A-Z]/, (c) => c.toLowerCase()));
+    }
+    const f = FOR_RE.exec(sentence);
+    if (f?.[1]) {
+      const who = cleanPhrase(f[1], 7).toLowerCase();
+      if (!STOP_AUDIENCE_RE.test(who) && !/^(?:a|an|the|this|it|me|us|them|example)\b/.test(who) && PEOPLE_RE.test(who)) push(audiences, who);
+    }
+  }
+  const mech = MECHANISM_RE.exec(text.replace(/\s+/g, " "));
+  const mechanism = mech ? cleanPhrase(mech[0], 24).replace(/^[A-Z]/, (c) => c.toLowerCase()) : null;
+  return { audiences: audiences.slice(0, 4), outcomes: outcomes.slice(0, 4), mechanism, specific: audiences.length > 0 || outcomes.length > 0 };
+}
+
 export const titleCase = (s: string): string => s.replace(/(^|[\s-_])([a-z])/g, (_, sep: string, ch: string) => sep + ch.toUpperCase());
 export const sentenceCase = (s: string): string => (s ? s.charAt(0).toUpperCase() + s.slice(1) : s);
 export const truncate = (s: string, max: number): string => (s.length <= max ? s : `${s.slice(0, Math.max(0, max - 1)).trimEnd()}…`);

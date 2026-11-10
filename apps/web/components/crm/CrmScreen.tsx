@@ -17,12 +17,15 @@ import { useTableViews } from "@/lib/table-views";
 import { errorMessage } from "@/lib/trpc";
 import { useBusiness } from "@/components/shell/business-context";
 import { useShellChrome } from "@/components/shell/chrome";
+import { useAreaTabBar } from "@/components/shell/useAreaNav";
+import { AreaOpening } from "@foundmill/modules/areas";
 import { MergeDialog, NewEntityDialog } from "./dialogs";
 import { CRM_VIEWS, KIND_WORD, LAWFUL_BASIS_LABEL, RETENTION_COPY, STAGE_TONE, groupByForView, groupCounts, groupLabel, loadedSummary, nextActiveHit, roleWord, sourceWord, stageWord, type CrmRow, type OwnerRef } from "./logic";
 import { formatNumber, plainWords } from "@/lib/format";
 import { KIND_LABELS, chip, chipsToOperators, crmFilterFields, matchOwner, mergeChips, operatorValueWord, parseCrmQuery, type CrmFilterField } from "./search";
 import { useEntityIndex } from "./useEntityIndex";
 import { OnNetworkResults } from "@/components/live/public-search";
+import { emptyWhy } from "@foundmill/shared/empty-why";
 
 const IMPORTERS = [
   { key: "affinity", name: "Affinity" },
@@ -46,7 +49,8 @@ export function CrmScreen() {
   const trpc = useTRPC();
   const router = useRouter();
   // "Contacts" is the word a first-timer expects (founder decision 2026-10-20, item 1); operators find CRM in the palette.
-  useShellChrome({ title: "Contacts" });
+  const areaTabs = useAreaTabBar("customers", "crm");
+  useShellChrome({ title: "Contacts", tabs: areaTabs }, [areaTabs]);
 
   // --- search box state ---------------------------------------------------------------------------------------------
   const [raw, setRaw] = useState("");
@@ -156,6 +160,8 @@ export function CrmScreen() {
 
   return (
     <div className="grid grid-cols-12 gap-gutter p-gutter" data-testid="crm-screen" data-mode={index.mode}>
+      {/* The Customers area's opening line, first on each of its tabs (docs/DESIGN.md §9). */}
+      <AreaOpening area="customers" className="col-span-12" />
       {/* search ------------------------------------------------------------------------------------------------------ */}
       <div className="col-span-12 flex flex-col gap-2" data-testid="crm-search">
         <Popover open={popoverOpen} onOpenChange={setOpen}>
@@ -283,7 +289,7 @@ export function CrmScreen() {
         loading={index.loading && index.rows.length === 0}
         error={index.error ? errorMessage(index.error) : undefined}
         onRetry={index.refetch}
-        empty={!index.loading && !index.error && index.rows.length === 0 ? { icon: Database, children: index.mode === "search" ? "Nothing matches. Try fewer words, an email or a domain, or clear the filters." : "People and organizations arrive from imports, integrations and agents' work. Add one by hand or connect an importer.", action: canCreate ? { label: "New record", icon: UserRoundPlus, onClick: () => setNewOpen(true) } : undefined } : undefined}
+        empty={!index.loading && !index.error && index.rows.length === 0 ? { icon: Database, children: index.mode === "search" ? "Nothing matches. Try fewer words, an email or a domain, or clear the filters." : emptyWhy("contacts").text, action: canCreate ? { label: "New record", icon: UserRoundPlus, onClick: () => setNewOpen(true) } : undefined } : undefined}
         footer={
           <span className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1">
             <span className="tabular-nums text-primary" data-testid="crm-loaded">

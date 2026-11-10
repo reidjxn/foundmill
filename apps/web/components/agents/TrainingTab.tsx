@@ -7,7 +7,7 @@
  * with the cost estimate (`estimate` → `run`) → progress while the live version keeps working → TrainingResults
  * (old → new per skill) → Promote / Discard → 7-day watch banner with one-click rollback (`rollback`).
  *
- * The three-step strip at the top is the guided layer's Explainer (UX plan §7.15 C5): dismissible with "Got it",
+ * The three steps are the guided layer's Explainer (UX plan §7.15 C5), shown behind the shell's "Explain this page" button,
  * remembered per account, never rendered with guidance off.
  */
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";

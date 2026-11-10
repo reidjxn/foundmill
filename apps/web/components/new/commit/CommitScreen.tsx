@@ -1,4 +1,5 @@
 "use client";
+import Link from "next/link";
 /**
  * /new/commit/[ideaId] — the Commit screen (BUILD §11.1; AC-11.1.6, AC-11.1.7; docs/UX_AUDIT_AND_PLAN.md §7.6). Name
  * with suggestions, live domain availability (the registry's answer through `idea.domainCheck`) and the trademark
@@ -20,7 +21,7 @@ import { CREDITS_CURRENCY, includedCreditsMinor } from "@foundmill/config";
 import { ARCHETYPES, ARCHETYPE_LABELS, type Archetype, type BusinessMode, type DeptColourToken, type GameMode } from "@foundmill/shared";
 import { DEFAULT_AGENT_STYLE, type AgentStyle } from "@foundmill/shared/personas";
 import { routes } from "@foundmill/widgets/shared/routes";
-import { AgentStylePicker, Avatar, Button, Checkbox, Chip, ConceptCard, EmptyState, Field, Input, Label, MoneyInput, Panel, ProvenanceChip, RadioGroup, RadioGroupItem, ReassuranceLine, SkeletonRows, StatusPill, Switch, Term, cn, fieldDescribedBy, formatMoney, useDateFormat, useFormatters, useGuided, useToast, type Kit } from "@foundmill/dugout";
+import { AgentStylePicker, Avatar, Button, Checkbox, Chip, ConceptCard, EmptyState, Field, Icon, Input, Label, MoneyInput, Panel, ProvenanceChip, RadioGroup, RadioGroupItem, ReassuranceLine, SkeletonRows, StatusPill, Switch, Term, cn, fieldDescribedBy, formatMoney, useDateFormat, useFormatters, useGuided, useToast, type Kit } from "@foundmill/dugout";
 import { ANTHROPOMORPHIC_EXPLAINER } from "@/lib/anthropomorphic";
 import { formatDate, formatMoney as formatCredits, plainWords, plural } from "@/lib/format";
 import { agentStyleOf, useGuidancePreferences } from "@/components/providers/guidance-context";
@@ -306,6 +307,55 @@ export function archetypeParam(value: string | null | undefined): Archetype | nu
   return value && (ARCHETYPES as readonly string[]).includes(value) ? (value as Archetype) : null;
 }
 
+type PreviewDepartment = { slug: string; name: string; baseName?: string };
+type PreviewAgent = { templateKey: string; layer: string; background?: boolean; wageCapMinor: number; wageCurrency?: string };
+
+/** The standard name of a department the archetype renamed ("Product" for "Editorial"), or null when it keeps its name. */
+export function renamedDepartment(d: PreviewDepartment): string | null {
+  return d.baseName && d.baseName !== d.name ? d.baseName : null;
+}
+
+export function renamedDepartments(departments: readonly PreviewDepartment[]): PreviewDepartment[] {
+  return departments.filter((d) => renamedDepartment(d) !== null);
+}
+
+/** "A content and media business calls its Product department Editorial; it does the same work." */
+export function departmentRenameNote(departments: readonly PreviewDepartment[], archetype: Archetype | null): string {
+  const renamed = renamedDepartments(departments);
+  if (!renamed.length) return "";
+  // A plain label loses its capital mid-sentence ("a marketplace business"); an acronym keeps it ("a B2B SaaS business").
+  const label = archetype ? ARCHETYPE_LABELS[archetype] : "";
+  const kind = label ? `${/^[A-Z][a-z]/.test(label) ? `${label.charAt(0).toLowerCase()}${label.slice(1)}` : label} business` : "this kind of business";
+  const parts = renamed.map((d) => `its ${renamedDepartment(d)} department ${d.name}`);
+  return `A ${kind} calls ${parts.join(" and ")}; ${renamed.length === 1 ? "it does" : "they do"} the same work.`;
+}
+
+/** The agents a founder sees: the platform's background helpers stay off the list, as on the Team screen. */
+export function visibleAgents<A extends PreviewAgent>(agents: readonly A[]): A[] {
+  return agents.filter((a) => !(a.background ?? a.layer === "utility"));
+}
+
+/** "6 agents · 6 departments · 4 channels on · plus 2 background helpers". */
+export function teamCountsLine(preview: { agents: readonly PreviewAgent[]; departments: readonly unknown[]; defaultChannels: readonly unknown[] }): string {
+  const visible = visibleAgents(preview.agents);
+  const helpers = preview.agents.length - visible.length;
+  return `${plural(visible.length, "agent")} · ${plural(preview.departments.length, "department")} · ${plural(preview.defaultChannels.length, "channel")} on${helpers ? ` · plus ${plural(helpers, "background helper")}` : ""}`;
+}
+
+/**
+ * What the team's wage caps add up to a month, in the credits' own currency (wages are model credits, counted in US
+ * dollars whatever the business counts in; the business's currency is named when it differs so nobody adds them up).
+ */
+export function monthlyWageLine(agents: readonly PreviewAgent[], businessCurrency: string): string {
+  const visible = visibleAgents(agents);
+  const total = visible.reduce((s, a) => s + (a.wageCapMinor > 0 ? a.wageCapMinor : 0), 0);
+  const wageCurrency = visible.find((a) => a.wageCurrency)?.wageCurrency ?? "USD";
+  if (total <= 0) return "No wage caps are set yet: the team costs what its work costs, in credits.";
+  const amount = formatCredits({ amountMinor: total, currency: wageCurrency });
+  const note = wageCurrency !== businessCurrency ? ` Wages are counted in ${wageCurrency === "USD" ? "US dollars" : wageCurrency}, not in your ${businessCurrency}.` : "";
+  return `Up to ${amount} a month in wage caps: the most the team can spend on its own work before it pauses.${note}`;
+}
+
 /** The color an agent wears in the Day one list: its own department's, as on Home and Team (never its place in the list). */
 export function departmentColour(preview: { departments: readonly { slug: string; colourToken: DeptColourToken }[] }, departmentSlug: string | null | undefined): DeptColourToken {
   return preview.departments.find((d) => d.slug === departmentSlug)?.colourToken ?? preview.departments[0]?.colourToken ?? "dept-1";
@@ -366,6 +416,9 @@ export function CommitForm({ idea, viewer, currency, initialName, suggestedArche
   // Domains: the registry's answer for the name's candidates, asked once the name settles. A newer name cancels the
   // request in flight and an answer for an older name is dropped, so a slow reply never overwrites a newer list.
   const [domainList, setDomainList] = useState<{ name: string; rows: DomainCheck[] } | null>(null);
+  // When this browser received the answer: the registry's own `checkedAt` can be a cached or a mock time ("Checked
+  // 9:00 AM" at 2:50 PM, first-time founder report, Nov 8, 2026); what the founder wants to know is how fresh the list is.
+  const [checkedClientAt, setCheckedClientAt] = useState<Date | null>(null);
   const [retrying, setRetrying] = useState<ReadonlySet<string>>(new Set());
   const { formatTime } = useFormatters();
   useEffect(() => {
@@ -384,11 +437,15 @@ export function CommitForm({ idea, viewer, currency, initialName, suggestedArche
     const t = setTimeout(() => {
       domainApi.check({ name }, controller.signal).then(
         (rows) => {
-          if (!controller.signal.aborted) setDomainList({ name, rows });
+          if (controller.signal.aborted) return;
+          setDomainList({ name, rows });
+          setCheckedClientAt(new Date());
         },
-        // The call itself failed (not one registry): every row says so, nothing is guessed.
+        // The call itself failed (not one registry): every row says so, nothing is guessed, and nothing was checked.
         () => {
-          if (!controller.signal.aborted) setDomainList({ name, rows: couldNotCheck(candidates) });
+          if (controller.signal.aborted) return;
+          setDomainList({ name, rows: couldNotCheck(candidates) });
+          setCheckedClientAt(null);
         },
       );
     }, DEBOUNCE_MS);
@@ -406,6 +463,8 @@ export function CommitForm({ idea, viewer, currency, initialName, suggestedArche
     setRetrying((r) => new Set(r).add(domain));
     const settle = (row: DomainCheck) => {
       setDomainList((cur) => (cur && cur.name === name ? { name, rows: cur.rows.map((r) => (r.domain === domain ? row : r)) } : cur));
+      // A retry that answered counts as a check; one the checker could not answer does not.
+      if (row.checkedAt) setCheckedClientAt(new Date());
       setRetrying((r) => {
         const next = new Set(r);
         next.delete(domain);
@@ -418,7 +477,8 @@ export function CommitForm({ idea, viewer, currency, initialName, suggestedArche
     );
   }
   const domainProvenances = (["Registry", "DNS", "Mock"] as const).filter((p) => domainList?.rows.some((r) => r.provenance === p));
-  const lastChecked = domainList?.rows.reduce<string | null>((latest, r) => (r.checkedAt && (!latest || r.checkedAt > latest) ? r.checkedAt : latest), null) ?? null;
+  // The moment this list was received here, not the registry's stamp (see `checkedClientAt`); nothing until a list is in.
+  const lastChecked = domainList && domainList.rows.length ? checkedClientAt : null;
 
   const suggestions = useMemo(() => nameSuggestions(idea.current?.title ?? idea.title, idea.current?.pitch ?? idea.pitch, idea.archetype), [idea]);
   const generateWith = useCallback<LogoActions["generate"]>((round, onProgress, signal) => logoApi.generate({ name: form.name, colours: form.kit, archetype: form.archetype, round }, onProgress, signal), [logoApi, form.name, form.kit, form.archetype]);
@@ -438,7 +498,9 @@ export function CommitForm({ idea, viewer, currency, initialName, suggestedArche
   const show = (key: keyof CommitFormValues) => (touched ? errors[key] : undefined);
   // A refused answer among the five controls opens them, so the founder sees what to fix.
   const runsOpen = (runsChosen ?? !guided) || (touched && Boolean(errors.archetype || errors.spendCap || errors.adult));
-  const modeLabel = BUSINESS_MODE_CARDS.find((m) => m.value === form.businessMode)?.label ?? form.businessMode;
+  const modeCard = BUSINESS_MODE_CARDS.find((m) => m.value === form.businessMode);
+  const modeLabel = modeCard?.label ?? form.businessMode;
+  const modeTagline = modeCard?.tagline ?? "";
 
   return (
     <StudioFrame
@@ -583,30 +645,47 @@ export function CommitForm({ idea, viewer, currency, initialName, suggestedArche
             }
           >
             <div className="flex flex-col gap-3">
-              <div className="flex flex-wrap items-center gap-1.5" role="list" aria-label="How it runs" data-testid="how-it-runs-summary">
-                <Chip role="listitem" tone={form.gameMode === "live" ? "kit" : "ink"} icon={form.gameMode === "live" ? Globe : Lock} data-summary="game-mode">
-                  {form.gameMode === "live" ? "Live" : "Personal"}
-                </Chip>
-                <Chip role="listitem" data-summary="business-mode">
-                  <Term id="business_mode">{modeLabel}</Term>
-                </Chip>
-                {form.archetype ? (
-                  <Chip role="listitem" data-summary="archetype">
-                    <Term id="archetype">{ARCHETYPE_LABELS[form.archetype]}</Term>
-                  </Chip>
-                ) : (
-                  <Chip role="listitem" tone="warn" data-summary="archetype">
-                    Pick an <Term id="archetype">archetype</Term>
-                  </Chip>
-                )}
-                <Chip role="listitem" data-summary="spend-cap">
-                  {spendCapSummary(form.spendCap, form.currency)}
-                </Chip>
-                <Chip role="listitem" data-summary="autopilot">
-                  <Term id="autopilot">Autopilot</Term>
-                  {form.autopilot ? " on" : " off"}
-                </Chip>
-              </div>
+              {/* Labeled lines, not a chip row (first-time founder report, Nov 8, 2026: "Personal · Assisted · Marketplace"
+                  meant nothing to a first-time founder): each choice says what it is about, then the answer. */}
+              <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1.5 text-body" aria-label="How it runs" data-testid="how-it-runs-summary">
+                <dt className="text-small text-secondary">Where it runs</dt>
+                <dd className="flex items-center gap-1.5 text-primary">
+                  <Icon icon={form.gameMode === "live" ? Globe : Lock} size="inline" className="text-tertiary" />
+                  <span data-summary="game-mode">{form.gameMode === "live" ? "Live" : "Personal"}</span>
+                  <span className="text-small text-secondary">{form.gameMode === "live" ? "· on the network, where other founders can find it" : "· only you and the people you invite see it"}</span>
+                </dd>
+                <dt className="text-small text-secondary">Who decides</dt>
+                <dd className="flex flex-wrap items-center gap-x-1.5 text-primary">
+                  <span data-summary="business-mode">
+                    <Term id="business_mode">{modeLabel}</Term>
+                  </span>
+                  <span className="text-small text-secondary">· {modeTagline}</span>
+                  <span className="text-small text-secondary">
+                    · <span data-summary="spend-cap">{spendCapSummary(form.spendCap, form.currency)}</span>
+                  </span>
+                </dd>
+                <dt className="text-small text-secondary">Kind of business</dt>
+                <dd className="flex flex-wrap items-center gap-x-1.5 text-primary">
+                  {form.archetype ? (
+                    <span data-summary="archetype">
+                      <Term id="archetype">{ARCHETYPE_LABELS[form.archetype]}</Term>
+                    </span>
+                  ) : (
+                    <span className="text-status-warn" data-summary="archetype">
+                      Pick an <Term id="archetype">archetype</Term>
+                    </span>
+                  )}
+                  <span className="text-small text-secondary">· decides which departments and agents you start with</span>
+                </dd>
+                <dt className="text-small text-secondary">On a schedule</dt>
+                <dd className="flex flex-wrap items-center gap-x-1.5 text-primary">
+                  <span data-summary="autopilot">
+                    <Term id="autopilot">Autopilot</Term>
+                    {form.autopilot ? " on" : " off"}
+                  </span>
+                  <span className="text-small text-secondary">{form.autopilot ? "· the team presses Continue for you" : "· the team works when you press Continue"}</span>
+                </dd>
+              </dl>
               <ReassuranceLine icon="settings" data-testid="reassure-how-it-runs">
                 {HOW_IT_RUNS_REASSURANCE}
               </ReassuranceLine>
@@ -743,18 +822,39 @@ export function CommitForm({ idea, viewer, currency, initialName, suggestedArche
         <aside className="col-span-4">
           <div className="sticky top-20 flex flex-col gap-gutter">
             <ConceptCard concept={{ ...concept, name: form.name.trim() || concept.name, kit: form.kit, logoSrc: form.logo?.dataUrl ?? null }} hideActions className="w-full" />
+            {/* Whose words the team builds from (first-time founder report, Nov 8, 2026): the founder's, or a drafted card they can still edit in the studio. */}
+            <p className="text-small text-secondary" data-testid="commit-words-note">
+              {concept.yourWords ? (
+                "The pitch is in your words. The team drafts the vision and the specification from them, keeping your audience, problem and place names as written."
+              ) : (
+                <>
+                  The pitch is the Ideation agent's draft. The team drafts the vision and the specification from it{concept.sample ? " (a sample card: add a model key for real drafts)" : ""}.{" "}
+                  <Link href="/new/ideate" className="text-link underline-offset-2 hover:underline">
+                    Edit it in your words first
+                  </Link>{" "}
+                  if it is not quite your idea.
+                </>
+              )}
+            </p>
             <Panel title="Day one" loading={previewLoading} empty={!form.archetype ? "Pick an archetype to see who gets hired." : undefined} data-testid="squad-preview">
               {preview ? (
                 <div className="flex flex-col gap-3">
                   <div className="flex flex-wrap gap-1.5" aria-label="Departments">
                     {preview.departments.map((d) => (
-                      <Chip key={d.slug} tone={d.colourToken}>
+                      <Chip key={d.slug} tone={d.colourToken} data-department-chip={d.slug}>
                         {d.name}
+                        {/* An archetype's own name for a standard department, said as such (first-time founder report: "Product became Editorial"). */}
+                        {renamedDepartment(d) ? <span className="text-tertiary"> · your {renamedDepartment(d)} department</span> : null}
                       </Chip>
                     ))}
                   </div>
+                  {renamedDepartments(preview.departments).length ? (
+                    <p className="text-small text-secondary" data-testid="department-rename-note">
+                      {departmentRenameNote(preview.departments, form.archetype)}
+                    </p>
+                  ) : null}
                   <ul className="flex flex-col divide-y divide-line-faint" aria-label="Team">
-                    {preview.agents.map((a) => (
+                    {visibleAgents(preview.agents).map((a) => (
                       <li key={a.templateKey} className="flex items-center gap-2 py-1.5 first:pt-0 last:pb-0" data-department={a.departmentSlug ?? undefined}>
                         <Avatar size={24} name={a.name} agent={{ seed: a.templateKey, dept: departmentColour(preview, a.departmentSlug) }} />
                         <div className="min-w-0 flex-1">
@@ -765,8 +865,13 @@ export function CommitForm({ idea, viewer, currency, initialName, suggestedArche
                       </li>
                     ))}
                   </ul>
-                  <p className="text-small text-secondary">
-                    {plural(preview.agents.length, "agent")} · {plural(preview.departments.length, "department")} · {plural(preview.defaultChannels.length, "channel")} on · wages are estimates until the first cycle
+                  <p className="text-small text-secondary" data-testid="squad-preview-counts">
+                    {teamCountsLine(preview)}
+                  </p>
+                  {/* The first money a founder sees about the team: what the wage caps add up to a month (first-time founder report). */}
+                  <p className="flex flex-wrap items-center gap-x-1.5 text-small text-secondary" data-testid="squad-preview-wages">
+                    <span>{monthlyWageLine(preview.agents, currency)}</span>
+                    <ProvenanceChip kind="estimate" appearance="word" />
                   </p>
                 </div>
               ) : null}

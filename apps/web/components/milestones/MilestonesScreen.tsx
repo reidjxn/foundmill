@@ -15,10 +15,13 @@ import { errorMessage } from "@/lib/trpc";
 import { useTRPC } from "@/lib/trpc-react";
 import { useBusiness, useBusinessCurrency } from "@/components/shell/business-context";
 import { useShellChrome } from "@/components/shell/chrome";
+import { useAreaTabBar } from "@/components/shell/useAreaNav";
+import { AreaOpening } from "@foundmill/modules/areas";
 import { ErrorPanel } from "@/components/shell/ErrorPanel";
 import { RefreshFailedNotice, loadFailed, refreshFailed } from "@/components/shell/QueryStates";
 import { ScreenSkeleton } from "@/components/shell/ScreenSkeleton";
 import { TIMELINE_KIND_WORD, milestoneForTrophy, otherMilestones, replayRefOf, shareText, trophyCards } from "./milestones";
+import { emptyWhy } from "@foundmill/shared/empty-why";
 
 const KIND_ICON = { release: Flag, decision: Gem, incorporation: Rocket, funding: Rocket, launch: Rocket, customer: Trophy, revenue: Trophy, trophy: Trophy } as const;
 
@@ -39,7 +42,8 @@ export function MilestonesScreen() {
   const others = useMemo(() => otherMilestones(milestones), [milestones]);
   const won = cards.filter((c) => c.achievedAt).length;
 
-  useShellChrome({ title: "Milestones" });
+  const areaTabs = useAreaTabBar("plan", "milestones");
+  useShellChrome({ title: "Milestones", tabs: areaTabs }, [areaTabs]);
 
   const [shareKey, setShareKey] = useState<string | null>(null);
   useEffect(() => {
@@ -100,6 +104,8 @@ export function MilestonesScreen() {
 
   return (
     <div className="grid grid-cols-12 gap-gutter p-gutter" data-testid="milestones-screen" data-won={won}>
+      {/* The Plan area's opening line, first on each of its tabs (docs/DESIGN.md §9). */}
+      <AreaOpening area="plan" className="col-span-12" />
       {refreshFailed(ribbonQ) ? <RefreshFailedNotice query={ribbonQ} className="col-span-12 flex items-center gap-2" /> : null}
       <Panel
         title="Customers and revenue"
@@ -118,7 +124,7 @@ export function MilestonesScreen() {
       >
         <TrophyCabinet trophies={cards} columns={4} onOpen={onOpen} onShare={live ? setShareKey : undefined} />
       </Panel>
-      <Panel title="Releases, decisions and launches" help="Every reached milestone links to its Customer Update, the replay of how that customer was won." meta={events.length ? plural(events.length, "milestone") : undefined} span={12} empty={events.length === 0 ? { icon: Flag, children: "Releases, decisions, incorporation, funding and launches appear here as they happen." } : undefined} data-testid="milestones-timeline">
+      <Panel title="Releases, decisions and launches" help="Every reached milestone links to its Customer Update, the replay of how that customer was won." meta={events.length ? plural(events.length, "milestone") : undefined} span={12} empty={events.length === 0 ? { icon: Flag, children: emptyWhy("milestones").text } : undefined} data-testid="milestones-timeline">
         <Timeline events={events} absolute />
       </Panel>
       <ShareDialog card={shareCard} businessName={data.business.name} onClose={() => setShareKey(null)} />

@@ -14,7 +14,6 @@ import {
   METRIC_DEFINITIONS,
   acquisitionCost,
   cashHistory,
-  financeSummarySentence,
   formatMonth,
   monthKey,
   monthStart,
@@ -42,6 +41,7 @@ import type { ChannelsListResponse, FinanceOverview, PnlResponse } from "./types
 import { runwayFigure, runwayWords } from "@foundmill/widgets/shared/runway";
 import { usePinToHomeMenu } from "@foundmill/widgets/shared/pin";
 import { CHANNEL_WINDOW_DAYS } from "@foundmill/shared/constants";
+import { emptyWhy } from "@foundmill/shared/empty-why";
 
 const TRAILING = 3;
 const HISTORY = 6;
@@ -197,8 +197,6 @@ export function OverviewScreen({ businessId }: ModuleScreenProps) {
   const months = useMemo(() => trailingMonths(now, HISTORY), [now]);
   const cur = data?.cash.currency || currency;
   const hasData = !!data && (data.cash.accounts > 0 || (data.revenue.monthly?.length ?? 0) > 0);
-  // The one plain sentence above the tiles, from the same figures the tiles show (UX plan §7.14).
-  const summary = data && hasData ? financeSummarySentence({ cashMinor: data.cash.amountMinor, accounts: data.cash.accounts, netBurnMinor: data.burn.netBurnMinor, runwayMonths: data.runway.months, currency: cur }) : null;
 
   const cashSeries = useMemo(() => {
     if (!data) return [];
@@ -249,19 +247,15 @@ export function OverviewScreen({ businessId }: ModuleScreenProps) {
         ) : data && !hasData ? (
           <>
             <Explainer {...FINANCE_EXPLAINER} className="mb-3" />
-            <EmptyState icon={Landmark} title="No bank or revenue data yet" action={{ label: "Connect a bank", icon: Landmark, onClick: () => navigate(routes.settings(businessId, "integrations")) }}>
-              Connect a bank account (Tink or Plaid) or Stripe and the tiles fill with cash, burn, runway and revenue.
+            <EmptyState icon={Landmark} title={emptyWhy("bank").title} action={{ label: "Connect a bank", icon: Landmark, onClick: () => navigate(routes.settings(businessId, "integrations")) }}>
+              {emptyWhy("bank").text}
             </EmptyState>
           </>
         ) : (
           <>
-            {/* The department's intro while guidance is on, then the one plain sentence the tiles add up to (UX plan §7.14). */}
+            {/* The department's intro while guidance is on. The plain sentence the tiles add up to is the Money area's
+                opening line above every tab (Nov 9, 2026), so the screen does not repeat it. */}
             <Explainer {...FINANCE_EXPLAINER} className="mb-3" />
-            {summary ? (
-              <p className="mb-2 max-w-reading text-body text-primary" data-testid="finance-summary">
-                {summary}
-              </p>
-            ) : null}
             {/* Three numbers first (cash, monthly spend, months left); the rest behind "More numbers". No Estimate chip
                 on the tiles: one sentence under them names the figures that are worked out (Nov 7, 2026). */}
             <div role="list" className="grid grid-cols-3 gap-px overflow-hidden rounded-panel border border-subtle bg-subtle" data-testid="finance-headline">
@@ -293,7 +287,7 @@ export function OverviewScreen({ businessId }: ModuleScreenProps) {
         error={overview.error ? overview.error.message : undefined}
         onRetry={overview.refetch}
         actions={cashSeries.length > 1 ? <ProvenanceChip kind="forecast" /> : undefined}
-        empty={data && !hasData ? "Cash history appears once a bank account is connected." : undefined}
+        empty={data && !hasData ? emptyWhy("cash_history").text : undefined}
         footer={<span>Actuals from bank balances walked back through monthly net cash; the dashed line is the Base forecast.</span>}
       >
         {cashSeries.length ? <LineChart label="Cash history and Base forecast" series={cashSeries} height={CHART_HEIGHT} yFormat={(v) => fmtAxisMoney(v, cur)} zeroBased={false} markX={monthStart(now, 0)} markLabel="This month" /> : null}
@@ -306,7 +300,7 @@ export function OverviewScreen({ businessId }: ModuleScreenProps) {
         error={overview.error ? overview.error.message : undefined}
         onRetry={overview.refetch}
         actions={flow.length ? <ProvenanceChip kind="estimate" /> : undefined}
-        empty={data && !hasData ? "Monthly inflows and outflows appear once transactions sync." : undefined}
+        empty={data && !hasData ? emptyWhy("cash_flow").text : undefined}
         footer={<span>{pnlLabelWords(pnl.data?.label)}</span>}
       >
         {flow.length ? <BarChart label="Net cash change by month" data={flow} height={CHART_HEIGHT} format={(v) => fmtAxisMoney(v, cur)} showValues /> : null}

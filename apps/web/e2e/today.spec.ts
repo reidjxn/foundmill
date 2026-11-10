@@ -36,6 +36,9 @@ test.describe("today", () => {
     await expect(today).toHaveAttribute("aria-current", "page");
     await expect(today).toHaveAttribute("aria-keyshortcuts", /G H/);
 
+    // A long-running business is past its first week: no timeline (it shows only in a business's first days).
+    await expect(page.getByTestId("first-week-timeline")).toHaveCount(0);
+
     // 1. Your goal: the seeded active goal, its progress bar and the pace sentence.
     const goal = page.getByTestId("goal-panel");
     await expect(goal.getByRole("heading", { name: "Your goal" })).toBeVisible();
@@ -101,6 +104,22 @@ test.describe("today", () => {
     const { bid } = await takeChargeToToday(page, `Playwright Today ${Date.now().toString(36)}`);
     await expect(page.getByTestId("today-screen")).toBeVisible({ timeout: LONG });
 
+    // Your first week: Day 1 is under way, the rest are planned with Estimate dates, and what you will be asked is said.
+    const timeline = page.getByTestId("first-week-timeline");
+    await expect(timeline).toBeVisible({ timeout: LONG });
+    await expect(timeline.locator("[data-first-week-step=day1]")).toHaveAttribute("data-state", "now");
+    await expect(timeline.locator("[data-first-week-step=days2to3]")).toHaveAttribute("data-state", "next");
+    await expect(timeline.locator("[data-first-week-step=days2to3] [data-first-week-when]")).toHaveText(/^[A-Z][a-z]{2} \d{1,2} – \d{1,2} \(Estimate\)$/);
+    await expect(timeline.locator("[data-first-week-step=week1]")).toContainText("Ready to start selling?");
+    await expect(timeline.locator("[data-first-week-step=day1]")).toContainText("sign off the specification and the roadmap");
+
+    // An empty area tab says what will fill it and when, not a bare "No leads".
+    await page.goto(`/b/${bid}/d/distribution/leads`);
+    await expect(page.getByText("No leads yet")).toBeVisible({ timeout: LONG });
+    await expect(page.getByText(/once the team starts selling, after you answer “Ready to start selling\?”/)).toBeVisible();
+    await page.goto(`/b/${bid}/today`);
+    await expect(page.getByTestId("today-screen")).toBeVisible({ timeout: LONG });
+
     // The goal waits for the Chief of Staff.
     const goal = page.getByTestId("goal-panel");
     await expect(goal).toHaveAttribute("data-goal", "waiting", { timeout: LONG });
@@ -118,12 +137,19 @@ test.describe("today", () => {
       await expect(needs.getByRole("button", { name: label })).toHaveCount(0, { timeout: LONG });
     }
 
+    // Both sign-offs answered: Day 1 is done with its real date and Days 2–3 is under way.
+    await untilOnToday(page, bid, async () => {
+      await expect(timeline.locator("[data-first-week-step=day1]")).toHaveAttribute("data-state", "done", { timeout: 10_000 });
+    });
+    await expect(timeline.locator("[data-first-week-step=day1] [data-first-week-when]")).toHaveText(/^Done [A-Z][a-z]{2} \d{1,2}$/);
+    await expect(timeline.locator("[data-first-week-step=days2to3]")).toHaveAttribute("data-state", "now");
+
     // A round of work after the roadmap's approval (one press of Continue: an in-process cycle step without Temporal).
     const idle = page.getByRole("button", { name: /^Continue$/ });
     await expect(idle).toBeVisible({ timeout: LONG });
     await dismissCoachmarks(page);
     await idle.click();
-    await expect(page.getByText(/Cycle started|One new note|Cycle resumed|already running/).first()).toBeVisible({ timeout: LONG });
+    await expect(page.getByText(/(cycle \d+|round of work) started|cannot run right now|(cycle \d+|round of work) resumed|already running/i).first()).toBeVisible({ timeout: LONG });
 
     // Today asks `goal.ensure` once per visit: the Chief of Staff's proposal, by its stored name (read from the page).
     await untilOnToday(page, bid, async () => {

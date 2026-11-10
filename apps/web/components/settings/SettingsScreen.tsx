@@ -65,13 +65,12 @@ function KeyStatusChip() {
   const { data } = useBusiness();
   const status = keyStatus(data.business);
   const { word, tone } = KEY_STATUS_WORDS[status];
+  // The chip's own accessible name says what the word is about; the entry's name stays "Keys" (first-time founder
+  // report, Nov 8, 2026: a hidden ", Anthropic key:" read as "Keys , Anthropic key: None" in the list).
   return (
-    <>
-      <span className="sr-only">, Anthropic key:</span>
-      <Chip tone={tone} className="ml-auto" data-testid="key-status" data-key-status={status}>
-        {word}
-      </Chip>
-    </>
+    <Chip tone={tone} className="ml-auto" aria-label={`Anthropic key: ${word}`} title={`Anthropic key: ${word}`} data-testid="key-status" data-key-status={status}>
+      {word}
+    </Chip>
   );
 }
 

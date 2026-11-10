@@ -10,7 +10,7 @@ import { repos } from "@foundmill/db";
 import { CyclePlanOutput } from "@foundmill/models";
 import { PLANNABLE_TASK_STATUSES, uuid, type ModelBilling } from "@foundmill/shared";
 import { ComposerRequestError, ComposerUnavailableError } from "../composer-client";
-import { CYCLE_PLAN_FAILURE, type PlanFailureDetails } from "../cycle-contract";
+import { CYCLE_NOT_FINISHED_SUBJECT, CYCLE_NOT_STARTED_SUBJECT, CYCLE_PLAN_FAILURE, type PlanFailureDetails } from "../cycle-contract";
 import type { OrchestratorDeps } from "../deps";
 import type { BusinessModelClient } from "../models";
 import { requestJourneyDailyRefresh } from "../journey-refresh";
@@ -127,7 +127,7 @@ export function idleSummary(brief: BusinessBrief, waiting: readonly BriefTask[])
   if (approvals > 0) parts.push(`${approvals} task${approvals === 1 ? " waits" : "s wait"} for your approval in the Inbox`);
   if (retrying > 0) parts.push(`${retrying} task${retrying === 1 ? " is" : "s are"} waiting to be retried or need${retrying === 1 ? "s" : ""} you to start ${retrying === 1 ? "it" : "them"} from the Plan`);
   if (byDeps > 0) parts.push(`${byDeps} task${byDeps === 1 ? " waits" : "s wait"} on earlier tasks`);
-  if (held > 0) parts.push(`${held} channel task${held === 1 ? " waits" : "s wait"} until you start distribution from Distribution › Board`);
+  if (held > 0) parts.push(`${held} channel task${held === 1 ? " waits" : "s wait"} until you start distribution from Customers › Board`);
   const reason = parts.length > 0 ? `${parts.join("; ")}.` : "The board is clear.";
   return `Nothing is ready to start for ${brief.businessName}, so no cycle was planned. ${reason}`;
 }
@@ -180,7 +180,7 @@ export function approvalDeferral(task: BriefTask): string | null {
 }
 
 /** Why a channel task waits before the founder has started distribution (the mock planner uses the same words). */
-export const CHANNEL_WAITS_REASON = "distribution starts when you start it from Distribution › Board";
+export const CHANNEL_WAITS_REASON = "distribution starts when you start it from Customers › Board";
 
 /**
  * Channel work is held back in code, not left to the model (founder, 2026-10-18): until the business sells, every
@@ -530,8 +530,8 @@ export function createCycleActivities(deps: OrchestratorDeps) {
         const item = await repos.inbox.createItem(deps.db, input.businessId, {
           type: "warning",
           from_agent_id: chief.id,
-          subject: `Cycle ${input.cycleNumber} did not start`.slice(0, 80),
-          body_md: `${input.message.trim()}\n\nNo new work started this cycle; work already under way carries on.`,
+          subject: CYCLE_NOT_STARTED_SUBJECT,
+          body_md: `${input.message.trim()}\n\nNo new work started in this round; work already under way carries on.`,
           status_strip: [],
           exhibit: { kind: "none", spec_ref: null },
           decision: null,
@@ -604,8 +604,8 @@ export function createCycleActivities(deps: OrchestratorDeps) {
           ? await repos.inbox.createItem(tx, input.businessId, {
               type: "warning",
               from_agent_id: chief.id,
-              subject: `Cycle ${input.cycleNumber} did not finish`,
-              body_md: `The cycle stopped because of an error: ${reason}. Nothing was lost; open work is still on the board. Press Continue to try again, and check Settings › Integrations or credits if it keeps happening.`,
+              subject: CYCLE_NOT_FINISHED_SUBJECT,
+              body_md: `The round of work stopped because of an error: ${reason}. Nothing was lost; open work is still on the board. Press Continue to try again, and check Settings › Integrations or credits if it keeps happening.`,
               status_strip: [],
               exhibit: { kind: "none", spec_ref: null },
               decision: null,

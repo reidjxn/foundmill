@@ -4,7 +4,7 @@
  * size, which screens' explainers were dismissed, which tours were done and whether the first-week checklist was put
  * away; (0067) whether agents show a persona's first name and AI-generated face (anthropomorphic agents, off by
  * default; off shows agents exactly as before); and (0069) which character style those names and faces are drawn in
- * (humans by default; ignored while the switch is off). Routers founder.preferences.get/guidance/update. A person with no
+ * (humans by default; ignored while the switch is off); and (0073) Builder view (off by default). Routers founder.preferences.get/guidance/update. A person with no
  * row reads the defaults (US dates, 12-hour times, guidance on, standard text, nothing seen), so reading never writes;
  * the first change creates the row.
  */
@@ -28,6 +28,11 @@ export interface GuidancePrefs {
   anthropomorphicAgents: boolean;
   /** The character style of those names and faces (0069): humans, 3D cartoon, 2D cartoon or fantasy. Default humans. */
   agentStyle: AgentStyle;
+  /**
+   * Builder view (0073): show how the platform runs the team (cycle numbers, tokens, ETAs, test counts, the Code, Health
+   * and Hierarchy tabs, ratings out of 20, technical columns). Default off: hidden, never rewritten.
+   */
+  builderView: boolean;
 }
 
 /**
@@ -43,7 +48,7 @@ export interface NotificationPreferences {
 export interface AccountPreferencesView extends DateFormatPrefs, GuidancePrefs, NotificationPreferences {}
 
 /** What everyone reads until they choose: guidance on, standard text, nothing seen, the checklist showing, agents as agents (humans when turned on). */
-export const DEFAULT_GUIDANCE_PREFS: Readonly<GuidancePrefs> = Object.freeze({ guidance: "on", textSize: "standard", explainersSeen: {}, toursDone: {}, checklistDismissedAt: null, anthropomorphicAgents: false, agentStyle: DEFAULT_AGENT_STYLE });
+export const DEFAULT_GUIDANCE_PREFS: Readonly<GuidancePrefs> = Object.freeze({ guidance: "on", textSize: "standard", explainersSeen: {}, toursDone: {}, checklistDismissedAt: null, anthropomorphicAgents: false, agentStyle: DEFAULT_AGENT_STYLE, builderView: false });
 
 /** Every kind of push on, amounts shown. */
 export const DEFAULT_NOTIFICATION_PREFERENCES: Readonly<NotificationPreferences> = Object.freeze({ notifications: { ...DEFAULT_NOTIFICATION_PREFS }, hideAmountsOnLockScreen: false });
@@ -81,6 +86,7 @@ export const AccountPreferencesPatch = z
     agentStyle: z.enum(AGENT_STYLES).optional(),
     notifications: NotificationMarks.optional(),
     hideAmountsOnLockScreen: z.boolean().optional(),
+    builderView: z.boolean().optional(),
     reset: z.literal(true).optional(),
   })
   .strict()
@@ -102,9 +108,10 @@ const columns = {
   agentStyle: accountPreferences.agentStyle,
   notifications: accountPreferences.notifications,
   hideAmountsOnLockScreen: accountPreferences.hideAmountsOnLockScreen,
+  builderView: accountPreferences.builderView,
 };
 
-type Row = Pick<typeof accountPreferences.$inferSelect, "guidance" | "textSize" | "explainersSeen" | "toursDone" | "checklistDismissedAt" | "anthropomorphicAgents" | "agentStyle" | "notifications" | "hideAmountsOnLockScreen"> & DateFormatPrefs;
+type Row = Pick<typeof accountPreferences.$inferSelect, "guidance" | "textSize" | "explainersSeen" | "toursDone" | "checklistDismissedAt" | "anthropomorphicAgents" | "agentStyle" | "notifications" | "hideAmountsOnLockScreen" | "builderView"> & DateFormatPrefs;
 
 function view(row: Row): AccountPreferencesView {
   return {
@@ -119,6 +126,7 @@ function view(row: Row): AccountPreferencesView {
     agentStyle: row.agentStyle ?? DEFAULT_AGENT_STYLE,
     notifications: notificationPrefsOf(row.notifications),
     hideAmountsOnLockScreen: row.hideAmountsOnLockScreen ?? false,
+    builderView: row.builderView ?? false,
   };
 }
 
@@ -136,7 +144,7 @@ export const preferencesRepo = {
   async update(db: Executor, userId: string, patch: AccountPreferencesPatch): Promise<AccountPreferencesView> {
     const v = parseInput(AccountPreferencesPatch, patch, "preferences");
     const dismissedAt = v.checklistDismissed === undefined ? undefined : v.checklistDismissed ? new Date() : null;
-    const scalars = defined({ dateFormat: v.date, timeFormat: v.time, guidance: v.guidance, textSize: v.textSize, anthropomorphicAgents: v.anthropomorphicAgents, agentStyle: v.agentStyle, hideAmountsOnLockScreen: v.hideAmountsOnLockScreen });
+    const scalars = defined({ dateFormat: v.date, timeFormat: v.time, guidance: v.guidance, textSize: v.textSize, anthropomorphicAgents: v.anthropomorphicAgents, agentStyle: v.agentStyle, hideAmountsOnLockScreen: v.hideAmountsOnLockScreen, builderView: v.builderView });
     // A first row starts from the defaults, so a reset has nothing to clear and a mark is the whole map.
     const insert = { userId, ...scalars, ...defined({ explainersSeen: v.explainersSeen, toursDone: v.toursDone, checklistDismissedAt: dismissedAt, notifications: v.notifications }) };
     const set = {

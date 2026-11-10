@@ -60,6 +60,34 @@ export async function openBusiness(page: Page, path = "home"): Promise<string> {
   return NORTHWIND_BUSINESS_ID;
 }
 
+/** The founder areas of the sidebar (docs/DESIGN.md §8): Plan, Customers, Money, Product, Team. */
+export type AreaKey = "plan" | "customers" | "money" | "product" | "team";
+
+/** An area's sidebar item (founder areas, 2026-11-09): departments are no longer sidebar items. */
+export function areaLink(page: Page, area: AreaKey): Locator {
+  return page.locator(`[data-testid=app-shell] nav [data-sidebar-item='area-${area}']`);
+}
+
+/**
+ * The base of a department's tabs ("/b/<id>/d/<slug>"). The sidebar lists areas, not departments, so a spec names the
+ * department by its slug; the seeded businesses keep the module keys as slugs (renames change only the names), and a
+ * module key whose department moved is forwarded by the department screen.
+ */
+export function departmentBase(slug: string, businessId = NORTHWIND_BUSINESS_ID): string {
+  return `/b/${businessId}/d/${slug}`;
+}
+
+/** The current area's tab bar ("Product tabs") and its "More detail" menu trigger. */
+export function areaTabBar(page: Page, areaLabel: string): Locator {
+  return page.getByRole("tablist", { name: `${areaLabel} tabs` });
+}
+
+/** Opens a tab that sits behind the tab bar's "More detail" menu (docs/DESIGN.md §9). */
+export async function openMoreDetail(page: Page, label: string | RegExp): Promise<void> {
+  await page.getByRole("button", { name: /^More detail/ }).click();
+  await page.getByTestId("more-detail-menu").getByRole("menuitem", { name: label }).click();
+}
+
 /**
  * React's parked copy of a streamed screen: the server sends the shell with a skeleton in the main region, then the
  * screen itself in a hidden `<div hidden id="S:0">` at the end of the body, and a reveal script moves it in once the
@@ -238,6 +266,26 @@ export async function restoreFounderProfile(api: APIRequestContext, before: Foun
   expect(res.ok(), `founder.profile.update answered ${res.status()}: ${await res.text()}`).toBe(true);
 }
 
+/**
+ * Turns the dev founder's Builder view on or off (docs/DESIGN.md "Builder view"; global-setup.ts starts every run with
+ * it off) and answers what it was, so a spec that needs the engine on can restore it in afterAll:
+ *   test.beforeAll(async ({ playwright }) => (before = await setBuilderView(playwright, true)));
+ *   test.afterAll(async ({ playwright }) => void (await setBuilderView(playwright, before)));
+ */
+export async function setBuilderView(playwright: PlaywrightWorkerArgs["playwright"], on: boolean): Promise<boolean> {
+  const api = await devApi(playwright);
+  try {
+    const read = await api.get("/trpc/founder.preferences.guidance");
+    expect(read.ok(), `founder.preferences.guidance answered ${read.status()}`).toBe(true);
+    const was = ((await read.json()) as { result: { data: { json: { builderView?: boolean } } } }).result.data.json.builderView === true;
+    const res = await api.post("/trpc/founder.preferences.update", { data: { json: { builderView: on } } });
+    expect(res.ok(), `founder.preferences.update answered ${res.status()}: ${await res.text()}`).toBe(true);
+    return was;
+  } finally {
+    await api.dispose();
+  }
+}
+
 export { DEMO_OWNER_DISPLAY_NAME, test, expect };
 
 /* ---------- The first days (founder, 2026-10-18) ---------- */
@@ -351,4 +399,17 @@ export async function openBoardQuestion(page: Page, bid: string, boardItemId: st
   await expect(page.getByTestId("decision-bar")).toHaveAttribute("data-state", "open", { timeout: LONG });
   expect(await page.getByTestId("decision-bar").getByRole("group", { name: "Options" }).getByRole("button").count()).toBeGreaterThanOrEqual(2);
   await expect(page.locator(`[data-inbox-row="${boardItemId}"]`)).toHaveAttribute("data-needs-answer", "true", { timeout: LONG });
+}
+
+/**
+ * Opens the page's "Explain this page" panel and returns it. The button carries the screen's id (`data-explainer`) and
+ * sits once in the shell's tab row (or inline on a full-screen page without a shell); the panel is a popover.
+ */
+export async function openExplainer(page: Page, screenId: string): Promise<Locator> {
+  const button = page.locator(`button[data-explainer='${screenId}']`);
+  await expect(button).toBeVisible({ timeout: LONG });
+  await button.click();
+  const panel = page.getByTestId("explain-page-panel");
+  await expect(panel).toBeVisible();
+  return panel;
 }

@@ -1,5 +1,14 @@
 import { expect, test, type Page, type PlaywrightWorkerArgs } from "@playwright/test";
-import { LONG, NORTHWIND_BUSINESS_ID, devApi, openBusiness } from "./helpers";
+import { LONG, NORTHWIND_BUSINESS_ID, devApi, openBusiness, openExplainer, setBuilderView } from "./helpers";
+
+// Builder view on for this file (it opens the Logs tab and reads the ratings out of 20); global-setup.ts starts every run with it off. Restored afterwards.
+let builderViewBefore = false;
+test.beforeAll(async ({ playwright }) => {
+  builderViewBefore = await setBuilderView(playwright, true);
+});
+test.afterAll(async ({ playwright }) => {
+  await setBuilderView(playwright, builderViewBefore);
+});
 
 /**
  * Agent profile (BUILD §11.10; AC-11.10.1 live version untouched until Promote, AC-11.10.5 ApplyScopeDialog on a
@@ -147,11 +156,11 @@ test.describe("agent profile", () => {
     const explainer = page.locator("[data-explainer='agent-training']");
     if (guided) {
       await expect(explainer).toBeVisible();
-      await expect(explainer).toContainText("Training tries new instructions on practice tests");
-      if ((await explainer.getAttribute("data-state")) === "open") {
-        await expect(explainer).toContainText("1 Edit the instructions · 2 Train (2–5 minutes) · 3 Promote if the scores improved");
-        await expect(explainer).toContainText("A drop of more than one point is highlighted");
-      }
+      const panel = await openExplainer(page, "agent-training");
+      await expect(panel).toContainText("Training tries new instructions on practice tests");
+      await expect(panel).toContainText("1 Edit the instructions · 2 Train (2–5 minutes) · 3 Promote if the scores improved");
+      await expect(panel).toContainText("A drop of more than one point is highlighted");
+      await page.keyboard.press("Escape");
       await expect(page.getByTestId("agent-training").locator("[data-term='training']").first()).toHaveClass(/term-link/);
     } else {
       await expect(explainer).toHaveCount(0);

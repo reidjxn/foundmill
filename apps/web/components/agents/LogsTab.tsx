@@ -104,7 +104,7 @@ export function LogsTab({ businessId, profile }: TabProps) {
       { id: "duration", accessorKey: "durationMs", header: "Duration", size: 100, cell: ({ getValue }) => formatDuration(getValue() as number), meta: { numeric: true } },
       { id: "model", accessorKey: "model", header: "Model", size: 100, cell: ({ row }) => <ModelChip model={row.original.model} />, meta: { filter: "select", filterOptions: ["opus", "sonnet", "haiku"].map((v) => ({ value: v, label: v })) } },
       // The header says "Tokens": the cell is the figure alone, so it never truncates ("449K toke…").
-      { id: "tokens", accessorKey: "tokens", header: "Tokens", size: 100, cell: ({ getValue }) => <span className="tabular-nums">{formatTokens(getValue() as number).replace(/\s*tokens?$/i, "")}</span>, meta: { numeric: true } },
+      { id: "tokens", accessorKey: "tokens", header: "Tokens", size: 100, cell: ({ getValue }) => <span className="tabular-nums">{formatTokens(getValue() as number).replace(/\s*tokens?$/i, "")}</span>, meta: { numeric: true, builderOnly: true } },
       { id: "cost", accessorKey: "costMinor", header: "Cost", size: 100, cell: ({ row }) => <span className="inline-flex items-center gap-1">{formatMoney({ amountMinor: row.original.costMinor, currency: row.original.currency })}</span>, meta: { numeric: true, csv: (r) => r.costMinor / 100 } },
       { id: "outcome", accessorKey: "outcome", header: "Outcome", size: 130, cell: ({ row }) => <StatusPill tone={OUTCOME_TONE[row.original.outcome] ?? "neutral"} pulse={row.original.live}>{row.original.live ? "Running" : outcomeWord(row.original.outcome)}</StatusPill>, meta: { filter: "select", filterOptions: Object.keys(OUTCOME_TONE).map((v) => ({ value: v, label: outcomeWord(v) })) } },
       {

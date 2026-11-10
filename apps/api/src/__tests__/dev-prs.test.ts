@@ -44,6 +44,28 @@ describe("dev.prs.list", () => {
     expect(byTask.get(onGitHub.id)).toMatchObject({ source: "github", prNumber: 41 });
     expect(byTask.get(landed.id)).toMatchObject({ source: "merge_queue", eventId: null, title: "Usage export", branch: `agent/${landed.id}`, mergedBy: { kind: "agent", id: agentId } });
     expect(prs.merged.map((m) => m.title)).not.toContain("Set up the first runway forecast");
+    // Merged rows carry the task's founder title and agent (Builder view off reads them).
+    expect(byTask.get(onGitHub.id)).toMatchObject({ agentId, founderTitle: null });
+    expect(byTask.get(landed.id)).toMatchObject({ agentId });
+  });
+});
+
+describe("dev.deployments.list", () => {
+  it("lists the business's deploy.succeeded events, newest first, with the task's founder title; another business sees none", async () => {
+    const { businessId, ownerId, agentId } = hz.A;
+    const task = await repos.tasks.create(hz.db, businessId, { kind: "code", title: "Fix hydration mismatch in /pricing", status: "review", assigneeAgentId: agentId });
+    await repos.tasks.update(hz.db, businessId, task.id, { founderTitle: "Fix a display bug on the pricing page" });
+    const deploy = (environment: "preview" | "production", at: string, extra: Record<string, unknown> = {}) =>
+      repos.events.write(hz.db, businessId, { type: "deploy.succeeded", occurredAt: new Date(at), actor: { kind: "system", id: "gateway" }, payload: { environment, provider: "vercel", commitSha: "9f2c1d7e4b8a", url: environment === "production" ? "https://northwind.example" : "https://preview-1.example", ...extra } });
+    await deploy("production", "2026-11-06T10:00:00Z");
+    await deploy("preview", "2026-11-07T10:00:00Z", { taskId: task.id, branch: `agent/${task.id}` });
+    const list = await hz.caller({ userId: ownerId }).dev.deployments.list({ businessId });
+    expect(list.items.map((d) => d.environment).slice(0, 2)).toEqual(["preview", "production"]);
+    expect(list.items[0]).toMatchObject({ taskId: task.id, url: "https://preview-1.example", founderTitle: "Fix a display bug on the pricing page" });
+    expect(list.items[1]).toMatchObject({ taskId: null, url: "https://northwind.example", founderTitle: null });
+    const other = await hz.caller({ userId: hz.B.ownerId }).dev.deployments.list({ businessId: hz.B.businessId });
+    expect(other.items.filter((d) => d.url === "https://northwind.example")).toEqual([]);
+    await expect(hz.caller({ userId: hz.B.ownerId }).dev.deployments.list({ businessId })).rejects.toBeTruthy();
   });
 });
 

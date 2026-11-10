@@ -7,10 +7,13 @@
  */
 import { KEYBOARD_SHORTCUTS_HELP_ITEM, type PaletteHelpItem, type PaletteItem, type SearchQuery } from "@foundmill/dugout";
 import type { DeptColourToken, EntityKind, Glossary } from "@foundmill/shared";
+import { AREA_LABELS, AREA_LETTERS, type AreaTab } from "@foundmill/shared/areas";
+import { visibleTabs } from "@foundmill/shared/constants";
 import { learnPath, termsWithGlossary } from "@foundmill/shared/terms";
 import { routes } from "@foundmill/widgets/shared/routes";
 import { accountRoutes } from "./account-routes";
 import { canOpenDepartment, FULL_ACCESS, type Access } from "./access";
+import { areaHref, areaNav } from "./areas";
 import { entityHref } from "./entity-links";
 import { CRM_LABEL } from "./sidebar";
 
@@ -19,6 +22,8 @@ export interface SearchDepartment {
   name: string;
   slug: string;
   colourToken: DeptColourToken;
+  /** The sidebar order (department.list rows carry it); the areas list departments in it. */
+  position?: number;
   hidden?: boolean;
   moduleKeys?: readonly string[];
   tabs: readonly { slug: string; title: string; position: number }[];
@@ -65,6 +70,8 @@ export interface LocalPaletteInput {
   businesses?: readonly SearchBusiness[];
   /** What the person may open and change (walled departments, the CRM, admin-only commands). Default: everything. */
   access?: Access;
+  /** Builder view: its tabs are offered only while it is on, and engine tabs carry the founder's names while off. Default off. */
+  builder?: boolean;
 }
 
 export function localPaletteItems(input: LocalPaletteInput): PaletteItem[] {
@@ -74,18 +81,31 @@ export function localPaletteItems(input: LocalPaletteInput): PaletteItem[] {
     // Today is the front door (founder, 2026-11-07) and keeps G H; the dashboards are "Details", found by home too.
     { id: "screen:today", kind: "screen", label: "Today", href: routes.today(bid), keywords: ["today", "goal", "front door", "start"], shortcut: ["G", "H"] },
     { id: "screen:home", kind: "screen", label: "Details", href: routes.home(bid), keywords: ["home", "dashboard", "dashboards"] },
-    { id: "screen:inbox", kind: "screen", label: "Inbox", href: routes.inbox(bid), shortcut: ["G", "I"] },
-    // "Contacts" on screen; "crm" stays a keyword so the old name still finds it.
-    ...(access.canRead("crm") ? [{ id: "screen:crm", kind: "screen" as const, label: CRM_LABEL, href: routes.crm(bid), keywords: ["crm", "contacts", "people", "organizations"], shortcut: ["G", "C"] }] : []),
-    { id: "screen:milestones", kind: "screen", label: "Milestones", href: `/b/${bid}/milestones` },
+    // "Needs you" in the sidebar: the Inbox on what needs a response; both words find it.
+    { id: "screen:inbox", kind: "screen", label: "Inbox", href: routes.inbox(bid), keywords: ["needs you", "respond", "notes"], shortcut: ["G", "I"] },
+    // "Contacts" on screen, a Customers tab; "crm" stays a keyword so the old name still finds it.
+    ...(access.canRead("crm") ? [{ id: "screen:crm", kind: "screen" as const, label: CRM_LABEL, description: AREA_LABELS.customers, href: routes.crm(bid), keywords: ["crm", "contacts", "people", "organizations"] }] : []),
+    { id: "screen:milestones", kind: "screen", label: "Milestones", description: AREA_LABELS.plan, href: `/b/${bid}/milestones` },
   ];
+  // The founder areas (docs/DESIGN.md §8) with their chords, then every tab under its area's name: "Customers · Leads".
+  // Tabs behind "More detail" are offered too; Builder view's only while it is on.
+  const nav = areaNav({ businessId: bid, departments: input.departments.map((d) => ({ ...d, position: d.position ?? 0 })), access, builder: input.builder ?? false });
+  const byId = new Map<string, AreaTab>();
+  for (const [area, tabs] of nav) {
+    items.push({ id: `area:${area}`, kind: "screen", label: AREA_LABELS[area], href: areaHref(bid, tabs), keywords: [area, ...tabs.map((t) => t.title.toLowerCase())], shortcut: ["G", AREA_LETTERS[area]] });
+    for (const t of tabs) byId.set(t.id, t);
+  }
   for (const d of input.departments) {
     // Hidden departments, and those whose every module is walled for this person, are not offered.
     if (d.hidden || !canOpenDepartment(access, d)) continue;
-    const tabs = d.tabs.slice().sort((a, b) => a.position - b.position);
+    const tabs = visibleTabs(d, input.builder ?? false);
     const first = tabs[0];
     items.push({ id: `department:${d.id}`, kind: "department", label: d.name, dept: d.colourToken, href: first ? routes.department(bid, d.slug, first.slug) : undefined, keywords: [d.slug] });
-    for (const t of tabs) items.push({ id: `screen:${d.id}:${t.slug}`, kind: "screen", label: `${d.name} · ${t.title}`, dept: d.colourToken, href: routes.department(bid, d.slug, t.slug), keywords: [d.slug, t.slug] });
+    for (const t of tabs) {
+      const inArea = byId.get(`${d.slug}/${t.slug}`);
+      const label = inArea ? `${AREA_LABELS[inArea.area]} · ${inArea.label}` : `${d.name} · ${t.title}`;
+      items.push({ id: `screen:${d.id}:${t.slug}`, kind: "screen", label, description: inArea ? d.name : undefined, dept: d.colourToken, href: routes.department(bid, d.slug, t.slug), keywords: [d.slug, t.slug, d.name.toLowerCase()] });
+    }
   }
   for (const t of SETTINGS_TABS) {
     if (t.slug === "preferences") continue;
@@ -96,9 +116,9 @@ export function localPaletteItems(input: LocalPaletteInput): PaletteItem[] {
     id: "command:preferences",
     kind: "command",
     label: "Preferences",
-    description: "Your date format, guidance and text size, in every business",
+    description: "Your date format, guidance, text size and Builder view, in every business",
     href: routes.settings(bid, "preferences"),
-    keywords: ["settings", "date format", "time format", "24-hour", "12-hour", "clock", "day first", "ISO 8601", "guidance", "explain", "text size", "comfortable", "checklist", "tour"],
+    keywords: ["settings", "date format", "time format", "24-hour", "12-hour", "clock", "day first", "ISO 8601", "guidance", "explain", "text size", "comfortable", "checklist", "tour", "builder view", "technical", "tokens"],
   });
   // Commands a role cannot use are not offered (they would only answer with a refusal).
   if (access.canChange) items.push({ id: "command:refresh-inbox", kind: "command", label: "Refresh Inbox", description: "Ask the team for one quick note; no new work starts", shortcut: ["R"] });

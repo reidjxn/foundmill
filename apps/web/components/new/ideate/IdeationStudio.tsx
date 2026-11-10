@@ -22,7 +22,7 @@
  * Ideation is private: no business exists yet, so there is no kit bar and nothing reaches Live.
  */
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowRight, Bookmark, CircleAlert, CircleCheck, Columns3, FileText, History, Info, Layers, Plus, RotateCcw, Trash2, X } from "lucide-react";
+import { ArrowRight, Bookmark, CircleAlert, CircleCheck, Columns3, FileText, History, Info, Layers, PenLine, Plus, RotateCcw, Trash2, X } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { ARCHETYPES, ARCHETYPE_LABELS, type Archetype } from "@foundmill/shared";
@@ -35,7 +35,7 @@ import { LinkButton } from "../LinkButton";
 import { StudioFrame } from "../StudioFrame";
 import { COMPARE_MAX, COMPARE_MIN, attributeChanges, buildDeck, commitHref, compareHref, discardLocally, lineageOf, orderDeck, pinnedIdsToLoad, restoreLocally, settlePinned, toConcept, toggleSelection, withPinned, type IdeaLike, type IdeaVersionLike } from "./concepts";
 import { conceptErrorMessage } from "./concept-errors";
-import { AskDialog, ForkDialog, HistoryDialog, MergeDialog, type AskExchange, type AskInput } from "./dialogs";
+import { AskDialog, EditDialog, ForkDialog, HistoryDialog, MergeDialog, WriteDialog, type AskExchange, type AskInput } from "./dialogs";
 import { DraftStatus, DraftingCard } from "./DraftStatus";
 import { deckFromPages, draftedCount, gridEntries, prependIdeaToPages, slotsOf } from "./draft-run";
 import { useDraftRun } from "./use-draft-run";
@@ -63,6 +63,17 @@ export const EXAMPLE_BRIEF_OPTIONS: readonly { id: string; label: string }[] = E
 
 /** The generate control's label with an empty brief: what will happen, in the founder's words (A7). */
 export const DRAFT_FOR_ME = "Draft 6–12 ideas for me";
+
+/**
+ * "Use my idea as written" (first-time founder report, Nov 8, 2026): a founder who arrives with an idea should not have
+ * to pick the nearest of ten drafted cards. Shown beside Draft whenever the brief holds the founder's own words (not an
+ * untouched example brief, not empty): one card from those words, rated by the agent, straight to Commit.
+ */
+export const USE_MY_IDEA = "Use my idea as written";
+
+export function showsUseMyIdea(prompt: string, exampleIn: boolean, busy: boolean): boolean {
+  return prompt.trim().length > 0 && !exampleIn && !busy;
+}
 
 /** The generate control's label while an example brief is in, untouched: the example is drafted from, never by itself. */
 export const DRAFT_FROM_EXAMPLE = "Draft 6–12 ideas from this example";
@@ -112,7 +123,7 @@ const DECK_PAGE = 48;
 /** The archetype hint's options: "Any" first (the label beside the select is the defined word, `Term` archetype). */
 const ARCHETYPE_OPTIONS = [{ value: "any", label: "Any (optional)" }, ...ARCHETYPES.map((a) => ({ value: a, label: ARCHETYPE_LABELS[a] }))];
 
-type DialogKind = "ask" | "fork" | "merge" | "history" | null;
+type DialogKind = "ask" | "fork" | "merge" | "history" | "write" | "edit" | null;
 
 export function IdeationStudio({ viewer, profileLine, constraints = [] }: IdeationStudioProps) {
   const datePrefs = useDateFormat();
@@ -198,6 +209,26 @@ export function IdeationStudio({ viewer, profileLine, constraints = [] }: Ideati
       },
     }),
   );
+  // "Use my idea as written": the card is the founder's words, rated; it goes straight to Commit (the deck keeps it).
+  const write = useMutation(
+    trpc.idea.write.mutationOptions({
+      onSuccess: async (res) => {
+        await invalidateIdeas();
+        setDialog(null);
+        router.push(commitHref(res.idea.id));
+      },
+    }),
+  );
+  // Edit: a new version with the founder's words; the deck shows it at once.
+  const edit = useMutation(
+    trpc.idea.edit.mutationOptions({
+      onSuccess: async (res) => {
+        await invalidateIdeas();
+        setDialog(null);
+        say({ text: `Saved ${res.idea.title} as version ${res.version.version}. Your words lead the card now; the team builds from them.`, tone: "good" });
+      },
+    }),
+  );
   const ask = useMutation(trpc.idea.ask.mutationOptions());
   const askDeskQ = useQuery(trpc.idea.askDesk.queryOptions({ ideaId: activeId ?? "" }, { enabled: dialog === "ask" && Boolean(activeId), staleTime: Infinity }));
   const askIdea = useCallback(
@@ -271,6 +302,7 @@ export function IdeationStudio({ viewer, profileLine, constraints = [] }: Ideati
       case "merge":
       case "fork":
       case "ask":
+      case "edit":
         setDialog(action);
         return;
       case "discard":
@@ -457,8 +489,13 @@ export function IdeationStudio({ viewer, profileLine, constraints = [] }: Ideati
                 ))}
               </div>
             ) : (
-              <p className="min-w-0 flex-1 text-small text-secondary">Leave the brief empty and the Ideation agent drafts within your profile alone.</p>
+              <p className="min-w-0 flex-1 text-small text-secondary">{prompt.trim() ? "Draft a set of concepts around your brief, or use your idea as written: one card in your words, rated, straight to Commit." : "Leave the brief empty and the Ideation agent drafts within your profile alone."}</p>
             )}
+            {showsUseMyIdea(prompt, exampleIn, busy) ? (
+              <Button type="button" variant="default" icon={PenLine} onClick={() => setDialog("write")} data-testid="use-my-idea" className="ml-auto">
+                {USE_MY_IDEA}
+              </Button>
+            ) : null}
             <GenerateControl
               type="submit"
               label={generateLabel(prompt, exampleIn)}
@@ -470,7 +507,7 @@ export function IdeationStudio({ viewer, profileLine, constraints = [] }: Ideati
               kbd={guided ? undefined : `${modKey} ↵`}
               aria-keyshortcuts="Meta+Enter Control+Enter"
               data-testid="generate-button"
-              wrapperClassName="ml-auto"
+              wrapperClassName={showsUseMyIdea(prompt, exampleIn, busy) ? undefined : "ml-auto"}
             />
           </div>
           {run && run.status === "failed" ? (
@@ -626,6 +663,8 @@ export function IdeationStudio({ viewer, profileLine, constraints = [] }: Ideati
         error={ask.error ? conceptErrorMessage(ask.error) : askDeskQ.error ? conceptErrorMessage(askDeskQ.error) : null}
       />
       <ForkDialog idea={active} open={dialog === "fork"} onOpenChange={(o) => !o && setDialog(null)} onFork={(input) => active && fork.mutate({ ideaId: active.id, ...input })} busy={fork.isPending} error={fork.error ? conceptErrorMessage(fork.error) : null} />
+      <WriteDialog open={dialog === "write"} onOpenChange={(o) => !o && setDialog(null)} brief={prompt} archetypeHint={archetypeHint === "any" ? null : archetypeHint} onWrite={(input) => write.mutate(input)} busy={write.isPending || write.isSuccess} error={write.error ? conceptErrorMessage(write.error) : null} />
+      <EditDialog idea={active} open={dialog === "edit"} onOpenChange={(o) => !o && setDialog(null)} onEdit={(input) => active && edit.mutate({ ideaId: active.id, ...input })} busy={edit.isPending} error={edit.error ? conceptErrorMessage(edit.error) : null} />
       <MergeDialog source={active} candidates={deck} preselected={selection} open={dialog === "merge"} onOpenChange={(o) => !o && setDialog(null)} onMerge={(input) => merge.mutate(input)} busy={merge.isPending} error={merge.error ? conceptErrorMessage(merge.error) : null} />
       <HistoryDialog
         idea={active}

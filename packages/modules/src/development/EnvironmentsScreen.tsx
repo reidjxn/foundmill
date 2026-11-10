@@ -3,11 +3,12 @@
  * Development › Environments (BUILD §6.3, §11.6 "preview deployment per branch"): one row per agent branch with its
  * latest preview deployment. Branches come from the tasks (`agent/<taskId>` for code tasks in flight or review) and
  * the open PRs; deployments arrive as `deploy.succeeded` business events (no persisted deployment list exists in
- * BUILD §8.3, so rows start as "Awaiting deployment" and fill in live).
+ * BUILD §8.3, so rows start as "Awaiting deployment" and fill in live). With Builder view off the tab reads "Live product"
+ * and renders the founder's card and previews instead (founder-views.tsx), from `dev.deployments.list` and the live events.
  */
 import { useMemo, useState } from "react";
-import { Boxes, CircleStop, ExternalLink, GitBranch, GitMerge, Hourglass, MonitorPlay, Network, Radio } from "lucide-react";
-import { DataTable, FitText, useAgentPersona, Panel, StatusPill, type DataTableColumn, type IconComponent, type RowAction, type SavedView, type StatusTone } from "@foundmill/dugout";
+import { Boxes, CircleDashed, CircleStop, ExternalLink, GitBranch, GitMerge, Hourglass, MonitorPlay, Network, Radio } from "lucide-react";
+import { DataTable, FitText, useAgentPersona, useBuilderView, Panel, StatusPill, type DataTableColumn, type IconComponent, type RowAction, type SavedView, type StatusTone } from "@foundmill/dugout";
 import type { TaskStatus } from "@foundmill/shared";
 import { routes } from "@foundmill/widgets/shared/routes";
 import { useBusinessEvents, useWidgetData, useWidgetQuery, type WidgetEvent } from "@foundmill/widgets/data";
@@ -15,9 +16,10 @@ import { useSavedViews } from "@foundmill/widgets/shared/saved-views";
 import { RelativeDateText } from "../dates";
 import { fitColumns, fitToGrow, humanise, type ColumnFit } from "../fit";
 import type { ModuleScreenProps } from "../registry";
+import { LiveProduct, deploymentAt, founderTitleOf, liveProductOf, type FounderPreviewRow } from "./founder-views";
 import { useDevScreenOptions } from "./options";
-import { SIMPLE_VIEW_ID, Screen, agentBranch, shortSha, toDate, useAgentIndex, useAgents, useDefaultViewId, useDevDepartment } from "./shared";
-import type { AgentRow, PrsListResponse, TaskRow, TasksListResponse } from "./types";
+import { SIMPLE_VIEW_ID, Screen, WhatExistsNow, agentBranch, shortSha, toDate, useAgentIndex, useAgents, useDefaultViewId, useDevDepartment, useRepository } from "./shared";
+import type { AgentRow, DeploymentsListResponse, PrsListResponse, TaskRow, TasksListResponse } from "./types";
 
 export type Environment = "preview" | "staging" | "production";
 
@@ -31,7 +33,8 @@ export interface Deployment {
   occurredAt: Date;
 }
 
-export type EnvironmentState = "live" | "awaiting" | "merged" | "stopped";
+/** `no_artifact`: the task is done but nothing was pushed or deployed anywhere (no repository connected), so there is nothing to open. */
+export type EnvironmentState = "live" | "awaiting" | "merged" | "no_artifact" | "stopped";
 
 export interface EnvironmentRow {
   id: string;
@@ -41,6 +44,8 @@ export interface EnvironmentRow {
   branchName: string;
   taskId: string | null;
   title: string;
+  /** The task's title in the founder's words (0070), when it has one: what Live product shows with Builder view off. */
+  founderTitle?: string | null;
   taskStatus: TaskStatus | null;
   agentName: string;
   environment: Environment;
@@ -55,6 +60,8 @@ export const ENVIRONMENT_STATE_META: Record<EnvironmentState, { tone: StatusTone
   live: { tone: "good", word: "Live", icon: Radio },
   awaiting: { tone: "info", word: "Awaiting deployment", icon: Hourglass },
   merged: { tone: "neutral", word: "Merged", icon: GitMerge },
+  // First-time founder report (Nov 8, 2026): "Merged" with no URL, no commit and no repository read as shipped work that did not exist.
+  no_artifact: { tone: "warn", word: "No artifact yet", icon: CircleDashed },
   stopped: { tone: "neutral", word: "Stopped", icon: CircleStop },
 };
 
@@ -155,7 +162,7 @@ function uniqueBranchNames(rows: EnvironmentRow[]): EnvironmentRow[] {
 const BRANCH_STATUSES: readonly TaskStatus[] = ["running", "paused", "blocked", "review", "merging", "done", "stopped"];
 
 /** Live first, then the ones waiting for a deployment, then the merged and stopped history. */
-const STATE_RANK: Record<EnvironmentState, number> = { live: 0, awaiting: 1, merged: 2, stopped: 3 };
+const STATE_RANK: Record<EnvironmentState, number> = { live: 0, awaiting: 1, no_artifact: 2, merged: 2, stopped: 3 };
 
 /** Hosting providers in their own spelling; the API sends keys ("vercel"), "unknown" when the event had none. */
 const PROVIDER_LABELS: Record<string, string> = { vercel: "Vercel", netlify: "Netlify", railway: "Railway", render: "Render", fly: "Fly.io", cloudflare: "Cloudflare", aws: "AWS", gcp: "Google Cloud", azure: "Azure" };
@@ -168,7 +175,7 @@ export function providerLabel(provider: string | null | undefined): string | nul
  * Rows: one per code-task branch (plus any deployed branch without a task): newest deployment first, then live,
  * awaiting, merged and stopped, then by task title (numbers in order: "fix #2" before "fix #10").
  */
-export function toEnvironmentRows(tasks: readonly TaskRow[], prs: PrsListResponse | undefined, deployments: readonly Deployment[], agents: Map<string, AgentRow>, nameFor: (agent: AgentRow) => string = (a) => a.name): EnvironmentRow[] {
+export function toEnvironmentRows(tasks: readonly TaskRow[], prs: PrsListResponse | undefined, deployments: readonly Deployment[], agents: Map<string, AgentRow>, nameFor: (agent: AgentRow) => string = (a) => a.name, pushed = true): EnvironmentRow[] {
   const latest = new Map<string, Deployment>();
   for (const d of deployments) {
     const key = d.branch ?? (d.taskId ? agentBranch(d.taskId) : `${d.environment}`);
@@ -177,7 +184,8 @@ export function toEnvironmentRows(tasks: readonly TaskRow[], prs: PrsListRespons
   }
   const rows = new Map<string, EnvironmentRow>();
   const stateFor = (status: TaskStatus | null, d: Deployment | undefined): EnvironmentState => {
-    if (status === "done") return "merged";
+    // Done with nothing deployed and no repository to hold the code: there is no artifact to open, and the row says so.
+    if (status === "done") return d?.url || pushed ? "merged" : "no_artifact";
     if (status === "stopped" || status === "failed") return "stopped";
     return d?.url ? "live" : "awaiting";
   };
@@ -186,14 +194,14 @@ export function toEnvironmentRows(tasks: readonly TaskRow[], prs: PrsListRespons
     const branch = agentBranch(t.id);
     const d = latest.get(branch) ?? latest.get(agentBranch(t.id));
     const agent = t.assigneeAgentId ? agents.get(t.assigneeAgentId) : undefined;
-    rows.set(branch, { id: branch, branch, branchName: readableBranch(branch, t.title), taskId: t.id, title: t.title, taskStatus: t.status, agentName: agent ? nameFor(agent) : "Unassigned", environment: d?.environment ?? "preview", state: stateFor(t.status, d), url: d?.url ?? null, provider: d?.provider ?? null, commitSha: d?.commitSha ?? null, deployedAt: d?.occurredAt ?? null });
+    rows.set(branch, { id: branch, branch, branchName: readableBranch(branch, t.title), taskId: t.id, title: t.title, founderTitle: t.founderTitle ?? null, taskStatus: t.status, agentName: agent ? nameFor(agent) : "Unassigned", environment: d?.environment ?? "preview", state: stateFor(t.status, d), url: d?.url ?? null, provider: d?.provider ?? null, commitSha: d?.commitSha ?? null, deployedAt: d?.occurredAt ?? null });
   }
   for (const pr of prs?.open ?? []) {
     // A non-code task never has a branch to preview, whatever the API sends.
     if (rows.has(pr.branch) || (pr.kind !== undefined && pr.kind !== "code")) continue;
     const d = latest.get(pr.branch);
     const agent = pr.agentId ? agents.get(pr.agentId) : undefined;
-    rows.set(pr.branch, { id: pr.branch, branch: pr.branch, branchName: readableBranch(pr.branch, pr.title), taskId: pr.taskId, title: pr.title, taskStatus: pr.status, agentName: agent ? nameFor(agent) : "Unassigned", environment: d?.environment ?? "preview", state: stateFor(pr.status, d), url: d?.url ?? null, provider: d?.provider ?? null, commitSha: d?.commitSha ?? null, deployedAt: d?.occurredAt ?? null });
+    rows.set(pr.branch, { id: pr.branch, branch: pr.branch, branchName: readableBranch(pr.branch, pr.title), taskId: pr.taskId, title: pr.title, founderTitle: pr.founderTitle ?? null, taskStatus: pr.status, agentName: agent ? nameFor(agent) : "Unassigned", environment: d?.environment ?? "preview", state: stateFor(pr.status, d), url: d?.url ?? null, provider: d?.provider ?? null, commitSha: d?.commitSha ?? null, deployedAt: d?.occurredAt ?? null });
   }
   for (const [key, d] of latest) {
     if (rows.has(key)) continue;
@@ -211,6 +219,10 @@ export function EnvironmentsScreen({ businessId, departmentId }: ModuleScreenPro
   const prs = useWidgetQuery<PrsListResponse>("dev.prs.list", {});
   const agents = useAgents();
   const agentIndex = useAgentIndex(agents.data?.agents);
+  // Where the code goes (first-time founder report, Nov 8, 2026): a done task with no deployment and no repository
+  // connected has no artifact to open, and reads so instead of "Merged".
+  const repo = useRepository();
+  const pushed = repo.data?.connected !== false;
   // Agents named under the reader's preference, in the rows' name fields too (One name everywhere).
   const persona = useAgentPersona();
   // Saved per person, business and table (audit #204): they come back after a reload. Simple opens first while guidance is on.
@@ -226,9 +238,21 @@ export function EnvironmentsScreen({ businessId, departmentId }: ModuleScreenPro
     ["deploy.succeeded", "task.started", "task.completed", "pr.merged"],
   );
 
-  const rows = useMemo(() => toEnvironmentRows(tasks.data?.items ?? [], prs.data, deployments, agentIndex, persona.labelFor), [tasks.data, prs.data, deployments, agentIndex, persona]);
+  const rows = useMemo(() => toEnvironmentRows(tasks.data?.items ?? [], prs.data, deployments, agentIndex, persona.labelFor, pushed), [tasks.data, prs.data, deployments, agentIndex, persona, pushed]);
   const optionNow = options.now;
   const now = useMemo(() => optionNow ?? new Date(), [optionNow]);
+  // Builder view off: the founder's Live product reads the recorded deployments too (`dev.deployments.list`), so its
+  // address and previews are there after a reload, and the live ones on top.
+  const builder = useBuilderView();
+  const recorded = useWidgetQuery<DeploymentsListResponse>("dev.deployments.list", {}, { enabled: !builder });
+  const founder = useMemo(() => {
+    if (builder) return null;
+    const all: Deployment[] = [...(recorded.data?.items ?? []).flatMap((d) => (typeof d.commitSha === "string" ? [{ branch: d.branch, taskId: d.taskId, environment: d.environment, provider: d.provider, url: d.url, commitSha: d.commitSha, occurredAt: deploymentAt(d.occurredAt) }] : [])), ...deployments];
+    const previews: FounderPreviewRow[] = toEnvironmentRows(tasks.data?.items ?? [], prs.data, all, agentIndex, persona.labelFor)
+      .filter((r) => r.environment === "preview" && r.taskId && (r.state === "live" || r.state === "awaiting"))
+      .map((r) => ({ id: r.id, taskId: r.taskId, title: founderTitleOf(r.founderTitle, r.title), agentName: r.agentName === "Unassigned" || r.agentName === "—" ? "The team" : r.agentName, url: r.url, updatedAt: r.deployedAt }));
+    return { live: liveProductOf(all), previews };
+  }, [builder, recorded.data, deployments, tasks.data, prs.data, agentIndex, persona]);
   // Each column at its minimum; the table shares the spare width by ENVIRONMENT_FIT's weights itself (`meta.grow`),
   // among the columns it shows (empty ones are hidden).
   const sizes = useMemo(() => fitColumns(null, ENVIRONMENT_FIT, []), []);
@@ -241,7 +265,8 @@ export function EnvironmentsScreen({ businessId, departmentId }: ModuleScreenPro
         accessorFn: (r) => r.branchName,
         header: "Branch",
         size: sizes.branch,
-        meta: { locked: true, csv: (r) => r.branch, term: "branch" },
+        // Branch, provider and commit are Builder view's (`meta.builderOnly`): off, the table opens on the task.
+        meta: { locked: true, csv: (r) => r.branch, term: "branch", builderOnly: true },
         cell: ({ row }) => (
           <span className="flex min-w-0 items-center gap-1.5 font-mono text-mono" title={row.original.branch === row.original.branchName ? undefined : `Branch ${row.original.branch}`} data-branch={row.original.branch}>
             <GitBranch size={12} aria-hidden className="shrink-0 text-tertiary" />
@@ -301,12 +326,31 @@ export function EnvironmentsScreen({ businessId, departmentId }: ModuleScreenPro
             <span className="text-tertiary">—</span>
           ),
       },
-      { id: "provider", accessorFn: (r) => providerLabel(r.provider) ?? "", header: "Provider", size: sizes.provider, cell: ({ row }) => (providerLabel(row.original.provider) ? <span className="text-secondary">{providerLabel(row.original.provider)}</span> : <span className="text-tertiary">—</span>) },
-      { id: "commitSha", accessorFn: (r) => r.commitSha ?? "", header: "Commit", size: sizes.commitSha, cell: ({ row }) => <span className="font-mono text-mono text-secondary">{shortSha(row.original.commitSha) || "—"}</span> },
+      { id: "provider", accessorFn: (r) => providerLabel(r.provider) ?? "", header: "Provider", size: sizes.provider, meta: { builderOnly: true }, cell: ({ row }) => (providerLabel(row.original.provider) ? <span className="text-secondary">{providerLabel(row.original.provider)}</span> : <span className="text-tertiary">—</span>) },
+      { id: "commitSha", accessorFn: (r) => r.commitSha ?? "", header: "Commit", size: sizes.commitSha, meta: { builderOnly: true }, cell: ({ row }) => <span className="font-mono text-mono text-secondary">{shortSha(row.original.commitSha) || "—"}</span> },
       { id: "deployedAt", accessorFn: (r) => r.deployedAt?.getTime() ?? null, header: "Deployed", size: sizes.deployedAt, meta: { filter: "date", label: "Deployed" }, cell: ({ row }) => (row.original.deployedAt ? <RelativeDateText className="text-secondary" value={row.original.deployedAt} now={now} /> : <span className="text-tertiary">Not yet</span>) },
     ], ENVIRONMENT_FIT),
     [now, sizes],
   );
+
+  if (founder) {
+    return (
+      <LiveProduct
+        businessId={businessId}
+        deptSlug={deptSlug}
+        live={founder.live}
+        previews={founder.previews}
+        loading={tasks.isLoading || (prs.isLoading && !prs.data) || (recorded.isLoading && !recorded.data)}
+        error={tasks.error ? tasks.error.message : prs.error ? prs.error.message : recorded.error ? recorded.error.message : undefined}
+        onRetry={() => {
+          tasks.refetch();
+          prs.refetch();
+          recorded.refetch();
+        }}
+        now={now}
+      />
+    );
+  }
 
   const rowActions = (row: EnvironmentRow): RowAction<EnvironmentRow>[] => [
     { id: "open", label: "Open preview", icon: ExternalLink, disabled: !row.url, onSelect: (r) => r.url && window.open(r.url, "_blank", "noopener") },
@@ -315,9 +359,12 @@ export function EnvironmentsScreen({ businessId, departmentId }: ModuleScreenPro
 
   const live = rows.filter((r) => r.state === "live").length;
   const merged = rows.filter((r) => r.state === "merged").length;
+  const noArtifact = rows.filter((r) => r.state === "no_artifact").length;
 
   return (
     <Screen name="development/environments">
+      {/* What exists outside this screen (first-time founder report, Nov 8, 2026): where the code is, what can be opened. */}
+      <WhatExistsNow repo={repo} finished={merged + noArtifact} livePreviews={live} />
       <Panel
         span={12}
         title="Preview deployments"
@@ -331,7 +378,7 @@ export function EnvironmentsScreen({ businessId, departmentId }: ModuleScreenPro
         meta={
           rows.length ? (
             <span data-testid="env-counts">
-              {live} live · {rows.length - live - merged} awaiting · {merged} merged
+              {live} live · {rows.length - live - merged - noArtifact} awaiting · {noArtifact ? `${noArtifact} with no artifact yet` : `${merged} merged`}
             </span>
           ) : undefined
         }

@@ -22,16 +22,18 @@
  *   `learnPath` with the route's business id (LearnLinkProvider); outside a business only absolute URLs open.
  * - The product signals (UX plan §11, `founder.preferences.signal`, the five guidance.* events): `signal(kind, payload)`
  *   on `useGuidancePreferences()` and `useGuidanceSignal()` sends one, fire and forget (never awaited, a failure is
- *   dropped, nothing on screen waits for it). The host sends three itself: an explainer's first "Got it"
- *   (`markExplainerSeen`), a definition card opened (the Term calls the provider's `onTermOpen`; once per term id per
+ *   dropped, nothing on screen waits for it). The host sends three itself: a page's first "Explain this page"
+ *   opening (`markExplainerSeen`), a definition card opened (the Term calls the provider's `onTermOpen`; once per term id per
  *   session), and a save that turns guidance off (the Preferences switch, `from: "settings"` unless the caller says
  *   otherwise). The tours send theirs through `useGuidanceSignal` (components/tours/signal.ts). A signal belongs to the
  *   business on screen: outside a business route there is none to record it in, so it is not sent.
+ * - Builder view (0073, docs/DESIGN.md "Builder view"): the design system's `BuilderViewProvider` carries
+ *   `prefs.builderView` to every `useBuilderView()` / `<BuilderOnly>` below; `useBuilderViewPreference()` changes it.
  */
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useParams, usePathname } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, type ReactNode } from "react";
-import { GuidanceProvider, LearnLinkProvider, type GuidanceActions, type GuidanceState, type TermDefinition, type TermOpenAction } from "@foundmill/dugout";
+import { BuilderViewProvider, GuidanceProvider, LearnLinkProvider, type GuidanceActions, type GuidanceState, type TermDefinition, type TermOpenAction } from "@foundmill/dugout";
 import type { Glossary } from "@foundmill/shared/glossary";
 import { TERMS, learnPath, termsWithGlossary } from "@foundmill/shared/terms";
 import { useTRPC } from "@/lib/trpc-react";
@@ -58,8 +60,10 @@ export {
   GuidanceSignalProvider,
   agentStyleOf,
   isSignedInPath,
+  useBuilderViewPreference,
   useGuidancePreferences,
   useGuidanceSignal,
+  type BuilderViewPreference,
   type GuidancePatch,
   type GuidancePreferencesApi,
   type GuidancePrefs,
@@ -115,7 +119,7 @@ export const GUIDANCE_SIGNAL_MUTATION_KEY: readonly unknown[] = [["founder", "pr
 
 /** The guided layer's part of a full preferences answer (`founder.preferences.update` returns the formats too). */
 export function guidancePrefsOf(p: GuidancePrefs): GuidancePrefs {
-  return { guidance: p.guidance, textSize: p.textSize, explainersSeen: p.explainersSeen, toursDone: p.toursDone, checklistDismissedAt: p.checklistDismissedAt, anthropomorphicAgents: p.anthropomorphicAgents, agentStyle: p.agentStyle };
+  return { guidance: p.guidance, textSize: p.textSize, explainersSeen: p.explainersSeen, toursDone: p.toursDone, checklistDismissedAt: p.checklistDismissedAt, anthropomorphicAgents: p.anthropomorphicAgents, agentStyle: p.agentStyle, builderView: p.builderView === true };
 }
 
 /** What the account will hold once `patch` is saved: the optimistic answer, written before the API's. */
@@ -125,6 +129,7 @@ export function applyGuidancePatch(prev: GuidancePrefs, patch: GuidancePatch, no
   if (patch.textSize !== undefined) next.textSize = patch.textSize;
   if (patch.anthropomorphicAgents !== undefined) next.anthropomorphicAgents = patch.anthropomorphicAgents;
   if (patch.agentStyle !== undefined) next.agentStyle = patch.agentStyle;
+  if (patch.builderView !== undefined) next.builderView = patch.builderView;
   if (patch.reset) {
     next.explainersSeen = {};
     next.toursDone = {};
@@ -165,7 +170,7 @@ export function sameGuidancePrefs(a: GuidancePrefs | undefined, b: GuidancePrefs
     const keys = Object.keys(x);
     return keys.length === Object.keys(y).length && keys.every((k) => y[k] === x[k]);
   };
-  return a.guidance === b.guidance && a.textSize === b.textSize && a.anthropomorphicAgents === b.anthropomorphicAgents && agentStyleOf(a) === agentStyleOf(b) && a.checklistDismissedAt === b.checklistDismissedAt && sameMarks(a.explainersSeen, b.explainersSeen) && sameMarks(a.toursDone, b.toursDone);
+  return a.guidance === b.guidance && a.textSize === b.textSize && a.anthropomorphicAgents === b.anthropomorphicAgents && (a.builderView === true) === (b.builderView === true) && agentStyleOf(a) === agentStyleOf(b) && a.checklistDismissedAt === b.checklistDismissedAt && sameMarks(a.explainersSeen, b.explainersSeen) && sameMarks(a.toursDone, b.toursDone);
 }
 
 const DEFAULT_PREFS: GuidancePrefs = DEFAULT_GUIDANCE_PREFS;
@@ -310,8 +315,9 @@ export function GuidanceHost({ initial, signedIn: signedInProp, textSizeOwner = 
     [signal, signedIn],
   );
 
-  // The primitives' actions: fire and forget (a failed "Got it" is rolled back and asked again next time). The first
-  // "Got it" on a screen's explainer is its dismissal signal; a second one after reopening it is not.
+  // The primitives' actions: fire and forget (a failed save is rolled back and asked again next time). The first
+  // opening of a screen's "Explain this page" panel is its read signal (the event keeps its name,
+  // `guidance.explainer_dismissed`); a later one is not.
   const actions = useMemo<GuidanceActions & TermOpenAction>(
     () => ({
       setGuidance: (mode) => void save({ guidance: mode }).catch(noop),
@@ -336,14 +342,15 @@ export function GuidanceHost({ initial, signedIn: signedInProp, textSizeOwner = 
     () => ({ guidance: prefs.guidance, textSize: prefs.textSize, explainersSeen: prefs.explainersSeen, toursDone: prefs.toursDone, checklistDismissedAt: prefs.checklistDismissedAt, terms: TERMS, loaded }),
     [prefs, loaded],
   );
-  const api = useMemo<GuidancePreferencesApi>(() => ({ prefs, save, signal, saving: isPending, signedIn }), [prefs, save, signal, isPending, signedIn]);
+  const api = useMemo<GuidancePreferencesApi>(() => ({ prefs, save, signal, saving: isPending, signedIn, loaded }), [prefs, save, signal, isPending, signedIn, loaded]);
 
   return (
     <GuidancePreferencesProvider value={api}>
       <GuidanceSignalProvider value={signal}>
         <LearnLinkProvider resolve={resolve}>
           <GuidanceProvider value={value} actions={actions}>
-            {children}
+            {/* Builder view (0073): off until the account says on, so a founder never sees the engine for a frame. */}
+            <BuilderViewProvider on={prefs.builderView === true}>{children}</BuilderViewProvider>
           </GuidanceProvider>
         </LearnLinkProvider>
       </GuidanceSignalProvider>

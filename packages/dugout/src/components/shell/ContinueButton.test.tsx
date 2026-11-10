@@ -61,6 +61,27 @@ describe("ContinueButton", () => {
     expect(screen.queryByText(/A cycle is/)).toBeNull();
   });
 
+  it("a caveat says what a press can and cannot do right now, under the tooltip and on the button (first-time founder report, Nov 8, 2026)", async () => {
+    const user = userEvent.setup();
+    const caveat = "The orchestrator is not reachable: a press writes one note; no agent works.";
+    render(<ContinueButton state={{ kind: "idle" }} caveat={caveat} />);
+    const button = screen.getByRole("button", { name: "Continue" });
+    expect(button.getAttribute("data-continue-caveat")).toBe(caveat);
+    await user.hover(button);
+    expect((await screen.findAllByText(caveat)).length).toBeGreaterThan(0);
+    // The state's own sentence stays first; the caveat follows it.
+    expect(screen.getAllByText(/^Let the team work/).length).toBeGreaterThan(0);
+  });
+
+  it("a hint gives the press a price under the tooltip: what the last cycle cost, as an Estimate", async () => {
+    const user = userEvent.setup();
+    render(<ContinueButton state={{ kind: "idle" }} hint="Last cycle cost $0.52 · Estimate" />);
+    await user.hover(screen.getByRole("button", { name: "Continue" }));
+    const hint = (await screen.findAllByText("Last cycle cost $0.52 · Estimate"))[0]!;
+    expect(hint.hasAttribute("data-continue-hint")).toBe(true);
+    expect(hint.className).toContain("text-secondary");
+  });
+
   it("labels every state (BUILD §5.4)", () => {
     expect(continueButtonLabel({ kind: "idle" })).toBe("Continue");
     expect(continueButtonLabel({ kind: "blocked", count: 3 })).toBe("Needs you · 3");

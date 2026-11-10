@@ -204,6 +204,27 @@ describe("AppShell", () => {
     expect(screen.queryByTestId("processing-line")).toBeNull();
   });
 
+  it("the answer to a press of Continue replaces the strip's sentence and shows in the tab bar, guidance on or off (first-time founder report, Nov 8, 2026)", () => {
+    const tabs = { tabs: [{ id: "a", label: "Overview" }], activeId: "a" };
+    render(
+      <GuidanceProvider value={{ guidance: "off" }}>
+        <AppShell {...shellProps({ tabs, processing: { segments: NORTHWIND_SEGMENTS, active: false, notice: "Cycle 2 started: 6 tasks ready to build" } })} />
+      </GuidanceProvider>,
+    );
+    // Never "No cycle running" over a press that was answered.
+    expect(screen.queryByRole("status", { name: "No cycle running" })).toBeNull();
+    expect(screen.getByRole("status", { name: "Cycle 2 started: 6 tasks ready to build" }).hasAttribute("data-notice")).toBe(true);
+    const line = screen.getByTestId("processing-line");
+    expect(line.textContent).toBe("Cycle 2 started: 6 tasks ready to build");
+    expect(line.hasAttribute("data-notice")).toBe(true);
+    expect(line.className).toMatch(/text-secondary/);
+  });
+
+  it("Continue's caveat rides on the button and under its tooltip", () => {
+    render(<AppShell {...shellProps({ continueButton: { state: { kind: "idle" }, onContinue: vi.fn(), caveat: "The orchestrator is not reachable: a press writes one note; no agent works." } })} />);
+    expect(screen.getByRole("button", { name: "Continue" }).getAttribute("data-continue-caveat")).toBe("The orchestrator is not reachable: a press writes one note; no agent works.");
+  });
+
   it("words the tab bar's processing line: the sentence for one or two departments, a count from three (review F45)", () => {
     const seg = (label: string, active: boolean) => ({ id: label, label, dept: "dept-1" as const, active });
     expect(processingLineText([seg("Product", true), seg("Finance", true), seg("Legal", false)], true, 12)).toBe("Product and Finance are working on cycle 12");
@@ -242,33 +263,43 @@ describe("AppShell", () => {
     const onNavigate = vi.fn();
     const keyed = withSidebarKeys(NORTHWIND_SIDEBAR);
     expect(keyed.find((i) => i.id === "home")?.keys).toEqual(["G", "H"]);
-    expect(keyed.find((i) => i.id === "crm")?.keys).toEqual(["G", "C"]);
-    expect(keyed.find((i) => i.id === "d-finance")?.keys).toEqual(["G", "N"]);
+    expect(keyed.find((i) => i.id === "inbox")?.keys).toEqual(["G", "I"]);
+    expect(keyed.filter((i) => i.group === "area").map((i) => i.keys?.join(" "))).toEqual(["G P", "G C", "G M", "G R", "G T"]);
+    expect(keyed.find((i) => i.id === "d-studio")?.keys).toEqual(["G", "S"]);
     expect(keyed.find((i) => i.id === "settings")?.keys).toBeUndefined();
     expect(sidebarItemForTarget(keyed, { kind: "inbox" })?.id).toBe("inbox");
-    expect(sidebarItemForTarget(keyed, { kind: "department", id: "d-team" })?.id).toBe("d-team");
+    expect(sidebarItemForTarget(keyed, { kind: "area", area: "money" })?.id).toBe("area-money");
+    expect(sidebarItemForTarget(keyed, { kind: "department", id: "d-studio" })?.id).toBe("d-studio");
     render(<AppShell {...shellProps({ onNavigate })} />);
-    expect(screen.getByRole("link", { name: "Finance" }).getAttribute("aria-keyshortcuts")).toBe("G N");
+    expect(screen.getByRole("link", { name: "Money" }).getAttribute("aria-keyshortcuts")).toBe("G M");
     document.body.focus();
-    await user.keyboard("gn");
-    expect(onNavigate).toHaveBeenCalledWith(expect.objectContaining({ id: "d-finance" }));
+    await user.keyboard("gm");
+    expect(onNavigate).toHaveBeenCalledWith(expect.objectContaining({ id: "area-money" }));
+    await user.keyboard("gs");
+    expect(onNavigate).toHaveBeenLastCalledWith(expect.objectContaining({ id: "d-studio" }));
     await user.keyboard("gi");
     expect(onNavigate).toHaveBeenLastCalledWith(expect.objectContaining({ id: "inbox" }));
     await user.click(screen.getByRole("button", { name: "Northwind Skincare: go to Home" }));
     expect(onNavigate).toHaveBeenLastCalledWith(expect.objectContaining({ id: "home" }));
   });
 
-  it("honors a department's stored letter in the sidebar, the chord and the help overlay", async () => {
+  it("honors a module-less department's stored letter, unless an area holds it, in the sidebar, the chord and the help overlay", async () => {
     const user = userEvent.setup();
     const onNavigate = vi.fn();
-    // Finance stores Q (chosen in Settings › Departments): the name would give N.
-    const sidebar = NORTHWIND_SIDEBAR.map((i) => (i.id === "d-finance" ? { ...i, shortcut: "Q" } : i));
-    expect(withSidebarKeys(sidebar).find((i) => i.id === "d-finance")?.keys).toEqual(["G", "Q"]);
+    // Studio stores Q: the name would give S. A stored M is Money's now, so it falls back to the name's letter.
+    const sidebar = NORTHWIND_SIDEBAR.map((i) => (i.id === "d-studio" ? { ...i, shortcut: "Q" } : i));
+    expect(withSidebarKeys(sidebar).find((i) => i.id === "d-studio")?.keys).toEqual(["G", "Q"]);
+    expect(withSidebarKeys(NORTHWIND_SIDEBAR.map((i) => (i.id === "d-studio" ? { ...i, shortcut: "M" } : i))).find((i) => i.id === "d-studio")?.keys).toEqual(["G", "S"]);
     render(<AppShell {...shellProps({ onNavigate, sidebar: { items: sidebar, collapsed: false, onCollapsedChange: () => {} } })} />);
-    expect(screen.getByRole("link", { name: "Finance" }).getAttribute("aria-keyshortcuts")).toBe("G Q");
+    expect(screen.getByRole("link", { name: "Studio, 1 item" }).getAttribute("aria-keyshortcuts")).toBe("G Q");
     document.body.focus();
     await user.keyboard("gq");
-    expect(onNavigate).toHaveBeenCalledWith(expect.objectContaining({ id: "d-finance" }));
+    expect(onNavigate).toHaveBeenCalledWith(expect.objectContaining({ id: "d-studio" }));
+    await user.keyboard("?");
+    const help = await screen.findByTestId("keyboard-help");
+    expect(help.textContent).toContain("Go to Customers");
+    expect(help.textContent).toContain("Go to Studio");
+    expect(help.textContent).not.toContain("Contacts");
   });
 
   it("Space continues, / opens the palette, ? opens help, Esc closes them in order", async () => {
@@ -340,7 +371,7 @@ describe("AppShell", () => {
     await user.type(await screen.findByRole("combobox"), "north");
     const row = await screen.findByRole("option", { name: /Northwind Skincare/ });
     await user.click(row);
-    expect(onSelect).toHaveBeenCalledWith(expect.objectContaining({ id: "business", label: "Northwind Skincare", href: "/b/northwind" }));
+    expect(onSelect).toHaveBeenCalledWith(expect.objectContaining({ id: "business", label: "Northwind Skincare", href: "/b/northwind/today" }));
   });
 
   it("keeps the search placeholder short enough never to be cut, with the short forms for a narrow bar", () => {

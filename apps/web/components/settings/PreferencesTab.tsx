@@ -16,6 +16,8 @@
  * - Agents: the "Anthropomorphic agents" switch (a first name and an AI-generated picture for every agent, with the
  *   position always beside the name; off shows agents by role, exactly as before) and, while it is on, the Style radio
  *   cards (Humans, 3D cartoon humans, 2D cartoon humans and animals, Fantasy). Both save through the same host at once.
+ * - Builder view (0073, founder 2026-11-08): one switch that shows how the platform runs the team (round numbers, tokens,
+ *   live screens, test counts, the technical tabs and columns, ratings). Off by default; saves through the same host.
  *
  * Open to every member, whatever their role: it changes nothing of the business.
  */
@@ -46,6 +48,7 @@ import { ANTHROPOMORPHIC_EXPLAINER, anthropomorphicSavedLine } from "@/lib/anthr
 import { useClientNow } from "@/lib/today";
 import { useDatePreferences } from "@/components/providers/DateFormatHost";
 import { agentStyleOf, useGuidancePreferences, type GuidancePatch, type GuidancePrefs } from "@/components/providers/GuidanceHost";
+import { builderViewSavedLine } from "@/components/providers/guidance-context";
 import { useTRPC } from "@/lib/trpc-react";
 import { AccountId } from "./AccountId";
 import { Hint, SettingsSection, useSettingsToast } from "./shared";
@@ -72,12 +75,12 @@ export const TEXT_SIZE_OPTIONS: readonly SegmentedOption<TextSize>[] = [
 ];
 
 /** What the switch changes, for the InfoTip beside it ("About what guidance changes"). */
-export const WHAT_GUIDANCE_CHANGES = "The intro on each screen, the first-week checklist, the coach marks and the dotted underline under defined words. Keyboard caps on buttons show only when it is off; the shortcuts work either way.";
+export const WHAT_GUIDANCE_CHANGES = "The “Explain this page” button on each screen, the first-week checklist, the coach marks and the dotted underline under defined words. Keyboard caps on buttons show only when it is off; the shortcuts work either way.";
 
 /** The reassurance under the switch; hidden with guidance off, like every reassurance line. */
 export const GUIDANCE_REASSURANCE = "You can switch this any time.";
 
-/** Which reset buttons have something to undo: the checklist once it was dismissed; the tour once a tour or an intro was seen. */
+/** Which reset buttons have something to undo: the checklist once it was dismissed; the tour once a tour was done or a page was explained. */
 export function resettable(prefs: Pick<GuidancePrefs, "explainersSeen" | "toursDone" | "checklistDismissedAt">): { checklist: boolean; tour: boolean } {
   return {
     checklist: prefs.checklistDismissedAt !== null,
@@ -91,7 +94,7 @@ export type GuidanceChange = "guidance" | "textSize" | "reset";
 export function guidanceSavedLine(saved: Pick<GuidancePrefs, "guidance" | "textSize">, changed: GuidanceChange): { title: string; description: string } {
   if (changed === "guidance") {
     return saved.guidance === "on"
-      ? { title: "Guidance on", description: "Intros, defined words and the first-week checklist show as you go." }
+      ? { title: "Guidance on", description: "The Explain this page button, defined words and the first-week checklist show as you go." }
       : { title: "Guidance off", description: "Consequences, provenance and Estimate labels still show. Turn it on again any time from here." };
   }
   if (changed === "textSize") {
@@ -99,7 +102,7 @@ export function guidanceSavedLine(saved: Pick<GuidancePrefs, "guidance" | "textS
       ? { title: "Comfortable text", description: "Body text reads a little larger, in every business." }
       : { title: "Standard text", description: "Body text is back to its usual size, in every business." };
   }
-  return { title: "Starting over", description: "The intros, the first-week checklist and the tours show again." };
+  return { title: "Starting over", description: "The unread dots on Explain this page, the first-week checklist and the tours show again." };
 }
 
 /** The Guidance section (plan §6.3): the switch, the text size and the two resets, each with one line of help. */
@@ -147,7 +150,7 @@ export function GuidanceSection() {
             </InfoTip>
           </div>
           <p id="guidance-switch-hint" className="text-small text-secondary">
-            An intro on each screen, defined words you can hover, the first-week checklist and the tours.
+            An “Explain this page” button on each screen, defined words you can hover, the first-week checklist and the tours.
           </p>
           <ReassuranceLine data-testid="guidance-reassurance">{GUIDANCE_REASSURANCE}</ReassuranceLine>
         </div>
@@ -166,7 +169,7 @@ export function GuidanceSection() {
             Replay the tour
           </Button>
         </div>
-        <p className="text-small text-secondary">Either one puts the intros, the checklist and the tours back to the first day.</p>
+        <p className="text-small text-secondary">Either one puts the unread dots on “Explain this page”, the checklist and the tours back to the first day.</p>
       </div>
     </SettingsSection>
   );
@@ -217,6 +220,40 @@ export function AnthropomorphicAgentsSection() {
   );
 }
 
+/** What Builder view shows, under its switch (docs/DESIGN.md "Builder view"). */
+export const BUILDER_VIEW_HINT =
+  "Shows how the platform runs the team: round numbers, AI usage in tokens, agents' live screens, test counts, finished code changes and previews, and the team's ratings, health and reporting lines. For operators and anyone building software with the team.";
+
+export { builderViewSavedLine };
+
+/** The Builder view section: one switch, saved at once through the GuidanceHost, with a toast. */
+export function BuilderViewSection() {
+  const { prefs, save } = useGuidancePreferences();
+  const t = useSettingsToast();
+  const on = prefs.builderView === true;
+  const change = (next: boolean) =>
+    save({ builderView: next }).then(
+      (saved) => {
+        const line = builderViewSavedLine(saved.builderView === true);
+        t.saved(line.title, line.description);
+      },
+      (err: unknown) => t.failed(err, "Preference not saved"),
+    );
+  return (
+    <SettingsSection title="Builder view" data-testid="builder-view-panel">
+      <div className="flex items-start gap-3" data-testid="builder-view-choice">
+        <Switch id="builder-view-switch" checked={on} onCheckedChange={(next) => void change(next)} aria-describedby="builder-view-switch-hint" data-testid="builder-view-switch" />
+        <div className="flex flex-col gap-1">
+          <Label htmlFor="builder-view-switch">Builder view</Label>
+          <p id="builder-view-switch-hint" className="text-small text-secondary">
+            {BUILDER_VIEW_HINT}
+          </p>
+        </div>
+      </div>
+    </SettingsSection>
+  );
+}
+
 export function PreferencesTab() {
   const { prefs, save } = useDatePreferences();
   const t = useSettingsToast();
@@ -257,6 +294,7 @@ export function PreferencesTab() {
       </SettingsSection>
       <GuidanceSection />
       <AnthropomorphicAgentsSection />
+      <BuilderViewSection />
       <SettingsSection title="Your account ID" data-testid="account-id-panel">
         <AccountId accountId={viewer.data?.userId} />
       </SettingsSection>

@@ -69,6 +69,7 @@ interface Calls {
   maxConcurrent: number;
   overlapSeen: boolean;
   narrated: string[][];
+  narrateInputs: { summary: string; fallbackSubject?: string }[];
   completed: Record<string, unknown>[];
   failed: Record<string, unknown>[];
   startInputs: Record<string, unknown>[];
@@ -93,7 +94,7 @@ interface Calls {
 let rigRun = 0;
 
 function mockActivities(opts: { holdSessions?: boolean; holdOpen?: boolean; stoppedBrief?: boolean; refuseAfter?: number; planned?: number; planError?: () => Error; budgetMinor?: number; idle?: boolean; planFails?: boolean; openFailsOnce?: boolean; startFailsOnce?: boolean; untaskedNow?: boolean; roadmapResult?: RoadmapPlanResult; followUp?: CycleStart; merges?: MergeInput[] } = {}): { acts: Partial<Activities>; calls: Calls; release: () => void; releaseOpen: () => void } {
-  const calls: Calls = { opened: [], sessionIds: [], openInputs: [], running: new Set(), maxConcurrent: 0, overlapSeen: false, narrated: [], completed: [], started: 0, opening: false, plans: 0, startedPlans: [], planFailures: [], failed: [], startInputs: [], idleNotes: [], roadmapPlanned: [], roadmapPlans: 0, briefs: 0, followUps: [], merges: [] };
+  const calls: Calls = { opened: [], sessionIds: [], openInputs: [], running: new Set(), maxConcurrent: 0, overlapSeen: false, narrated: [], narrateInputs: [], completed: [], started: 0, opening: false, plans: 0, startedPlans: [], planFailures: [], failed: [], startInputs: [], idleNotes: [], roadmapPlanned: [], roadmapPlans: 0, briefs: 0, followUps: [], merges: [] };
   const run = String((rigRun += 1)).padStart(4, "0");
   const scopes = new Map(tasks.map((t) => [t.id, t.fileScope]));
   let release = () => {};
@@ -175,8 +176,9 @@ function mockActivities(opts: { holdSessions?: boolean; holdOpen?: boolean; stop
     async finishSession() {
       return { taskStatus: "done", eventIds: [id(777)], healthChanged: false };
     },
-    async narrateCycle({ eventIds }) {
+    async narrateCycle({ eventIds, summary, fallbackSubject }) {
       calls.narrated.push(eventIds);
+      calls.narrateInputs.push({ summary, fallbackSubject });
       return { inboxItemIds: [id(555)], viaComposer: false };
     },
     async completeCycle(input) {
@@ -226,6 +228,8 @@ describe("businessCycle workflow", () => {
     expect(m.calls.overlapSeen).toBe(false);
     expect(m.calls.maxConcurrent).toBeLessThanOrEqual(3);
     expect(m.calls.narrated[0]).toEqual([id(777), id(777), id(777), id(777)]);
+    // The note everyone reads is in founder words: no cycle number, no "sessions dispatched" (Nov 8, 2026).
+    expect(m.calls.narrateInputs[0]).toEqual({ summary: "Ship the API and the web\n\nThis round of work: 4 tasks started, 4 finished, 0 blocked.", fallbackSubject: "The team finished a round of work" });
     expect(m.calls.completed[0]).toMatchObject({ cycleId: result.cycleId, outcome: "completed", tasksDispatched: 4, tasksCompleted: 4, inboxItemIds: [id(555)], currency: "USD" });
   });
 

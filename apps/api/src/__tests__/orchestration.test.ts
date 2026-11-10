@@ -103,11 +103,14 @@ describe("a cycle exists from the press of Continue (audit SOAK-05, RUI-15, OL-2
       const status = await o2.cycle.status({ businessId: b2 });
       expect(status).toMatchObject({ running: false, lastOutcome: "failed" });
       expect((await o2.cycle.continueState({ businessId: b2 })).kind).toBe("idle");
-      const warnings = (await o2.inbox.list({ businessId: b2, type: "warning", limit: 20 })).items.filter((i) => i.subject === "Cycle 1 did not finish");
+      const warnings = (await o2.inbox.list({ businessId: b2, type: "warning", limit: 20 })).items.filter((i) => i.subject === "The team's last round of work did not finish");
       expect(warnings).toHaveLength(1);
+      // Founder words (Nov 8, 2026): the note names no cycle number and no workflow.
+      expect(warnings[0]!.bodyMd).toMatch(/^The round of work stopped before it finished: it ended \(terminated\) before the work was done\./);
+      expect(warnings[0]!.bodyMd).not.toMatch(/cycle \d|workflow/i);
       // Asking again does not write a second note.
       await o2.cycle.status({ businessId: b2 });
-      expect((await o2.inbox.list({ businessId: b2, type: "warning", limit: 20 })).items.filter((i) => i.subject === "Cycle 1 did not finish")).toHaveLength(1);
+      expect((await o2.inbox.list({ businessId: b2, type: "warning", limit: 20 })).items.filter((i) => i.subject === "The team's last round of work did not finish")).toHaveLength(1);
       // The next press takes number 2.
       vi.useRealTimers();
       expect((await o2.business.continue({ businessId: b2 })).status.cycleNumber).toBe(2);

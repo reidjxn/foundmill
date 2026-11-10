@@ -9,7 +9,8 @@ export { autopilotChangedPayload, CAPPED_TRIGGERS, loadAutopilotFacts, openRunOf
 export { bothSignedOff, loadProductStage, productStageOf, type ProductStageFacts } from "./product-stage";
 export { resumeBusinessAgents, stopBusinessAgents, type ResumeBusinessResult, type StopBusinessResult } from "./controls";
 export { changeAgentModels, routeOf, type ModelChange } from "./agent-model";
-export { APPROVAL_OPTIONS, approvalAction, approvalAmount, approvalArgsText, approvalItem, approvalOutcomeOf, approvalSection, approvalTaskTests, approvalTaskTitle, closeApprovalItem, connectorLabel, founderReason, founderReasons, isApprovalOption, isReleaseApproval, openApprovalItem, toolWords, type ApprovalItemDetails, type ApprovalOptionId } from "./approvals";
+export { APPROVAL_OPTIONS, BATCHED_TOOLS, approvalAction, approvalAmount, approvalArgsText, approvalItem, approvalOutcomeOf, approvalSection, approvalTaskTests, approvalTaskTitle, batchApprovalItem, batchLine, closeApprovalItem, connectorLabel, founderReason, founderReasons, integrationConnected, isApprovalOption, isBatchedApproval, isReleaseApproval, openApprovalItem, openBatchFor, toolWords, type ApprovalItemDetails, type ApprovalOptionId } from "./approvals";
+export { ASK_FOR_DETAILS_NOTE, approvalWhatExactly, argLabel, channelWords, type ApprovalWhat, type ApprovalWhatContext, type ApprovalWhatKind, type ApprovalWhatRow } from "./approval-content";
 export { MOCK_TOP_UP_LABEL, settleCreditCheckout, type SettleCheckoutInput, type SettleCheckoutResult } from "./payments";
 export { assertBusinessAllowance, assertConcurrencyRoom, assertSeatAvailable, businessAllowance, concurrencyAllowance, includedCreditPool, OPEN_SESSION_WINDOW_HOURS, seatAllowance, type BusinessAllowance, type BusinessAllowanceOptions, type ConcurrencyAllowance, type IncludedCreditPool } from "./tiers";
 export { MIGRATIONS_DIR, MIGRATIONS_SCHEMA, MIGRATIONS_TABLE, readJournal, readMigrations } from "./migrations";

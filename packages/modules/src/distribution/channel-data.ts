@@ -218,7 +218,7 @@ export const CHANNEL_STATUS_WORDS: readonly ChannelStatusWord[] = ["Running", "S
 /** Why a channel on the board reads "Starting": its engine has not started (yet). */
 export const ENGINE_STARTING_HINT = "On the board, but its engine has not started yet. It starts within 15 minutes; until then nothing is drafted or launched.";
 /** Why a channel on the board reads "Waiting for the product" (founder, 2026-10-18): the founder has not started distribution. */
-export const ENGINE_WAITING_HINT = "On the board. Its engine starts when you start distribution (Distribution › Board › Start distribution).";
+export const ENGINE_WAITING_HINT = "On the board. Its engine starts when you start distribution (Customers › Board › Start distribution).";
 
 /** The hint behind a status word, for the pill's title. */
 export function statusHint(word: ChannelStatusWord): string | undefined {

@@ -1,5 +1,14 @@
 import { expect, test, type Page, type PlaywrightWorkerArgs } from "@playwright/test";
-import { COACHMARK_CARD, LONG, chooseTableView, devApi, dismissCoachmarks, openBusiness } from "./helpers";
+import { COACHMARK_CARD, LONG, chooseTableView, departmentBase as departmentBaseFor, devApi, dismissCoachmarks, openBusiness, openExplainer, setBuilderView } from "./helpers";
+
+// Builder view on for this file (it reads the Code, Health and Hierarchy tabs, ratings out of 20 and the cycle number); global-setup.ts starts every run with it off. Restored afterwards.
+let builderViewBefore = false;
+test.beforeAll(async ({ playwright }) => {
+  builderViewBefore = await setBuilderView(playwright, true);
+});
+test.afterAll(async ({ playwright }) => {
+  await setBuilderView(playwright, builderViewBefore);
+});
 
 /**
  * Team and Development screens on the seeded Northwind business at the two desktop widths (1280, the minimum, and
@@ -87,7 +96,9 @@ for (const width of [1280, 1440]) {
         await expect(agents.getByRole("columnheader", { name: /AI cost/ })).toHaveCount(0);
         expect(await headersInside(page, "Agents"), "every Simple column fits the panel").toEqual([]);
         await expect(explainer).toBeVisible();
-        await expect(explainer).toContainText("Everyone who works here. Agents have skills 1–20");
+        await expect(explainer).toContainText("Explain this page");
+        await expect(await openExplainer(page, "team-agents")).toContainText("Everyone who works here. Agents have skills 1–20");
+        await page.keyboard.press("Escape");
         await expect(page.getByTestId("form-caption")).toContainText("Form: the last five tasks");
         await expect(page.getByTestId("form-caption").locator("[data-term='form']")).toHaveClass(/term-link/);
         await expect(page.getByTestId("column-terms").locator("[data-term='rating']")).toBeVisible();
@@ -254,7 +265,8 @@ for (const width of [1280, 1440]) {
       const recruitExplainer = page.locator("[data-explainer='team-recruitment']");
       if (guided) {
         await expect(recruitExplainer).toBeVisible();
-        await expect(recruitExplainer).toContainText("Hire new agents");
+        await expect(await openExplainer(page, "team-recruitment")).toContainText("Hire new agents");
+        await page.keyboard.press("Escape");
         await expect(draft.locator("kbd")).toHaveCount(0);
       } else {
         await expect(recruitExplainer).toHaveCount(0);
@@ -312,7 +324,8 @@ for (const width of [1280, 1440]) {
 
     test("Development: plan, pull requests, environments and specialists read as words and fit", async ({ page }) => {
       await openBusiness(page);
-      const dev = await departmentBase(page, /development/i);
+      // The sidebar lists areas, not departments: the seeded Development keeps the module's slug.
+      const dev = departmentBaseFor("development");
 
       await openTab(page, dev, "plan", "development/plan");
       const tasks = page.getByRole("grid", { name: "Tasks" });
@@ -363,11 +376,12 @@ for (const width of [1280, 1440]) {
       // The Formulation Lab (Operations) shows the Specialists and Plan tabs only, not a copy of Development (DB-11). The
       // name is a label over the operations module: Settings › Departments › Reset to defaults (settings-departments.spec)
       // gives it back its default name, so either label finds it.
-      const lab = await departmentBase(page, /^(formulation lab|operations)$/i);
+      const lab = departmentBaseFor("operations");
       await page.goto(`${lab}/specialists`);
       await expect(page.getByTestId("module-screen")).toHaveAttribute("data-module", "development/specialists", { timeout: LONG });
-      const labTabs = page.getByRole("tablist").first().getByRole("tab");
-      await expect(labTabs).toHaveText([/Specialists/, /Plan/]);
+      // Its tabs sit in the Product area's bar (by module, docs/DESIGN.md §9), each naming the lab beside Development's.
+      const labTabs = page.getByRole("tablist", { name: "Product tabs" }).locator(`[role=tab][id^="tab-${lab.split("/").pop()}/"]`);
+      await expect(labTabs).toHaveText([/^Specialists · (Formulation Lab|Operations)/, /^Plan · (Formulation Lab|Operations)/]);
 
       await openTab(page, dev, "environments", "development/environments");
       const envs = page.getByRole("grid", { name: "Environments" });

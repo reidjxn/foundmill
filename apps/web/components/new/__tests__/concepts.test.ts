@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { CONCEPT_ATTRIBUTE_KEYS, isHexColour, kitOnPrimaryDetail } from "@foundmill/dugout";
 import { STEERING_CHIPS, steerBrief } from "../ideate/IdeationStudio";
-import { COMPARE_MAX, EMPTY_STUDIO_STATE, META_KIND, attributeChanges, attributeTerm, attributeTermId, buildDeck, citationsOf, commitHref, compareHref, costLabel, discardLocally, kitFromSeed, lineageOf, orderDeck, parseCompareIds, parseStudioState, pinnedIdsToLoad, qaBubbles, qaOf, readMeta, restoreLocally, settlePinned, toConcept, toggleSelection, versionToConcept, withPinned, type IdeaLike, type IdeaVersionLike } from "../ideate/concepts";
+import { COMPARE_MAX, EMPTY_STUDIO_STATE, META_KIND, attributeChanges, attributeTerm, attributeTermId, buildDeck, citationsOf, commitHref, compareHref, costLabel, discardLocally, founderWrote, kitFromSeed, lineageOf, orderDeck, parseCompareIds, parseStudioState, pinnedIdsToLoad, qaBubbles, qaOf, readMeta, restoreLocally, settlePinned, toConcept, toggleSelection, versionActionLabel, versionToConcept, withPinned, type IdeaLike, type IdeaVersionLike } from "../ideate/concepts";
 
 const A = "11111111-1111-4111-8111-111111111111";
 const B = "22222222-2222-4222-8222-222222222222";
@@ -192,5 +192,29 @@ describe("steering the next set", () => {
     expect(steerBrief("Pet care", "Sell to businesses rather than consumers.")).toBe("Pet care Sell to businesses rather than consumers.");
     expect(steerBrief("Pet care Sell to businesses rather than consumers.", "Sell to businesses rather than consumers.")).toBe("Pet care Sell to businesses rather than consumers.");
     expect(STEERING_CHIPS.map((c) => c.label)).toEqual(["Cheaper to start", "B2B instead", "More defensible"]);
+  });
+});
+
+describe("whose words a card is (first-time founder report, Nov 8, 2026)", () => {
+  it("a card the founder wrote or edited reads 'Your words'; a sample card says so; a drafted card says neither", () => {
+    const words = "Students near campus struggle to find same-day shifts.";
+    const mine = idea(A, { pitch: words, current: version({ pitch: words, research: { citations: [{ kind: META_KIND, founder_words: words, brief: words, sample: true }] } }) });
+    const c = toConcept(mine);
+    expect(c.yourWords).toBe(true);
+    expect(c.sample).toBe(true);
+    expect(founderWrote(mine)).toBe(true);
+    expect(readMeta(mine.current?.research)).toMatchObject({ founder_words: words, brief: words, sample: true });
+    // The agent rewrote the pitch after the founder's edit (a merge, say): the words are no longer theirs.
+    const rewritten = idea(B, { current: version({ pitch: "Something else.", research: { citations: [{ kind: META_KIND, founder_words: words }] } }) });
+    expect(toConcept(rewritten).yourWords).toBeUndefined();
+    expect(toConcept(idea()).yourWords).toBeUndefined();
+    expect(toConcept(idea()).sample).toBeUndefined();
+  });
+  it("a first version in the founder's words reads 'Written by you' in the history; an edit later reads 'Edited'", () => {
+    const words = "My idea, as written.";
+    const first = version({ version: 1, action: "edited", pitch: words, research: { citations: [{ kind: META_KIND, founder_words: words }] } });
+    expect(versionActionLabel("edited", first)).toBe("Written by you");
+    expect(versionActionLabel("edited", version({ version: 2, action: "edited" }))).toBe("Edited");
+    expect(versionActionLabel("generated", version())).toBe("Generated");
   });
 });

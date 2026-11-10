@@ -8,6 +8,7 @@ import { CATALOGUE_VIEWS, MOVES_VIEWS, RecruitmentScreen, toCatalogueRows } from
 import { suggestTemplates, tokenize } from "../shared";
 import { AGENT_COS, AGENT_JUNO, BID, DEPT_DEV, DEPT_DIST, DEPT_TEAM, agents, catalogue, dataResponses, emptyResponses } from "./fixtures";
 import { createFakeSource, renderScreen } from "./fake-source";
+import { openExplainer } from "../../explainer.testing";
 
 const props = { businessId: BID, departmentId: DEPT_TEAM };
 
@@ -68,8 +69,7 @@ describe("RecruitmentScreen", () => {
     expect(screen.getByTestId("catalogue-summary").textContent).toBe("6 templates · 4 in the team");
     // Guidance is on outside a provider: the tab's intro sits in the builder panel, the wage cap is a defined word, and
     // the generate button shows no key cap (an operator's affordance).
-    const explainer = document.querySelector("[data-explainer='team-recruitment']") as HTMLElement;
-    expect(explainer.getAttribute("data-state")).toBe("open");
+    const explainer = openExplainer("team-recruitment");
     expect(explainer.textContent).toContain("Hire new agents");
     expect(explainer.querySelector("[data-term='wage_cap']")).not.toBeNull();
     expect(screen.getByTestId("draft-agent").querySelector("kbd")).toBeNull();
@@ -247,7 +247,7 @@ describe("RecruitmentScreen", () => {
     const empty = createFakeSource({ businessId: BID, responses: emptyResponses });
     const { unmount } = renderScreen(empty, <RecruitmentScreen {...props} />);
     expect(await screen.findByText(/The catalog lists every agent template/)).toBeTruthy();
-    expect(screen.getByText(/Hired agents appear here/)).toBeTruthy();
+    expect(screen.getByText(/Nothing hired yet/)).toBeTruthy();
     unmount();
 
     const loading = createFakeSource({ businessId: BID, responses: { "department.list": [] } });

@@ -261,6 +261,12 @@ export const businessRouter = router({
       productStage: signoffs.stage,
       signoffs: { spec: signoffs.spec, roadmap: signoffs.roadmap },
       distributionStartedAt: ctx.business.distributionStartedAt,
+      /**
+       * Whether the orchestrator, the service that runs the team's work, can be reached from this api right now (null:
+       * not known yet). The shell and Development › Plan say so before a press, instead of a Continue that writes one
+       * note or a Start that is refused (first-time founder report, Nov 8, 2026). Read without waiting (`health`).
+       */
+      orchestrator: { reachable: ctx.temporal.health().reachable },
     };
   }),
 

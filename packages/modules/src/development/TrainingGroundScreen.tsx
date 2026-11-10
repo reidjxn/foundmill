@@ -27,6 +27,7 @@ import {
   cn,
   sessionLengthMs,
   useAgentPersona,
+  useBuilderView,
   type AgentTileSession,
   type GroundView,
   type Nudge,
@@ -119,7 +120,11 @@ export function TrainingGroundScreen({ businessId, subView }: ModuleScreenProps)
   const agents = useAgents();
   const plan = useWidgetQuery<{ tier: PlanTier }>("billing.plan", {});
   const departments = useDepartments();
-  const [view, setView] = useState<GroundView>(subView === "formation" ? "formation" : "tiles");
+  // Builder view off (Working now): tiles only. The Task graph sub-view, the replay scrubber, terminals and diffs are the
+  // builder's; each tile keeps its agent, the task in the founder's words, progress, elapsed, the cost Estimate and Nudge.
+  const builder = useBuilderView();
+  const [chosenView, setView] = useState<GroundView>(subView === "formation" ? "formation" : "tiles");
+  const view: GroundView = builder ? chosenView : "tiles";
   const graph = useWidgetQuery<TasksListResponse>("dev.tasks.list", { limit: 500 }, { enabled: view === "formation" });
   const action = useAction();
 
@@ -141,9 +146,11 @@ export function TrainingGroundScreen({ businessId, subView }: ModuleScreenProps)
       live.map((task) => {
         const session = openByTask.get(task.id) ?? null;
         const agent = toTileAgent(agentIndex.get(task.assigneeAgentId ?? ""), task.assigneeAgentId);
-        return { seed: seedFromRows({ task, session, agent, taskHref: taskHref(businessId, deptSlug, task.id) }), task, session };
+        const seed = seedFromRows({ task, session, agent, taskHref: taskHref(businessId, deptSlug, task.id) });
+        // The founder's title (0070) on the tile while Builder view is off; the builder reads the task's own.
+        return { seed: builder || !task.founderTitle ? seed : { ...seed, task: { ...seed.task, title: task.founderTitle } }, task, session };
       }),
-    [live, openByTask, agentIndex, businessId, deptSlug],
+    [live, openByTask, agentIndex, businessId, deptSlug, builder],
   );
 
   const [focusedId, setFocusedId] = useState<string | null>(null);
@@ -161,7 +168,7 @@ export function TrainingGroundScreen({ businessId, subView }: ModuleScreenProps)
   const ticking = streams.sessions.some((s) => !s.queued && (s.status === "running" || s.status === "review" || s.status === "merging"));
   const now = useNow({ enabled: ticking, fixed: options.now });
   const focusedLength = focusedSource ? sessionLengthMs(focusedEvents, focusedSource.seed.startedAt, streams.byId.get(focusedSource.seed.id)?.endedAt ?? null, now) : 0;
-  const replaySession = focusedId && !replay.live ? streams.replayAt(focusedId, replay.position) : null;
+  const replaySession = builder && focusedId && !replay.live ? streams.replayAt(focusedId, replay.position) : null;
 
   // Dialogs.
   const [reassign, setReassign] = useState<string | null>(null);
@@ -246,7 +253,7 @@ export function TrainingGroundScreen({ businessId, subView }: ModuleScreenProps)
       ))}
       <Panel
         span={12}
-        title={<Term id="session">Live sessions</Term>}
+        title={builder ? <Term id="session">Live sessions</Term> : "Working now"}
         flush
         className="h-full"
         bodyClassName="flex min-h-0 flex-col"
@@ -258,7 +265,7 @@ export function TrainingGroundScreen({ businessId, subView }: ModuleScreenProps)
             <span className="text-small text-secondary tabular-nums" data-testid="ground-counts">
               {live.length} live · {running} running{queued ? ` · ${queued} queued` : ""}
             </span>
-            <GroundViewToggle value={view} onChange={setView} />
+            {builder ? <GroundViewToggle value={view} onChange={setView} /> : null}
             <ShoutMenu target="all agents" labelled onShout={(shout) => void action.run("dev.tasks.shout", shoutInput(shout), { key: "shout:all" })} disabled={running === 0} />
           </div>
         }
@@ -327,23 +334,30 @@ export function TrainingGroundScreen({ businessId, subView }: ModuleScreenProps)
             />
             {focusedSource ? (
               <div className="flex shrink-0 items-center gap-2 border-t border-subtle bg-panel pr-2">
-                <SessionScrubber
-                  className={cn("min-w-0 flex-1 border-t-0")}
-                  events={focusedEvents}
-                  startedAt={focusedSource.seed.startedAt}
-                  endedAt={streams.byId.get(focusedSource.seed.id)?.endedAt ?? null}
-                  now={now}
-                  position={replay.live ? focusedLength : replay.position}
-                  onPositionChange={(position) => setReplay((r) => ({ ...r, position, live: false }))}
-                  playing={replay.playing}
-                  onPlayingChange={(playing) => setReplay((r) => ({ ...r, playing, live: false, position: r.live ? 0 : r.position }))}
-                  speed={replay.speed}
-                  onSpeedChange={(speed) => setReplay((r) => ({ ...r, speed }))}
-                  label={`Replay of ${focusedSource.seed.agent.name}`}
-                />
-                <Button size="sm" variant={replay.live ? "default" : "primary"} icon={Rows3} disabled={replay.live} onClick={() => setReplay((r) => ({ ...r, live: true, playing: false }))}>
-                  {replay.live ? "Live" : "Back to live"}
-                </Button>
+                {/* The replay of the agent's screen is Builder view's; off, the strip carries the Nudge alone. */}
+                {builder ? (
+                  <>
+                    <SessionScrubber
+                      className={cn("min-w-0 flex-1 border-t-0")}
+                      events={focusedEvents}
+                      startedAt={focusedSource.seed.startedAt}
+                      endedAt={streams.byId.get(focusedSource.seed.id)?.endedAt ?? null}
+                      now={now}
+                      position={replay.live ? focusedLength : replay.position}
+                      onPositionChange={(position) => setReplay((r) => ({ ...r, position, live: false }))}
+                      playing={replay.playing}
+                      onPlayingChange={(playing) => setReplay((r) => ({ ...r, playing, live: false, position: r.live ? 0 : r.position }))}
+                      speed={replay.speed}
+                      onSpeedChange={(speed) => setReplay((r) => ({ ...r, speed }))}
+                      label={`Replay of ${focusedSource.seed.agent.name}`}
+                    />
+                    <Button size="sm" variant={replay.live ? "default" : "primary"} icon={Rows3} disabled={replay.live} onClick={() => setReplay((r) => ({ ...r, live: true, playing: false }))}>
+                      {replay.live ? "Live" : "Back to live"}
+                    </Button>
+                  </>
+                ) : (
+                  <span className="min-w-0 flex-1 py-1" />
+                )}
                 <NudgeMenu
                   target={focusedPersona?.name ?? focusedSource.seed.agent.name}
                   presets={nudgeMenuPresets(focusedPersona)}

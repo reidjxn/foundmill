@@ -1,5 +1,14 @@
 import { expect, test } from "@playwright/test";
-import { LONG, openBusiness } from "./helpers";
+import { LONG, departmentBase, openBusiness, openExplainer, setBuilderView } from "./helpers";
+
+// Builder view on for this file (it reads the tiles' tokens and ETA); global-setup.ts starts every run with it off. Restored afterwards.
+let builderViewBefore = false;
+test.beforeAll(async ({ playwright }) => {
+  builderViewBefore = await setBuilderView(playwright, true);
+});
+test.afterAll(async ({ playwright }) => {
+  await setBuilderView(playwright, builderViewBefore);
+});
 
 /**
  * Development › Live sessions (BUILD §11.6) on the seeded Northwind Skincare: the tiles, the focused tile with its
@@ -10,20 +19,20 @@ test.describe("live sessions", () => {
     test.setTimeout(180_000); // the elapsed clock ticks by the minute once a session has run for an hour
     await page.setViewportSize({ width: 1280, height: 900 });
     await openBusiness(page);
-    const dev = page.locator("[data-testid=app-shell] nav a[href*='/d/']").filter({ hasText: /development/i }).first();
-    await expect(dev, "the seed gives Northwind a Development department").toBeVisible({ timeout: LONG });
-    const href = (await dev.getAttribute("href"))!;
-    await page.goto(href.replace(/\/d\/([^/]+)\/.*$/, "/d/$1/training-ground"));
+    // The sidebar lists areas, not departments: the seeded Development keeps the module's slug.
+    await page.goto(`${departmentBase("development")}/training-ground`);
     await expect(page.getByTestId("module-screen")).toHaveAttribute("data-module", "development/training-ground", { timeout: LONG });
     const tiles = page.locator("[data-tile-id]");
     await expect(tiles.first(), "the seed has agents working").toBeVisible({ timeout: LONG});
 
-    // Guidance on (the product default): the department's intro sits in the panel's body above the tiles, and every
-    // tile carries a visible "…" so hovering is never the only way to its controls (UX plan §7.10, §7.12).
-    const explainer = page.locator("[data-explainer='development/live-sessions']");
-    await expect(explainer).toBeVisible();
+    // Guidance on (the product default): the page's intro opens from the "Explain this page" button, never as a banner
+    // in the panel's body, and every tile carries a visible "…" so hovering is never the only way to its controls
+    // (UX plan §7.10, §7.12).
+    await expect(page.locator("[data-panel-body] [data-explainer]")).toHaveCount(0);
+    const explainer = await openExplainer(page, "development/live-sessions");
     await expect(explainer).toContainText("Each tile is one agent on one task.");
-    expect(await explainer.evaluate((el) => !!el.closest("[data-panel-body]"))).toBe(true);
+    await page.keyboard.press("Escape");
+    await expect(explainer).toBeHidden();
     expect(await page.locator("[data-tile-actions]").count()).toBe(await tiles.count());
 
     // Northwind runs in GBP: no tile shows a cost in euros.
@@ -74,10 +83,7 @@ test.describe("live sessions", () => {
   test("a nudge that reached no session says so instead of showing the agent's answer (audit OL-04, TPD-16)", async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 900 });
     await openBusiness(page);
-    const dev = page.locator("[data-testid=app-shell] nav a[href*='/d/']").filter({ hasText: /development/i }).first();
-    await expect(dev).toBeVisible({ timeout: LONG });
-    const href = (await dev.getAttribute("href"))!;
-    await page.goto(href.replace(/\/d\/([^/]+)\/.*$/, "/d/$1/training-ground"));
+    await page.goto(`${departmentBase("development")}/training-ground`);
     await expect(page.getByTestId("module-screen")).toHaveAttribute("data-module", "development/training-ground", { timeout: LONG });
     // The seeded sessions have no workflow behind them, so no nudge can arrive.
     const tiles = page.locator("[data-tile-id]");

@@ -13,7 +13,7 @@
  */
 import { useMemo, useState } from "react";
 import { ArrowLeftRight, Copy, Cpu, ExternalLink, UserRoundMinus, UserRoundPlus, Users } from "lucide-react";
-import { Button, DataTable, Explainer, FormCells, MODEL_LABELS, Panel, SQUAD_VIEWS, Term, formatRelative, squadColumns, useAgentPersona, useGuided, type DataTableColumn, type RowAction, type SavedView, type SquadRow } from "@foundmill/dugout";
+import { Button, DataTable, Explainer, FormCells, MODEL_LABELS, Panel, SQUAD_VIEWS, Term, formatRelative, squadColumns, useAgentPersona, useBuilderView, useGuided, type DataTableColumn, type RowAction, type SavedView, type SquadRow } from "@foundmill/dugout";
 import { AGENT_STATUSES } from "@foundmill/shared/constants";
 import { teamCaption, teamTree, type TeamTree } from "@foundmill/shared/team-tiers";
 import { needsAttention } from "@foundmill/widgets/shared/health";
@@ -43,6 +43,16 @@ export const TEAM_SQUAD_VIEWS: SavedView[] = [
   { id: SIMPLE_VIEW_ID, name: "Simple", builtIn: true, columns: ["name", "status", "currentTask", "rating"], sort: [{ id: "rating", desc: true }], filters: [] },
   ...SQUAD_VIEWS.map((v) => (v.id === "general" ? { ...v, columns: ["name", "role", "departments", "status", "currentTask", "form", "rating", "model", "wage"] } : v)),
 ];
+
+/**
+ * The views with Builder view off (docs/DESIGN.md): Simple reads Agent, Status, Current task, Latest update (the rating
+ * is Builder view's); Form, Rating, Tools and Model drop out of every view and the Health, Tools and Performance views
+ * are not offered (DataTable `builderOnly`).
+ */
+export const FOUNDER_SIMPLE_COLUMNS = ["name", "status", "currentTask", "latestUpdate"];
+export function teamSquadViews(builder: boolean): SavedView[] {
+  return builder ? TEAM_SQUAD_VIEWS : TEAM_SQUAD_VIEWS.map((v) => (v.id === SIMPLE_VIEW_ID ? { ...v, columns: FOUNDER_SIMPLE_COLUMNS, sort: [] } : v));
+}
 
 /** What the Agents tab is for (UX plan §7.10, the Team sentence), with the words a founder meets here defined on first use. */
 export const TEAM_AGENTS_EXPLAINER = {
@@ -132,7 +142,9 @@ export function SquadScreen({ businessId, departmentId }: ModuleScreenProps) {
   // Saved per person, business and table (audit #204): they come back after a reload. Simple opens first while guidance
   // is on (UX plan §7.10); a view the person left open still wins.
   const defaultViewId = guided ? SIMPLE_VIEW_ID : "general";
-  const savedViews = useSavedViews("team.agents", TEAM_SQUAD_VIEWS, { defaultViewId });
+  const builder = useBuilderView();
+  const builtInViews = useMemo(() => teamSquadViews(builder), [builder]);
+  const savedViews = useSavedViews("team.agents", builtInViews, { defaultViewId });
   const [modelAgent, setModelAgent] = useState<AgentRow | null>(null);
   const [release, setRelease] = useState<AgentRow | null>(null);
   const [clone, setClone] = useState<AgentRow | null>(null);

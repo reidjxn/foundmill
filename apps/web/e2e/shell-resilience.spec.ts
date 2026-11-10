@@ -1,5 +1,14 @@
 import { expect, test, type APIRequestContext } from "@playwright/test";
-import { LEDGERLY_BUSINESS_ID, LONG, NORTHWIND_BUSINESS_ID, devApi, openBusiness, openSwitcher, signIn } from "./helpers";
+import { LEDGERLY_BUSINESS_ID, LONG, NORTHWIND_BUSINESS_ID, devApi, openBusiness, openSwitcher, signIn, setBuilderView } from "./helpers";
+
+// Builder view on for this file (it reads the "Reconnecting…" chip, which a founder without Builder view sees only as "Updates may be late" after 30 s); global-setup.ts starts every run with it off. Restored afterwards.
+let builderViewBefore = false;
+test.beforeAll(async ({ playwright }) => {
+  builderViewBefore = await setBuilderView(playwright, true);
+});
+test.afterAll(async ({ playwright }) => {
+  await setBuilderView(playwright, builderViewBefore);
+});
 
 /** lib/chunk-error.ts CHUNK_RELOAD_KEY (a spec cannot import app code that reaches for the window). */
 const CHUNK_RELOAD_KEY = "fm.chunk-reload-at";
@@ -89,7 +98,8 @@ test.describe("shell resilience", () => {
     let blocked = true;
     // Only the chunks the Inbox did not need fail (blocking the shell's own would leave nothing to show the panel).
     await page.route("**/_next/static/chunks/**", (route) => (blocked && !loaded.has(route.request().url()) ? route.fulfill({ status: 404, body: "" }) : route.continue()));
-    await page.getByRole("link", { name: "Milestones" }).first().click();
+    // A client navigation to a screen the Inbox did not load (the sidebar has no Milestones item since the founder areas: Plan holds it).
+    await page.locator("[data-testid=app-shell] nav [data-sidebar-item='area-plan']").click();
     const panel = page.getByTestId("error-panel");
     await expect(panel).toBeVisible({ timeout: LONG });
     await expect(panel).toContainText("was updated");

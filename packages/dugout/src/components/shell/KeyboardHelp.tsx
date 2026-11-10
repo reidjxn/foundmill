@@ -1,4 +1,5 @@
 import { useMemo } from "react";
+import type { AreaKey } from "@foundmill/shared";
 import { Dialog, DialogBody, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "../foundation/Dialog";
 import { Kbd } from "../foundation/Kbd";
 import { shortcutList, type DepartmentForKeys, type KeyboardShortcut, type ShortcutGroup } from "./keyboard";
@@ -6,11 +7,16 @@ import { shortcutList, type DepartmentForKeys, type KeyboardShortcut, type Short
 export interface KeyboardHelpProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  /** Departments in the founder's order, so their G chords are listed. */
+  /** Module-less departments in the founder's order, so their G chords are listed. */
   departments?: readonly DepartmentForKeys[];
+  /** The founder areas the sidebar shows, so their G chords are listed (G P Plan, G C Customers, …). */
+  areas?: readonly AreaKey[];
 }
 
-const GROUP_ORDER: readonly ShortcutGroup[] = ["Navigation", "Inbox", "Decisions", "Layout", "Help"];
+const EMPTY_DEPARTMENTS: readonly DepartmentForKeys[] = [];
+const EMPTY_AREAS: readonly AreaKey[] = [];
+
+const GROUP_ORDER: readonly ShortcutGroup[] =["Navigation", "Inbox", "Decisions", "Layout", "Help"];
 
 /** Shortcuts grouped in display order. Exported for tests. */
 export function groupShortcuts(list: readonly KeyboardShortcut[]): Array<{ group: ShortcutGroup; items: KeyboardShortcut[] }> {
@@ -18,13 +24,13 @@ export function groupShortcuts(list: readonly KeyboardShortcut[]): Array<{ group
 }
 
 /**
- * The keyboard map overlay (BUILD §5.5): every shortcut with its keys, department chords included, in groups under data
+ * The keyboard map overlay (BUILD §5.5): every shortcut with its keys, area and department chords included, in groups under data
  * labels, in two columns; each row reads the action on the left and its key caps on the right. Opens on "?", from the
  * sidebar foot's "?" cap and from the palette's Help row "Keyboard shortcuts" (B15). Always lists every shortcut,
  * whatever the guidance setting.
  */
-export function KeyboardHelp({ open, onOpenChange, departments = [] }: KeyboardHelpProps) {
-  const groups = useMemo(() => groupShortcuts(shortcutList(departments)), [departments]);
+export function KeyboardHelp({ open, onOpenChange, departments = EMPTY_DEPARTMENTS, areas = EMPTY_AREAS }: KeyboardHelpProps) {
+  const groups = useMemo(() => groupShortcuts(shortcutList(departments, areas)), [departments, areas]);
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent size="lg" data-testid="keyboard-help">

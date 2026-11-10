@@ -4,13 +4,13 @@
  * the founder's Start distribution stops; a plan's enable_channel defers the engine; vacation and Automated mode never
  * sign off the product; the last task of a roadmap item offers Ready to start selling? once, with the demo task.
  */
-import { repos, signoffDecisionBlock } from "@foundmill/db";
-import { CHANNEL_META, defaultGoalFor, goalOptions, goalProposalSubject, goalSentence } from "@foundmill/shared";
+import { openApprovalItem, repos, signoffDecisionBlock } from "@foundmill/db";
+import { CHANNEL_META, DECISION_TYPES, defaultGoalFor, goalOptions, goalProposalSubject, goalSentence } from "@foundmill/shared";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createBriefActivities } from "../activities/brief";
 import { createChannelActivities, emptyChannelState } from "../activities/channel";
 import { CHANNEL_WAITS_REASON, createCycleActivities, idleSummary } from "../activities/cycle";
-import { autoDecideBlocking, createHolidayActivities, GOAL_IS_YOURS, SIGNOFF_IS_YOURS } from "../activities/holiday";
+import { APPROVAL_IS_YOURS, autoDecideBlocking, createHolidayActivities, GOAL_IS_YOURS, SIGNOFF_IS_YOURS } from "../activities/holiday";
 import { createPlanActivities } from "../activities/plan";
 import { offerReadyToSellAfterTask, READY_TO_SELL_SUBJECT } from "../activities/session";
 import type { BusinessBrief } from "../activities/types";
@@ -58,7 +58,7 @@ describe("the brief and the cycle planner", () => {
     const onlyChannel: BusinessBrief = { ...building, openTasks: building.openTasks.filter((task) => task.id === channelTask.id) };
     const idle = await cycle.planCycle({ businessId: t.businessId, cycleNumber: 3, trigger: "continue", brief: onlyChannel });
     expect(idle).toMatchObject({ starts: [], costMinor: 0, idle: true });
-    expect(idle.summary).toContain("1 channel task waits until you start distribution from Distribution › Board");
+    expect(idle.summary).toContain("1 channel task waits until you start distribution from Customers › Board");
     expect(idleSummary({ ...onlyChannel, productStage: "awaiting_signoff" }, [])).toContain("The specification and roadmap are waiting for your sign-off in the Inbox; building starts when both are approved");
     await repos.tasks.setStatus(t.db, t.businessId, channelTask.id, "stopped", { force: true });
     await repos.tasks.setStatus(t.db, t.businessId, financeTask.id, "stopped", { force: true });
@@ -143,6 +143,50 @@ describe("vacation and Automated mode never answer the goal (founder, 2026-11-07
     expect((await repos.inbox.get(t.db, t.businessId, itemId)).state).toBe("unread");
     expect((await repos.goals.get(t.db, t.businessId, proposed.goal.id))?.status).toBe("proposed");
     await repos.holidays.end(t.db, t.businessId, h.id, { endedAt: t.clock.now() });
+  });
+});
+
+describe("Automated mode and vacation never answer an approval (a spend above the line is the founder's)", () => {
+  it("an approval's note for a spend above the line stays open for the founder and its approval stays pending", async () => {
+    const w = await waitingBusiness("Spend Line Co");
+    await repos.businesses.update(t.db, w.id, { currency: "GBP" });
+    const worker = await repos.agents.create(t.db, w.id, { name: "Juno", agentType: "researcher", layer: "worker", status: "idle" });
+    // £600.00, above the default approval line (LIMITS.approvalThresholdMinorDefault); its options cost 0 themselves.
+    const approval = await repos.approvals.create(t.db, w.id, { agentId: worker.id, connectorKey: "platform", tool: "approve_spend", args: { summary: "Book the trade show stand" }, reasons: ["amount above the approval threshold"], amountMinor: 60_000, currency: "GBP", decisionType: "spend_above_threshold" });
+    const { item } = await openApprovalItem(t.db, w.id, approval, { agentId: worker.id, agentName: "Juno", taskTitle: null });
+    expect(item.bodyMd).toContain("spending **£600.00**");
+    // A note an agent's approval is linked to, whatever its options say, is the founder's too.
+    const linked = await repos.inbox.createItem(t.db, w.id, { type: "decision", from_agent_id: worker.id, subject: "Juno asks to publish the post", body_md: "Juno wants to publish the post.", status_strip: [], exhibit: { kind: "none", spec_ref: null }, decision: { options: [{ id: "go", label: "Go", recommended: true, consequence: "It happens", cost_minor: 0, reversible: true }, { id: "wait", label: "Wait", recommended: false, consequence: "Nothing", cost_minor: 0, reversible: true }], free_text: false, expires_at: null }, blocks_continue: true, source_event_ids: [], entity_ids: [] });
+    const linkedApproval = await repos.approvals.create(t.db, w.id, { agentId: worker.id, inboxItemId: linked.id, connectorKey: "platform", tool: "publish_post", reasons: ["publishing asks first"] });
+
+    const automated = DECISION_TYPES.filter((d) => d !== "sign_contracts");
+    for (const spendCapMinor of [null, 100_000]) {
+      const auto = await autoDecideBlocking(t.deps, w.id, { chiefOfStaffId: w.chief.id, authority: automated, auditAction: "automated_mode.decide", scope: "Automated mode", spendCapMinor });
+      expect(auto.inboxItemIds).not.toContain(item.id);
+      expect(auto.inboxItemIds).not.toContain(linked.id);
+      expect(auto.decided).toBe(0);
+      expect(auto.queuedGated).toBe(2);
+    }
+    // Both stay open in the founder's Respond tab (a decision no longer holds Continue, founder 2026-11-07).
+    for (const id of [item.id, linked.id]) expect((await repos.inbox.get(t.db, w.id, id)).state).toBe("unread");
+    expect((await repos.inbox.list(t.db, w.id, { tab: "respond", limit: 10 })).items.map((i) => i.id).sort()).toEqual([item.id, linked.id].sort());
+    for (const id of [approval.id, linkedApproval.id]) expect((await repos.approvals.get(t.db, w.id, id)).outcome).toBeNull();
+    expect((await repos.audit.list(t.db, w.id, { action: ["automated_mode.decide"], limit: 5 })).items).toHaveLength(0);
+
+    // Vacation, with every authority it can be given: the same, with the reason the report lists.
+    const acts = createHolidayActivities(t.deps);
+    const started = t.clock.now();
+    const h = await repos.holidays.start(t.db, w.id, { untilAt: new Date(started.getTime() + 2 * 86_400_000), authority: { decisionTypes: automated }, wakeEvents: [], startedAt: started });
+    const loaded = await acts.loadHoliday({ businessId: w.id, holidayId: h.id });
+    const decided = await acts.holidayAutoDecide({ businessId: w.id, holiday: loaded });
+    expect(decided.inboxItemIds).toEqual([]);
+    const reasons = Object.fromEntries(decided.waiting.map((x) => [x.inboxItemId, x.reason]));
+    expect(reasons[item.id]).toBe(APPROVAL_IS_YOURS);
+    expect(reasons[linked.id]).toBe(APPROVAL_IS_YOURS);
+    for (const id of [approval.id, linkedApproval.id]) expect((await repos.approvals.get(t.db, w.id, id)).outcome).toBeNull();
+    // The report counts each once, as the approval it answers.
+    const ended = await acts.endHoliday({ businessId: w.id, holiday: loaded, reason: "founder_returned", wakeEventType: null, cyclesRun: 0 });
+    expect(ended.gatedItemsQueued).toBe(2);
   });
 });
 

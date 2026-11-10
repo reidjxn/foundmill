@@ -6,8 +6,8 @@
 import { useMemo, useState } from "react";
 import { z } from "zod";
 import { CircleCheck, CircleX, Coins, GitMerge, Handshake, Hourglass, MessageSquare, Play, Radio, Rocket, Trophy, UserPlus, Users, type LucideIcon } from "lucide-react";
-import { Timeline, formatMoney, type StatusTone, type TimelineEvent } from "@foundmill/dugout";
-import { countOf } from "@foundmill/shared";
+import { Timeline, formatMoney, useBuilderView, type StatusTone, type TimelineEvent } from "@foundmill/dugout";
+import { countOf, founderJargonHits, founderPhrase } from "@foundmill/shared";
 import { useBusinessEvents, useGlossary, useWidgetQuery, type WidgetEvent } from "../data";
 import { registerWidget, type WidgetProps } from "../registry";
 import { WidgetFrame } from "../shared/frame";
@@ -75,9 +75,21 @@ const EVENT_TITLE: Readonly<Record<string, string>> = {
 const CYCLE_OUTCOME: Readonly<Record<string, string>> = { completed: "completed", time_box: "reached its time limit", waiting: "is waiting on you", stopped: "stopped", failed: "failed" };
 const own = (map: Readonly<Record<string, string>>, key: string | undefined): string | undefined => (key !== undefined && Object.hasOwn(map, key) ? map[key] : undefined);
 
+/** A round of work's outcome in the founder's words (Builder view off): "Round of work finished · 3 tasks done". */
+const ROUND_OUTCOME: Readonly<Record<string, string>> = { completed: "Round of work finished", time_box: "Round of work reached its time limit", waiting: "Round of work is waiting on you", stopped: "Round of work stopped", failed: "Round of work did not finish" };
+
+export interface DescribeOptions {
+  /**
+   * Builder view (docs/DESIGN.md): on reads the engine as before ("Cycle 3 started", "Merged PR #41"); off reads the
+   * founder's words, with no cycle or PR number ("The team started a round of work", "Gone live: <title>"). Default on.
+   */
+  builder?: boolean;
+}
+
 /** Plain, specific words for each event (DESIGN §10); colour always comes with an icon and a word. */
-export function describeEvent(e: WidgetEvent): Described {
+export function describeEvent(e: WidgetEvent, opts: DescribeOptions = {}): Described {
   const p = e.payload;
+  const builder = opts.builder ?? true;
   switch (e.type) {
     case "task.started":
       return { title: `Started: ${str(p.title) ?? "a task"}`, icon: Play, tone: "info", statusWord: "Started" };
@@ -85,11 +97,16 @@ export function describeEvent(e: WidgetEvent): Described {
       const phase = str(p.phase)?.replace(/_/g, " ");
       return { title: `${phase ? phase.charAt(0).toUpperCase() + phase.slice(1) : "Working"}: ${Math.round(((p.progress as number) ?? 0) * 100)}%`, icon: Hourglass, tone: "neutral" };
     }
-    case "task.completed":
-      return { title: `Done: ${str(p.title) ?? "a task"}`, description: str(p.summary), icon: CircleCheck, tone: p.outcome === "partial" ? "warn" : "good", statusWord: p.outcome === "partial" ? "Partial" : "Done" };
+    case "task.completed": {
+      // An agent's summary can carry the engine's numbers ("105 tests passed"): off, they read in the founder's words.
+      const summary = str(p.summary);
+      const description = summary && !builder && founderJargonHits(summary).length > 0 ? founderPhrase(summary) || undefined : summary;
+      return { title: `Done: ${str(p.title) ?? "a task"}`, description, icon: CircleCheck, tone: p.outcome === "partial" ? "warn" : "good", statusWord: p.outcome === "partial" ? "Partial" : "Done" };
+    }
     case "task.blocked":
       return { title: `Blocked: ${str(p.title) ?? "a task"}`, description: str(p.reason), icon: CircleX, tone: "bad", statusWord: "Blocked" };
     case "pr.merged":
+      if (!builder) return { title: `Gone live: ${founderPhrase(str(p.title) ?? "") || "a change to the product"}`, icon: GitMerge, tone: "good", statusWord: "Live" };
       return { title: `Merged PR #${String(p.prNumber ?? "")}`.trim(), description: str(p.title), icon: GitMerge, tone: "good", statusWord: "Merged" };
     case "signup.created":
       return { title: "New signup", description: str(p.provider), icon: UserPlus, tone: "good" };
@@ -121,8 +138,10 @@ export function describeEvent(e: WidgetEvent): Described {
       };
     }
     case "cycle.started":
+      if (!builder) return { title: "The team started a round of work", icon: Play, tone: "info" };
       return { title: `Cycle ${String(p.cycleNumber ?? "")} started`.replace("  ", " "), icon: Play, tone: "info" };
     case "cycle.completed":
+      if (!builder) return { title: `${own(ROUND_OUTCOME, str(p.outcome)) ?? ROUND_OUTCOME.completed} · ${countOf(typeof p.tasksCompleted === "number" ? p.tasksCompleted : 0, "task")} done`, icon: CircleCheck, tone: p.outcome === "failed" ? "bad" : p.outcome === "completed" ? "good" : "neutral" };
       return { title: `Cycle ${String(p.cycleNumber ?? "")} ${own(CYCLE_OUTCOME, str(p.outcome)) ?? "completed"}`.replace("  ", " "), description: `${countOf(typeof p.tasksCompleted === "number" ? p.tasksCompleted : 0, "task")} done`, icon: CircleCheck, tone: p.outcome === "failed" ? "bad" : p.outcome === "completed" ? "good" : "neutral" };
     case "inbox.item_created":
       // A reader walled from Finance or the CRM gets the note without its subject (apps/stream walls).
@@ -137,13 +156,15 @@ export function describeEvent(e: WidgetEvent): Described {
   }
 }
 
-export function toTimelineEvent(e: WidgetEvent, fallbackAt: string): TimelineEvent {
-  const d = describeEvent(e);
+export function toTimelineEvent(e: WidgetEvent, fallbackAt: string, opts: DescribeOptions = {}): TimelineEvent {
+  const d = describeEvent(e, opts);
   return { id: e.id ?? `${e.type}:${e.occurredAt ?? fallbackAt}:${Math.random().toString(36).slice(2, 8)}`, at: e.occurredAt ?? fallbackAt, title: d.title, description: d.description, icon: d.icon, tone: d.tone, statusWord: d.statusWord };
 }
 
 /** Seed rows from recent tasks so the feed has history before the first live frame. */
-export function seedFromTasks(tasks: readonly TaskRow[]): TimelineEvent[] {
+export function seedFromTasks(tasks: readonly TaskRow[], opts: DescribeOptions = {}): TimelineEvent[] {
+  // Builder view off names each task by its founder title (0070) when it has one.
+  const founder = opts.builder === false;
   return tasks
     .filter((t) => t.startedAt || t.endedAt)
     .map((t) => {
@@ -152,7 +173,7 @@ export function seedFromTasks(tasks: readonly TaskRow[]): TimelineEvent[] {
       return {
         id: `task:${t.id}:${t.status}`,
         at: (done || failed ? t.endedAt : t.startedAt) ?? t.updatedAt ?? new Date().toISOString(),
-        title: `${done ? "Done" : failed ? "Failed" : "Started"}: ${t.title}`,
+        title: `${done ? "Done" : failed ? "Failed" : "Started"}: ${(founder && t.founderTitle) || t.title}`,
         icon: done ? CircleCheck : failed ? CircleX : Play,
         tone: done ? ("good" as const) : failed ? ("bad" as const) : ("info" as const),
         statusWord: done ? "Done" : failed ? "Failed" : "Started",
@@ -162,24 +183,28 @@ export function seedFromTasks(tasks: readonly TaskRow[]): TimelineEvent[] {
 
 function LiveFeedWidget({ settings }: WidgetProps<LiveFeedSettings>) {
   const tasks = useWidgetQuery<Page<TaskRow>>("dev.tasks.list", { limit: 20 });
-  const [live, setLive] = useState<TimelineEvent[]>([]);
+  // The raw events are kept and described at render, so turning Builder view on or off rewords the feed in place.
+  const [received, setReceived] = useState<{ event: WidgetEvent; id: string; at: string }[]>([]);
   useBusinessEvents((e) => {
     if (settings.quiet && QUIET_TYPES.has(e.type)) return;
-    setLive((prev) => [toTimelineEvent(e, new Date().toISOString()), ...prev].slice(0, settings.max));
+    const at = new Date().toISOString();
+    setReceived((prev) => [{ event: e, at, id: e.id ?? `${e.type}:${e.occurredAt ?? at}:${Math.random().toString(36).slice(2, 8)}` }, ...prev].slice(0, settings.max));
   });
+  const builder = useBuilderView();
+  const live = useMemo(() => received.map((r) => ({ ...toTimelineEvent(r.event, r.at, { builder }), id: r.id })), [received, builder]);
   const g = useGlossary();
   const events = useMemo(() => {
     const seen = new Set(live.map((e) => e.id));
     // Lines in the business's words ("Customer won" → "Client won").
-    return [...live, ...seedFromTasks(tasks.data?.items ?? []).filter((e) => !seen.has(e.id))].slice(0, settings.max).map((e) => (typeof e.title === "string" ? { ...e, title: g(e.title) } : e));
-  }, [live, tasks.data, settings.max, g]);
+    return [...live, ...seedFromTasks(tasks.data?.items ?? [], { builder }).filter((e) => !seen.has(e.id))].slice(0, settings.max).map((e) => (typeof e.title === "string" ? { ...e, title: g(e.title) } : e));
+  }, [live, tasks.data, settings.max, g, builder]);
   return (
     <WidgetFrame
       title="Live feed"
-      help="Everything that happens in the business, newest first. A cycle is one round of work that ends with notes in your Inbox; the business mode is how much the team may do on its own."
+      help={builder ? "Everything that happens in the business, newest first. A cycle is one round of work that ends with notes in your Inbox; the business mode is how much the team may do on its own." : "Everything that happens in the business, newest first. The team works in rounds that end with notes in your Inbox; the business mode is how much the team may do on its own."}
       data-widget="live_feed"
       queries={[tasks]}
-      empty={tasks.data && events.length === 0 ? { icon: Radio, text: "Events appear here the moment agents start working. Press Continue to begin a cycle." } : null}
+      empty={tasks.data && events.length === 0 ? { icon: Radio, text: builder ? "Events appear here the moment agents start working. Press Continue to begin a cycle." : "Events appear here the moment agents start working. Press Continue to start a round of work." } : null}
       footer={<span>{live.length > 0 ? `${live.length} live` : "Waiting for live events"}</span>}
     >
       <Timeline events={events} order="desc" emptyText="Nothing yet." />

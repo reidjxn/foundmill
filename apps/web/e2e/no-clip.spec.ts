@@ -1,5 +1,14 @@
 import { expect, test, type Page } from "@playwright/test";
-import { chooseTableView, devApi, LONG, NORTHWIND_BUSINESS_ID, signIn } from "./helpers";
+import { chooseTableView, devApi, LONG, NORTHWIND_BUSINESS_ID, signIn, setBuilderView } from "./helpers";
+
+// Builder view on for this file (it walks every tab, Builder view's too); global-setup.ts starts every run with it off. Restored afterwards.
+let builderViewBefore = false;
+test.beforeAll(async ({ playwright }) => {
+  builderViewBefore = await setBuilderView(playwright, true);
+});
+test.afterAll(async ({ playwright }) => {
+  await setBuilderView(playwright, builderViewBefore);
+});
 
 /**
  * Nothing the founder reads is ever cut off (founder, 2026-10-09: "some buttons cut off text ... make sure the spacing
@@ -116,18 +125,26 @@ function measure(): Violation[] {
 }
 
 async function screensUnder(page: Page): Promise<string[]> {
-  // Every department tab, one inbox note, one CRM record and one agent profile, found from the shell's own links.
+  // Every department tab, one inbox note, one CRM record and one agent profile, found from the shell's own links: each
+  // area's landing tab from the sidebar, then every tab of its bar, the ones behind "More detail" included.
   await page.goto(`${B}/home`);
   await expect(page.getByTestId("app-shell")).toBeVisible({ timeout: LONG });
   await page.waitForLoadState("networkidle", { timeout: LONG });
   const hrefs = await page.$$eval("a[href]", (as) => as.map((a) => a.getAttribute("href") ?? ""));
   const depts = [...new Set(hrefs.filter((h) => /\/d\/[^/]+\/[^/?#]+$/.test(h)))];
   const routes = new Set<string>(FIXED_ROUTES);
+  const isTab = (h: string) => h.startsWith(`${B}/d/`) && /\/d\/[^/]+\/[^/?#]+/.test(h);
   for (const dept of depts) {
     await page.goto(dept);
     await page.waitForLoadState("networkidle", { timeout: LONG });
     const tabs = await page.$$eval('[role=tablist] a[href], nav a[href*="/d/"]', (as) => as.map((a) => a.getAttribute("href") ?? ""));
-    for (const t of tabs) if (t.startsWith(`${dept.split("/d/")[0]}/d/${dept.split("/d/")[1]!.split("/")[0]}/`)) routes.add(t.split("?")[0]!);
+    const more = page.getByRole("button", { name: /^More detail/ });
+    if (await more.count()) {
+      await more.click();
+      tabs.push(...(await page.$$eval("[data-testid=more-detail-menu] a[href]", (as) => as.map((a) => a.getAttribute("href") ?? ""))));
+      await page.keyboard.press("Escape");
+    }
+    for (const t of tabs) if (isTab(t)) routes.add(t.split("?")[0]!);
     routes.add(dept);
   }
   const inboxItem = hrefs.find((h) => /\/inbox\/[0-9a-f-]{36}$/.test(h));

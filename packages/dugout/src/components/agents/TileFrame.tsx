@@ -35,6 +35,7 @@ import { IconButton } from "../foundation/IconButton";
 import { ProgressRing } from "../foundation/ProgressRing";
 import { StatusPill, type StatusTone } from "../foundation/StatusPill";
 import { Tooltip } from "../foundation/Tooltip";
+import { useBuilderView } from "../guidance/BuilderView";
 import { useGuided, useTerm } from "../guidance/GuidanceProvider";
 import { elapsedLabel, etaLabel } from "./progress";
 import { SHOUT_PRESETS, ShoutMenu } from "./ShoutMenu";
@@ -53,7 +54,10 @@ export interface TileViewOption {
  * Pill tone, word and icon for a session: status wins over phase (a blocked testing session reads "Waiting"), and a
  * started session no worker has picked up yet reads "Queued" whatever its stored phase.
  */
-export function sessionPill(session: Pick<AgentTileSession, "status" | "phase" | "queued">): { tone: StatusTone; word: string; icon: IconComponent } {
+export function sessionPill(session: Pick<AgentTileSession, "status" | "phase" | "queued">, opts: { builder?: boolean } = {}): { tone: StatusTone; word: string; icon: IconComponent } {
+  // Builder view off (Nov 8, 2026): the engine's phases read in the founder's words ("Testing" is the quality checks,
+  // "Merging" is putting the change live); the statuses already do.
+  const founder = opts.builder === false;
   if (session.queued && session.status === "running") return { tone: "neutral", word: "Queued", icon: Clock };
   switch (session.status) {
     case "blocked":
@@ -73,13 +77,13 @@ export function sessionPill(session: Pick<AgentTileSession, "status" | "phase" |
     case "planning":
       return { tone: "info", word: "Planning", icon: ListTodo };
     case "implementing":
-      return { tone: "info", word: "Implementing", icon: Wrench };
+      return { tone: "info", word: founder ? "Building" : "Implementing", icon: Wrench };
     case "testing":
-      return { tone: "info", word: "Testing", icon: FlaskConical };
+      return { tone: "info", word: founder ? "Checking" : "Testing", icon: FlaskConical };
     case "review":
-      return { tone: "info", word: "Review", icon: SearchCheck };
+      return { tone: "info", word: founder ? "Being checked" : "Review", icon: SearchCheck };
     case "merge":
-      return { tone: "info", word: "Merging", icon: GitMerge };
+      return { tone: "info", word: founder ? "Putting live" : "Merging", icon: GitMerge };
     case "done":
       return { tone: "good", word: "Done", icon: CircleCheck };
   }
@@ -141,6 +145,9 @@ export interface TileFrameProps {
 export function TileFrame({ session, views, view, onViewChange, focused, compact, controls = {}, onFocus, onOpenTask, now, children, className }: TileFrameProps) {
   const id = useId();
   const guided = useGuided();
+  // Builder view: the footer's tokens and ETA show only while it is on (elapsed and the cost Estimate always stay); off,
+  // the phase pill reads in the founder's words and Open in Claude Code is not offered.
+  const builder = useBuilderView();
   // Anthropomorphic agents: "Bob (Frontend engineer)" when on, the agent's own name otherwise.
   const persona = useAgentPersona();
   const who = persona.labelFor(session.agent);
@@ -149,12 +156,14 @@ export function TileFrame({ session, views, view, onViewChange, focused, compact
   const lastNote = session.lastNote ? persona.withNames(session.lastNote.text, [session.agent]) : null;
   // The footer's token count says what a token is on hover (the definitions map's own sentence; "AI usage" outside a provider).
   const tokensDef = useTerm("tokens");
-  const pill = sessionPill(session);
+  const pill = sessionPill(session, { builder });
+  // Open in Claude Code is a developer's tool: Builder view's.
+  const openInClaudeCode = builder ? controls.onOpenInClaudeCode : undefined;
   const pct = Math.round(session.progress * 100);
   // A queued session has not started for real: no clock runs and nothing pulses until a worker picks it up.
   const queued = Boolean(session.queued) && session.status === "running";
   const elapsed = queued ? null : elapsedLabel(session, now);
-  const eta = queued ? null : etaLabel(session.etaAt, now);
+  const eta = queued || !builder ? null : etaLabel(session.etaAt, now);
   const live = !queued && (session.status === "running" || session.status === "review" || session.status === "merging");
   const canPause = live && !!controls.onPause;
   const canResume = (session.status === "paused" || session.status === "blocked") && !!controls.onResume;
@@ -187,7 +196,7 @@ export function TileFrame({ session, views, view, onViewChange, focused, compact
   const pillToneText = PILL_TONE[pill.tone];
   const noteTone = session.lastNote?.level === "error" ? "text-status-bad" : session.lastNote?.level === "warn" ? "text-status-warn" : "text-primary";
   const canUpgrade = !!controls.onUpgradeModel && session.agent.model !== "opus";
-  const hasControls = Boolean(controls.onPause || controls.onResume || controls.onShout || controls.onReassign || canUpgrade || controls.onOpenInClaudeCode || controls.onStop);
+  const hasControls = Boolean(controls.onPause || controls.onResume || controls.onShout || controls.onReassign || canUpgrade || openInClaudeCode || controls.onStop);
 
   return (
     <article
@@ -346,8 +355,8 @@ export function TileFrame({ session, views, view, onViewChange, focused, compact
                     {STRONGEST_MODEL_LABEL}
                   </DropdownMenuItem>
                 ) : null}
-                {controls.onOpenInClaudeCode ? (
-                  <DropdownMenuItem onSelect={() => controls.onOpenInClaudeCode?.(session.id)}>
+                {openInClaudeCode ? (
+                  <DropdownMenuItem onSelect={() => openInClaudeCode(session.id)}>
                     <Icon icon={ExternalLink} size="inline" className="text-secondary" />
                     Open in Claude Code
                   </DropdownMenuItem>
@@ -386,7 +395,7 @@ export function TileFrame({ session, views, view, onViewChange, focused, compact
           {controls.onShout ? <ShoutMenu target={who} disabled={over} onShout={(s) => controls.onShout?.(session.id, s)} /> : null}
           {controls.onReassign ? <IconButton icon={UserRoundCog} label="Reassign" size="sm" disabled={over} onClick={() => controls.onReassign?.(session.id)} /> : null}
           {canUpgrade ? <IconButton icon={ArrowUpCircle} label={STRONGEST_MODEL_LABEL} size="sm" disabled={over} onClick={() => controls.onUpgradeModel?.(session.id)} /> : null}
-          {controls.onOpenInClaudeCode ? <IconButton icon={ExternalLink} label="Open in Claude Code" size="sm" onClick={() => controls.onOpenInClaudeCode?.(session.id)} /> : null}
+          {openInClaudeCode ? <IconButton icon={ExternalLink} label="Open in Claude Code" size="sm" onClick={() => openInClaudeCode(session.id)} /> : null}
           {controls.onStop ? <IconButton icon={Square} label="Stop and discard" size="sm" variant="ghost" className="text-status-bad hover:bg-status-bad/12" disabled={over} onClick={() => controls.onStop?.(session.id)} /> : null}
         </div>
 
@@ -411,7 +420,7 @@ export function TileFrame({ session, views, view, onViewChange, focused, compact
             {elapsed}
           </span>
         )}
-        {!compact || focused ? (
+        {builder && (!compact || focused) ? (
           <span className="hidden shrink-0 items-center gap-1 @xl/foot:inline-flex" title={tokensDef ? `${tokensDef.word}: ${tokensDef.short}` : "AI usage"}>
             <Icon icon={CircleDot} size={12} className="text-tertiary" />
             {formatCompact(session.tokens)}

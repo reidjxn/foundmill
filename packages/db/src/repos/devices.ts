@@ -1,5 +1,5 @@
 /**
- * founder_devices (0073) — account-scoped (userId first): the phones a signed-in person registered for push from the
+ * founder_devices (0074) — account-scoped (userId first): the phones a signed-in person registered for push from the
  * mobile companion app (docs/mobile). One row per provider subscription id (`token`); the account that signed in on the
  * phone last owns it. Routers founder.devices.list/register/unregister.
  *

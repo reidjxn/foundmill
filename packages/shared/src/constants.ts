@@ -55,6 +55,104 @@ export const MODULE_TABS: Record<ModuleKey, readonly { slug: string; title: stri
   legal: [{ slug: "entity", title: "Entity" }, { slug: "incorporate", title: "Incorporate" }, { slug: "compliance", title: "Compliance" }, { slug: "contracts", title: "Contracts" }, { slug: "ip", title: "IP" }, { slug: "policies", title: "Policies" }, { slug: "regulatory", title: "Regulatory" }],
 };
 
+/**
+ * Builder view (founder, 2026-11-08; docs/DESIGN.md "Builder view"): the module tabs only Builder view shows. While the
+ * switch is off they are not offered anywhere (department tabs, sidebar, search, palette, widget links); opened by URL
+ * they show "This is part of Builder view". Settings › Departments still lists them, with a "Builder view" chip.
+ */
+export const BUILDER_ONLY_TABS: Partial<Record<ModuleKey, readonly string[]>> = {
+  development: ["code"],
+  team: ["health", "hierarchy"],
+};
+
+/**
+ * The founder's names for engine tabs while Builder view is off. Applied only while the stored title is still the
+ * module's default (`MODULE_TABS`), so a founder's rename is kept; Builder view on shows the stored title.
+ */
+export const FOUNDER_TAB_TITLES: Partial<Record<ModuleKey, Readonly<Record<string, string>>>> = {
+  // "Work list", so Development's list of tasks never reads like the Plan area (docs/DESIGN.md §9, founder areas).
+  development: { "training-ground": "Working now", plan: "Work list", "pull-requests": "What changed", environments: "Live product" },
+  // The legal entity is the founder's company (Money's Company section, founder decision 2026-11-09).
+  legal: { entity: "Company" },
+};
+
+/**
+ * The tabs each module shows inline in its founder area's tab bar (docs/DESIGN.md §9 "More detail", founder
+ * 2026-11-09). The module's other tabs sit behind the bar's "More detail" menu while Builder view is off, and Builder
+ * view's own tabs (`BUILDER_ONLY_TABS`) are not offered at all then. With Builder view on every tab shows inline.
+ */
+export const DEFAULT_TABS: Readonly<Record<ModuleKey, readonly string[]>> = {
+  product: ["specification", "roadmap"],
+  development: ["pull-requests", "environments"],
+  distribution: ["leads", "campaigns"],
+  finance: ["overview", "runway"],
+  team: ["squad", "recruitment"],
+  legal: ["entity", "compliance"],
+};
+
+/** Where a tab sits in its area's tab bar: inline ("default"), behind "More detail" ("detail"), or Builder view only. */
+export type TabTier = "default" | "detail" | "builder";
+
+/** The modules a tab check reads: a department's own, or every module when the caller does not know them. */
+const tabModules = (moduleKeys: readonly string[] | null | undefined): ModuleKey[] =>
+  (moduleKeys ?? MODULE_KEYS).filter((k): k is ModuleKey => (MODULE_KEYS as readonly string[]).includes(k));
+
+/** The module of a department's that owns a tab slug (slugs are unique across modules), or null for a founder's own tab. */
+export function tabModule(moduleKeys: readonly string[] | null | undefined, slug: string): ModuleKey | null {
+  return tabModules(moduleKeys).find((k) => MODULE_TABS[k].some((t) => t.slug === slug)) ?? null;
+}
+
+/**
+ * A tab's tier in a department over these modules: Builder view's tabs are "builder", a module's `DEFAULT_TABS` are
+ * "default" and its other tabs "detail". A slug no module of the department has (a founder's own tab) is "default".
+ */
+export function tabTier(moduleKeys: readonly string[] | null | undefined, slug: string): TabTier {
+  if (isBuilderOnlyTab(moduleKeys, slug)) return "builder";
+  const owner = tabModule(moduleKeys, slug);
+  if (!owner) return "default";
+  return DEFAULT_TABS[owner].includes(slug) ? "default" : "detail";
+}
+
+/** Whether a tab slug of a department over these modules is shown only in Builder view. */
+export function isBuilderOnlyTab(moduleKeys: readonly string[] | null | undefined, slug: string): boolean {
+  return tabModules(moduleKeys).some((k) => BUILDER_ONLY_TABS[k]?.includes(slug) ?? false);
+}
+
+/**
+ * A tab's display title: the founder's name for it while Builder view is off and the stored title is still the
+ * module's default ("Live sessions" reads "Working now"); otherwise the stored title, unchanged.
+ */
+export function tabTitleFor(moduleKeys: readonly string[] | null | undefined, slug: string, title: string, builder: boolean): string {
+  if (builder) return title;
+  for (const k of tabModules(moduleKeys)) {
+    const founder = FOUNDER_TAB_TITLES[k]?.[slug];
+    if (founder && MODULE_TABS[k].find((t) => t.slug === slug)?.title === title) return founder;
+  }
+  return title;
+}
+
+/** A department as the tab helpers read it: its modules (optional) and its tabs. */
+export interface TabbedDepartment<T extends { slug: string }> {
+  moduleKeys?: readonly string[] | null;
+  tabs: readonly T[];
+}
+
+/**
+ * The department's tabs a person sees, in position order: Builder view's tabs dropped while it is off, and titles
+ * renamed by `tabTitleFor` (a tab without a title keeps none). The one list behind the department TabBar, the sidebar,
+ * search, the palette and the widgets' links.
+ */
+export function visibleTabs<T extends { slug: string; title?: string; position?: number }>(dept: TabbedDepartment<T>, builder: boolean): T[] {
+  const sorted = dept.tabs.slice().sort((a, b) => (a.position ?? 0) - (b.position ?? 0));
+  const kept = builder ? sorted : sorted.filter((t) => !isBuilderOnlyTab(dept.moduleKeys, t.slug));
+  return kept.map((t) => (typeof t.title === "string" ? { ...t, title: tabTitleFor(dept.moduleKeys, t.slug, t.title, builder) } : t));
+}
+
+/** The first tab a person sees (where a department link goes), or undefined for a department without one. */
+export function firstVisibleTab<T extends { slug: string; title?: string; position?: number }>(dept: TabbedDepartment<T>, builder: boolean): T | undefined {
+  return visibleTabs(dept, builder)[0];
+}
+
 export const MEMBERSHIP_ROLES = ["owner", "admin", "member", "viewer", "advisor"] as const;
 export type MembershipRole = (typeof MEMBERSHIP_ROLES)[number];
 /**
@@ -417,7 +515,7 @@ export type GuidanceMode = (typeof GUIDANCE_MODES)[number];
 
 /**
  * The mobile companion app (docs/mobile, founder 2026-11-08). A signed-in person's phones register for push
- * (`founder_devices`, 0073): the platform, the push provider the app ships with and the provider's subscription id.
+ * (`founder_devices`, 0074): the platform, the push provider the app ships with and the provider's subscription id.
  */
 export const DEVICE_PLATFORMS = ["ios", "android"] as const;
 export type DevicePlatform = (typeof DEVICE_PLATFORMS)[number];
@@ -425,7 +523,7 @@ export const PUSH_PROVIDERS = ["onesignal"] as const;
 export type PushProvider = (typeof PUSH_PROVIDERS)[number];
 /**
  * What a phone may be told about (Settings › Preferences › Notifications in the app; `account_preferences.notifications`,
- * 0073): a note that needs an answer, a go-ahead request, a customer won, an agent down, a runway threshold, a run of
+ * 0074): a note that needs an answer, a go-ahead request, a customer won, an agent down, a runway threshold, a run of
  * cycles finished, the goal reached. Every kind is on until the person turns it off.
  */
 export const NOTIFICATION_KINDS = ["decision", "approval", "customer", "agent_down", "runway", "run_finished", "goal"] as const;

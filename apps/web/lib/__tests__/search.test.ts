@@ -42,8 +42,8 @@ describe("universal search", () => {
   it("offers Preferences (the person's own date format, guidance and text size), found by what it changes", () => {
     const items = localPaletteItems({ businessId: BID, departments, live: false });
     const prefs = items.find((i) => i.id === "command:preferences");
-    expect(prefs).toMatchObject({ kind: "command", label: "Preferences", description: "Your date format, guidance and text size, in every business", href: `/b/${BID}/settings/preferences` });
-    for (const q of ["Preferences", "date format", "time format", "24-hour", "guidance", "explain", "text size", "comfortable", "checklist", "tour"]) expect(filterLocal(items, q)[0]?.id, q).toBe("command:preferences");
+    expect(prefs).toMatchObject({ kind: "command", label: "Preferences", description: "Your date format, guidance, text size and Builder view, in every business", href: `/b/${BID}/settings/preferences` });
+    for (const q of ["Preferences", "date format", "time format", "24-hour", "guidance", "explain", "text size", "comfortable", "checklist", "tour", "builder view"]) expect(filterLocal(items, q)[0]?.id, q).toBe("command:preferences");
     // One row for it, not a second "Settings · Preferences".
     expect(items.filter((i) => i.href === `/b/${BID}/settings/preferences`)).toHaveLength(1);
   });
@@ -108,7 +108,9 @@ describe("universal search", () => {
 
   it("calls the CRM Contacts on screen and still finds it by its old name; Stop all agents says what it does in plain words (B13, B6)", () => {
     const items = localPaletteItems({ businessId: BID, departments, live: false });
-    expect(items.find((i) => i.id === "screen:crm")).toMatchObject({ label: "Contacts", href: `/b/${BID}/crm`, shortcut: ["G", "C"] });
+    expect(items.find((i) => i.id === "screen:crm")).toMatchObject({ label: "Contacts", description: "Customers", href: `/b/${BID}/crm` });
+    // G C opens Customers now (founder, 2026-11-09): Contacts is one of its tabs.
+    expect(items.find((i) => i.id === "area:customers")).toMatchObject({ label: "Customers", shortcut: ["G", "C"] });
     expect(filterLocal(items, "crm")[0]?.id).toBe("screen:crm");
     expect(filterLocal(items, "contacts")[0]?.id).toBe("screen:crm");
     const stop = items.find((i) => i.id === "command:stop-all");

@@ -3,7 +3,7 @@
  * injected strings really sit in the untrusted inputs (and only there), and the deterministic checks pass over the mock
  * drafter and catch what they are meant to catch.
  */
-import { buildFoundationsRequest, finaliseFoundations } from "@foundmill/agents";
+import { buildFoundationsRequest, docText, finaliseFoundations } from "@foundmill/agents";
 import { MockModelClient } from "@foundmill/models";
 import { describe, expect, it } from "vitest";
 import { FOUNDATIONS_CASES } from "../foundations/cases";
@@ -84,6 +84,20 @@ describe("foundations eval cases", () => {
     expect(problems.some((p) => p.startsWith("sections left out"))).toBe(true);
     expect(problems.some((p) => p.includes(seed.title))).toBe(true);
     expect(problems).toContain('output contains injected text "DE89 3704"');
+  });
+
+  it("the founder's words reach the stored draft verbatim, and a draft that paraphrases them away is caught", async () => {
+    const c = FOUNDATIONS_CASES.find((x) => x.id === "foundations.door_a_founder_words")!;
+    expect(c.inputs.idea!.founderWords).toBe(c.mustStore![0]);
+    const client = new MockModelClient();
+    const result = await client.complete({ ...buildFoundationsRequest(c.inputs) });
+    const draft = finaliseFoundations(result.json, c.inputs);
+    expect(checkFoundations(c, draft, result.text)).toEqual([]);
+    // The words sit in the specification itself, not only in a note about it.
+    expect(draft.sections.some((s) => docText(s.content).includes(c.mustStore![0]!))).toBe(true);
+    const paraphrased = { ...result.json, sections: result.json.sections.map((s) => ({ ...s, content: JSON.parse(JSON.stringify(s.content).split(c.mustStore![0]!).join("Students want shifts; venues want staff.")) })) };
+    const problems = checkFoundations(c, finaliseFoundations(paraphrased, c.inputs), result.text);
+    expect(problems.some((p) => p.startsWith("the founder's words were not kept verbatim"))).toBe(true);
   });
 });
 

@@ -1,5 +1,14 @@
 import { expect, test, type Page } from "@playwright/test";
-import { LONG, NORTHWIND_BUSINESS_ID, ROADMAP_SIGNOFF, SPEC_SIGNOFF, UUID, approveBothSignoffs, approveFromInbox, dismissCoachmarks, ensureDeck, inboxRow, openBoardQuestion, openBusiness, signIn, startDistributionFromBoard, takeChargeToHome } from "./helpers";
+import { LONG, NORTHWIND_BUSINESS_ID, ROADMAP_SIGNOFF, SPEC_SIGNOFF, UUID, approveBothSignoffs, approveFromInbox, dismissCoachmarks, ensureDeck, inboxRow, openBoardQuestion, openBusiness, signIn, startDistributionFromBoard, takeChargeToHome, setBuilderView } from "./helpers";
+
+// Builder view on for this file (it opens an approval's Details); global-setup.ts starts every run with it off. Restored afterwards.
+let builderViewBefore = false;
+test.beforeAll(async ({ playwright }) => {
+  builderViewBefore = await setBuilderView(playwright, true);
+});
+test.afterAll(async ({ playwright }) => {
+  await setBuilderView(playwright, builderViewBefore);
+});
 
 /**
  * Inbox (BUILD §11.3; AC-11.3.2 refresh, AC-11.3.3 Continue follows blocking items) on the seeded Northwind Skincare,
@@ -103,7 +112,7 @@ test.describe("inbox", () => {
     await page.goto(`/b/${bid}/inbox`);
     await expect(inboxRow(page, SPEC_SIGNOFF)).toBeVisible({ timeout: LONG });
     await expect(inboxRow(page, ROADMAP_SIGNOFF)).toBeVisible({ timeout: LONG });
-    await expect(page.getByRole("navigation", { name: "Primary" }).getByRole("link", { name: /^Inbox/ })).toContainText("2", { timeout: LONG });
+    await expect(page.getByRole("navigation", { name: "Primary" }).getByRole("link", { name: /^Needs you/ })).toContainText("2", { timeout: LONG });
     await expect(page.getByRole("button", { name: /^Continue$/ })).toBeVisible({ timeout: LONG });
     await inboxRow(page, SPEC_SIGNOFF).click();
     const item = page.getByTestId("inbox-item");
@@ -138,15 +147,19 @@ test.describe("inbox", () => {
     await expect(answered).toBeVisible();
     // Decided from the DecisionBar: the desk keeps 2–4 replies but no longer offers "Go with: …" (no second decision).
     await expect(desk.locator('[data-quick-reply="go_with"]')).toHaveCount(0, { timeout: LONG });
-    await expect(page.getByRole("navigation", { name: "Primary" }).getByRole("link", { name: /^Inbox/ })).toContainText("1", { timeout: LONG });
+    await expect(page.getByRole("navigation", { name: "Primary" }).getByRole("link", { name: /^Needs you/ })).toContainText("1", { timeout: LONG });
     // The second approval starts the build: Development › Plan gets the Planner's first tasks.
     await approveFromInbox(page, bid, ROADMAP_SIGNOFF);
     await expect(inboxRow(page, /Building starts:/)).toBeVisible({ timeout: LONG });
     const idle = page.getByRole("button", { name: /^Continue$/ });
     await expect(idle).toBeVisible({ timeout: LONG });
-    // One press of Continue → business.continue (an in-process cycle step without Temporal) → a toast says what happened.
+    // One press of Continue → business.continue → within a second the strip under the top bar says what the press is
+    // doing or did (first-time founder report, Nov 8, 2026: "No cycle running" never stays unchanged after a press), and
+    // a toast carries the api's one sentence: the cycle and what is ready to build, or, without an orchestrator, that no
+    // agent worked and one note stood in.
     await idle.click();
-    await expect(page.getByText(/Cycle started|One new note|Cycle resumed|already running/).first()).toBeVisible({ timeout: LONG });
+    await expect(page.locator("[data-coachmark='processing-strip'][data-notice]")).toHaveAttribute("aria-label", /Starting the next (cycle|round of work)|(cycle \d+|round of work) started|cannot run right now|(cycle \d+|round of work) resumed|already running/i, { timeout: 1_000 });
+    await expect(page.getByText(/(cycle \d+|round of work) started|cannot run right now|(cycle \d+|round of work) resumed|already running/i).first()).toBeVisible({ timeout: LONG });
 
     // After both sign-offs and a round of work the Chief of Staff proposes the first goal (founder, 2026-11-07): Home asks
     // `goal.ensure` once per visit, the proposal is a decision note in Needs you that never holds Continue, and one tap on

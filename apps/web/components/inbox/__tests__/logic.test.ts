@@ -25,6 +25,7 @@ import {
   hiddenNotice,
   headerDates,
   inboxTabs,
+  inboxTourStarts,
   itemIdFromPath,
   journeyForItem,
   neighbourId,
@@ -641,5 +642,13 @@ describe("the founder-language boundary (2026-11-01)", () => {
       const s = approvalStatus(c);
       expect(founderJargonHits(`${s.word}. ${s.detail}`).map((h) => h.term), `${s.word}: ${s.detail}`).toEqual([]);
     }
+  });
+});
+
+describe("inboxTourStarts (first-time founder report, Nov 8, 2026)", () => {
+  it("starts with the list in front and no note open, never over a note opened first, and stays once started", () => {
+    expect(inboxTourStarts(null, false)).toBe(true);
+    expect(inboxTourStarts("abc-1", false)).toBe(false);
+    expect(inboxTourStarts("abc-1", true)).toBe(true);
   });
 });

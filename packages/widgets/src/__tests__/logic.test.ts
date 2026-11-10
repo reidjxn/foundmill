@@ -10,7 +10,7 @@ import { funnelStages } from "../widgets/funnel";
 import { previewLine } from "../widgets/inbox-preview";
 import { forecastCone, journeyHref, rippleFor, roadmapFlags } from "../widgets/journey-ribbon";
 import { pickBoard, windowRows } from "../widgets/league-table";
-import { describeEvent } from "../widgets/live-feed";
+import { describeEvent, seedFromTasks } from "../widgets/live-feed";
 import { customersPerWeek, monthLabel, revenueBars, weekLines, weeksFrom } from "../widgets/revenue-customers";
 import { formatDate } from "@foundmill/dugout";
 import { groupByHorizon, roadmapStatus, taskProgress } from "../widgets/roadmap-timeline";
@@ -504,17 +504,56 @@ describe("text helpers", () => {
       expect(`${d.title} ${d.statusWord ?? ""}`, type).not.toMatch(/injured|holiday|Customer won|Approval approved|_|\./);
     }
   });
+
+  it("Builder view off: rounds of work and Gone live, with no cycle or PR numbers; on: the engine's words", () => {
+    const off = { builder: false };
+    expect(describeEvent({ type: "cycle.started", payload: { cycleNumber: 4 } }, off).title).toBe("The team started a round of work");
+    expect(describeEvent({ type: "cycle.completed", payload: { cycleNumber: 4, outcome: "completed", tasksCompleted: 3 } }, off)).toMatchObject({ title: "Round of work finished · 3 tasks done", tone: "good" });
+    expect(describeEvent({ type: "cycle.completed", payload: { cycleNumber: 4, outcome: "failed", tasksCompleted: 0 } }, off)).toMatchObject({ title: "Round of work did not finish · 0 tasks done", tone: "bad" });
+    expect(describeEvent({ type: "pr.merged", payload: { prNumber: 41, title: "Merge the pricing page fix" } }, off)).toMatchObject({ title: "Gone live: Put live the pricing page fix", statusWord: "Live" });
+    expect(describeEvent({ type: "pr.merged", payload: { prNumber: 41 } }, off).title).toBe("Gone live: a change to the product");
+    expect(describeEvent({ type: "task.completed", payload: { title: "Checkout", summary: "Shipped it; 105 tests passed." } }, off).description).toBe("Shipped it; the quality checks passed");
+    expect(describeEvent({ type: "task.completed", payload: { title: "Checkout", summary: "Customers can now pay by card." } }, off).description).toBe("Customers can now pay by card.");
+    for (const e of [{ type: "cycle.started", payload: { cycleNumber: 4 } }, { type: "cycle.completed", payload: { cycleNumber: 4, outcome: "time_box", tasksCompleted: 1 } }, { type: "pr.merged", payload: { prNumber: 41, title: "Sitemap fixes" } }]) {
+      const d = describeEvent(e, off);
+      expect(`${d.title} ${d.description ?? ""}`, e.type).not.toMatch(/cycle|#\d|PR\b|\d+ tasks? done.*\d/i);
+    }
+    // On (and by default): today's words.
+    expect(describeEvent({ type: "cycle.started", payload: { cycleNumber: 4 } }, { builder: true }).title).toBe("Cycle 4 started");
+    expect(describeEvent({ type: "pr.merged", payload: { prNumber: 41, title: "Sitemap fixes" } }).title).toBe("Merged PR #41");
+    expect(describeEvent({ type: "task.completed", payload: { title: "Checkout", summary: "105 tests passed" } }).description).toBe("105 tests passed");
+  });
+
+  it("the feed's seed names tasks by their founder title while Builder view is off", () => {
+    const rows = [{ id: "t1", title: "Fix hydration mismatch in /checkout", founderTitle: "Fix a display bug in the checkout page", status: "done", endedAt: "2026-11-07T10:00:00Z" }] as never;
+    expect(seedFromTasks(rows, { builder: false })[0]?.title).toBe("Done: Fix a display bug in the checkout page");
+    expect(seedFromTasks(rows)[0]?.title).toBe("Done: Fix hydration mismatch in /checkout");
+  });
 });
 
 describe("moduleTabLabel", () => {
-  it("names a screen by the department that owns the module and the tab's own title, never a hard-coded name", () => {
+  it("names a screen by its founder area and the tab's own title in the department that owns the module, never a hard-coded name", () => {
     const tabs = [{ id: "t1", slug: "plan", title: "Plan", position: 0 }];
     const dept = (name: string, moduleKeys: string[], hidden = false) => ({ id: name, name, slug: name.toLowerCase(), colourToken: "dept-1", position: 0, moduleKeys, hidden, tabs }) as never;
-    expect(moduleTabLabel([dept("Formulation Lab", ["development"])], "development", "plan")).toBe("Formulation Lab › Plan");
+    expect(moduleTabLabel([dept("Formulation Lab", ["development"])], "development", "plan")).toBe("Product › Work list");
+    expect(moduleTabLabel([dept("Retail Partnerships", ["distribution"])], "distribution", "leads")).toBe("Customers › Leads");
+    expect(moduleTabLabel([dept("Product", ["product"])], "product", "roadmap")).toBe("Plan › Roadmap");
+    expect(moduleTabLabel([dept("Legal", ["legal"])], "legal", "entity")).toBe("Money › Company");
     // A tab the department does not list falls back to the module's default title.
-    expect(moduleTabLabel([dept("Editorial", ["product"])], "product", "changes")).toBe("Editorial › Changes");
+    expect(moduleTabLabel([dept("Editorial", ["product"])], "product", "changes")).toBe("Product › Changes");
     expect(moduleTabLabel([dept("Hidden", ["team"], true)], "team", "recruitment")).toBeNull();
     expect(moduleTabLabel(undefined, "team", "recruitment")).toBeNull();
+  });
+});
+
+describe("Builder view in department links (docs/DESIGN.md)", () => {
+  it("a module link without a tab skips a Builder view tab while off; a label uses the founder's title only while off", () => {
+    const tabs = [{ id: "c", slug: "code", title: "Code", position: 0 }, { id: "l", slug: "training-ground", title: "Live sessions", position: 1 }];
+    const rows = [{ id: "d", name: "Development", slug: "development", colourToken: "dept-1", position: 0, moduleKeys: ["development"], hidden: false, tabs }] as never;
+    expect(moduleHref("b1", rows, "development")).toBe("/b/b1/d/development/training-ground");
+    expect(moduleHref("b1", rows, "development", undefined, true)).toBe("/b/b1/d/development/code");
+    expect(moduleTabLabel(rows, "development", "training-ground")).toBe("Product › Working now");
+    expect(moduleTabLabel(rows, "development", "training-ground", true)).toBe("Product › Live sessions");
   });
 });
 

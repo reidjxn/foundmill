@@ -18,6 +18,7 @@ import { DateText } from "../dates";
 import { fitColumns, fitToGrow, type ColumnFit } from "../fit";
 import { ENTITY_STATUS_PILL, Fact, InlineError, LEGAL_EXPLAINER, Pill, SIMPLE_VIEW_ID, Screen, fitTableHeight, fmtMoney, humanise, useAction, useCurrency, useDefaultViewId, useLegalStatus, useNow } from "./shared";
 import type { IncorporationRow, LookupResult, OfficersResponse } from "./types";
+import { emptyWhy } from "@foundmill/shared/empty-why";
 
 const OFFICERS_INPUT = { role: "officer", limit: 200 } as const;
 
@@ -206,8 +207,8 @@ export function EntityScreen({ businessId }: ModuleScreenProps) {
             exists, so the empty state sits under it in the body rather than in place of it. */}
         <Explainer {...LEGAL_EXPLAINER} className="mb-3" />
         {noEntity ? (
-          <EmptyState icon={Building2} title="No legal entity yet" action={{ label: "Incorporate", icon: Landmark, onClick: () => navigate(moduleTabHref(businessId, departments.data, "legal", "incorporate")) }} className="py-6">
-            Import an existing company on the right, or start an incorporation on the Incorporate tab; the entity's facts appear here.
+          <EmptyState icon={Building2} title={emptyWhy("entity").title} action={{ label: "Incorporate", icon: Landmark, onClick: () => navigate(moduleTabHref(businessId, departments.data, "legal", "incorporate")) }} className="py-6">
+            {emptyWhy("entity").text}
           </EmptyState>
         ) : null}
         {entity ? <KeyValueList aria-label="Entity facts" items={facts} layout="grid" /> : null}
@@ -333,7 +334,7 @@ export function EntityScreen({ businessId }: ModuleScreenProps) {
         loading={loading || officers.isLoading}
         error={officers.error ? officers.error.message : undefined}
         onRetry={officers.refetch}
-        empty={!loading && !officers.isLoading && rows.length === 0 ? { icon: Users, children: "Officers appear once a company is imported or formed; each becomes a CRM person with the officer role." } : undefined}
+        empty={!loading && !officers.isLoading && rows.length === 0 ? { icon: Users, children: emptyWhy("officers").text } : undefined}
         meta={rows.length ? `${rows.length} officer${rows.length === 1 ? "" : "s"}` : undefined}
         footer={<span>Use the … button or right-click an officer to open them in the CRM.</span>}
       >

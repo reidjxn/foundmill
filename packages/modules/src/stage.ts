@@ -11,6 +11,8 @@ export interface BusinessStageResponse {
   productStage?: ProductStage;
   distributionStartedAt?: string | Date | null;
   business?: { id: string; name: string };
+  /** Whether the orchestrator, the service that runs the team's work, can be reached (null: not known yet). */
+  orchestrator?: { reachable: boolean | null } | null;
 }
 
 const BUSINESS_INPUT: Record<string, unknown> = {};
@@ -26,5 +28,10 @@ export function useBusinessStage() {
     distributionStarted: data ? data.distributionStartedAt !== null && data.distributionStartedAt !== undefined : null,
     /** Owners and admins start distribution (the api refuses anyone else). */
     canStartDistribution: data?.role === "owner" || data?.role === "admin",
+    /**
+     * The orchestrator is known to be unreachable (first-time founder report, Nov 8, 2026): nothing can start a task or
+     * run a cycle, so the screens say so instead of offering a Start that is refused. Unknown reads as fine.
+     */
+    orchestratorDown: data?.orchestrator?.reachable === false,
   };
 }

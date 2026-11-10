@@ -1,5 +1,5 @@
 "use client";
-import { Bookmark, BookmarkCheck, Columns2, Ellipsis, Fan, GitMerge, MessageCircleQuestionMark, Trash } from "lucide-react";
+import { Bookmark, BookmarkCheck, Columns2, Ellipsis, Fan, GitMerge, MessageCircleQuestionMark, Pencil, Trash } from "lucide-react";
 import { cn } from "../../../lib/cn";
 import { ratingClass } from "../../../lib/rating";
 import { Button } from "../../foundation/Button";
@@ -11,6 +11,7 @@ import { Icon, type IconComponent } from "../../foundation/Icon";
 import { IconButton } from "../../foundation/IconButton";
 import { StarRating } from "../../foundation/StarRating";
 import { Tooltip } from "../../foundation/Tooltip";
+import { Term } from "../../guidance/Term";
 import { CONCEPT_ATTRIBUTE_HINTS, CONCEPT_ATTRIBUTE_LABELS, type Concept, type ConceptAction } from "../types";
 import { AttributeBar } from "./AttributeBar";
 
@@ -30,6 +31,7 @@ export interface ConceptCardProps {
 /** The display label for each action. Fork reads "More like this" (DESIGN: a per-card generate pill, not git words). */
 const ACTION_META: Record<ConceptAction, { label: string; icon: IconComponent; title: string }> = {
   shortlist: { label: "Shortlist", icon: Bookmark, title: "Keep this concept for Compare and Commit" },
+  edit: { label: "Edit", icon: Pencil, title: "Change the name, the pitch or the kind of business in your own words (creates a new version)" },
   merge: { label: "Merge with another", icon: GitMerge, title: "Merge with another concept (creates a new version)" },
   fork: { label: "More like this", icon: Fan, title: "Draft a variant of this concept (creates a new version)" },
   ask: { label: "Ask", icon: MessageCircleQuestionMark, title: "Ask the research agent a question about it" },
@@ -72,6 +74,29 @@ export function ConceptCard({ concept, onAction, shortlisted, selected, onToggle
             {concept.version && concept.version > 1 ? <Chip className="shrink-0">Version {concept.version}</Chip> : null}
           </div>
           {concept.archetypeLabel ? <p className="text-small text-secondary">{concept.archetypeLabel}</p> : null}
+          {/* Whose words the pitch is: the founder's own, or the sample model's (never passed off as the team's judgment). */}
+          {concept.yourWords || concept.sample ? (
+            <div className="mt-1 flex flex-wrap gap-1.5">
+              {concept.yourWords ? (
+                <Tooltip content="You wrote this pitch. The team builds from these words.">
+                  <span>
+                    <Chip tone="kit" icon={Pencil} data-concept-your-words="">
+                      Your words
+                    </Chip>
+                  </span>
+                </Tooltip>
+              ) : null}
+              {concept.sample ? (
+                <Tooltip content="Sample content: the sample model wrote this card, not a research agent. Add a model key to draft real cards.">
+                  <span>
+                    <Chip tone="warn" data-concept-sample="">
+                      Sample
+                    </Chip>
+                  </span>
+                </Tooltip>
+              ) : null}
+            </div>
+          ) : null}
           <div className="mt-1">
             <StarRating value={concept.currentStars} potential={concept.potentialStars} label="Current ability" showValue />
           </div>
@@ -93,7 +118,10 @@ export function ConceptCard({ concept, onAction, shortlisted, selected, onToggle
       <div className="flex flex-col gap-3 px-panel-pad pb-panel-pad">
         <p className="text-body text-pretty text-primary">{concept.pitch}</p>
         <div className="flex items-center gap-2 text-small text-secondary">
-          <span className="t-data">Overall</span>
+          {/* The figure's scale is a defined word (first-time founder report, Nov 8, 2026: "Rating /20" met nobody who explained it). */}
+          <span className="t-data">
+            <Term id="rating">Overall</Term>
+          </span>
           <span className={cn("font-display text-display-md font-semibold tabular-nums", ratingClass(overall))}>{overall}</span>
           {concept.citations !== undefined ? <span className="text-tertiary">· {concept.citations} citations</span> : null}
         </div>
@@ -128,6 +156,10 @@ export function ConceptCard({ concept, onAction, shortlisted, selected, onToggle
               <IconButton size="sm" variant="ghost" icon={Ellipsis} label={`More actions for ${concept.name}`} data-concept-more="" />
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
+              <DropdownMenuItem onSelect={() => act("edit")} data-concept-action="edit">
+                <Icon icon={ACTION_META.edit.icon} size="inline" className="text-secondary" />
+                {ACTION_META.edit.label}
+              </DropdownMenuItem>
               <DropdownMenuItem onSelect={() => act("merge")} data-concept-action="merge">
                 <Icon icon={ACTION_META.merge.icon} size="inline" className="text-secondary" />
                 {ACTION_META.merge.label}

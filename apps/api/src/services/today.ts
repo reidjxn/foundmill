@@ -15,10 +15,10 @@
  */
 import { APPROVAL_OPTIONS, approvalSection, repos, type DbTx, type InboxItem, type Task } from "@foundmill/db";
 import { CREDITS_CURRENCY } from "@foundmill/config";
-import { GOAL_OPTION_IDS, WRITE_ROLES, addDaysToDay, dayKeyIn, hasSectionAccess, weekPlanWords, type WeekFacts, type WeekPlanWords } from "@foundmill/shared";
+import { GOAL_OPTION_IDS, WRITE_ROLES, addDaysToDay, dayKeyIn, firstWeekTimeline, firstWeekVisible, hasSectionAccess, weekPlanWords, type FirstWeekWords, type WeekFacts, type WeekPlanWords } from "@foundmill/shared";
 import type { BusinessContext } from "../trpc";
 import { autopilotStatus } from "./autopilot";
-import { cycleStatus } from "./cycle";
+import { cycleStatus, type CycleStatus } from "./cycle";
 import { idsOfItem, inboxWalls, loadRedactionSource, redactInboxItem } from "./inbox-redaction";
 
 /** How many notes Today shows (the rest wait in the Inbox behind "See all in the Inbox"). */
@@ -60,6 +60,8 @@ export interface TodayView {
   spend: TodaySpend | null;
   /** The business's Chief of Staff by its stored name (the goal's proposer). */
   chiefOfStaff: { id: string; name: string } | null;
+  /** "Your first week": null once the business is past it (packages/shared first-week.ts), so an older business reads nothing extra. */
+  firstWeek: FirstWeekWords | null;
 }
 
 interface DecisionOption {
@@ -117,12 +119,12 @@ export async function needsYouFor(tx: DbTx, ctx: BusinessContext): Promise<{ ite
   return { items, total: Math.max(counts.respond, items.length) };
 }
 
-const titleOf = (t: Pick<Task, "founderTitle" | "title">): string => (t.founderTitle ?? t.title).trim();
+export const titleOf = (t: Pick<Task, "founderTitle" | "title">): string => (t.founderTitle ?? t.title).trim();
 const DONE_LOOKBACK = 200;
 const ROADMAP_FINISHED: ReadonlySet<string> = new Set(["done", "shipped", "archived"]);
 
 /** The facts behind "This week and next", in the business's time zone. */
-export async function weekFactsFor(tx: DbTx, ctx: BusinessContext, options: { now?: Date; autopilotNextOn?: string | null } = {}): Promise<WeekFacts> {
+export async function weekFactsFor(tx: DbTx, ctx: BusinessContext, options: { now?: Date; autopilotNextOn?: string | null; cycle?: CycleStatus } = {}): Promise<WeekFacts> {
   const now = options.now ?? new Date();
   const zone = ctx.business.timeZone;
   const today = dayKeyIn(now, zone);
@@ -133,7 +135,7 @@ export async function weekFactsFor(tx: DbTx, ctx: BusinessContext, options: { no
     repos.tasks.list(tx, ctx.businessId, { status: ["ready", "planned"], limit: 100 }),
     repos.tasks.countByStatus(tx, ctx.businessId),
     hasSectionAccess(ctx.membership, "product", "read") ? repos.product.listRoadmap(tx, ctx.businessId) : Promise.resolve([]),
-    cycleStatus({ db: tx, businessId: ctx.businessId }),
+    options.cycle ?? cycleStatus({ db: tx, businessId: ctx.businessId }),
   ]);
   const finished = done.items.filter((t) => t.endedAt && t.endedAt.getTime() >= since);
   const titles = new Map(roadmap.map((r) => [r.id, r.title]));
@@ -190,18 +192,41 @@ export async function autopilotNextDay(ctx: BusinessContext): Promise<string | n
   }
 }
 
+/**
+ * "Your first week" (founder's report, Phase 3 group K): the timeline from what the business records. A business past
+ * its first days, or already selling, answers null from the business row alone (no further read).
+ */
+export async function firstWeekFor(tx: DbTx, ctx: BusinessContext, now: Date = new Date()): Promise<FirstWeekWords | null> {
+  const zone = ctx.business.timeZone;
+  const dayOf = (at: Date | null | undefined): string | null => (at ? dayKeyIn(at, zone) : null);
+  const base = { today: dayKeyIn(now, zone), createdOn: dayKeyIn(ctx.business.createdAt, zone), distributionStartedOn: dayOf(ctx.business.distributionStartedAt) };
+  if (!firstWeekVisible(base)) return null;
+  const [signoffs, rounds, goals] = await Promise.all([repos.productSignoffs.latest(tx, ctx.businessId), repos.events.list(tx, ctx.businessId, { type: "cycle.completed", limit: 50 }), repos.goals.recent(tx, ctx.businessId, 10)]);
+  const firstRound = rounds.items.reduce<Date | null>((a, e) => (a === null || e.occurredAt < a ? e.occurredAt : a), null);
+  const approvedAt = goals.reduce<Date | null>((a, g) => (g.approvedAt && (a === null || g.approvedAt < a) ? g.approvedAt : a), null);
+  return firstWeekTimeline({
+    ...base,
+    specSignedOffOn: signoffs.spec?.status === "approved" ? (dayOf(signoffs.spec.decidedAt) ?? base.createdOn) : null,
+    roadmapSignedOffOn: signoffs.roadmap?.status === "approved" ? (dayOf(signoffs.roadmap.decidedAt) ?? base.createdOn) : null,
+    firstRoundOn: dayOf(firstRound),
+    goalApprovedOn: dayOf(approvedAt),
+    stopped: ctx.business.agentsStoppedAt !== null,
+  });
+}
+
 /** Everything `today.get` returns, as this reader may see it. */
 export async function todayView(ctx: BusinessContext, now: Date = new Date()): Promise<TodayView> {
   const m = ctx.membership;
   const week = hasSectionAccess(m, "development", "read");
   const autopilotNextOn = week ? await autopilotNextDay(ctx) : null;
   return ctx.rls(async (tx) => {
-    const [needsYou, words, spend, chief] = await Promise.all([
+    const [needsYou, words, spend, chief, firstWeek] = await Promise.all([
       hasSectionAccess(m, "inbox", "read") ? needsYouFor(tx, ctx) : Promise.resolve(null),
       week ? weekFactsFor(tx, ctx, { now, autopilotNextOn }).then(weekPlanWords) : Promise.resolve(null),
       hasSectionAccess(m, "finance", "read") ? spendFor(tx, ctx, now) : Promise.resolve(null),
       repos.agents.chiefOfStaff(tx, ctx.businessId),
+      firstWeekFor(tx, ctx, now),
     ]);
-    return { today: dayKeyIn(now, ctx.business.timeZone), needsYou, week: words, spend, chiefOfStaff: chief ? { id: chief.id, name: chief.name } : null };
+    return { today: dayKeyIn(now, ctx.business.timeZone), needsYou, week: words, spend, chiefOfStaff: chief ? { id: chief.id, name: chief.name } : null, firstWeek };
   });
 }

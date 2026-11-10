@@ -67,6 +67,11 @@ describe("business.continue without an orchestrator (BUILD §9.4 in-process cycl
     expect(result.run).toBeNull();
     expect(result.status.run).toBeNull();
     expect((await repos.events.list(hz.db, hz.A.businessId, { type: ["cycle.run_started", "cycle.run_ended"] })).items).toHaveLength(0);
+    // The press answers honestly (first-time founder report, Nov 8, 2026): no agent worked, here is the note that stood in.
+    expect(result.summary).toMatchObject({ kind: "orchestrator_unreachable", headline: "The team cannot run right now: the orchestrator is not reachable", orchestrator: false });
+    expect(result.summary.detail).toContain(result.item!.subject);
+    // business.get says so before the press too (a disabled Temporal is an unreachable orchestrator).
+    expect((await owner.business.get({ businessId: hz.A.businessId })).orchestrator).toEqual({ reachable: false });
 
     const history = await owner.cycle.history({ businessId: hz.A.businessId });
     expect(history.cycles).toHaveLength(1);
@@ -120,6 +125,12 @@ describe("business.continue / pauseCycle with Temporal reachable", () => {
     expect(result.workflow?.queued).toBe(true);
     expect(result.item).toBeNull();
     expect(result.continueState).toEqual({ kind: "processing", run: true });
+    // The sentence names the cycle and what it has to build, and says the run keeps going.
+    expect(result.summary).toMatchObject({ kind: expect.stringMatching(/^(started|nothing_ready)$/), orchestrator: true });
+    expect(result.summary.headline).toMatch(/^Cycle 1 started: (\d+ tasks? ready to build|nothing is ready to build yet)$/);
+    expect(result.summary.detail).toContain("New cycles start on their own");
+    // Once connected, business.get reports the orchestrator reachable.
+    expect((await owner.business.get({ businessId })).orchestrator).toEqual({ reachable: true });
     // Continue runs until done (Nov 7, 2026): the workflow starts cycle 1 and the rounds after it; the API starts no cycle itself.
     expect(temporal.starts.filter((x) => x.type === "businessCycle")).toEqual([]);
     expect(temporal.signalStarts).toEqual([{ type: "autopilot", workflowId: `autopilot:${businessId}`, args: [{ businessId }], signal: "continueRun", signalArgs: [{ runId: result.run!.id, cycleNumber: 1, by: hz.A.ownerId }] }]);
@@ -250,8 +261,9 @@ describe("business.continue reads the cycle status once (audit realtime-bg F2)",
     // The cycle events and the queue rows are read once each (until 2026-10-15: three times, one after another).
     expect(statements.filter((q) => /from "events" where/.test(q) && /order by/.test(q))).toHaveLength(1);
     expect(statements.filter((q) => /from "audit_log" where/.test(q) && /"audit_log"\."action" in/.test(q))).toHaveLength(2);
-    // Until 2026-10-15: 28 on the wire; 18 until Nov 7, 2026, when the press began writing its run's start (`cycle.run_started`, in the audit row's transaction).
-    expect(wire.roundTrips(), statements.join("\n")).toBeLessThanOrEqual(20);
+    // Until 2026-10-15: 28 on the wire; 18 until Nov 7, 2026, when the press began writing its run's start (`cycle.run_started`, in the audit row's transaction);
+    // 20 until Nov 8, 2026, when the press began answering with what is ready to build and the product stage (three more statements, in the reconcile's wave).
+    expect(wire.roundTrips(), statements.join("\n")).toBeLessThanOrEqual(23);
     expect(await hz.caller({ userId: hz.A.ownerId }).cycle.status({ businessId })).toEqual(result.status);
   });
 

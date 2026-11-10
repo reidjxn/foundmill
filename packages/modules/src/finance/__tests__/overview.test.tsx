@@ -6,6 +6,7 @@ import { TooltipProvider, formatMoney } from "@foundmill/dugout";
 import { TERMS } from "@foundmill/shared/terms";
 import { OverviewScreen, forecastRunway, overviewTiles } from "../OverviewScreen";
 import { NOW, createFakeSource, renderScreen } from "./fake-source";
+import { openExplainer } from "../../explainer.testing";
 import { BID, channels, dataResponses, emptyResponses, overview, overviewBlocking, pnl } from "./fixtures";
 
 const props = { businessId: BID, departmentId: "d-fin" };
@@ -55,7 +56,8 @@ describe("OverviewScreen", () => {
     renderScreen(fake, <OverviewScreen {...props} />);
     expect(screen.getByRole("region", { name: "Finance metrics" })).toBeTruthy();
     // One plain sentence above the tiles, from the same figures (UX plan §7.14, C6).
-    expect(screen.getByTestId("finance-summary").textContent).toBe("You have €150K in the bank and spend €20K more than you earn each month, so cash lasts about 8 months (Estimate).");
+    // The plain sentence lives in the Money area's opening line above the screen (Nov 9, 2026), not repeated here.
+    expect(screen.queryByTestId("finance-summary")).toBeNull();
     // Abbreviations are spelled out on first use (the defined word is plain text while guidance is off).
     expect(document.querySelector("[data-metric='mrr'] [data-metric-label]")!.textContent).toBe("Monthly recurring revenue (MRR)");
     expect(document.querySelector("[data-metric='acquisitionCost'] [data-metric-label]")!.textContent).toBe("Cost to win a customer");
@@ -89,11 +91,11 @@ describe("OverviewScreen", () => {
   it("guidance on: the intro, the defined words on the tile labels and the plain line under each figure (UX plan §7.14)", () => {
     const fake = createFakeSource({ businessId: BID, responses: dataResponses });
     renderScreen(fake, <OverviewScreen {...props} />, {}, { guidance: "on" });
-    const explainer = document.querySelector("[data-explainer='finance/overview']") as HTMLElement;
+    const explainer = openExplainer("finance/overview");
     expect(within(explainer).getByText("Where the money is and how long it lasts.")).toBeTruthy();
     expect(within(explainer).getByText("The line under the numbers says which are estimates: worked out, not measured.")).toBeTruthy();
     // The summary sentence stays above the tiles.
-    expect(screen.getByTestId("finance-summary")).toBeTruthy();
+    expect(screen.queryByTestId("finance-summary")).toBeNull();
     // Runway's label is a defined word; its plain line is the definitions map's sentence.
     const runway = document.querySelector("[data-metric='runway']") as HTMLElement;
     expect(within(runway).getByRole("button", { name: "Runway" }).className).toContain("term-link");

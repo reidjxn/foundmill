@@ -153,8 +153,8 @@ async function decideByFreeText(page: Page, text: string): Promise<{ confirmed: 
 }
 
 const continueIdle = (page: Page) => page.getByRole("button", { name: /^Continue$/ });
-/** The sidebar Inbox link, whose badge counts what needs the founder (the Needs you tab). */
-const inboxLink = (page: Page) => page.getByRole("navigation", { name: "Primary" }).getByRole("link", { name: /^Inbox/ });
+/** The sidebar's Needs you link (the Inbox on its Needs you tab), whose badge counts what needs the founder. */
+const inboxLink = (page: Page) => page.getByRole("navigation", { name: "Primary" }).getByRole("link", { name: /^Needs you/ });
 
 test.describe("golden path", () => {
   test.describe.configure({ mode: "serial" });
@@ -254,7 +254,7 @@ test.describe("golden path", () => {
     // Today: the goal waits for the Chief of Staff (it is proposed after the sign-offs and a round of work).
     await expect(page.getByTestId("today-screen")).toBeVisible({ timeout: LONG });
     await expect(page.getByTestId("goal-panel")).toHaveAttribute("data-goal", "waiting", { timeout: LONG });
-    // The sidebar carries the departments the commit created.
+    // The sidebar carries the areas over the departments the commit created (each links to a department tab).
     expect(await page.locator("[data-testid=app-shell] nav a[href*='/d/']").count()).toBeGreaterThanOrEqual(1);
     // The Inbox opens on the Chief of Staff's welcome note: an Update, with no decision to take.
     await page.goto(`/b/${bid}/inbox`);
@@ -296,7 +296,7 @@ test.describe("golden path", () => {
 
     // One press of Continue → business.continue (in-process cycle step without Temporal) → a toast says what happened.
     await continueIdle(page).click();
-    await expect(page.getByText(/Cycle started|One new note|Cycle resumed|already running/).first()).toBeVisible({ timeout: LONG });
+    await expect(page.getByText(/(cycle \d+|round of work) started|cannot run right now|(cycle \d+|round of work) resumed|already running/i).first()).toBeVisible({ timeout: LONG });
   });
 
   test("First days: approving both sign-offs plans the first build; distribution waits for Start distribution", async ({ page }) => {

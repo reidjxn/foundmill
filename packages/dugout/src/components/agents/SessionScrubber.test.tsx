@@ -1,8 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { act, fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render as rtlRender, screen } from "@testing-library/react";
+import type { ReactElement } from "react";
+import { BuilderViewProvider } from "../guidance/BuilderView";
 import { useState } from "react";
 import { generateMockSessionEvents } from "./mock";
 import { SessionScrubber, formatClock, nextMarkerPosition, prevMarkerPosition, scrubberMarkers, sessionLengthMs } from "./SessionScrubber";
+
+/** Builder view on for every render here (the engine these tests read); BuilderView.test.tsx covers it off. */
+const render = (ui: ReactElement, opts?: Parameters<typeof rtlRender>[1]) => rtlRender(ui, { wrapper: ({ children }) => <BuilderViewProvider on>{children}</BuilderViewProvider>, ...opts });
 
 const START = "2026-10-07T09:00:00Z";
 const events = generateMockSessionEvents("scrub", START, { outcome: "done", shout: true, durationSec: 600 });

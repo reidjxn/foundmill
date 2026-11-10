@@ -79,8 +79,10 @@ describe("notePlanFailure", () => {
     const out = await cycle.notePlanFailure({ businessId: t.businessId, cycleNumber: 4, message, details: { kind: "billing", billedTo: "credits", reason: "credit_balance" } });
     expect(out.inboxItemIds).toHaveLength(1);
     const item = await repos.inbox.get(t.db, t.businessId, out.inboxItemIds[0]!);
-    expect(item).toMatchObject({ type: "warning", fromAgentId: t.chiefId, subject: "Cycle 4 did not start", blocksContinue: false });
+    expect(item).toMatchObject({ type: "warning", fromAgentId: t.chiefId, subject: "The team could not start work", blocksContinue: false });
     expect(item.bodyMd).toContain(message);
+    // Founder words (Nov 8, 2026): no cycle number in what everyone reads.
+    expect(`${item.subject} ${item.bodyMd}`).not.toMatch(/cycle \d/i);
     const created = (await repos.events.list(t.db, t.businessId, { type: "inbox.item_created", limit: 50 })).items.find((e) => (e.payload as { inboxItemId: string }).inboxItemId === item.id);
     expect(created).toBeDefined();
     const audit = await repos.audit.list(t.db, t.businessId, { action: "cycle.plan_failed", limit: 5 });

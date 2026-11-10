@@ -7,12 +7,12 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { ToastProvider, TooltipProvider, useFormatters, useGuidance, type DateFormatPrefs } from "@foundmill/dugout";
+import { ToastProvider, TooltipProvider, useBuilderView, useFormatters, useGuidance, type DateFormatPrefs } from "@foundmill/dugout";
 import { AGENT_STYLE_META, type AgentStyle } from "@foundmill/shared/personas";
 import type * as SharedModule from "../shared";
 
-type Guidance = { guidance: "on" | "off"; textSize: "standard" | "comfortable"; explainersSeen: Record<string, true>; toursDone: Record<string, true>; checklistDismissedAt: string | null; anthropomorphicAgents: boolean; agentStyle?: AgentStyle };
-type Change = Partial<DateFormatPrefs> & Partial<{ guidance: Guidance["guidance"]; textSize: Guidance["textSize"]; explainersSeen: Record<string, true>; toursDone: Record<string, true>; checklistDismissed: boolean; anthropomorphicAgents: boolean; agentStyle: AgentStyle; reset: true }>;
+type Guidance = { guidance: "on" | "off"; textSize: "standard" | "comfortable"; explainersSeen: Record<string, true>; toursDone: Record<string, true>; checklistDismissedAt: string | null; anthropomorphicAgents: boolean; agentStyle?: AgentStyle; builderView?: boolean };
+type Change = Partial<DateFormatPrefs> & Partial<{ guidance: Guidance["guidance"]; textSize: Guidance["textSize"]; explainersSeen: Record<string, true>; toursDone: Record<string, true>; checklistDismissed: boolean; anthropomorphicAgents: boolean; agentStyle: AgentStyle; builderView: boolean; reset: true }>;
 
 const BUSINESS = "b1e5e5e5-0000-4000-8000-000000000001";
 const PREFS_KEY = [["founder", "preferences", "get"], { type: "query" }];
@@ -22,13 +22,14 @@ const guidanceDefaults = (): Guidance => ({ guidance: "on", textSize: "standard"
 let stored: DateFormatPrefs = { date: "us", time: "12h" };
 let guidanceStored: Guidance = guidanceDefaults();
 async function serverUpdate(change: Change) {
-  const { date, time, guidance, textSize, explainersSeen, toursDone, checklistDismissed, anthropomorphicAgents, agentStyle, reset } = change;
+  const { date, time, guidance, textSize, explainersSeen, toursDone, checklistDismissed, anthropomorphicAgents, agentStyle, builderView, reset } = change;
   stored = { ...stored, ...(date ? { date } : {}), ...(time ? { time } : {}) };
   const next: Guidance = { ...guidanceStored, explainersSeen: { ...guidanceStored.explainersSeen }, toursDone: { ...guidanceStored.toursDone } };
   if (guidance) next.guidance = guidance;
   if (textSize) next.textSize = textSize;
   if (anthropomorphicAgents !== undefined) next.anthropomorphicAgents = anthropomorphicAgents;
   if (agentStyle) next.agentStyle = agentStyle;
+  if (builderView !== undefined) next.builderView = builderView;
   if (reset) Object.assign(next, { explainersSeen: {}, toursDone: {}, checklistDismissedAt: null });
   for (const id of Object.keys(explainersSeen ?? {})) next.explainersSeen[id] = true;
   for (const id of Object.keys(toursDone ?? {})) next.toursDone[id] = true;
@@ -81,14 +82,16 @@ vi.mock("../shared", async (importOriginal) => ({ ...(await importOriginal<typeo
 
 import { DateFormatHost } from "@/components/providers/DateFormatHost";
 import { GuidanceHost } from "@/components/providers/GuidanceHost";
-import { ANTHROPOMORPHIC_EXPLAINER, PreferencesTab, anthropomorphicSavedLine, guidanceSavedLine, preferenceChange, resettable, savedLine } from "../PreferencesTab";
+import { ANTHROPOMORPHIC_EXPLAINER, BUILDER_VIEW_HINT, builderViewSavedLine, PreferencesTab, anthropomorphicSavedLine, guidanceSavedLine, preferenceChange, resettable, savedLine } from "../PreferencesTab";
 
 /** Somewhere else on the page (the top bar, the Inbox): it must follow the choice without a reload. */
 function Elsewhere() {
   const { formatDate, formatTime } = useFormatters();
   const { guidance, textSize } = useGuidance();
+  const builder = useBuilderView();
   return (
     <>
+      <p data-testid="elsewhere-builder">{builder ? "on" : "off"}</p>
       <p data-testid="elsewhere">{`${formatDate(new Date(2026, 9, 7, 15, 45))} ${formatTime(new Date(2026, 9, 7, 15, 45))}`}</p>
       <p data-testid="elsewhere-guidance">{`${guidance} ${textSize}`}</p>
     </>
@@ -211,6 +214,39 @@ describe("Anthropomorphic agents switch", () => {
     expect(anthropomorphicSavedLine(true).title).toBe("Anthropomorphic agents on: Humans");
     expect(anthropomorphicSavedLine(false, "fantasy").title).toBe("Anthropomorphic agents off");
     expect(anthropomorphicSavedLine(false).description).toContain("by role");
+  });
+});
+
+describe("Builder view switch", () => {
+  it("is off by default and says what it shows, in plain words", async () => {
+    mount();
+    const sw = await screen.findByTestId("builder-view-switch");
+    expect(sw.getAttribute("aria-checked")).toBe("false");
+    expect(screen.getByLabelText("Builder view", { selector: "button" })).toBe(sw);
+    expect(screen.getByTestId("builder-view-panel").textContent).toContain(BUILDER_VIEW_HINT);
+    expect(BUILDER_VIEW_HINT).toBe(
+      "Shows how the platform runs the team: round numbers, AI usage in tokens, agents' live screens, test counts, finished code changes and previews, and the team's ratings, health and reporting lines. For operators and anyone building software with the team.",
+    );
+    expect(screen.getByTestId("elsewhere-builder").textContent).toBe("off");
+  });
+
+  it("saves at once, says so in every business, and the design system elsewhere follows", async () => {
+    mount();
+    fireEvent.click(await screen.findByTestId("builder-view-switch"));
+    await waitFor(() => expect(update).toHaveBeenCalledWith({ builderView: true }));
+    await waitFor(() => expect(screen.getByTestId("elsewhere-builder").textContent).toBe("on"));
+    await waitFor(() => expect(saved).toHaveBeenCalledTimes(1));
+    expect(saved.mock.calls[0]).toEqual(["Builder view on", "How the platform runs the team now shows, in every business."]);
+    fireEvent.click(screen.getByTestId("builder-view-switch"));
+    await waitFor(() => expect(update).toHaveBeenLastCalledWith({ builderView: false }));
+    await waitFor(() => expect(saved).toHaveBeenCalledTimes(2));
+    expect(saved.mock.calls[1]?.[0]).toBe("Builder view off");
+    expect(screen.getByTestId("elsewhere-builder").textContent).toBe("off");
+  });
+
+  it("words the toasts", () => {
+    expect(builderViewSavedLine(true)).toEqual({ title: "Builder view on", description: "How the platform runs the team now shows, in every business." });
+    expect(builderViewSavedLine(false)).toEqual({ title: "Builder view off", description: "The technical details are hidden again, in every business." });
   });
 });
 
@@ -349,7 +385,7 @@ describe("helpers", () => {
     expect(guidanceSavedLine({ guidance: "off", textSize: "standard" }, "guidance")).toEqual({ title: "Guidance off", description: "Consequences, provenance and Estimate labels still show. Turn it on again any time from here." });
     expect(guidanceSavedLine({ guidance: "on", textSize: "comfortable" }, "textSize").title).toBe("Comfortable text");
     expect(guidanceSavedLine({ guidance: "on", textSize: "standard" }, "textSize").title).toBe("Standard text");
-    expect(guidanceSavedLine({ guidance: "on", textSize: "standard" }, "reset")).toEqual({ title: "Starting over", description: "The intros, the first-week checklist and the tours show again." });
+    expect(guidanceSavedLine({ guidance: "on", textSize: "standard" }, "reset")).toEqual({ title: "Starting over", description: "The unread dots on Explain this page, the first-week checklist and the tours show again." });
     for (const line of [guidanceSavedLine({ guidance: "on", textSize: "standard" }, "guidance"), guidanceSavedLine({ guidance: "on", textSize: "standard" }, "reset")]) {
       expect(line.title).not.toMatch(/!/);
       expect(line.description).not.toMatch(/!/);

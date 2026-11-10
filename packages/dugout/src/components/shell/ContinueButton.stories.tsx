@@ -31,7 +31,13 @@ export const Blocked: Story = { args: { state: { kind: "blocked", count: 3 } } }
 export const Processing: Story = { args: { state: { kind: "processing" } } };
 /** One press of Continue keeps the team working (Nov 7, 2026): Pause stays for the whole run, between cycles too, and the tooltip says new cycles start on their own. */
 export const ProcessingRun: Story = { name: "Processing (a run)", args: { state: { kind: "processing", run: true }, cycleNumber: 5 } };
+/** Builder view off: the shell passes no cycle number, so the tooltip reads "The team is working". */
+export const ProcessingBuilderViewOff: Story = { name: "Processing (Builder view off)", args: { state: { kind: "processing", run: true }, cycleNumber: null }, globals: { builderView: "off" } };
 export const CustomerUpdate: Story = { args: { state: { kind: "matchday" } } };
+/** The orchestrator is not reachable (first-time founder report, Nov 8, 2026): the button still reads Continue, and its tooltip says what a press does and does not do. */
+export const WithCaveat: Story = { name: "Idle with a caveat", args: { state: { kind: "idle" }, caveat: "The orchestrator is not reachable: a press writes one note; no agent works." } };
+/** The press has a price (first-time founder report, Nov 8, 2026): what the last cycle cost, as an Estimate, under the tooltip's sentence. */
+export const WithCostHint: Story = { name: "Idle with the last cycle's cost", args: { state: { kind: "idle" }, hint: "Last cycle cost $0.52 · Estimate" } };
 export const Holiday: Story = { name: "Vacation", args: { state: { kind: "holiday", until: "2026-10-21" } } };
 export const AllStates: Story = {
   render: () => (

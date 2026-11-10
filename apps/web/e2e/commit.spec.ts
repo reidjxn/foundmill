@@ -36,6 +36,14 @@ test.describe("commit", () => {
     await expect(summary.locator('[data-summary="business-mode"]')).toHaveText("Assisted");
     await expect(summary.locator('[data-summary="spend-cap"]')).toHaveText(/^Asks you above /);
     await expect(summary.locator('[data-summary="autopilot"]')).toHaveText("Autopilot off");
+    // Labeled lines, not bare chips (first-time founder report, Nov 8, 2026): each choice says what it is about.
+    for (const label of ["Where it runs", "Who decides", "Kind of business", "On a schedule"]) await expect(summary).toContainText(label);
+    // The team the archetype seeds, with what its wage caps add up to a month (an Estimate) and no background helper listed.
+    const squad = page.getByTestId("squad-preview");
+    await expect(page.getByTestId("squad-preview-counts")).toHaveText(/^\d+ agents? · \d+ departments? · \d+ channels? on/, { timeout: LONG });
+    await expect(page.getByTestId("squad-preview-wages")).toContainText(/^Up to \$[\d,]+\.\d\d a month in wage caps/);
+    await expect(page.getByTestId("squad-preview-wages").locator("[data-provenance='estimate']")).toBeVisible();
+    await expect(squad.getByRole("list", { name: "Team" }).getByText(/Source watcher|Secrets scanner|Utility/)).toHaveCount(0);
     const change = page.getByTestId("how-it-runs-change");
     const open = (await change.getAttribute("aria-expanded")) === "true";
     // Open at once only while guidance is off (an operator's default); on, the controls wait behind Change.
@@ -206,7 +214,7 @@ test.describe("commit", () => {
     // Today shows the foundations drafting (or already drafted: the mock model is quick).
     await expect(page.getByTestId("today-screen")).toBeVisible({ timeout: LONG });
     await expect(page.getByTestId("foundations-status")).toBeVisible({ timeout: LONG });
-    // The sidebar carries the departments the commit created.
+    // The sidebar carries the areas over the departments the commit created (each links to a department tab).
     expect(await page.locator("[data-testid=app-shell] nav a[href*='/d/']").count()).toBeGreaterThanOrEqual(1);
     const bid = /\/b\/([0-9a-f-]+)\//.exec(page.url())![1]!;
     // The Inbox has the Chief of Staff's welcome note (an Update); Continue is not "Respond" for it.

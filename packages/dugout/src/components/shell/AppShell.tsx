@@ -1,12 +1,14 @@
 "use client";
 import { forwardRef, useCallback, useEffect, useMemo, useState, type CSSProperties, type HTMLAttributes, type ReactNode } from "react";
-import type { BusinessMode, GameMode, Money } from "@foundmill/shared";
+import type { AreaKey, BusinessMode, GameMode, Money } from "@foundmill/shared";
 import { cn } from "../../lib/cn";
 import { BusinessLogo } from "../foundation/BusinessLogo";
 import { FitText } from "../foundation/FitText";
 import { useToastPlacement } from "../foundation/Toast";
 import { TooltipProvider } from "../foundation/Tooltip";
+import { ExplainPageButton } from "../guidance/ExplainPageButton";
 import { useGuided } from "../guidance/GuidanceProvider";
+import { PageExplainProvider } from "../guidance/PageExplain";
 import { Breadcrumbs } from "./Breadcrumbs";
 import { CommandPalette, KEYBOARD_SHORTCUTS_HELP_ITEM, type CommandPaletteProps, type PaletteItem } from "./CommandPalette";
 import { continueButtonAction, type ContinueHandlers } from "./ContinueButton";
@@ -20,7 +22,7 @@ import type { RunwayWords } from "./RunwayChip";
 import { Sidebar } from "./Sidebar";
 import type { StopAllAgentsProps } from "./StopAllAgents";
 import { TabBar, type TabBarProps } from "./TabBar";
-import { departmentLetters, RESERVED_SECTION_LETTERS, useKeyboardMap, type DepartmentForKeys, type GoToTarget, type KeyboardMapContext } from "./keyboard";
+import { AREA_LETTERS, SHELL_FIXED_LETTERS, shellDepartmentLetters, useKeyboardMap, type DepartmentForKeys, type GoToTarget, type KeyboardMapContext } from "./keyboard";
 import type { BreadcrumbItem, ContinueState, Kit, ProcessingSegment, SidebarBrand, SidebarItem } from "./types";
 import { isViewportTooSmall, MIN_VIEWPORT_WIDTH, useViewportWidth } from "./useViewportWidth";
 
@@ -43,6 +45,10 @@ export interface AppShellContinue extends ContinueHandlers {
   disabled?: boolean;
   /** The action is in flight: Continue keeps focus but refuses presses (ContinueButton `pending`). */
   pending?: boolean;
+  /** What a press can and cannot do right now, under the tooltip's sentence (ContinueButton `caveat`). */
+  caveat?: string | null;
+  /** What the last cycle cost, as an Estimate (ContinueButton `hint`). */
+  hint?: string | null;
 }
 
 export interface AppShellProcessing {
@@ -51,6 +57,13 @@ export interface AppShellProcessing {
   active: boolean;
   /** The running cycle's number, for the strip's sentence ("Product and Finance are working on cycle 3"). */
   cycleNumber?: number | null;
+  /**
+   * The answer to a press of Continue, the moment it is known (first-time founder report, Nov 8, 2026): "Starting the
+   * next cycle…", then "Cycle 2 started: 6 tasks ready to build" or "The team cannot run right now: …". While set it is
+   * the strip's sentence and the tab bar's line, guidance on or off, so "No cycle running" never stays unchanged after
+   * a press. The app clears it when the strip's own sentence has caught up.
+   */
+  notice?: string | null;
 }
 
 /** The floor the tab bar's processing line steps down to before it truncates (DESIGN §2: 11 px). */
@@ -75,9 +88,11 @@ export function processingLineText(segments: readonly ProcessingSegment[], activ
  * stacks a figure over its words, which would need a second row the bar does not have, and `ConsequenceLine` is for
  * what an action will do, not for what is happening now.
  */
-function ProcessingLine({ text }: { text: string }) {
+function ProcessingLine({ text, notice = false }: { text: string; notice?: boolean }) {
+  // The answer to a press reads in the secondary ink, not the tertiary: it is news, not ambient status, and it is
+  // announced once (role status) so a screen reader hears what the press did.
   return (
-    <FitText minPx={PROCESSING_LINE_MIN_PX} className="t-small max-w-64 min-w-0 text-tertiary" data-testid="processing-line">
+    <FitText minPx={PROCESSING_LINE_MIN_PX} className={cn("t-small max-w-80 min-w-0", notice ? "text-secondary" : "text-tertiary")} data-testid="processing-line" data-notice={notice ? "" : undefined} role={notice ? "status" : undefined}>
       {text}
     </FitText>
   );
@@ -130,6 +145,12 @@ export interface AppShellProps extends Omit<HTMLAttributes<HTMLDivElement>, "tit
   processing: AppShellProcessing;
   tabs?: TabBarProps;
   breadcrumbs?: BreadcrumbItem[];
+  /**
+   * The page's one "Ask <Chief of Staff>" control (`AskChiefOfStaff`), drawn beside "Explain this page" at the right end
+   * of the tab row; in the breadcrumb row on a page with breadcrumbs and no tabs; and in a thin row of its own on a page
+   * with neither, so every business page has exactly one. Omit when the business has no Chief of Staff.
+   */
+  pageActions?: ReactNode;
   rightRail?: AppShellRightRail;
   /** Universal search. Without it the search trigger calls `keyboard.onSearch`‐style fallbacks only. */
   search?: AppShellSearch;
@@ -164,21 +185,30 @@ export interface AppShellProps extends Omit<HTMLAttributes<HTMLDivElement>, "tit
   children?: ReactNode;
 }
 
-/** The departments in sidebar order, with their stored letters, for the G chord. */
+/** The module-less departments in sidebar order, with their stored letters, for the G chord. */
 function departmentsForKeys(items: readonly SidebarItem[]): DepartmentForKeys[] {
   return items.filter((it) => it.group === "department").map((it) => ({ id: it.id, name: it.label, shortcut: it.shortcut }));
 }
 
-/** Sidebar items with their chords filled in: fixed surfaces from `fixed`, departments from `departmentLetters`. Exported for tests. */
+/** The founder areas the sidebar shows, in its order, for the G chord. */
+function areasForKeys(items: readonly SidebarItem[]): AreaKey[] {
+  return items.flatMap((it) => (it.group === "area" && it.area ? [it.area] : []));
+}
+
+/**
+ * Sidebar items with their chords filled in: Today and Needs you from `fixed` (G H, G I), the areas from
+ * `AREA_LETTERS` (G P, G C, G M, G R, G T) and module-less departments from `shellDepartmentLetters`. Exported for tests.
+ */
 export function withSidebarKeys(items: readonly SidebarItem[]): SidebarItem[] {
-  const letters = departmentLetters(departmentsForKeys(items));
-  const fixedLetter = (fixed: NonNullable<SidebarItem["fixed"]>) => Object.entries(RESERVED_SECTION_LETTERS).find(([, v]) => v === fixed)?.[0];
+  const letters = shellDepartmentLetters(departmentsForKeys(items));
+  const fixedLetter = (fixed: NonNullable<SidebarItem["fixed"]>) => Object.entries(SHELL_FIXED_LETTERS).find(([, v]) => v === fixed)?.[0];
   return items.map((it) => {
     if (it.keys) return it;
     if (it.fixed) {
       const l = fixedLetter(it.fixed);
       return l ? { ...it, keys: ["G", l] } : it;
     }
+    if (it.group === "area" && it.area) return { ...it, keys: ["G", AREA_LETTERS[it.area]] };
     if (it.group === "department") {
       const l = letters.get(it.id);
       return l ? { ...it, keys: ["G", l] } : it;
@@ -190,6 +220,7 @@ export function withSidebarKeys(items: readonly SidebarItem[]): SidebarItem[] {
 /** The sidebar item a G chord targets. Exported for tests. */
 export function sidebarItemForTarget(items: readonly SidebarItem[], target: GoToTarget): SidebarItem | undefined {
   if (target.kind === "department") return items.find((it) => it.group === "department" && it.id === target.id);
+  if (target.kind === "area") return items.find((it) => it.group === "area" && it.area === target.area);
   return items.find((it) => it.fixed === target.kind);
 }
 
@@ -245,6 +276,7 @@ export const AppShell = forwardRef<HTMLDivElement, AppShellProps>(function AppSh
     processing,
     tabs,
     breadcrumbs,
+    pageActions,
     rightRail,
     search,
     onSearch,
@@ -275,6 +307,7 @@ export const AppShell = forwardRef<HTMLDivElement, AppShellProps>(function AppSh
 
   const items = useMemo(() => withSidebarKeys(sidebar.items), [sidebar.items]);
   const departments = useMemo(() => departmentsForKeys(items), [items]);
+  const areas = useMemo(() => areasForKeys(items), [items]);
 
   const [searchOpenState, setSearchOpenState] = useState(false);
   const searchOpen = search?.open ?? searchOpenState;
@@ -288,9 +321,12 @@ export const AppShell = forwardRef<HTMLDivElement, AppShellProps>(function AppSh
   const [helpOpen, setHelpOpen] = useState(false);
   const guided = useGuided();
 
-  const { state, cycleNumber, pulseKey, disabled: continueDisabled, pending: continuePending, ...continueHandlers } = continueButton;
+  const { state, cycleNumber, pulseKey, disabled: continueDisabled, pending: continuePending, caveat: continueCaveat, hint: continueHint, ...continueHandlers } = continueButton;
   const continueAction = continueButtonAction(state, continueHandlers);
-  const processingText = processingStatusText(processing.segments, processing.active, processing.cycleNumber);
+  const notice = processing.notice?.trim() || null;
+  const processingText = notice ?? processingStatusText(processing.segments, processing.active, processing.cycleNumber);
+  // The line in the tab bar: the strip's sentence while guidance is on; the answer to a press for everyone, while it stands.
+  const lineText = notice ?? (guided ? processingLineText(processing.segments, processing.active, processing.cycleNumber) : null);
   // The Help group always offers the keyboard shortcuts; the app adds its defined terms (apps/web/lib/search.ts).
   const helpItems = useMemo(() => {
     const given = search?.helpItems ?? [];
@@ -320,6 +356,7 @@ export const AppShell = forwardRef<HTMLDivElement, AppShellProps>(function AppSh
 
   const { chordPending, cancelChord } = useKeyboardMap({
     enabled: keyboard?.enabled ?? true,
+    areas,
     departments,
     onContinue: continueAction && !continueDisabled && !continuePending ? continueAction : undefined,
     onRefreshInbox: keyboard?.onRefreshInbox,
@@ -350,6 +387,7 @@ export const AppShell = forwardRef<HTMLDivElement, AppShellProps>(function AppSh
 
   return (
     <TooltipProvider delayDuration={400} skipDelayDuration={300}>
+      <PageExplainProvider>
       <div
         ref={ref}
         data-testid="app-shell"
@@ -396,7 +434,7 @@ export const AppShell = forwardRef<HTMLDivElement, AppShellProps>(function AppSh
             businessCurrency={businessCurrency}
             onModeClick={onModeClick}
             gameMode={mode}
-            continueButton={{ state, cycleNumber, pulseKey, disabled: continueDisabled, pending: continuePending, ...continueHandlers }}
+            continueButton={{ state, cycleNumber, pulseKey, disabled: continueDisabled, pending: continuePending, caveat: continueCaveat, hint: continueHint, ...continueHandlers }}
             continueSlot={continueSlot}
             businessBadge={businessBadge}
             stopAll={stopAll}
@@ -404,25 +442,37 @@ export const AppShell = forwardRef<HTMLDivElement, AppShellProps>(function AppSh
             businessMenu={businessMenu}
             connection={connection}
           />
-          <ProcessingStrip segments={processing.segments} active={processing.active} cycleNumber={processing.cycleNumber} label={processingText} />
+          <ProcessingStrip segments={processing.segments} active={processing.active} cycleNumber={processing.cycleNumber} label={processingText} data-notice={notice ? "" : undefined} />
           {tabs ? (
             <TabBar
               {...tabs}
               trailing={
-                guided ? (
-                  <>
-                    {tabs.trailing}
-                    <ProcessingLine text={processingLineText(processing.segments, processing.active, processing.cycleNumber)} />
-                  </>
-                ) : (
-                  tabs.trailing
-                )
+                <>
+                  {tabs.trailing}
+                  {lineText !== null ? <ProcessingLine text={lineText} notice={notice !== null} /> : null}
+                  {pageActions}
+                  {/* The page's one "Explain this page" button, at the right end of the tab row; nothing until a screen registered. */}
+                  <ExplainPageButton />
+                </>
               }
             />
           ) : null}
           {breadcrumbs && breadcrumbs.length > 0 ? (
             <div className="rule-under flex h-control-md shrink-0 items-center px-gutter">
               <Breadcrumbs items={breadcrumbs} />
+              {/* A page with breadcrumbs and no tab row keeps the buttons here, so there is still exactly one of each. */}
+              {tabs ? null : (
+                <div className="ml-auto flex items-center gap-1">
+                  {pageActions}
+                  <ExplainPageButton />
+                </div>
+              )}
+            </div>
+          ) : null}
+          {/* A page with neither row: a thin row of its own for the Ask control, so no page is without it. */}
+          {pageActions && !tabs && !(breadcrumbs && breadcrumbs.length > 0) ? (
+            <div className="rule-under flex h-control-md shrink-0 items-center justify-end px-gutter" data-testid="page-actions-row">
+              {pageActions}
             </div>
           ) : null}
           <div className="flex min-h-0 flex-1">
@@ -446,8 +496,9 @@ export const AppShell = forwardRef<HTMLDivElement, AppShellProps>(function AppSh
             onOpenChange={setSearchOpen}
           />
         ) : null}
-        <KeyboardHelp open={helpOpen} onOpenChange={setHelpOpen} departments={departments} />
+        <KeyboardHelp open={helpOpen} onOpenChange={setHelpOpen} departments={departments} areas={areas} />
       </div>
+      </PageExplainProvider>
     </TooltipProvider>
   );
 });

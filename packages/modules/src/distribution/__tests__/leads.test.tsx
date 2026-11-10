@@ -104,7 +104,7 @@ describe("LeadsScreen", () => {
     const empty = createFakeSource({ businessId: BID, responses: emptyResponses });
     renderScreen(empty, <LeadsScreen {...props} />);
     expect(screen.getByText("No leads yet")).toBeTruthy();
-    expect(screen.getByText(/once Lead generation runs on the board/)).toBeTruthy();
+    expect(screen.getByText(/once the team starts selling, after you answer/)).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Open Lead generation" }));
     expect(empty.navigations.at(-1)).toBe(`/b/${BID}/d/distribution/formation?channel=lead_generation`);
 
