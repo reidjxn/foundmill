@@ -182,7 +182,7 @@ Q = query (GET), M = mutation (POST). Every call below also takes `businessId` u
 - `agent.conversation.handOff` M {messageId} → stages a plan; show it; `plan.confirm` runs it.
 - `agent.conversation.inboxReplyStream` M (stream) {itemId, text, clientMessageId} for what a founder types on a note: a question or a remark becomes a conversation turn (`route: "conversation"` plus the send result), an instruction on a note that decides by text becomes a decision (`route: "decision", decision: DecideItemResult`). `inboxReply` is the non-streamed twin.
 - `inbox.decide` and the chips' decisions answer a `DecideItemResult`: `{ item, decision, plan: { ...plan, summaryMd, actions: [{ type, params, status }] }, evaluations, requiresConfirmation, executed, deferred, denied, dispatch, followUp }`. When `requiresConfirmation` is true the plan waits as `pending_confirmation` until `plan.confirm { planId }` → `{ plan, exec, item, alreadyConfirmed }`. Plan statuses: pending_confirmation | executing | done | failed.
-- `dev.tasks.shout` M {taskId?, preset?, text ≤ 280} is a **Nudge** into a running session (presets come with the agent's profile).
+- `dev.tasks.shout` M {taskId?, preset?, text ≤ 280} is a **Nudge** into a running session. `preset` accepts only the server's five fixed strings ("Focus on tests", "Simplify", "Ask before schema changes", "Match the design system", "Hurry up"); anything else is a 400. The chips the app shows come from the conversation's `persona.nudges`, so **send a chosen chip as `text`**, never as `preset`. Without `taskId` the nudge reaches every running task.
 
 ### Team and agents
 
