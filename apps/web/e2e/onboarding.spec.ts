@@ -200,7 +200,7 @@ test.describe("onboarding", () => {
     await expect(page.getByRole("list", { name: "Constraints chosen" })).toContainText("No physical inventory");
     await expect(page.getByLabel("Low", { exact: true })).toBeChecked();
     await expect(page.locator('[data-skill-value="domain"]')).toHaveText("16");
-    await expect(page.getByTestId("profile-summary")).toContainText("First-time founder · evenings and weekends · £5,000 · UK, Ireland");
+    await expect(page.getByTestId("profile-summary")).toContainText("First-time founder · evenings and weekends · £5,000 · based in the United Kingdom · markets: UK, Ireland");
     // Continue waits, and says why where the reassurance line was.
     await expect(page.getByTestId("profile-submit")).toBeDisabled();
     await expect(page.getByTestId("profile-submit-bottom")).toBeDisabled();

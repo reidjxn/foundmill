@@ -65,8 +65,32 @@ export function canOpenDepartment(access: Access, department: { moduleKeys?: rea
 
 /** The line every disabled control shows in the example business (the Example frame, docs/UX_AUDIT_AND_PLAN.md §12 item 5). */
 export const EXAMPLE_READ_ONLY_REASON = "This is an example business: look around, then start your own.";
-/** The tooltip of the neutral "Example" chip beside the business name, and the line under the example's row in Your businesses. */
-export const EXAMPLE_CHIP_TOOLTIP = "A seeded example business. Nothing you do here is saved.";
+/**
+ * The quiet "Sample business" marker beside a seeded demo business's name (first-time founder report, Phase 3 group K:
+ * "the sample business says it is a sample"): its one line says the figures are made up. It shows on every demo
+ * business (`businesses.is_demo`, which only the seed sets), whoever opens it, and never on a founder's own business.
+ */
+export const SAMPLE_BUSINESS_LABEL = "Sample business";
+export const SAMPLE_BUSINESS_LINE = "Its figures are made up for the example: nothing here is real money or real customers.";
+
+/** The tooltip of the sample marker for an example viewer, and the line under the example's row in Your businesses. */
+export const EXAMPLE_CHIP_TOOLTIP = `${SAMPLE_BUSINESS_LINE} Nothing you do here is saved.`;
+
+export interface SampleMarker {
+  label: typeof SAMPLE_BUSINESS_LABEL;
+  /** The tooltip: the made-up figures, and for an example viewer that nothing is saved. */
+  tooltip: string;
+}
+
+/**
+ * The marker for the open business: only on a demo business (`isDemo === true`, which only the seed sets), whoever
+ * opens it; an example viewer's tooltip adds that nothing is saved. Never on any other business, whatever the
+ * membership says (an example-source row on a founder's business, or a business not loaded yet).
+ */
+export function sampleMarker(business: { isDemo?: boolean | null } | null | undefined, access: Pick<Access, "isExample">): SampleMarker | null {
+  if (business?.isDemo !== true) return null;
+  return { label: SAMPLE_BUSINESS_LABEL, tooltip: access.isExample ? EXAMPLE_CHIP_TOOLTIP : SAMPLE_BUSINESS_LINE };
+}
 
 /** The line a disabled control shows when the role only reads. */
 export function readOnlyReason(access: Pick<Access, "role" | "isExample">): string {

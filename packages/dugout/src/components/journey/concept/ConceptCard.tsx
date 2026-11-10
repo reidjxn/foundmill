@@ -30,7 +30,7 @@ export interface ConceptCardProps {
 
 /** The display label for each action. Fork reads "More like this" (DESIGN: a per-card generate pill, not git words). */
 const ACTION_META: Record<ConceptAction, { label: string; icon: IconComponent; title: string }> = {
-  shortlist: { label: "Shortlist", icon: Bookmark, title: "Keep this concept for Compare and Commit" },
+  shortlist: { label: "Shortlist", icon: Bookmark, title: "Keep this idea to compare or choose later" },
   edit: { label: "Edit", icon: Pencil, title: "Change the name, the pitch or the kind of business in your own words (creates a new version)" },
   merge: { label: "Merge with another", icon: GitMerge, title: "Merge with another concept (creates a new version)" },
   fork: { label: "More like this", icon: Fan, title: "Draft a variant of this concept (creates a new version)" },

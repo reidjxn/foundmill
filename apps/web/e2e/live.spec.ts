@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import { LONG, NORTHWIND_BUSINESS_ID, signIn } from "./helpers";
+import { LONG, NORTHWIND_BUSINESS_ID, settled, signIn } from "./helpers";
 
 /**
  * The LIVE pages (BUILD §6.2, §11.14): /network, /communities[/id] and /leaderboards[/boardId], opened from the sidebar of
@@ -56,9 +56,13 @@ test.describe("live pages from the sidebar", () => {
 
   test("Network: Find on Foundmill searches public profiles by name; the demo business is never listed", async ({ page }) => {
     await page.goto("/network");
+    // Typed only once the screen is hydrated: text typed into the server-rendered input is lost when React takes the
+    // controlled input over (the flake on PR #74: the field stayed empty, so the search never ran; helpers `settled`).
+    await settled(page);
     const panel = page.getByTestId("people-search");
     await expect(panel).toBeVisible({ timeout: LONG });
     await panel.getByTestId("people-search-input").fill("Ledgerly");
+    await expect(panel.getByTestId("people-search-input")).toHaveValue("Ledgerly");
     // Ledgerly is the seeded demo (synthetic numbers): LIVE for its owners, but never listed for anyone else (0044).
     await expect(panel.getByTestId("people-search-empty")).toContainText("No public profile matches", { timeout: LONG });
     await expect(panel.getByTestId("people-search-results")).toHaveCount(0);
@@ -66,6 +70,7 @@ test.describe("live pages from the sidebar", () => {
 
   test("Network: the profile visibility control offers the four levels and saves a change (then restores it)", async ({ page }) => {
     await page.goto("/network");
+    await settled(page);
     const panel = page.getByTestId("visibility-panel");
     await expect(panel).toBeVisible({ timeout: LONG });
     const radios = panel.getByRole("radio");
@@ -176,6 +181,7 @@ test.describe("live pages from the sidebar", () => {
 
   test("Communities: Start a community opens its form (name, kind, who can join)", async ({ page }) => {
     await page.goto("/communities");
+    await settled(page);
     await expect(page.getByTestId("communities-screen")).toBeVisible({ timeout: LONG });
     await page.getByTestId("community-create").click();
     const dialog = page.getByTestId("create-community-dialog");

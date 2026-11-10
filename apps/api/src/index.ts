@@ -25,6 +25,7 @@ import type { ApiRedis } from "./services/redis";
 import { superviseOutboxRelay, type RelaySupervisor } from "./services/relay";
 import { monitorWorker, type WorkerMonitor } from "./services/worker-health";
 import { seedOnBoot } from "./services/seed-on-boot";
+import { DEMO_ROLL_BOOT_WAIT_MS, demoRollForwardEnabled, startDemoRollForward } from "./services/demo-roll-forward";
 import { backfillPersonasOnBoot } from "./services/persona-backfill";
 import { startWorkflowReconciler } from "./services/workflow-reconcile";
 
@@ -127,6 +128,7 @@ export async function main(): Promise<void> {
   let server: ReturnType<typeof serve> | null = null;
   let relay: RelaySupervisor | null = null;
   let reconciler: { stop(): void } | null = null;
+  let demoRoller: { stop(): void } | null = null;
   let workerMonitor: WorkerMonitor | null = null;
   let warmer: PoolWarmer | null = null;
   let watchdog: PoolWatchdog | null = null;
@@ -148,6 +150,7 @@ export async function main(): Promise<void> {
         },
       },
       { name: "stop workflow reconciler", run: () => reconciler?.stop() },
+      { name: "stop sample roll-forward", run: () => demoRoller?.stop() },
       { name: "stop key refresh", run: () => keys?.stop() },
       { name: "stop pool warmer", run: () => warmer?.stop() },
       { name: "stop pool watchdog", run: () => watchdog?.stop() },
@@ -183,12 +186,22 @@ export async function main(): Promise<void> {
   if (migrated) void backfillPersonasOnBoot(deps);
   // The demo seed may add a running vacation: the reconciler below runs after it.
   const seeded = migrated ? seedOnBoot(deps).catch(() => undefined) : Promise.resolve();
+  // The sample businesses roll forward with the calendar (DECISIONS 2026-11-10), after the seed and every hour after;
+  // DEMO_ROLL_FORWARD=off turns it off. The reconciler below waits for the boot roll at most DEMO_ROLL_BOOT_WAIT_MS (a
+  // seeded vacation's workflow then starts from its moved dates), never longer: real founders' workflows never queue
+  // behind the sample.
+  const rolled = seeded.then(() => {
+    if (lifecycle.stopping || !migrated || !demoRollForwardEnabled(env)) return;
+    const roller = startDemoRollForward(deps);
+    demoRoller = roller;
+    return Promise.race([roller.done, new Promise<void>((resolve) => setTimeout(resolve, DEMO_ROLL_BOOT_WAIT_MS).unref?.())]);
+  });
   // Every minute: is the orchestrator taking the work waiting on its task queues? An error line when it stops (SOAK-06).
   workerMonitor = monitorWorker({ temporal: deps.temporal, log: deps.log, taskQueue: env.TEMPORAL_TASK_QUEUE });
   if (env.APP_ENV === "development") void deps.temporal.reachable().then((ok) => !ok && deps.log.warn({ address: env.TEMPORAL_ADDRESS }, "Temporal is unreachable: start it with `temporal server start-dev` (workflows will report queued: false until then)"));
 
   // Long-lived workflows (vacations, Automated mode) for rows that have none: started at boot and every few minutes.
-  void seeded.then(() => {
+  void rolled.then(() => {
     if (!lifecycle.stopping) reconciler = startWorkflowReconciler(deps);
   });
 }

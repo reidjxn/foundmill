@@ -12,6 +12,7 @@ import { entities as entitiesTable, type Entity } from "../schema";
 import { agentMention, seedAgentEntities, seedChannels, seedDashboards, seedHistoricalTasks, seedInbox, seedIntegrations, seedRoadmap, seedActiveGoal, seedSignedOffAndSelling, seedSpec, seedTasks, seededRelevance, type InboxSpec, type RoadmapSpec, type TaskSpec } from "./content";
 import { DEMO_OWNER_DISPLAY_NAME, DEMO_SEED_AUDIT_ACTION, NORTHWIND_BUSINESS_ID, NORTHWIND_NAME, NORTHWIND_SLUG } from "./constants";
 import { addDays, atHour, mention, money, pct, proseDoc, type SeedCtx } from "./context";
+import { recordSampleRows } from "./roll-forward";
 import { seedFinance } from "./finance";
 import { seedJourney } from "./journey";
 import { seedLegal } from "./legal";
@@ -445,7 +446,7 @@ export async function seedNorthwind(ctx: SeedCtx): Promise<SeededBusiness> {
           type: "milestone",
           fromAgentId: chief.agent.id,
           subject: `Milestone: ${trophyLabel}`,
-          bodyMd: `${trophyLabel} reached on ${new Date(trophy.achievedAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" })}. ${journey.paidCustomers} paying customers so far (synthetic demo data). The whole team gets the credit; ${agentMention(agentEntities, squad.byTemplate.get("channel_influencer")!)} brought the most first touches this quarter.`,
+          bodyMd: `${trophyLabel} reached. ${journey.paidCustomers} paying customers so far (synthetic demo data). The whole team gets the credit; ${agentMention(agentEntities, squad.byTemplate.get("channel_influencer")!)} brought the most first touches this quarter.`,
           createdDaysAgo: 2,
           state: "read",
         }
@@ -487,13 +488,15 @@ export async function seedNorthwind(ctx: SeedCtx): Promise<SeededBusiness> {
   // Mark the oldest sessions' agent entity as the customer-facing contact so search has an "agent" hit.
   await db.update(entitiesTable).set({ aliases: ["Chief of Staff", "CoS"] }).where(eq(entitiesTable.id, agentEntities.byAgentId.get(chief.agent.id)!.id));
 
+  // Every row written so far is the sample's own: the only rows the roll-forward ever moves (roll-forward.ts).
+  await recordSampleRows(db, businessId);
   // The build's last write: seed-on-boot reads it as "this business was built completely" (demoSeedState).
   await repos.audit.append(db, businessId, {
     actorKind: "system",
     actorId: null,
     action: DEMO_SEED_AUDIT_ACTION,
     target: { kind: "business", id: businessId },
-    details: { app: APP_NAME, seed: ctx.seed, slug: NORTHWIND_SLUG, inboxItems: inbox.length, journeys: journey.counts.journeys, legalEntityId: legal.legalEntityId },
+    details: { app: APP_NAME, seed: ctx.seed, anchor: ctx.today.toISOString(), slug: NORTHWIND_SLUG, inboxItems: inbox.length, journeys: journey.counts.journeys, legalEntityId: legal.legalEntityId },
   });
 
   return {

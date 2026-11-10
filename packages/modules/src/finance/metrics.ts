@@ -140,9 +140,24 @@ export const METRIC_DEFINITIONS: Record<MetricKey, { label: string; definition: 
   payback: { label: "Payback (months to earn back a customer's cost)", definition: "How many months a new customer takes to earn back what it cost to win them; cost to win a customer ÷ monthly gross profit per customer.", term: "payback" },
 };
 
+/**
+ * The monthly and yearly figures of a business whose customers buy once (a physical product, a marketplace, hardware):
+ * nothing recurs, so the tiles say what the number is, the 3-month revenue as a month and as a year (DECISIONS
+ * 2026-11-10: "£25K a month recurring" for a skincare brand read as a second, different fact beside its revenue).
+ */
+export const ONE_OFF_METRIC_WORDS: Partial<Record<MetricKey, { label: string; definition: string; term?: string }>> = {
+  mrr: { label: "Average monthly revenue", definition: "What customers paid you in a typical month of the last 3; the 3-month revenue ÷ 3. Your customers buy once, so none of it is recurring." },
+  arr: { label: "Yearly revenue at this rate", definition: "What a year at the average monthly revenue adds up to; average monthly revenue × 12. A run rate, not money already in the bank." },
+};
+
+/** A tile's words: the recurring wording (MRR, ARR) unless the business's revenue does not recur (`recurring === false`). */
+export function metricWords(key: MetricKey, recurring: boolean | null | undefined = true): { label: string; definition: string; term?: string } {
+  return (recurring === false ? ONE_OFF_METRIC_WORDS[key] : undefined) ?? METRIC_DEFINITIONS[key];
+}
+
 /** The plain-words half of a definition (before the formula's semicolon), as a tile's line under its figure. */
-export function plainLine(key: MetricKey): string {
-  const text = METRIC_DEFINITIONS[key].definition;
+export function plainLine(key: MetricKey, recurring: boolean | null | undefined = true): string {
+  const text = metricWords(key, recurring).definition;
   const i = text.indexOf(";");
   return i < 0 ? text : `${text.slice(0, i).trim()}.`;
 }

@@ -62,10 +62,15 @@ test.describe("the example business, as the seeded owner", () => {
     await expect(page.getByTestId("door-example")).toHaveCount(0);
   });
 
-  test("Your businesses lists nothing under Example, and Northwind's own frame carries no Example chip", async ({ page }) => {
+  test("Your businesses lists nothing under Example; Northwind still says it is a sample, without the Example frame", async ({ page }) => {
     await openBusiness(page);
     await expect(page.getByTestId("kitbar-business-name")).toHaveText("Northwind Skincare", { timeout: LONG });
-    await expect(page.getByTestId("example-chip")).toHaveCount(0);
+    // The quiet sample marker is on every demo business, whoever opens it; the owner is not in the Example frame.
+    const sample = page.getByTestId("sample-chip");
+    await expect(sample).toHaveText("Sample business");
+    await expect(sample).not.toHaveAttribute("data-example", "true");
+    await sample.hover();
+    await expect(page.getByRole("tooltip")).toContainText("Its figures are made up for the example: nothing here is real money or real customers.", { timeout: LONG });
     await expect(page.getByTestId("stop-all-trigger")).toBeVisible();
     await page.goto("/businesses");
     await expect(page.getByRole("heading", { level: 1 })).toHaveText("Your businesses", { timeout: LONG });
@@ -119,13 +124,14 @@ test.describe("the example business, as an example viewer", () => {
     await page.waitForLoadState("networkidle", { timeout: LONG });
     await settled(page);
 
-    // The Example frame: the neutral chip beside the name, with its tooltip.
+    // The Example frame: the quiet "Sample business" marker beside the name, whose line says the figures are made up and nothing is saved.
     await expect(page.getByTestId("kitbar-business-name")).toHaveText("Northwind Skincare");
-    const chip = page.getByTestId("example-chip");
+    const chip = page.getByTestId("sample-chip");
     await expect(chip).toBeVisible();
-    await expect(chip).toHaveText("Example");
+    await expect(chip).toHaveText("Sample business");
+    await expect(chip).toHaveAttribute("data-example", "true");
     await chip.hover();
-    await expect(page.getByRole("tooltip")).toContainText("A seeded example business. Nothing you do here is saved.", { timeout: LONG });
+    await expect(page.getByRole("tooltip")).toContainText("Its figures are made up for the example: nothing here is real money or real customers. Nothing you do here is saved.", { timeout: LONG });
     // Start your own in Continue's slot, routing to New business; Stop all agents is not on the bar.
     const start = page.getByRole("button", { name: "Start your own" });
     await expect(start).toBeVisible();
@@ -177,7 +183,7 @@ test.describe("the example business, as an example viewer", () => {
     const row = panel.locator(`[data-business-row="${NORTHWIND_BUSINESS_ID}"]`);
     await expect(row).toContainText("Northwind Skincare");
     await expect(row.getByTestId("example-row-chip")).toHaveText("Example");
-    await expect(row).toContainText("A seeded example business. Nothing you do here is saved.");
+    await expect(row).toContainText("Its figures are made up for the example: nothing here is real money or real customers. Nothing you do here is saved.");
     await expect(row.getByRole("link", { name: "Open Northwind Skincare" })).toHaveAttribute("href", `/b/${NORTHWIND_BUSINESS_ID}/today`);
     // Not among their own businesses.
     await expect(page.getByTestId("active-businesses").locator(`[data-business-row="${NORTHWIND_BUSINESS_ID}"]`)).toHaveCount(0);
@@ -194,5 +200,53 @@ test.describe("the example business, as an example viewer", () => {
     const after = await viewerApi(playwright);
     expect((await exampleGet(after))?.membership).toBe("none");
     await after.dispose();
+  });
+});
+
+/**
+ * The sample's numbers agree with each other and stay current (first-time founder report, Phase 3 group K item 3:
+ * "Home: 0 customers this week … Milestones: 1,000th customer"). The api rolls the demo forward with the calendar
+ * (DECISIONS 2026-11-10), so the seeded week is this week; Home's Customers this week is the ribbon's own server figure;
+ * the customer milestones reached are the ones the first-payment total has passed; and Finance names Northwind's
+ * monthly figure for what it is (a skincare brand's customers buy once) over the same months as its revenue.
+ */
+test.describe("the sample's numbers agree", () => {
+  test.setTimeout(180_000);
+
+  test("Home's customers this week, Milestones and Finance tell one story on Northwind", async ({ page, playwright }) => {
+    const api = await devApi(playwright);
+    const res = await api.get(`/trpc/journey.ribbon?input=${encodeURIComponent(JSON.stringify({ json: { businessId: NORTHWIND_BUSINESS_ID, slim: true } }))}`);
+    expect(res.ok(), `journey.ribbon answered ${res.status()}`).toBe(true);
+    const ribbon = ((await res.json()) as Json<{ customers: { thisWeek: number; total: number }; milestones: { ref?: { trophyKey?: string | null } | null }[] }>).result.data.json;
+    await api.dispose();
+    // Rolled forward: the sample's last week is the calendar's.
+    expect(ribbon.customers.thisWeek, "the sample has customers this week (it rolls forward with the calendar)").toBeGreaterThan(0);
+    const reached = new Set(ribbon.milestones.map((m) => m.ref?.trophyKey).filter(Boolean));
+    for (const [key, threshold] of [["customer_1", 1], ["customer_10", 10], ["customer_100", 100], ["customer_1000", 1000]] as const) {
+      expect(reached.has(key), `${key} reached iff ${ribbon.customers.total} first payments ≥ ${threshold}`).toBe(ribbon.customers.total >= threshold);
+    }
+
+    // Home (Details): the tile shows the server's figure.
+    await openBusiness(page, "home");
+    const tile = page.locator("[data-widget='status_strip'] [data-metric-tile]").filter({ hasText: "Customers this week" }).first();
+    await expect(tile.locator("[data-value]")).toHaveAttribute("data-value", ribbon.customers.thisWeek.toLocaleString("en-US"), { timeout: LONG });
+
+    // Milestones: the same reached set, as cards.
+    await page.goto(`/b/${NORTHWIND_BUSINESS_ID}/milestones`);
+    await expect(page.getByTestId("milestones-screen")).toBeVisible({ timeout: LONG });
+    await expect(page.locator("[data-trophy='customer_1']")).toBeVisible({ timeout: LONG });
+    // The count they are reached at sits beside them, the same server figure.
+    await expect(page.getByTestId("trophy-cabinet-panel")).toContainText(`${ribbon.customers.total.toLocaleString("en-US")} paying customers so far`);
+    for (const key of ["customer_1", "customer_10", "customer_100", "customer_1000"]) await expect(page.locator(`[data-trophy='${key}'][data-achieved]`)).toHaveCount(reached.has(key) ? 1 : 0);
+
+    // Finance: one-off sales, so the monthly figure is the average month of the same three months as the revenue.
+    await page.goto(`/b/${NORTHWIND_BUSINESS_ID}/d/finance/overview`);
+    await expect(page.getByTestId("module-screen")).toHaveAttribute("data-module", "finance/overview", { timeout: LONG });
+    await page.getByTestId("finance-more").getByText("More numbers").click();
+    await expect(page.locator("[data-metric='mrr'] [data-metric-label]")).toHaveText("Average monthly revenue", { timeout: LONG });
+    const revenueCaption = (await page.locator("[data-metric='revenue'] [data-metric-caption]").innerText()).trim();
+    const months = revenueCaption.replace(/, 3 full months$/, "");
+    expect(revenueCaption).toMatch(/^\S.*, 3 full months$/);
+    await expect(page.locator("[data-metric='mrr'] [data-metric-caption]")).toHaveText(`a month: the ${months} revenue ÷ 3`);
   });
 });

@@ -97,10 +97,12 @@ export interface BusinessSwitcherProps {
   defaultOpen?: boolean;
   /** The trigger's content: the logo and the name. */
   children: ReactNode;
+  /** A second line in the trigger's tooltip, under "Switch business" (what the caption under the name means). */
+  tooltipLine?: string;
 }
 
 /** The top bar's logo and name as the business switcher (a chevron after the name, the tooltip "Switch business"). */
-export function BusinessSwitcher({ businessName, menu, onHome, defaultOpen = false, children }: BusinessSwitcherProps) {
+export function BusinessSwitcher({ businessName, menu, onHome, defaultOpen = false, children, tooltipLine }: BusinessSwitcherProps) {
   const [open, setOpenState] = useState(defaultOpen);
   const [tip, setTip] = useState(false);
   const [query, setQuery] = useState("");
@@ -131,7 +133,22 @@ export function BusinessSwitcher({ businessName, menu, onHome, defaultOpen = fal
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverAnchor asChild>
         <span className="flex min-w-0">
-          <Tooltip content="Switch business" side="bottom" align="start" open={tip && !open} onOpenChange={setTip}>
+          <Tooltip
+            content={
+              tooltipLine ? (
+                <span className="flex flex-col gap-0.5">
+                  <span>Switch business</span>
+                  <span className="text-secondary">{tooltipLine}</span>
+                </span>
+              ) : (
+                "Switch business"
+              )
+            }
+            side="bottom"
+            align="start"
+            open={tip && !open}
+            onOpenChange={setTip}
+          >
             <button
               ref={triggerRef}
               type="button"

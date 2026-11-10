@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { milestoneForTrophy, otherMilestones, replayRefOf, shareText, trophyCards, trophyKeyOf } from "../milestones";
+import { customersSoFarWords, milestoneForTrophy, otherMilestones, replayRefOf, shareText, trophyCards, trophyKeyOf } from "../milestones";
 
 const rows = [
   { id: "m1", kind: "customer", label: "First customer", achievedAt: new Date("2026-03-01T10:00:00Z"), ref: { trophyKey: "customer_1", amountMinor: 4_900, customerName: "Acme", permission: true, journeyId: "j-1" }, visibility: "public" },
@@ -40,5 +40,14 @@ describe("milestones (BUILD §11.4 trophy cabinet)", () => {
     // The date reads in the founder's own format (Settings › Preferences).
     expect(shareText(cards.find((c) => c.key === "customer_1")!, "Northwind", { date: "iso", time: "24h" })).toBe("Northwind · First customer with Acme · 2026-03-01");
     expect(shareText(cards.find((c) => c.key === "customer_1")!, "Northwind", { date: "day_first", time: "12h" })).toBe("Northwind · First customer with Acme · 1 Mar 2026");
+  });
+});
+
+describe("customersSoFarWords (one number per fact, DECISIONS 2026-11-10)", () => {
+  it("names the first-payment total the customer milestones are reached at", () => {
+    expect(customersSoFarWords(1_073)).toBe("1,073 paying customers so far");
+    expect(customersSoFarWords(1)).toBe("1 paying customer so far");
+    expect(customersSoFarWords(0)).toBe("No paying customers yet");
+    expect(customersSoFarWords(undefined)).toBeUndefined();
   });
 });

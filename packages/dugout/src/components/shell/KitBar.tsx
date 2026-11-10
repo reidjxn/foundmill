@@ -7,6 +7,7 @@ import { BusinessLogo } from "../foundation/BusinessLogo";
 import { FitText } from "../foundation/FitText";
 import { Icon } from "../foundation/Icon";
 import { IconButton } from "../foundation/IconButton";
+import { Tooltip } from "../foundation/Tooltip";
 import { BusinessSwitcher, type KitBarBusinessMenu } from "./BusinessSwitcher";
 import { ConnectionChip, type ConnectionChipProps } from "./ConnectionChip";
 import { ContinueButton, type ContinueButtonProps } from "./ContinueButton";
@@ -72,8 +73,16 @@ export interface KitBarProps extends Omit<HTMLAttributes<HTMLElement>, "title"> 
    * ContinueButton, inside a box that keeps Continue's height and minimum width so nothing beside it moves.
    */
   continueSlot?: ReactNode;
-  /** A small badge after the business name (the Example frame's neutral "Example" chip). */
+  /**
+   * A one-line caption under the business name (the sample business's "Sample business"). It takes no width from the
+   * bar: the name keeps its column (on one line while there is a caption) and the search keeps its room.
+   */
   businessBadge?: ReactNode;
+  /**
+   * What the caption means, in one line. With `businessMenu` it joins the switcher's own tooltip under "Switch
+   * business" (one tooltip for the whole trigger, never two over each other); otherwise the caption carries it.
+   */
+  businessBadgeLine?: string;
   stopAll: StopAllAgentsProps;
   /** Logo + name become a button (go Home). */
   onHome?: () => void;
@@ -154,6 +163,7 @@ export const KitBar = forwardRef<HTMLElement, KitBarProps>(function KitBar(
     continueButton,
     continueSlot,
     businessBadge,
+    businessBadgeLine,
     stopAll,
     onHome,
     businessMenu,
@@ -168,14 +178,26 @@ export const KitBar = forwardRef<HTMLElement, KitBarProps>(function KitBar(
   const identity = (
     <span className="flex min-w-0 items-center gap-2.5">
       <span className="flex shrink-0">{logoNode}</span>
-      <FitText minPx={KITBAR_NAME_MIN_PX} lines={2} className="t-display-sm leading-tight" data-testid="kitbar-business-name">
-        {businessName}
-      </FitText>
       {businessBadge ? (
-        <span className="flex shrink-0 items-center" data-testid="kitbar-business-badge">
-          {businessBadge}
+        <span className="flex min-w-0 flex-col">
+          <FitText minPx={KITBAR_NAME_MIN_PX} className="t-display-sm leading-tight" data-testid="kitbar-business-name">
+            {businessName}
+          </FitText>
+          <span className="flex min-w-0 items-center" data-testid="kitbar-business-badge">
+            {businessBadgeLine && !businessMenu ? (
+              <Tooltip content={businessBadgeLine} side="bottom" align="start">
+                <span className="flex min-w-0">{businessBadge}</span>
+              </Tooltip>
+            ) : (
+              businessBadge
+            )}
+          </span>
         </span>
-      ) : null}
+      ) : (
+        <FitText minPx={KITBAR_NAME_MIN_PX} lines={2} className="t-display-sm leading-tight" data-testid="kitbar-business-name">
+          {businessName}
+        </FitText>
+      )}
     </span>
   );
   const holiday = continueButton.state.kind === "holiday";
@@ -194,7 +216,7 @@ export const KitBar = forwardRef<HTMLElement, KitBarProps>(function KitBar(
     >
       <div className="flex min-w-0 max-w-sidebar shrink-0 items-center">
         {businessMenu ? (
-          <BusinessSwitcher businessName={businessName} menu={businessMenu} onHome={onHome}>
+          <BusinessSwitcher businessName={businessName} menu={businessMenu} onHome={onHome} tooltipLine={businessBadge ? businessBadgeLine : undefined}>
             {identity}
           </BusinessSwitcher>
         ) : onHome ? (
