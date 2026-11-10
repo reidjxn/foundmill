@@ -140,6 +140,7 @@ export const EXPORT_EXCLUDED_TABLES: Readonly<Record<string, string>> = {
   posts: "LIVE network posts belong to the network, not to the business.",
   community_members: "LIVE network memberships belong to the network, not to the business.",
   leaderboard_entries: "LIVE leaderboard rows belong to the network, not to the business.",
+  demo_sample_rows: "Which rows of a sample business are the sample's own (internal to the sample's roll-forward).",
 };
 
 /** One row as it is written to the archive: dates as ISO strings, bytes as base64, everything else as stored. */

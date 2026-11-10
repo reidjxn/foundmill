@@ -15,6 +15,7 @@ import { agentMention, seedAgentEntities, seedChannels, seedDashboards, seedHist
 import { ensureSeedCommunity, ensureSeedPost } from "./community";
 import { BOOTSTRAPPED_COMMUNITY_SLUG, DEMO_OWNER_DISPLAY_NAME, DEMO_SEED_AUDIT_ACTION, LEDGERLY_BUSINESS_ID, LEDGERLY_COMMUNITY_SLUG, LEDGERLY_GITHUB_REPO, LEDGERLY_NAME, LEDGERLY_SLUG } from "./constants";
 import { addDays, addHours, atHour, mention, money, pct, quarterFacts, quarterKey, type SeedCtx } from "./context";
+import { recordSampleRows } from "./roll-forward";
 import { seedFinance } from "./finance";
 import { seedJourney } from "./journey";
 import { seedLegal } from "./legal";
@@ -614,6 +615,8 @@ export async function seedLedgerly(ctx: SeedCtx): Promise<SeededBusiness> {
     for (const sessionId of t.sessionIds) await db.update(agentSessions).set({ workflowId: `holiday:${holiday.id}:${title.toLowerCase().replace(/[^a-z0-9]+/g, "-").slice(0, 40)}` }).where(eq(agentSessions.id, sessionId));
   }
 
+  // Every row written so far is the sample's own: the only rows the roll-forward ever moves (roll-forward.ts).
+  await recordSampleRows(db, businessId);
   // The build's last write: seed-on-boot reads it as "this business was built completely" (demoSeedState).
   await repos.audit.append(db, businessId, {
     actorKind: "system",

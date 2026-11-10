@@ -12,6 +12,7 @@ import { entities as entitiesTable, type Entity } from "../schema";
 import { agentMention, seedAgentEntities, seedChannels, seedDashboards, seedHistoricalTasks, seedInbox, seedIntegrations, seedRoadmap, seedActiveGoal, seedSignedOffAndSelling, seedSpec, seedTasks, seededRelevance, type InboxSpec, type RoadmapSpec, type TaskSpec } from "./content";
 import { DEMO_OWNER_DISPLAY_NAME, DEMO_SEED_AUDIT_ACTION, NORTHWIND_BUSINESS_ID, NORTHWIND_NAME, NORTHWIND_SLUG } from "./constants";
 import { addDays, atHour, mention, money, pct, proseDoc, type SeedCtx } from "./context";
+import { recordSampleRows } from "./roll-forward";
 import { seedFinance } from "./finance";
 import { seedJourney } from "./journey";
 import { seedLegal } from "./legal";
@@ -487,6 +488,8 @@ export async function seedNorthwind(ctx: SeedCtx): Promise<SeededBusiness> {
   // Mark the oldest sessions' agent entity as the customer-facing contact so search has an "agent" hit.
   await db.update(entitiesTable).set({ aliases: ["Chief of Staff", "CoS"] }).where(eq(entitiesTable.id, agentEntities.byAgentId.get(chief.agent.id)!.id));
 
+  // Every row written so far is the sample's own: the only rows the roll-forward ever moves (roll-forward.ts).
+  await recordSampleRows(db, businessId);
   // The build's last write: seed-on-boot reads it as "this business was built completely" (demoSeedState).
   await repos.audit.append(db, businessId, {
     actorKind: "system",

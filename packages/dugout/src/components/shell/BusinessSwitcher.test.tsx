@@ -49,6 +49,21 @@ describe("BusinessSwitcher", () => {
     expect((menu.onIntent as ReturnType<typeof vi.fn>).mock.calls.length).toBeGreaterThanOrEqual(2);
   });
 
+  it("adds the caption's line under Switch business in its one tooltip (the sample business)", async () => {
+    const user = userEvent.setup();
+    const menu: KitBarBusinessMenu = { businesses: SWITCHER_BUSINESSES, onOpenBusiness: vi.fn() };
+    render(
+      <BusinessSwitcher businessName="Northwind Skincare" menu={menu} tooltipLine="Its figures are made up for the example.">
+        <span>Northwind Skincare</span>
+        <span data-testid="caption">Sample business</span>
+      </BusinessSwitcher>,
+    );
+    await user.hover(screen.getByTestId("caption"));
+    const tip = await screen.findByRole("tooltip");
+    expect(tip.textContent).toContain("Switch business");
+    expect(tip.textContent).toContain("Its figures are made up for the example.");
+  });
+
   it("opens a dialog listing the current business first and checked, with Demo and role chips", async () => {
     const { open } = setup();
     await open();

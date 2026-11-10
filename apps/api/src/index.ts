@@ -25,7 +25,7 @@ import type { ApiRedis } from "./services/redis";
 import { superviseOutboxRelay, type RelaySupervisor } from "./services/relay";
 import { monitorWorker, type WorkerMonitor } from "./services/worker-health";
 import { seedOnBoot } from "./services/seed-on-boot";
-import { startDemoRollForward } from "./services/demo-roll-forward";
+import { DEMO_ROLL_BOOT_WAIT_MS, demoRollForwardEnabled, startDemoRollForward } from "./services/demo-roll-forward";
 import { backfillPersonasOnBoot } from "./services/persona-backfill";
 import { startWorkflowReconciler } from "./services/workflow-reconcile";
 
@@ -186,13 +186,15 @@ export async function main(): Promise<void> {
   if (migrated) void backfillPersonasOnBoot(deps);
   // The demo seed may add a running vacation: the reconciler below runs after it.
   const seeded = migrated ? seedOnBoot(deps).catch(() => undefined) : Promise.resolve();
-  // The sample businesses roll forward with the calendar (DECISIONS 2026-11-10), after the seed, before the reconciler
-  // (a seeded vacation moves with them), and every hour after.
+  // The sample businesses roll forward with the calendar (DECISIONS 2026-11-10), after the seed and every hour after;
+  // DEMO_ROLL_FORWARD=off turns it off. The reconciler below waits for the boot roll at most DEMO_ROLL_BOOT_WAIT_MS (a
+  // seeded vacation's workflow then starts from its moved dates), never longer: real founders' workflows never queue
+  // behind the sample.
   const rolled = seeded.then(() => {
-    if (lifecycle.stopping || !migrated) return;
+    if (lifecycle.stopping || !migrated || !demoRollForwardEnabled(env)) return;
     const roller = startDemoRollForward(deps);
     demoRoller = roller;
-    return roller.done;
+    return Promise.race([roller.done, new Promise<void>((resolve) => setTimeout(resolve, DEMO_ROLL_BOOT_WAIT_MS).unref?.())]);
   });
   // Every minute: is the orchestrator taking the work waiting on its task queues? An error line when it stops (SOAK-06).
   workerMonitor = monitorWorker({ temporal: deps.temporal, log: deps.log, taskQueue: env.TEMPORAL_TASK_QUEUE });

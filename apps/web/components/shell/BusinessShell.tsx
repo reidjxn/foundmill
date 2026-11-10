@@ -18,7 +18,7 @@ import { ArrowRight } from "lucide-react";
 import dynamic from "next/dynamic";
 import { usePathname, useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState, useTransition, type ReactNode } from "react";
-import { AppShell, Avatar, useAgentPersona, useBuilderView, Button, Callout, Chip, EntityLinkProvider, GuidanceTermsProvider, ShellLinkProvider, Tooltip, useToast, type PaletteItem, type ProcessingSegment, type SearchQuery, type SidebarItem } from "@foundmill/dugout";
+import { AppShell, Avatar, useAgentPersona, useBuilderView, Button, Callout, EntityLinkProvider, GuidanceTermsProvider, ShellLinkProvider, useToast, type PaletteItem, type ProcessingSegment, type SearchQuery, type SidebarItem } from "@foundmill/dugout";
 import { ModuleEnvProvider, type ModuleEnv } from "@foundmill/modules/env";
 import { readWidgetEvent, type WidgetEvent } from "@foundmill/widgets/data";
 import { routes } from "@foundmill/widgets/shared/routes";
@@ -301,18 +301,17 @@ export function exampleFrame(access: Pick<Access, "isExample" | "canChange">, cy
 }
 
 /**
- * The sample marker after the business name (KitBar `businessBadge`, `lib/access.ts sampleMarker`): a quiet "Sample
- * business" chip on a seeded demo business, whoever opens it, with one line saying its figures are made up (and, for an
- * example viewer, that nothing is saved). Never on a founder's own business. Pointer moves stop at the chip so the
- * switcher's own "Switch business" tooltip does not open over it.
+ * The sample marker under the business name (KitBar `businessBadge`, `lib/access.ts sampleMarker`): a quiet "Sample
+ * business" caption on a seeded demo business, whoever opens it. Its line (the figures are made up, and for an example
+ * viewer that nothing is saved) is the second line of the switcher's own tooltip (`businessBadgeLine`), so the trigger
+ * has one tooltip that still says "Switch business". Under the name, it takes no width from the top bar: the name never
+ * clips and the search keeps its room at 1280 and 1440 px. Never on a founder's own business.
  */
 function SampleBadge({ marker, example }: { marker: SampleMarker; example: boolean }) {
   return (
-    <Tooltip content={marker.tooltip} side="bottom">
-      <Chip className="shrink-0 text-kit-on-primary" data-testid="sample-chip" data-example={example ? "true" : undefined} onPointerMove={(e) => e.stopPropagation()}>
-        {marker.label}
-      </Chip>
-    </Tooltip>
+    <span className="t-small truncate text-kit-on-primary opacity-80" data-testid="sample-chip" data-example={example ? "true" : undefined}>
+      {marker.label}
+    </span>
   );
 }
 
@@ -807,6 +806,7 @@ function ShellInner({ businessId, initialBusiness, initialDepartments, viewer, c
                 logoSrc={logoSrc}
                 // The sample marker after the name (every demo business), and the Example frame's "Start your own" in Continue's slot.
                 businessBadge={sample ? <SampleBadge marker={sample} example={frame.chip} /> : undefined}
+                businessBadgeLine={sample?.tooltip}
                 continueSlot={frame.chip ? <StartYourOwnButton onStart={() => router.push(START_YOUR_OWN_HREF)} /> : undefined}
                 businessName={business.name}
                 screenTitle={chrome.title ?? "Home"}

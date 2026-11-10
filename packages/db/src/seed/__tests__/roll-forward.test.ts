@@ -43,9 +43,11 @@ afterAll(async () => {
 describe("anchors and whole days", () => {
   it("reads the seed's today (or its own time for an older seed) and a roll's anchor and cutoff", () => {
     const at = new Date("2026-10-07T12:03:00.000Z");
-    expect(anchorOf({ action: "seed.demo", details: { anchor: SEEDED.toISOString() }, createdAt: at })).toEqual({ anchor: SEEDED, cutoff: at });
-    expect(anchorOf({ action: "seed.demo", details: {}, createdAt: at })).toEqual({ anchor: at, cutoff: at });
-    expect(anchorOf({ action: DEMO_ROLL_AUDIT_ACTION, details: { anchor: "2026-11-09T12:00:00.000Z", cutoff: "2026-11-09T12:03:00.000Z" }, createdAt: NOW })).toEqual({ anchor: new Date("2026-11-09T12:00:00.000Z"), cutoff: new Date("2026-11-09T12:03:00.000Z") });
+    expect(anchorOf({ action: "seed.demo", details: { anchor: SEEDED.toISOString() }, createdAt: at })).toEqual({ anchor: SEEDED, cutoff: at, settledAt: null });
+    expect(anchorOf({ action: "seed.demo", details: {}, createdAt: at })).toEqual({ anchor: at, cutoff: at, settledAt: null });
+    // A roll written before 0074's sample list carried a cutoff; it is read as the time that roll settled.
+    expect(anchorOf({ action: DEMO_ROLL_AUDIT_ACTION, details: { anchor: "2026-11-09T12:00:00.000Z", cutoff: "2026-11-09T12:03:00.000Z" }, createdAt: NOW })).toEqual({ anchor: new Date("2026-11-09T12:00:00.000Z"), cutoff: new Date("2026-11-09T12:03:00.000Z"), settledAt: new Date("2026-11-09T12:03:00.000Z") });
+    expect(anchorOf({ action: DEMO_ROLL_AUDIT_ACTION, details: { anchor: "2026-11-09T12:00:00.000Z", settledAt: "2026-11-09T12:05:00.000Z" }, createdAt: NOW })).toEqual({ anchor: new Date("2026-11-09T12:00:00.000Z"), cutoff: new Date("2026-11-09T12:05:00.000Z"), settledAt: new Date("2026-11-09T12:05:00.000Z") });
   });
 
   it("shifts whole days so the sample's now never passes the real one", () => {
@@ -121,15 +123,34 @@ describe("rollDemoForward", () => {
     expect(await repos.audit.verify(db, NORTHWIND_BUSINESS_ID)).toMatchObject({ ok: true });
   });
 
-  it("0074: the updated_at trigger keeps the written value only while fm.demo_roll_forward is on", async () => {
+  it("0074: the updated_at trigger keeps the written value only for the business being rolled, and never for an app role", async () => {
     const id = before.roleUpdated.id;
+    const at = async () => ms((await one<{ at: string }>(sql`select updated_at at from entity_roles where id = ${id}::uuid`)).at);
+    const PINNED = Date.parse("2020-01-01T00:00:00Z");
+    // The roll's own setting: the id of the business it is rolling (Ledgerly owns this role).
     await db.transaction(async (tx) => {
-      await tx.execute(sql`select set_config('fm.demo_roll_forward', 'on', true)`);
+      await tx.execute(sql`select set_config('fm.demo_roll_forward', ${LEDGERLY_BUSINESS_ID}, true)`);
       await tx.execute(sql`update entity_roles set updated_at = '2020-01-01T00:00:00Z' where id = ${id}::uuid`);
     });
-    expect(ms((await one<{ at: string }>(sql`select updated_at at from entity_roles where id = ${id}::uuid`)).at)).toBe(Date.parse("2020-01-01T00:00:00Z"));
-    await db.execute(sql`update entity_roles set updated_at = '2020-01-01T00:00:00Z' where id = ${id}::uuid`);
-    expect(ms((await one<{ at: string }>(sql`select updated_at at from entity_roles where id = ${id}::uuid`)).at)).toBeGreaterThan(Date.parse("2026-01-01"));
+    expect(await at()).toBe(PINNED);
+    // No setting, the old 'on', or another business's id: stamped with now().
+    for (const setting of [null, "on", NORTHWIND_BUSINESS_ID, founderBusinessId]) {
+      await db.execute(sql`update entity_roles set updated_at = '2020-01-01T00:00:00Z' where id = ${id}::uuid`);
+      expect(await at(), "reset").toBeGreaterThan(Date.parse("2026-01-01"));
+      await db.transaction(async (tx) => {
+        if (setting) await tx.execute(sql`select set_config('fm.demo_roll_forward', ${setting}, true)`);
+        await tx.execute(sql`update entity_roles set updated_at = '2020-01-01T00:00:00Z' where id = ${id}::uuid`);
+      });
+      expect(await at(), String(setting)).toBeGreaterThan(Date.parse("2026-01-01"));
+    }
+    // A signed-in owner who sets the setting to their own business still gets now().
+    const ownerId = (await one<{ user_id: string }>(sql`select user_id from memberships where business_id = ${LEDGERLY_BUSINESS_ID}::uuid and role = 'owner' limit 1`)).user_id;
+    const updated = await h.asUser(ownerId).run(async (tx) => {
+      await tx.execute(sql`select set_config('fm.demo_roll_forward', ${LEDGERLY_BUSINESS_ID}, true)`);
+      return rowsOf<{ id: string }>(await tx.execute(sql`update entity_roles set updated_at = '2020-01-01T00:00:00Z' where id = ${id}::uuid returning id`));
+    });
+    expect(updated).toHaveLength(1);
+    expect(await at()).toBeGreaterThan(Date.parse("2026-01-01"));
   });
 
   it("is idempotent the same day and moves one day the next", async () => {

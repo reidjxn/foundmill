@@ -9,8 +9,9 @@ import { repos, type Db } from "@foundmill/db";
 import { DEMO_ROLL_AUDIT_ACTION, DEMO_SEED_AUDIT_ACTION, NORTHWIND_BUSINESS_ID } from "@foundmill/db/seed";
 import { TRPCError } from "@trpc/server";
 import { sql } from "drizzle-orm";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { rollDemoBusinesses } from "../services/demo-roll-forward";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import { demoRollForwardEnabled, rollDemoBusinesses, type DemoRollState } from "../services/demo-roll-forward";
+import { loadEnv } from "@foundmill/shared";
 import { createApiHarness, type ApiHarness } from "./harness";
 
 const DAY = 86_400_000;
@@ -74,12 +75,46 @@ describe("the api rolls the sample forward with the calendar", () => {
     const own = await repos.journeys.recordConversion(db, hz.A.businessId, { entityId: null, kind: "payment", amountMinor: 4900, occurredAt: anchor });
 
     const moved = await rollDemoBusinesses({ db, log: silent }, now);
-    expect(moved).toEqual([{ businessId: NORTHWIND_BUSINESS_ID, days: 3, from: anchor.toISOString(), to: new Date(anchor.getTime() + 3 * DAY).toISOString() }]);
+    // A seed written before the sample list (0074) gets one from the rows created before its entry.
+    expect(moved).toEqual([{ businessId: NORTHWIND_BUSINESS_ID, days: 3, from: anchor.toISOString(), to: new Date(anchor.getTime() + 3 * DAY).toISOString(), released: 0, dropped: 0, skipped: [], backfilled: true }]);
     expect((await repos.journeys.getConversion(db, demo.id, paid.id)).occurredAt.getTime()).toBe(anchor.getTime() + 3 * DAY);
     expect((await repos.journeys.getConversion(db, hz.A.businessId, own.id)).occurredAt.getTime()).toBe(anchor.getTime());
     expect((await repos.audit.list(db, demo.id, { action: DEMO_ROLL_AUDIT_ACTION })).items).toHaveLength(1);
     expect((await repos.audit.list(db, hz.A.businessId, { action: DEMO_ROLL_AUDIT_ACTION })).items).toHaveLength(0);
     // Current now: the next pass has nothing to do.
     expect(await rollDemoBusinesses({ db, log: silent }, now)).toEqual([]);
+  });
+});
+
+describe("the roll's refresh and its off switch", () => {
+  it("retries a failed refresh of the journey's daily rows on the next pass, after the move committed", async () => {
+    const db: Db = hz.db;
+    const warn = vi.fn();
+    const log = { info: () => {}, warn } as unknown as Parameters<typeof rollDemoBusinesses>[0]["log"];
+    const state: DemoRollState = { refreshPending: false };
+    const refresh = vi.spyOn(repos.journeys, "refreshDaily").mockRejectedValueOnce(new Error("refresh failed"));
+    try {
+      // A day after the previous test's roll: one day to move; the refresh fails once.
+      const tomorrow = new Date(Date.now() + DAY);
+      const moved = await rollDemoBusinesses({ db, log }, tomorrow, state);
+      expect(moved.map((m) => m.days)).toEqual([1]);
+      expect(state.refreshPending).toBe(true);
+      expect(warn).toHaveBeenCalledWith(expect.objectContaining({ err: "refresh failed" }), expect.stringMatching(/refreshing the journey's daily rows failed/));
+      // The next pass has nothing to roll, and refreshes anyway.
+      expect(await rollDemoBusinesses({ db, log }, tomorrow, state)).toEqual([]);
+      expect(refresh).toHaveBeenCalledTimes(2);
+      expect(state.refreshPending).toBe(false);
+      // Nothing owed: a pass with nothing to roll does not refresh.
+      await rollDemoBusinesses({ db, log }, tomorrow, state);
+      expect(refresh).toHaveBeenCalledTimes(2);
+    } finally {
+      refresh.mockRestore();
+    }
+  });
+
+  it("is on unless DEMO_ROLL_FORWARD is off", () => {
+    for (const [value, on] of [[undefined, true], ["", true], ["on", true], ["off", false], ["OFF", false], ["0", false], ["false", false]] as const) {
+      expect(demoRollForwardEnabled(loadEnv({ DEMO_ROLL_FORWARD: value } as NodeJS.ProcessEnv)), String(value)).toBe(on);
+    }
   });
 });

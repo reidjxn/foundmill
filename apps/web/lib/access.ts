@@ -82,11 +82,14 @@ export interface SampleMarker {
   tooltip: string;
 }
 
-/** The marker for the open business: on a demo business (or for an example viewer) only, else null. */
+/**
+ * The marker for the open business: only on a demo business (`isDemo === true`, which only the seed sets), whoever
+ * opens it; an example viewer's tooltip adds that nothing is saved. Never on any other business, whatever the
+ * membership says (an example-source row on a founder's business, or a business not loaded yet).
+ */
 export function sampleMarker(business: { isDemo?: boolean | null } | null | undefined, access: Pick<Access, "isExample">): SampleMarker | null {
-  if (access.isExample) return { label: SAMPLE_BUSINESS_LABEL, tooltip: EXAMPLE_CHIP_TOOLTIP };
-  if (business?.isDemo === true) return { label: SAMPLE_BUSINESS_LABEL, tooltip: SAMPLE_BUSINESS_LINE };
-  return null;
+  if (business?.isDemo !== true) return null;
+  return { label: SAMPLE_BUSINESS_LABEL, tooltip: access.isExample ? EXAMPLE_CHIP_TOOLTIP : SAMPLE_BUSINESS_LINE };
 }
 
 /** The line a disabled control shows when the role only reads. */

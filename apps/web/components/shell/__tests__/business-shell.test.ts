@@ -5,6 +5,7 @@ import { EMPTY_CYCLE, cycleFromSnapshot } from "@/lib/cycle";
 import { trpcPathPrefix, trpcQueryKey } from "@/lib/trpc";
 import { SAFETY_POLL_MS } from "@/lib/stream-status";
 import { EXAMPLE_CHIP_TOOLTIP, EXAMPLE_READ_ONLY_REASON, FULL_ACCESS, SAMPLE_BUSINESS_LINE, accessFor, readOnlyReason, sampleMarker } from "@/lib/access";
+import { makeBusinessContext } from "../business-context";
 import { CONTINUE_PRESSED_NOTICE, continuePressedNotice, EXAMPLE_START_CALLOUT, FIRST_CONTINUE_CALLOUT, ORCHESTRATOR_DOWN_CAVEAT, RUN_UNTIL_DONE, START_YOUR_OWN_HREF, INVALIDATE_ON_EVENT, cycleReducer, describeContinue, describePause, describeRunEnded, exampleFrame, lastCycleCostLine, orchestratorDown, shellConnection, shellPollIntervals, wantsFirstContinueCallout } from "../BusinessShell";
 
 type ContinueResult = Parameters<typeof describeContinue>[0];
@@ -168,6 +169,17 @@ describe("the Example frame (UX plan §12 item 5)", () => {
     expect(sampleMarker({ isDemo: false }, FULL_ACCESS)).toBeNull();
     expect(sampleMarker({}, FULL_ACCESS)).toBeNull();
     expect(sampleMarker(null, FULL_ACCESS)).toBeNull();
+    // An example-source viewer row on a business that is not a demo (or not loaded yet): never the marker.
+    const stray = { role: "viewer", sectionPermissions: {}, source: "example" } as const;
+    for (const business of [{ isDemo: false }, {}, null]) {
+      expect(sampleMarker(business, accessFor(stray, business)), JSON.stringify(business)).toBeNull();
+      expect(sampleMarker(business, { isExample: true }), JSON.stringify(business)).toBeNull();
+    }
+    // The shell's own context reads the business with the membership: such a row is not an example there either.
+    const data = { role: "viewer", membership: stray, business: { isDemo: false, currency: "GBP" } } as unknown as Parameters<typeof makeBusinessContext>[1];
+    const ctx = makeBusinessContext("b1", data, []);
+    expect(ctx.access.isExample).toBe(false);
+    expect(sampleMarker(data.business, ctx.access)).toBeNull();
   });
 
   it("every refused write keeps the viewer wording, extended for the example", () => {
