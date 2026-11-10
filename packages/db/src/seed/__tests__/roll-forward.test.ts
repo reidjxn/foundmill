@@ -70,7 +70,9 @@ describe("the seed agrees with itself", () => {
   });
 });
 
-describe("rollDemoForward", () => {
+// Each case rolls the whole seeded sample (two businesses, ~90 dated tables): about 18 s on a CI runner, and over the
+// package's 60 s default on a slow one (62 s and 64 s on main, Nov 10, 2026). The cases do the same work either way.
+describe("rollDemoForward", { timeout: 240_000 }, () => {
   let before: { maxConversion: number; payments: number; milestone: number; roleUpdated: { id: string; at: number }; goalDue: string; founder: number; viewerSeat: number };
 
   it("moves every demo timestamp 33 days, keeps counts, and leaves the founder's business alone", async () => {
