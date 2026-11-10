@@ -41,6 +41,7 @@ import type { ChannelsListResponse, FinanceOverview, PnlResponse } from "./types
 import { runwayFigure, runwayWords } from "@foundmill/widgets/shared/runway";
 import { usePinToHomeMenu } from "@foundmill/widgets/shared/pin";
 import { CHANNEL_WINDOW_DAYS } from "@foundmill/shared/constants";
+import { emptyWhy } from "@foundmill/shared/empty-why";
 
 const TRAILING = 3;
 const HISTORY = 6;
@@ -246,8 +247,8 @@ export function OverviewScreen({ businessId }: ModuleScreenProps) {
         ) : data && !hasData ? (
           <>
             <Explainer {...FINANCE_EXPLAINER} className="mb-3" />
-            <EmptyState icon={Landmark} title="No bank or revenue data yet" action={{ label: "Connect a bank", icon: Landmark, onClick: () => navigate(routes.settings(businessId, "integrations")) }}>
-              Connect a bank account (Tink or Plaid) or Stripe and the tiles fill with cash, burn, runway and revenue.
+            <EmptyState icon={Landmark} title={emptyWhy("bank").title} action={{ label: "Connect a bank", icon: Landmark, onClick: () => navigate(routes.settings(businessId, "integrations")) }}>
+              {emptyWhy("bank").text}
             </EmptyState>
           </>
         ) : (
@@ -286,7 +287,7 @@ export function OverviewScreen({ businessId }: ModuleScreenProps) {
         error={overview.error ? overview.error.message : undefined}
         onRetry={overview.refetch}
         actions={cashSeries.length > 1 ? <ProvenanceChip kind="forecast" /> : undefined}
-        empty={data && !hasData ? "Cash history appears once a bank account is connected." : undefined}
+        empty={data && !hasData ? emptyWhy("cash_history").text : undefined}
         footer={<span>Actuals from bank balances walked back through monthly net cash; the dashed line is the Base forecast.</span>}
       >
         {cashSeries.length ? <LineChart label="Cash history and Base forecast" series={cashSeries} height={CHART_HEIGHT} yFormat={(v) => fmtAxisMoney(v, cur)} zeroBased={false} markX={monthStart(now, 0)} markLabel="This month" /> : null}
@@ -299,7 +300,7 @@ export function OverviewScreen({ businessId }: ModuleScreenProps) {
         error={overview.error ? overview.error.message : undefined}
         onRetry={overview.refetch}
         actions={flow.length ? <ProvenanceChip kind="estimate" /> : undefined}
-        empty={data && !hasData ? "Monthly inflows and outflows appear once transactions sync." : undefined}
+        empty={data && !hasData ? emptyWhy("cash_flow").text : undefined}
         footer={<span>{pnlLabelWords(pnl.data?.label)}</span>}
       >
         {flow.length ? <BarChart label="Net cash change by month" data={flow} height={CHART_HEIGHT} format={(v) => fmtAxisMoney(v, cur)} showValues /> : null}

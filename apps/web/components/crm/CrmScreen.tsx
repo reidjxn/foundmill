@@ -25,6 +25,7 @@ import { formatNumber, plainWords } from "@/lib/format";
 import { KIND_LABELS, chip, chipsToOperators, crmFilterFields, matchOwner, mergeChips, operatorValueWord, parseCrmQuery, type CrmFilterField } from "./search";
 import { useEntityIndex } from "./useEntityIndex";
 import { OnNetworkResults } from "@/components/live/public-search";
+import { emptyWhy } from "@foundmill/shared/empty-why";
 
 const IMPORTERS = [
   { key: "affinity", name: "Affinity" },
@@ -288,7 +289,7 @@ export function CrmScreen() {
         loading={index.loading && index.rows.length === 0}
         error={index.error ? errorMessage(index.error) : undefined}
         onRetry={index.refetch}
-        empty={!index.loading && !index.error && index.rows.length === 0 ? { icon: Database, children: index.mode === "search" ? "Nothing matches. Try fewer words, an email or a domain, or clear the filters." : "People and organizations arrive from imports, integrations and agents' work. Add one by hand or connect an importer.", action: canCreate ? { label: "New record", icon: UserRoundPlus, onClick: () => setNewOpen(true) } : undefined } : undefined}
+        empty={!index.loading && !index.error && index.rows.length === 0 ? { icon: Database, children: index.mode === "search" ? "Nothing matches. Try fewer words, an email or a domain, or clear the filters." : emptyWhy("contacts").text, action: canCreate ? { label: "New record", icon: UserRoundPlus, onClick: () => setNewOpen(true) } : undefined } : undefined}
         footer={
           <span className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1">
             <span className="tabular-nums text-primary" data-testid="crm-loaded">

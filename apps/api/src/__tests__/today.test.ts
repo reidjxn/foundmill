@@ -6,6 +6,7 @@
  */
 import { APPROVAL_OPTIONS, openApprovalItem, repos, signoffDecisionBlock, type ComposerItem } from "@foundmill/db";
 import { GOAL_OPTION_IDS, WEEK_PRESS_CONTINUE, founderJargonHits } from "@foundmill/shared";
+import { sql } from "drizzle-orm";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { createApiHarness, type ApiHarness } from "./harness";
 
@@ -151,5 +152,35 @@ describe("today.get", () => {
   it("is business-scoped: someone outside the business cannot read it", async () => {
     const b = await business("Today Walls");
     await expect(hz.caller({ userId: hz.A.ownerId }).today.get({ businessId: b.id })).rejects.toThrow();
+  });
+});
+
+describe("today.get › firstWeek", () => {
+  it("a new business gets the three steps with Day 1 now, for every member; the dates are estimates", async () => {
+    const b = await business("Today First Week");
+    const view = await b.viewer.today.get({ businessId: b.id });
+    expect(view.firstWeek!.title).toBe("Your first week");
+    expect(view.firstWeek!.steps.map((s) => [s.label, s.state])).toEqual([["Day 1", "now"], ["Days 2–3", "next"], ["Week 1", "next"]]);
+    for (const s of view.firstWeek!.steps) expect(s.when).toMatch(/\(Estimate\)$/);
+    expect(view.firstWeek!.paused).toBeNull();
+  });
+
+  it("reads the steps from the sign-offs", async () => {
+    const b = await business("Today First Week Facts");
+    await repos.productSignoffs.seedApproved(hz.db, b.id, { spec: { at: new Date() }, roadmap: { at: new Date() }, decidedBy: b.ownerId });
+    const view = await b.owner.today.get({ businessId: b.id });
+    expect(view.firstWeek!.steps.map((s) => s.state)).toEqual(["done", "now", "next"]);
+    expect(view.firstWeek!.steps[0]!.when).toMatch(/^Done [A-Z][a-z]{2} \d{1,2}$/);
+  });
+
+  it("is away for a business past its first days and for one that is already selling", async () => {
+    const old = await business("Today First Week Old");
+    expect((await old.owner.today.get({ businessId: old.id })).firstWeek).not.toBeNull();
+    await hz.db.execute(sql`update businesses set created_at = now() - interval '30 days' where id = ${old.id}`);
+    expect((await old.owner.today.get({ businessId: old.id })).firstWeek).toBeNull();
+
+    const selling = await business("Today First Week Selling");
+    await repos.businesses.startDistribution(hz.db, selling.id, { at: new Date() });
+    expect((await selling.owner.today.get({ businessId: selling.id })).firstWeek).toBeNull();
   });
 });
