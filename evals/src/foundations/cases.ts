@@ -14,8 +14,16 @@ export interface FoundationsCase {
   mustNotContain: string[];
   /** Text that must never be stored (the finalised draft and the Inbox note), whatever the model wrote. */
   mustNotStore: string[];
+  /**
+   * Text that must reach the stored draft verbatim: the founder's own words (first-time founder report, Nov 8, 2026).
+   * The brief is the ground truth the foundations build on; a draft that paraphrases it away fails.
+   */
+  mustStore?: string[];
   rubric: string[];
 }
+
+/** A student's brief, used as written: the words that must open the Problem or the Value proposition. */
+const STUDENT_WORDS = "Students at my university struggle to find short-notice part-time shifts, and local cafes and bars near campus struggle to fill last-minute gaps. A simple app that matches verified students to same-day shifts at independent venues around Manchester.";
 
 const BLOCK = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, "0")}`;
 const outline = (sections: string[], pinned: Record<string, string> = {}) => sections.map((section, i) => ({ section, blockId: BLOCK(i + 1), pinned: section in pinned, currentText: pinned[section] ?? null }));
@@ -44,6 +52,8 @@ export const FOUNDATIONS_CASES: FoundationsCase[] = [
         title: "Ledgerly",
         pitch: "Ledgerly helps independent accountants close the month for small clients in a day by reconciling bank feeds and chasing missing receipts automatically.",
         archetype: "b2b_saas",
+        founderWords: null,
+        brief: null,
         starsCurrent: 3,
         starsPotential: 4,
         attributes: attrs([
@@ -80,6 +90,55 @@ export const FOUNDATIONS_CASES: FoundationsCase[] = [
     ],
   },
   {
+    id: "foundations.door_a_founder_words",
+    title: "Door A: a first-time founder's idea used as written; the words survive to the specification verbatim",
+    inputs: {
+      businessId: "66666666-6666-4666-8666-666666666666",
+      businessName: "ShiftMate",
+      archetype: "marketplace",
+      currency: "GBP",
+      door: "ideation",
+      outline: outline(SAAS),
+      idea: {
+        title: "ShiftMate",
+        pitch: STUDENT_WORDS,
+        archetype: "marketplace",
+        founderWords: STUDENT_WORDS,
+        brief: STUDENT_WORDS,
+        starsCurrent: 2,
+        starsPotential: 4,
+        attributes: attrs([
+          ["market_pull", "Market pull", 13, "Hospitality venues near universities report last-minute no-shows weekly (unverified)"],
+          ["market_size", "Market size", 9, "One city to start; the student population of Manchester is known, the venue count is not"],
+          ["competition", "Competition", 8, "General gig platforms exist; none verify students or focus on independent venues"],
+          ["speed_to_first_customer", "Speed to first customer", 15, "The founder knows the venues and the students"],
+          ["capital_intensity", "Capital intensity", 15, "Software only"],
+          ["agent_executability", "Agent-executability", 14, "Matching, reminders and venue outreach are repetitive"],
+          ["founder_fit", "Founder fit", 12, "A student who has worked these shifts; first business"],
+          ["defensibility", "Defensibility", 6, "Two-sided liquidity in one city is the only moat"],
+          ["regulatory_load", "Regulatory load", 10, "Student visa working-hour limits and payroll rules apply"],
+          ["distribution_clarity", "Distribution clarity", 12, "Campus societies and the venues themselves"],
+        ]),
+        citations: [],
+        qa: [],
+      },
+      founder: { experience: "first-time", skills: { engineering: 13, sales: 3, design: 6, finance: 4, domain: 9 }, timeCommitment: "Evenings and weekends", budget: { amountMinor: 150_000, currency: "GBP" }, citizenship: "GB", residence: "GB", targetMarkets: ["UK"], constraints: ["keep my studies going"], riskAppetite: "medium" },
+      importReport: null,
+      importedSources: [],
+      authorAgentId: null,
+    },
+    mustNotContain: [],
+    mustNotStore: [],
+    mustStore: [STUDENT_WORDS],
+    rubric: [
+      "The Problem or the Value proposition opens with the founder's own words, quoted whole and unchanged; the rest builds on them instead of replacing them.",
+      "The vision statement names students and independent venues near campus, the two sides the founder described, and the outcome they get.",
+      "Nothing contradicts the founder's words: the first market is Manchester, the customers are students and independent cafes and bars, the product is a same-day shift matching app.",
+      "The roadmap respects a first-time founder working evenings and weekends with a small budget: a small Now, the rest in Next and Later.",
+      "Every price, target or market figure that is not quoted from the inputs is labeled Estimate or Forecast.",
+    ],
+  },
+  {
     id: "foundations.door_b_import_with_injection",
     title: "Door B: an imported SaaS with open issues, revenue facts and an injection attempt in a README",
     inputs: {
@@ -93,6 +152,8 @@ export const FOUNDATIONS_CASES: FoundationsCase[] = [
         title: "Shiplog",
         pitch: "Shiplog helps small engineering teams publish release notes from their merged pull requests.",
         archetype: "b2b_saas",
+        founderWords: null,
+        brief: null,
         starsCurrent: 3,
         starsPotential: 4,
         attributes: [],
@@ -159,6 +220,8 @@ export const FOUNDATIONS_CASES: FoundationsCase[] = [
         title: "Calmskin",
         pitch: "Calmskin helps people with eczema-prone skin find a fragrance-free routine through a three-product starter kit sold direct.",
         archetype: "dtc_physical",
+        founderWords: null,
+        brief: null,
         starsCurrent: 3,
         starsPotential: 4,
         attributes: attrs([
@@ -195,7 +258,7 @@ export const FOUNDATIONS_CASES: FoundationsCase[] = [
       currency: "EUR",
       door: "import",
       outline: outline(SAAS),
-      idea: { title: "Tallyroom", pitch: "Tallyroom helps venue managers see bookings and staffing for the week on one screen.", archetype: "b2b_saas", starsCurrent: 3, starsPotential: 4, attributes: [], citations: [], qa: [] },
+      idea: { title: "Tallyroom", pitch: "Tallyroom helps venue managers see bookings and staffing for the week on one screen.", archetype: "b2b_saas", founderWords: null, brief: null, starsCurrent: 3, starsPotential: 4, attributes: [], citations: [], qa: [] },
       founder: FOUNDER,
       importReport: {
         title: "Import report: Tallyroom",

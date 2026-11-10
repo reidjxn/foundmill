@@ -168,6 +168,9 @@ export interface AutopilotFacts {
 export const CONTINUE_RUN_END_REASONS = ["done", "hard_stop", "paused", "stopped", "vacation", "daily_cycles", "daily_spend", "archived", "lost"] as const;
 export type ContinueRunEndReason = (typeof CONTINUE_RUN_END_REASONS)[number];
 
+/** The sentence a press that started a run adds (Nov 7, 2026): new cycles keep starting on their own. */
+export const RUN_UNTIL_DONE = "New cycles start on their own until nothing is left to do, or until you pause.";
+
 export const CONTINUE_RUN_LIMITS = {
   /** No two rounds of a run start closer than this (stops a hot loop of empty rounds); no 15-minute floor. */
   minGapMs: 60 * 1000,

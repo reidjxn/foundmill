@@ -93,7 +93,7 @@ test.describe("first days", () => {
     const building = inboxRow(page, /Building starts: \d+ tasks? planned/);
     await expect(building).toBeVisible({ timeout: LONG });
     await building.click();
-    await expect(page.getByTestId("inbox-note")).toContainText("Distribution waits until you start it from Distribution › Board.", { timeout: LONG });
+    await expect(page.getByTestId("inbox-note")).toContainText("Distribution waits until you start it from Customers › Board.", { timeout: LONG });
 
     // Both sign-offs tick off on the first-week checklist. So does "Read a note from an agent": the sign-off and
     // "Building starts:" notes opened above are agents' notes. The second sign-off also starts the first cycle the way
@@ -175,7 +175,7 @@ test.describe("first days", () => {
     // Approve stays available for when the revision reads right; the Product lead's revision task is on the Plan.
     await expect(banner.getByTestId("signoff-approve")).toBeVisible();
     await page.goto(`/b/${bid}/d/development/plan`);
-    await expect(page.getByRole("grid", { name: "Tasks" }).getByRole("row").filter({ hasText: /Revise the specification:/ })).toHaveCount(1, { timeout: LONG });
+    await expect(page.getByRole("grid", { name: "Tasks" }).getByRole("row").filter({ hasText: /Revise the specification from your notes/ })).toHaveCount(1, { timeout: LONG });
     // The Inbox note was answered by the tab's decision and the follow-up says so.
     await page.goto(`/b/${bid}/inbox`);
     await expect(inboxRow(page, "Changes requested: the specification")).toBeVisible({ timeout: LONG });

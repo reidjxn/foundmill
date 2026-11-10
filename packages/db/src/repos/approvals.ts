@@ -273,6 +273,14 @@ export const approvalsRepo = {
     return rows[0] ?? null;
   },
 
+  /**
+   * Every approval one Inbox item asks about, oldest first: one for most notes, several when same-kind requests were
+   * batched into one decision (first-time founder report, Nov 8, 2026: "5 channels want to launch their first campaign").
+   */
+  async listForInboxItem(db: Executor, businessId: string, inboxItemId: string): Promise<Approval[]> {
+    return db.select().from(approvals).where(and(eq(approvals.businessId, businessId), eq(approvals.inboxItemId, inboxItemId))).orderBy(asc(approvals.requestedAt));
+  },
+
   /** Records the Inbox item that asks the founder about this approval. */
   async linkInboxItem(db: Executor, businessId: string, approvalId: string, inboxItemId: string): Promise<Approval> {
     return one(await db.update(approvals).set({ inboxItemId, updatedAt: new Date() }).where(scoped(businessId, approvalId)).returning(), "approval", approvalId);

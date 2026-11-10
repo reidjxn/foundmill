@@ -204,6 +204,27 @@ describe("AppShell", () => {
     expect(screen.queryByTestId("processing-line")).toBeNull();
   });
 
+  it("the answer to a press of Continue replaces the strip's sentence and shows in the tab bar, guidance on or off (first-time founder report, Nov 8, 2026)", () => {
+    const tabs = { tabs: [{ id: "a", label: "Overview" }], activeId: "a" };
+    render(
+      <GuidanceProvider value={{ guidance: "off" }}>
+        <AppShell {...shellProps({ tabs, processing: { segments: NORTHWIND_SEGMENTS, active: false, notice: "Cycle 2 started: 6 tasks ready to build" } })} />
+      </GuidanceProvider>,
+    );
+    // Never "No cycle running" over a press that was answered.
+    expect(screen.queryByRole("status", { name: "No cycle running" })).toBeNull();
+    expect(screen.getByRole("status", { name: "Cycle 2 started: 6 tasks ready to build" }).hasAttribute("data-notice")).toBe(true);
+    const line = screen.getByTestId("processing-line");
+    expect(line.textContent).toBe("Cycle 2 started: 6 tasks ready to build");
+    expect(line.hasAttribute("data-notice")).toBe(true);
+    expect(line.className).toMatch(/text-secondary/);
+  });
+
+  it("Continue's caveat rides on the button and under its tooltip", () => {
+    render(<AppShell {...shellProps({ continueButton: { state: { kind: "idle" }, onContinue: vi.fn(), caveat: "The orchestrator is not reachable: a press writes one note; no agent works." } })} />);
+    expect(screen.getByRole("button", { name: "Continue" }).getAttribute("data-continue-caveat")).toBe("The orchestrator is not reachable: a press writes one note; no agent works.");
+  });
+
   it("words the tab bar's processing line: the sentence for one or two departments, a count from three (review F45)", () => {
     const seg = (label: string, active: boolean) => ({ id: label, label, dept: "dept-1" as const, active });
     expect(processingLineText([seg("Product", true), seg("Finance", true), seg("Legal", false)], true, 12)).toBe("Product and Finance are working on cycle 12");

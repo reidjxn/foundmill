@@ -3,6 +3,7 @@
  * fan-out (the card keeps the slate item's name, archetype and angle) or for Import's single card.
  */
 import { describe, expect, it } from "vitest";
+import { z } from "zod";
 import { ConceptCard, IdeationOutput, IdeationSlateOutput } from "../schemas";
 import { promptWith } from "./fixtures.test-helpers";
 import { MockModelClient } from "./index";
@@ -50,5 +51,41 @@ describe("ideation mock", () => {
     expect(r.repaired).toBe(false);
     expect(r.json.name.length).toBeGreaterThan(0);
     expect(r.json.attributes).toHaveLength(10);
+  });
+});
+
+describe("ideation mock reads the founder's brief (first-time founder report, Nov 8, 2026)", () => {
+  const brief = { prompt: "Students at my university struggle to find short-notice part-time shifts, and local cafes and bars near campus struggle to fill last-minute gaps. I want to build a simple app that matches verified students to same-day shifts at independent venues around Manchester.", founder: { constraints: ["bootstrapped"] } };
+
+  it("echoes the people and the struggle the brief names on most cards, and leads with the founder's own product sentence", async () => {
+    const r = await new MockModelClient().complete({ route: "ideation", messages: promptWith(brief), schema: IdeationOutput });
+    const pitches = r.json.concepts.map((c) => c.pitch);
+    const echoing = pitches.filter((p) => /students at my university|local cafes and bars near campus/.test(p));
+    expect(echoing.length).toBeGreaterThanOrEqual(Math.ceil(pitches.length * 0.6));
+    expect(pitches[0]).toMatch(/a simple app that matches verified students to same-day shifts at independent venues around Manchester/);
+    expect(pitches.join(" ")).toMatch(/find short-notice part-time shifts|fill last-minute gaps/);
+    // Never the padding of a brief that named nobody.
+    expect(pitches.join(" ")).not.toMatch(/built around/);
+  });
+
+  it("a brief that names nobody still draws its audiences from the archetype, as before", async () => {
+    const r = await new MockModelClient().complete({ route: "ideation", messages: promptWith(BRIEF), schema: IdeationOutput });
+    expect(r.json.concepts.every((c) => /helps .+ through .+/.test(c.pitch))).toBe(true);
+  });
+
+  it("Compare's verdict is written from the cards' own ratings: a ranking that names every card, no placeholder text", async () => {
+    const Verdict = z.object({ verdict_md: z.string().min(1), ranking: z.array(z.object({ idea_id: z.string(), rank: z.number().int().min(1), reason: z.string() })).min(1) });
+    const concepts = [
+      { id: "11111111-1111-4111-8111-111111111111", title: "Shiftnest", pitch: "A", attributes: { market_pull: { value: 13 }, distribution_clarity: { value: 9 }, defensibility: { value: 14 } } },
+      { id: "22222222-2222-4222-8222-222222222222", title: "Studentwave", pitch: "B", attributes: { market_pull: { value: 14 }, distribution_clarity: { value: 5 }, defensibility: { value: 8 } } },
+    ];
+    const r = await new MockModelClient().complete({ route: "ideation", messages: promptWith({ concepts }), schema: Verdict });
+    expect(r.repaired).toBe(false);
+    expect(r.json.verdict_md).not.toMatch(/mock/i);
+    expect(r.json.verdict_md).toMatch(/Shiftnest/);
+    expect(r.json.verdict_md).toMatch(/Commit Shiftnest/);
+    expect(r.json.ranking.map((x) => x.idea_id).sort()).toEqual(concepts.map((c) => c.id).sort());
+    expect(r.json.ranking[0]).toMatchObject({ idea_id: concepts[0]!.id, rank: 1 });
+    expect(r.json.ranking[0]!.reason).toMatch(/defensibility \(14\)/);
   });
 });

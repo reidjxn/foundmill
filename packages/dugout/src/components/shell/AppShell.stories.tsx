@@ -241,6 +241,18 @@ export const ContinueProcessing: Story = {
   render: (args) => <Shell {...args} tabs={{ tabs: DISTRIBUTION_TABS, activeId: "formation" }} />,
   parameters: { docs: { description: { story: "A cycle runs: Continue reads Pause (its tooltip “The team is working · cycle 3”), the strip travels, and while guidance is on the strip's sentence sits in words at the right end of the tab bar. The shell root carries data-coachmark-pause." } } },
 };
+export const ContinueAnswered: Story = {
+  name: "Continue · the press answered",
+  args: { ...baseArgs, continueButton: { state: { kind: "processing", run: true }, cycleNumber: 2 }, processing: { segments: NORTHWIND_SEGMENTS, active: false, notice: "Cycle 2 started: 6 tasks ready to build" } },
+  render: (args) => <Shell {...args} tabs={{ tabs: DISTRIBUTION_TABS, activeId: "formation" }} />,
+  parameters: { docs: { description: { story: "One press of Continue, answered (first-time founder report, Nov 8, 2026): the strip's sentence and the tab bar's line read what the press did the moment the answer lands, guidance on or off, so “No cycle running” never stays unchanged after a press. The orchestrator's own `cycle.started` catches the strip up moments later." } } },
+};
+export const ContinueCannotRun: Story = {
+  name: "Continue · the team cannot run",
+  args: { ...baseArgs, continueButton: { state: { kind: "idle" }, caveat: "The orchestrator is not reachable: a press writes one note; no agent works." }, processing: { segments: NORTHWIND_SEGMENTS, active: false, notice: "The team cannot run right now: the orchestrator is not reachable" } },
+  render: (args) => <Shell {...args} tabs={{ tabs: DISTRIBUTION_TABS, activeId: "formation" }} />,
+  parameters: { docs: { description: { story: "No orchestrator (a laptop stack, a service down): the press is answered honestly in the line and the toast, and Continue's tooltip carries the caveat before the next press." } } },
+};
 export const ContinueCustomerUpdate: Story = {
   name: "Continue · Customer Update",
   args: { ...baseArgs, continueButton: { state: { kind: "matchday" } }, processing: { segments: NORTHWIND_SEGMENTS, active: false } },

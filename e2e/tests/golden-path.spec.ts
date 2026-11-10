@@ -296,7 +296,7 @@ test.describe("golden path", () => {
 
     // One press of Continue → business.continue (in-process cycle step without Temporal) → a toast says what happened.
     await continueIdle(page).click();
-    await expect(page.getByText(/Cycle started|One new note|Cycle resumed|already running/).first()).toBeVisible({ timeout: LONG });
+    await expect(page.getByText(/(cycle \d+|round of work) started|cannot run right now|(cycle \d+|round of work) resumed|already running/i).first()).toBeVisible({ timeout: LONG });
   });
 
   test("First days: approving both sign-offs plans the first build; distribution waits for Start distribution", async ({ page }) => {

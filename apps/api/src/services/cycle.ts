@@ -20,10 +20,11 @@
  * the in-process step is unchanged: one step, no run.
  */
 import { CREDITS_CURRENCY, LIMITS, TIERS } from "@foundmill/config";
-import { openRunOf, repos, runRoundsOf, type Executor, type InboxItem } from "@foundmill/db";
-import { AppError, vacationUntilLabel, type ContinueRunEndReason } from "@foundmill/shared";
+import { openRunOf, productStageOf, repos, runRoundsOf, type Executor, type InboxItem } from "@foundmill/db";
+import { AppError, vacationUntilLabel, type ContinueRunEndReason, type ProductStage } from "@foundmill/shared";
 import type { BusinessContext } from "../trpc";
 import { audit, emit } from "../trpc";
+import { alreadyRunningSummary, orchestratorUnreachableSummary, resumedSummary, startedSummary, type ContinueSummary } from "./continue-summary";
 import { redispatchPlans } from "./plans";
 import { assertAgentsRunning } from "./stop-guard";
 import { SIGNALS, WORKFLOWS, workflowIds, type TemporalResult } from "./temporal";
@@ -57,6 +58,11 @@ export interface CycleStatus {
   lastOutcome: CycleOutcome | null;
   /** When the last cycle ended `failed`: what stopped it (Home shows it as a banner until a cycle runs again). */
   lastFailure: { kind: "billing" | "credential" | "request" | "error"; message: string; at: string } | null;
+  /**
+   * What the last finished cycle cost in model credits (its `cycle.completed` payload), an Estimate the shell shows next
+   * to Continue so the next press has a price (first-time founder report, Nov 8, 2026). Null before the first cycle.
+   */
+  lastCost: { amountMinor: number; currency: string } | null;
   nextCycleNumber: number;
   /** "temporal" when the current cycle runs on the orchestrator, "local" when it was an in-process step. */
   mode: "temporal" | "local" | null;
@@ -92,6 +98,13 @@ const QUEUED_MAX_AGE_MS = 6 * 60 * 60 * 1000;
 const asRecord = (v: unknown): Record<string, unknown> => (v && typeof v === "object" ? (v as Record<string, unknown>) : {});
 const str = (v: unknown): string | null => (typeof v === "string" ? v : null);
 const num = (v: unknown): number | null => (typeof v === "number" && Number.isFinite(v) ? v : null);
+/** A `cycle.completed` cost (`{ amountMinor, currency }`), or null when the payload carries none. */
+const costOf = (v: unknown): { amountMinor: number; currency: string } | null => {
+  const c = asRecord(v);
+  const amountMinor = num(c.amountMinor);
+  const currency = str(c.currency);
+  return amountMinor !== null && amountMinor >= 0 && currency ? { amountMinor, currency } : null;
+};
 
 /** Read the business's cycle state. Pure over repositories; safe on the service db or inside an RLS transaction. */
 export interface CycleScope {
@@ -161,6 +174,7 @@ export async function cycleStatus(ctx: CycleScope): Promise<CycleStatus> {
     lastCompletedAt: lastDone ? lastDone.occurredAt.toISOString() : null,
     lastOutcome: (CYCLE_OUTCOMES as readonly string[]).includes(str(lastDonePayload.outcome) ?? "") ? (str(lastDonePayload.outcome) as CycleOutcome) : null,
     lastFailure: lastDone && str(lastDonePayload.outcome) === "failed" ? failureOf(lastDonePayload.failure, lastDone.occurredAt) : null,
+    lastCost: costOf(lastDonePayload.cost),
     nextCycleNumber: maxNumber + 1,
     mode: startedOpen ? (latestStart?.actor.kind === "system" && latestStart.actor.id === LOCAL_ACTOR_ID ? "local" : "temporal") : queuedEntry ? "temporal" : null,
     run,
@@ -227,6 +241,24 @@ export interface StartCycleResult {
   continueState: ContinueState;
   /** The run this press started (Temporal only): rounds now start on their own until it ends. Null: none started. */
   run: CycleRun | null;
+  /** What happened, in one sentence the shell shows at once (first-time founder report, Nov 8, 2026). */
+  summary: ContinueSummary;
+}
+
+/**
+ * The facts the press's sentence is written from, read in one wave with the reconcile: how much is ready to build, and
+ * the product stage (three statements; the business row is the context's, and a business that sells needs none of them
+ * for its stage).
+ */
+async function continueFacts(ctx: BusinessContext): Promise<{ readyTasks: number; stage: ProductStage }> {
+  const selling = ctx.business.distributionStartedAt !== null;
+  const [ready, foundations, signoffs] = await Promise.all([
+    repos.tasks.dispatchable(ctx.db, ctx.businessId, 500),
+    selling ? null : repos.foundations.get(ctx.db, ctx.businessId),
+    selling ? null : repos.productSignoffs.latest(ctx.db, ctx.businessId),
+  ]);
+  const stage = selling || !signoffs ? "selling" : productStageOf({ foundationsStatus: foundations?.status ?? "none", signoffs, distributionStartedAt: ctx.business.distributionStartedAt });
+  return { readyTasks: ready.length, stage };
 }
 
 export class ContinueBlockedError extends AppError {
@@ -261,19 +293,22 @@ export async function startCycle(ctx: BusinessContext): Promise<StartCycleResult
   // Plans an earlier decision could not hand to the orchestrator start now that the founder moves on (audit api-services-15).
   await redispatchPlans(ctx).catch((err: unknown) => ctx.log.warn({ err: (err as Error).message }, "plan redispatch failed"));
 
-  const status = await reconcileCycle(ctx, read);
+  // The sentence's facts travel with the reconcile (one more wave, no wait of its own).
+  const [status, facts] = await Promise.all([reconcileCycle(ctx, read), continueFacts(ctx)]);
   if (status.running && status.paused) {
     const result = await resumeCycle(ctx, status);
     // Pause ended the run; pressing Continue resumes the cycle and starts a new run that goes on after it.
     const run = status.mode === "local" ? null : await startRunAfterOpenCycle(ctx, result.status);
     const after: CycleStatus = run ? { ...result.status, run } : result.status;
-    return { action: "resumed", mode: status.mode ?? "temporal", workflow: result.workflow, item: null, status: after, continueState: continueStateAfter(after), run };
+    const summary = resumedSummary({ ...facts, cycleNumber: status.cycleNumber ?? status.nextCycleNumber - 1, run: Boolean(after.run), resumedTasks: result.resumedTasks });
+    return { action: "resumed", mode: status.mode ?? "temporal", workflow: result.workflow, item: null, status: after, continueState: continueStateAfter(after), run, summary };
   }
   if (status.running) {
     // A second press, a second person, or a cycle Autopilot started: keep going after it.
     const run = status.mode === "local" || status.run ? null : await startRunAfterOpenCycle(ctx, status);
     const after: CycleStatus = run ? { ...status, run } : status;
-    return { action: "already_running", mode: status.mode ?? "temporal", workflow: null, item: null, status: after, continueState: continueStateAfter(after), run };
+    const summary = alreadyRunningSummary({ ...facts, cycleNumber: status.cycleNumber ?? status.nextCycleNumber - 1, run: Boolean(after.run) });
+    return { action: "already_running", mode: status.mode ?? "temporal", workflow: null, item: null, status: after, continueState: continueStateAfter(after), run, summary };
   }
 
   const cycleNumber = status.nextCycleNumber;
@@ -290,10 +325,14 @@ export async function startCycle(ctx: BusinessContext): Promise<StartCycleResult
     // The audit row is the cycle's first mark: status reads it as queued until the orchestrator writes `cycle.started`.
     // What that read would say is known without asking again (the stream brings the orchestrator's own marks).
     const run: CycleRun = { id: runId, startedAt: mark.createdAt.toISOString(), rounds: 0 };
-    return { action: "started", mode: "temporal", workflow: { ...workflow, workflowId }, item: null, status: { ...queuedStatus(status, { cycleNumber, workflowId, queuedAt: mark.createdAt }), run }, continueState: { kind: "processing", run: true }, run };
+    const summary = startedSummary({ ...facts, cycleNumber, run: true });
+    return { action: "started", mode: "temporal", workflow: { ...workflow, workflowId }, item: null, status: { ...queuedStatus(status, { cycleNumber, workflowId, queuedAt: mark.createdAt }), run }, continueState: { kind: "processing", run: true }, run, summary };
   }
   const local = await runLocalCycleStep(ctx, cycleNumber, workflow.reason ?? "temporal unreachable");
-  return { action: "started", mode: "local", workflow: { ...workflow, workflowId }, item: local.item, status: local.status, continueState: await continueStateFor(ctx, local.status), run: null };
+  // The founder is told plainly that no agent worked (first-time founder report: "Continue is a no-op without the
+  // orchestrator and the UI does not say so").
+  const summary = orchestratorUnreachableSummary({ ...facts, cycleNumber, noteSubject: local.item.subject });
+  return { action: "started", mode: "local", workflow: { ...workflow, workflowId }, item: local.item, status: local.status, continueState: await continueStateFor(ctx, local.status), run: null, summary };
 }
 
 /**

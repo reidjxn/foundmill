@@ -152,6 +152,33 @@ describe("PlanScreen", () => {
     await waitFor(() => expect(fake.mutations).toContainEqual({ path: "dev.tasks.start", input: { taskId: TASK_PLAYWRIGHT } }));
   });
 
+  it("says when tasks cannot start because the orchestrator is not reachable, and offers no Start (first-time founder report, Nov 8, 2026)", async () => {
+    const user = userEvent.setup();
+    const fake = createFakeSource({ responses: { ...freeResponses(), "business.get": { productStage: "building", orchestrator: { reachable: false } } }, onMutate: () => ({}) });
+    renderScreen(fake, <PlanScreen {...props} />);
+    const table = await screen.findByRole("grid", { name: "Tasks" });
+    const banner = await screen.findByTestId("plan-orchestrator-banner");
+    expect(banner.textContent).toMatch(/Tasks cannot start right now/);
+    expect(banner.textContent).toMatch(/The orchestrator is not reachable from this server/);
+    // No Run button in the column, Start off in the row menu and the panel; nothing is sent.
+    expect(within(table).queryByRole("button", { name: "Run now" })).toBeNull();
+    await user.click(within(table).getByRole("button", { name: "Actions for Rate-limit the public API" }));
+    const menu = await screen.findByRole("menu", { name: "Row actions" });
+    expect(within(menu).getByRole("menuitem", { name: "Start" }).getAttribute("aria-disabled")).toBe("true");
+    await user.keyboard("{Escape}");
+    await user.click(within(table).getByText("Playwright coverage for checkout"));
+    await screen.findByRole("application", { name: /Dependencies of Playwright coverage/ });
+    expect(screen.getByRole("button", { name: "Start" })).toHaveProperty("disabled", true);
+    expect(fake.mutations).toEqual([]);
+    // Unknown reachability (the api has not probed yet) offers Start as before.
+    const unknown = createFakeSource({ responses: { ...freeResponses(), "business.get": { productStage: "building", orchestrator: { reachable: null } } }, onMutate: () => ({}) });
+    const second = renderScreen(unknown, <PlanScreen {...props} />);
+    const again = (await screen.findAllByRole("grid", { name: "Tasks" })).at(-1)!;
+    expect(within(again).getAllByRole("button", { name: "Run now" }).length).toBeGreaterThan(0);
+    expect(screen.queryAllByTestId("plan-orchestrator-banner")).toHaveLength(1);
+    second.unmount();
+  });
+
   it("resumes a paused task from its Run button", async () => {
     const user = userEvent.setup();
     const paused = tasks.map((t) => (t.id === TASK_BUNDLE ? { ...t, status: "paused" as const } : t));

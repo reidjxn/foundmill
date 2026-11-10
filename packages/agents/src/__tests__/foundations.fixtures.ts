@@ -15,6 +15,8 @@ export function ideationInputs(): FoundationsInputs {
     idea: {
       title: "Ledgerly",
       pitch: "Ledgerly helps independent accountants cut a weekly chore to minutes through a narrow, opinionated workflow.",
+      founderWords: null,
+      brief: "bookkeeping for independent accountants in the Nordics",
       archetype: "b2b_saas",
       starsCurrent: 3,
       starsPotential: 4,

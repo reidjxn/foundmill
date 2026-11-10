@@ -8,7 +8,7 @@
  * `team.approvals.resolve` does the same from Team › approvals.
  */
 import { APP_NAME } from "@foundmill/config";
-import { APPROVAL_OPTIONS, approvalAction, inboxItems, openApprovalItem, repos, resumeBusinessAgents, stopBusinessAgents, type Approval } from "@foundmill/db";
+import { APPROVAL_OPTIONS, approvalAction, closeApprovalItem, inboxItems, openApprovalItem, repos, resumeBusinessAgents, stopBusinessAgents, type Approval } from "@foundmill/db";
 import { eq } from "drizzle-orm";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { createApiHarness, fakeTemporalClient, type ApiHarness } from "./harness";
@@ -315,5 +315,60 @@ describe("team.approvals", () => {
     expect(item).toMatchObject({ state: "answered", blocksContinue: false });
     expect((await repos.inbox.decisionsFor(hz.db, hz.A.businessId, g.itemId)).map((d) => d.chosenOption)).toEqual([APPROVAL_OPTIONS.approve]);
     await expect(owner().team.approvals.resolve({ businessId: hz.A.businessId, approvalId: g.approval.id, outcome: "rejected" })).rejects.toThrow(/already approved/);
+  });
+});
+
+describe("approvals must be decidable (first-time founder report, Nov 8, 2026)", () => {
+  it("the reading pane gets what exactly would run, and whether GitHub is connected", async () => {
+    const g = await gatedCall();
+    const view = (await owner().inbox.get({ businessId: hz.A.businessId, itemId: g.itemId })).approval!;
+    expect(view.what).toMatchObject({ kind: "code", headline: "A change to how the business's data is stored: 0019_idx.sql", empty: false });
+    expect(view.what!.rows[0]).toEqual({ label: "Files", value: "0019_idx.sql", mono: true });
+    // No GitHub integration in this harness: the note asks to connect first, and the pane knows.
+    expect(view.githubConnected).toBe(false);
+    expect(view.batch).toEqual([]);
+    expect((await repos.inbox.get(hz.db, hz.A.businessId, g.itemId)).subject).toMatch(/^Legal Lead needs GitHub connected/);
+  });
+
+  it("rejecting a request that said nothing about what it would run sends the ask for the details to the agent", async () => {
+    const task = await repos.tasks.create(hz.db, hz.A.businessId, { kind: "ops", title: "Reach the first venues", goalMd: "x", assigneeAgentId: hz.A.agentId, status: "blocked" });
+    const approval = await repos.approvals.create(hz.db, hz.A.businessId, { agentId: hz.A.agentId, taskId: task.id, connectorKey: "sendgrid", tool: "send_mail", args: {}, reasons: ["contacts a third party"] });
+    const { item } = await openApprovalItem(hz.db, hz.A.businessId, approval, { agentId: hz.A.agentId, agentName: "Legal Lead", connectorName: "SendGrid" });
+    expect(item.subject).toMatch(/asks without saying what/);
+    expect((item.decision as { options: { id: string; recommended: boolean }[] }).options.find((o) => o.recommended)?.id).toBe(APPROVAL_OPTIONS.reject);
+    const view = (await owner().inbox.get({ businessId: hz.A.businessId, itemId: item.id })).approval!;
+    expect(view.what).toMatchObject({ empty: true, rows: [], headline: null });
+    const result = await owner().inbox.decide({ businessId: hz.A.businessId, itemId: item.id, chosenOption: APPROVAL_OPTIONS.reject });
+    expect(result.approval?.outcome).toBe("rejected");
+    // The agent is told what to come back with, in the rejection's own words.
+    expect(result.approval?.summary).toContain("Describe exactly what you would run");
+    const blocked = (await repos.events.list(hz.db, hz.A.businessId, { type: "task.blocked" })).items.find((e) => (e.payload as { taskId?: string }).taskId === task.id);
+    expect((blocked?.payload as { detail?: string }).detail).toContain("Describe exactly what you would run");
+  });
+
+  it("two campaign launches share one note; one Approve all answers both and tells both waits", async () => {
+    // Earlier tests left a launch request open; a new one would join it. Settle them first.
+    for (const a of (await repos.approvals.pending(hz.db, hz.A.businessId, 200)).filter((x) => x.tool === "launch_campaign")) {
+      const settled = await repos.approvals.resolve(hz.db, hz.A.businessId, a.id, { outcome: "rejected", byKind: "user", byId: hz.A.ownerId });
+      await closeApprovalItem(hz.db, hz.A.businessId, settled);
+    }
+    const launch = (channelKey: string, amountMinor: number) => repos.approvals.create(hz.db, hz.A.businessId, { agentId: hz.A.agentId, connectorKey: "platform", tool: "launch_campaign", args: { campaignId: crypto.randomUUID(), channelKey, assetIds: [] }, reasons: ["first campaign"], amountMinor, currency: "USD" });
+    const first = await launch("paid_ads", 60_000);
+    const one = await openApprovalItem(hz.db, hz.A.businessId, first, { agentId: hz.A.agentId, agentName: "Lead Generation Engine" });
+    const second = await launch("social", 20_000);
+    const two = await openApprovalItem(hz.db, hz.A.businessId, second, { agentId: hz.A.agentId, agentName: "Lead Generation Engine" });
+    expect(two.item.id).toBe(one.item.id);
+    const view = (await owner().inbox.get({ businessId: hz.A.businessId, itemId: one.item.id })).approval!;
+    expect(view.batch.map((b) => [b.id, b.what?.rows[0]?.value, b.amount?.amountMinor])).toEqual([
+      [first.id, "Paid advertising", 60_000],
+      [second.id, "Social media", 20_000],
+    ]);
+    temporal.signals.length = 0;
+    const result = await owner().inbox.decide({ businessId: hz.A.businessId, itemId: one.item.id, chosenOption: APPROVAL_OPTIONS.approve });
+    expect(result.item.state).toBe("answered");
+    expect(result.plan.actions).toHaveLength(2);
+    for (const a of [first, second]) expect((await repos.approvals.get(hz.db, hz.A.businessId, a.id)).outcome).toBe("approved");
+    expect(temporal.signals.map((s) => s.workflowId).sort()).toEqual([`approval:${first.id}`, `approval:${second.id}`].sort());
+    expect(result.approval?.summary).toMatch(/^You approved 2 requests at once\./);
   });
 });

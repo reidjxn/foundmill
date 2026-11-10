@@ -7,7 +7,7 @@
  * and renders the founder's card and previews instead (founder-views.tsx), from `dev.deployments.list` and the live events.
  */
 import { useMemo, useState } from "react";
-import { Boxes, CircleStop, ExternalLink, GitBranch, GitMerge, Hourglass, MonitorPlay, Network, Radio } from "lucide-react";
+import { Boxes, CircleDashed, CircleStop, ExternalLink, GitBranch, GitMerge, Hourglass, MonitorPlay, Network, Radio } from "lucide-react";
 import { DataTable, FitText, useAgentPersona, useBuilderView, Panel, StatusPill, type DataTableColumn, type IconComponent, type RowAction, type SavedView, type StatusTone } from "@foundmill/dugout";
 import type { TaskStatus } from "@foundmill/shared";
 import { routes } from "@foundmill/widgets/shared/routes";
@@ -18,7 +18,7 @@ import { fitColumns, fitToGrow, humanise, type ColumnFit } from "../fit";
 import type { ModuleScreenProps } from "../registry";
 import { LiveProduct, deploymentAt, founderTitleOf, liveProductOf, type FounderPreviewRow } from "./founder-views";
 import { useDevScreenOptions } from "./options";
-import { SIMPLE_VIEW_ID, Screen, agentBranch, shortSha, toDate, useAgentIndex, useAgents, useDefaultViewId, useDevDepartment } from "./shared";
+import { SIMPLE_VIEW_ID, Screen, WhatExistsNow, agentBranch, shortSha, toDate, useAgentIndex, useAgents, useDefaultViewId, useDevDepartment, useRepository } from "./shared";
 import type { AgentRow, DeploymentsListResponse, PrsListResponse, TaskRow, TasksListResponse } from "./types";
 
 export type Environment = "preview" | "staging" | "production";
@@ -33,7 +33,8 @@ export interface Deployment {
   occurredAt: Date;
 }
 
-export type EnvironmentState = "live" | "awaiting" | "merged" | "stopped";
+/** `no_artifact`: the task is done but nothing was pushed or deployed anywhere (no repository connected), so there is nothing to open. */
+export type EnvironmentState = "live" | "awaiting" | "merged" | "no_artifact" | "stopped";
 
 export interface EnvironmentRow {
   id: string;
@@ -59,6 +60,8 @@ export const ENVIRONMENT_STATE_META: Record<EnvironmentState, { tone: StatusTone
   live: { tone: "good", word: "Live", icon: Radio },
   awaiting: { tone: "info", word: "Awaiting deployment", icon: Hourglass },
   merged: { tone: "neutral", word: "Merged", icon: GitMerge },
+  // First-time founder report (Nov 8, 2026): "Merged" with no URL, no commit and no repository read as shipped work that did not exist.
+  no_artifact: { tone: "warn", word: "No artifact yet", icon: CircleDashed },
   stopped: { tone: "neutral", word: "Stopped", icon: CircleStop },
 };
 
@@ -159,7 +162,7 @@ function uniqueBranchNames(rows: EnvironmentRow[]): EnvironmentRow[] {
 const BRANCH_STATUSES: readonly TaskStatus[] = ["running", "paused", "blocked", "review", "merging", "done", "stopped"];
 
 /** Live first, then the ones waiting for a deployment, then the merged and stopped history. */
-const STATE_RANK: Record<EnvironmentState, number> = { live: 0, awaiting: 1, merged: 2, stopped: 3 };
+const STATE_RANK: Record<EnvironmentState, number> = { live: 0, awaiting: 1, no_artifact: 2, merged: 2, stopped: 3 };
 
 /** Hosting providers in their own spelling; the API sends keys ("vercel"), "unknown" when the event had none. */
 const PROVIDER_LABELS: Record<string, string> = { vercel: "Vercel", netlify: "Netlify", railway: "Railway", render: "Render", fly: "Fly.io", cloudflare: "Cloudflare", aws: "AWS", gcp: "Google Cloud", azure: "Azure" };
@@ -172,7 +175,7 @@ export function providerLabel(provider: string | null | undefined): string | nul
  * Rows: one per code-task branch (plus any deployed branch without a task): newest deployment first, then live,
  * awaiting, merged and stopped, then by task title (numbers in order: "fix #2" before "fix #10").
  */
-export function toEnvironmentRows(tasks: readonly TaskRow[], prs: PrsListResponse | undefined, deployments: readonly Deployment[], agents: Map<string, AgentRow>, nameFor: (agent: AgentRow) => string = (a) => a.name): EnvironmentRow[] {
+export function toEnvironmentRows(tasks: readonly TaskRow[], prs: PrsListResponse | undefined, deployments: readonly Deployment[], agents: Map<string, AgentRow>, nameFor: (agent: AgentRow) => string = (a) => a.name, pushed = true): EnvironmentRow[] {
   const latest = new Map<string, Deployment>();
   for (const d of deployments) {
     const key = d.branch ?? (d.taskId ? agentBranch(d.taskId) : `${d.environment}`);
@@ -181,7 +184,8 @@ export function toEnvironmentRows(tasks: readonly TaskRow[], prs: PrsListRespons
   }
   const rows = new Map<string, EnvironmentRow>();
   const stateFor = (status: TaskStatus | null, d: Deployment | undefined): EnvironmentState => {
-    if (status === "done") return "merged";
+    // Done with nothing deployed and no repository to hold the code: there is no artifact to open, and the row says so.
+    if (status === "done") return d?.url || pushed ? "merged" : "no_artifact";
     if (status === "stopped" || status === "failed") return "stopped";
     return d?.url ? "live" : "awaiting";
   };
@@ -215,6 +219,10 @@ export function EnvironmentsScreen({ businessId, departmentId }: ModuleScreenPro
   const prs = useWidgetQuery<PrsListResponse>("dev.prs.list", {});
   const agents = useAgents();
   const agentIndex = useAgentIndex(agents.data?.agents);
+  // Where the code goes (first-time founder report, Nov 8, 2026): a done task with no deployment and no repository
+  // connected has no artifact to open, and reads so instead of "Merged".
+  const repo = useRepository();
+  const pushed = repo.data?.connected !== false;
   // Agents named under the reader's preference, in the rows' name fields too (One name everywhere).
   const persona = useAgentPersona();
   // Saved per person, business and table (audit #204): they come back after a reload. Simple opens first while guidance is on.
@@ -230,7 +238,7 @@ export function EnvironmentsScreen({ businessId, departmentId }: ModuleScreenPro
     ["deploy.succeeded", "task.started", "task.completed", "pr.merged"],
   );
 
-  const rows = useMemo(() => toEnvironmentRows(tasks.data?.items ?? [], prs.data, deployments, agentIndex, persona.labelFor), [tasks.data, prs.data, deployments, agentIndex, persona]);
+  const rows = useMemo(() => toEnvironmentRows(tasks.data?.items ?? [], prs.data, deployments, agentIndex, persona.labelFor, pushed), [tasks.data, prs.data, deployments, agentIndex, persona, pushed]);
   const optionNow = options.now;
   const now = useMemo(() => optionNow ?? new Date(), [optionNow]);
   // Builder view off: the founder's Live product reads the recorded deployments too (`dev.deployments.list`), so its
@@ -351,9 +359,12 @@ export function EnvironmentsScreen({ businessId, departmentId }: ModuleScreenPro
 
   const live = rows.filter((r) => r.state === "live").length;
   const merged = rows.filter((r) => r.state === "merged").length;
+  const noArtifact = rows.filter((r) => r.state === "no_artifact").length;
 
   return (
     <Screen name="development/environments">
+      {/* What exists outside this screen (first-time founder report, Nov 8, 2026): where the code is, what can be opened. */}
+      <WhatExistsNow repo={repo} finished={merged + noArtifact} livePreviews={live} />
       <Panel
         span={12}
         title="Preview deployments"
@@ -367,7 +378,7 @@ export function EnvironmentsScreen({ businessId, departmentId }: ModuleScreenPro
         meta={
           rows.length ? (
             <span data-testid="env-counts">
-              {live} live · {rows.length - live - merged} awaiting · {merged} merged
+              {live} live · {rows.length - live - merged - noArtifact} awaiting · {noArtifact ? `${noArtifact} with no artifact yet` : `${merged} merged`}
             </span>
           ) : undefined
         }

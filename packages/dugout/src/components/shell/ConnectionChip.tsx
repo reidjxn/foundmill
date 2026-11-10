@@ -8,7 +8,7 @@ import { Tooltip } from "../foundation/Tooltip";
  * The live connection's trouble: trying to come back, or not coming back by itself for now; or, with Builder view off,
  * the one quiet word a long outage earns ("Updates may be late"), whichever of the two it is.
  */
-export type ConnectionState = "reconnecting" | "paused" | "late";
+export type ConnectionState = "reconnecting" | "paused" | "late" | "off";
 
 export interface ConnectionChipProps extends Omit<HTMLAttributes<HTMLSpanElement>, "children"> {
   state: ConnectionState;
@@ -16,13 +16,15 @@ export interface ConnectionChipProps extends Omit<HTMLAttributes<HTMLSpanElement
   detail?: string;
 }
 
-const WORD: Record<ConnectionState, string> = { reconnecting: "Reconnecting…", paused: "Live updates paused", late: "Updates may be late" };
-const ICON = { reconnecting: RefreshCw, paused: WifiOff, late: Clock } as const;
+const WORD: Record<ConnectionState, string> = { reconnecting: "Reconnecting…", paused: "Live updates paused", late: "Updates may be late", off: "Live updates off" };
+const ICON = { reconnecting: RefreshCw, paused: WifiOff, late: Clock, off: WifiOff } as const;
 /** The defaults say that nothing is lost (UX plan §7.7): the team's work and notes are on the server; only this screen may lag. */
 const DETAIL: Record<ConnectionState, string> = {
   reconnecting: "The live connection dropped. Nothing is lost. What you see may be out of date until it is back.",
   paused: "Live updates are paused. Nothing is lost. What you see may be out of date; screens still refresh on their own.",
   late: "Nothing is lost: the team keeps working. What you see may be a little behind; screens still refresh on their own.",
+  // Never connected since the page opened (first-time founder report, Nov 8, 2026): not "reconnecting" to something that was never there.
+  off: "This server has no live connection right now. Nothing is lost: screens refresh on their own every 30 s.",
 };
 
 /**

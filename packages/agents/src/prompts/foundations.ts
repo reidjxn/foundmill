@@ -18,9 +18,19 @@ export const FoundationsVariables = z.object({
   sections: z.array(z.string().min(1)).min(1),
 });
 
+/**
+ * The founder's own words come first (first-time founder report, Nov 8, 2026: a founder who typed "students, cafes,
+ * same-day shifts, Manchester" was asked to sign off a specification about fitness instructors). Shared by the single
+ * call and the staged brief, with the business name interpolated by each.
+ */
+export const FOUNDER_WORDS_RULES = [
+  "- The founder's own words, when the inputs carry them (idea.founder_words: a card the founder wrote or edited; idea.brief: what they typed when the cards were drafted), are the ground truth for who the business serves, what problem it solves and where: build the vision statement, Problem, Customers and Value proposition from them, keep their audience, problem and place names as written, and never substitute a different audience, market or product. The idea card's title and summary are the Ideation agent's reading of those words and give way to them wherever they differ.",
+  "- The business is called {business_name}. The idea card may still use the working name it had in the studio; never use any other name for the business.",
+].join("\n");
+
 export const foundationsPrompt = definePrompt({
   key: "foundations",
-  version: 2,
+  version: 3,
   route: "foundations",
   description: "Drafts a new business's vision, the content of every specification outline section (Tiptap JSON) and a Now/Next/Later roadmap from what the founder gave at sign-up.",
   variables: FoundationsVariables,
@@ -32,6 +42,7 @@ Return JSON {{"vision", "sections", "roadmap", "open_questions"}}:
 - roadmap: 6-20 items of {{"title", "description", "horizon" ("now", "next" or "later"), "sections" (the outline sections it delivers), "acceptance_criteria", "source_ref", "confidence" (1-5)}}. Now holds 2-5 items the team can start this chapter; Next and Later hold the rest in a sensible order. Every roadmap seed in the Import report (an open issue) becomes exactly one item with the seed's title and its reference as source_ref; every other item has source_ref null.
 - open_questions: what the founder must answer before the team commits money or time.
 Rules:
+${FOUNDER_WORDS_RULES}
 - Ground every claim in the inputs. Do not invent customers, quotes, testimonials, competitors, prices paid or revenue. Where the inputs are silent, say what must be learned and add it to open_questions.
 - Every figure that is not quoted from the inputs (prices, market sizes, targets, costs, conversion rates) carries the word Estimate or Forecast right after it, for example "€49 per team per month (Estimate)".
 - Respect the founder's constraints (time, budget, markets, citizenship and residence, exclusions) and risk appetite.
@@ -51,7 +62,7 @@ export const FoundationsBriefVariables = FoundationsVariables;
 /** The rules every step of the staged drafting follows (system, cached; followed by the trusted inputs as JSON). */
 export const foundationsBriefPrompt = definePrompt({
   key: "foundations_brief",
-  version: 1,
+  version: 2,
   route: "foundations",
   description: "The shared brief of the staged foundations drafting: what the vision, the specification sections and the roadmap must be, and the grounding, labeling and plain-text rules every step follows.",
   variables: FoundationsBriefVariables,
@@ -63,6 +74,7 @@ What the parts are:
 - A specification section: {{"section" (spelled exactly as in the outline), "content", "source_refs"}}. The content is a Tiptap document {{"type": "doc", "content": [...]}} that uses only heading (levels 2-4), paragraph, bulletList and orderedList nodes; list items hold paragraphs; text nodes may carry bold or italic marks. Open each section with a level-2 heading of two to six words that sums it up (it becomes the block's title), then write 80-250 words that argue the section's thesis from the plan. Features lists user stories, each with acceptance criteria a test can check. Where a section already has text, build on it rather than contradict it.
 - A roadmap item: {{"title", "description", "horizon" ("now", "next" or "later"), "sections" (the outline sections it delivers), "acceptance_criteria", "source_ref", "confidence" (1-5)}}. Now holds 2-5 items the team can start this chapter; Next and Later hold the rest in a sensible order. Every roadmap seed in the Import report (an open issue) becomes exactly one item with the seed's title and its reference as source_ref; every other item has source_ref null.
 Rules:
+${FOUNDER_WORDS_RULES}
 - Ground every claim in the inputs. Do not invent customers, quotes, testimonials, competitors, prices paid or revenue. Where the inputs are silent, say what must be learned.
 - Every figure that is not quoted from the inputs (prices, market sizes, targets, costs, conversion rates) carries the word Estimate or Forecast right after it, for example "€49 per team per month (Estimate)".
 - Respect the founder's constraints (time, budget, markets, citizenship and residence, exclusions) and risk appetite.

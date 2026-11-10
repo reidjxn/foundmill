@@ -22,8 +22,11 @@
  * fails the commit (Settings › Preferences changes it any time).
  */
 import { randomUUID } from "node:crypto";
-import { departmentTabs, getArchetypeSeed, getTemplate, prompts } from "@foundmill/agents";
-import { initialModelBilling } from "@foundmill/config";
+import { DEPARTMENT_DEFAULTS, departmentTabs, getArchetypeSeed, getTemplate, prompts } from "@foundmill/agents";
+import { CREDITS_CURRENCY, initialModelBilling } from "@foundmill/config";
+
+/** Wage caps are model credits, counted in the credits' own currency whatever the business counts in. */
+const WAGE_CURRENCY = CREDITS_CURRENCY;
 import { assertBusinessAllowance, autopilotChangedPayload, creditsUsedUp, includedCreditsFor, periodOf, repos, type Business, type Db, type DbTx, type InboxItem } from "@foundmill/db";
 import { writeEventRow } from "./events";
 import { CHANNEL_KEYS, CHANNEL_META, CurrencyCode, DEFAULT_BUSINESS_CURRENCY, DEFAULT_BUSINESS_MODE, ValidationError, slugify, type AgentStyle, type Archetype, type BusinessMode, type GameMode, type OptionAction } from "@foundmill/shared";
@@ -475,10 +478,13 @@ export function squadPreview(archetype: Archetype) {
   const teamDept = seed.departments.find((d) => d.moduleKeys.includes("team"));
   const departmentOf = (key: string) => ((key === seed.assistantTemplateKey ? teamDept : undefined) ?? seed.departments.find((d) => d.leadTemplateKey === key || d.memberTemplateKeys.includes(key)))?.slug ?? null;
   return {
-    departments: seed.departments.map((d) => ({ slug: d.slug, name: d.name, icon: d.icon, colourToken: d.colourToken, moduleKeys: d.moduleKeys, budgetMinor: d.budgetMinor, budgetLabel: "Estimate" as const })),
+    // `baseName`: the department's standard name when the archetype renames it ("Editorial" is the Product department
+    // of a content business), so Commit can say so instead of renaming it unannounced (first-time founder report, Nov 8, 2026).
+    departments: seed.departments.map((d) => ({ slug: d.slug, name: d.name, baseName: DEPARTMENT_DEFAULTS[d.slug as keyof typeof DEPARTMENT_DEFAULTS]?.name ?? d.name, icon: d.icon, colourToken: d.colourToken, moduleKeys: d.moduleKeys, budgetMinor: d.budgetMinor, budgetLabel: "Estimate" as const })),
     agents: [...templates].map((key) => {
       const t = getTemplate(key);
-      return { templateKey: key, name: t.name, role: t.role, layer: t.layer, modelKey: t.modelKey, wageCapMinor: t.wageCapMinor, wageLabel: "Estimate" as const, departmentSlug: departmentOf(key) };
+      // `background`: a platform utility the Team screen keeps off the founder's lists; Commit's roster does the same.
+      return { templateKey: key, name: t.name, role: t.role, layer: t.layer, background: t.layer === "utility", modelKey: t.modelKey, wageCapMinor: t.wageCapMinor, wageCurrency: WAGE_CURRENCY, wageLabel: "Estimate" as const, departmentSlug: departmentOf(key) };
     }),
     defaultChannels: seed.defaultChannels,
     specOutline: seed.specOutline,

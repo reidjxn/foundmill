@@ -920,3 +920,12 @@ export function itemIdFromPath(pathname: string | null | undefined): string | nu
   const m = /\/inbox\/([^/?#]+)/.exec(pathname ?? "");
   return m?.[1] ? decodeURIComponent(m[1]) : null;
 }
+
+/**
+ * Whether the first-visit tour starts now (first-time founder report, Nov 8, 2026: the tour's first card sat over the
+ * note the founder had opened). It starts the first time the Inbox is in front with no note selected; once started it
+ * stays through the notes they open, so a note never unmounts a tour in progress.
+ */
+export function inboxTourStarts(selectedId: string | null, started: boolean): boolean {
+  return started || selectedId === null;
+}

@@ -94,15 +94,23 @@ export const CONNECTION_GRACE_MS = 3_000;
  * "Updates may be late" chip; a short reconnect shows nothing.
  */
 export const LATE_NOTICE_MS = 30_000;
-export type ConnectionNoticeState = "reconnecting" | "paused";
+/**
+ * A channel that has never been live since the page opened is not "reconnecting" to anything (first-time founder
+ * report, Nov 8, 2026: a laptop stack with no stream service showed "Reconnecting…" for good): after this long it reads
+ * "Live updates off".
+ */
+export const NEVER_LIVE_MS = 30_000;
+export type ConnectionNoticeState = "reconnecting" | "paused" | "off";
 
 /**
  * What the top bar says about the live connection (audit RES-11): nothing while the business's channel is live or
  * within the grace after it dropped; "reconnecting" while the socket is trying again; "paused" when it is not (closed,
- * or the server refused the channel).
+ * or the server refused the channel); "off" when the channel has never been live this page and it has been trying for
+ * `NEVER_LIVE_MS` (`everLive` false): this server has no live connection to come back to.
  */
-export function connectionNotice(input: { live: boolean; status: StreamStatus; downForMs: number }, graceMs: number = CONNECTION_GRACE_MS): ConnectionNoticeState | null {
+export function connectionNotice(input: { live: boolean; status: StreamStatus; downForMs: number; everLive?: boolean }, graceMs: number = CONNECTION_GRACE_MS): ConnectionNoticeState | null {
   if (input.live || input.downForMs < graceMs) return null;
+  if (input.everLive === false && input.downForMs >= NEVER_LIVE_MS) return "off";
   return input.status === "connecting" || input.status === "reconnecting" ? "reconnecting" : "paused";
 }
 
@@ -112,19 +120,26 @@ export function useConnectionNotice(businessId: string, graceMs: number = CONNEC
   const status = useStreamStatus();
   const [downSince, setDownSince] = useState<number | null>(null);
   const [now, setNow] = useState(0);
+  // Whether this business's channel has been live at all since the page opened (per business: a switch starts over).
+  const [everLive, setEverLive] = useState(false);
+  useEffect(() => {
+    setEverLive(false);
+  }, [businessId]);
   useEffect(() => {
     if (live) {
+      setEverLive(true);
       setDownSince(null);
       return;
     }
     const since = Date.now();
     setDownSince(since);
     setNow(since);
-    const t = window.setTimeout(() => setNow(Date.now()), graceMs);
-    return () => window.clearTimeout(t);
+    // Once at the grace (the chip appears), once more when a channel that was never live counts as off.
+    const timers = [window.setTimeout(() => setNow(Date.now()), graceMs), window.setTimeout(() => setNow(Date.now()), Math.max(graceMs, NEVER_LIVE_MS))];
+    return () => timers.forEach((t) => window.clearTimeout(t));
   }, [live, businessId, graceMs]);
   if (live || downSince === null) return null;
-  return connectionNotice({ live, status, downForMs: now - downSince }, graceMs);
+  return connectionNotice({ live, status, downForMs: now - downSince, everLive }, graceMs);
 }
 
 /**

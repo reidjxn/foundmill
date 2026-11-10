@@ -98,8 +98,8 @@ export async function decideInboxItem(ctx: BusinessContext, input: DecideItemInp
   // running a plan from it would answer it and chain "Decided: Decided: …" follow-ups.
   if (!decision) throw new ValidationError("This note doesn't ask for a decision. Reply to the agent in the conversation instead.", { route: "conversation", itemId: item.id });
   // An agent's gated call waiting for the founder: Approve or Reject answers the approval itself.
-  const approval = await ctx.rls((tx) => repos.approvals.forInboxItem(tx, ctx.businessId, item.id));
-  if (approval) return decideApprovalItem(ctx, item, approval, { chosenOption, freeText });
+  const approvals = await ctx.rls((tx) => repos.approvals.listForInboxItem(tx, ctx.businessId, item.id));
+  if (approvals.length) return decideApprovalItem(ctx, item, approvals, { chosenOption, freeText });
   // The founder's sign-off of the specification or the roadmap, or Ready to start selling (founder, 2026-10-18): decided
   // in-process from its round; free text is a request for changes in the founder's words.
   const signoff = await ctx.rls((tx) => repos.productSignoffs.forInboxItem(tx, ctx.businessId, item.id));
@@ -181,48 +181,60 @@ export async function decideInboxItem(ctx: BusinessContext, input: DecideItemInp
  * records the answer as one done action, so the item's history reads like any other decision; nothing is compiled
  * and no model is called.
  */
-async function decideApprovalItem(ctx: BusinessContext, item: InboxItem, approval: Approval, input: { chosenOption: string | null; freeText: string | null }): Promise<DecideItemResult> {
+/**
+ * Approve or Reject on an approval's note answers every request the note covers: one for an ordinary note, several for a
+ * batched one (first-time founder report, Nov 8, 2026: "5 channels want to launch a campaign" is one decision). Each
+ * approval is recorded on its own row and told its own way; the plan carries one reply action per request.
+ */
+async function decideApprovalItem(ctx: BusinessContext, item: InboxItem, linked: readonly Approval[], input: { chosenOption: string | null; freeText: string | null }): Promise<DecideItemResult> {
   const outcome = approvalOutcomeOf(input.chosenOption);
-  if (!outcome) throw new ValidationError("Choose Approve or Reject: this note asks about one call an agent wants to make.", { itemId: item.id, approvalId: approval.id });
-  if (approval.outcome !== null) {
+  const first = linked[0]!;
+  if (!outcome) throw new ValidationError(linked.length > 1 ? "Choose Approve all or Reject all: this note asks about several calls the team wants to make." : "Choose Approve or Reject: this note asks about one call an agent wants to make.", { itemId: item.id, approvalId: first.id });
+  const open = linked.filter((a) => a.outcome === null);
+  if (open.length === 0) {
     // Settled some other way (a hold that went on by itself, an expiry, a plan): the note stops asking and stops
     // blocking Continue, instead of waiting for an answer nobody can give any more.
-    await ctx.rls((tx) => closeApprovalItem(tx, ctx.businessId, approval));
-    throw new ValidationError(`This request was already ${approval.outcome}`, { itemId: item.id, approvalId: approval.id });
+    await ctx.rls((tx) => closeApprovalItem(tx, ctx.businessId, first));
+    throw new ValidationError(`This request was already ${first.outcome}`, { itemId: item.id, approvalId: first.id });
   }
   // Section walls hold here too: approving a Stripe call needs Finance write, a GitHub call Development write.
-  assertApprovalAccess(ctx.membership, approval);
+  for (const a of open) assertApprovalAccess(ctx.membership, a);
   const note = input.freeText?.slice(0, 2000) ?? null;
   const written = await ctx.rls(async (tx) => {
-    const recorded = await recordApprovalAnswer(tx, ctx, approval, outcome, note);
+    const recorded = [];
+    for (const a of open) recorded.push(await recordApprovalAnswer(tx, ctx, a, outcome, note));
+    const summary = recorded.length === 1 ? recorded[0]!.summary : `You ${outcome} ${recorded.length} requests at once. ${recorded.map((r) => r.summary).join(" ")}`.slice(0, 4000);
     const plan = await repos.plans.create(tx, ctx.businessId, {
       origin: "option",
-      summaryMd: recorded.summary,
+      summaryMd: summary,
       inboxItemId: item.id,
       status: "executing",
-      actions: [{ type: "reply_only", params: { acknowledgement: recorded.summary, approval_id: approval.id, outcome }, agentId: approval.agentId, policyOutcome: "allow" }],
+      actions: recorded.map((r) => ({ type: "reply_only" as const, params: { acknowledgement: r.summary, approval_id: r.approval.id, outcome }, agentId: r.approval.agentId, policyOutcome: "allow" as const })),
     });
     const decided = await repos.inbox.decide(tx, ctx.businessId, item.id, { chosenOption: input.chosenOption, freeText: note, decidedByKind: "user", decidedBy: ctx.userId, planId: plan.id });
-    const action = plan.actions[0]!;
-    await repos.plans.startAction(tx, ctx.businessId, action.id);
-    await repos.plans.finishAction(tx, ctx.businessId, action.id, { status: "done", result: { approvalId: approval.id, outcome, taskId: recorded.task?.id ?? null } });
-    await emit(tx, ctx, { type: "decision.made", payload: { decisionId: decided.decision.id, inboxItemId: item.id, chosenOption: input.chosenOption, freeText: note, decidedBy: "user", planId: plan.id, planActionCount: 1, hardGateActions: 0 } });
-    await audit(tx, ctx, { action: "inbox.decide", target: { kind: "inbox_item", id: item.id }, details: { chosenOption: input.chosenOption, approvalId: approval.id, outcome, planId: plan.id } });
-    return { recorded, decided, plan: await repos.plans.get(tx, ctx.businessId, plan.id), actionId: action.id };
+    for (const [i, action] of plan.actions.entries()) {
+      await repos.plans.startAction(tx, ctx.businessId, action.id);
+      await repos.plans.finishAction(tx, ctx.businessId, action.id, { status: "done", result: { approvalId: recorded[i]!.approval.id, outcome, taskId: recorded[i]!.task?.id ?? null } });
+    }
+    await emit(tx, ctx, { type: "decision.made", payload: { decisionId: decided.decision.id, inboxItemId: item.id, chosenOption: input.chosenOption, freeText: note, decidedBy: "user", planId: plan.id, planActionCount: plan.actions.length, hardGateActions: 0 } });
+    await audit(tx, ctx, { action: "inbox.decide", target: { kind: "inbox_item", id: item.id }, details: { chosenOption: input.chosenOption, approvalId: first.id, approvalIds: recorded.map((r) => r.approval.id), outcome, planId: plan.id } });
+    return { recorded, decided, plan: await repos.plans.get(tx, ctx.businessId, plan.id), actionIds: plan.actions.map((a) => a.id) };
   });
-  const answer = await deliverApprovalAnswer(ctx, written.recorded);
+  const answers = [];
+  for (const r of written.recorded) answers.push(await deliverApprovalAnswer(ctx, r));
+  const answer = answers[0]!;
   return asSeenBy(ctx, item, {
     item: written.decided.item,
     decision: written.decided.decision,
     plan: written.plan,
     evaluations: [],
     requiresConfirmation: false,
-    executed: [written.actionId],
+    executed: written.actionIds,
     deferred: [],
     denied: [],
     dispatch: null,
-    followUp: answer.note,
-    approval: answer,
+    followUp: answers.find((a) => a.note)?.note ?? null,
+    approval: answers.length === 1 ? answer : { ...answer, summary: written.plan.summaryMd ?? answer.summary, signalled: answers.flatMap((a) => a.signalled) },
   });
 }
 
