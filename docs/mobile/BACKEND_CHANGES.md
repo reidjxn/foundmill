@@ -12,7 +12,7 @@ The mobile app is a second client of the existing backend. Nothing below changes
 - Checked: the CORS layer only adds headers for a browser origin; a request with no `Origin` and a bearer passes through to every procedure (`apps/api/src/__tests__/cors-origins.test.ts`, "a native client without an Origin"). The mobile client sends every call, reads included, straight to `https://api.foundmill.com/trpc`.
 - The request log now records `x-foundmill-client` (`mobile/<version> <platform>`, printable and at most 64 characters; anything else logs as null), so mobile traffic is distinguishable in Railway logs; the header is also on the CORS allow list.
 
-## 3. Device registration ✅ (`packages/db/migrations/0074_founder_devices.sql`, `repos/devices.ts`, `apps/api/src/routers/founder.ts`)
+## 3. Device registration ✅ (`packages/db/migrations/0075_founder_devices.sql`, `repos/devices.ts`, `apps/api/src/routers/founder.ts`)
 
 - `founder_devices`: `id`, `user_id`, `platform` (ios | android), `provider` (onesignal), `token` unique (8–512 chars), `app_version`, `last_seen_at`, timestamps. Account-scoped; RLS `user_id = auth.uid()` for select, insert, update and delete; the service role reads them all. Cross-user tests in `packages/db/src/__tests__/rls/founder-devices.test.ts` and `apps/api/src/__tests__/founder-devices.test.ts`.
 - `founder.devices.list` Q, `founder.devices.register` M `{ platform, provider, token, appVersion }` → `{ device, created }` (an upsert on the token, run with the service role so a token follows the latest sign-in on a phone), `founder.devices.unregister` M `{ token }` → `{ removed }`.

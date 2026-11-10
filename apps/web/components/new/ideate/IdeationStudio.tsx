@@ -33,7 +33,7 @@ import { errorMessage, trpcPathPrefix } from "@/lib/trpc";
 import { useTRPC, useTRPCClient } from "@/lib/trpc-react";
 import { LinkButton } from "../LinkButton";
 import { StudioFrame } from "../StudioFrame";
-import { COMPARE_MAX, COMPARE_MIN, attributeChanges, buildDeck, commitHref, compareHref, discardLocally, lineageOf, orderDeck, pinnedIdsToLoad, restoreLocally, settlePinned, toConcept, toggleSelection, withPinned, type IdeaLike, type IdeaVersionLike } from "./concepts";
+import { COMPARE_MAX, COMPARE_MIN, attributeChanges, buildDeck, CHOOSE_IDEA_LABEL, commitHref, compareHref, discardLocally, lineageOf, orderDeck, pinnedIdsToLoad, restoreLocally, settlePinned, toConcept, toggleSelection, withPinned, type IdeaLike, type IdeaVersionLike } from "./concepts";
 import { conceptErrorMessage } from "./concept-errors";
 import { AskDialog, EditDialog, ForkDialog, HistoryDialog, MergeDialog, WriteDialog, type AskExchange, type AskInput } from "./dialogs";
 import { DraftStatus, DraftingCard } from "./DraftStatus";
@@ -711,8 +711,9 @@ const DeckCard = memo(function DeckCard({ idea, fresh, dimmed, selected, shortli
           </Button>
         </Tooltip>
         {fresh ? <JustInTag /> : null}
+        {/* What the press does, in plain words (DECISIONS 2026-11-10): it picks the idea and opens its setup, where Take charge starts the business. */}
         <LinkButton size="sm" variant="default" iconRight={ArrowRight} className="ml-auto" href={commitHref(idea.id)} data-testid="commit-link">
-          Commit
+          {CHOOSE_IDEA_LABEL}
         </LinkButton>
       </div>
     </div>

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { CONCEPT_ATTRIBUTE_KEYS, isHexColour, kitOnPrimaryDetail } from "@foundmill/dugout";
 import { STEERING_CHIPS, steerBrief } from "../ideate/IdeationStudio";
-import { COMPARE_MAX, EMPTY_STUDIO_STATE, META_KIND, attributeChanges, attributeTerm, attributeTermId, buildDeck, citationsOf, commitHref, compareHref, costLabel, discardLocally, founderWrote, kitFromSeed, lineageOf, orderDeck, parseCompareIds, parseStudioState, pinnedIdsToLoad, qaBubbles, qaOf, readMeta, restoreLocally, settlePinned, toConcept, toggleSelection, versionActionLabel, versionToConcept, withPinned, type IdeaLike, type IdeaVersionLike } from "../ideate/concepts";
+import { CHOOSE_IDEA_LABEL, COMPARE_MAX, EMPTY_STUDIO_STATE, META_KIND, attributeChanges, attributeTerm, attributeTermId, buildDeck, citationsOf, commitHref, compareHref, costLabel, discardLocally, founderWrote, kitFromSeed, lineageOf, orderDeck, parseCompareIds, parseStudioState, pinnedIdsToLoad, qaBubbles, qaOf, readMeta, restoreLocally, settlePinned, toConcept, toggleSelection, versionActionLabel, versionToConcept, withPinned, type IdeaLike, type IdeaVersionLike } from "../ideate/concepts";
 
 const A = "11111111-1111-4111-8111-111111111111";
 const B = "22222222-2222-4222-8222-222222222222";
@@ -89,6 +89,11 @@ describe("compare selection and hrefs (AC-11.1.4)", () => {
     expect(parseCompareIds(`${A},${A},nope,${B},${C},44444444-4444-4444-8444-444444444444,55555555-5555-4555-8555-555555555555`)).toHaveLength(4);
     expect(parseCompareIds(null)).toEqual([]);
     expect(commitHref(A)).toBe(`/new/commit/${A}`);
+  });
+
+  it("the card's button says what happens in plain words, never \"Commit\" (first-time founder report)", () => {
+    expect(CHOOSE_IDEA_LABEL).toBe("Choose this idea");
+    expect(CHOOSE_IDEA_LABEL).not.toMatch(/commit/i);
   });
 });
 

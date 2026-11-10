@@ -12,7 +12,7 @@
  * example membership (a read-only walk around a demo) writes nothing into the demo's log.
  * founder.tableViews.get/save: the views a person saves on a data table (saved_table_views, 0041), for a business they
  * belong to or for the account-wide LIVE pages; RLS holds them to their own rows and their own businesses.
- * founder.preferences.notifications and founder.devices.list/register/unregister (0074, docs/mobile): the mobile app's
+ * founder.preferences.notifications and founder.devices.list/register/unregister (0075, docs/mobile): the mobile app's
  * push preferences (which kinds, amounts off the lock screen) and the phones it registered. `register` runs with the
  * service role so a token follows the latest sign-in on a phone (packages/db repos/devices.ts); the rest run as the user.
  */
@@ -110,7 +110,7 @@ export const founderRouter = router({
      * (0073: show how the platform runs the team; default false).
      */
     guidance: protectedProcedure.query(({ ctx }) => asUser(ctx, async (tx) => guidancePrefsOf(await repos.preferences.get(tx, ctx.userId)))),
-    /** Which kinds of push the person's phones get (every kind on until turned off) and whether amounts stay off the lock screen (0074). */
+    /** Which kinds of push the person's phones get (every kind on until turned off) and whether amounts stay off the lock screen (0075). */
     notifications: protectedProcedure.query(({ ctx }) => asUser(ctx, async (tx) => notificationPrefsOf(await repos.preferences.get(tx, ctx.userId)))),
     /** Change any of the preferences (formats, the switch, the text size, marks, the checklist, a reset, anthropomorphic agents and their style); returns them all. */
     update: protectedProcedure.input(AccountPreferencesPatch).mutation(({ ctx, input }) => asUser(ctx, (tx) => repos.preferences.update(tx, ctx.userId, input))),

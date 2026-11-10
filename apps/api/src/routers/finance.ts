@@ -5,6 +5,7 @@
 import { CREDITS_CURRENCY, LIMITS } from "@foundmill/config";
 import { CreateEntryInput, CreateForecastInput, CreateSecurityInput, UpdateEntryInput, repos } from "@foundmill/db";
 import { z } from "zod";
+import { revenueIsRecurring } from "@foundmill/shared";
 import { Id, audit, emit, router, sectionAdmin, sectionRead, sectionWrite } from "../trpc";
 
 const read = sectionRead("finance");
@@ -64,7 +65,9 @@ export const financeRouter = router({
         cash: { amountMinor: cashMinor, currency: base?.currency ?? ctx.business.currency, accounts: cash.accounts.length, asOf: base?.oldestBalanceAt ?? null, label: "Cash in bank" },
         burn: { ...burn, label: "Estimate" as const, definition: "Operating outflows minus operating inflows, trailing 3-month average, financing excluded" },
         runway: { months: runwayMonths, label: "Estimate" as const, warnings, blocksContinue: runwayMonths !== null && runwayMonths < LIMITS.runwayBlockMonths },
-        revenue: { monthly, basis: "cash" as const, label: "Management P&L, unaudited, cash basis" },
+        // `recurring`: whether this business's revenue recurs (subscriptions, retainers) or is sold once (shared
+        // `revenueIsRecurring`, by archetype); Finance names the monthly figure MRR only when it does.
+        revenue: { monthly, basis: "cash" as const, label: "Management P&L, unaudited, cash basis", recurring: revenueIsRecurring(ctx.business.archetype) },
         customers30d: conversions.payment ?? 0,
         /**
          * The paying customer base of the same trailing full months as revenue and MRR (everyone who had paid by the

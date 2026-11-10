@@ -230,6 +230,13 @@ export function compareHref(ids: readonly string[]): string {
   return `/new/compare?ids=${ids.map(encodeURIComponent).join(",")}`;
 }
 
+/**
+ * The label of the button that takes an idea to its setup (the Commit step): what the press does, in plain words
+ * (first-time founder report, Nov 2026: "Commit" said nothing). Choosing opens the name, logo and how-it-runs form;
+ * Take charge there starts the business, so the card never says "Start" (DECISIONS 2026-11-10).
+ */
+export const CHOOSE_IDEA_LABEL = "Choose this idea";
+
 export function commitHref(ideaId: string): string {
   return `/new/commit/${encodeURIComponent(ideaId)}`;
 }

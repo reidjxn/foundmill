@@ -1,7 +1,7 @@
 /** journey.get/list/markViewed + daily rows and milestones for the Ribbon (BUILD §11.2, §11.4). */
 import { JourneyListFilter, NO_DEPARTMENT_ID, repos } from "@foundmill/db";
 import { buildChapters, compareByTimeThenId, shouldPlayFullMatchDay } from "@foundmill/journey";
-import { dayKeyIn, dayRangeIn } from "@foundmill/shared";
+import { addDaysToDay, dayKeyIn, dayRangeIn } from "@foundmill/shared";
 import { loadRedactionSource, redactValue } from "../services/inbox-redaction";
 import { attributionSummary, buildJourneyRecord } from "../services/journey";
 import { journeyWalls, wallConversion, wallJourneyDetail, wallRibbon } from "../services/journey-walls";
@@ -109,7 +109,11 @@ export const journeyRouter = router({
       const { from, to } = ribbonRange(input, Date.now(), zone);
       const range = dayRangeIn(from, to, zone);
       const firstDay = dayKeyIn(ctx.business.committedAt ?? ctx.business.createdAt, zone);
-      const [rows, conversions, milestones, counts, quarters, titles] = await Promise.all([
+      // Customers (first payments) as one server figure each, whatever range is on screen (one number per fact,
+      // DECISIONS 2026-11-10): this week is the business's last 7 days with today, the week before the 7 before, and
+      // the total is every first payment, the count the customer milestones are reached at.
+      const today = dayKeyIn(Date.now(), zone);
+      const [rows, conversions, milestones, counts, quarters, titles, weekCounts, previousCounts, allCounts] = await Promise.all([
         repos.journeys.dailyRange(tx, ctx.businessId, { from, to, departmentId: input.departmentId }),
         // Customers won (and signups, activations): a renewal or a repeat order is revenue in the daily rows, not a marker.
         input.slim ? Promise.resolve({ items: [] }) : repos.journeys.listConversions(tx, ctx.businessId, { ...range, firstPayment: true, limit: 500 }),
@@ -118,7 +122,11 @@ export const journeyRouter = router({
         // Chapters cover the business's whole life whatever range is on screen: its totals per quarter, from kick-off.
         repos.journeys.quarterTotals(tx, ctx.businessId, { from: firstDay < to ? firstDay : to, to }),
         repos.journeys.chapterTitles(tx, ctx.businessId),
+        repos.journeys.countConversions(tx, ctx.businessId, dayRangeIn(addDaysToDay(today, -6), today, zone)),
+        repos.journeys.countConversions(tx, ctx.businessId, dayRangeIn(addDaysToDay(today, -13), addDaysToDay(today, -7), zone)),
+        repos.journeys.countConversions(tx, ctx.businessId, {}),
       ]);
+      const customers = { today, thisWeek: weekCounts.payment ?? 0, previousWeek: previousCounts.payment ?? 0, total: allCounts.payment ?? 0 };
       const conversionCount = Object.values(counts).reduce((n, c) => n + c, 0);
       const chapters = buildChapters({
         startDay: firstDay,
@@ -136,7 +144,7 @@ export const journeyRouter = router({
       // Ribbon and the revenue widgets read `departmentId: null` and numbers.
       const dailyRows = rows.map((r) => ({ ...r, departmentId: r.departmentId === NO_DEPARTMENT_ID ? null : r.departmentId, agentHours: Number(r.agentHours), spendMinor: Number(r.spendMinor), revenueMinor: Number(r.revenueMinor) }));
       const labelled = conversions.items.length ? await repos.journeys.labelConversions(tx, ctx.businessId, conversions.items) : [];
-      return wallRibbon({ rows: dailyRows, conversions: labelled.map((c) => ({ ...c, occurredAt: c.occurredAt.toISOString() })), conversionCount, milestones: milestones.map((m) => ({ ...m, achievedAt: m.achievedAt.toISOString() })), chapters, kickoff: firstDay, firstDay, today: to, forecastLabel: "Forecast" as const }, journeyWalls(ctx.membership));
+      return wallRibbon({ rows: dailyRows, conversions: labelled.map((c) => ({ ...c, occurredAt: c.occurredAt.toISOString() })), conversionCount, milestones: milestones.map((m) => ({ ...m, achievedAt: m.achievedAt.toISOString() })), chapters, customers, kickoff: firstDay, firstDay, today: to, forecastLabel: "Forecast" as const }, journeyWalls(ctx.membership));
     }),
   ),
 

@@ -239,6 +239,34 @@ export function defaultMarket(residence: string | null | undefined): string | nu
   return REGION_MARKET[region] ?? REGION_COUNTRY_NAME[region] ?? null;
 }
 
+/** Country names that read with "the" in a sentence ("based in the United Kingdom"). */
+const NAMES_WITH_THE = new Set(["united kingdom", "uk", "united states", "united states of america", "us", "usa", "netherlands", "czech republic", "united arab emirates"]);
+
+/**
+ * Where the founder lives, as a place ("the United Kingdom", "Sweden"): the list's spelling of a known country, else
+ * the residence as typed; null when empty. Never a market group: a founder in Sweden lives in Sweden, not "Nordics".
+ */
+export function homeWords(residence: string | null | undefined): string | null {
+  const typed = (residence ?? "").trim();
+  if (!typed) return null;
+  const region = regionOfCountry(typed);
+  const name = (region ? REGION_COUNTRY_NAME[region] : undefined) ?? typed;
+  return NAMES_WITH_THE.has(name.toLowerCase()) && !/^the /i.test(name) ? `the ${name}` : name;
+}
+
+/**
+ * The place and the markets of a profile summary, each said as what it is: "based in the United Kingdom" and
+ * "markets: Nordics" (first-time founder report, Nov 2026: the summary listed the markets bare, so a UK founder whose
+ * target market was the Nordics read as "Nordics"). At most three markets.
+ */
+export function placeAndMarketsWords(residence: string | null | undefined, markets: readonly string[]): string[] {
+  const parts: string[] = [];
+  const home = homeWords(residence);
+  if (home) parts.push(`based in ${home}`);
+  if (markets.length) parts.push(`markets: ${markets.slice(0, 3).join(", ")}${markets.length > 3 ? ", …" : ""}`);
+  return parts;
+}
+
 /** The markets the profile saves: the founder's own, or the one derived from where they live, or none. */
 export function effectiveTargetMarkets(form: Pick<ProfileForm, "targetMarkets" | "residence">): string[] {
   if (form.targetMarkets.length > 0) return form.targetMarkets;
@@ -553,7 +581,7 @@ export function clearExampleProfile(form: ProfileForm, before: ProfileForm): Pro
   return next;
 }
 
-/** One line the Ideation Studio shows back: "First-time founder · full time · EUR 25,000 · EU, UK". */
+/** The line the form shows back: "First-time founder · full time · €25,000 · based in Germany · markets: EU, UK". */
 export function profileSummary(form: ProfileForm): string {
   const parts: string[] = [];
   const exp = EXPERIENCE_OPTIONS.find((o) => o.value === form.experience)?.label;
@@ -562,8 +590,7 @@ export function profileSummary(form: ProfileForm): string {
   if (time) parts.push(time.toLowerCase());
   const budget = form.noBudget ? null : parseBudgetMinor(form.budget);
   if (budget !== null && !Number.isNaN(budget)) parts.push(budgetWords(budget, form.currency));
-  const markets = effectiveTargetMarkets(form);
-  if (markets.length) parts.push(markets.join(", "));
+  parts.push(...placeAndMarketsWords(form.residence, effectiveTargetMarkets(form)));
   return parts.join(" · ");
 }
 

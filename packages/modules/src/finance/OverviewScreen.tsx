@@ -6,13 +6,14 @@
  */
 import { useMemo } from "react";
 import { AlertTriangle, ChevronRight, Inbox, Landmark } from "lucide-react";
-import { BarChart, Button, EmptyState, ErrorState, Explainer, LineChart, MetricTile, Panel, ProvenanceChip, StatusPill, Term, formatNumber, useDateFormat, type LineSeries, type MetricTileProps, type MetricProvenance } from "@foundmill/dugout";
+import { BarChart, Button, EmptyState, ErrorState, Explainer, LineChart, MetricTile, Panel, ProvenanceChip, StatusPill, Term, formatNumber, useDateFormat, type DateFormatPrefs, type LineSeries, type MetricTileProps, type MetricProvenance } from "@foundmill/dugout";
 import { routes } from "@foundmill/widgets/shared/routes";
 import { useWidgetData, useWidgetQuery } from "@foundmill/widgets/data";
 import type { ModuleScreenProps } from "../registry";
 import {
   METRIC_DEFINITIONS,
   acquisitionCost,
+  metricWords,
   cashHistory,
   formatMonth,
   monthKey,
@@ -52,14 +53,30 @@ export const HEADLINE_METRICS: readonly MetricKey[] = ["cash", "netBurn", "runwa
  * The one sentence that says which figures are estimates (Nov 7, 2026: "Estimate" once per screen, in words, not a
  * chip on every tile). Null when every figure is measured.
  */
-export function estimateSentence(tiles: readonly { key: MetricKey; estimate?: unknown }[]): string | null {
-  const labels = tiles.filter((t) => t.estimate).map((t) => METRIC_DEFINITIONS[t.key].label.replace(/\s*\(.*\)$/, "").toLowerCase());
+export function estimateSentence(tiles: readonly { key: MetricKey; estimate?: unknown }[], recurring: boolean | null | undefined = true): string | null {
+  const labels = tiles.filter((t) => t.estimate).map((t) => metricWords(t.key, recurring).label.replace(/\s*\(.*\)$/, "").toLowerCase());
   if (!labels.length) return null;
   const list = labels.length === 1 ? labels[0]! : `${labels.slice(0, -1).join(", ")} and ${labels.at(-1)}`;
   return `Estimate: ${list} ${labels.length === 1 ? "is" : "are"} worked out, not measured.`;
 }
 /** Charts fill the rest of a 900 px window under the ten tiles. */
 const CHART_HEIGHT = 320;
+
+/**
+ * The full months a trailing figure covers, in the person's date format: "Aug – Oct 2026" (a shared year said once),
+ * "Nov 2025 – Jan 2026", or "2026-08 – 2026-10" in ISO. The revenue and the monthly figure name the same months, so
+ * "£76K" and "£25K a month" read as one fact.
+ */
+export function monthRangeWords(months: readonly string[], prefs?: DateFormatPrefs | null): string {
+  const first = months[0];
+  const last = months.at(-1);
+  if (!first || !last) return "";
+  const a = formatMonth(first, prefs);
+  const b = formatMonth(last, prefs);
+  if (first === last) return b;
+  const year = / \d{4}$/.exec(b)?.[0];
+  return year && a.endsWith(year) ? `${a.slice(0, -year.length)} – ${b}` : `${a} – ${b}`;
+}
 
 /** The department's intro, on its first tab while guidance is on (UX plan §7.10). */
 export const FINANCE_EXPLAINER = {
@@ -77,8 +94,8 @@ export interface OverviewMetric extends MetricTileProps {
  * A tile's label as a founder first meets it: the defined word becomes a `Term` (dotted while guidance is on) and the
  * rest of the label stays plain ("Gross burn (spending per month)", "Monthly recurring revenue (MRR)").
  */
-export function MetricLabel({ metric }: { metric: MetricKey }) {
-  const { label, term } = METRIC_DEFINITIONS[metric];
+export function MetricLabel({ metric, recurring }: { metric: MetricKey; recurring?: boolean | null }) {
+  const { label, term } = metricWords(metric, recurring);
   if (!term) return <>{label}</>;
   const open = label.indexOf(" (");
   if (open < 0) return <Term id={term}>{label}</Term>;
@@ -106,7 +123,7 @@ export function forecastRunway(overview: FinanceOverview | undefined, now: Date)
 }
 
 /** The ten tiles (BUILD §11.8 metric definitions) from the overview, the trailing P&L and the channel board. */
-export function overviewTiles(args: { overview: FinanceOverview; pnl: PnlResponse | undefined; channels: ChannelsListResponse | undefined; currency: string; now: Date }): OverviewMetric[] {
+export function overviewTiles(args: { overview: FinanceOverview; pnl: PnlResponse | undefined; channels: ChannelsListResponse | undefined; currency: string; now: Date; datePrefs?: DateFormatPrefs | null }): OverviewMetric[] {
   const { overview, pnl, channels, now } = args;
   const currency = overview.cash.currency || args.currency;
   const months = trailingMonths(now, HISTORY);
@@ -114,6 +131,9 @@ export function overviewTiles(args: { overview: FinanceOverview; pnl: PnlRespons
   const totals = pnl ? pnlTotals(pnl.categories) : null;
   const revenue = totals?.revenueMinor ?? 0;
   const mrr = Math.round(revenue / TRAILING);
+  // A business whose customers buy once has no recurring revenue: its monthly figure is the average month (finance.overview `revenue.recurring`).
+  const recurring = overview.revenue.recurring;
+  const revenueWindow = monthRangeWords(trailingMonths(now, TRAILING), args.datePrefs);
   const gm = totals?.grossMarginPct ?? null;
   const blended = channels?.blended;
   const cpa = acquisitionCost(blended ? { spendMinor: blended.spendMinor, customers: blended.customers } : null);
@@ -126,7 +146,7 @@ export function overviewTiles(args: { overview: FinanceOverview; pnl: PnlRespons
   const asOf = overview.cash.asOf ?? undefined;
   const bank = `${overview.cash.accounts} connected account${overview.cash.accounts === 1 ? "" : "s"}`;
   const pnlSource = pnlLabelWords(pnl?.label);
-  const prov = (key: MetricKey, source: string, query?: string, extra?: string): MetricProvenance => ({ source, asOf, query, note: extra ? `${METRIC_DEFINITIONS[key].definition} ${extra}` : METRIC_DEFINITIONS[key].definition });
+  const prov = (key: MetricKey, source: string, query?: string, extra?: string): MetricProvenance => ({ source, asOf, query, note: extra ? `${metricWords(key, recurring).definition} ${extra}` : metricWords(key, recurring).definition });
 
   const perChannel = channels?.channels
     .filter((c) => c.form && c.form.customers > 0)
@@ -144,9 +164,9 @@ export function overviewTiles(args: { overview: FinanceOverview; pnl: PnlRespons
     { key: "grossBurn", label: METRIC_DEFINITIONS.grossBurn.label, value: { amountMinor: overview.burn.grossBurnMinor, currency }, estimate: "estimate", spark: monthlySeries(monthly, months, operatingOutflow), provenance: prov("grossBurn", "Bank transactions, operating outflows", "finance.overview.burn.grossBurnMinor"), caption: `per month, ${overview.burn.months}-month average` },
     { key: "netBurn", label: METRIC_DEFINITIONS.netBurn.label, value: { amountMinor: overview.burn.netBurnMinor, currency }, estimate: "estimate", delta: undefined, spark: monthlySeries(monthly, months, operatingBurn), provenance: prov("netBurn", "Bank transactions, financing and transfers excluded", "finance.overview.burn.netBurnMinor"), caption: overview.burn.netBurnMinor <= 0 ? "Cash-flow positive" : `per month, ${overview.burn.months}-month average` },
     { key: "runway", label: METRIC_DEFINITIONS.runway.label, value: runwayMonths === null ? (runwayStandIn?.value ?? "—") : `${runwayMonths}`, unit: runwayMonths === null ? undefined : "mo", estimate: runwayMonths === null ? (runwayStandIn?.estimate ? "estimate" : undefined) : "estimate", provenance: prov("runway", "Cash ÷ net burn", "finance.overview.runway", fcRunway !== null ? `Base forecast: ${fmtMonths(fcRunway)}.` : undefined), caption: runwayMonths === null ? (runwayStandIn?.caption ?? "Appears once net burn is measured") : fcRunway !== null ? `Forecast: ${fmtMonths(fcRunway)}` : runwayWord(runwayMonths) },
-    { key: "revenue", label: METRIC_DEFINITIONS.revenue.label, value: { amountMinor: revenue, currency }, estimate: pnl?.source === "ledger" ? undefined : "estimate", spark: monthlySeries(monthly, months, operatingInflow), provenance: prov("revenue", pnlSource, "finance.pnl.categories[revenue]"), caption: `trailing ${TRAILING} months` },
-    { key: "mrr", label: METRIC_DEFINITIONS.mrr.label, value: { amountMinor: mrr, currency }, estimate: "estimate", provenance: prov("mrr", pnlSource, `revenue ÷ ${TRAILING}`), caption: "per month" },
-    { key: "arr", label: METRIC_DEFINITIONS.arr.label, value: { amountMinor: mrr * 12, currency }, estimate: "estimate", provenance: prov("arr", pnlSource, "MRR × 12"), caption: "annualized" },
+    { key: "revenue", label: METRIC_DEFINITIONS.revenue.label, value: { amountMinor: revenue, currency }, estimate: pnl?.source === "ledger" ? undefined : "estimate", spark: monthlySeries(monthly, months, operatingInflow), provenance: prov("revenue", pnlSource, "finance.pnl.categories[revenue]"), caption: `${revenueWindow}, ${TRAILING} full months` },
+    { key: "mrr", label: metricWords("mrr", recurring).label, value: { amountMinor: mrr, currency }, estimate: "estimate", provenance: prov("mrr", pnlSource, `revenue ÷ ${TRAILING}`), caption: `a month: the ${revenueWindow} revenue ÷ ${TRAILING}` },
+    { key: "arr", label: metricWords("arr", recurring).label, value: { amountMinor: mrr * 12, currency }, estimate: "estimate", provenance: prov("arr", pnlSource, recurring === false ? "average monthly revenue × 12" : "MRR × 12"), caption: "annualized" },
     { key: "grossMargin", label: METRIC_DEFINITIONS.grossMargin.label, value: gm === null ? "—" : gm / 100, format: "percent", estimate: gm === null ? undefined : "estimate", provenance: prov("grossMargin", pnlSource, "(revenue − cost of sales) ÷ revenue"), caption: gm === null ? "Appears with the first revenue" : `trailing ${TRAILING} months` },
     { key: "acquisitionCost", label: METRIC_DEFINITIONS.acquisitionCost.label, value: cpa === null ? "—" : { amountMinor: cpa, currency }, estimate: cpa === null ? undefined : "estimate", provenance: prov("acquisitionCost", "Distribution board, channel spend and customers", "spend ÷ new customers", perChannelText), caption: blended ? `${blended.customers} customer${blended.customers === 1 ? "" : "s"}, ${blended.days} days` : "Appears once a channel spends" },
     { key: "payback", label: METRIC_DEFINITIONS.payback.label, value: payback === null ? "—" : `${payback}`, unit: payback === null ? undefined : "mo", estimate: payback === null ? undefined : "estimate", provenance: prov("payback", "Acquisition cost, and gross profit per paying customer (every customer who had paid by the end of the revenue window and had not churned)", "cost to win a customer ÷ (MRR × gross margin ÷ paying customers)"), caption: payback === null ? "Appears with acquisition cost, margin and paying customers" : `${formatNumber(payingCustomers)} paying customer${payingCustomers === 1 ? "" : "s"}` },
@@ -154,8 +174,8 @@ export function overviewTiles(args: { overview: FinanceOverview; pnl: PnlRespons
   // The plain line under each figure while guidance is on (PlainFigure): the definitions map's sentence for a defined
   // metric, the definition's own plain half for the rest.
   return tiles.map((t) => {
-    const term = METRIC_DEFINITIONS[t.key].term;
-    return term ? { ...t, metricId: term } : { ...t, plain: plainLine(t.key) };
+    const term = metricWords(t.key, recurring).term;
+    return term ? { ...t, metricId: term } : { ...t, plain: plainLine(t.key, recurring) };
   });
 }
 
@@ -193,7 +213,7 @@ export function OverviewScreen({ businessId }: ModuleScreenProps) {
   const channels = useWidgetQuery<ChannelsListResponse>("distribution.channels.list", {});
 
   const data = overview.data;
-  const tiles = useMemo(() => (data ? overviewTiles({ overview: data, pnl: pnl.data, channels: channels.data, currency, now }) : null), [data, pnl.data, channels.data, currency, now]);
+  const tiles = useMemo(() => (data ? overviewTiles({ overview: data, pnl: pnl.data, channels: channels.data, currency, now, datePrefs }) : null), [data, pnl.data, channels.data, currency, now, datePrefs]);
   const months = useMemo(() => trailingMonths(now, HISTORY), [now]);
   const cur = data?.cash.currency || currency;
   const hasData = !!data && (data.cash.accounts > 0 || (data.revenue.monthly?.length ?? 0) > 0);
@@ -225,12 +245,12 @@ export function OverviewScreen({ businessId }: ModuleScreenProps) {
   const allKeys = Object.keys(METRIC_DEFINITIONS) as MetricKey[];
   const headline = allKeys.filter((k) => HEADLINE_METRICS.includes(k));
   const more = allKeys.filter((k) => !HEADLINE_METRICS.includes(k));
-  const estimates = tiles ? estimateSentence(tiles) : null;
+  const estimates = tiles ? estimateSentence(tiles, data?.revenue.recurring) : null;
   const renderTile = (key: MetricKey) => {
     const tile = tiles?.find((t) => t.key === key);
-    if (!tile) return <MetricTile key={`loading-${key}`} role="listitem" label={METRIC_DEFINITIONS[key].label} value={null} loading />;
+    if (!tile) return <MetricTile key={`loading-${key}`} role="listitem" label={metricWords(key, data?.revenue.recurring).label} value={null} loading />;
     const { key: _key, estimate: _estimate, ...rest } = tile;
-    return <MetricTile key={key} role="listitem" data-metric={key} {...rest} label={<MetricLabel metric={key} />} />;
+    return <MetricTile key={key} role="listitem" data-metric={key} {...rest} label={<MetricLabel metric={key} recurring={data?.revenue.recurring} />} />;
   };
 
   // The months the warning judges: a balance below zero has none (the tile says "Cash is below zero").

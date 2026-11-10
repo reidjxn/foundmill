@@ -20,7 +20,7 @@ import { AreaOpening } from "@foundmill/modules/areas";
 import { ErrorPanel } from "@/components/shell/ErrorPanel";
 import { RefreshFailedNotice, loadFailed, refreshFailed } from "@/components/shell/QueryStates";
 import { ScreenSkeleton } from "@/components/shell/ScreenSkeleton";
-import { TIMELINE_KIND_WORD, milestoneForTrophy, otherMilestones, replayRefOf, shareText, trophyCards } from "./milestones";
+import { TIMELINE_KIND_WORD, customersSoFarWords, milestoneForTrophy, otherMilestones, replayRefOf, shareText, trophyCards } from "./milestones";
 import { emptyWhy } from "@foundmill/shared/empty-why";
 
 const KIND_ICON = { release: Flag, decision: Gem, incorporation: Rocket, funding: Rocket, launch: Rocket, customer: Trophy, revenue: Trophy, trophy: Trophy } as const;
@@ -109,6 +109,7 @@ export function MilestonesScreen() {
       {refreshFailed(ribbonQ) ? <RefreshFailedNotice query={ribbonQ} className="col-span-12 flex items-center gap-2" /> : null}
       <Panel
         title="Customers and revenue"
+        meta={customersSoFarWords(ribbonQ.data.customers?.total)}
         span={12}
         glow="brand"
         footer={

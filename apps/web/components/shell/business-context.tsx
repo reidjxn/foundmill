@@ -45,7 +45,8 @@ export function makeBusinessContext(businessId: string, data: BusinessGet, depar
     departmentById: (id) => departments.find((d) => d.id === id),
     isAdmin: data.role === "owner" || data.role === "admin",
     isOwner: data.role === "owner",
-    access: accessFor(data.membership),
+    // The business too: an example-source membership of a business that is not a demo is never an example.
+    access: accessFor(data.membership, data.business),
   };
 }
 

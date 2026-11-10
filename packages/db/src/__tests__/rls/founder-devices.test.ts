@@ -1,5 +1,5 @@
 /**
- * founder_devices (0074): the phones a person registered for push, read, written and deleted only by that account.
+ * founder_devices (0075): the phones a person registered for push, read, written and deleted only by that account.
  * Cross-user checks on the table itself and through `repos.devices` under RLS and with the service role (the path
  * apps/api takes for `register`, so a token follows the latest sign-in on a phone).
  */

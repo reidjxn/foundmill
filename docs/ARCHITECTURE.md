@@ -56,6 +56,7 @@ Money is `{ amountMinor: number; currency: string }` (minor units, `bigint` in t
 - `INTEGRATIONS_MODE`: `mock | live`. The connector registry returns `connector.mock` in mock mode. Default mock.
 - `MODEL_MODE`: `mock | live`. `packages/models` returns recorded/deterministic completions in mock mode. Default mock. Evals always force live.
 - Env is parsed once per process with Zod in `packages/shared/src/env.ts` (`loadEnv()`); never read `process.env` directly elsewhere. The web bundle only sees `NEXT_PUBLIC_*`.
+- `DEMO_ROLL_FORWARD`: `on | off` (default on; apps/api). The demo businesses' own sample rows (the ids the seed recorded in `demo_sample_rows`) move forward with the calendar at boot and every hour (`rollDemoForward`, DECISIONS 2026-11-10); `off` leaves them where the seed put them.
 - Ports (dev): web 3000, api 4000, gateway 4001, composer 4002, stream 4003, collab 4004, ingest 4005, social 4006. Services read `PORT` first (Railway sets it) and fall back to their named port.
 
 ## 4. Database (`packages/db`)

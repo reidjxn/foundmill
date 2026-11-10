@@ -27,7 +27,7 @@ const code = async (p: Promise<unknown>) => {
 
 /** The guided layer's defaults, until the person chooses. */
 const GUIDED = { guidance: "on", textSize: "standard", explainersSeen: {}, toursDone: {}, checklistDismissedAt: null, anthropomorphicAgents: false, agentStyle: "humans", builderView: false };
-/** The mobile app's notification defaults (0074): every kind on, amounts shown. */
+/** The mobile app's notification defaults (0075): every kind on, amounts shown. */
 const NOTIFICATIONS_ON = { decision: true, approval: true, customer: true, agent_down: true, runway: true, run_finished: true, goal: true };
 const NOTIFIED = { notifications: NOTIFICATIONS_ON, hideAmountsOnLockScreen: false };
 /** Everything `update` answers: the formats, the guided layer and the notification preferences. */

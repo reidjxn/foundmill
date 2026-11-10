@@ -49,6 +49,12 @@ export interface RibbonResponse {
   conversionCount?: number;
   milestones: (Milestone & { achievedAt: Iso; kind: MilestoneKind })[];
   chapters: Chapter[];
+  /**
+   * Customers (first payments) as the server counts them, one figure each whatever range was asked (DECISIONS
+   * 2026-11-10, one number per fact): `thisWeek` is the business's last 7 days with `today`, `previousWeek` the 7 before,
+   * `total` every first payment (the count the customer milestones are reached at). Older responses leave it out.
+   */
+  customers?: { today: DayKey; thisWeek: number; previousWeek: number; total: number };
   /** First day of the business (the API also returns it as `firstDay`). */
   kickoff: DayKey;
   firstDay?: DayKey;
@@ -107,7 +113,7 @@ export interface FinanceOverview {
   burn: { netBurnMinor: number; grossBurnMinor: number; months: number; label: "Estimate"; definition?: string };
   runway: { months: number | null; label: "Estimate"; warnings: number[]; blocksContinue: boolean };
   /** Monthly totals; the operating fields leave financing and transfers out (net and gross burn read them). */
-  revenue: { monthly: { month: string; inflowMinor: number; outflowMinor: number; netMinor: number; count: number; operatingInflowMinor?: number; operatingOutflowMinor?: number }[]; basis: "cash" | string; label: string };
+  revenue: { monthly: { month: string; inflowMinor: number; outflowMinor: number; netMinor: number; count: number; operatingInflowMinor?: number; operatingOutflowMinor?: number }[]; basis: "cash" | string; label: string; recurring?: boolean | null };
   customers30d: number;
   /** The paying customer base of the trailing full months revenue covers: paid by its end, not churned before (the payback denominator). */
   payingCustomers?: { count: number; months: number; from?: Iso; to?: Iso };

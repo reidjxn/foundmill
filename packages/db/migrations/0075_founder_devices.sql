@@ -1,4 +1,4 @@
--- 0074 — the mobile companion app (founder, 2026-11-08; docs/mobile). A signed-in person's phones register for push:
+-- 0075 — the mobile companion app (founder, 2026-11-08; docs/mobile). A signed-in person's phones register for push:
 -- one row per device token, owned by the account that signed in on that phone last (a shared or handed-over phone
 -- follows the latest sign-in; the api moves a token with the service role, see repos/devices.ts). Account-scoped like
 -- account_preferences, not business-scoped: a person's devices follow them into every business, and the push fan-out

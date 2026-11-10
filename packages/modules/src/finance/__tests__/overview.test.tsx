@@ -4,10 +4,11 @@ import { fireEvent, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { TooltipProvider, formatMoney } from "@foundmill/dugout";
 import { TERMS } from "@foundmill/shared/terms";
-import { OverviewScreen, forecastRunway, overviewTiles } from "../OverviewScreen";
+import { OverviewScreen, estimateSentence, forecastRunway, monthRangeWords, overviewTiles } from "../OverviewScreen";
 import { NOW, createFakeSource, renderScreen } from "./fake-source";
 import { openExplainer } from "../../explainer.testing";
 import { BID, channels, dataResponses, emptyResponses, overview, overviewBlocking, pnl } from "./fixtures";
+import { ISO_24H } from "../../dates.testing";
 
 const props = { businessId: BID, departmentId: "d-fin" };
 
@@ -39,6 +40,35 @@ describe("overviewTiles", () => {
     const unknownBase = Object.fromEntries(overviewTiles({ overview: { ...overview, payingCustomers: undefined }, pnl, channels, currency: "EUR", now: NOW }).map((t) => [t.key, t]));
     expect(unknownBase.payback!.value).toBe("—");
     for (const t of tiles) expect(t.provenance?.note).toBeTruthy(); // every tile carries its hover definition
+  });
+
+  it("names the revenue's months and makes the monthly figure that revenue ÷ 3, in words (one fact, DECISIONS 2026-11-10)", () => {
+    const by = Object.fromEntries(overviewTiles({ overview, pnl, channels, currency: "EUR", now: NOW }).map((t) => [t.key, t]));
+    const months = monthRangeWords(["2026-07", "2026-08", "2026-09"]);
+    expect(months).toBe("Jul – Sep 2026");
+    expect(by.revenue!.caption).toBe(`${months}, 3 full months`);
+    expect(by.mrr!.caption).toBe(`a month: the ${months} revenue ÷ 3`);
+    expect((by.mrr!.value as { amountMinor: number }).amountMinor * 3).toBe((by.revenue!.value as { amountMinor: number }).amountMinor);
+    expect(monthRangeWords(["2025-11", "2025-12", "2026-01"])).toBe("Nov 2025 – Jan 2026");
+    expect(monthRangeWords(["2026-07", "2026-08", "2026-09"], ISO_24H)).toBe("2026-07 – 2026-09");
+  });
+
+  it("a business whose customers buy once has no MRR: the tiles say average monthly revenue and a yearly rate, no term", () => {
+    const oneOff = { ...overview, revenue: { ...overview.revenue, recurring: false } };
+    const by = Object.fromEntries(overviewTiles({ overview: oneOff, pnl, channels, currency: "EUR", now: NOW }).map((t) => [t.key, t]));
+    expect(by.mrr!.label).toBe("Average monthly revenue");
+    expect(by.arr!.label).toBe("Yearly revenue at this rate");
+    expect(by.mrr!.metricId).toBeUndefined();
+    expect(by.mrr!.plain).toBe("What customers paid you in a typical month of the last 3.");
+    expect(by.mrr!.provenance?.note).toMatch(/none of it is recurring/);
+    expect(by.mrr!.value).toEqual({ amountMinor: 2_000_000, currency: "EUR" });
+    expect(estimateSentence([{ key: "mrr", estimate: "estimate" }], false)).toBe("Estimate: average monthly revenue is worked out, not measured.");
+    // A subscription business (or one before its archetype is chosen) keeps MRR and its definition.
+    for (const recurring of [true, null, undefined]) {
+      const t = Object.fromEntries(overviewTiles({ overview: { ...overview, revenue: { ...overview.revenue, recurring } }, pnl, channels, currency: "EUR", now: NOW }).map((x) => [x.key, x]));
+      expect(t.mrr!.label).toBe("Monthly recurring revenue (MRR)");
+      expect(t.mrr!.metricId).toBe("mrr");
+    }
   });
 
   it("reads the forecast runway from the Base drivers, else the first negative month of the series", () => {

@@ -37,6 +37,17 @@ export const MODEL_COST_CURRENCY = "USD";
 
 export const ARCHETYPES = ["b2b_saas", "consumer_app", "marketplace", "dtc_physical", "hardware", "services", "content_media"] as const;
 export type Archetype = (typeof ARCHETYPES)[number];
+/**
+ * Archetypes whose customers pay on a schedule (subscriptions, retainers), as the synthetic journey models them
+ * (packages/journey synthetic.ts profiles): only these have monthly *recurring* revenue. A marketplace, a physical
+ * product or hardware sells once, so Finance names its monthly figure "Average monthly revenue" (DECISIONS 2026-11-10).
+ */
+export const RECURRING_ARCHETYPES: readonly Archetype[] = ["b2b_saas", "consumer_app", "services", "content_media"];
+/** True when the business's revenue recurs (subscriptions, retainers); null before an archetype is chosen. */
+export function revenueIsRecurring(archetype: string | null | undefined): boolean | null {
+  if (!archetype) return null;
+  return (RECURRING_ARCHETYPES as readonly string[]).includes(archetype);
+}
 export const ARCHETYPE_LABELS: Record<Archetype, string> = {
   b2b_saas: "B2B SaaS", consumer_app: "Consumer app", marketplace: "Marketplace", dtc_physical: "DTC physical product",
   hardware: "Hardware", services: "Services", content_media: "Content / media",

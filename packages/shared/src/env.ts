@@ -146,6 +146,14 @@ const Env = z.object({
   LIVE_MODE: z.string().optional(),
   /** Seed data volume multiplier (1 = the full two years of history). */
   SEED_VOLUME_SCALE: z.coerce.number().positive().optional(),
+  /**
+   * apps/api: roll the demo businesses' sample rows forward with the calendar at boot and every hour (DECISIONS
+   * 2026-11-10). On unless "off" (or "0"/"false"); unset or empty is on.
+   */
+  DEMO_ROLL_FORWARD: z
+    .string()
+    .optional()
+    .transform((v): "on" | "off" => (/^(off|0|false|no)$/i.test((v ?? "").trim()) ? "off" : "on")),
   DEV_AUTH_USER_ID: z.string().optional(),
 });
 export type Env = z.infer<typeof Env>;

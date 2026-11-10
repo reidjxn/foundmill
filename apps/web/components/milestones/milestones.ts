@@ -25,6 +25,16 @@ export function describeTrophy(t: TrophyDefinition, currency: string): string {
   return "A signed contract above the enterprise threshold.";
 }
 
+/**
+ * The count the customer milestones are reached at, beside them: "1,073 paying customers so far" (journey.ribbon
+ * `customers.total`, the one server figure; DECISIONS 2026-11-10), so "1,000th customer" and the count read as one fact.
+ */
+export function customersSoFarWords(total: number | null | undefined): string | undefined {
+  if (total === null || total === undefined) return undefined;
+  if (total === 0) return "No paying customers yet";
+  return `${formatNumber(total)} paying ${total === 1 ? "customer" : "customers"} so far`;
+}
+
 export function trophyKeyOf(m: MilestoneRowLike): string | null {
   if (typeof m.trophyKey === "string") return m.trophyKey;
   const ref = m.ref ?? {};

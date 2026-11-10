@@ -131,7 +131,7 @@ describe("repos.preferences: the guided layer (0064)", () => {
     expect(await h.asUser(hal).run((tx) => preferencesRepo.update(tx, hal, { reset: true }))).toEqual(DEFAULTS);
   });
 
-  it("0074: notification kinds merge over the defaults, the lock-screen switch saves alone, a reset keeps both, unknown kinds are refused", async () => {
+  it("0075: notification kinds merge over the defaults, the lock-screen switch saves alone, a reset keeps both, unknown kinds are refused", async () => {
     const ivy = await h.createUser("ivy@test.local");
     expect(await h.asUser(ivy).run((tx) => preferencesRepo.update(tx, ivy, { notifications: { customer: false } }))).toEqual({ ...DEFAULTS, notifications: { ...NOTIFICATIONS_ON, customer: false } });
     expect(await h.asUser(ivy).run((tx) => preferencesRepo.update(tx, ivy, { notifications: { run_finished: false }, hideAmountsOnLockScreen: true }))).toEqual({ ...DEFAULTS, notifications: { ...NOTIFICATIONS_ON, customer: false, run_finished: false }, hideAmountsOnLockScreen: true });

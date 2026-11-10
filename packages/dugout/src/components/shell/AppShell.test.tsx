@@ -117,10 +117,11 @@ describe("AppShell", () => {
         })}
       />,
     );
-    // The badge sits after the name, inside the identity.
+    // The badge is a caption under the name (one column, the name first), so it takes no width from the bar.
     const name = screen.getByTestId("kitbar-business-name");
     const badge = screen.getByTestId("kitbar-business-badge");
     expect(name.parentElement).toBe(badge.parentElement);
+    expect(name.parentElement?.className).toContain("flex-col");
     expect(name.compareDocumentPosition(badge) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     // The slot replaces Continue and keeps its height and minimum width.
     const slot = screen.getByTestId("kitbar-continue-slot");
