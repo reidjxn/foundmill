@@ -10,6 +10,7 @@ import { BarChart, LineChart, MetricTile, formatDate, formatMoney, formatNumber,
 import { useBusinessEvents, useGlossary, useToday, useWidgetData, useWidgetQuery } from "../data";
 import { registerWidget, type WidgetProps } from "../registry";
 import { NOT_KNOWN_YET, monthRevenueMinor, revenueThisMonthMinor } from "../shared/cash";
+import { customersThisWeek } from "../shared/customers";
 import { WidgetFrame } from "../shared/frame";
 import { routes } from "../shared/routes";
 import { addDays, monthKey, weekKey, weekStart } from "../shared/time";
@@ -85,8 +86,8 @@ function RevenueCustomersWidget({ settings }: WidgetProps<RevenueCustomersSettin
   const cur = finance.data?.cash.currency ?? currency;
   const thisMonth = revenueThisMonthMinor(finance.data, monthKey(today));
   const last30 = (ribbon.data?.rows ?? []).filter((r) => r.departmentId === null && r.day >= addDays(today, -29)).reduce((s, r) => s + r.payments, 0);
-  // "This week" is the last 7 days, the window Home's Customers this week tile counts (one number per fact).
-  const last7 = (ribbon.data?.rows ?? []).filter((r) => r.departmentId === null && r.day >= addDays(today, -6) && r.day <= today).reduce((s, r) => s + r.payments, 0);
+  // "This week" is Home's Customers this week figure itself (one number per fact): the server's count when it has one.
+  const last7 = customersThisWeek(ribbon.data, today)?.week ?? 0;
   const queries = settings.view === "revenue" ? [finance] : settings.view === "customers" ? [ribbon] : [finance, ribbon];
   const hasData = bars.some((b) => b.value > 0) || weeks.some((w) => w.customers > 0 || w.signups > 0);
   const loaded = queries.every((q) => q.data !== undefined);

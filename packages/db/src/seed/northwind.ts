@@ -445,7 +445,7 @@ export async function seedNorthwind(ctx: SeedCtx): Promise<SeededBusiness> {
           type: "milestone",
           fromAgentId: chief.agent.id,
           subject: `Milestone: ${trophyLabel}`,
-          bodyMd: `${trophyLabel} reached on ${new Date(trophy.achievedAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" })}. ${journey.paidCustomers} paying customers so far (synthetic demo data). The whole team gets the credit; ${agentMention(agentEntities, squad.byTemplate.get("channel_influencer")!)} brought the most first touches this quarter.`,
+          bodyMd: `${trophyLabel} reached. ${journey.paidCustomers} paying customers so far (synthetic demo data). The whole team gets the credit; ${agentMention(agentEntities, squad.byTemplate.get("channel_influencer")!)} brought the most first touches this quarter.`,
           createdDaysAgo: 2,
           state: "read",
         }
@@ -493,7 +493,7 @@ export async function seedNorthwind(ctx: SeedCtx): Promise<SeededBusiness> {
     actorId: null,
     action: DEMO_SEED_AUDIT_ACTION,
     target: { kind: "business", id: businessId },
-    details: { app: APP_NAME, seed: ctx.seed, slug: NORTHWIND_SLUG, inboxItems: inbox.length, journeys: journey.counts.journeys, legalEntityId: legal.legalEntityId },
+    details: { app: APP_NAME, seed: ctx.seed, anchor: ctx.today.toISOString(), slug: NORTHWIND_SLUG, inboxItems: inbox.length, journeys: journey.counts.journeys, legalEntityId: legal.legalEntityId },
   });
 
   return {

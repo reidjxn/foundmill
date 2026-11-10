@@ -27,6 +27,17 @@ describe("Today's tiles are the status strip's", () => {
     expect(c.week).toBe(c.spark.slice(-7).reduce((a, b) => a + b, 0));
     expect(customersThisWeek(undefined, TODAY)).toBeNull();
   });
+
+  it("reads the server's own customer figures (one field per fact) when they are for the same day, else the rows", () => {
+    const served = { ...ribbon, customers: { today: TODAY, thisWeek: 41, previousWeek: 37, total: 1_073 } };
+    const c = customersThisWeek(served, TODAY)!;
+    expect([c.week, c.previous]).toEqual([41, 37]);
+    expect(c.spark).toEqual(customersThisWeek(ribbon, TODAY)!.spark);
+    expect(customersWeekTile(served, false, TODAY, noop)).toMatchObject({ value: 41, delta: { value: 4, label: "vs last week" } });
+    // A response for another day (a tab left open past midnight) falls back to the rows for the asked day.
+    const stale = { ...ribbon, customers: { today: "2000-01-01", thisWeek: 99, previousWeek: 0, total: 99 } };
+    expect(customersThisWeek(stale, TODAY)!.week).toBe(customersThisWeek(ribbon, TODAY)!.week);
+  });
 });
 
 describe("spendWeekTiles", () => {

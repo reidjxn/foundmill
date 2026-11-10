@@ -2,7 +2,7 @@
  * Runway in words when there is no figure (finance.overview returns no months, or a figure that is not a runway), one
  * wording for every screen that shows it: the top bar's chip, Home's status strip and Finance card, the Inbox note's
  * metric strip and Finance › Overview and Runway. Cash-flow positive reads "Not running out" with "You earn more than you
- * spend" (good news in the founder's words: "Not running out" read like a setting, Nov 7, 2026); without a bank or with too
+ * spend" (good news in the founder's words: "No limit" read like a setting, Nov 7, 2026); without a bank or with too
  * little history it reads "Not known yet" with what would fill it; a bank balance below zero reads "Cash is below zero"
  * with the Estimate tag, never "Not running out" (docs/UX_AUDIT_AND_PLAN.md §7.7, B8).
  */

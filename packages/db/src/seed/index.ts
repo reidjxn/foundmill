@@ -27,6 +27,7 @@ export * from "./constants";
 export * from "./types";
 export { parseOwnerEmails, stubAuthProvisioner, supabaseAuthProvisioner, type AuthProvisioner } from "./auth";
 export { FOUNDER_PRESET_LAYOUT } from "./content";
+export { anchorOf, demoAnchor, DEMO_ROLL_AUDIT_ACTION, rollDays, rollDemoForward, ROLL_EXCLUDED_TABLES, type DemoAnchor, type DemoRollResult, type RollDemoForwardOptions } from "./roll-forward";
 
 /** The demo businesses that exist, found by their fixed ids (never by slug, which founders can edit). */
 export async function findDemoBusinesses(db: Db): Promise<{ id: string; slug: string }[]> {

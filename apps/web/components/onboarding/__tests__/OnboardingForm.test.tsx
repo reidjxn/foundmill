@@ -130,7 +130,7 @@ describe("OnboardingForm (BUILD §11.1 founder profile; UX plan §7.3 two passes
       domain: 10,
     });
     expect(screen.getByTestId("profile-summary").textContent).toMatch(
-      /First-time founder · full time · UK/,
+      /First-time founder · full time · based in the United Kingdom · markets: UK/,
     );
   });
 
@@ -160,7 +160,7 @@ describe("OnboardingForm (BUILD §11.1 founder profile; UX plan §7.3 two passes
       riskAppetite: "medium",
     });
     expect(screen.getByTestId("profile-summary").textContent).toMatch(
-      /First-time founder · full time · £25,000 · Nordics, EU/,
+      /First-time founder · full time · £25,000 · based in the United Kingdom · markets: Nordics, EU/,
     );
   });
 
@@ -423,7 +423,7 @@ describe("the example founder (UX plan §6.2 ExampleToggle, Phase 3)", () => {
     expect(selected("low")).toBe("true");
     expect(document.querySelector('[data-skill-value="domain"]')?.textContent).toBe("16");
     expect(document.querySelector('[data-skill="domain"] [data-scale-label]')?.textContent).toBe("Excellent");
-    expect(screen.getByTestId("profile-summary").textContent).toMatch(/First-time founder · evenings and weekends · £5,000 · UK, Ireland/);
+    expect(screen.getByTestId("profile-summary").textContent).toMatch(/First-time founder · evenings and weekends · £5,000 · based in the United Kingdom · markets: UK, Ireland/);
     // Continue waits, and says why where the reassurance line was; Enter in a field saves nothing.
     expect((screen.getByTestId("profile-submit") as HTMLButtonElement).disabled).toBe(true);
     expect((screen.getByTestId("profile-submit-bottom") as HTMLButtonElement).disabled).toBe(true);

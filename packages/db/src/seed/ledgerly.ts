@@ -489,7 +489,7 @@ export async function seedLedgerly(ctx: SeedCtx): Promise<SeededBusiness> {
       fromAgentId: chief.agent.id,
       subject: "Vacation report: day 3",
       bodyMd: [
-        `You are away until ${addDays(ctx.today, 11).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" })}. Within the authority grant I took two decisions today and queued one.`,
+        `You are away for 11 more days. Within the authority grant I took two decisions today and queued one.`,
         `Decided: published the month-end close checklist article by ${agentMention(agentEntities, squad.byTemplate.get("channel_seo")!)} (publish_content; reason: founder-approved outline, no claims in your name); merged the invoice PDF fix by ${agentMention(agentEntities, backend)} after ${agentMention(agentEntities, squad.byTemplate.get("review_agent")!)} cleared it (merge_to_main).`,
         `Queued for you: the paid search budget increase to ${money(60_000, CURRENCY)} per month is above the per-decision cap. Spend so far this vacation: ${money(32_400, CURRENCY)} of the ${money(250_000, CURRENCY)} ceiling (Estimate).`,
         `${agentMention(agentEntities, dataEngineer)} is down (GitHub rate limit hit on the backfill job); expected back tomorrow. MRR ${money(journey.mrrMinorNow, CURRENCY)} (synthetic).`,
@@ -570,7 +570,7 @@ export async function seedLedgerly(ctx: SeedCtx): Promise<SeededBusiness> {
           type: "milestone",
           fromAgentId: chief.agent.id,
           subject: `Milestone: ${trophy.label}`,
-          bodyMd: `${trophy.label} on ${new Date(trophy.achievedAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" })} (synthetic demo data). ${journey.paidCustomers} paying accounts; MRR ${money(journey.mrrMinorNow, CURRENCY)}. Standout agent: ${agentMention(agentEntities, outbound!)}, most first touches this quarter.`,
+          bodyMd: `${trophy.label} reached (synthetic demo data). ${journey.paidCustomers} paying accounts; MRR ${money(journey.mrrMinorNow, CURRENCY)}. Standout agent: ${agentMention(agentEntities, outbound!)}, most first touches this quarter.`,
           createdDaysAgo: 2,
           state: "read",
         }
@@ -620,7 +620,7 @@ export async function seedLedgerly(ctx: SeedCtx): Promise<SeededBusiness> {
     actorId: null,
     action: DEMO_SEED_AUDIT_ACTION,
     target: { kind: "business", id: businessId },
-    details: { app: APP_NAME, seed: ctx.seed, slug: LEDGERLY_SLUG, inboxItems: inbox.length, journeys: journey.counts.journeys, holidayId: holiday.id, legalEntityId: legal.legalEntityId, communityId: community.id, leaderboardId: board.id, activation: pct(journey.signups ? journey.activations / journey.signups : 0) },
+    details: { app: APP_NAME, seed: ctx.seed, anchor: ctx.today.toISOString(), slug: LEDGERLY_SLUG, inboxItems: inbox.length, journeys: journey.counts.journeys, holidayId: holiday.id, legalEntityId: legal.legalEntityId, communityId: community.id, leaderboardId: board.id, activation: pct(journey.signups ? journey.activations / journey.signups : 0) },
   });
 
   return {

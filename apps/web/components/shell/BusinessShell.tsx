@@ -28,7 +28,7 @@ import { formatMoney as formatCredits } from "@/lib/format";
 import { SIDEBAR_COLLAPSED_PREFIX } from "@/lib/auth/constants";
 import { rememberLastBusiness } from "@/lib/auth/last-business";
 import { accountRoutes } from "@/lib/account-routes";
-import { EXAMPLE_CHIP_TOOLTIP, readOnlyReason, type Access } from "@/lib/access";
+import { readOnlyReason, sampleMarker, type Access, type SampleMarker } from "@/lib/access";
 import { CONTINUE_RUN_END_REASONS, RUN_UNTIL_DONE, continueRunEndedMessage, type ContinueRunEndReason } from "@foundmill/shared";
 import { awayReportId, computeContinueState, journeyHref, respondHref, unviewedWin } from "@/lib/continue-state";
 import { CYCLE_EVENT_TYPES, cycleFromSnapshot, initialCycle, nextPulseKey, reduceCycleEvent, setPaused, type CycleEvent, type CycleStatus } from "@/lib/cycle";
@@ -285,7 +285,7 @@ export const FIRST_CONTINUE_CALLOUT = { tourId: "first-continue", targetId: "con
  * here too. Pure: the shell reads it and the unit tests pin it.
  */
 export interface ExampleFrame {
-  /** The "Example" chip beside the name, with `EXAMPLE_CHIP_TOOLTIP`. */
+  /** The example viewer's frame is on: the "Sample business" marker says nothing is saved (`sampleMarker`). */
   chip: boolean;
   /** Stop all agents is hidden (not merely refused). */
   stopAllHidden: boolean;
@@ -301,15 +301,16 @@ export function exampleFrame(access: Pick<Access, "isExample" | "canChange">, cy
 }
 
 /**
- * The Example frame's badge after the business name (KitBar `businessBadge`): the neutral "Example" chip. Its tooltip
- * explains the frame; pointer moves stop at the chip so the switcher's own "Switch business" tooltip does not open over
- * it.
+ * The sample marker after the business name (KitBar `businessBadge`, `lib/access.ts sampleMarker`): a quiet "Sample
+ * business" chip on a seeded demo business, whoever opens it, with one line saying its figures are made up (and, for an
+ * example viewer, that nothing is saved). Never on a founder's own business. Pointer moves stop at the chip so the
+ * switcher's own "Switch business" tooltip does not open over it.
  */
-function ExampleBadge() {
+function SampleBadge({ marker, example }: { marker: SampleMarker; example: boolean }) {
   return (
-    <Tooltip content={EXAMPLE_CHIP_TOOLTIP} side="bottom">
-      <Chip className="shrink-0 text-kit-on-primary" data-testid="example-chip" onPointerMove={(e) => e.stopPropagation()}>
-        Example
+    <Tooltip content={marker.tooltip} side="bottom">
+      <Chip className="shrink-0 text-kit-on-primary" data-testid="sample-chip" data-example={example ? "true" : undefined} onPointerMove={(e) => e.stopPropagation()}>
+        {marker.label}
       </Chip>
     </Tooltip>
   );
@@ -786,6 +787,7 @@ function ShellInner({ businessId, initialBusiness, initialDepartments, viewer, c
   const stopAllError = stopAll.error ? errorMessage(stopAll.error) : undefined;
   // The Example frame (UX plan §12 item 5): the chip beside the name, Stop all agents hidden, the Start-your-own callout.
   const frame = exampleFrame(access, cycle);
+  const sample = sampleMarker(business, access);
 
   return (
     <GuidanceTermsProvider terms={glossaryTerms}>
@@ -803,8 +805,8 @@ function ShellInner({ businessId, initialBusiness, initialDepartments, viewer, c
                 businessCurrency={currency}
                 kit={data.kit}
                 logoSrc={logoSrc}
-                // The Example frame: the "Example" chip after the name, and "Start your own" in Continue's slot.
-                businessBadge={frame.chip ? <ExampleBadge /> : undefined}
+                // The sample marker after the name (every demo business), and the Example frame's "Start your own" in Continue's slot.
+                businessBadge={sample ? <SampleBadge marker={sample} example={frame.chip} /> : undefined}
                 continueSlot={frame.chip ? <StartYourOwnButton onStart={() => router.push(START_YOUR_OWN_HREF)} /> : undefined}
                 businessName={business.name}
                 screenTitle={chrome.title ?? "Home"}

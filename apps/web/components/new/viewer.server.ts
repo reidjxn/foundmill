@@ -9,7 +9,7 @@
  */
 import { serverApi } from "@/lib/trpc-server";
 import { errorMessage, type RouterOutputs } from "@/lib/trpc";
-import { EXPERIENCE_OPTIONS, TIME_OPTIONS, budgetWords } from "@/components/onboarding/profile-form";
+import { EXPERIENCE_OPTIONS, TIME_OPTIONS, budgetWords, placeAndMarketsWords } from "@/components/onboarding/profile-form";
 
 export type FounderProfileGet = RouterOutputs["founder"]["profile"]["get"];
 
@@ -39,8 +39,8 @@ export async function loadStudioViewer(): Promise<StudioViewerResult> {
 }
 
 /**
- * The one-line profile summary shown under studio titles ("First-time founder · evenings and weekends · EUR 25,000 ·
- * EU, UK"). Experience and time read as the option labels the founder picked (`EXPERIENCE_OPTIONS`, `TIME_OPTIONS`),
+ * The one-line profile summary shown under studio titles ("First-time founder · evenings and weekends · £5,000 ·
+ * based in the United Kingdom · markets: UK, Ireland"), the same words as the form's own summary. Experience and time read as the option labels the founder picked (`EXPERIENCE_OPTIONS`, `TIME_OPTIONS`),
  * never as a humanized key (A16); a key the lists do not know falls back to its words.
  */
 export function profileLineOf(profile: StudioViewer["profile"]): string | null {
@@ -49,7 +49,8 @@ export function profileLineOf(profile: StudioViewer["profile"]): string | null {
   if (profile.experience) parts.push(EXPERIENCE_OPTIONS.find((o) => o.value === profile.experience)?.label ?? humanise(profile.experience));
   if (profile.timeCommitment) parts.push((TIME_OPTIONS.find((o) => o.value === profile.timeCommitment)?.label ?? humanise(profile.timeCommitment)).toLowerCase());
   if (typeof profile.budgetMinor === "number") parts.push(budgetWords(profile.budgetMinor, profile.currency));
-  if (profile.targetMarkets?.length) parts.push(profile.targetMarkets.slice(0, 3).join(", "));
+  // Where they live and where they sell, each named (a market never reads as the founder's home).
+  parts.push(...placeAndMarketsWords(profile.residence, profile.targetMarkets ?? []));
   return parts.length ? parts.join(" · ") : null;
 }
 

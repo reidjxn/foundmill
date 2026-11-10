@@ -4,7 +4,7 @@ import { EVENT_TYPES } from "@foundmill/shared/constants";
 import { EMPTY_CYCLE, cycleFromSnapshot } from "@/lib/cycle";
 import { trpcPathPrefix, trpcQueryKey } from "@/lib/trpc";
 import { SAFETY_POLL_MS } from "@/lib/stream-status";
-import { EXAMPLE_CHIP_TOOLTIP, EXAMPLE_READ_ONLY_REASON, accessFor, readOnlyReason } from "@/lib/access";
+import { EXAMPLE_CHIP_TOOLTIP, EXAMPLE_READ_ONLY_REASON, FULL_ACCESS, SAMPLE_BUSINESS_LINE, accessFor, readOnlyReason, sampleMarker } from "@/lib/access";
 import { CONTINUE_PRESSED_NOTICE, continuePressedNotice, EXAMPLE_START_CALLOUT, FIRST_CONTINUE_CALLOUT, ORCHESTRATOR_DOWN_CAVEAT, RUN_UNTIL_DONE, START_YOUR_OWN_HREF, INVALIDATE_ON_EVENT, cycleReducer, describeContinue, describePause, describeRunEnded, exampleFrame, lastCycleCostLine, orchestratorDown, shellConnection, shellPollIntervals, wantsFirstContinueCallout } from "../BusinessShell";
 
 type ContinueResult = Parameters<typeof describeContinue>[0];
@@ -153,7 +153,21 @@ describe("the Example frame (UX plan §12 item 5)", () => {
     expect(EXAMPLE_START_CALLOUT.tourId).not.toBe(FIRST_CONTINUE_CALLOUT.tourId);
     // "Start your own" (in Continue's slot) opens the three doors.
     expect(START_YOUR_OWN_HREF).toBe("/new");
-    expect(EXAMPLE_CHIP_TOOLTIP).toBe("A seeded example business. Nothing you do here is saved.");
+    expect(EXAMPLE_CHIP_TOOLTIP).toBe("Its figures are made up for the example: nothing here is real money or real customers. Nothing you do here is saved.");
+  });
+
+  it("the Sample business marker: on every demo business, with the made-up line; never on a founder's own business", () => {
+    expect(sampleMarker({ isDemo: true }, example)).toEqual({ label: "Sample business", tooltip: EXAMPLE_CHIP_TOOLTIP });
+    // The demo's own owner (the seeded founder) and an invited viewer still see that its figures are made up.
+    expect(sampleMarker({ isDemo: true }, owner)).toEqual({ label: "Sample business", tooltip: SAMPLE_BUSINESS_LINE });
+    expect(sampleMarker({ isDemo: true }, viewer)).toEqual({ label: "Sample business", tooltip: SAMPLE_BUSINESS_LINE });
+    expect(SAMPLE_BUSINESS_LINE).toBe("Its figures are made up for the example: nothing here is real money or real customers.");
+    // A founder's own business, before or after the membership loads.
+    const own = accessFor({ role: "owner", sectionPermissions: {}, source: "founder" }, { isDemo: false });
+    expect(sampleMarker({ isDemo: false }, own)).toBeNull();
+    expect(sampleMarker({ isDemo: false }, FULL_ACCESS)).toBeNull();
+    expect(sampleMarker({}, FULL_ACCESS)).toBeNull();
+    expect(sampleMarker(null, FULL_ACCESS)).toBeNull();
   });
 
   it("every refused write keeps the viewer wording, extended for the example", () => {

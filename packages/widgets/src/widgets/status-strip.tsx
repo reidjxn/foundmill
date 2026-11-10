@@ -20,7 +20,10 @@ import { isBackgroundAgent } from "@foundmill/shared";
 import { TEAM_HEALTH_SOURCE, teamHealth, teamHealthCounts, type TeamHealthCounts } from "../shared/health";
 import { useRecentRibbon } from "../shared/ribbon";
 import { routes } from "../shared/routes";
-import { addDays, dailySeries, lastDays, monthKey, sumInRange } from "../shared/time";
+import { customersThisWeek } from "../shared/customers";
+
+export { customersThisWeek };
+import { addDays, monthKey } from "../shared/time";
 import type { DepartmentRow, FinanceOverview, LeaderboardPositionRow, Page, RibbonResponse, TaskRow } from "../shared/types";
 
 export const StatusStripSettings = z.object({
@@ -143,17 +146,6 @@ export function cashTile(finance: FinanceOverview | undefined, loading: boolean,
     caption: finance ? (finance.cash.accounts ? `In the bank · ${finance.cash.accounts} account${finance.cash.accounts === 1 ? "" : "s"}` : "Connect a bank in Settings") : undefined,
     provenance: { source: "Bank balances", asOf: finance?.cash.asOf ?? undefined },
     onClick,
-  };
-}
-
-/** First payments in the last 7 days against the 7 before, from the ribbon's business-wide rows. */
-export function customersThisWeek(ribbon: RibbonResponse | undefined, today: string): { week: number; previous: number; spark: number[] } | null {
-  if (!ribbon) return null;
-  const rows = ribbon.rows.filter((r) => r.departmentId === null);
-  return {
-    week: sumInRange(rows, addDays(today, -6), today, (r) => r.payments),
-    previous: sumInRange(rows, addDays(today, -13), addDays(today, -7), (r) => r.payments),
-    spark: dailySeries(rows, lastDays(14, today), (r) => r.payments),
   };
 }
 
