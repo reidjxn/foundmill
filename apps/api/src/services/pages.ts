@@ -20,11 +20,13 @@
  * - **The team's first draft** (packages 1.2 and 1.3): the foundations runners write the row with the Product lead's
  *   draft and the note "Your project's page is ready" (`repos.pages.writeTeamDraft`); `decidePageNote` answers that
  *   note, and publishing answers it too.
- * - **Following** (`followPage`, package 1.6): a signed-out visitor leaves an email address on a published page whose
- *   "Follow" form is on; they become a lead in Customers with a consent record, and `page.followed` is written once.
+ * - **Following** (`followPage`, package 1.6, double opt-in): a signed-out visitor leaves an email address on a published
+ *   page whose "Follow" form is on; that writes a pending consent record and asks the gateway for the one confirmation
+ *   email. `page.followed` is written when the person confirms (ingest `/mail/confirm`), not here.
  */
 import { communityScreenLocalFlags } from "@foundmill/agents";
-import { repos, suppressionHash, type DbTx, type InboxItem, type ProjectPage } from "@foundmill/db";
+import { createHash, createHmac, randomBytes } from "node:crypto";
+import { repos, type DbTx, type InboxItem, type ProjectPage } from "@foundmill/db";
 import {
   AppError,
   FOLLOW_ERRORS,
@@ -47,6 +49,7 @@ import {
   samePageContent,
   starterPageDraft,
   suggestPageSlug,
+  type Env,
   type PageHoldReason,
   type ProjectPageContent as PageContent,
 } from "@foundmill/shared";
@@ -55,7 +58,6 @@ import { audit, emit, type BusinessContext } from "../trpc";
 import type { Context } from "../context";
 import { answerNote } from "./answer-note";
 import type { DecideItemResult } from "./decide";
-import { writeEventRow } from "./events";
 import { takeOrThrow } from "./rate-limit";
 
 /** What the console's Public page tab reads (`page.get`) and every change answers. */
@@ -317,16 +319,50 @@ export async function publicPageBySlug(ctx: Pick<Context, "db" | "env" | "limits
 }
 
 /**
- * Signed-out follows (`publicPage.follow`), shared by every api replica. The api sees the web server, not the visitor
- * (the follow arrives through the web's server action), and nothing proves a forwarded address to it, so there is no
- * per-visitor limit: a ceiling across all pages keeps a flood off the database, two per page cap what a flood can write
- * into one project's Customers, and one per page and address (its hash) quietly drops repeats beyond a few a day.
+ * Signed-out follows (`publicPage.follow`, package 1.6), shared by every api replica (`ctx.limits`), in the order
+ * `followPage` takes them:
+ *   - `perCaller`: by the address the api itself sees (`ctx.clientAddress`). A follow comes through the web's server
+ *     action, so every visitor of the web shares the web's egress address here: the limit is generous, and the per-visitor
+ *     limit is the Vercel Firewall rule on POST `/p/*` (docs/DEPLOY.md). No address forwarded by the web is trusted.
+ *   - `perAddress` (per page address and email) and `confirmAnyProject` (one confirmation email per email address across
+ *     every project per day): before the page is looked up, so repeats cost no page budget. Over either: the same
+ *     answer, nothing written.
+ *   - `closed`: an address that is not a page taking followers, site-wide, after the lookup (and nothing else is spent).
+ *   - `perPageHour`, `perPageDay` and `all`: only for a page that takes followers.
+ * The email keys are an HMAC of the address (`followAddressKey`), never the address or its plain hash.
  */
 export const PAGE_FOLLOW_LIMITS = {
-  all: { limit: 600, windowMs: 60_000 },
+  perCaller: { limit: 120, windowMs: 60_000 },
+  perAddress: { limit: 5, windowMs: 24 * 60 * 60_000 },
+  confirmAnyProject: { limit: 1, windowMs: 24 * 60 * 60_000 },
+  closed: { limit: 60, windowMs: 60_000 },
   perPageHour: { limit: 60, windowMs: 60 * 60_000 },
   perPageDay: { limit: 300, windowMs: 24 * 60 * 60_000 },
-  perAddress: { limit: 5, windowMs: 24 * 60 * 60_000 },
+  all: { limit: 600, windowMs: 60_000 },
+} as const;
+
+const FOLLOW_KEY_LABEL = "foundmill/page-follow-key/v1";
+/** Development and test without SESSION_TOKEN_SECRET: a key for this process only. */
+const PROCESS_FOLLOW_KEY = randomBytes(32).toString("base64url");
+
+/**
+ * HMAC-SHA256 of a value (an email address trimmed and lowercased, or a caller's address) under SESSION_TOKEN_SECRET with
+ * its own label, as base64url: the rate-limit keys of `publicPage.follow`. Without the secret (it is required wherever
+ * the api reaches the gateway) a key for this process stands in, so a lookup table of plain hashes never matches.
+ */
+export function followAddressKey(env: Pick<Env, "SESSION_TOKEN_SECRET">, kind: "email" | "caller", value: string): string {
+  const secret = env.SESSION_TOKEN_SECRET && env.SESSION_TOKEN_SECRET.length >= 16 ? env.SESSION_TOKEN_SECRET : PROCESS_FOLLOW_KEY;
+  return createHmac("sha256", secret).update(`${FOLLOW_KEY_LABEL}\n${kind}\n${value.trim().toLowerCase()}`).digest("base64url");
+}
+
+export const followLimitKeys = {
+  caller: (env: Pick<Env, "SESSION_TOKEN_SECRET">, address: string) => `page-follow:caller:${followAddressKey(env, "caller", address)}`,
+  perAddress: (env: Pick<Env, "SESSION_TOKEN_SECRET">, slug: string, email: string) => `page-follow:addr:${slug}:${followAddressKey(env, "email", email)}`,
+  confirmAnyProject: (env: Pick<Env, "SESSION_TOKEN_SECRET">, email: string) => `page-follow:confirm:${followAddressKey(env, "email", email)}`,
+  closed: "page-follow:closed",
+  perPageHour: (pageId: string) => `page-follow:page:${pageId}:hour`,
+  perPageDay: (pageId: string) => `page-follow:page:${pageId}:day`,
+  all: "page-follow:all",
 } as const;
 
 /** The answer to every follow that is not refused, written or not: it never says whether the address was already there. */
@@ -349,21 +385,32 @@ const followRefusal = (code: "follow_email" | "follow_consent" | "follow_closed"
 
 const EmailShape = z.email();
 
+type FollowContext = Pick<Context, "db" | "limits" | "env" | "gateway" | "log"> & { clientAddress?: string | null };
+
 /**
- * `publicPage.follow`: a visitor follows the published page at `slug` (package 1.6). In order:
+ * `publicPage.follow`: a visitor signs up to follow the published page at `slug` (package 1.6, double opt-in). In order:
  *   1. the hidden field filled in: the same answer, nothing written, no limit spent;
- *   2. the address (trimmed, lowercased, the shared check and Zod's) and the box ticked, else a plain refusal;
- *   3. the ceiling across all pages (TOO_MANY_REQUESTS);
- *   4. the page: published, committed, not archived, not a sample (the public view) and its switch on, else
- *      `follow_closed` (an address that is not public answers as `publicPage.bySlug` does: there is nothing there);
- *   5. the page's hourly and daily caps (TOO_MANY_REQUESTS), then the per-address allowance (over it: the same answer,
- *      nothing written);
- *   6. one transaction on the service connection: the lead and its consent record (`repos.followers.record`, which
- *      writes nothing for a repeat or a suppressed address), then `page.followed` through the outbox and an audit row,
- *      only for a new follower.
- * No email address leaves in the answer, the event, the audit row or the logs.
+ *   2. the address (trimmed, lowercased, at most 200 characters, the shared check and Zod's) and the box ticked, else a
+ *      plain refusal;
+ *   3. the per-caller limit (TOO_MANY_REQUESTS);
+ *   4. the per-address allowance (5 a day per page address and email) and, taken separately, the day's one confirmation
+ *      email for this address across every project: over either, the same answer and nothing written, before the page
+ *      is even looked up;
+ *   5. the page: published, committed, not archived, not a sample (the public view) and its switch on, else
+ *      `follow_closed`, counted only against the small `closed` ceiling (TOO_MANY_REQUESTS past it); the day's
+ *      confirmation is given back;
+ *   6. the page's hourly and daily caps and the ceiling across all pages (TOO_MANY_REQUESTS; the confirmation given back);
+ *   7. one transaction on the service connection: the pending consent record (`repos.followers.record`: an existing
+ *      contact is left as it is, a new one is a lead named "Follower (ma***@example.com)" with no lawful basis; nothing
+ *      for a confirmed or withdrawn record, a suppressed address or an archived contact), the reservation of the
+ *      confirmation email on the record (one per address per project per 30 days) and an audit row for a new signup;
+ *   8. the confirmation email through the gateway (`gateway.confirmFollow`, the project's Foundmill address). Not sent
+ *      (platform mail off, a cap, the gateway unreachable): the reservation is given back and the record stays pending,
+ *      and so does the day's confirmation unless the gateway may have sent it.
+ * Nothing here writes `page.followed`: that waits for the person's confirmation (ingest `/mail/confirm`). No email
+ * address leaves in the answer, the audit row or the logs.
  */
-export async function followPage(ctx: Pick<Context, "db" | "limits">, input: FollowInput): Promise<FollowAnswer> {
+export async function followPage(ctx: FollowContext, input: FollowInput): Promise<FollowAnswer> {
   const ok: FollowAnswer = { ok: true };
   if (typeof input.website === "string" && input.website.trim() !== "") return ok;
   const email = input.email.trim().toLowerCase();
@@ -371,33 +418,72 @@ export async function followPage(ctx: Pick<Context, "db" | "limits">, input: Fol
   if (input.consent !== true) throw followRefusal("follow_consent");
   const slug = input.slug.trim().toLowerCase();
   if (pageSlugProblem(slug)) throw followRefusal("follow_closed");
-  await takeOrThrow(ctx.limits, "Follow", [{ key: "page-follow:all", rule: PAGE_FOLLOW_LIMITS.all }]);
-  const target = await repos.followers.target(ctx.db, slug);
-  if (!target || !target.followForm) throw followRefusal("follow_closed");
-  await takeOrThrow(ctx.limits, "Follow", [
-    { key: `page-follow:page:${target.pageId}:hour`, rule: PAGE_FOLLOW_LIMITS.perPageHour },
-    { key: `page-follow:page:${target.pageId}:day`, rule: PAGE_FOLLOW_LIMITS.perPageDay },
-  ]);
-  const address = await ctx.limits.take([{ key: `page-follow:addr:${target.pageId}:${suppressionHash("email", email)}`, rule: PAGE_FOLLOW_LIMITS.perAddress }]);
-  if (!address.ok) return ok;
-  const consentText = followConsentText(target.name);
-  await ctx.db.transaction(async (tx) => {
-    const recorded = await repos.followers.record(tx, target.businessId, { pageId: target.pageId, slug: target.slug, email, consentText });
-    if (recorded.status !== "new") return;
-    await writeEventRow(tx, {
-      businessId: target.businessId,
-      type: "page.followed",
-      actor: { kind: "system", id: "public-page" },
-      payload: { pageId: target.pageId, entityId: recorded.entityId, consentId: recorded.consentId },
-      entityIds: [recorded.entityId],
+  if (ctx.clientAddress) await takeOrThrow(ctx.limits, "Follow", [{ key: followLimitKeys.caller(ctx.env, ctx.clientAddress), rule: PAGE_FOLLOW_LIMITS.perCaller }]);
+
+  // Repeats are dropped before anything else is spent or read.
+  if (!(await ctx.limits.take([{ key: followLimitKeys.perAddress(ctx.env, slug, email), rule: PAGE_FOLLOW_LIMITS.perAddress }])).ok) return ok;
+  const confirmSlot = await ctx.limits.take([{ key: followLimitKeys.confirmAnyProject(ctx.env, email), rule: PAGE_FOLLOW_LIMITS.confirmAnyProject }]);
+  if (!confirmSlot.ok) return ok;
+  let slotKept = false;
+  const giveSlotBack = async () => {
+    if (!slotKept) return;
+    slotKept = false;
+    await ctx.limits.refund(confirmSlot.ticket);
+  };
+  slotKept = true;
+
+  try {
+    const target = await repos.followers.target(ctx.db, slug);
+    if (!target || !target.followForm) {
+      await giveSlotBack();
+      await takeOrThrow(ctx.limits, "Follow", [{ key: followLimitKeys.closed, rule: PAGE_FOLLOW_LIMITS.closed }]);
+      throw followRefusal("follow_closed");
+    }
+    await takeOrThrow(ctx.limits, "Follow", [
+      { key: followLimitKeys.perPageHour(target.pageId), rule: PAGE_FOLLOW_LIMITS.perPageHour },
+      { key: followLimitKeys.perPageDay(target.pageId), rule: PAGE_FOLLOW_LIMITS.perPageDay },
+      { key: followLimitKeys.all, rule: PAGE_FOLLOW_LIMITS.all },
+    ]);
+    const consentText = followConsentText(target.name);
+    const nonce = randomBytes(32).toString("base64url");
+    const tokenHash = createHash("sha256").update(nonce, "utf8").digest("hex");
+    const reserved = await ctx.db.transaction(async (tx) => {
+      const recorded = await repos.followers.record(tx, target.businessId, { pageId: target.pageId, slug: target.slug, email, consentText });
+      if (recorded.status === "nothing") return null;
+      if (recorded.status === "new") {
+        await repos.audit.append(tx, target.businessId, {
+          actorKind: "system",
+          actorId: null,
+          action: "page.follow_requested",
+          target: { kind: "entity", id: recorded.entityId },
+          details: { pageId: target.pageId, slug: target.slug, consentId: recorded.consentId, newContact: recorded.entityCreated },
+        });
+      }
+      return (await repos.followers.reserveConfirmation(tx, target.businessId, recorded.consentId, { tokenHash })) ? recorded.consentId : null;
     });
-    await repos.audit.append(tx, target.businessId, {
-      actorKind: "system",
-      actorId: null,
-      action: "page.followed",
-      target: { kind: "entity", id: recorded.entityId },
-      details: { pageId: target.pageId, slug: target.slug, consentId: recorded.consentId, newContact: recorded.entityCreated },
-    });
-  });
-  return ok;
+    if (!reserved) {
+      await giveSlotBack();
+      return ok;
+    }
+    let answer: Awaited<ReturnType<Context["gateway"]["confirmFollow"]>> | null = null;
+    try {
+      answer = await ctx.gateway.confirmFollow({ businessId: target.businessId, consentId: reserved, email, nonce });
+    } catch (e) {
+      // The gateway did not answer (or answered an error): perhaps nothing went out, perhaps it did. The record stays
+      // pending and may be sent again on a later signup; the day's confirmation for the address stays spent.
+      ctx.log.warn({ businessId: target.businessId, consentId: reserved, code: e instanceof AppError ? e.code : "unknown" }, "follow confirmation not sent: the gateway did not answer");
+      slotKept = false;
+    }
+    if (!answer?.sent) {
+      await repos.followers.releaseConfirmation(ctx.db, target.businessId, reserved, tokenHash);
+      if (answer) {
+        ctx.log.info({ businessId: target.businessId, consentId: reserved, reason: answer.reason }, "follow confirmation not sent");
+        await giveSlotBack();
+      }
+    }
+    return ok;
+  } catch (e) {
+    await giveSlotBack();
+    throw e;
+  }
 }

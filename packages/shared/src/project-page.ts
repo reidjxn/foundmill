@@ -281,9 +281,9 @@ export function pageStateLine(state: { published: boolean; publishedOn?: string 
 
 /*
  * Following a project (package 1.6): the form on a public page where a visitor leaves an email address and agrees to
- * hear from the project. Each signup becomes a contact in Customers (source `page`, lawful basis `consent`) with a
- * consent record that keeps the exact sentence the visitor agreed to (`followConsentText`), and is a real outcome.
- * The answer never says whether the address was already on the list.
+ * hear from the project. It is double opt-in: a signup is a consent record that waits for the person to confirm from
+ * the one email the platform sends them (`FOLLOW_CONFIRM_EMAIL`), and only a confirmed follower counts, shows "Agreed to
+ * email on …" and is a real outcome. The answer never says whether the address was already on the list.
  */
 
 /** The CRM source a follower is recorded with; Customers shows it as `FOLLOW_SOURCE_LABEL`. */
@@ -291,8 +291,10 @@ export const FOLLOW_SOURCE = "page";
 export const FOLLOW_SOURCE_LABEL = "Public page";
 /** What a follower agreed to (the consent record's purpose). */
 export const FOLLOW_CONSENT_PURPOSE = "email";
-/** Longest address the form takes (RFC 5321's path limit). */
-export const FOLLOW_EMAIL_MAX = 254;
+/** Longest address the form takes: the CRM's name limit (a follower's address is its identifier and, masked, its name). */
+export const FOLLOW_EMAIL_MAX = 200;
+/** How long the link in the confirmation email works. */
+export const FOLLOW_CONFIRM_TTL_MS = 7 * 24 * 60 * 60_000;
 
 /** The exact sentence a follower agrees to; the consent record stores it as the visitor read it. */
 export function followConsentText(name: string): string {
@@ -308,7 +310,7 @@ export function followWords(name: string) {
     emailLabel: "Your email",
     consent: followConsentText(n),
     button: "Follow",
-    done: `Thanks. ${n} will be in touch.`,
+    done: `Check your email to confirm. ${n} will only write to you after you do.`,
     /** The label of the hidden field people never see (programs that fill in every field fill it in). */
     trap: "Leave this empty",
   } as const;
@@ -326,7 +328,7 @@ export type FollowErrorKind = keyof typeof FOLLOW_ERRORS;
 
 const EMAIL_SHAPE = /^[^\s@<>()[\]\\,;:"]+@[^\s@<>()[\]\\,;:"]+\.[^\s@<>()[\]\\,;:"]{2,}$/;
 
-/** Why an address cannot be used, or null when it can: trimmed, 6 to 254 characters, one @ with a dot after it. */
+/** Why an address cannot be used, or null when it can: trimmed, 6 to `FOLLOW_EMAIL_MAX` (200) characters, one @ with a dot after it. */
 export function followEmailProblem(email: string): string | null {
   const e = email.trim();
   if (e.length < 6 || e.length > FOLLOW_EMAIL_MAX || !EMAIL_SHAPE.test(e)) return FOLLOW_ERRORS.email;
@@ -339,7 +341,45 @@ export function followerCountLine(count: number): string | null {
   return count === 1 ? "1 person follows this project" : `${count.toLocaleString("en-US")} people follow this project`;
 }
 
-/** The founder's line on a follower's record ("Agreed to email on Oct 7, 2026"); the date comes formatted. */
+/** The founder's line on a confirmed follower's record ("Agreed to email on Oct 7, 2026"); the date comes formatted. */
 export function followConsentLine(on: string): string {
   return `Agreed to email on ${on}`;
 }
+
+/** The founder's line on a follower who signed up and has not confirmed from the email yet. */
+export const FOLLOW_PENDING_LINE = "Not confirmed yet";
+
+/**
+ * The name a new follower's contact gets: "Follower" and the address masked ("Follower (ma***@example.com)"), so the
+ * whole address lives only in the contact's identifier and never in a name that agents and screens repeat. At most 200
+ * characters (the CRM's name limit).
+ */
+export function followerDisplayName(email: string): string {
+  const e = email.trim().toLowerCase();
+  const at = e.lastIndexOf("@");
+  if (at <= 0) return "Follower";
+  const local = e.slice(0, at);
+  const shown = local.length <= 2 ? local.slice(0, 1) : local.slice(0, 2);
+  const name = `Follower (${shown}***@${e.slice(at + 1)})`;
+  return name.length <= 200 ? name : `${name.slice(0, 198)}…)`;
+}
+
+/**
+ * The one email a person gets after they sign up (sent from the project's Foundmill address by the gateway, never by an
+ * agent), and the page its link opens (served by ingest at `/mail/confirm`). `appName` is APP_NAME.
+ */
+export const FOLLOW_CONFIRM_EMAIL = {
+  subject: (name: string) => `Confirm that you want to follow ${oneLine(name)}`,
+  text: (name: string, appName: string, link: string) => {
+    const n = oneLine(name);
+    return `Someone, hopefully you, asked to follow ${n} on ${appName} with this address. Confirm to get email from ${n} about this project:\n\n${link}\n\nIf it was not you, ignore this email and nothing will happen.`;
+  },
+} as const;
+
+export const FOLLOW_CONFIRM_PAGE = {
+  title: "Confirm",
+  body: (name: string) => `Follow ${oneLine(name)} and get email from it about this project?`,
+  button: "Confirm",
+  done: (name: string) => `You're following ${oneLine(name)}. You can unsubscribe from any email it sends.`,
+  invalid: "This link is not valid or has expired, so nothing changed.",
+} as const;

@@ -22,14 +22,24 @@
  *   GET|POST /mail/unsubscribe?t=   The link in every message (RFC 8058 one-click POST, or a confirmation page for a
  *                           person who opens it): the token names the project and the address hash, signed by the
  *                           gateway; a valid one adds the hash to that project's suppression list.
+ *   GET|POST /mail/confirm?t=  The link in a follow confirmation email (package 1.6, double opt-in): the same pattern,
+ *                           a page with a button on GET (link scanners open links) and the confirmation on POST. The
+ *                           token (`followConfirmToken`, signed by the gateway under its own label, seven days) names
+ *                           the project, the consent record, the address hash and a nonce the record keeps the hash of.
+ *                           A valid one confirms the record, gives the contact the lawful basis `consent` when it had
+ *                           none, and writes `page.followed` (the real outcome) through the outbox, once.
+ *
+ * Whatever suppresses an address for a project here (an unsubscribe link, one-click, a reply asking to stop, a bounce, a
+ * drop, a spam report) also withdraws the project's consent records for that address (`withdrawn_at`), so the person no
+ * longer counts as a follower.
  *
  * With PLATFORM_MAIL_DOMAIN unset every route answers 404, as if it did not exist. Bodies are capped before they are read
  * (app.ts: PLATFORM_MAIL_EVENTS_MAX_BYTES, PLATFORM_MAIL_INBOUND_MAX_BYTES).
  */
-import { DEV_PLATFORM_MAIL_SECRET, inboundSenderVerified, normaliseInboundMail, normalisePlatformMailEvents, PLATFORM_MAIL_FOOTER_MARKERS, platformInboundLocalParts, readInboundMail, readPlatformUnsubscribeToken, safeEqual, stableHash, suppressionHashOfEmail, verifySendgridSignature, withinTolerance, type SgEvent } from "@foundmill/connectors";
+import { DEV_PLATFORM_MAIL_SECRET, followConfirmNonceHash, platformMailSenderName, readFollowConfirmToken, inboundSenderVerified, normaliseInboundMail, normalisePlatformMailEvents, PLATFORM_MAIL_FOOTER_MARKERS, platformInboundLocalParts, readInboundMail, readPlatformUnsubscribeToken, safeEqual, stableHash, suppressionHashOfEmail, verifySendgridSignature, withinTolerance, type SgEvent } from "@foundmill/connectors";
 import { repos } from "@foundmill/db";
-import { PLATFORM_MAIL_SECRET_MIN_LENGTH, UNSUBSCRIBE_CONFIRM_BODY, UNSUBSCRIBE_CONFIRM_BUTTON, UNSUBSCRIBE_CONFIRM_TITLE, UNSUBSCRIBE_DONE_BODY, UNSUBSCRIBE_INVALID_BODY } from "@foundmill/shared";
-import { ingestPlatformEvents } from "./ingest";
+import { FOLLOW_CONFIRM_PAGE, PLATFORM_MAIL_SECRET_MIN_LENGTH, UNSUBSCRIBE_CONFIRM_BODY, UNSUBSCRIBE_CONFIRM_BUTTON, UNSUBSCRIBE_CONFIRM_TITLE, UNSUBSCRIBE_DONE_BODY, UNSUBSCRIBE_INVALID_BODY } from "@foundmill/shared";
+import { ingestPlatformEvents, writeEventRow } from "./ingest";
 import { nonceKey } from "./nonce-store";
 import type { IngestDeps } from "./types";
 
@@ -70,11 +80,15 @@ function signingSecretFor(deps: Deps): string | null {
   return deps.env.APP_ENV === "development" || deps.env.APP_ENV === "test" ? DEV_PLATFORM_MAIL_SECRET : null;
 }
 
-/** Adds the address hash to the business's suppression list once (nothing when it is already there). */
+/**
+ * Adds the address hash to the business's suppression list once (false when it was already there), and withdraws the
+ * business's consent records for that address either way (a follower who unsubscribed no longer follows).
+ */
 async function suppress(deps: Deps, businessId: string, emailHash: string, reason: string): Promise<boolean> {
-  if (await repos.channels.isSuppressed(deps.db, businessId, { emailHash })) return false;
-  await repos.channels.addSuppression(deps.db, businessId, { emailHash, reason: reason.slice(0, 200), scope: "business", source: PLATFORM_MAIL_SOURCE });
-  return true;
+  const already = await repos.channels.isSuppressed(deps.db, businessId, { emailHash });
+  if (!already) await repos.channels.addSuppression(deps.db, businessId, { emailHash, reason: reason.slice(0, 200), scope: "business", source: PLATFORM_MAIL_SOURCE });
+  await repos.followers.withdrawByEmailHash(deps.db, businessId, emailHash, deps.now());
+  return !already;
 }
 
 export async function handlePlatformInbound(deps: Deps, req: Request): Promise<MailRouteResult> {
@@ -190,8 +204,17 @@ const escapeHtml = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;")
 
 /** A small page in plain words (the person who clicked the link is not a Foundmill user). */
 export function unsubscribePage(body: string, form?: { token: string }): string {
-  const button = form ? `<form method="post" action="/mail/unsubscribe?t=${encodeURIComponent(form.token)}"><button type="submit">${escapeHtml(UNSUBSCRIBE_CONFIRM_BUTTON)}</button></form>` : "";
-  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="robots" content="noindex"><title>${escapeHtml(UNSUBSCRIBE_CONFIRM_TITLE)}</title><style>body{font:16px/1.5 system-ui,sans-serif;max-width:32rem;margin:4rem auto;padding:0 1rem;color:#1b1b1b}button{font:inherit;padding:.5rem 1rem;border-radius:6px;border:1px solid #1b1b1b;background:#1b1b1b;color:#fff;cursor:pointer}</style></head><body><h1>${escapeHtml(UNSUBSCRIBE_CONFIRM_TITLE)}</h1><p>${escapeHtml(body)}</p>${button}</body></html>`;
+  return mailPage(UNSUBSCRIBE_CONFIRM_TITLE, body, form ? { action: `/mail/unsubscribe?t=${encodeURIComponent(form.token)}`, button: UNSUBSCRIBE_CONFIRM_BUTTON } : undefined);
+}
+
+/** The follow confirmation's page (the same look as the unsubscribe page). */
+export function followConfirmPage(body: string, form?: { token: string }): string {
+  return mailPage(FOLLOW_CONFIRM_PAGE.title, body, form ? { action: `/mail/confirm?t=${encodeURIComponent(form.token)}`, button: FOLLOW_CONFIRM_PAGE.button } : undefined);
+}
+
+function mailPage(title: string, body: string, form?: { action: string; button: string }): string {
+  const button = form ? `<form method="post" action="${escapeHtml(form.action)}"><button type="submit">${escapeHtml(form.button)}</button></form>` : "";
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="robots" content="noindex"><title>${escapeHtml(title)}</title><style>body{font:16px/1.5 system-ui,sans-serif;max-width:32rem;margin:4rem auto;padding:0 1rem;color:#1b1b1b}button{font:inherit;padding:.5rem 1rem;border-radius:6px;border:1px solid #1b1b1b;background:#1b1b1b;color:#fff;cursor:pointer}</style></head><body><h1>${escapeHtml(title)}</h1><p>${escapeHtml(body)}</p>${button}</body></html>`;
 }
 
 export type UnsubscribeResult = { status: 200 | 400 | 404; html: string };
@@ -209,4 +232,46 @@ export async function handlePlatformUnsubscribe(deps: Deps, req: Request): Promi
     await repos.audit.append(deps.db, named.businessId, { actorKind: "webhook", actorId: null, action: "mail.unsubscribed", target: { kind: "suppression" }, details: { source: PLATFORM_MAIL_SOURCE, emailHashPrefix: named.emailHash.slice(0, 12) } }).catch((e: unknown) => deps.log.warn({ err: (e as Error).message }, "unsubscribe audit not written"));
   }
   return { status: 200, html: unsubscribePage(UNSUBSCRIBE_DONE_BODY) };
+}
+
+/** The project's name as the confirmation email showed it (never one that reads as Foundmill's own). */
+async function projectNameFor(deps: Deps, businessId: string, name: string): Promise<string> {
+  const row = await repos.projectMail.get(deps.db, businessId).catch(() => null);
+  return platformMailSenderName(name, row?.localPart ?? "this project").projectName;
+}
+
+export async function handleFollowConfirm(deps: Deps, req: Request): Promise<UnsubscribeResult> {
+  const invalid = (status: 400 | 404) => ({ status, html: followConfirmPage(FOLLOW_CONFIRM_PAGE.invalid) });
+  if (!deps.platformMail?.domain) return invalid(404);
+  const secret = signingSecretFor(deps);
+  const token = new URL(req.url).searchParams.get("t") ?? "";
+  const claims = secret ? readFollowConfirmToken(secret, token, deps.now().getTime()) : null;
+  if (!claims) return invalid(400);
+  // A business that is gone or archived takes no confirmation.
+  const business = await repos.businesses.get(deps.db, claims.businessId).catch(() => null);
+  if (!business) return invalid(400);
+  const name = await projectNameFor(deps, business.id, business.name);
+  // Opening the link shows a button (link scanners open links); only the button confirms.
+  if (req.method === "GET") return { status: 200, html: followConfirmPage(FOLLOW_CONFIRM_PAGE.body(name), { token }) };
+  // Asked not to be emailed since (an unsubscribe from the confirmation's own footer, a deletion request): nothing changes.
+  if (await repos.channels.isSuppressed(deps.db, business.id, { emailHash: claims.emailHash })) return invalid(400);
+  const at = deps.now();
+  const outcome = await deps.db.transaction(async (tx) => {
+    const result = await repos.followers.confirm(tx, { businessId: business.id, consentId: claims.consentId, emailHash: claims.emailHash, tokenHash: followConfirmNonceHash(claims.nonce), at });
+    if (result.status !== "confirmed") return result.status;
+    // The real outcome (the north star counts it): written once, when the person confirmed, never at the signup.
+    await writeEventRow(tx, {
+      businessId: business.id,
+      type: "page.followed",
+      actor: { kind: "system", id: "public-page" },
+      payload: { pageId: result.pageId, entityId: result.entityId, consentId: result.consentId },
+      entityIds: [result.entityId],
+      occurredAt: at,
+      idempotencyKey: `page.followed:${result.consentId}`,
+    });
+    await repos.audit.append(tx, business.id, { actorKind: "system", actorId: null, action: "page.followed", target: { kind: "entity", id: result.entityId }, details: { consentId: result.consentId, pageId: result.pageId, lawfulBasisSet: result.lawfulBasisSet } });
+    return "confirmed" as const;
+  });
+  if (outcome === "invalid") return invalid(400);
+  return { status: 200, html: followConfirmPage(FOLLOW_CONFIRM_PAGE.done(name)) };
 }

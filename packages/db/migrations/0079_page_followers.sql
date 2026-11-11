@@ -1,6 +1,9 @@
 -- 0079 — following a project from its public page (docs/THESIS_REVIEW.md package 1.6, first part). A visitor leaves an
--- email address and ticks a box agreeing to hear from the project; the api writes them into the CRM as a lead (source
--- `page`, lawful basis `consent`) and records here what they agreed to, word for word, and when.
+-- email address and ticks a box agreeing to hear from the project; the api records here what they agreed to, word for
+-- word, and when, and the person's contact in the CRM (a new one is a lead, source `page`, with no lawful basis yet).
+-- It is double opt-in: the record is pending until the person confirms from the one email the platform sends them
+-- (`confirmed_at`); only then is the contact's lawful basis `consent` (when it had none) and does the person count as a
+-- follower. Unsubscribing from the project's mail sets `withdrawn_at`.
 --
 -- Who may do what:
 --   read             members of the business (Customers shows "Agreed to email on Oct 7, 2026"; the Public page tab counts them)
@@ -20,7 +23,15 @@ create table contact_consents (
   page_id uuid references project_pages(id) on delete set null,
   -- The sentence beside the box they ticked, exactly as they read it.
   consent_text text not null constraint contact_consents_text_length check (char_length(consent_text) between 1 and 600),
+  -- When they ticked the box on the page.
   agreed_at timestamptz not null default now(),
+  -- When they confirmed from the email (null while pending). Only a confirmed record is consent.
+  confirmed_at timestamptz,
+  -- When the confirmation email was last asked for (one per address per project per 30 days), and the sha256 hex of the
+  -- random nonce its link carries (the link is also signed; a link from an earlier email stops working once a new one
+  -- is sent, and every link stops once confirmed).
+  confirmation_sent_at timestamptz,
+  confirmation_token_hash text constraint contact_consents_token_hash_shape check (confirmation_token_hash is null or confirmation_token_hash ~ '^[0-9a-f]{64}$'),
   withdrawn_at timestamptz,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),

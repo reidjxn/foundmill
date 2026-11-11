@@ -13,6 +13,7 @@
  *   POST /v1/domains/check         service JWT (api) → registry answers for up to 8 domain names (domains.ts)
  *   POST /v1/personas/portrait     service JWT (api) → the AI-generated portrait of one persona catalog key in one character style (portraits.ts)
  *   POST /v1/push/send             service JWT (api) → one push notification to registered phones of the mobile app (push.ts)
+ *   POST /v1/platform-mail/confirm-follow  service JWT (api) → the one email asking a page signup to confirm (follow-confirm.ts)
  *   POST /v1/call                  session JWT → the pipeline (allow / ask / deny / rate_limited)
  *   POST /v1/github/archive        session JWT → the Code-tab repository's tarball for a code session's checkout (archive.ts)
  *   POST /v1/github/repository     service JWT (api) → a repository's id and visibility, before it is chosen on the Code tab (code-repository.ts)
@@ -34,6 +35,7 @@ import { CreateCheckoutRequest, createPlatformCheckout } from "./billing";
 import { CheckDomainsRequest, checkDomains } from "./domains";
 import { generatePortrait, PortraitRequest } from "./portraits";
 import { sendPush, SendPushRequest } from "./push";
+import { CONFIRM_FOLLOW_ROUTE, ConfirmFollowRequest, sendFollowConfirmation } from "./follow-confirm";
 import { handleMcpRequest } from "./mcp";
 import { ARCHIVE_ROUTE, ArchiveRequest, routeOnlyCall, serveArchive } from "./archive";
 import { checkRepository, REPOSITORY_CHECK_ROUTE, RepositoryCheckRequest } from "./code-repository";
@@ -96,6 +98,7 @@ export function createGatewayApp(deps: GatewayDeps, options: GatewayAppOptions):
   app.use("/v1/domains/*", limit(MAX_SERVICE_BODY_BYTES));
   app.use("/v1/personas/*", limit(MAX_SERVICE_BODY_BYTES));
   app.use("/v1/push/*", limit(MAX_SERVICE_BODY_BYTES));
+  app.use(CONFIRM_FOLLOW_ROUTE, limit(MAX_SERVICE_BODY_BYTES));
   app.use(KEYS_VALIDATE_ROUTE, limit(MAX_SERVICE_BODY_BYTES));
   app.use(REGISTRY_LOOKUP_ROUTE, limit(MAX_SERVICE_BODY_BYTES));
   app.use(REPOSITORY_CHECK_ROUTE, limit(MAX_SERVICE_BODY_BYTES));
@@ -183,6 +186,19 @@ export function createGatewayApp(deps: GatewayDeps, options: GatewayAppOptions):
     await next();
   });
   app.post("/v1/push/send", async (c) => c.json(await sendPush(deps, SendPushRequest.parse(await c.req.json()), c.var.service.svc)));
+
+  // A follow confirmation (package 1.6): only the api asks, right after a signup on a public page (follow-confirm.ts).
+  app.use(CONFIRM_FOLLOW_ROUTE, requireService);
+  app.use(CONFIRM_FOLLOW_ROUTE, async (c, next) => {
+    if (c.var.service.svc !== "api") throw new GatewayError("forbidden_service", "Only the api asks for a follow confirmation", 403);
+    await next();
+  });
+  app.post(CONFIRM_FOLLOW_ROUTE, async (c) => {
+    // Never the Zod issues: they would put the address back in the answer and the log.
+    const parsed = ConfirmFollowRequest.safeParse(await c.req.json().catch(() => null));
+    if (!parsed.success) throw new GatewayError("validation", "Send a business id, a consent id, an address and the nonce", 400);
+    return c.json(await sendFollowConfirmation(deps, parsed.data, c.var.service.svc));
+  });
 
   app.post("/v1/domains/check", async (c) => c.json(await checkDomains(deps, CheckDomainsRequest.parse(await c.req.json()))));
 

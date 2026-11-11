@@ -99,6 +99,9 @@ function controlledGateway() {
     registryLookup: async () => {
       throw new Error("unused");
     },
+    confirmFollow: async () => {
+      throw new Error("unused");
+    },
   } satisfies ApiGatewayClient;
   return { gateway, calls, peak: () => peak };
 }

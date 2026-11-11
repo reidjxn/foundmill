@@ -481,6 +481,10 @@ async function buildPolicyInput(deps: GatewayDeps, session: SessionToken, req: C
     // A seeded session whose seed this replica does not hold (restart, another replica) fails closed.
     const seedMissing = session.untrustedSeeded && !(await deps.recipients.isSeeded(sessionKey(session)));
     recipientFirstSeenInUntrusted = candidates.length > 0 && (seedMissing || (await deps.recipients.firstSeenInUntrusted(session.businessId, sessionKey(session), candidates)).length > 0);
+    // A page signup nobody confirmed (package 1.6, double opt-in) proves nothing about who owns the address: a contact
+    // whose only basis it is counts as an address first seen in untrusted content, so the same policy refuses it.
+    const emails = candidates.filter((c) => c.kind === "email").map((c) => c.value);
+    if (!recipientFirstSeenInUntrusted && emails.length > 0) recipientFirstSeenInUntrusted = (await repos.followers.awaitingConfirmation(deps.db, session.businessId, emails)).length > 0;
   }
 
   return {

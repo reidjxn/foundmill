@@ -1622,16 +1622,18 @@ const pageUnpublished = declareEvent("page.unpublished", PageFacts, {
 const pageFollowed = declareEvent(
   "page.followed",
   z.object({
-    pageId: Id,
-    /** The follower's CRM record (a lead, source `page`, lawful basis `consent`). Never the address itself. */
+    /** The page they signed up on; null only when that page row was deleted before they confirmed. */
+    pageId: Id.nullable(),
+    /** The follower's CRM record (their lawful basis is now `consent` unless it already had one). Never the address itself. */
     entityId: Id,
-    /** The consent record (0079 `contact_consents`): what they agreed to and when. */
+    /** The consent record (0079 `contact_consents`): what they agreed to, when, and when they confirmed. */
     consentId: Id,
   }),
   {
-    // North star (CLAUDE.md, founder 2026-11-11): a stranger leaving their address on the project's page is a real
-    // outside result, so each `page.followed` is a real outcome of its week. The measure reads this; it is not built yet.
-    doc: "A visitor followed the project from its public page: they left an email address and ticked the box agreeing to hear from the project, and became a lead in Customers with that consent recorded. Written once per person (a second signup with the same address writes nothing). A real outside result (the north star counts it). Not narrated: one note per follower would be noise, and no digest pattern exists yet; the Public page tab counts them.",
+    // North star (CLAUDE.md, founder 2026-11-11): a stranger who confirmed from their own inbox that they want to hear
+    // from the project is a real outside result, so each `page.followed` is a real outcome of its week. Written at the
+    // confirmation, never at the signup (double opt-in, SECURITY_REVIEW Nov 11). The measure reads this; it is not built yet.
+    doc: "A person confirmed, from the link in the one email the platform sent them, that they want to follow the project they signed up for on its public page: their consent record is confirmed and they count as a follower. Written by ingest's `/mail/confirm`, once per record (a second use of the link, or a second signup, writes nothing); a signup that was never confirmed writes nothing. A real outside result (the north star counts it). Not narrated: one note per follower would be noise, and no digest pattern exists yet; the Public page tab counts them.",
     consumers: ["stream", "metrics"],
     narratable: false,
   },

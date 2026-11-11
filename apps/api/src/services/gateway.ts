@@ -156,6 +156,21 @@ export interface GatewayPushResult {
   errors: string[];
 }
 
+/** The one email asking a page signup to confirm (apps/gateway follow-confirm.ts `ConfirmFollowRequest`). */
+export interface GatewayConfirmFollowRequest {
+  businessId: string;
+  consentId: string;
+  email: string;
+  /** The random nonce reserved on the consent record (its sha256 is stored there). */
+  nonce: string;
+}
+
+/** Sent (on the mock: simulated, nothing left), or not, and why; never an error for "not sent". */
+export type GatewayConfirmFollowResult = { sent: true; simulated: boolean } | { sent: false; reason: string };
+
+/** A follow confirmation waits at most this long: the visitor's form is waiting on it. */
+export const CONFIRM_FOLLOW_TIMEOUT_MS = 10_000;
+
 export interface ApiGatewayClient {
   /** Connects a live integration: an App installation verified, a vendor's secret sealed by the gateway and never returned. */
   connect(businessId: string, connector: string, input: Record<string, unknown>): Promise<GatewayConnectResult>;
@@ -180,6 +195,8 @@ export interface ApiGatewayClient {
   repository(businessId: string, owner: string, repo: string): Promise<{ mode: "mock" | "live"; repository: GatewayRepository }>;
   /** One push notification to the mobile app's phones (docs/mobile): the gateway holds the OneSignal keys and runs the connector. */
   sendPush(input: GatewayPushRequest): Promise<GatewayPushResult>;
+  /** The follow confirmation email (package 1.6): fixed words, from the project's Foundmill address, on a service path. */
+  confirmFollow(input: GatewayConfirmFollowRequest): Promise<GatewayConfirmFollowResult>;
 }
 
 export interface CreateApiGatewayClientOptions {
@@ -230,6 +247,7 @@ export function createApiGatewayClient(opts: CreateApiGatewayClientOptions): Api
     generatePortrait: (personaKey, businessId, style) => post<GatewayPortrait>("/v1/personas/portrait", { personaKey, ...(style ? { style } : {}), ...(businessId ? { businessId } : {}) }, Math.max(timeoutMs, PORTRAIT_TIMEOUT_MS)),
     repository: (businessId, owner, repo) => post<{ mode: "mock" | "live"; repository: GatewayRepository }>("/v1/github/repository", { businessId, owner, repo }),
     sendPush: (input) => post<GatewayPushResult>("/v1/push/send", input),
+    confirmFollow: (input) => post<GatewayConfirmFollowResult>("/v1/platform-mail/confirm-follow", input, Math.min(timeoutMs, CONFIRM_FOLLOW_TIMEOUT_MS)),
     validateKey: (businessId, apiKey) => post<GatewayKeyValidation>("/v1/keys/validate", { businessId, apiKey }),
     registryLookup: (input) => post<GatewayRegistryLookup>("/v1/registry/lookup", input),
   };

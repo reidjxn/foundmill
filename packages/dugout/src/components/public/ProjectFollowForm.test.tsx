@@ -44,7 +44,7 @@ describe("ProjectFollowForm", () => {
 
   it("after a signup shows one line and nothing else", () => {
     render(<ProjectFollowForm name="Northwind Skincare" state={{ status: "done" }} />);
-    expect(screen.getByRole("status").textContent).toBe("Thanks. Northwind Skincare will be in touch.");
+    expect(screen.getByRole("status").textContent).toBe("Check your email to confirm. Northwind Skincare will only write to you after you do.");
     expect(document.querySelector("form, input, button")).toBeNull();
   });
 

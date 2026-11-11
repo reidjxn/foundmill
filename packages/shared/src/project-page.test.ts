@@ -30,6 +30,11 @@ import {
   FOLLOW_ERRORS,
   FOLLOW_SOURCE_LABEL,
   followConsentLine,
+  followerDisplayName,
+  FOLLOW_CONFIRM_EMAIL,
+  FOLLOW_CONFIRM_PAGE,
+  FOLLOW_EMAIL_MAX,
+  FOLLOW_PENDING_LINE,
   followConsentText,
   followEmailProblem,
   followWords,
@@ -143,12 +148,36 @@ describe("following a project", () => {
     expect(w.consent).toBe("I agree to get email from Northwind Skincare about this project. I can unsubscribe at any time.");
     expect(w.consent).toBe(followConsentText("Northwind Skincare"));
     expect(w.button).toBe("Follow");
-    expect(w.done).toBe("Thanks. Northwind Skincare will be in touch.");
+    expect(w.done).toBe("Check your email to confirm. Northwind Skincare will only write to you after you do.");
   });
 
   it("checks an address before it is sent", () => {
     for (const ok of ["maya@example.com", " Maya.Lee+news@sub.example.co.uk "]) expect(followEmailProblem(ok)).toBeNull();
     for (const bad of ["", "maya", "maya@", "@example.com", "maya@example", "ma ya@example.com", "<a>@x.com", `${"a".repeat(250)}@x.com`]) expect(followEmailProblem(bad)).toBe(FOLLOW_ERRORS.email);
+    // At most 200 characters, the CRM's name limit: 200 passes, 201 is the same plain refusal.
+    const at200 = `${"a".repeat(200 - "@example.com".length)}@example.com`;
+    expect(at200).toHaveLength(FOLLOW_EMAIL_MAX);
+    expect(followEmailProblem(at200)).toBeNull();
+    expect(followEmailProblem(`a${at200}`)).toBe(FOLLOW_ERRORS.email);
+  });
+
+  it("names a new follower without their whole address", () => {
+    expect(followerDisplayName("Maya.Lee@Example.com")).toBe("Follower (ma***@example.com)");
+    expect(followerDisplayName("al@example.com")).toBe("Follower (a***@example.com)");
+    expect(followerDisplayName("x@example.com")).toBe("Follower (x***@example.com)");
+    expect(followerDisplayName("maya.lee@example.com")).not.toContain("maya.lee");
+    const long = followerDisplayName(`abc@${"d".repeat(190)}.example.com`);
+    expect(long.length).toBeLessThanOrEqual(200);
+    expect(long.startsWith("Follower (ab***@")).toBe(true);
+  });
+
+  it("asks the person to confirm in one email, and says so on the page its link opens", () => {
+    expect(FOLLOW_CONFIRM_EMAIL.subject("Northwind  Skincare")).toBe("Confirm that you want to follow Northwind Skincare");
+    expect(FOLLOW_CONFIRM_EMAIL.text("Northwind Skincare", "Foundmill", "https://ingest.example/mail/confirm?t=x")).toBe(
+      "Someone, hopefully you, asked to follow Northwind Skincare on Foundmill with this address. Confirm to get email from Northwind Skincare about this project:\n\nhttps://ingest.example/mail/confirm?t=x\n\nIf it was not you, ignore this email and nothing will happen.",
+    );
+    expect(FOLLOW_CONFIRM_PAGE.done("Northwind Skincare")).toBe("You're following Northwind Skincare. You can unsubscribe from any email it sends.");
+    expect(FOLLOW_PENDING_LINE).toBe("Not confirmed yet");
   });
 
   it("counts followers for the founder only once there is one", () => {

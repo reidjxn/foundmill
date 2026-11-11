@@ -8,8 +8,8 @@
  * without JavaScript too (a native checkbox, not the Radix one, for that reason). `preview` draws it disabled, with no
  * form element at all, for the console's phone preview.
  *
- * After a signup the form gives way to one line, "Thanks. {name} will be in touch.", and nothing else: never whether
- * the address was already on the list. A hidden field ("Leave this empty", `website`) is out of sight and out of the tab
+ * After a signup the form gives way to one line, "Check your email to confirm. {name} will only write to you after you
+ * do." (double opt-in), and nothing else: never whether the address was already on the list. A hidden field ("Leave this empty", `website`) is out of sight and out of the tab
  * order; a person never fills it in, and a filled one is answered the same and written nowhere.
  */
 import { useId } from "react";

@@ -8,10 +8,14 @@ import { LONG, commitThrowaway, dismissCoachmarks, settled } from "./helpers";
  * counts, a phone-width preview, the address, Publish behind a confirmation that says what becomes public), the team's
  * first draft and the Product lead's note in Today's Needs you (packages 1.2 and 1.3), Today's quiet line once that
  * note is answered and nothing is live, and `/p/<slug>` signed out at 390 px and 1280 px (indexable, its own title and share
- * card, no horizontal scroll, 44 px tap targets), gone once it is taken down. Package 1.6: a stranger follows it at
- * 390 px signed out (the box is required, one success line, the same answer for the same address again), and the founder
- * sees one follower on the tab and one contact in Customers with "Public page" and "Agreed to email on …". A throwaway
- * business, since a sample business never has a public page. Stack and commands: e2e/README.md.
+ * card, no horizontal scroll, 44 px tap targets), gone once it is taken down. Package 1.6 (double opt-in): a stranger
+ * signs up at 390 px signed out (the box is required, one line asking them to check their email, the same answer for the
+ * same address again), and the founder sees no follower counted yet and one contact in Customers, "Follower (fo***@…)",
+ * with "Public page" and "Not confirmed yet". This stack runs no gateway and no ingest (one PGlite database is one
+ * process), so no confirmation email goes out and the signup stays pending, which is the honest state; the email, the
+ * signed link and the confirm page are covered by apps/gateway `follow-confirm.test.ts` and apps/ingest
+ * `follow-confirm.test.ts`. A throwaway business, since a sample business never has a public page. Stack and commands:
+ * e2e/README.md.
  *
  * With `E2E_UX_AUDIT=1` the public page is also saved as docs/ux-audit/40-project-page-390.png and
  * 41-project-page-1280.png (device scale 2).
@@ -161,7 +165,7 @@ test.describe("public page", () => {
       await form.getByRole("checkbox", { name: /^I agree to get email from Doorstep Bikes [a-z0-9]+ about this project\. I can unsubscribe at any time\.$/ }).check();
       await form.getByRole("button", { name: "Follow" }).click();
       const done = fan.page.locator("[data-project-follow='done']");
-      await expect(done.getByRole("status")).toHaveText(/^Thanks\. Doorstep Bikes [a-z0-9]+ will be in touch\.$/, { timeout: LONG });
+      await expect(done.getByRole("status")).toHaveText(/^Check your email to confirm\. Doorstep Bikes [a-z0-9]+ will only write to you after you do\.$/, { timeout: LONG });
       // Nothing else is revealed, and no follower's address is on the page.
       await expect(fan.page.locator("input[type=email]")).toHaveCount(0);
       await expect(fan.page.locator("body")).not.toContainText(follower);
@@ -171,7 +175,7 @@ test.describe("public page", () => {
       await again.getByLabel("Your email").fill(follower.toUpperCase());
       await again.getByRole("checkbox").check();
       await again.getByRole("button", { name: "Follow" }).click();
-      await expect(fan.page.locator("[data-project-follow='done']").getByRole("status")).toHaveText(/^Thanks\. Doorstep Bikes [a-z0-9]+ will be in touch\.$/, { timeout: LONG });
+      await expect(fan.page.locator("[data-project-follow='done']").getByRole("status")).toHaveText(/^Check your email to confirm\. Doorstep Bikes [a-z0-9]+ will only write to you after you do\.$/, { timeout: LONG });
       const overflow = await fan.page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
       expect(overflow, "horizontal overflow after following").toBeLessThanOrEqual(0);
     } finally {
@@ -186,26 +190,29 @@ test.describe("public page", () => {
       await form.getByLabel("Your email").fill(follower.replace("follower-", "plain-"));
       await form.getByRole("checkbox").check();
       await form.getByRole("button", { name: "Follow" }).click();
-      await expect(p.locator("[data-project-follow='done']").getByRole("status")).toHaveText(/^Thanks\. Doorstep Bikes [a-z0-9]+ will be in touch\.$/, { timeout: LONG });
+      await expect(p.locator("[data-project-follow='done']").getByRole("status")).toHaveText(/^Check your email to confirm\. Doorstep Bikes [a-z0-9]+ will only write to you after you do\.$/, { timeout: LONG });
     } finally {
       await plain.close();
     }
 
-    // The founder sees the followers: the count on the tab, and one real contact in Customers.
+    // The founder: nobody counts as a follower until they confirm from the email, and the signup is a contact in
+    // Customers under a masked name, "Not confirmed yet".
     const tabUrl = page.url();
     await page.reload();
     await settled(page);
-    await expect(page.getByTestId("page-followers")).toHaveText("2 people follow this project", { timeout: LONG });
+    await expect(editor).toBeVisible({ timeout: LONG });
+    await expect(page.getByTestId("page-followers")).toHaveCount(0);
     await page.goto(`/b/${bid}/crm`);
     const grid = page.getByRole("grid", { name: "CRM records" });
     await expect(grid).toBeVisible({ timeout: LONG });
-    const rows = grid.getByRole("row").filter({ hasText: follower });
+    const masked = "Follower (fo***@example.com)";
+    const rows = grid.getByRole("row").filter({ hasText: masked });
     await expect(rows).toHaveCount(1, { timeout: LONG });
-    await rows.getByRole("link", { name: follower }).click();
+    await rows.getByRole("link", { name: masked }).click();
     const facts = page.getByTestId("key-facts");
     await expect(facts).toBeVisible({ timeout: LONG });
     await expect(facts).toContainText("Public page");
-    await expect(facts.getByTestId("email-consent")).toHaveText(/^Agreed to email on [A-Z][a-z]{2} \d{1,2}, \d{4}$/);
+    await expect(facts.getByTestId("email-consent")).toHaveText("Not confirmed yet");
     await page.goto(tabUrl);
     await settled(page);
     await dismissCoachmarks(page);

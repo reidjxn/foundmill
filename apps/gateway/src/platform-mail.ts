@@ -86,7 +86,7 @@ export interface PreparedPlatformMail {
   release(): Promise<void>;
 }
 
-export type PlatformMailDecision = { ok: true; prepared: PreparedPlatformMail } | { ok: false; policyId: string; reason: string };
+export type PlatformMailDecision = { ok: true; prepared: PreparedPlatformMail } | PlatformMailRefusal;
 
 export interface PlatformMailDeps {
   db: Parameters<typeof repos.projectMail.ensure>[0];
@@ -95,7 +95,8 @@ export interface PlatformMailDeps {
   appEnv?: string;
 }
 
-const refuse = (policyId: string, reason: string): PlatformMailDecision => ({ ok: false, policyId, reason });
+export type PlatformMailRefusal = { ok: false; policyId: string; reason: string };
+const refuse = (policyId: string, reason: string): PlatformMailRefusal => ({ ok: false, policyId, reason });
 
 export async function preparePlatformMail(deps: PlatformMailDeps, input: { business: Pick<Business, "id" | "name" | "isDemo">; args: unknown; mode: ConnectorMode; now: number }): Promise<PlatformMailDecision> {
   const config = deps.config;
@@ -128,33 +129,9 @@ export async function preparePlatformMail(deps: PlatformMailDeps, input: { busin
   if (row.status !== "active") return refuse(PLATFORM_MAIL_POLICY.paused, PLATFORM_MAIL_REFUSALS.paused);
 
   // 6 and 7. The project's day, then the deployment's. Outside development and test only a shared count caps anything.
-  const cap = row.dailyCap ?? config.dailyCap;
-  const projectKey = platformMailDayKey(businessId);
-  const counted: string[] = [];
-  const release = async () => {
-    for (const key of counted.splice(0)) await deps.rateLimits.release?.(key, DAY_MS, input.now);
-  };
-  const shared = () => devStack || deps.rateLimits.durable === true;
-  const project = await deps.rateLimits.hit(projectKey, DAY_MS, input.now);
-  counted.push(projectKey);
-  if (!shared()) {
-    await release();
-    return refuse(PLATFORM_MAIL_POLICY.store, PLATFORM_MAIL_REFUSALS.store_unavailable);
-  }
-  if (project.count > cap) {
-    await release();
-    return refuse(PLATFORM_MAIL_POLICY.daily_cap, PLATFORM_MAIL_REFUSALS.daily_cap(cap));
-  }
-  const all = await deps.rateLimits.hit(PLATFORM_MAIL_CEILING_KEY, DAY_MS, input.now);
-  counted.push(PLATFORM_MAIL_CEILING_KEY);
-  if (!shared()) {
-    await release();
-    return refuse(PLATFORM_MAIL_POLICY.store, PLATFORM_MAIL_REFUSALS.store_unavailable);
-  }
-  if (all.count > config.ceiling) {
-    await release();
-    return refuse(PLATFORM_MAIL_POLICY.ceiling, PLATFORM_MAIL_REFUSALS.ceiling);
-  }
+  const counted = await takePlatformMailDay(deps, { businessId, cap: row.dailyCap ?? config.dailyCap, ceiling: config.ceiling, devStack, now: input.now });
+  if (!counted.ok) return counted;
+  const release = counted.release;
 
   const messageRef = randomUUID();
   const email = platformMailAddress(row.localPart, config.domain);
@@ -174,4 +151,42 @@ export async function preparePlatformMail(deps: PlatformMailDeps, input: { busin
       },
     },
   };
+}
+
+/**
+ * Steps 6 and 7: one message on the project's UTC day and one on the deployment's, refused (and both given back) over
+ * either, or when the counts are not shared by every replica outside development and test. Also used by the follow
+ * confirmation (follow-confirm.ts), so those emails count against the same day and ceiling.
+ */
+export async function takePlatformMailDay(
+  deps: Pick<PlatformMailDeps, "rateLimits">,
+  input: { businessId: string; cap: number; ceiling: number; devStack: boolean; now: number },
+): Promise<{ ok: true; release: () => Promise<void> } | PlatformMailRefusal> {
+  const projectKey = platformMailDayKey(input.businessId);
+  const counted: string[] = [];
+  const release = async () => {
+    for (const key of counted.splice(0)) await deps.rateLimits.release?.(key, DAY_MS, input.now);
+  };
+  const shared = () => input.devStack || deps.rateLimits.durable === true;
+  const project = await deps.rateLimits.hit(projectKey, DAY_MS, input.now);
+  counted.push(projectKey);
+  if (!shared()) {
+    await release();
+    return refuse(PLATFORM_MAIL_POLICY.store, PLATFORM_MAIL_REFUSALS.store_unavailable);
+  }
+  if (project.count > input.cap) {
+    await release();
+    return refuse(PLATFORM_MAIL_POLICY.daily_cap, PLATFORM_MAIL_REFUSALS.daily_cap(input.cap));
+  }
+  const all = await deps.rateLimits.hit(PLATFORM_MAIL_CEILING_KEY, DAY_MS, input.now);
+  counted.push(PLATFORM_MAIL_CEILING_KEY);
+  if (!shared()) {
+    await release();
+    return refuse(PLATFORM_MAIL_POLICY.store, PLATFORM_MAIL_REFUSALS.store_unavailable);
+  }
+  if (all.count > input.ceiling) {
+    await release();
+    return refuse(PLATFORM_MAIL_POLICY.ceiling, PLATFORM_MAIL_REFUSALS.ceiling);
+  }
+  return { ok: true, release };
 }

@@ -7,6 +7,7 @@
  */
 import type { FetchCreateContextFnOptions } from "@trpc/server/adapters/fetch";
 import type { Context as HonoContext } from "hono";
+import { getConnInfo } from "@hono/node-server/conninfo";
 import { loadEnv, type Env } from "@foundmill/shared";
 import { createVault, type Vault } from "@foundmill/shared/crypto";
 import type { Db, PoolWatchdog } from "@foundmill/db";
@@ -77,6 +78,13 @@ export interface Context extends ApiDeps {
    */
   emailConfirmed: boolean;
   requestId: string;
+  /**
+   * The address of whoever opened the connection, as the api sees it (`clientAddressOf`): on Railway the address its
+   * edge proxy saw (the rightmost `x-forwarded-for` entry it appends), else the socket's peer. Only ever a coarse rate
+   * limit key (`publicPage.follow`); never a visitor's address forwarded by the web. Absent for the in-process caller and
+   * tests.
+   */
+  clientAddress?: string | null;
   /**
    * The membership and business lookups `businessProcedure` made in this HTTP request (trpc.ts), keyed by user and
    * business, so a batch of procedures for one business checks membership once. A new, empty map for every request
@@ -189,8 +197,25 @@ export function createContextFactory(deps: ApiDeps) {
     const authorization = opts.req.headers.get("authorization");
     const user = await deps.auth.resolve(authorization);
     const requestId = c?.get("requestId") ?? requestIdFrom(opts.req.headers.get("x-request-id"));
-    return { ...deps, userId: user?.userId ?? null, email: user?.email ?? null, authenticatedAt: user?.authenticatedAt ?? null, emailConfirmed: user?.emailConfirmed === true, requestId, accessMemo: new Map() };
+    return { ...deps, userId: user?.userId ?? null, email: user?.email ?? null, authenticatedAt: user?.authenticatedAt ?? null, emailConfirmed: user?.emailConfirmed === true, requestId, clientAddress: clientAddressOf(opts.req.headers, c), accessMemo: new Map() };
   };
+}
+
+/**
+ * The caller's address for a coarse per-caller limit. Behind Railway's edge proxy the rightmost `x-forwarded-for` entry
+ * is the one the proxy appended (the peer it accepted the connection from); anything a caller wrote into the header sits
+ * to its left and is ignored. Without the header (local stacks), the socket's peer. Calls that come through the web's
+ * server (the public page's Follow form) all carry the web's egress address, so the limit keyed on it must be generous.
+ */
+export function clientAddressOf(headers: Headers, c?: HonoContext): string | null {
+  const forwarded = headers.get("x-forwarded-for");
+  const last = forwarded?.split(",").map((s) => s.trim()).filter(Boolean).at(-1);
+  if (last && last.length <= 64) return last;
+  try {
+    return c ? (getConnInfo(c).remote.address ?? null) : null;
+  } catch {
+    return null;
+  }
 }
 
 /** Context for tests and the in-process caller (`authenticatedAt` defaults to now for a signed-in user). */

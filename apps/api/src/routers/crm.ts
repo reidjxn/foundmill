@@ -82,13 +82,16 @@ export const crmRouter = router({
           repos.entities.listMentions(tx, ctx.businessId, entity.id, 50),
           repos.journeys.listConversions(tx, ctx.businessId, { entityId: entity.id, limit: 50 }),
           repos.entities.mergeHistory(tx, ctx.businessId, entity.id),
-          repos.followers.agreedAt(tx, ctx.businessId, [entity.id]),
+          repos.followers.consentStates(tx, ctx.businessId, [entity.id]),
         ]);
         // Each win carries its Customer Update id (null when it has none), so Re-watch and Activity link straight to it.
         const conversions = (await repos.journeys.labelConversions(tx, ctx.businessId, journeys.items)).map(({ entityName: _name, ...c }) => c);
-        // When the person agreed to email (a follower of the public page, 0079): "Agreed to email on Oct 7, 2026".
-        const emailConsentAt = consents.get(entity.id) ?? null;
-        return { entity, profile, roles, relationships, interactions: interactions.items, mentions, conversions, mergeHistory, emailConsentAt, redirectedFrom: entity.id !== input.entityId ? input.entityId : null };
+        // A follower of the public page (0079, double opt-in): when they confirmed ("Agreed to email on Oct 7, 2026"), or
+        // that they signed up and have not confirmed yet ("Not confirmed yet").
+        const consent = consents.get(entity.id);
+        const emailConsentAt = consent?.state === "confirmed" ? consent.confirmedAt : null;
+        const emailConsentPending = consent?.state === "pending";
+        return { entity, profile, roles, relationships, interactions: interactions.items, mentions, conversions, mergeHistory, emailConsentAt, emailConsentPending, redirectedFrom: entity.id !== input.entityId ? input.entityId : null };
       }),
     ),
     update: write.input(z.object({ entityId: Id, patch: UpdateEntityInput })).mutation(({ ctx, input }) =>
@@ -167,9 +170,9 @@ export const crmRouter = router({
     byRole: read.input(z.object({ role: z.string().min(1).max(80), stage: z.string().max(80).optional(), limit: z.number().int().min(1).max(500).default(100), cursor: z.string().nullish() })).query(({ ctx, input }) =>
         ctx.rls(async (tx) => {
           const page = await repos.entities.listByRole(tx, ctx.businessId, input.role, { stage: input.stage, limit: input.limit, cursor: input.cursor });
-          // A follower of the public page shows when they agreed to email (0079).
-          const agreed = await repos.followers.agreedAt(tx, ctx.businessId, page.items.map((e) => e.id));
-          return { ...page, items: page.items.map((e) => ({ ...e, emailConsentAt: agreed.get(e.id) ?? null })) };
+          // A confirmed follower of the public page shows when they agreed to email (0079); a pending one, nothing yet.
+          const states = await repos.followers.consentStates(tx, ctx.businessId, page.items.map((e) => e.id));
+          return { ...page, items: page.items.map((e) => { const s = states.get(e.id); return { ...e, emailConsentAt: s?.state === "confirmed" ? s.confirmedAt : null, emailConsentPending: s?.state === "pending" }; }) };
         }),
       ),
   }),

@@ -58,3 +58,4 @@ export { platformMailMock, createPlatformMailMock } from "./mock";
 export * from "./tools";
 export { normalisePlatformMailEvents, platformInboundLocalParts, suppressionReasonOf, readInboundMail, replyOwnText, inboundSenderVerified, dkimPassedDomains, domainsAligned, type InboundSenderCheck, type PlatformMailEventBatch, type InboundMail, type SgEvent } from "./webhooks";
 export { suppressionHashOfEmail } from "./hash";
+export { followConfirmNonceHash, followConfirmToken, followConfirmUrl, PLATFORM_MAIL_CONFIRM_PATH, readFollowConfirmToken, type FollowConfirmClaims } from "./confirm";

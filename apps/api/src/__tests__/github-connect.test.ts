@@ -45,6 +45,9 @@ const gateway: ApiGatewayClient = {
   async registryLookup() {
     throw new Error("no registry lookups in these tests");
   },
+  async confirmFollow() {
+    throw new Error("no follow confirmations in these tests");
+  },
 };
 
 describe("integrations.connect for a live GitHub App", () => {
