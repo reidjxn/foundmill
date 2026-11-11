@@ -9,6 +9,7 @@ import { BUSINESS_SETTINGS_FIELDS, businessStreamKey } from "@foundmill/events";
 import { PRICING_CURRENCY } from "@foundmill/models";
 import { AppError, AUTOPILOT_CADENCES, AUTOPILOT_LIMITS, BUSINESS_MODES, ConflictError, CurrencyCode, DECISION_TYPES, EVENT_TYPES, GAME_MODES, isValidTimeZone } from "@foundmill/shared";
 import { z } from "zod";
+import { areaWordsFor } from "../services/area-words";
 import { autopilotStatus, ensureAutopilot, setAutopilot } from "../services/autopilot";
 import { pauseCycle, resumeCycle, startCycle } from "../services/cycle";
 import { assertAgentsRunning, resumeAgents, stopAllAgents } from "../services/killswitch";
@@ -176,6 +177,15 @@ export const businessRouter = router({
    */
   firstWeek: router({
     get: businessProcedure.query(({ ctx }) => ctx.rls((tx) => firstWeekFlags(tx, { id: ctx.businessId, distributionStartedAt: ctx.business.distributionStartedAt }))),
+  }),
+
+  /**
+   * The founder areas' opening sentences as one read (services/area-words.ts), for a client that cannot build them from
+   * the tiles' own reads the way the web does (the mobile app, Nov 11, 2026). Any member; each area follows the reader's
+   * section access and answers null when walled.
+   */
+  areas: router({
+    words: businessProcedure.query(({ ctx }) => areaWordsFor(ctx)),
   }),
 
   /**

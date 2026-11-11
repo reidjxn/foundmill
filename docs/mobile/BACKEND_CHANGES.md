@@ -48,11 +48,12 @@ These exist in `apps/api` today and the skill documents their names. Confirm the
 
 Where a field is missing, add it to the existing procedure rather than a mobile-specific one; the web benefits too.
 
-## 8. Area opening sentences as one read ⬜ (needed by `PROMPTS.md` 12B message A)
+## 8. Area opening sentences as one read ✅ in the repo (Nov 11), ⬜ deployed (needed by `PROMPTS.md` 12B message A)
 
 - The web computes each area's opening sentence in the browser (`packages/modules/src/areas/AreaOpening.tsx` feeds the pure builders in `packages/shared/src/area-words.ts` from the same widget reads as the tiles). A phone that did the same would carry six fact-gathering paths and drift from the web's words; the rule is that server-written sentences are shown, never recomputed.
-- Add `business.areas.words` Q (any member) → `{ today, plan, customers, money, company, product, team }`, each `AreaWords | null` (null when the reader's walls hide the facts). Gather the facts in one transaction under the caller's RLS with the reads the api already has (`finance.overview`'s figures and `runwayState`, `legal.incorporate.status` and the compliance list, `goal.current` and `product.roadmap.list`, the channel window and live campaigns, `product.signoff` stage with `dev.prs.list` and `dev.deployments.list`, the team tiers and `repos.agents.chiefOfStaff`), then call the shared builders. The web may switch to it later; nothing there changes now.
-- Done when: the api test asserts the Money, Plan and Team sentences for the seeded Northwind equal what `AreaOpening` renders on the web for the same account, and a reader walled from Finance gets `money: null`.
+- `business.areas.words` Q (any member) → `{ today, plan, customers, money, company, product, team }`, each `AreaWords | null` (null when the reader's walls hide the facts). `apps/api/src/services/area-words.ts` gathers the facts in one transaction under the caller's RLS with the reads the api already has (the cash position and net burn as `finance.overview` computes them, the primary entity and the compliance calendar, `goalView` and the roadmap, the channel window and live campaigns, the product stage with the same rows as `dev.prs.list` and `dev.deployments.list`, the agents' tiers) and hands them to the shared builders. The fact mappings moved out of the web's `AreaOpening.tsx` into `packages/shared/src/area-facts.ts` (and `runwayState` into `packages/shared/src/runway-state.ts`, re-exported by widgets), so the web and the api build each sentence from one function; the web still reads through its tiles' cache and may switch to the procedure later.
+- Tests: `apps/api/src/__tests__/area-words.test.ts` (a fresh business's six sentences, the roadmap and live-change counts with the Estimate chip, a walled reader's nulls, another business's owner refused); the modules, widgets and shared suites still pass on the moved builders.
+- Deployed when the api next deploys from main; the mobile card shows "Reading the numbers" until then.
 
 ## 9. The people side (Phase B of the prompts; THESIS_REVIEW §13 phases 1–5) ⬜
 
