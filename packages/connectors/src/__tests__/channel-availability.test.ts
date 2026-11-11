@@ -129,7 +129,11 @@ describe("channelAvailabilityFacts", () => {
 
     const withGithub = channelAvailabilityRows(channelAvailabilityFacts({ ...env, LIVE_CONNECTORS: "github" }, { isDemo: false }, []));
     expect(withGithub.seo.sentence).toBe("Not available yet: connect GitHub in Settings › Integrations and the team can run this.");
-    expect(firstChannelToOpen(withGithub)).toEqual({ label: "SEO", connectorName: "GitHub", connectable: true });
+    // A repository-backed channel is never named as the first to open: a first-time founder is not sent to connect a
+    // code repository to find customers. The email line is said instead (null).
+    expect(firstChannelToOpen(withGithub)).toBeNull();
+    const withSending = channelAvailabilityRows(channelAvailabilityFacts({ ...env, LIVE_CONNECTORS: "github,sendgrid" }, { isDemo: false }, []));
+    expect(firstChannelToOpen(withSending)).toEqual({ label: "Email automation", connectorName: "SendGrid", connectable: true });
     const sample = channelAvailabilityRows(channelAvailabilityFacts(env, { isDemo: true }, []));
     expect(Object.values(sample).every((r) => r.available && r.sentence === null)).toBe(true);
   });

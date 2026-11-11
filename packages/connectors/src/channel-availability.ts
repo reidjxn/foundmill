@@ -94,12 +94,18 @@ export function channelRefusal(channelKey: ChannelKey, availability: ChannelAvai
   return channelNotAvailableMessage(channelKey, availability, availability.connectorKey ? ACTING_CONNECTOR_NAMES[availability.connectorKey] : null);
 }
 
+/** Connectors that publish through the project's own code repository. */
+const REPOSITORY_CONNECTORS: ReadonlySet<string> = new Set(["github"]);
+
 /**
  * What opens first when no channel can run: the first channel (in `CHANNEL_KEYS` order) the founder can open by
  * connecting something now; null when none is theirs to open (the sentence then says email opens first).
  */
 export function firstChannelToOpen(rows: Readonly<Record<ChannelKey, ChannelAvailability>>): NoChannelFacts["opensFirst"] {
-  const key = CHANNEL_KEYS.find((k) => rows[k].reason === "not_connected" && rows[k].connectable === true);
+  // A channel that runs through a code repository (SEO and GEO commit pages to the project's own site) is never named
+  // as the first to open: most projects have no repository, and a first-time founder is not sent to connect one to
+  // find customers. It still appears, with its reason, in the "Not available yet" list.
+  const key = CHANNEL_KEYS.find((k) => rows[k].reason === "not_connected" && rows[k].connectable === true && !REPOSITORY_CONNECTORS.has(rows[k].connectorKey ?? ""));
   if (!key) return null;
   const connectorKey = rows[key].connectorKey;
   return { label: CHANNEL_META[key].label, connectorName: connectorKey ? (ACTING_CONNECTOR_NAMES[connectorKey] ?? null) : null, connectable: true };

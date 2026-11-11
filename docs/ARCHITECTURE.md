@@ -127,6 +127,7 @@ HTTP (JSON), service-to-service auth with `SESSION_TOKEN_SECRET`-signed JWTs (`j
 - `ALL /mcp/:connector` streamable-HTTP MCP server exposing that connector's tools to the Claude Agent SDK; same pipeline. The built-ins `platform`, `web` and `quarantine` are served here like any connector. The gateway's own model calls (the quarantined reader, on the platform key or the business's own) reach `usage_ledger` as tokens through `gatewayUsageSink`, booked to the agent and session that asked, like every other service's.
 - After a vendor call has run, nothing may turn it into a failure: the `tool.call` audit row is written first and on its own, a failure to book its usage is logged, never returned. Errors are logged through `safeError()`, never with a failed query's parameters (tool arguments).
 - Rate limit per connector per business (Redis). All third-party content returned to agents is wrapped `{ untrusted: true, content }`.
+- A mock connector the business never connected (no integration row, a connector that needs one) is refused with 409 `integration_not_connected` for a person's own business on staging and production (`GatewayDeps.appEnv`, `mockResultsAllowed` from packages/shared); a sample business, development and test get the mock's answer.
 - A call whose connector ran its mock returns `result.simulated: true` and `result.notice` (`SIMULATED_NOTICE`, `src/types.ts`): nothing reached a vendor, and house rule 4 forbids reporting it as done. A live call carries neither field.
 
 ## 10. Orchestrator (`apps/orchestrator`)

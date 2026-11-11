@@ -451,6 +451,37 @@ describe("live mode", () => {
   });
 });
 
+describe("a mock connector the business never connected", () => {
+  it("answers in development and test, and for a sample business; a person's own business on staging or production is told it is not connected", async () => {
+    const f = await setupGateway({ extraConnectorKeys: ["other"] });
+    try {
+      const token = await f.token({ allowedTools: ["test:*", "other:*"] });
+      const callOther = () => f.client.call(token, { connector: "other", tool: "note", args: { text: "x" } });
+      // No APP_ENV on the deps, and test: the mock answers, marked simulated.
+      expect(asAllow(await callOther()).result.simulated).toBe(true);
+      f.deps.appEnv = "test";
+      expect(asAllow(await callOther()).result.simulated).toBe(true);
+
+      for (const appEnv of ["staging", "production"]) {
+        f.deps.appEnv = appEnv;
+        const before = f.seen.length;
+        await expect(callOther(), appEnv).rejects.toMatchObject({ status: 409, code: "integration_not_connected" });
+        expect(f.seen.length, "the connector was never called").toBe(before);
+        // The connector this business did connect still runs its mock, and says it is simulated.
+        const connected = asAllow(await f.client.call(token, { connector: "test", tool: "note", args: { text: "x" } }));
+        expect(connected.result).toMatchObject({ ok: true, simulated: true });
+      }
+
+      // A sample business keeps the mock everywhere.
+      await f.h.pg.query("update businesses set is_demo = true where id = $1", [f.businessId]);
+      f.deps.appEnv = "production";
+      expect(asAllow(await callOther()).result.simulated).toBe(true);
+    } finally {
+      await f.close();
+    }
+  });
+});
+
 describe("LIVE_CONNECTORS", () => {
   it("runs the named connectors live while every other connector stays mock", async () => {
     const mixed = await setupGateway({ mode: "mock", liveConnectors: ["test"], connector: { authKind: "app" }, extraConnectorKeys: ["other"] });

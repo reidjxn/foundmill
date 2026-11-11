@@ -3517,3 +3517,16 @@ Every decision of §14 is now answered. The founder chose, from lettered options
 - **No redirect from `/leaderboards`.** A removed feature answers not found; nothing linked there from outside the product.
 - **Connecting to a business keeps its api path** though no screen offers it now. Person-to-person connections are untouched; the business branch is kept for the project pages of phase 1, where "follow this project" needs it.
 - **The mobile prompt pack is now wrong about leaderboards** and should be corrected before the app's network screens are built (package 5.6).
+
+## 2026-11-11 — The Channel Board shows only channels that can act: the calls made
+
+The founder decided the rule (§14 item 9). How it was built, and what follows from it:
+
+- **"Can act" is declared, not inferred.** `CHANNEL_ACTING_TOOLS` names, per channel, the gateway tools that count as the channel reaching people. A channel is available when one of them belongs to a connector that is live on the deployment and connected for the business. Twelve channels have an empty list today; adding a publisher is an edit to that table, pinned by a test.
+- **What a real project sees in production today:** no channel. Email's connector is not live; SEO and GEO act through a code repository. The Board says "No channel can run on its own yet. Email opens first, as soon as sending is switched on for your project. Nothing is wrong, and nothing is waiting on you." Until package 1.5 (the Foundmill sending address) lands, distribution for real projects is honestly paused rather than simulated.
+- **A repository-backed channel is never named as "what opens first".** The first build said "SEO opens first: connect GitHub" once GitHub was live; a first-time founder is not sent to connect a code repository to find customers. SEO and GEO still appear with their reason under "Not available yet" in Builder view.
+- **Offline tracking is the one exception, and it cannot be switched on from the Board.** A channel already in offline tracking (print and broadcast by default, or where the Strategist required it) may be put on the board from Builder view: the team prepares the materials and the founder submits them, which claims nothing false. No setter was added, since letting any channel switch into offline tracking would reopen all fifteen.
+- **Stopping an engine ends its open campaigns.** A real business that had "live" campaigns on a channel that cannot act will see them read "ended". That is the truth of what they were.
+- **Businesses that already enabled such channels keep the row.** Hidden by default, shown as "On the board, not running" in Builder view, no engine. No backfill.
+- **With fewer than two routes left, the Board question is not asked**, because a decision needs two options.
+- **"Not connected" at the gateway.** A mock connector that the business never connected now answers `integration_not_connected` for a person's own business on staging and production, before anything runs. An integration "connected" in Settings while the deployment is mock (stored with status `mock`) still runs the mock, and its result says it is simulated. Connectors with no account to connect (web search, the platform's own tools) are not affected; web research stays simulated in production until package 1.4.

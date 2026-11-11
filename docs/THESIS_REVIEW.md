@@ -369,7 +369,7 @@ Seven phases. Each work package lists what to build, where, and what done means.
 
 Goal: the rules, the plan and the product stop contradicting the thesis and stop reporting pretend results.
 
-Status, Nov 11, 2026: 0.1 done for the six answered decisions; 0.2 done (the plan is rewritten; re-importing it into Foundmill's own business is the founder's step); 0.3 done except the "not connected" refusal (it ships with 0.5) and the eval (1.8); 0.4 done; 0.6 done; people are free (3.2) done early. In progress: 0.5 (the Channel Board half) and leaderboard removal, each in its own change. 0.7: N1, SEC-10, SEC-11 and SEC-16 fixed and SEC-9 narrowed (SECURITY_REVIEW "Re-check and fixes"); SEC-14 and the items designed with email and Stripe remain.
+Status, Nov 11, 2026: 0.1 done for the six answered decisions; 0.2 done (the plan is rewritten; re-importing it into Foundmill's own business is the founder's step); 0.3 done except the eval (1.8); 0.4 done; 0.6 done; people are free (3.2) done early. Leaderboards removed. 0.5: the Channel Board half and the "not connected" refusal are done; templates still list grants nothing serves. 0.7: N1, SEC-10, SEC-11 and SEC-16 fixed and SEC-9 narrowed (SECURITY_REVIEW "Re-check and fixes"); SEC-14 and the items designed with email and Stripe remain.
 
 - **0.1 Founder decisions.** Get answers to section 14. Record them in `docs/DECISIONS.md`; update CLAUDE.md (vocabulary for people, the mobile rule, the subtext rule).
   Done when: each decision has a dated entry and CLAUDE.md matches.

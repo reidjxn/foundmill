@@ -17,7 +17,7 @@
  */
 import { createHash } from "node:crypto";
 import { LIMITS } from "@foundmill/config";
-import { AppError, NotFoundError } from "@foundmill/shared";
+import { AppError, mockResultsAllowed, NotFoundError } from "@foundmill/shared";
 import type { Vault } from "@foundmill/shared/crypto";
 import { bookUsage, codeRepositoryOf, openApprovalItem, repos, type Db, type Agent, type AppInstallation, type Business, type Integration } from "@foundmill/db";
 import { agentAutonomy, businessApprovalThreshold, evaluate, getPolicyEngine, type AgentCtxInput, type EvaluateInputInput, type EvaluateResult, type PolicyEngine, type ToolCtxInput } from "@foundmill/policy";
@@ -64,6 +64,12 @@ export interface GatewayDeps {
   mode: ConnectorMode;
   /** Connectors that run live while `mode` is mock (LIVE_CONNECTORS, e.g. GitHub before every other vendor). */
   liveConnectors?: readonly string[];
+  /**
+   * `APP_ENV`. With it set, a mock connector the business never connected is refused for a person's own business on
+   * staging and production (`mockResultsAllowed`): "not connected" is the truth there, a simulated success is not.
+   * Unset (tests that do not exercise the rule): mock connectors answer for every business, as in development.
+   */
+  appEnv?: string;
   rateLimits: RateLimitStore;
   /** Recipients first seen in untrusted content, shared by every session of a business (Redis in staging and production). */
   recipients: UntrustedRegister;
@@ -673,6 +679,12 @@ async function allow(deps: GatewayDeps, session: SessionToken, req: CallRequestP
   }
   if (mode === "live" && connector.auth.kind !== "none" && !credential && !appInstalled && !onPlatformKey) {
     throw new GatewayError("integration_not_connected", `${connector.displayName} is not connected for this business`, 409, { connector: connector.key });
+  }
+  // A mock connector the business never connected: a sample business, development and test get the mock's answer
+  // (marked simulated below); a person's own business on staging or production is told the truth, before anything
+  // runs, so no agent plans around a send, a lookup or a post that cannot happen (docs/THESIS_REVIEW.md, package 0.3).
+  if (mode === "mock" && connector.auth.kind !== "none" && !loaded.integrationRow && deps.appEnv !== undefined && !mockResultsAllowed(deps.appEnv, loaded.business.isDemo)) {
+    throw new GatewayError("integration_not_connected", `${connector.displayName} is not connected for this business, so nothing was done`, 409, { connector: connector.key });
   }
   const integration: IntegrationRecord = loaded.integrationRow ? toIntegrationRecord(loaded.integrationRow, credential) : mockIntegrationRecord(connector.key, session.businessId, mode === "mock" ? {} : { status: "connected" });
 
