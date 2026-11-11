@@ -15,6 +15,8 @@ const EVERY_SECRET: Record<keyof Required<PlatformSecrets>, true> = {
   anthropicApiKey: true,
   voyageApiKey: true,
   openaiApiKey: true,
+  onesignalAppId: true,
+  onesignalApiKey: true,
   e2bApiKey: true,
   stripeSecretKey: true,
   stripeWebhookSecret: true,

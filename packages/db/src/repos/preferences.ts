@@ -8,7 +8,7 @@
  * row reads the defaults (US dates, 12-hour times, guidance on, standard text, nothing seen), so reading never writes;
  * the first change creates the row.
  */
-import { AGENT_STYLES, DEFAULT_AGENT_STYLE, DEFAULT_DATE_FORMAT_PREFS, DateFormatPreference, TimeFormatPreference, type AgentStyle, type DateFormatPrefs } from "@foundmill/shared";
+import { AGENT_STYLES, DEFAULT_AGENT_STYLE, DEFAULT_DATE_FORMAT_PREFS, DEFAULT_NOTIFICATION_PREFS, DateFormatPreference, NOTIFICATION_KINDS, TimeFormatPreference, type AgentStyle, type DateFormatPrefs, type NotificationPrefs } from "@foundmill/shared";
 import { eq, sql } from "drizzle-orm";
 import { z } from "zod";
 import { accountPreferences, GUIDANCE_MODES, TEXT_SIZES, type GuidanceMode, type SeenMap, type TextSize } from "../schema";
@@ -35,16 +35,38 @@ export interface GuidancePrefs {
   builderView: boolean;
 }
 
-/** Everything on the row a person can choose: the date and time format and the guided layer's preferences. */
-export interface AccountPreferencesView extends DateFormatPrefs, GuidancePrefs {}
+/**
+ * The mobile app's notification preferences (0073, docs/mobile): which kinds of push the person's phones get (every
+ * kind on until turned off; the stored map holds only what was chosen) and whether amounts stay off the lock screen.
+ */
+export interface NotificationPreferences {
+  notifications: NotificationPrefs;
+  hideAmountsOnLockScreen: boolean;
+}
+
+/** Everything on the row a person can choose: the date and time format, the guided layer's preferences and the notification preferences. */
+export interface AccountPreferencesView extends DateFormatPrefs, GuidancePrefs, NotificationPreferences {}
 
 /** What everyone reads until they choose: guidance on, standard text, nothing seen, the checklist showing, agents as agents (humans when turned on). */
 export const DEFAULT_GUIDANCE_PREFS: Readonly<GuidancePrefs> = Object.freeze({ guidance: "on", textSize: "standard", explainersSeen: {}, toursDone: {}, checklistDismissedAt: null, anthropomorphicAgents: false, agentStyle: DEFAULT_AGENT_STYLE, builderView: false });
 
-export const DEFAULT_ACCOUNT_PREFERENCES: Readonly<AccountPreferencesView> = Object.freeze({ ...DEFAULT_DATE_FORMAT_PREFS, ...DEFAULT_GUIDANCE_PREFS });
+/** Every kind of push on, amounts shown. */
+export const DEFAULT_NOTIFICATION_PREFERENCES: Readonly<NotificationPreferences> = Object.freeze({ notifications: { ...DEFAULT_NOTIFICATION_PREFS }, hideAmountsOnLockScreen: false });
+
+export const DEFAULT_ACCOUNT_PREFERENCES: Readonly<AccountPreferencesView> = Object.freeze({ ...DEFAULT_DATE_FORMAT_PREFS, ...DEFAULT_GUIDANCE_PREFS, ...DEFAULT_NOTIFICATION_PREFERENCES });
 
 /** Ids to remember as seen or done, each set to true ("Got it" on Home: `{ home: true }`); at most 50 in one change. */
 const SeenMarks = z.record(z.string().trim().min(1).max(120), z.literal(true)).refine((m) => Object.keys(m).length <= 50, { message: "At most 50 screens or tours in one change" });
+
+/** The kinds of push to turn on or off in one change (`{ customer: false }`); only the known kinds, at least one. */
+const NotificationMarks = z.partialRecord(z.enum(NOTIFICATION_KINDS), z.boolean()).refine((m) => Object.keys(m).length > 0, { message: "Name at least one kind of notification" });
+
+/** The stored map (only what was chosen) merged over the defaults, in the kinds' own order. */
+export function notificationPrefsOf(stored: Partial<NotificationPrefs> | null | undefined): NotificationPrefs {
+  const out = { ...DEFAULT_NOTIFICATION_PREFS };
+  for (const kind of NOTIFICATION_KINDS) if (typeof stored?.[kind] === "boolean") out[kind] = stored[kind];
+  return out;
+}
 
 /**
  * A change to any of the preferences; at least one must be given. The maps merge into what is stored (a key is only
@@ -62,6 +84,8 @@ export const AccountPreferencesPatch = z
     checklistDismissed: z.boolean().optional(),
     anthropomorphicAgents: z.boolean().optional(),
     agentStyle: z.enum(AGENT_STYLES).optional(),
+    notifications: NotificationMarks.optional(),
+    hideAmountsOnLockScreen: z.boolean().optional(),
     builderView: z.boolean().optional(),
     reset: z.literal(true).optional(),
   })
@@ -82,10 +106,12 @@ const columns = {
   checklistDismissedAt: accountPreferences.checklistDismissedAt,
   anthropomorphicAgents: accountPreferences.anthropomorphicAgents,
   agentStyle: accountPreferences.agentStyle,
+  notifications: accountPreferences.notifications,
+  hideAmountsOnLockScreen: accountPreferences.hideAmountsOnLockScreen,
   builderView: accountPreferences.builderView,
 };
 
-type Row = Pick<typeof accountPreferences.$inferSelect, "guidance" | "textSize" | "explainersSeen" | "toursDone" | "checklistDismissedAt" | "anthropomorphicAgents" | "agentStyle" | "builderView"> & DateFormatPrefs;
+type Row = Pick<typeof accountPreferences.$inferSelect, "guidance" | "textSize" | "explainersSeen" | "toursDone" | "checklistDismissedAt" | "anthropomorphicAgents" | "agentStyle" | "notifications" | "hideAmountsOnLockScreen" | "builderView"> & DateFormatPrefs;
 
 function view(row: Row): AccountPreferencesView {
   return {
@@ -98,12 +124,14 @@ function view(row: Row): AccountPreferencesView {
     checklistDismissedAt: row.checklistDismissedAt ? row.checklistDismissedAt.toISOString() : null,
     anthropomorphicAgents: row.anthropomorphicAgents ?? false,
     agentStyle: row.agentStyle ?? DEFAULT_AGENT_STYLE,
+    notifications: notificationPrefsOf(row.notifications),
+    hideAmountsOnLockScreen: row.hideAmountsOnLockScreen ?? false,
     builderView: row.builderView ?? false,
   };
 }
 
-/** `stored || given`: the keys of a change added to a jsonb map in place. */
-const merged = (column: typeof accountPreferences.explainersSeen | typeof accountPreferences.toursDone, marks: SeenMap) => sql`${column} || ${JSON.stringify(marks)}::jsonb`;
+/** `stored || given`: the keys of a change added to a jsonb map in place (a notification kind given again is overwritten). */
+const merged = (column: typeof accountPreferences.explainersSeen | typeof accountPreferences.toursDone | typeof accountPreferences.notifications, marks: SeenMap | Partial<NotificationPrefs>) => sql`${column} || ${JSON.stringify(marks)}::jsonb`;
 
 export const preferencesRepo = {
   /** The person's preferences, or the defaults when they never chose. */
@@ -116,13 +144,14 @@ export const preferencesRepo = {
   async update(db: Executor, userId: string, patch: AccountPreferencesPatch): Promise<AccountPreferencesView> {
     const v = parseInput(AccountPreferencesPatch, patch, "preferences");
     const dismissedAt = v.checklistDismissed === undefined ? undefined : v.checklistDismissed ? new Date() : null;
-    const scalars = defined({ dateFormat: v.date, timeFormat: v.time, guidance: v.guidance, textSize: v.textSize, anthropomorphicAgents: v.anthropomorphicAgents, agentStyle: v.agentStyle, builderView: v.builderView });
+    const scalars = defined({ dateFormat: v.date, timeFormat: v.time, guidance: v.guidance, textSize: v.textSize, anthropomorphicAgents: v.anthropomorphicAgents, agentStyle: v.agentStyle, hideAmountsOnLockScreen: v.hideAmountsOnLockScreen, builderView: v.builderView });
     // A first row starts from the defaults, so a reset has nothing to clear and a mark is the whole map.
-    const insert = { userId, ...scalars, ...defined({ explainersSeen: v.explainersSeen, toursDone: v.toursDone, checklistDismissedAt: dismissedAt }) };
+    const insert = { userId, ...scalars, ...defined({ explainersSeen: v.explainersSeen, toursDone: v.toursDone, checklistDismissedAt: dismissedAt, notifications: v.notifications }) };
     const set = {
       ...scalars,
       ...(v.explainersSeen ? { explainersSeen: merged(accountPreferences.explainersSeen, v.explainersSeen) } : {}),
       ...(v.toursDone ? { toursDone: merged(accountPreferences.toursDone, v.toursDone) } : {}),
+      ...(v.notifications ? { notifications: merged(accountPreferences.notifications, v.notifications) } : {}),
       ...(dismissedAt !== undefined ? { checklistDismissedAt: dismissedAt } : {}),
       ...(v.reset ? { explainersSeen: {}, toursDone: {}, checklistDismissedAt: null } : {}),
     };

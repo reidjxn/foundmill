@@ -12,9 +12,12 @@
  * example membership (a read-only walk around a demo) writes nothing into the demo's log.
  * founder.tableViews.get/save: the views a person saves on a data table (saved_table_views, 0041), for a business they
  * belong to or for the account-wide LIVE pages; RLS holds them to their own rows and their own businesses.
+ * founder.preferences.notifications and founder.devices.list/register/unregister (0075, docs/mobile): the mobile app's
+ * push preferences (which kinds, amounts off the lock screen) and the phones it registered. `register` runs with the
+ * service role so a token follows the latest sign-in on a phone (packages/db repos/devices.ts); the rest run as the user.
  */
 import { freeDisplayName, liveModeOpen } from "@foundmill/config";
-import { AccountPreferencesPatch, repos, withRls, FounderProfileInput, FounderProfilePatch, SaveTableViewsInput, TableViewsScope, type AccountPreferencesView, type Db, type DbTx, type GuidancePrefs } from "@foundmill/db";
+import { AccountPreferencesPatch, RegisterDeviceInput, UnregisterDeviceInput, repos, withRls, FounderProfileInput, FounderProfilePatch, SaveTableViewsInput, TableViewsScope, type AccountPreferencesView, type Db, type DbTx, type GuidancePrefs, type NotificationPreferences } from "@foundmill/db";
 import { GUIDANCE_OFF_SOURCES } from "@foundmill/shared";
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
@@ -41,6 +44,11 @@ export function guidanceOffByDefault(experience: string | null | undefined): boo
 /** The guided layer's part of the preferences row, the anthropomorphic agents switch and its style, and Builder view (what founder.preferences.guidance answers). */
 export function guidancePrefsOf(p: AccountPreferencesView): GuidancePrefs {
   return { guidance: p.guidance, textSize: p.textSize, explainersSeen: p.explainersSeen, toursDone: p.toursDone, checklistDismissedAt: p.checklistDismissedAt, anthropomorphicAgents: p.anthropomorphicAgents, agentStyle: p.agentStyle, builderView: p.builderView };
+}
+
+/** The mobile app's part of the preferences row (what founder.preferences.notifications answers). */
+export function notificationPrefsOf(p: AccountPreferencesView): NotificationPreferences {
+  return { notifications: p.notifications, hideAmountsOnLockScreen: p.hideAmountsOnLockScreen };
 }
 
 const SignalTourId = z.string().trim().min(1).max(120);
@@ -102,6 +110,8 @@ export const founderRouter = router({
      * (0073: show how the platform runs the team; default false).
      */
     guidance: protectedProcedure.query(({ ctx }) => asUser(ctx, async (tx) => guidancePrefsOf(await repos.preferences.get(tx, ctx.userId)))),
+    /** Which kinds of push the person's phones get (every kind on until turned off) and whether amounts stay off the lock screen (0075). */
+    notifications: protectedProcedure.query(({ ctx }) => asUser(ctx, async (tx) => notificationPrefsOf(await repos.preferences.get(tx, ctx.userId)))),
     /** Change any of the preferences (formats, the switch, the text size, marks, the checklist, a reset, anthropomorphic agents and their style); returns them all. */
     update: protectedProcedure.input(AccountPreferencesPatch).mutation(({ ctx, input }) => asUser(ctx, (tx) => repos.preferences.update(tx, ctx.userId, input))),
     /**
@@ -122,6 +132,17 @@ export const founderRouter = router({
       const eventId = await writeEventRow(ctx.db, { businessId: business.id, type, actor: { kind: "user", id: ctx.userId }, payload: payload as never });
       return { written: true as const, eventId };
     }),
+  }),
+  devices: router({
+    /** The person's phones registered for push, the most recently seen first. */
+    list: protectedProcedure.query(({ ctx }) => asUser(ctx, (tx) => repos.devices.list(tx, ctx.userId))),
+    /**
+     * Registers the phone the app runs on (after sign-in, and again on every launch to refresh `lastSeenAt` and the
+     * version). Runs with the service role: a token another account held on this phone moves to the person signing in.
+     */
+    register: protectedProcedure.input(RegisterDeviceInput).mutation(({ ctx, input }) => repos.devices.register(ctx.db, ctx.userId, input)),
+    /** Forgets this phone (sign-out). Someone else's token is not theirs to forget: `removed` is false. */
+    unregister: protectedProcedure.input(UnregisterDeviceInput).mutation(({ ctx, input }) => asUser(ctx, (tx) => repos.devices.unregister(tx, ctx.userId, input.token))),
   }),
   tableViews: router({
     /** The person's saved views and open view for one table; null until they change something there. */

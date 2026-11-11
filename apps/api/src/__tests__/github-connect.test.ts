@@ -36,6 +36,9 @@ const gateway: ApiGatewayClient = {
   async repository(_businessId, owner, repo) {
     return { mode: "live", repository: { id: 7_700_001, fullName: `${owner}/${repo}`, private: true, defaultBranch: "main" } };
   },
+  async sendPush() {
+    throw new Error("no push in these tests");
+  },
 };
 
 describe("integrations.connect for a live GitHub App", () => {

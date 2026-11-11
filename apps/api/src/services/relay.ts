@@ -11,7 +11,7 @@
  * committed reach the stream without waiting for the idle poll (about 220 ms on average until 2026-10-15). Writes made
  * by other services wait for the poll, which stays at 250 ms.
  */
-import { runOutboxRelay, type OutboxRelay } from "@foundmill/events";
+import { runOutboxRelay, type OutboxRelay, type PlatformEvent } from "@foundmill/events";
 import type { ApiDeps } from "../context";
 import { redisReachable, type ApiRedis } from "./redis";
 
@@ -40,6 +40,11 @@ export interface RelaySupervisorOptions {
   /** Wait before the next probe; `attempt` counts from 1 (default: 1 s doubling to 30 s). */
   backoffMs?: (attempt: number) => number;
   now?: () => Date;
+  /**
+   * Told each batch the relay published, after the rows are marked published (the push notifier, services/push). Fire and
+   * forget: the relay never waits for it, and a throw inside it never fails a tick.
+   */
+  onPublished?: (events: readonly PlatformEvent[]) => void;
 }
 
 export const relayBackoffMs = (attempt: number): number => Math.min(30_000, 1_000 * 2 ** Math.max(0, attempt - 1));
@@ -52,6 +57,17 @@ export function superviseOutboxRelay(deps: Pick<ApiDeps, "db" | "redis" | "log" 
     (() =>
       runOutboxRelay(deps.db as unknown as Parameters<typeof runOutboxRelay>[0], redis!, {
         onError: (err) => deps.log.warn({ err: (err as Error).message }, "outbox relay tick failed"),
+        ...(options.onPublished
+          ? {
+              onPublished: (events: readonly PlatformEvent[]) => {
+                try {
+                  options.onPublished!(events);
+                } catch (err) {
+                  deps.log.warn({ err: (err as Error).message }, "outbox relay onPublished hook failed");
+                }
+              },
+            }
+          : {}),
       }));
   const backoff = options.backoffMs ?? relayBackoffMs;
   const now = options.now ?? (() => new Date());

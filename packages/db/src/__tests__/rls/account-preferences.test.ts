@@ -70,7 +70,8 @@ describe("account_preferences (table)", () => {
 });
 
 /** The defaults everyone reads until they choose. */
-const DEFAULTS = { date: "us", time: "12h", guidance: "on", textSize: "standard", explainersSeen: {}, toursDone: {}, checklistDismissedAt: null, anthropomorphicAgents: false, agentStyle: "humans", builderView: false };
+const NOTIFICATIONS_ON = { decision: true, approval: true, customer: true, agent_down: true, runway: true, run_finished: true, goal: true };
+const DEFAULTS = { date: "us", time: "12h", guidance: "on", textSize: "standard", explainersSeen: {}, toursDone: {}, checklistDismissedAt: null, anthropomorphicAgents: false, agentStyle: "humans", builderView: false, notifications: NOTIFICATIONS_ON, hideAmountsOnLockScreen: false };
 
 describe("repos.preferences under RLS", () => {
   it("reads the defaults without writing a row, then upserts only what changed", async () => {
@@ -130,6 +131,20 @@ describe("repos.preferences: the guided layer (0064)", () => {
     expect(await h.asUser(hal).run((tx) => preferencesRepo.update(tx, hal, { reset: true }))).toEqual(DEFAULTS);
   });
 
+  it("0075: notification kinds merge over the defaults, the lock-screen switch saves alone, a reset keeps both, unknown kinds are refused", async () => {
+    const ivy = await h.createUser("ivy@test.local");
+    expect(await h.asUser(ivy).run((tx) => preferencesRepo.update(tx, ivy, { notifications: { customer: false } }))).toEqual({ ...DEFAULTS, notifications: { ...NOTIFICATIONS_ON, customer: false } });
+    expect(await h.asUser(ivy).run((tx) => preferencesRepo.update(tx, ivy, { notifications: { run_finished: false }, hideAmountsOnLockScreen: true }))).toEqual({ ...DEFAULTS, notifications: { ...NOTIFICATIONS_ON, customer: false, run_finished: false }, hideAmountsOnLockScreen: true });
+    // Turning a kind back on overwrites the stored choice; the stored map holds only what was chosen.
+    expect(await h.asUser(ivy).run((tx) => preferencesRepo.update(tx, ivy, { notifications: { customer: true } }))).toMatchObject({ notifications: { ...NOTIFICATIONS_ON, run_finished: false } });
+    expect((await h.service().run((tx) => tx.select({ n: s.accountPreferences.notifications }).from(s.accountPreferences).where(eq(s.accountPreferences.userId, ivy))))[0]!.n).toEqual({ customer: true, run_finished: false });
+    expect(await h.asUser(ivy).run((tx) => preferencesRepo.update(tx, ivy, { reset: true }))).toMatchObject({ notifications: { ...NOTIFICATIONS_ON, run_finished: false }, hideAmountsOnLockScreen: true });
+    await expect(h.asUser(ivy).run((tx) => preferencesRepo.update(tx, ivy, { notifications: {} }))).rejects.toThrow(/Invalid preferences/);
+    await expect(h.asUser(ivy).run((tx) => preferencesRepo.update(tx, ivy, { notifications: { marketing: true } } as never))).rejects.toThrow(/Invalid preferences/);
+    await expect(h.asUser(ivy).run((tx) => preferencesRepo.update(tx, ivy, { notifications: { customer: "no" } } as never))).rejects.toThrow(/Invalid preferences/);
+    await expect(h.asUser(ivy).run((tx) => preferencesRepo.update(tx, ivy, { hideAmountsOnLockScreen: "yes" } as never))).rejects.toThrow(/Invalid preferences/);
+  });
+
   it("refuses unknown modes, a mark that is not true, too many marks, and a reset that also marks", async () => {
     await expect(h.asUser(ada).run((tx) => preferencesRepo.update(tx, ada, { guidance: "quiet" } as never))).rejects.toThrow(/Invalid preferences/);
     await expect(h.asUser(ada).run((tx) => preferencesRepo.update(tx, ada, { textSize: "large" } as never))).rejects.toThrow(/Invalid preferences/);
@@ -143,24 +158,24 @@ describe("repos.preferences: the guided layer (0064)", () => {
 
 describe("account_preferences: Builder view (0073)", () => {
   it("is off until chosen, saves on its own, and only its owner can read or change it", async () => {
-    const ivy = await h.createUser("ivy@test.local");
+    const kim = await h.createUser("kim@test.local");
     const jo = await h.createUser("jo@test.local");
-    expect((await h.asUser(ivy).run((tx) => preferencesRepo.get(tx, ivy))).builderView).toBe(false);
-    expect(await h.asUser(ivy).run((tx) => preferencesRepo.update(tx, ivy, { builderView: true }))).toEqual({ ...DEFAULTS, builderView: true });
+    expect((await h.asUser(kim).run((tx) => preferencesRepo.get(tx, kim))).builderView).toBe(false);
+    expect(await h.asUser(kim).run((tx) => preferencesRepo.update(tx, kim, { builderView: true }))).toEqual({ ...DEFAULTS, builderView: true });
     // Another account reads the defaults for Ivy (her row is invisible) and cannot set her value, through the repo or the table.
-    expect((await h.asUser(jo).run((tx) => preferencesRepo.get(tx, ivy))).builderView).toBe(false);
-    await expect(h.asUser(jo).run((tx) => preferencesRepo.update(tx, ivy, { builderView: false }))).rejects.toThrow(RLS_DENIED);
-    const changed = await h.asUser(jo).run((tx) => tx.update(s.accountPreferences).set({ builderView: false }).where(eq(s.accountPreferences.userId, ivy)).returning());
+    expect((await h.asUser(jo).run((tx) => preferencesRepo.get(tx, kim))).builderView).toBe(false);
+    await expect(h.asUser(jo).run((tx) => preferencesRepo.update(tx, kim, { builderView: false }))).rejects.toThrow(RLS_DENIED);
+    const changed = await h.asUser(jo).run((tx) => tx.update(s.accountPreferences).set({ builderView: false }).where(eq(s.accountPreferences.userId, kim)).returning());
     expect(changed).toHaveLength(0);
-    expect(await h.asUser(jo).run((tx) => tx.select({ builderView: s.accountPreferences.builderView }).from(s.accountPreferences).where(eq(s.accountPreferences.userId, ivy)))).toHaveLength(0);
+    expect(await h.asUser(jo).run((tx) => tx.select({ builderView: s.accountPreferences.builderView }).from(s.accountPreferences).where(eq(s.accountPreferences.userId, kim)))).toHaveLength(0);
     // Jo's own switch is Jo's alone.
     expect((await h.asUser(jo).run((tx) => preferencesRepo.update(tx, jo, { builderView: true }))).builderView).toBe(true);
-    expect((await h.asUser(ivy).run((tx) => preferencesRepo.update(tx, ivy, { builderView: false }))).builderView).toBe(false);
+    expect((await h.asUser(kim).run((tx) => preferencesRepo.update(tx, kim, { builderView: false }))).builderView).toBe(false);
     expect((await h.asUser(jo).run((tx) => preferencesRepo.get(tx, jo))).builderView).toBe(true);
     // The other preferences are untouched by it, and a non-boolean is refused.
-    expect(await h.asUser(ivy).run((tx) => preferencesRepo.get(tx, ivy))).toEqual(DEFAULTS);
-    await expect(h.asUser(ivy).run((tx) => preferencesRepo.update(tx, ivy, { builderView: "yes" } as never))).rejects.toThrow(/Invalid preferences/);
-    const truth = await h.service().run((tx) => tx.select({ builderView: s.accountPreferences.builderView }).from(s.accountPreferences).where(eq(s.accountPreferences.userId, ivy)));
+    expect(await h.asUser(kim).run((tx) => preferencesRepo.get(tx, kim))).toEqual(DEFAULTS);
+    await expect(h.asUser(kim).run((tx) => preferencesRepo.update(tx, kim, { builderView: "yes" } as never))).rejects.toThrow(/Invalid preferences/);
+    const truth = await h.service().run((tx) => tx.select({ builderView: s.accountPreferences.builderView }).from(s.accountPreferences).where(eq(s.accountPreferences.userId, kim)));
     expect(truth).toEqual([{ builderView: false }]);
   });
 });

@@ -110,6 +110,7 @@ export const EVENT_WALLS = {
   "guidance.explainer_dismissed": { sections: ["settings"] },
   "guidance.term_opened": { sections: ["settings"] },
   "guidance.turned_off": { sections: ["settings"] },
+  "push.sent": { sections: ["settings"] },
 } as const satisfies { readonly [K in EventType]: EventWall };
 
 /** What one reader may see of business events: their walls (sections they may not read at all). */

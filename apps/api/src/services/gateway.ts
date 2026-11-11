@@ -10,7 +10,7 @@
  */
 import { randomUUID } from "node:crypto";
 import { OPENAI_IMAGES_GENERATION_TIMEOUT_MS } from "@foundmill/connectors";
-import { AppError, type AgentStyle, type IntegrationStatus } from "@foundmill/shared";
+import { AppError, type AgentStyle, type IntegrationStatus, type NotificationKind } from "@foundmill/shared";
 import { SignJWT } from "jose";
 
 export const TOKEN_ISSUER = "foundmill-gateway";
@@ -90,6 +90,28 @@ export interface GatewayRepository {
  */
 export const PORTRAIT_TIMEOUT_MS = OPENAI_IMAGES_GENERATION_TIMEOUT_MS + 30_000;
 
+/** One push notification to registered phones, as the api's notifier asks for it (apps/gateway push.ts `SendPushRequest`). */
+export interface GatewayPushRequest {
+  businessId: string;
+  kind: NotificationKind;
+  /** OneSignal subscription ids (`founder_devices.token`), at most 2,000. */
+  subscriptionIds: string[];
+  title: string;
+  body: string;
+  /** What the app routes on when the notification is tapped. */
+  data: Record<string, string | number | boolean>;
+  collapseKey?: string;
+}
+
+export interface GatewayPushResult {
+  mode: "mock" | "live";
+  /** The provider's notification id; empty when it accepted nothing. */
+  id: string;
+  /** Subscriptions the provider accepted it for (Estimate). */
+  recipients: number;
+  errors: string[];
+}
+
 export interface ApiGatewayClient {
   connect(businessId: string, connector: string, input: Record<string, unknown>): Promise<GatewayIntegrationRecord>;
   health(businessId: string, connector: string): Promise<GatewayHealth>;
@@ -107,6 +129,8 @@ export interface ApiGatewayClient {
    * Development › Code). 404 when the installation cannot reach it, 409 when GitHub is not connected.
    */
   repository(businessId: string, owner: string, repo: string): Promise<{ mode: "mock" | "live"; repository: GatewayRepository }>;
+  /** One push notification to the mobile app's phones (docs/mobile): the gateway holds the OneSignal keys and runs the connector. */
+  sendPush(input: GatewayPushRequest): Promise<GatewayPushResult>;
 }
 
 export interface CreateApiGatewayClientOptions {
@@ -156,5 +180,6 @@ export function createApiGatewayClient(opts: CreateApiGatewayClientOptions): Api
     checkDomains: async (ownerKey, domains) => (await post<{ results: GatewayDomainAnswer[] }>("/v1/domains/check", { ownerKey, domains })).results,
     generatePortrait: (personaKey, businessId, style) => post<GatewayPortrait>("/v1/personas/portrait", { personaKey, ...(style ? { style } : {}), ...(businessId ? { businessId } : {}) }, Math.max(timeoutMs, PORTRAIT_TIMEOUT_MS)),
     repository: (businessId, owner, repo) => post<{ mode: "mock" | "live"; repository: GatewayRepository }>("/v1/github/repository", { businessId, owner, repo }),
+    sendPush: (input) => post<GatewayPushResult>("/v1/push/send", input),
   };
 }

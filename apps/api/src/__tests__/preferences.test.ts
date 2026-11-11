@@ -27,6 +27,11 @@ const code = async (p: Promise<unknown>) => {
 
 /** The guided layer's defaults, until the person chooses. */
 const GUIDED = { guidance: "on", textSize: "standard", explainersSeen: {}, toursDone: {}, checklistDismissedAt: null, anthropomorphicAgents: false, agentStyle: "humans", builderView: false };
+/** The mobile app's notification defaults (0075): every kind on, amounts shown. */
+const NOTIFICATIONS_ON = { decision: true, approval: true, customer: true, agent_down: true, runway: true, run_finished: true, goal: true };
+const NOTIFIED = { notifications: NOTIFICATIONS_ON, hideAmountsOnLockScreen: false };
+/** Everything `update` answers: the formats, the guided layer and the notification preferences. */
+const ALL = { ...GUIDED, ...NOTIFIED };
 
 describe("founder.preferences", () => {
   it("reads US dates and 12-hour times until the person chooses, without writing a row", async () => {
@@ -38,8 +43,8 @@ describe("founder.preferences", () => {
 
   it("saves one choice at a time and keeps the other", async () => {
     const owner = hz.caller({ userId: hz.A.ownerId });
-    expect(await owner.founder.preferences.update({ date: "day_first" })).toEqual({ date: "day_first", time: "12h", ...GUIDED });
-    expect(await owner.founder.preferences.update({ time: "24h" })).toEqual({ date: "day_first", time: "24h", ...GUIDED });
+    expect(await owner.founder.preferences.update({ date: "day_first" })).toEqual({ date: "day_first", time: "12h", ...ALL });
+    expect(await owner.founder.preferences.update({ time: "24h" })).toEqual({ date: "day_first", time: "24h", ...ALL });
     expect(await owner.founder.preferences.get()).toEqual({ date: "day_first", time: "24h" });
     expect(await owner.founder.preferences.update({ date: "iso", time: "12h" })).toMatchObject({ date: "iso", time: "12h" });
     expect(await owner.founder.preferences.update({ date: "day_first", time: "24h" })).toMatchObject({ date: "day_first", time: "24h" });
@@ -59,8 +64,28 @@ describe("founder.preferences", () => {
     });
     expect(await owner.founder.preferences.update({ checklistDismissed: false })).toMatchObject({ checklistDismissedAt: null, explainersSeen: { home: true, inbox: true } });
     // "Show the first-week checklist again" / "Replay the tour": everything seen is forgotten; the choices stay.
-    expect(await owner.founder.preferences.update({ reset: true })).toEqual({ date: "day_first", time: "24h", ...GUIDED, guidance: "off", textSize: "comfortable" });
-    expect(await owner.founder.preferences.update({ guidance: "on", textSize: "standard" })).toEqual({ date: "day_first", time: "24h", ...GUIDED });
+    expect(await owner.founder.preferences.update({ reset: true })).toEqual({ date: "day_first", time: "24h", ...ALL, guidance: "off", textSize: "comfortable" });
+    expect(await owner.founder.preferences.update({ guidance: "on", textSize: "standard" })).toEqual({ date: "day_first", time: "24h", ...ALL });
+  });
+
+  it("notifications (0073): every kind on until turned off, kinds merge, the lock-screen switch saves alone, the account's own", async () => {
+    const fresh = await hz.h.createUser("notifications-preferences@test.local");
+    const me = hz.caller({ userId: fresh });
+    expect(await me.founder.preferences.notifications()).toEqual(NOTIFIED);
+    expect(await me.founder.preferences.update({ notifications: { customer: false } })).toMatchObject({ notifications: { ...NOTIFICATIONS_ON, customer: false }, hideAmountsOnLockScreen: false });
+    expect(await me.founder.preferences.update({ hideAmountsOnLockScreen: true, notifications: { run_finished: false } })).toMatchObject({ notifications: { ...NOTIFICATIONS_ON, customer: false, run_finished: false }, hideAmountsOnLockScreen: true });
+    expect(await me.founder.preferences.notifications()).toEqual({ notifications: { ...NOTIFICATIONS_ON, customer: false, run_finished: false }, hideAmountsOnLockScreen: true });
+    // The guided layer's read is untouched, and a reset of the tours keeps the notification choices.
+    expect(await me.founder.preferences.guidance()).toEqual(GUIDED);
+    expect(await me.founder.preferences.update({ reset: true })).toMatchObject({ notifications: { ...NOTIFICATIONS_ON, customer: false, run_finished: false }, hideAmountsOnLockScreen: true });
+    expect(await me.founder.preferences.update({ notifications: { customer: true } })).toMatchObject({ notifications: { ...NOTIFICATIONS_ON, run_finished: false } });
+    // Someone else's phones are their own.
+    expect(await hz.caller({ userId: hz.B.memberId }).founder.preferences.notifications()).toEqual(NOTIFIED);
+    expect(await code(me.founder.preferences.update({ notifications: {} }))).toBe("BAD_REQUEST");
+    expect(await code(me.founder.preferences.update({ notifications: { marketing: true } } as never))).toBe("BAD_REQUEST");
+    expect(await code(me.founder.preferences.update({ notifications: { customer: "off" } } as never))).toBe("BAD_REQUEST");
+    expect(await code(me.founder.preferences.update({ hideAmountsOnLockScreen: "yes" } as never))).toBe("BAD_REQUEST");
+    expect(await code(hz.caller(null).founder.preferences.notifications())).toBe("UNAUTHORIZED");
   });
 
   it("a second account cannot see or change the first one's choice", async () => {

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { allowedOrigins, createApp, wwwTwinOrigin } from "../app";
+import { allowedOrigins, clientOf, createApp, wwwTwinOrigin } from "../app";
 import type { ApiDeps } from "../context";
 
 /**
@@ -53,5 +53,38 @@ describe("CORS preflight", () => {
     for (const origin of ["https://evil.example", "http://www.foundmill.com", "https://www.foundmill.com.evil.example", "https://wwwfoundmill.com", "https://api.foundmill.com"]) {
       expect((await preflight(origin)).headers.get("access-control-allow-origin"), origin).toBeNull();
     }
+  });
+
+  it("lets a browser send x-foundmill-client, should the web ever name itself", async () => {
+    const res = await app.request("/trpc/business.list", { method: "OPTIONS", headers: { origin: "https://foundmill.com", "access-control-request-method": "POST", "access-control-request-headers": "authorization,content-type,x-foundmill-client" } });
+    expect(res.headers.get("access-control-allow-headers")?.toLowerCase()).toContain("x-foundmill-client");
+  });
+});
+
+/**
+ * The mobile app (docs/mobile) is not a browser: it sends no Origin and gets no CORS answer, and the bearer alone must
+ * carry a request through. It names itself with `x-foundmill-client`, which the request log keeps.
+ */
+describe("a native client without an Origin", () => {
+  it("passes the CORS layer untouched and is logged with its client name", async () => {
+    const info = vi.fn();
+    const app = createApp({ env: { APP_URL: "https://foundmill.com" }, log: { info } } as unknown as ApiDeps);
+    const res = await app.request("/", { headers: { authorization: "Bearer not-a-real-token", "x-foundmill-client": "mobile/1.0.0 ios" } });
+    expect(res.status).toBe(200);
+    expect(res.headers.get("access-control-allow-origin")).toBeNull();
+    expect(info).toHaveBeenCalledWith(expect.objectContaining({ method: "GET", path: "/", status: 200, client: "mobile/1.0.0 ios" }), "request");
+    const web = await app.request("/");
+    expect(web.status).toBe(200);
+    expect(info).toHaveBeenLastCalledWith(expect.objectContaining({ path: "/", client: null }), "request");
+  });
+
+  it("keeps only a short, printable client name in the log", () => {
+    expect(clientOf(undefined)).toBeNull();
+    expect(clientOf("")).toBeNull();
+    expect(clientOf("mobile/1.0.0 ios")).toBe("mobile/1.0.0 ios");
+    expect(clientOf("  mobile/1.0.0-beta.2 android  ")).toBe("mobile/1.0.0-beta.2 android");
+    expect(clientOf("mobile/1.0.0 ios extra words here")).toBeNull();
+    expect(clientOf("<script>alert(1)</script>")).toBeNull();
+    expect(clientOf("x".repeat(65))).toBeNull();
   });
 });

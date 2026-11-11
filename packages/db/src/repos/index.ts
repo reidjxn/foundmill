@@ -46,6 +46,7 @@ import { usageRepo } from "./usage";
 import { workspacesRepo } from "./workspaces";
 import { conversationsRepo } from "./conversations";
 import { preferencesRepo } from "./preferences";
+import { devicesRepo } from "./devices";
 import { portabilityRepo } from "./portability";
 import { tableViewsRepo } from "./table-views";
 import { personaPortraitsRepo } from "./persona-portraits";
@@ -91,6 +92,7 @@ export const repos = {
   research: researchRepo,
   conversations: conversationsRepo,
   preferences: preferencesRepo,
+  devices: devicesRepo,
   tableViews: tableViewsRepo,
   checkouts: checkoutsRepo,
   portability: portabilityRepo,
@@ -144,6 +146,7 @@ export * from "./workspaces";
 export * from "./logos";
 export * from "./conversations";
 export * from "./preferences";
+export * from "./devices";
 export * from "./table-views";
 export * from "./checkouts";
 export * from "./portability";

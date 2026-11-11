@@ -38,6 +38,9 @@ const gateway: ApiGatewayClient = {
   repository: async () => {
     throw new Error("not in these tests");
   },
+  sendPush: async () => {
+    throw new Error("not in these tests");
+  },
   async createCheckout(input) {
     asked.push(input);
     if (failWith) throw failWith;
