@@ -15,19 +15,31 @@
  * - measure (mock): the week's numbers, and for the lead channels (lead generation, content, events) one CRM record
  *   with a `lead` role per lead counted, so the Leads tab and the Attribution counts come from the same records
  *   (audit GTM-02).
+ *
+ * A channel that cannot really act does nothing (founder, 2026-11-11; packages/connectors `channelAvailability`): unless
+ * it is in offline tracking, every step of a channel that is not available for the business ends the engine with a
+ * note, ends what the engine had open and marks no campaign live. Where simulated results are allowed (a sample
+ * business, development, test) every channel is available and nothing changes.
  */
 import { buildChannelCreativeRequest, docText, finaliseCreative, getChannelTemplate } from "@foundmill/agents";
 import { LIMITS } from "@foundmill/config";
 import { repos } from "@foundmill/db";
 import { stableHash } from "@foundmill/models";
-import { CHANNEL_KEYS, CHANNEL_META, type BusinessMode, type ChannelKey } from "@foundmill/shared";
+import { CHANNEL_KEYS, CHANNEL_META, mockResultsAllowed, type BusinessMode, type ChannelAvailability, type ChannelKey } from "@foundmill/shared";
 import type { OrchestratorDeps } from "../deps";
 import { emitEvent, systemActor } from "../events";
 import { openApprovalNote } from "./approvals";
+import { channelBlocked } from "./channel-availability";
 import { requestJourneyDailyRefresh } from "../journey-refresh";
 import type { ChannelEngineState, ChannelStep, ChannelStepResult } from "./types";
 
 export const emptyChannelState = (): ChannelEngineState => ({ campaignId: null, approvalId: null, lastStep: null, weeksRun: 0, learnings: [] });
+
+/** The engine's note when it stops because the channel cannot act for this business (a log line; the Board says it in a founder's words). */
+export function channelUnavailableNote(label: string, availability: ChannelAvailability): string {
+  const why = availability.reason === "not_connected" ? `${availability.connectorKey ?? "its connector"} is not ${availability.connectable ? "connected for this business" : "live on this deployment"}` : "no tool publishes to it yet";
+  return `${label} is not available yet (${why}) and is not in offline tracking; engine stopping, nothing planned or launched`;
+}
 
 const isChannelKey = (v: string): v is ChannelKey => (CHANNEL_KEYS as readonly string[]).includes(v);
 
@@ -60,12 +72,10 @@ const DAYS_PER_MONTH = 30.4375;
 
 /**
  * Whether a channel may record invented results (impressions, leads, signups, spend) while connectors are mock: for a
- * sample business anywhere, and for any business on a development or test stack. Staging and production never invent
- * results for a person's own business.
+ * sample business anywhere, and for any business on a development or test stack. The rule lives in packages/shared
+ * (`channel-availability.ts`) so the api, the gateway and this engine share it; re-exported for existing imports.
  */
-export function mockResultsAllowed(appEnv: string, isDemo: boolean): boolean {
-  return isDemo || appEnv === "development" || appEnv === "test";
-}
+export { mockResultsAllowed };
 
 /** The weekly share of a monthly budget (minor units), what one weekly campaign may spend. */
 export function weeklyBudgetMinor(monthlyMinor: number | string | null): number {
@@ -123,6 +133,15 @@ export function createChannelActivities(deps: OrchestratorDeps) {
       if (!business.distributionStartedAt) return done("distribution has not started; engine stopping", { stop: true });
       const key = isChannelKey(input.channelKey) ? input.channelKey : (channel.channelKey as ChannelKey);
       const meta = CHANNEL_META[key];
+      // Only a channel that can really act runs (founder, 2026-11-11). Offline tracking is honest by design (the agent
+      // prepares, the founder submits), so it runs whatever the connectors are. The integrations are read only where
+      // simulated results are not allowed, so development, tests and the sample businesses are untouched.
+      const blocked = await channelBlocked(deps, business, key, channel.kitMode);
+      if (blocked) {
+        // The full stop, as for a channel taken off the board: nothing the engine had open stays scheduled or live.
+        await repos.campaigns.endForChannel(db, businessId, channel.id);
+        return done(channelUnavailableNote(meta.label, blocked), { stop: true });
+      }
       const owner = channel.ownerAgentId ? await repos.agents.get(db, businessId, channel.ownerAgentId) : null;
       // The channel's agent paused (its wage cap, or by hand): nothing new is drafted or launched for it this week.
       if (owner?.status === "paused" && (input.step === "create" || input.step === "launch")) return done(`${owner.name} is paused; skipped this week's ${input.step}`);

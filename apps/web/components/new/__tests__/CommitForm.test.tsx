@@ -5,7 +5,7 @@ import { CONCEPT_ATTRIBUTE_KEYS, GuidanceProvider, TooltipProvider } from "@foun
 import { TRPCClientError } from "@trpc/client";
 import { domainCandidates } from "@foundmill/shared";
 import { termsWithGlossary } from "@foundmill/shared/terms";
-import { CommitForm, HOW_IT_RUNS_REASSURANCE, WHAT_HAPPENS_NEXT, archetypeParam, commitSteps, departmentColour, importHref, includedCreditsLine, spendCapSummary, upgradeHrefOf, type CommitDomainApi, type CommitLogoApi } from "../commit/CommitScreen";
+import { CommitForm, HOW_IT_RUNS_REASSURANCE, WHAT_HAPPENS_NEXT, archetypeParam, commitSteps, departmentColour, importHref, includedCreditsLine, spendCapSummary, teamCountsLine, upgradeHrefOf, type CommitDomainApi, type CommitLogoApi } from "../commit/CommitScreen";
 import type { DomainCheck } from "../commit/naming";
 import { IMPORT_STEPS, STUDIO_STEPS } from "../StudioFrame";
 import { META_KIND, type IdeaLike } from "../ideate/concepts";
@@ -539,6 +539,12 @@ describe("CommitForm (BUILD §11.1 Commit screen; AC-11.1.6, AC-11.1.7)", () => 
     // An archetype's own department name is said as such, never a silent rename.
     expect(screen.getByText(/· your Product department/)).toBeTruthy();
     expect(screen.getByTestId("department-rename-note").textContent).toBe("A B2B SaaS business calls its Product department Editorial; it does the same work.");
+  });
+
+  it("names no channels in the team's count when none can run for a new project yet (never '0 channels on')", () => {
+    const agents = [{ templateKey: "chief_of_staff", layer: "assistant", wageCapMinor: 40_000 }];
+    expect(teamCountsLine({ agents, departments: [{}, {}], defaultChannels: [] })).toBe("1 agent · 2 departments");
+    expect(teamCountsLine({ agents, departments: [{}, {}], defaultChannels: ["seo", "geo"] })).toBe("1 agent · 2 departments · 2 channels on");
   });
 
   it("preselects the Import report's archetype over the card's and says where it came from (audit IAE-10)", () => {

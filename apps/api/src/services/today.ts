@@ -16,6 +16,7 @@
 import { APPROVAL_OPTIONS, approvalSection, repos, type DbTx, type InboxItem, type Task } from "@foundmill/db";
 import { CREDITS_CURRENCY } from "@foundmill/config";
 import { GOAL_OPTION_IDS, WRITE_ROLES, addDaysToDay, dayKeyIn, firstWeekTimeline, firstWeekVisible, hasSectionAccess, weekPlanWords, type FirstWeekWords, type WeekFacts, type WeekPlanWords } from "@foundmill/shared";
+import { channelRowsFor } from "./channel-availability";
 import type { BusinessContext } from "../trpc";
 import { autopilotStatus } from "./autopilot";
 import { cycleStatus, type CycleStatus } from "./cycle";
@@ -201,7 +202,7 @@ export async function firstWeekFor(tx: DbTx, ctx: BusinessContext, now: Date = n
   const dayOf = (at: Date | null | undefined): string | null => (at ? dayKeyIn(at, zone) : null);
   const base = { today: dayKeyIn(now, zone), createdOn: dayKeyIn(ctx.business.createdAt, zone), distributionStartedOn: dayOf(ctx.business.distributionStartedAt) };
   if (!firstWeekVisible(base)) return null;
-  const [signoffs, rounds, goals] = await Promise.all([repos.productSignoffs.latest(tx, ctx.businessId), repos.events.list(tx, ctx.businessId, { type: "cycle.completed", limit: 50 }), repos.goals.recent(tx, ctx.businessId, 10)]);
+  const [signoffs, rounds, goals, channels] = await Promise.all([repos.productSignoffs.latest(tx, ctx.businessId), repos.events.list(tx, ctx.businessId, { type: "cycle.completed", limit: 50 }), repos.goals.recent(tx, ctx.businessId, 10), channelRowsFor(tx, ctx)]);
   const firstRound = rounds.items.reduce<Date | null>((a, e) => (a === null || e.occurredAt < a ? e.occurredAt : a), null);
   const approvedAt = goals.reduce<Date | null>((a, g) => (g.approvedAt && (a === null || g.approvedAt < a) ? g.approvedAt : a), null);
   return firstWeekTimeline({
@@ -211,6 +212,8 @@ export async function firstWeekFor(tx: DbTx, ctx: BusinessContext, now: Date = n
     firstRoundOn: dayOf(firstRound),
     goalApprovedOn: dayOf(approvedAt),
     stopped: ctx.business.agentsStoppedAt !== null,
+    // Week 1 does not promise an approach no channel can make yet (founder, 2026-11-11).
+    noChannelCanRun: channels.available.length === 0,
   });
 }
 

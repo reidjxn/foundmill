@@ -335,11 +335,15 @@ export function visibleAgents<A extends PreviewAgent>(agents: readonly A[]): A[]
   return agents.filter((a) => !(a.background ?? a.layer === "utility"));
 }
 
-/** "6 agents · 6 departments · 4 channels on · plus 2 background helpers". */
+/**
+ * "6 agents · 6 departments · 4 channels on · plus 2 background helpers". The channels are the starters that can really
+ * run for a new project (the API's preview); with none, the line says nothing about channels instead of "0 channels on".
+ */
 export function teamCountsLine(preview: { agents: readonly PreviewAgent[]; departments: readonly unknown[]; defaultChannels: readonly unknown[] }): string {
   const visible = visibleAgents(preview.agents);
   const helpers = preview.agents.length - visible.length;
-  return `${plural(visible.length, "agent")} · ${plural(preview.departments.length, "department")} · ${plural(preview.defaultChannels.length, "channel")} on${helpers ? ` · plus ${plural(helpers, "background helper")}` : ""}`;
+  const channels = preview.defaultChannels.length ? ` · ${plural(preview.defaultChannels.length, "channel")} on` : "";
+  return `${plural(visible.length, "agent")} · ${plural(preview.departments.length, "department")}${channels}${helpers ? ` · plus ${plural(helpers, "background helper")}` : ""}`;
 }
 
 /**

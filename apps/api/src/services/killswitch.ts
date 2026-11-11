@@ -28,6 +28,7 @@ import type { AgentStopReason } from "@foundmill/shared";
 import type { BusinessContext } from "../trpc";
 import { audit, emit } from "../trpc";
 import { cycleStatus, endRun } from "./cycle";
+import { runnableChannels } from "./channel-availability";
 import { ensureChannelEngines } from "./engines";
 import { AgentsStoppedError } from "./stop-guard";
 import { WORKFLOWS, workflowIds, type SignalManyResult, type TemporalResult } from "./temporal";
@@ -198,7 +199,8 @@ export async function resumeAgents(ctx: BusinessContext): Promise<ResumeAgentsRe
   return { resumed: result.resumed, reason: result.reason, resumedAgents: result.agentIds.length, ...restarted };
 }
 
-type RestartScope = Pick<BusinessContext, "db" | "businessId" | "temporal">;
+/** `env` and `business` (every request context has them) let the restart skip channels that cannot really act. */
+type RestartScope = Pick<BusinessContext, "db" | "businessId" | "temporal"> & Partial<Pick<BusinessContext, "env" | "business">>;
 
 /**
  * What every way back (Resume agents, a new key, a top-up) starts again once the stop is lifted: the channel engines
@@ -211,10 +213,13 @@ export async function restartAfterResume(ctx: RestartScope): Promise<{ engines: 
 
 /**
  * Start again the engine of every enabled channel (deterministic ids; a running one answers "already running"): every
- * channel on the board runs its engine, whether or not one was recorded before the stop (audit GTM-01).
+ * channel on the board runs its engine, whether or not one was recorded before the stop (audit GTM-01). A channel that
+ * cannot really act and is not in offline tracking is left out (founder, 2026-11-11): its engine would stop at once.
  */
 export async function restartEngines(ctx: RestartScope): Promise<TemporalResult[]> {
-  return ensureChannelEngines(ctx, await repos.channels.list(ctx.db, ctx.businessId, { enabled: true }));
+  const enabled = await repos.channels.list(ctx.db, ctx.businessId, { enabled: true });
+  const scope = ctx.env && ctx.business ? { env: ctx.env, businessId: ctx.businessId, business: ctx.business } : null;
+  return ensureChannelEngines(ctx, scope ? await runnableChannels(ctx.db, scope, enabled) : enabled);
 }
 
 /**

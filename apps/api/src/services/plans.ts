@@ -20,8 +20,9 @@ import { APP_NAME, LIMITS } from "@foundmill/config";
 import { repos, type Agent, type Business, type Department, type Executor, type PlanAction as PlanActionRow, type PlanWithActions } from "@foundmill/db";
 import { compileOptionPlan as compileOptionPlanRules, compilePlanRuleBased, PLAN_ACTION_PARAMS, PlanOutput, SetAgentModelParams, type DecisionOption, type ModelClient, type OptionAgent, type PlanAction, type RoadmapItemRef } from "@foundmill/models";
 import { agentAutonomy, agentPrincipal, evaluate, type EvaluateResult, type ToolCtxInput } from "@foundmill/policy";
-import { CHANNEL_KEYS, CHANNEL_META, CreatePlaybookParams, ForbiddenError, hasSectionAccess, MODEL_KEYS, planActionSection, planSectionWalls, TASK_KINDS, type ChannelKey, type ModelKey, type ModuleKey, type PlanActionType, type PolicyOutcome, type Section, type SectionMembership, type TaskKind } from "@foundmill/shared";
+import { AppError, CHANNEL_KEYS, CHANNEL_META, CreatePlaybookParams, ForbiddenError, hasSectionAccess, MODEL_KEYS, planActionSection, planSectionWalls, TASK_KINDS, type ChannelKey, type ModelKey, type ModuleKey, type PlanActionType, type PolicyOutcome, type Section, type SectionMembership, type TaskKind } from "@foundmill/shared";
 import { changeAgentModels } from "./agent-model";
+import { assertChannelMayRun, CHANNEL_NOT_AVAILABLE, channelRowsFor, type ChannelAvailabilityScope } from "./channel-availability";
 import { DISTRIBUTION_NOT_STARTED } from "./engines";
 import type { TemporalService } from "./temporal";
 import { WORKFLOWS, workflowIds } from "./temporal";
@@ -303,6 +304,11 @@ export interface ExecuteOptions {
   temporal: TemporalService;
   /** The business's own currency (`businesses.currency`, 0025) for an amount the plan did not price in one. */
   currency: string;
+  /**
+   * What channel availability is read from (the request's env and business). With it, a plan never turns on a channel
+   * that cannot really act (founder, 2026-11-11): that action is recorded as denied with the founder's sentence.
+   */
+  availability?: ChannelAvailabilityScope;
 }
 
 const isChannelKey = (v: unknown): v is ChannelKey => typeof v === "string" && (CHANNEL_KEYS as readonly string[]).includes(v);
@@ -340,6 +346,14 @@ export async function executePlanActions(tx: Executor, businessId: string, plan:
       denied.push(action.id);
       continue;
     }
+    // A channel that cannot really act is not turned on, and neither is anything spent or planned on it through this
+    // plan: the action is refused in the founder's words (one in offline tracking may be turned on).
+    const refusal = await channelRefusalFor(tx, businessId, action, opts);
+    if (refusal) {
+      await repos.plans.finishAction(tx, businessId, action.id, { status: "denied", result: { reason: refusal, code: CHANNEL_NOT_AVAILABLE } });
+      denied.push(action.id);
+      continue;
+    }
     const handled = await executeLocally(tx, businessId, action, opts);
     if (handled) {
       await repos.plans.startAction(tx, businessId, action.id);
@@ -358,6 +372,21 @@ export async function executePlanActions(tx: Executor, businessId: string, plan:
 }
 
 const strings = (v: unknown): string[] => (Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : []);
+
+/** The founder's sentence when a plan action would turn on a channel that cannot run; null when it may. */
+async function channelRefusalFor(tx: Executor, businessId: string, action: PlanActionRow, opts: ExecuteOptions): Promise<string | null> {
+  if (action.type !== "enable_channel" || !opts.availability) return null;
+  const channel = (action.params as Record<string, unknown>).channel;
+  if (!isChannelKey(channel)) return null;
+  const existing = await repos.channels.getByKey(tx, businessId, channel);
+  try {
+    await assertChannelMayRun(tx, opts.availability, { channelKey: channel, kitMode: existing ? existing.kitMode : CHANNEL_META[channel].kitModeByDefault });
+    return null;
+  } catch (err) {
+    if (err instanceof AppError && err.code === CHANNEL_NOT_AVAILABLE) return err.message;
+    throw err;
+  }
+}
 
 /**
  * The engine workflow follows a channel a plan switched (AC-11.7.2), as the Board toggle does
@@ -464,7 +493,9 @@ async function executeLocally(tx: Executor, businessId: string, action: PlanActi
       const amount = typeof p.amount_minor === "number" ? Math.round(p.amount_minor) : null;
       if (amount === null) return null;
       if (isChannelKey(p.channel)) {
-        const existing = (await repos.channels.getByKey(tx, businessId, p.channel)) ?? (await repos.channels.upsert(tx, businessId, { channelKey: p.channel, line: CHANNEL_META[p.channel].line, enabled: true, ownerAgentId: action.agentId }));
+        // A budget on a channel with no row yet creates the row; it goes on the board only if the channel can run.
+        const onBoard = opts.availability ? (await channelRowsFor(tx, opts.availability)).rows[p.channel].available : true;
+        const existing = (await repos.channels.getByKey(tx, businessId, p.channel)) ?? (await repos.channels.upsert(tx, businessId, { channelKey: p.channel, line: CHANNEL_META[p.channel].line, enabled: onBoard, ownerAgentId: action.agentId }));
         const channel = await repos.channels.setBudget(tx, businessId, existing.id, amount, str(p.currency, opts.currency).toUpperCase());
         return { channelId: channel.id, budgetMinor: amount };
       }

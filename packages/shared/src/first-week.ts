@@ -35,6 +35,8 @@ export interface FirstWeekFacts {
   distributionStartedOn: string | null;
   /** The team is stopped (Stop all agents, a revoked key, used-up credits). */
   stopped: boolean;
+  /** No channel can really act for this business yet (channel-availability.ts); absent reads as false. */
+  noChannelCanRun?: boolean;
 }
 
 export interface FirstWeekStep {
@@ -123,7 +125,8 @@ export function firstWeekTimeline(f: FirstWeekFacts): FirstWeekWords | null {
       label: "Week 1",
       state: stateOf(2),
       when: week1Done ? `Done ${dateOf(f.distributionStartedOn)}` : planned(at(3), at(6)),
-      team: week1Done ? "Started approaching the first customers." : "Your team starts approaching the first customers.",
+      // With no channel able to run yet the team prepares; it does not promise an approach it cannot make (founder, 2026-11-11).
+      team: week1Done ? "Started approaching the first customers." : f.noChannelCanRun ? "Your team gets ready to approach the first customers; a channel starts as soon as one can run." : "Your team starts approaching the first customers.",
       asks: week1Done ? "You answered “Ready to start selling?”." : "You are asked “Ready to start selling?” and about any spend over your limit.",
     },
   ];

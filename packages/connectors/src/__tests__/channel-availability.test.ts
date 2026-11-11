@@ -1,0 +1,144 @@
+/**
+ * Which channels can really act (founder, 2026-11-11). The acting-tools table must name only tools a connector serves
+ * (and never a route-only or service-only one, which no agent holds), the channels without a publisher are pinned here
+ * so adding one is a deliberate edit, and `channelAvailability` answers each of its four reasons.
+ */
+import { CHANNEL_KEYS, type ChannelKey } from "@foundmill/shared";
+import { describe, expect, it } from "vitest";
+import { createAllConnectors } from "../catalogue";
+import { ACTING_CONNECTOR_NAMES, CHANNEL_ACTING_TOOLS, channelAvailabilities, channelAvailability, channelAvailabilityFacts, channelAvailabilityRows, channelRefusal, everyChannelAvailable, firstChannelToOpen, type ChannelAvailabilityFacts } from "../channel-availability";
+import { GATEWAY_TOOL_NAMES, isRouteOnlyTool, isServiceOnlyConnector } from "../grants";
+
+describe("CHANNEL_ACTING_TOOLS", () => {
+  it("has an entry for every channel and no other key", () => {
+    expect(Object.keys(CHANNEL_ACTING_TOOLS).sort()).toEqual([...CHANNEL_KEYS].sort());
+  });
+
+  it("names only tools a connector serves, as connector:tool, that an agent can hold", () => {
+    for (const [channel, refs] of Object.entries(CHANNEL_ACTING_TOOLS)) {
+      for (const ref of refs) {
+        expect(ref, `${channel}: "${ref}" is not connector:tool`).toMatch(/^[a-z0-9_]+:[a-z0-9_]+$/);
+        const [connector, tool] = ref.split(":") as [string, string];
+        expect(GATEWAY_TOOL_NAMES[connector], `${channel}: no connector "${connector}" is served`).toBeDefined();
+        expect(GATEWAY_TOOL_NAMES[connector], `${channel}: ${connector} serves no tool "${tool}"`).toContain(tool);
+        expect(isServiceOnlyConnector(connector), `${channel}: ${connector} is the platform's own, no agent calls it`).toBe(false);
+        expect(isRouteOnlyTool(connector, tool), `${channel}: ${ref} is route-only, no agent holds it`).toBe(false);
+      }
+    }
+  });
+
+  it("fails when a listed ref names a tool no connector serves", () => {
+    const served = (ref: string) => {
+      const [connector, tool] = ref.split(":") as [string, string];
+      return GATEWAY_TOOL_NAMES[connector]?.includes(tool) === true;
+    };
+    expect(served("sendgrid:send_mail")).toBe(true);
+    expect(served("github:commit_files")).toBe(true);
+    expect(served("sendgrid:publish_post")).toBe(false);
+    expect(served("meta_ads:create_campaign")).toBe(false);
+  });
+
+  it("has the display name of every connector it names, as the connector itself spells it", () => {
+    const connectors = new Map(createAllConnectors({ secrets: {} }).map((c) => [c.key, c.displayName]));
+    const named = new Set(Object.values(CHANNEL_ACTING_TOOLS).flatMap((refs) => refs.map((r) => r.split(":")[0]!)));
+    expect(Object.keys(ACTING_CONNECTOR_NAMES).sort()).toEqual([...named].sort());
+    for (const key of named) expect(ACTING_CONNECTOR_NAMES[key], key).toBe(connectors.get(key));
+  });
+
+  it("pins which channels act and which have no publisher yet (edit this list when a publisher is built)", () => {
+    const acting = CHANNEL_KEYS.filter((k) => CHANNEL_ACTING_TOOLS[k].length > 0);
+    const empty = CHANNEL_KEYS.filter((k) => CHANNEL_ACTING_TOOLS[k].length === 0);
+    expect(CHANNEL_ACTING_TOOLS.email_automation).toEqual(["sendgrid:send_mail"]);
+    expect(CHANNEL_ACTING_TOOLS.seo).toEqual(["github:commit_files"]);
+    expect(CHANNEL_ACTING_TOOLS.geo).toEqual(["github:commit_files"]);
+    expect(acting).toEqual(["email_automation", "seo", "geo"]);
+    expect(empty).toEqual(["lead_generation", "content", "social", "paid_ads", "influencer", "affiliate", "direct_mail", "print", "broadcast", "outdoor", "pr", "events"]);
+  });
+});
+
+describe("channelAvailability", () => {
+  const facts = (over: Partial<ChannelAvailabilityFacts> = {}): ChannelAvailabilityFacts => ({ liveConnectors: [], connectedConnectors: [], mockResultsAllowed: false, ...over });
+
+  it("simulated_allowed: every channel is available where simulated results are allowed", () => {
+    const all = channelAvailabilities(facts({ mockResultsAllowed: true }));
+    expect(Object.keys(all)).toHaveLength(15);
+    for (const key of CHANNEL_KEYS) expect(all[key], key).toEqual({ available: true, reason: "simulated_allowed" });
+  });
+
+  it("no_publisher: a channel with no acting tool is not available, whatever is connected", () => {
+    expect(channelAvailability("social", facts({ liveConnectors: "all", connectedConnectors: ["sendgrid", "github"] }))).toEqual({ available: false, reason: "no_publisher" });
+    expect(channelAvailability("print", facts())).toEqual({ available: false, reason: "no_publisher" });
+  });
+
+  it("not_connected: the connector is mock here, or the business has not connected it", () => {
+    // Mock for the deployment: not the founder's step.
+    expect(channelAvailability("email_automation", facts())).toEqual({ available: false, reason: "not_connected", connectorKey: "sendgrid", connectable: false });
+    // Connected in Settings while the connector is mock here: still not real.
+    expect(channelAvailability("email_automation", facts({ connectedConnectors: ["sendgrid"] }))).toEqual({ available: false, reason: "not_connected", connectorKey: "sendgrid", connectable: false });
+    // Live here, not connected for this business: the founder can connect it.
+    expect(channelAvailability("email_automation", facts({ liveConnectors: ["sendgrid"] }))).toEqual({ available: false, reason: "not_connected", connectorKey: "sendgrid", connectable: true });
+    expect(channelAvailability("seo", facts({ liveConnectors: "all" }))).toEqual({ available: false, reason: "not_connected", connectorKey: "github", connectable: true });
+  });
+
+  it("acts: an acting tool's connector is live here and connected for the business", () => {
+    expect(channelAvailability("email_automation", facts({ liveConnectors: ["sendgrid"], connectedConnectors: ["sendgrid"] }))).toEqual({ available: true, reason: "acts" });
+    expect(channelAvailability("seo", facts({ liveConnectors: ["github", "domains"], connectedConnectors: ["github"] }))).toEqual({ available: true, reason: "acts" });
+    expect(channelAvailability("geo", facts({ liveConnectors: "all", connectedConnectors: ["github"] }))).toEqual({ available: true, reason: "acts" });
+    // GitHub connected does not open email.
+    expect(channelAvailability("email_automation", facts({ liveConnectors: "all", connectedConnectors: ["github"] })).available).toBe(false);
+  });
+
+  it("any one of several acting tools is enough", () => {
+    const table = { ...CHANNEL_ACTING_TOOLS, social: ["sendgrid:send_mail", "github:commit_files"] } as Record<ChannelKey, readonly string[]>;
+    expect(channelAvailability("social", facts({ liveConnectors: ["github"], connectedConnectors: ["github"] }), table)).toEqual({ available: true, reason: "acts" });
+    expect(channelAvailability("social", facts({ liveConnectors: ["github"] }), table)).toEqual({ available: false, reason: "not_connected", connectorKey: "github", connectable: true });
+  });
+});
+
+describe("channelAvailabilityFacts", () => {
+  const integrations = [
+    { connectorKey: "github", status: "connected" },
+    { connectorKey: "sendgrid", status: "mock" },
+    { connectorKey: "stripe", status: "degraded" },
+    { connectorKey: "gmail", status: "expired" },
+    { connectorKey: "notion", status: "connected", archivedAt: new Date() },
+  ];
+
+  it("reads the deployment's live connectors, the business's connected integrations and the sample rule", () => {
+    const staging = channelAvailabilityFacts({ APP_ENV: "staging", INTEGRATIONS_MODE: "mock", LIVE_CONNECTORS: "github, domains" }, { isDemo: false }, integrations);
+    expect(staging).toEqual({ liveConnectors: ["github", "domains"], connectedConnectors: ["github", "stripe"], mockResultsAllowed: false });
+    expect(channelAvailabilityFacts({ APP_ENV: "production", INTEGRATIONS_MODE: "live", LIVE_CONNECTORS: "" }, { isDemo: false }, []).liveConnectors).toBe("all");
+  });
+
+  it("a sample business anywhere and any business in development or test keep all fifteen", () => {
+    expect(everyChannelAvailable({ APP_ENV: "production" }, { isDemo: true })).toBe(true);
+    expect(everyChannelAvailable({ APP_ENV: "test" }, { isDemo: false })).toBe(true);
+    expect(everyChannelAvailable({ APP_ENV: "development" }, { isDemo: false })).toBe(true);
+    expect(everyChannelAvailable({ APP_ENV: "staging" }, { isDemo: false })).toBe(false);
+    const sample = channelAvailabilities(channelAvailabilityFacts({ APP_ENV: "production", INTEGRATIONS_MODE: "mock", LIVE_CONNECTORS: "" }, { isDemo: true }, []));
+    expect(Object.values(sample).every((a) => a.available)).toBe(true);
+  });
+
+  it("rows carry the founder's sentence, the refusal names the channel, and what opens first is the founder's own step or nothing", () => {
+    const env = { APP_ENV: "staging", INTEGRATIONS_MODE: "mock", LIVE_CONNECTORS: "" } as const;
+    const rows = channelAvailabilityRows(channelAvailabilityFacts(env, { isDemo: false }, []));
+    expect(rows.social).toEqual({ available: false, reason: "no_publisher", sentence: "Not available yet: the team cannot publish here yet." });
+    expect(rows.email_automation).toEqual({ available: false, reason: "not_connected", connectorKey: "sendgrid", connectable: false, sentence: "Not available yet: SendGrid is not switched on for your project yet. Nothing is waiting on you." });
+    expect(channelRefusal("social", rows.social)).toBe("Social media is not available yet: the team cannot publish there yet.");
+    expect(firstChannelToOpen(rows)).toBeNull();
+
+    const withGithub = channelAvailabilityRows(channelAvailabilityFacts({ ...env, LIVE_CONNECTORS: "github" }, { isDemo: false }, []));
+    expect(withGithub.seo.sentence).toBe("Not available yet: connect GitHub in Settings › Integrations and the team can run this.");
+    expect(firstChannelToOpen(withGithub)).toEqual({ label: "SEO", connectorName: "GitHub", connectable: true });
+    const sample = channelAvailabilityRows(channelAvailabilityFacts(env, { isDemo: true }, []));
+    expect(Object.values(sample).every((r) => r.available && r.sentence === null)).toBe(true);
+  });
+
+  it("production as documented (mock integrations, GitHub live): a person's project gets SEO and GEO once GitHub is connected, and nothing else", () => {
+    const env = { APP_ENV: "staging", INTEGRATIONS_MODE: "mock", LIVE_CONNECTORS: "github,domains" } as const;
+    const before = channelAvailabilities(channelAvailabilityFacts(env, { isDemo: false }, []));
+    expect(CHANNEL_KEYS.filter((k) => before[k].available)).toEqual([]);
+    const after = channelAvailabilities(channelAvailabilityFacts(env, { isDemo: false }, [{ connectorKey: "github", status: "connected" }]));
+    expect(CHANNEL_KEYS.filter((k) => after[k].available)).toEqual(["seo", "geo"]);
+  });
+});
