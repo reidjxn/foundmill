@@ -15,8 +15,9 @@
  * number here that is not counted from rows is null until the journey builder estimates it (`acquisitionCost`).
  *
  * Every payment, a repeat one included, is counted toward the milestones in the same transaction
- * (`awardMilestonesForConversion`, packages/db): the first, 10th, 100th customer, an MRR line, the first enterprise
- * contract. Each is awarded once; one a concurrent delivery hid is awarded by the orchestrator's nightly catch-up.
+ * (`awardMilestonesForConversion`, packages/db): the first, 10th, 100th customer and the first enterprise
+ * contract. Each is awarded once; one a concurrent delivery hid is awarded by the orchestrator's nightly catch-up, which
+ * also awards the revenue milestones from Finance's monthly figure (`awardRevenueMilestones`).
  */
 import { achieveGoalIfReached, awardMilestonesForConversion, repos, type Conversion, type Journey } from "@foundmill/db";
 import type { Executor } from "@foundmill/db/repos/_shared";

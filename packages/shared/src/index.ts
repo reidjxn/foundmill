@@ -15,6 +15,8 @@ export * from "./allowlist";
 export * from "./shortcuts";
 export * from "./areas";
 export * from "./area-words";
+export * from "./filings";
+export * from "./monthly-revenue";
 export * from "./env";
 export * from "./import-routes";
 export * from "./domains";

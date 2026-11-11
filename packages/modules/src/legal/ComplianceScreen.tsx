@@ -13,11 +13,13 @@ import { routes } from "@foundmill/widgets/shared/routes";
 import { useWidgetData, useWidgetQuery } from "@foundmill/widgets/data";
 import { useSavedViews } from "@foundmill/widgets/shared/saved-views";
 import type { ModuleScreenProps } from "../registry";
-import { DUE_WINDOW_DAYS, calendarMonths, calendarRows, daysToNextDeadline, type CalendarRow } from "./legal-data";
+import { calendarMonths, calendarRows, daysToNextDeadline, type CalendarRow } from "./legal-data";
 import { CALENDAR_PILL, Pill, SIMPLE_VIEW_ID, Screen, fitTableHeight, humanise, useDefaultViewId, useNow } from "./shared";
 import type { ComplianceListResponse } from "./types";
 import { DateText } from "../dates";
 import { emptyWhy } from "@foundmill/shared/empty-why";
+import { FILINGS_DUE_SOON_DAYS } from "@foundmill/shared/filings";
+import { dayKeyIn } from "@foundmill/shared/time-zone";
 
 const COMPLIANCE_INPUT = { pendingOnly: false, days: 365 } as const;
 
@@ -60,7 +62,9 @@ export function complianceColumns(): DataTableColumn<CalendarRow>[] {
 
 export function ComplianceScreen({ businessId, subView }: ModuleScreenProps) {
   const now = useNow();
-  const { navigate } = useWidgetData();
+  const { navigate, timeZone } = useWidgetData();
+  // The business's day: days left are whole calendar days from it, as the Money area's Company line counts them.
+  const today = useMemo(() => dayKeyIn(now, timeZone), [now, timeZone]);
   const departments = useDepartments();
   const query = useWidgetQuery<ComplianceListResponse>("legal.compliance.list", COMPLIANCE_INPUT);
   // Saved per person, business and table (audit #204): they come back after a reload. Simple opens first while guidance is on.
@@ -69,7 +73,7 @@ export function ComplianceScreen({ businessId, subView }: ModuleScreenProps) {
   const [mode, setMode] = useState<"list" | "calendar">(subView === "calendar" ? "calendar" : "list");
   const [highlight, setHighlight] = useState<string | null>(null);
 
-  const rows = useMemo(() => calendarRows(query.data, now), [query.data, now]);
+  const rows = useMemo(() => calendarRows(query.data, now, today), [query.data, now, today]);
   const { prefs: datePrefs, formatDateShort } = useFormatters();
   const months = useMemo(() => calendarMonths(rows, now, 12, datePrefs), [rows, now, datePrefs]);
   const columns = useMemo(() => complianceColumns(), []);
@@ -83,7 +87,7 @@ export function ComplianceScreen({ businessId, subView }: ModuleScreenProps) {
   const tiles: MetricTileProps[] = [
     { label: "Days to next deadline", value: next === null ? "—" : next, format: "integer", plain: "The soonest filing or compliance date still open.", caption: next === null ? "No open deadline" : next < 0 ? "Past due" : "Open deadline", provenance: { source: "Soonest open compliance event or filing", query: "legal.compliance.list" } },
     { label: "Overdue", value: overdue, format: "integer", plain: "Deadlines that have passed without being done.", provenance: { source: "Open items whose due date has passed" } },
-    { label: `Due within ${DUE_WINDOW_DAYS} days`, value: dueSoon, format: "integer", plain: "Deadlines coming up soon.", provenance: { source: `Open items due in the next ${DUE_WINDOW_DAYS} days` } },
+    { label: `Due within ${FILINGS_DUE_SOON_DAYS} days`, value: dueSoon, format: "integer", plain: `Open deadlines in the next ${FILINGS_DUE_SOON_DAYS} days.`, provenance: { source: `Open items due in the next ${FILINGS_DUE_SOON_DAYS} days, the window the Money area's Company line counts` } },
     { label: "Done this year", value: doneThisYear, format: "integer", plain: "Filings sent and compliance events completed since January.", provenance: { source: "Filings filed and compliance events completed this calendar year" } },
   ];
 

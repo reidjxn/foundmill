@@ -10,7 +10,7 @@
  * business's recent paths, and the models actually used, which journey.get labels the record with. The founder's
  * viewed state is kept; the event ingest wrote is not repeated. A repeat payment has no journey to build.
  *
- * The milestones a payment reached (first customer, an MRR line, ...) are awarded again here, idempotently, in case the
+ * The milestones a payment reached (first customer, the first enterprise contract, ...) are awarded again here, idempotently, in case the
  * delivery's own award was missed, and the journey matview is refreshed soon after (`requestJourneyDailyRefresh`).
  */
 import { ApplicationFailure } from "@temporalio/common";

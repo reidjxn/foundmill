@@ -22,6 +22,7 @@ import { RefreshFailedNotice, loadFailed, refreshFailed } from "@/components/she
 import { ScreenSkeleton } from "@/components/shell/ScreenSkeleton";
 import { TIMELINE_KIND_WORD, customersSoFarWords, milestoneForTrophy, otherMilestones, replayRefOf, shareText, trophyCards } from "./milestones";
 import { emptyWhy } from "@foundmill/shared/empty-why";
+import { revenueIsRecurring } from "@foundmill/shared/constants";
 
 const KIND_ICON = { release: Flag, decision: Gem, incorporation: Rocket, funding: Rocket, launch: Rocket, customer: Trophy, revenue: Trophy, trophy: Trophy } as const;
 
@@ -34,11 +35,13 @@ export function MilestonesScreen() {
   const { toast } = useToast();
   const live = data.business.gameMode === "live";
   const currency = useBusinessCurrency();
+  // Revenue milestones are Finance's monthly figure, named as Finance names it: MRR only when revenue recurs.
+  const recurring = revenueIsRecurring(data.business.archetype);
   const today = new Date().toISOString().slice(0, 10);
   // Milestones come back whole whatever the range; a one-day range keeps the daily rows out of the payload.
   const ribbonQ = useQuery(trpc.journey.ribbon.queryOptions({ businessId, from: today, to: today }, { staleTime: 60_000 }));
   const milestones = ribbonQ.data?.milestones;
-  const cards = useMemo(() => trophyCards(milestones, currency, live), [milestones, currency, live]);
+  const cards = useMemo(() => trophyCards(milestones, currency, live, recurring), [milestones, currency, live, recurring]);
   const others = useMemo(() => otherMilestones(milestones), [milestones]);
   const won = cards.filter((c) => c.achievedAt).length;
 
@@ -56,6 +59,11 @@ export function MilestonesScreen() {
       const milestone = milestoneForTrophy(key, milestones, currency);
       const ref = replayRefOf(milestone);
       if (!ref) {
+        // A revenue milestone is a month's figure, not one win: Finance shows where it comes from.
+        if (key.startsWith("mrr_") && milestone) {
+          toast({ title: "Reached on Finance's monthly figure", description: "It counts the last 3 full months' revenue ÷ 3, the figure on Money › Overview, so there is no single win to replay.", tone: "info" });
+          return;
+        }
         toast({ title: "No replay recorded for this milestone", description: "Customer Updates from now on link their replay here.", tone: "info" });
         return;
       }

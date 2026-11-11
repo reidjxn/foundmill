@@ -74,6 +74,17 @@ describe("compliance calendar", () => {
     expect(months[5]?.rows.map((r) => r.title)).toEqual(["Confirmation statement"]);
     expect(calendarRows(undefined, NOW)).toEqual([]);
   });
+
+  it("with the business's day, counts whole calendar days and the shared 30-day window, as the Company line does", () => {
+    const today = NOW.toISOString().slice(0, 10);
+    const at = (days: number, hour: number) => new Date(Date.UTC(NOW.getUTCFullYear(), NOW.getUTCMonth(), NOW.getUTCDate() + days, hour)).toISOString();
+    const data = { events: [{ id: "e30", kind: "ico_fee", title: "Day 30, late in the day", dueAt: at(30, 23), recurrence: null, completedAt: null }, { id: "e31", kind: "ico_fee", title: "Day 31", dueAt: at(31, 0), recurrence: null, completedAt: null }], upcoming: { filings: [], compliance: [] }, filings: [] } as unknown as Parameters<typeof calendarRows>[0];
+    const rows = calendarRows(data, NOW, today);
+    expect(rows.map((r) => [r.title, r.daysLeft, r.status])).toEqual([
+      ["Day 30, late in the day", 30, "due"],
+      ["Day 31", 31, "upcoming"],
+    ]);
+  });
 });
 
 describe("obligations", () => {

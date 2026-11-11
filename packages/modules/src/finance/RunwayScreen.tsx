@@ -15,6 +15,7 @@ import { Button, Chip, ExampleFrame, ExampleToggle, Field, Input, KeyValueList, 
 import { routes } from "@foundmill/widgets/shared/routes";
 import { useWidgetData, useWidgetQuery } from "@foundmill/widgets/data";
 import { usePinToHomeMenu } from "@foundmill/widgets/shared/pin";
+import { monthlyRevenueMinor, monthlyRevenueWindow } from "@foundmill/shared/monthly-revenue";
 import type { ModuleScreenProps } from "../registry";
 import { FORECAST_SCENARIOS, type FinanceOverview, type ForecastDrivers, type ForecastRow, type ForecastScenario, type PnlResponse } from "./types";
 import { runwayFigure, runwayState, runwayWords } from "@foundmill/widgets/shared/runway";
@@ -117,7 +118,10 @@ export function RunwayScreen({ businessId }: ModuleScreenProps) {
   // Pin to Home (audit #394): the forecast is the gallery's Cash and runway widget.
   const pinMenu = usePinToHomeMenu({ key: "cash_runway" });
   const overview = useWidgetQuery<FinanceOverview>("finance.overview", {});
-  const range = useMemo(() => ({ from: monthStart(now, -3).toISOString(), to: monthStart(now, 0).toISOString() }), [now]);
+  const range = useMemo(() => {
+    const w = monthlyRevenueWindow(now);
+    return { from: w.from.toISOString(), to: w.to.toISOString() };
+  }, [now]);
   const pnl = useWidgetQuery<PnlResponse>("finance.pnl", range);
   const thisMonth = monthKey(now);
   const cur = overview.data?.cash.currency || currency;
@@ -125,7 +129,7 @@ export function RunwayScreen({ businessId }: ModuleScreenProps) {
   const seeds = useMemo(() => {
     const o = overview.data;
     const revenue = pnl.data ? pnlTotals(pnl.data.categories).revenueMinor : 0;
-    return { cashMinor: o?.cash.amountMinor ?? 0, mrrMinor: Math.round(revenue / 3), grossBurnMinor: o?.burn.grossBurnMinor ?? 0 };
+    return { cashMinor: o?.cash.amountMinor ?? 0, mrrMinor: monthlyRevenueMinor(revenue), grossBurnMinor: o?.burn.grossBurnMinor ?? 0 };
   }, [overview.data, pnl.data]);
   const stored = useMemo(() => latestByScenario(list.data), [list.data]);
   const storedDrivers = useMemo(() => Object.fromEntries(FORECAST_SCENARIOS.map((s) => [s, readDrivers(stored[s]?.drivers, seedDrivers(s, seeds))])) as Record<ForecastScenario, ForecastDrivers>, [stored, seeds]);
