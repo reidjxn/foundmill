@@ -3566,3 +3566,11 @@ The founder decided the rule (§14 item 9). How it was built, and what follows f
 - **The caps fail closed.** Without shared counters (Redis down or absent) sending pauses outside development and test, so one project cannot exceed its cap through several gateway copies.
 - **A send that may have gone out keeps its count.** Only a definite refusal from SendGrid gives the count back.
 - **The founder's own SendGrid connector no longer falls back to the platform key**, and its health check now uses the founder's stored credential (it had been checking the platform account).
+
+## 2026-11-11 — The Follow form (package 1.6): the calls made
+
+- **Double opt-in.** A signup is pending until the person confirms from their own inbox. Only a confirmed follower counts, shows "Agreed to email", is a real outcome or can be emailed by the team. Without it, anyone could record "consent" for a stranger, and the shared sending domain would carry the cost.
+- **The confirmation is the platform's email, not the team's:** it needs no founder approval (the person asked for it), goes from the project's Foundmill address even when the founder has their own SendGrid, and counts against the project's daily cap.
+- **Three confirmations a day per address across all projects; one follow a day per page and address.** The build first allowed one a day across all projects, which would have silently dropped a real person following a second project the same day; three keeps a script from turning the form into a mail cannon at one address while letting a person follow a few projects in one sitting. One a day per page and address keeps repeats off the page's budget.
+- **No per-visitor limit in the api.** The api sees only the web's addresses, and trusting a forwarded visitor address would need a new shared secret. The per-visitor limit belongs in the Vercel Firewall (a rule on POST `/p/*`), which is a setup step, not code.
+- **Followers are named "Follower (ma***@example.com)"**, never by the address they typed, so a crafted address cannot read as an instruction where contact names reach agents.

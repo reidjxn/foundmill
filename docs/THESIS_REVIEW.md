@@ -390,7 +390,7 @@ Status, Nov 11, 2026: 0.1 done for the six answered decisions; 0.2 done (the pla
 
 ### Phase 1: A real first outcome that travels
 
-Status, Nov 11, 2026: 1.1, 1.2 and 1.3 done (public project pages at `/p/<slug>`, drafted by the team first, the first note and the first checklist item). 1.5 first part done (the Foundmill sending address; off until its DNS and SendGrid setup, docs/DEPLOY.md §5.7). Next: 1.4 (web research live, a configuration step), email from Foundmill to a person, and 1.6 (a form and a payment link on the page).
+Status, Nov 11, 2026: 1.1, 1.2 and 1.3 done (public project pages at `/p/<slug>`, drafted by the team first, the first note and the first checklist item). 1.5 first part done (the Foundmill sending address; off until its DNS and SendGrid setup, docs/DEPLOY.md §5.7). 1.6 first part done (a Follow form with double opt-in). Next: 1.4 (web research live, a configuration step), email from Foundmill to a person, and the payment link (the rest of 1.6).
 
 Goal: R5 and the first half of R4. In the first session a project has a live page with its own address, made by agents, that a person can send to a friend.
 
