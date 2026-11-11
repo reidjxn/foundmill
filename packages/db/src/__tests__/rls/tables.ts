@@ -199,5 +199,7 @@ export const NON_TENANT_TABLES = [
   "project_pages",
   // 0078: business-scoped, one row per business, written by services only; covered by rls/project-mail.test.ts.
   "project_mail",
+  // 0078: a platform table (no business_id: the project it belonged to is gone), service role only; covered by rls/project-mail.test.ts.
+  "retired_mail_local_parts",
 ] as const;
 

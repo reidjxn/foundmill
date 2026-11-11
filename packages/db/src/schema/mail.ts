@@ -1,5 +1,5 @@
 /** 0078 — a project's Foundmill sending address: one row per business, its local part kept once chosen. */
-import { integer, pgTable, text, uniqueIndex } from "drizzle-orm/pg-core";
+import { integer, pgTable, text, timestamp, uniqueIndex } from "drizzle-orm/pg-core";
 import { id, timestamps } from "./_common";
 import { businessId } from "./_refs";
 
@@ -24,3 +24,18 @@ export const projectMail = pgTable(
   (t) => [uniqueIndex("project_mail_business_id_key").on(t.businessId), uniqueIndex("project_mail_local_part_key").on(t.localPart)],
 );
 export type ProjectMail = typeof projectMail.$inferSelect;
+
+/**
+ * Every local part a deleted project held (trigger `fm_project_mail_retire`), never given out again so a new project
+ * never receives an old one's replies. A platform table: no business_id, service role only (no app-role grant or policy).
+ */
+export const retiredMailLocalParts = pgTable(
+  "retired_mail_local_parts",
+  {
+    id: id(),
+    localPart: text("local_part").notNull(),
+    retiredAt: timestamp("retired_at", { withTimezone: true }).notNull().defaultNow(),
+    ...timestamps(),
+  },
+  (t) => [uniqueIndex("retired_mail_local_parts_local_part_key").on(t.localPart)],
+);

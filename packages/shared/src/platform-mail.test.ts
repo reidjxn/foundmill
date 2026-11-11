@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { loadEnv, platformMailDomain, platformMailLive, platformMailMode } from "./env";
-import { isMailLocalPart, MAIL_RESERVED_LOCAL_PARTS, platformMailAddress, platformMailCountLine, platformMailLocalPartOf, PLATFORM_MAIL_REFUSALS } from "./platform-mail";
+import { loadEnv, PLATFORM_MAIL_SECRET_MIN_LENGTH, platformMailDomain, platformMailLive, platformMailMode, platformMailSigningSecret } from "./env";
+import { isMailLocalPart, mailLocalPartReserved, MAIL_RESERVED_LOCAL_PARTS, platformMailAddress, platformMailCountLine, platformMailLocalPartOf, PLATFORM_MAIL_REFUSALS } from "./platform-mail";
 
 describe("the Foundmill sending address", () => {
   it("is off without a domain, simulated while SendGrid is mock, live where SendGrid is live", () => {
@@ -25,6 +25,32 @@ describe("the Foundmill sending address", () => {
     expect(isMailLocalPart("evergreen-candles")).toBe(true);
     for (const bad of ["ab", "Abc", "a.b", "-abc", ...MAIL_RESERVED_LOCAL_PARTS]) expect(isMailLocalPart(bad), bad).toBe(false);
     expect(platformMailAddress("Evergreen", "Mail.Foundmill.com")).toBe("evergreen@mail.foundmill.com");
+  });
+
+  it("refuses a role word as one of the local part's parts too, not only as the whole name", () => {
+    for (const word of ["support", "help", "security", "admin", "billing", "accounts", "account", "verify", "verification", "noreply", "no-reply", "do-not-reply", "donotreply", "notifications", "notification", "alerts", "postmaster", "abuse", "mailer-daemon", "info", "team", "hello", "contact", "sales", "payments", "password", "login"]) {
+      expect(MAIL_RESERVED_LOCAL_PARTS, word).toContain(word);
+    }
+    for (const bad of ["paypal-security", "acme-no-reply", "billing-dept", "my-bank-login-help", "shop-support"]) {
+      expect(mailLocalPartReserved(bad), bad).toBe(true);
+      expect(isMailLocalPart(bad), bad).toBe(false);
+    }
+    expect(mailLocalPartReserved("paypal.security")).toBe(true);
+    // A word that only contains a role word is not one of its parts.
+    for (const fine of ["teamwork-studio", "infoxpress", "helpful-hands", "salesforce-tips", "contacts-co"]) expect(isMailLocalPart(fine), fine).toBe(true);
+  });
+
+  it("refuses to boot with the domain set and no real signing secret, outside development and test", () => {
+    const domain = "mail.foundmill.com";
+    const long = "s".repeat(PLATFORM_MAIL_SECRET_MIN_LENGTH);
+    for (const appEnv of ["staging", "production"] as const) {
+      expect(() => platformMailSigningSecret({ APP_ENV: appEnv, PLATFORM_MAIL_DOMAIN: domain }), appEnv).toThrow(/PLATFORM_MAIL_SIGNING_SECRET/);
+      expect(() => platformMailSigningSecret({ APP_ENV: appEnv, PLATFORM_MAIL_DOMAIN: domain, PLATFORM_MAIL_SIGNING_SECRET: "s".repeat(31) }), appEnv).toThrow(/at least 32/);
+      expect(platformMailSigningSecret({ APP_ENV: appEnv, PLATFORM_MAIL_DOMAIN: domain, PLATFORM_MAIL_SIGNING_SECRET: ` ${long} ` })).toBe(long);
+      // Off: nothing to sign, nothing to check.
+      expect(platformMailSigningSecret({ APP_ENV: appEnv })).toBeNull();
+    }
+    for (const appEnv of ["development", "test"] as const) expect(platformMailSigningSecret({ APP_ENV: appEnv, PLATFORM_MAIL_DOMAIN: domain })).toBeNull();
   });
 
   it("finds the local part at the domain only, sub-addresses included", () => {

@@ -12,16 +12,25 @@
 export const MAIL_LOCAL_PART_PATTERN = /^[a-z0-9][a-z0-9-]{1,38}[a-z0-9]$/;
 
 /**
- * Local parts no project may hold: the role addresses mail systems and people expect a domain's operator to answer
- * (RFC 2142 and common practice) and the platform's own. The migration's check constraint repeats this list and a
- * test compares the two.
+ * Words no project's local part may hold, alone or as one of its hyphen- or dot-separated parts (`paypal-security`,
+ * `acme-no-reply`): the role addresses mail systems and people expect a domain's operator to answer (RFC 2142 and common
+ * practice), the words a message pretending to come from a bank, a shop or Foundmill itself would use, and the platform's
+ * own name. The migration's check constraint repeats this list and a test compares the two. A local part that contains
+ * the product's name anywhere is refused as well (packages/db `mailLocalPartCandidates`, and the constraint).
  */
 export const MAIL_RESERVED_LOCAL_PARTS: readonly string[] = [
-  "abuse", "admin", "administrator", "billing", "bounce", "bounces", "dmarc", "foundmill", "help", "hostmaster", "info", "mailer-daemon", "marketing",
-  "no-reply", "noc", "noreply", "postmaster", "privacy", "root", "sales", "security", "support", "team", "unsubscribe", "webmaster", "www",
+  "abuse", "account", "accounts", "admin", "administrator", "alerts", "billing", "bounce", "bounces", "contact", "dmarc", "do-not-reply", "donotreply", "foundmill",
+  "hello", "help", "hostmaster", "info", "login", "mailer-daemon", "marketing", "no-reply", "noc", "noreply", "notification", "notifications", "password",
+  "payments", "postmaster", "privacy", "root", "sales", "security", "support", "team", "unsubscribe", "verification", "verify", "webmaster", "www",
 ];
 
-export const isMailLocalPart = (value: unknown): value is string => typeof value === "string" && MAIL_LOCAL_PART_PATTERN.test(value) && !MAIL_RESERVED_LOCAL_PARTS.includes(value);
+/** True when one of the reserved words is the whole local part or a run of its hyphen- or dot-separated parts. */
+export function mailLocalPartReserved(value: string): boolean {
+  const parts = `-${value.toLowerCase().replace(/\./g, "-")}-`;
+  return MAIL_RESERVED_LOCAL_PARTS.some((word) => parts.includes(`-${word}-`));
+}
+
+export const isMailLocalPart = (value: unknown): value is string => typeof value === "string" && MAIL_LOCAL_PART_PATTERN.test(value) && !mailLocalPartReserved(value);
 
 /** `<local>@<domain>`, lowercase. */
 export const platformMailAddress = (localPart: string, domain: string): string => `${localPart}@${domain}`.toLowerCase();
@@ -57,6 +66,8 @@ export const PLATFORM_MAIL_REFUSALS = {
   content: (why: string) => `Nothing was sent: ${why}`,
   suppressed: "This person asked not to be emailed, or their address bounced. Nothing was sent.",
   unconfigured: "Sending from the project's own address is not set up completely here, so nothing was sent.",
+  /** The shared count of today's messages cannot be read right now (Redis down), so no cap could be checked. */
+  store_unavailable: "Sending is paused for a moment, so nothing was sent. Try again later.",
 } as const;
 
 /** The page a person sees after the unsubscribe link (served by ingest). */

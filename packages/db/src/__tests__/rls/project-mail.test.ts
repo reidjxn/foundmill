@@ -6,9 +6,14 @@
  *   - members read their own row; nobody reads another business's; a non-member and anon read nothing;
  *   - no app role writes at all: not the project's own owner (the cap and the pause are an operator's), not a member of
  *     another business;
- *   - the local part is chosen once and never changes, has a page-address shape and is never a role address;
- *   - `ensure` picks the page's address first, gives a taken one a suffix, and is stable.
+ *   - the local part is chosen once and never changes, has a page-address shape and is never a role address (alone or as
+ *     a part) nor the product's name;
+ *   - `ensure` picks the page's address first, gives a taken one a suffix, and is stable;
+ *   - a deleted project's local part is retired for good (`retired_mail_local_parts`): a new project with the same slug
+ *     gets another one. That table has no business_id (the project is gone), so the generated cross-tenant suite does not
+ *     apply; it is closed to every app role, which this file checks.
  */
+import { APP_NAME } from "@foundmill/config";
 import { MAIL_RESERVED_LOCAL_PARTS } from "@foundmill/shared";
 import { eq, sql } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -90,13 +95,21 @@ describe("project_mail: the address", () => {
     const d = await createBusinessFixture(h, "mail-d");
     const insert = (local: string) => h.pg.query(`insert into project_mail (business_id, local_part) values ($1, $2)`, [d.businessId, local]);
     for (const bad of ["ab", "x".repeat(41), "-abc", "abc-", "Abc", "a_b", "a.b"]) await expect(insert(bad), bad).rejects.toThrow(/project_mail_local_part_format/);
-    for (const reserved of MAIL_RESERVED_LOCAL_PARTS) await expect(insert(reserved), reserved).rejects.toThrow(/project_mail_local_part_(reserved|format)/);
+    for (const reserved of MAIL_RESERVED_LOCAL_PARTS) await expect(insert(reserved), reserved).rejects.toThrow(/project_mail_local_part_(reserved|format|brand)/);
+    // As one of the hyphen-separated parts too, at either end or in the middle.
+    for (const reserved of MAIL_RESERVED_LOCAL_PARTS) {
+      for (const local of [`acme-${reserved}`, `${reserved}-acme`, `my-${reserved}-desk`]) await expect(insert(local), local).rejects.toThrow(/project_mail_local_part_(reserved|brand)/);
+    }
+    await expect(insert(`my${APP_NAME.toLowerCase()}shop`)).rejects.toThrow(/project_mail_local_part_brand/);
+    // A word that merely contains a role word is fine.
+    await insert("teamwork-studio");
   });
 
-  it("the migration's reserved list is the shared one", () => {
+  it("the migration's reserved list is the shared one, and its brand check is APP_NAME", () => {
     const migration = readMigrations().find((m) => m.tag === "0078_project_mail")!.sql;
-    const listed = [...(migration.match(/local_part not in \(([^)]+)\)/)?.[1] ?? "").matchAll(/'([^']+)'/g)].map((m) => m[1]);
+    const listed = (migration.match(/local_part !~ '\(\^\|-\)\(([^)]+)\)\(-\|\$\)'/)?.[1] ?? "").split("|");
     expect(listed.sort()).toEqual([...MAIL_RESERVED_LOCAL_PARTS].sort());
+    expect(migration).toContain(`position('${APP_NAME.toLowerCase()}' in local_part) = 0`);
   });
 
   it("takes the public page's address first, then the business slug, and suffixes a taken one", async () => {
@@ -125,11 +138,52 @@ describe("project_mail: the address", () => {
     expect(list.filter((v) => MAIL_RESERVED_LOCAL_PARTS.includes(v))).toEqual([]);
   });
 
+  it("candidates skip a role word as a part and the product's name, falling back instead of failing", () => {
+    const list = mailLocalPartCandidates({ pageSlug: "paypal-security", businessSlug: `${APP_NAME.toLowerCase()}-shop`, businessName: "Acme Support Desk", businessId: "0f1e2d3c-4b5a-6978-8a9b-0c1d2e3f4a5b" });
+    expect(list.some((v) => v.includes("security") || v.includes(APP_NAME.toLowerCase()) || v.includes("support"))).toBe(false);
+    expect(list[0]).toBe("project-0f1e2d3c");
+    // A taken (retired) name is skipped like a reserved one.
+    const free = mailLocalPartCandidates({ pageSlug: null, businessSlug: "evergreen", businessName: "Evergreen", businessId: "0f1e2d3c-4b5a-6978-8a9b-0c1d2e3f4a5b" }, new Set(["evergreen"]));
+    expect(free).not.toContain("evergreen");
+    expect(free).toContain("evergreen-0f1e");
+  });
+
   it("resolves a local part to its business for inbound mail, and nothing else", async () => {
     expect(await repos.projectMail.resolve.byLocalPart(h.db as never, "mail-a")).toMatchObject({ businessId: A.businessId, localPart: "mail-a" });
     expect(await repos.projectMail.resolve.byLocalPart(h.db as never, "nobody-here")).toBeNull();
     expect(await repos.projectMail.resolve.byLocalPart(h.db as never, "' or 1=1 --")).toBeNull();
     const count = await h.db.execute(sql`select count(*)::int as n from project_mail`);
     expect(((count as unknown as { rows: { n: number }[] }).rows[0]?.n ?? 0) > 0).toBe(true);
+  });
+});
+
+describe("retired_mail_local_parts: a deleted project's address is never given out again", () => {
+  const bareBusiness = async (slug: string) => {
+    const owner = await h.createUser(`${slug}-${crypto.randomUUID().slice(0, 6)}@test.local`);
+    return (await h.pg.query<{ id: string }>(`insert into businesses (name, slug, created_by) values ($1, $2, $3) returning id`, [`Retire ${slug}`, slug, owner])).rows[0]!.id;
+  };
+
+  it("delete a business, create one with the same slug: its local part differs", async () => {
+    const first = await bareBusiness("old-candles");
+    expect((await h.service().run((tx) => repos.projectMail.ensure(tx, first))).localPart).toBe("old-candles");
+    await h.pg.query(`delete from businesses where id = $1`, [first]);
+    expect((await h.pg.query(`select 1 from retired_mail_local_parts where local_part = 'old-candles'`)).rows).toHaveLength(1);
+    const second = await bareBusiness("old-candles");
+    const row = await h.service().run((tx) => repos.projectMail.ensure(tx, second));
+    expect(row.localPart).not.toBe("old-candles");
+    expect(await repos.projectMail.resolve.byLocalPart(h.db as never, "old-candles")).toBeNull();
+    // Even a direct insert of the retired name is refused.
+    const third = await bareBusiness("old-candles-three");
+    await expect(h.pg.query(`insert into project_mail (business_id, local_part) values ($1, 'old-candles')`, [third])).rejects.toThrow(/never given out again/);
+  });
+
+  it("no app role reads or writes it", async () => {
+    for (const userId of [A.ownerId, A.adminId, outsiderId]) {
+      await expectNoEffect(h.asUser(userId).run((tx) => tx.select().from(s.retiredMailLocalParts)));
+      await expect(h.asUser(userId).run((tx) => tx.insert(s.retiredMailLocalParts).values({ localPart: "free-name" }))).rejects.toThrow(RLS_DENIED);
+      await expectNoEffect(h.asUser(userId).run((tx) => tx.delete(s.retiredMailLocalParts).returning({ localPart: s.retiredMailLocalParts.localPart })));
+    }
+    await expectNoEffect(h.anon().run((tx) => tx.select().from(s.retiredMailLocalParts)));
+    expect((await h.pg.query(`select 1 from retired_mail_local_parts where local_part = 'old-candles'`)).rows).toHaveLength(1);
   });
 });

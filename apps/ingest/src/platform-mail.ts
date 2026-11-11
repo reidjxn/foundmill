@@ -6,9 +6,14 @@
  *                           platform's own token (`?token=`, PLATFORM_MAIL_INBOUND_TOKEN, compared in constant time;
  *                           never the businesses' SENDGRID_INBOUND_TOKEN). The project is found from the local part the
  *                           message was delivered to (`project_mail`), never from anything else the sender wrote; an
- *                           unknown local part writes nothing. Each project it reached gets the CRM's reply event
- *                           (`lead.replied`) with typed signals only: the sender and the body are untrusted content and
- *                           the body never enters the event. A reply asking to unsubscribe suppresses its sender.
+ *                           unknown local part writes nothing. The `From` address counts only when SendGrid's checks
+ *                           tie it to the sender (SPF passed for an aligned envelope sender, or DKIM passed for the From
+ *                           domain; `inboundSenderVerified`): a message without that is acknowledged and dropped, so a
+ *                           forged From never suppresses anyone, never reaches a lead and never counts as a reply. Each
+ *                           project it reached gets the CRM's reply event (`lead.replied`) with typed signals only: the
+ *                           sender and the body are untrusted content and the body never enters the event. A reply whose
+ *                           own words (quoted text and the footer's unsubscribe link left out) ask to stop suppresses
+ *                           its sender.
  *   POST /mail/events       The platform account's Event Webhook, ECDSA-signed by SendGrid (PLATFORM_MAIL_EVENT_PUBLIC_KEY)
  *                           within the replay window. Each event is bound to the project by the custom args the gateway
  *                           signed into its message (PLATFORM_MAIL_SIGNING_SECRET); an event whose args do not verify is
@@ -18,11 +23,12 @@
  *                           person who opens it): the token names the project and the address hash, signed by the
  *                           gateway; a valid one adds the hash to that project's suppression list.
  *
- * With PLATFORM_MAIL_DOMAIN unset every route answers 404, as if it did not exist.
+ * With PLATFORM_MAIL_DOMAIN unset every route answers 404, as if it did not exist. Bodies are capped before they are read
+ * (app.ts: PLATFORM_MAIL_EVENTS_MAX_BYTES, PLATFORM_MAIL_INBOUND_MAX_BYTES).
  */
-import { DEV_PLATFORM_MAIL_SECRET, normaliseInboundMail, normalisePlatformMailEvents, platformInboundLocalParts, readInboundMail, readPlatformUnsubscribeToken, safeEqual, stableHash, suppressionHashOfEmail, verifySendgridSignature, withinTolerance, type SgEvent } from "@foundmill/connectors";
+import { DEV_PLATFORM_MAIL_SECRET, inboundSenderVerified, normaliseInboundMail, normalisePlatformMailEvents, PLATFORM_MAIL_FOOTER_MARKERS, platformInboundLocalParts, readInboundMail, readPlatformUnsubscribeToken, safeEqual, stableHash, suppressionHashOfEmail, verifySendgridSignature, withinTolerance, type SgEvent } from "@foundmill/connectors";
 import { repos } from "@foundmill/db";
-import { UNSUBSCRIBE_CONFIRM_BODY, UNSUBSCRIBE_CONFIRM_BUTTON, UNSUBSCRIBE_CONFIRM_TITLE, UNSUBSCRIBE_DONE_BODY, UNSUBSCRIBE_INVALID_BODY } from "@foundmill/shared";
+import { PLATFORM_MAIL_SECRET_MIN_LENGTH, UNSUBSCRIBE_CONFIRM_BODY, UNSUBSCRIBE_CONFIRM_BUTTON, UNSUBSCRIBE_CONFIRM_TITLE, UNSUBSCRIBE_DONE_BODY, UNSUBSCRIBE_INVALID_BODY } from "@foundmill/shared";
 import { ingestPlatformEvents } from "./ingest";
 import { nonceKey } from "./nonce-store";
 import type { IngestDeps } from "./types";
@@ -30,6 +36,10 @@ import type { IngestDeps } from "./types";
 export const PLATFORM_MAIL_SOURCE = "platform_mail";
 /** SpamAssassin's usual threshold, as Inbound Parse reports it in `spam_score` (when spam checking is on for the domain). */
 export const SPAM_SCORE_DROP = 5;
+/** Delivery events: SendGrid batches them, well under this. */
+export const PLATFORM_MAIL_EVENTS_MAX_BYTES = 1024 * 1024;
+/** Inbound Parse: SendGrid accepts messages up to 30 MB, attachments included. */
+export const PLATFORM_MAIL_INBOUND_MAX_BYTES = 30 * 1024 * 1024;
 /** An ordinary address of at most 254 characters, no spaces, quotes or angle brackets. */
 const SENDER_RE = /^(?=.{3,254}$)[^\s@<>"'[\]|]+@[a-z0-9.-]+\.[a-z]{2,63}$/i;
 const SG_SIGNATURE_HEADER = "x-twilio-email-event-webhook-signature";
@@ -56,7 +66,7 @@ const OFF = fail(404, "not_found", "No route for this address");
 /** The secret custom args and unsubscribe links verify with, or null when none may be used here. */
 function signingSecretFor(deps: Deps): string | null {
   const configured = deps.platformMail?.signingSecret?.trim();
-  if (configured && configured.length >= 16) return configured;
+  if (configured && configured.length >= PLATFORM_MAIL_SECRET_MIN_LENGTH) return configured;
   return deps.env.APP_ENV === "development" || deps.env.APP_ENV === "test" ? DEV_PLATFORM_MAIL_SECRET : null;
 }
 
@@ -94,6 +104,12 @@ export async function handlePlatformInbound(deps: Deps, req: Request): Promise<M
       deps.log.info({ path: "/mail/inbound" }, "platform inbound mail without an ordinary sender address; nothing written");
       return { status: 200, body: { ok: true, written: 0, projects: 0 } };
     }
+    // Anyone can write any From: it is read as the sender only when SendGrid's SPF or DKIM check ties it to them.
+    const check = inboundSenderVerified(mail);
+    if (!check.verified) {
+      deps.log.info({ path: "/mail/inbound", reason: check.reason }, "platform inbound mail whose sender could not be verified (SPF or DKIM); nothing written");
+      return { status: 200, body: { ok: true, written: 0, projects: 0, unverified: true } };
+    }
     const businessIds: string[] = [];
     for (const localPart of platformInboundLocalParts(mail, config.domain)) {
       const project = await repos.projectMail.resolve.byLocalPart(deps.db, localPart);
@@ -107,7 +123,8 @@ export async function handlePlatformInbound(deps: Deps, req: Request): Promise<M
     let written = 0;
     const eventIds: string[] = [];
     for (const businessId of businessIds) {
-      const events = normaliseInboundMail(mail, businessId, deps.now);
+      // The footer of the message being answered (its unsubscribe link) is never read as the reply's own words.
+      const events = normaliseInboundMail(mail, businessId, deps.now, { ownMarkers: PLATFORM_MAIL_FOOTER_MARKERS });
       const result = await ingestPlatformEvents(deps.db, events, { source: PLATFORM_MAIL_SOURCE, actor: { kind: "webhook", id: PLATFORM_MAIL_SOURCE }, log: deps.log });
       written += result.written;
       eventIds.push(...result.eventIds);

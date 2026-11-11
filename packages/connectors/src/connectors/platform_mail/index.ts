@@ -56,5 +56,5 @@ export function createPlatformMailConnector(options: LiveConnectorOptions = {}):
 
 export { platformMailMock, createPlatformMailMock } from "./mock";
 export * from "./tools";
-export { normalisePlatformMailEvents, platformInboundLocalParts, suppressionReasonOf, readInboundMail, type PlatformMailEventBatch, type InboundMail, type SgEvent } from "./webhooks";
+export { normalisePlatformMailEvents, platformInboundLocalParts, suppressionReasonOf, readInboundMail, replyOwnText, inboundSenderVerified, dkimPassedDomains, domainsAligned, type InboundSenderCheck, type PlatformMailEventBatch, type InboundMail, type SgEvent } from "./webhooks";
 export { suppressionHashOfEmail } from "./hash";

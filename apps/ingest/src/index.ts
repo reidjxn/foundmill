@@ -15,7 +15,7 @@ import { Redis } from "ioredis";
 import { APP_NAME, FLAGS } from "@foundmill/config";
 import { createDefaultRegistry, mockWebhooksAllowed, platformSecretsFromEnv, type BusinessResolver, type ConnectorRegistry } from "@foundmill/connectors";
 import { closeDb, createServiceDb, watchPoolOrExit, type Db } from "@foundmill/db";
-import { liveConnectorKeys, loadEnv, platformMailDomain, servicePort, type Env } from "@foundmill/shared";
+import { liveConnectorKeys, loadEnv, platformMailDomain, platformMailSigningSecret, servicePort, type Env } from "@foundmill/shared";
 import { createLogger } from "@foundmill/shared/logger";
 import { createVault, type Vault } from "@foundmill/shared/crypto";
 import { drainHttpServer, onShutdown } from "@foundmill/shared/shutdown";
@@ -93,6 +93,9 @@ export interface BuiltIngest extends CreatedIngestApp {
 /** Assembles the production dependency graph; every piece can be replaced (tests pass PGlite, a pinned clock and a memory store). */
 export function buildIngest(options: BuildIngestOptions = {}): BuiltIngest {
   const env = options.env ?? loadEnv();
+  // With the sending domain set, staging and production never start on a missing or short signing secret (the public
+  // development one stands in on development and test only).
+  const platformMailSecret = options.platformMail ? null : platformMailSigningSecret(env);
   const log = options.log ?? (createLogger("ingest", env.LOG_LEVEL) as unknown as IngestLogger);
   const db = options.db ?? createServiceDb();
   const now = options.now ?? (() => new Date());
@@ -143,7 +146,7 @@ export function buildIngest(options: BuildIngestOptions = {}): BuiltIngest {
     followups,
     platformMail: options.platformMail ?? {
       domain: platformMailDomain(env),
-      signingSecret: env.PLATFORM_MAIL_SIGNING_SECRET?.trim() || null,
+      signingSecret: platformMailSecret,
       inboundToken: env.PLATFORM_MAIL_INBOUND_TOKEN?.trim() || null,
       eventPublicKey: env.PLATFORM_MAIL_EVENT_PUBLIC_KEY?.trim() || null,
     },

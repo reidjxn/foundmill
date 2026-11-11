@@ -75,6 +75,8 @@ export interface BuiltGateway {
 export function buildGateway(options: BuildDepsOptions = {}): BuiltGateway {
   const env = options.env ?? loadEnv();
   const config = gatewayConfig(env);
+  // Throws (the gateway does not start) with the domain set outside development and test and no 32+ character secret.
+  const platformMail = platformMailConfig(env);
   const log = options.log ?? (createLogger("gateway", env.LOG_LEVEL) as unknown as GatewayLogger);
   const db = options.db ?? createServiceDb();
 
@@ -130,8 +132,6 @@ export function buildGateway(options: BuildDepsOptions = {}): BuiltGateway {
   // Recipients first seen in untrusted content are one register per business, shared by every session and replica (Redis).
   const recipients: UntrustedRegister = options.recipients ?? (redisClient ? new RedisUntrustedRegister(redisClient, { onFallback: (e) => log.warn({ err: e }, "the untrusted-recipient register fell back to this process's memory") }) : new UntrustedRecipientRegistry());
   const reader: UntrustedReader = options.reader ?? createUntrustedReader(createReaderModelClient(env, db, log));
-  const platformMail = platformMailConfig(env);
-  if (platformMail.domain && !platformMail.signingSecret && config.appEnv !== "development" && config.appEnv !== "test") log.error({ domain: platformMail.domain }, "PLATFORM_MAIL_DOMAIN is set but PLATFORM_MAIL_SIGNING_SECRET is not: every send from a project's address is refused");
   const deps: GatewayDeps = { db, registry, vault, mode: config.integrationsMode, liveConnectors: config.liveConnectors, appEnv: config.appEnv, rateLimits, recipients, reader, log, platformMail };
   repositoryFiles = createRepositoryFiles(deps);
   // Until prepare() has run the database is assumed reachable (tests build the graph over an already-migrated PGlite).

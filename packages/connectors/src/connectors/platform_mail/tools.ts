@@ -19,6 +19,7 @@ import { APP_NAME } from "@foundmill/config";
 import { AppError } from "@foundmill/shared";
 import { defineTool } from "../../define";
 import { safeEqual } from "../../webhooks";
+import { suppressionHashOfEmail } from "./hash";
 
 export const PLATFORM_MAIL_KEY = "platform_mail";
 export const PLATFORM_MAIL_RATE_LIMITS = { perMinute: 30 };
@@ -68,7 +69,11 @@ export function platformMailContentProblem(mail: { subject: string; text: string
     const name = m[2]!.toLowerCase();
     const attrs = (m[3] ?? "").replace(/\/\s*$/, "").trim();
     if (!PLATFORM_MAIL_HTML_TAGS.has(name)) return `the HTML may use simple tags only (<${name}> is not one).`;
-    if (m[1]) continue;
+    // A closing tag carries nothing (`</a href=...>` could smuggle an attribute past a lax parser).
+    if (m[1]) {
+      if ((m[3] ?? "").trim()) return `the HTML may not set attributes on a closing tag (</${name}>).`;
+      continue;
+    }
     if (!attrs) continue;
     if (name !== "a") return `the HTML may not set attributes on <${name}>.`;
     const href = /^href\s*=\s*(?:"([^"]*)"|'([^']*)')$/i.exec(attrs);
@@ -91,19 +96,35 @@ export function assertPlatformMailContent(mail: { subject: string; text: string;
 
 /* ---- What every message carries ---- */
 
+/** A project's name as it may appear in a header: one line, no quotes or angle brackets, at most 120 characters. */
+const headerSafe = (value: string): string => value.replace(/[\r\n"<>\\]+/g, " ").replace(/\s+/g, " ").trim().slice(0, 120);
+
+/**
+ * The name the message is sent under: `<project name> via <APP_NAME>`, so no recipient takes it for a message from
+ * Foundmill itself or from whoever the project's name imitates. A project name that contains APP_NAME is never used as
+ * the sender (it would read as Foundmill's own mail): the project's local part stands in for it.
+ */
+export function platformMailSenderName(projectName: string, localPart: string): { projectName: string; fromName: string } {
+  const named = headerSafe(projectName);
+  const name = named && !named.toLowerCase().includes(APP_NAME.toLowerCase()) ? named : localPart;
+  return { projectName: name, fromName: `${name.slice(0, 100)} via ${APP_NAME}` };
+}
+
+const FOOTER_STOP_LINE = "To stop getting these emails";
+
 /** The footer appended to every message: who sent it, and the way out. */
 export function platformMailFooter(projectName: string, unsubscribeUrl: string): { text: string; html: string } {
   const name = projectName.trim() || "This project";
   const escaped = name.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
   return {
-    text: `\n\n--\nSent by ${name} with ${APP_NAME}. To stop getting these emails: ${unsubscribeUrl}`,
+    text: `\n\n--\nSent by ${name} with ${APP_NAME}. ${FOOTER_STOP_LINE}: ${unsubscribeUrl}`,
     html: `<hr><p>Sent by ${escaped} with ${APP_NAME}. <a href="${unsubscribeUrl.replace(/"/g, "%22")}">Unsubscribe</a></p>`,
   };
 }
 
 /** The v3 `mail/send` body (camelCase; `@sendgrid/mail` converts it). Shared by the live side and the mock. */
-export function buildPlatformMailData(mail: PlatformSendMailT, envelope: { from: { email: string; name: string }; unsubscribeUrl: string; customArgs: Record<string, string> }): Record<string, unknown> {
-  const footer = platformMailFooter(envelope.from.name, envelope.unsubscribeUrl);
+export function buildPlatformMailData(mail: PlatformSendMailT, envelope: { from: { email: string; name: string }; projectName: string; unsubscribeUrl: string; customArgs: Record<string, string> }): Record<string, unknown> {
+  const footer = platformMailFooter(envelope.projectName, envelope.unsubscribeUrl);
   return {
     from: envelope.from,
     replyTo: envelope.from,
@@ -123,20 +144,28 @@ export function buildPlatformMailData(mail: PlatformSendMailT, envelope: { from:
 
 const mac = (secret: string, label: string, ...parts: string[]): string => createHmac("sha256", secret).update([label, ...parts].join("\u0000"), "utf8").digest("base64url");
 
-/** Custom args every message carries; SendGrid echoes them in each delivery event (flattened into the event object). */
-export function platformMailCustomArgs(secret: string, businessId: string, messageRef: string): Record<string, string> {
-  return { fm_b: businessId, fm_m: messageRef, fm_s: mac(secret, "fm-mail-event", businessId, messageRef) };
+/**
+ * Custom args every message carries; SendGrid echoes them in each delivery event (flattened into the event object). The
+ * signature also covers the recipient's address hash (not sent: SendGrid's event carries the address), so a valid set of
+ * args copied onto an event about another address does not verify.
+ */
+export function platformMailCustomArgs(secret: string, businessId: string, messageRef: string, recipientHash: string): Record<string, string> {
+  return { fm_b: businessId, fm_m: messageRef, fm_s: mac(secret, "fm-mail-event", businessId, messageRef, recipientHash) };
 }
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-/** The business a delivery event belongs to, when its custom args verify; null for anything else (missing, forged, altered). */
+/**
+ * The business a delivery event belongs to, when its custom args verify for the address the event is about (`email`);
+ * null for anything else (missing, forged, altered, or moved onto another address).
+ */
 export function verifyPlatformMailArgs(secret: string, event: Record<string, unknown>): { businessId: string; messageRef: string } | null {
   const b = event.fm_b;
   const m = event.fm_m;
   const sig = event.fm_s;
-  if (typeof b !== "string" || typeof m !== "string" || typeof sig !== "string" || !UUID_RE.test(b) || !UUID_RE.test(m)) return null;
-  return safeEqual(sig, mac(secret, "fm-mail-event", b, m)) ? { businessId: b.toLowerCase(), messageRef: m.toLowerCase() } : null;
+  const email = event.email;
+  if (typeof b !== "string" || typeof m !== "string" || typeof sig !== "string" || typeof email !== "string" || !email || !UUID_RE.test(b) || !UUID_RE.test(m)) return null;
+  return safeEqual(sig, mac(secret, "fm-mail-event", b, m, suppressionHashOfEmail(email))) ? { businessId: b.toLowerCase(), messageRef: m.toLowerCase() } : null;
 }
 
 /** The unsubscribe token: the business, the recipient's address hash (never the address) and their signature. */
@@ -153,6 +182,12 @@ export function readPlatformUnsubscribeToken(secret: string, token: string): { b
 export const PLATFORM_MAIL_UNSUBSCRIBE_PATH = "/mail/unsubscribe";
 export const PLATFORM_MAIL_INBOUND_PATH = "/mail/inbound";
 export const PLATFORM_MAIL_EVENTS_PATH = "/mail/events";
+
+/**
+ * Text that only the footer holds: a reply that quotes the message quotes these too, and ingest leaves every line with one
+ * out before it reads the reply (`replyOwnText`), so the footer's unsubscribe link never reads as a request to stop.
+ */
+export const PLATFORM_MAIL_FOOTER_MARKERS: readonly string[] = [PLATFORM_MAIL_UNSUBSCRIBE_PATH, FOOTER_STOP_LINE];
 
 export const platformUnsubscribeUrl = (base: string, token: string): string => `${base.replace(/\/+$/, "")}${PLATFORM_MAIL_UNSUBSCRIBE_PATH}?t=${encodeURIComponent(token)}`;
 

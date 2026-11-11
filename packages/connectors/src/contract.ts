@@ -156,8 +156,10 @@ export interface ToolContext {
 
 /** What the gateway hands `platform_mail.send_mail` (see `ToolContext.platformMail`). */
 export interface PlatformMailEnvelope {
-  /** `<local part>@<PLATFORM_MAIL_DOMAIN>` and the project's name. Also the Reply-To: replies come back into Foundmill. */
+  /** `<local part>@<PLATFORM_MAIL_DOMAIN>` and `<project name> via <APP_NAME>`. Also the Reply-To: replies come back into Foundmill. */
   from: { email: string; name: string };
+  /** The project's name as the footer says it ("Sent by <it> with <APP_NAME>"); never one containing APP_NAME. */
+  projectName: string;
   /** The gateway's id for this message (uuid), signed into `customArgs`. */
   messageRef: string;
   /** One-click unsubscribe for this recipient (RFC 8058), signed for the project. */
@@ -253,7 +255,11 @@ export interface Connector<Cfg = unknown> {
   /** What the founder enters to connect it live (see ConnectField); absent when connecting needs no input or is an OAuth/App flow. */
   connectFields?: ConnectField[];
   connect(businessId: string, input: unknown): Promise<IntegrationRecord>;
-  healthcheck(integration: IntegrationRecord): Promise<HealthResult>;
+  /**
+   * Checks the connection. `credential` is the business's own decrypted credential when the host has one (the gateway
+   * passes it for a live check); an API-key connector checks with it and never with a platform key.
+   */
+  healthcheck(integration: IntegrationRecord, credential?: DecryptedCredential): Promise<HealthResult>;
   tools: McpToolDefinition[]; // JSON-schema inputs/outputs
   callTool(name: string, args: unknown, ctx: ToolContext): Promise<ToolResult>;
   webhooks?: ConnectorWebhook[];

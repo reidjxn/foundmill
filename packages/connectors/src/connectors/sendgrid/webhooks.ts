@@ -183,14 +183,66 @@ const UNSUB_RE = /\b(unsubscribe|remove me|stop emailing|opt[- ]?out|take me off
 const OOO_RE = /\b(out of (the )?office|on (annual |parental )?leave|auto[- ]?reply|automatic reply|away until)\b/i;
 const MEETING_RE = /\b(call|meeting|demo|chat|schedule|book|calendar|zoom|teams)\b/i;
 
+/** How much of a reply is read to classify it: its own words come first, and the regexes stay bounded on a large body. */
+const CLASSIFY_MAX_CHARS = 100_000;
+
 /**
- * Typed signals only (regex over the reply): sentiment class, meeting request, size. The body itself never
- * enters the event — it goes to the interaction row and the quarantined reader (BUILD §9.8).
+ * Where the quoted original starts in a reply: "On <date>, <name> wrote:" (also wrapped over two lines), Outlook's
+ * "-----Original Message-----" and its "From: … Sent:/Date: …" header block, a line of underscores, forwarded-message
+ * separators. Everything from the first one on is the message being answered, not the reply.
  */
-export function normaliseInboundMail(mail: InboundMail, businessId: string, now: () => Date = () => new Date()): PlatformEvent[] {
+const QUOTE_STARTS: readonly RegExp[] = [
+  /^[ \t]*On\b[^\n]{0,300}(?:\n[^\n]{0,300})?\bwrote:[ \t]*$/im,
+  /^[ \t]*-{2,}[ \t]*Original Message[ \t]*-{2,}/im,
+  /^[ \t]*-{2,}[ \t]*Forwarded message[ \t]*-{2,}/im,
+  /^[ \t]*Begin forwarded message:/im,
+  /^[ \t]*_{8,}[ \t]*$/m,
+  /^[ \t]*From:[^\n]*\n(?:[^\n]*\n){0,3}?[ \t]*(?:Sent|Date):/im,
+];
+
+/**
+ * The reply's own words, for classifying it: quoted lines (`>`), everything from the quoted original on (QUOTE_STARTS),
+ * and any line holding one of `ownMarkers` (the sender's own footer, its unsubscribe link) are left out. Every message
+ * carries an unsubscribe link and a reply quotes it, so without this every reply would read as "unsubscribe".
+ */
+export function replyOwnText(text: string, ownMarkers: readonly string[] = []): string {
+  let cut = text.slice(0, CLASSIFY_MAX_CHARS).replace(/\r\n?/g, "\n");
+  for (const re of QUOTE_STARTS) {
+    const m = re.exec(cut);
+    if (m) cut = cut.slice(0, m.index);
+  }
+  const markers = ownMarkers.map((m) => m.toLowerCase()).filter(Boolean);
+  return cut
+    .split("\n")
+    .filter((line) => !/^\s*>/.test(line) && !markers.some((m) => line.toLowerCase().includes(m)))
+    .join("\n")
+    .trim();
+}
+
+/** An HTML-only reply as text: quoted blocks (`<blockquote>`, Gmail's `gmail_quote`) dropped, links as their address, tags as breaks. */
+const htmlReplyText = (html: string): string =>
+  html
+    .slice(0, CLASSIFY_MAX_CHARS)
+    .replace(/<blockquote\b[\s\S]*?<\/blockquote>/gi, "\n")
+    .replace(/<div[^>]*class="[^"]*gmail_quote[\s\S]*$/i, "\n")
+    .replace(/<a\b[^>]*\bhref\s*=\s*["']([^"']*)["'][^>]*>/gi, " $1 ")
+    .replace(/<(br|\/p|\/div|\/li|hr)\b[^>]*>/gi, "\n")
+    .replace(/<[^>]+>/g, " ");
+
+export interface InboundMailOptions {
+  /** Lines holding any of these (case-insensitive) are not the reply's words: the sender's own footer and unsubscribe link. */
+  ownMarkers?: readonly string[];
+}
+
+/**
+ * Typed signals only (regex over the reply's own words, `replyOwnText`): sentiment class, meeting request, size. The
+ * body itself never enters the event — it goes to the interaction row and the quarantined reader (BUILD §9.8).
+ */
+export function normaliseInboundMail(mail: InboundMail, businessId: string, now: () => Date = () => new Date(), options: InboundMailOptions = {}): PlatformEvent[] {
   const from = addressOf(mail.from);
   const text = mail.text || mail.html.replace(/<[^>]+>/g, " ");
-  const sentiment = UNSUB_RE.test(text) ? "unsubscribe" : OOO_RE.test(`${mail.subject}\n${text}`) ? "out_of_office" : "neutral";
+  const own = replyOwnText(mail.text || htmlReplyText(mail.html), options.ownMarkers);
+  const sentiment = UNSUB_RE.test(own) ? "unsubscribe" : OOO_RE.test(`${mail.subject}\n${own}`) ? "out_of_office" : "neutral";
   const words = text.split(/\s+/).filter(Boolean).length;
   const entityId = emailEntityId(from);
   const key = mail.messageIdHeader ?? stableHash([from, mail.to, mail.subject, text], 32);
@@ -208,7 +260,7 @@ export function normaliseInboundMail(mail: InboundMail, businessId: string, now:
         interactionId: uuidFromSeed("interaction", SENDGRID_KEY, "inbound", key),
         sentiment,
         summary: `Email reply from ${from} (${words} words, ${mail.attachments} attachment${mail.attachments === 1 ? "" : "s"}${mail.dkim?.includes("pass") ? ", DKIM pass" : ""}); body quarantined for the reader.`,
-        requestsMeeting: sentiment === "neutral" && MEETING_RE.test(text),
+        requestsMeeting: sentiment === "neutral" && MEETING_RE.test(own),
       },
     }),
   ];

@@ -229,6 +229,19 @@ export const platformBillingMode = (env: Pick<Env, "INTEGRATIONS_MODE" | "LIVE_C
 export const PLATFORM_MAIL_MODE_KEY = "sendgrid";
 export const platformMailDomain = (env: Partial<Pick<Env, "PLATFORM_MAIL_DOMAIN">>): string | null => env.PLATFORM_MAIL_DOMAIN?.trim().toLowerCase() || null;
 export const platformMailMode = (env: Pick<Env, "INTEGRATIONS_MODE" | "LIVE_CONNECTORS">): "mock" | "live" => connectorMode(env, PLATFORM_MAIL_MODE_KEY);
+/** PLATFORM_MAIL_SIGNING_SECRET's shortest accepted length. */
+export const PLATFORM_MAIL_SECRET_MIN_LENGTH = 32;
+/**
+ * PLATFORM_MAIL_SIGNING_SECRET, trimmed (null when unset). The gateway and ingest call it at boot: with the domain set,
+ * anywhere but an explicit development or test stack, a missing or short secret stops the service from starting, so
+ * no deployment ever signs or verifies with the public development secret.
+ */
+export function platformMailSigningSecret(env: Pick<Env, "APP_ENV"> & Partial<Pick<Env, "PLATFORM_MAIL_DOMAIN" | "PLATFORM_MAIL_SIGNING_SECRET">>): string | null {
+  const secret = env.PLATFORM_MAIL_SIGNING_SECRET?.trim() || null;
+  if (platformMailDomain(env) === null || env.APP_ENV === "development" || env.APP_ENV === "test") return secret;
+  if (!secret || secret.length < PLATFORM_MAIL_SECRET_MIN_LENGTH) throw new Error(`PLATFORM_MAIL_SIGNING_SECRET must be set to at least ${PLATFORM_MAIL_SECRET_MIN_LENGTH} characters when PLATFORM_MAIL_DOMAIN is set and APP_ENV is ${env.APP_ENV}`);
+  return secret;
+}
 /** True when projects really send from their Foundmill address on this deployment. */
 export const platformMailLive = (env: Pick<Env, "INTEGRATIONS_MODE" | "LIVE_CONNECTORS"> & Partial<Pick<Env, "PLATFORM_MAIL_DOMAIN">>): boolean => platformMailDomain(env) !== null && platformMailMode(env) === "live";
 export const isMockModels = (env = loadEnv()) => env.MODEL_MODE === "mock";

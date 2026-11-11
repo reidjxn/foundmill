@@ -11,7 +11,7 @@ import type { PlatformEvent } from "../../contract";
 import { normaliseSendgridEvents, type InboundMail, type SgEvent } from "../sendgrid/webhooks";
 import { verifyPlatformMailArgs } from "./tools";
 
-export { readInboundMail, normaliseInboundMail, verifySendgridSignature, SG_SIGNATURE_HEADER, SG_TIMESTAMP_HEADER, type InboundMail, type SgEvent } from "../sendgrid/webhooks";
+export { readInboundMail, normaliseInboundMail, replyOwnText, verifySendgridSignature, SG_SIGNATURE_HEADER, SG_TIMESTAMP_HEADER, type InboundMail, type SgEvent } from "../sendgrid/webhooks";
 
 /**
  * The local parts at the platform domain an inbound message was delivered to: the SMTP envelope's recipients (what the
@@ -26,6 +26,48 @@ export function platformInboundLocalParts(mail: Pick<InboundMail, "to" | "envelo
     if (local && !out.includes(local)) out.push(local);
   }
   return out.slice(0, 10);
+}
+
+const domainOf = (address: string): string | null => {
+  const bare = (address.match(/<([^>]+)>/)?.[1] ?? address).trim().toLowerCase();
+  const at = bare.lastIndexOf("@");
+  const domain = at > 0 ? bare.slice(at + 1) : "";
+  return /^[a-z0-9-]+(\.[a-z0-9-]+)+$/.test(domain) ? domain : null;
+};
+
+/**
+ * Two domains belong together (DMARC's relaxed alignment, approximated): the same, or one a subdomain of the other
+ * (`bounce.example.com` and `example.com`). The shorter must itself hold a dot, so `com` aligns with nothing.
+ */
+export function domainsAligned(a: string, b: string): boolean {
+  if (a === b) return true;
+  const [short, long] = a.length < b.length ? [a, b] : [b, a];
+  return short.includes(".") && long.endsWith(`.${short}`);
+}
+
+/** SendGrid's `dkim` field (`{@example.com : pass, @sendgrid.net : fail}`): the signing domains whose signature passed. */
+export function dkimPassedDomains(dkim: string | null): string[] {
+  return [...(dkim ?? "").matchAll(/@([a-z0-9.-]+)\s*:\s*([a-z]+)/gi)].filter((m) => m[2]!.toLowerCase() === "pass").map((m) => m[1]!.toLowerCase());
+}
+
+export type InboundSenderCheck = { verified: true; by: "spf" | "dkim" } | { verified: false; reason: "no_results" | "failed" };
+
+/**
+ * Whether the `From` address of an inbound message is really its sender, from the checks SendGrid's receiving server ran:
+ * SPF passed (`SPF` field) for an envelope sender (`envelope.from`) whose domain aligns with the From domain, or a DKIM
+ * signature passed (`dkim` field) for a domain that aligns with it. Anything else (failed, missing, or passing for
+ * another domain only) is not verified: anyone can write any `From`.
+ */
+export function inboundSenderVerified(mail: Pick<InboundMail, "from" | "envelope" | "spf" | "dkim">): InboundSenderCheck {
+  const fromDomain = domainOf(mail.from);
+  const spf = (mail.spf ?? "").trim().toLowerCase();
+  const dkim = (mail.dkim ?? "").trim();
+  if (!spf && !dkim) return { verified: false, reason: "no_results" };
+  if (!fromDomain) return { verified: false, reason: "failed" };
+  const envelopeDomain = typeof mail.envelope?.from === "string" ? domainOf(mail.envelope.from) : null;
+  if (/^pass\b/.test(spf) && envelopeDomain && domainsAligned(envelopeDomain, fromDomain)) return { verified: true, by: "spf" };
+  if (dkimPassedDomains(dkim).some((d) => domainsAligned(d, fromDomain))) return { verified: true, by: "dkim" };
+  return { verified: false, reason: "failed" };
 }
 
 /** `"A" <a@x>, b@y` → each address (quoted display names may hold commas). */

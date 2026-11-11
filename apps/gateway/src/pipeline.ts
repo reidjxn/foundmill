@@ -760,13 +760,17 @@ async function allow(deps: GatewayDeps, session: SessionToken, req: CallRequestP
   try {
     result = await connector.callTool(tool.name, guarded.args, ctx);
   } catch (e) {
-    await platformMail?.release();
-    if (isConfigError(e)) throw new GatewayError("connector_unconfigured", e.message, 503, { connector: connector.key });
+    // The count goes back only when nothing can have gone out: the connector stopped before the vendor (configuration).
+    if (isConfigError(e)) {
+      await platformMail?.release();
+      throw new GatewayError("connector_unconfigured", e.message, 503, { connector: connector.key });
+    }
     throw e;
   }
   if (platformMail) {
-    if (!result.ok) await platformMail.release();
-    else await recordPlatformMailSent(deps, session, platformMail, result, mode, log);
+    // A definite refusal (a 4xx, or the connector's own check) sent nothing; a timeout or a 5xx may have, so it stays counted.
+    if (!result.ok && vendorRefusedOutright(result.error)) await platformMail.release();
+    else if (result.ok) await recordPlatformMailSent(deps, session, platformMail, result, mode, log);
   }
 
   // Untrusted content: the agent receives the envelope; its recipients are remembered for this session (BUILD §9.8).

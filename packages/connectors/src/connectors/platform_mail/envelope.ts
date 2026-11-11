@@ -7,7 +7,7 @@ import { PLATFORM_MAIL_KEY } from "./tools";
  */
 export function requireEnvelope(ctx: ToolContext): PlatformMailEnvelope {
   const envelope = ctx.platformMail;
-  if (!envelope?.from?.email || !envelope.messageRef || !envelope.unsubscribeUrl || !envelope.customArgs?.fm_b) {
+  if (!envelope?.from?.email || !envelope.projectName || !envelope.messageRef || !envelope.unsubscribeUrl || !envelope.customArgs?.fm_b) {
     throw new ConfigError(PLATFORM_MAIL_KEY, "the project's sending address", "the gateway resolves it before the call");
   }
   if (envelope.customArgs.fm_b !== ctx.businessId) throw new ConfigError(PLATFORM_MAIL_KEY, "a sender for this business", "the envelope names another business");

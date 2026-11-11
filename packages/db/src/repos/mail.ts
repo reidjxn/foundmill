@@ -7,19 +7,28 @@
  * row through RLS (`get` inside `withRls`). `resolve.byLocalPart` is the one read without a business: ingest finds the
  * project an inbound reply is addressed to. `setDailyCap` and `setStatus` are an operator's (docs/DEPLOY.md §5.7).
  */
+import { APP_NAME } from "@foundmill/config";
 import { isMailLocalPart, MAIL_LOCAL_PART_PATTERN, suffixPageSlug, suggestPageSlug } from "@foundmill/shared";
-import { eq } from "drizzle-orm";
-import { businesses, projectMail, projectPages, type ProjectMail, type ProjectMailStatus } from "../schema";
+import { eq, inArray } from "drizzle-orm";
+import { businesses, projectMail, projectPages, retiredMailLocalParts, type ProjectMail, type ProjectMailStatus } from "../schema";
 import { maybeOne, uniqueViolation, type Executor } from "./_shared";
 
 const LOCAL_PART_KEY = "project_mail_local_part_key";
 const BUSINESS_KEY = "project_mail_business_id_key";
 
-/** The local parts to try, best first: the page's address, the business's slug, its name, then a fixed fallback. */
-export function mailLocalPartCandidates(input: { pageSlug: string | null; businessSlug: string; businessName: string; businessId: string }): string[] {
-  const out: string[] = [];
+/** The product's name in a local part's form: no project's address may contain it (it would read as Foundmill's own). */
+const BRAND = APP_NAME.toLowerCase().replace(/[^a-z0-9]/g, "");
+
+/**
+ * The local parts to try, best first: the page's address, the business's slug, its name, then a fixed fallback. A role
+ * word (alone or as a part, `paypal-security`), the product's name and a name a deleted project held (`taken`) are
+ * skipped, so the project falls through to the next one (a suffixed name, then `project-<id>`), never fails.
+ */
+export function mailLocalPartCandidates(input: { pageSlug: string | null; businessSlug: string; businessName: string; businessId: string }, taken: ReadonlySet<string> = new Set()): string[] {
+  // Every allowed name in order (a taken one too, so its suffixed forms follow), and the ones still free.
+  const bases: string[] = [];
   const add = (v: string | null | undefined) => {
-    if (v && isMailLocalPart(v) && !out.includes(v)) out.push(v);
+    if (v && isMailLocalPart(v) && !v.includes(BRAND) && !bases.includes(v)) bases.push(v);
   };
   add(input.pageSlug);
   add(input.businessSlug);
@@ -28,11 +37,11 @@ export function mailLocalPartCandidates(input: { pageSlug: string | null; busine
   const tail = input.businessId.replace(/[^a-z0-9]/gi, "").toLowerCase();
   add(`project-${tail.slice(0, 8)}`);
   // A taken local part gets a short suffix from the business id (stable for the project), then a longer one.
-  for (const base of [...out]) {
+  for (const base of [...bases]) {
     add(suffixPageSlug(base, tail.slice(0, 4)));
     add(suffixPageSlug(base, tail.slice(0, 8)));
   }
-  return out.filter((v) => MAIL_LOCAL_PART_PATTERN.test(v));
+  return bases.filter((v) => MAIL_LOCAL_PART_PATTERN.test(v) && !taken.has(v));
 }
 
 export const mailRepo = {
@@ -50,7 +59,11 @@ export const mailRepo = {
     const business = maybeOne(await db.select({ slug: businesses.slug, name: businesses.name }).from(businesses).where(eq(businesses.id, businessId)).limit(1));
     if (!business) throw new Error(`business ${businessId} not found`);
     const page = maybeOne(await db.select({ slug: projectPages.slug }).from(projectPages).where(eq(projectPages.businessId, businessId)).limit(1));
-    for (const localPart of mailLocalPartCandidates({ pageSlug: page?.slug ?? null, businessSlug: business.slug, businessName: business.name, businessId })) {
+    const input = { pageSlug: page?.slug ?? null, businessSlug: business.slug, businessName: business.name, businessId };
+    // A local part a deleted project held is taken for good (0078 `retired_mail_local_parts`; the insert trigger refuses it too).
+    const all = mailLocalPartCandidates(input);
+    const retired = all.length ? new Set((await db.select({ localPart: retiredMailLocalParts.localPart }).from(retiredMailLocalParts).where(inArray(retiredMailLocalParts.localPart, all))).map((r) => r.localPart)) : new Set<string>();
+    for (const localPart of mailLocalPartCandidates(input, retired)) {
       try {
         // A savepoint per attempt, so a taken local part does not abort the caller's transaction.
         const row = await db.transaction(async (tx) => maybeOne(await tx.insert(projectMail).values({ businessId, localPart }).returning()));

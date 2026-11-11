@@ -22,7 +22,7 @@ import { ANTHROPIC_KEY, BUILTIN_CONNECTOR_KEYS, isConfigError, isServiceOnlyConn
 import { INTEGRATION_CREDENTIAL_KIND, repos, type Executor } from "@foundmill/db";
 import { AppError, NotFoundError } from "@foundmill/shared";
 import { buildAad, encryptJson, redactSecret } from "@foundmill/shared/crypto";
-import { DecryptedCredentialSchema, PROVISIONAL_AAD_ROW, toIntegrationRecord } from "./credentials";
+import { DecryptedCredentialSchema, loadCredential, PROVISIONAL_AAD_ROW, toIntegrationRecord } from "./credentials";
 import { appInstallationVerified, GatewayError, modeFor, safeError, type GatewayDeps } from "./pipeline";
 import { checkRateLimit } from "./rate-limit";
 import type { ConnectIntegrationRequest, IntegrationHealthRequest } from "./types";
@@ -166,7 +166,9 @@ export async function integrationHealth(deps: GatewayDeps, input: HealthInput, s
     // Only a live installation this gateway verified is ever checked with the vendor (no token for any other id).
     health = { ok: false, status: "disconnected", checkedAt: now().toISOString(), latencyMs: 0, message: `${connector.displayName} is not connected through a verified installation; connect it again from Settings › Integrations` };
   } else {
-    health = await connector.healthcheck(toIntegrationRecord(row, null)).catch((e: unknown) => vendorFailure(e, connector.key));
+    // An API-key connector checks the business's own key (decrypted for this call only), never a platform key.
+    const credential = mode === "live" && deps.vault && connector.auth.kind !== "none" ? await loadCredential(deps.db, deps.vault, input.businessId, row.id).catch(() => null) : null;
+    health = await connector.healthcheck(toIntegrationRecord(row, credential), credential?.credential).catch((e: unknown) => vendorFailure(e, connector.key));
   }
   await auditIntegration(deps, input.businessId, "gateway.integration.health_checked", connector.key, { service, mode, ok: health.ok, status: health.status });
   return { health };

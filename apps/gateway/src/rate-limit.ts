@@ -22,10 +22,18 @@ export interface RateLimitStore {
    * vendor). Optional: a store without it keeps the count, which only errs on the strict side.
    */
   release?(key: string, windowMs: number, now: number): Promise<void>;
+  /**
+   * True while the counts are shared by every replica and kept across restarts (Redis answering). A per-process memory
+   * store, or a Redis store counting in memory while Redis is down, is not: a cap that must hold across replicas (a
+   * project's daily sends) refuses rather than count there. Absent = not durable.
+   */
+  readonly durable?: boolean;
 }
 
 export class MemoryRateLimitStore implements RateLimitStore {
   private readonly counters = new Map<string, RateLimitHit>();
+  /** This process's memory: another replica, or this one after a restart, counts from zero. */
+  readonly durable: boolean = false;
 
   async hit(key: string, windowMs: number, now: number): Promise<RateLimitHit> {
     this.sweep(now);
@@ -90,6 +98,11 @@ export class RedisRateLimitStore implements RateLimitStore {
   /** True from a Redis failure until Redis answers again. */
   get isDegraded(): boolean {
     return this.degraded;
+  }
+
+  /** Counting in Redis right now (the last call reached it). */
+  get durable(): boolean {
+    return !this.degraded;
   }
 
   async hit(key: string, windowMs: number, now: number): Promise<RateLimitHit> {
