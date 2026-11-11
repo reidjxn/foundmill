@@ -217,7 +217,7 @@ describe("publicPage.follow (double opt-in)", () => {
     expect(await consents(b.id)).toHaveLength(1);
     // The seven repeats stopped at the address's allowance, so the page has no room left only because of the first.
     expect(await refusal(anon().publicPage.follow({ slug: b.slug, email: "other@example.com", consent: true }))).toBe("TOO_MANY_REQUESTS:rate_limited");
-    // Beyond 5 a day per page and address, even with the cross-project slot free, nothing is written.
+    // Beyond one a day per page and address, even with the cross-project slot free, nothing is written.
     hz.limits.reset();
     await fill(followLimitKeys.perAddress(hz.deps.env, b.slug, "fresh@example.com"), PAGE_FOLLOW_LIMITS.perAddress);
     expect(await anon().publicPage.follow({ slug: b.slug, email: "fresh@example.com", consent: true })).toEqual({ ok: true });
@@ -236,26 +236,33 @@ describe("publicPage.follow (double opt-in)", () => {
     expect(asked).toHaveLength(1);
   });
 
-  it("one confirmation email per address across every project per day, and one per project per 30 days", async () => {
+  it("three confirmation emails per address across every project per day, and one per project per 30 days", async () => {
     const a = await project("First");
     const b = await project("Second");
+    const c = await project("Third");
+    const d = await project("Fourth");
     await anon().publicPage.follow({ slug: a.slug, email: "busy.person@example.com", consent: true });
-    // The same day, another project: nothing written and nothing sent (they can follow it tomorrow).
-    expect(await anon().publicPage.follow({ slug: b.slug, email: "busy.person@example.com", consent: true })).toEqual({ ok: true });
-    expect(await consents(b.id)).toHaveLength(0);
-    expect(asked).toHaveLength(1);
+    // The same day, two more projects: each gets its confirmation (a person may follow a few in one sitting).
+    await anon().publicPage.follow({ slug: b.slug, email: "busy.person@example.com", consent: true });
+    await anon().publicPage.follow({ slug: c.slug, email: "busy.person@example.com", consent: true });
+    expect(await consents(b.id)).toHaveLength(1);
+    expect(asked).toHaveLength(3);
+    // A fourth the same day: nothing written and nothing sent (they can follow it tomorrow).
+    expect(await anon().publicPage.follow({ slug: d.slug, email: "busy.person@example.com", consent: true })).toEqual({ ok: true });
+    expect(await consents(d.id)).toHaveLength(0);
+    expect(asked).toHaveLength(3);
     // A day later (the windows reset), the same project again: the record is pending, but 30 days have not passed.
     hz.limits.reset();
     await anon().publicPage.follow({ slug: a.slug, email: "busy.person@example.com", consent: true });
-    expect(asked).toHaveLength(1);
+    expect(asked).toHaveLength(3);
     // ...and once they have, it is sent again with a new nonce (the old link stops working).
     await hz.db.update(contactConsents).set({ confirmationSentAt: new Date(Date.now() - 31 * 86_400_000) }).where(eq(contactConsents.businessId, a.id));
     hz.limits.reset();
     await anon().publicPage.follow({ slug: a.slug, email: "busy.person@example.com", consent: true });
-    expect(asked).toHaveLength(2);
-    expect(asked[1]!.nonce).not.toBe(asked[0]!.nonce);
+    expect(asked).toHaveLength(4);
+    expect(asked[3]!.nonce).not.toBe(asked[0]!.nonce);
     expect(await confirmFrom(a.id, asked[0]!)).toEqual({ status: "invalid" });
-    expect(await confirmFrom(a.id, asked[1]!)).toMatchObject({ status: "confirmed" });
+    expect(await confirmFrom(a.id, asked[3]!)).toMatchObject({ status: "confirmed" });
   });
 
   it("when the email is not sent the record stays pending and may be sent later; nothing claims it went out", async () => {

@@ -333,8 +333,11 @@ export async function publicPageBySlug(ctx: Pick<Context, "db" | "env" | "limits
  */
 export const PAGE_FOLLOW_LIMITS = {
   perCaller: { limit: 120, windowMs: 60_000 },
-  perAddress: { limit: 5, windowMs: 24 * 60 * 60_000 },
-  confirmAnyProject: { limit: 1, windowMs: 24 * 60 * 60_000 },
+  // One a day per page and address: a repeat never reaches the page's budget (it already has its pending record).
+  perAddress: { limit: 1, windowMs: 24 * 60 * 60_000 },
+  // Three a day across every project: a real person may follow a few projects in one sitting; a script cannot turn
+  // the form into a mail cannon at one address.
+  confirmAnyProject: { limit: 3, windowMs: 24 * 60 * 60_000 },
   closed: { limit: 60, windowMs: 60_000 },
   perPageHour: { limit: 60, windowMs: 60 * 60_000 },
   perPageDay: { limit: 300, windowMs: 24 * 60 * 60_000 },
@@ -393,7 +396,7 @@ type FollowContext = Pick<Context, "db" | "limits" | "env" | "gateway" | "log"> 
  *   2. the address (trimmed, lowercased, at most 200 characters, the shared check and Zod's) and the box ticked, else a
  *      plain refusal;
  *   3. the per-caller limit (TOO_MANY_REQUESTS);
- *   4. the per-address allowance (5 a day per page address and email) and, taken separately, the day's one confirmation
+ *   4. the per-address allowance (one a day per page address and email) and, taken separately, the day's three confirmations
  *      email for this address across every project: over either, the same answer and nothing written, before the page
  *      is even looked up;
  *   5. the page: published, committed, not archived, not a sample (the public view) and its switch on, else
