@@ -390,6 +390,8 @@ Status, Nov 11, 2026: 0.1 done for the six answered decisions; 0.2 done (the pla
 
 ### Phase 1: A real first outcome that travels
 
+Status, Nov 11, 2026: 1.1 done (public project pages at `/p/<slug>`). Next: 1.2 and 1.3.
+
 Goal: R5 and the first half of R4. In the first session a project has a live page with its own address, made by agents, that a person can send to a friend.
 
 - **1.1 Project pages.** Public, unauthenticated, indexable route (`/p/<slug>`), rendered from approved content: name, one-line pitch, what it is, who is building it, stage, a "follow" or waitlist form, and (after phase 2) open roles. Per-page title and share image. Works at 390 px.

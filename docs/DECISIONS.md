@@ -3530,3 +3530,13 @@ The founder decided the rule (§14 item 9). How it was built, and what follows f
 - **Businesses that already enabled such channels keep the row.** Hidden by default, shown as "On the board, not running" in Builder view, no engine. No backfill.
 - **With fewer than two routes left, the Board question is not asked**, because a decision needs two options.
 - **"Not connected" at the gateway.** A mock connector that the business never connected now answers `integration_not_connected` for a person's own business on staging and production, before anything runs. An integration "connected" in Settings while the deployment is mock (stored with status `mock`) still runs the mock, and its result says it is simulated. Connectors with no account to connect (web search, the platform's own tools) are not affected; web research stays simulated in production until package 1.4.
+
+## 2026-11-11 — Public project pages (package 1.1): the calls made
+
+- **A page is independent of Personal/Live.** Publishing is the founder's explicit act for that page; the old setting governs the network, not this. Sample businesses cannot publish.
+- **Names are off by default.** "Built by …" appears only when the founder turns on "Name the people building it"; one name reads "Built by Maya", never as if someone were missing.
+- **No model screens a page before it goes public.** The deterministic checks (markup, email addresses, phone numbers) hold it; a model check would cost money on every publish and fail closed on an outage, which would stop a founder publishing their own words. Revisit if pages are abused.
+- **Who edits.** The API lets anyone who can write Product save the draft and change the address while the page is not live; the screen shows the tab read-only to people who cannot publish, so in practice owners and admins edit. Only owners and admins publish, take down, or move a live page.
+- **Rate limits are shared ceilings** (600 reads a minute per address, 6,000 across all), because the api sees the web server, not the visitor.
+- **The address comes from the business's slug,** with a short suffix when another project holds it; `APP_URL` + `/p/<slug>`. Moving a live page writes `page.unpublished` for the old address and `page.published` for the new.
+- **Rendered on every request**, so a page taken down disappears at once rather than at the next rebuild.
