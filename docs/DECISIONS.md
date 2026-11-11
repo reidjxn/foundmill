@@ -3556,3 +3556,13 @@ The founder decided the rule (§14 item 9). How it was built, and what follows f
 - **A draft with a number the founder did not write is thrown away**, not edited: the starter draft replaces it.
 - **The team never writes over the founder:** it writes only when the project has no page row.
 - **"Later" answers the note;** Today's quiet line takes over. A snooze would need a new column.
+
+## 2026-11-11 — The Foundmill sending address (package 1.5): the calls made
+
+- **A separate connector, not a mode of `sendgrid`.** On the platform's key, `sendgrid`'s other tools (campaigns, stats, the global suppression list) would act on every project's mail at once. `platform_mail` has one tool, and the gateway, not the agent, sets the sender, the unsubscribe link and the signed custom args.
+- **A table with fixed, never-reused local parts.** Replies to old messages must reach the project that sent them, after a page address changes and after a project is deleted.
+- **"‹project› via Foundmill"** in the From name, and role words and the product's name refused in addresses, so a project cannot pass as a bank, a support desk or Foundmill.
+- **Unverified replies are dropped**, not written as unverified. A reply counts, suppresses or links to a lead only when SPF or DKIM passes for the sender's own domain; anything else could be a forgery that silences a real contact or inflates the north star. Cost: a real customer on a misconfigured mail server is not seen. Revisit if founders report missing replies.
+- **The caps fail closed.** Without shared counters (Redis down or absent) sending pauses outside development and test, so one project cannot exceed its cap through several gateway copies.
+- **A send that may have gone out keeps its count.** Only a definite refusal from SendGrid gives the count back.
+- **The founder's own SendGrid connector no longer falls back to the platform key**, and its health check now uses the founder's stored credential (it had been checking the platform account).
