@@ -76,7 +76,8 @@ Where a field is missing, add it to the existing procedure rather than a mobile-
 
 ## 13. Collisions to watch between sessions
 
-- The retention session plans **migration 0075** (`founder_visits`, `founder_signals`) and email columns on `account_preferences`. Main already has `0075_founder_devices` and `account_preferences.notifications` (#75), and the roadmap branch has 0076 and 0077. The retention work must take the next free number after whatever merges first and add its email kinds beside the push kinds in `founder.preferences.notifications`, not as a second preferences shape, so the app keeps one place to read them.
+- Resolved Nov 11: the retention work (branch `claude/brave-allen-52yii5`) took **0076_founder_return** and keeps email preferences in their own column and procedures (`founder.email.*`) beside the push map; folding the shared kinds into one vocabulary is its noted follow-up. The roadmap branch also has a 0076, so whichever of the two merges second renumbers.
+- Originally: the retention session planned **migration 0075** (`founder_visits`, `founder_signals`) and email columns on `account_preferences`. Main already has `0075_founder_devices` and `account_preferences.notifications` (#75), and the roadmap branch has 0076 and 0077. The retention work must take the next free number after whatever merges first and add its email kinds beside the push kinds in `founder.preferences.notifications`, not as a second preferences shape, so the app keeps one place to read them.
 - The roadmap branch edited `docs/mobile` too (its commit "The mobile prompt pack follows the thesis"). This pack (PR #77) already carries the same rules; whichever merges second resolves the conflict by keeping both sets of lines (channel availability, "simulated is never done").
 
 ## 11. Repo hygiene
