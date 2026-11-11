@@ -129,7 +129,7 @@ The "what the team can do" chip reads, in the business's own currency: "Asks bef
 - Sample business caption: "Sample business" · "Its figures are made up for the example: nothing here is real money or real customers." · for an example viewer add "Nothing you do here is saved."
 - Example door: "Walk around a running business before you start yours. Nothing you do there is saved. It is a business two years in: its spend and customer figures are its own, not a forecast of yours."
 - Approval without content: Reject labeled "Ask for the details"; Approve labeled "Approve anyway". No GitHub: "Connect GitHub first".
-- Model account out of credit (a credits business; the note's own words): "This cycle's plan could not run: the model account that runs Foundmill refused its key. Our team has been alerted, and nothing was charged to your credits. Try again later." Show it as the note says it; it is Foundmill's problem, not the founder's.
+- Model account out of credit (a credits business; the note's own words): "This round's plan could not run: the model account that runs Foundmill refused its key. Our team has been alerted, and nothing was charged to your credits. Try again later." Show it as the note says it; it is Foundmill's problem, not the founder's.
 - Chief of Staff with nothing to say: "Nothing is blocking the team." / "There is nothing to report yet: the team has not started, and no goal is set." / "Nothing needs you right now."
 - First week: title "Your first week"; states Done / Now / Next; "Done Oct 8"; "Oct 10 – 13 (Estimate)"; stopped line "The team is stopped, so nothing moves on until you resume it."
 - Area skeleton: "Reading the numbers".

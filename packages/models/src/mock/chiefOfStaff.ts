@@ -119,7 +119,7 @@ export function generateChiefOfStaff(ctx: MockContext): CyclePlanOutput {
   const roadmap = ctx.getArray<unknown>("roadmap_without_tasks");
   const summary =
     started === 0
-      ? `No tasks start in this round of work for ${businessName}: ${budgetRemaining === 0 ? "the model budget is used up" : open.length === 0 ? "the board is clear" : "the open tasks wait on earlier tasks"}.${roadmap.length > 0 ? ` ${roadmap.length} roadmap item${roadmap.length === 1 ? " has" : "s have"} no tasks yet; the team plans ${roadmap.length === 1 ? "it" : "them"} in the next cycles.` : ""}`
+      ? `No tasks start in this round of work for ${businessName}: ${budgetRemaining === 0 ? "the model budget is used up" : open.length === 0 ? "the board is clear" : "the open tasks wait on earlier tasks"}.${roadmap.length > 0 ? ` ${roadmap.length} roadmap item${roadmap.length === 1 ? " has" : "s have"} no tasks yet; the team plans ${roadmap.length === 1 ? "it" : "them"} in the next rounds of work.` : ""}`
       : `Start ${started} task${started === 1 ? "" : "s"} across ${departments.size} department${departments.size === 1 ? "" : "s"} for ${businessName} with at most ${Number.isFinite(limit) ? limit : maxAgents} agents working at once; ${deferred.length} wait. Work that unblocks a customer goes first.`;
 
   return {

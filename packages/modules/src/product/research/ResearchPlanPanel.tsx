@@ -239,7 +239,7 @@ export function ResearchPlanPanel({ businessId, blocks, onOpenBlock, span = 12, 
                 </Button>
               </>
             ) : (
-              <span>The follow-up work (recruiting, the page, the survey) runs as research tasks in the next cycles.</span>
+              <span>The follow-up work (recruiting, the page, the survey) runs as research tasks in the next rounds of work.</span>
             )}
           </p>
         </div>
