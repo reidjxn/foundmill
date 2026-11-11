@@ -2,6 +2,8 @@
 
 Written Nov 11, 2026, from a read of the whole repository at commit `0904088`. This is a working document for Claude Code: section 1 turns the thesis into requirements, sections 2 to 11 report what exists against them, section 12 describes the target, section 13 is the roadmap, and section 14 lists the decisions only the founder can take. Nothing in this document changes a rule in CLAUDE.md; where the thesis conflicts with a rule, section 14 says so and the roadmap waits for the answer.
 
+> **Correction from the founder, Nov 11, 2026 (after the first draft).** The main user is a solo founder, and they must feel fully able to do all of it alone. The first draft of this review made "finding each other" the core loop and wrote as if a project with one person were incomplete; that was wrong. The rule now (CLAUDE.md "Solo is complete"): nothing is gated on a second person and nothing treats one person as missing someone; finding a cofounder or collaborator is seamless and always an offer, never a requirement. The north star is weekly active projects with at least one real outcome that week, whatever the number of people. Sections 1, 2, 12, 13, 15 and 16 are revised to match; the findings in sections 3 to 11 stand as written, and where they call the people side "the core" read "the offer that must be seamless".
+
 ## 0. Method and confidence
 
 - **How it was produced.** Five parallel code audits (the people side, the agent runtime, the first run, the in-business surface, the agents' voice and content), plus a direct read of `docs/foundmill-plan/foundmill-plan.md`, `docs/ARCHITECTURE.md`, `docs/BUILD.md` §11.14 and §16, `docs/DEPLOY.md`, `packages/config` and the last month of `docs/PROGRESS.md`.
@@ -12,18 +14,19 @@ Written Nov 11, 2026, from a read of the whole repository at commit `0904088`. T
 
 ## 1. The thesis as requirements
 
-The thesis: as AI spreads through the economy, most people move from being employed to building something of their own, and most of them would rather build with other people than alone. Foundmill is where that happens. Stated as things the product can be tested against:
+The thesis: as AI spreads through the economy, most people move from being employed to building something of their own. One person with a team of AI agents can do all of it; many, perhaps most, will still prefer to do it with someone, and that has to be effortless. Foundmill is where both happen. Stated as things the product can be tested against:
 
 | # | Requirement | Test |
 | --- | --- | --- |
+| R0 | **Solo is complete.** One person with the agent team can build and run a business end to end, and feels able to. | No feature, limit, rating, note or metric depends on a second person; no copy says or implies someone is missing. |
 | R1 | **The person comes first, the business second.** Someone with no idea, no company and no money is a full member from the first minute. | A new account can be seen, found and contacted, and can do something useful, before any business exists. |
-| R2 | **Finding each other is the core loop.** Founders discover people by what they can do, what they want and what they are building. | From a cold start, a person reaches a relevant human within one session. |
+| R2 | **Finding each other is one step away.** A founder who wants someone can discover people by what they can do, what they want and what they are building. It is offered, never pushed. | From a cold start, a person who looks for someone reaches a relevant human within one session; a person who does not is never asked twice. |
 | R3 | **Joining is as easy as starting.** A person can ask to join a project, try working on it, and become a cofounder with a recorded share. | Request, trial, accept and split all exist as product objects, on the free plan. |
-| R4 | **Every project is a reason to invite someone.** The things a project produces (a page, a milestone, an open role) travel outside the product and bring people back in. | An unauthenticated visitor can open a project's page and land in sign-up with the invitation intact. |
+| R4 | **What a project makes can travel.** The things a project produces (a page, a milestone, an open role) travel outside the product and bring people back in. | An unauthenticated visitor can open a project's page and land in sign-up with the invitation intact. |
 | R5 | **Agents produce something real, quickly.** In the first session a first-timer gets an outcome they can show another person, and in the first week one that reaches a customer. | A live URL in session one; a real email, post or payment link in week one. |
 | R6 | **It speaks to a first-timer.** Young, no business experience, little money, anxious, probably on a phone. | First run works at 390 px; no step assumes a budget, a company, a network or a technical account. |
 | R7 | **It teaches.** The product leaves the person more capable each week, whatever happens to the project. | A founder-owned task and one explained idea per day. |
-| R8 | **The subtext is never the text.** Nothing says "do this instead of a job". The message is ownership, capability and company. | No user-facing string names jobs, employment or careers as the reason. |
+| R8 | **The subtext is never the text.** Nothing says "do this instead of a job". The message is ownership and capability, with company as an offer. | No user-facing string names jobs, employment or careers as the reason. |
 | R9 | **It is honest.** Existing rule, kept: non-real numbers are labeled, agents never claim an action that did not happen. | A mock result can never read as a real one. |
 
 ## 2. Verdict
@@ -32,6 +35,7 @@ Foundmill today is a careful, well-governed operating console for **one experien
 
 | Requirement | Today | Short reason |
 | --- | --- | --- |
+| R0 Solo is complete | **Partly** | The whole product is built for one person, which is right. What fails the solo founder is R5: the agents cannot yet produce real outcomes, so "you can do it all on your own" is not true in practice. |
 | R1 Person first | **Absent** | A person is publicly visible only as the owner or admin of a committed, public business; the public card is a display name. |
 | R2 Finding each other | **Absent** | Search is by exact-ish name over those cards. No browse, no skills, no "looking for". The whole layer is switched off by default. |
 | R3 Joining | **Absent** | Membership is a silent add of an existing account by email or account ID. The free plan has one seat, and paid plans are not on sale. A free founder cannot add anyone. |
@@ -52,11 +56,11 @@ Foundmill today is a careful, well-governed operating console for **one experien
 
 **What has to change at the root.**
 
-1. Identity moves from business-centric to person-centric.
-2. The first door becomes "find people or a project", next to "start one".
-3. A project gets a public face, and that face is also the first real agent outcome.
-4. "Staff" and "seats" become cofounders and collaborators, free.
-5. Agents get a short list of real outside actions and lose the long list of pretend ones.
+1. Agents get a short list of real outside actions and lose the long list of pretend ones. This is what makes "you can do it on your own" true, and it comes first.
+2. A project gets a public face, and that face is also the first real agent outcome.
+3. Identity moves from business-centric to person-centric.
+4. "Start something" stays the main door; "find people or a project" sits beside it, equally easy and never required.
+5. "Staff" and "seats" become cofounders and collaborators, free.
 6. The product reaches a phone.
 7. The voice moves from a control room to a peer who knows more than you and is on your side.
 
@@ -286,22 +290,28 @@ There is no channel from the product to the person. The only email a user ever r
 
 ## 12. The target
 
-**12.1 The product in one paragraph.** Foundmill is where you start something of your own with other people, and where a team of AI agents does the work none of you can do yet. You arrive as a person. You say what you are good at, what you want to learn and what you are looking for. You can start a project in a sentence or join one that needs you. Within the first session the project has a public page you can send to someone, and that page is how the next person finds it.
+**12.1 The product in one paragraph.** Foundmill is where you build something of your own, and a team of AI agents does the work you cannot do yet. You can do all of it alone, and the product treats that as the normal case. You arrive as a person. You say what you are good at and what you want; you start a project in a sentence. Within the first session it has a public page you can send to anyone. If you would like someone to build it with, they are one step away at every point: open a role, invite a friend, or join a project that fits you. Nothing waits on that choice.
 
-**12.2 The loop.**
+**12.2 The loops.** The first is the product; the second is an offer inside it and the way the product spreads.
 
 ```
-arrive (from a shared page or an invite)
-  → say who you are and what you want          person profile
-  → start a project   or   find one to join     the two doors
-  → agents make the project page and first asset  first real outcome, a link
-  → share it; open a role ("needs someone who…")
-  → someone visits, signs up, asks to join       the invite survives sign-up
-  → try it together for two weeks                trial collaboration
+The solo loop (complete on its own)
+arrive
+  → say who you are and what you want            person profile
+  → start a project in a sentence                the main door
+  → agents make the project page and first asset   first real outcome, a link
+  → a real outcome every week: research, a page, an email, a post, a payment link
+  → first customer, first dollar; milestone cards go out
+
+The together loop (optional at every step, never asked twice)
+  from any point above: open a role, invite someone, or join a project
+  → someone visits a page or card, signs up, asks to join     the invite survives sign-up
+  → try it together for two weeks                             trial collaboration
   → become cofounders, with a recorded split
-  → ship, reach a first customer; milestone cards go out
-  → each card and page brings the next person
+  → each page, card and invitation brings the next person
 ```
+
+A founder who never touches the second loop loses nothing: the same agents, the same outcomes, the same milestones, no empty "People" panel asking to be filled.
 
 **12.3 Objects that have to exist.**
 
@@ -329,23 +339,25 @@ arrive (from a shared page or an invite)
 
 **12.5 Agents in the new shape.**
 
+- Agents cover every gap by default. A solo founder is never told a person is needed; where a person could help, that is one optional line beside the agent's plan, shown once.
 - A short, real set of outcomes: a project page live at a Foundmill address; real web research; an email sent from a platform-provided address; a waitlist form; a payment link; one social publisher.
 - Agents that serve the people side: a matcher (suggests people and projects, explains why), an introducer (drafts the first message, a human sends it), a role writer (turns a gap into an open role), a split helper (explains common splits and vesting; never recommends terms as legal advice; never signs).
-- The Chief of Staff as mentor: knows each person's name, role and goals; gives each a task; explains one idea a day.
+- The Chief of Staff as mentor: knows the founder's name and goals (and each person's, when there are several); gives a task; explains one idea a day.
 
 **12.6 Voice.**
 
 | | Today | Target |
 | --- | --- | --- |
 | Stance | Staff to a boss who "only reads and decides" | Someone a few years ahead of you, on your side |
-| Addressee | "the founder" | People by name; "you two", "the three of you" |
+| Addressee | "the founder" | The person by name; the group by name when there is one. One person is never addressed as if someone were absent |
 | Warmth | "Never hype", "Understood." | Still calm and exact; marks a first; treats a setback as normal |
 | Money | €250 lines, €500 first moves | Free first; any cost set against a small budget |
-| Gaps | An agent covers it | "A partner good at X would change this", next to the agent option |
+| Gaps | An agent covers it | An agent covers it, and says so with confidence. "You could also bring someone in for X" is an optional line, shown once, never a condition |
 | Goals | Business metrics | Also the person's: first income, hours, what they learned |
-| Subtext | Not considered | Ownership, capability, company. Never jobs, employment, careers, or fear of AI as the reason |
+| Subtext | Not considered | Ownership and capability; company as an offer. Never jobs, employment, careers, or fear of AI as the reason |
+| Solo | Assumed, and lonely | Assumed, and capable: "you can do this" is the default register |
 
-Subtext, worked: say "something that is yours", "people to build it with", "what you can do now that you could not last month". Do not say "instead of a job", "job-proof", "be your own boss", "escape the 9 to 5", "before AI takes it". The reader brings the worry; the product answers it without naming it.
+Subtext, worked: say "something that is yours", "what you can do now that you could not last month", and, as an offer, "people to build it with, if you want them". Do not say "instead of a job", "job-proof", "be your own boss", "escape the 9 to 5", "before AI takes it". The reader brings the worry; the product answers it without naming it. Solo, worked: never "find a cofounder to get started", "better with a partner", "you are missing a designer", or a profile or project meter that fills up when a person joins.
 
 ## 13. Roadmap
 
@@ -355,7 +367,7 @@ Seven phases. Each work package lists what to build, where, and what done means.
 
 Goal: the rules, the plan and the product stop contradicting the thesis and stop reporting pretend results.
 
-Status, Nov 11, 2026: 0.1 done for the five answered decisions; 0.3 done except the "not connected" refusal (it ships with 0.5) and the eval (1.8); 0.4 done; 0.6 done; people are free (3.2) done early. Not started: 0.2, 0.5, 0.7.
+Status, Nov 11, 2026: 0.1 done for the six answered decisions; 0.2 done (the plan is rewritten; re-importing it into Foundmill's own business is the founder's step); 0.3 done except the "not connected" refusal (it ships with 0.5) and the eval (1.8); 0.4 done; 0.6 done; people are free (3.2) done early. Not started: 0.5, 0.7.
 
 - **0.1 Founder decisions.** Get answers to section 14. Record them in `docs/DECISIONS.md`; update CLAUDE.md (vocabulary for people, the mobile rule, the subtext rule).
   Done when: each decision has a dated entry and CLAUDE.md matches.
@@ -402,18 +414,18 @@ Goal: R1 and R6. A person on a phone can arrive, exist and be found before any p
   Touches: `apps/web/components/providers/DesktopOnly.tsx` (per-route), `packages/dugout` (responsive variants of the shell and the components those routes use, with stories at 390 px), `docs/DESIGN.md` §2, Playwright phone projects.
 - **2.2 Open the door.** Replace the closed list with open sign-up or a waitlist that records who referred whom and moves people up when they bring someone; add Google and Apple sign-in; the email link works on any device. Protect the platform key with the existing credits gate and per-account ceilings.
   Touches: `apps/api/src/services/access.ts`, `apps/web/app/login/`, Supabase auth settings, `docs/DEPLOY.md` §4.
-- **2.3 The person profile.** Widen `founder_profiles` (12.3). Rebuild "Before you start" as three plain questions (what should we call you; what are you good at or enjoy, as tags; what are you here for: start something, join something, not sure yet) with everything else later. Per-field visibility; public by choice, on by default for the fields that make matching work, off for residence and money. Remove the 25,000 placeholder and the operator vocabulary.
+- **2.3 The person profile.** Widen `founder_profiles` (12.3). Rebuild "Before you start" as three plain questions (what should we call you; what are you good at or enjoy, as tags; what are you here for: start something of my own, join something, not sure yet) with everything else later. "On my own" is a complete answer and asks nothing further about people. Per-field visibility; public by choice, on by default for the fields that make matching work, off for residence and money. Remove the 25,000 placeholder and the operator vocabulary.
   Touches: `packages/db/src/schema/accounts.ts` plus migration and RLS, `packages/db/migrations` (replace the `public_profiles` view so a person no longer needs a Live business), `apps/web/components/onboarding/`, `apps/api/src/routers/founder.ts`.
   Done when: a new account with no business has a public page it controls, and the cross-tenant test proves private fields stay private.
-- **2.4 Home for a person.** A signed-in person with no project lands on a real screen: people and projects that fit, their requests and messages, and two doors. Remove the redirect to `/new` from the `(live)` layout.
+- **2.4 Home for a person.** A signed-in person with no project lands on a real screen whose main action is "start something", with "find a project or people" beside it, plus their requests and messages if they have any. A person who has not asked for people sees no suggestions of people. Remove the redirect to `/new` from the `(live)` layout.
 - **2.5 Retire "game mode".** Personal or Live becomes one plain setting on the project, "Who can see this: only us / anyone", unrelated to whether the person can be found. Open the people layer for everyone (`liveMode` on), keeping the 18 or older attestation.
   Touches: `packages/shared/src/constants.ts`, `PersonalOrLiveSection.tsx`, `CommitScreen.tsx`, `live.ts` gates, the `public_profiles` view.
 - **2.6 Shrink Commit.** Name and go. Kind of business is inferred; logo and colors are generated and editable later; the mode, spend line, Autopilot and agent faces take defaults and are explained when first relevant.
-- **2.7 Landing and metadata.** New promise per 12.1; real examples of two or three people in week one; remove claims that are not true yet; allow indexing.
+- **2.7 Landing and metadata.** New promise per 12.1: you can build this yourself, and people are there if you want them. Examples lead with one person in week one; remove claims that are not true yet; allow indexing.
 
 ### Phase 3: Build together
 
-Goal: R3. Two people can go from strangers to cofounders inside the product, on the free plan.
+Goal: R3. Two people can go from strangers to cofounders inside the product, on the free plan. Guard for every package here (R0): a project with one person looks and works exactly as before, with no empty People panel, no "invite someone" step in a checklist, and no note addressed to an absent group.
 
 - **3.1 Invitations.** A table with token, role, inviter, expiry and state; an invite link and an email; the invitee sees who invited them and to what, and accepts or declines; the invitation survives sign-up. The silent add is removed.
   Touches: `packages/db` (table, RLS, cross-tenant test, export), `apps/api/src/routers/team.ts`, `MembersTab.tsx`, `StaffScreen.tsx`, events `invitation.sent / accepted / declined` in `packages/events`.
@@ -431,13 +443,13 @@ Goal: R3. Two people can go from strangers to cofounders inside the product, on 
 
 ### Phase 4: Finding each other
 
-Goal: R2, and closing the loop of R4.
+Goal: R2, and closing the loop of R4. Guard (R0): everything here is reached by the founder's own step. Suggestions of people go only to someone who said they are looking; a founder who said "on my own" is not asked again unless they change it.
 
 - **4.1 Open roles.** A project states what it needs ("someone who can talk to cafe owners, five hours a week"), drafted by the role-writer agent from the plan's gaps, shown on the project page and in browse.
 - **4.2 Browse and search.** People by strengths, wants, hours and place; projects by stage, kind and need. Replace name-only search. Start with Postgres filters and trigram; add meaning-based ranking later.
-- **4.3 Suggestions.** The matcher proposes a few people and projects with one honest line of why, on Home and in a weekly email. An eval holds it to stated facts only.
+- **4.3 Suggestions.** For a person who is looking, the matcher proposes a few people and projects with one honest line of why, on Home and in a weekly email. An eval holds it to stated facts only, and to silence for a founder who is not looking.
 - **4.4 Introductions.** The introducer drafts a first message from both profiles; the person edits and sends. Agents never send person-to-person messages (existing rule, kept).
-- **4.5 Ideation that points at people.** Each concept gains "better with" (the kind of partner who would change it) and a one-tap "look for this person". Replace the ten scores with three plain answers for first-timers (can you start for free; who would pay; who do you need), with the full set in Builder view. New prompts start from lived problems.
+- **4.5 Ideation for one person first.** Every concept is one the founder can run alone with the agent team, and says how the agents cover what the founder cannot do. Replace the ten scores with three plain answers for first-timers (can you start for free; who would pay; what the agents handle and what you do yourself), with the full set in Builder view. New prompts start from lived problems. A concept may carry one optional line, "someone who knows X could speed this up", with a one-tap "look for this person"; it never lowers a rating and is left off for a founder who said "on my own". An eval checks that no concept is presented as needing a partner.
   Touches: `packages/agents/src/prompts/ideation.ts`, `ideation.ts`, mock fixtures, the ideation eval.
 - **4.6 Referral.** Every invitation, page visit and shared card carries who brought whom; both sides get credits when the new person does something real (publishes a page or joins a project). Needs decision 14.3.
 - **4.7 Safety for meeting strangers.** Report a person, a profile and a message; a platform review queue with a response target; rate limits moved from process memory to Redis; a sanctioned way to exchange contact details after both sides connect; the 18 or older gate reviewed against the audience (decision 14.5).
@@ -450,8 +462,8 @@ Goal: R2, and closing the loop of R4.
 Goal: the loops have a pulse.
 
 - **5.1 Notifications.** Email first: a request to join, an invitation, a message, a decision waiting more than a day, "your page had visitors". Preferences per kind; one-click unsubscribe; quiet hours.
-- **5.2 The weekly letter.** What the project shipped, what each person did, who visited, one suggestion of a person or project. Written by the Composer in the new voice.
-- **5.3 Milestone cards.** New early milestones: page live, first follower, first conversation with a customer, first collaborator, first cofounder, first dollar. Each has a public card with an image and a link to the project page, for any project that is visible.
+- **5.2 The weekly letter.** What the project shipped, what the founder (or each person) did, who visited; for someone who is looking, one suggestion of a person or project. Written by the Composer in the new voice.
+- **5.3 Milestone cards.** New early milestones: page live, first follower, first conversation with a customer, first dollar. "First collaborator" and "first cofounder" exist and appear only when they happen; they are never shown as empty slots. Each has a public card with an image and a link to the project page, for any project that is visible.
   Touches: `packages/journey/src/trophies.ts`, `MilestonesScreen.tsx`, a public card route.
 - **5.4 Build log.** A project's public page gains a running log drafted by agents from shipped work, approved by a human.
 - **5.5 Installable web app and push.** After 2.1.
@@ -462,14 +474,14 @@ Goal: R7, and the rest of R6.
 
 - **6.1 Show by stage.** A tab appears when its data exists or its moment arrives (a first payment reveals Money detail; "incorporate" appears when revenue or a cofounder split makes it relevant). Everything stays reachable in Builder view. Target: about a dozen surfaces in week one.
   Touches: `packages/shared/src/areas.ts`, `apps/web/lib/sidebar.ts`.
-- **6.2 Earnings first.** Money opens on money in, money out, what you kept, days to first sale, and each cofounder's share. Runway, burn and the rest follow when a bank is connected.
+- **6.2 Earnings first.** Money opens on money in, money out, what you kept and days to first sale; each cofounder's share appears when there is more than one founder. Runway, burn and the rest follow when a bank is connected.
 - **6.3 Founder tasks.** Each day Today gives each person one thing only a human can do, with a short "how" and a way to report back that feeds the plan.
 - **6.4 Chief of Staff as mentor.** Rewrite the role line and the founder line of the house rules; add a mentor register to `voice.ts`; one explained idea per decision for first-timers; pass names, roles and personal goals into every prompt that speaks to a person.
 - **6.5 Personal goals.** The profile gains what the person wants (first income, hours, something to learn); goals appear beside the business goal.
 - **6.6 One switch for supervision.** A single sentence and control on first use; modes, per-agent limits, Autopilot and vacation move to Builder view.
 - **6.7 Money defaults from the profile.** Department budgets, the approval line, the first recommended decision and every template example scale to the person's stated budget; the free option is the recommended one when the budget is zero.
   Touches: `packages/agents/src/archetypes.ts`, `packages/config/src/limits.ts`, the templates' examples.
-- **6.8 New example projects.** Replace Northwind and Ledgerly as the front door with two or three week-one projects by small groups of first-timers with no money. Keep the old ones as Builder view samples. Rewrite seed notes to obey the Composer's own rules.
+- **6.8 New example projects.** Replace Northwind and Ledgerly as the front door with three week-one projects by first-timers with no money: two run by one person alone, one by two cofounders. Keep the old ones as Builder view samples. Rewrite seed notes to obey the Composer's own rules.
   Touches: `packages/db/src/seed/`, `apps/web/components/landing/examples/`.
 - **6.9 Retire the game grammar.** Remove Form, ratings out of 20, Agent of the week, Hire / Let go / Lend, wage cap and line manager from the default view; rename the visible slugs with redirects; fix `package.json`.
 - **6.10 Copy pass.** Every string in sections 5 and 6 of this review, in the voice of 12.6, under the three linters plus the subtext check.
@@ -484,7 +496,7 @@ Goal: R7, and the rest of R6.
 ### Order and reasons
 
 1. **Phase 0 first** because building on a product that reports pretend results makes every later number untrustworthy.
-2. **Phase 1 before the people work** because the project page is both the first real agent outcome and the object every invitation, role and card links to. Without it there is nothing for a loop to carry.
+2. **Phase 1 before the people work** because real outcomes are what make a solo founder able, which is the main case, and because the project page is also the object every invitation, role and card links to.
 3. **Phase 2 with or just after phase 1** because a page that works on a phone must lead somewhere a phone can use.
 4. **Phase 3 before phase 4** because discovery that ends in "you cannot join" is worse than no discovery. Invitations between people who already know each other also give the first real growth with the least safety risk.
 5. **Phase 5 threads through 3 and 4;** its email sender is built in 1.5.
@@ -492,7 +504,7 @@ Goal: R7, and the rest of R6.
 
 ## 14. Decisions for the founder
 
-These block the phases named. **Answered on Nov 11, 2026** (`docs/DECISIONS.md`, same date): 1 (yes; and a native app built with Newly takes over on phones once it launches, when the small-screen site sends people to download it), 2 (yes), 3 (yes), 4 (yes: waitlist with referral order now, open later) and 10 (scope confirmed; no lawyer's review; signing happens in the platform by each cofounder). **Still open:** 5 to 9 and 11.
+These block the phases named. **Answered on Nov 11, 2026** (`docs/DECISIONS.md`, same date): 1 (yes; a native app built with Newly takes over on phones once it launches: signed-in small screens are sent to download it, public pages keep their content with a prompt), 2 (yes), 3 (yes), 4 (yes: waitlist with referral order now, open later), 8 (the north star is weekly active projects with at least one real outcome that week; no requirement of two people, and solo founders are the main user) and 10 (scope confirmed; no lawyer's review; signing happens in the platform by each cofounder). **Still open:** 5, 6, 7, 9 and 11.
 
 1. **Small screens** (blocks 1.1, 2.1). CLAUDE.md says "Never build mobile layouts." Recommendation: lift it for the outer product (public pages, sign-in, profile, people, messages, Today, Needs you) and keep the dense console at 1280 px.
 2. **The words for people** (blocks 3.3). Recommendation: cofounder, collaborator, People; "project" for a business before its first sale; "team" stays the agents; "staff" retired from default copy.
@@ -501,7 +513,7 @@ These block the phases named. **Answered on Nov 11, 2026** (`docs/DECISIONS.md`,
 5. **Age** (blocks 4.7). The people layer requires 18 or older by self-attestation. Meeting strangers and sharing ownership argue for keeping 18 as the floor. Confirm.
 6. **English only** (blocks 7.3). The US English rule stays for now; confirm that a translation layer is wanted later.
 7. **The management-game grammar** (blocks 6.9). The Oct 20 decision keeps it. Recommendation: move it to Builder view.
-8. **The north star.** Recommendation: weekly active projects with two or more people and at least one real outcome that week; supporting: share of new people who connect with someone in their first week, and invitations accepted per active person.
+8. **The north star.** Decided: weekly active projects with at least one real outcome that week, whatever the number of people. Supporting, as descriptions and never as targets a solo founder is pushed toward: share of people who looked for someone and connected in their first week, and invitations accepted.
 9. **Fate of what does not serve the thesis:** leaderboards (4.9), agent-to-agent negotiation, the import door's equal billing, the fifteen-channel Board for a business with no publisher.
 10. **Ownership splits and legal care** (blocks 3.8). The product would record an agreed split and offer a template founders sign themselves. Confirm this scope, and whether a lawyer should review the template and the helper's wording before release.
 11. **Platform-paid infrastructure** (blocks 1.5, 1.7). A platform sending domain and platform-owned repositories and hosting put cost and abuse risk on Foundmill. Confirm, with ceilings.
@@ -514,10 +526,11 @@ These block the phases named. **Answered on Nov 11, 2026** (`docs/DECISIONS.md`,
 | Exist | Share of new people with a public profile in session one |
 | First outcome | Share of new projects with a live page in session one; median minutes to it |
 | Share | Shares of the page per new project in week one |
-| Connect | Share of new people who exchange a message with another person in week one |
+| Connect | Of new people who said they are looking for someone, the share who exchange a message with another person in week one |
 | Join | Join requests per open role; acceptance rate; trials that become cofounders |
-| Together | Share of active projects with two or more people (the proposed north star) |
-| Real | Real outside actions per project per week (page, email, post, payment link), simulated ones excluded |
+| **North star** | Weekly active projects with at least one real outcome that week (page, email, post, payment link, a customer's reply), simulated ones excluded, any number of people |
+| Solo | The north star for one-person projects alone, read beside the rest: it must not trail projects with several people for reasons the product causes |
+| Together | Share of active projects with two or more people. A description of what founders chose, never a target |
 | First dollar | Share of projects with a first payment within 30 and 90 days; median days |
 | Return | Four-week retention of people, not businesses |
 | Loop | New people per active person per month who arrived through a page, card or invitation |
@@ -531,5 +544,6 @@ All of these need events declared in `packages/events`; none exists today.
 3. **Promising what agents cannot do.** The current landing page already does. Every claim in new copy must map to a row marked real in 7.5.
 4. **Equity is serious.** A split recorded in a product can be read as an agreement. Clear wording, founders sign outside agent action, legal review of the template.
 5. **Two products at once.** The console is large; if it keeps growing while the people side is built, the proportions never change. Freeze new console surfaces until phase 3 ships.
-6. **An empty room.** Matching with few people disappoints. Start with invitations between people who know each other (phase 3), seed by place and interest, and show honest counts.
-7. **Rule churn.** The mobile and vocabulary changes touch the design system and three linters. Do them once, in phase 0, with the linters updated in the same change.
+6. **Pushing people together.** Growth through invitations tempts the product to nag. A solo founder who is made to feel one short leaves. Every people feature ships with the R0 guard, and the solo north star is read beside the overall one.
+7. **An empty room.** Matching with few people disappoints. Start with invitations between people who know each other (phase 3), seed by place and interest, and show honest counts.
+8. **Rule churn.** The mobile and vocabulary changes touch the design system and three linters. Do them once, in phase 0, with the linters updated in the same change.

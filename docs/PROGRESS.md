@@ -1463,3 +1463,11 @@ The founder answered five of the decisions in `docs/THESIS_REVIEW.md` §14 (DECI
 - **0.6 Subtext check.** `scripts/banned-terms.mjs` gains three phrase groups with tests; "Keep my day job for now" became "Fits around what I already do" (profile form, example profile, story, unit tests, onboarding spec).
 - **People are free (3.2, early).** `packages/config` `seats: "unlimited"` on every plan and `tierSeatLimit`; `packages/db` `seatAllowance` / `assertSeatAvailable` refuse nothing by default (`limitFor` keeps the refusal tested); Settings › Billing reads "As many people as you like". Tests: config, db tiers, api billing-tiers (a free business adds a fifth person), web settings-logic.
 - **Not done.** 0.2 (rewriting `docs/foundmill-plan/foundmill-plan.md`) waits for the north star, which the plan leads with and the founder has not decided. 0.5 (templates stop being granted tools nothing serves) and the "not connected" refusal that ships with it. 0.7 (SEC-9, 10, 11, 14, 16). Pooled credits (3.9), invitations (3.1) and the People copy sweep (3.3). No Playwright run in this change: the onboarding spec's one changed string was edited by hand, not re-run.
+
+## 2026-11-11 — Rebuild, phase 0 (second part): solo is complete; the north star; the plan rewritten
+
+Three more answers from the founder (DECISIONS 2026-11-11, "Solo is complete").
+- **Rules.** CLAUDE.md "What Foundmill is for" rewritten: the main user is a solo founder who can do all of it alone; finding people is seamless and optional; the north star is weekly active projects with at least one real outcome; a public page on a phone keeps its content after the app launches.
+- **Review.** `docs/THESIS_REVIEW.md`: a correction at the top, requirement R0 "Solo is complete", the target and both loops, the voice table, the guards on phases 3 and 4, ideation for one person first, the metrics and a new risk ("pushing people together").
+- **0.2 Plan.** `docs/foundmill-plan/foundmill-plan.md` rewritten and checked with `parsePlanFile` (no errors, 27 roadmap items). Not imported into Foundmill's own business: that is the founder's step.
+- **Not done.** 0.5 and the "not connected" refusal, 0.7, and everything from phase 1 on. No product code changed in this part.
