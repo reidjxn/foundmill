@@ -3480,3 +3480,20 @@ Three answers from the founder, the same day as the first five. The first correc
 3. **Shared links on a phone after the app launches ("for now"):** a public page (a project or person page, an invitation, a milestone card) keeps its content with a prompt to get the app; a signed-in small screen is sent to download it.
 
 With the north star decided, `docs/foundmill-plan/foundmill-plan.md` is rewritten (package 0.2): the vision, for whom, principles, the north star, features, growth, metrics, risks, the known gaps as this review found them, and a roadmap whose Now is the rest of phase 0 and phase 1. Stale facts are corrected (the free tier has credits; code sessions start from the repository; migrations through 0074). It parses with `parsePlanFile` (27 roadmap items, no errors). Putting it into Foundmill's own business (Product › Vision › Import a plan) is the founder's step. Items of the old roadmap whose state this session could not verify (the first live engineering loop, repository context, the deploy connector, reviews, runbooks, the load baseline) are carried as one Later item that says to check each against PROGRESS before planning it.
+
+## 2026-11-11 — The last five answers to docs/THESIS_REVIEW.md §14
+
+Every decision of §14 is now answered. The founder chose, from lettered options:
+
+1. **Age: 18 or older for everything, asked once at sign-up** (not only for the network). Consequence: the attestation moves from the first step onto the network (`network_attestations`, `live.profile.confirmAdult`) to sign-up, and an account that has not confirmed cannot start or join a project. Not built yet (roadmap package 2.2); until it is, only the network asks.
+2. **Language: English only for the foreseeable future; no effort on translation.** The US English rule stands as it is. The string catalog and the translation layer (package 7.3) leave the roadmap. More countries for payouts and incorporation stay a later question of their own.
+3. **The management-game wording stays the default view** (the Form strip, ratings out of 20, Agent of the week, Hire / Let go / Lend, wage cap, line manager). The Oct 20 decision stands; this session had recommended moving it behind Builder view and the founder declined. Package 6.9 is cut down to what CLAUDE.md already requires: the `package.json` description and any visible football-era word. The visible tab slugs keep their names.
+4. **What does not serve the thesis.**
+   - **Leaderboards: removed** (routes, widgets, the status strip tile, the api procedures, the tables). In progress in its own change.
+   - **Agent-to-agent negotiation: left dormant and hidden.** Nothing is built or removed.
+   - **The import door: kept as a smaller third option** after "start something" and "find a project or people" (package 2.4 / 2.7).
+   - **The Channel Board shows only channels that can really act;** the rest are listed as not available yet in Builder view. This is the visible half of package 0.5.
+5. **What Foundmill pays for.**
+   - **Project pages at a Foundmill address, hosted by Foundmill, free: yes.** Unblocks packages 1.1 to 1.3.
+   - **A Foundmill-provided address a project can send email from: yes, with a daily cap per project and the existing approval for outside contact.** Unblocks package 1.5. **Judgment call to confirm when it is built:** the size of the cap (the roadmap assumes a small default, of the order of tens of messages a day, raised per project by the founder of Foundmill, never by an agent).
+   - **Foundmill-owned repositories and hosting for software projects: yes, after pages and email are proven.** Package 1.7 stays last in phase 1.

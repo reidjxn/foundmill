@@ -4,6 +4,8 @@ Written Nov 11, 2026, from a read of the whole repository at commit `0904088`. T
 
 > **Correction from the founder, Nov 11, 2026 (after the first draft).** The main user is a solo founder, and they must feel fully able to do all of it alone. The first draft of this review made "finding each other" the core loop and wrote as if a project with one person were incomplete; that was wrong. The rule now (CLAUDE.md "Solo is complete"): nothing is gated on a second person and nothing treats one person as missing someone; finding a cofounder or collaborator is seamless and always an offer, never a requirement. The north star is weekly active projects with at least one real outcome that week, whatever the number of people. Sections 1, 2, 12, 13, 15 and 16 are revised to match; the findings in sections 3 to 11 stand as written, and where they call the people side "the core" read "the offer that must be seamless".
 
+> **Main moved on Nov 11, 2026** ([reidjxn/foundmill#75](https://github.com/reidjxn/foundmill/pull/75), merged into this branch): the backend for the native app built with Newly. It adds device registration, push notifications through a OneSignal connector (real and mock) with a notifier in the api, per-person notification preferences, and sign-in by a six-digit email code. So two findings below are out of date: section 4.4 (sign-in is no longer only a link opened "in this browser") and section 10 (a channel to the person now exists, for push to the app; there is still no email to a user beyond sign-in, and nothing notifies about people). Package 5.1 builds on that notifier (`apps/api/src/services/push`) and adds email and the people kinds. The prompt pack in `docs/mobile` describes the product as it was before the thesis rules; bringing it in line is package 5.6.
+
 ## 0. Method and confidence
 
 - **How it was produced.** Five parallel code audits (the people side, the agent runtime, the first run, the in-business surface, the agents' voice and content), plus a direct read of `docs/foundmill-plan/foundmill-plan.md`, `docs/ARCHITECTURE.md`, `docs/BUILD.md` §11.14 and §16, `docs/DEPLOY.md`, `packages/config` and the last month of `docs/PROGRESS.md`.
@@ -379,7 +381,7 @@ Status, Nov 11, 2026: 0.1 done for the six answered decisions; 0.2 done (the pla
 - **0.4 Stop fabricating channel results for real businesses.** Hash-generated metrics and `.example` leads only for demo businesses and tests.
   Touches: `apps/orchestrator/src/activities/channel.ts`.
   Done when: a non-demo business in production has no row with invented impressions or leads.
-- **0.5 Remove grants nothing serves.** Templates list only tools that resolve; channel engines with no publisher are hidden from the Board with "not available yet" in Builder view.
+- **0.5 Remove grants nothing serves.** Templates list only tools that resolve; the Channel Board shows only channels that can really act, and the rest are listed as "not available yet" in Builder view (founder, Nov 11, 2026).
   Touches: `packages/agents/src/templates/**`, `packages/connectors/src/grants.ts`, the grants contract test.
   Done when: `NOT_YET_SERVED` is empty for every template a new business is given.
 - **0.6 Subtext check.** Remove the "day job" strings; add a subtext list to `scripts/banned-terms.mjs` (job, employment, career, 9 to 5, laid off, as reasons) covering UI strings, prompts, seeds and mock outputs.
@@ -412,13 +414,13 @@ Goal: R1 and R6. A person on a phone can arrive, exist and be found before any p
 
 - **2.1 Small screens for the outer product.** Landing, sign-in, profile, the doors, project and person pages, messages, Today and Needs you work from 390 px. The dense console keeps its 1280 px floor behind a kinder note with "email me the link". Needs decision 14.1.
   Touches: `apps/web/components/providers/DesktopOnly.tsx` (per-route), `packages/dugout` (responsive variants of the shell and the components those routes use, with stories at 390 px), `docs/DESIGN.md` §2, Playwright phone projects.
-- **2.2 Open the door.** Replace the closed list with open sign-up or a waitlist that records who referred whom and moves people up when they bring someone; add Google and Apple sign-in; the email link works on any device. Protect the platform key with the existing credits gate and per-account ceilings.
+- **2.2 Open the door.** Ask "I am 18 or older" once at sign-up, for the whole product, and move the network's own attestation there. Replace the closed list with open sign-up or a waitlist that records who referred whom and moves people up when they bring someone; add Google and Apple sign-in; the email link works on any device. Protect the platform key with the existing credits gate and per-account ceilings.
   Touches: `apps/api/src/services/access.ts`, `apps/web/app/login/`, Supabase auth settings, `docs/DEPLOY.md` §4.
 - **2.3 The person profile.** Widen `founder_profiles` (12.3). Rebuild "Before you start" as three plain questions (what should we call you; what are you good at or enjoy, as tags; what are you here for: start something of my own, join something, not sure yet) with everything else later. "On my own" is a complete answer and asks nothing further about people. Per-field visibility; public by choice, on by default for the fields that make matching work, off for residence and money. Remove the 25,000 placeholder and the operator vocabulary.
   Touches: `packages/db/src/schema/accounts.ts` plus migration and RLS, `packages/db/migrations` (replace the `public_profiles` view so a person no longer needs a Live business), `apps/web/components/onboarding/`, `apps/api/src/routers/founder.ts`.
   Done when: a new account with no business has a public page it controls, and the cross-tenant test proves private fields stay private.
 - **2.4 Home for a person.** A signed-in person with no project lands on a real screen whose main action is "start something", with "find a project or people" beside it, plus their requests and messages if they have any. A person who has not asked for people sees no suggestions of people. Remove the redirect to `/new` from the `(live)` layout.
-- **2.5 Retire "game mode".** Personal or Live becomes one plain setting on the project, "Who can see this: only us / anyone", unrelated to whether the person can be found. Open the people layer for everyone (`liveMode` on), keeping the 18 or older attestation.
+- **2.5 Retire "game mode".** Personal or Live becomes one plain setting on the project, "Who can see this: only me / anyone" ("only us" when there are several people), unrelated to whether the person can be found. Open the people layer for everyone (`liveMode` on), keeping the 18 or older attestation.
   Touches: `packages/shared/src/constants.ts`, `PersonalOrLiveSection.tsx`, `CommitScreen.tsx`, `live.ts` gates, the `public_profiles` view.
 - **2.6 Shrink Commit.** Name and go. Kind of business is inferred; logo and colors are generated and editable later; the mode, spend line, Autopilot and agent faces take defaults and are explained when first relevant.
 - **2.7 Landing and metadata.** New promise per 12.1: you can build this yourself, and people are there if you want them. Examples lead with one person in week one; remove claims that are not true yet; allow indexing.
@@ -452,21 +454,22 @@ Goal: R2, and closing the loop of R4. Guard (R0): everything here is reached by 
 - **4.5 Ideation for one person first.** Every concept is one the founder can run alone with the agent team, and says how the agents cover what the founder cannot do. Replace the ten scores with three plain answers for first-timers (can you start for free; who would pay; what the agents handle and what you do yourself), with the full set in Builder view. New prompts start from lived problems. A concept may carry one optional line, "someone who knows X could speed this up", with a one-tap "look for this person"; it never lowers a rating and is left off for a founder who said "on my own". An eval checks that no concept is presented as needing a partner.
   Touches: `packages/agents/src/prompts/ideation.ts`, `ideation.ts`, mock fixtures, the ideation eval.
 - **4.6 Referral.** Every invitation, page visit and shared card carries who brought whom; both sides get credits when the new person does something real (publishes a page or joins a project). Needs decision 14.3.
-- **4.7 Safety for meeting strangers.** Report a person, a profile and a message; a platform review queue with a response target; rate limits moved from process memory to Redis; a sanctioned way to exchange contact details after both sides connect; the 18 or older gate reviewed against the audience (decision 14.5).
+- **4.7 Safety for meeting strangers.** Report a person, a profile and a message; a platform review queue with a response target; rate limits moved from process memory to Redis; a sanctioned way to exchange contact details after both sides connect; 18 or older confirmed once at sign-up for the whole product (founder, Nov 11, 2026; built in 2.2).
 - **4.8 Communities for a purpose.** Seed communities by place and by interest; a "looking for people" post type that links to an open role.
-- **4.9 Leaderboards.** Remove or leave dark. A ranking of companies by revenue serves the old frame. If kept, rank what the thesis values (first customers reached, people brought in), computed from verified data.
+- **4.9 Leaderboards.** Removed (founder, Nov 11, 2026).
 - **4.10 One home for the people side.** Decide the fate of `apps/social` (section 11).
 
 ### Phase 5: Coming back
 
 Goal: the loops have a pulse.
 
-- **5.1 Notifications.** Email first: a request to join, an invitation, a message, a decision waiting more than a day, "your page had visitors". Preferences per kind; one-click unsubscribe; quiet hours.
+- **5.1 Notifications.** Push to the app exists (the api's push notifier and per-person preferences); extend its kinds and add email: a request to join, an invitation, a message, a decision waiting more than a day, "your page had visitors". Preferences per kind; one-click unsubscribe; quiet hours.
 - **5.2 The weekly letter.** What the project shipped, what the founder (or each person) did, who visited; for someone who is looking, one suggestion of a person or project. Written by the Composer in the new voice.
 - **5.3 Milestone cards.** New early milestones: page live, first follower, first conversation with a customer, first dollar. "First collaborator" and "first cofounder" exist and appear only when they happen; they are never shown as empty slots. Each has a public card with an image and a link to the project page, for any project that is visible.
   Touches: `packages/journey/src/trophies.ts`, `MilestonesScreen.tsx`, a public card route.
 - **5.4 Build log.** A project's public page gains a running log drafted by agents from shipped work, approved by a human.
-- **5.5 Installable web app and push.** After 2.1.
+- **5.5 The native app is the phone's home** (built with Newly; push already exists on main). The small-screen web hands over to it through the store-links value of 2.1. No installable web app.
+- **5.6 The mobile prompt pack follows the thesis.** `docs/mobile` (AGENTS.md, the product and voice skills, the prompts) still describes the console for one experienced founder: update what Foundmill is for, solo is complete, the words for people, the subtext rule, the removal of leaderboards and the 18 or older confirmation, and add the people screens as they are built on the web.
 
 ### Phase 6: The inside, re-cut for a first-timer
 
@@ -483,14 +486,14 @@ Goal: R7, and the rest of R6.
   Touches: `packages/agents/src/archetypes.ts`, `packages/config/src/limits.ts`, the templates' examples.
 - **6.8 New example projects.** Replace Northwind and Ledgerly as the front door with three week-one projects by first-timers with no money: two run by one person alone, one by two cofounders. Keep the old ones as Builder view samples. Rewrite seed notes to obey the Composer's own rules.
   Touches: `packages/db/src/seed/`, `apps/web/components/landing/examples/`.
-- **6.9 Retire the game grammar.** Remove Form, ratings out of 20, Agent of the week, Hire / Let go / Lend, wage cap and line manager from the default view; rename the visible slugs with redirects; fix `package.json`.
+- **6.9 The management-game wording stays** (founder, Nov 11, 2026): Form, ratings out of 20, Agent of the week, Hire / Let go / Lend, wage cap and line manager remain the default view, and the tab slugs keep their names. Only fix `package.json`'s description.
 - **6.10 Copy pass.** Every string in sections 5 and 6 of this review, in the voice of 12.6, under the three linters plus the subtext check.
 
 ### Phase 7: Economics and reach
 
 - **7.1 Prices and credits from measured cost.** Cost per first session and per week from the usage ledger; set a free allowance that reaches the first real outcome and a first week of work; route first-run work to cheaper models where quality holds (`packages/models/src/routing.ts`).
 - **7.2 Working top-ups and paid plans**, so no wall lacks an exit.
-- **7.3 Translation layer and more places:** a string catalog, locale-aware formats beyond en-US (a rule change, decision 14.6), payout and incorporation routes for more countries.
+- **7.3 More places:** payout and incorporation routes for more countries. No translation work: English only for the foreseeable future (founder, Nov 11, 2026).
 - **7.4 Load and moderation capacity** measured before each widening of sign-up.
 
 ### Order and reasons
@@ -504,7 +507,7 @@ Goal: R7, and the rest of R6.
 
 ## 14. Decisions for the founder
 
-These block the phases named. **Answered on Nov 11, 2026** (`docs/DECISIONS.md`, same date): 1 (yes; a native app built with Newly takes over on phones once it launches: signed-in small screens are sent to download it, public pages keep their content with a prompt), 2 (yes), 3 (yes), 4 (yes: waitlist with referral order now, open later), 8 (the north star is weekly active projects with at least one real outcome that week; no requirement of two people, and solo founders are the main user) and 10 (scope confirmed; no lawyer's review; signing happens in the platform by each cofounder). **Still open:** 5, 6, 7, 9 and 11.
+**All answered on Nov 11, 2026** (`docs/DECISIONS.md`, three entries of that date). In order: 1 yes, with the native app (built with Newly) taking over on phones; 2 yes; 3 yes; 4 yes; 5 18 or older for everything, asked at sign-up; 6 English only, no translation work; 7 the management-game wording stays the default view; 8 the north star is weekly active projects with at least one real outcome, any number of people; 9 leaderboards removed, negotiation dormant and hidden, the import door a smaller third option, the Channel Board shows only channels that can act; 10 scope confirmed, no lawyer's review, each cofounder signs in the platform; 11 Foundmill hosts project pages and provides a sending address with a daily cap now, and repositories and hosting for software projects after those are proven. The list below is kept as it was asked.
 
 1. **Small screens** (blocks 1.1, 2.1). CLAUDE.md says "Never build mobile layouts." Recommendation: lift it for the outer product (public pages, sign-in, profile, people, messages, Today, Needs you) and keep the dense console at 1280 px.
 2. **The words for people** (blocks 3.3). Recommendation: cofounder, collaborator, People; "project" for a business before its first sale; "team" stays the agents; "staff" retired from default copy.

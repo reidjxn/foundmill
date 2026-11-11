@@ -128,7 +128,7 @@ It never tells a solo founder they need someone, never rates a project lower for
 - Every outside call goes through the gateway: policy, limits, rate limits, untrusted-content tracking and audit.
 - Untrusted content is read by a quarantined reader with no tools; recipients found in it cannot be contacted without the founder.
 - Data is isolated by row-level security, with a cross-tenant test for every business-scoped table.
-- Between people: 18 or older to use the network, reporting of people, profiles and messages, blocking, and a review queue.
+- 18 or older to use Foundmill, confirmed once at sign-up. Between people: reporting of people, profiles and messages, blocking, and a review queue.
 
 ### Honesty
 A mock connector's result is marked simulated and is never reported as an action. Invented results are never recorded for a person's own project.

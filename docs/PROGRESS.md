@@ -1477,3 +1477,9 @@ Three more answers from the founder (DECISIONS 2026-11-11, "Solo is complete").
 - **Review.** `docs/THESIS_REVIEW.md`: a correction at the top, requirement R0 "Solo is complete", the target and both loops, the voice table, the guards on phases 3 and 4, ideation for one person first, the metrics and a new risk ("pushing people together").
 - **0.2 Plan.** `docs/foundmill-plan/foundmill-plan.md` rewritten and checked with `parsePlanFile` (no errors, 27 roadmap items). Not imported into Foundmill's own business: that is the founder's step.
 - **Not done.** 0.5 and the "not connected" refusal, 0.7, and everything from phase 1 on. No product code changed in this part.
+
+## 2026-11-11 — Rebuild, phase 0 (third part): the last five decisions recorded; main merged
+
+- **Decisions.** Every item of `docs/THESIS_REVIEW.md` §14 is answered (DECISIONS 2026-11-11, "The last five answers"): 18 or older for everything at sign-up; English only, no translation work; the management-game wording stays the default view; leaderboards removed, negotiation dormant, the import door a smaller third option, the Channel Board shows only channels that can act; Foundmill hosts project pages and provides a sending address with a daily cap, and repositories for software projects later. CLAUDE.md carries the new rules; the review's packages 2.2, 4.9, 6.9 and 7.3 and the plan are updated.
+- **Main merged** (#75, the mobile companion backend). The review notes what it changes: push and code sign-in exist now; new package 5.6 brings the `docs/mobile` prompt pack in line with the thesis.
+- **Not done.** Nothing of these decisions is built in this part. Leaderboard removal is in progress as its own change. 18 or older at sign-up waits for package 2.2.
