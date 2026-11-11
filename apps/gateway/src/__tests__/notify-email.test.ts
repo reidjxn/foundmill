@@ -5,18 +5,22 @@
  *     kind off; one `notify.email_sent` (user id, never the address) through the outbox, and an audit row without it;
  *   - never about a sample, never to an example visitor or someone walled off the Inbox, never after the person turned
  *     it off or opened the note, never for a note younger than a day;
- *   - one a day per person and project, three a day per person in all, the domain's ceiling;
+ *   - one a day per person and project, three a day per person in all, this email's own ceiling (`pn:all:day`, never
+ *     the projects' `pm:all:day`), and none while the projects' mail is above 75% of its ceiling;
+ *   - once per note within the lookback, held here too (the event and a Redis marker), never for a note over 7 days old;
+ *   - the subject as the Inbox shows it to the person: no amount behind a Finance wall, no customer behind a CRM wall;
  *   - refused, with a plain sentence, when platform mail is off or not configured; never simulated for a person's
  *     project on staging or production.
  */
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { createPlatformNotifyMock, readNotifyOffToken } from "@foundmill/connectors";
 import { repos } from "@foundmill/db";
 import * as s from "@foundmill/db";
 import { APP_NAME } from "@foundmill/config";
 import { NOTIFY_EMAIL_REFUSALS } from "@foundmill/shared";
 import { DEV_PLATFORM_MAIL_SECRET, PLATFORM_MAIL_CEILING_KEY, type PlatformMailConfig } from "../platform-mail";
-import { NOTIFY_EMAIL_ROUTE, notifyPersonDayKey, notifyProjectDayKey } from "../notify-email";
+import { NOTIFY_EMAIL_ROUTE, notifyItemKey, notifyPersonDayKey, notifyProjectDayKey, PLATFORM_NOTIFY_CEILING_KEY } from "../notify-email";
+import { MemoryRateLimitStore } from "../rate-limit";
 import { signServiceToken } from "../tokens";
 import { setupGateway, TEST_SECRET, type GatewayFixture } from "./harness";
 
@@ -39,12 +43,15 @@ describe("email from Foundmill to a person (gateway)", () => {
   });
 
   /** A member with a profile and a note from the agent that has waited 26 hours. */
-  async function person(over: { role?: "owner" | "admin" | "member" | "viewer"; source?: "invite" | "example"; sectionPermissions?: Record<string, "read" | "write" | "none"> } = {}) {
+  async function person(over: { role?: "owner" | "admin" | "member" | "viewer"; source?: "invite" | "example"; sectionPermissions?: Record<string, "read" | "write" | "none">; subject?: string; entityIds?: string[]; hoursAgo?: number } = {}) {
     n += 1;
     const userId = await g.h.createUser(`Person${n}@Example.com`);
     await repos.founders.upsert(g.db, userId, { displayName: `Maya ${n}` });
     await g.h.db.insert(s.memberships).values({ businessId: g.businessId, userId, role: over.role ?? "owner", source: over.source ?? "invite", sectionPermissions: over.sectionPermissions ?? {} });
-    const [item] = await g.h.db.insert(s.inboxItems).values({ businessId: g.businessId, type: "decision", fromAgentId: g.agentId, subject: `Which price should [[ent:00000000-0000-4000-8000-000000000001|Starter]] have? (${n})`, createdAt: new Date(Date.now() - 26 * HOURS) }).returning({ id: s.inboxItems.id });
+    const [item] = await g.h.db
+      .insert(s.inboxItems)
+      .values({ businessId: g.businessId, type: "decision", fromAgentId: g.agentId, subject: over.subject ?? `Which price should [[ent:00000000-0000-4000-8000-000000000001|Starter]] have? (${n})`, entityIds: over.entityIds ?? [], createdAt: new Date(Date.now() - (over.hoursAgo ?? 26) * HOURS) })
+      .returning({ id: s.inboxItems.id });
     return { userId, email: `person${n}@example.com`, itemId: item!.id };
   }
 
@@ -101,11 +108,97 @@ describe("email from Foundmill to a person (gateway)", () => {
     await g.rateLimits.hit(notifyPersonDayKey(q.userId), 86_400_000, Date.now());
     expect((await ask(about(q))).body.reason).toBe("per_person");
     expect(sentTo(q.email)).toHaveLength(0);
-    // And the platform domain's ceiling.
+    // And this email's own ceiling.
     const c = await person();
-    g.deps.platformMail = config({ ceiling: 0 });
+    g.deps.platformMail = config({ notifyCeiling: 0 });
     expect((await ask(about(c))).body.reason).toBe("ceiling");
-    expect(g.rateLimits.peek(PLATFORM_MAIL_CEILING_KEY, Date.now())).toBeGreaterThanOrEqual(0);
+    expect(sentTo(c.email)).toHaveLength(0);
+  });
+
+  it("counts against its own ceiling, never the projects' pm:all:day, and waits while the projects' mail is above 75% of theirs", async () => {
+    const projectsBefore = g.rateLimits.peek(PLATFORM_MAIL_CEILING_KEY, Date.now());
+    const ownBefore = g.rateLimits.peek(PLATFORM_NOTIFY_CEILING_KEY, Date.now());
+    const p = await person();
+    expect((await ask(about(p))).body.sent).toBe(true);
+    expect(g.rateLimits.peek(PLATFORM_MAIL_CEILING_KEY, Date.now())).toBe(projectsBefore);
+    expect(g.rateLimits.peek(PLATFORM_NOTIFY_CEILING_KEY, Date.now())).toBe(ownBefore + 1);
+    // The projects have sent 3 of 4 today (75%): there is still room.
+    for (let i = g.rateLimits.peek(PLATFORM_MAIL_CEILING_KEY, Date.now()); i < 3; i += 1) await g.rateLimits.hit(PLATFORM_MAIL_CEILING_KEY, 86_400_000, Date.now());
+    const at = await person();
+    g.deps.platformMail = config({ ceiling: 4 });
+    expect((await ask(about(at))).body.sent).toBe(true);
+    // One more (above 75%): this email waits and the projects keep the room; the note can still be emailed later.
+    await g.rateLimits.hit(PLATFORM_MAIL_CEILING_KEY, 86_400_000, Date.now());
+    const above = await person();
+    const ownNow = g.rateLimits.peek(PLATFORM_NOTIFY_CEILING_KEY, Date.now());
+    expect((await ask(about(above))).body).toEqual({ sent: false, reason: "busy", message: NOTIFY_EMAIL_REFUSALS.busy });
+    expect(sentTo(above.email)).toHaveLength(0);
+    expect(g.rateLimits.peek(PLATFORM_NOTIFY_CEILING_KEY, Date.now())).toBe(ownNow);
+    expect(g.rateLimits.peek(notifyProjectDayKey(above.userId, g.businessId), Date.now())).toBe(0);
+    expect(g.rateLimits.marked(notifyItemKey(above.userId, above.itemId), Date.now())).toBe(false);
+    for (let i = 0; i < 4; i += 1) await g.rateLimits.release(PLATFORM_MAIL_CEILING_KEY, 86_400_000, Date.now());
+    expect((await ask(about(above))).body.sent).toBe(true);
+  });
+
+  it("once per note, even when the event that records the email could not be written", async () => {
+    const p = await person();
+    const tx = vi.spyOn(g.deps.db, "transaction").mockRejectedValueOnce(new Error("connection lost"));
+    try {
+      expect((await ask(about(p))).body).toMatchObject({ sent: true, eventId: null });
+    } finally {
+      tx.mockRestore();
+    }
+    expect(await repos.notifyEmail.emailedItems(g.db, g.businessId, p.userId, [p.itemId])).toEqual(new Set());
+    // A new UTC day's counts would let it through; the marker does not.
+    await g.rateLimits.release(notifyProjectDayKey(p.userId, g.businessId), 86_400_000, Date.now());
+    await g.rateLimits.release(notifyPersonDayKey(p.userId), 86_400_000, Date.now());
+    expect((await ask(about(p))).body).toEqual({ sent: false, reason: "already_sent", message: NOTIFY_EMAIL_REFUSALS.already_sent });
+    expect(sentTo(p.email)).toHaveLength(1);
+  });
+
+  it("once per note by the recorded event too, when the marker is gone (a Redis flushed or replaced)", async () => {
+    const p = await person();
+    expect((await ask(about(p))).body.sent).toBe(true);
+    const store = g.deps.rateLimits;
+    g.deps.rateLimits = new MemoryRateLimitStore();
+    try {
+      expect((await ask(about(p))).body.reason).toBe("already_sent");
+    } finally {
+      g.deps.rateLimits = store;
+    }
+    expect(sentTo(p.email)).toHaveLength(1);
+  });
+
+  it("never about a note older than the 7-day lookback", async () => {
+    const old = await person({ hoursAgo: 9 * 24 });
+    expect((await ask(about(old))).body).toEqual({ sent: false, reason: "too_old", message: NOTIFY_EMAIL_REFUSALS.too_old });
+    expect(sentTo(old.email)).toHaveLength(0);
+    expect(g.rateLimits.peek(notifyProjectDayKey(old.userId, g.businessId), Date.now())).toBe(0);
+  });
+
+  it("quotes the subject as the Inbox shows it to the person: no amount behind a Finance wall, no customer behind a CRM wall", async () => {
+    const money = "Cash is £2,300, runway 2 months: approve the $400 ad test?";
+    const financeWalled = await person({ role: "member", sectionPermissions: { finance: "none" }, subject: money });
+    expect((await ask(about(financeWalled))).body.sent).toBe(true);
+    const [f] = sentTo(financeWalled.email);
+    expect(f!.text).toContain("“Cash is (amount hidden) runway (hidden): approve the (amount hidden) ad test?”");
+    expect(`${f!.text}${f!.html}${f!.subject}`).not.toMatch(/2,300|\$400|2 months/);
+
+    const [customer] = await g.h.db.insert(s.entities).values({ businessId: g.businessId, kind: "person", displayName: "Wren Garza", aliases: ["Wren"] }).returning({ id: s.entities.id });
+    const crmSubject = `Thank [[ent:${customer!.id}|Wren Garza]] for the order? Wren asked twice`;
+    const crmWalled = await person({ role: "member", sectionPermissions: { crm: "none" }, subject: crmSubject, entityIds: [customer!.id] });
+    expect((await ask(about(crmWalled))).body.sent).toBe(true);
+    const [c] = sentTo(crmWalled.email);
+    expect(c!.text).toContain("“Thank a contact for the order? A contact asked twice”");
+    expect(`${c!.text}${c!.html}${c!.subject}`).not.toMatch(/Wren|Garza/);
+
+    // Without a wall the subject reads as before.
+    const open = await person({ subject: money });
+    expect((await ask(about(open))).body.sent).toBe(true);
+    expect(sentTo(open.email)[0]!.text).toContain(`“${money}”`);
+    const openCrm = await person({ subject: crmSubject, entityIds: [customer!.id] });
+    expect((await ask(about(openCrm))).body.sent).toBe(true);
+    expect(sentTo(openCrm.email)[0]!.text).toContain("“Thank Wren Garza for the order? Wren asked twice”");
   });
 
   it("never to someone who turned it off, opened the note, cannot read the Inbox or is an example visitor; never for a fresh note", async () => {

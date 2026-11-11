@@ -102,6 +102,12 @@ const Env = z.object({
   PLATFORM_MAIL_DAILY_CAP: z.coerce.number().int().min(1).max(10_000).default(50),
   /** Messages every project together may send from the platform domain per UTC day: protects the domain's reputation (gateway). */
   PLATFORM_MAIL_DAILY_CEILING: z.coerce.number().int().min(1).max(1_000_000).default(2_000),
+  /**
+   * gateway: Foundmill's own emails to its users (packages 1.5 and 5.1) per UTC day, every person together. A ceiling
+   * of their own (`pn:all:day`), never counted against PLATFORM_MAIL_DAILY_CEILING, so they never take the projects'
+   * room; and they wait while the projects' mail has used more than 75% of that ceiling.
+   */
+  PLATFORM_NOTIFY_DAILY_CEILING: z.coerce.number().int().min(1).max(1_000_000).default(1_000),
   /** gateway + ingest: signs the custom args on every send and the unsubscribe links, so a delivery event or an unsubscribe is bound to its project. 32+ random bytes. */
   PLATFORM_MAIL_SIGNING_SECRET: z.string().optional(),
   /** ingest: the token the platform's Inbound Parse URL carries as `?token=` (`/mail/inbound`). Never the businesses' SENDGRID_INBOUND_TOKEN. */

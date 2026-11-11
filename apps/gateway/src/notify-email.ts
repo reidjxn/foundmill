@@ -13,14 +13,20 @@
  *   2. the business: live and not a sample (`is_demo`): nobody is emailed about a sample;
  *   3. the person: a member of it, not through an example membership, who can read the Inbox;
  *   4. their own switch for this kind (`account_preferences.notifications.email`), on;
- *   5. the note: this business's, still needing an answer, unopened by the person on any device, at least a day old;
+ *   5. the note: this business's, still needing an answer, unopened by the person on any device, at least a day old and
+ *      no older than the lookback (`NOTIFY_LOOKBACK_MS`, the api's), and never emailed to this person before: no
+ *      `notify.email_sent` for it (`repos.notifyEmail.emailedItems`) and no marker `pn:item:<user>:<item>` in Redis
+ *      (set here for `NOTIFY_ITEM_MARKER_MS`, 8 days, before the send, so a lost event write cannot cause a second one);
  *   6. their address, from `auth.users` (never from the request);
  *   7. the counts, in Redis shared by every replica: one email a day per person and project, three a day per person
- *      across projects, and the deployment's daily ceiling for the platform domain (the same `pm:all:day` every project's
- *      message counts against). Outside development and test a count that is not shared refuses the send.
+ *      across projects, and this email's own daily ceiling (`pn:all:day`, PLATFORM_NOTIFY_DAILY_CEILING), never the
+ *      projects' `pm:all:day`; and, so the projects' own mail always has room, none while `pm:all:day` is above 75% of
+ *      PLATFORM_MAIL_DAILY_CEILING (`busy`). Outside development and test a count that is not shared refuses the send.
  *
  * The words are built here (`decisionWaitingEmail`, packages/shared) from the gateway's own reads: the person's name, the
- * project's, the agent's as the person names agents, the note's subject without its entity markup. The footer's link
+ * project's, the agent's as the person names agents, the note's subject as the Inbox shows it to this person (their
+ * Finance and CRM walls: `noteAsSeenBy`, packages/db, the api's own redaction) without its entity markup, every one of
+ * them without links, domains or addresses (`withoutLinks`). The footer's link
  * turns this kind off for the person (`notifyOffToken`, signed under its own label). After the send, one
  * `notify.email_sent` (user id only, never the address; `simulated`) through the outbox, keyed per person and UTC day in
  * the business, and an audit row with the same. Every "not sent" is an answer (`sent: false`, a reason and a plain
@@ -29,6 +35,7 @@
 import { z } from "zod";
 import { APP_NAME } from "@foundmill/config";
 import { notifyEmailDayKey, repos } from "@foundmill/db";
+import { inboxWalls, isWalled, noteAsSeenBy } from "@foundmill/db/inbox-redaction";
 import {
   agentLabel,
   decisionWaitingEmail,
@@ -37,6 +44,9 @@ import {
   hasSectionAccess,
   mockResultsAllowed,
   NOTIFY_EMAIL_REFUSALS,
+  NOTIFY_ITEM_MARKER_MS,
+  NOTIFY_LOOKBACK_MS,
+  NOTIFY_PROJECT_MAIL_HEADROOM,
   NOTIFY_PER_PERSON_PER_DAY,
   NOTIFY_PER_PROJECT_PER_DAY,
   NOTIFY_WAIT_MS,
@@ -47,7 +57,7 @@ import {
 import { DEV_PLATFORM_MAIL_SECRET, isConfigError, mockIntegrationRecord, notifyOffToken, notifyOffUrl, PLATFORM_NOTIFY_KEY, type ToolContext } from "@foundmill/connectors";
 import { writeGatewayEvent } from "./events";
 import { modeFor, safeError, vendorRefusedOutright, type GatewayDeps } from "./pipeline";
-import { PLATFORM_MAIL_CEILING_KEY } from "./platform-mail";
+import { PLATFORM_MAIL_CEILING_KEY, PLATFORM_NOTIFY_DEFAULT_CEILING } from "./platform-mail";
 import { DAY_MS } from "./rate-limit";
 
 export const NOTIFY_EMAIL_ROUTE = "/v1/notify/email";
@@ -65,6 +75,10 @@ export type NotifyEmailResponse = { sent: true; simulated: boolean; eventId: str
 /** Counter keys, in fixed UTC-day windows: per person and project, and per person. */
 export const notifyProjectDayKey = (userId: string, businessId: string): string => `pn:${userId}:${businessId}:day`;
 export const notifyPersonDayKey = (userId: string): string => `pn:${userId}:day`;
+/** This email's own ceiling, every person together (never the projects' `pm:all:day`). */
+export const PLATFORM_NOTIFY_CEILING_KEY = "pn:all:day";
+/** The marker that this person was emailed about this note (kept `NOTIFY_ITEM_MARKER_MS`). */
+export const notifyItemKey = (userId: string, inboxItemId: string): string => `pn:item:${userId.toLowerCase()}:${inboxItemId.toLowerCase()}`;
 
 const NIL_ID = "00000000-0000-0000-0000-000000000000";
 
@@ -104,21 +118,59 @@ export async function sendNotifyEmail(deps: GatewayDeps, input: NotifyEmailReque
   // 5. The note still waits for them, and has waited a day.
   const item = await repos.notifyEmail.stillWaiting(deps.db, businessId, inboxItemId, userId);
   if (!item || now.getTime() - item.createdAt.getTime() < NOTIFY_WAIT_MS) return notSent("not_waiting");
+  // Once per note, within the lookback: the api's rules, held here too.
+  if (now.getTime() - item.createdAt.getTime() > NOTIFY_LOOKBACK_MS) return notSent("too_old");
+  if ((await repos.notifyEmail.emailedItems(deps.db, businessId, userId, [inboxItemId])).has(inboxItemId)) return notSent("already_sent");
+
+  // The subject as the Inbox shows it to this person (inbox.get's walls): behind a Finance wall no amount, behind a CRM
+  // wall no customer's name. Read before anything is counted, so a failed read takes nothing.
+  let subject = item.subject;
+  if (isWalled(inboxWalls(membership))) {
+    const [note] = await repos.inbox.byIds(deps.db, businessId, [inboxItemId]);
+    if (!note) return notSent("not_waiting");
+    subject = (await noteAsSeenBy(deps.db, businessId, membership, note)).subject;
+  }
 
   // 6. Their address, from their account.
   const email = await repos.founders.emailOf(deps.db, userId);
   if (!email) return notSent("no_address");
 
-  // 7. One a day per project, three a day in all, and the domain's ceiling; shared by every replica.
+  // 7. Once per note (the marker), the projects' room, one a day per project, three a day in all, and this email's own
+  //    ceiling; shared by every replica.
+  const shared = () => devStack || deps.rateLimits.durable === true;
+  const itemKey = notifyItemKey(userId, inboxItemId);
+  let marked = false;
   const counted: string[] = [];
   const release = async () => {
     for (const key of counted.splice(0)) await deps.rateLimits.release?.(key, DAY_MS, now.getTime());
+    if (marked) {
+      marked = false;
+      await deps.rateLimits.unclaim?.(itemKey);
+    }
   };
-  const shared = () => devStack || deps.rateLimits.durable === true;
+  if (!deps.rateLimits.claim || !deps.rateLimits.count) {
+    if (!devStack) return notSent("store");
+  } else {
+    marked = await deps.rateLimits.claim(itemKey, NOTIFY_ITEM_MARKER_MS, now.getTime());
+    if (!shared()) {
+      await release();
+      return notSent("store");
+    }
+    if (!marked) return notSent("already_sent");
+    const projectMail = await deps.rateLimits.count(PLATFORM_MAIL_CEILING_KEY, DAY_MS, now.getTime());
+    if (!shared()) {
+      await release();
+      return notSent("store");
+    }
+    if (projectMail > config.ceiling * NOTIFY_PROJECT_MAIL_HEADROOM) {
+      await release();
+      return notSent("busy");
+    }
+  }
   for (const [key, cap, reason] of [
     [notifyProjectDayKey(userId, businessId), NOTIFY_PER_PROJECT_PER_DAY, "per_project"],
     [notifyPersonDayKey(userId), NOTIFY_PER_PERSON_PER_DAY, "per_person"],
-    [PLATFORM_MAIL_CEILING_KEY, config.ceiling, "ceiling"],
+    [PLATFORM_NOTIFY_CEILING_KEY, config.notifyCeiling ?? PLATFORM_NOTIFY_DEFAULT_CEILING, "ceiling"],
   ] as const) {
     const hit = await deps.rateLimits.hit(key, DAY_MS, now.getTime());
     counted.push(key);
@@ -142,7 +194,7 @@ export async function sendNotifyEmail(deps: GatewayDeps, input: NotifyEmailReque
     projectName: business.name,
     agentName,
     holdsContinue: item.blocksContinue,
-    noteSubject: item.subject.replace(ENTITY_MARKUP_RE, "$2"),
+    noteSubject: subject.replace(ENTITY_MARKUP_RE, "$2"),
     waitedMs: now.getTime() - item.createdAt.getTime(),
     link: `${appUrl}/b/${businessId}/inbox/${inboxItemId}`,
     offLink: offUrl,

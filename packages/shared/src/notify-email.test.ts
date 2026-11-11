@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { decisionWaitingEmail, notifyEmailFooter, waitedWords, type DecisionWaitingFacts } from "./notify-email";
+import { decisionWaitingEmail, notifyEmailFooter, waitedWords, withoutLinks, type DecisionWaitingFacts } from "./notify-email";
 import { loadEnv } from "./env";
 
 const facts = (over: Partial<DecisionWaitingFacts> = {}): DecisionWaitingFacts => ({
@@ -63,6 +63,47 @@ describe("the email when something has waited a day for an answer", () => {
   });
 });
 
+describe("no link, domain or address in the words the team and the founders wrote (security review, Nov 11, 2026)", () => {
+  it.each([
+    ["Log in at evil.com/login today", "Log in at (link) today"],
+    ["Write to foundmill-support.com", "Write to (link)"],
+    ["Check xn--fundmill-xyz.com/verify now", "Check (link) now"],
+    ["See hxxp://x", "See (link)"],
+    ["Get ftp://x", "Get (link)"],
+    ["Mail mailto:a@b.co", "Mail (link)"],
+    ["Call tel:+15551234", "Call (link)"],
+    ["Open xhttps://evil.com", "Open (link)"],
+    ["Visit evil。com", "Visit (link)"],
+    ["Visit evil．com/x or evil｡com", "Visit (link) or (link)"],
+    ["Visit ｅｖｉｌ.ｃｏｍ", "Visit (link)"],
+    ["Visit www.evil.co.uk:8443/a?b=c#d", "Visit (link)"],
+    ["Visit пример.рф", "Visit (link)"],
+    ["Write to help@evil.example", "Write to (address)"],
+    ["Open https://evil.example/login", "Open (link)"],
+  ])("%s", (input, output) => {
+    expect(withoutLinks(input)).toBe(output);
+  });
+
+  it.each(["Cash is £2,300, runway 2 months", "e.g. the U.S. launch", "version 3.5", "Ship v2.0 by 3:45 PM, i.e. before the U.K. opens", "Ph.D. students, a.m. or p.m., 1.5x the spend", "Which price should the first plan have?"])(
+    "keeps prose: %s",
+    (prose) => {
+      expect(withoutLinks(prose)).toBe(prose);
+    },
+  );
+
+  it("cuts them from the project's name, the agent's name and the note everywhere they appear, the Subject header included", () => {
+    const e = decisionWaitingEmail(facts({ projectName: "PayPal.com Security", agentName: "support.evil.com", noteSubject: "Verify at evil。com/login", personName: "Maya at evil.com" }));
+    expect(e.subject).toBe("(link) Security needs your answer");
+    expect(e.text).toContain("Hi Maya at (link),");
+    expect(e.text).toContain("(link) asked you something 26 hours ago");
+    expect(e.text).toContain("“Verify at (link)”");
+    expect(e.text).toContain("You get this because you are part of (link) Security on Foundmill.");
+    for (const part of [e.subject, e.text, e.html]) expect(part).not.toMatch(/paypal|evil/i);
+    expect(decisionWaitingEmail(facts({ projectName: "PayPal.com Security", agentName: null })).text).toContain("Something in (link) Security has waited");
+    expect(notifyEmailFooter("PayPal.com Security", "Foundmill", "x")).toBe("You get this because you are part of (link) Security on Foundmill. Turn these emails off: x");
+  });
+});
+
 describe("PLATFORM_NOTIFY_LOCAL_PART", () => {
   it("defaults to hello and must be a reserved word no project can hold", () => {
     expect(loadEnv({ PLATFORM_NOTIFY_LOCAL_PART: "" }).PLATFORM_NOTIFY_LOCAL_PART).toBe("hello");
@@ -70,5 +111,7 @@ describe("PLATFORM_NOTIFY_LOCAL_PART", () => {
     expect(() => loadEnv({ PLATFORM_NOTIFY_LOCAL_PART: "northwind" })).toThrow(/reserved/);
     expect(loadEnv({ NOTIFY_EMAIL: "off" }).NOTIFY_EMAIL).toBe("off");
     expect(loadEnv({ NOTIFY_EMAIL: "" }).NOTIFY_EMAIL).toBe("on");
+    expect(loadEnv({}).PLATFORM_NOTIFY_DAILY_CEILING).toBe(1_000);
+    expect(loadEnv({ PLATFORM_NOTIFY_DAILY_CEILING: "250" }).PLATFORM_NOTIFY_DAILY_CEILING).toBe(250);
   });
 });

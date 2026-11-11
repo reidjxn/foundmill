@@ -29,7 +29,8 @@ export const NOTIFY_EMAIL_INTERVAL_MS = 60 * 60 * 1000;
 /** Pairs read in one pass (oldest first); the next pass reads the rest. */
 export const NOTIFY_EMAIL_BATCH = 2_000;
 /** A gateway answer that means no email can go out right now, for anyone. */
-const STOP_REASONS = new Set(["off", "unconfigured", "store", "ceiling", "simulated"]);
+/** (`busy`: the projects' own mail is near its daily ceiling, and keeps the room.) */
+const STOP_REASONS = new Set(["off", "unconfigured", "store", "ceiling", "busy", "simulated"]);
 
 export type NotifyEmailDeps = Pick<ApiDeps, "db" | "gateway" | "log">;
 

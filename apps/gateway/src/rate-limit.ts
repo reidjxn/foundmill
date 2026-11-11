@@ -22,6 +22,15 @@ export interface RateLimitStore {
    * vendor). Optional: a store without it keeps the count, which only errs on the strict side.
    */
   release?(key: string, windowMs: number, now: number): Promise<void>;
+  /** The count of `key` in the current window, without counting. Optional: a store without it cannot be read ahead. */
+  count?(key: string, windowMs: number, now: number): Promise<number>;
+  /**
+   * Sets the marker `key` for `ttlMs` (from now, not a fixed window) unless it is already set; true when this call set
+   * it. Optional. A marker says something happened once ("this person was emailed about this note").
+   */
+  claim?(key: string, ttlMs: number, now: number): Promise<boolean>;
+  /** Removes a marker this caller set (what it marked did not happen after all). */
+  unclaim?(key: string): Promise<void>;
   /**
    * True while the counts are shared by every replica and kept across restarts (Redis answering). A per-process memory
    * store, or a Redis store counting in memory while Redis is down, is not: a cap that must hold across replicas (a
@@ -32,6 +41,7 @@ export interface RateLimitStore {
 
 export class MemoryRateLimitStore implements RateLimitStore {
   private readonly counters = new Map<string, RateLimitHit>();
+  private readonly markers = new Map<string, number>();
   /** This process's memory: another replica, or this one after a restart, counts from zero. */
   readonly durable: boolean = false;
 
@@ -52,6 +62,28 @@ export class MemoryRateLimitStore implements RateLimitStore {
     if (current && current.resetAt > now && current.resetAt === windowStart(now, windowMs) + windowMs && current.count > 0) current.count -= 1;
   }
 
+  async count(key: string, _windowMs: number, now: number): Promise<number> {
+    return this.peek(key, now);
+  }
+
+  async claim(key: string, ttlMs: number, now: number): Promise<boolean> {
+    const until = this.markers.get(key);
+    if (until !== undefined && until > now) return false;
+    if (this.markers.size >= 10_000) for (const [k, v] of this.markers) if (v <= now) this.markers.delete(k);
+    this.markers.set(key, now + ttlMs);
+    return true;
+  }
+
+  async unclaim(key: string): Promise<void> {
+    this.markers.delete(key);
+  }
+
+  /** True while the marker is set (tests, diagnostics). */
+  marked(key: string, now: number): boolean {
+    const until = this.markers.get(key);
+    return until !== undefined && until > now;
+  }
+
   /** Current count without incrementing (tests, diagnostics). */
   peek(key: string, now: number): number {
     const current = this.counters.get(key);
@@ -69,6 +101,12 @@ export interface RedisCounter {
   incr(key: string): Promise<number>;
   pexpire(key: string, milliseconds: number): Promise<unknown>;
   decr?(key: string): Promise<number>;
+  /** For `count`: the counter's value, or null. */
+  get?(key: string): Promise<string | null>;
+  /** For `claim`: `SET key value PX ttl NX`, "OK" when set, null when the key was there. */
+  set?(key: string, value: string, px: "PX", milliseconds: number, nx: "NX"): Promise<unknown>;
+  /** For `unclaim`. */
+  del?(key: string): Promise<unknown>;
 }
 
 export interface RedisRateLimitStoreOptions {
@@ -133,6 +171,55 @@ export class RedisRateLimitStore implements RateLimitStore {
     } catch {
       // Best effort: a count that stays only errs on the strict side.
     }
+  }
+
+  async count(key: string, windowMs: number, now: number): Promise<number> {
+    if (this.degraded && now < this.retryAt) return this.fallback.count(key, windowMs, now);
+    try {
+      if (!this.redis.get) throw new Error("this Redis client cannot read a counter");
+      const value = await this.redis.get(`${key}:${windowStart(now, windowMs)}`);
+      this.recovered();
+      const n = Number(value ?? 0);
+      return Number.isFinite(n) ? n : 0;
+    } catch (e) {
+      this.fail(e, now);
+      return this.fallback.count(key, windowMs, now);
+    }
+  }
+
+  async claim(key: string, ttlMs: number, now: number): Promise<boolean> {
+    if (this.degraded && now < this.retryAt) return this.fallback.claim(key, ttlMs, now);
+    try {
+      if (!this.redis.set) throw new Error("this Redis client cannot set a marker");
+      const set = await this.redis.set(key, "1", "PX", ttlMs, "NX");
+      this.recovered();
+      return set === "OK";
+    } catch (e) {
+      this.fail(e, now);
+      return this.fallback.claim(key, ttlMs, now);
+    }
+  }
+
+  async unclaim(key: string): Promise<void> {
+    await this.fallback.unclaim(key);
+    if (!this.redis.del) return;
+    try {
+      await this.redis.del(key);
+    } catch {
+      // Best effort: a marker that stays only errs on the strict side (no second email about the note).
+    }
+  }
+
+  private recovered(): void {
+    if (!this.degraded) return;
+    this.degraded = false;
+    this.options.onRecover?.();
+  }
+
+  private fail(e: unknown, now: number): void {
+    if (!this.degraded) this.options.onFallback?.(e);
+    this.degraded = true;
+    this.retryAt = now + (this.options.retryAfterMs ?? 30_000);
   }
 }
 

@@ -45,6 +45,8 @@ export interface PlatformMailConfig {
   notifyLocalPart?: string;
   /** Where the link in that email points (APP_URL). */
   appUrl?: string;
+  /** That email's own daily ceiling, every person together (PLATFORM_NOTIFY_DAILY_CEILING, `pn:all:day`; default 1,000). */
+  notifyCeiling?: number;
 }
 
 /** Only for mock sends in development and test: links signed with it are never honored anywhere else (ingest refuses them). */
@@ -52,7 +54,7 @@ export { DEV_PLATFORM_MAIL_SECRET };
 
 /** Throws at boot when the domain is set outside development and test without a signing secret of 32+ characters. */
 export function platformMailConfig(
-  env: Pick<Env, "APP_ENV" | "PLATFORM_MAIL_DOMAIN" | "PLATFORM_MAIL_DAILY_CAP" | "PLATFORM_MAIL_DAILY_CEILING" | "PLATFORM_MAIL_SIGNING_SECRET" | "INGEST_PUBLIC_URL" | "INGEST_URL"> & Partial<Pick<Env, "PLATFORM_NOTIFY_LOCAL_PART" | "APP_URL">>,
+  env: Pick<Env, "APP_ENV" | "PLATFORM_MAIL_DOMAIN" | "PLATFORM_MAIL_DAILY_CAP" | "PLATFORM_MAIL_DAILY_CEILING" | "PLATFORM_MAIL_SIGNING_SECRET" | "INGEST_PUBLIC_URL" | "INGEST_URL"> & Partial<Pick<Env, "PLATFORM_NOTIFY_LOCAL_PART" | "APP_URL" | "PLATFORM_NOTIFY_DAILY_CEILING">>,
 ): PlatformMailConfig {
   return {
     domain: platformMailDomain(env),
@@ -61,6 +63,7 @@ export function platformMailConfig(
     signingSecret: platformMailSigningSecret(env),
     unsubscribeBase: (env.INGEST_PUBLIC_URL?.trim() || env.INGEST_URL).replace(/\/+$/, ""),
     notifyLocalPart: env.PLATFORM_NOTIFY_LOCAL_PART || "hello",
+    notifyCeiling: env.PLATFORM_NOTIFY_DAILY_CEILING ?? PLATFORM_NOTIFY_DEFAULT_CEILING,
     ...(env.APP_URL ? { appUrl: env.APP_URL.trim().replace(/\/+$/, "") } : {}),
   };
 }
@@ -83,6 +86,8 @@ export const PLATFORM_MAIL_POLICY = {
 /** Counter keys: one per project and one for the whole deployment, in fixed UTC-day windows. */
 export const platformMailDayKey = (businessId: string): string => `pm:${businessId}:day`;
 export const PLATFORM_MAIL_CEILING_KEY = "pm:all:day";
+/** PLATFORM_NOTIFY_DAILY_CEILING's default. */
+export const PLATFORM_NOTIFY_DEFAULT_CEILING = 1_000;
 
 const OWN_SENDER_STATUSES = new Set(["connected", "degraded"]);
 

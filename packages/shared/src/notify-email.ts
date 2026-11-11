@@ -13,6 +13,10 @@ import type { EmailNotificationKind } from "./constants";
 export const NOTIFY_WAIT_MS = 24 * 60 * 60 * 1000;
 /** Notes older than this are not looked at any more (one email about each was the chance). */
 export const NOTIFY_LOOKBACK_MS = 7 * 24 * 60 * 60 * 1000;
+/** How long the gateway remembers that a person was emailed about a note (longer than the lookback, so it outlives it). */
+export const NOTIFY_ITEM_MARKER_MS = 8 * 24 * 60 * 60 * 1000;
+/** Foundmill's own email waits while the projects' mail has used more than this share of its daily ceiling. */
+export const NOTIFY_PROJECT_MAIL_HEADROOM = 0.75;
 /** At most this many emails a person gets about one project in a UTC day. */
 export const NOTIFY_PER_PROJECT_PER_DAY = 1;
 /** At most this many emails a person gets in a UTC day, across every project. */
@@ -61,7 +65,7 @@ const escapeHtml = (s: string): string => s.replace(/&/g, "&amp;").replace(/</g,
 const href = (url: string): string => escapeHtml(url);
 
 /** The footer of every email Foundmill sends a person: why they get it, and the way out. */
-export const notifyEmailFooter = (projectName: string, appName: string, offLink: string): string => `You get this because you are part of ${oneLine(projectName, 120)} on ${appName}. Turn these emails off: ${offLink}`;
+export const notifyEmailFooter = (projectName: string, appName: string, offLink: string): string => `You get this because you are part of ${oneLine(withoutLinks(projectName), 120)} on ${appName}. Turn these emails off: ${offLink}`;
 
 /** The line under the link: a reply goes nowhere, so nobody waits on one. */
 export const NOTIFY_NO_REPLY_LINE = "Replies to this email don't reach the team, so answer in the app.";
@@ -70,15 +74,47 @@ export const NOTIFY_NO_REPLY_LINE = "Replies to this email don't reach the team,
 export function decisionWaitingLead(f: Pick<DecisionWaitingFacts, "projectName" | "agentName" | "holdsContinue" | "waitedMs">): string {
   const waited = waitedWords(f.waitedMs);
   if (f.holdsContinue) return `The team stopped ${waited} ago and is waiting on you:`;
-  if (f.agentName) return `${oneLine(f.agentName, 120)} asked you something ${waited} ago and the team is waiting on it:`;
-  return `Something in ${oneLine(f.projectName, 120)} has waited ${waited} for your answer:`;
+  if (f.agentName) return `${oneLine(withoutLinks(f.agentName), 120)} asked you something ${waited} ago and the team is waiting on it:`;
+  return `Something in ${oneLine(withoutLinks(f.projectName), 120)} has waited ${waited} for your answer:`;
 }
 
+// Any scheme followed by one or two slashes ("https://", "hxxp://", "ftp://"), glued to a word before it or not
+// ("xhttps://evil.com" is cut whole).
+const SCHEME_URL_RE = /[a-z][a-z0-9+.-]*:\/\/?\S+/gi;
+// The schemes a mail client opens without slashes.
+const SLASHLESS_SCHEME_RE = /[a-z0-9+.-]*(?:mailto|tel|sms|callto|facetime|skype|whatsapp|xmpp|sip|javascript|data|vbscript):\S+/gi;
+const ADDRESS_RE = /\S+@\S+\.\S+/g;
+// A word, then one or more ".label"s, then perhaps a port, a path, a query or a fragment.
+const DOMAIN_RE = /[\p{L}\p{N}][\p{L}\p{N}-]*(?:\.[\p{L}\p{N}-]+)+(?:[:/?#]\S*)?/gu;
+// A last label that can be a top-level domain: two letters or more ("com", "co", "рф"), or punycode ("xn--p1ai").
+const TLD_RE = /^(?:\p{L}{2,}|xn--[a-z0-9-]+)$/iu;
+// Prose that has the shape of a domain and is not one. Most already fail the last-label test ("e.g", "U.S", "3.5").
+const ABBREVIATIONS = new Set(["e.g", "i.e", "a.m", "p.m", "u.s", "u.k", "u.s.a", "ph.d", "m.d", "b.a", "m.a", "b.sc", "m.sc", "a.k.a", "r.s.v.p", "n.b", "p.s", "q.v", "et.al"]);
+
+const looksLikeDomain = (match: string): boolean => {
+  const host = match.split(/[:/?#]/, 1)[0]!.replace(/\.+$/, "");
+  if (ABBREVIATIONS.has(host.toLowerCase())) return false;
+  const labels = host.split(".");
+  return labels.length >= 2 && labels.every((l) => l.length > 0) && TLD_RE.test(labels[labels.length - 1]!);
+};
+
 /**
- * A note's subject is written by the team, which reads untrusted content, and this email comes from Foundmill's own
- * address: anything that reads as a link or an address in it is cut, so the email's one link is the one into the app.
+ * A note's subject, a project's name and an agent's name are written by people and agents, and agents read untrusted
+ * content, while this email comes from Foundmill's own address: anything that reads as a link, a domain or an address
+ * in them is cut, so the email's one link is the one into the app (security review, Nov 11, 2026). The text is NFKC
+ * normalized first (fullwidth letters and dots become plain ones) and the ideographic full stops read as dots, then
+ * every URL with a scheme (any scheme with slashes, glued to a word or not; mailto:, tel: and the other slashless ones)
+ * reads "(link)", every email address "(address)", and every bare domain, with or without a path, punycode included,
+ * "(link)". Prose stays: "e.g.", "U.S.", "3.5", "£2,300".
  */
-export const withoutLinks = (value: string): string => value.replace(/\b(?:https?:\/\/|www\.)\S+/gi, "(link)").replace(/\S+@\S+\.\S+/g, "(address)");
+export const withoutLinks = (value: string): string =>
+  value
+    .normalize("NFKC")
+    .replace(/[．。｡]/g, ".")
+    .replace(SCHEME_URL_RE, "(link)")
+    .replace(SLASHLESS_SCHEME_RE, "(link)")
+    .replace(ADDRESS_RE, "(address)")
+    .replace(DOMAIN_RE, (match) => (looksLikeDomain(match) ? "(link)" : match));
 
 /** "‹project› needs your answer", and the body in plain text and simple HTML. */
 export function decisionWaitingEmail(f: DecisionWaitingFacts): NotifyEmailText {
@@ -123,12 +159,15 @@ export const NOTIFY_EMAIL_REFUSALS = {
   simulated: "Sending is only simulated here, and simulated email is not allowed for this project, so nothing was sent.",
   sample: "This is a sample project, and no one is emailed about one, so nothing was sent.",
   not_waiting: "The note no longer waits for this person's answer, so nothing was sent.",
+  too_old: "The note is older than a week, and one email about it was the chance, so nothing was sent.",
+  already_sent: "This person was already emailed about this note, so nothing was sent.",
   not_member: "This person can't see the note, so nothing was sent.",
   turned_off: "This person turned these emails off, so nothing was sent.",
   no_address: "This person has no address to email, so nothing was sent.",
   per_project: "This person already got an email about this project today, so nothing was sent.",
   per_person: "This person already got today's emails, so nothing was sent.",
-  ceiling: "Every project together has reached today's sending limit, so nothing was sent.",
+  ceiling: "Today's limit for these emails has been reached, so nothing was sent.",
+  busy: "Projects' own email is close to today's limit and keeps the room, so nothing was sent.",
   store: "Sending is paused for a moment, so nothing was sent. Try again later.",
   vendor: "The email service did not take the message, so nothing was sent.",
 } as const;
