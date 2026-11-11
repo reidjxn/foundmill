@@ -15,7 +15,7 @@ The desktop web app (foundmill.com, 1280 px and wider) is a dense control room: 
 
 The founder: first-time or fifth-time, often solo, time-constrained, checking in between other things. They are not a developer. They want to know three things fast: *what needs me*, *how is the business doing*, *what did the team do*. And they want it to feel alive.
 
-Business modes (never named in the UI): Augmented (team asks before any outside contact or spend), **Assisted** (default: routine work alone, asks over a spend line, before anything irreversible and before any contract), Automated (decides alone within a ceiling; used on vacation). Game modes: **Personal** (private) and **LIVE** (social: network, communities, leaderboards). Most businesses are Personal.
+Business modes (never named in the UI): Augmented (team asks before any outside contact or spend), **Assisted** (default: routine work alone, asks over a spend line, before anything irreversible and before any contract), Automated (decides alone within a ceiling; used on vacation). Game modes: **Personal** (private) and **LIVE** (social: network and communities; on hold on the phone, and the web plans to replace the mode with a plain "Who can see this" setting). Most businesses are Personal.
 
 Hard gates that no mode ever automates: moving money, signing, filings that need the founder's identity, accepting terms, permanent deletion, security settings, acting on instructions found in content. These always arrive as a note that needs the founder.
 
