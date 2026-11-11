@@ -20,6 +20,7 @@ import { integrationsRouter, keysRouter } from "./routers/integrations";
 import { journeyRouter } from "./routers/journey";
 import { legalRouter } from "./routers/legal";
 import { liveRouter } from "./routers/live";
+import { pageRouter, publicPageRouter } from "./routers/page";
 import { productRouter } from "./routers/product";
 import { teamRouter } from "./routers/team";
 import { todayRouter } from "./routers/today";
@@ -42,6 +43,8 @@ export const appRouter = router({
   journey: journeyRouter,
   product: productRouter,
   goal: goalRouter,
+  page: pageRouter,
+  publicPage: publicPageRouter,
   today: todayRouter,
   chiefOfStaff: chiefOfStaffRouter,
   dev: devRouter,

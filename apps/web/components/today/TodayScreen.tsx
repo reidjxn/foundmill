@@ -9,6 +9,8 @@
  * 2. Needs you (`today.get`): up to three notes of the Inbox's Needs you tab, one tap only where it needs no plan
  *    compiler (`inbox.decide` with the note's own option), Open for the rest, "See all in the Inbox".
  * 3. This week and next (`today.get`): three to five sentences from data.
+ * 3a. The public page (`today.get` › `pageReady`): one quiet line to Product › Public page while the project has no
+ *     page live (never for a sample business).
  * 4. Health: Cash, Runway and Customers this week are the status strip's own tiles over the same reads
  *    (`finance.overview`, `journey.ribbon`), so they always match Details; then the week's spend, never added across
  *    currencies (AI usage in US dollars, channel spend in the business's currency; one figure for a dollar business).
@@ -19,8 +21,8 @@ import { emptyWhy } from "@foundmill/shared/empty-why";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
 import { useCallback, useMemo, useState } from "react";
-import { FirstWeekTimeline, GoalPanel, NeedsYouList, PageGrid, Panel, StatusStrip, Term, WeekPlan, useAgentPersona, useToast, type MetricTileProps, type NeedsYouRow } from "@foundmill/dugout";
-import { cashTile, customersWeekTile, moduleHref, routes, runwayTile, spendWeekTiles, unavailableTile, type StatusTile } from "@foundmill/widgets";
+import { FirstWeekTimeline, GoalPanel, NeedsYouList, PageGrid, Panel, PublicPageNote, StatusStrip, Term, WeekPlan, useAgentPersona, useToast, type MetricTileProps, type NeedsYouRow } from "@foundmill/dugout";
+import { cashTile, customersWeekTile, moduleHref, moduleTabHref, routes, runwayTile, spendWeekTiles, unavailableTile, type StatusTile } from "@foundmill/widgets";
 import type { FinanceOverview, RibbonResponse } from "@foundmill/widgets/shared/types";
 import { useGlossary, useToday } from "@foundmill/widgets/data";
 import { recentRibbonInput } from "@foundmill/widgets/shared/ribbon";
@@ -193,6 +195,7 @@ export function TodayScreen() {
           error={todayQ.error && !todayQ.data ? errorMessage(todayQ.error) : undefined}
           onRetry={() => void todayQ.refetch()}
         />
+        {todayQ.data?.pageReady ? <PublicPageNote span={12} href={moduleTabHref(businessId, departments, "product", "public-page")} /> : null}
         <WeekPlan
           span={12}
           done={week?.done ?? []}

@@ -25,6 +25,17 @@ describe("proxy redirect rules", () => {
     expect(decideRedirect({ pathname: "/auth/callback", authenticated: true }).kind).toBe("next");
   });
 
+  it("serves a project's public page to anyone, signed in or out, and only under /p/", () => {
+    for (const p of ["/p/northwind-skincare", "/p/northwind-skincare/opengraph-image"]) {
+      expect(isPublicPath(p), p).toBe(true);
+      expect(decideRedirect({ pathname: p, authenticated: false }).kind).toBe("next");
+      expect(decideRedirect({ pathname: p, authenticated: true }).kind).toBe("next");
+    }
+    // Not a prefix match on the letter: the LIVE profiles stay signed-in only.
+    for (const p of ["/profiles", "/profiles/x", "/p", "/people"]) expect(isPublicPath(p), p).toBe(false);
+    expect(isFounderPath("/p/northwind-skincare")).toBe(false);
+  });
+
   it("bounces a signed-in visitor off /login to next (clamped)", () => {
     expect(decideRedirect({ pathname: "/login", search: "?next=%2Fb%2Fabc%2Finbox", authenticated: true })).toEqual({ kind: "redirect", to: "/b/abc/inbox" });
     expect(decideRedirect({ pathname: "/login", search: "?next=https%3A%2F%2Fevil.example", authenticated: true })).toEqual({ kind: "redirect", to: "/" });

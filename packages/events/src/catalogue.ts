@@ -1596,6 +1596,30 @@ const goalAchieved = declareEvent(
 );
 
 // ---------------------------------------------------------------------------------------------------
+// A project's public page (0077)
+// ---------------------------------------------------------------------------------------------------
+
+/** What both page events carry: the page, its address, and the full public URL it is (or was) served at. */
+const PageFacts = z.object({
+  pageId: Id,
+  /** The address under /p/ (3 to 40 lowercase letters, digits and hyphens). */
+  slug: z.string().min(3).max(40),
+  url: z.string().url().max(2048),
+});
+
+const pagePublished = declareEvent("page.published", PageFacts, {
+  doc: "A founder published the project's public page, or published changes to a page that is already live: from this moment anyone can open `url` signed out. A real outside result (the north star counts it). The founder did it themselves, so it is never narrated; apps/stream pushes it so Today and the Public page tab follow.",
+  consumers: ["stream", "metrics"],
+  narratable: false,
+});
+
+const pageUnpublished = declareEvent("page.unpublished", PageFacts, {
+  doc: "A founder took the project's public page down: `url` answers not found from now on (the draft is kept). Never narrated; apps/stream pushes it so Today and the Public page tab follow.",
+  consumers: ["stream", "metrics"],
+  narratable: false,
+});
+
+// ---------------------------------------------------------------------------------------------------
 // Registry
 // ---------------------------------------------------------------------------------------------------
 
@@ -1660,6 +1684,8 @@ export const EVENTS = {
   "goal.approved": goalApproved,
   "goal.change_requested": goalChangeRequested,
   "goal.achieved": goalAchieved,
+  "page.published": pagePublished,
+  "page.unpublished": pageUnpublished,
   "guidance.tour_completed": guidanceTourCompleted,
   "guidance.tour_skipped": guidanceTourSkipped,
   "guidance.explainer_dismissed": guidanceExplainerDismissed,

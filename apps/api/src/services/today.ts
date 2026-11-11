@@ -12,6 +12,8 @@
  * - **Spend**: never added across currencies (founder, 2026-11-07). AI usage this week in US dollars (the usage ledger's
  *   USD rows, an Estimate) and channel spend this week in the business's own currency (channel metrics, an Estimate).
  *   Finance read only.
+ * - **Public page**: `pageReady` while a project (never a sample business) has no public page live, for a reader with
+ *   Product read; Today shows one quiet line to the Public page tab.
  */
 import { APPROVAL_OPTIONS, approvalSection, repos, type DbTx, type InboxItem, type Task } from "@foundmill/db";
 import { CREDITS_CURRENCY } from "@foundmill/config";
@@ -63,6 +65,11 @@ export interface TodayView {
   chiefOfStaff: { id: string; name: string } | null;
   /** "Your first week": null once the business is past it (packages/shared first-week.ts), so an older business reads nothing extra. */
   firstWeek: FirstWeekWords | null;
+  /**
+   * True while the project has no public page live (0077) and the reader may open the Product area: Today shows one
+   * quiet line pointing at the Public page tab. Always false for a sample business.
+   */
+  pageReady: boolean;
 }
 
 interface DecisionOption {
@@ -223,13 +230,15 @@ export async function todayView(ctx: BusinessContext, now: Date = new Date()): P
   const week = hasSectionAccess(m, "development", "read");
   const autopilotNextOn = week ? await autopilotNextDay(ctx) : null;
   return ctx.rls(async (tx) => {
-    const [needsYou, words, spend, chief, firstWeek] = await Promise.all([
+    const [needsYou, words, spend, chief, firstWeek, pageReady] = await Promise.all([
       hasSectionAccess(m, "inbox", "read") ? needsYouFor(tx, ctx) : Promise.resolve(null),
       week ? weekFactsFor(tx, ctx, { now, autopilotNextOn }).then(weekPlanWords) : Promise.resolve(null),
       hasSectionAccess(m, "finance", "read") ? spendFor(tx, ctx, now) : Promise.resolve(null),
       repos.agents.chiefOfStaff(tx, ctx.businessId),
       firstWeekFor(tx, ctx, now),
+      // The quiet "public page" line: never for a sample business, never for a reader walled from Product.
+      !ctx.business.isDemo && hasSectionAccess(m, "product", "read") ? repos.pages.isUnpublished(tx, ctx.businessId) : Promise.resolve(false),
     ]);
-    return { today: dayKeyIn(now, ctx.business.timeZone), needsYou, week: words, spend, chiefOfStaff: chief ? { id: chief.id, name: chief.name } : null, firstWeek };
+    return { today: dayKeyIn(now, ctx.business.timeZone), needsYou, week: words, spend, chiefOfStaff: chief ? { id: chief.id, name: chief.name } : null, firstWeek, pageReady };
   });
 }

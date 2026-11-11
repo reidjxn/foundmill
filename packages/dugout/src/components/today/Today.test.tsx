@@ -6,6 +6,7 @@ import { ShellLinkProvider } from "../shell/ShellLink";
 import { GOAL_PANEL_WORDS, GoalPanel, proposedByLine, type GoalPanelGoal, type GoalPanelProposal } from "./GoalPanel";
 import { NEEDS_YOU_WORDS, NeedsYouList, needsYouMeta, type NeedsYouRow } from "./NeedsYouList";
 import { WEEK_PLAN_WORDS, WeekPlan } from "./WeekPlan";
+import { PUBLIC_PAGE_NOTE_WORDS, PublicPageNote } from "./PublicPageNote";
 
 const proposal: GoalPanelProposal = { id: "g2", sentence: "Get the first 10 paying customers by Dec 19", proposedBy: "Ines Park", because: "Recommended because the first customers tell us what to build next." };
 const active: GoalPanelGoal = { id: "g1", sentence: "Get the first 10 paying customers by Dec 19", state: "on_pace", progress: { current: 4, target: 10, valueText: "4 of 10 paying customers", pace: "4 of 10 so far, 38 days left: on pace (Forecast)." } };
@@ -174,5 +175,14 @@ describe("WeekPlan", () => {
   it("says why there is nothing", () => {
     render(<WeekPlan done={[]} next={[]} empty="Members who can read Development see the week here." />);
     expect(screen.getByText("Members who can read Development see the week here.")).toBeTruthy();
+  });
+});
+
+describe("PublicPageNote", () => {
+  it("is one quiet link to the Public page tab, through the shell's link renderer", () => {
+    render(<PublicPageNote href="/b/b1/d/product/public-page" />);
+    const link = screen.getByRole("link", { name: /Your project's public page is ready to check/ });
+    expect(link.getAttribute("href")).toBe("/b/b1/d/product/public-page");
+    expect(link.textContent).toBe(`${PUBLIC_PAGE_NOTE_WORDS.line}${PUBLIC_PAGE_NOTE_WORDS.open}`);
   });
 });

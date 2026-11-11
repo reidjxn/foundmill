@@ -75,6 +75,8 @@ export const ROLL_EXCLUDED_TABLES: readonly string[] = [
   "webhooks",
   "suppression_list",
   "demo_sample_rows",
+  // A public page is a person's own writing and a sample business never has one live (0077).
+  "project_pages",
 ];
 
 /** Columns that record when a row was written: never shifted past now. */
