@@ -38,7 +38,7 @@ describe("planCycle failures", () => {
     const failure = err as ApplicationFailure;
     expect(failure.type).toBe(CYCLE_PLAN_FAILURE);
     expect(failure.nonRetryable).toBe(true);
-    expect(failure.message).toMatch(/^This cycle's plan could not run: the model account that runs .+ is out of credit\. Our team has been alerted/);
+    expect(failure.message).toMatch(/^This round's plan could not run: the model account that runs .+ is out of credit\. Our team has been alerted/);
     expect(failure.details?.[0]).toEqual({ kind: "billing", billedTo: "credits", reason: "credit_balance" });
   });
 
@@ -60,7 +60,7 @@ describe("planCycle failures", () => {
     // platform key was the one Anthropic refused): it hears the platform's account refused, as the billing sentence says.
     const platformRefused = planFailure(new ModelRequestError("bad key", 401, "authentication_error"), "credits") as ApplicationFailure;
     expect(platformRefused.details?.[0]).toEqual({ kind: "credential", billedTo: "credits" });
-    expect(platformRefused.message).toMatch(/^This cycle's plan could not run: the model account that runs .+ refused its key\. Our team has been alerted, and nothing was charged to your credits\./);
+    expect(platformRefused.message).toMatch(/^This round's plan could not run: the model account that runs .+ refused its key\. Our team has been alerted, and nothing was charged to your credits\./);
     expect(platformRefused.message).not.toMatch(/Settings › Keys/);
     // Through planCycle the routed client says whose key it was: the harness business runs on credits.
     const viaPlan = (await planWith(new ModelRequestError("bad key", 401, "authentication_error"))) as ApplicationFailure;
@@ -75,7 +75,7 @@ describe("planCycle failures", () => {
 describe("notePlanFailure", () => {
   it("posts one warning from the Chief of Staff through the outbox and audits it", async () => {
     const cycle = createCycleActivities(t.deps);
-    const message = "This cycle's plan could not run: the model account that runs Foundmill is out of credit.";
+    const message = "This round's plan could not run: the model account that runs Foundmill is out of credit.";
     const out = await cycle.notePlanFailure({ businessId: t.businessId, cycleNumber: 4, message, details: { kind: "billing", billedTo: "credits", reason: "credit_balance" } });
     expect(out.inboxItemIds).toHaveLength(1);
     const item = await repos.inbox.get(t.db, t.businessId, out.inboxItemIds[0]!);

@@ -11,7 +11,7 @@ This folder is everything Newly (app.newly.app) needs to build the Foundmill iOS
 | `skills/foundmill-design/SKILL.md` | The art direction and every token, type style, radius, timing and component anatomy, translated to React Native | same |
 | `skills/foundmill-voice/SKILL.md` | Vocabulary, banned words, US English, tone, verbatim strings, notification copy | same |
 | `skills/foundmill-product/SKILL.md` | What Foundmill is, the loop, navigation, every screen with contents and actions, mechanics, product rules, the start flow, the example business | same |
-| `PROMPTS.md` | The ordered chat prompts, 0 to 17, each with its mode and an acceptance list | Sent one at a time |
+| `PROMPTS.md` | The ordered chat prompts, 0 to 17 plus Phase B, each with its mode and an acceptance list, and where the sequence stands | Sent one at a time |
 | `BACKEND_CHANGES.md` | What Foundmill itself must add or configure for the mobile app | For the Foundmill repo, not for Newly |
 
 ## How to run it
@@ -39,10 +39,22 @@ Newly can read a public website URL for look and feel, and the first prompt give
 - **Credits run out mid-turn** leave the work saved; top up and send "Carry on" in the same chat.
 - **Apple review** needs a demo path. The App Review note in prompt 17 points reviewers at Explore an example, which needs no onboarding. Sign-in itself needs a reviewer address that is on the invite list if `SIGNUP_ALLOWLIST` is set on production.
 
+## Where this sits in the bigger plan (Nov 11, 2026)
+
+Three streams of work on the Foundmill side changed what the phone has to be, and `PROMPTS.md` ("Where we are") carries the consequences:
+
+- **The web's Phase 3 for first-time founders** (merged on main Nov 9–10): founder areas instead of a department sidebar, one opening sentence per area, the Chief of Staff on every page, a first-week timeline, empty states that say what fills them, the sample business saying it is a sample, Continue answering in one sentence, approvals that show what exactly would run. Prompt 12B catches the app up; the backend skill carries the new procedures.
+- **The thesis review and rebuild roadmap** (`docs/THESIS_REVIEW.md`, recorded Nov 11 on branch `claude/vibrant-euler-uua9pw`, not on main yet): solo is complete (the main user is a solo founder who can do all of it alone; finding people is seamless and optional); the north star is weekly active projects with one real outcome; the humans are People (cofounders, collaborators), a business is a project until its first sale, people are free on every plan; leaderboards are removed; the management-game wording stays; 18 or older at sign-up; English only; small screens are allowed for the outer web product and the native app is the phone's home once it launches. Prompt 12A applies the words and removals to the app now; the people side is Phase B of the prompts and waits for the backend. That branch's package 5.6 ("the mobile prompt pack follows the thesis") is this update.
+- **The retention work** (planned Nov 10, approved and started Nov 11): measurement, then the return loop. Founder email with one-click answers (which must open the app through universal links, prompt 13), "Since you were last here" and a **daily streak** (the founder's choice) counted by the server, Autopilot on by default with a small cap, and **Google sign-in** beside the email code (prompt 13B; on iOS the App Store will likely also ask for Sign in with Apple). Prompt 15 shows the server's streak and summary when they ship.
+- **Public project pages and channel availability** (roadmap branch, afternoon of Nov 11): prompt 12C and the backend skill's "Coming from the roadmap branch" section.
+
+Every question of the thesis review's §14 is answered as of Nov 11; nothing about the app waits on a founder decision.
+
 ## Scope decisions already taken
 
 - Dark only, like the web. No light theme in v1.
 - Five tabs: Today, Inbox, Team, Journey, Business. Continue floats above the tab bar.
-- The app is a companion, not a replacement: departments, members, integrations, keys, danger zone, permanent deletion and incorporation submission stay on the web, each reached by a link with a sentence saying why.
+- The app is a companion today and the phone's home once it launches: departments, members, integrations, keys, danger zone, permanent deletion and incorporation submission stay on the web, each reached by a link with a sentence saying why. The web's Builder view (the engine) never appears on the phone.
+- The Business tab is organized by the founder's areas (Plan, Customers, Money, Product), as the web's sidebar is; one help control per screen, the Chief of Staff.
 - Mobile-only engagement additions compute only from data the API already returns and are labeled as such. No points, badges or invented numbers.
 - The app's product rules, words and tokens are the web's. Where the web says "desktop only" that applies to the web app in this repo, not to this native client (see docs/DECISIONS.md, Nov 8, 2026).

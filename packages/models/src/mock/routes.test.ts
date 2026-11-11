@@ -76,7 +76,7 @@ describe("chief of staff cycle plan (BUILD §12.4)", () => {
     const idle = await client.complete({ route: "chiefOfStaff", messages: promptWith({ business_name: "Acme", max_agents: 3, open_tasks: [], roadmap_without_tasks: [{ id: "r1", title: "Pricing experiment", horizon: "now" }], agents: AGENTS }), schema: CyclePlanOutput });
     expect(idle.json.departments).toEqual([]);
     expect(idle.json.summary).toMatch(/1 roadmap item has no tasks yet/);
-    expect(idle.json.summary).toMatch(/the team plans it in the next cycles/);
+    expect(idle.json.summary).toMatch(/the team plans it in the next rounds of work/);
     expect(idle.json.summary).not.toMatch(/Plan tab|task graph/);
     expect(idle.json.summary).not.toMatch(/everything open is blocked/);
   });

@@ -66,18 +66,18 @@ export const PLAN_PAYLOAD_TASKS = 60;
  */
 export function planFailure(err: unknown, billedTo: ModelBilling = "byok"): unknown {
   const billing = modelBillingFacts(err);
-  if (billing) return ApplicationFailure.create({ type: CYCLE_PLAN_FAILURE, message: modelBillingMessage(billing, "This cycle's plan"), nonRetryable: true, details: [{ kind: "billing", billedTo: billing.billedTo, reason: billing.reason } satisfies PlanFailureDetails] });
+  if (billing) return ApplicationFailure.create({ type: CYCLE_PLAN_FAILURE, message: modelBillingMessage(billing, "This round's plan"), nonRetryable: true, details: [{ kind: "billing", billedTo: billing.billedTo, reason: billing.reason } satisfies PlanFailureDetails] });
   const e = err as { name?: unknown; code?: unknown; apiErrorType?: unknown } | null;
   if (e?.name !== "ModelRequestError") return err;
   // A missing key is only ever the business's own: the platform client cannot be built without one.
-  if (e.apiErrorType === "missing_api_key") return ApplicationFailure.create({ type: CYCLE_PLAN_FAILURE, message: "This cycle's plan could not run: this business works on its own Anthropic key and none is stored. Add one in Settings › Keys, then press Continue.", nonRetryable: true, details: [{ kind: "credential", billedTo: "byok" } satisfies PlanFailureDetails] });
+  if (e.apiErrorType === "missing_api_key") return ApplicationFailure.create({ type: CYCLE_PLAN_FAILURE, message: "This round's plan could not run: this business works on its own Anthropic key and none is stored. Add one in Settings › Keys, then press Continue.", nonRetryable: true, details: [{ kind: "credential", billedTo: "byok" } satisfies PlanFailureDetails] });
   if (e.code === "auth") {
     // Whose key was refused decides who can mend it (Nov 9, 2026): a business on credits has no key to check, so it is
     // told the platform's account refused, as the billing sentence does, and the operator is alerted (notePlanFailure).
-    const message = billedTo === "byok" ? "This cycle's plan could not run: Anthropic refused the key. Check the key in Settings › Keys, then press Continue." : `This cycle's plan could not run: the model account that runs ${APP_NAME} refused its key. Our team has been alerted, and nothing was charged to your credits. Try again later.`;
+    const message = billedTo === "byok" ? "This round's plan could not run: Anthropic refused the key. Check the key in Settings › Keys, then press Continue." : `This round's plan could not run: the model account that runs ${APP_NAME} refused its key. Our team has been alerted, and nothing was charged to your credits. Try again later.`;
     return ApplicationFailure.create({ type: CYCLE_PLAN_FAILURE, message, nonRetryable: true, details: [{ kind: "credential", billedTo } satisfies PlanFailureDetails] });
   }
-  return ApplicationFailure.create({ type: CYCLE_PLAN_FAILURE, message: "This cycle's plan could not run: the model service refused the request. Press Continue to try again; if it happens again, the team has the details.", nonRetryable: true, details: [{ kind: "request" } satisfies PlanFailureDetails] });
+  return ApplicationFailure.create({ type: CYCLE_PLAN_FAILURE, message: "This round's plan could not run: the model service refused the request. Press Continue to try again; if it happens again, the team has the details.", nonRetryable: true, details: [{ kind: "request" } satisfies PlanFailureDetails] });
 }
 
 /** Whose key a business's planning call runs on: the routed client says; a plain client is the platform's. */
@@ -112,7 +112,7 @@ export function retryDeferral(task: BriefTask, trigger: CycleTrigger | null = nu
 /**
  * The Chief of Staff's answer when nothing can start (audit OL-10): no model is called, so no empty cycle is paid for, and
  * the note says what is actually in the way instead of "everything is blocked". Roadmap items without tasks are planned
- * by the team itself in the next cycles (lead, 2026-10-24); the founder never builds a task graph.
+ * by the team itself in the next rounds of work (lead, 2026-10-24); the founder never builds a task graph.
  */
 export function idleSummary(brief: BusinessBrief, waiting: readonly BriefTask[]): string {
   const byDeps = brief.openTasks.filter((t) => DISPATCHABLE.has(t.status) && t.blocked).length;
@@ -132,12 +132,12 @@ export function idleSummary(brief: BusinessBrief, waiting: readonly BriefTask[])
   return `Nothing is ready to start for ${brief.businessName}, so no cycle was planned. ${reason}`;
 }
 
-/** "N roadmap items have no tasks yet (…); the team plans them in the next cycles", or null before the sign-off or with none. */
+/** "N roadmap items have no tasks yet (…); the team plans them in the next rounds of work", or null before the sign-off or with none. */
 export function untaskedRoadmapLine(brief: Pick<BusinessBrief, "untaskedRoadmap" | "productStage">): string | null {
   const roadmap = brief.untaskedRoadmap ?? [];
   if (roadmap.length === 0 || brief.productStage === "awaiting_signoff") return null;
   const names = roadmap.slice(0, 3).map((r) => r.title);
-  return `${roadmap.length} roadmap item${roadmap.length === 1 ? " has" : "s have"} no tasks yet (${names.join(", ")}${roadmap.length > names.length ? ", …" : ""}); the team plans ${roadmap.length === 1 ? "it" : "them"} in the next cycles`;
+  return `${roadmap.length} roadmap item${roadmap.length === 1 ? " has" : "s have"} no tasks yet (${names.join(", ")}${roadmap.length > names.length ? ", …" : ""}); the team plans ${roadmap.length === 1 ? "it" : "them"} in the next rounds of work`;
 }
 
 /** The plan's summary with what this cycle planned from the roadmap in front of it (nothing added when nothing was tried). */
@@ -165,7 +165,7 @@ export function factualSummary(brief: BusinessBrief, planned: string, starts: re
   }
   const roadmap = untaskedRoadmapLine(brief);
   if (roadmap) parts.push(roadmap);
-  return `Nothing started this cycle.${parts.length ? ` ${parts.join(". ")}.` : ""}`;
+  return `Nothing started in this round of work.${parts.length ? ` ${parts.join(". ")}.` : ""}`;
 }
 
 /**
@@ -323,12 +323,12 @@ export function createCycleActivities(deps: OrchestratorDeps) {
     if (brief.agentsStopped) return { summary: "The team is stopped, so nothing was planned. An owner or admin resumes the agents with Resume agents in the top bar.", timeBoxHours: 0.25, starts: [], deferred: [], approvalsNeeded: [], modelKey: chiefAgent?.modelKey ?? "opus", warning: null, costMinor: 0 };
     // Every concurrent-agent slot of the plan tier is in use (`brief.maxAgents` is the room left): nothing new can start,
     // so no plan is drafted (and nothing spent on one); the open work is listed as deferred.
-    if (brief.maxAgents <= 0) return { summary: "Every agent the plan runs at once is already at work; nothing new starts this cycle.", timeBoxHours: LIMITS.cycleTimeBoxAgentHours, starts: [], deferred: brief.openTasks.filter((t) => DISPATCHABLE.has(t.status) && !t.blocked).map((t) => ({ taskId: t.id, reason: "plan limit: every concurrent agent slot is in use" })), approvalsNeeded: [], modelKey: chiefAgent?.modelKey ?? "opus", warning: null, costMinor: 0 };
+    if (brief.maxAgents <= 0) return { summary: "Every agent the plan runs at once is already at work; nothing new starts in this round of work.", timeBoxHours: LIMITS.cycleTimeBoxAgentHours, starts: [], deferred: brief.openTasks.filter((t) => DISPATCHABLE.has(t.status) && !t.blocked).map((t) => ({ taskId: t.id, reason: "plan limit: every concurrent agent slot is in use" })), approvalsNeeded: [], modelKey: chiefAgent?.modelKey ?? "opus", warning: null, costMinor: 0 };
     // This month's credits are used up (a business on credits): no plan is drafted on the platform's key either.
-    if (brief.budgetRemainingMinor !== null && brief.budgetRemainingMinor <= 0) return { summary: "This month's credits are used up, so nothing new starts this cycle. Top up or add your own Anthropic key to keep the team working.", timeBoxHours: LIMITS.cycleTimeBoxAgentHours, starts: [], deferred: brief.openTasks.filter((t) => DISPATCHABLE.has(t.status) && !t.blocked).map((t) => ({ taskId: t.id, reason: "credits used up for this month" })), approvalsNeeded: [], modelKey: chiefAgent?.modelKey ?? "opus", warning: null, costMinor: 0 };
+    if (brief.budgetRemainingMinor !== null && brief.budgetRemainingMinor <= 0) return { summary: "This month's credits are used up, so nothing new starts in this round of work. Top up or add your own Anthropic key to keep the team working.", timeBoxHours: LIMITS.cycleTimeBoxAgentHours, starts: [], deferred: brief.openTasks.filter((t) => DISPATCHABLE.has(t.status) && !t.blocked).map((t) => ({ taskId: t.id, reason: "credits used up for this month" })), approvalsNeeded: [], modelKey: chiefAgent?.modelKey ?? "opus", warning: null, costMinor: 0 };
     // The business's monthly model budget is used up (0059, whoever pays the model): dispatch would refuse every start, and a
     // plan costs money too.
-    if (brief.modelBudgetRemainingMinor != null && brief.modelBudgetRemainingMinor <= 0) return { summary: "The monthly model budget is used up, so nothing new starts this cycle. An owner or admin can raise or remove the budget; otherwise the team starts again next month.", timeBoxHours: LIMITS.cycleTimeBoxAgentHours, starts: [], deferred: brief.openTasks.filter((t) => DISPATCHABLE.has(t.status) && !t.blocked).map((t) => ({ taskId: t.id, reason: "monthly model budget used up" })), approvalsNeeded: [], modelKey: chiefAgent?.modelKey ?? "opus", warning: null, costMinor: 0 };
+    if (brief.modelBudgetRemainingMinor != null && brief.modelBudgetRemainingMinor <= 0) return { summary: "The monthly model budget is used up, so nothing new starts in this round of work. An owner or admin can raise or remove the budget; otherwise the team starts again next month.", timeBoxHours: LIMITS.cycleTimeBoxAgentHours, starts: [], deferred: brief.openTasks.filter((t) => DISPATCHABLE.has(t.status) && !t.blocked).map((t) => ({ taskId: t.id, reason: "monthly model budget used up" })), approvalsNeeded: [], modelKey: chiefAgent?.modelKey ?? "opus", warning: null, costMinor: 0 };
     const chief = getTemplate("chief_of_staff");
     const system = buildSystemPrompt({ businessName: brief.businessName, appName: APP_NAME, template: chief, brief: brief.text, glossary: brief.glossary });
     const budgetText = brief.budgetRemainingMinor === null ? "the founder's own key (no credits)" : `${(brief.budgetRemainingMinor / 100).toFixed(2)} ${brief.creditsCurrency} of credits (Estimate)`;

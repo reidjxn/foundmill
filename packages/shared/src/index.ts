@@ -14,6 +14,8 @@ export * from "./permissions";
 export * from "./allowlist";
 export * from "./shortcuts";
 export * from "./areas";
+export * from "./runway-state";
+export * from "./area-facts";
 export * from "./area-words";
 export * from "./filings";
 export * from "./monthly-revenue";

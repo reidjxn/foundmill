@@ -5,7 +5,7 @@
  * outside the business are refused; one business can never cause, or learn about, another business's faces.
  */
 import { repos } from "@foundmill/db";
-import { AppError, PERSONAS, type AgentStyle } from "@foundmill/shared";
+import { AppError, PERSONAS, characterFor, type AgentStyle } from "@foundmill/shared";
 import { TRPCError } from "@trpc/server";
 import { sql } from "drizzle-orm";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
@@ -80,6 +80,9 @@ describe("team.personas.ensure", () => {
     const first = await hz.caller({ userId: hz.A.memberId, email: null }).team.personas.ensure({ businessId: hz.A.businessId });
     expect([...first.pending].sort()).toEqual([KEY_A1, KEY_A2].sort());
     expect(first.ready).toEqual([]);
+    // Each key's first name in the caller's style, for a client without the character catalog (the mobile app).
+    expect(Object.keys(first.names).sort()).toEqual([KEY_A1, KEY_A2].sort());
+    for (const key of [KEY_A1, KEY_A2]) expect(first.names[key]).toBe(characterFor(key, first.style)!.name);
     await portraitsIdle();
     expect(asked.map((a) => a.key).sort()).toEqual([KEY_A1, KEY_A2].sort());
     expect(asked.every((a) => a.businessId === hz.A.businessId)).toBe(true);
@@ -132,14 +135,14 @@ describe("team.personas.ensure", () => {
     expect(first.failed).toEqual([]);
     await portraitsIdle();
     const second = await hz.caller({ userId: hz.A.memberId, email: null }).team.personas.ensure({ businessId: hz.A.businessId });
-    expect(second).toEqual({ style: "humans", ready: [KEY_A2], pending: [], failed: [KEY_A1] });
+    expect(second).toEqual({ style: "humans", ready: [KEY_A2], pending: [], failed: [KEY_A1], names: { [KEY_A1]: characterFor(KEY_A1, "humans")!.name, [KEY_A2]: characterFor(KEY_A2, "humans")!.name } });
     await portraitsIdle();
     expect(asked.filter((a) => a.key === KEY_A1)).toHaveLength(1);
   });
 
   it("agents without a persona key add nothing", async () => {
     await hz.db.execute(sql`update agents set persona_key = null where business_id = ${hz.A.businessId}::uuid`);
-    expect(await hz.caller({ userId: hz.A.ownerId, email: null }).team.personas.ensure({ businessId: hz.A.businessId })).toEqual({ style: "humans", ready: [], pending: [], failed: [] });
+    expect(await hz.caller({ userId: hz.A.ownerId, email: null }).team.personas.ensure({ businessId: hz.A.businessId })).toEqual({ style: "humans", ready: [], pending: [], failed: [], names: {} });
     expect(asked).toEqual([]);
   });
 
