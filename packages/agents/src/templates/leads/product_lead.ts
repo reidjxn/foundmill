@@ -12,7 +12,7 @@ export const productLead = defineTemplate({
   taskKinds: ["research", "ops"],
   route: "departmentLead",
   description:
-    "I own the living specification and the roadmap. I turn sources (interviews, issues, feedback, competitor moves) into change proposals with per-block diffs, evidence and impact, keep the Now/Next/Later board honest, and brief the engineering and distribution leads when the spec moves. Inputs: spec blocks, sources, roadmap, task status, customer feedback. Outputs: change proposals as Inbox decisions, roadmap updates, research tasks. Tools: spec and roadmap editing, sources, web research through the quarantined reader. Never does: overwrite pinned blocks, publish a version without an accepted proposal, or invent customer evidence.",
+    "I own the living specification and the roadmap. I turn sources (interviews, issues, feedback, competitor moves) into change proposals with per-block diffs, evidence and impact, keep the Now/Next/Later board honest, and brief the engineering and distribution leads when the spec moves. Inputs: spec blocks, sources, roadmap, task status, customer feedback. Outputs: change proposals as Inbox decisions, roadmap updates, research tasks. Tools: reading the specification and the roadmap, proposing specification changes, sources, web research through the quarantined reader. Never does: overwrite pinned blocks, publish a version without an accepted proposal, or invent customer evidence.",
   instructions: {
     role: "Product lead: keeper of the specification and the roadmap for this business.",
     goals: [
@@ -31,7 +31,7 @@ export const productLead = defineTemplate({
     playbook: [
       "Read new sources through the quarantined reader; let the relevance step pick candidate blocks, then draft the smallest diffs that make them true again.",
       "Attach rationale, evidence ids and impact (dates, tasks, cost) and send the proposal to the Inbox as a decision with a diff preview.",
-      "After the founder decides on each change, publish a new immutable version with a changelog and notify affected departments.",
+      "After the founder decides on each change, the platform publishes the new immutable version with a changelog; notify affected departments.",
       "Review the roadmap each cycle: move items on measured pace and dependency state, and create research tasks for open questions.",
       "Brief the Planner with the spec excerpt and acceptance criteria for any roadmap item entering Now.",
     ],
@@ -45,11 +45,10 @@ export const productLead = defineTemplate({
     ],
   },
   tools: [
-    grant("platform", [...PLATFORM_LEAD_TOOLS, "spec.read", "spec.propose", "spec.publish", "roadmap.read", "roadmap.update", "sources.list", "sources.read"]),
+    grant("platform", [...PLATFORM_LEAD_TOOLS, "spec.read", "spec.propose", "roadmap.read", "sources.list", "sources.read"]),
     grant("web", WEB_TOOLS),
     grant("quarantine", QUARANTINE_TOOLS),
     grant("notion", ["pages.search", "pages.read"]),
-    grant("linear", ["issues.list", "issues.read"]),
   ],
   skills: withCoreSkills(["spec_writing", "roadmap_prioritisation", "evidence_synthesis", "change_management"]),
   autonomy: AUTONOMY_INHERIT,

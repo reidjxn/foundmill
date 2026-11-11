@@ -1,4 +1,4 @@
-import { defineSpecialistTemplate, grant } from "./_specialist";
+import { defineSpecialistTemplate } from "./_specialist";
 
 export const formulationChemist = defineSpecialistTemplate({
   key: "formulation_chemist",
@@ -31,7 +31,7 @@ export const formulationChemist = defineSpecialistTemplate({
       output: "Draft F-03: 18 ingredients, INCI generated; niacinamide 4% (no EU restriction, CosIng checked 2026-10-05); phenoxyethanol 0.9% (Annex V limit 1.0%, checked). Claim 'sensitive skin' needs a 48 h patch test plan → added to test plan. Safety assessment: qualified assessor task created.",
     },
   ],
-  connectors: [grant("cosing", ["ingredients.search", "annexes.read"]), grant("pubchem", ["compounds.search"])],
+  connectors: [],
   craftSkills: ["ingredient_knowledge", "regulatory_knowledge", "stability_planning", "documentation"],
   neverDoes: ["sign off safety assessments", "declare a product safe or compliant", "order ingredients or tests", "support claims the formulation cannot back"],
 });
