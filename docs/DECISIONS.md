@@ -3540,3 +3540,11 @@ The founder decided the rule (§14 item 9). How it was built, and what follows f
 - **Rate limits are shared ceilings** (600 reads a minute per address, 6,000 across all), because the api sees the web server, not the visitor.
 - **The address comes from the business's slug,** with a short suffix when another project holds it; `APP_URL` + `/p/<slug>`. Moving a live page writes `page.unpublished` for the old address and `page.published` for the new.
 - **Rendered on every request**, so a page taken down disappears at once rather than at the next rebuild.
+
+## 2026-11-11 — SEC-14: the calls made
+
+- **Mock answers stay in the api.** A call that could reach a vendor in live mode goes through the gateway; a mock answer is computed where it is asked, so development and the golden path need no gateway (the pattern the domain check already used).
+- **The founder's Anthropic key check moved whole**, including the one-token model call: it was also a direct vendor call.
+- **Registry mode follows `LIVE_CONNECTORS`** in the api as in the gateway. Where the two services disagree, the api refuses a simulated answer rather than show it as real.
+- **The gateway writes the account settings with the credential;** the api writes them again with who connected. The rule for what a reconnect keeps (the chosen code repository) now lives in both and must stay the same.
+- **Not done: a separate secret for the api's service tokens.** It closes N4 but needs a new variable set on the api and the gateway on Railway at the same deploy; doing it in code alone would break production. Recorded for a change made together with the deploy.
