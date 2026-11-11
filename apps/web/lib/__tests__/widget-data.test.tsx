@@ -88,8 +88,8 @@ describe("WidgetDataSource over tRPC", () => {
     const source = createWidgetSource({ businessId: "b1", glossary: {}, gameMode: "personal", currency: "USD", client, queryClient, navigate: vi.fn(), subscribe: () => () => {} });
     function Widget() {
       const profile = useWidgetQuery<{ path: string }>("founder.profile.get", undefined);
-      const positions = useWidgetQuery<{ path: string }>("live.leaderboards.positions", {});
-      return <span data-testid="out">{profile.data && positions.data ? "ready" : "loading"}</span>;
+      const views = useWidgetQuery<{ path: string }>("founder.tableViews.get", { tableKey: "crm.list" });
+      return <span data-testid="out">{profile.data && views.data ? "ready" : "loading"}</span>;
     }
     render(
       <WidgetDataProvider source={source}>
@@ -99,7 +99,7 @@ describe("WidgetDataSource over tRPC", () => {
     await waitFor(() => expect(screen.getByTestId("out").textContent).toBe("ready"));
     expect(query).toHaveBeenCalledWith("founder.profile.get", undefined);
     // A business read that lives in an account router still gets its business.
-    expect(query).toHaveBeenCalledWith("live.leaderboards.positions", { businessId: "b1" });
+    expect(query).toHaveBeenCalledWith("founder.tableViews.get", { businessId: "b1", tableKey: "crm.list" });
     // The key the shell's typed hook uses (BusinessShell: trpc.founder.profile.get.queryOptions()).
     const shellKey = createTRPCOptionsProxy<AppRouter>({ client: createApiClient({ getToken: () => null }), queryClient }).founder.profile.get.queryKey();
     expect(queryClient.getQueryData(shellKey)).toBeTruthy();
@@ -107,12 +107,12 @@ describe("WidgetDataSource over tRPC", () => {
   });
 
   it("classifies reads by whether they belong to a business", () => {
-    for (const path of ["founder.profile.get", "founder.preferences.get", "live.summary", "live.people.lookup", "live.leaderboards.list", "idea.list", "import.status", "business.listArchived", "health"]) expect(isAccountRead(path), path).toBe(true);
-    for (const path of ["inbox.list", "business.get", "business.autopilot.get", "live.leaderboards.positions", "dev.tasks.list", "journey.ribbon"]) expect(isAccountRead(path), path).toBe(false);
+    for (const path of ["founder.profile.get", "founder.preferences.get", "live.summary", "live.people.lookup", "live.communities.list", "idea.list", "import.status", "business.listArchived", "health"]) expect(isAccountRead(path), path).toBe(true);
+    for (const path of ["inbox.list", "business.get", "business.autopilot.get", "dev.tasks.list", "journey.ribbon"]) expect(isAccountRead(path), path).toBe(false);
     // Saved table views are kept per business: the read names it, as the save does.
     expect(isAccountRead("founder.tableViews.get")).toBe(false);
     expect(readInput("b1", "founder.tableViews.get", { tableKey: "crm" })).toEqual({ businessId: "b1", tableKey: "crm" });
-    expect(readInput("b1", "live.leaderboards.list", {})).toEqual({});
+    expect(readInput("b1", "live.communities.list", {})).toEqual({});
     expect(readInput("b1", "inbox.list", { limit: 4 })).toEqual({ businessId: "b1", limit: 4 });
   });
 

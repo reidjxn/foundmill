@@ -45,7 +45,7 @@ export function withBusiness(businessId: string, input: Record<string, unknown> 
  */
 const ACCOUNT_ROUTERS: ReadonlySet<string> = new Set(["founder", "idea", "import", "live"]);
 const ACCOUNT_READS: ReadonlySet<string> = new Set(["health", "business.listArchived", "business.example.get"]);
-const BUSINESS_READS_IN_ACCOUNT_ROUTERS: ReadonlySet<string> = new Set(["live.leaderboards.positions", "founder.tableViews.get"]);
+const BUSINESS_READS_IN_ACCOUNT_ROUTERS: ReadonlySet<string> = new Set(["founder.tableViews.get"]);
 
 /**
  * A read whose input has no `businessId` at all (lib/__tests__/account-reads.test.ts checks this against the API's

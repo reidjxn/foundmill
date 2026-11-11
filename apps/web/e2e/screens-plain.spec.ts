@@ -51,12 +51,12 @@ test.describe("screens in plain words", () => {
     await expect(page.getByTestId("connections-panel")).not.toContainText(/\b0 connections\b/);
   });
 
-  test("a live business's Home: the leaderboard tile names its board in words; the runway matches the top bar", async ({ page }) => {
+  test("a live business's Home: the status strip reads in words; the runway matches the top bar", async ({ page }) => {
     await signIn(page);
     await page.goto(`/b/${LEDGERLY_BUSINESS_ID}/home`);
     await expect(page.getByTestId("home-screen")).toBeVisible({ timeout: LONG });
     const strip = page.getByRole("region", { name: "Status" });
-    await expect(strip.getByText("Leaderboard position", { exact: true })).toBeVisible({ timeout: LONG });
+    await expect(strip.getByText("Team health", { exact: true })).toBeVisible({ timeout: LONG });
     await expect(strip).not.toContainText(SNAKE, { timeout: LONG });
     // The bar's runway chip and the tile say the same words when there is no figure.
     const barWords = page.getByTestId("kit-bar").locator("[data-runway-words]");

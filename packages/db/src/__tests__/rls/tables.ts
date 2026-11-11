@@ -191,8 +191,6 @@ export const NON_TENANT_TABLES = [
   "posts",
   "post_reports",
   "network_attestations",
-  "leaderboards",
-  "leaderboard_entries",
   "negotiation_threads",
   // 0067: a platform asset (no business_id), service role only; covered by repos/personas.test.ts.
   "persona_portraits",

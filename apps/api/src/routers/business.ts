@@ -334,10 +334,6 @@ export const businessRouter = router({
       }
       return changed;
     });
-    // LIVE → Personal (BUILD §7.3, AC-11.14.2): the business leaves every leaderboard now. The rows live behind
-    // service_role-only grants, so this runs on the service connection once the mode change has committed; reads also
-    // hide any business that is not LIVE, so a failure here never shows a Personal business.
-    if (input.gameMode !== "live") await repos.social.removeBusinessFromLeaderboards(ctx.db, ctx.businessId);
     return business;
   }),
 
@@ -534,7 +530,6 @@ export const businessRouter = router({
   /** Stop every agent and hide the business. Data stays; an owner restores it with `restore`. */
   archive: adminProcedure.input(z.object({ reason: z.string().max(200).default("archived") })).mutation(async ({ ctx, input }) => {
     const archived = await archiveBusiness(ctx, input.reason);
-    await repos.social.removeBusinessFromLeaderboards(ctx.db, ctx.businessId);
     // Its events stay in Postgres; the live stream goes now instead of when its 30-day TTL runs out (#233).
     await ctx.redis?.del(businessStreamKey(ctx.businessId)).catch((err: unknown) => ctx.log.warn({ err: (err as Error).message }, "business stream not removed on archive; it expires on its TTL"));
     return archived;

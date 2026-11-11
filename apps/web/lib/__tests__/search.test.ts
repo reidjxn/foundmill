@@ -14,7 +14,7 @@ describe("universal search", () => {
     expect(items.filter((i) => i.kind === "command").length).toBeGreaterThanOrEqual(9 + 4);
     expect(items.find((i) => i.id === "inbox:i1")?.href).toBe(`/b/${BID}/inbox/i1`);
     expect(items.find((i) => i.id === "inbox:i2")).toBeUndefined();
-    // Network is the founder's own in every mode; Communities and Leaderboards come with a LIVE business.
+    // Network is the founder's own in every mode; Communities comes with a LIVE business.
     expect(items.some((i) => i.id === "screen:network")).toBe(true);
     expect(items.some((i) => i.id === "screen:communities")).toBe(false);
     expect(localPaletteItems({ businessId: BID, departments, live: true }).some((i) => i.id === "screen:communities")).toBe(true);

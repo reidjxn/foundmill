@@ -84,9 +84,9 @@ describe("sidebar items", () => {
     expect(activeSidebarId(`/b/${BID}/d/studio/notes`, BID, rows)).toBe("d-notes");
   });
 
-  it("adds the LIVE block in live mode, Leaderboards with its own icon", () => {
+  it("adds the LIVE block in live mode: Network and Communities", () => {
     const items = buildSidebarItems({ businessId: BID, departments: LEDGERLY, live: true });
-    expect(items.filter((i) => i.group === "live").map((i) => i.label)).toEqual(["Network", "Communities", "Leaderboards"]);
+    expect(items.filter((i) => i.group === "live").map((i) => i.label)).toEqual(["Network", "Communities"]);
   });
 
   it("badges Network with what waits for the founder in every mode, and Communities with posts to moderate (audit #65)", () => {
@@ -144,8 +144,8 @@ describe("sidebar items", () => {
     expect(activeSidebarId("/network", BID, LEDGERLY)).toBe("network");
     expect(activeSidebarId("/communities", BID, LEDGERLY)).toBe("communities");
     expect(activeSidebarId(`/communities/${BID}`, BID, LEDGERLY)).toBe("communities");
-    expect(activeSidebarId("/leaderboards", BID, LEDGERLY)).toBe("leaderboards");
-    expect(activeSidebarId(`/leaderboards/${BID}`, BID, LEDGERLY)).toBe("leaderboards");
+    // A removed page lights nothing.
+    expect(activeSidebarId("/leaderboards", BID, LEDGERLY)).toBeUndefined();
     expect(activeSidebarId(`/profiles/founder/${BID}`, BID, LEDGERLY)).toBe("network");
     expect(activeSidebarId("/networking", BID, LEDGERLY)).toBeUndefined();
   });

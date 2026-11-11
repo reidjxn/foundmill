@@ -56,8 +56,6 @@ describe("LIVE closed", () => {
       owner.live.messages.threads(),
       owner.live.messages.unread(),
       owner.live.communities.list(),
-      owner.live.leaderboards.list(),
-      owner.live.leaderboards.positions({ businessId }),
       owner.live.profile.visibility.get(),
       owner.live.people.lookup({ userIds: [other] }),
     ];

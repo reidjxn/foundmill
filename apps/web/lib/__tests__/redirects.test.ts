@@ -85,7 +85,7 @@ describe("proxy redirect rules", () => {
   });
 
   it("keeps the LIVE pages signed-in only: never public, sent to /login with next when signed out", () => {
-    for (const p of ["/network", "/communities", "/communities/3f1c0e9e-1111-4222-8333-944445555666", "/leaderboards", "/leaderboards/aae7068c-fd0f-4615-9534-8da4cd7e35e0", "/profiles/founder/3f1c0e9e-1111-4222-8333-944445555666", "/profiles/business/3f1c0e9e-1111-4222-8333-944445555666"]) {
+    for (const p of ["/network", "/communities", "/communities/3f1c0e9e-1111-4222-8333-944445555666", "/profiles/founder/3f1c0e9e-1111-4222-8333-944445555666", "/profiles/business/3f1c0e9e-1111-4222-8333-944445555666"]) {
       expect(isPublicPath(p), p).toBe(false);
       expect(isFounderPath(p), p).toBe(true);
       expect(decideRedirect({ pathname: p, authenticated: false }), p).toEqual({ kind: "redirect", to: `/login?next=${encodeURIComponent(p)}` });
