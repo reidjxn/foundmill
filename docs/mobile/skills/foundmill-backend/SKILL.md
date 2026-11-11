@@ -25,6 +25,7 @@ Keep these four values in `app.json` under `expo.extra` and read them from one `
 - The API accepts only tokens whose email was proven by an inbox method (magic link, OTP, invite, recovery). Anonymous sessions are refused. There is no password, Google, Apple or GitHub sign-in on Foundmill. Do not add any. Do not add Newly Backend sign-in.
 - **Invite list.** Some deployments admit only invited addresses. A protected call then fails with tRPC `FORBIDDEN` and `data.appCode === "not_invited"`, with `data.details.reason` either `not_listed` or `email_unconfirmed`. Show the "Not on the list yet" screen (copy in the product skill) and a Sign out action.
 - **Sign out:** `supabase.auth.signOut()`, clear the MMKV cache, close the stream, go to the sign-in screen.
+- **Coming (not accepted by the API yet; do not build):** Google sign-in, and Sign in with Apple on iOS, through `supabase.auth.signInWithIdToken`; a one-time "18 or older" confirmation at sign-up; a referral waitlist that replaces `not_invited`. Prompt 13B builds them once this section names the procedures and refusal codes. Until then the email code is the only way in.
 - **Re-auth.** Permanent deletion of a business needs a sign-in within the last 10 minutes. The API answers `PRECONDITION_FAILED` with `appCode: "reauth_required"`. The mobile app does not offer permanent deletion; it links to Settings on the web instead.
 
 ## 2. The tRPC client
@@ -252,6 +253,19 @@ Q = query (GET), M = mutation (POST). Every call below also takes `businessId` u
 ### LIVE social (on hold: do not build against it; leaderboards are gone)
 
 `live.summary`, `live.connections.*`, `live.messages.*`, `live.communities.*`, `live.people.search|profile`, `live.profile.visibility.get|set` exist only when `business.gameMode === "live"` (FORBIDDEN "LIVE is not open yet" otherwise). **`live.leaderboards.*` is removed** (founder, Nov 11, 2026; migration 0076 drops the tables): never call it, never show a leaderboard. The roadmap (docs/THESIS_REVIEW.md on the Foundmill side) replaces game mode with a plain "Who can see this" setting and opens the people layer to everyone, so the remaining procedures are about to change: keep Network and Communities behind one `LIVE_SURFACES_ON_HOLD` flag until the People procedures below exist.
+
+### Coming from the roadmap branch (not on main yet; read defensively, build only when the prompt says so)
+
+- **Channel availability.** `distribution.channels.list` adds, on each row and by key at the top level, `availability: { available, reason: "acts" | "no_publisher" | "not_connected" | "simulated_allowed", sentence }`, and `noChannel` (a sentence or null); `distribution.recommend` adds `note`. Show only channels whose `availability.available` is true, or that are on the board in offline tracking (`kitMode`). When `noChannel` is a sentence, the Board is that sentence as its empty state, not an error. Never list the unavailable channels. `distribution.channels.enable` on an unavailable channel answers CONFLICT with a sentence to show as it is. When the fields are absent (an older server), behave as today.
+- **Simulated results.** A tool result the API marks `simulated: true` carries a `notice`; show the notice, never "sent", "published" or "paid".
+- **Public page** (package 1.1, migration 0077): `page.get` Q (Product read) → `{ slug, url, saved, draft: { pitch, about, forWhom, stage: idea|building|live, showFounders }, published, live, publishedAt, unpublishedAt, changed, canEdit, canPublish, isSample, preview: { name, brandPrimary, brandSecondary, founderNames } }`; `page.saveDraft` M {draft} and `page.setSlug` M {slug, draft?} (Product write); `page.publish` M {content} and `page.unpublish` M (owner or admin with Product write) → `{ outcome: "published", page }` or `{ outcome: "held", reason: personal_data|markup, message, page }`; `publicPage.bySlug` Q {slug} (no sign-in) → the public copy or null. Limits: pitch 140, about 1,500, who it is for 300 characters; slug 3–40 lowercase letters, digits and hyphens. Stage words: Idea / Being built / Live. Events `page.published`, `page.unpublished` (refetch `page.get`). The Product module gains the inline tab `public-page` ("Public page"). `today.get` gains `pageReady: boolean` (true while a project, never a sample, has no live page).
+- **First-week words.** `today.get().firstWeek` may say the team "gets ready to approach the first customers" when no channel can run; it is server text, shown as it comes.
+
+### Coming from the retention work (not built yet)
+
+- Founder **email** (waiting on you, customer won, milestone, run finished, credits out, a morning brief, a weekly review) with **one-click answers** behind signed single-use links, and its preferences. Expect the email kinds beside the push kinds in `founder.preferences.notifications`; show them as a second group only when the fields arrive.
+- A server-side **"Since you were last here"** and a **daily streak**: when they arrive, render the server's, never a count of the device's own.
+- **Autopilot on by default** at Commit with a small cap: nothing to build; Settings already shows Autopilot.
 
 ### People (coming; the procedures do not exist yet)
 

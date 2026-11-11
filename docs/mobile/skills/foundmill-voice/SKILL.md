@@ -135,6 +135,9 @@ The "what the team can do" chip reads, in the business's own currency: "Asks bef
 - Area skeleton: "Reading the numbers".
 - Since you were last here: "Since you were last here" · "Nothing happened while you were away."
 - Live product: "No release recorded yet" · "Updated Nov 7" · "No artifact yet" · "Nothing exists outside these screens yet".
+- Public page: "Your project's public page is ready to check" · "Not published yet" · "Live since Oct 7, 2026" · "Live, with changes not yet published" · "A sample business has no public page." · stages "Idea" / "Being built" / "Live".
+- Streak (only from the server's count): "Back 5 days in a row". Never a flame, an emoji or "streak" as a badge.
+- Revenue milestones: "First $1K MRR" only when revenue recurs; otherwise "First $1K monthly revenue".
 - Idea cards: "Use my idea as written" · "Choose this idea" · "Your words" · "Sample" · "Written by you" · "Edit it in your words first".
 
 ### Empty screens (what will appear and when; verbatim)

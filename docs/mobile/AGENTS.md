@@ -20,6 +20,8 @@ Four skills carry the detail. Read the one that matches before you touch the mat
 12. **Reduced motion and accessibility.** Every animation has a static equivalent; every control is at least 44 × 44; every pill carries an icon and a word; text passes 4.5:1; OS font scaling up to 130 % is honored.
 13. **One help control per screen: the Chief of Staff.** Every screen's header carries "Ask <Chief of Staff>" (three questions answered by `chiefOfStaff.answer`, "Ask something else…" opens the conversation). No separate explainer, no tooltips that teach, no coach marks.
 14. **The phone is a founder surface.** The web's Builder view (the engine) never appears here: no cycle numbers, tokens, test counts, pull-request numbers, code, health or hierarchy tabs; ratings always carry their band word. Sentences the server writes (`plainHeadline`, area words, first-week steps, Chief of Staff answers) are shown as they come, never rewritten or computed again on the device.
+15. **Simulated is never done.** A result the API marks simulated (`simulated: true` with its `notice`) is shown as simulated; the app never says an email was sent, a post published or a payment taken unless the API says it really happened. A channel the API says cannot act yet is not offered.
+16. **Sign-in follows the web.** Email code today. Google (and Apple on iOS) only once the backend skill names them; never add a sign-in method the API does not accept.
 
 ## Stack and structure
 
