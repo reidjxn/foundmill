@@ -3509,3 +3509,11 @@ Every decision of §14 is now answered. The founder chose, from lettered options
 - **Live webhooks keep no replay guard of their own.** Each connector recorded a delivery inside `verify()`, before ingest had stored anything, so a vendor's retry after a refusal or a failed write was answered 401 for good (found by the new binding test: the same GitHub delivery, refused for the wrong installation and retried for the right one). Ingest already holds a nonce per delivery and releases it on every failure; it is now the only guard. The mocks keep theirs.
 - **GitHub deliveries are bound to the installation the gateway verified** (`app_installations`), falling back to the stored account id. A business whose GitHub row has neither is refused. GitHub is the one connector live in production: the connect flow has recorded the verified installation since migration 0015, so connected businesses have it; if production's App posts to a URL without a business, those deliveries were already refused before this change.
 - **Not done:** SEC-14 (gateway routes for key validation, registry lookups, connect and health, and taking vendor keys out of the api), N2 and N3 (designed with email and Stripe in phase 1), the vendor confirmation for Dropbox Sign, and N4.
+
+## 2026-11-11 — Leaderboards removed: the calls made
+
+- **The tables are dropped, not kept empty** (migration 0076). The only rows were the sample business's, written by the demo seed; no person's data is lost. Rollout: an api still on the old code would fail on `live.leaderboards.*` between the migration and its own redeploy, which only matters where `LIVE_MODE` is open (production has it closed).
+- **Saved table views of the two removed tables are deleted** in the same migration: they have no table to apply to. This is the one deletion beyond the feature's own tables.
+- **No redirect from `/leaderboards`.** A removed feature answers not found; nothing linked there from outside the product.
+- **Connecting to a business keeps its api path** though no screen offers it now. Person-to-person connections are untouched; the business branch is kept for the project pages of phase 1, where "follow this project" needs it.
+- **The mobile prompt pack is now wrong about leaderboards** and should be corrected before the app's network screens are built (package 5.6).

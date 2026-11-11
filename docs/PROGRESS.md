@@ -1494,3 +1494,12 @@ A read-only re-check of SEC-9, 10, 11, 14 and 16 found none fully fixed and one 
 - **SEC-9.** `loadEnv` refuses a production process with `APP_ENV` unset, empty or development (`packages/shared/src/env.test.ts`).
 - **Verified.** Vitest: connectors 744, ingest 80, shared env 9, db repos 429, api legal-lifecycle 14; tsc on shared, db, connectors, ingest, api and gateway; eslint on the changed files.
 - **Not done.** SEC-14, N2, N3, N4, the gateway's development-secret fallback and the Dropbox Sign vendor confirmation. No workspace-wide typecheck or Playwright run for this part.
+
+## 2026-11-11 — Leaderboards removed (founder's decision, THESIS_REVIEW §14 item 9)
+
+- **Web.** The `/leaderboards` routes and screens, the sidebar and palette entries, the auth redirect prefix; Commit and Settings copy no longer promise leaderboards.
+- **Widgets and design system.** The status strip's "Leaderboard position" tile (five tiles in every mode) and the `league_table` widget; a stored layout or setting that still names them is read without a reset (tests in `packages/widgets`).
+- **API.** `live.leaderboards.*`; `business.setGameMode` and `business.archive` no longer clear entries; the placeholder route in `apps/social`.
+- **Database.** Migration `0076_drop_leaderboards` drops `leaderboard_entries` and `leaderboards` with their policies and deletes saved table views of the two removed tables; schema, repos, the Ledgerly seed rows, the export and roll-forward lists and the RLS specs follow.
+- **Verified.** Workspace typecheck (25 of 25) before and after the merge; vitest: db 1886 and RLS 1297, shared 588, config 18, widgets 241, dugout 1127, events 76, models 273, agents 376, api 952, web 1243, social 13; eslint on the changed files; banned-terms and us-english. Playwright specs were updated and not run.
+- **Left as it is.** `/leaderboards` answers not found (no redirect). Connecting to a business (as opposed to a person) has no entry point in the web now: the leaderboard row was the only one; the api path and its test stay. `docs/BUILD.md`, `docs/DEPLOY.md` and the mobile prompt pack in `docs/mobile` still describe leaderboards; the pack tells the app builder to call `live.leaderboards.*`, which no longer exists (THESIS_REVIEW package 5.6).
