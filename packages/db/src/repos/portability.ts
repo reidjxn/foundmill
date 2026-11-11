@@ -118,6 +118,7 @@ export const EXPORT_TABLES: Readonly<Record<string, ExportTableSpec>> = {
   // seat of this business, so it never travels in the business's archive.
   memberships: t(s.memberships, "settings", { pick: ["id", "userId", "role", "createdAt"], rows: ne(s.memberships.source, "example") }),
   integrations: t(s.integrations, "settings", { pick: ["id", "connectorKey", "status", "authKind", "scopes", "accountLabel", "lastHealthAt", "lastError", "createdAt", "updatedAt"] }),
+  project_mail: t(s.projectMail, "settings", { pick: ["id", "localPart", "status", "dailyCap", "createdAt"] }),
   app_installations: t(s.appInstallations, "settings", { pick: ["id", "connectorKey", "accountLabel", "verifiedAt", "createdAt"] }),
   policies: t(s.policies, "settings"),
   holiday_periods: t(s.holidayPeriods, "settings"),

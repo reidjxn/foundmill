@@ -77,6 +77,8 @@ export const ROLL_EXCLUDED_TABLES: readonly string[] = [
   "demo_sample_rows",
   // A public page is a person's own writing and a sample business never has one live (0077).
   "project_pages",
+  // The sending address is chosen once and kept (0078); nothing in it belongs to the sample's calendar.
+  "project_mail",
 ];
 
 /** Columns that record when a row was written: never shifted past now. */

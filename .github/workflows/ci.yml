@@ -172,6 +172,8 @@ jobs:
       API_PORT: 4000
       # The LIVE pages (Network, Communities) and Go live are closed without it (apps/web/e2e/README.md).
       LIVE_MODE: 1
+      # A project's Foundmill sending address, on its mock (apps/web/e2e/platform-mail.spec.ts; playwright.config.ts STACK_ENV).
+      PLATFORM_MAIL_DOMAIN: mail.foundmill.test
       # The screens press Take charge and the other model-backed buttons far more often than one person does in an hour, and a
       # shard shares one signed-in founder (apps/api/src/services/model-limits.ts honors this on test stacks only).
       MODEL_LIMIT_SCALE: 50

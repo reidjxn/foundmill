@@ -85,6 +85,30 @@ const Env = z.object({
   STRIPE_CONNECT_CLIENT_ID: z.string().optional(),
   /** apps/ingest: the token SendGrid Inbound Parse carries as `?token=` (Inbound Parse has no signature). */
   SENDGRID_INBOUND_TOKEN: z.string().optional(),
+  /*
+   * The Foundmill sending address of every project (docs/THESIS_REVIEW.md package 1.5; packages/shared
+   * `platform-mail.ts`). Unset domain: the feature is off everywhere and nothing changes. It sends for real only where
+   * SendGrid runs live on the gateway (INTEGRATIONS_MODE=live or LIVE_CONNECTORS naming `sendgrid`), on the platform's
+   * own SENDGRID_API_KEY (gateway only); elsewhere it runs its mock and every result says it was simulated.
+   */
+  /** The sending domain, e.g. `mail.foundmill.com` (api, gateway, ingest, orchestrator). A project sends from `<slug>@<domain>`. */
+  PLATFORM_MAIL_DOMAIN: z
+    .string()
+    .optional()
+    .transform((v) => v?.trim().toLowerCase() || undefined)
+    .refine((v) => v === undefined || /^(?=.{4,253}$)([a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/.test(v), { message: "PLATFORM_MAIL_DOMAIN must be a domain name such as mail.foundmill.com" }),
+  /** Messages one project may send from its Foundmill address per UTC day (gateway; the api shows it). An operator raises one project's cap in `project_mail.daily_cap`. */
+  PLATFORM_MAIL_DAILY_CAP: z.coerce.number().int().min(1).max(10_000).default(50),
+  /** Messages every project together may send from the platform domain per UTC day: protects the domain's reputation (gateway). */
+  PLATFORM_MAIL_DAILY_CEILING: z.coerce.number().int().min(1).max(1_000_000).default(2_000),
+  /** gateway + ingest: signs the custom args on every send and the unsubscribe links, so a delivery event or an unsubscribe is bound to its project. 32+ random bytes. */
+  PLATFORM_MAIL_SIGNING_SECRET: z.string().optional(),
+  /** ingest: the token the platform's Inbound Parse URL carries as `?token=` (`/mail/inbound`). Never the businesses' SENDGRID_INBOUND_TOKEN. */
+  PLATFORM_MAIL_INBOUND_TOKEN: z.string().optional(),
+  /** ingest: the verification key of the platform account's Event Webhook that posts to `/mail/events` (base64 SPKI, as SendGrid shows it). */
+  PLATFORM_MAIL_EVENT_PUBLIC_KEY: z.string().optional(),
+  /** gateway: the public address of ingest (`https://ingest.foundmill.com`): every message's unsubscribe link points at `<it>/mail/unsubscribe`. Defaults to INGEST_URL. */
+  INGEST_PUBLIC_URL: z.string().optional(),
   /** Shopify public app (OAuth): its API key and secret key. */
   SHOPIFY_CLIENT_ID: z.string().optional(),
   SHOPIFY_CLIENT_SECRET: z.string().optional(),
@@ -197,6 +221,16 @@ export const connectorMode = (env: Pick<Env, "INTEGRATIONS_MODE" | "LIVE_CONNECT
 export const PLATFORM_BILLING_LIVE_KEY = "stripe_billing";
 /** How credit top-ups are paid here: through Stripe (live) or simulated (mock). */
 export const platformBillingMode = (env: Pick<Env, "INTEGRATIONS_MODE" | "LIVE_CONNECTORS">): "mock" | "live" => connectorMode(env, PLATFORM_BILLING_LIVE_KEY);
+/**
+ * The Foundmill sending address (package 1.5) runs on SendGrid: it is live exactly where SendGrid is live on this
+ * service (INTEGRATIONS_MODE=live or LIVE_CONNECTORS naming `sendgrid`) and its domain is set; with the domain set and
+ * SendGrid mock it runs its mock (simulated). Unset domain: off.
+ */
+export const PLATFORM_MAIL_MODE_KEY = "sendgrid";
+export const platformMailDomain = (env: Partial<Pick<Env, "PLATFORM_MAIL_DOMAIN">>): string | null => env.PLATFORM_MAIL_DOMAIN?.trim().toLowerCase() || null;
+export const platformMailMode = (env: Pick<Env, "INTEGRATIONS_MODE" | "LIVE_CONNECTORS">): "mock" | "live" => connectorMode(env, PLATFORM_MAIL_MODE_KEY);
+/** True when projects really send from their Foundmill address on this deployment. */
+export const platformMailLive = (env: Pick<Env, "INTEGRATIONS_MODE" | "LIVE_CONNECTORS"> & Partial<Pick<Env, "PLATFORM_MAIL_DOMAIN">>): boolean => platformMailDomain(env) !== null && platformMailMode(env) === "live";
 export const isMockModels = (env = loadEnv()) => env.MODEL_MODE === "mock";
 /** ALLOW_MOCK_PAYMENTS, or by default only in development and test: may a top-up be paid by simulation here? */
 export const allowMockPayments = (env: Pick<Env, "APP_ENV" | "ALLOW_MOCK_PAYMENTS">): boolean => env.ALLOW_MOCK_PAYMENTS ?? (env.APP_ENV === "development" || env.APP_ENV === "test");

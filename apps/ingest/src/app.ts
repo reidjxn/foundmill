@@ -5,11 +5,13 @@
  * `GET /simulate` + `POST /simulate/:eventName`.
  */
 import { APP_NAME, simulatePanelHonoured } from "@foundmill/config";
+import { PLATFORM_MAIL_EVENTS_PATH, PLATFORM_MAIL_INBOUND_PATH, PLATFORM_MAIL_UNSUBSCRIBE_PATH } from "@foundmill/connectors";
 import { AppError, UnauthorizedError } from "@foundmill/shared";
 import { Hono, type MiddlewareHandler } from "hono";
 import { repos } from "@foundmill/db";
 import { ackBody, handleWebhook, webhookMounts, type MountedWebhook } from "./webhooks";
 import { BILLING_WEBHOOK_PATH, handleBillingWebhook } from "./billing";
+import { handlePlatformInbound, handlePlatformMailEvents, handlePlatformUnsubscribe } from "./platform-mail";
 import { runSimulation, SimulateBody, simulateRoutesMounted, simulationCatalogue } from "./simulate";
 import { bearerToken, verifySimulateToken, type SimulateTokenClaims } from "./simulate-token";
 import { INGEST_SERVICE, type IngestDeps } from "./types";
@@ -83,6 +85,21 @@ export function createIngestApp(deps: IngestDeps): CreatedIngestApp {
     const outcome = await handleBillingWebhook(deps, c.req.raw);
     return c.json(outcome.body, outcome.status);
   });
+  // A project's Foundmill sending address (platform-mail.ts): one endpoint each, the project resolved from the content.
+  app.post(PLATFORM_MAIL_INBOUND_PATH, async (c) => {
+    const outcome = await handlePlatformInbound(deps, c.req.raw);
+    return c.json(outcome.body, outcome.status);
+  });
+  app.post(PLATFORM_MAIL_EVENTS_PATH, async (c) => {
+    const outcome = await handlePlatformMailEvents(deps, c.req.raw);
+    return c.json(outcome.body, outcome.status);
+  });
+  const unsubscribe = async (req: Request) => {
+    const outcome = await handlePlatformUnsubscribe(deps, req);
+    return new Response(outcome.html, { status: outcome.status, headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store", "referrer-policy": "no-referrer", "x-robots-tag": "noindex", "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; frame-ancestors 'none'" } });
+  };
+  app.get(PLATFORM_MAIL_UNSUBSCRIBE_PATH, (c) => unsubscribe(c.req.raw));
+  app.post(PLATFORM_MAIL_UNSUBSCRIBE_PATH, (c) => unsubscribe(c.req.raw));
 
   if (simulateRoutesMounted(deps)) {
     // SEC-2: the service token is verified before anything else happens (the body is not even read), so a request

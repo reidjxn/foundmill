@@ -15,7 +15,7 @@ import { Redis } from "ioredis";
 import { APP_NAME, FLAGS } from "@foundmill/config";
 import { createDefaultRegistry, mockWebhooksAllowed, platformSecretsFromEnv, type BusinessResolver, type ConnectorRegistry } from "@foundmill/connectors";
 import { closeDb, createServiceDb, watchPoolOrExit, type Db } from "@foundmill/db";
-import { liveConnectorKeys, loadEnv, servicePort, type Env } from "@foundmill/shared";
+import { liveConnectorKeys, loadEnv, platformMailDomain, servicePort, type Env } from "@foundmill/shared";
 import { createLogger } from "@foundmill/shared/logger";
 import { createVault, type Vault } from "@foundmill/shared/crypto";
 import { drainHttpServer, onShutdown } from "@foundmill/shared/shutdown";
@@ -27,6 +27,7 @@ import { createFollowups, type IngestFollowups } from "./followups";
 import { MemoryNonceStore, RedisNonceStore, type NonceStore, type RedisNonceClient } from "./nonce-store";
 import { createBusinessSecretResolver } from "./secrets";
 import { simulateEnabledFor, simulateRoutesMounted } from "./simulate";
+import type { IngestPlatformMailConfig } from "./platform-mail";
 import { silentLogger, type IngestDeps, type IngestLogger } from "./types";
 import { createTemporalStarter, type WorkflowStarter } from "./workflows";
 
@@ -45,6 +46,7 @@ export * from "./webhooks";
 export * from "./simulate";
 export * from "./simulate-token";
 export * from "./billing";
+export * from "./platform-mail";
 export * from "./app";
 export * from "./db-boot";
 
@@ -77,6 +79,8 @@ export interface BuildIngestOptions {
   workflows?: WorkflowStarter;
   /** Replaces the whole after-commit pipeline (tests). */
   followups?: IngestFollowups;
+  /** The Foundmill sending address's endpoints (defaults to the PLATFORM_MAIL_* variables). */
+  platformMail?: IngestPlatformMailConfig;
 }
 
 export interface BuiltIngest extends CreatedIngestApp {
@@ -137,6 +141,12 @@ export function buildIngest(options: BuildIngestOptions = {}): BuiltIngest {
     simulateTokenSecret: options.simulateTokenSecret === undefined ? (env.SESSION_TOKEN_SECRET ?? null) : options.simulateTokenSecret,
     billingWebhookSecret: options.billingWebhookSecret === undefined ? (env.STRIPE_BILLING_WEBHOOK_SECRET?.trim() || null) : options.billingWebhookSecret,
     followups,
+    platformMail: options.platformMail ?? {
+      domain: platformMailDomain(env),
+      signingSecret: env.PLATFORM_MAIL_SIGNING_SECRET?.trim() || null,
+      inboundToken: env.PLATFORM_MAIL_INBOUND_TOKEN?.trim() || null,
+      eventPublicKey: env.PLATFORM_MAIL_EVENT_PUBLIC_KEY?.trim() || null,
+    },
   };
   if (simulateRoutesMounted(deps) && !deps.simulateTokenSecret) {
     log.warn({ env: env.APP_ENV }, "Simulate routes are enabled but SESSION_TOKEN_SECRET is not set: every simulate request will be refused (401)");

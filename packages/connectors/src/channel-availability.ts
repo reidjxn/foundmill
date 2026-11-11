@@ -12,7 +12,7 @@
  * or test) every channel stays available, so the mock golden path, the tests and the two sample businesses behave as
  * before with all fifteen.
  */
-import { CHANNEL_KEYS, CHANNEL_META, channelAvailabilitySentence, channelNotAvailableMessage, liveConnectorKeys, mockResultsAllowed, type ChannelAvailability, type ChannelAvailabilityRow, type ChannelKey, type Env, type NoChannelFacts } from "@foundmill/shared";
+import { CHANNEL_KEYS, CHANNEL_META, channelAvailabilitySentence, channelNotAvailableMessage, liveConnectorKeys, mockResultsAllowed, platformMailLive, type ChannelAvailability, type ChannelAvailabilityRow, type ChannelKey, type Env, type NoChannelFacts } from "@foundmill/shared";
 
 /**
  * The gateway tools (`connector:tool`) that count as a channel acting outwardly. An empty list means no publisher is
@@ -21,7 +21,8 @@ import { CHANNEL_KEYS, CHANNEL_META, channelAvailabilitySentence, channelNotAvai
  */
 export const CHANNEL_ACTING_TOOLS: Readonly<Record<ChannelKey, readonly string[]>> = Object.freeze({
   lead_generation: [],
-  email_automation: ["sendgrid:send_mail"],
+  // The founder's own SendGrid when connected, else the project's Foundmill sending address (package 1.5).
+  email_automation: ["sendgrid:send_mail", "platform_mail:send_mail"],
   seo: ["github:commit_files"],
   geo: ["github:commit_files"],
   content: [],
@@ -45,9 +46,17 @@ export interface ChannelAvailabilityFacts {
   connectedConnectors: readonly string[];
   /** `mockResultsAllowed(appEnv, isDemo)`: simulated results are allowed for this business. */
   mockResultsAllowed: boolean;
+  /**
+   * The project's Foundmill sending address really sends here (`platformMailLive`: PLATFORM_MAIL_DOMAIN set and SendGrid
+   * live). It needs nothing connected, so `platform_mail` counts as connected for every project while this is true.
+   */
+  platformMail?: boolean;
 }
 
 const connectorOf = (ref: string): string => ref.slice(0, ref.indexOf(":"));
+
+/** The project's Foundmill sending address (`platform_mail`, package 1.5). */
+const PLATFORM_MAIL_CONNECTOR = "platform_mail";
 
 /**
  * Whether a channel is available for a business, and why (pure).
@@ -62,9 +71,13 @@ export function channelAvailability(channelKey: ChannelKey, facts: ChannelAvaila
   const connectors = [...new Set((actingTools[channelKey] ?? []).map(connectorOf))];
   if (connectors.length === 0) return { available: false, reason: "no_publisher" };
   const live = (key: string) => facts.liveConnectors === "all" || facts.liveConnectors.includes(key);
-  if (connectors.some((key) => live(key) && facts.connectedConnectors.includes(key))) return { available: true, reason: "acts" };
-  const connectable = connectors.find(live);
-  return { available: false, reason: "not_connected", connectorKey: connectable ?? connectors[0]!, connectable: connectable !== undefined };
+  // The Foundmill sending address has no account to connect: it acts wherever it is switched on (`facts.platformMail`).
+  const acts = (key: string) => (key === PLATFORM_MAIL_CONNECTOR ? facts.platformMail === true : live(key) && facts.connectedConnectors.includes(key));
+  if (connectors.some(acts)) return { available: true, reason: "acts" };
+  // What is left to name is a connector the founder could connect; the platform address is never theirs to connect.
+  const connectable = connectors.filter((key) => key !== PLATFORM_MAIL_CONNECTOR);
+  const first = connectable.find(live);
+  return { available: false, reason: "not_connected", connectorKey: first ?? connectable[0] ?? connectors[0]!, connectable: first !== undefined };
 }
 
 /** Every channel's availability, in `CHANNEL_KEYS` order. */
@@ -76,7 +89,7 @@ export function channelAvailabilities(facts: ChannelAvailabilityFacts): Record<C
  * The display names of the connectors `CHANNEL_ACTING_TOOLS` names, for the sentence a founder reads ("connect SendGrid
  * in Settings › Integrations"). The unit test holds each to its connector's own `displayName`.
  */
-export const ACTING_CONNECTOR_NAMES: Readonly<Record<string, string>> = Object.freeze({ sendgrid: "SendGrid", github: "GitHub" });
+export const ACTING_CONNECTOR_NAMES: Readonly<Record<string, string>> = Object.freeze({ sendgrid: "SendGrid", github: "GitHub", platform_mail: "Email from your project" });
 
 /** A channel's availability with its founder sentence (null when available): what the api sends with each channel. */
 export function channelAvailabilityRow(channelKey: ChannelKey, facts: ChannelAvailabilityFacts): ChannelAvailabilityRow {
@@ -126,11 +139,12 @@ export const CONNECTED_INTEGRATION_STATUSES: readonly string[] = ["connected", "
  * business's connected integrations (GitHub counts once its installation is connected) and whether simulated results
  * are allowed for it (`APP_ENV`, `businesses.is_demo`).
  */
-export function channelAvailabilityFacts(env: Pick<Env, "APP_ENV" | "INTEGRATIONS_MODE" | "LIVE_CONNECTORS">, business: { isDemo: boolean }, integrations: readonly IntegrationFact[]): ChannelAvailabilityFacts {
+export function channelAvailabilityFacts(env: Pick<Env, "APP_ENV" | "INTEGRATIONS_MODE" | "LIVE_CONNECTORS"> & Partial<Pick<Env, "PLATFORM_MAIL_DOMAIN">>, business: { isDemo: boolean }, integrations: readonly IntegrationFact[]): ChannelAvailabilityFacts {
   return {
     liveConnectors: env.INTEGRATIONS_MODE === "live" ? "all" : liveConnectorKeys(env),
     connectedConnectors: integrations.filter((i) => !i.archivedAt && CONNECTED_INTEGRATION_STATUSES.includes(i.status)).map((i) => i.connectorKey),
     mockResultsAllowed: mockResultsAllowed(env.APP_ENV, business.isDemo),
+    platformMail: platformMailLive(env),
   };
 }
 

@@ -197,5 +197,7 @@ export const NON_TENANT_TABLES = [
   "persona_portraits",
   // 0077: business-scoped, but one row per business (the generated suite inserts a second); covered by rls/project-pages.test.ts.
   "project_pages",
+  // 0078: business-scoped, one row per business, written by services only; covered by rls/project-mail.test.ts.
+  "project_mail",
 ] as const;
 

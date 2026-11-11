@@ -23,6 +23,7 @@ import { foundationsRepo } from "./foundations";
 import { foundersRepo } from "./founders";
 import { goalsRepo } from "./goals";
 import { pagesRepo } from "./pages";
+import { mailRepo } from "./mail";
 import { holidaysRepo } from "./holidays";
 import { ideasRepo } from "./ideas";
 import { inboxRepo } from "./inbox";
@@ -62,6 +63,7 @@ export const repos = {
   productSignoffs: productSignoffsRepo,
   goals: goalsRepo,
   pages: pagesRepo,
+  projectMail: mailRepo,
   departments: departmentsRepo,
   screens: screensRepo,
   dashboards: dashboardsRepo,
@@ -125,6 +127,7 @@ export * from "./foundations";
 export * from "./founders";
 export * from "./goals";
 export * from "./pages";
+export * from "./mail";
 export * from "./holidays";
 export * from "./ideas";
 export * from "./inbox";

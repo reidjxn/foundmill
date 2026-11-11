@@ -544,6 +544,7 @@ export const EVENT_FIXTURES: { readonly [K in EventType]: EventPayloadInput<K> }
   "guidance.explainer_dismissed": { screenId: "finance/runway" },
   "guidance.term_opened": { termId: "runway", screenId: "home" },
   "guidance.turned_off": { from: "settings", toursDone: 2, explainersSeen: 5 },
+  "mail.sent": { messageRef: fixtureId("mail"), messageId: "14c5d75ce93.dfd.64b469.filter0001.16648.5515E0B88.0", recipientHash: "a".repeat(64), fromLocalPart: "northwind-skincare", channelKey: "email_automation", agentId: fixtureId("agent"), sessionId: null, simulated: false },
   "push.sent": { kind: "decision", sourceEventId: fixtureId("event-source"), sourceEventType: "inbox.item_created", recipients: 2, devices: 3, provider: "onesignal", mode: "mock", providerMessageIds: [fixtureId("push-1")] },
 };
 

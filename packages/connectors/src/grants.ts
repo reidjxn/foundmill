@@ -36,6 +36,7 @@ import { openaiImagesTools } from "./connectors/openai_images/tools";
 import { onesignalTools } from "./connectors/onesignal/tools";
 import { webTools } from "./connectors/web/tools";
 import { e2bTools } from "./connectors/e2b/tools";
+import { platformMailTools } from "./connectors/platform_mail/tools";
 
 const names = (tools: readonly { name: string }[]) => Object.freeze(tools.map((t) => t.name));
 
@@ -66,6 +67,7 @@ export const GATEWAY_TOOL_NAMES: Readonly<Record<string, readonly string[]>> = O
   platform: names(platformTools),
   web: names(webTools),
   quarantine: names(quarantineTools),
+  platform_mail: names(platformMailTools),
 });
 
 const bankingCapabilities = { "accounts.list": ["list_accounts", "get_consent_status"], "transactions.list": ["list_transactions", "sync"] };
@@ -167,6 +169,8 @@ export const CAPABILITY_TOOLS: Readonly<Record<string, Readonly<Record<string, r
   },
   web: { search: ["search_web"], fetch: ["fetch_page"] },
   quarantine: { read_untrusted: ["read_untrusted"] },
+  // The project's Foundmill sending address (package 1.5): one message to one person, from the project.
+  platform_mail: { "mail.send": ["send_mail"] },
 };
 
 /**

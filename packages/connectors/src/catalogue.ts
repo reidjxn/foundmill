@@ -31,6 +31,7 @@ import { createOnesignalConnector } from "./connectors/onesignal";
 import { createPlatformConnector } from "./connectors/platform";
 import { createQuarantineConnector } from "./connectors/quarantine";
 import { createWebConnector } from "./connectors/web";
+import { createPlatformMailConnector } from "./connectors/platform_mail";
 
 export type ConnectorFactory = (options?: LiveConnectorOptions) => Connector;
 
@@ -71,7 +72,18 @@ export const BUILTIN_CONNECTOR_FACTORIES = Object.freeze({
   platform: createPlatformConnector,
   web: createWebConnector,
   quarantine: createQuarantineConnector,
+  // A project's Foundmill sending address (package 1.5): the platform's own SendGrid account, nothing to connect.
+  platform_mail: createPlatformMailConnector,
 } satisfies Record<string, ConnectorFactory>);
+
+/**
+ * Connectors whose mode follows another key's switch: `platform_mail` is SendGrid underneath, so it runs live exactly where
+ * `sendgrid` does (`INTEGRATIONS_MODE=live` or `LIVE_CONNECTORS` naming `sendgrid`; packages/shared `platformMailMode`).
+ */
+export const CONNECTOR_MODE_KEYS: Readonly<Record<string, string>> = Object.freeze({ platform_mail: "sendgrid" });
+
+/** The key whose switch decides this connector's mode (itself, unless `CONNECTOR_MODE_KEYS` names another). */
+export const modeKeyOf = (connectorKey: string): string => CONNECTOR_MODE_KEYS[connectorKey] ?? connectorKey;
 
 export const BUILTIN_CONNECTOR_KEYS: readonly string[] = Object.freeze(Object.keys(BUILTIN_CONNECTOR_FACTORIES));
 

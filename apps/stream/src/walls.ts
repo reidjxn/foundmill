@@ -114,6 +114,8 @@ export const EVENT_WALLS = {
   "guidance.term_opened": { sections: ["settings"] },
   "guidance.turned_off": { sections: ["settings"] },
   "push.sent": { sections: ["settings"] },
+  // A message sent from the project's Foundmill address (0078): ids and a recipient hash, never the address or the body.
+  "mail.sent": { sections: ["distribution"] },
 } as const satisfies { readonly [K in EventType]: EventWall };
 
 /** What one reader may see of business events: their walls (sections they may not read at all). */

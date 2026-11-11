@@ -1,0 +1,159 @@
+/**
+ * `platform_mail` (package 1.5): the sender is never an argument, every message carries the unsubscribe headers and the
+ * signed custom args, content is plain text and simple HTML only, and what comes back is bound to the project by a
+ * signature an outsider cannot make.
+ */
+import { createHash } from "node:crypto";
+import { describe, expect, it } from "vitest";
+import { routedFetch } from "../../http";
+import { makeToolContext, TEST_BUSINESS_ID } from "../../testing/contract-suite";
+import { uuidFromSeed } from "../../mock-utils";
+import { createPlatformMailConnector, createPlatformMailMock, normalisePlatformMailEvents, platformInboundLocalParts, platformMailContentProblem, platformMailCustomArgs, platformUnsubscribeToken, platformUnsubscribeUrl, readPlatformUnsubscribeToken, suppressionHashOfEmail, verifyPlatformMailArgs } from "./index";
+
+const SECRET = "test-platform-mail-signing-secret-0123456789";
+const OTHER_BUSINESS = uuidFromSeed("test", "business", "other");
+const ref = uuidFromSeed("test", "mail", "1");
+const envelope = (businessId = TEST_BUSINESS_ID) => ({
+  from: { email: "northwind@mail.foundmill.test", name: "Northwind" },
+  messageRef: ref,
+  unsubscribeUrl: platformUnsubscribeUrl("https://ingest.foundmill.test", platformUnsubscribeToken(SECRET, businessId, suppressionHashOfEmail("anna@example.com"))),
+  customArgs: platformMailCustomArgs(SECRET, businessId, ref),
+});
+const mail = { to: { email: "Anna@Example.com", name: "Anna" }, subject: "Thanks for joining the list", text: "Hi Anna, thanks for signing up." };
+
+describe("platform_mail content", () => {
+  it("takes plain text and simple HTML, and refuses anything else", () => {
+    expect(platformMailContentProblem(mail)).toBeNull();
+    expect(platformMailContentProblem({ ...mail, html: '<p>Hi <strong>Anna</strong>,<br>see <a href="https://northwind.example/notes">the notes</a> or <a href="mailto:hi@northwind.example">write</a>.</p><ul><li>One</li></ul>' })).toBeNull();
+    for (const html of ["<script>alert(1)</script>", '<img src="https://x.example/p.png">', '<p onclick="x()">Hi</p>', '<a href="javascript:alert(1)">x</a>', '<a href="https://x.example" onclick="y()">x</a>', "<!-- hidden -->", "<iframe src=x></iframe>", "<style>p{}</style>", "<form action=x>", '<p style="color:red">x</p>', "<scr<script>ipt>"]) {
+      expect(platformMailContentProblem({ ...mail, html }), html).not.toBeNull();
+    }
+    expect(platformMailContentProblem({ ...mail, subject: "Two\nlines" })).not.toBeNull();
+    expect(platformMailContentProblem({ ...mail, text: "   " })).not.toBeNull();
+  });
+
+  it("has no attachments and no sender among its arguments", async () => {
+    const mock = createPlatformMailMock();
+    const ctx = makeToolContext(mock, { platformMail: envelope() });
+    for (const extra of [{ attachments: [{ filename: "a.pdf", content: "x" }] }, { from: { email: "ceo@bank.example" } }, { replyTo: { email: "x@evil.example" } }, { cc: [{ email: "b@example.com" }] }, { to: { email: "anna@example.com", name: "Anna\r\nBcc: x@evil.example" } }]) {
+      const r = await mock.callTool("send_mail", { ...mail, ...extra }, ctx);
+      expect(r.ok, JSON.stringify(extra)).toBe(false);
+      expect(r.error?.code).toBe("invalid_args");
+    }
+    expect(mock.sentFor(TEST_BUSINESS_ID)).toHaveLength(0);
+  });
+});
+
+describe("platform_mail mock", () => {
+  it("sends from the gateway's envelope with the unsubscribe headers, the footer and the signed custom args", async () => {
+    const mock = createPlatformMailMock();
+    const r = await mock.callTool("send_mail", { ...mail, html: "<p>Hi Anna</p>" }, makeToolContext(mock, { platformMail: envelope() }));
+    expect(r.ok).toBe(true);
+    expect(r.data).toMatchObject({ messageRef: ref, from: "northwind@mail.foundmill.test", to: "anna@example.com" });
+    const [sent] = mock.sentFor(TEST_BUSINESS_ID);
+    const body = sent!.body as { from: unknown; replyTo: unknown; headers: Record<string, string>; text: string; html: string; personalizations: { customArgs: Record<string, string> }[]; trackingSettings: unknown };
+    expect(body.from).toEqual({ email: "northwind@mail.foundmill.test", name: "Northwind" });
+    expect(body.replyTo).toEqual(body.from);
+    expect(body.headers["List-Unsubscribe"]).toMatch(/^<https:\/\/ingest\.foundmill\.test\/mail\/unsubscribe\?t=/);
+    expect(body.headers["List-Unsubscribe-Post"]).toBe("List-Unsubscribe=One-Click");
+    expect(body.text).toContain("To stop getting these emails: https://ingest.foundmill.test/mail/unsubscribe?t=");
+    expect(body.html).toContain(">Unsubscribe</a>");
+    expect(verifyPlatformMailArgs(SECRET, body.personalizations[0]!.customArgs)).toEqual({ businessId: TEST_BUSINESS_ID, messageRef: ref });
+  });
+
+  it("sends nothing without the gateway's envelope, or with another business's", async () => {
+    const mock = createPlatformMailMock();
+    await expect(mock.callTool("send_mail", mail, makeToolContext(mock))).rejects.toMatchObject({ code: "connector_unconfigured" });
+    await expect(mock.callTool("send_mail", mail, makeToolContext(mock, { platformMail: envelope(OTHER_BUSINESS) }))).rejects.toMatchObject({ code: "connector_unconfigured" });
+    expect(mock.sentFor(TEST_BUSINESS_ID)).toHaveLength(0);
+  });
+});
+
+describe("platform_mail live (canned SendGrid)", () => {
+  it("posts one message on the platform key, from the project's address, and returns SendGrid's message id", async () => {
+    const seen: { auth: string | null; body: Record<string, unknown> }[] = [];
+    const connector = createPlatformMailConnector({
+      secrets: { sendgridApiKey: "SG.platform-test-key" },
+      isSuppressed: async () => false,
+      fetch: routedFetch({
+        "POST https://api.sendgrid.com/v3/mail/send": async (req) => {
+          seen.push({ auth: req.headers.get("authorization"), body: (await req.json()) as Record<string, unknown> });
+          return new Response(null, { status: 202, headers: { "x-message-id": "sg-msg-1" } });
+        },
+      }),
+    });
+    const r = await connector.callTool("send_mail", mail, makeToolContext(connector, { mode: "live", platformMail: envelope() }));
+    expect(r.ok).toBe(true);
+    expect(r.data).toEqual({ messageId: "sg-msg-1", messageRef: ref, from: "northwind@mail.foundmill.test", to: "anna@example.com" });
+    expect(seen).toHaveLength(1);
+    expect(seen[0]!.auth).toBe("Bearer SG.platform-test-key");
+    const body = seen[0]!.body as { from: { email: string }; reply_to: { email: string }; headers: Record<string, string>; personalizations: { to: { email: string }[]; custom_args: Record<string, string> }[]; attachments?: unknown };
+    expect(body.from.email).toBe("northwind@mail.foundmill.test");
+    expect(body.reply_to.email).toBe("northwind@mail.foundmill.test");
+    expect(body.personalizations[0]!.to).toEqual([{ email: "Anna@Example.com", name: "Anna" }]);
+    expect(verifyPlatformMailArgs(SECRET, body.personalizations[0]!.custom_args)).toEqual({ businessId: TEST_BUSINESS_ID, messageRef: ref });
+    expect(body.headers["List-Unsubscribe-Post"]).toBe("List-Unsubscribe=One-Click");
+    expect(body.attachments).toBeUndefined();
+  });
+
+  it("refuses a suppressed recipient before SendGrid, and needs the platform key", async () => {
+    let calls = 0;
+    const connector = createPlatformMailConnector({ secrets: { sendgridApiKey: "SG.k" }, isSuppressed: async () => true, fetch: async () => (calls++, new Response(null, { status: 202 })) });
+    const r = await connector.callTool("send_mail", mail, makeToolContext(connector, { mode: "live", platformMail: envelope() }));
+    expect(r.error?.code).toBe("recipient_suppressed");
+    expect(calls).toBe(0);
+    const keyless = createPlatformMailConnector({ secrets: {} });
+    await expect(keyless.callTool("send_mail", mail, makeToolContext(keyless, { mode: "live", platformMail: envelope() }))).rejects.toMatchObject({ code: "connector_unconfigured" });
+  });
+});
+
+describe("platform_mail signatures", () => {
+  it("custom args verify only as signed: another business, another message or another secret is refused", () => {
+    const args = platformMailCustomArgs(SECRET, TEST_BUSINESS_ID, ref);
+    expect(verifyPlatformMailArgs(SECRET, args)).toEqual({ businessId: TEST_BUSINESS_ID, messageRef: ref });
+    expect(verifyPlatformMailArgs(SECRET, { ...args, fm_b: OTHER_BUSINESS })).toBeNull();
+    expect(verifyPlatformMailArgs(SECRET, { ...args, fm_m: uuidFromSeed("x") })).toBeNull();
+    expect(verifyPlatformMailArgs("another-secret-0123456789abcdef", args)).toBeNull();
+    expect(verifyPlatformMailArgs(SECRET, { fm_b: TEST_BUSINESS_ID, fm_m: ref })).toBeNull();
+    expect(verifyPlatformMailArgs(SECRET, { business_id: TEST_BUSINESS_ID })).toBeNull();
+  });
+
+  it("an unsubscribe token names the business and the address hash, and nothing else verifies", () => {
+    const hash = suppressionHashOfEmail(" Anna@Example.com ");
+    expect(hash).toBe(createHash("sha256").update("anna@example.com").digest("hex"));
+    const token = platformUnsubscribeToken(SECRET, TEST_BUSINESS_ID, hash);
+    expect(readPlatformUnsubscribeToken(SECRET, token)).toEqual({ businessId: TEST_BUSINESS_ID, emailHash: hash });
+    expect(readPlatformUnsubscribeToken(SECRET, token.replace(TEST_BUSINESS_ID, OTHER_BUSINESS))).toBeNull();
+    expect(readPlatformUnsubscribeToken(SECRET, `${token}.x`)).toBeNull();
+    expect(readPlatformUnsubscribeToken("another-secret-0123456789abcdef", token)).toBeNull();
+  });
+});
+
+describe("platform_mail: what comes back", () => {
+  it("finds the local parts at the platform domain, envelope first", () => {
+    expect(platformInboundLocalParts({ to: "Northwind <northwind@mail.foundmill.test>, other@elsewhere.example", envelope: null }, "mail.foundmill.test")).toEqual(["northwind"]);
+    expect(platformInboundLocalParts({ to: "spoofed@mail.foundmill.test", envelope: { to: ["Northwind+thread@Mail.Foundmill.test"] } }, "mail.foundmill.test")).toEqual(["northwind"]);
+    expect(platformInboundLocalParts({ to: "a@mail.foundmill.test.evil.example", envelope: null }, "mail.foundmill.test")).toEqual([]);
+  });
+
+  it("binds delivery events by their signed args; a forged business id is ignored; bounces, spam reports and unsubscribes suppress", () => {
+    const args = platformMailCustomArgs(SECRET, TEST_BUSINESS_ID, ref);
+    const { batches, ignored } = normalisePlatformMailEvents(
+      [
+        { email: "anna@example.com", event: "unsubscribe", timestamp: 1_790_000_000, sg_event_id: "e1", ...args },
+        { email: "bounced@example.com", event: "bounce", type: "bounce", timestamp: 1_790_000_001, sg_event_id: "e2", ...args },
+        { email: "slow@example.com", event: "bounce", type: "blocked", timestamp: 1_790_000_002, sg_event_id: "e3", ...args },
+        { email: "anna@example.com", event: "delivered", timestamp: 1_790_000_003, sg_event_id: "e4", ...args },
+        // Someone posts an event naming another business with A's signature, or an unsigned business id.
+        { email: "victim@example.com", event: "spamreport", timestamp: 1_790_000_004, sg_event_id: "e5", ...args, fm_b: OTHER_BUSINESS },
+        { email: "victim@example.com", event: "unsubscribe", timestamp: 1_790_000_005, sg_event_id: "e6", fm_b: OTHER_BUSINESS, business_id: OTHER_BUSINESS },
+      ],
+      SECRET,
+    );
+    expect(ignored).toBe(2);
+    expect(batches.map((b) => b.businessId)).toEqual([TEST_BUSINESS_ID]);
+    expect(batches[0]!.events.map((e) => [e.type, e.businessId])).toEqual([["lead.replied", TEST_BUSINESS_ID]]);
+    expect(batches[0]!.suppress.map((s) => s.reason).sort()).toEqual(["bounced", "unsubscribed"]);
+    expect(batches[0]!.suppress.map((s) => s.emailHash)).toContain(suppressionHashOfEmail("bounced@example.com"));
+  });
+});

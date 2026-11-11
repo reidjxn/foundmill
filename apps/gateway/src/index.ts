@@ -16,6 +16,7 @@ import { createDefaultRegistry, platformSecretsFromEnv, type ConnectorRegistry }
 import { createModelClient, effectiveModelMode, type ModelClient } from "@foundmill/models";
 import { createGatewayApp, type GatewayApp } from "./app";
 import { createGatewayBuiltins, gatewayUsageSink } from "./builtins";
+import { platformMailConfig } from "./platform-mail";
 import type { RepositoryFiles } from "./platform-host";
 import { createRepositoryFiles } from "./repository-files";
 import { gatewayConfig, type GatewayConfig } from "./config";
@@ -129,7 +130,9 @@ export function buildGateway(options: BuildDepsOptions = {}): BuiltGateway {
   // Recipients first seen in untrusted content are one register per business, shared by every session and replica (Redis).
   const recipients: UntrustedRegister = options.recipients ?? (redisClient ? new RedisUntrustedRegister(redisClient, { onFallback: (e) => log.warn({ err: e }, "the untrusted-recipient register fell back to this process's memory") }) : new UntrustedRecipientRegistry());
   const reader: UntrustedReader = options.reader ?? createUntrustedReader(createReaderModelClient(env, db, log));
-  const deps: GatewayDeps = { db, registry, vault, mode: config.integrationsMode, liveConnectors: config.liveConnectors, appEnv: config.appEnv, rateLimits, recipients, reader, log };
+  const platformMail = platformMailConfig(env);
+  if (platformMail.domain && !platformMail.signingSecret && config.appEnv !== "development" && config.appEnv !== "test") log.error({ domain: platformMail.domain }, "PLATFORM_MAIL_DOMAIN is set but PLATFORM_MAIL_SIGNING_SECRET is not: every send from a project's address is refused");
+  const deps: GatewayDeps = { db, registry, vault, mode: config.integrationsMode, liveConnectors: config.liveConnectors, appEnv: config.appEnv, rateLimits, recipients, reader, log, platformMail };
   repositoryFiles = createRepositoryFiles(deps);
   // Until prepare() has run the database is assumed reachable (tests build the graph over an already-migrated PGlite).
   let readiness: DbReadiness | null = null;

@@ -441,6 +441,7 @@ export const EVENT_TYPES = [
   "page.published", "page.unpublished",
   "guidance.tour_completed", "guidance.tour_skipped", "guidance.explainer_dismissed", "guidance.term_opened", "guidance.turned_off",
   "push.sent",
+  "mail.sent",
 ] as const;
 export type EventType = (typeof EVENT_TYPES)[number];
 

@@ -24,4 +24,5 @@ export * from "./table-views";
 export * from "./personas";
 export * from "./goals";
 export * from "./pages";
+export * from "./mail";
 export * from "./demo";

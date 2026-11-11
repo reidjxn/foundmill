@@ -5,7 +5,7 @@
  */
 import { CHANNEL_KEYS, type ChannelKey } from "@foundmill/shared";
 import { describe, expect, it } from "vitest";
-import { createAllConnectors } from "../catalogue";
+import { createAllConnectors, createBuiltinConnectors } from "../catalogue";
 import { ACTING_CONNECTOR_NAMES, CHANNEL_ACTING_TOOLS, channelAvailabilities, channelAvailability, channelAvailabilityFacts, channelAvailabilityRows, channelRefusal, everyChannelAvailable, firstChannelToOpen, type ChannelAvailabilityFacts } from "../channel-availability";
 import { GATEWAY_TOOL_NAMES, isRouteOnlyTool, isServiceOnlyConnector } from "../grants";
 
@@ -39,7 +39,7 @@ describe("CHANNEL_ACTING_TOOLS", () => {
   });
 
   it("has the display name of every connector it names, as the connector itself spells it", () => {
-    const connectors = new Map(createAllConnectors({ secrets: {} }).map((c) => [c.key, c.displayName]));
+    const connectors = new Map([...createAllConnectors({ secrets: {} }), ...createBuiltinConnectors({ secrets: {} })].map((c) => [c.key, c.displayName]));
     const named = new Set(Object.values(CHANNEL_ACTING_TOOLS).flatMap((refs) => refs.map((r) => r.split(":")[0]!)));
     expect(Object.keys(ACTING_CONNECTOR_NAMES).sort()).toEqual([...named].sort());
     for (const key of named) expect(ACTING_CONNECTOR_NAMES[key], key).toBe(connectors.get(key));
@@ -48,7 +48,7 @@ describe("CHANNEL_ACTING_TOOLS", () => {
   it("pins which channels act and which have no publisher yet (edit this list when a publisher is built)", () => {
     const acting = CHANNEL_KEYS.filter((k) => CHANNEL_ACTING_TOOLS[k].length > 0);
     const empty = CHANNEL_KEYS.filter((k) => CHANNEL_ACTING_TOOLS[k].length === 0);
-    expect(CHANNEL_ACTING_TOOLS.email_automation).toEqual(["sendgrid:send_mail"]);
+    expect(CHANNEL_ACTING_TOOLS.email_automation).toEqual(["sendgrid:send_mail", "platform_mail:send_mail"]);
     expect(CHANNEL_ACTING_TOOLS.seo).toEqual(["github:commit_files"]);
     expect(CHANNEL_ACTING_TOOLS.geo).toEqual(["github:commit_files"]);
     expect(acting).toEqual(["email_automation", "seo", "geo"]);
@@ -88,6 +88,20 @@ describe("channelAvailability", () => {
     expect(channelAvailability("email_automation", facts({ liveConnectors: "all", connectedConnectors: ["github"] })).available).toBe(false);
   });
 
+  it("the Foundmill sending address opens email for every project, with nothing to connect, and is never named as the founder's step", () => {
+    expect(channelAvailability("email_automation", facts({ platformMail: true }))).toEqual({ available: true, reason: "acts" });
+    expect(channelAvailability("email_automation", facts({ liveConnectors: ["sendgrid"], platformMail: true }))).toEqual({ available: true, reason: "acts" });
+    // The founder's own SendGrid still opens it, as before.
+    expect(channelAvailability("email_automation", facts({ liveConnectors: ["sendgrid"], connectedConnectors: ["sendgrid"], platformMail: false }))).toEqual({ available: true, reason: "acts" });
+    // Off: the reason names SendGrid, never the platform address.
+    expect(channelAvailability("email_automation", facts({ platformMail: false }))).toEqual({ available: false, reason: "not_connected", connectorKey: "sendgrid", connectable: false });
+    // It opens nothing but email.
+    expect(channelAvailability("seo", facts({ platformMail: true })).available).toBe(false);
+    const rows = channelAvailabilityRows(facts({ liveConnectors: ["sendgrid"], platformMail: true }));
+    expect(rows.email_automation.sentence).toBeNull();
+    expect(firstChannelToOpen(rows)).toBeNull();
+  });
+
   it("any one of several acting tools is enough", () => {
     const table = { ...CHANNEL_ACTING_TOOLS, social: ["sendgrid:send_mail", "github:commit_files"] } as Record<ChannelKey, readonly string[]>;
     expect(channelAvailability("social", facts({ liveConnectors: ["github"], connectedConnectors: ["github"] }), table)).toEqual({ available: true, reason: "acts" });
@@ -106,7 +120,11 @@ describe("channelAvailabilityFacts", () => {
 
   it("reads the deployment's live connectors, the business's connected integrations and the sample rule", () => {
     const staging = channelAvailabilityFacts({ APP_ENV: "staging", INTEGRATIONS_MODE: "mock", LIVE_CONNECTORS: "github, domains" }, { isDemo: false }, integrations);
-    expect(staging).toEqual({ liveConnectors: ["github", "domains"], connectedConnectors: ["github", "stripe"], mockResultsAllowed: false });
+    expect(staging).toEqual({ liveConnectors: ["github", "domains"], connectedConnectors: ["github", "stripe"], mockResultsAllowed: false, platformMail: false });
+    // The Foundmill sending address: on only with its domain set and SendGrid live.
+    expect(channelAvailabilityFacts({ APP_ENV: "production", INTEGRATIONS_MODE: "mock", LIVE_CONNECTORS: "sendgrid", PLATFORM_MAIL_DOMAIN: "mail.foundmill.com" }, { isDemo: false }, []).platformMail).toBe(true);
+    expect(channelAvailabilityFacts({ APP_ENV: "production", INTEGRATIONS_MODE: "mock", LIVE_CONNECTORS: "", PLATFORM_MAIL_DOMAIN: "mail.foundmill.com" }, { isDemo: false }, []).platformMail).toBe(false);
+    expect(channelAvailabilityFacts({ APP_ENV: "production", INTEGRATIONS_MODE: "live", LIVE_CONNECTORS: "" }, { isDemo: false }, []).platformMail).toBe(false);
     expect(channelAvailabilityFacts({ APP_ENV: "production", INTEGRATIONS_MODE: "live", LIVE_CONNECTORS: "" }, { isDemo: false }, []).liveConnectors).toBe("all");
   });
 

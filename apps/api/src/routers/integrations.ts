@@ -6,7 +6,7 @@
  */
 import { isServiceOnlyConnector, type HealthResult } from "@foundmill/connectors";
 import { repos, type Executor } from "@foundmill/db";
-import { AppError, connectorMode, ForbiddenError } from "@foundmill/shared";
+import { AppError, connectorMode, ForbiddenError, platformMailAddress, platformMailDomain, platformMailLive } from "@foundmill/shared";
 import { z } from "zod";
 import type { GatewayConnectResult } from "../services/gateway";
 import { oauthRedirectUri, signConnectState, signInstallState, verifyConnectState, verifyInstallState } from "../services/install-state";
@@ -46,6 +46,29 @@ export const integrationsRouter = router({
       };
     }),
   ),
+
+  /**
+   * The project's Foundmill sending address (package 1.5), for Settings › Integrations: null when the deployment has no
+   * sending domain (no row is shown). The address is chosen here on first view if no send chose it yet (service
+   * connection: no app role writes `project_mail`), then kept. `sentToday` counts `mail.sent` since midnight UTC, the
+   * window the gateway's cap uses; `cap` is the operator's override for this project, else the deployment's default.
+   */
+  platformMail: read.query(async ({ ctx }) => {
+    const domain = platformMailDomain(ctx.env);
+    if (!domain) return null;
+    const row = await repos.projectMail.ensure(ctx.db, ctx.businessId);
+    const now = new Date();
+    const since = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+    const { counts, own } = await ctx.rls(async (tx) => ({ counts: await repos.events.countByType(tx, ctx.businessId, { from: since }), own: await repos.integrations.getByKey(tx, ctx.businessId, "sendgrid") }));
+    return {
+      address: platformMailAddress(row.localPart, domain),
+      sentToday: counts["mail.sent"] ?? 0,
+      cap: row.dailyCap ?? ctx.env.PLATFORM_MAIL_DAILY_CAP,
+      paused: row.status !== "active",
+      live: platformMailLive(ctx.env),
+      ownSender: own !== null && own.archivedAt === null && (own.status === "connected" || own.status === "degraded"),
+    };
+  }),
 
   connect: admin.input(z.object({ connectorKey: z.string().min(1).max(60), input: z.record(z.string(), z.unknown()).default({}) })).mutation(async ({ ctx, input }) => {
     const mode = connectorMode(ctx.env, input.connectorKey);

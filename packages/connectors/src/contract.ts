@@ -146,6 +146,24 @@ export interface ToolContext {
    * in place of the old one, so the next call reuses it instead of refreshing again. Connectors call it best effort.
    */
   onCredentialRefreshed?: (credential: DecryptedCredential) => Promise<void>;
+  /**
+   * Set by the gateway for `platform_mail` only, after its guards ran (package 1.5): the project's Foundmill address and
+   * what every message carries. Never an argument of the call, so an agent can neither choose the sender nor the
+   * custom args that bind delivery events back to the project.
+   */
+  platformMail?: PlatformMailEnvelope;
+}
+
+/** What the gateway hands `platform_mail.send_mail` (see `ToolContext.platformMail`). */
+export interface PlatformMailEnvelope {
+  /** `<local part>@<PLATFORM_MAIL_DOMAIN>` and the project's name. Also the Reply-To: replies come back into Foundmill. */
+  from: { email: string; name: string };
+  /** The gateway's id for this message (uuid), signed into `customArgs`. */
+  messageRef: string;
+  /** One-click unsubscribe for this recipient (RFC 8058), signed for the project. */
+  unsubscribeUrl: string;
+  /** `fm_b` (business id), `fm_m` (message ref), `fm_s` (their signature): SendGrid echoes them in every delivery event. */
+  customArgs: Record<string, string>;
 }
 
 /** Hand a refreshed credential to the host (`ctx.onCredentialRefreshed`); a failure to store it never fails the call. */

@@ -5,9 +5,11 @@ export const channelEmailAutomation = defineChannelTemplate({
   name: "Email Automation Engine",
   role: "Email and lifecycle specialist",
   work: ["lifecycle flows (onboarding, activation, dunning, win-back)", "cohort broadcasts", "1:1 customer emails", "outbound sequences", "reply drafting"],
-  connectors: [grant("sendgrid", ["mail.send", "campaigns.create", "campaigns.schedule", "stats.read", "suppressions.read"])],
+  // The founder's own SendGrid when connected; otherwise the project's Foundmill sending address (package 1.5).
+  connectors: [grant("sendgrid", ["mail.send", "campaigns.create", "campaigns.schedule", "stats.read", "suppressions.read"]), grant("platform_mail", ["mail.send"])],
   guardrails: [
-    "Send only from the business's sending subdomain with SPF, DKIM and DMARC verified; warm up new domains; never send from the founder's personal address.",
+    "Send only from the business's sending subdomain with SPF, DKIM and DMARC verified, or from the project's own address (platform_mail) when the founder has not connected their own; warm up new domains; never send from the founder's personal address.",
+    "The project's own address sends one message to one person at a time, within a daily limit; a refusal (limit reached, unsubscribed, not switched on) means nothing was sent: say so, never retry around it.",
     "Every marketing email carries one-click unsubscribe, the sender's identity and physical address; transactional emails stay transactional.",
     "Spam rate above 0.3% auto-pauses the engine and reports to the Inbox; resume only after the founder decides.",
     "Replies are drafted, never sent, until the sequence or playbook has approval for that step.",

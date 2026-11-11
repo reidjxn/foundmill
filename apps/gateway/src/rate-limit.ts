@@ -17,6 +17,11 @@ export interface RateLimitHit {
 export interface RateLimitStore {
   /** Increments the counter for `key` inside a fixed window of `windowMs` and returns the new count. */
   hit(key: string, windowMs: number, now: number): Promise<RateLimitHit>;
+  /**
+   * Gives back one count in the current window (a counted send that did not go out: refused by the next guard, or by the
+   * vendor). Optional: a store without it keeps the count, which only errs on the strict side.
+   */
+  release?(key: string, windowMs: number, now: number): Promise<void>;
 }
 
 export class MemoryRateLimitStore implements RateLimitStore {
@@ -32,6 +37,11 @@ export class MemoryRateLimitStore implements RateLimitStore {
     const fresh = { count: 1, resetAt: windowStart(now, windowMs) + windowMs };
     this.counters.set(key, fresh);
     return { ...fresh };
+  }
+
+  async release(key: string, windowMs: number, now: number): Promise<void> {
+    const current = this.counters.get(key);
+    if (current && current.resetAt > now && current.resetAt === windowStart(now, windowMs) + windowMs && current.count > 0) current.count -= 1;
   }
 
   /** Current count without incrementing (tests, diagnostics). */
@@ -50,6 +60,7 @@ export class MemoryRateLimitStore implements RateLimitStore {
 export interface RedisCounter {
   incr(key: string): Promise<number>;
   pexpire(key: string, milliseconds: number): Promise<unknown>;
+  decr?(key: string): Promise<number>;
 }
 
 export interface RedisRateLimitStoreOptions {
@@ -98,6 +109,16 @@ export class RedisRateLimitStore implements RateLimitStore {
       this.degraded = true;
       this.retryAt = now + (this.options.retryAfterMs ?? 30_000);
       return this.fallback.hit(key, windowMs, now);
+    }
+  }
+
+  async release(key: string, windowMs: number, now: number): Promise<void> {
+    if (this.degraded && now < this.retryAt) return this.fallback.release(key, windowMs, now);
+    if (!this.redis.decr) return;
+    try {
+      await this.redis.decr(`${key}:${windowStart(now, windowMs)}`);
+    } catch {
+      // Best effort: a count that stays only errs on the strict side.
     }
   }
 }

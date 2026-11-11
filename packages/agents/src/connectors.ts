@@ -20,6 +20,8 @@ export const PLATFORM_CONNECTOR_KEYS = [
   "web",
   /** Haiku quarantined reader as a tool: read_untrusted(schema, content) → typed JSON (BUILD §9.8). */
   "quarantine",
+  /** The project's Foundmill sending address (package 1.5): mail.send, one message to one person from the project. */
+  "platform_mail",
 ] as const;
 
 export const THIRD_PARTY_CONNECTOR_KEYS = [

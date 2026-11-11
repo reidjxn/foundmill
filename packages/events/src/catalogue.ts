@@ -1620,6 +1620,36 @@ const pageUnpublished = declareEvent("page.unpublished", PageFacts, {
 });
 
 // ---------------------------------------------------------------------------------------------------
+// A message sent from the project's Foundmill address (0078, package 1.5)
+// ---------------------------------------------------------------------------------------------------
+
+const mailSent = declareEvent(
+  "mail.sent",
+  z.object({
+    /** The gateway's own id for the message, signed into its custom args: delivery events are bound to the project by it. */
+    messageRef: Id,
+    /** SendGrid's `X-Message-Id` (live), or the mock's id (simulated). */
+    messageId: z.string().min(1).max(200),
+    /** sha256 hex of the recipient's address, trimmed and lowercased (`suppressionHash`); never the address itself. */
+    recipientHash: z.string().regex(/^[0-9a-f]{64}$/),
+    /** The local part it was sent from (`<fromLocalPart>@<PLATFORM_MAIL_DOMAIN>`). */
+    fromLocalPart: z.string().min(3).max(40),
+    channelKey: ChannelKey.nullable().default(null),
+    agentId: Id.nullable().default(null),
+    sessionId: Id.nullable().default(null),
+    /** True when the mock ran (SendGrid not live on the gateway): nothing left Foundmill. */
+    simulated: z.boolean(),
+  }),
+  {
+    // North star (CLAUDE.md, founder 2026-11-11): a `mail.sent` with `simulated: false` is a real outcome of its week; a
+    // simulated one never counts. The measure reads this flag; it is not built yet.
+    doc: "An agent sent one message from the project's Foundmill sending address through the gateway, after the policy for outside contact, the suppression list, the project's daily cap and the platform's ceiling. A real outside action when `simulated` is false (the north star counts only those). Never narrated on its own; a reply, if one comes, is `lead.replied`.",
+    consumers: ["stream", "metrics"],
+    narratable: false,
+  },
+);
+
+// ---------------------------------------------------------------------------------------------------
 // Registry
 // ---------------------------------------------------------------------------------------------------
 
@@ -1692,6 +1722,7 @@ export const EVENTS = {
   "guidance.term_opened": guidanceTermOpened,
   "guidance.turned_off": guidanceTurnedOff,
   "push.sent": pushSent,
+  "mail.sent": mailSent,
 } as const satisfies { readonly [K in EventTypeT]: EventDeclaration<K> };
 
 export type EventsRegistry = typeof EVENTS;

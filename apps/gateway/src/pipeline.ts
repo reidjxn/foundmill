@@ -29,6 +29,8 @@ import {
   isServiceOnlyConnector,
   isUntrusted,
   mockIntegrationRecord,
+  modeKeyOf,
+  PLATFORM_MAIL_KEY,
   readForQuarantine,
   toAgentEnvelope,
   type Connector,
@@ -51,6 +53,7 @@ import { checkRateLimit, type RateLimitStore } from "./rate-limit";
 import { candidatesFromArgs, candidatesFromContent, hashRecipient, type RecipientCandidate, type UntrustedRegister } from "./recipients";
 import { checkByokKey, SessionStateCache, stateDenial, type StateDenial } from "./state";
 import { sessionKey, toolAllowed, toolRef, type SessionToken } from "./tokens";
+import { preparePlatformMail, type PlatformMailConfig, type PreparedPlatformMail } from "./platform-mail";
 import { SIMULATED_NOTICE, type AllowResponse, type AskResponse, type CallRequestParsed, type CallResponse, type DenyResponse, type RateLimitedResponse } from "./types";
 
 export interface GatewayLogger extends ToolLogger {
@@ -93,6 +96,8 @@ export interface GatewayDeps {
    * `validateApiKey` in live mode. Tests pass one over a fake Anthropic.
    */
   validateModelKey?: (apiKey: string) => Promise<KeyValidation>;
+  /** A project's Foundmill sending address (platform-mail.ts); absent or with no domain, `platform_mail` refuses every send. */
+  platformMail?: PlatformMailConfig;
 }
 
 const defaultStateCaches = new WeakMap<GatewayDeps, SessionStateCache>();
@@ -113,10 +118,11 @@ export interface ToolCallResult {
 
 /**
  * The mode one connector runs in for this gateway. The built-in `platform` and `quarantine` connectors always run live:
- * their live side is the platform's own database and model client (ALWAYS_LIVE_CONNECTORS), never a vendor.
+ * their live side is the platform's own database and model client (ALWAYS_LIVE_CONNECTORS), never a vendor. A connector
+ * whose switch is another's follows it (`modeKeyOf`: `platform_mail` runs live exactly where `sendgrid` does).
  */
 export function modeFor(deps: Pick<GatewayDeps, "mode" | "liveConnectors">, connectorKey: string): ConnectorMode {
-  return deps.mode === "live" || deps.liveConnectors?.includes(connectorKey) || ALWAYS_LIVE_CONNECTORS.has(connectorKey) ? "live" : deps.mode;
+  return deps.mode === "live" || deps.liveConnectors?.includes(modeKeyOf(connectorKey)) || ALWAYS_LIVE_CONNECTORS.has(connectorKey) ? "live" : deps.mode;
 }
 
 /** Thrown for request errors that are not policy outcomes (unknown connector/tool, missing integration...). */
@@ -381,6 +387,26 @@ const rethrowNotFound =
     if (e instanceof NotFoundError) throw new GatewayError(`${what}_not_found`, `${what} ${id} is not available to this gateway`, 404, { [what]: id });
     throw e;
   };
+
+/**
+ * `mail.sent` for a message that left from the project's Foundmill address (through the outbox). The vendor call has
+ * run, so a failure to write it is logged, never returned.
+ */
+async function recordPlatformMailSent(deps: GatewayDeps, session: SessionToken, sent: PreparedPlatformMail, result: ToolResult, mode: ConnectorMode, log: GatewayLogger): Promise<void> {
+  const data = (result.data ?? {}) as { messageId?: unknown };
+  try {
+    await deps.db.transaction((tx) =>
+      writeGatewayEvent(tx, {
+        businessId: session.businessId,
+        type: "mail.sent",
+        actor: { kind: "agent", id: session.agentId },
+        payload: { messageRef: sent.envelope.messageRef, messageId: typeof data.messageId === "string" && data.messageId ? data.messageId.slice(0, 200) : sent.envelope.messageRef, recipientHash: sent.recipientHash, fromLocalPart: sent.localPart, channelKey: null, agentId: session.agentId, sessionId: session.sessionId, simulated: mode === "mock" },
+      }),
+    );
+  } catch (e) {
+    log.error({ err: safeError(e) }, "message sent from the project's address but mail.sent could not be written");
+  }
+}
 
 /** Gateway errors raised before the vendor is called: the call did nothing. */
 const NOT_RUN_ERRORS = new Set(["vault_unavailable", "integration_not_connected", "connector_unconfigured"]);
@@ -716,12 +742,31 @@ async function allow(deps: GatewayDeps, session: SessionToken, req: CallRequestP
     return { status: 403, body: { outcome: "deny", reasons, policyIds: [GITHUB_PUSH_SETTINGS_POLICY_ID], costMinor: 0, auditId: audit.id } };
   }
 
+  // A project's Foundmill sending address: its own guards, after Cedar and before the vendor (platform-mail.ts).
+  let platformMail: PreparedPlatformMail | null = null;
+  if (connector.key === PLATFORM_MAIL_KEY) {
+    const decision = await preparePlatformMail({ db: deps.db, rateLimits: deps.rateLimits, config: deps.platformMail, ...(deps.appEnv !== undefined ? { appEnv: deps.appEnv } : {}) }, { business: loaded.business, args: guarded.args, mode, now: now().getTime() });
+    if (!decision.ok) {
+      const reasons = [decision.reason];
+      const audit = await appendAudit(deps, session, req, { outcome: "deny", reasons, policyIds: [decision.policyId] });
+      log.info({ policyId: decision.policyId }, "tool call refused: Foundmill sending address");
+      return { status: 403, body: { outcome: "deny", reasons, policyIds: [decision.policyId], costMinor: 0, auditId: audit.id } };
+    }
+    platformMail = decision.prepared;
+    ctx.platformMail = platformMail.envelope;
+  }
+
   let result: ToolResult;
   try {
     result = await connector.callTool(tool.name, guarded.args, ctx);
   } catch (e) {
+    await platformMail?.release();
     if (isConfigError(e)) throw new GatewayError("connector_unconfigured", e.message, 503, { connector: connector.key });
     throw e;
+  }
+  if (platformMail) {
+    if (!result.ok) await platformMail.release();
+    else await recordPlatformMailSent(deps, session, platformMail, result, mode, log);
   }
 
   // Untrusted content: the agent receives the envelope; its recipients are remembered for this session (BUILD §9.8).
