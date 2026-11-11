@@ -1,5 +1,5 @@
 /** 0002 — founder profiles, businesses, ideas (+ the businessId() helper every business-scoped table uses); 0022 — account preferences; 0025 — the business currency. */
-import { AGENT_STOP_REASONS, AGENT_STYLES, ARCHETYPES, AUTOPILOT_CADENCES, AUTOPILOT_PAUSE_REASONS, BUSINESS_MODES, DATA_REGIONS, DATE_FORMAT_PREFERENCES, GAME_MODES, GUIDANCE_MODES, MODEL_BILLING, PLAN_TIERS, TEXT_SIZES, TIME_FORMAT_PREFERENCES, VISIBILITY } from "@foundmill/shared";
+import { AGENT_STOP_REASONS, AGENT_STYLES, ARCHETYPES, AUTOPILOT_CADENCES, AUTOPILOT_PAUSE_REASONS, BUSINESS_MODES, DATA_REGIONS, DATE_FORMAT_PREFERENCES, DEVICE_PLATFORMS, GAME_MODES, GUIDANCE_MODES, MODEL_BILLING, PLAN_TIERS, PUSH_PROVIDERS, TEXT_SIZES, TIME_FORMAT_PREFERENCES, VISIBILITY, type NotificationPrefs } from "@foundmill/shared";
 import { sql } from "drizzle-orm";
 import { boolean, char, index, integer, jsonb, numeric, pgTable, text, uniqueIndex, uuid, type AnyPgColumn } from "drizzle-orm/pg-core";
 import { authUsers } from "drizzle-orm/supabase";
@@ -59,11 +59,38 @@ export const accountPreferences = pgTable("account_preferences", {
   checklistDismissedAt: tstz("checklist_dismissed_at"),
   anthropomorphicAgents: boolean("anthropomorphic_agents").notNull().default(false),
   agentStyle: text("agent_style", { enum: AGENT_STYLES }).notNull().default("humans"),
+  /** 0075 — which kinds of push the person's phones get (`{ customer: false }`; an absent kind is on). */
+  notifications: jsonb("notifications").$type<Partial<NotificationPrefs>>().notNull().default(emptyObject),
+  /** 0075 — keep money amounts out of lock-screen notifications. */
+  hideAmountsOnLockScreen: boolean("hide_amounts_on_lock_screen").notNull().default(false),
   builderView: boolean("builder_view").notNull().default(false),
   ...timestamps(),
 });
 export type AccountPreferences = typeof accountPreferences.$inferSelect;
 export type NewAccountPreferences = typeof accountPreferences.$inferInsert;
+
+/**
+ * 0073 — the phones a signed-in person registered for push from the mobile companion app (docs/mobile): one row per
+ * provider subscription id, owned by the account that signed in on that phone last. Account-scoped like
+ * account_preferences; each person reads, writes and deletes only their own rows, the service role reads them all to
+ * send.
+ */
+export const founderDevices = pgTable(
+  "founder_devices",
+  {
+    id: id(),
+    userId: uuid("user_id").notNull().references(() => authUsers.id, { onDelete: "cascade" }),
+    platform: text("platform", { enum: DEVICE_PLATFORMS }).notNull(),
+    provider: text("provider", { enum: PUSH_PROVIDERS }).notNull().default("onesignal"),
+    token: text("token").notNull().unique(),
+    appVersion: text("app_version").notNull().default(""),
+    lastSeenAt: tstz("last_seen_at").notNull().defaultNow(),
+    ...timestamps(),
+  },
+  (t) => [index("founder_devices_user_id_idx").on(t.userId, t.lastSeenAt)],
+);
+export type FounderDevice = typeof founderDevices.$inferSelect;
+export type NewFounderDevice = typeof founderDevices.$inferInsert;
 
 export const businesses = pgTable(
   "businesses",

@@ -27,6 +27,7 @@ import { createStripeConnector } from "./connectors/stripe";
 import { createTinkConnector } from "./connectors/tink";
 import { createVoyageConnector } from "./connectors/voyage";
 import { createOpenaiImagesConnector } from "./connectors/openai_images";
+import { createOnesignalConnector } from "./connectors/onesignal";
 import { createPlatformConnector } from "./connectors/platform";
 import { createQuarantineConnector } from "./connectors/quarantine";
 import { createWebConnector } from "./connectors/web";
@@ -38,6 +39,7 @@ export const CONNECTOR_FACTORIES: Readonly<Record<string, ConnectorFactory>> = O
   anthropic: createAnthropicConnector,
   voyage: createVoyageConnector,
   openai_images: createOpenaiImagesConnector,
+  onesignal: createOnesignalConnector,
   github: createGithubConnector,
   google_drive: createGoogleDriveConnector,
   gmail: createGmailConnector,

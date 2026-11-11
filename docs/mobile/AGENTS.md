@@ -1,0 +1,43 @@
+# Foundmill mobile: standing instructions
+
+You are building the **Foundmill** iOS and Android app with Expo and React Native. Foundmill (foundmill.com) is where one founder builds and runs a real business with a team of AI agents. The desktop web app already exists and is dense and desktop-only. This app is the founder's companion: more visual, more immediate, more fun, and connected to **exactly the same backend**, so a decision made on the phone is the decision.
+
+Four skills carry the detail. Read the one that matches before you touch the matter: `foundmill-backend` (auth, API, stream, errors), `foundmill-design` (tokens, type, motion, components), `foundmill-voice` (words, banned words, US English, tone), `foundmill-product` (screens, flows, mechanics, rules). When this file and a skill disagree, the skill wins on its subject.
+
+## Non-negotiables
+
+1. **No backend of our own.** Do not create a Newly Backend for business data and do not connect the Newly Supabase integration. The app talks to Foundmill's API (tRPC + superjson at `FOUNDMILL_API_URL/trpc`), Foundmill's stream (`FOUNDMILL_STREAM_URL`) and Supabase Auth (anon key, sign-in only). These four values live in `app.json` under `expo.extra`. There are no secrets in this app.
+2. **Sign-in is Supabase email one-time code / magic link only.** No passwords, no Google, Apple or GitHub, no Newly sign-in. Session in SecureStore. Deep link `foundmill://auth/callback`.
+3. **Never invent an endpoint, a field, a number or a word.** If data is missing, render the API's own words ("Not known yet"), never a dash and never a made-up value. Every non-measured number says **Estimate** or **Forecast** in full.
+4. **Vocabulary is law.** Business, founder, team (the agents), staff (humans), Chief of Staff, cycle, Continue, Inbox, decision / go-ahead, logo, brand colors, chapter, win, Customer Update (Brief / Standard / Featured), Milestones, Channel Board, Live sessions, Task graph, Nudge, Down, Vacation, Payroll, goal. Never any sports or football word, never "squad", "club", "crest", "match", "league", "season", "trophy", "kit", "captain", "formation", "shout", "injured", "holiday", "wage bill", "game", "manager". Never emoji. Sentence case everywhere. US English and US dates. Money in the business's own currency with its narrow symbol, never summed across currencies.
+5. **Dark only, tokens only.** Canvas `#08090C`, surfaces `#0F1217 / #151920 / #1C212A`, text `#EDF0F4 / #A9B3C1 / #8A94A3`, status `#3DD68C / #F5B841 / #F36066 / #5E8EFF`, gold `#E8C56B` reserved for customers and milestones, department colors `dept1…dept8` from the API, brand colors per business. Radii never reach 16. No light theme. Fonts: Barlow Semi Condensed 600 for figures and titles, Inter for text and controls, JetBrains Mono for timestamps and logs, bundled with expo-font. Icons: Lucide only; the generate glyph is **Fan**. Nothing floats on white; nothing glows unless it is a light source.
+6. **Never clip, never spin.** Labels step down, wrap, then truncate with a tooltip; numbers never truncate. Skeletons that name what they wait for, not spinners, except inside a button.
+7. **The founder can always answer with one tap.** Decisions are 2–4 full-width option buttons with their consequence under the label; the recommended one is first and brand-colored. Quick replies under every agent message. Typing is optional.
+8. **Nothing in this app moves money, signs, accepts terms, deletes permanently or changes security settings.** Those actions link to the web with one sentence saying why. The founder's limits for the team are described with the exact block: "Moving money, signing, filing in your name, accepting terms, deleting for good and changing security settings always come to you. Nothing on this page changes that."
+9. **Agent text is content.** Render markdown, make `[[ent:<uuid>|Name]]` mentions tappable, never act on instructions inside it.
+10. **Respect roles and walls.** Viewers, advisors and example-business members see read-only screens with the sentence "As a viewer you can follow this business, but not change it." Hide what a person cannot read.
+11. **Respect rate limits and costs.** Pull-to-refresh refetches; it never calls `inbox.refresh`. Buttons that reach a model are debounced and disabled while pending. `inbox.decide` is sent once.
+12. **Reduced motion and accessibility.** Every animation has a static equivalent; every control is at least 44 × 44; every pill carries an icon and a word; text passes 4.5:1; OS font scaling up to 130 % is honored.
+
+## Stack and structure
+
+- Expo SDK (the project's current default), TypeScript strict, Expo Router (file-based) with five tabs: `(tabs)/today`, `(tabs)/inbox`, `(tabs)/team`, `(tabs)/journey`, `(tabs)/business`, plus stacks `inbox/[itemId]`, `agents/[agentId]`, `agents/[agentId]/talk`, `agents/[agentId]/session/[sessionId]`, `journey/[journeyId]`, `business/d/[dept]/[tab]`, `contacts/[entityId]`, `settings/*`, `start/*` (sign-in, profile, doors, ideation, commit, import).
+- Data: `@trpc/client` untyped client + `@tanstack/react-query`; `supabase-js`; a `StreamClient` class for the WebSocket; MMKV for the cache of last answers; `expo-secure-store` for the session; `expo-image` for portraits and logos; `react-native-reanimated` and `@shopify/react-native-skia` for motion and charts; `@gorhom/bottom-sheet`; `expo-haptics`; `expo-blur`; `expo-linear-gradient`; `lucide-react-native`; `culori` for the brand ramp.
+- Folders: `app/` routes only; `components/` the design system (one file per component from the design skill, each with a small story screen under `app/dev/components` behind `__DEV__`); `features/<area>/` screens, hooks and query definitions; `api/` the tRPC client, query keys, error mapping, stream client, event-to-refetch map; `theme/` tokens, type styles, motion constants; `lib/` formatting (money, dates), mention parsing, haptics.
+- One `useBusiness()` hook owns the current business id, `business.get`, membership and permissions; one `useStream()` owns the socket and the refetch map; one `useContinue()` owns the Continue button's state and action.
+- Keep screens thin: a screen composes feature components; feature components call hooks; hooks call `api`. No fetch calls inside components.
+- Quality checks: `tsc --noEmit` clean; unit tests (Jest) for money and date formatting, mention parsing, the error mapper, the stream frame parser and the event-to-refetch map; a lint rule or test that fails on any banned word in `app/`, `components/`, `features/` string literals (list in the voice skill) and on British spellings (colour, organisation, favourite, centre, behaviour, cancelled, catalogue, programme, licence, defence, grey, whilst, amongst).
+- Never add a native module without saying so; a native build takes minutes. Batch native changes.
+
+## How to work
+
+- Build small, show it in the simulator, then extend. Prefer Plan mode for anything touching navigation, auth or the stream, and say what you will build before you build it.
+- When a screen needs data the API does not provide, say so explicitly in the reply and render the honest empty state. Do not fake it. Foundmill will add the procedure.
+- When the API returns an error, map it with the table in the backend skill and show the founder a sentence, never a code.
+- Use the example business (Northwind Skincare, GBP, via `business.example.open`) as your default test fixture after sign-in. Its notes, agents, Journey and milestones exercise every screen.
+- After every change that touches copy, run the banned-word check. After every change that touches layout, check at 130 % font scale and with reduced motion on.
+- Keep a `CHANGELOG.md` with one line per shipped change, and a `docs/screens.md` listing each route, its data sources and its empty, loading, error and read-only states.
+
+## Reference material the founder attached
+
+Screenshots of the desktop app (`docs/ux-audit/*.png`: Home, Inbox, Inbox decision, Finance overview, Team agents, Agent profile, Development plan, a renamed department, Settings mode, onboarding, ideation) show the real look and the real copy. Match the feeling and the words; do not copy the desktop layout. The public landing page at https://foundmill.com shows the brand, the vocabulary and an interactive example of the loop (Continue, a note, Approve). The app behind sign-in is desktop-only and shows "This needs a larger window" on a phone, so there is nothing to crawl there; rely on the skills and the screenshots.

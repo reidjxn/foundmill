@@ -142,7 +142,13 @@ export async function cycleStatus(ctx: CycleScope): Promise<CycleStatus> {
   const openSince = startedOpen ? (latestStart?.occurredAt ?? null) : (queuedEntry?.createdAt ?? null);
 
   const pauseEntry = pauses.items[0] ?? null;
-  const paused = open && pauseEntry !== null && pauseEntry.action === PAUSE_ACTION && openSince !== null && pauseEntry.createdAt >= openSince;
+  // A pause belongs to the open cycle when its audit row names that cycle's workflow (Nov 9, 2026: a pause pressed
+  // while the orchestrator was still planning came before `cycle.started`, so the time test alone read it as an old
+  // pause; the workflow held on the signal with no way to resume). The time test stays for rows without a workflow id.
+  const openWorkflowId = startedOpen ? str(latestStartPayload.workflowId) : str(queuedDetails.workflowId);
+  const pauseWorkflowId = str(asRecord(pauseEntry?.details).workflowId);
+  const pauseIsOpenCycles = pauseEntry !== null && (pauseWorkflowId !== null && openWorkflowId !== null ? pauseWorkflowId === openWorkflowId : openSince !== null && pauseEntry.createdAt >= openSince);
+  const paused = open && pauseEntry !== null && pauseEntry.action === PAUSE_ACTION && pauseIsOpenCycles;
   const pausedTaskIds = paused && Array.isArray(asRecord(pauseEntry?.details).pausedTaskIds) ? (asRecord(pauseEntry?.details).pausedTaskIds as unknown[]).filter((id): id is string => typeof id === "string") : [];
 
   const deptOf = new Map(agents.items.map((a) => [a.id, a.departmentIds]));
@@ -153,7 +159,7 @@ export async function cycleStatus(ctx: CycleScope): Promise<CycleStatus> {
   const numbers = [...started, ...completed].map((e) => num(asRecord(e.payload).cycleNumber) ?? 0);
   for (const q of queuedEntries) numbers.push(num(asRecord(q.details).cycleNumber) ?? 0);
   const maxNumber = numbers.reduce((m, n) => Math.max(m, n), 0);
-  const workflowId = startedOpen ? str(latestStartPayload.workflowId) : str(queuedDetails.workflowId);
+  const workflowId = openWorkflowId;
   const openRun = openRunOf(events.items, Date.now());
   const run: CycleRun | null = openRun ? { id: openRun.runId, startedAt: new Date(openRun.startedAt).toISOString(), rounds: runRoundsOf(completed, openRun.startedAt).rounds } : null;
   return {

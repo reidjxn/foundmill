@@ -90,6 +90,9 @@ function controlledGateway() {
     repository: async () => {
       throw new Error("unused");
     },
+    sendPush: async () => {
+      throw new Error("unused");
+    },
   } satisfies ApiGatewayClient;
   return { gateway, calls, peak: () => peak };
 }

@@ -167,7 +167,9 @@ export const agentRouter = router({
           versions,
           skills: skills.map((k) => {
             const d = definitions.find((x) => x.skillKey === k.skillKey);
-            return { ...k, name: d?.name ?? null, source: d?.source ?? (d?.custom ? ("custom" as const) : null) };
+            // The name a person reads: the business's own definition, else the platform catalogue's ("Prioritization"), so a
+            // client without the catalogue (the mobile app) never shows a key or a blank.
+            return { ...k, name: d?.name ?? getSkillDefinition(k.skillKey)?.name ?? null, source: d?.source ?? (d?.custom ? ("custom" as const) : null) };
           }),
           traits,
           metrics,

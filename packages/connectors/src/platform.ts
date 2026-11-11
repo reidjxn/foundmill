@@ -15,6 +15,9 @@ export interface PlatformSecrets {
   voyageApiKey?: string;
   /** Image generation for the faces of anthropomorphic agents (the `openai_images` connector). */
   openaiApiKey?: string;
+  /** Push to the mobile app's phones (the `onesignal` connector): the OneSignal app id and its REST API key. */
+  onesignalAppId?: string;
+  onesignalApiKey?: string;
   e2bApiKey?: string;
   stripeSecretKey?: string;
   stripeWebhookSecret?: string;
@@ -64,6 +67,8 @@ export function platformSecretsFromEnv(env: Env = loadEnv()): PlatformSecrets {
   set("anthropicApiKey", env.ANTHROPIC_API_KEY);
   set("voyageApiKey", env.VOYAGE_API_KEY);
   set("openaiApiKey", env.OPENAI_API_KEY);
+  set("onesignalAppId", env.ONESIGNAL_APP_ID);
+  set("onesignalApiKey", env.ONESIGNAL_API_KEY);
   set("e2bApiKey", env.E2B_API_KEY);
   set("stripeSecretKey", env.STRIPE_SECRET_KEY);
   set("stripeWebhookSecret", env.STRIPE_WEBHOOK_SECRET);

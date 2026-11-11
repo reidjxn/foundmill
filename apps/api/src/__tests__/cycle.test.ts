@@ -196,6 +196,33 @@ describe("business.continue / pauseCycle with Temporal reachable", () => {
     expect((await owner.cycle.continueState({ businessId })).kind).toBe("idle");
   });
 
+  it("a pause pressed while the orchestrator is still planning is still the open cycle's once cycle.started lands (Nov 9, 2026)", async () => {
+    const owner = hz.caller({ userId: hz.A.ownerId });
+    const { businessId } = hz.A;
+    const press = await owner.business.continue({ businessId });
+    expect(press.action).toBe("started");
+    const workflowId = `cycle:${businessId}:${press.status.cycleNumber}`;
+    // The second tap lands three seconds after the first: the cycle is queued, nothing has started.
+    const paused = await owner.business.pauseCycle({ businessId });
+    expect(paused.paused).toBe(true);
+    expect(temporal.signals.at(-1)).toMatchObject({ workflowId, signal: "pause" });
+    expect((await owner.cycle.continueState({ businessId })).kind).toBe("idle");
+    // The orchestrator's planCycle finishes and startCycle writes cycle.started, after the pause row.
+    const cycleId = crypto.randomUUID();
+    await repos.events.write(hz.db, businessId, { type: "cycle.started", actor: { kind: "system", id: "orchestrator" }, payload: { cycleId, cycleNumber: press.status.cycleNumber, workflowId, trigger: "continue", timeBoxAgentHours: 4, plannedTaskIds: [], budget: null } });
+    const status = await owner.cycle.status({ businessId });
+    expect(status).toMatchObject({ running: true, queued: false, paused: true, cycleId, workflowId });
+    expect((await owner.cycle.continueState({ businessId })).kind).toBe("idle");
+    // So Continue resumes it (before the fix: already_running, and the workflow held on the pause until its time box).
+    const resumed = await owner.business.continue({ businessId });
+    expect(resumed.action).toBe("resumed");
+    expect(temporal.signals.at(-1)).toMatchObject({ workflowId, signal: "resume" });
+    expect(resumed.status.paused).toBe(false);
+    await repos.events.write(hz.db, businessId, { type: "cycle.completed", actor: { kind: "system", id: "orchestrator" }, payload: { cycleId, cycleNumber: press.status.cycleNumber, workflowId, outcome: "completed", tasksDispatched: 0, tasksCompleted: 0, tasksBlocked: 0, agentHours: 0, cost: { amountMinor: 0, currency: "USD" }, inboxItemIds: [], durationMs: 1000 } });
+    await repos.events.write(hz.db, businessId, { type: "cycle.run_ended", actor: { kind: "system", id: "orchestrator" }, idempotencyKey: `cycle.run_ended:${resumed.run!.id}`, payload: { runId: resumed.run!.id, reason: "done", rounds: 1, cost: { amountMinor: 0, currency: "USD" } } });
+    expect((await owner.cycle.continueState({ businessId })).kind).toBe("idle");
+  });
+
   it("Continue starts a plan an earlier decision could not hand to the orchestrator (audit api-services-15)", async () => {
     const { businessId } = hz.A;
     // A plan left behind: executing, an action still pending, no workflow id (its planExecution start never reached Temporal).

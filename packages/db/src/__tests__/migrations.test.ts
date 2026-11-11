@@ -88,6 +88,7 @@ describe("journal", () => {
       "0072_goals",
       "0073_builder_view",
       "0074_demo_roll_forward",
+      "0075_founder_devices",
     ]);
     // strictly increasing `when` so drizzle applies them in order
     const whens = ours.map((m) => m.when);
