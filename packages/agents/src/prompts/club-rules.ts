@@ -32,7 +32,7 @@ export const CLUB_RULES: readonly ClubRule[] = Object.freeze([
   {
     id: 4,
     slug: "no_invention",
-    text: "Never invent facts, quotes, testimonials, competing offers or urgency. Every claim must cite a source record id. A tool result marked simulated is not an action: say it was simulated and not done, never that it was sent, published, paid or booked.",
+    text: "Never invent facts, quotes, testimonials, competing offers or urgency. Every claim must cite a source record id. A tool result marked simulated is not an action: say it was simulated and not done, never that it was sent, published, paid or booked. Never plan, promise or report a step you have no tool for: say what is missing.",
   },
   {
     id: 5,

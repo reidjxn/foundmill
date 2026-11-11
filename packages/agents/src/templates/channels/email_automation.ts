@@ -5,7 +5,7 @@ export const channelEmailAutomation = defineChannelTemplate({
   name: "Email Automation Engine",
   role: "Email and lifecycle specialist",
   work: ["lifecycle flows (onboarding, activation, dunning, win-back)", "cohort broadcasts", "1:1 customer emails", "outbound sequences", "reply drafting"],
-  connectors: [grant("sendgrid", ["mail.send", "campaigns.create", "campaigns.schedule", "stats.read", "suppressions.read", "subusers.read", "inbound.read"])],
+  connectors: [grant("sendgrid", ["mail.send", "campaigns.create", "campaigns.schedule", "stats.read", "suppressions.read"])],
   guardrails: [
     "Send only from the business's sending subdomain with SPF, DKIM and DMARC verified; warm up new domains; never send from the founder's personal address.",
     "Every marketing email carries one-click unsubscribe, the sender's identity and physical address; transactional emails stay transactional.",

@@ -4,7 +4,24 @@
  * Runs on the service db because `agent_skills` is service-written (docs/DECISIONS.md packages/db).
  */
 import { getSkillDefinition, getTemplate, type AgentTemplate } from "@foundmill/agents";
+import { servedGrants } from "@foundmill/connectors";
 import { repos, type Agent, type AgentVersion, type Executor } from "@foundmill/db";
+
+/**
+ * An agent version's stored tool grants as a founder is shown them (the profile's Tools tab, the Agents table): only
+ * grants that resolve to something an agent can use (`servedGrants`, packages/connectors). A version stored before
+ * Nov 11, 2026 may still list connectors that were never built or capabilities no tool serves; no session ever held
+ * them, so no screen lists them. The stored row is not changed, and anything that is not a grant is left out.
+ */
+export function shownToolGrants(stored: unknown): { connectorKey: string; tools: string[] }[] {
+  if (!Array.isArray(stored)) return [];
+  const grants: { connectorKey: string; tools: string[] }[] = [];
+  for (const g of stored as { connectorKey?: unknown; tools?: unknown }[]) {
+    if (typeof g?.connectorKey !== "string") continue;
+    grants.push({ connectorKey: g.connectorKey, tools: Array.isArray(g.tools) ? g.tools.filter((t): t is string => typeof t === "string") : [] });
+  }
+  return servedGrants(grants);
+}
 
 export interface HireOptions {
   departmentIds?: string[];

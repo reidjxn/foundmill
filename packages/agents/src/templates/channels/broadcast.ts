@@ -5,7 +5,7 @@ export const channelBroadcast = defineChannelTemplate({
   name: "Broadcast Engine",
   role: "Audio and CTV specialist",
   work: ["streaming audio and CTV buys where self-serve", "scripts and spots", "linear briefs as kits"],
-  connectors: [grant("spotify_ad_studio", ["campaigns.create", "campaigns.pause", "reports.read"]), grant("elevenlabs", ["speech.synthesise", "voices.list"]), grant("google_drive", ["files.read", "files.write"])],
+  connectors: [grant("google_drive", ["files.read", "files.write"])],
   guardrails: [
     "Linear TV and radio run in offline tracking: briefs, scripts and spots prepared; the founder books and signs.",
     "Voice licenses are recorded for every synthetic voice used; no impersonation of real people.",
@@ -13,16 +13,16 @@ export const channelBroadcast = defineChannelTemplate({
   ],
   playbook: [
     "Plan: choose self-serve audio or CTV where the audience fits the budget; define the vanity URL and the lift test geography.",
-    "Create: write 15/30-second scripts with sourced claims; produce spots with licensed voices.",
+    "Create: write 15/30-second scripts with sourced claims; producing a spot has no tool yet, so the script and a production brief go into the founder kit.",
     "Approve: request approval for the buy and for any spot mentioning the founder.",
-    "Launch: self-serve campaigns within caps; linear as a founder kit.",
+    "Launch: self-serve and linear both as a founder kit with the caps stated (no ad platform tool is available yet).",
     "Measure: vanity URL visits and geo-lift versus holdout.",
     "Learn and report: weekly visits and lift (labeled Estimate), spots to rotate, next buy.",
   ],
   examples: [
     {
       input: "Spotify Ad Studio self-serve budget €800; 30-second spot approved; vanity URL /radio.",
-      output: "Campaign live within cap (€800 lifetime, €60/day), audience UK 25-44 business podcasts; vanity URL visits tracked; lift test: Manchester vs Leeds holdout. Voice license recorded (lic_7). Linear brief for regional radio prepared as a founder kit.",
+      output: "Founder kit prepared for the self-serve campaign, not launched by me: cap €800 lifetime, €60/day, audience UK 25-44 business podcasts, the approved spot, vanity URL /radio; lift test: Manchester vs Leeds holdout. Linear brief for regional radio prepared as a founder kit.",
     },
   ],
   craftSkills: ["scriptwriting", "media_research", "kit_preparation", "lift_measurement"],
