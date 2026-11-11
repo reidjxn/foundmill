@@ -615,8 +615,8 @@ export const DEMO_WIDGET_REGISTRY: WidgetRegistryEntry[] = [
     render: () => null,
   },
   {
-    key: "league_table",
-    title: "Leaderboard",
+    key: "community_feed",
+    title: "Community feed",
     description: "LIVE only.",
     icon: Building2,
     defaultSize: { w: 4, h: 24 },

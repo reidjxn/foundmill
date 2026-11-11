@@ -28,7 +28,7 @@ export function isPublicPath(pathname: string): boolean {
 }
 
 /** The LIVE pages (BUILD §6.2): signed-in only like every app screen; their layout needs the founder profile and a business. */
-const LIVE_PREFIXES = ["/network", "/communities", "/leaderboards", "/profiles"];
+const LIVE_PREFIXES = ["/network", "/communities", "/profiles"];
 
 export function isFounderPath(pathname: string): boolean {
   return pathname === "/" || pathname === "/onboarding" || pathname === "/businesses" || pathname.startsWith("/new") || pathname.startsWith("/b/") || LIVE_PREFIXES.some((p) => pathname === p || pathname.startsWith(`${p}/`));

@@ -17,14 +17,14 @@ import { SettingsSection, useSettingsToast } from "./shared";
 
 /** What a game-mode switch changes (BUILD §7.3, §11.14); the review shows it before the switch. */
 export const GAME_MODE_REVIEW: Record<GameMode, string[]> = {
-  live: ["Your business profile and logo become visible on the network.", "Verified metrics can rank on leaderboards; self-reported numbers never rank.", "Connections, communities and human messages open up.", "Search also shows public profiles, labeled with the product name.", "The network is for people 18 or older: you confirm that before going live."],
-  personal: ["The business leaves search and leaderboards within 15 minutes.", "Connections and communities are hidden; nothing is deleted.", "Agents keep working exactly as before."],
+  live: ["Your business profile and logo become visible on the network.", "Connections, communities and human messages open up.", "Search also shows public profiles, labeled with the product name.", "The network is for people 18 or older: you confirm that before going live."],
+  personal: ["The business leaves search within 15 minutes.", "Connections and communities are hidden; nothing is deleted.", "Agents keep working exactly as before."],
 };
 
 /** The consequence line under the game-mode button: what the switch to `target` does, and that it can be undone. */
 export const GAME_MODE_CONSEQUENCE: Record<GameMode, { consequence: string; reversible: true }> = {
   live: { consequence: "Your profile and logo become visible on the network; switch back to Personal any time.", reversible: true },
-  personal: { consequence: "The business leaves search and leaderboards within 15 minutes; nothing is deleted.", reversible: true },
+  personal: { consequence: "The business leaves search within 15 minutes; nothing is deleted.", reversible: true },
 };
 
 export function PersonalOrLiveSection() {
@@ -47,7 +47,7 @@ export function PersonalOrLiveSection() {
         <StatusPill tone={b.gameMode === "live" ? "info" : "neutral"} icon={b.gameMode === "live" ? Globe : Lock}>
           {b.gameMode === "live" ? "Live" : "Personal"}
         </StatusPill>
-        <p className="text-body text-secondary">{b.gameMode === "live" ? "Visible on the network and eligible for leaderboards." : "Private: only members of this business can see it."}</p>
+        <p className="text-body text-secondary">{b.gameMode === "live" ? "Visible on the network." : "Private: only members of this business can see it."}</p>
       </div>
       {data.liveOpen ? (
         <div className="flex flex-col gap-1.5">

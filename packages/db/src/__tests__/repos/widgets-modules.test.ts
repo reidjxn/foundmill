@@ -27,10 +27,10 @@ describe("repos.tableViews", () => {
 
   it("keeps people, businesses, tables and the account-wide LIVE pages apart", async () => {
     await r.as(r.A.ownerId, (tx) => repos.tableViews.save(tx, r.A.ownerId, { tableKey: "team.agents", businessId: r.A.businessId, views: [], activeViewId: "cost" }));
-    await r.as(r.A.memberId, (tx) => repos.tableViews.save(tx, r.A.memberId, { tableKey: "live.leaderboards", views: [view("mine", "Mine")], activeViewId: "mine" }));
+    await r.as(r.A.memberId, (tx) => repos.tableViews.save(tx, r.A.memberId, { tableKey: "live.communities", views: [view("mine", "Mine")], activeViewId: "mine" }));
     expect((await r.as(r.A.ownerId, (tx) => repos.tableViews.get(tx, r.A.ownerId, { tableKey: "team.agents", businessId: r.A.businessId })))?.activeViewId).toBe("cost");
     expect((await r.as(r.A.memberId, (tx) => repos.tableViews.get(tx, r.A.memberId, { tableKey: "team.agents", businessId: r.A.businessId })))?.activeViewId).toBe("v-1");
-    expect((await r.as(r.A.memberId, (tx) => repos.tableViews.get(tx, r.A.memberId, { tableKey: "live.leaderboards" })))?.activeViewId).toBe("mine");
+    expect((await r.as(r.A.memberId, (tx) => repos.tableViews.get(tx, r.A.memberId, { tableKey: "live.communities" })))?.activeViewId).toBe("mine");
     expect(await r.as(r.A.memberId, (tx) => repos.tableViews.get(tx, r.A.memberId, { tableKey: "crm.list", businessId: r.A.businessId }))).toBeNull();
     // A person cannot write views into a business they are not a member of (RLS).
     await expect(r.as(r.B.memberId, (tx) => repos.tableViews.save(tx, r.B.memberId, { tableKey: "team.agents", businessId: r.A.businessId, views: [], activeViewId: null }))).rejects.toThrow();

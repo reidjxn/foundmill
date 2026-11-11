@@ -633,12 +633,6 @@ export const TERMS = {
     long: "Milestones are filed by chapter on the Journey and in Milestones. The next ones are shown outlined so you can see what is coming.",
     learn: "milestones",
   },
-  leaderboard: {
-    id: "leaderboard",
-    word: "Leaderboard",
-    short: "Where this business ranks against others of its kind on a figure such as revenue or customers.",
-    long: "Only for businesses in Live mode that chose to appear. Figures you mark private stay out of it.",
-  },
   customer_update: {
     id: "customer_update",
     word: "Customer Update",
@@ -848,8 +842,6 @@ export const PLAIN_TIER_IDS = [
   "team_health",
   // A first the business reached, the everyday meaning.
   "milestone",
-  // A ranking, the everyday meaning.
-  "leaderboard",
   // A note about a customer, said in two ordinary words; the note itself narrates what happened.
   "customer_update",
   // A form or report sent to a government office by a date, the everyday meaning ("a tax filing").

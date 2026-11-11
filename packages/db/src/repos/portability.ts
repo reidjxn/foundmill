@@ -139,7 +139,6 @@ export const EXPORT_EXCLUDED_TABLES: Readonly<Record<string, string>> = {
   session_recordings: "Replay copies of agent session streams (kept so a session can be replayed after its stream expires); the sessions themselves are exported.",
   posts: "LIVE network posts belong to the network, not to the business.",
   community_members: "LIVE network memberships belong to the network, not to the business.",
-  leaderboard_entries: "LIVE leaderboard rows belong to the network, not to the business.",
   demo_sample_rows: "Which rows of a sample business are the sample's own (internal to the sample's roll-forward).",
 };
 

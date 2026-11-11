@@ -30,7 +30,7 @@ export const moderation = defineTemplate({
     examples: [
       {
         input: "Community post: 'We hit €40k MRR this month (self-reported, not verified) — DM me for the playbook, limited spots!'",
-        output: '{"decision":"flag","clause":"leaderboards.verified_metrics_only; honest_agent.no_fake_urgency","confidence":0.84,"redaction":"Remove \'limited spots\'; label MRR as self-reported"}',
+        output: '{"decision":"flag","clause":"communities.verified_metrics_only; honest_agent.no_fake_urgency","confidence":0.84,"redaction":"Remove \'limited spots\'; label MRR as self-reported"}',
       },
     ],
   },

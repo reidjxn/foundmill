@@ -270,30 +270,6 @@ export interface ComplianceResponse {
   filings?: { id: string; kind: string; title: string; dueAt: Iso | null; filedAt: Iso | null; status: string }[];
 }
 
-/* live.leaderboards.* */
-export interface LeaderboardRow {
-  id: string;
-  period: string;
-  boardKind: string;
-  division?: string | null;
-  /** The ranked metric's key ("customers_won", "mrr_growth_pct"); the widget names it (shared/leaderboards.ts). */
-  metric?: string;
-  archetype?: string | null;
-  region?: string | null;
-  title?: string;
-  metricLabel?: string;
-}
-export interface LeaderboardEntryRow {
-  leaderboardId: string;
-  businessId: string;
-  position: number;
-  movement: number;
-  metricValue: number | string;
-  businessName?: string | null;
-  verified?: boolean;
-}
-export type LeaderboardPositionRow = LeaderboardEntryRow & { board: LeaderboardRow };
-
 /* live.communities.* */
 export interface CommunityRow {
   id: string;

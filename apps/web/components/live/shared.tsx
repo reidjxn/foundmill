@@ -51,7 +51,7 @@ export function BusinessLogo({ card, name, size = 20 }: { card?: BusinessCard; n
 
 /**
  * Shown above a LIVE screen while the current business is Personal: the screen still works for the founder
- * (connections, messages and communities belong to the person), but the business itself is off the network and boards.
+ * (connections, messages and communities belong to the person), but the business itself is off the network.
  */
 export function PersonalNotice({ className }: { className?: string }) {
   const { businessId, data } = useBusiness();
@@ -63,8 +63,8 @@ export function PersonalNotice({ className }: { className?: string }) {
       </StatusPill>
       <p className="min-w-0 flex-1 text-body text-secondary">
         {data.liveOpen
-          ? `${data.business.name} is a Personal business, so it is not listed on the network or on leaderboards. Your own connections, messages and communities stay available.`
-          : `Live is not open yet, so ${data.business.name} stays Personal and is not listed on the network or on leaderboards.`}
+          ? `${data.business.name} is a Personal business, so it is not listed on the network. Your own connections, messages and communities stay available.`
+          : `Live is not open yet, so ${data.business.name} stays Personal and is not listed on the network.`}
       </p>
       {data.liveOpen ? (
         <ShellLinkButton href={routes.settings(businessId, "business")} size="sm">

@@ -134,7 +134,7 @@ export interface GameModeChipProps extends Omit<ChipProps, "children" | "tone" |
 export function GameModeChip({ mode, className, mono: _mono, dot: _dot, fit: _fit, onRemove: _onRemove, removeLabel: _removeLabel, selected: _selected, onClick: _onClick, ...rest }: GameModeChipProps) {
   const live = mode === "live";
   return (
-    <Tooltip content={live ? `Visible on ${APP_NAME} LIVE: network, communities and leaderboards.` : "Personal: private to you and your co-founders."}>
+    <Tooltip content={live ? `Visible on ${APP_NAME} LIVE: network and communities.` : "Personal: private to you and your co-founders."}>
       <span
         role="group"
         aria-label={live ? "Game mode: LIVE" : "Game mode: Personal"}

@@ -2,7 +2,7 @@
  * Ledgerly (BUILD §17.2): a B2B SaaS club (month-end reconciliation for fintech operations teams), LIVE game mode,
  * Automated business mode and currently on holiday. A GitHub test repository reference, Stripe subscriptions as
  * payments, all 15 channels in mixed states, a cap table with common stock, an option pool and two post-money
- * SAFEs, a community, a leaderboard entry, and a coding squad with recorded sessions.
+ * SAFEs, a community, and a coding squad with recorded sessions.
  */
 import { getArchetypeSeed, getSkillDefinition } from "@foundmill/agents";
 import { APP_NAME, CREDITS_CURRENCY, LIMITS } from "@foundmill/config";
@@ -14,7 +14,7 @@ import { agentSessions, type Entity } from "../schema";
 import { agentMention, seedAgentEntities, seedChannels, seedDashboards, seedHistoricalTasks, seedInbox, seedIntegrations, seedRoadmap, seedActiveGoal, seedSignedOffAndSelling, seedSpec, seedTasks, seededRelevance, type InboxSpec, type RoadmapSpec, type TaskSpec } from "./content";
 import { ensureSeedCommunity, ensureSeedPost } from "./community";
 import { BOOTSTRAPPED_COMMUNITY_SLUG, DEMO_OWNER_DISPLAY_NAME, DEMO_SEED_AUDIT_ACTION, LEDGERLY_BUSINESS_ID, LEDGERLY_COMMUNITY_SLUG, LEDGERLY_GITHUB_REPO, LEDGERLY_NAME, LEDGERLY_SLUG } from "./constants";
-import { addDays, addHours, atHour, mention, money, pct, quarterFacts, quarterKey, type SeedCtx } from "./context";
+import { addDays, addHours, atHour, mention, money, pct, type SeedCtx } from "./context";
 import { recordSampleRows } from "./roll-forward";
 import { seedFinance } from "./finance";
 import { seedJourney } from "./journey";
@@ -396,7 +396,7 @@ export async function seedLedgerly(ctx: SeedCtx): Promise<SeededBusiness> {
   // The founder answers it in the Inbox, like every approval (audit FR-01): Approve or Reject on its decision item.
   if (paidAds) await openApprovalItem(db, businessId, pendingApproval, { agentId: paidAds.agent.id, agentName: paidAds.agent.name, taskTitle: null, argsSummary: "Raise the paid search budget to £600.00 for the month-end close keyword cluster" });
 
-  // --- social: community and leaderboard (LIVE) ----------------------------------------------------------------------
+  // --- social: community (LIVE) --------------------------------------------------------------------------------------
   // Public communities real founders join: a rebuild adopts them (members and posts stay) instead of recreating them.
   const community = await ensureSeedCommunity(db, { name: "Fintech ops founders", slug: LEDGERLY_COMMUNITY_SLUG, descriptionMd: "Founders selling to operations teams at fintechs. Benchmarks are shared as verified metrics only.", ownerBusinessId: businessId, createdBy: ctx.owner.userId });
   const outboundPost = await ensureSeedPost(db, { communityId: community.id, authorUserId: ctx.owner.userId, businessId, bodyMd: "We moved first-touch to outbound for UK fintechs and the time to first reply halved. Lawful basis per country is the whole game." });
@@ -404,13 +404,6 @@ export async function seedLedgerly(ctx: SeedCtx): Promise<SeededBusiness> {
   await ensureSeedPost(db, { communityId: community.id, authorUserId: ctx.owner.userId, businessId, bodyMd: "Question for the room: does anyone run share-of-answer panels for AI assistants and treat them as more than approximate?" });
   // A second public community the demo founder has not joined (no creator): the demo founder sees Join on offer.
   await ensureSeedCommunity(db, { name: "Bootstrapped founders", slug: BOOTSTRAPPED_COMMUNITY_SLUG, descriptionMd: "Founders building without outside funding. Share what you tried, what it cost and what it returned." });
-  // data: customers won since the quarter began (first payments), and MRR growth since the day before it began.
-  const quarter = quarterFacts(ctx, journey.data.meta.startDate, journey.data.series.mrrMinorByDay);
-  const wonThisQuarter = (await repos.journeys.countConversions(db, businessId, { from: quarter.startsAt })).payment;
-  const board = await repos.social.upsertLeaderboard(db, { boardKind: "growth", division: "b2b_saas", period: quarterKey(ctx.today), metric: "mrr_growth_pct", archetype: "b2b_saas", region: "eu" });
-  await repos.social.setLeaderboardEntries(db, board.id, [{ businessId, metricValue: quarter.mrrGrowthPct, verified: true, form: "WWDLW" }]);
-  const customersBoard = await repos.social.upsertLeaderboard(db, { boardKind: "customers_won", division: "b2b_saas", period: quarterKey(ctx.today), metric: "customers_won", archetype: "b2b_saas", region: "eu" });
-  await repos.social.setLeaderboardEntries(db, customersBoard.id, [{ businessId, metricValue: wonThisQuarter, verified: true, form: "WLWWW" }]);
 
   await seedDashboards(ctx, businessId);
 
@@ -623,7 +616,7 @@ export async function seedLedgerly(ctx: SeedCtx): Promise<SeededBusiness> {
     actorId: null,
     action: DEMO_SEED_AUDIT_ACTION,
     target: { kind: "business", id: businessId },
-    details: { app: APP_NAME, seed: ctx.seed, anchor: ctx.today.toISOString(), slug: LEDGERLY_SLUG, inboxItems: inbox.length, journeys: journey.counts.journeys, holidayId: holiday.id, legalEntityId: legal.legalEntityId, communityId: community.id, leaderboardId: board.id, activation: pct(journey.signups ? journey.activations / journey.signups : 0) },
+    details: { app: APP_NAME, seed: ctx.seed, anchor: ctx.today.toISOString(), slug: LEDGERLY_SLUG, inboxItems: inbox.length, journeys: journey.counts.journeys, holidayId: holiday.id, legalEntityId: legal.legalEntityId, communityId: community.id, activation: pct(journey.signups ? journey.activations / journey.signups : 0) },
   });
 
   return {

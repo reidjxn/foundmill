@@ -111,7 +111,7 @@ describe("Phase 4 routers", () => {
         expect(String(body.message)).toMatch(/Phase 4/);
       }
     }
-    expect(PHASE4_ROUTERS.map((r) => r.feature)).toEqual(["connections", "messages", "communities", "leaderboards", "negotiation"]);
+    expect(PHASE4_ROUTERS.map((r) => r.feature)).toEqual(["connections", "messages", "communities", "negotiation"]);
   });
 
   it("unknown routes are 404 and the root lists the pending routers", async () => {
@@ -119,7 +119,7 @@ describe("Phase 4 routers", () => {
     expect(missing.status).toBe(404);
     const root = await (await get("/")).json();
     expect(root).toMatchObject({ name: "Foundmill", service: "social", ok: true });
-    expect(root.routers).toHaveLength(5);
+    expect(root.routers).toHaveLength(4);
   });
 });
 

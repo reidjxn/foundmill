@@ -299,7 +299,7 @@ describe("seedDemo on PGlite", () => {
     expect(customerPage.items.every((e) => e.roles.some((r) => r.role === "customer"))).toBe(true);
   }, 600_000); // the role-filtered CRM page scans every seeded customer on PGlite (slow, not wrong)
 
-  it("gives Ledgerly its LIVE extras: holiday, GitHub repo, Stripe payments, cap table with two SAFEs, community, leaderboard, training", async () => {
+  it("gives Ledgerly its LIVE extras: holiday, GitHub repo, Stripe payments, cap table with two SAFEs, community, training", async () => {
     // The vacation runs eleven days past the seed's own today, so "current" is read as of that day, not the real clock.
     const holiday = await repos.holidays.current(db, LEDGERLY_BUSINESS_ID, TODAY);
     expect(holiday).not.toBeNull();
@@ -323,9 +323,6 @@ describe("seedDemo on PGlite", () => {
     expect(feed.items).toHaveLength(2);
     expect((await repos.social.replyCounts(db, feed.items.map((p) => p.id))).size).toBe(1);
     expect(await repos.social.getCommunityBySlug(db, BOOTSTRAPPED_COMMUNITY_SLUG)).toMatchObject({ visibility: "public", memberCount: 0, ownerBusinessId: null });
-    // Verified metrics only: Ledgerly is first on both of its boards.
-    const positions = await repos.social.positionsForBusiness(db, LEDGERLY_BUSINESS_ID);
-    expect(positions.map((p) => [p.board.boardKind, p.position]).sort()).toEqual([["customers_won", 1], ["growth", 1]]);
     expect(await repos.approvals.countPending(db, LEDGERLY_BUSINESS_ID)).toBe(1);
     const backend = (await repos.agents.list(db, LEDGERLY_BUSINESS_ID, { agentType: "backend_engineer" })).items[0]!;
     expect((await repos.agents.listVersions(db, LEDGERLY_BUSINESS_ID, backend.id)).length).toBe(2);

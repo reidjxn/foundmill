@@ -849,7 +849,7 @@ const modeChanged = declareEvent(
     }),
   ]),
   {
-    doc: "Game mode (LIVE ↔ Personal) or business mode (Augmented / Assisted / Automated) changed. LIVE → Personal starts the 15-minute removal from search and leaderboards.",
+    doc: "Game mode (LIVE ↔ Personal) or business mode (Augmented / Assisted / Automated) changed. LIVE → Personal starts the 15-minute removal from search.",
     consumers: ["composer", "metrics", "playbooks"],
   },
 );

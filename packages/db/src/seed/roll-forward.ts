@@ -54,7 +54,7 @@ export const DEMO_ROLL_AUDIT_ACTION = "seed.demo.rolled";
 /**
  * Business-scoped tables a roll never touches: real people's and real money's, other businesses' view, internal
  * plumbing. The audit chain is append-only (its times are when things really happened) and the outbox belongs to the
- * relay; memberships, read marks, saved views and dashboard layouts are people's; leaderboard rows, posts and community
+ * relay; memberships, read marks, saved views and dashboard layouts are people's; posts and community
  * members are the network's (demo posts sit in public communities real founders use, among real replies); usage,
  * credit balances and checkouts are billing, keyed by real periods; credentials and webhooks are secrets; the
  * suppression list is consent; `demo_sample_rows` is this roll's own list.
@@ -66,7 +66,6 @@ export const ROLL_EXCLUDED_TABLES: readonly string[] = [
   "inbox_item_reads",
   "saved_table_views",
   "dashboard_layouts",
-  "leaderboard_entries",
   "posts",
   "community_members",
   "usage_ledger",

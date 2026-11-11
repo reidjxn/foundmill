@@ -141,10 +141,7 @@ export function localPaletteItems(input: LocalPaletteInput): PaletteItem[] {
   }
   // Network is the founder's own, in every mode (as in the sidebar).
   items.push({ id: "screen:network", kind: "screen", label: "Network", href: "/network" });
-  if (input.live) {
-    items.push({ id: "screen:communities", kind: "screen", label: "Communities", href: "/communities" });
-    items.push({ id: "screen:leaderboards", kind: "screen", label: "Leaderboards", href: "/leaderboards" });
-  }
+  if (input.live) items.push({ id: "screen:communities", kind: "screen", label: "Communities", href: "/communities" });
   return items;
 }
 

@@ -3,11 +3,11 @@
  * Respond tab; badge: items to respond to), the founder areas Plan, Customers, Money, Product and Team (each a mapping
  * over module tabs, lib/areas.ts; badge: unread items from its departments' agents), then each department with no
  * modules as its own item (its dot and letter), the LIVE block (Network in every mode, badged with what waits for the
- * founder; Communities and Leaderboards once LIVE) and the foot (Settings, Sign out). Contacts (the CRM) is a Customers
+ * founder; Communities once LIVE) and the foot (Settings, Sign out). Contacts (the CRM) is a Customers
  * tab and Milestones a Plan tab. The Anthropic key lives in Settings › Keys (reached from Settings and the palette),
  * not in the foot (B13). Pure and unit-tested; the layout feeds it `department.list` + `inbox.list`.
  */
-import { BookOpen, Compass, Globe, Inbox, LogOut, Medal, Megaphone, PiggyBank, Settings, Sun, Users, Users2, type LucideIcon } from "lucide-react";
+import { BookOpen, Compass, Globe, Inbox, LogOut, Megaphone, PiggyBank, Settings, Sun, Users, Users2, type LucideIcon } from "lucide-react";
 import type { SidebarBrand, SidebarItem } from "@foundmill/dugout";
 import type { DeptColourToken } from "@foundmill/shared";
 import { AREA_LABELS, departmentArea, moduleLessDepartments, type AreaKey } from "@foundmill/shared/areas";
@@ -56,7 +56,7 @@ export interface SidebarInput {
   builder?: boolean;
 }
 
-export const SIDEBAR_IDS = { home: "home", inbox: "inbox", settings: "settings", signOut: "sign-out", network: "network", communities: "communities", leaderboards: "leaderboards" } as const;
+export const SIDEBAR_IDS = { home: "home", inbox: "inbox", settings: "settings", signOut: "sign-out", network: "network", communities: "communities" } as const;
 
 /** The sidebar id of an area's item. */
 export const areaSidebarId = (area: AreaKey) => `area-${area}`;
@@ -132,13 +132,10 @@ export function buildSidebarItems(input: SidebarInput): SidebarItem[] {
     items.push({ id: row.id, label: row.name, icon: iconByName(row.icon) as LucideIcon, href: departmentHref(bid, row, input.builder ?? false), group: "department", dept: row.colourToken, shortcut: row.shortcut ?? null, badge: badges.get(row.id) || undefined });
   }
   // Network is the founder's own (their connections, messages and invitations), so it is there in every mode with its
-  // badge: a request or a message must reach a founder whichever business they have open. Communities and Leaderboards
-  // are about the business on the network, so they appear once it is LIVE.
+  // badge: a request or a message must reach a founder whichever business they have open. Communities
+  // is about the business on the network, so it appears once it is LIVE.
   items.push({ id: SIDEBAR_IDS.network, label: "Network", icon: Globe, href: "/network", group: "live", badge: input.network?.total || undefined });
-  if (input.live) {
-    items.push({ id: SIDEBAR_IDS.communities, label: "Communities", icon: Users2, href: "/communities", group: "live", badge: input.network?.moderation || undefined });
-    items.push({ id: SIDEBAR_IDS.leaderboards, label: "Leaderboards", icon: Medal, href: "/leaderboards", group: "live" });
-  }
+  if (input.live) items.push({ id: SIDEBAR_IDS.communities, label: "Communities", icon: Users2, href: "/communities", group: "live", badge: input.network?.moderation || undefined });
   items.push({ id: SIDEBAR_IDS.settings, label: "Settings", icon: Settings, href: routes.settings(bid, "business"), group: "foot" });
   // A button, not a link: the shell signs out with a POST (lib/auth/sign-out.ts), so nothing can prefetch it.
   items.push({ id: SIDEBAR_IDS.signOut, label: "Sign out", icon: LogOut, group: "foot" });
@@ -151,7 +148,6 @@ const LIVE_ROUTE_ITEMS = [
   // A public profile is reached from search or the Network; it lights the Network item.
   ["/profiles", SIDEBAR_IDS.network],
   ["/communities", SIDEBAR_IDS.communities],
-  ["/leaderboards", SIDEBAR_IDS.leaderboards],
 ] as const;
 
 /**

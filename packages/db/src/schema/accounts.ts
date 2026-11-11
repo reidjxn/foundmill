@@ -142,7 +142,7 @@ export const businesses = pgTable(
     timeZone: text("time_zone"),
     /**
      * 0044 — a seeded demo business (Northwind, Ledgerly): its numbers are synthetic, so it is never listed on the
-     * network (public views, leaderboards, community owners) for anyone outside it. Set by the seed only.
+     * network (public views, community owners) for anyone outside it. Set by the seed only.
      */
     isDemo: boolean("is_demo").notNull().default(false),
     /**

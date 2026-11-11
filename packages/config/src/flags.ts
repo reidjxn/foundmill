@@ -9,7 +9,7 @@ export const FLAGS = {
 export type FlagKey = keyof typeof FLAGS;
 
 /**
- * Whether the LIVE surfaces (the network, communities, leaderboards, going live) are open on this deployment. They are
+ * Whether the LIVE surfaces (the network, communities, going live) are open on this deployment. They are
  * closed while `FLAGS.liveMode` is false (DECISIONS 2026-10-07: the social layer is Phase 4); an operator opens them for
  * one environment with `LIVE_MODE=1` (the local stack and the demo do), and nothing else opens them.
  */

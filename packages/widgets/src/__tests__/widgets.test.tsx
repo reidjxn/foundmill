@@ -11,13 +11,8 @@ import { getWidget, listWidgets, parseWidgetSettings, type AnyWidgetDefinition }
 import { createFakeSource, type FakeResponse } from "../testing";
 import "../widgets";
 import { FIRST_WEEK_REFETCH_DEBOUNCE_MS, firstWeekEventMatters } from "../widgets/first-week-checklist";
-import { BID, TODAY, communities, dataResponses, emptyResponses, leaderboardEntries, leaderboards, posts } from "./fixtures";
+import { BID, TODAY, communities, dataResponses, emptyResponses, posts } from "./fixtures";
 import { addDays } from "../shared/time";
-
-/** A figure (dugout `Figure`) splits its currency, digits and decimals into spans; match the whole figure's text. */
-function byFigure(text: string) {
-  return screen.getByText((_, el) => !!el && el.hasAttribute("data-figure") && el.textContent === text);
-}
 
 
 type Case = {
@@ -46,7 +41,6 @@ const CASES: Case[] = [
   { key: "roadmap_timeline", expectData: /Usage-based billing/, expectEmpty: /Roadmap items appear once/ },
   { key: "agent_of_the_week", expectData: /Ember/, expectEmpty: /first agent of the week/ },
   { key: "trophy_cabinet", expectData: /2 of 8 reached/, expectEmpty: /Customer names show only/ },
-  { key: "league_table", expectData: /Ledgerly/, expectEmpty: /No leaderboard is open/, live: true },
   { key: "community_feed", expectData: /annual-plan discounts/, expectEmpty: /Join a community/, live: true },
   { key: "custom_metric", expectData: /€1,250/, expectEmpty: /Pick a metric from the catalog/, settings: { mode: "query", queryId: "revenue_30d", label: "Revenue, last 30 days", format: "money" }, emptySettings: {} },
   // Nothing done yet is the checklist's "empty": seven rows, none ticked.
@@ -80,9 +74,8 @@ describe("widget registry", () => {
   });
   it("hides LIVE-only widgets in Personal mode and lists them in LIVE", () => {
     const personal = listWidgets("home").map((w) => w.key);
-    expect(personal).not.toContain("league_table");
     expect(personal).not.toContain("community_feed");
-    expect(listWidgets("home", true).map((w) => w.key)).toEqual(expect.arrayContaining(["league_table", "community_feed"]));
+    expect(listWidgets("home", true).map((w) => w.key)).toEqual(expect.arrayContaining(["community_feed"]));
     expect(listWidgets("department").map((w) => w.key)).not.toContain("journey_ribbon");
   });
   it("parses settings leniently: invalid values fall back to defaults instead of crashing", () => {
@@ -137,7 +130,7 @@ describe.each(CASES)("widget $key", (c) => {
 
 describe("LIVE-only widgets in Personal mode", () => {
   it("explain that the widget needs LIVE instead of querying", () => {
-    for (const key of ["league_table", "community_feed"]) {
+    for (const key of ["community_feed"]) {
       const { fake, unmount } = mount(getWidget(key)!, dataResponses(), { live: false });
       expect(screen.getByText(/once the business is live/)).toBeTruthy();
       expect(fake.queried.size).toBe(0);
@@ -275,16 +268,6 @@ describe("widget bodies in a grid cell", () => {
 });
 
 describe("LIVE widgets read the LIVE pages' words", () => {
-  it("names the board, its period and its metric from what live.leaderboards.list returns (no raw keys, no 'Metric')", () => {
-    const board = { id: leaderboards[0]!.id, period: "2026-Q4", boardKind: "customers_won", division: "b2b_saas", archetype: "b2b_saas", region: null, metric: "customers_won" };
-    const entries = leaderboardEntries.map((e) => ({ ...e, metricValue: e.businessId === BID ? 494 : e.metricValue }));
-    const { container } = mount(getWidget("league_table")!, { ...dataResponses(), "live.leaderboards.list": [board], "live.leaderboards.entries": entries }, { live: true });
-    expect(screen.getByRole("heading", { name: "Leaderboard · Customers won · B2B SaaS" })).toBeTruthy();
-    expect(screen.getByText("Customers won", { selector: "th, [role=columnheader]" })).toBeTruthy();
-    expect(container.textContent).toContain("Q4 2026 · You are #8");
-    expect(container.textContent).not.toMatch(/2026-Q4|b2b_saas|Metric/);
-  });
-
   it("says 1 member and 1 reply, not 1 members", () => {
     const { container } = mount(getWidget("community_feed")!, { ...dataResponses(), "live.communities.list": [{ ...communities[0]!, memberCount: 1 }], "live.communities.posts": { items: [{ ...posts.items[0]!, replyCount: 1 }] } }, { live: true });
     expect(container.textContent).toContain("1 member");
@@ -300,14 +283,16 @@ describe("Forecast and Estimate chips", () => {
     expect(screen.getAllByText("Estimate").length).toBeGreaterThanOrEqual(2);
     expect(screen.getAllByText("Forecast").length).toBeGreaterThanOrEqual(1);
   });
-  it("status strip marks runway as an estimate and keeps the leaderboard tile for LIVE only", () => {
-    const { unmount } = mount(getWidget("status_strip")!, dataResponses());
+  it("status strip marks runway as an estimate and shows the same five tiles in Personal and LIVE", () => {
+    const { unmount, container } = mount(getWidget("status_strip")!, dataResponses());
     expect(screen.getAllByText("Estimate").length).toBeGreaterThanOrEqual(1);
-    expect(screen.queryByText("Leaderboard position")).toBeNull();
+    const personal = container.textContent;
+    expect(personal).toContain("Team health");
     unmount();
-    mount(getWidget("status_strip")!, dataResponses(), { live: true });
-    expect(screen.getByText("Leaderboard position")).toBeTruthy();
-    expect(byFigure("#8")).toBeTruthy();
+    // A layout saved with the removed `showLeague` setting renders as any other, and LIVE adds no tile.
+    const live = mount(getWidget("status_strip")!, dataResponses(), { live: true, settings: { showLeague: true } });
+    expect(live.container.textContent).toBe(personal);
+    expect(live.fake.queried.has("live.leaderboards.positions")).toBe(false);
   });
 });
 
