@@ -7,8 +7,10 @@ description: Use whenever you write any text a founder can read in the Foundmill
 
 ## 1. The product's words (always)
 
-- The product is **Foundmill**. One business at a time is a **business**, run by a **founder**.
-- The AI agents are the **team**. The humans who also have access are the **staff**.
+- The product is **Foundmill**. What a founder builds is a **project** until its first sale and a **business** after; where the stage is not known, say project. API fields keep the word business.
+- The AI agents are the **team**. The humans are the project's **People**: **cofounders** (equal standing, any number; write "the founders" when there are several) and **collaborators** (someone trying out or helping). Never "staff", never "seat": people are free on every plan.
+- One founder building alone is the normal case. Never write a line that says or implies someone is missing ("find a cofounder to get started", "better with a partner", an empty slot for a second person).
+- Never name jobs, employment, careers or AI taking work as the reason to be here. Say what is theirs and what they can do now.
 - The agent that plans each round of work and talks for the team is the **Chief of Staff**.
 - A round of agent work is a **cycle**; a press of **Continue** starts a run of cycles that goes until nothing is left to do.
 - Notes from the team land in the **Inbox**. A note that needs the founder is either a **decision** ("Needs your answer", "Your decision") or a **go-ahead** ("Needs your go-ahead", "Waiting for your go-ahead"). Those are the only two families of "needs you" words.
@@ -41,7 +43,7 @@ description: Use whenever you write any text a founder can read in the Foundmill
 | assistant manager | Chief of Staff |
 | scouting report | Import report |
 | form guide | Channel performance |
-| league, league table, league position | leaderboard, leaderboard position |
+| league, league table, league position | nothing: there is no ranking of businesses in the product (leaderboards were removed on Nov 11, 2026) |
 | match, match day, match commentator, cup tie | Customer Update, win, narrate |
 | kick-off, team sheet, goal (as a sports event), full time, player of the match, whistle, half-time, line-up | First touch, Who was involved, Win moment, Debrief, Standout agent |
 | friendly / league / cup (update levels) | Brief / Standard / Featured |

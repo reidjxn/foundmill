@@ -8,7 +8,7 @@ Replace `<SUPABASE_ANON_KEY>` before sending prompt 1. Replace `<FIRST_NAME>` wi
 
 ## 0 · Start (the first message on Home; creates the project)
 
-> Build the Foundmill mobile app for iPhone and Android. Foundmill (https://foundmill.com, look at the public landing page for the brand, the words and the interactive example) is where one founder builds and runs a real business with a team of AI agents. The desktop web app already exists; this app is the founder's companion: a much more visual, intuitive and engaging way to answer the team, keep it running and feel the business grow, connected to exactly the same backend.
+> Build the Foundmill mobile app for iPhone and Android. Foundmill (https://foundmill.com, look at the public landing page for the brand, the words and the interactive example) is where a person builds something of their own: one founder with a team of AI agents can build and run a real business end to end, and a founder who would rather build with someone finds them here too. The desktop web app already exists; this app is the founder's companion: a much more visual, intuitive and engaging way to answer the team, keep it running and feel the business grow, connected to exactly the same backend.
 >
 > Dark only, "a broadcast control room at night, in your pocket": canvas #08090C, lit card edges, tabular figures, status colors that glow, gold reserved for customers and milestones, Barlow Semi Condensed for figures and titles, Inter for text, Lucide icons, no emoji, no light theme, radii never 16 or more.
 >
@@ -162,7 +162,7 @@ Message C:
 
 ## 16 · LIVE social (Build; only after the business is LIVE)
 
-> When `business.get().gameMode === "live"`, add Network (connections, requests, people search, visibility), Communities (feed, post, join, invitations) and Leaderboards (boards by kind, period and division, position and movement, the business's own row highlighted, labels like "Customers won · B2B SaaS · EU") under the Business tab, driven by `live.*`, and subscribe to `u:<userId>` for the badge. Hide all of it on Personal businesses; the API answers FORBIDDEN "LIVE is not open yet" there.
+> When `business.get().gameMode === "live"`, add Network (connections, requests, people search, visibility) and Communities (feed, post, join, invitations) under the Business tab (no leaderboards: that feature was removed), driven by `live.*`, and subscribe to `u:<userId>` for the badge. Hide all of it on Personal businesses; the API answers FORBIDDEN "LIVE is not open yet" there.
 
 ---
 

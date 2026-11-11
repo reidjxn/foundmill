@@ -7,7 +7,7 @@ description: Use whenever you plan, build or change a screen or flow of the Foun
 
 ## 1. What Foundmill is
 
-Foundmill is where one founder builds and runs a real business with a team of AI agents. The founder sets the direction and makes the decisions that matter; the agents do the work: product specification, code, distribution across channels, finance, legal, research. Everything runs inside rules that keep money, signatures, identity and security in human hands. Winning a paying customer is the event that counts, and the product celebrates it.
+Foundmill is where a person builds something of their own: one founder with a team of AI agents can build and run a real business end to end, and a founder who would rather build with someone finds them here too. Building alone is the normal, complete case: the app never suggests a founder needs anyone else, and offers people only where the founder looks for them. The founder sets the direction and makes the decisions that matter; the agents do the work: product specification, code, distribution across channels, finance, legal, research. Everything runs inside rules that keep money, signatures, identity and security in human hands. Winning a paying customer is the event that counts, and the product celebrates it.
 
 The desktop web app (foundmill.com, 1280 px and wider) is a dense control room: a sidebar of departments, a top slab in the business's brand color, an Inbox with a reading pane and a decision bar, dashboards of widgets, live agent sessions. The **mobile app is the founder's companion to that room**: the place to answer the team, feel the business move, watch a customer get won, nudge an agent, and keep the team running from anywhere. It is more visual, more immediate and more fun than the desktop, and it connects to exactly the same backend, so a decision made on the phone is the decision.
 
@@ -66,7 +66,7 @@ A free-text answer is compiled into a plan: show the plan's actions as rows with
 
 **Live session** screen ("Watch <Agent> work"): a phase rail (Plan → Build → Check → Review → Done), progress ring, a meter (elapsed, tokens, cost as Estimate, time left), test results as pills, the log on ink. Controls: Pause, Resume, Nudge, Stop. Subscribes to `as:<sessionId>` while open.
 
-Other Team sub-screens, reachable from a "More" row: **Staff** (humans and roles; invite by email for admins, with the line "They need a Foundmill account with this address; no email is sent."), **Health** (agents grouped by status, Down rows with expected back), **Hierarchy** (founder → Chief of Staff → leads → specialists as an indented tree), **Recruitment** (catalog by family; hire into a department).
+Other Team sub-screens, reachable from a "More" row: **People** (the humans of the project: cofounders and collaborators, with their roles; shown only when the project has more than one person or the founder opens it; add by email for admins, with the line "They need a Foundmill account with this address; no email is sent." until invitations by link exist; people are free on every plan, so never show a limit), **Health** (agents grouped by status, Down rows with expected back), **Hierarchy** (founder → Chief of Staff → leads → specialists as an indented tree), **Recruitment** (catalog by family; hire into a department).
 
 ## 7. Journey (the fun tab)
 
@@ -116,7 +116,6 @@ Departments can be renamed, merged, split and reordered on the web; the app rend
 - **Wins and Customer Updates**: signup = Brief, activation = Standard, first payment = Featured. Every win gets a full update until the 100th of its kind; after that only large or flagged ones, the rest in the daily round-up.
 - **Milestones**: fire once each; gold; shareable as an image card on a LIVE business (customer anonymized unless permission is recorded).
 - **Chapters**: one per calendar quarter, titled by the team.
-- **Leaderboards** (LIVE only): position and movement, divisions by revenue band, monthly promotion and relegation, only verified metrics rank.
 - **Streaks and summaries the app adds** (mobile-only, computed client-side from existing data, always labeled as what they are): "Answered within a day, 12 days running" on Today's Needs you header; a Sunday "Your week" card (notes answered, customers won, cycles run, AI usage) built from `cycle.history`, `journey.list` and `billing.usage`. No invented numbers, no points, no badges beyond the Milestones.
 
 ## 11. Product rules that hold on every screen
