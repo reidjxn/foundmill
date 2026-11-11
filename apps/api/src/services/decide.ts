@@ -20,7 +20,7 @@
  */
 import { classifyFounderText } from "@foundmill/agents";
 import { approvalOutcomeOf, closeApprovalItem, repos, type Approval, type DbTx, type Decision, type InboxItem, type PlanWithActions } from "@foundmill/db";
-import { ValidationError, endSentence, hasSectionAccess, type SectionMembership } from "@foundmill/shared";
+import { ValidationError, endSentence, hasSectionAccess, isPageReadyDecision, type SectionMembership } from "@foundmill/shared";
 import type { BusinessContext } from "../trpc";
 import { audit, emit } from "../trpc";
 import { assertApprovalAccess, deliverApprovalAnswer, recordApprovalAnswer, type ApprovalAnswer } from "./approvals";
@@ -28,6 +28,7 @@ import { assertMayConfirmAsks } from "./approver";
 import { idsOfItem, inboxWalls, isWalled, loadRedactionSource, mentionIds, noteMask, redactInboxItem, redactPlan, redactValue } from "./inbox-redaction";
 import { startModelRetests } from "./agent-model";
 import { decideGoalItem } from "./goals";
+import { decidePageNote } from "./pages";
 import { decideSignoffItem } from "./signoff";
 import { assertInstructionSectionAccess, assertPlanSectionAccess, choiceOf, compileOptionPlan, compilePlan, dispatchPlan, evaluatePlan, executePlanActions, planSectionRefusal, redispatchPlans, requiresConfirmation, stagedAction, syncChannelEngines, type ActionEvaluation, type ChannelToggle, type DecisionOption, type DispatchResult, type ModelRetests, type PlanContext } from "./plans";
 
@@ -108,6 +109,8 @@ export async function decideInboxItem(ctx: BusinessContext, input: DecideItemInp
   // proposal follows); decided in-process, no plan compiler.
   const goal = await ctx.rls((tx) => repos.goals.forInboxItem(tx, ctx.businessId, item.id));
   if (goal) return decideGoalItem(ctx, item, goal, { chosenOption, freeText });
+  // The Product lead's "Your project's page is ready" (package 1.3): Check it and publish, or Later; decided in-process.
+  if (isPageReadyDecision(item.decision) && item.fromAgentId) return decidePageNote(ctx, item, { chosenOption, freeText });
   if (freeText && !chosenOption && decision.free_text === false) throw new ValidationError("This decision takes one of its options. Pick one, or talk it through with the agent first.", { route: "conversation", itemId: item.id });
   const options = decision.options ?? [];
   const option = chosenOption ? options.find((o) => o.id === chosenOption) : undefined;

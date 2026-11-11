@@ -184,14 +184,16 @@ export interface StarterPageInputs {
 
 /**
  * The first draft, from what the project already has and nothing else: the pitch is the first sentence of the idea in
- * the founder's own words (else the project's name), `about` is the vision's statement (else empty, for the founder to
- * write), "Who it is for" is the vision's, the stage is "idea" and the founders are not named.
+ * the founder's own words (else the project's name), `about` is the vision's statement (else the founder's own words,
+ * else empty, for the founder to write), "Who it is for" is the vision's, the stage is "idea" and the founders are not
+ * named. It is also what the team's draft falls back to when the model cannot write one (package 1.2), before any
+ * vision exists, so the founder's words are what the page says.
  */
 export function starterPageDraft(input: StarterPageInputs): ProjectPageContent {
   const words = firstSentence(input.founderWords ?? "");
   return {
     pitch: clipText(words || oneLine(input.businessName), PAGE_PITCH_MAX),
-    about: clipText(normalizePageText(input.visionStatement ?? ""), PAGE_ABOUT_MAX),
+    about: clipText(normalizePageText(input.visionStatement ?? "") || normalizePageText(input.founderWords ?? ""), PAGE_ABOUT_MAX),
     forWhom: clipText(normalizePageText(input.visionForWhom ?? ""), PAGE_FOR_WHOM_MAX),
     stage: "idea",
     showFounders: false,
@@ -236,6 +238,26 @@ export const PAGE_HOLD_MESSAGES: Readonly<Record<PageHoldReason, string>> = {
   personal_data: "The page has an email address or a phone number in it. A public page is open to everyone, so take it out and publish again.",
   markup: "The page has code or a script link in it. A public page shows plain text only, so take it out and publish again.",
 };
+
+/**
+ * The Product lead's note once the team has drafted the page (package 1.3): the first thing a new founder is asked.
+ * It is a decision note that never holds Continue and is not a sign-off; `key` marks it (`decision.key`), so the api
+ * decides it in-process (open the Public page tab, or Later) and Today shows it in Needs you instead of its quiet line.
+ */
+export const PAGE_READY_NOTE = {
+  key: "project_page.ready",
+  subject: "Your project's page is ready",
+  options: { check: "page_check", later: "page_later" },
+  checkLabel: "Check it and publish",
+  laterLabel: "Later",
+} as const;
+
+export type PageReadyOption = (typeof PAGE_READY_NOTE.options)[keyof typeof PAGE_READY_NOTE.options];
+
+/** Whether a note's decision block is the page note's (its `decision.key`). */
+export function isPageReadyDecision(decision: unknown): boolean {
+  return !!decision && typeof decision === "object" && (decision as { key?: unknown }).key === PAGE_READY_NOTE.key;
+}
 
 /** The console's state line for a page (the dates are already formatted, "Oct 7, 2026"). */
 export function pageStateLine(state: { published: boolean; publishedOn?: string | null; changed?: boolean; takenDownOn?: string | null }): string {

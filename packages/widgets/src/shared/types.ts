@@ -122,13 +122,13 @@ export interface FinanceOverview {
 
 /* business.firstWeek.get: one done flag per first-week item (UX plan §6.2 FirstWeekChecklist), read-only. */
 export interface FirstWeekResponse {
+  pagePublished: boolean;
   specificationSignedOff: boolean;
   roadmapSignedOff: boolean;
   cycleCompleted: boolean;
   noteRead: boolean;
   conversationReplySent: boolean;
   distributionStarted: boolean;
-  bankOrStripeConnected: boolean;
 }
 
 /* inbox.list */

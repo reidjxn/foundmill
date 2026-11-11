@@ -10,13 +10,41 @@
  * gets only what the view `public_project_pages` lists (0077). An unknown address and a page that is not published
  * answer the same: null.
  */
-import { ConflictError, PAGE_SLUG_TAKEN, ProjectPageContent, ProjectPageDraft, ProjectPageSlug, readPageContent, type ProjectPageContent as PageContent } from "@foundmill/shared";
+import { ConflictError, PAGE_READY_NOTE, PAGE_SLUG_TAKEN, ProjectPageContent, ProjectPageDraft, ProjectPageSlug, readPageContent, suffixPageSlug, suggestPageSlug, type ProjectPageContent as PageContent } from "@foundmill/shared";
 import { toLogoDataUrl } from "@foundmill/shared/logo";
-import { and, eq, isNotNull, isNull, ne } from "drizzle-orm";
+import { and, desc, eq, inArray, isNotNull, isNull, ne, sql } from "drizzle-orm";
 import { z } from "zod";
-import { businessFoundations, businessLogos, founderProfiles, ideaVersions, ideas, memberships, projectPages, publicProjectPages, type ProjectPage } from "../schema";
+import { businessFoundations, businessLogos, businesses, founderProfiles, ideaVersions, ideas, inboxItems, memberships, projectPages, publicProjectPages, type InboxItem, type ProjectPage } from "../schema";
+import { auditRepo } from "./audit";
+import { inboxRepo } from "./inbox";
 import { toBytes } from "./logos";
 import { Id, maybeOne, parseInput, uniqueViolation, type Executor } from "./_shared";
+
+/** One option of the team's page note (Composer schema shape; packages/agents `projectPageReadyNote`). */
+export interface TeamDraftNoteOption {
+  id: string;
+  label: string;
+  recommended: boolean;
+  consequence: string;
+  cost_minor: number;
+  reversible: boolean;
+  because?: string;
+}
+
+/** `writeTeamDraft`'s input: the draft, its address, who wrote it and how, and the Product lead's note. */
+export interface TeamDraftInput {
+  draft: PageContent;
+  slug: string;
+  /** The Product lead (else the Chief of Staff), named in the audit row and as the note's sender. */
+  agentId: string | null;
+  /** `model`: the Product lead's draft; `starter`: the deterministic draft the step fell back to. */
+  source: "model" | "starter";
+  reason: string | null;
+  /** Route, model and cost (an Estimate), kept in the audit row. */
+  model?: Record<string, unknown>;
+  note: { subject: string; bodyMd: string; options: TeamDraftNoteOption[] } | null;
+  onInboxItem?: (tx: Executor, item: InboxItem) => Promise<unknown>;
+}
 
 const SLUG_CONSTRAINT = "project_pages_slug_key";
 
@@ -163,6 +191,95 @@ export const pagesRepo = {
       .where(and(eq(projectPages.businessId, businessId), isNotNull(projectPages.published)))
       .returning();
     return rows[0] ?? null;
+  },
+
+  /**
+   * The address a first save uses: the business's own slug (else its name) made into a page address, with a short
+   * suffix of the business id when another project holds it. Service connection only (`slugTaken`).
+   */
+  async suggestSlug(db: Executor, businessId: string): Promise<string> {
+    const rows = await db.select({ slug: businesses.slug, name: businesses.name }).from(businesses).where(eq(businesses.id, businessId)).limit(1);
+    const plain = suggestPageSlug(rows[0]?.slug || rows[0]?.name || "project");
+    if (!(await pagesRepo.slugTaken(db, businessId, plain))) return plain;
+    return suffixPageSlug(plain, businessId.replace(/-/g, "").slice(0, 6));
+  },
+
+  /**
+   * Whether the team should draft the page (package 1.2): the business has no page row yet and is not a sample
+   * business. A row means the founder already saved or an earlier attempt drafted it: never written over.
+   */
+  async teamDraftNeeded(db: Executor, businessId: string): Promise<boolean> {
+    const rows = await db
+      .select({ isDemo: businesses.isDemo, page: projectPages.id })
+      .from(businesses)
+      .leftJoin(projectPages, eq(projectPages.businessId, businesses.id))
+      .where(eq(businesses.id, businessId))
+      .limit(1);
+    const row = rows[0];
+    return !!row && !row.isDemo && row.page === null;
+  },
+
+  /**
+   * The team's first draft (package 1.2), in one transaction: the row at `slug` with the draft (only when the business
+   * has none: a founder's save is never written over, and a retried step writes nothing twice), never published;
+   * `updated_by` stays null (it names people) and the audit row names the agent; then the Product lead's note, a
+   * decision that never holds Continue and is not a sign-off (its `decision.key` marks it), with `onInboxItem` for its
+   * event in the same transaction. Service connection (the foundations runners).
+   */
+  async writeTeamDraft(db: Executor, businessId: string, input: TeamDraftInput): Promise<{ page: ProjectPage | null; item: InboxItem | null; written: boolean }> {
+    const draft = parseInput(ProjectPageDraft, { ...input.draft, showFounders: false }, "page draft");
+    const slug = parseInput(ProjectPageSlug, input.slug, "page address");
+    return db.transaction(async (tx) => {
+      const rows = await slugGuard(() => tx.insert(projectPages).values({ businessId, slug, draft, updatedBy: null }).onConflictDoNothing({ target: projectPages.businessId }).returning());
+      const page = rows[0] ?? null;
+      if (!page) return { page: null, item: null, written: false };
+      await auditRepo.append(tx, businessId, {
+        actorKind: input.agentId ? "agent" : "system",
+        actorId: input.agentId,
+        action: "page.draft_written",
+        target: { kind: "project_page", id: page.id },
+        details: { slug: page.slug, source: input.source, reason: input.reason, published: false, ...(input.model ? { model: input.model } : {}) },
+      });
+      let item: InboxItem | null = null;
+      if (input.note && input.agentId) {
+        item = await inboxRepo.createItem(tx, businessId, {
+          type: "decision",
+          from_agent_id: input.agentId,
+          subject: input.note.subject.slice(0, 80),
+          body_md: input.note.bodyMd,
+          status_strip: [],
+          exhibit: { kind: "none", spec_ref: null },
+          decision: { options: input.note.options.map((o) => ({ ...o })), free_text: false, expires_at: null, key: PAGE_READY_NOTE.key },
+          blocks_continue: false,
+          source_event_ids: [],
+          entity_ids: [],
+        });
+        await input.onInboxItem?.(tx, item);
+      }
+      return { page, item, written: true };
+    });
+  },
+
+  /** The Product lead's "Your project's page is ready" note while it is open (unread or read), else null. */
+  async openReadyNote(db: Executor, businessId: string): Promise<InboxItem | null> {
+    return maybeOne(
+      await db
+        .select()
+        .from(inboxItems)
+        .where(and(eq(inboxItems.businessId, businessId), inArray(inboxItems.state, ["unread", "read"]), sql`${inboxItems.decision}->>'key' = ${PAGE_READY_NOTE.key}`))
+        .orderBy(desc(inboxItems.createdAt))
+        .limit(1),
+    );
+  },
+
+  /**
+   * Publishing answers the page note (the founder did what it asked), so it never waits in Needs you after the page is
+   * live. Null when no note is open.
+   */
+  async closeReadyNote(db: Executor, businessId: string, userId: string | null): Promise<InboxItem | null> {
+    const open = await pagesRepo.openReadyNote(db, businessId);
+    if (!open) return null;
+    return (await inboxRepo.decide(db, businessId, open.id, { chosenOption: PAGE_READY_NOTE.options.check, decidedByKind: "user", decidedBy: userId })).item;
   },
 
   /** Whether the business has no page live right now (Today's quiet reminder reads this). */

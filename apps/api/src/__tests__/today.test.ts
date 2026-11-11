@@ -165,9 +165,15 @@ describe("today.get › firstWeek", () => {
     expect(view.firstWeek!.paused).toBeNull();
   });
 
-  it("reads the steps from the sign-offs", async () => {
+  it("reads Day 1 from the page and the sign-offs (package 1.3): both sign-offs leave the page to publish", async () => {
     const b = await business("Today First Week Facts");
+    expect((await b.owner.today.get({ businessId: b.id })).firstWeek!.steps[0]).toMatchObject({ team: "Your team drafts your page, your specification and your roadmap.", asks: "You are asked to publish your page and sign off the specification and the roadmap." });
     await repos.productSignoffs.seedApproved(hz.db, b.id, { spec: { at: new Date() }, roadmap: { at: new Date() }, decidedBy: b.ownerId });
+    const signed = await b.owner.today.get({ businessId: b.id });
+    expect(signed.firstWeek!.steps.map((s) => s.state)).toEqual(["now", "next", "next"]);
+    expect(signed.firstWeek!.steps[0]!.asks).toBe("You are asked to publish your page.");
+    const content = { pitch: "Same-day cafe shifts for students", about: "Cafes post a shift in the morning.", forWhom: "", stage: "idea" as const, showFounders: false };
+    await repos.pages.publish(hz.db, b.id, { content, slug: `today-week-${b.id.slice(0, 8)}`, userId: b.ownerId });
     const view = await b.owner.today.get({ businessId: b.id });
     expect(view.firstWeek!.steps.map((s) => s.state)).toEqual(["done", "now", "next"]);
     expect(view.firstWeek!.steps[0]!.when).toMatch(/^Done [A-Z][a-z]{2} \d{1,2}$/);

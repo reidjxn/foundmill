@@ -401,7 +401,10 @@ describe("first-week checklist widget", () => {
     expect(screen.getByText("2 of 7 done")).toBeTruthy();
     expect(container.querySelectorAll("[data-first-week-item][data-done]").length).toBe(2);
     expect(screen.getByRole("link", { name: "Go: Read a note from an agent" }).getAttribute("href")).toBe(`/b/${BID}/inbox`);
-    expect(screen.getByRole("link", { name: "Go: Connect a bank or Stripe" }).getAttribute("href")).toBe(`/b/${BID}/settings/integrations`);
+    // The page comes first and opens Product › Public page; no item asks for a bank or Stripe (THESIS_REVIEW §5.7).
+    expect(container.querySelector("[data-first-week-item]")?.getAttribute("data-first-week-item")).toBe("publish_page");
+    expect(screen.getByRole("link", { name: "Go: Publish your page" }).getAttribute("href")).toMatch(new RegExp(`^/b/${BID}/d/[a-z-]+/public-page$`));
+    expect(screen.queryByText(/Connect a bank/)).toBeNull();
     expect(screen.getByRole("button", { name: "Go: Run a cycle" })).toBeTruthy();
     // The query is scoped by the host (businessId merged in): the widget asks with no input of its own.
     expect(container.querySelector("[data-widget='first_week_checklist']")).toBeTruthy();
@@ -445,7 +448,10 @@ describe("first-week checklist widget", () => {
   });
 
   it("firstWeekEventMatters: an event counts only while a flag it can flip is still open", () => {
-    const flags = { specificationSignedOff: true, roadmapSignedOff: false, cycleCompleted: true, noteRead: true, conversationReplySent: false, distributionStarted: false, bankOrStripeConnected: false };
+    const flags = { pagePublished: false, specificationSignedOff: true, roadmapSignedOff: false, cycleCompleted: true, noteRead: true, conversationReplySent: false, distributionStarted: false };
+    expect(firstWeekEventMatters("page.published", flags)).toBe(true);
+    expect(firstWeekEventMatters("page.published", { ...flags, pagePublished: true })).toBe(false);
+    expect(firstWeekEventMatters("bank.balance_updated", flags)).toBe(false);
     expect(firstWeekEventMatters("product.signoff_decided", flags)).toBe(true);
     expect(firstWeekEventMatters("product.signoff_decided", { ...flags, roadmapSignedOff: true })).toBe(false);
     expect(firstWeekEventMatters("cycle.completed", flags)).toBe(false);

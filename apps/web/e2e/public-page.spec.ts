@@ -5,8 +5,9 @@ import { LONG, commitThrowaway, dismissCoachmarks, settled } from "./helpers";
 
 /**
  * A project's public page (docs/THESIS_REVIEW.md package 1.1): Product › Public page in the console (fields with
- * counts, a phone-width preview, the address, Publish behind a confirmation that says what becomes public), Today's
- * quiet line before it is live, and `/p/<slug>` signed out at 390 px and 1280 px (indexable, its own title and share
+ * counts, a phone-width preview, the address, Publish behind a confirmation that says what becomes public), the team's
+ * first draft and the Product lead's note in Today's Needs you (packages 1.2 and 1.3), Today's quiet line once that
+ * note is answered and nothing is live, and `/p/<slug>` signed out at 390 px and 1280 px (indexable, its own title and share
  * card, no horizontal scroll, 44 px tap targets), gone once it is taken down. A throwaway business, since a sample
  * business never has a public page. Stack and commands: e2e/README.md.
  *
@@ -61,13 +62,20 @@ test.describe("public page", () => {
     test.setTimeout(240_000);
     const bid = await commitThrowaway(page, `Doorstep Bikes ${Date.now().toString(36)}`);
 
-    // Today: one quiet line while nothing is live, to the tab.
+    // Today (packages 1.2 and 1.3): the team drafted the page first, and the Product lead's note asks for it in Needs you;
+    // while that note is open the quiet line stays away (one or the other). Its one tap opens the tab.
     await page.goto(`/b/${bid}/today`);
     await expect(page.getByTestId("today-screen")).toBeVisible({ timeout: LONG });
-    const note = page.getByTestId("public-page-note");
-    await expect(note).toBeVisible({ timeout: LONG });
-    await expect(note.getByRole("link")).toHaveText(/Your project's public page is ready to check/);
-    await note.getByRole("link").click();
+    const needs = page.getByTestId("needs-you");
+    const check = needs.getByRole("button", { name: "Check it and publish" });
+    await expect(async () => {
+      await page.reload();
+      await expect(check).toBeVisible({ timeout: 10_000 });
+    }).toPass({ timeout: LONG });
+    await expect(needs).toContainText("Your project's page is ready");
+    await expect(page.getByTestId("public-page-note")).toHaveCount(0);
+    await dismissCoachmarks(page);
+    await check.click();
     await page.waitForURL(new RegExp(`/b/${bid}/d/[^/]+/public-page$`), { timeout: LONG });
     await settled(page);
     await dismissCoachmarks(page);
@@ -80,6 +88,8 @@ test.describe("public page", () => {
     const editor = page.getByTestId("public-page-editor");
     await expect(editor).toBeVisible({ timeout: LONG });
     await expect(page.getByTestId("page-state")).toHaveText(/Not published yet/);
+    // The team's draft is already in the fields; the founder rewrites it in their own words.
+    await expect(editor.getByLabel(/One-line pitch/)).not.toHaveValue("");
     await editor.getByLabel(/One-line pitch/).fill(PITCH);
     await editor.getByRole("textbox", { name: /^About/ }).fill(ABOUT);
     await editor.getByRole("textbox", { name: /^Who it is for/ }).fill(FOR_WHOM);
@@ -145,6 +155,12 @@ test.describe("public page", () => {
     } finally {
       await gone.close();
     }
+
+    // With the note answered and nothing live, Today's quiet line leads back to the tab.
+    await page.goto(`/b/${bid}/today`);
+    const line = page.getByTestId("public-page-note");
+    await expect(line).toBeVisible({ timeout: LONG });
+    await expect(line.getByRole("link")).toHaveText(/Your project's public page is ready to check/);
   });
 
   test("an unknown address is a not-found page, signed out, at phone width", async ({ browser }) => {

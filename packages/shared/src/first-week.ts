@@ -1,7 +1,9 @@
 /**
  * "Your first week" on Today (founder's report, Phase 3 group K "A first week that explains itself"): what the team
- * does on Day 1, Days 2–3 and in Week 1, and what the founder will be asked and when. A pure function of facts the
- * business already records (sign-offs, goal, rounds of work, distribution), so the steps' state is read, never
+ * does on Day 1, Days 2–3 and in Week 1, and what the founder will be asked and when. Day 1 starts with the project's
+ * public page (docs/THESIS_REVIEW.md package 1.3: the first session ends on a link): the team drafts it with the
+ * specification and the roadmap, and the founder is asked to publish it and to sign off the other two. A pure function
+ * of facts the business already records (the page, sign-offs, goal, rounds of work, distribution), so the steps' state is read, never
  * stored: a step is done when its own facts are true, "now" is the first step not done, the rest are "next".
  *
  * Dates are the business's days in US form ("Oct 7"). A done step carries the real day it finished; a step still to
@@ -24,6 +26,8 @@ export interface FirstWeekFacts {
   today: string;
   /** The day the business was created. */
   createdOn: string;
+  /** The day the project's public page went live (`project_pages.published_at`); null before. Absent reads as null. */
+  pagePublishedOn?: string | null;
   /** The day each sign-off was approved; null while it waits. */
   specSignedOffOn: string | null;
   roadmapSignedOffOn: string | null;
@@ -88,9 +92,12 @@ export function firstWeekTimeline(f: FirstWeekFacts): FirstWeekWords | null {
   const at = (n: number) => addDaysToDay(f.createdOn, n);
   const dateOf = (day: string | null) => (day ? goalDateWords(day, f.today) : null);
 
-  const day1Open = [...(f.specSignedOffOn ? [] : ["the specification"]), ...(f.roadmapSignedOffOn ? [] : ["the roadmap"])];
-  const day1Done = day1Open.length === 0;
-  const day1On = later(f.specSignedOffOn, f.roadmapSignedOffOn);
+  // Day 1 (package 1.3): the page first, then the two sign-offs; a step is done when all three are.
+  const pageOn = f.pagePublishedOn ?? null;
+  const signoffsOpen = [...(f.specSignedOffOn ? [] : ["the specification"]), ...(f.roadmapSignedOffOn ? [] : ["the roadmap"])];
+  const day1Done = pageOn !== null && signoffsOpen.length === 0;
+  const day1On = later(pageOn, f.specSignedOffOn, f.roadmapSignedOffOn);
+  const day1Asks = [...(pageOn ? [] : ["publish your page"]), ...(signoffsOpen.length ? [`sign off ${list(signoffsOpen)}`] : [])];
 
   const days2Open = [...(f.goalApprovedOn ? [] : ["your first goal, once your Chief of Staff proposes it"]), ...(f.firstRoundOn ? [] : ["the first changes going live"])];
   const days2Done = f.firstRoundOn !== null && f.goalApprovedOn !== null;
@@ -109,8 +116,8 @@ export function firstWeekTimeline(f: FirstWeekFacts): FirstWeekWords | null {
       label: "Day 1",
       state: stateOf(0),
       when: day1Done ? `Done ${dateOf(day1On ?? f.createdOn)}` : planned(at(0), at(0)),
-      team: day1Done ? "Drafted the specification and the roadmap." : "Your team drafts the specification and the roadmap.",
-      asks: day1Done ? "You signed off the specification and the roadmap." : `You are asked to sign off ${list(day1Open)}.`,
+      team: day1Done ? "Drafted your page, your specification and your roadmap." : "Your team drafts your page, your specification and your roadmap.",
+      asks: day1Done ? "You published your page and signed off the specification and the roadmap." : `You are asked to ${list(day1Asks)}.`,
     },
     {
       id: "days2to3",

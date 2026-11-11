@@ -7,16 +7,17 @@ import { checklistMeta, DEFAULT_FIRST_WEEK_ITEMS, FirstWeekChecklist, type First
 const items: FirstWeekItem[] = DEFAULT_FIRST_WEEK_ITEMS.map((i, n) => ({ ...i, href: `/go/${i.id}`, done: n < 2 }));
 
 describe("FirstWeekChecklist", () => {
-  it("lists the seven first-week items in order", () => {
+  it("lists the seven first-week items in order, the page first, and asks for no bank or Stripe", () => {
     expect(DEFAULT_FIRST_WEEK_ITEMS.map((i) => i.label)).toEqual([
+      "Publish your page",
       "Sign off the specification",
       "Sign off the roadmap",
       "Run a cycle",
       "Read a note from an agent",
       "Talk to an agent",
       "Start distribution",
-      "Connect a bank or Stripe",
     ]);
+    expect(DEFAULT_FIRST_WEEK_ITEMS[0].id).toBe("publish_page");
   });
 
   it("is a panel titled for the week with the count in its meta, a check or a circle per row and a Go on what is left", () => {
@@ -29,7 +30,7 @@ describe("FirstWeekChecklist", () => {
     expect(within(rows[0] as HTMLElement).getByRole("img", { name: "Done" })).toBeTruthy();
     expect(within(rows[0] as HTMLElement).queryByRole("link")).toBeNull();
     expect(within(rows[2] as HTMLElement).getByRole("img", { name: "Not done" })).toBeTruthy();
-    expect(within(rows[2] as HTMLElement).getByRole("link", { name: "Go: Run a cycle" }).getAttribute("href")).toBe("/go/run_cycle");
+    expect(within(rows[3] as HTMLElement).getByRole("link", { name: "Go: Run a cycle" }).getAttribute("href")).toBe("/go/run_cycle");
   });
 
   it("an item with an action instead of a route gets a Go button that calls it; one with neither has no Go", async () => {

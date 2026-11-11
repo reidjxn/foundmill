@@ -5,6 +5,7 @@
  */
 import { readFoundationsProgress } from "@foundmill/agents";
 import { repos } from "@foundmill/db";
+import { PAGE_READY_NOTE } from "@foundmill/shared";
 import { meter, MockModelClient, ModelRequestError, ModelUnavailableError, MODELS, type UsageEvent } from "@foundmill/models";
 import { ApplicationFailure } from "@temporalio/common";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -156,6 +157,48 @@ describe("the single-call drafting, kept for workflows started before the staged
       await h.close();
     }
   }, 120_000);
+});
+
+describe("draftProjectPage (package 1.2): the page first, written once, never published", () => {
+  let n = 0;
+  async function freshDrafting() {
+    n += 1;
+    const b = await repos.businesses.create(t.db, { name: `Page Step ${n}`, archetype: "b2b_saas" });
+    await repos.businesses.commit(t.db, b.id, { archetype: "b2b_saas" });
+    const chief = await repos.agents.create(t.db, b.id, { name: "Ines Park", agentType: "chief_of_staff", layer: "assistant", status: "healthy" });
+    await repos.foundations.create(t.db, b.id, { door: "ideation" });
+    await repos.foundations.claim(t.db, b.id);
+    return { businessId: b.id, chiefId: chief.id };
+  }
+
+  it("skips an attempt that is not current, writes the draft and the note once, and a rerun asks nothing of the model", async () => {
+    const f = await freshDrafting();
+    const models = new MockModelClient();
+    const acts = createFoundationsActivities({ ...t.deps, models });
+    expect(await acts.draftProjectPage({ businessId: f.businessId, attempt: 9 })).toMatchObject({ current: false, written: false });
+    const done = await acts.draftProjectPage({ businessId: f.businessId, attempt: 1 });
+    expect(done).toMatchObject({ current: true, written: true, source: "model", usage: { calls: 1, mode: "mock" } });
+    const row = (await repos.pages.get(t.db, f.businessId))!;
+    expect(row).toMatchObject({ published: null, publishedAt: null, updatedBy: null, draft: { stage: "idea", showFounders: false } });
+    expect(row.draft.pitch).toMatch(/^Page Step/);
+    const note = await repos.inbox.get(t.db, f.businessId, done.inboxItemId!);
+    expect(note).toMatchObject({ type: "decision", subject: PAGE_READY_NOTE.subject, fromAgentId: f.chiefId, blocksContinue: false, decision: { key: PAGE_READY_NOTE.key, free_text: false } });
+    const created = (await repos.events.list(t.db, f.businessId, { type: "inbox.item_created" })).items.filter((e) => (e.payload as { inboxItemId?: string }).inboxItemId === note.id);
+    expect(created).toHaveLength(1);
+    const audit = (await repos.audit.list(t.db, f.businessId, { limit: 50 })).items.find((e) => e.action === "page.draft_written");
+    expect(audit).toMatchObject({ actorKind: "agent", actorId: f.chiefId, details: { source: "model", published: false } });
+    // A retried activity: the row exists, so no model call and no second note.
+    const calls = models.history.filter((r) => r.route === "projectPage").length;
+    expect(await acts.draftProjectPage({ businessId: f.businessId, attempt: 1 })).toMatchObject({ current: true, written: false, source: null });
+    expect(models.history.filter((r) => r.route === "projectPage")).toHaveLength(calls);
+  });
+
+  it("a failed model call (used-up credits, an outage) writes the starter draft instead", async () => {
+    const f = await freshDrafting();
+    const acts = createFoundationsActivities({ ...t.deps, models: new MockModelClient({ failWith: { projectPage: new ModelUnavailableError("upstream 529") } }) });
+    expect(await acts.draftProjectPage({ businessId: f.businessId, attempt: 1 })).toMatchObject({ current: true, written: true, source: "starter", usage: { calls: 0 } });
+    expect((await repos.pages.get(t.db, f.businessId))!.draft).toEqual({ pitch: expect.stringMatching(/^Page Step/), about: "", forWhom: "", stage: "idea", showFounders: false });
+  });
 });
 
 describe("usageSink", () => {

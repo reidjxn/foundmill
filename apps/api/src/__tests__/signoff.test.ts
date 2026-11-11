@@ -48,7 +48,8 @@ describe("sign-offs: the specification and the roadmap (founder, 2026-10-18)", (
     expect(view.roadmap).toMatchObject({ round: 1, status: "pending" });
     expect(view.readyToSell).toBeNull();
     const inbox = await b.caller.inbox.list({ businessId: b.businessId, tab: "respond" });
-    expect(inbox.items.map((i) => i.subject).sort()).toEqual(["Sign off the product roadmap", "Sign off the product specification"]);
+    // With the Product lead's page note (package 1.3), drafted first: a decision that is not a sign-off.
+    expect(inbox.items.map((i) => i.subject).sort()).toEqual(["Sign off the product roadmap", "Sign off the product specification", "Your project's page is ready"]);
     // Both wait in Needs you; neither holds Continue (0071, Nov 7, 2026): the Chief of Staff plans only groundwork until they are signed.
     expect(inbox.continueState).toEqual({ kind: "idle" });
     // The note knows it is a sign-off (the reading pane shows its notes field); its options are the fixed pair.

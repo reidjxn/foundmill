@@ -2,6 +2,9 @@
  * businessFoundations (BUILD §11.1 "Take charge" → first open, §11.5): draft a new business's vision, first
  * specification and first roadmap once, after apps/api claimed the attempt (`foundations:{businessId}:{attempt}`).
  *
+ * First the project's public page (package 1.2, behind `patched(FOUNDATIONS_PAGE_PATCH)`): the Product lead drafts it
+ * from the founder's own words and asks the founder to check and publish it; it never fails the foundations.
+ *
  * Staged (audit P3): the plan (the vision first, stored within seconds), then every section batch and the roadmap at
  * once, each its own activity with its own retries, so a failed batch is retried alone and only redrafts what it has
  * not stored. Each step stores what it wrote on the row as it lands (the screens fill in); `applyFoundations` then writes
@@ -18,6 +21,11 @@ import type { Activities, BusinessFoundationsInput, BusinessFoundationsResult, F
 
 /** The patch id of the staged drafting (Temporal `patched`). Never rename it: recorded histories carry it. */
 export const FOUNDATIONS_STAGED_PATCH = "foundations-staged";
+/**
+ * The patch id of the page step (package 1.2), before the plan. A staged run recorded before it replays without the
+ * step; every new run records the marker. Never rename it: recorded histories carry it.
+ */
+export const FOUNDATIONS_PAGE_PATCH = "foundations-project-page";
 
 /**
  * The plan: one short call (low effort). The activity heartbeats while it waits, so a lost worker is noticed within a
@@ -26,6 +34,11 @@ export const FOUNDATIONS_STAGED_PATCH = "foundations-staged";
 const planActs = proxyActivities<Activities>({ startToCloseTimeout: "3 minutes", heartbeatTimeout: "1 minute", retry: { maximumAttempts: 3, initialInterval: "10 seconds", backoffCoefficient: 2 } });
 /** A batch of two or three sections, or the roadmap: bounded output, retried on its own. */
 const writeStepActs = proxyActivities<Activities>({ startToCloseTimeout: "4 minutes", heartbeatTimeout: "1 minute", retry: { maximumAttempts: 3, initialInterval: "5 seconds", backoffCoefficient: 2 } });
+/**
+ * The page (package 1.2): one short Sonnet call and one write. The activity falls back to the starter draft by itself
+ * when the model fails, so a retry is only for a lost worker or a database error, and it is retried once.
+ */
+const pageActs = proxyActivities<Activities>({ startToCloseTimeout: "2 minutes", heartbeatTimeout: "1 minute", retry: { maximumAttempts: 2, initialInterval: "5 seconds", backoffCoefficient: 2 } });
 /** Database writes: short and retried. */
 const writeActs = proxyActivities<Activities>({ startToCloseTimeout: "2 minutes", retry: { maximumAttempts: 5, initialInterval: "2 seconds", backoffCoefficient: 2 } });
 
@@ -60,6 +73,16 @@ export async function businessFoundations(input: BusinessFoundationsInput): Prom
     await writeActs.failFoundations({ ...input, error });
     return { status: "failed", inboxItemId: null, error };
   };
+
+  // Step 0 (package 1.2): the project's public page, first, so the founder's first ask is a page they can send. It never
+  // fails or holds up the foundations: its own failure is logged by the activity and the vision follows.
+  if (patched(FOUNDATIONS_PAGE_PATCH)) {
+    try {
+      await pageActs.draftProjectPage(input);
+    } catch {
+      // The page tab still offers the starter draft (`page.get`) and Today its line to it.
+    }
+  }
 
   let plan: Awaited<ReturnType<Activities["draftFoundationsPlan"]>>;
   try {

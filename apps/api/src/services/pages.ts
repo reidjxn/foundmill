@@ -17,13 +17,17 @@
  *   audit row in the same transaction.
  * - **The public read** (`publicPageBySlug`): the view `public_project_pages` on the service connection, so only its
  *   columns leave, plus the logo of a page the view lists.
+ * - **The team's first draft** (packages 1.2 and 1.3): the foundations runners write the row with the Product lead's
+ *   draft and the note "Your project's page is ready" (`repos.pages.writeTeamDraft`); `decidePageNote` answers that
+ *   note, and publishing answers it too.
  */
 import { communityScreenLocalFlags } from "@foundmill/agents";
-import { repos, type DbTx, type ProjectPage } from "@foundmill/db";
+import { repos, type DbTx, type InboxItem, type ProjectPage } from "@foundmill/db";
 import {
   AppError,
   ForbiddenError,
   PAGE_HOLD_MESSAGES,
+  PAGE_READY_NOTE,
   PAGE_SLUG_TAKEN,
   ConflictError,
   ProjectPageContent,
@@ -37,13 +41,14 @@ import {
   readPageContent,
   samePageContent,
   starterPageDraft,
-  suffixPageSlug,
   suggestPageSlug,
   type PageHoldReason,
   type ProjectPageContent as PageContent,
 } from "@foundmill/shared";
 import { audit, emit, type BusinessContext } from "../trpc";
 import type { Context } from "../context";
+import { answerNote } from "./answer-note";
+import type { DecideItemResult } from "./decide";
 import { takeOrThrow } from "./rate-limit";
 
 /** What the console's Public page tab reads (`page.get`) and every change answers. */
@@ -93,9 +98,8 @@ const canPublishPage = (ctx: BusinessContext): boolean => (ctx.role === "owner" 
  * id when another project already holds it. Asked on the service connection: under RLS a member sees no other row.
  */
 export async function suggestedSlug(ctx: BusinessContext): Promise<string> {
-  const plain = suggestPageSlug(ctx.business.slug || ctx.business.name);
-  if (!(await repos.pages.slugTaken(ctx.db, ctx.businessId, plain))) return plain;
-  return suffixPageSlug(plain, ctx.businessId.replace(/-/g, "").slice(0, 6));
+  // The same rule as the team's first draft (package 1.2, the foundations runners): `repos.pages.suggestSlug`.
+  return repos.pages.suggestSlug(ctx.db, ctx.businessId);
 }
 
 /**
@@ -207,6 +211,8 @@ export async function publishPage(ctx: BusinessContext, input: { content: PageCo
     const { page: row, wasLive } = await repos.pages.publish(tx, ctx.businessId, { content, slug, userId: ctx.userId });
     const url = pageUrl(ctx.env.APP_URL, row.slug);
     await emit(tx, ctx, { type: "page.published", payload: { pageId: row.id, slug: row.slug, url } });
+    // The Product lead's "Your project's page is ready" note asked for exactly this: it stops waiting in Needs you.
+    await repos.pages.closeReadyNote(tx, ctx.businessId, ctx.userId);
     await audit(tx, ctx, { action: "page.published", target: { kind: "project_page", id: row.id }, details: { slug: row.slug, url, changes: wasLive } });
     return viewOf(tx, ctx, row);
   });
@@ -225,6 +231,20 @@ export async function unpublishPage(ctx: BusinessContext): Promise<PageView> {
     return viewOf(tx, ctx, row);
   });
   return view ?? pageView(ctx);
+}
+
+/**
+ * The Product lead's "Your project's page is ready" note (package 1.3), decided in-process like a sign-off or the goal
+ * (no plan compiler): "Check it and publish" answers it and the client opens Product › Public page; "Later" answers it
+ * and Today shows its quiet line to the page instead. Neither publishes anything: that stays the founder's own press.
+ */
+export async function decidePageNote(ctx: BusinessContext, item: InboxItem, input: { chosenOption: string | null; freeText: string | null }): Promise<DecideItemResult> {
+  const option = input.chosenOption;
+  if (option !== PAGE_READY_NOTE.options.check && option !== PAGE_READY_NOTE.options.later) throw new ValidationError(`Choose ${PAGE_READY_NOTE.checkLabel} or ${PAGE_READY_NOTE.laterLabel}.`, { itemId: item.id });
+  const summary = option === PAGE_READY_NOTE.options.check ? "Opened the public page to check it." : "The public page waits until later.";
+  const answered = await ctx.rls((tx) => answerNote(tx, ctx, item.id, option, input.freeText, item.fromAgentId, summary, { params: { page_option: option }, result: { pageOption: option } }));
+  if (!answered) throw new ConflictError("This note was answered a moment ago.", { itemId: item.id, code: "already_decided" });
+  return { item: answered.item, decision: answered.decision, plan: answered.plan, evaluations: [], requiresConfirmation: false, executed: [answered.actionId], deferred: [], denied: [], dispatch: null, followUp: null };
 }
 
 /** What anyone may read of a published page (`publicPage.bySlug`). */
