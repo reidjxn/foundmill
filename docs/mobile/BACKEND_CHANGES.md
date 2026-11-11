@@ -1,6 +1,6 @@
 # What Foundmill must add or configure for the mobile app
 
-The mobile app is a second client of the existing backend. Nothing below changes a product rule; each item makes an existing capability reachable from a native app, or adds the one thing no client has needed before (push). Items 1–3 gate the first sign-in and the push step of the Newly sequence (`PROMPTS.md` 3 and 13) and were done on Nov 8, 2026 (status per item); item 4 is the next piece of backend work.
+The mobile app is a second client of the existing backend. Nothing below changes a product rule; each item makes an existing capability reachable from a native app, or adds the one thing no client has needed before (push). Items 1–4 were done on Nov 8–9, 2026 and are on main since PR #75 (Nov 11); item 8 is the next piece of backend work (it gates prompt 12B's areas); item 9 is the people side the thesis review plans.
 
 ## 1. Supabase Auth: mobile redirect and the one-time code ✅ in the repo, ⬜ pushed
 
@@ -48,7 +48,23 @@ These exist in `apps/api` today and the skill documents their names. Confirm the
 
 Where a field is missing, add it to the existing procedure rather than a mobile-specific one; the web benefits too.
 
-## 7. Repo hygiene
+## 8. Area opening sentences as one read ⬜ (needed by `PROMPTS.md` 12B message A)
+
+- The web computes each area's opening sentence in the browser (`packages/modules/src/areas/AreaOpening.tsx` feeds the pure builders in `packages/shared/src/area-words.ts` from the same widget reads as the tiles). A phone that did the same would carry six fact-gathering paths and drift from the web's words; the rule is that server-written sentences are shown, never recomputed.
+- Add `business.areas.words` Q (any member) → `{ today, plan, customers, money, company, product, team }`, each `AreaWords | null` (null when the reader's walls hide the facts). Gather the facts in one transaction under the caller's RLS with the reads the api already has (`finance.overview`'s figures and `runwayState`, `legal.incorporate.status` and the compliance list, `goal.current` and `product.roadmap.list`, the channel window and live campaigns, `product.signoff` stage with `dev.prs.list` and `dev.deployments.list`, the team tiers and `repos.agents.chiefOfStaff`), then call the shared builders. The web may switch to it later; nothing there changes now.
+- Done when: the api test asserts the Money, Plan and Team sentences for the seeded Northwind equal what `AreaOpening` renders on the web for the same account, and a reader walled from Finance gets `money: null`.
+
+## 9. The people side (Phase B of the prompts; THESIS_REVIEW §13 phases 1–5) ⬜
+
+- Nothing to add for the phone beyond what each package adds for the web: project pages (1.1), the widened person profile and Home for a person (2.3, 2.4), open sign-up or the waitlist (2.2), invitations (3.1), cofounder and collaborator roles (3.3), join requests and trials (3.4, 3.5), notes for a named person (3.6), the project thread (3.7), open roles, browse and suggestions (4.1–4.3), milestone cards (5.3). Each ships with its tRPC procedures, and the backend skill gets the shapes in the same PR.
+- The vocabulary rule (People, cofounders, collaborators, project) already applies to the app's own strings; the API's role enum stays `owner | admin | member | viewer | advisor` until 3.3 adds `cofounder` and `collaborator`.
+- Hand-over (2.1): once the app is in the stores, one config value on the web holds the store links; the app needs only the universal links of item 5.
+
+## 10. A stale base to watch
+
+- Branch `claude/vibrant-euler-uua9pw` (the thesis review, phase 0) branched from main before PR #75 merged: its diff against main removes the devices migration (0075), the `onesignal` connector, `repos/devices.ts` and the RLS tests. That is a stale base, not an intent; it must be rebased on main before it merges, or those files come back as conflicts. The owners of that branch were not told by this session.
+
+## 11. Repo hygiene
 
 - `docs/DECISIONS.md` records (Nov 8, 2026) that the mobile app is a separate native client built with Newly from this pack; `CLAUDE.md`'s "Never build mobile layouts" keeps applying to `apps/web`.
 - Keep this folder as the source of truth for the mobile contract. When a procedure the skill names changes, update `docs/mobile/skills/foundmill-backend/SKILL.md` in the same PR and re-add the skill in Newly (Settings › Skills, replace the body; running chats keep the old one until they wake).
