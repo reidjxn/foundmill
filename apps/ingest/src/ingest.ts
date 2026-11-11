@@ -37,6 +37,8 @@ export interface IngestResult {
   duplicates: number;
   /** Ids of every event row the call produced (source events and the `customer.converted` rows they triggered). */
   eventIds: string[];
+  /** Events left unwritten on purpose: a signature callback that names no signable contract of the business. */
+  skipped: number;
 }
 
 export interface IngestOptions {
@@ -90,6 +92,7 @@ export function withLinkedEntity(event: PlatformEvent, connectorEntityId: string
 export async function ingestPlatformEvents(db: Db, events: readonly PlatformEvent[], options: IngestOptions): Promise<IngestResult> {
   const out: IngestedEvent[] = [];
   const eventIds: string[] = [];
+  let skipped = 0;
   const actor = options.actor ?? { kind: "webhook", id: options.source };
   for (const raw of events) {
     // Re-validate against the catalogue: a connector that drifted from the schema fails here, not in SQL.
@@ -104,17 +107,23 @@ export async function ingestPlatformEvents(db: Db, events: readonly PlatformEven
       const linked = facts ? await linkCustomer(tx, event.businessId, { connectorEntityId: facts.entityId, provider: facts.provider, customer: facts.customer, kind: facts.kind, occurredAt: event.occurredAt, sourceEventId: event.id }) : null;
       // A signature request that names one of the business's contracts records that contract as signed and names it.
       const toWrite = facts && linked ? withLinkedEntity(event, facts.entityId, linked.entityId) : await linkContractSignature(tx, event);
+      if (!toWrite) return null;
       const row = await writeEventRow(tx, { businessId: toWrite.businessId, type: toWrite.type, actor: toWrite.actor, entityIds: toWrite.entityIds, occurredAt: toWrite.occurredAt, payload: toWrite.payload, id: toWrite.id, idempotencyKey });
       if (row.id !== event.id) return { row, written: false, conversion: null as ConversionOutcome | null }; // same idempotency key, earlier row
       const conversion = facts ? await recordConversionForEvent(tx, toWrite, facts, actor, (t, input) => writeEventRow(t, input), linked?.entityId ?? null) : null;
       return { row, written: true, conversion };
     });
+    if (!result) {
+      skipped += 1;
+      options.log?.warn({ type: event.type, businessId: event.businessId, source: options.source }, "signature callback names no signable contract of the business; nothing written");
+      continue;
+    }
     out.push({ id: result.row.id, type: result.row.type as EventType, businessId: event.businessId, payload: result.row.payload as Record<string, unknown>, written: result.written, idempotencyKey, conversion: result.conversion });
     eventIds.push(result.row.id);
     if (result.conversion?.win) eventIds.push(result.conversion.win.convertedEventId);
     options.log?.info({ eventId: result.row.id, type: event.type, businessId: event.businessId, written: result.written, conversion: result.conversion?.conversion.id ?? null, firstPayment: result.conversion?.firstPayment ?? null, source: options.source }, result.written ? "event ingested" : "duplicate delivery ignored");
   }
-  return { events: out, written: out.filter((e) => e.written).length, duplicates: out.filter((e) => !e.written).length, eventIds };
+  return { events: out, written: out.filter((e) => e.written).length, duplicates: out.filter((e) => !e.written).length, eventIds, skipped };
 }
 
 async function findExisting(tx: Executor, businessId: string, eventId: string): Promise<Event | null> {

@@ -163,7 +163,14 @@ export const ENV_KEYS = Object.keys(Env.shape) as (keyof Env)[];
 let cached: Env | undefined;
 export function loadEnv(overrides: Partial<NodeJS.ProcessEnv> = {}): Env {
   if (cached && Object.keys(overrides).length === 0) return cached;
-  const parsed = Env.safeParse({ ...process.env, ...overrides });
+  const raw = { ...process.env, ...overrides };
+  // A deployed process (NODE_ENV=production, as the image sets) never runs on the development defaults: APP_ENV unset
+  // would otherwise mean development, with its public dev secrets and unverified dev sign-in (SECURITY_REVIEW SEC-9).
+  // `test` stays allowed when named: CI boots the built image with APP_ENV=test to check that it starts.
+  if (raw.NODE_ENV === "production" && (!raw.APP_ENV?.trim() || raw.APP_ENV.trim() === "development")) {
+    throw new Error("Invalid environment: APP_ENV must be set to staging or production when NODE_ENV=production (it is unset or development)");
+  }
+  const parsed = Env.safeParse(raw);
   if (!parsed.success) throw new Error(`Invalid environment: ${parsed.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; ")}`);
   const env = parsed.data;
   if (env.APP_ENV !== "development" && env.APP_ENV !== "test") {

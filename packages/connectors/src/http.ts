@@ -37,8 +37,23 @@ export interface HttpClient {
 
 export const DEFAULT_USER_AGENT = "foundmill-connectors/0.1 (+https://github.com/reidjxn/foundmill)";
 
+/** A `path` that is a whole URL (a vendor's pagination link), with any scheme. */
+const ABSOLUTE_URL = /^[a-z][a-z0-9+.-]*:/i;
+
+/**
+ * The URL of a call. `path` is normally relative to `baseUrl`; a vendor's own absolute link (a "next page" URL) is
+ * accepted only over https and only on the connector's own host, so no stored setting or vendor answer can point a
+ * connector's client, and the credential in its headers, at another host (SECURITY_REVIEW SEC-16).
+ */
 export function buildUrl(baseUrl: string, path: string, query?: RequestOptions["query"]): string {
-  const url = new URL(path.startsWith("http") ? path : `${baseUrl.replace(/\/$/, "")}/${path.replace(/^\//, "")}`);
+  let url: URL;
+  if (ABSOLUTE_URL.test(path)) {
+    url = new URL(path);
+    const base = new URL(baseUrl);
+    if (url.protocol !== "https:" || url.host !== base.host) throw new Error(`absolute URL outside the connector's host refused (${url.protocol}//${url.host}; the connector calls ${base.host})`);
+  } else {
+    url = new URL(`${baseUrl.replace(/\/$/, "")}/${path.replace(/^\//, "")}`);
+  }
   if (query) {
     for (const [k, v] of Object.entries(query)) {
       if (v === undefined || v === null) continue;

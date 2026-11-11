@@ -1483,3 +1483,14 @@ Three more answers from the founder (DECISIONS 2026-11-11, "Solo is complete").
 - **Decisions.** Every item of `docs/THESIS_REVIEW.md` §14 is answered (DECISIONS 2026-11-11, "The last five answers"): 18 or older for everything at sign-up; English only, no translation work; the management-game wording stays the default view; leaderboards removed, negotiation dormant, the import door a smaller third option, the Channel Board shows only channels that can act; Foundmill hosts project pages and provides a sending address with a daily cap, and repositories for software projects later. CLAUDE.md carries the new rules; the review's packages 2.2, 4.9, 6.9 and 7.3 and the plan are updated.
 - **Main merged** (#75, the mobile companion backend). The review notes what it changes: push and code sign-in exist now; new package 5.6 brings the `docs/mobile` prompt pack in line with the thesis.
 - **Not done.** Nothing of these decisions is built in this part. Leaderboard removal is in progress as its own change. 18 or older at sign-up waits for package 2.2.
+
+## 2026-11-11 — Rebuild, phase 0, package 0.7 (first part): security prerequisites for live email and payments
+
+A read-only re-check of SEC-9, 10, 11, 14 and 16 found none fully fixed and one new high finding. Fixed here (SECURITY_REVIEW "Re-check and fixes", DECISIONS same date):
+- **N1 (high).** `repos.legal.findContractByDocRef` matches the whole request id, never a substring; a signature callback that names no signable contract writes nothing (`apps/ingest/src/contracts.ts`, `IngestResult.skipped`). Tests: `apps/ingest` contracts (one character, a prefix, a middle slice, a host name and a pattern sign nothing; the whole id signs).
+- **SEC-10.** `ConnectorWebhook.accountOf` on Stripe, Shopify and GitHub; ingest's `accountMismatch` answers 422 `business_mismatch` for a delivery that names another account than the business connected. Tests: staging-webhooks (GitHub wrong installation refused, right one accepted on retry; Shopify, Stripe through the platform, Stripe on the founder's own key).
+- **SEC-11.** SendGrid inbound token compared in constant time; live webhooks keep no replay guard of their own, so a vendor's retry after a refusal is accepted.
+- **SEC-16.** `buildUrl` refuses a whole URL that is not https on the connector's own host (new `packages/connectors/src/__tests__/http.test.ts`); the Shopify health check validates the stored shop domain.
+- **SEC-9.** `loadEnv` refuses a production process with `APP_ENV` unset, empty or development (`packages/shared/src/env.test.ts`).
+- **Verified.** Vitest: connectors 744, ingest 80, shared env 9, db repos 429, api legal-lifecycle 14; tsc on shared, db, connectors, ingest, api and gateway; eslint on the changed files.
+- **Not done.** SEC-14, N2, N3, N4, the gateway's development-secret fallback and the Dropbox Sign vendor confirmation. No workspace-wide typecheck or Playwright run for this part.

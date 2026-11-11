@@ -50,17 +50,33 @@ describe("contract.signed from Dropbox Sign", () => {
     expect(await hz.events(hz.B.businessId, "contract.signed")).toHaveLength(0);
   });
 
-  it("writes a request that matches no contract as the connector reported it, and leaves a terminated contract alone", async () => {
+  it("writes nothing for a request that names no contract of the business, and leaves a terminated contract alone", async () => {
+    const before = (await hz.events(hz.A.businessId, "contract.signed")).length;
     const unknownId = "ffffffffffffffffffffffffffffffffffffffff";
     const result = await ingestPlatformEvents(hz.db, callback(hz.A.businessId, unknownId), { source: "dropbox_sign" });
-    expect(result.written).toBe(1);
-    const events = await hz.events(hz.A.businessId, "contract.signed");
-    const unmatched = events.find((e) => (e.payload as { docRef: string }).docRef === unknownId)!;
-    expect(unmatched.payload).toMatchObject({ docRef: unknownId });
-    expect((await repos.legal.listContracts(hz.db, hz.A.businessId, {})).items.filter((c) => c.docRef?.includes(unknownId))).toHaveLength(0);
+    expect(result).toMatchObject({ written: 0, skipped: 1 });
+    expect(await hz.events(hz.A.businessId, "contract.signed")).toHaveLength(before);
 
     const ended = await repos.legal.createContract(hz.db, hz.A.businessId, { kind: "nda", counterpartyEntityId: hz.A.entityId, docRef: "ended-request-0001", status: "terminated" });
-    await ingestPlatformEvents(hz.db, callback(hz.A.businessId, "ended-request-0001"), { source: "dropbox_sign" });
+    const late = await ingestPlatformEvents(hz.db, callback(hz.A.businessId, "ended-request-0001"), { source: "dropbox_sign" });
+    expect(late).toMatchObject({ written: 0, skipped: 1 });
     expect((await repos.legal.getContract(hz.db, hz.A.businessId, ended.id)).status).toBe("terminated"); // a terminated contract is not revived by a late callback
+    expect(await hz.events(hz.A.businessId, "contract.signed")).toHaveLength(before);
+  });
+
+  it("a request id that is only part of a contract's reference signs nothing (the id in a callback is not covered by the vendor's signature)", async () => {
+    const waiting = await repos.legal.createContract(hz.db, hz.A.businessId, { kind: "nda", counterpartyEntityId: hz.A.entityId, docRef: "https://app.hellosign.com/sign/0123456789abcdef0123456789abcdef01234567", status: "awaiting_signature" });
+    const before = (await hz.events(hz.A.businessId, "contract.signed")).length;
+    // one character, a prefix, a middle slice, a host name, a pattern: none is the whole id
+    for (const forged of ["a", "0", "0123456789abcdef", "456789abcdef0123456789ab", "app.hellosign.com", ".*", "sign"]) {
+      const result = await ingestPlatformEvents(hz.db, callback(hz.A.businessId, forged), { source: "dropbox_sign" });
+      expect(result, forged).toMatchObject({ written: 0, skipped: 1 });
+    }
+    expect((await repos.legal.getContract(hz.db, hz.A.businessId, waiting.id)).status).toBe("awaiting_signature");
+    expect(await hz.events(hz.A.businessId, "contract.signed")).toHaveLength(before);
+    // the whole id still signs it
+    const real = await ingestPlatformEvents(hz.db, callback(hz.A.businessId, "0123456789abcdef0123456789abcdef01234567"), { source: "dropbox_sign" });
+    expect(real.written).toBe(1);
+    expect((await repos.legal.getContract(hz.db, hz.A.businessId, waiting.id)).status).toBe("signed");
   });
 });

@@ -200,6 +200,13 @@ export interface ConnectorWebhook {
   verify(req: Request): Promise<boolean>;
   /** Vendor payload → zero or more validated platform events. Assumes `verify` passed. */
   normalise(req: Request): Promise<PlatformEvent[]>;
+  /**
+   * The vendor account a delivery says it comes from (Stripe `event.account`, the Shopify shop domain, the GitHub
+   * installation id), or null when it names none. `apps/ingest` compares it with the account the business in the URL
+   * connected, so a validly signed delivery for one business is never accepted at another business's URL
+   * (SECURITY_REVIEW SEC-10). Reads a clone, like `verify`. Absent: the vendor's scheme names no account.
+   */
+  accountOf?(req: Request): Promise<string | null>;
 }
 
 /**

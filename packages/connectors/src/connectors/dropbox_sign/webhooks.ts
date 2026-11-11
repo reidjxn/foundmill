@@ -5,7 +5,7 @@
  */
 import type { ConnectorWebhook, PlatformEvent } from "../../contract";
 import { makeEvent, uuidFromSeed } from "../../mock-utils";
-import { formFields, hmacSha256, parseJsonBody, rawBody, ReplayGuard, resolveBusinessId, safeEqual, webhookPath, type BusinessResolver } from "../../webhooks";
+import { formFields, hmacSha256, parseJsonBody, rawBody, type ReplayGuard, resolveBusinessId, safeEqual, webhookPath, type BusinessResolver } from "../../webhooks";
 import { DROPBOX_SIGN_KEY, type HsSignatureRequest } from "./tools";
 
 export interface HsCallbackEvent {
@@ -34,7 +34,9 @@ export interface DropboxSignWebhookDeps {
 }
 
 export function createDropboxSignWebhook(deps: DropboxSignWebhookDeps): ConnectorWebhook {
-  const replay = deps.replay ?? new ReplayGuard();
+  // No guard of its own unless one is passed (the mocks pass one): `apps/ingest` holds the replay record and releases it
+  // when a delivery is not stored, so a vendor's retry after a refusal or a failed write is accepted (SEC-11).
+  const replay = deps.replay ?? null;
   return {
     path: webhookPath(DROPBOX_SIGN_KEY),
     async verify(req) {
@@ -46,7 +48,7 @@ export function createDropboxSignWebhook(deps: DropboxSignWebhookDeps): Connecto
       const expected = eventHash(apiKey, payload.event.event_time, payload.event.event_type);
       if (!safeEqual(expected, payload.event.event_hash)) return false;
       const deliveryId = `${payload.event.event_hash}:${payload.event.event_metadata?.related_signature_id ?? payload.signature_request?.signature_request_id ?? ""}`;
-      return replay.check(deliveryId);
+      return replay ? replay.check(deliveryId) : true;
     },
     async normalise(req) {
       const payload = await readCallback(req);

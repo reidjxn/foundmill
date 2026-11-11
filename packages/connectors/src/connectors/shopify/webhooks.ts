@@ -7,7 +7,7 @@
  */
 import type { ConnectorWebhook, PlatformEvent } from "../../contract";
 import { makeEvent, minorFromDecimal, uuidFromSeed } from "../../mock-utils";
-import { header, hmacSha256, parseJsonBody, rawBody, ReplayGuard, resolveBusinessId, safeEqual, webhookPath, type BusinessResolver } from "../../webhooks";
+import { header, hmacSha256, parseJsonBody, rawBody, type ReplayGuard, resolveBusinessId, safeEqual, webhookPath, type BusinessResolver } from "../../webhooks";
 import { SHOPIFY_KEY, type ShCustomer, type ShOrder } from "./tools";
 
 export const SHOPIFY_HMAC_HEADER = "x-shopify-hmac-sha256";
@@ -26,7 +26,9 @@ export interface ShopifyWebhookDeps {
 }
 
 export function createShopifyWebhook(deps: ShopifyWebhookDeps): ConnectorWebhook {
-  const replay = deps.replay ?? new ReplayGuard();
+  // No guard of its own unless one is passed (the mocks pass one): `apps/ingest` holds the replay record and releases it
+  // when a delivery is not stored, so a vendor's retry after a refusal or a failed write is accepted (SEC-11).
+  const replay = deps.replay ?? null;
   return {
     path: webhookPath(SHOPIFY_KEY),
     async verify(req) {
@@ -39,7 +41,10 @@ export function createShopifyWebhook(deps: ShopifyWebhookDeps): ConnectorWebhook
       if (!secret) return false;
       const body = await rawBody(req);
       if (!safeEqual(shopifyHmac(secret, body), hmac)) return false;
-      return replay.check(webhookId);
+      return replay ? replay.check(webhookId) : true;
+    },
+    async accountOf(req) {
+      return header(req, SHOPIFY_SHOP_HEADER)?.trim().toLowerCase() || null;
     },
     async normalise(req) {
       const payload = parseJsonBody<unknown>(await rawBody(req));

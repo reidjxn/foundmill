@@ -8,11 +8,13 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { repos } from "@foundmill/db";
 import { createDefaultRegistry, MOCK_NOW, sendgridInboundParseRequest, signedGithubDeliveryRequest, signedShopifyRequest, signedStripeRequest } from "@foundmill/connectors";
+import { MOCK_INSTALLATION_ID } from "@foundmill/connectors/connectors/github/fixtures/repos";
 import { mergedPullRequestPayload } from "@foundmill/connectors/connectors/github/mock";
 import { SH_ORDERS } from "@foundmill/connectors/connectors/shopify/fixtures/shop";
 import { ST_INVOICES } from "@foundmill/connectors/connectors/stripe/fixtures/stripe";
 import { stripeEvent } from "@foundmill/connectors/connectors/stripe/mock";
 import type { BuiltIngest } from "../index";
+import { accountMismatch } from "../webhooks";
 import { createIngestHarness, json, simulateToken, type IngestHarness } from "./harness";
 
 const GITHUB_SECRET = "gh-real-webhook-secret-from-env";
@@ -71,11 +73,47 @@ describe("live webhooks in staging", () => {
     expect(await json(refused)).toMatchObject({ error: "not_connected", connector: "github" });
     expect(await hz.events(hz.B.businessId, "pr.merged")).toHaveLength(0);
 
-    await repos.integrations.upsert(hz.db, hz.B.businessId, { connectorKey: "github", status: "connected", authKind: "app" });
+    // Connected, but to another installation than the delivery names: the App's secret is shared by every business,
+    // so a signature alone does not say whose delivery this is (SECURITY_REVIEW SEC-10).
+    await repos.integrations.upsert(hz.db, hz.B.businessId, { connectorKey: "github", status: "connected", authKind: "app", settings: { externalAccountId: "999001", config: {} } });
+    await repos.integrations.recordVerifiedInstallation(hz.db, hz.B.businessId, { connectorKey: "github", installationId: "999001", accountLabel: "someone-else", verifiedBy: "founder-login", verifiedAt: new Date() });
+    const foreign = await send(staging, delivery("real-2"));
+    expect(foreign.status).toBe(422);
+    expect(await json(foreign)).toMatchObject({ error: "business_mismatch", connector: "github" });
+    expect(await hz.events(hz.B.businessId, "pr.merged")).toHaveLength(0);
+
+    // The installation the gateway verified for this business is the one the delivery names: accepted, and the same
+    // delivery id that was refused above can be retried (its nonce was released).
+    await repos.integrations.recordVerifiedInstallation(hz.db, hz.B.businessId, { connectorKey: "github", installationId: String(MOCK_INSTALLATION_ID), accountLabel: "acme", verifiedBy: "founder-login", verifiedAt: new Date() });
     const accepted = await send(staging, delivery("real-2"));
     expect(accepted.status).toBe(200);
     expect(await json(accepted)).toMatchObject({ ok: true, connector: "github", written: 1 });
     expect(await hz.events(hz.B.businessId, "pr.merged")).toHaveLength(1);
+  });
+});
+
+describe("a delivery belongs to the account the business connected (accountMismatch)", () => {
+  const row = async (businessId: string, connectorKey: string, settings: Record<string, unknown>) => (await repos.integrations.upsert(hz.db, businessId, { connectorKey, status: "connected", authKind: "oauth", settings }), (await repos.integrations.getByKey(hz.db, businessId, connectorKey))!);
+
+  it("Shopify: only the shop the business connected, whatever the letter case; no shop named is refused", async () => {
+    const shop = await row(hz.A.businessId, "shopify", { externalAccountId: "Northwind-Skincare.myshopify.com", config: {} });
+    expect(await accountMismatch(hz, shop, "shopify", "northwind-skincare.myshopify.com")).toBeNull();
+    expect(await accountMismatch(hz, shop, "shopify", "another-shop.myshopify.com")).toMatch(/another account/);
+    expect(await accountMismatch(hz, shop, "shopify", null)).toMatch(/another account/);
+  });
+
+  it("Stripe through the platform: only the connected account", async () => {
+    const connect = await row(hz.A.businessId, "stripe", { externalAccountId: "acct_A", config: { kind: "connect" } });
+    expect(await accountMismatch(hz, connect, "stripe", "acct_A")).toBeNull();
+    expect(await accountMismatch(hz, connect, "stripe", "acct_B")).toMatch(/another account/);
+    expect(await accountMismatch(hz, connect, "stripe", null)).toMatch(/another account/); // a platform event names no account: not this business's
+  });
+
+  it("Stripe on the founder's own key: refused without the business's own endpoint secret, and for another account", async () => {
+    const own = await row(hz.B.businessId, "stripe", { externalAccountId: "acct_B", config: { kind: "own" } });
+    expect(await accountMismatch(hz, own, "stripe", "acct_A")).toMatch(/another Stripe account/);
+    // No endpoint secret stored for this business: the delivery can only have passed on the platform's secret.
+    expect(await accountMismatch(hz, own, "stripe", null)).toMatch(/no endpoint secret of its own/);
   });
 });
 

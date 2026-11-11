@@ -140,6 +140,10 @@ async function assertCounterparty(db: Executor, businessId: string, counterparty
   if (rows.length === 0) throw new ValidationError("counterpartyEntityId is not an entity of this business", { counterpartyEntityId });
 }
 
+/** A vendor's e-signature request id as a contract's document reference may name it (Dropbox Sign ids are 40 hex characters). */
+const DOC_REF_ID_MIN = 12;
+const DOC_REF_ID = new RegExp(`^[A-Za-z0-9_-]{${DOC_REF_ID_MIN},200}$`);
+
 export const legalRepo = {
   // legal entities ----------------------------------------------------------------------------------------------------
   async listEntities(db: Executor, businessId: string, options: { includeArchived?: boolean } = {}): Promise<LegalEntity[]> {
@@ -411,14 +415,21 @@ export const legalRepo = {
     );
   },
 
-  /** The contract whose document reference names this e-signature request (a Dropbox Sign request id or its URL). */
+  /**
+   * The contract whose document reference names this e-signature request: the reference is the request id itself, or a
+   * URL in which the id is a whole path segment or query value. Never a substring: the id in a vendor's callback is not
+   * covered by its signature (Dropbox Sign's `event_hash`), so a one-character id must not match the newest contract.
+   * An id shorter than `DOC_REF_ID_MIN` characters or with anything but letters, digits, `_` and `-` matches nothing.
+   */
   async findContractByDocRef(db: Executor, businessId: string, ref: string): Promise<Contract | null> {
     const needle = ref.trim();
-    if (!needle) return null;
+    if (!DOC_REF_ID.test(needle)) return null;
+    // `needle` holds only [A-Za-z0-9_-] (checked above), so it is safe inside the pattern; it is still a bound parameter.
+    const asSegment = `(^|[/=])${needle}($|[/?&#])`;
     const rows = await db
       .select()
       .from(contracts)
-      .where(and(eq(contracts.businessId, businessId), isNull(contracts.archivedAt), sql`${contracts.docRef} is not null`, sql`strpos(${contracts.docRef}, ${needle}) > 0`))
+      .where(and(eq(contracts.businessId, businessId), isNull(contracts.archivedAt), sql`${contracts.docRef} is not null`, sql`(${contracts.docRef} = ${needle} or ${contracts.docRef} ~ ${asSegment})`))
       .orderBy(desc(contracts.createdAt))
       .limit(1);
     return rows[0] ?? null;

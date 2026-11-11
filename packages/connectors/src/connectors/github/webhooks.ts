@@ -6,7 +6,7 @@
  */
 import type { ConnectorWebhook, PlatformEvent } from "../../contract";
 import { makeEvent } from "../../mock-utils";
-import { header, hmacSha256, parseJsonBody, rawBody, ReplayGuard, resolveBusinessId, safeEqual, webhookPath, type BusinessResolver } from "../../webhooks";
+import { header, hmacSha256, parseJsonBody, rawBody, type ReplayGuard, resolveBusinessId, safeEqual, webhookPath, type BusinessResolver } from "../../webhooks";
 import { GITHUB_KEY, type GhPullRequest } from "./tools";
 
 export const GITHUB_SIGNATURE_HEADER = "x-hub-signature-256";
@@ -34,7 +34,9 @@ export interface GithubWebhookDeps {
 }
 
 export function createGithubWebhook(deps: GithubWebhookDeps): ConnectorWebhook {
-  const replay = deps.replay ?? new ReplayGuard();
+  // No guard of its own unless one is passed (the mocks pass one): `apps/ingest` holds the replay record and releases it
+  // when a delivery is not stored, so a vendor's retry after a refusal or a failed write is accepted (SEC-11).
+  const replay = deps.replay ?? null;
   return {
     path: webhookPath(GITHUB_KEY),
     async verify(req) {
@@ -44,7 +46,11 @@ export function createGithubWebhook(deps: GithubWebhookDeps): ConnectorWebhook {
       if (!signature || !delivery || !signature.startsWith("sha256=")) return false;
       const body = await rawBody(req);
       if (!safeEqual(githubSignature(deps.secret, body), signature)) return false;
-      return replay.check(delivery);
+      return replay ? replay.check(delivery) : true;
+    },
+    async accountOf(req) {
+      const installation = parseJsonBody<GhWebhookPayload>(await rawBody(req))?.installation;
+      return installation ? String(installation.id) : null;
     },
     async normalise(req) {
       const payload = parseJsonBody<GhWebhookPayload>(await rawBody(req));

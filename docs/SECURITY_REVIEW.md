@@ -164,3 +164,22 @@ BUILD §9.8: (2) untrusted content goes to a quarantined reader (Haiku, no tools
 5. SEC-3 (SDK inside the sandbox / minimal env) before any live coding session runs outside a developer laptop.
 6. SEC-6 (quarantined reader + shared recipient register) before the §9.8 eval gate.
 7. P3s as hygiene tickets.
+
+## Re-check and fixes, Nov 11, 2026
+
+Before email and Stripe go live for people's own projects (docs/THESIS_REVIEW.md, package 0.7), the five findings without a recorded fix were read again against the current code, and the new code since Oct 7 was looked at for the same families.
+
+| Finding | State on Nov 11 | What changed in this pass |
+| --- | --- | --- |
+| SEC-9 `APP_ENV` fails open | Narrowed | `loadEnv` refuses to start a production process (`NODE_ENV=production`, as the image sets) whose `APP_ENV` is unset, empty or `development`. `test` stays allowed when named (CI boots the image with it). **Still open:** the gateway falls back to the public development secret when `APP_ENV` is development or test and no `SESSION_TOKEN_SECRET` is set; the api and collab log no warning when `DEV_AUTH_USER_ID` is honored. |
+| SEC-10 webhook tenant binding | Fixed for per-business URLs | `ConnectorWebhook.accountOf` (Stripe `event.account`, the Shopify shop domain, the GitHub installation id); ingest's `accountMismatch` requires it to be the account the business in the URL connected (GitHub: the installation the gateway verified) and answers 422 `business_mismatch`, releasing the nonce. Stripe on the founder's own key also needs the business's own endpoint secret. Applies wherever mock webhooks are refused (staging and production). **Still open (N3):** Stripe Connect posts every connected account's events to one platform URL, and a delivery with no business in the URL is refused, so Connect needs an account-to-business resolver before it goes live. |
+| SEC-11 vendor-scheme weaknesses | Fixed except the vendor's own scheme | The SendGrid inbound token is compared in constant time. A signature callback that names no signable contract of the business writes nothing (`linkContractSignature` returns null, `IngestResult.skipped`). The connectors' live webhooks keep no replay guard of their own; ingest's nonce, released on every refusal, is the only one, so a vendor's retry is accepted. **Still open:** Dropbox Sign's `event_hash` does not cover the request id (their scheme); the full fix confirms the request with the vendor through the gateway before a contract is marked signed. |
+| SEC-14 the api calls connectors directly | Open, wider | Not touched. `keys.validate`, the registry lookups, and now `integrations.connect` and `integrations.health` for non-App connectors run in the api. Needs gateway routes and moves the vendor keys out of the api. |
+| SEC-16 SSRF | Fixed for what exists | `buildUrl` follows a whole URL only over https and only on the connector's own host; the Shopify health check validates the stored shop domain before fetching. The `web` connector's own defense (every redirect hop checked, the connection pinned to the checked address) was read and looks right. |
+
+New since Oct 7:
+
+- **N1 (high), fixed.** `findContractByDocRef` matched a substring, and the request id in a Dropbox Sign callback is not covered by its signature: a callback with a valid hash and a one-character id marked the business's newest matching contract signed. The lookup now matches the whole id (the reference equals it, or holds it as a whole path segment or query value), at least 12 characters of letters, digits, `_` and `-`.
+- **N2 (high for email), open.** No per-business SendGrid inbound token, event-webhook key or Stripe endpoint secret is ever stored by the api or the web, so inbound mail would verify against one platform token for every business. To design with the platform sending address (package 1.5): derive the token per business and store the founder's own keys at connect.
+- **N3 (medium), open.** See SEC-10.
+- **N4 (low), open.** Any service that holds `SESSION_TOKEN_SECRET` can mint the `svc: api` token the push route trusts; `devices.register` moves a push token that another account holds. The second is also what lets two accounts share one phone, so it is left as it is and recorded.

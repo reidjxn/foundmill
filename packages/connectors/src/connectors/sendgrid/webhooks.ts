@@ -16,7 +16,7 @@ import { createPublicKey, verify as cryptoVerify, type KeyObject } from "node:cr
 import { isUuid } from "@foundmill/shared";
 import type { ConnectorWebhook, PlatformEvent } from "../../contract";
 import { makeEvent, stableHash, uuidFromSeed } from "../../mock-utils";
-import { DEFAULT_TOLERANCE_SECONDS, formFields, header, parseJsonBody, rawBody, ReplayGuard, resolveBusinessId, webhookPath, withinTolerance, type BusinessResolver } from "../../webhooks";
+import { DEFAULT_TOLERANCE_SECONDS, formFields, header, parseJsonBody, rawBody, type ReplayGuard, resolveBusinessId, safeEqual, webhookPath, withinTolerance, type BusinessResolver } from "../../webhooks";
 import { SENDGRID_KEY } from "./tools";
 
 export const SG_SIGNATURE_HEADER = "x-twilio-email-event-webhook-signature";
@@ -60,7 +60,9 @@ export interface SendgridWebhookDeps {
 }
 
 export function createSendgridEventWebhook(deps: SendgridWebhookDeps): ConnectorWebhook {
-  const replay = deps.replay ?? new ReplayGuard();
+  // No guard of its own unless one is passed (the mocks pass one): `apps/ingest` holds the replay record and releases it
+  // when a delivery is not stored, so a vendor's retry after a refusal or a failed write is accepted (SEC-11).
+  const replay = deps.replay ?? null;
   const now = deps.now ?? (() => new Date());
   return {
     path: webhookPath(SENDGRID_KEY),
@@ -74,7 +76,7 @@ export function createSendgridEventWebhook(deps: SendgridWebhookDeps): Connector
       if (!publicKey) return false;
       const body = await rawBody(req);
       if (!verifySendgridSignature(publicKey, body, timestamp, signature)) return false;
-      return replay.check(`sig:${signature}`);
+      return replay ? replay.check(`sig:${signature}`) : true;
     },
     async normalise(req) {
       const events = parseJsonBody<SgEvent[]>(await rawBody(req));
@@ -151,7 +153,9 @@ export async function readInboundMail(req: Request): Promise<InboundMail | null>
 }
 
 export function createSendgridInboundWebhook(deps: InboundParseDeps): ConnectorWebhook {
-  const replay = deps.replay ?? new ReplayGuard();
+  // No guard of its own unless one is passed (the mocks pass one): `apps/ingest` holds the replay record and releases it
+  // when a delivery is not stored, so a vendor's retry after a refusal or a failed write is accepted (SEC-11).
+  const replay = deps.replay ?? null;
   return {
     path: webhookPath(SENDGRID_KEY, "inbound"),
     async verify(req) {
@@ -160,10 +164,10 @@ export function createSendgridInboundWebhook(deps: InboundParseDeps): ConnectorW
       if (!presented) return false;
       const businessId = await resolveBusinessId(req, SENDGRID_KEY, null, deps.resolveBusinessId);
       const expected = await deps.tokenFor(businessId);
-      if (!expected || presented.length !== expected.length || presented !== expected) return false;
+      if (!expected || !safeEqual(presented, expected)) return false;
       const mail = await readInboundMail(req);
       if (!mail) return false;
-      return replay.check(`inbound:${mail.messageIdHeader ?? stableHash([mail.from, mail.to, mail.subject, mail.text], 32)}`);
+      return replay ? replay.check(`inbound:${mail.messageIdHeader ?? stableHash([mail.from, mail.to, mail.subject, mail.text], 32)}`) : true;
     },
     async normalise(req) {
       const mail = await readInboundMail(req);
