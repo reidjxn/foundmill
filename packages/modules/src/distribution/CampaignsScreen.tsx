@@ -30,7 +30,7 @@ import { routes } from "@foundmill/widgets/shared/routes";
 import { useBusinessEvents, useWidgetData, useWidgetQuery } from "@foundmill/widgets/data";
 import { useSavedViews } from "@foundmill/widgets/shared/saved-views";
 import type { ModuleScreenProps } from "../registry";
-import { APPROVAL_WORDS, CAMPAIGN_STATUS_WORDS, assetCounts, canTransition, launchBlocked, resumeStatus } from "./channel-data";
+import { APPROVAL_WORDS, CAMPAIGN_STATUS_WORDS, assetCounts, canTransition, channelShown, launchBlocked, resumeStatus } from "./channel-data";
 import { CampaignDialog, EndCampaignDialog } from "./CampaignDialogs";
 import { ASSET_KIND_WORD } from "./channel-data";
 import { DateText } from "../dates";
@@ -156,7 +156,8 @@ export function CampaignsScreen({ businessId }: ModuleScreenProps) {
   // New / Edit (null = closed; "new" = a new campaign) and the End confirmation.
   const [editing, setEditing] = useState<CampaignRow | "new" | null>(null);
   const [ending, setEnding] = useState<CampaignRow | null>(null);
-  const onBoard = useMemo(() => (channels.data?.channels ?? []).filter((c) => c.enabled && c.id), [channels.data]);
+  // A new campaign goes to a channel that is on the board and can really run (or is in offline tracking).
+  const onBoard = useMemo(() => (channels.data?.channels ?? []).filter((c) => c.enabled && c.id && channelShown(c)), [channels.data]);
   const confirmEnd = useCallback(
     async (row: CampaignRow) => {
       if (await setStatus(row, "ended")) setEnding(null);

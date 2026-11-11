@@ -339,6 +339,20 @@ describe("channel form guide", () => {
     expect(rows[1]!.customers).toBeGreaterThan(0);
     expect(buildFormRows(channels.channels, channelMetrics, TODAY, { includeDisabled: true, max: 8 }).length).toBe(3);
   });
+  it("leaves out a channel that cannot really act, unless the founder runs it in offline tracking", () => {
+    const [seo, paid, ...rest] = [...channels.channels].sort((a, b) => b.fit - a.fit).filter((c) => c.enabled);
+    const mixed = [
+      { ...seo!, availability: { available: false } },
+      { ...paid!, availability: { available: false }, kitMode: true },
+      ...rest,
+      ...channels.channels.filter((c) => !c.enabled).map((c) => ({ ...c, availability: { available: false }, kitMode: true })),
+    ];
+    const rows = buildFormRows(mixed, channelMetrics, TODAY, { includeDisabled: true, max: 8 });
+    expect(rows.map((r) => r.channelKey)).not.toContain(seo!.channelKey);
+    expect(rows.map((r) => r.channelKey)).toContain(paid!.channelKey);
+    // Off the board and not available: not listed even with "include channels off the board".
+    expect(rows.every((r) => r.enabled)).toBe(true);
+  });
 });
 
 describe("roadmap", () => {

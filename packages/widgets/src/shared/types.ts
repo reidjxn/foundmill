@@ -179,11 +179,17 @@ export interface ChannelRow {
   currency: string;
   meta?: { label: string; line: ChannelLine; coreMetric: string };
   form: ChannelFormSummary | null;
+  /** Offline tracking: the team prepares the materials, the founder submits them. */
+  kitMode?: boolean;
+  /** Whether the channel can really act for this business (founder, 2026-11-11); absent reads as available. */
+  availability?: { available: boolean };
 }
 export interface ChannelsListResponse {
   channels: ChannelRow[];
   lines: Record<ChannelLine, string[]>;
   blended: Omit<ChannelFormSummary, "channelId" | "channelKey" | "line">;
+  /** The sentence for a business with no channel that can run yet; null or absent otherwise. */
+  noChannel?: string | null;
 }
 
 /* distribution.channels.metrics */

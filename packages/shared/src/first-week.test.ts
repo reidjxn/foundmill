@@ -39,6 +39,12 @@ describe("firstWeekTimeline", () => {
     expect(s[0]!.team).toBe("Drafted the specification and the roadmap.");
   });
 
+  it("Week 1 promises an approach only when a channel can run; otherwise the team gets ready", () => {
+    expect(steps(fresh)[2]!.team).toBe("Your team starts approaching the first customers.");
+    expect(steps({ ...fresh, noChannelCanRun: false })[2]!.team).toBe("Your team starts approaching the first customers.");
+    expect(steps({ ...fresh, noChannelCanRun: true })[2]!.team).toBe("Your team gets ready to approach the first customers; a channel starts as soon as one can run.");
+  });
+
   it("reads the state from the facts, not from the calendar: a slow business stays on Day 1 on day 4", () => {
     const s = steps({ ...fresh, today: "2026-10-10" });
     expect(s.map((x) => x.state)).toEqual(["now", "next", "next"]);

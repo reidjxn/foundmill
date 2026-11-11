@@ -29,8 +29,9 @@ import { CREDITS_CURRENCY, initialModelBilling } from "@foundmill/config";
 const WAGE_CURRENCY = CREDITS_CURRENCY;
 import { assertBusinessAllowance, autopilotChangedPayload, creditsUsedUp, includedCreditsFor, periodOf, repos, type Business, type Db, type DbTx, type InboxItem } from "@foundmill/db";
 import { writeEventRow } from "./events";
-import { CHANNEL_KEYS, CHANNEL_META, CurrencyCode, DEFAULT_BUSINESS_CURRENCY, DEFAULT_BUSINESS_MODE, ValidationError, slugify, type AgentStyle, type Archetype, type BusinessMode, type GameMode, type OptionAction } from "@foundmill/shared";
+import { CHANNEL_KEYS, CHANNEL_META, CurrencyCode, DEFAULT_BUSINESS_CURRENCY, DEFAULT_BUSINESS_MODE, ValidationError, loadEnv, slugify, type AgentStyle, type Archetype, type BusinessMode, type Env, type GameMode, type OptionAction } from "@foundmill/shared";
 import { presetLayout } from "../presets";
+import { channelRowsFor } from "./channel-availability";
 import { QUEUE_ACTION } from "./cycle";
 import { checkLogoChoice, type LogoChoice } from "./logo";
 import { hireMany, type PlannedHire } from "./squad";
@@ -164,7 +165,7 @@ function uniqueSlug(name: string): string {
  * `importKey` returns the key import job ids are signed with (`importJobKey(env)`); it is only called for an idea that
  * Import drafted, so a Door A commit never needs it.
  */
-export async function commitIdea(db: Db, temporal: TemporalService, userId: string, input: CommitIdeaInput, importKey: () => string, deps: { log?: Pick<ApiLogger, "warn"> } = {}): Promise<CommitIdeaResult> {
+export async function commitIdea(db: Db, temporal: TemporalService, userId: string, input: CommitIdeaInput, importKey: () => string, deps: { log?: Pick<ApiLogger, "warn">; env?: Pick<Env, "APP_ENV" | "INTEGRATIONS_MODE" | "LIVE_CONNECTORS"> } = {}): Promise<CommitIdeaResult> {
   const idea = await repos.ideas.get(db, userId, input.ideaId);
   if (idea.committedAt) return committedIdeaResult(db, userId, input.ideaId);
   // Door B: the Import job this idea was drafted from (recorded by idea.generate), verified again (signed for this
@@ -291,15 +292,20 @@ export async function commitIdea(db: Db, temporal: TemporalService, userId: stri
     });
     await repos.screens.upsertMany(tx, businessId, screens);
 
-    // Channels: all 15 exist; the archetype's starters are enabled and recommended (BUILD §11.7 formation).
+    // Channels: all 15 exist; the archetype's starters are enabled and recommended (BUILD §11.7 formation), but only
+    // those that can really act for this business (founder, 2026-11-11): a starter that is not available is neither put
+    // on the board nor recommended, and waits in Builder view's "Not available yet" list. Where simulated results are
+    // allowed (development, test) every starter is available, as before.
+    const availability = await channelRowsFor(tx, { env: deps.env ?? loadEnv(), businessId, business });
+    const starts = (channelKey: (typeof CHANNEL_KEYS)[number]) => seed.defaultChannels.includes(channelKey) && availability.rows[channelKey].available;
     await repos.channels.upsertMany(
       tx,
       businessId,
       CHANNEL_KEYS.map((channelKey) => ({
         channelKey,
         line: CHANNEL_META[channelKey].line,
-        enabled: seed.defaultChannels.includes(channelKey),
-        recommended: seed.defaultChannels.includes(channelKey),
+        enabled: starts(channelKey),
+        recommended: starts(channelKey),
         kitMode: CHANNEL_META[channelKey].kitModeByDefault,
         ownerAgentId: agentIdByTemplate.get(`channel_${channelKey}`) ?? null,
         currency,
@@ -469,7 +475,7 @@ async function committedIdeaResult(db: Db, userId: string, ideaId: string): Prom
 }
 
 /** Templates the archetype hires, for the Commit screen preview. */
-export function squadPreview(archetype: Archetype) {
+export function squadPreview(archetype: Archetype, available?: ReadonlySet<(typeof CHANNEL_KEYS)[number]>) {
   const seed = getArchetypeSeed(archetype);
   const templates = new Set<string>([seed.assistantTemplateKey]);
   for (const d of seed.departments) for (const k of [d.leadTemplateKey, ...d.memberTemplateKeys]) templates.add(k);
@@ -486,7 +492,8 @@ export function squadPreview(archetype: Archetype) {
       // `background`: a platform utility the Team screen keeps off the founder's lists; Commit's roster does the same.
       return { templateKey: key, name: t.name, role: t.role, layer: t.layer, background: t.layer === "utility", modelKey: t.modelKey, wageCapMinor: t.wageCapMinor, wageCurrency: WAGE_CURRENCY, wageLabel: "Estimate" as const, departmentSlug: departmentOf(key) };
     }),
-    defaultChannels: seed.defaultChannels,
+    // Only the starters that can really act for a new project go on the board at commit (founder, 2026-11-11).
+    defaultChannels: available ? seed.defaultChannels.filter((c) => available.has(c)) : seed.defaultChannels,
     specOutline: seed.specOutline,
   };
 }

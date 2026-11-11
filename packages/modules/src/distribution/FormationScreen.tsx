@@ -4,19 +4,27 @@
  * on or off → `distribution.channels.enable/disable`; the Board shows local scores at once and the Strategist re-scores
  * through `distribution.recommend` two seconds after the last toggle (AC-11.7.2; rescore.ts). Click or O opens the
  * channel profile drawer (agents, budget, rules, results, pause).
+ *
+ * The Board shows only channels that can really act for this business (founder, 2026-11-11; the API's `availability`
+ * on every channel), plus one the founder put on in offline tracking. The others are listed under "Not available yet"
+ * in Builder view only. With no channel to show, the Board is one honest empty state: what opens first, and that
+ * nothing is wrong.
  */
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Play, RefreshCw, Sparkles } from "lucide-react";
-import { Button, Chip, Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, Explainer, FormationBoard, GridCell, Panel, ProvenanceChip, Term, formatMoney } from "@foundmill/dugout";
+import { Megaphone, Play, RefreshCw, Sparkles } from "lucide-react";
+import { Button, Chip, Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, EmptyState, Explainer, FormationBoard, GridCell, Panel, ProvenanceChip, Term, formatMoney } from "@foundmill/dugout";
 import type { ChannelKey } from "@foundmill/shared";
-import { CHANNEL_WINDOW_DAYS } from "@foundmill/shared/constants";
+import { CHANNEL_KEYS, CHANNEL_WINDOW_DAYS } from "@foundmill/shared/constants";
+import { emptyWhy } from "@foundmill/shared/empty-why";
+import { routes } from "@foundmill/widgets/shared/routes";
 import { addDays } from "@foundmill/widgets/shared/time";
 import { moduleHref, useDepartments } from "@foundmill/widgets/shared/departments";
 import { useBusinessEvents, useToday, useWidgetData, useWidgetQuery } from "@foundmill/widgets/data";
 import type { ModuleScreenProps } from "../registry";
 import { useBusinessStage } from "../stage";
 import { ChannelProfileDrawer } from "./ChannelProfileDrawer";
-import { buildChannelViews, channelStatus, resumeStatus, toChannelToken, totalBudget, type ChannelView } from "./channel-data";
+import { buildChannelViews, channelStatus, resumeStatus, splitByAvailability, toChannelToken, totalBudget, type ChannelView } from "./channel-data";
+import { NotAvailableChannels } from "./NotAvailableChannels";
 import { InlineError, Screen, searchParam, useAction } from "./shared";
 import { localScores, RESCORE_DEBOUNCE_MS, useDebouncedRun } from "./rescore";
 import type { AgentRow, CampaignRow, ChannelMetricRow, ChannelsListResponse, Page, RecommendResponse, RecommendationRow } from "./types";
@@ -38,6 +46,14 @@ export const DISTRIBUTION_EXPLAINER = {
   action: "Channels on the Board are running; the rest wait in the tray. Drag one up to start it, or open it for its profile.",
   watchFor: "Cost per customer is an Estimate until the ad platform reports which customers it actually brought.",
 } as const;
+
+/** Every channel the product knows (the Board says "of 15" only while all of them can run). */
+const ALL_CHANNELS = CHANNEL_KEYS.length;
+
+/** The tray's label: how many channels can run, in plain words. */
+export function benchLabelFor(shown: number): string {
+  return shown === ALL_CHANNELS ? `All ${ALL_CHANNELS} channels are available` : `${shown} channel${shown === 1 ? "" : "s"} can run now`;
+}
 
 export function FormationScreen({ businessId, departmentId, animateEntrance = true, rescoreDelayMs = RESCORE_DEBOUNCE_MS }: FormationScreenProps) {
   const { navigate, currency } = useWidgetData();
@@ -84,11 +100,15 @@ export function FormationScreen({ businessId, departmentId, animateEntrance = tr
 
   // Toggled since the Strategist last scored: the Board shows local scores until its re-score lands.
   const [provisional, setProvisional] = useState(false);
-  const views = useMemo<ChannelView[]>(() => {
-    const built = buildChannelViews({ channels: channels.data?.channels, campaigns: campaigns.data?.items, metrics: metrics.data, recommendation, currency, today });
-    const toggled = built.map((v) => (overrides[v.channelKey] === undefined ? v : { ...v, enabled: overrides[v.channelKey]! }));
-    return provisional ? localScores(toggled) : toggled;
-  }, [channels.data, campaigns.data, metrics.data, recommendation, currency, today, overrides, provisional]);
+  const all = useMemo<ChannelView[]>(() => {
+    const built = buildChannelViews({ channels: channels.data?.channels, campaigns: campaigns.data?.items, metrics: metrics.data, recommendation, currency, today, availability: channels.data?.availability });
+    return built.map((v) => (overrides[v.channelKey] === undefined ? v : { ...v, enabled: overrides[v.channelKey]! }));
+  }, [channels.data, campaigns.data, metrics.data, recommendation, currency, today, overrides]);
+  // Only channels that can really act are on the Board; the rest wait in Builder view's "Not available yet" list.
+  const { views, unavailable } = useMemo(() => {
+    const split = splitByAvailability(all);
+    return { views: provisional ? localScores(split.shown) : split.shown, unavailable: split.unavailable };
+  }, [all, provisional]);
 
   const budget = useMemo(() => totalBudget(views), [views]);
   const tokens = useMemo(() => views.map((v) => toChannelToken(v, { agents: agents.data, totalBudgetMinor: budget, departmentId })), [views, agents.data, budget, departmentId]);
@@ -133,6 +153,14 @@ export function FormationScreen({ businessId, departmentId, animateEntrance = tr
     },
     [action, rescoreSoon],
   );
+  // From "Not available yet": the channel moves between that list and the Board once the API has answered.
+  const onToggleUnavailable = useCallback(
+    async (view: ChannelView, enabled: boolean) => {
+      const ok = await action.run(enabled ? "distribution.channels.enable" : "distribution.channels.disable", { channelKey: view.channelKey }, { key: `toggle:${view.channelKey}` });
+      if (ok !== undefined) channels.refetch();
+    },
+    [action, channels],
+  );
 
   const onPause = useCallback(
     async (key: ChannelKey, paused: boolean) => {
@@ -151,6 +179,9 @@ export function FormationScreen({ businessId, departmentId, animateEntrance = tr
   };
 
   const hasData = !!channels.data;
+  // No channel can run on its own and none is on the board in offline tracking: the Board says so instead of an empty map.
+  const nothingToShow = hasData && views.length === 0;
+  const none = emptyWhy("channel_board");
   return (
     <Screen name="distribution/formation">
       {waiting ? (
@@ -167,14 +198,18 @@ export function FormationScreen({ businessId, departmentId, animateEntrance = tr
           }
         >
           <p className="text-body text-secondary">
-            The channels on the board keep their place; their engines start when you start distribution.{" "}
+            {nothingToShow ? "No channel can run yet, so nothing starts today. You can still start distribution, and a channel starts the day it opens." : "The channels on the board keep their place; their engines start when you start distribution."}{" "}
             {stage.stage === "building" ? "The team is building the first roadmap items now." : stage.stage === "awaiting_signoff" || stage.stage === "drafting" ? "Sign off the specification and the roadmap first." : ""}
           </p>
           <Dialog open={startOpen} onOpenChange={setStartOpen}>
             <DialogContent size="sm">
               <DialogHeader>
                 <DialogTitle>Start distribution?</DialogTitle>
-                <DialogDescription>The channels on the board start their engines: they draft creative, ask you before anything launches in Assisted mode, and spend within their budgets. The Board will ask which route to the first customer comes first.</DialogDescription>
+                <DialogDescription>
+                  {nothingToShow
+                    ? "No channel can run yet, so nothing starts and nothing is spent today. Once you start, a channel you put on the board starts the day it opens."
+                    : "The channels on the board start their engines: they draft creative, ask you before anything launches in Assisted mode, and spend within their budgets. The Board will ask which route to the first customer comes first."}
+                </DialogDescription>
               </DialogHeader>
               <DialogFooter>
                 <InlineError error={action.error} />
@@ -192,7 +227,7 @@ export function FormationScreen({ businessId, departmentId, animateEntrance = tr
       <GridCell span={12} className="flex gap-gutter">
         <Panel
           title="Board"
-          meta={hasData ? (waiting ? `${starters} of 15 on the board · waiting for the product` : starting ? `${starters - starting} of 15 running · ${starting} starting` : `${starters} of 15 running`) : undefined}
+          meta={hasData && !nothingToShow ? (waiting ? `${starters} of ${views.length} on the board · waiting for the product` : starting ? `${starters - starting} of ${views.length} running · ${starting} starting` : `${starters} of ${views.length} running`) : undefined}
           help="Each token is a channel; drag it onto the board to start it, or off the board to stop it."
           loading={channels.isLoading}
           error={channels.error ? channels.error.message : undefined}
@@ -204,13 +239,15 @@ export function FormationScreen({ businessId, departmentId, animateEntrance = tr
                   Scores are being refreshed
                 </Chip>
               ) : null}
-              <Button size="sm" variant="ghost" icon={rescoring ? RefreshCw : Sparkles} loading={rescoring} onClick={rescoreNow}>
-                {scored === 0 ? "Get recommendation" : "Score again"}
-              </Button>
+              {nothingToShow ? null : (
+                <Button size="sm" variant="ghost" icon={rescoring ? RefreshCw : Sparkles} loading={rescoring} onClick={rescoreNow}>
+                  {scored === 0 ? "Get recommendation" : "Score again"}
+                </Button>
+              )}
             </>
           }
           footer={
-            hasData ? (
+            hasData && !nothingToShow ? (
               <span className="inline-flex flex-wrap items-center gap-1.5 tabular-nums">
                 Budget across running channels {formatMoney({ amountMinor: budget, currency })} per month · <Term id="acquisition_cost">cost per customer</Term> is an <ProvenanceChip kind="estimate" /> · drag a channel on or off the board, or open it for its profile
               </span>
@@ -219,21 +256,34 @@ export function FormationScreen({ businessId, departmentId, animateEntrance = tr
           className="min-w-0 flex-1"
         >
           {/* The department's intro (guidance on), then what the numbers mean, said once under the title (UX plan §7.13). */}
-          <Explainer {...DISTRIBUTION_EXPLAINER} className="mb-3" />
-          <p className="mb-2 max-w-reading text-small text-secondary" data-testid="board-caption">
-            <Term id="fit">Fit</Term> 1–20: how well a channel suits this business, scored by the <Term id="distribution_strategist">Distribution Strategist</Term>. Closer to the center means a better fit.
-          </p>
-          {hasData && scored === 0 ? (
+          {/* With no channel to show there is no board to explain: the empty state below says what opens first. */}
+          {nothingToShow ? null : (
+            <>
+              <Explainer {...DISTRIBUTION_EXPLAINER} className="mb-3" />
+              <p className="mb-2 max-w-reading text-small text-secondary" data-testid="board-caption">
+                <Term id="fit">Fit</Term> 1–20: how well a channel suits this business, scored by the <Term id="distribution_strategist">Distribution Strategist</Term>. Closer to the center means a better fit.
+              </p>
+            </>
+          )}
+          {hasData && !nothingToShow && scored === 0 ? (
             <p className="mb-2 text-small text-secondary" role="status">
-              {starters > 0 ? "No channel has been scored yet." : "All 15 channels are off the board."} The Distribution Strategist scores each one 1–20 for fit and picks 3 to 6 channels to start with.
+              {starters > 0 ? "No channel has been scored yet." : views.length === ALL_CHANNELS ? "All 15 channels are off the board." : "No channel is on the board yet."}{" "}
+              {views.length === ALL_CHANNELS ? "The Distribution Strategist scores each one 1–20 for fit and picks 3 to 6 channels to start with." : "The Distribution Strategist scores each one 1–20 for fit and picks which to start with."}
             </p>
           ) : null}
           <InlineError error={action.error} className="mb-2" />
-          {hasData ? <FormationBoard channels={tokens} onToggle={onToggle} onOpenChannel={(k) => setSelected(k)} onPause={onPause} animateEntrance={animateEntrance} benchLabel="All 15 channels are available" /> : null}
+          {nothingToShow ? (
+            <EmptyState icon={Megaphone} title={none.title} data-testid="board-no-channels">
+              {channels.data?.noChannel ?? none.text}
+            </EmptyState>
+          ) : hasData ? (
+            <FormationBoard channels={tokens} onToggle={onToggle} onOpenChannel={(k) => setSelected(k)} onPause={onPause} animateEntrance={animateEntrance} benchLabel={benchLabelFor(views.length)} />
+          ) : null}
         </Panel>
         {/* The profile opens on the right when a channel is picked; closed, the board takes the whole width. */}
         {selectedView && selectedToken ? <ChannelProfileDrawer view={selectedView} token={selectedToken} action={action} onClose={() => setSelected(null)} onToggle={onToggle} onPause={onPause} onBudgetSaved={() => channels.refetch()} onOpenChannels={openChannels} /> : null}
       </GridCell>
+      <NotAvailableChannels views={unavailable} pending={action.pending} onToggle={(v, enabled) => void onToggleUnavailable(v, enabled)} onOpenIntegrations={() => navigate(routes.settings(businessId, "integrations"))} />
     </Screen>
   );
 }

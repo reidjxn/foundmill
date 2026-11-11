@@ -35,5 +35,6 @@ export { createShopifyConnector, shopifyMock, SHOPIFY_KEY, normaliseShopifyEvent
 export { createTinkConnector, tinkMock, TINK_KEY } from "./connectors/tink";
 export { createPlaidConnector, plaidMock, PLAID_KEY } from "./connectors/plaid";
 export * from "./grants";
+export * from "./channel-availability";
 export { createPlatformConnector, platformMock, createPlatformMock, createMemoryPlatformHost, PLATFORM_KEY, PlatformToolError, MESSAGE_TYPES, type PlatformHost, type PlatformCaller, type PlatformArgs, type PlatformResult, type TaskSummaryT, type TaskDetailT, type AgentMessageT } from "./connectors/platform";
 export { createQuarantineConnector, quarantineMock, QUARANTINE_KEY, quarantinedReaderRequest } from "./connectors/quarantine";

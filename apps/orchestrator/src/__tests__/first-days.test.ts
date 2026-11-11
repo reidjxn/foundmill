@@ -219,4 +219,53 @@ describe("Ready to start selling?", () => {
     const done = await repos.tasks.create(t.db, t.businessId, { kind: "code", title: "Done work", roadmapItemId: sellingItem.id, status: "done" });
     expect(await offerReadyToSellAfterTask(t.deps, t.businessId, done)).toBeNull();
   });
+
+  it("on staging the note names only channels that can run, and says what opens first when none can (founder, 2026-11-11)", async () => {
+    const staging = { ...t.deps, env: { ...t.deps.env, APP_ENV: "staging" as const, LIVE_CONNECTORS: "" } };
+    const shipped = async (name: string) => {
+      const w = await waitingBusiness(name);
+      const item = await repos.product.upsertRoadmapItem(t.db, w.id, { title: "First slice", horizon: "now" });
+      const task = await repos.tasks.create(t.db, w.id, { kind: "code", title: "Build it", roadmapItemId: item.id, status: "done" });
+      return { w, task };
+    };
+    // Social is on the board from before and cannot run; nothing is promised to be waiting.
+    const none = await shipped("Nothing Runs Co");
+    await repos.channels.upsert(t.db, none.w.id, { channelKey: "social", line: CHANNEL_META.social.line, enabled: true, kitMode: false });
+    const offered = await offerReadyToSellAfterTask(staging, none.w.id, none.task);
+    const body = (await repos.inbox.get(t.db, none.w.id, offered!.inboxItemId)).bodyMd;
+    expect(body).toContain("No channel can run on its own yet. Email opens first, as soon as sending is switched on for your project. Nothing is wrong, and nothing is waiting on you.");
+    expect(body).toContain("Start distribution now so a channel starts the day it opens, or keep building first.");
+    expect(body).not.toContain("Social media");
+    expect(body).not.toContain("are waiting for the product");
+
+    // Print in offline tracking is honest by design, so it is named.
+    const offline = await shipped("Print Runs Co");
+    await repos.channels.upsert(t.db, offline.w.id, { channelKey: "print", line: CHANNEL_META.print.line, enabled: true, kitMode: true });
+    await repos.channels.upsert(t.db, offline.w.id, { channelKey: "social", line: CHANNEL_META.social.line, enabled: true, kitMode: false });
+    const second = await offerReadyToSellAfterTask(staging, offline.w.id, offline.task);
+    expect((await repos.inbox.get(t.db, offline.w.id, second!.inboxItemId)).bodyMd).toContain("The channels on the board (Print) are waiting for the product.");
+  });
+});
+
+describe("a plan never turns on a channel that cannot run (founder, 2026-11-11)", () => {
+  it("on staging enable_channel fails with the founder's sentence and the channel stays off; offline tracking may be turned on", async () => {
+    const plans = createPlanActivities({ ...t.deps, env: { ...t.deps.env, APP_ENV: "staging", LIVE_CONNECTORS: "" } });
+    const w = await waitingBusiness("Plan Refuse Co");
+    const plan = await repos.plans.create(t.db, w.id, {
+      origin: "option",
+      actions: [
+        { type: "enable_channel", params: { channel: "affiliate" }, policyOutcome: "allow" },
+        { type: "enable_channel", params: { channel: "print" }, policyOutcome: "allow" },
+      ],
+    });
+    const refused = await plans.executePlanAction({ businessId: w.id, planId: plan.id, actionId: plan.actions[0]!.id, workflowId: `plan:${plan.id}` });
+    expect(refused.status).toBe("failed");
+    expect(refused.result).toMatchObject({ error: "Affiliate is not available yet: the team cannot publish there yet." });
+    expect(refused.spawn).toEqual([]);
+    expect((await repos.channels.getByKey(t.db, w.id, "affiliate"))?.enabled ?? false).toBe(false);
+    // Print is in offline tracking by default: the agent prepares, the founder submits.
+    const offline = await plans.executePlanAction({ businessId: w.id, planId: plan.id, actionId: plan.actions[1]!.id, workflowId: `plan:${plan.id}` });
+    expect(offline.result).toMatchObject({ enabled: true });
+    expect(await repos.channels.getByKey(t.db, w.id, "print")).toMatchObject({ enabled: true, kitMode: true });
+  });
 });
