@@ -7,9 +7,9 @@ description: Use whenever you write any text a founder can read in the Foundmill
 
 ## 1. The product's words (always)
 
-- The product is **Foundmill**. What a person runs is a **project** until its first sale and a **business** after (in the app's own sentences; text the API writes is left as it comes). The people who run it are its **founders** (write "the founders", never assume one).
+- The product is **Foundmill**. What a person runs is a **project** until its first sale and a **business** after (in the app's own sentences; text the API writes is left as it comes). The person who runs it is the **founder**; one person is complete (never a line that says or implies they need someone else), and where several people run it they are its founders.
 - The AI agents are the **team**. The humans of a business are its **People**: **cofounders** (equal standing, any number) and **collaborators** (limited access). Never "staff", never "seat", never a limit on people (founder, Nov 11, 2026).
-- **Subtext, never text.** Nothing a person reads says or implies "do this instead of getting a job". Say ownership ("something that is yours"), capability ("what you can do now"), company ("people to build it with"). Never jobs, employment, unemployment, careers, "9 to 5", "laid off" or AI taking work as the reason to be here. An agent's job, a job title on a contact and hiring an agent are ordinary words and stay.
+- **Subtext, never text.** Nothing a person reads says or implies "do this instead of getting a job". Say ownership ("something that is yours"), capability ("what you can do now") and, as an offer, company ("people to build it with, if you want them"). Never jobs, employment, unemployment, careers, "9 to 5", "laid off" or AI taking work as the reason to be here. An agent's job, a job title on a contact and hiring an agent are ordinary words and stay.
 - A round of agent work is a **round of work** in everything a founder reads; "cycle" and cycle numbers are the engine's words and stay in code and in the web's Builder view.
 - The agent that plans each round of work and talks for the team is the **Chief of Staff**.
 - A press of **Continue** starts rounds of work that go on until nothing is left to do.
@@ -45,7 +45,7 @@ description: Use whenever you write any text a founder can read in the Foundmill
 | assistant manager | Chief of Staff |
 | scouting report | Import report |
 | form guide | Channel performance |
-| league, league table, league position | leaderboard, leaderboard position |
+| league, league table, league position, leaderboard | nothing: the leaderboards feature was removed on Nov 11, 2026 and is never shown |
 | match, match day, match commentator, cup tie | Customer Update, win, narrate |
 | kick-off, team sheet, goal (as a sports event), full time, player of the match, whistle, half-time, line-up | First touch, Who was involved, Win moment, Debrief, Standout agent |
 | friendly / league / cup (update levels) | Brief / Standard / Featured |

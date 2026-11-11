@@ -61,9 +61,9 @@ Where a field is missing, add it to the existing procedure rather than a mobile-
 - The vocabulary rule (People, cofounders, collaborators, project) already applies to the app's own strings; the API's role enum stays `owner | admin | member | viewer | advisor` until 3.3 adds `cofounder` and `collaborator`.
 - Hand-over (2.1): once the app is in the stores, one config value on the web holds the store links; the app needs only the universal links of item 5.
 
-## 10. A stale base to watch
+## 10. The rebuild branch and this pack
 
-- Branch `claude/vibrant-euler-uua9pw` (the thesis review, phase 0) branched from main before PR #75 merged: its diff against main removes the devices migration (0075), the `onesignal` connector, `repos/devices.ts` and the RLS tests. That is a stale base, not an intent; it must be rebased on main before it merges, or those files come back as conflicts. The owners of that branch were not told by this session.
+- Branch `claude/vibrant-euler-uua9pw` (the thesis review, phase 0) has merged main (#75) since the morning, so the devices migration and the `onesignal` connector are safe there. It adds migration `0076_drop_leaderboards.sql`: `live.leaderboards.*` and its tables are gone once it merges, and the app must never call them (prompt 12A removes every trace). Its package 5.6 ("the mobile prompt pack follows the thesis") is done by this pack's Nov 11 update; nothing else in that branch changes a procedure the app uses yet.
 
 ## 11. Repo hygiene
 
