@@ -3574,3 +3574,11 @@ The founder decided the rule (§14 item 9). How it was built, and what follows f
 - **Three confirmations a day per address across all projects; one follow a day per page and address.** The build first allowed one a day across all projects, which would have silently dropped a real person following a second project the same day; three keeps a script from turning the form into a mail cannon at one address while letting a person follow a few projects in one sitting. One a day per page and address keeps repeats off the page's budget.
 - **No per-visitor limit in the api.** The api sees only the web's addresses, and trusting a forwarded visitor address would need a new shared secret. The per-visitor limit belongs in the Vercel Firewall (a rule on POST `/p/*`), which is a setup step, not code.
 - **Followers are named "Follower (ma***@example.com)"**, never by the address they typed, so a crafted address cannot read as an instruction where contact names reach agents.
+
+## 2026-11-11 — Email from Foundmill to a person: the calls made
+
+- **One kind to start, "a decision is waiting",** sent after a day unread, once per note, at most one a day per project and three a day per person. Enough to bring someone back to an answer that blocks their project, not a newsletter.
+- **The email shows what that person may see:** the Inbox's Finance and CRM walls apply to the quoted subject, through one shared redaction.
+- **No link but the one into the app.** Anything that looks like a link, domain or address in text an agent or a founder wrote is replaced, because the email comes from Foundmill's own authenticated domain and a phishing link there would carry Foundmill's name.
+- **Its own ceiling, and project mail first.** Reminders never use the budget project mail and follow confirmations need.
+- **Replies to `hello@` reach no one,** and the email says so.
