@@ -16,14 +16,17 @@
  * push preferences (which kinds, amounts off the lock screen), the email channel beside them (which kinds of email
  * Foundmill sends the person, packages 1.5 and 5.1; changed through `update` with `email`) and the phones it registered. `register` runs with the
  * service role so a token follows the latest sign-in on a phone (packages/db repos/devices.ts); the rest run as the user.
+ * founder.publicProfile.get/update/publish/unpublish (0080, package 2.3): the person's own public profile at /u/<handle>,
+ * and publicPerson.byHandle, its signed-out read (services/person-profile.ts).
  */
 import { freeDisplayName, liveModeOpen } from "@foundmill/config";
 import { AccountPreferencesPatch, RegisterDeviceInput, UnregisterDeviceInput, repos, withRls, FounderProfileInput, FounderProfilePatch, SaveTableViewsInput, TableViewsScope, type AccountPreferencesView, type Db, type DbTx, type GuidancePrefs, type NotificationPreferences } from "@foundmill/db";
-import { GUIDANCE_OFF_SOURCES } from "@foundmill/shared";
+import { GUIDANCE_OFF_SOURCES, PAGE_SLUG_MAX, PERSON_ABOUT_MAX, PERSON_HEADLINE_MAX, PERSON_LOOKING_FOR, PERSON_PLACE_MAX, PERSON_TAGS_MAX, PERSON_TAG_MAX } from "@foundmill/shared";
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import { writeEventRow } from "../services/events";
-import { protectedProcedure, router } from "../trpc";
+import { getPublicProfile, publicPersonByHandle, publishPublicProfile, unpublishPublicProfile, updatePublicProfile } from "../services/person-profile";
+import { protectedProcedure, publicProcedure, router } from "../trpc";
 import { founderBusinessesRouter } from "./founder-businesses";
 
 /** Runs fn as the signed-in user, so Postgres RLS holds every row it touches to that user. */
@@ -68,6 +71,24 @@ export const GuidanceSignalInput = z.object({
   ]),
 });
 export type GuidanceSignalInput = z.input<typeof GuidanceSignalInput>;
+
+/** The public profile's fields as the client sends them; the shared schema tidies and checks them in the service. */
+export const PublicProfileInput = z.object({
+  handle: z.string().max(PAGE_SLUG_MAX * 2).optional(),
+  content: z.object({
+    headline: z.string().max(PERSON_HEADLINE_MAX * 4).default(""),
+    about: z.string().max(PERSON_ABOUT_MAX * 4).default(""),
+    strengths: z.array(z.string().max(PERSON_TAG_MAX * 4)).max(PERSON_TAGS_MAX * 4).default([]),
+    wantsToLearn: z.array(z.string().max(PERSON_TAG_MAX * 4)).max(PERSON_TAGS_MAX * 4).default([]),
+    lookingFor: z.enum(PERSON_LOOKING_FOR).default("on_my_own"),
+    place: z.string().max(PERSON_PLACE_MAX * 4).default(""),
+  }),
+});
+
+/** publicPerson.byHandle: anyone, signed in or not; the view `public_person_profiles` only; null when not public. */
+export const publicPersonRouter = router({
+  byHandle: publicProcedure.input(z.object({ handle: z.string().max(PAGE_SLUG_MAX * 2) })).query(({ ctx, input }) => publicPersonByHandle(ctx, input.handle)),
+});
 
 export const founderRouter = router({
   businesses: founderBusinessesRouter,
@@ -133,6 +154,18 @@ export const founderRouter = router({
       const eventId = await writeEventRow(ctx.db, { businessId: business.id, type, actor: { kind: "user", id: ctx.userId }, payload: payload as never });
       return { written: true as const, eventId };
     }),
+  }),
+  /**
+   * The person's own public profile at /u/<handle> (0080; services/person-profile.ts): the signed-in account only, its
+   * own row. `update` saves (screened while the profile is public); `publish` saves and makes it public after the
+   * screen; `unpublish` takes it down. A held save or publish answers `{ outcome: "held", message }` and changes nothing
+   * public.
+   */
+  publicProfile: router({
+    get: protectedProcedure.query(({ ctx }) => getPublicProfile(ctx)),
+    update: protectedProcedure.input(PublicProfileInput).mutation(({ ctx, input }) => updatePublicProfile(ctx, input)),
+    publish: protectedProcedure.input(PublicProfileInput).mutation(({ ctx, input }) => publishPublicProfile(ctx, input)),
+    unpublish: protectedProcedure.mutation(({ ctx }) => unpublishPublicProfile(ctx)),
   }),
   devices: router({
     /** The person's phones registered for push, the most recently seen first. */

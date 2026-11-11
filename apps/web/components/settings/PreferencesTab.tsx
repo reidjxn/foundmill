@@ -24,7 +24,7 @@
  * Open to every member, whatever their role: it changes nothing of the business.
  */
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { UserRound } from "lucide-react";
+import { Globe, UserRound } from "lucide-react";
 import { useCallback, useState } from "react";
 import {
   AgentStylePicker,
@@ -44,8 +44,10 @@ import {
   type DateFormatPrefs,
   type SegmentedOption,
   type TextSize,
+  useFormatters,
 } from "@foundmill/dugout";
 import type { AgentStyle } from "@foundmill/shared/personas";
+import { personStateLine } from "@foundmill/shared/person-profile";
 import { EMAIL_NOTIFICATION_LABELS, EMAIL_NOTIFICATIONS_HINT, emailNotificationSavedLine } from "@foundmill/shared/notify-email";
 import { ANTHROPOMORPHIC_EXPLAINER, anthropomorphicSavedLine } from "@/lib/anthropomorphic";
 import { useClientNow } from "@/lib/today";
@@ -53,6 +55,8 @@ import { useDatePreferences } from "@/components/providers/DateFormatHost";
 import { agentStyleOf, useGuidancePreferences, type GuidancePatch, type GuidancePrefs } from "@/components/providers/GuidanceHost";
 import { builderViewSavedLine } from "@/components/providers/guidance-context";
 import { useTRPC } from "@/lib/trpc-react";
+import { accountRoutes } from "@/lib/account-routes";
+import { LinkButton } from "@/components/new/LinkButton";
 import { AccountId } from "./AccountId";
 import { Hint, SettingsSection, useSettingsToast } from "./shared";
 
@@ -302,6 +306,32 @@ export function EmailNotificationsSection() {
   );
 }
 
+/**
+ * Your public profile (package 2.3): a page about the person at their own address, which needs no project. Edited on its
+ * own account page (/public-profile); this section says where it is and whether it is public.
+ */
+export function PublicProfileSection() {
+  const trpc = useTRPC();
+  const profile = useQuery(trpc.founder.publicProfile.get.queryOptions(undefined, { staleTime: 60_000 }));
+  const { formatDate } = useFormatters();
+  const data = profile.data;
+  return (
+    <SettingsSection title="Your public profile" data-testid="public-profile-panel">
+      <Hint>A page about you at its own address, with no project needed. Only you can see it until you publish it.</Hint>
+      {data ? (
+        <p className="t-body text-primary" data-testid="public-profile-panel-state">
+          {personStateLine({ public: data.public, publishedOn: data.publishedAt ? formatDate(data.publishedAt) : null })}
+        </p>
+      ) : null}
+      <div>
+        <LinkButton icon={Globe} href={accountRoutes.publicProfile} data-testid="public-profile-edit">
+          Edit your public profile
+        </LinkButton>
+      </div>
+    </SettingsSection>
+  );
+}
+
 export function PreferencesTab() {
   const { prefs, save } = useDatePreferences();
   const t = useSettingsToast();
@@ -344,6 +374,7 @@ export function PreferencesTab() {
       <AnthropomorphicAgentsSection />
       <BuilderViewSection />
       <EmailNotificationsSection />
+      <PublicProfileSection />
       <SettingsSection title="Your account ID" data-testid="account-id-panel">
         <AccountId accountId={viewer.data?.userId} />
       </SettingsSection>

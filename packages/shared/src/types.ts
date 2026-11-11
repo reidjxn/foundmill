@@ -76,11 +76,15 @@ import {
 import type * as C from "./constants";
 import { PAGE_ABOUT_MAX, PAGE_FOR_WHOM_MAX, PAGE_PITCH_MAX, PAGE_STAGES, normalizePageContent, pageSlugProblem } from "./project-page";
 import type * as P from "./project-page";
+import { PERSON_ABOUT_MAX, PERSON_HEADLINE_MAX, PERSON_LOOKING_FOR, PERSON_PLACE_MAX, PERSON_TAGS_MAX, PERSON_TAG_MAX, normalizePersonProfile, personHandleProblem } from "./person-profile";
+import type * as PP from "./person-profile";
 
 // The zod-free half (tuples, unions, records): "@foundmill/shared/constants".
 export * from "./constants";
 // A project's public page, zod-free: "@foundmill/shared/project-page". Its Zod schemas are at the end of this file.
 export * from "./project-page";
+// A person's public profile, zod-free: "@foundmill/shared/person-profile". Its Zod schemas follow the page's.
+export * from "./person-profile";
 
 export const GameMode = z.enum(GAME_MODES);
 export type GameMode = C.GameMode;
@@ -279,3 +283,42 @@ export const ProjectPageSlug = z
   });
 export const PageStage = z.enum(PAGE_STAGES);
 export type PageStage = P.PageStage;
+
+/**
+ * A person's public profile (./person-profile; migration 0080). The raw strings get generous outer bounds; the real
+ * limits apply to the tidied values (`normalizePersonProfile`), so what is validated is what is stored.
+ */
+export const PersonLookingFor = z.enum(PERSON_LOOKING_FOR);
+export type PersonLookingFor = PP.PersonLookingFor;
+const PersonTags = z.array(z.string().max(PERSON_TAG_MAX * 4)).max(PERSON_TAGS_MAX * 4).default([]);
+export const PersonProfileContent = z
+  .object({
+    headline: z.string().max(PERSON_HEADLINE_MAX * 4).default(""),
+    about: z.string().max(PERSON_ABOUT_MAX * 4).default(""),
+    strengths: PersonTags,
+    wantsToLearn: PersonTags,
+    lookingFor: PersonLookingFor.default("on_my_own"),
+    place: z.string().max(PERSON_PLACE_MAX * 4).default(""),
+  })
+  .transform((v) => normalizePersonProfile(v))
+  .superRefine((v, ctx) => {
+    const over = (field: "headline" | "about" | "place", max: number) => {
+      if (v[field].length > max) ctx.addIssue({ code: "custom", path: [field], message: `At most ${max} characters` });
+    };
+    over("headline", PERSON_HEADLINE_MAX);
+    over("about", PERSON_ABOUT_MAX);
+    over("place", PERSON_PLACE_MAX);
+    for (const field of ["strengths", "wantsToLearn"] as const) {
+      if (v[field].length > PERSON_TAGS_MAX) ctx.addIssue({ code: "custom", path: [field], message: `At most ${PERSON_TAGS_MAX} tags` });
+      if (v[field].some((t) => t.length > PERSON_TAG_MAX)) ctx.addIssue({ code: "custom", path: [field], message: `At most ${PERSON_TAG_MAX} characters a tag` });
+    }
+  });
+export type PersonProfileContent = PP.PersonProfileContent;
+/** A person's address under /u/: the project page's address rule (`personHandleProblem`). */
+export const PersonHandle = z
+  .string()
+  .trim()
+  .superRefine((v, ctx) => {
+    const problem = personHandleProblem(v);
+    if (problem) ctx.addIssue({ code: "custom", message: problem });
+  });

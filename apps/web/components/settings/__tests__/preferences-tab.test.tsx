@@ -64,6 +64,12 @@ vi.mock("@/lib/trpc-react", () => ({
           queryOptions: (_input: unknown, opts: Record<string, unknown>) => ({ queryKey: [["founder", "profile", "get"], { type: "query" }], queryFn: async () => ({ userId: "5a1e0000-0000-4000-8000-00000000fe01", profile: null, complete: true, email: "reid@northwind.example", memberships: [] }), ...opts }),
         },
       },
+      // Your public profile (package 2.3): the section says whether it is public and links to where it is edited.
+      publicProfile: {
+        get: {
+          queryOptions: (_input: unknown, opts: Record<string, unknown>) => ({ queryKey: [["founder", "publicProfile", "get"], { type: "query" }], queryFn: async () => ({ handle: "reid", url: "http://localhost:3000/u/reid", saved: true, displayName: "Reid", public: true, publishedAt: new Date(2026, 9, 7, 12), projects: [], content: { headline: "", about: "", strengths: [], wantsToLearn: [], lookingFor: "on_my_own", place: "" } }), ...opts }),
+        },
+      },
       preferences: {
         get: {
           queryKey: () => PREFS_KEY,
@@ -288,6 +294,17 @@ describe("Email switch", () => {
     fireEvent.click(sw);
     await waitFor(() => expect(failed).toHaveBeenCalledTimes(1));
     expect(sw.getAttribute("aria-checked")).toBe("true");
+  });
+});
+
+describe("Your public profile", () => {
+  it("says whether it is public and links to where it is edited, asking nothing about people", async () => {
+    mount();
+    const panel = await screen.findByTestId("public-profile-panel");
+    expect(panel.textContent).toContain("A page about you at its own address, with no project needed.");
+    await waitFor(() => expect(screen.getByTestId("public-profile-panel-state").textContent).toBe("Public since Oct 7, 2026"));
+    expect(screen.getByTestId("public-profile-edit").getAttribute("href")).toBe("/public-profile");
+    for (const word of ["cofounder", "alone", "people"]) expect(panel.textContent?.toLowerCase(), word).not.toContain(word);
   });
 });
 

@@ -13,9 +13,10 @@ import { NeedsLargerWindow, isViewportTooSmall, useViewportWidth } from "@foundm
 
 /**
  * Path prefixes that work from 390 px and never show NeedsLargerWindow. The one list to grow as the outer product
- * gains small-screen routes (docs/THESIS_REVIEW.md package 2.1): a project's public page first.
+ * gains small-screen routes (docs/THESIS_REVIEW.md package 2.1): a project's public page first, then a person's public
+ * profile (package 2.3).
  */
-export const SMALL_SCREEN_PREFIXES: readonly string[] = ["/p/"];
+export const SMALL_SCREEN_PREFIXES: readonly string[] = ["/p/", "/u/"];
 
 /** Whether `pathname` renders at every width (one of `SMALL_SCREEN_PREFIXES`). */
 export function worksOnSmallScreens(pathname: string | null | undefined): boolean {

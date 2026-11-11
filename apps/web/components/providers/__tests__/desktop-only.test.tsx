@@ -49,10 +49,11 @@ describe("desktop only (audit PAS-4: a phone rendered a 390 px slice of a 1280 p
     expect(screen.queryByTestId("needs-larger-window")).toBeNull();
   });
 
-  it("a project's public page works from 390 px: the one list of small-screen routes, nothing else changes", () => {
-    expect(SMALL_SCREEN_PREFIXES).toEqual(["/p/"]);
+  it("a project's public page and a person's public profile work from 390 px: the one list of small-screen routes, nothing else changes", () => {
+    expect(SMALL_SCREEN_PREFIXES).toEqual(["/p/", "/u/"]);
     expect(worksOnSmallScreens("/p/northwind-skincare")).toBe(true);
-    for (const p of ["/", "/login", "/profiles", "/p", "/b/x/today", null]) expect(worksOnSmallScreens(p), String(p)).toBe(false);
+    expect(worksOnSmallScreens("/u/maya-okafor")).toBe(true);
+    for (const p of ["/", "/login", "/profiles", "/p", "/u", "/public-profile", "/b/x/today", null]) expect(worksOnSmallScreens(p), String(p)).toBe(false);
     pathname = "/p/northwind-skincare";
     setWidth(390);
     render(

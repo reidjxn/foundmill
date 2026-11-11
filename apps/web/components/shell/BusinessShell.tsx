@@ -775,6 +775,7 @@ function ShellInner({ businessId, initialBusiness, initialDepartments, viewer, c
       onNewBusiness: () => router.push(accountRoutes.newBusiness),
       onManageBusinesses: () => router.push(accountRoutes.businesses),
       onProfile: () => router.push(accountRoutes.profile),
+      onPublicProfile: () => router.push(accountRoutes.publicProfile),
       pendingBusinessId: switching ? switchingTo : null,
     }),
     [businessesData, businessesLoading, businessesFailed, refetchBusinesses, businessId, business.name, business.isDemo, data.kit.primary, data.role, access.isExample, logoSrc, businessLogos, wantBusinesses, openBusiness, router, switching, switchingTo],

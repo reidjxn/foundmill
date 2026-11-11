@@ -10,7 +10,7 @@ beforeAll(() => {
 });
 
 function setup(over: Partial<KitBarBusinessMenu> = {}, onHome = vi.fn()) {
-  const menu: KitBarBusinessMenu = { businesses: SWITCHER_BUSINESSES, onOpenBusiness: vi.fn(), onNewBusiness: vi.fn(), onManageBusinesses: vi.fn(), onProfile: vi.fn(), onIntent: vi.fn(), ...over };
+  const menu: KitBarBusinessMenu = { businesses: SWITCHER_BUSINESSES, onOpenBusiness: vi.fn(), onNewBusiness: vi.fn(), onManageBusinesses: vi.fn(), onProfile: vi.fn(), onPublicProfile: vi.fn(), onIntent: vi.fn(), ...over };
   const user = userEvent.setup();
   render(
     <BusinessSwitcher businessName="Northwind Skincare" menu={menu} onHome={onHome}>
@@ -94,6 +94,7 @@ describe("BusinessSwitcher", () => {
       ["Manage businesses", menu.onManageBusinesses],
       ["Today", onHome],
       ["Your profile", menu.onProfile],
+      ["Your public profile", menu.onPublicProfile],
     ] as const) {
       await open();
       await user.click(screen.getByRole("option", { name: new RegExp(`^${label}$`) }));

@@ -477,6 +477,13 @@
       "when": 1796127660000,
       "tag": "0079_page_followers",
       "breakpoints": true
+    },
+    {
+      "idx": 68,
+      "version": "7",
+      "when": 1796127720000,
+      "tag": "0080_person_profiles",
+      "breakpoints": true
     }
   ]
 }

@@ -933,6 +933,8 @@ export interface ChipFieldProps {
   placeholder?: string;
   /** The longest a chip can be (the typed text stops here; a suggestion longer than this is not offered). */
   maxLength?: number;
+  /** The most chips it takes (default `MAX_CHIPS`; the public profile's tags take 8). */
+  max?: number;
 }
 
 /** Chips you can type (Enter adds) plus suggestion chips you can toggle. */
@@ -947,10 +949,11 @@ export function ChipField({
   onChange,
   placeholder,
   maxLength = PROFILE_LIMITS.constraint,
+  max = MAX_CHIPS,
 }: ChipFieldProps) {
   const [draft, setDraft] = useState("");
   const commit = () => {
-    const next = addChip(values, draft, MAX_CHIPS, maxLength);
+    const next = addChip(values, draft, max, maxLength);
     if (next.length !== values.length) onChange(next);
     setDraft("");
   };
@@ -1014,7 +1017,7 @@ export function ChipField({
             {remaining.map((s) => (
               <Chip
                 key={s}
-                onClick={() => onChange(toggleChip(values, s, MAX_CHIPS, maxLength))}
+                onClick={() => onChange(toggleChip(values, s, max, maxLength))}
                 icon={Plus}
               >
                 {s}

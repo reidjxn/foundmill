@@ -11,7 +11,7 @@ import { dashboardRouter, departmentRouter, screenRouter } from "./routers/depar
 import { devRouter } from "./routers/dev";
 import { distributionRouter } from "./routers/distribution";
 import { financeRouter } from "./routers/finance";
-import { founderRouter } from "./routers/founder";
+import { founderRouter, publicPersonRouter } from "./routers/founder";
 import { goalRouter } from "./routers/goal";
 import { ideaRouter } from "./routers/idea";
 import { importRouter } from "./routers/import";
@@ -45,6 +45,7 @@ export const appRouter = router({
   goal: goalRouter,
   page: pageRouter,
   publicPage: publicPageRouter,
+  publicPerson: publicPersonRouter,
   today: todayRouter,
   chiefOfStaff: chiefOfStaffRouter,
   dev: devRouter,

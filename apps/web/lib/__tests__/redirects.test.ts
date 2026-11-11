@@ -36,6 +36,19 @@ describe("proxy redirect rules", () => {
     expect(isFounderPath("/p/northwind-skincare")).toBe(false);
   });
 
+  it("serves a person's public profile to anyone, signed in or out, and only under /u/", () => {
+    for (const p of ["/u/maya-okafor", "/u/maya-okafor/opengraph-image"]) {
+      expect(isPublicPath(p), p).toBe(true);
+      expect(decideRedirect({ pathname: p, authenticated: false }).kind).toBe("next");
+      expect(decideRedirect({ pathname: p, authenticated: true }).kind).toBe("next");
+    }
+    for (const p of ["/u", "/users", "/public-profile"]) expect(isPublicPath(p), p).toBe(false);
+    expect(isFounderPath("/u/maya-okafor")).toBe(false);
+    // Where the person edits it is a signed-in account page, like Your businesses.
+    expect(isFounderPath("/public-profile")).toBe(true);
+    expect(decideRedirect({ pathname: "/public-profile", authenticated: false })).toEqual({ kind: "redirect", to: "/login?next=%2Fpublic-profile" });
+  });
+
   it("bounces a signed-in visitor off /login to next (clamped)", () => {
     expect(decideRedirect({ pathname: "/login", search: "?next=%2Fb%2Fabc%2Finbox", authenticated: true })).toEqual({ kind: "redirect", to: "/b/abc/inbox" });
     expect(decideRedirect({ pathname: "/login", search: "?next=https%3A%2F%2Fevil.example", authenticated: true })).toEqual({ kind: "redirect", to: "/" });

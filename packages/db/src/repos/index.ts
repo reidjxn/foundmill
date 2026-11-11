@@ -23,6 +23,7 @@ import { foundationsRepo } from "./foundations";
 import { foundersRepo } from "./founders";
 import { goalsRepo } from "./goals";
 import { pagesRepo } from "./pages";
+import { personProfilesRepo } from "./person-profiles";
 import { mailRepo } from "./mail";
 import { followersRepo } from "./followers";
 import { notifyEmailRepo } from "./notify-email";
@@ -65,6 +66,7 @@ export const repos = {
   productSignoffs: productSignoffsRepo,
   goals: goalsRepo,
   pages: pagesRepo,
+  personProfiles: personProfilesRepo,
   projectMail: mailRepo,
   followers: followersRepo,
   notifyEmail: notifyEmailRepo,
@@ -131,6 +133,7 @@ export * from "./foundations";
 export * from "./founders";
 export * from "./goals";
 export * from "./pages";
+export * from "./person-profiles";
 export * from "./mail";
 export * from "./notify-email";
 export * from "./holidays";

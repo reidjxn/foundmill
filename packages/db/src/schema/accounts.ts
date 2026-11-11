@@ -1,7 +1,7 @@
 /** 0002 — founder profiles, businesses, ideas (+ the businessId() helper every business-scoped table uses); 0022 — account preferences; 0025 — the business currency. */
-import { AGENT_STOP_REASONS, AGENT_STYLES, ARCHETYPES, AUTOPILOT_CADENCES, AUTOPILOT_PAUSE_REASONS, BUSINESS_MODES, DATA_REGIONS, DATE_FORMAT_PREFERENCES, DEVICE_PLATFORMS, GAME_MODES, GUIDANCE_MODES, MODEL_BILLING, PLAN_TIERS, PUSH_PROVIDERS, TEXT_SIZES, TIME_FORMAT_PREFERENCES, VISIBILITY, type EmailNotificationPrefs, type NotificationPrefs } from "@foundmill/shared";
+import { AGENT_STOP_REASONS, AGENT_STYLES, ARCHETYPES, AUTOPILOT_CADENCES, AUTOPILOT_PAUSE_REASONS, BUSINESS_MODES, DATA_REGIONS, DATE_FORMAT_PREFERENCES, DEVICE_PLATFORMS, GAME_MODES, GUIDANCE_MODES, MODEL_BILLING, PERSON_LOOKING_FOR, PLAN_TIERS, PUSH_PROVIDERS, TEXT_SIZES, TIME_FORMAT_PREFERENCES, VISIBILITY, type EmailNotificationPrefs, type NotificationPrefs } from "@foundmill/shared";
 import { sql } from "drizzle-orm";
-import { boolean, char, index, integer, jsonb, numeric, pgTable, text, uniqueIndex, uuid, type AnyPgColumn } from "drizzle-orm/pg-core";
+import { boolean, char, index, integer, jsonb, numeric, pgTable, pgView, text, uniqueIndex, uuid, type AnyPgColumn } from "drizzle-orm/pg-core";
 import { authUsers } from "drizzle-orm/supabase";
 import { archivedAt, currency, emptyArray, emptyObject, id, minor, timestamps, timestampsWithArchive, tstz } from "./_common";
 
@@ -22,11 +22,57 @@ export const founderProfiles = pgTable(
     constraints: text("constraints").array().notNull().default(emptyArray),
     riskAppetite: text("risk_appetite"),
     visibility: text("visibility", { enum: VISIBILITY }).notNull().default("private"),
+    /**
+     * 0080 — the person's own public profile at /u/<handle> (docs/THESIS_REVIEW.md package 2.3): the address, what the
+     * person writes for it, "What are you here for?" (`on_my_own` by default, a complete answer) and the switch. Public
+     * only while `public` is true; only the api (service role) makes it public or changes a public one (trigger
+     * `fm_founder_profiles_public_guard`). Anyone reads it through `public_person_profiles` and nothing else.
+     */
+    handle: text("handle"),
+    headline: text("headline").notNull().default(""),
+    about: text("about").notNull().default(""),
+    strengths: text("strengths").array().notNull().default(emptyArray),
+    wantsToLearn: text("wants_to_learn").array().notNull().default(emptyArray),
+    lookingFor: text("looking_for", { enum: PERSON_LOOKING_FOR }).notNull().default("on_my_own"),
+    place: text("place").notNull().default(""),
+    public: boolean("public").notNull().default(false),
+    /** When the profile last went public (kept after it is taken down). */
+    publishedAt: tstz("published_at"),
     ...timestampsWithArchive(),
   },
+  (t) => [uniqueIndex("founder_profiles_handle_key").on(t.handle)],
 );
 export type FounderProfile = typeof founderProfiles.$inferSelect;
 export type NewFounderProfile = typeof founderProfiles.$inferInsert;
+
+/** One project page a public person profile lists (`public_person_profiles.projects`). */
+export interface PublicPersonProject {
+  slug: string;
+  name: string;
+  pitch: string;
+}
+
+/**
+ * 0080 — what anyone may read of a person's public profile, signed in or not (granted to anon). Exactly these columns:
+ * nothing else of the account leaves through it. Rows only while the profile is public and not archived. `projects`
+ * lists the person's published project pages, only where they are an owner and the page names its founders.
+ */
+export const publicPersonProfiles = pgView("public_person_profiles", {
+  handle: text("handle").notNull(),
+  displayName: text("display_name").notNull(),
+  headline: text("headline").notNull(),
+  about: text("about").notNull(),
+  strengths: text("strengths").array().notNull(),
+  wantsToLearn: text("wants_to_learn").array().notNull(),
+  lookingFor: text("looking_for", { enum: PERSON_LOOKING_FOR }).notNull(),
+  place: text("place").notNull(),
+  publishedAt: tstz("published_at").notNull(),
+  projects: jsonb("projects").$type<PublicPersonProject[]>().notNull(),
+}).existing();
+export type PublicPersonProfile = typeof publicPersonProfiles.$inferSelect;
+
+/** The columns `public_person_profiles` exposes, in order (the view's test compares the catalog with this list). */
+export const PUBLIC_PERSON_PROFILE_COLUMNS = ["handle", "display_name", "headline", "about", "strengths", "wants_to_learn", "looking_for", "place", "published_at", "projects"] as const;
 
 /**
  * 0064 — the guided layer's one switch and the account's type size (docs/UX_AUDIT_AND_PLAN.md §6.3). The tuples live

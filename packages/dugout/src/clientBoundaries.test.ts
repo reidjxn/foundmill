@@ -121,6 +121,7 @@ export const SERVER_SAFE_FILES = [
   "components/today/WeekPlan.tsx",
   // Public pages: the project page is rendered by the signed-out route as a Server Component.
   "components/public/ProjectPage.tsx",
+  "components/public/PersonPage.tsx",
 ];
 
 export function listSourceFiles(root = SRC): string[] {
