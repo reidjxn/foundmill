@@ -57,7 +57,7 @@ function toMeta(row: Pick<BusinessLogo, "source" | "mime" | "sha256" | "width" |
   return { source: row.source, mime: row.mime, sha256: row.sha256, width: row.width, height: row.height, bytes, updatedAt: row.updatedAt };
 }
 
-function toBytes(content: Uint8Array | ArrayBuffer | string): Uint8Array {
+export function toBytes(content: Uint8Array | ArrayBuffer | string): Uint8Array {
   if (content instanceof Uint8Array) return content;
   if (content instanceof ArrayBuffer) return new Uint8Array(content);
   // postgres.js hands bytea back as a Buffer; PGlite as a Uint8Array. A hex string ("\x…") is the text protocol.

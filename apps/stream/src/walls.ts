@@ -103,6 +103,9 @@ export const EVENT_WALLS = {
   "goal.approved": { sections: ["inbox"], hide: { finance: ["targetValue", "startValue"] } },
   "goal.change_requested": { sections: ["inbox"], hide: freeText("words") },
   "goal.achieved": { sections: ["inbox"], hide: { finance: ["targetValue", "achievedValue"] } },
+  // A project's public page went live or was taken down (0077): its id and address, which are public anyway.
+  "page.published": { sections: ["product"] },
+  "page.unpublished": { sections: ["product"] },
   // The guided layer's product signals (one founder's own use of tours, explainers and definitions): metrics only, so
   // on the stream they reach no one but the readers of Settings.
   "guidance.tour_completed": { sections: ["settings"] },

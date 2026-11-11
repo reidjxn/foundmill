@@ -16,8 +16,8 @@ import { exampleRoute } from "@/components/landing/examples/ids";
 import { NEXT_PARAM } from "./constants";
 import { STALE_BUSINESS_PARAM, lastBusinessHome } from "./last-business";
 
-/** Routes that never need a session. */
-const PUBLIC_PREFIXES = ["/login", "/auth/", "/_next/", "/brand/", "/favicon", "/icon", "/apple-icon", "/opengraph-image", "/robots.txt", "/sitemap.xml", "/health", "/examples/"];
+/** Routes that never need a session. `/p/` is a project's public page (app/p/[slug]), open to anyone signed out. */
+const PUBLIC_PREFIXES = ["/login", "/auth/", "/_next/", "/brand/", "/favicon", "/icon", "/apple-icon", "/opengraph-image", "/robots.txt", "/sitemap.xml", "/health", "/examples/", "/p/"];
 
 /** The signed-in index (app/start/page.tsx): a signed-in `/` the proxy cannot answer itself is rewritten here. */
 export const SIGNED_IN_INDEX = "/start";

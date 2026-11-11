@@ -36,6 +36,8 @@
   --breakpoint-*: initial;
   --breakpoint-desktop: 1280px;
   --breakpoint-wide: 1440px;
+  /* Container widths (tokens.css "Small screens"): `@page-wide:` restyles a public page laid out wider than a phone. */
+  --container-page-wide: 640px;
 }
 
 /* Map tokens to utilities. `inline` so the utilities read the live variable (brand colours are swapped per business). */
@@ -180,6 +182,9 @@
   --spacing-field-lg: var(--field-lg);
   --spacing-badge: var(--badge-size);
   --spacing-target: var(--target-size);
+  --spacing-tap: var(--tap-target);
+  --spacing-phone: var(--phone-width);
+  --spacing-desktop: var(--min-viewport);
   --spacing-chip: var(--chip-height);
   --spacing-sidebar: var(--sidebar-width);
   --spacing-sidebar-collapsed: var(--sidebar-width-collapsed);

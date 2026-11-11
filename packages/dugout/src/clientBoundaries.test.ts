@@ -51,6 +51,7 @@ export const BARRELS = [
   "components/guidance.ts",
   "components/firstrun.ts",
   "components/today.ts",
+  "components/public.ts",
   "brand.ts",
 ];
 
@@ -118,6 +119,8 @@ export const SERVER_SAFE_FILES = [
   "components/firstrun/nextSteps.ts",
   // Today (founder, 2026-11-07): the week in words is plain markup inside a Panel.
   "components/today/WeekPlan.tsx",
+  // Public pages: the project page is rendered by the signed-out route as a Server Component.
+  "components/public/ProjectPage.tsx",
 ];
 
 export function listSourceFiles(root = SRC): string[] {

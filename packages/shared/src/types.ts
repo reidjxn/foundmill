@@ -74,9 +74,13 @@ import {
   TIME_FORMAT_PREFERENCES,
 } from "./constants";
 import type * as C from "./constants";
+import { PAGE_ABOUT_MAX, PAGE_FOR_WHOM_MAX, PAGE_PITCH_MAX, PAGE_STAGES, normalizePageContent, pageSlugProblem } from "./project-page";
+import type * as P from "./project-page";
 
 // The zod-free half (tuples, unions, records): "@foundmill/shared/constants".
 export * from "./constants";
+// A project's public page, zod-free: "@foundmill/shared/project-page". Its Zod schemas are at the end of this file.
+export * from "./project-page";
 
 export const GameMode = z.enum(GAME_MODES);
 export type GameMode = C.GameMode;
@@ -234,3 +238,42 @@ export type TimeFormatPreference = C.TimeFormatPreference;
 /** A signed-in person's date and time format (both fields required). */
 export const DateFormatPrefs = z.object({ date: DateFormatPreference, time: TimeFormatPreference });
 export type DateFormatPrefs = C.DateFormatPrefs;
+
+/**
+ * A project's public page (./project-page; migration 0077). `ProjectPageContent` is what may be published: the pitch on
+ * one line, 1 to 140 characters; `about` 1 to 1,500; "Who it is for" 0 to 300; plain text only. `ProjectPageDraft` is
+ * the same shape while it is being written (the pitch and `about` may still be empty). Both tidy the text first
+ * (`normalizePageContent`), so what is validated is what is stored.
+ */
+const PageFields = z.object({
+  // Generous outer bounds on the raw strings; the real limits apply to the tidied text below.
+  pitch: z.string().max(PAGE_PITCH_MAX * 4),
+  about: z.string().max(PAGE_ABOUT_MAX * 4),
+  forWhom: z.string().max(PAGE_FOR_WHOM_MAX * 4).default(""),
+  stage: z.enum(PAGE_STAGES).default("idea"),
+  showFounders: z.boolean().default(false),
+});
+const withinPageLimits = (v: P.ProjectPageContent, ctx: z.RefinementCtx, least: number): void => {
+  const check = (field: "pitch" | "about" | "forWhom", min: number, max: number) => {
+    const n = v[field].length;
+    if (n < min) ctx.addIssue({ code: "custom", path: [field], message: "Required" });
+    if (n > max) ctx.addIssue({ code: "custom", path: [field], message: `At most ${max} characters` });
+  };
+  check("pitch", least, PAGE_PITCH_MAX);
+  check("about", least, PAGE_ABOUT_MAX);
+  check("forWhom", 0, PAGE_FOR_WHOM_MAX);
+};
+export const ProjectPageContent = PageFields.transform((v) => normalizePageContent(v)).superRefine((v, ctx) => withinPageLimits(v, ctx, 1));
+export type ProjectPageContent = P.ProjectPageContent;
+export const ProjectPageDraft = PageFields.transform((v) => normalizePageContent(v)).superRefine((v, ctx) => withinPageLimits(v, ctx, 0));
+export type ProjectPageDraft = P.ProjectPageContent;
+/** A page's address: 3 to 40 lowercase letters, digits and hyphens, not one the product keeps (`pageSlugProblem`). */
+export const ProjectPageSlug = z
+  .string()
+  .trim()
+  .superRefine((v, ctx) => {
+    const problem = pageSlugProblem(v);
+    if (problem) ctx.addIssue({ code: "custom", message: problem });
+  });
+export const PageStage = z.enum(PAGE_STAGES);
+export type PageStage = P.PageStage;

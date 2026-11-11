@@ -7,7 +7,8 @@
  *   service → app roles read only; rows are produced by services (service_role)
  *   append  → app roles may insert, never update/delete (audit_log)
  *
- * Tables with a nullable business_id, user-owned tables and the social tables have their own suites.
+ * Tables with a nullable business_id, user-owned tables, the social tables and `project_pages` (one row per business)
+ * have their own suites.
  */
 import { CHANNEL_KEYS } from "@foundmill/shared";
 import type { AnyPgColumn, PgTable } from "drizzle-orm/pg-core";
@@ -194,5 +195,7 @@ export const NON_TENANT_TABLES = [
   "negotiation_threads",
   // 0067: a platform asset (no business_id), service role only; covered by repos/personas.test.ts.
   "persona_portraits",
+  // 0077: business-scoped, but one row per business (the generated suite inserts a second); covered by rls/project-pages.test.ts.
+  "project_pages",
 ] as const;
 
