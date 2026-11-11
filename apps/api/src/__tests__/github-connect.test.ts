@@ -17,8 +17,8 @@ const verified = (installationId: number): GatewayIntegrationRecord => ({ status
 const gateway: ApiGatewayClient = {
   async connect(businessId, connector, input) {
     calls.push({ kind: "connect", businessId, connector, input });
-    if (input.installationId === undefined) return { status: "disconnected", scopes: [], accountLabel: null, externalAccountId: null, config: { consentUrl: `https://github.com/apps/foundmill-agents/installations/new?state=${String(input.state)}` }, expiresAt: null };
-    return verified(input.installationId as number);
+    if (input.installationId === undefined) return { mode: "live", record: { status: "disconnected", scopes: [], accountLabel: null, externalAccountId: null, config: { consentUrl: `https://github.com/apps/foundmill-agents/installations/new?state=${String(input.state)}` }, expiresAt: null }, integrationId: null, credential: null };
+    return { mode: "live", record: verified(input.installationId as number), integrationId: null, credential: null };
   },
   async health(businessId, connector) {
     calls.push({ kind: "health", businessId, connector });
@@ -38,6 +38,12 @@ const gateway: ApiGatewayClient = {
   },
   async sendPush() {
     throw new Error("no push in these tests");
+  },
+  async validateKey() {
+    throw new Error("no key checks in these tests");
+  },
+  async registryLookup() {
+    throw new Error("no registry lookups in these tests");
   },
 };
 

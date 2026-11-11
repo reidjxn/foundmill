@@ -19,6 +19,7 @@ import { createHash } from "node:crypto";
 import { LIMITS } from "@foundmill/config";
 import { AppError, mockResultsAllowed, NotFoundError } from "@foundmill/shared";
 import type { Vault } from "@foundmill/shared/crypto";
+import type { KeyValidation } from "@foundmill/models";
 import { bookUsage, codeRepositoryOf, openApprovalItem, repos, type Db, type Agent, type AppInstallation, type Business, type Integration } from "@foundmill/db";
 import { agentAutonomy, businessApprovalThreshold, evaluate, getPolicyEngine, type AgentCtxInput, type EvaluateInputInput, type EvaluateResult, type PolicyEngine, type ToolCtxInput } from "@foundmill/policy";
 import {
@@ -87,6 +88,11 @@ export interface GatewayDeps {
   repoCache?: RepoMetadataCache;
   /** Repository archives served at once (`download_archive`, archive.ts); default MAX_CONCURRENT_ARCHIVES. */
   archiveConcurrency?: number;
+  /**
+   * The one-token check of a founder's own Anthropic key (`POST /v1/keys/validate`, keys.ts); default packages/models
+   * `validateApiKey` in live mode. Tests pass one over a fake Anthropic.
+   */
+  validateModelKey?: (apiKey: string) => Promise<KeyValidation>;
 }
 
 const defaultStateCaches = new WeakMap<GatewayDeps, SessionStateCache>();

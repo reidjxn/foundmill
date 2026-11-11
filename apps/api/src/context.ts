@@ -44,6 +44,7 @@ export interface ApiDeps {
   composer: ComposerClient;
   /** Envelope-encryption vault; null when neither KMS_KEY_ID nor DEV_MASTER_KEY is configured (keys.* refuse). */
   vault: Vault | null;
+  /** Static connector metadata and mocks only; built without platform secrets (SEC-14). */
   connectors: ConnectorRegistry;
   auth: AuthVerifier;
   log: ApiLogger;
@@ -51,7 +52,7 @@ export interface ApiDeps {
   recordings: RecordingResolver | null;
   /** apps/ingest over the private network; `dev.simulate` mints the service token and proxies through it (SEC-2). */
   ingest: IngestClient;
-  /** apps/gateway for App connectors (GitHub): their connect and health run where the App's keys are. */
+  /** apps/gateway: every call that could reach a vendor (live connect and health, key checks, registry lookups, checkouts, domains, portraits, push). */
   gateway: ApiGatewayClient;
   /** Reachability probes for /health; each must never throw. */
   health: {
@@ -136,7 +137,10 @@ export function createApiDeps(options: CreateApiDepsOptions = {}): ApiDeps {
     log.warn({ err: (err as Error).message }, "vault not configured; keys.* will refuse until KMS_KEY_ID or DEV_MASTER_KEY is set");
   }
 
-  const connectors = createDefaultRegistry();
+  // The api reads connectors' static metadata (catalog, tools, connect fields, policy hints) and runs their mocks; every
+  // call that could reach a vendor goes through the gateway (SEC-14). So the live side gets no platform secrets here:
+  // the vendors' keys are the gateway's alone, and a live call made here by mistake fails as unconfigured.
+  const connectors = createDefaultRegistry({ secrets: {} });
   const recordings = options.recordings === undefined ? createSandboxRecordingResolver() : options.recordings;
   const ingest = createIngestClient({ url: env.INGEST_URL, secret: env.SESSION_TOKEN_SECRET ?? null });
   const gateway = createApiGatewayClient({ url: env.GATEWAY_URL, secret: env.SESSION_TOKEN_SECRET ?? null });

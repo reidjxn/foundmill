@@ -1,13 +1,14 @@
 /**
  * integrations.list/connect/disconnect/health and keys.setAnthropic/validate/rotate/revoke (BUILD §11.15, §10.2).
  * OAuth consents are founder clicks (hard gate): `connect` hands back the vendor's consent URL when the connector
- * needs one; secrets returned by a connector are encrypted into `credentials` and never echoed.
+ * needs one. A connector that runs live is connected and checked by the gateway (SEC-14), which holds the vendors' keys
+ * and seals any secret the vendor hands back; the api never sees it. A mock one answers here.
  */
-import { isServiceOnlyConnector, type HealthResult, type IntegrationRecord } from "@foundmill/connectors";
-import { INTEGRATION_CREDENTIAL_KIND, repos, type Executor } from "@foundmill/db";
+import { isServiceOnlyConnector, type HealthResult } from "@foundmill/connectors";
+import { repos, type Executor } from "@foundmill/db";
 import { AppError, connectorMode, ForbiddenError } from "@foundmill/shared";
-import { buildAad, encryptJson, redactSecret } from "@foundmill/shared/crypto";
 import { z } from "zod";
+import type { GatewayConnectResult } from "../services/gateway";
 import { oauthRedirectUri, signConnectState, signInstallState, verifyConnectState, verifyInstallState } from "../services/install-state";
 import { ANTHROPIC, revokeAnthropicKey, storeAnthropicKey, validateAnthropicKey } from "../services/keys";
 import { Id, audit, router, sectionAdmin, sectionRead } from "../trpc";
@@ -54,66 +55,68 @@ export const integrationsRouter = router({
     if (input.connectorKey === ANTHROPIC) throw new AppError("validation", "The Anthropic key is stored in Settings › Keys, where it is checked and the team moves onto it.", 400, { manageIn: "keys" });
     // The platform's own connectors (openai_images) run on the platform key in the gateway; a business never connects one.
     if (isServiceOnlyConnector(input.connectorKey)) throw new AppError("service_only_connector", "This connector is run by the platform itself and cannot be connected for a business.", 400, { connector: input.connectorKey });
+    // Static metadata only (auth kind, OAuth flow): a live connector never runs in the api (SEC-14).
     const connector = ctx.connectors.get(input.connectorKey, mode);
 
-    let record: Omit<IntegrationRecord, "id" | "businessId" | "connectorKey" | "credentialRef" | "lastHealthAt" | "createdAt"> & { credentialToStore?: IntegrationRecord["credentialToStore"] };
+    let connected: GatewayConnectResult;
     if (mode === "live" && connector.auth.kind === "app") {
       // App connectors (GitHub) connect in the gateway, which holds the App's keys and checks with GitHub that the
       // founder who installed the App can manage the installation. The api only signs and checks the state.
       if (input.input.installationId === undefined) {
         const state = signInstallState(ctx.env.SESSION_TOKEN_SECRET, { userId: ctx.userId!, businessId: ctx.businessId });
-        const first = await ctx.gateway.connect(ctx.businessId, input.connectorKey, { state });
+        const first = (await ctx.gateway.connect(ctx.businessId, input.connectorKey, { state })).record;
         const consentUrl = typeof first.config.consentUrl === "string" ? first.config.consentUrl : null;
         // Nothing is written yet: an installation already connected stays as it is until the new one is confirmed.
         return { integration: await repos.integrations.getByKey(ctx.db, ctx.businessId, input.connectorKey), record: { ...first, connectorKey: input.connectorKey }, consentUrl, founderConsentRequired: consentUrl !== null };
       }
       const finish = AppInstallation.parse(input.input);
       verifyInstallState(ctx.env.SESSION_TOKEN_SECRET, finish.state, { userId: ctx.userId!, businessId: ctx.businessId });
-      record = await ctx.gateway.connect(ctx.businessId, input.connectorKey, { installationId: finish.installationId, code: finish.code });
+      connected = await ctx.gateway.connect(ctx.businessId, input.connectorKey, { installationId: finish.installationId, code: finish.code });
     } else if (mode === "live" && connector.auth.authorizationCode) {
       // OAuth (Google, Notion, Shopify): the founder consents on the vendor's page, which sends them back to
       // /integrations/oauth/callback (apps/web) with a code and the state signed here. Nothing is written before the code
-      // comes back signed for this founder, business and connector; the redirect URI is always the api's own.
+      // comes back signed for this founder, business and connector; the redirect URI is always the api's own. The
+      // consent link and the code exchange run in the gateway, which holds the OAuth clients and seals the token.
       const redirectUri = oauthRedirectUri(ctx.env.APP_URL);
       if (typeof input.input.code !== "string") {
         const account = typeof input.input.shop === "string" ? input.input.shop.trim().toLowerCase() : null;
         const state = signConnectState(ctx.env.SESSION_TOKEN_SECRET, { userId: ctx.userId!, businessId: ctx.businessId, connectorKey: input.connectorKey, account });
-        const { credentialToStore: _none, ...first } = await connector.connect(ctx.businessId, { ...(account ? { shop: account } : {}), state, redirectUri });
+        const first = (await ctx.gateway.connect(ctx.businessId, input.connectorKey, { ...(account ? { shop: account } : {}), state, redirectUri })).record;
         const consentUrl = typeof first.config.authorizeUrl === "string" ? first.config.authorizeUrl : null;
         return { integration: await repos.integrations.getByKey(ctx.db, ctx.businessId, input.connectorKey), record: { ...first, connectorKey: input.connectorKey }, consentUrl, founderConsentRequired: consentUrl !== null };
       }
       const finish = OAuthFinish.parse(input.input);
       const { account } = verifyConnectState(ctx.env.SESSION_TOKEN_SECRET, finish.state, { userId: ctx.userId!, businessId: ctx.businessId, connectorKey: input.connectorKey });
       if (account !== null && finish.shop?.toLowerCase() !== account) throw new ForbiddenError("This sign-in came back for a different store: connect again from Settings › Integrations");
-      record = await connector.connect(ctx.businessId, { code: finish.code, redirectUri, ...(account ? { shop: account } : {}) });
+      connected = await ctx.gateway.connect(ctx.businessId, input.connectorKey, { code: finish.code, redirectUri, ...(account ? { shop: account } : {}) });
+    } else if (mode === "live") {
+      // An API key the founder entered (SendGrid, Dropbox Sign, Cloudflare), a platform-key registry, a Plaid or Tink link.
+      connected = await ctx.gateway.connect(ctx.businessId, input.connectorKey, input.input);
     } else {
-      record = await connector.connect(ctx.businessId, input.input);
+      // Mock: the connector's mock answers here, so the golden path needs no gateway. It reaches nothing and hands back no
+      // secret; one it did hand back would be dropped, never sealed as a business's credential.
+      const { credentialToStore: _dropped, ...record } = await connector.connect(ctx.businessId, input.input);
+      connected = { mode: "mock", record, integrationId: null, credential: null };
     }
 
-    const { credentialToStore, ...safe } = record;
+    const { record, credential } = connected;
     const integration = await ctx.db.transaction(async (tx: Executor) => {
+      // The gateway already wrote this row (and sealed the credential with it) when the vendor handed back a secret;
+      // the founder's choices, the settings and who connected it are written here.
       const row = await repos.integrations.upsert(tx, ctx.businessId, {
         connectorKey: input.connectorKey,
-        status: mode === "mock" ? "mock" : record.status,
+        status: connected.mode === "mock" ? "mock" : record.status,
         authKind: connector.auth.kind,
         scopes: record.scopes,
         accountLabel: record.accountLabel,
         settings: { ...keptSettings(await repos.integrations.getByKey(tx, ctx.businessId, input.connectorKey), record.externalAccountId), externalAccountId: record.externalAccountId, config: record.config, expiresAt: record.expiresAt },
         connectedBy: ctx.userId,
       });
-      if (credentialToStore) {
-        if (!ctx.vault) throw new AppError("config", "No vault is configured (set KMS_KEY_ID or DEV_MASTER_KEY)", 412);
-        const bootstrap = await encryptJson(ctx.vault, credentialToStore, buildAad(ctx.businessId, "credentials", "pending"));
-        // Stored under the one kind the gateway loads; the connector's auth kind is inside the sealed payload.
-        const meta = await repos.credentials.store(tx, ctx.businessId, { integrationId: row.id, kind: INTEGRATION_CREDENTIAL_KIND, record: bootstrap, expiresAt: credentialToStore.expiresAt ? new Date(credentialToStore.expiresAt) : null });
-        const bound = await encryptJson(ctx.vault, credentialToStore, buildAad(ctx.businessId, "credentials", meta.id));
-        await repos.credentials.rotate(tx, ctx.businessId, meta.id, bound);
-      }
-      await audit(tx, ctx, { action: "integrations.connect", target: { kind: "integration", id: row.id }, details: { connectorKey: input.connectorKey, status: row.status, accountLabel: record.accountLabel, secretStored: Boolean(credentialToStore), secretHint: credentialToStore ? redactSecret(credentialToStore.secret) : null } });
+      await audit(tx, ctx, { action: "integrations.connect", target: { kind: "integration", id: row.id }, details: { connectorKey: input.connectorKey, status: row.status, accountLabel: record.accountLabel, secretStored: credential !== null, secretHint: credential?.hint ?? null, ...(credential ? { credentialId: credential.credentialId } : {}) } });
       return row;
     });
     const consentUrl = typeof record.config.linkUrl === "string" ? record.config.linkUrl : typeof record.config.consentUrl === "string" ? record.config.consentUrl : typeof record.config.authorizeUrl === "string" ? record.config.authorizeUrl : null;
-    return { integration, record: { ...safe, connectorKey: input.connectorKey }, consentUrl, founderConsentRequired: consentUrl !== null };
+    return { integration, record: { ...record, connectorKey: input.connectorKey }, consentUrl, founderConsentRequired: consentUrl !== null };
   }),
 
   disconnect: admin.input(z.object({ integrationId: Id })).mutation(async ({ ctx, input }) => {
@@ -144,10 +147,9 @@ export const integrationsRouter = router({
       return { integration, health: result };
     }
     const mode = connectorMode(ctx.env, integration.connectorKey);
-    const connector = ctx.connectors.get(integration.connectorKey, mode);
     const settings = (integration.settings ?? {}) as Record<string, unknown>;
-    // An App connector's health check needs the App's keys, which only the gateway holds.
-    const result: HealthResult = mode === "live" && connector.auth.kind === "app" ? ((await ctx.gateway.health(ctx.businessId, integration.connectorKey)) as unknown as HealthResult) : await connector.healthcheck({
+    // A live check reaches the vendor with keys only the gateway holds (SEC-14); a mock one answers here, without a gateway.
+    const result: HealthResult = mode === "live" ? ((await ctx.gateway.health(ctx.businessId, integration.connectorKey)) as unknown as HealthResult) : await ctx.connectors.get(integration.connectorKey, "mock").healthcheck({
       id: integration.id,
       businessId: ctx.businessId,
       connectorKey: integration.connectorKey,

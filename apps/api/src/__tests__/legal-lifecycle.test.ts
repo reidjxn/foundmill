@@ -3,10 +3,12 @@
  * details the founder records after filing, an idempotent registry import, friendly registry errors, one
  * `contract.signed` per signature, the first publication of a policy, and the saved regulated-sector choices.
  */
+import { createCompaniesHouseConnector, createDefaultRegistry, createRegistry, jsonResponse, routedFetch } from "@foundmill/connectors";
 import { repos } from "@foundmill/db";
 import { TRPCError } from "@trpc/server";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { officerName } from "../routers/legal";
+import { guardLiveCalls, inProcessGateway } from "./gateway-double";
 import { createApiHarness, fakeTemporalClient, type ApiHarness } from "./harness";
 
 let hz: ApiHarness;
@@ -252,5 +254,43 @@ describe("legal.recommend (#354)", () => {
       expect(c.entity_type).not.toMatch(/mock/i);
       expect(c.jurisdiction).not.toMatch(/mock/i);
     }
+  });
+});
+
+describe("legal.import.lookup against a live registry goes through the gateway (SEC-14)", () => {
+  let live: ApiHarness;
+  const gateway = inProcessGateway();
+  const guarded = guardLiveCalls(createDefaultRegistry({ secrets: {} }));
+  const seen: { auth: string | null; path: string }[] = [];
+  beforeAll(async () => {
+    live = await createApiHarness({ prefix: "legal-live-registry", env: { LIVE_CONNECTORS: "companies_house" }, connectors: guarded.registry, gateway: gateway.client });
+    // The registry's platform key exists only in the gateway's registry.
+    const fetch = routedFetch({
+      "GET https://api.company-information.service.gov.uk/company/15432198": (req, url) => (seen.push({ auth: req.headers.get("authorization"), path: url.pathname }), jsonResponse({ company_number: "15432198", company_name: "NORTHWIND SKINCARE LTD", company_status: "active", type: "ltd", date_of_creation: "2024-02-01", registered_office_address: { address_line_1: "1 Market St", locality: "Bristol" } })),
+      "GET https://api.company-information.service.gov.uk/company/15432198/officers": (req, url) => (seen.push({ auth: req.headers.get("authorization"), path: url.pathname }), jsonResponse({ items: [{ name: "LINDQVIST, Sara", officer_role: "director", appointed_on: "2024-02-01" }], active_count: 1 })),
+      "GET https://api.company-information.service.gov.uk/company/00000404": () => jsonResponse({ errors: [{ error: "company-profile-not-found" }] }, { status: 404 }),
+    });
+    gateway.bind({ db: live.db, vault: live.deps.vault, registry: createRegistry([createCompaniesHouseConnector({ secrets: { companiesHouseApiKey: "ch-platform-key" }, fetch })]), liveConnectors: ["companies_house"] });
+  }, 120_000);
+  afterAll(() => live.close());
+
+  it("asks the gateway, reads the company's fields out of the untrusted envelope, and runs no connector in the api", async () => {
+    const owner = live.caller({ userId: live.A.ownerId });
+    const found = await owner.legal.import.lookup({ businessId: live.A.businessId, country: "gb", regNo: "15432198" });
+    expect(found).toMatchObject({ source: "companies_house", legalName: "NORTHWIND SKINCARE LTD", regNo: "15432198", status: "active", officers: [{ name: "LINDQVIST, Sara", role: "director" }], untrusted: true });
+    expect(gateway.paths).toEqual(["/v1/registry/lookup", "/v1/registry/lookup"]);
+    expect(seen.map((s) => s.path)).toEqual(["/company/15432198", "/company/15432198/officers"]);
+    expect(seen.every((s) => s.auth === `Basic ${Buffer.from("ch-platform-key:").toString("base64")}`)).toBe(true);
+    expect(guarded.liveCalls).toEqual([]);
+    // The gateway audited both lookups for the business, without the arguments.
+    const rows = (await repos.audit.list(live.db, live.A.businessId, { action: "gateway.registry.lookup", limit: 10 })).items;
+    expect(rows.map((r) => (r.target as { tool: string }).tool)).toEqual(["list_officers", "get_company"]);
+    expect(JSON.stringify(rows)).not.toContain("15432198");
+  });
+
+  it("an unknown company is still 'not found' in the registry's own name", async () => {
+    const owner = live.caller({ userId: live.A.ownerId });
+    expect(await messageOf(owner.legal.import.lookup({ businessId: live.A.businessId, country: "gb", regNo: "00000404" }))).toBe("No company with number 00000404 at Companies House");
+    expect(guarded.liveCalls).toEqual([]);
   });
 });

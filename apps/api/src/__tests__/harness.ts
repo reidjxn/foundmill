@@ -117,6 +117,12 @@ export async function createApiHarness(options: HarnessOptions): Promise<ApiHarn
       sendPush: async () => {
         throw new Error("gateway not running in tests");
       },
+      validateKey: async () => {
+        throw new Error("gateway not running in tests");
+      },
+      registryLookup: async () => {
+        throw new Error("gateway not running in tests");
+      },
       // What the gateway's Stripe connector answers in mock mode: a simulated session that returns to Billing.
       createCheckout: async (input) => ({ mode: "mock", session: { id: `cs_mock_${input.checkoutId.replace(/-/g, "").slice(0, 20)}`, url: input.successUrl, expiresAt: new Date(Date.now() + 3_600_000).toISOString(), amountTotalMinor: input.amountMinor, currency: "USD" } }),
     },

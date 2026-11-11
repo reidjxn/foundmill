@@ -537,7 +537,7 @@ describe("live mode: App connectors (GitHub)", () => {
     }
   });
 
-  it("connect and health run in the gateway for a service caller, and only for App connectors", async () => {
+  it("connect and health run in the gateway for a service caller: App installations are verified", async () => {
     const inputs: unknown[] = [];
     const live = await setupGateway({
       mode: "live",
@@ -584,11 +584,12 @@ describe("live mode: App connectors (GitHub)", () => {
     } finally {
       await live.close();
     }
+    // Since SEC-14 every other connector connects here too (service-routes.test.ts): one without a secret writes nothing.
     const apiKeyed = await setupGateway({ mode: "live" });
     try {
       const res = await fetch(`${apiKeyed.server.url}/v1/integrations/connect`, { method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${await signServiceToken(TEST_SECRET, "api")}` }, body: JSON.stringify({ businessId: apiKeyed.businessId, connector: TEST_CONNECTOR, input: {} }) });
-      expect(res.status).toBe(400);
-      expect(await res.json()).toMatchObject({ error: { code: "not_app_connector" } });
+      expect(res.status).toBe(200);
+      expect(await res.json()).toMatchObject({ mode: "live", integrationId: null, credential: null });
     } finally {
       await apiKeyed.close();
     }
