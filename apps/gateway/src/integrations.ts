@@ -50,7 +50,7 @@ function stripSecret<T extends { credentialToStore?: unknown }>(record: T): Omit
 }
 
 /** The connector a business may connect here: known, not the platform's own, not a built-in, not the Anthropic key. */
-export function connectableConnector(deps: GatewayDeps, key: string): Connector {
+export function connectableConnector(deps: GatewayDeps, key: string, options: { allowAnthropic?: boolean } = {}): Connector {
   let connector: Connector;
   try {
     connector = deps.registry.get(key, modeFor(deps, key));
@@ -61,7 +61,7 @@ export function connectableConnector(deps: GatewayDeps, key: string): Connector 
   // The platform's own connectors run on the platform key; a business never connects one (or stores a key for one).
   if (isServiceOnlyConnector(key) || BUILTIN_CONNECTOR_KEYS.includes(key)) throw new GatewayError("service_only_connector", `${connector.displayName} is run by the platform itself and cannot be connected for a business`, 400, { connector: key });
   // The Anthropic key decides who pays for model calls: it is stored only through Settings › Keys (the api's keys.*).
-  if (key === ANTHROPIC_KEY) throw new GatewayError("manage_in_keys", "The Anthropic key is stored in Settings › Keys", 400, { connector: key });
+  if (key === ANTHROPIC_KEY && !options.allowAnthropic) throw new GatewayError("manage_in_keys", "The Anthropic key is stored in Settings › Keys", 400, { connector: key });
   return connector;
 }
 
@@ -89,11 +89,27 @@ async function auditIntegration(deps: GatewayDeps, businessId: string, action: s
   await repos.audit.append(deps.db, businessId, { actorKind: "system", action, target: { connector }, details }).catch((e: unknown) => deps.log.warn({ err: safeError(e), businessId, connector }, "integration audit not written"));
 }
 
+/** Settings a reconnect to the same account keeps (the code repository chosen on Development › Code); the api uses the same rule. */
+function keptSettings(row: { settings: unknown } | null, externalAccountId: string | null): Record<string, unknown> {
+  const settings = (row?.settings ?? {}) as Record<string, unknown>;
+  if (settings.externalAccountId !== externalAccountId) return {};
+  return Object.fromEntries(Object.entries(settings).filter(([k]) => k === "repo" || k === "writeEnabled" || k === "repoId"));
+}
+
 export async function connectIntegration(deps: GatewayDeps, input: ConnectInput, service: string): Promise<ConnectIntegrationResponse> {
   const connector = connectableConnector(deps, input.connector);
   await requireBusiness(deps, input.businessId);
   await limitIntegrations(deps, input.businessId);
   const mode = modeFor(deps, connector.key);
+  // Tink's second step names the Tink user whose consents are read: it must be the user created for this business in
+  // the first step (stored as the row's account), never one the request chooses.
+  if (connector.key === "tink" && typeof (input.input as { userId?: unknown }).userId === "string") {
+    const row = await repos.integrations.getByKey(deps.db, input.businessId, connector.key);
+    const expected = (row?.settings as { externalAccountId?: unknown } | null | undefined)?.externalAccountId;
+    if (typeof expected !== "string" || expected !== (input.input as { userId: string }).userId) {
+      throw new GatewayError("account_mismatch", "This bank link does not belong to this business: start it again from Settings › Integrations", 403, { connector: connector.key });
+    }
+  }
   const record = await connector.connect(input.businessId, input.input).catch((e: unknown) => vendorFailure(e, connector.key));
   const safe = stripSecret(record);
 
@@ -108,7 +124,8 @@ export async function connectIntegration(deps: GatewayDeps, input: ConnectInput,
   }
 
   // A mock never hands back a secret, and nothing simulated is ever sealed as a business's credential.
-  const secret = mode === "live" ? record.credentialToStore : undefined;
+  // A step that hands back no usable secret (Tink's first step names the user and nothing else) stores nothing.
+  const secret = mode === "live" && record.credentialToStore?.secret ? record.credentialToStore : undefined;
   if (!secret) {
     await auditIntegration(deps, input.businessId, "gateway.integration.connect", connector.key, { service, mode, status: record.status, secretStored: false });
     return { mode, record: safe, integrationId: null, credential: null };
@@ -121,7 +138,12 @@ export async function connectIntegration(deps: GatewayDeps, input: ConnectInput,
   // transaction, so the vault's lazy initialization never runs inside it), store, then re-seal under the row-bound AAD.
   const provisional = await encryptJson(vault, credential, buildAad(input.businessId, "credentials", PROVISIONAL_AAD_ROW));
   const stored = await deps.db.transaction(async (tx: Executor) => {
-    const row = await repos.integrations.upsert(tx, input.businessId, { connectorKey: connector.key, status: record.status, authKind: connector.auth.kind, scopes: record.scopes, accountLabel: record.accountLabel });
+    // The account the credential belongs to is written with it, so the row never pairs a new credential with the
+    // previous account's settings, even if the api's own write after this one fails. The api writes the same settings
+    // again with who connected it.
+    const existing = await repos.integrations.getByKey(tx, input.businessId, connector.key);
+    const settings = { ...keptSettings(existing, record.externalAccountId), externalAccountId: record.externalAccountId, config: record.config, expiresAt: record.expiresAt };
+    const row = await repos.integrations.upsert(tx, input.businessId, { connectorKey: connector.key, status: record.status, authKind: connector.auth.kind, scopes: record.scopes, accountLabel: record.accountLabel, settings });
     const meta = await repos.credentials.store(tx, input.businessId, { integrationId: row.id, kind: INTEGRATION_CREDENTIAL_KIND, record: provisional, expiresAt });
     const bound = await encryptJson(vault, credential, buildAad(input.businessId, "credentials", meta.id));
     await repos.credentials.rotate(tx, input.businessId, meta.id, bound);
@@ -132,7 +154,8 @@ export async function connectIntegration(deps: GatewayDeps, input: ConnectInput,
 }
 
 export async function integrationHealth(deps: GatewayDeps, input: HealthInput, service: string): Promise<{ health: HealthResult }> {
-  const connector = connectableConnector(deps, input.connector);
+  // The Anthropic key is stored only through Settings › Keys, but checking it is read-only and allowed here.
+  const connector = connectableConnector(deps, input.connector, { allowAnthropic: true });
   await limitIntegrations(deps, input.businessId);
   const row = await repos.integrations.getByKey(deps.db, input.businessId, connector.key);
   if (!row || row.archivedAt !== null) throw new GatewayError("integration_not_connected", `${connector.displayName} is not connected for this business`, 409, { connector: connector.key });

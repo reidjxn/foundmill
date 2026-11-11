@@ -314,6 +314,42 @@ describe("POST /v1/integrations/connect and /health beyond App connectors", () =
     expect(await post(app, "/v1/integrations/health", { businessId: other, connector: "keyed" })).toMatchObject({ status: 409, body: { error: { code: "integration_not_connected" } } });
   });
 
+  it("writes the account settings with the credential, so a failed write after it never pairs a new key with the old account", async () => {
+    const vault = new LocalVault(generateMasterKey());
+    const app = appFor({ registry: createRegistry([keyedConnector()]), vault, liveConnectors: ["keyed"] });
+    const biz = (await repos.businesses.create(db, { name: "Settings With Credential Co" })).id;
+    const r = await post(app, "/v1/integrations/connect", { businessId: biz, connector: "keyed", input: { apiKey: VENDOR_SECRET } });
+    expect(r.status).toBe(200);
+    const row = (await repos.integrations.getByKey(db, biz, "keyed"))!;
+    expect(row.settings).toMatchObject({ config: { verifiedSenders: ["founder@northwind.example"] } });
+  });
+
+  it("a live step that hands back no usable secret stores nothing and still answers (Tink's first step)", async () => {
+    const key = "steps";
+    const tools = [defineTool({ name: "ping", description: "Checks.", input: z.object({}), output: z.object({ ok: z.literal(true) }), hints: {} })] as const;
+    const spec = { key, displayName: "Stepped vendor", phase: 1 as const, auth: { kind: "oauth" as const, scopes: [] }, tools, rateLimits: {}, handlers: { ping: async () => ({ ok: true as const }) } };
+    const mock = buildMockConnector({ ...spec, connect: async (b: string) => mockIntegrationRecord(key, b), healthcheck: async () => mockHealth(key) });
+    const stepped = buildLiveConnector({ ...spec, connect: async (b: string) => ({ ...mockIntegrationRecord(key, b, { status: "disconnected", externalAccountId: "user-1" }), config: { linkUrl: "https://link.example/start" }, credentialToStore: { kind: "oauth" as const, secret: "", extra: { userId: "user-1" } } }), healthcheck: async () => mockHealth(key) }, mock);
+    const app = appFor({ registry: createRegistry([stepped]), vault: new LocalVault(generateMasterKey()), liveConnectors: [key] });
+    const biz = (await repos.businesses.create(db, { name: "Stepped Co" })).id;
+    const r = await post(app, "/v1/integrations/connect", { businessId: biz, connector: key, input: {} });
+    expect(r).toMatchObject({ status: 200, body: { mode: "live", credential: null, record: { config: { linkUrl: "https://link.example/start" } } } });
+  });
+
+  it("Tink's second step is refused for a user this business was not given", async () => {
+    const app = appFor({ liveConnectors: ["tink"], vault: new LocalVault(generateMasterKey()) });
+    const biz = (await repos.businesses.create(db, { name: "Tink Binding Co" })).id;
+    await repos.integrations.upsert(db, biz, { connectorKey: "tink", status: "disconnected", authKind: "oauth", settings: { externalAccountId: "tink-user-of-this-business" } });
+    const r = await post(app, "/v1/integrations/connect", { businessId: biz, connector: "tink", input: { userId: "tink-user-of-another-business" } });
+    expect(r).toMatchObject({ status: 403, body: { error: { code: "account_mismatch" } } });
+  });
+
+  it("the Anthropic key's health may be checked here; it is still never connected here", async () => {
+    const app = appFor();
+    const r = await post(app, "/v1/integrations/health", { businessId, connector: "anthropic" });
+    expect(r.body.error?.code).not.toBe("manage_in_keys");
+  });
+
   it("both are limited per business", async () => {
     const rateLimits = new MemoryRateLimitStore();
     const at = new Date("2026-11-11T12:00:30.000Z");

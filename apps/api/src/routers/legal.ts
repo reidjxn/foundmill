@@ -87,6 +87,11 @@ async function call<T>(ctx: BusinessContext, connectorKey: GatewayRegistryKey, t
   } else {
     result = await ctx.connectors.get(connectorKey, "mock").callTool(tool, args, mockToolCtx(ctx, connectorKey));
   }
+  // A gateway that ran the registry's mock while this api treats it as live (the two services' LIVE_CONNECTORS differ)
+  // must not show sample companies as a real registry answer.
+  if (connectorMode(ctx.env, connectorKey) === "live" && (result as { simulated?: unknown }).simulated === true) {
+    throw new ValidationError(`${registry} could not be reached. Try again in a minute.`, { connector: connectorKey, tool, code: "simulated" });
+  }
   if (!result.ok) {
     if (result.error?.status === 404 || result.error?.code === "not_found") throw new AppError("not_found", `No company with number ${regNo} at ${registry}`, 404);
     throw new ValidationError(`${registry} could not be reached. Try again in a minute.`, { connector: connectorKey, tool, code: result.error?.code ?? null });
