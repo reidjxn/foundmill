@@ -24,6 +24,7 @@ import {
   Icon,
   Input,
   Panel,
+  ProjectFollowForm,
   ProjectPage,
   SegmentedControl,
   StatusPill,
@@ -39,6 +40,7 @@ import {
   PAGE_SLUG_RULE,
   PAGE_STAGES,
   PAGE_STAGE_LABELS,
+  followerCountLine,
   pageContentProblems,
   pageSlugProblem,
   pageStateLine,
@@ -67,6 +69,8 @@ export interface PageViewResponse {
   canPublish: boolean;
   isSample: boolean;
   preview: { name: string; brandPrimary: string; brandSecondary: string; founderNames: string[] };
+  /** How many people follow the page (package 1.6); absent from an older api. */
+  followers?: number;
 }
 
 type PublishResponse = { outcome: "published"; page: PageViewResponse } | { outcome: "held"; reason: PageHoldReason; message: string; page: PageViewResponse };
@@ -92,6 +96,8 @@ export const PUBLIC_PAGE_WORDS = {
   stage: "Stage",
   showFounders: "Name the people building it",
   showFoundersHint: "Adds “Built by …” with the names of the project's owners.",
+  followForm: "Let people follow this project",
+  followFormHint: "Adds a form where visitors leave their email and agree to hear from you. Each one shows up in Customers.",
   save: "Save draft",
   saved: "Draft saved",
   unsaved: "Changes not saved yet",
@@ -120,6 +126,7 @@ export function publishConsequence(content: ProjectPageContent, names: readonly 
   if (content.forWhom.trim()) parts.push("who it is for");
   parts.push("the stage");
   if (content.showFounders && names.length) parts.push("the names of the people building it");
+  if (content.followForm) parts.push("a form to follow it");
   const list = `${parts.slice(0, -1).join(", ")} and ${parts[parts.length - 1]}`;
   return `Anyone with the link can read ${list}. You can take it down any time.`;
 }
@@ -151,7 +158,7 @@ export function PublicPageScreen(_props: ModuleScreenProps) {
   const { formatDate } = useFormatters();
   const { mutate } = useWidgetData();
   const view = useWidgetQuery<PageViewResponse>("page.get", {});
-  useBusinessEvents(() => view.refetch(), ["page.published", "page.unpublished"]);
+  useBusinessEvents(() => view.refetch(), ["page.published", "page.unpublished", "page.followed"]);
   const data = view.data;
 
   // The form follows the server's draft until the founder types; a save or publish answer resets it.
@@ -165,7 +172,7 @@ export function PublicPageScreen(_props: ModuleScreenProps) {
     }
     // Only a new server draft matters here.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [data?.draft.pitch, data?.draft.about, data?.draft.forWhom, data?.draft.stage, data?.draft.showFounders]);
+  }, [data?.draft.pitch, data?.draft.about, data?.draft.forWhom, data?.draft.stage, data?.draft.showFounders, data?.draft.followForm]);
 
   const [touched, setTouched] = useState(false);
   const [pending, setPending] = useState<null | "save" | "publish" | "unpublish" | "slug">(null);
@@ -255,6 +262,8 @@ export function PublicPageScreen(_props: ModuleScreenProps) {
   const publishLabel = data?.live ? PUBLIC_PAGE_WORDS.publishChanges : PUBLIC_PAGE_WORDS.publish;
   const canPress = Boolean(content) && Object.keys(problems).length === 0;
   const founderNames = content?.showFounders ? (data?.preview.founderNames ?? []) : [];
+  // "3 people follow this project": a count only, and only once someone does (no nag at zero).
+  const followers = followerCountLine(data?.followers ?? 0);
 
   return (
     <Screen name="product/public-page">
@@ -307,6 +316,18 @@ export function PublicPageScreen(_props: ModuleScreenProps) {
                 <span className="t-small text-secondary">{PUBLIC_PAGE_WORDS.showFoundersHint}</span>
               </span>
             </label>
+            <label className="flex items-start gap-3" htmlFor={`${id}-follow`}>
+              <Switch id={`${id}-follow`} checked={content.followForm} disabled={!canEdit} onCheckedChange={(on) => set("followForm", on === true)} className="mt-0.5" />
+              <span className="flex flex-col gap-0.5">
+                <span className="t-body text-primary">{PUBLIC_PAGE_WORDS.followForm}</span>
+                <span className="t-small text-secondary">{PUBLIC_PAGE_WORDS.followFormHint}</span>
+              </span>
+            </label>
+            {followers ? (
+              <p className="t-body text-primary" data-testid="page-followers">
+                {followers}
+              </p>
+            ) : null}
 
             <section aria-labelledby={`${id}-address`} className="flex flex-col gap-2 border-t border-line pt-4" data-testid="page-address">
               <h3 id={`${id}-address`} className="t-label text-secondary">
@@ -405,6 +426,7 @@ export function PublicPageScreen(_props: ModuleScreenProps) {
               brandSecondary={data.preview.brandSecondary}
               founderNames={founderNames}
               homeHref="/"
+              follow={content.followForm ? <ProjectFollowForm name={data.preview.name} preview /> : null}
             />
           </div>
         ) : null}

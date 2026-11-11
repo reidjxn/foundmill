@@ -20,7 +20,7 @@ beforeAll(async () => {
 afterAll(() => hz?.close());
 beforeEach(() => hz.limits.reset());
 
-const page = (over: Partial<ProjectPageContent> = {}): ProjectPageContent => ({ pitch: "Candles that smell like a walk in the woods", about: "Small batches.\n\nPoured by hand in Leeds.", forWhom: "People in small city apartments", stage: "building", showFounders: false, ...over });
+const page = (over: Partial<ProjectPageContent> = {}): ProjectPageContent => ({ pitch: "Candles that smell like a walk in the woods", about: "Small batches.\n\nPoured by hand in Leeds.", forWhom: "People in small city apartments", stage: "building", showFounders: false, followForm: true, ...over });
 
 let n = 0;
 async function project(name: string, options: { demo?: boolean } = {}) {
@@ -43,7 +43,7 @@ describe("page.get", () => {
     const view = await b.member.page.get({ businessId: b.id });
     expect(view).toMatchObject({ saved: false, live: false, published: null, changed: false, canEdit: true, canPublish: false, isSample: false });
     // No founder's words on this business: the pitch is the project's name.
-    expect(view.draft).toEqual({ pitch: b.name, about: "Bring the outdoors inside.", forWhom: "People in small city apartments", stage: "idea", showFounders: false });
+    expect(view.draft).toEqual({ pitch: b.name, about: "Bring the outdoors inside.", forWhom: "People in small city apartments", stage: "idea", showFounders: false, followForm: true });
     expect(view.slug).toMatch(/^northwood-candles/);
     expect(view.url).toBe(`http://localhost:3000/p/${view.slug}`);
     expect(await repos.pages.get(hz.db, b.id)).toBeNull();
@@ -86,7 +86,7 @@ describe("writing and publishing", () => {
     // Signed out: exactly what the page shows.
     const anon = hz.caller(null);
     const pub = await anon.publicPage.bySlug({ slug: live.slug });
-    expect(pub).toEqual({ slug: live.slug, url, name: b.name, pitch: page().pitch, about: page().about, forWhom: page().forWhom, stage: "building", publishedAt: live.publishedAt, brandPrimary: expect.any(String), brandSecondary: expect.any(String), logo: null, founderNames: [] });
+    expect(pub).toEqual({ slug: live.slug, url, name: b.name, pitch: page().pitch, about: page().about, forWhom: page().forWhom, stage: "building", publishedAt: live.publishedAt, brandPrimary: expect.any(String), brandSecondary: expect.any(String), logo: null, founderNames: [], followForm: true });
 
     // A draft edit shows "changes not yet published" and does not reach the public page.
     const edited = await b.member.page.saveDraft({ businessId: b.id, draft: page({ stage: "live" }) });

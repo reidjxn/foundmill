@@ -79,6 +79,8 @@ export const ROLL_EXCLUDED_TABLES: readonly string[] = [
   "project_pages",
   // The sending address is chosen once and kept (0078); nothing in it belongs to the sample's calendar.
   "project_mail",
+  // When a person agreed to hear from a project is consent (0079): it keeps its real time.
+  "contact_consents",
 ];
 
 /** Columns that record when a row was written: never shifted past now. */

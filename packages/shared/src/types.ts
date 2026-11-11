@@ -252,6 +252,8 @@ const PageFields = z.object({
   forWhom: z.string().max(PAGE_FOR_WHOM_MAX * 4).default(""),
   stage: z.enum(PAGE_STAGES).default("idea"),
   showFounders: z.boolean().default(false),
+  // The "Follow" form (package 1.6): on for every new page.
+  followForm: z.boolean().default(true),
 });
 const withinPageLimits = (v: P.ProjectPageContent, ctx: z.RefinementCtx, least: number): void => {
   const check = (field: "pitch" | "about" | "forWhom", min: number, max: number) => {

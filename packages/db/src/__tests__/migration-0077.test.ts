@@ -18,7 +18,8 @@ const tabs = async (departmentId: string) => (await h.pg.query<{ tab_slug: strin
 
 beforeAll(async () => {
   const all = readMigrations();
-  h = await createTestDb({ migrations: all.filter((m) => m.tag !== TAG) });
+  // Everything before 0077 (later migrations, such as 0079, build on its table).
+  h = await createTestDb({ migrations: all.filter((m) => m.tag < TAG) });
   const owner = await h.createUser("owner@m77.test");
   const businessId = (await h.pg.query<{ id: string }>(`insert into businesses (name, slug, created_by) values ('m77', 'm77', $1) returning id`, [owner])).rows[0]!.id;
   const dept = async (slug: string, modules: string[]) => (await h.pg.query<{ id: string }>(`insert into departments (business_id, name, slug, module_keys) values ($1, $2, $2, $3::text[]) returning id`, [businessId, slug, modules])).rows[0]!.id;

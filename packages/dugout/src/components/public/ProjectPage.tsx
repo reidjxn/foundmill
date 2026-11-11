@@ -8,11 +8,12 @@
  * the 640 px measure, split into paragraphs on blank lines; "Who it is for" and "Built by …" appear only when there is
  * something to say. Every string is a text node: nothing here is ever read as markdown or HTML. The layout follows its
  * own width (a container query at `--container-page-wide`), not the window's, so the preview frame lays it out as a
- * phone does. No form, no sign-up: the one link is "Made with Foundmill", to the site's home.
+ * phone does. The one link is "Made with Foundmill", to the site's home. The one form is the "Follow" form
+ * (`ProjectFollowForm`, package 1.6), passed in as `follow` when the founders left it on; the page itself sends nothing.
  *
  * Server-safe (no hooks, no handlers): the public route renders it as a Server Component.
  */
-import { useId, type CSSProperties, type HTMLAttributes } from "react";
+import { useId, type CSSProperties, type HTMLAttributes, type ReactNode } from "react";
 import { Sprout } from "lucide-react";
 import { APP_NAME } from "@foundmill/config";
 import { PAGE_STAGE_LABELS, builtByLine, pageParagraphs, type PageStage } from "@foundmill/shared/project-page";
@@ -45,6 +46,8 @@ export interface ProjectPageProps extends Omit<HTMLAttributes<HTMLElement>, "chi
   homeHref?: string;
   /** "page" fills the window (the public route); "preview" sits inside a frame (the console). */
   variant?: "page" | "preview";
+  /** The "Follow" form (`ProjectFollowForm`), after everything the founders wrote; nothing when the page has none. */
+  follow?: ReactNode;
 }
 
 /** The words the page prints around the founder's own. */
@@ -55,7 +58,7 @@ export const PROJECT_PAGE_WORDS = {
   madeWith: `Made with ${APP_NAME}`,
 } as const;
 
-export function ProjectPage({ name, pitch, about, forWhom, stage, publishedAt, brandPrimary, brandSecondary, logo, founderNames, homeHref = "/", variant = "page", className, style, ...rest }: ProjectPageProps) {
+export function ProjectPage({ name, pitch, about, forWhom, stage, publishedAt, brandPrimary, brandSecondary, logo, founderNames, homeHref = "/", variant = "page", follow, className, style, ...rest }: ProjectPageProps) {
   const paragraphs = pageParagraphs(about);
   const who = (forWhom ?? "").trim();
   const builtBy = builtByLine(founderNames);
@@ -117,6 +120,8 @@ export function ProjectPage({ name, pitch, about, forWhom, stage, publishedAt, b
             {builtBy}
           </p>
         ) : null}
+
+        {follow ?? null}
       </div>
       <footer className="border-t border-line">
         <div className="mx-auto flex w-full max-w-reading px-gutter">

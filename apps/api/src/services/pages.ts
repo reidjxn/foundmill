@@ -20,11 +20,16 @@
  * - **The team's first draft** (packages 1.2 and 1.3): the foundations runners write the row with the Product lead's
  *   draft and the note "Your project's page is ready" (`repos.pages.writeTeamDraft`); `decidePageNote` answers that
  *   note, and publishing answers it too.
+ * - **Following** (`followPage`, package 1.6): a signed-out visitor leaves an email address on a published page whose
+ *   "Follow" form is on; they become a lead in Customers with a consent record, and `page.followed` is written once.
  */
 import { communityScreenLocalFlags } from "@foundmill/agents";
-import { repos, type DbTx, type InboxItem, type ProjectPage } from "@foundmill/db";
+import { repos, suppressionHash, type DbTx, type InboxItem, type ProjectPage } from "@foundmill/db";
 import {
   AppError,
+  FOLLOW_ERRORS,
+  followConsentText,
+  followEmailProblem,
   ForbiddenError,
   PAGE_HOLD_MESSAGES,
   PAGE_READY_NOTE,
@@ -45,10 +50,12 @@ import {
   type PageHoldReason,
   type ProjectPageContent as PageContent,
 } from "@foundmill/shared";
+import { z } from "zod";
 import { audit, emit, type BusinessContext } from "../trpc";
 import type { Context } from "../context";
 import { answerNote } from "./answer-note";
 import type { DecideItemResult } from "./decide";
+import { writeEventRow } from "./events";
 import { takeOrThrow } from "./rate-limit";
 
 /** What the console's Public page tab reads (`page.get`) and every change answers. */
@@ -77,6 +84,8 @@ export interface PageView {
   isSample: boolean;
   /** What the preview draws: the business's name, brand colors and the names "Built by" would show. */
   preview: { name: string; brandPrimary: string; brandSecondary: string; founderNames: string[] };
+  /** How many people follow the page now (package 1.6): a count only, never who. */
+  followers: number;
 }
 
 /** `page.publish`'s answer: published, or held with the reason and its sentence (the page stays as it was). */
@@ -107,9 +116,11 @@ export async function suggestedSlug(ctx: BusinessContext): Promise<string> {
  * Inside the caller's transaction: everything that needs the service connection (`suggestedSlug`) is asked before it.
  */
 async function viewOf(tx: DbTx, ctx: BusinessContext, row: ProjectPage | null, suggested: string | null = null): Promise<PageView> {
-  const [draft, founderNames] = await Promise.all([
-    row ? Promise.resolve(readPageContent(row.draft) ?? starterPageDraft({ businessName: ctx.business.name })) : repos.pages.starterInputs(tx, ctx.businessId).then((inputs) => starterPageDraft({ businessName: ctx.business.name, ...inputs })),
+  const [draft, founderNames, followers] = await Promise.all([
+    // A draft saved before the follow form existed reads with it on, like every new page; the published copy reads as it went out.
+    row ? Promise.resolve(readPageContent(row.draft, true) ?? starterPageDraft({ businessName: ctx.business.name })) : repos.pages.starterInputs(tx, ctx.businessId).then((inputs) => starterPageDraft({ businessName: ctx.business.name, ...inputs })),
     repos.pages.ownerNames(tx, ctx.businessId),
+    row ? repos.followers.count(tx, ctx.businessId) : Promise.resolve(0),
   ]);
   const slug = row?.slug ?? suggested ?? suggestPageSlug(ctx.business.slug || ctx.business.name);
   const published = row ? readPageContent(row.published) : null;
@@ -127,6 +138,7 @@ async function viewOf(tx: DbTx, ctx: BusinessContext, row: ProjectPage | null, s
     canPublish: canPublishPage(ctx),
     isSample: ctx.business.isDemo,
     preview: { name: ctx.business.name, brandPrimary: ctx.business.kitPrimary, brandSecondary: ctx.business.kitSecondary, founderNames },
+    followers,
   };
 }
 
@@ -162,7 +174,7 @@ export async function setPageSlug(ctx: BusinessContext, input: { slug: string; d
   if (await repos.pages.slugTaken(ctx.db, ctx.businessId, slug)) throw new ConflictError(PAGE_SLUG_TAKEN, { field: "slug" });
   const draft = input.draft ? ProjectPageDraft.parse(input.draft) : existing ? undefined : (await pageView(ctx)).draft;
   return ctx.rls(async (tx) => {
-    const { page, previousSlug } = await repos.pages.setSlug(tx, ctx.businessId, { slug, draft: draft ?? readPageContent(existing?.draft) ?? starterPageDraft({ businessName: ctx.business.name }), userId: ctx.userId });
+    const { page, previousSlug } = await repos.pages.setSlug(tx, ctx.businessId, { slug, draft: draft ?? readPageContent(existing?.draft, true) ?? starterPageDraft({ businessName: ctx.business.name }), userId: ctx.userId });
     if (previousSlug !== page.slug) {
       await audit(tx, ctx, { action: "page.address_changed", target: { kind: "project_page", id: page.id }, details: { from: previousSlug, to: page.slug, live: page.published !== null } });
       if (page.published && previousSlug) {
@@ -263,6 +275,8 @@ export interface PublicPageView {
   logo: string | null;
   /** Empty unless the page names its founders. */
   founderNames: string[];
+  /** Whether the page carries the "Follow" form (`publicPage.follow`). */
+  followForm: boolean;
 }
 
 /**
@@ -284,7 +298,7 @@ export async function publicPageBySlug(ctx: Pick<Context, "db" | "env" | "limits
   ]);
   const [page, logo] = await Promise.all([repos.pages.public.bySlug(ctx.db, clean), repos.pages.public.logoBySlug(ctx.db, clean)]);
   if (!page) return null;
-  const { pitch, about, forWhom, stage, showFounders } = page.content;
+  const { pitch, about, forWhom, stage, showFounders, followForm } = page.content;
   return {
     slug: page.slug,
     url: pageUrl(ctx.env.APP_URL, page.slug),
@@ -298,5 +312,92 @@ export async function publicPageBySlug(ctx: Pick<Context, "db" | "env" | "limits
     brandSecondary: page.brandSecondary,
     logo,
     founderNames: showFounders ? page.founderNames : [],
+    followForm,
   };
+}
+
+/**
+ * Signed-out follows (`publicPage.follow`), shared by every api replica. The api sees the web server, not the visitor
+ * (the follow arrives through the web's server action), and nothing proves a forwarded address to it, so there is no
+ * per-visitor limit: a ceiling across all pages keeps a flood off the database, two per page cap what a flood can write
+ * into one project's Customers, and one per page and address (its hash) quietly drops repeats beyond a few a day.
+ */
+export const PAGE_FOLLOW_LIMITS = {
+  all: { limit: 600, windowMs: 60_000 },
+  perPageHour: { limit: 60, windowMs: 60 * 60_000 },
+  perPageDay: { limit: 300, windowMs: 24 * 60 * 60_000 },
+  perAddress: { limit: 5, windowMs: 24 * 60 * 60_000 },
+} as const;
+
+/** The answer to every follow that is not refused, written or not: it never says whether the address was already there. */
+export type FollowAnswer = { ok: true };
+
+export interface FollowInput {
+  slug: string;
+  email: string;
+  consent: boolean;
+  /** The hidden field: a person never fills it in. */
+  website?: string | null;
+}
+
+const followRefusal = (code: "follow_email" | "follow_consent" | "follow_closed") =>
+  code === "follow_email"
+    ? new AppError(code, FOLLOW_ERRORS.email, 400, { field: "email" })
+    : code === "follow_consent"
+      ? new AppError(code, FOLLOW_ERRORS.consent, 400, { field: "consent" })
+      : new AppError(code, FOLLOW_ERRORS.closed, 404);
+
+const EmailShape = z.email();
+
+/**
+ * `publicPage.follow`: a visitor follows the published page at `slug` (package 1.6). In order:
+ *   1. the hidden field filled in: the same answer, nothing written, no limit spent;
+ *   2. the address (trimmed, lowercased, the shared check and Zod's) and the box ticked, else a plain refusal;
+ *   3. the ceiling across all pages (TOO_MANY_REQUESTS);
+ *   4. the page: published, committed, not archived, not a sample (the public view) and its switch on, else
+ *      `follow_closed` (an address that is not public answers as `publicPage.bySlug` does: there is nothing there);
+ *   5. the page's hourly and daily caps (TOO_MANY_REQUESTS), then the per-address allowance (over it: the same answer,
+ *      nothing written);
+ *   6. one transaction on the service connection: the lead and its consent record (`repos.followers.record`, which
+ *      writes nothing for a repeat or a suppressed address), then `page.followed` through the outbox and an audit row,
+ *      only for a new follower.
+ * No email address leaves in the answer, the event, the audit row or the logs.
+ */
+export async function followPage(ctx: Pick<Context, "db" | "limits">, input: FollowInput): Promise<FollowAnswer> {
+  const ok: FollowAnswer = { ok: true };
+  if (typeof input.website === "string" && input.website.trim() !== "") return ok;
+  const email = input.email.trim().toLowerCase();
+  if (followEmailProblem(email) || !EmailShape.safeParse(email).success) throw followRefusal("follow_email");
+  if (input.consent !== true) throw followRefusal("follow_consent");
+  const slug = input.slug.trim().toLowerCase();
+  if (pageSlugProblem(slug)) throw followRefusal("follow_closed");
+  await takeOrThrow(ctx.limits, "Follow", [{ key: "page-follow:all", rule: PAGE_FOLLOW_LIMITS.all }]);
+  const target = await repos.followers.target(ctx.db, slug);
+  if (!target || !target.followForm) throw followRefusal("follow_closed");
+  await takeOrThrow(ctx.limits, "Follow", [
+    { key: `page-follow:page:${target.pageId}:hour`, rule: PAGE_FOLLOW_LIMITS.perPageHour },
+    { key: `page-follow:page:${target.pageId}:day`, rule: PAGE_FOLLOW_LIMITS.perPageDay },
+  ]);
+  const address = await ctx.limits.take([{ key: `page-follow:addr:${target.pageId}:${suppressionHash("email", email)}`, rule: PAGE_FOLLOW_LIMITS.perAddress }]);
+  if (!address.ok) return ok;
+  const consentText = followConsentText(target.name);
+  await ctx.db.transaction(async (tx) => {
+    const recorded = await repos.followers.record(tx, target.businessId, { pageId: target.pageId, slug: target.slug, email, consentText });
+    if (recorded.status !== "new") return;
+    await writeEventRow(tx, {
+      businessId: target.businessId,
+      type: "page.followed",
+      actor: { kind: "system", id: "public-page" },
+      payload: { pageId: target.pageId, entityId: recorded.entityId, consentId: recorded.consentId },
+      entityIds: [recorded.entityId],
+    });
+    await repos.audit.append(tx, target.businessId, {
+      actorKind: "system",
+      actorId: null,
+      action: "page.followed",
+      target: { kind: "entity", id: recorded.entityId },
+      details: { pageId: target.pageId, slug: target.slug, consentId: recorded.consentId, newContact: recorded.entityCreated },
+    });
+  });
+  return ok;
 }

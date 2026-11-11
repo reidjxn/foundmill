@@ -606,7 +606,7 @@ describe("product.foundations — the team drafts the project page first (packag
 
     // A founder who saved their own draft before the first open keeps it, and gets no note.
     const b = await commitDoorA("page-saved@test.local");
-    const mine = { pitch: "My own words, first", about: "I wrote this myself.", forWhom: "", stage: "idea" as const, showFounders: false };
+    const mine = { pitch: "My own words, first", about: "I wrote this myself.", forWhom: "", stage: "idea" as const, showFounders: false, followForm: true };
     await b.caller.page.saveDraft({ businessId: b.businessId, draft: mine });
     await b.caller.product.foundations.ensure({ businessId: b.businessId });
     await settleFoundationRuns();

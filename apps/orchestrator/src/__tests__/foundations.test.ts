@@ -197,7 +197,7 @@ describe("draftProjectPage (package 1.2): the page first, written once, never pu
     const f = await freshDrafting();
     const acts = createFoundationsActivities({ ...t.deps, models: new MockModelClient({ failWith: { projectPage: new ModelUnavailableError("upstream 529") } }) });
     expect(await acts.draftProjectPage({ businessId: f.businessId, attempt: 1 })).toMatchObject({ current: true, written: true, source: "starter", usage: { calls: 0 } });
-    expect((await repos.pages.get(t.db, f.businessId))!.draft).toEqual({ pitch: expect.stringMatching(/^Page Step/), about: "", forWhom: "", stage: "idea", showFounders: false });
+    expect((await repos.pages.get(t.db, f.businessId))!.draft).toEqual({ pitch: expect.stringMatching(/^Page Step/), about: "", forWhom: "", stage: "idea", showFounders: false, followForm: true });
   });
 });
 

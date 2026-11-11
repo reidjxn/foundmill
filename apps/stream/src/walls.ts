@@ -106,6 +106,8 @@ export const EVENT_WALLS = {
   // A project's public page went live or was taken down (0077): its id and address, which are public anyway.
   "page.published": { sections: ["product"] },
   "page.unpublished": { sections: ["product"] },
+  // Someone followed the page (0079): ids only; the follower's record is the CRM's to show.
+  "page.followed": { sections: ["product"], hide: { crm: ["entityId", "consentId"] } },
   // The guided layer's product signals (one founder's own use of tours, explainers and definitions): metrics only, so
   // on the stream they reach no one but the readers of Settings.
   "guidance.tour_completed": { sections: ["settings"] },

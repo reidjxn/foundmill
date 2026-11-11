@@ -51,7 +51,7 @@ describe("finaliseProjectPage", () => {
   const ok = { pitch: "Same-day cafe shifts for students in Manchester.", about: WORDS, for_whom: "Students in Manchester", stage: "idea" as const };
 
   it("takes a plain answer within the limits, never naming the founders", () => {
-    expect(finaliseProjectPage(ok, withWords())).toEqual({ draft: { pitch: ok.pitch, about: WORDS, forWhom: "Students in Manchester", stage: "idea", showFounders: false } });
+    expect(finaliseProjectPage(ok, withWords())).toEqual({ draft: { pitch: ok.pitch, about: WORDS, forWhom: "Students in Manchester", stage: "idea", showFounders: false, followForm: true } });
   });
 
   it("refuses links, addresses and markup, an answer outside the limits, and any figure the inputs did not give", () => {

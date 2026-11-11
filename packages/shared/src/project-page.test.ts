@@ -27,11 +27,18 @@ import {
   isPageReadyDecision,
   suffixPageSlug,
   suggestPageSlug,
+  FOLLOW_ERRORS,
+  FOLLOW_SOURCE_LABEL,
+  followConsentLine,
+  followConsentText,
+  followEmailProblem,
+  followWords,
+  followerCountLine,
   type ProjectPageContent,
 } from "./project-page";
 import { ProjectPageContent as ContentSchema, ProjectPageDraft, ProjectPageSlug } from "./types";
 
-const page = (over: Partial<ProjectPageContent> = {}): ProjectPageContent => ({ pitch: "Hand-poured candles that smell like a walk in the woods", about: "We make small batches.\n\nEvery candle is poured by hand.", forWhom: "", stage: "idea", showFounders: false, ...over });
+const page = (over: Partial<ProjectPageContent> = {}): ProjectPageContent => ({ pitch: "Hand-poured candles that smell like a walk in the woods", about: "We make small batches.\n\nEvery candle is poured by hand.", forWhom: "", stage: "idea", showFounders: false, followForm: true, ...over });
 
 describe("page slugs", () => {
   it("accepts 3 to 40 lowercase letters, digits and hyphens that start and end with a letter or digit", () => {
@@ -94,7 +101,7 @@ describe("page content", () => {
 
   it("the schema tidies first, then applies the limits; a draft may still be empty", () => {
     const parsed = ContentSchema.parse({ pitch: "  Candles\n that  last ", about: "One.\r\n\r\n\r\nTwo.", forWhom: " People who like candles ", stage: "building" });
-    expect(parsed).toEqual({ pitch: "Candles that last", about: "One.\n\nTwo.", forWhom: "People who like candles", stage: "building", showFounders: false });
+    expect(parsed).toEqual({ pitch: "Candles that last", about: "One.\n\nTwo.", forWhom: "People who like candles", stage: "building", showFounders: false, followForm: true });
     expect(ContentSchema.safeParse(page({ pitch: "" })).success).toBe(false);
     expect(ContentSchema.safeParse(page({ about: "   " })).success).toBe(false);
     expect(ContentSchema.safeParse(page({ pitch: "x".repeat(141) })).success).toBe(false);
@@ -114,19 +121,54 @@ describe("page content", () => {
     expect(readPageContent(null)).toBeNull();
     expect(readPageContent([])).toBeNull();
     expect(readPageContent({ pitch: 1, about: "x" })).toBeNull();
-    expect(readPageContent({ pitch: "a", about: "b", stage: "nope", showFounders: "yes" })).toEqual({ pitch: "a", about: "b", forWhom: "", stage: "idea", showFounders: false });
+    expect(readPageContent({ pitch: "a", about: "b", stage: "nope", showFounders: "yes" })).toEqual({ pitch: "a", about: "b", forWhom: "", stage: "idea", showFounders: false, followForm: false });
+  });
+
+  it("the follow form: on for new pages; a copy stored before it existed reads as off when published, on as a draft", () => {
+    expect(ContentSchema.parse({ pitch: "a", about: "b" }).followForm).toBe(true);
+    expect(ContentSchema.parse({ pitch: "a", about: "b", followForm: false }).followForm).toBe(false);
+    const old = { pitch: "a", about: "b", forWhom: "", stage: "idea", showFounders: false };
+    expect(readPageContent(old)!.followForm).toBe(false);
+    expect(readPageContent(old, true)!.followForm).toBe(true);
+    expect(readPageContent({ ...old, followForm: false }, true)!.followForm).toBe(false);
+    expect(samePageContent(page(), page({ followForm: false }))).toBe(false);
+  });
+});
+
+describe("following a project", () => {
+  it("says it in the project's name, in plain words", () => {
+    const w = followWords("Northwind  Skincare");
+    expect(w.heading).toBe("Follow Northwind Skincare");
+    expect(w.line).toBe("Leave your email and Northwind Skincare will let you know when there is news.");
+    expect(w.consent).toBe("I agree to get email from Northwind Skincare about this project. I can unsubscribe at any time.");
+    expect(w.consent).toBe(followConsentText("Northwind Skincare"));
+    expect(w.button).toBe("Follow");
+    expect(w.done).toBe("Thanks. Northwind Skincare will be in touch.");
+  });
+
+  it("checks an address before it is sent", () => {
+    for (const ok of ["maya@example.com", " Maya.Lee+news@sub.example.co.uk "]) expect(followEmailProblem(ok)).toBeNull();
+    for (const bad of ["", "maya", "maya@", "@example.com", "maya@example", "ma ya@example.com", "<a>@x.com", `${"a".repeat(250)}@x.com`]) expect(followEmailProblem(bad)).toBe(FOLLOW_ERRORS.email);
+  });
+
+  it("counts followers for the founder only once there is one", () => {
+    expect(followerCountLine(0)).toBeNull();
+    expect(followerCountLine(1)).toBe("1 person follows this project");
+    expect(followerCountLine(1200)).toBe("1,200 people follow this project");
+    expect(followConsentLine("Oct 7, 2026")).toBe("Agreed to email on Oct 7, 2026");
+    expect(FOLLOW_SOURCE_LABEL).toBe("Public page");
   });
 });
 
 describe("the starter draft", () => {
   it("takes the pitch from the founder's own first sentence and the rest from the vision", () => {
     const draft = starterPageDraft({ businessName: "Northwind", founderWords: "Candles that smell like a forest walk. I want to sell them online.", visionStatement: "Bring the outdoors inside.", visionForWhom: "People in small city apartments" });
-    expect(draft).toEqual({ pitch: "Candles that smell like a forest walk.", about: "Bring the outdoors inside.", forWhom: "People in small city apartments", stage: "idea", showFounders: false });
+    expect(draft).toEqual({ pitch: "Candles that smell like a forest walk.", about: "Bring the outdoors inside.", forWhom: "People in small city apartments", stage: "idea", showFounders: false, followForm: true });
   });
 
   it("before a vision exists, about is the founder's own words (the team's fallback draft, package 1.2)", () => {
     const words = "Same-day cafe shifts for students in Manchester.\n\nCafes post a shift in the morning.";
-    expect(starterPageDraft({ businessName: "Shiftly", founderWords: words })).toEqual({ pitch: "Same-day cafe shifts for students in Manchester.", about: words, forWhom: "", stage: "idea", showFounders: false });
+    expect(starterPageDraft({ businessName: "Shiftly", founderWords: words })).toEqual({ pitch: "Same-day cafe shifts for students in Manchester.", about: words, forWhom: "", stage: "idea", showFounders: false, followForm: true });
   });
 
   it("marks the page note by its decision key only", () => {
@@ -137,7 +179,7 @@ describe("the starter draft", () => {
   });
 
   it("falls back to the project's name and leaves the rest for the founder", () => {
-    expect(starterPageDraft({ businessName: "  Northwind   Skincare " })).toEqual({ pitch: "Northwind Skincare", about: "", forWhom: "", stage: "idea", showFounders: false });
+    expect(starterPageDraft({ businessName: "  Northwind   Skincare " })).toEqual({ pitch: "Northwind Skincare", about: "", forWhom: "", stage: "idea", showFounders: false, followForm: true });
   });
 
   it("never exceeds the limits", () => {

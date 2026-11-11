@@ -6,7 +6,7 @@ import { PUBLIC_PAGE_WORDS, PublicPageScreen, publishConsequence, type PageViewR
 import { createFakeSource, renderScreen } from "./fake-source";
 import { BID } from "./fixtures";
 
-const draft = { pitch: "Candles that smell like a walk in the woods", about: "Small batches.\n\nPoured by hand.", forWhom: "", stage: "idea" as const, showFounders: false };
+const draft = { pitch: "Candles that smell like a walk in the woods", about: "Small batches.\n\nPoured by hand.", forWhom: "", stage: "idea" as const, showFounders: false, followForm: true };
 const view = (over: Partial<PageViewResponse> = {}): PageViewResponse => ({
   slug: "northwood",
   url: "https://foundmill.example/p/northwood",
@@ -49,7 +49,7 @@ describe("PublicPageScreen", () => {
     render(view());
     fireEvent.change(screen.getByLabelText(/One-line pitch/), { target: { value: "Bike repairs at your door" } });
     expect(within(screen.getByTestId("public-page-preview")).getByRole("heading", { level: 1, name: "Bike repairs at your door" })).toBeTruthy();
-    fireEvent.click(screen.getByRole("switch"));
+    fireEvent.click(screen.getByRole("switch", { name: /Name the people building it/ }));
     expect(within(screen.getByTestId("public-page-preview")).getByText("Built by Maya")).toBeTruthy();
     const about = screen.getByRole("textbox", { name: /^About/ });
     fireEvent.change(about, { target: { value: "" } });
@@ -65,10 +65,29 @@ describe("PublicPageScreen", () => {
     const dialog = await screen.findByRole("dialog");
     expect(within(dialog).getByRole("heading", { name: PUBLIC_PAGE_WORDS.confirmTitle })).toBeTruthy();
     expect(within(dialog).getByText(publishConsequence(draft, ["Maya"]))).toBeTruthy();
-    expect(publishConsequence(draft, ["Maya"])).toBe("Anyone with the link can read the project's name and logo, its one-line pitch, about and the stage. You can take it down any time.");
-    expect(publishConsequence({ ...draft, forWhom: "Renters", showFounders: true }, ["Maya"])).toContain("who it is for, the stage and the names of the people building it");
+    expect(publishConsequence(draft, ["Maya"])).toBe("Anyone with the link can read the project's name and logo, its one-line pitch, about, the stage and a form to follow it. You can take it down any time.");
+    expect(publishConsequence({ ...draft, followForm: false }, ["Maya"])).toBe("Anyone with the link can read the project's name and logo, its one-line pitch, about and the stage. You can take it down any time.");
+    expect(publishConsequence({ ...draft, forWhom: "Renters", showFounders: true }, ["Maya"])).toContain("who it is for, the stage, the names of the people building it and a form to follow it");
     await act(async () => fireEvent.click(within(dialog).getByTestId("page-confirm-publish")));
     expect(fake.mutations).toEqual([{ path: "page.publish", input: { content: draft } }]);
+  });
+
+  it("the follow switch: on by default, the preview shows the form disabled, off takes it out; the count only once someone follows", async () => {
+    render(view());
+    const preview = screen.getByTestId("public-page-preview");
+    expect(within(preview).getByRole("heading", { level: 2, name: "Follow Northwood" })).toBeTruthy();
+    expect((within(preview).getByRole("button", { name: "Follow" }) as HTMLButtonElement).disabled).toBe(true);
+    expect(preview.querySelector("form")).toBeNull();
+    expect(screen.queryByTestId("page-followers")).toBeNull();
+    const toggle = screen.getByRole("switch", { name: new RegExp(PUBLIC_PAGE_WORDS.followForm) });
+    expect(toggle.getAttribute("aria-checked")).toBe("true");
+    fireEvent.click(toggle);
+    expect(within(preview).queryByRole("heading", { name: "Follow Northwood" })).toBeNull();
+  });
+
+  it("says how many people follow, never who", () => {
+    render(view({ saved: true, live: true, published: draft, publishedAt: new Date(2026, 9, 7, 12), followers: 3 }));
+    expect(screen.getByTestId("page-followers").textContent).toBe("3 people follow this project");
   });
 
   it("a held page says why, in the founder's words, and stays unpublished", async () => {

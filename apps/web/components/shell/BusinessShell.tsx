@@ -121,6 +121,8 @@ export const INVALIDATE_ON_EVENT: Record<string, readonly string[]> = {
   // A public page published or taken down from another tab or by another owner (0077): the tab and Today's line follow.
   "page.published": ["page", "today"],
   "page.unpublished": ["page", "today"],
+  // Someone followed the page (0079): its count and the contact lists follow; Today does not change.
+  "page.followed": ["page", "crm"],
   // A rename or new brand colors saved in another tab or by a co-founder (audit RES-07).
   "business.updated": ["business"],
   // Autopilot turned on or off, its settings changed, or a guard rail paused it: the chip and Settings read business.autopilot.

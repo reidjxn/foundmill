@@ -438,7 +438,7 @@ export const EVENT_TYPES = [
   "distribution.started",
   "product.research_drafted",
   "goal.proposed", "goal.approved", "goal.change_requested", "goal.achieved",
-  "page.published", "page.unpublished",
+  "page.published", "page.unpublished", "page.followed",
   "guidance.tour_completed", "guidance.tour_skipped", "guidance.explainer_dismissed", "guidance.term_opened", "guidance.turned_off",
   "push.sent",
   "mail.sent",

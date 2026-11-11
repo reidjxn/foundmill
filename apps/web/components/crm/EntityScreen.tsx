@@ -13,6 +13,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { Avatar, Button, Chip, ENTITY_KIND_ICONS, ENTITY_KIND_LABELS, EntityLink, Icon, KeyValueList, Panel, ProfileHeader, ProvenanceChip, RatingBar, StarRating, StatusPill, StatusStrip, Term, Textarea, Timeline, formatMoney, formatRelative, useToast, useFormatters, type MetricTileProps, type ProfileChip, type ProfileFact, type TabItem, type TimelineEvent } from "@foundmill/dugout";
 import type { DeptColourToken } from "@foundmill/shared";
+import { followConsentLine } from "@foundmill/shared/project-page";
 import { routes } from "@foundmill/widgets/shared/routes";
 import { errorMessage, trpcErrorCode } from "@/lib/trpc";
 import { useTRPC } from "@/lib/trpc-react";
@@ -168,6 +169,8 @@ export function EntityScreen({ entityId, tab }: EntityScreenProps) {
                     { label: "Other names", value: entity.aliases.length ? entity.aliases.join(", ") : <span className="text-tertiary">None</span> },
                     { label: "Source", value: sourceWord(entity.source) || "Unknown" },
                     { label: <Term id="lawful_basis">Lawful basis</Term>, value: entity.lawfulBasis ? LAWFUL_BASIS_LABEL[entity.lawfulBasis] ?? plainWords(entity.lawfulBasis) : entity.kind === "person" ? <Chip tone="warn">Not recorded</Chip> : <span className="text-tertiary">Only recorded for people</span> },
+                    // A follower of the public page (package 1.6): when they agreed, from the consent record.
+                    ...(get.emailConsentAt ? [{ label: "Consent", value: <span data-testid="email-consent">{followConsentLine(formatDate(get.emailConsentAt))}</span> }] : []),
                     { label: "Visibility", value: VISIBILITY_WORD[entity.visibility] ?? plainWords(entity.visibility) },
                     { label: "Updated", value: formatDateTime(entity.updatedAt) },
                   ]}

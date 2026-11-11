@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { render, screen } from "@testing-library/react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { APP_NAME } from "@foundmill/config";
+import { ProjectFollowForm } from "./ProjectFollowForm";
 import { PROJECT_PAGE_WORDS, ProjectPage, type ProjectPageProps } from "./ProjectPage";
 
 const props: ProjectPageProps = {
@@ -36,6 +37,17 @@ describe("ProjectPage", () => {
     expect(link.getAttribute("href")).toBe("/");
     expect(link.className).toContain("min-h-tap");
     expect(document.querySelector("form, input, button, textarea")).toBeNull();
+  });
+
+  it("shows the follow form it is given, after what the founders wrote", () => {
+    render(<ProjectPage {...props} follow={<ProjectFollowForm name={props.name} slug="northwind" action="/follow" />} />);
+    const form = document.querySelector("[data-project-follow]")!;
+    expect(form.tagName).toBe("FORM");
+    expect(screen.getByRole("heading", { level: 2, name: "Follow Northwind Skincare" })).toBeTruthy();
+    // After "Built by", before the footer.
+    const builtBy = document.querySelector("[data-project-built-by]")!;
+    expect(builtBy.compareDocumentPosition(form) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(form.closest("footer")).toBeNull();
   });
 
   it("leaves out what is not there: no 'Who it is for', no 'Built by', no date", () => {

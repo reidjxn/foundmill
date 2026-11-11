@@ -21,6 +21,7 @@ import {
   statusHint,
 } from "../channel-data";
 import { groupAssets } from "../CreativeScreen";
+import { sourceLabel } from "../shared";
 import { AGENT, CHANNEL, TODAY, agents, assets, campaigns, channels, channelsList, leads, metrics, recommendResponse } from "./fixtures";
 
 describe("potentialStars", () => {
@@ -212,5 +213,13 @@ describe("leads", () => {
     expect(lawfulBasisLabel(null)).toBe("Not recorded");
     expect(lawfulBasisLabel("legitimate_interest")).toBe("Legitimate interest");
     expect(lawfulBasisLabel("custom_basis")).toBe("custom basis");
+  });
+});
+
+describe("sourceLabel", () => {
+  it("names a follower of the public page, a channel by its label, anything else in plain words", () => {
+    expect(sourceLabel("page")).toBe("Public page");
+    expect(sourceLabel("seo")).toBe("SEO");
+    expect(sourceLabel(null)).toBe("");
   });
 });

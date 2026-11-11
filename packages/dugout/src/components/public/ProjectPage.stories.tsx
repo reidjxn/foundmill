@@ -1,4 +1,5 @@
 import type { Decorator, Meta, StoryObj } from "@storybook/react-vite";
+import { ProjectFollowForm } from "./ProjectFollowForm";
 import { ProjectPage } from "./ProjectPage";
 
 /**
@@ -59,4 +60,21 @@ export const LongWords1280: Story = {
   name: "1280 px · long words wrap",
   decorators: [Desktop],
   args: { name: "Supercalifragilisticexpialidocious Studio", pitch: "Antidisestablishmentarianism-proof bookkeeping for independent makers and small studios everywhere", stage: "live" },
+};
+/** Package 1.6: the "Follow" form under what the founders wrote, as the public route renders it. */
+export const WithFollow390: Story = {
+  name: "390 px · with the follow form",
+  decorators: [Phone],
+  args: { variant: "page", follow: <ProjectFollowForm name="Northwind Skincare" slug="northwind-skincare" action="#" /> },
+};
+export const WithFollowDone390: Story = {
+  name: "390 px · followed",
+  decorators: [Phone],
+  args: { variant: "page", follow: <ProjectFollowForm name="Northwind Skincare" state={{ status: "done" }} /> },
+};
+/** The console's preview draws the form disabled. */
+export const WithFollowPreview1280: Story = {
+  name: "1280 px · the follow form in the preview",
+  decorators: [Desktop],
+  args: { follow: <ProjectFollowForm name="Northwind Skincare" preview /> },
 };

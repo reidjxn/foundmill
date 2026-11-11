@@ -46,6 +46,13 @@ export interface ProjectPageContent {
   stage: PageStage;
   /** Whether the page names the people building it. Off until the founder turns it on. */
   showFounders: boolean;
+  /**
+   * Whether the page carries the "Follow" form (package 1.6): a visitor leaves an email address, agrees to hear from the
+   * project, and becomes a contact in Customers. On for every new page. A copy stored before the switch existed has no
+   * such field: a published copy then reads as off (the live page keeps what it showed) and a draft reads as on, so the
+   * form goes out the next time the founder publishes (`readPageContent`).
+   */
+  followForm: boolean;
 }
 
 export type PageField = "pitch" | "about" | "forWhom" | "stage";
@@ -131,7 +138,7 @@ export function normalizePageText(text: string): string {
 
 /** What the fields hold once tidied: the pitch on one line, the texts normalized. What is saved and what is validated. */
 export function normalizePageContent(content: ProjectPageContent): ProjectPageContent {
-  return { pitch: oneLine(content.pitch), about: normalizePageText(content.about), forWhom: normalizePageText(content.forWhom), stage: content.stage, showFounders: content.showFounders === true };
+  return { pitch: oneLine(content.pitch), about: normalizePageText(content.about), forWhom: normalizePageText(content.forWhom), stage: content.stage, showFounders: content.showFounders === true, followForm: content.followForm !== false };
 }
 
 /** The paragraphs of a plain text: split on blank lines; a single line break stays inside its paragraph. */
@@ -161,16 +168,22 @@ export const isPublishablePage = (content: ProjectPageContent): boolean => Objec
 export function samePageContent(a: ProjectPageContent, b: ProjectPageContent): boolean {
   const x = normalizePageContent(a);
   const y = normalizePageContent(b);
-  return x.pitch === y.pitch && x.about === y.about && x.forWhom === y.forWhom && x.stage === y.stage && x.showFounders === y.showFounders;
+  return x.pitch === y.pitch && x.about === y.about && x.forWhom === y.forWhom && x.stage === y.stage && x.showFounders === y.showFounders && x.followForm === y.followForm;
 }
 
-/** A stored `draft` or `published` value read defensively (a row written outside the api): null when it is not a page. */
-export function readPageContent(value: unknown): ProjectPageContent | null {
+/**
+ * A stored `draft` or `published` value read defensively (a row written outside the api): null when it is not a page.
+ * `absentFollowForm` is what a value stored before the follow form existed reads as: false for a published copy (the
+ * default: the live page keeps what it showed until the founder publishes again), true for a draft (a page being
+ * written gets the form, like every new page).
+ */
+export function readPageContent(value: unknown, absentFollowForm = false): ProjectPageContent | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   const v = value as Record<string, unknown>;
   if (typeof v.pitch !== "string" || typeof v.about !== "string") return null;
   const stage = (PAGE_STAGES as readonly string[]).includes(v.stage as string) ? (v.stage as PageStage) : "idea";
-  return { pitch: v.pitch, about: v.about, forWhom: typeof v.forWhom === "string" ? v.forWhom : "", stage, showFounders: v.showFounders === true };
+  const followForm = typeof v.followForm === "boolean" ? v.followForm : absentFollowForm;
+  return { pitch: v.pitch, about: v.about, forWhom: typeof v.forWhom === "string" ? v.forWhom : "", stage, showFounders: v.showFounders === true, followForm };
 }
 
 export interface StarterPageInputs {
@@ -185,8 +198,8 @@ export interface StarterPageInputs {
 /**
  * The first draft, from what the project already has and nothing else: the pitch is the first sentence of the idea in
  * the founder's own words (else the project's name), `about` is the vision's statement (else the founder's own words,
- * else empty, for the founder to write), "Who it is for" is the vision's, the stage is "idea" and the founders are not
- * named. It is also what the team's draft falls back to when the model cannot write one (package 1.2), before any
+ * else empty, for the founder to write), "Who it is for" is the vision's, the stage is "idea", the founders are not
+ * named and the follow form is on. It is also what the team's draft falls back to when the model cannot write one (package 1.2), before any
  * vision exists, so the founder's words are what the page says.
  */
 export function starterPageDraft(input: StarterPageInputs): ProjectPageContent {
@@ -197,6 +210,7 @@ export function starterPageDraft(input: StarterPageInputs): ProjectPageContent {
     forWhom: clipText(normalizePageText(input.visionForWhom ?? ""), PAGE_FOR_WHOM_MAX),
     stage: "idea",
     showFounders: false,
+    followForm: true,
   };
 }
 
@@ -263,4 +277,69 @@ export function isPageReadyDecision(decision: unknown): boolean {
 export function pageStateLine(state: { published: boolean; publishedOn?: string | null; changed?: boolean; takenDownOn?: string | null }): string {
   if (state.published) return state.changed ? "Live, with changes not yet published" : `Live since ${state.publishedOn ?? "today"}`;
   return state.takenDownOn ? `Taken down on ${state.takenDownOn}. Not public now.` : "Not published yet";
+}
+
+/*
+ * Following a project (package 1.6): the form on a public page where a visitor leaves an email address and agrees to
+ * hear from the project. Each signup becomes a contact in Customers (source `page`, lawful basis `consent`) with a
+ * consent record that keeps the exact sentence the visitor agreed to (`followConsentText`), and is a real outcome.
+ * The answer never says whether the address was already on the list.
+ */
+
+/** The CRM source a follower is recorded with; Customers shows it as `FOLLOW_SOURCE_LABEL`. */
+export const FOLLOW_SOURCE = "page";
+export const FOLLOW_SOURCE_LABEL = "Public page";
+/** What a follower agreed to (the consent record's purpose). */
+export const FOLLOW_CONSENT_PURPOSE = "email";
+/** Longest address the form takes (RFC 5321's path limit). */
+export const FOLLOW_EMAIL_MAX = 254;
+
+/** The exact sentence a follower agrees to; the consent record stores it as the visitor read it. */
+export function followConsentText(name: string): string {
+  return `I agree to get email from ${oneLine(name)} about this project. I can unsubscribe at any time.`;
+}
+
+/** The words of the form, around the project's name. */
+export function followWords(name: string) {
+  const n = oneLine(name);
+  return {
+    heading: `Follow ${n}`,
+    line: `Leave your email and ${n} will let you know when there is news.`,
+    emailLabel: "Your email",
+    consent: followConsentText(n),
+    button: "Follow",
+    done: `Thanks. ${n} will be in touch.`,
+    /** The label of the hidden field people never see (programs that fill in every field fill it in). */
+    trap: "Leave this empty",
+  } as const;
+}
+
+/** Why a signup did not go through, in the visitor's words. */
+export const FOLLOW_ERRORS = {
+  email: "Enter your email address, like name@example.com.",
+  consent: "Tick the box to agree to get email about this project.",
+  busy: "A lot of people are signing up right now. Try again in a few minutes.",
+  closed: "This project is not taking new followers right now.",
+  failed: "That did not go through, so you are not following yet. Try again in a moment.",
+} as const;
+export type FollowErrorKind = keyof typeof FOLLOW_ERRORS;
+
+const EMAIL_SHAPE = /^[^\s@<>()[\]\\,;:"]+@[^\s@<>()[\]\\,;:"]+\.[^\s@<>()[\]\\,;:"]{2,}$/;
+
+/** Why an address cannot be used, or null when it can: trimmed, 6 to 254 characters, one @ with a dot after it. */
+export function followEmailProblem(email: string): string | null {
+  const e = email.trim();
+  if (e.length < 6 || e.length > FOLLOW_EMAIL_MAX || !EMAIL_SHAPE.test(e)) return FOLLOW_ERRORS.email;
+  return null;
+}
+
+/** The Public page tab's line once someone follows: "1 person follows this project", or null for none. */
+export function followerCountLine(count: number): string | null {
+  if (!Number.isFinite(count) || count <= 0) return null;
+  return count === 1 ? "1 person follows this project" : `${count.toLocaleString("en-US")} people follow this project`;
+}
+
+/** The founder's line on a follower's record ("Agreed to email on Oct 7, 2026"); the date comes formatted. */
+export function followConsentLine(on: string): string {
+  return `Agreed to email on ${on}`;
 }

@@ -183,6 +183,8 @@ export interface LeadRow {
   source: string | null;
   createdAt?: Iso;
   role: LeadRoleRow;
+  /** When they agreed to email (a follower of the public page, package 1.6); null or absent otherwise. */
+  emailConsentAt?: Iso | null;
 }
 
 /* ---------- journey.list ---------- */

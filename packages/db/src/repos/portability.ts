@@ -86,6 +86,7 @@ export const EXPORT_TABLES: Readonly<Record<string, ExportTableSpec>> = {
   interactions: t(s.interactions, "crm"),
   mentions: t(s.mentions, "crm"),
   field_provenance: t(s.fieldProvenance, "crm"),
+  contact_consents: t(s.contactConsents, "crm"),
   merge_log: t(s.mergeLog, "crm"),
   // finance
   accounts: t(s.accounts, "finance", { omit: ["externalId"] }),

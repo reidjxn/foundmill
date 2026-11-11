@@ -3,6 +3,7 @@
 import { useCallback, useRef, useState, type ReactNode } from "react";
 import { PageGrid, ProvenanceChip, cn, formatMoney, useGuided } from "@foundmill/dugout";
 import { CHANNEL_META, type ChannelKey, type ChannelLine } from "@foundmill/shared/constants";
+import { FOLLOW_SOURCE, FOLLOW_SOURCE_LABEL } from "@foundmill/shared/project-page";
 import { usSpelling } from "@foundmill/shared/us-spelling";
 import { useWidgetData } from "@foundmill/widgets/data";
 
@@ -132,6 +133,8 @@ export function plainWords(key: string | null | undefined): string {
 /** A source key as words: a channel key reads as its channel's name ("paid_ads" → "Paid advertising"). */
 export function sourceLabel(source: string | null | undefined): string {
   if (!source) return "";
+  // A follower of the project's public page (package 1.6).
+  if (source === FOLLOW_SOURCE) return FOLLOW_SOURCE_LABEL;
   const meta = (CHANNEL_META as Record<string, { label: string } | undefined>)[source];
   return meta ? meta.label : plainWords(source);
 }

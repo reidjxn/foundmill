@@ -24,6 +24,7 @@ import { foundersRepo } from "./founders";
 import { goalsRepo } from "./goals";
 import { pagesRepo } from "./pages";
 import { mailRepo } from "./mail";
+import { followersRepo } from "./followers";
 import { holidaysRepo } from "./holidays";
 import { ideasRepo } from "./ideas";
 import { inboxRepo } from "./inbox";
@@ -64,6 +65,7 @@ export const repos = {
   goals: goalsRepo,
   pages: pagesRepo,
   projectMail: mailRepo,
+  followers: followersRepo,
   departments: departmentsRepo,
   screens: screensRepo,
   dashboards: dashboardsRepo,

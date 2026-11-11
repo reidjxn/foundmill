@@ -8,8 +8,10 @@ import { LONG, commitThrowaway, dismissCoachmarks, settled } from "./helpers";
  * counts, a phone-width preview, the address, Publish behind a confirmation that says what becomes public), the team's
  * first draft and the Product lead's note in Today's Needs you (packages 1.2 and 1.3), Today's quiet line once that
  * note is answered and nothing is live, and `/p/<slug>` signed out at 390 px and 1280 px (indexable, its own title and share
- * card, no horizontal scroll, 44 px tap targets), gone once it is taken down. A throwaway business, since a sample
- * business never has a public page. Stack and commands: e2e/README.md.
+ * card, no horizontal scroll, 44 px tap targets), gone once it is taken down. Package 1.6: a stranger follows it at
+ * 390 px signed out (the box is required, one success line, the same answer for the same address again), and the founder
+ * sees one follower on the tab and one contact in Customers with "Public page" and "Agreed to email on …". A throwaway
+ * business, since a sample business never has a public page. Stack and commands: e2e/README.md.
  *
  * With `E2E_UX_AUDIT=1` the public page is also saved as docs/ux-audit/40-project-page-390.png and
  * 41-project-page-1280.png (device scale 2).
@@ -39,8 +41,14 @@ async function expectPublicPage(page: Page, pagePath: string, width: number, sho
   await expect(article.getByText("Being built")).toBeVisible();
   await expect(article.getByText(/^Published [A-Z][a-z]{2} \d{1,2}, \d{4}$/)).toBeVisible();
   await expect(article.locator("[data-project-about] p")).toHaveCount(2);
-  // Nothing to fill in: the page offers no form.
-  await expect(page.locator("form, input, textarea")).toHaveCount(0);
+  // One form: Follow (package 1.6), with 44 px targets.
+  const follow = page.locator("form[data-project-follow]");
+  await expect(follow).toHaveCount(1);
+  await expect(follow.getByRole("heading", { level: 2 })).toHaveText(/^Follow Doorstep Bikes/);
+  for (const target of [follow.getByRole("button", { name: "Follow" }), follow.getByLabel("Your email"), follow.locator("label").filter({ has: page.getByRole("checkbox") })]) {
+    expect((await target.boundingBox())!.height, "follow form tap target").toBeGreaterThanOrEqual(44);
+  }
+  await expect(page.locator("textarea")).toHaveCount(0);
   // No horizontal scroll, at 390 px included.
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
   expect(overflow, `horizontal overflow at ${width} px`).toBeLessThanOrEqual(0);
@@ -104,7 +112,7 @@ test.describe("public page", () => {
     await editor.getByRole("button", { name: "Publish", exact: true }).click();
     const dialog = page.getByRole("dialog");
     await expect(dialog.getByRole("heading", { name: "Publish your public page?" })).toBeVisible();
-    await expect(dialog).toContainText("Anyone with the link can read the project's name and logo, its one-line pitch, about, who it is for and the stage. You can take it down any time.");
+    await expect(dialog).toContainText("Anyone with the link can read the project's name and logo, its one-line pitch, about, who it is for, the stage and a form to follow it. You can take it down any time.");
     await dialog.getByTestId("page-confirm-publish").click();
     await expect(dialog).toHaveCount(0);
     await expect(page.getByTestId("page-state")).toHaveText(/Live since [A-Z][a-z]{2} \d{1,2}, \d{4}/, { timeout: LONG });
@@ -136,6 +144,72 @@ test.describe("public page", () => {
     } finally {
       await desktop.close();
     }
+
+    // Package 1.6: a stranger follows the project from a phone, signed out.
+    const follower = `follower-${Date.now().toString(36)}@example.com`;
+    const fan = await visitor(browser, 390, 844);
+    try {
+      await fan.page.goto(pagePath);
+      const form = fan.page.locator("form[data-project-follow]");
+      await expect(form).toBeVisible({ timeout: LONG });
+      await expect(form).toContainText(/Leave your email and Doorstep Bikes [a-z0-9]+ will let you know when there is news\./);
+      await form.getByLabel("Your email").fill(follower);
+      // The box is required: without it nothing is sent and the form says why in plain words.
+      await form.getByRole("button", { name: "Follow" }).click();
+      await expect(form.getByRole("alert")).toHaveText("Tick the box to agree to get email about this project.", { timeout: LONG });
+      await expect(form.getByLabel("Your email")).toHaveValue(follower);
+      await form.getByRole("checkbox", { name: /^I agree to get email from Doorstep Bikes [a-z0-9]+ about this project\. I can unsubscribe at any time\.$/ }).check();
+      await form.getByRole("button", { name: "Follow" }).click();
+      const done = fan.page.locator("[data-project-follow='done']");
+      await expect(done.getByRole("status")).toHaveText(/^Thanks\. Doorstep Bikes [a-z0-9]+ will be in touch\.$/, { timeout: LONG });
+      // Nothing else is revealed, and no follower's address is on the page.
+      await expect(fan.page.locator("input[type=email]")).toHaveCount(0);
+      await expect(fan.page.locator("body")).not.toContainText(follower);
+      // The same address again: the same answer, nothing more.
+      await fan.page.goto(pagePath);
+      const again = fan.page.locator("form[data-project-follow]");
+      await again.getByLabel("Your email").fill(follower.toUpperCase());
+      await again.getByRole("checkbox").check();
+      await again.getByRole("button", { name: "Follow" }).click();
+      await expect(fan.page.locator("[data-project-follow='done']").getByRole("status")).toHaveText(/^Thanks\. Doorstep Bikes [a-z0-9]+ will be in touch\.$/, { timeout: LONG });
+      const overflow = await fan.page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+      expect(overflow, "horizontal overflow after following").toBeLessThanOrEqual(0);
+    } finally {
+      await fan.close();
+    }
+    // Without JavaScript the form still posts and answers (a Server Action, a native checkbox).
+    const plain = await browser.newContext({ storageState: { cookies: [], origins: [] }, viewport: { width: 390, height: 844 }, javaScriptEnabled: false });
+    try {
+      const p = await plain.newPage();
+      await p.goto(pagePath);
+      const form = p.locator("form[data-project-follow]");
+      await form.getByLabel("Your email").fill(follower.replace("follower-", "plain-"));
+      await form.getByRole("checkbox").check();
+      await form.getByRole("button", { name: "Follow" }).click();
+      await expect(p.locator("[data-project-follow='done']").getByRole("status")).toHaveText(/^Thanks\. Doorstep Bikes [a-z0-9]+ will be in touch\.$/, { timeout: LONG });
+    } finally {
+      await plain.close();
+    }
+
+    // The founder sees the followers: the count on the tab, and one real contact in Customers.
+    const tabUrl = page.url();
+    await page.reload();
+    await settled(page);
+    await expect(page.getByTestId("page-followers")).toHaveText("2 people follow this project", { timeout: LONG });
+    await page.goto(`/b/${bid}/crm`);
+    const grid = page.getByRole("grid", { name: "CRM records" });
+    await expect(grid).toBeVisible({ timeout: LONG });
+    const rows = grid.getByRole("row").filter({ hasText: follower });
+    await expect(rows).toHaveCount(1, { timeout: LONG });
+    await rows.getByRole("link", { name: follower }).click();
+    const facts = page.getByTestId("key-facts");
+    await expect(facts).toBeVisible({ timeout: LONG });
+    await expect(facts).toContainText("Public page");
+    await expect(facts.getByTestId("email-consent")).toHaveText(/^Agreed to email on [A-Z][a-z]{2} \d{1,2}, \d{4}$/);
+    await page.goto(tabUrl);
+    await settled(page);
+    await dismissCoachmarks(page);
+    await expect(editor).toBeVisible({ timeout: LONG });
 
     // Changes: the state line says so until they are published.
     await editor.getByLabel(/One-line pitch/).fill(`${PITCH}, any day`);

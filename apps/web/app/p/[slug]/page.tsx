@@ -3,13 +3,16 @@
  * a Foundmill address for free"): `/p/<slug>`, open to anyone signed out (lib/auth/redirects.ts `PUBLIC_PREFIXES`),
  * from 390 px (components/providers/DesktopOnly.tsx `SMALL_SCREEN_PREFIXES`), and the one route search engines may
  * index (the root layout says noindex for everything else). The content is what the founders published, read through
- * the API's public view; an unknown address and a page that is not published are the same not-found.
+ * the API's public view; an unknown address and a page that is not published are the same not-found. When the
+ * founders left "Let people follow this project" on, the page ends with the "Follow" form (package 1.6), which posts to
+ * a Server Action (./actions.ts) and works without JavaScript.
  */
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { APP_NAME } from "@foundmill/config";
 import { ProjectPage } from "@foundmill/dugout";
 import { pageDescription, pageTitle } from "@foundmill/shared/project-page";
+import { FollowProjectForm } from "@/components/public/FollowProjectForm";
 import { publicProjectPage } from "@/lib/public-page.server";
 
 // Read on every request: a page taken down is gone at once, and changes show as soon as they are published.
@@ -50,6 +53,7 @@ export default async function PublicProjectPageRoute({ params }: Props) {
       logo={page.logo}
       founderNames={page.founderNames}
       homeHref="/"
+      follow={page.followForm ? <FollowProjectForm name={page.name} slug={page.slug} /> : null}
     />
   );
 }

@@ -9,7 +9,7 @@ import { PROJECT_PAGE_CASES, projectPageProblems, runProjectPageCase } from "../
 
 const silent = { debug() {}, info() {}, warn() {}, error() {} };
 const shiftly = PROJECT_PAGE_CASES[0]!;
-const good = { pitch: "Same-day cafe shifts for students in Manchester.", about: shiftly.founderWords, forWhom: "Students in Manchester", stage: "idea" as const, showFounders: false };
+const good = { pitch: "Same-day cafe shifts for students in Manchester.", about: shiftly.founderWords, forWhom: "Students in Manchester", stage: "idea" as const, showFounders: false, followForm: true };
 
 describe("project page eval", () => {
   it("covers a founder's idea with an audience and without one", () => {
@@ -26,7 +26,7 @@ describe("project page eval", () => {
     expect(projectPageProblems(shiftly, { ...good, pitch: "A staffing app", about: "Helps businesses find workers.", forWhom: "Businesses" }).join()).toMatch(/kept only|dropped/);
     expect(projectPageProblems(shiftly, { ...good, about: `${shiftly.founderWords} We organise it all.` }).join()).toMatch(/British spelling/);
     const candles = PROJECT_PAGE_CASES[1]!;
-    expect(projectPageProblems(candles, { pitch: "Hand-poured candles that smell like a walk in the woods.", about: candles.founderWords, forWhom: "Busy professionals", stage: "idea", showFounders: false }).join()).toMatch(/named an audience/);
+    expect(projectPageProblems(candles, { pitch: "Hand-poured candles that smell like a walk in the woods.", about: candles.founderWords, forWhom: "Busy professionals", stage: "idea", showFounders: false, followForm: true }).join()).toMatch(/named an audience/);
   });
 
   it("the mock route passes every case through the product's request and check", async () => {

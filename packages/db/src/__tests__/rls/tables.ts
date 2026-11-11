@@ -125,6 +125,8 @@ export const TENANT_TABLES: TenantTableSpec[] = [
   spec("mentions", s.mentions, "member", (f) => ({ entityId: f.entityId, containerKind: "inbox_item", containerId: crypto.randomUUID() })),
   spec("field_provenance", s.fieldProvenance, "member", (f) => ({ entityId: f.entityId, field: "email", source: "import" })),
   spec("merge_log", s.mergeLog, "member", (f) => ({ keptId: f.entityId, mergedId: crypto.randomUUID() })),
+  // 0079 what a contact agreed to (a follower of the public page): written by the api's service connection only
+  spec("contact_consents", s.contactConsents, "service", (f) => ({ entityId: f.entityId, purpose: "email", source: "page", sourceRef: uniq("page"), consentText: "I agree to get email from Alpha about this project. I can unsubscribe at any time." })),
   // 0009 finance
   spec("accounts", s.accounts, "admin", () => ({ provider: "mock_bank", externalId: uniq("acct"), name: "Ops" })),
   spec("transactions", s.transactions, "member", (f) => ({ accountId: f.accountId, externalId: uniq("tx"), bookedAt: new Date(), amountMinor: -1200 })),

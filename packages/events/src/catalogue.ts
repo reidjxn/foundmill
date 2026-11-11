@@ -1619,6 +1619,24 @@ const pageUnpublished = declareEvent("page.unpublished", PageFacts, {
   narratable: false,
 });
 
+const pageFollowed = declareEvent(
+  "page.followed",
+  z.object({
+    pageId: Id,
+    /** The follower's CRM record (a lead, source `page`, lawful basis `consent`). Never the address itself. */
+    entityId: Id,
+    /** The consent record (0079 `contact_consents`): what they agreed to and when. */
+    consentId: Id,
+  }),
+  {
+    // North star (CLAUDE.md, founder 2026-11-11): a stranger leaving their address on the project's page is a real
+    // outside result, so each `page.followed` is a real outcome of its week. The measure reads this; it is not built yet.
+    doc: "A visitor followed the project from its public page: they left an email address and ticked the box agreeing to hear from the project, and became a lead in Customers with that consent recorded. Written once per person (a second signup with the same address writes nothing). A real outside result (the north star counts it). Not narrated: one note per follower would be noise, and no digest pattern exists yet; the Public page tab counts them.",
+    consumers: ["stream", "metrics"],
+    narratable: false,
+  },
+);
+
 // ---------------------------------------------------------------------------------------------------
 // A message sent from the project's Foundmill address (0078, package 1.5)
 // ---------------------------------------------------------------------------------------------------
@@ -1716,6 +1734,7 @@ export const EVENTS = {
   "goal.achieved": goalAchieved,
   "page.published": pagePublished,
   "page.unpublished": pageUnpublished,
+  "page.followed": pageFollowed,
   "guidance.tour_completed": guidanceTourCompleted,
   "guidance.tour_skipped": guidanceTourSkipped,
   "guidance.explainer_dismissed": guidanceExplainerDismissed,

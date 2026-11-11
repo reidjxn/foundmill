@@ -28,7 +28,7 @@ let A: BusinessFixture;
 let B: BusinessFixture;
 let outsiderId: string;
 
-const content = (over: Partial<ProjectPageContent> = {}): ProjectPageContent => ({ pitch: "Candles that smell like a walk in the woods", about: "Small batches.\n\nPoured by hand.", forWhom: "People in small apartments", stage: "building", showFounders: false, ...over });
+const content = (over: Partial<ProjectPageContent> = {}): ProjectPageContent => ({ pitch: "Candles that smell like a walk in the woods", about: "Small batches.\n\nPoured by hand.", forWhom: "People in small apartments", stage: "building", showFounders: false, followForm: true, ...over });
 
 async function expectNoEffect(p: Promise<unknown>) {
   try {
@@ -192,6 +192,7 @@ describe("project_pages: what the database itself refuses", () => {
       { ...content(), forWhom: "x".repeat(301) },
       { ...content(), stage: "launched" },
       { ...content(), showFounders: "yes" },
+      { ...content(), followForm: "yes" },
       { pitch: "No about", stage: "idea", showFounders: false, forWhom: "" },
     ]) {
       await expect(publish(bad), JSON.stringify(bad).slice(0, 60)).rejects.toThrow(/project_pages_published_shape/);
