@@ -55,6 +55,10 @@ test.describe("first days", () => {
       const checklist = page.locator("[data-first-week-checklist]");
       await expect(checklist).toBeVisible({ timeout: LONG });
       await expect(checklist).toContainText("0 of 7 done");
+      // The page comes first (package 1.3); no item asks for a bank or Stripe.
+      await expect(checklist.locator("[data-first-week-item]").first()).toHaveAttribute("data-first-week-item", "publish_page");
+      await expect(checklist.locator("[data-first-week-item='publish_page']").getByRole("link", { name: /^Go:/ })).toHaveAttribute("href", new RegExp(`/b/${bid}/d/product/public-page$`));
+      await expect(checklist).not.toContainText("Connect a bank");
       await expect(checklist.locator("[data-first-week-item='sign_off_specification']").getByRole("link", { name: /^Go:/ })).toHaveAttribute("href", new RegExp(`/b/${bid}/d/product/specification$`));
       await expect(checklist.locator("[data-first-week-item='run_cycle']").getByRole("button", { name: "Go: Run a cycle" })).toBeVisible();
       const continueButton = page.locator("[data-continue-state]").first();
@@ -98,7 +102,7 @@ test.describe("first days", () => {
     // Both sign-offs tick off on the first-week checklist. So does "Read a note from an agent": the sign-off and
     // "Building starts:" notes opened above are agents' notes. The second sign-off also starts the first cycle the way
     // Continue does, which the in-process stack finishes at once ("Run a cycle"; with Temporal it may still be running),
-    // so the count is read from the ticked rows. Nothing has started distribution or connected a bank yet.
+    // so the count is read from the ticked rows. Nothing has started distribution or published the page yet.
     if (guided) {
       await page.goto(`/b/${bid}/home`);
       const checklist = page.locator("[data-first-week-checklist]");
@@ -107,7 +111,7 @@ test.describe("first days", () => {
       await expect(checklist.locator("[data-first-week-item='sign_off_roadmap'][data-done]")).toHaveCount(1, { timeout: LONG });
       await expect(checklist.locator("[data-first-week-item='read_note'][data-done]")).toHaveCount(1, { timeout: LONG });
       await expect(checklist.locator("[data-first-week-item='start_distribution'][data-done]")).toHaveCount(0);
-      await expect(checklist.locator("[data-first-week-item='connect_bank'][data-done]")).toHaveCount(0);
+      await expect(checklist.locator("[data-first-week-item='publish_page'][data-done]")).toHaveCount(0);
       const ticked = await checklist.locator("[data-first-week-item][data-done]").count();
       await expect(checklist).toContainText(`${ticked} of 7 done`);
     }
@@ -131,8 +135,9 @@ test.describe("first days", () => {
     // Nothing waits for an answer before distribution starts: the Board's question is not asked yet.
     await page.goto(`/b/${bid}/inbox`);
     await expect(inboxRow(page, SPEC_SIGNOFF)).toBeVisible({ timeout: LONG });
-    // The Chief of Staff's goal proposal (Nov 7, 2026) may already wait in Needs you; it is not a distribution question.
-    await expect(page.getByTestId("inbox-list").locator("[data-inbox-row][data-needs-answer='true']").filter({ hasNotText: /goal/i })).toHaveCount(0);
+    // The Chief of Staff's goal proposal (Nov 7, 2026) may already wait in Needs you, and so does the Product lead's
+    // "Your project's page is ready" (package 1.3); neither is a distribution question.
+    await expect(page.getByTestId("inbox-list").locator("[data-inbox-row][data-needs-answer='true']").filter({ hasNotText: /goal/i }).filter({ hasNotText: /page is ready/i })).toHaveCount(0);
 
     // Start distribution: the Board's question (the archetype's own words) lands in the Inbox and the channels start.
     const { boardItemId } = await startDistributionFromBoard(page, bid);

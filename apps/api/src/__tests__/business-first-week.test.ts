@@ -1,7 +1,8 @@
 /**
  * business.firstWeek.get (docs/UX_AUDIT_AND_PLAN.md §6.2 FirstWeekChecklist, §7.8): one read-only flag per
  * first-week item, answered to every member under their RLS and refused to anyone else, flipping as the business
- * records what it did (a note opened, a reply to an agent, a finished cycle, a bank account).
+ * records what it did (the page published, a note opened, a reply to an agent, a finished cycle). A bank or Stripe is
+ * not an item (docs/THESIS_REVIEW.md §5.7).
  */
 import { repos } from "@foundmill/db";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -13,7 +14,7 @@ beforeAll(async () => {
 }, 120_000);
 afterAll(() => hz.close());
 
-const FLAGS = ["bankOrStripeConnected", "conversationReplySent", "cycleCompleted", "distributionStarted", "noteRead", "roadmapSignedOff", "specificationSignedOff"] as const;
+const FLAGS = ["conversationReplySent", "cycleCompleted", "distributionStarted", "noteRead", "pagePublished", "roadmapSignedOff", "specificationSignedOff"] as const;
 
 describe("business.firstWeek.get", () => {
   it("answers every member with the seven flags, read from what the business records, and refuses anyone outside it", async () => {
@@ -21,10 +22,10 @@ describe("business.firstWeek.get", () => {
     const flags = await hz.caller({ userId: hz.A.ownerId }).business.firstWeek.get({ businessId });
     expect(Object.keys(flags).sort()).toEqual([...FLAGS]);
     for (const key of FLAGS) expect(typeof flags[key], key).toBe("boolean");
-    // Each flag is what the records say: the fixture started distribution on Jan 1 and holds a bank account; its
+    // Each flag is what the records say: the fixture started distribution on Jan 1 and has no public page; its
     // sign-off rounds, if any, are not approved; nobody has written to an agent.
     expect(flags.distributionStarted).toBe(true);
-    expect(flags.bankOrStripeConnected).toBe((await repos.finance.listAccounts(hz.db, businessId)).length > 0);
+    expect(flags.pagePublished).toBe(false);
     expect(flags.cycleCompleted).toBe((await repos.events.list(hz.db, businessId, { type: "cycle.completed", limit: 1 })).items.length > 0);
     expect(flags.specificationSignedOff).toBe(false);
     expect(flags.roadmapSignedOff).toBe(false);
@@ -37,7 +38,7 @@ describe("business.firstWeek.get", () => {
     await expect(hz.caller({ userId: stranger }).business.firstWeek.get({ businessId })).rejects.toMatchObject({ code: "FORBIDDEN" });
   });
 
-  it("flips as a note from an agent is opened, the founder writes to an agent, a cycle completes and a bank is connected", async () => {
+  it("flips as a note from an agent is opened, the founder writes to an agent, a cycle completes and the page is published", async () => {
     const { businessId } = hz.B;
     const owner = hz.caller({ userId: hz.B.ownerId });
     const before = await owner.business.firstWeek.get({ businessId });
@@ -54,10 +55,14 @@ describe("business.firstWeek.get", () => {
       await repos.events.write(hz.db, businessId, { type: "cycle.completed", actor: { kind: "system", id: "orchestrator" }, payload: { cycleId: "00000000-0000-4000-8000-00000000c1c1", cycleNumber: 1, workflowId: `cycle:${businessId}:1`, outcome: "completed", tasksDispatched: 1, tasksCompleted: 1, tasksBlocked: 0, agentHours: 1, cost: { amountMinor: 10, currency: "USD" }, inboxItemIds: [], durationMs: 1000 } });
     }
     expect((await owner.business.firstWeek.get({ businessId })).cycleCompleted).toBe(true);
-    // A bank account (or a connected Stripe) connects Finance.
-    await repos.finance.upsertAccount(hz.db, businessId, { provider: "mock_bank", externalId: "first-week-acc", name: "Business current account", currency: "EUR" });
+    // The page goes live: the first item ticks, and stays ticked once it is taken down (it was published).
+    expect(before.pagePublished).toBe(false);
+    const content = { pitch: "Same-day cafe shifts for students", about: "Cafes post a shift in the morning; a student picks it up by lunch.", forWhom: "", stage: "idea" as const, showFounders: false };
+    await repos.pages.publish(hz.db, businessId, { content, slug: `first-week-${businessId.slice(0, 8)}`, userId: hz.B.ownerId });
+    expect((await owner.business.firstWeek.get({ businessId })).pagePublished).toBe(true);
+    await repos.pages.unpublish(hz.db, businessId, { userId: hz.B.ownerId });
     const after = await owner.business.firstWeek.get({ businessId });
-    expect(after).toMatchObject({ noteRead: true, conversationReplySent: true, cycleCompleted: true, bankOrStripeConnected: true });
+    expect(after).toMatchObject({ noteRead: true, conversationReplySent: true, cycleCompleted: true, pagePublished: true });
     // Both sign-off rounds approved (read as the latest round of each kind, no specification versions involved).
     expect(after).toMatchObject({ specificationSignedOff: false, roadmapSignedOff: false });
     await repos.productSignoffs.seedApproved(hz.db, businessId, { spec: { at: new Date() }, roadmap: { at: new Date() } });

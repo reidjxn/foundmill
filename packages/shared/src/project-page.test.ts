@@ -23,6 +23,8 @@ import {
   readPageContent,
   samePageContent,
   starterPageDraft,
+  PAGE_READY_NOTE,
+  isPageReadyDecision,
   suffixPageSlug,
   suggestPageSlug,
   type ProjectPageContent,
@@ -120,6 +122,18 @@ describe("the starter draft", () => {
   it("takes the pitch from the founder's own first sentence and the rest from the vision", () => {
     const draft = starterPageDraft({ businessName: "Northwind", founderWords: "Candles that smell like a forest walk. I want to sell them online.", visionStatement: "Bring the outdoors inside.", visionForWhom: "People in small city apartments" });
     expect(draft).toEqual({ pitch: "Candles that smell like a forest walk.", about: "Bring the outdoors inside.", forWhom: "People in small city apartments", stage: "idea", showFounders: false });
+  });
+
+  it("before a vision exists, about is the founder's own words (the team's fallback draft, package 1.2)", () => {
+    const words = "Same-day cafe shifts for students in Manchester.\n\nCafes post a shift in the morning.";
+    expect(starterPageDraft({ businessName: "Shiftly", founderWords: words })).toEqual({ pitch: "Same-day cafe shifts for students in Manchester.", about: words, forWhom: "", stage: "idea", showFounders: false });
+  });
+
+  it("marks the page note by its decision key only", () => {
+    expect(isPageReadyDecision({ key: PAGE_READY_NOTE.key, options: [] })).toBe(true);
+    expect(isPageReadyDecision({ key: "goal" })).toBe(false);
+    expect(isPageReadyDecision(null)).toBe(false);
+    expect(PAGE_READY_NOTE.subject).toBe("Your project's page is ready");
   });
 
   it("falls back to the project's name and leaves the rest for the founder", () => {

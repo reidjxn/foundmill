@@ -10,7 +10,8 @@
  *    compiler (`inbox.decide` with the note's own option), Open for the rest, "See all in the Inbox".
  * 3. This week and next (`today.get`): three to five sentences from data.
  * 3a. The public page (`today.get` › `pageReady`): one quiet line to Product › Public page while the project has no
- *     page live (never for a sample business).
+ *     page live (never for a sample business) and the Product lead's "Your project's page is ready" note is not open:
+ *     while it is, the note is in Needs you and its one tap, Check it and publish, opens the Public page tab.
  * 4. Health: Cash, Runway and Customers this week are the status strip's own tiles over the same reads
  *    (`finance.overview`, `journey.ribbon`), so they always match Details; then the week's spend, never added across
  *    currencies (AI usage in US dollars, channel spend in the business's currency; one figure for a dollar business).
@@ -18,6 +19,7 @@
  * The tab bar is Today | Details. `goal.ensure` runs once per visit (lead.tsx).
  */
 import { emptyWhy } from "@foundmill/shared/empty-why";
+import { PAGE_READY_NOTE } from "@foundmill/shared/project-page";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
 import { useCallback, useMemo, useState } from "react";
@@ -107,9 +109,14 @@ export function TodayScreen() {
     (row: NeedsYouRow) => {
       if (!row.quickOption) return;
       setPendingId(row.id);
-      decide.mutate({ businessId, itemId: row.id, chosenOption: row.quickOption.id }, { onSuccess: () => toast({ title: "Answered", description: row.quickOption!.label, tone: "good" }) });
+      // The page note's one tap (package 1.3) opens Product › Public page, where the founder checks and publishes it.
+      const opensPage = row.quickOption.id === PAGE_READY_NOTE.options.check;
+      decide.mutate(
+        { businessId, itemId: row.id, chosenOption: row.quickOption.id },
+        { onSuccess: () => (opensPage ? router.push(moduleTabHref(businessId, departments, "product", "public-page")) : toast({ title: "Answered", description: row.quickOption!.label, tone: "good" })) },
+      );
     },
-    [decide, businessId, toast],
+    [decide, businessId, toast, router, departments],
   );
   const needsYou = todayQ.data?.needsYou;
   // Subjects and senders name agents under the reader's preference, as the Inbox does (One name everywhere).

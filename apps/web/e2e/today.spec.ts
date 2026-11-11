@@ -137,7 +137,27 @@ test.describe("today", () => {
       await expect(needs.getByRole("button", { name: label })).toHaveCount(0, { timeout: LONG });
     }
 
-    // Both sign-offs answered: Day 1 is done with its real date and Days 2–3 is under way.
+    // Both sign-offs answered: Day 1 still asks for the page (package 1.3). The Product lead's note waits in Needs you;
+    // its one tap opens Product › Public page, where the founder publishes the team's draft.
+    await untilOnToday(page, bid, async () => {
+      await expect(timeline.locator("[data-first-week-step=day1]")).toContainText("You are asked to publish your page.", { timeout: 10_000 });
+    });
+    await expect(timeline.locator("[data-first-week-step=day1]")).toHaveAttribute("data-state", "now");
+    await expect(page.getByTestId("public-page-note")).toHaveCount(0);
+    await dismissCoachmarks(page);
+    await needs.getByRole("button", { name: "Check it and publish" }).click();
+    await page.waitForURL(new RegExp(`/b/${bid}/d/[^/]+/public-page$`), { timeout: LONG });
+    await settled(page);
+    await dismissCoachmarks(page);
+    const editor = page.getByTestId("public-page-editor");
+    await expect(editor).toBeVisible({ timeout: LONG });
+    await editor.getByRole("button", { name: "Publish", exact: true }).click();
+    await page.getByRole("dialog").getByTestId("page-confirm-publish").click();
+    await expect(page.getByTestId("page-state")).toHaveText(/Live since/, { timeout: LONG });
+    await page.goto(`/b/${bid}/today`);
+    await expect(page.getByTestId("today-screen")).toBeVisible({ timeout: LONG });
+
+    // The page is live and both sign-offs answered: Day 1 is done with its real date and Days 2–3 is under way.
     await untilOnToday(page, bid, async () => {
       await expect(timeline.locator("[data-first-week-step=day1]")).toHaveAttribute("data-state", "done", { timeout: 10_000 });
     });

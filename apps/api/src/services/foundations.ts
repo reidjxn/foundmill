@@ -23,6 +23,8 @@ import {
   describeFoundationsFailure,
   foundationsProgressView,
   foundationsSignoffNotes,
+  PROJECT_PAGE_ROUTE,
+  PROJECT_PAGE_USAGE_KIND,
   progressEventPayload,
   readFoundationsProgress,
   readyEventPayload,
@@ -30,7 +32,7 @@ import {
   type FoundationsProgressView,
   type FoundationsVisionRecord,
 } from "@foundmill/agents";
-import { FoundationsSupersededError, draftFoundationsStaged } from "@foundmill/agents/foundations-steps";
+import { FoundationsSupersededError, draftFoundationsStaged, runProjectPageStep, type ProjectPageStore } from "@foundmill/agents/foundations-steps";
 import { repos, type BusinessFoundationsRow, type Db, type DbTx, type Source } from "@foundmill/db";
 import { PRICING_CURRENCY, type ModelClient } from "@foundmill/models";
 import type { FoundationsDoor, FoundationsRunner, FoundationsStatus } from "@foundmill/shared";
@@ -222,7 +224,38 @@ export function foundationsProgressStore(db: Db, businessId: string, attempt: nu
 }
 
 /**
- * One drafting attempt in this process: inputs → the staged drafting (the plan, then the sections and the roadmap at
+ * Where the page step writes (package 1.2): `repos.pages.writeTeamDraft`, the same call as the orchestrator's
+ * `draftProjectPage` activity, with the note's `inbox.item_created` event through the outbox in the same transaction.
+ */
+export function projectPageStore(db: Db, businessId: string, authorAgentId: string | null): ProjectPageStore {
+  return {
+    needed: () => repos.pages.teamDraftNeeded(db, businessId),
+    async write({ draft, source, reason, note, usage }) {
+      const slug = await repos.pages.suggestSlug(db, businessId);
+      const out = await repos.pages.writeTeamDraft(db, businessId, {
+        draft,
+        slug,
+        agentId: authorAgentId,
+        source,
+        reason,
+        model: { route: PROJECT_PAGE_ROUTE, model: usage.model, mode: usage.mode, costMinor: usage.costMinor, costLabel: "Estimate", runner: "local" },
+        note,
+        onInboxItem: (tx, item) =>
+          writeEventRow(tx, {
+            businessId,
+            type: "inbox.item_created",
+            actor: { kind: "agent", id: item.fromAgentId! },
+            payload: { inboxItemId: item.id, type: item.type, fromAgentId: item.fromAgentId, subject: item.subject, blocksContinue: item.blocksContinue, sourceEventIds: [], cost: { amountMinor: usage.costMinor, currency: PRICING_CURRENCY } },
+          }),
+      });
+      return { written: out.written, inboxItemId: out.item?.id ?? null };
+    },
+  };
+}
+
+/**
+ * One drafting attempt in this process: the project's page first (package 1.2, never in the way), then inputs → the
+ * staged drafting (the plan, then the sections and the roadmap at
  * once, each part stored as it lands) → assemble → apply (one transaction, with the two sign-off notes) → the Inbox
  * events. Resumes from the progress an earlier attempt stored. Never throws: a failure marks the attempt failed with a
  * founder-readable reason.
@@ -235,6 +268,13 @@ export async function runFoundationsLocally(deps: FoundationsDeps, businessId: s
     const inputs = await repos.foundations.inputs(deps.db, businessId);
     const [row, author] = await Promise.all([repos.foundations.get(deps.db, businessId), repos.foundations.author(deps.db, businessId, inputs.authorAgentId)]);
     const attribution = { businessId, agentId: inputs.authorAgentId ?? undefined, kind: "foundations" };
+    // Step 0 (package 1.2), as the orchestrator's `draftProjectPage` activity: the page first, never in the way of the rest.
+    if (row?.status === "drafting" && row.attempt === attempt) {
+      await runProjectPageStep({ models: deps.models, inputs, signal, scope: `foundations:${businessId}`, attribution: { ...attribution, kind: PROJECT_PAGE_USAGE_KIND }, log: deps.log }, projectPageStore(deps.db, businessId, inputs.authorAgentId)).catch((err: unknown) => {
+        if (signal.aborted) throw err;
+        deps.log.warn({ businessId, attempt, err: (err as Error)?.message }, "project page: the draft could not be written");
+      });
+    }
     const store = foundationsProgressStore(deps.db, businessId, attempt, inputs.authorAgentId);
     // Each call is booked to the business's usage ledger by the API's model client as it ends (attribution `businessId`,
     // services/models.ts), as the orchestrator's client does through its usage sink: nothing is booked here.

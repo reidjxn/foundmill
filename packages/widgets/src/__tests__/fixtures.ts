@@ -202,8 +202,8 @@ export const metricCatalog: MetricCatalogEntry[] = [
 ];
 
 /** business.firstWeek.get: two of the seven first-week items done. */
-export const firstWeek: FirstWeekResponse = { specificationSignedOff: true, roadmapSignedOff: true, cycleCompleted: false, noteRead: false, conversationReplySent: false, distributionStarted: false, bankOrStripeConnected: false };
-export const firstWeekNone: FirstWeekResponse = { specificationSignedOff: false, roadmapSignedOff: false, cycleCompleted: false, noteRead: false, conversationReplySent: false, distributionStarted: false, bankOrStripeConnected: false };
+export const firstWeek: FirstWeekResponse = { pagePublished: false, specificationSignedOff: true, roadmapSignedOff: true, cycleCompleted: false, noteRead: false, conversationReplySent: false, distributionStarted: false };
+export const firstWeekNone: FirstWeekResponse = { pagePublished: false, specificationSignedOff: false, roadmapSignedOff: false, cycleCompleted: false, noteRead: false, conversationReplySent: false, distributionStarted: false };
 
 /** Every path with data: the "data" state of each widget. */
 export function dataResponses(): Record<string, FakeResponse> {

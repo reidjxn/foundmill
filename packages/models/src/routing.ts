@@ -124,6 +124,11 @@ export const ROUTES = {
   // The founder's "Change it" words on the Chief of Staff's goal (founder, 2026-11-07): the model picks only the kind, the
   // target and the date (packages/shared writes every word the founder reads), so Sonnet at low effort answers in seconds.
   goalProposal: { model: "sonnet", effort: "low", maxTokens: LOW_EFFORT_MAX_TOKENS },
+  // A new project's public page, drafted first after commit from the founder's own words (package 1.2): one short page
+  // (a pitch, a few paragraphs, who it is for) that mostly keeps the founder's text, on the path before the vision.
+  // Sonnet at low effort writes it in seconds and holds to "keep their words, invent nothing"; Opus would add cost and
+  // wait for no gain on a page this short. Any failure falls back to the deterministic starter draft.
+  projectPage: { model: "sonnet", effort: "low", maxTokens: LOW_EFFORT_MAX_TOKENS },
 } as const satisfies Record<string, RouteDefinition>;
 export type RouteKey = keyof typeof ROUTES;
 

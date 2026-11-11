@@ -18,25 +18,35 @@ describe("firstWeekTimeline", () => {
     expect(t.title).toBe("Your first week");
     expect(steps(fresh).map((s) => [s.label, s.state])).toEqual([["Day 1", "now"], ["Days 2–3", "next"], ["Week 1", "next"]]);
     expect(steps(fresh).map((s) => s.when)).toEqual(["Oct 7 (Estimate)", "Oct 8 – 9 (Estimate)", "Oct 10 – 13 (Estimate)"]);
-    expect(steps(fresh)[0]!.asks).toBe("You are asked to sign off the specification and the roadmap.");
+    expect(steps(fresh)[0]!.asks).toBe("You are asked to publish your page and sign off the specification and the roadmap.");
+    expect(steps(fresh)[0]!.team).toBe("Your team drafts your page, your specification and your roadmap.");
     expect(steps(fresh)[2]!.asks).toContain("“Ready to start selling?”");
     expect(t.paused).toBeNull();
   });
 
   it("asks only for what is still open", () => {
-    expect(steps({ ...fresh, specSignedOffOn: "2026-10-07" })[0]!.asks).toBe("You are asked to sign off the roadmap.");
-    const mid = steps({ ...fresh, today: "2026-10-08", specSignedOffOn: "2026-10-07", roadmapSignedOffOn: "2026-10-07", firstRoundOn: "2026-10-08" });
+    expect(steps({ ...fresh, specSignedOffOn: "2026-10-07" })[0]!.asks).toBe("You are asked to publish your page and sign off the roadmap.");
+    expect(steps({ ...fresh, pagePublishedOn: "2026-10-07", specSignedOffOn: "2026-10-07" })[0]!.asks).toBe("You are asked to sign off the roadmap.");
+    expect(steps({ ...fresh, specSignedOffOn: "2026-10-07", roadmapSignedOffOn: "2026-10-07" })[0]).toMatchObject({ state: "now", asks: "You are asked to publish your page." });
+    const mid = steps({ ...fresh, today: "2026-10-08", pagePublishedOn: "2026-10-07", specSignedOffOn: "2026-10-07", roadmapSignedOffOn: "2026-10-07", firstRoundOn: "2026-10-08" });
     expect(mid[1]!.state).toBe("now");
     expect(mid[1]!.asks).toBe("You are asked to approve your first goal, once your Chief of Staff proposes it.");
   });
 
   it("mid-week: Day 1 and Days 2–3 are done with their real US dates, Week 1 is now", () => {
-    const s = steps({ ...fresh, today: "2026-10-10", specSignedOffOn: "2026-10-07", roadmapSignedOffOn: "2026-10-08", firstRoundOn: "2026-10-08", goalApprovedOn: "2026-10-09" });
+    const s = steps({ ...fresh, today: "2026-10-10", pagePublishedOn: "2026-10-07", specSignedOffOn: "2026-10-07", roadmapSignedOffOn: "2026-10-08", firstRoundOn: "2026-10-08", goalApprovedOn: "2026-10-09" });
     expect(s.map((x) => x.state)).toEqual(["done", "done", "now"]);
     expect(s[0]!.when).toBe("Done Oct 8");
     expect(s[1]!.when).toBe("Done Oct 9");
     expect(s[2]!.when).toBe("Oct 10 – 13 (Estimate)");
-    expect(s[0]!.team).toBe("Drafted the specification and the roadmap.");
+    expect(s[0]!.team).toBe("Drafted your page, your specification and your roadmap.");
+    expect(s[0]!.asks).toBe("You published your page and signed off the specification and the roadmap.");
+  });
+
+  it("Day 1 is done on the latest of the page going live and the two sign-offs", () => {
+    const s = steps({ ...fresh, today: "2026-10-09", pagePublishedOn: "2026-10-09", specSignedOffOn: "2026-10-07", roadmapSignedOffOn: "2026-10-07" });
+    expect(s[0]).toMatchObject({ state: "done", when: "Done Oct 9" });
+    expect(s[1]!.state).toBe("now");
   });
 
   it("Week 1 promises an approach only when a channel can run; otherwise the team gets ready", () => {

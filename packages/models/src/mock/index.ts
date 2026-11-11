@@ -26,6 +26,7 @@ import {
   FoundationsSkeletonOutput,
   FounderTitlesOutput,
   GoalProposalOutput,
+  ProjectPageOutput,
   IdeationOutput,
   IdeationSlateOutput,
   LinkerOutput,
@@ -53,6 +54,7 @@ import { generateFoundationsSkeleton, generateIdeationSlate } from "./drafts";
 import { generateFoundations } from "./foundations";
 import { generateFounderTitles } from "./founderTitle";
 import { generateGoalProposal } from "./goalProposal";
+import { generateProjectPage } from "./projectPage";
 import { generateIdeationRoute } from "./ideation";
 import { generateInboxComposer } from "./inboxComposer";
 import { type MockContext, buildMockContext, keywords } from "./inputs";
@@ -106,6 +108,7 @@ export const MOCK_ROUTES: Record<RouteKey, MockRouteDefinition> = {
   moderation: { route: "moderation", description: "Honest-agent and marketing-law pre-send check with flags and an allow/block verdict.", schema: ModerationOutput, generate: generateModeration },
   conversation: { route: "conversation", description: "A reply at the agent's desk: 1-3 bubbles in its voice quoting only figures from the inputs, a hand-off for instructions (never a claim that anything was done), 2-4 quick replies by subject.", schema: AgentReplyOutput, generate: generateConversation },
   goalProposal: { route: "goalProposal", description: "The founder's Change it words on a proposed goal read as a kind, a target and a date (packages/shared parseGoalWords); changed false when they name neither.", schema: GoalProposalOutput, generate: generateGoalProposal },
+  projectPage: { route: "projectPage", description: "A project's public page from the founder's own words: the pitch is their first sentence, about is the idea as written, who it is for only when they name an audience, stage idea unless they say otherwise.", schema: ProjectPageOutput, generate: generateProjectPage },
 };
 
 export interface MockRouteInfo {

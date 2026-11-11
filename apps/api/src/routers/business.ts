@@ -90,42 +90,43 @@ const AutopilotSettingsInput = z.object({
 
 /** The first-week checklist's flags (docs/UX_AUDIT_AND_PLAN.md §6.2 FirstWeekChecklist), one per item, all read-only. */
 export interface FirstWeekFlags {
+  /** The project's public page has gone live (`project_pages.published_at`; package 1.3, the first item). */
+  pagePublished: boolean;
   specificationSignedOff: boolean;
   roadmapSignedOff: boolean;
   cycleCompleted: boolean;
   noteRead: boolean;
   conversationReplySent: boolean;
   distributionStarted: boolean;
-  bankOrStripeConnected: boolean;
 }
 
 /**
- * What the business has done in its first week, from what it already records: the latest sign-off round of each kind
- * approved, a `cycle.completed` event, a note from an agent that someone opened (a read receipt, 0048) or answered, a
- * message the founder wrote to an agent, distribution started, a bank account or a connected Stripe. Every read runs
- * under the caller's RLS (a member of another business is refused by `businessProcedure` before any of this runs);
- * each existence check loads one id at most. The sign-offs are read as their latest round of each kind only (not the
- * Product screens' views, which also read the stage and every specification version with its snapshot), and
- * distribution comes from the business the access lookup already holds: one transaction, every read in parallel.
+ * What the business has done in its first week, from what it already records: the page published, the latest sign-off
+ * round of each kind approved, a `cycle.completed` event, a note from an agent that someone opened (a read receipt,
+ * 0048) or answered, a message the founder wrote to an agent, distribution started. (A bank or Stripe is no longer an
+ * item: it assumed a company bank account in week one, docs/THESIS_REVIEW.md §5.7.) Every read runs under the caller's
+ * RLS (a member of another business is refused by `businessProcedure` before any of this runs); each existence check
+ * loads one row at most. The sign-offs are read as their latest round of each kind only (not the Product screens'
+ * views, which also read the stage and every specification version with its snapshot), and distribution comes from the
+ * business the access lookup already holds: one transaction, every read in parallel.
  */
 export async function firstWeekFlags(tx: DbTx, business: { id: string; distributionStartedAt: Date | null }): Promise<FirstWeekFlags> {
   const businessId = business.id;
-  const [signoffs, completed, noteRead, conversationReplySent, accounts, stripe] = await Promise.all([
+  const [page, signoffs, completed, noteRead, conversationReplySent] = await Promise.all([
+    repos.pages.get(tx, businessId),
     repos.productSignoffs.latest(tx, businessId),
     repos.events.list(tx, businessId, { type: "cycle.completed", limit: 1 }),
     repos.inbox.anyAgentNoteOpened(tx, businessId),
     repos.conversations.anyFounderMessage(tx, businessId),
-    repos.finance.listAccounts(tx, businessId),
-    repos.integrations.getByKey(tx, businessId, "stripe"),
   ]);
   return {
+    pagePublished: page?.publishedAt != null,
     specificationSignedOff: signoffs.spec?.status === "approved",
     roadmapSignedOff: signoffs.roadmap?.status === "approved",
     cycleCompleted: completed.items.length > 0,
     noteRead,
     conversationReplySent,
     distributionStarted: business.distributionStartedAt !== null,
-    bankOrStripeConnected: accounts.length > 0 || stripe?.status === "connected" || stripe?.status === "mock",
   };
 }
 

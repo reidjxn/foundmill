@@ -70,6 +70,7 @@ const SAMPLE_INPUT: Record<RouteKey, Record<string, unknown>> = {
   quarantinedReader: { fields: ["price", "moq", "lead_time_days"], content: "Unit price: €4.20 per unit. MOQ 500 units. Lead time 21 days." },
   moderation: { kind: "email", text: "Subject: Welcome\n\nThanks for joining Northwind. Sent by the team at Northwind Skincare Ltd. Unsubscribe any time." },
   goalProposal: { founder_words: "20 customers by Jan 31", today: "2026-11-07", currency: "GBP", current: { kind: "paying_customers", target: 10, due_on: "2026-12-19", custom_words: null } },
+  projectPage: { business_name: "Shiftly", founder_words: "Same-day cafe shifts for students in Manchester. Cafes post a shift in the morning and a student picks it up by lunch.", brief: null },
   conversation: {
     agent: { id: "agent-cos", name: "Chief of Staff", role: "Chief of Staff", voice: { greeting: "I'm here. What do you need?", thinking: ["Checking the plan…"], ack: ["Got it."] } },
     current_work: { task: { id: "t1", title: "Fix checkout bug", status: "running", phase: "implementing", progress_pct: 45 }, status: "healthy", presence: "working" },
