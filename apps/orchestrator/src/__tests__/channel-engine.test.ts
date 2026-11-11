@@ -9,7 +9,7 @@ import { repos } from "@foundmill/db";
 import type { ModelClient } from "@foundmill/models";
 import { CHANNEL_META, type ChannelKey } from "@foundmill/shared";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { createChannelActivities, emptyChannelState, MOCK_CREATIVE_LABEL, mockLead } from "../activities/channel";
+import { createChannelActivities, emptyChannelState, MOCK_CREATIVE_LABEL, mockLead, mockResultsAllowed } from "../activities/channel";
 import type { ChannelEngineState, ChannelStep } from "../activities/types";
 import { setupOrchestratorHarness, type OrchestratorTestHarness } from "./harness";
 
@@ -170,6 +170,25 @@ describe("measure: leads are CRM records the Leads tab lists", () => {
     const live = await withMode("automated", () => steps(channel.id, "broadcast", ["plan", "create", "approve", "launch"]));
     const measured = await steps(channel.id, "broadcast", ["measure"], live.state);
     expect(measured.note).toMatch(/ 0 leads/);
+  });
+
+  it("a person's own business on staging or production gets no invented results: no metric row, no lead, a plain note", async () => {
+    expect(mockResultsAllowed("staging", false)).toBe(false);
+    expect(mockResultsAllowed("production", false)).toBe(false);
+    expect(mockResultsAllowed("production", true)).toBe(true);
+    expect(mockResultsAllowed("test", false)).toBe(true);
+    const channel = await channelFor("email_automation");
+    const live = await withMode("automated", () => steps(channel.id, "email_automation", ["plan", "create", "approve", "launch"]));
+    const staging = createChannelActivities({ ...t.deps, env: { ...t.deps.env, APP_ENV: "staging" } });
+    const leadsBefore = (await repos.entities.listByRole(t.db, t.businessId, "lead", { limit: 500 })).items.length;
+    const measured = await steps(channel.id, "email_automation", ["measure"], live.state, 0, staging);
+    expect(measured.note).toMatch(/^Nothing measured/);
+    expect(measured.note).not.toMatch(/impressions|mock/);
+    const summary = await repos.channels.metricsSummary(t.db, t.businessId, {});
+    const mine = summary.channels.find((c) => c.channelId === channel.id);
+    expect(mine?.impressions ?? 0).toBe(0);
+    expect(mine?.leads ?? 0).toBe(0);
+    expect((await repos.entities.listByRole(t.db, t.businessId, "lead", { limit: 500 })).items.length).toBe(leadsBefore);
   });
 
   it("mock leads are deterministic and use addresses that can never receive mail", () => {

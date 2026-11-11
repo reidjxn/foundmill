@@ -196,7 +196,7 @@ test.describe("onboarding", () => {
     await expect(page.getByLabel(/Budget you can commit/)).toHaveValue(/^5,?000$/);
     await expect(page.locator('[data-section="detail"]').getByText("GBP").first()).toBeVisible();
     await expect(page.getByRole("list", { name: "Target markets chosen" })).toContainText("Ireland");
-    await expect(page.getByRole("list", { name: "Constraints chosen" })).toContainText("Keep my day job for now");
+    await expect(page.getByRole("list", { name: "Constraints chosen" })).toContainText("Fits around what I already do");
     await expect(page.getByRole("list", { name: "Constraints chosen" })).toContainText("No physical inventory");
     await expect(page.getByLabel("Low", { exact: true })).toBeChecked();
     await expect(page.locator('[data-skill-value="domain"]')).toHaveText("16");

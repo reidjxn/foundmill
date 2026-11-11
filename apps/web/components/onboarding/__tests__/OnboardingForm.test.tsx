@@ -352,7 +352,7 @@ describe("OnboardingForm (BUILD §11.1 founder profile; UX plan §7.3 two passes
     expect(place.textContent).not.toMatch(/jurisdiction recommender/);
     openDetail();
     expect(document.querySelector('[data-section="detail"]')?.textContent).toContain(
-      "Rules the ideas must respect, like 'no stock to buy' or 'keep my day job'.",
+      "Rules the ideas must respect, like 'no stock to buy' or 'fits around what I already do'.",
     );
   });
 
@@ -419,7 +419,7 @@ describe("the example founder (UX plan §6.2 ExampleToggle, Phase 3)", () => {
     expect((screen.getByLabelText("Residence") as HTMLInputElement).value).toBe("United Kingdom");
     expect((screen.getByLabelText(/Budget you can commit/) as HTMLInputElement).value).toMatch(/^5,?000$/);
     expect(screen.getByRole("list", { name: "Target markets chosen" }).textContent).toMatch(/UK.*Ireland/);
-    expect(screen.getByRole("list", { name: "Constraints chosen" }).textContent).toMatch(/Keep my day job for now.*No physical inventory/);
+    expect(screen.getByRole("list", { name: "Constraints chosen" }).textContent).toMatch(/Fits around what I already do.*No physical inventory/);
     expect(selected("low")).toBe("true");
     expect(document.querySelector('[data-skill-value="domain"]')?.textContent).toBe("16");
     expect(document.querySelector('[data-skill="domain"] [data-scale-label]')?.textContent).toBe("Excellent");

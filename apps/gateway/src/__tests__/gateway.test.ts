@@ -330,6 +330,9 @@ describe("allow path", () => {
     const token = await g.token();
     const r = asAllow(await g.client.call(token, { connector: "test", tool: "send_message", args: { to: SAFE_EMAIL, body: "hello" } }));
     expect(r).toMatchObject({ costMinor: 7, result: { ok: true, data: { sent: true, to: SAFE_EMAIL }, untrusted: false, costMinor: 7 } });
+    // A mock connector reached no vendor: the result says so, in words the model reads (THESIS_REVIEW 0.3).
+    expect(r.result.simulated).toBe(true);
+    expect(r.result.notice).toMatch(/^Simulated: .*Nothing was sent/);
     expect(g.seen.at(-1)).toMatchObject({ tool: "send_message", args: { to: SAFE_EMAIL, body: "hello" }, mode: "mock", integrationStatus: "connected" });
     const note = asAllow(await g.client.call(token, { connector: "test", tool: "note", args: { text: "x" } }));
     expect(note.costMinor).toBe(3); // connector.costModel
@@ -440,6 +443,8 @@ describe("live mode", () => {
       const r = asAllow(await live.client.call(token, { connector: "test", tool: "note", args: {} }));
       expect(r.result.ok).toBe(true);
       expect(live.seen.at(-1)).toMatchObject({ mode: "live", credentialSecret: "live-key-123456" });
+      expect(r.result).not.toHaveProperty("simulated");
+      expect(r.result).not.toHaveProperty("notice");
     } finally {
       await live.close();
     }

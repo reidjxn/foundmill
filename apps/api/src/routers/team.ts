@@ -273,7 +273,7 @@ export const teamRouter = router({
         if (!userId) throw new ValidationError("No account signs in with that email yet. Ask them to sign in once, then add them by email or by the account ID on their profile.");
         return ctx.rls(async (tx) => {
           if (await repos.memberships.get(tx, ctx.businessId, userId)) throw new ConflictError("That person is already a member of this business; change their role instead", { userId });
-          // Every membership is a seat; the plan tier's seats are a limit (TierLimitError past it).
+          // People are free on every plan (no limit today); the check stays for a limit that might return.
           await assertSeatAvailable(tx, ctx.business);
           const membership = await repos.memberships.add(tx, ctx.businessId, { userId, role: input.role, sectionPermissions: input.sectionPermissions });
           await audit(tx, ctx, { action: "team.humans.invite", target: { kind: "membership", id: membership.id }, details: { userId, role: input.role, by: input.userId ? "account_id" : "email" } });

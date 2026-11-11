@@ -126,6 +126,7 @@ HTTP (JSON), service-to-service auth with `SESSION_TOKEN_SECRET`-signed JWTs (`j
 - `ALL /mcp/:connector` streamable-HTTP MCP server exposing that connector's tools to the Claude Agent SDK; same pipeline. The built-ins `platform`, `web` and `quarantine` are served here like any connector. The gateway's own model calls (the quarantined reader, on the platform key or the business's own) reach `usage_ledger` as tokens through `gatewayUsageSink`, booked to the agent and session that asked, like every other service's.
 - After a vendor call has run, nothing may turn it into a failure: the `tool.call` audit row is written first and on its own, a failure to book its usage is logged, never returned. Errors are logged through `safeError()`, never with a failed query's parameters (tool arguments).
 - Rate limit per connector per business (Redis). All third-party content returned to agents is wrapped `{ untrusted: true, content }`.
+- A call whose connector ran its mock returns `result.simulated: true` and `result.notice` (`SIMULATED_NOTICE`, `src/types.ts`): nothing reached a vendor, and house rule 4 forbids reporting it as done. A live call carries neither field.
 
 ## 10. Orchestrator (`apps/orchestrator`)
 
@@ -234,7 +235,7 @@ WebSocket at `/`. The access token (Supabase access token or dev token) never tr
 4. **No long-running servers on fixed ports** during the build phase (other agents share the machine). If you must boot something, use an ephemeral `PORT=0`/random port and stop it.
 5. **Fetch current docs** before using an SDK (Temporal, Claude Agent SDK, Anthropic, Drizzle RLS, Tailwind v4, Storybook 10, react-grid-layout 2, TanStack Table 8, visx, PixiJS 8, xterm 6, Tiptap 3). Versions in the catalog are the truth.
 6. **Mock first.** Everything must work with `INTEGRATIONS_MODE=mock` and `MODEL_MODE=mock`. Live paths are implemented but never required for tests.
-7. **Design discipline.** UI follows `docs/DESIGN.md`. Tokens only, design-system components (`packages/dugout`) only, Lucide only, desktop only.
+7. **Design discipline.** UI follows `docs/DESIGN.md`. Tokens only, design-system components (`packages/dugout`) only, Lucide only; the console is desktop only, and the outer product is to work from 390 px (CLAUDE.md "Small screens", not built yet).
 8. **Do not commit.** The orchestrating session commits between waves.
 9. **Report** at the end: what exists, what is stubbed, commands that pass, and anything another package must know (exported names changed, contracts added).
 

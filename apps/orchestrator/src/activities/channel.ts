@@ -58,6 +58,15 @@ export function mockLead(seed: string): { displayName: string; email: string; co
 /** Average days in a month (365.25 / 12): a week is 7 / 30.4375 of a monthly budget. */
 const DAYS_PER_MONTH = 30.4375;
 
+/**
+ * Whether a channel may record invented results (impressions, leads, signups, spend) while connectors are mock: for a
+ * sample business anywhere, and for any business on a development or test stack. Staging and production never invent
+ * results for a person's own business.
+ */
+export function mockResultsAllowed(appEnv: string, isDemo: boolean): boolean {
+  return isDemo || appEnv === "development" || appEnv === "test";
+}
+
 /** The weekly share of a monthly budget (minor units), what one weekly campaign may spend. */
 export function weeklyBudgetMinor(monthlyMinor: number | string | null): number {
   const monthly = monthlyMinor === null ? 0 : Number(monthlyMinor);
@@ -226,6 +235,11 @@ export function createChannelActivities(deps: OrchestratorDeps) {
           const campaign = await repos.campaigns.get(db, businessId, state.campaignId);
           if (campaign.status !== "live") return done(`campaign is ${campaign.status.replace(/_/g, " ")}, not live; nothing to measure`);
           // Mock mode: deterministic numbers for the week, seeded by business + campaign + week, stored as an estimate.
+          // Only a sample business, or a development or test stack, gets them: a person's own business never reads
+          // impressions, leads or spend that nobody produced (docs/THESIS_REVIEW.md, package 0.4).
+          if (deps.env.INTEGRATIONS_MODE === "mock" && !mockResultsAllowed(deps.env.APP_ENV, business.isDemo)) {
+            return done("Nothing measured: this channel has no connection that reports results yet, so no numbers were recorded.");
+          }
           if (deps.env.INTEGRATIONS_MODE === "mock") {
             const seed = parseInt(stableHash(`${businessId}:${state.campaignId}:${input.weekIndex}`).slice(0, 8), 16);
             const day = clock.now().toISOString().slice(0, 10);

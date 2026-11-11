@@ -355,6 +355,8 @@ Seven phases. Each work package lists what to build, where, and what done means.
 
 Goal: the rules, the plan and the product stop contradicting the thesis and stop reporting pretend results.
 
+Status, Nov 11, 2026: 0.1 done for the five answered decisions; 0.3 done except the "not connected" refusal (it ships with 0.5) and the eval (1.8); 0.4 done; 0.6 done; people are free (3.2) done early. Not started: 0.2, 0.5, 0.7.
+
 - **0.1 Founder decisions.** Get answers to section 14. Record them in `docs/DECISIONS.md`; update CLAUDE.md (vocabulary for people, the mobile rule, the subtext rule).
   Done when: each decision has a dated entry and CLAUDE.md matches.
 - **0.2 Rewrite the plan.** `docs/foundmill-plan/foundmill-plan.md`: vision, for whom, principles (add "people first" and "built together"), north star, the roadmap sections; fix the stale facts in section 11 of this review. Re-import it as Foundmill's own plan.
@@ -490,7 +492,7 @@ Goal: R7, and the rest of R6.
 
 ## 14. Decisions for the founder
 
-These block the phases named. None is taken here.
+These block the phases named. **Answered on Nov 11, 2026** (`docs/DECISIONS.md`, same date): 1 (yes; and a native app built with Newly takes over on phones once it launches, when the small-screen site sends people to download it), 2 (yes), 3 (yes), 4 (yes: waitlist with referral order now, open later) and 10 (scope confirmed; no lawyer's review; signing happens in the platform by each cofounder). **Still open:** 5 to 9 and 11.
 
 1. **Small screens** (blocks 1.1, 2.1). CLAUDE.md says "Never build mobile layouts." Recommendation: lift it for the outer product (public pages, sign-in, profile, people, messages, Today, Needs you) and keep the dense console at 1280 px.
 2. **The words for people** (blocks 3.3). Recommendation: cofounder, collaborator, People; "project" for a business before its first sale; "team" stays the agents; "staff" retired from default copy.

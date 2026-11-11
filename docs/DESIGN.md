@@ -16,7 +16,7 @@ What it is not: a SaaS dashboard of cards floating on white; radii of 16 px or m
 
 ## 2. Non-negotiables
 
-- Desktop only. Reference 1440 px, minimum 1280 px. Below that render `NeedsLargerWindow` and nothing else.
+- The console is desktop: reference 1440 px, minimum 1280 px. Below that it renders `NeedsLargerWindow` and nothing else. Founder, Nov 11, 2026 (CLAUDE.md "Small screens"): the outer product (public pages, sign-in, the profile, People, messages, Today and Needs you) is to work from 390 px, and a native app takes over on phones once it launches. Not built yet (docs/THESIS_REVIEW.md, package 2.1); until it is, every route still renders `NeedsLargerWindow` below 1280 px.
 - Dark only. One theme.
 - **Structure never moves.** Sidebar 232, top bar 56, processing strip 3, tab bar 40, inbox list 380, reading measure 640; the same panels in the same grid positions with the same content. A visual change restyles a region; it never resizes or moves it.
 - Tokens only. No hex outside `tokens.css`. No arbitrary Tailwind values like `bg-[#123456]` or `p-[13px]`; add a token instead. Spacing from the 4/8 px scale; exact pixel sizes through px tokens (`h-control-md`, `h-field`, …).

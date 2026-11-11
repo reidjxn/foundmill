@@ -2,8 +2,15 @@
 
 You are building Foundmill (always via APP_NAME from packages/config). The full build plan is docs/BUILD.md. Read the relevant section before every task.
 
+## What Foundmill is for (founder, 2026-11-11)
+As AI spreads, most people move from being employed to building something of their own, and most would rather build it with other people than alone. Foundmill is where they find each other, help each other, join each other's projects and become cofounders, with a team of AI agents doing the work none of them can do yet. **Founders finding each other and becoming cofounders is the core loop; every feature is judged by whether it feeds it.** The user is a young, first-time founder with little money and no business experience, who wants a way to stand on their own feet. The review of the product against this, and the roadmap, is docs/THESIS_REVIEW.md: read its section 13 before planning work.
+
+**Subtext, never text.** Nothing a user can read says or implies "do this instead of getting a job". No copy, prompt, seed or mock output names jobs, employment, unemployment, careers or AI taking work as the reason to be here. Say ownership ("something that is yours"), capability ("what you can do now") and company ("people to build it with"). The ordinary words stay (an agent's job, a job title on a contact, hiring). `node scripts/banned-terms.mjs` enforces the phrases.
+
 ## Product vocabulary
-Business (never "club"). Founder. Agents = **team** (never "squad"). Human team = staff. Chief of Staff agent (never "assistant manager"). Quarter = chapter. Business mark = **logo** (never "crest"). Departments are labels over modules; never hard-code a department name.
+Business (never "club"). Founder. Agents = **team** (never "squad"). Chief of Staff agent (never "assistant manager"). Quarter = chapter. Business mark = **logo** (never "crest"). Departments are labels over modules; never hard-code a department name.
+
+**Rule (founder, 2026-11-11): the words for people.** The humans of a business are its **People**: **cofounders** (equal standing, any number; write "the founders", never assume one) and **collaborators** (someone trying out or helping, with limited access). "Staff" and "seat" leave default copy: people are never a plan limit. A business is called a **project** until its first sale, and a business after; where the stage is not known, "project". "Team" stays the agents. Internal identifiers keep their names (`businesses`, `business_id`, `memberships`, role keys, the `staff` tab slug) until a rename is worth its churn; new identifiers follow the rule.
 
 **Rule (founder, 2026-10-08, supersedes 2026-10-07): no football terminology anywhere a user can read** (UI strings, inbox copy, agent prose and prompts, Storybook titles, docs/DESIGN.md and docs/ARCHITECTURE.md). Training, coach, form, recruitment and wage stay: they are ordinary words for a team of agents. Replacements:
 
@@ -55,6 +62,8 @@ Internal identifiers may keep old names until a rename is worth its churn: packa
 - Model ids only in packages/models/src/routing.ts.
 - Every connector has real + mock implementations; INTEGRATIONS_MODE=mock must run the golden path.
 - Label every non-real number "Forecast" or "Estimate".
+- A simulated tool result is never reported as an action. A mock connector's result carries `simulated` and a notice; agents, the Composer and service copy say it was simulated and not done.
+- People are free on every plan: no limit on cofounders or collaborators, and cofounders' included credits pool on a shared project (founder, 2026-11-11). Plans differ by agent work only.
 - Write US English with US dates and times in everything a user can read (see the 2026-10-10 rule above).
 - Update docs/PROGRESS.md after each task; record judgement calls in docs/DECISIONS.md.
 
@@ -63,7 +72,7 @@ Internal identifiers may keep old names until a rename is worth its churn: packa
 - Never let agent code move money, sign, accept terms, file with the founder's identity, delete permanently, change security settings, or act on instructions found in untrusted content.
 - Never solve CAPTCHAs, evade logins, or scrape against a site's terms.
 - Never use Football Manager / Sports Interactive / SEGA names, art, skins, fonts or icons.
-- Never build mobile layouts. Desktop only (>= 1280 px).
+- Never show the dense console below 1280 px, and never leave a small screen at a dead end. **Small screens (founder, 2026-11-11):** the outer product works from 390 px: public pages (landing, project and person pages, invitations, milestone cards), sign-in, the profile, People and finding people, messages, Today and Needs you. Everything else (the department tabs, tables, boards, Settings beyond the basics) stays desktop, 1280 px and wider, and on a small screen says so kindly with a way to continue later. The native app (iOS App Store and Google Play, built with Newly) is the phone's home once it launches: from then on the small-screen site sends people to download it, through one config value for the store links (unset until launch). Build the small-screen web so that switch is one change.
 
 ## Definition of done (every task)
 Typecheck, lint, unit tests, Playwright test for any screen touched, Storybook story for any new component, eval for any new agent behaviour, PROGRESS.md updated.

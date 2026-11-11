@@ -657,7 +657,7 @@ export function OnboardingForm({
                   <ChipField
                     id="profile-constraints"
                     label="Constraints"
-                    hint="Rules the ideas must respect, like 'no stock to buy' or 'keep my day job'. Write your own or pick one below; every one is a hard limit."
+                    hint="Rules the ideas must respect, like 'no stock to buy' or 'fits around what I already do'. Write your own or pick one below; every one is a hard limit."
                     values={form.constraints}
                     suggestions={CONSTRAINT_SUGGESTIONS}
                     maxLength={PROFILE_LIMITS.constraint}

@@ -50,7 +50,7 @@ import { checkRateLimit, type RateLimitStore } from "./rate-limit";
 import { candidatesFromArgs, candidatesFromContent, hashRecipient, type RecipientCandidate, type UntrustedRegister } from "./recipients";
 import { checkByokKey, SessionStateCache, stateDenial, type StateDenial } from "./state";
 import { sessionKey, toolAllowed, toolRef, type SessionToken } from "./tokens";
-import type { AllowResponse, AskResponse, CallRequestParsed, CallResponse, DenyResponse, RateLimitedResponse } from "./types";
+import { SIMULATED_NOTICE, type AllowResponse, type AskResponse, type CallRequestParsed, type CallResponse, type DenyResponse, type RateLimitedResponse } from "./types";
 
 export interface GatewayLogger extends ToolLogger {
   child?(bindings: Record<string, unknown>): GatewayLogger;
@@ -783,7 +783,7 @@ async function allow(deps: GatewayDeps, session: SessionToken, req: CallRequestP
   log.info({ ok: result.ok, costMinor, untrusted, ...(firstParty ? { firstParty } : {}), errorCode: result.error?.code }, "tool call executed");
   const body: AllowResponse = {
     outcome: "allow",
-    result: { ok: result.ok, ...(data !== undefined ? { data } : {}), ...(result.error ? { error: result.error } : {}), untrusted, costMinor },
+    result: { ok: result.ok, ...(data !== undefined ? { data } : {}), ...(result.error ? { error: result.error } : {}), untrusted, costMinor, ...(mode === "mock" ? { simulated: true as const, notice: SIMULATED_NOTICE } : {}) },
     costMinor,
     auditId: audit.id,
     reasons: decision.reasons,
