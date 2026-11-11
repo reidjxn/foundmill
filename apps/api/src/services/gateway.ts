@@ -13,7 +13,7 @@
  */
 import { randomUUID } from "node:crypto";
 import { OPENAI_IMAGES_GENERATION_TIMEOUT_MS } from "@foundmill/connectors";
-import { AppError, type AgentStyle, type IntegrationStatus, type NotificationKind } from "@foundmill/shared";
+import { AppError, type AgentStyle, type EmailNotificationKind, type IntegrationStatus, type NotificationKind } from "@foundmill/shared";
 import { SignJWT } from "jose";
 
 export const TOKEN_ISSUER = "foundmill-gateway";
@@ -168,6 +168,17 @@ export interface GatewayConfirmFollowRequest {
 /** Sent (on the mock: simulated, nothing left), or not, and why; never an error for "not sent". */
 export type GatewayConfirmFollowResult = { sent: true; simulated: boolean } | { sent: false; reason: string };
 
+/** One email from Foundmill to one of its users (apps/gateway notify-email.ts `NotifyEmailRequest`): ids only. */
+export interface GatewayNotifyEmailRequest {
+  userId: string;
+  kind: EmailNotificationKind;
+  businessId: string;
+  data: { inboxItemId: string };
+}
+
+/** Sent (on the mock: simulated), or not, with the gateway's reason and a plain sentence; never an error for "not sent". */
+export type GatewayNotifyEmailResult = { sent: true; simulated: boolean; eventId: string | null } | { sent: false; reason: string; message: string };
+
 /** A follow confirmation waits at most this long: the visitor's form is waiting on it. */
 export const CONFIRM_FOLLOW_TIMEOUT_MS = 10_000;
 
@@ -197,6 +208,11 @@ export interface ApiGatewayClient {
   sendPush(input: GatewayPushRequest): Promise<GatewayPushResult>;
   /** The follow confirmation email (package 1.6): fixed words, from the project's Foundmill address, on a service path. */
   confirmFollow(input: GatewayConfirmFollowRequest): Promise<GatewayConfirmFollowResult>;
+  /**
+   * Email from Foundmill to a person about their own project (packages 1.5 and 5.1): the gateway resolves the address,
+   * re-checks the person, the note and the day's counts, builds the words and sends; the api's notify pass asks.
+   */
+  notifyEmail(input: GatewayNotifyEmailRequest): Promise<GatewayNotifyEmailResult>;
 }
 
 export interface CreateApiGatewayClientOptions {
@@ -248,6 +264,7 @@ export function createApiGatewayClient(opts: CreateApiGatewayClientOptions): Api
     repository: (businessId, owner, repo) => post<{ mode: "mock" | "live"; repository: GatewayRepository }>("/v1/github/repository", { businessId, owner, repo }),
     sendPush: (input) => post<GatewayPushResult>("/v1/push/send", input),
     confirmFollow: (input) => post<GatewayConfirmFollowResult>("/v1/platform-mail/confirm-follow", input, Math.min(timeoutMs, CONFIRM_FOLLOW_TIMEOUT_MS)),
+    notifyEmail: (input) => post<GatewayNotifyEmailResult>("/v1/notify/email", input, Math.min(timeoutMs, CONFIRM_FOLLOW_TIMEOUT_MS)),
     validateKey: (businessId, apiKey) => post<GatewayKeyValidation>("/v1/keys/validate", { businessId, apiKey }),
     registryLookup: (input) => post<GatewayRegistryLookup>("/v1/registry/lookup", input),
   };

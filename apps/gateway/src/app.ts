@@ -14,6 +14,7 @@
  *   POST /v1/personas/portrait     service JWT (api) → the AI-generated portrait of one persona catalog key in one character style (portraits.ts)
  *   POST /v1/push/send             service JWT (api) → one push notification to registered phones of the mobile app (push.ts)
  *   POST /v1/platform-mail/confirm-follow  service JWT (api) → the one email asking a page signup to confirm (follow-confirm.ts)
+ *   POST /v1/notify/email          service JWT (api) → one email from Foundmill to one of its users about their own project (notify-email.ts)
  *   POST /v1/call                  session JWT → the pipeline (allow / ask / deny / rate_limited)
  *   POST /v1/github/archive        session JWT → the Code-tab repository's tarball for a code session's checkout (archive.ts)
  *   POST /v1/github/repository     service JWT (api) → a repository's id and visibility, before it is chosen on the Code tab (code-repository.ts)
@@ -36,6 +37,7 @@ import { CheckDomainsRequest, checkDomains } from "./domains";
 import { generatePortrait, PortraitRequest } from "./portraits";
 import { sendPush, SendPushRequest } from "./push";
 import { CONFIRM_FOLLOW_ROUTE, ConfirmFollowRequest, sendFollowConfirmation } from "./follow-confirm";
+import { NOTIFY_EMAIL_ROUTE, NotifyEmailRequest, sendNotifyEmail } from "./notify-email";
 import { handleMcpRequest } from "./mcp";
 import { ARCHIVE_ROUTE, ArchiveRequest, routeOnlyCall, serveArchive } from "./archive";
 import { checkRepository, REPOSITORY_CHECK_ROUTE, RepositoryCheckRequest } from "./code-repository";
@@ -99,6 +101,7 @@ export function createGatewayApp(deps: GatewayDeps, options: GatewayAppOptions):
   app.use("/v1/personas/*", limit(MAX_SERVICE_BODY_BYTES));
   app.use("/v1/push/*", limit(MAX_SERVICE_BODY_BYTES));
   app.use(CONFIRM_FOLLOW_ROUTE, limit(MAX_SERVICE_BODY_BYTES));
+  app.use(NOTIFY_EMAIL_ROUTE, limit(MAX_SERVICE_BODY_BYTES));
   app.use(KEYS_VALIDATE_ROUTE, limit(MAX_SERVICE_BODY_BYTES));
   app.use(REGISTRY_LOOKUP_ROUTE, limit(MAX_SERVICE_BODY_BYTES));
   app.use(REPOSITORY_CHECK_ROUTE, limit(MAX_SERVICE_BODY_BYTES));
@@ -198,6 +201,18 @@ export function createGatewayApp(deps: GatewayDeps, options: GatewayAppOptions):
     const parsed = ConfirmFollowRequest.safeParse(await c.req.json().catch(() => null));
     if (!parsed.success) throw new GatewayError("validation", "Send a business id, a consent id, an address and the nonce", 400);
     return c.json(await sendFollowConfirmation(deps, parsed.data, c.var.service.svc));
+  });
+
+  // Foundmill's own email to one of its users (packages 1.5 and 5.1): only the api's notify pass asks (notify-email.ts).
+  app.use(NOTIFY_EMAIL_ROUTE, requireService);
+  app.use(NOTIFY_EMAIL_ROUTE, async (c, next) => {
+    if (c.var.service.svc !== "api") throw new GatewayError("forbidden_service", "Only the api asks for an email to a person", 403);
+    await next();
+  });
+  app.post(NOTIFY_EMAIL_ROUTE, async (c) => {
+    const parsed = NotifyEmailRequest.safeParse(await c.req.json().catch(() => null));
+    if (!parsed.success) throw new GatewayError("validation", "Send a user id, a kind of email, a business id and the note's id", 400);
+    return c.json(await sendNotifyEmail(deps, parsed.data, c.var.service.svc));
   });
 
   app.post("/v1/domains/check", async (c) => c.json(await checkDomains(deps, CheckDomainsRequest.parse(await c.req.json()))));

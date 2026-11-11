@@ -18,10 +18,12 @@
  *   cards (Humans, 3D cartoon humans, 2D cartoon humans and animals, Fantasy). Both save through the same host at once.
  * - Builder view (0073, founder 2026-11-08): one switch that shows how the platform runs the team (round numbers, tokens,
  *   live screens, test counts, the technical tabs and columns, ratings). Off by default; saves through the same host.
+ * - Email (packages 1.5 and 5.1): "Email me when something has waited a day for my answer", on by default; the link in
+ *   every such email turns the same switch off.
  *
  * Open to every member, whatever their role: it changes nothing of the business.
  */
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { UserRound } from "lucide-react";
 import { useCallback, useState } from "react";
 import {
@@ -44,6 +46,7 @@ import {
   type TextSize,
 } from "@foundmill/dugout";
 import type { AgentStyle } from "@foundmill/shared/personas";
+import { EMAIL_NOTIFICATION_LABELS, EMAIL_NOTIFICATIONS_HINT, emailNotificationSavedLine } from "@foundmill/shared/notify-email";
 import { ANTHROPOMORPHIC_EXPLAINER, anthropomorphicSavedLine } from "@/lib/anthropomorphic";
 import { useClientNow } from "@/lib/today";
 import { useDatePreferences } from "@/components/providers/DateFormatHost";
@@ -254,6 +257,51 @@ export function BuilderViewSection() {
   );
 }
 
+/**
+ * The Email section (packages 1.5 and 5.1): which emails Foundmill sends the person about their own projects. One switch
+ * so far, on by default: an email when a note has waited a day for their answer without being opened on any device. It
+ * saves at once (`founder.preferences.update` with `email`) with a toast; the link at the foot of every such email turns
+ * the same switch off.
+ */
+export function EmailNotificationsSection() {
+  const trpc = useTRPC();
+  const queryClient = useQueryClient();
+  const t = useSettingsToast();
+  const options = trpc.founder.preferences.notifications.queryOptions(undefined, { staleTime: 60_000 });
+  const stored = useQuery(options);
+  const update = useMutation(trpc.founder.preferences.update.mutationOptions());
+  const [optimistic, setOptimistic] = useState<boolean | null>(null);
+  const on = optimistic ?? stored.data?.email?.decision_waiting ?? true;
+  const change = (next: boolean) => {
+    setOptimistic(next);
+    update.mutateAsync({ email: { decision_waiting: next } }).then(
+      (saved) => {
+        queryClient.setQueryData(options.queryKey, { notifications: saved.notifications, hideAmountsOnLockScreen: saved.hideAmountsOnLockScreen, email: saved.email });
+        setOptimistic(null);
+        const line = emailNotificationSavedLine(saved.email.decision_waiting);
+        t.saved(line.title, line.description);
+      },
+      (err: unknown) => {
+        setOptimistic(null);
+        t.failed(err, "Preference not saved");
+      },
+    );
+  };
+  return (
+    <SettingsSection title="Email" data-testid="email-notifications-panel">
+      <div className="flex items-start gap-3" data-testid="email-decision-waiting-choice">
+        <Switch id="email-decision-waiting-switch" checked={on} disabled={stored.isPending} onCheckedChange={(next) => void change(next)} aria-describedby="email-decision-waiting-hint" data-testid="email-decision-waiting-switch" />
+        <div className="flex flex-col gap-1">
+          <Label htmlFor="email-decision-waiting-switch">{EMAIL_NOTIFICATION_LABELS.decision_waiting}</Label>
+          <p id="email-decision-waiting-hint" className="text-small text-secondary">
+            {EMAIL_NOTIFICATIONS_HINT}
+          </p>
+        </div>
+      </div>
+    </SettingsSection>
+  );
+}
+
 export function PreferencesTab() {
   const { prefs, save } = useDatePreferences();
   const t = useSettingsToast();
@@ -295,6 +343,7 @@ export function PreferencesTab() {
       <GuidanceSection />
       <AnthropomorphicAgentsSection />
       <BuilderViewSection />
+      <EmailNotificationsSection />
       <SettingsSection title="Your account ID" data-testid="account-id-panel">
         <AccountId accountId={viewer.data?.userId} />
       </SettingsSection>

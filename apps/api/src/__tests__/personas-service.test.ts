@@ -102,6 +102,9 @@ function controlledGateway() {
     confirmFollow: async () => {
       throw new Error("unused");
     },
+    notifyEmail: async () => {
+      throw new Error("unused");
+    },
   } satisfies ApiGatewayClient;
   return { gateway, calls, peak: () => peak };
 }

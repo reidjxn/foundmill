@@ -48,6 +48,9 @@ const gateway: ApiGatewayClient = {
   async confirmFollow() {
     throw new Error("no follow confirmations in these tests");
   },
+  async notifyEmail() {
+    throw new Error("no notify email in these tests");
+  },
 };
 
 describe("integrations.connect for a live GitHub App", () => {

@@ -46,6 +46,17 @@ export const foundersRepo = {
     return rows.length === 1 ? rows[0]!.id : null;
   },
 
+  /**
+   * The address the account signs in with, or null (no account, no address, or a malformed one). Reads auth.users, so it
+   * runs on the service connection; only the gateway asks, to email the person from Foundmill (never from a request).
+   */
+  async emailOf(db: Executor, userId: string): Promise<string | null> {
+    const id = parseInput(Id, userId, "user id");
+    const row = maybeOne(await db.select({ email: authUsers.email }).from(authUsers).where(eq(authUsers.id, id)).limit(1));
+    const email = row?.email?.trim().toLowerCase() ?? "";
+    return z.email().max(254).safeParse(email).success ? email : null;
+  },
+
   async get(db: Executor, userId: string): Promise<FounderProfile | null> {
     return maybeOne(await db.select().from(founderProfiles).where(and(eq(founderProfiles.userId, userId), isNull(founderProfiles.archivedAt))).limit(1));
   },

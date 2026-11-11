@@ -5,14 +5,14 @@
  * `GET /simulate` + `POST /simulate/:eventName`.
  */
 import { APP_NAME, simulatePanelHonoured } from "@foundmill/config";
-import { PLATFORM_MAIL_CONFIRM_PATH, PLATFORM_MAIL_EVENTS_PATH, PLATFORM_MAIL_INBOUND_PATH, PLATFORM_MAIL_UNSUBSCRIBE_PATH } from "@foundmill/connectors";
+import { PLATFORM_MAIL_CONFIRM_PATH, PLATFORM_MAIL_EVENTS_PATH, PLATFORM_MAIL_INBOUND_PATH, PLATFORM_MAIL_UNSUBSCRIBE_PATH, PLATFORM_NOTIFY_OFF_PATH } from "@foundmill/connectors";
 import { AppError, UnauthorizedError } from "@foundmill/shared";
 import { Hono, type MiddlewareHandler } from "hono";
 import { bodyLimit } from "hono/body-limit";
 import { repos } from "@foundmill/db";
 import { ackBody, handleWebhook, webhookMounts, type MountedWebhook } from "./webhooks";
 import { BILLING_WEBHOOK_PATH, handleBillingWebhook } from "./billing";
-import { handleFollowConfirm, handlePlatformInbound, handlePlatformMailEvents, handlePlatformUnsubscribe, PLATFORM_MAIL_EVENTS_MAX_BYTES, PLATFORM_MAIL_INBOUND_MAX_BYTES } from "./platform-mail";
+import { handleFollowConfirm, handleNotifyOff, handlePlatformInbound, handlePlatformMailEvents, handlePlatformUnsubscribe, PLATFORM_MAIL_EVENTS_MAX_BYTES, PLATFORM_MAIL_INBOUND_MAX_BYTES } from "./platform-mail";
 import { runSimulation, SimulateBody, simulateRoutesMounted, simulationCatalogue } from "./simulate";
 import { bearerToken, verifySimulateToken, type SimulateTokenClaims } from "./simulate-token";
 import { INGEST_SERVICE, type IngestDeps } from "./types";
@@ -112,6 +112,13 @@ export function createIngestApp(deps: IngestDeps): CreatedIngestApp {
   };
   app.get(PLATFORM_MAIL_CONFIRM_PATH, (c) => confirm(c.req.raw));
   app.post(PLATFORM_MAIL_CONFIRM_PATH, (c) => confirm(c.req.raw));
+  // The link in Foundmill's own email to a person (packages 1.5 and 5.1): turns that kind of email off for them.
+  const notifyOff = async (req: Request) => {
+    const outcome = await handleNotifyOff(deps, req);
+    return new Response(outcome.html, { status: outcome.status, headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store", "referrer-policy": "no-referrer", "x-robots-tag": "noindex", "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; frame-ancestors 'none'" } });
+  };
+  app.get(PLATFORM_NOTIFY_OFF_PATH, (c) => notifyOff(c.req.raw));
+  app.post(PLATFORM_NOTIFY_OFF_PATH, (c) => notifyOff(c.req.raw));
 
   if (simulateRoutesMounted(deps)) {
     // SEC-2: the service token is verified before anything else happens (the body is not even read), so a request

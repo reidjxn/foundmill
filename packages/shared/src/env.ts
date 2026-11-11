@@ -1,5 +1,6 @@
 /** Single place that reads process.env (docs/ARCHITECTURE.md §3). */
 import { z } from "zod";
+import { MAIL_LOCAL_PART_PATTERN, mailLocalPartReserved } from "./platform-mail";
 
 const Env = z.object({
   APP_ENV: z.enum(["development", "test", "staging", "production"]).default("development"),
@@ -109,6 +110,24 @@ const Env = z.object({
   PLATFORM_MAIL_EVENT_PUBLIC_KEY: z.string().optional(),
   /** gateway: the public address of ingest (`https://ingest.foundmill.com`): every message's unsubscribe link points at `<it>/mail/unsubscribe`. Defaults to INGEST_URL. */
   INGEST_PUBLIC_URL: z.string().optional(),
+  /**
+   * gateway: the local part Foundmill's own email to its users is sent from, on PLATFORM_MAIL_DOMAIN (`hello` gives
+   * `Foundmill <hello@mail.foundmill.com>`; packages 1.5 and 5.1). It must be one of the reserved words no project's
+   * address may hold (`MAIL_RESERVED_LOCAL_PARTS`), so no project can ever send as Foundmill.
+   */
+  PLATFORM_NOTIFY_LOCAL_PART: z
+    .string()
+    .optional()
+    .transform((v) => v?.trim().toLowerCase() || "hello")
+    .refine((v) => MAIL_LOCAL_PART_PATTERN.test(v) && mailLocalPartReserved(v), { message: "PLATFORM_NOTIFY_LOCAL_PART must be a reserved local part such as hello, so no project can hold it" }),
+  /**
+   * apps/api: email a person when a note has waited a day for their answer (the notify pass, hourly; packages 1.5 and
+   * 5.1). On unless "off" (or "0"/"false"); it sends only where PLATFORM_MAIL_DOMAIN is set.
+   */
+  NOTIFY_EMAIL: z
+    .string()
+    .optional()
+    .transform((v): "on" | "off" => (/^(off|0|false|no)$/i.test((v ?? "").trim()) ? "off" : "on")),
   /** Shopify public app (OAuth): its API key and secret key. */
   SHOPIFY_CLIENT_ID: z.string().optional(),
   SHOPIFY_CLIENT_SECRET: z.string().optional(),

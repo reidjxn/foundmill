@@ -442,6 +442,7 @@ export const EVENT_TYPES = [
   "guidance.tour_completed", "guidance.tour_skipped", "guidance.explainer_dismissed", "guidance.term_opened", "guidance.turned_off",
   "push.sent",
   "mail.sent",
+  "notify.email_sent",
 ] as const;
 export type EventType = (typeof EVENT_TYPES)[number];
 
@@ -543,6 +544,15 @@ export const NOTIFICATION_KINDS = ["decision", "approval", "customer", "agent_do
 export type NotificationKind = (typeof NOTIFICATION_KINDS)[number];
 export type NotificationPrefs = Record<NotificationKind, boolean>;
 export const DEFAULT_NOTIFICATION_PREFS: Readonly<NotificationPrefs> = Object.freeze({ decision: true, approval: true, customer: true, agent_down: true, runway: true, run_finished: true, goal: true });
+/**
+ * What Foundmill may email a person about (the `email` channel beside push in `account_preferences.notifications`,
+ * docs/THESIS_REVIEW.md packages 1.5 and 5.1): a note that needs their answer and has waited a day without being opened
+ * on any device. Every kind is on until the person turns it off (Settings › Preferences, or the link in the email).
+ */
+export const EMAIL_NOTIFICATION_KINDS = ["decision_waiting"] as const;
+export type EmailNotificationKind = (typeof EMAIL_NOTIFICATION_KINDS)[number];
+export type EmailNotificationPrefs = Record<EmailNotificationKind, boolean>;
+export const DEFAULT_EMAIL_NOTIFICATION_PREFS: Readonly<EmailNotificationPrefs> = Object.freeze({ decision_waiting: true });
 
 /** The account's type size (`account_preferences.text_size`, 0064): comfortable grows body and small text; the structure keeps its sizes. */
 export const TEXT_SIZES = ["standard", "comfortable"] as const;

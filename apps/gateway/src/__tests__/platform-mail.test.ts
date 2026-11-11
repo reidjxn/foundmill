@@ -254,7 +254,9 @@ describe("platform_mail through the gateway (mock)", () => {
   it("reads its configuration from the shared env, and refuses to boot outside development and test without a real secret", () => {
     const env = { APP_ENV: "production" as const, PLATFORM_MAIL_DOMAIN: "mail.foundmill.com", PLATFORM_MAIL_DAILY_CAP: 50, PLATFORM_MAIL_DAILY_CEILING: 2000, INGEST_PUBLIC_URL: "https://ingest.foundmill.com/", INGEST_URL: "http://localhost:4005" };
     const secret = "s".repeat(32);
-    expect(platformMailConfig({ ...env, PLATFORM_MAIL_SIGNING_SECRET: ` ${secret} ` })).toEqual({ domain: "mail.foundmill.com", dailyCap: 50, ceiling: 2000, signingSecret: secret, unsubscribeBase: "https://ingest.foundmill.com" });
+    expect(platformMailConfig({ ...env, PLATFORM_MAIL_SIGNING_SECRET: ` ${secret} ` })).toEqual({ domain: "mail.foundmill.com", dailyCap: 50, ceiling: 2000, signingSecret: secret, unsubscribeBase: "https://ingest.foundmill.com", notifyLocalPart: "hello" });
+    // Foundmill's own email to its users (notify-email.ts): its local part and where its link points.
+    expect(platformMailConfig({ ...env, PLATFORM_MAIL_SIGNING_SECRET: secret, PLATFORM_NOTIFY_LOCAL_PART: "notifications", APP_URL: "https://foundmill.com/" })).toMatchObject({ notifyLocalPart: "notifications", appUrl: "https://foundmill.com" });
     expect(() => platformMailConfig(env)).toThrow(/PLATFORM_MAIL_SIGNING_SECRET/);
     expect(() => platformMailConfig({ ...env, APP_ENV: "staging", PLATFORM_MAIL_SIGNING_SECRET: "short" })).toThrow(/at least 32/);
     expect(platformMailConfig({ ...env, APP_ENV: "development" }).signingSecret).toBeNull();

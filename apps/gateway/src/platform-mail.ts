@@ -41,19 +41,27 @@ export interface PlatformMailConfig {
   signingSecret: string | null;
   /** Where unsubscribe links point: INGEST_PUBLIC_URL, else INGEST_URL. */
   unsubscribeBase: string;
+  /** Foundmill's own email to its users (notify-email.ts): sent from `<it>@<domain>` (PLATFORM_NOTIFY_LOCAL_PART, default `hello`). */
+  notifyLocalPart?: string;
+  /** Where the link in that email points (APP_URL). */
+  appUrl?: string;
 }
 
 /** Only for mock sends in development and test: links signed with it are never honored anywhere else (ingest refuses them). */
 export { DEV_PLATFORM_MAIL_SECRET };
 
 /** Throws at boot when the domain is set outside development and test without a signing secret of 32+ characters. */
-export function platformMailConfig(env: Pick<Env, "APP_ENV" | "PLATFORM_MAIL_DOMAIN" | "PLATFORM_MAIL_DAILY_CAP" | "PLATFORM_MAIL_DAILY_CEILING" | "PLATFORM_MAIL_SIGNING_SECRET" | "INGEST_PUBLIC_URL" | "INGEST_URL">): PlatformMailConfig {
+export function platformMailConfig(
+  env: Pick<Env, "APP_ENV" | "PLATFORM_MAIL_DOMAIN" | "PLATFORM_MAIL_DAILY_CAP" | "PLATFORM_MAIL_DAILY_CEILING" | "PLATFORM_MAIL_SIGNING_SECRET" | "INGEST_PUBLIC_URL" | "INGEST_URL"> & Partial<Pick<Env, "PLATFORM_NOTIFY_LOCAL_PART" | "APP_URL">>,
+): PlatformMailConfig {
   return {
     domain: platformMailDomain(env),
     dailyCap: env.PLATFORM_MAIL_DAILY_CAP,
     ceiling: env.PLATFORM_MAIL_DAILY_CEILING,
     signingSecret: platformMailSigningSecret(env),
     unsubscribeBase: (env.INGEST_PUBLIC_URL?.trim() || env.INGEST_URL).replace(/\/+$/, ""),
+    notifyLocalPart: env.PLATFORM_NOTIFY_LOCAL_PART || "hello",
+    ...(env.APP_URL ? { appUrl: env.APP_URL.trim().replace(/\/+$/, "") } : {}),
   };
 }
 

@@ -50,6 +50,9 @@ const gateway: ApiGatewayClient = {
   confirmFollow: async () => {
     throw new Error("not in these tests");
   },
+  notifyEmail: async () => {
+    throw new Error("not in these tests");
+  },
   async createCheckout(input) {
     asked.push(input);
     if (failWith) throw failWith;

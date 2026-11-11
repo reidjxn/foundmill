@@ -25,6 +25,7 @@ import { goalsRepo } from "./goals";
 import { pagesRepo } from "./pages";
 import { mailRepo } from "./mail";
 import { followersRepo } from "./followers";
+import { notifyEmailRepo } from "./notify-email";
 import { holidaysRepo } from "./holidays";
 import { ideasRepo } from "./ideas";
 import { inboxRepo } from "./inbox";
@@ -66,6 +67,7 @@ export const repos = {
   pages: pagesRepo,
   projectMail: mailRepo,
   followers: followersRepo,
+  notifyEmail: notifyEmailRepo,
   departments: departmentsRepo,
   screens: screensRepo,
   dashboards: dashboardsRepo,
@@ -130,6 +132,7 @@ export * from "./founders";
 export * from "./goals";
 export * from "./pages";
 export * from "./mail";
+export * from "./notify-email";
 export * from "./holidays";
 export * from "./ideas";
 export * from "./inbox";

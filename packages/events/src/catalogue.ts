@@ -36,6 +36,7 @@ import {
   MatchdayLevel,
   Money,
   NOTIFICATION_KINDS,
+  EMAIL_NOTIFICATION_KINDS,
   PUSH_PROVIDERS,
   SIGNOFF_KINDS,
   Severity,
@@ -1670,6 +1671,31 @@ const mailSent = declareEvent(
 );
 
 // ---------------------------------------------------------------------------------------------------
+// Email from Foundmill to a person (packages 1.5 and 5.1)
+// ---------------------------------------------------------------------------------------------------
+
+const notifyEmailSent = declareEvent(
+  "notify.email_sent",
+  z.object({
+    /** Which kind of email (`EMAIL_NOTIFICATION_KINDS`): the per-kind switch each person holds in their preferences. */
+    kind: z.enum(EMAIL_NOTIFICATION_KINDS),
+    /** The person it went to, by account id only: never the address. */
+    userId: Id,
+    /** The note it was about. */
+    inboxItemId: Id,
+    /** SendGrid's `X-Message-Id` (live), or the mock's id (simulated). */
+    messageId: z.string().min(1).max(200),
+    /** True when the mock ran (SendGrid not live on the gateway): nothing left Foundmill. */
+    simulated: z.boolean(),
+  }),
+  {
+    doc: "Foundmill emailed one of the business's people about their own project (a note that waited a day for their answer and that they had not opened on any device), from its own address through the gateway, after the person's own switch, their section walls and the daily limits. The record of what reached a person's inbox and the per-day key of the api's notify pass; never the address, the subject or the body. Not an outcome of the project (the north star never counts it); never narrated.",
+    consumers: ["metrics"],
+    narratable: false,
+  },
+);
+
+// ---------------------------------------------------------------------------------------------------
 // Registry
 // ---------------------------------------------------------------------------------------------------
 
@@ -1744,6 +1770,7 @@ export const EVENTS = {
   "guidance.turned_off": guidanceTurnedOff,
   "push.sent": pushSent,
   "mail.sent": mailSent,
+  "notify.email_sent": notifyEmailSent,
 } as const satisfies { readonly [K in EventTypeT]: EventDeclaration<K> };
 
 export type EventsRegistry = typeof EVENTS;

@@ -34,6 +34,7 @@ import { tinkTools } from "./connectors/tink/tools";
 import { voyageTools } from "./connectors/voyage/tools";
 import { openaiImagesTools } from "./connectors/openai_images/tools";
 import { onesignalTools } from "./connectors/onesignal/tools";
+import { platformNotifyTools } from "./connectors/platform_notify/tools";
 import { webTools } from "./connectors/web/tools";
 import { e2bTools } from "./connectors/e2b/tools";
 import { platformMailTools } from "./connectors/platform_mail/tools";
@@ -46,6 +47,7 @@ export const GATEWAY_TOOL_NAMES: Readonly<Record<string, readonly string[]>> = O
   voyage: names(voyageTools),
   openai_images: names(openaiImagesTools),
   onesignal: names(onesignalTools),
+  platform_notify: names(platformNotifyTools),
   github: names(githubTools),
   google_drive: names(googleDriveTools),
   gmail: names(gmailTools),
@@ -209,11 +211,12 @@ export const NOT_YET_SERVED: Readonly<Record<string, Readonly<Record<string, str
 /**
  * Connectors only the platform itself calls, from a service route of the gateway (never an agent session): `openai_images`
  * makes the faces of anthropomorphic agents on the platform key (`POST /v1/personas/portrait`); `onesignal` pushes to
- * founders' own phones from the mobile app (`POST /v1/push/send`). A grant on one resolves to nothing, the gateway refuses
+ * founders' own phones from the mobile app (`POST /v1/push/send`); `platform_notify` emails a person from Foundmill
+ * itself about their own project (`POST /v1/notify/email`). A grant on one resolves to nothing, the gateway refuses
  * it on `/v1/call` and `/mcp/:connector` whatever a session token says, and the api neither lists it in
  * Settings › Integrations nor connects it for a business.
  */
-export const SERVICE_ONLY_CONNECTORS: ReadonlySet<string> = new Set(["openai_images", "onesignal"]);
+export const SERVICE_ONLY_CONNECTORS: ReadonlySet<string> = new Set(["openai_images", "onesignal", "platform_notify"]);
 
 /** Why a grant on a service-only connector resolves to nothing (`ResolvedGrants.unresolved`). */
 export const SERVICE_ONLY_REASON = "the platform calls this connector itself; agents never do";

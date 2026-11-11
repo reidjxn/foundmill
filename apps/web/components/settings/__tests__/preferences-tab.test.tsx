@@ -12,7 +12,7 @@ import { AGENT_STYLE_META, type AgentStyle } from "@foundmill/shared/personas";
 import type * as SharedModule from "../shared";
 
 type Guidance = { guidance: "on" | "off"; textSize: "standard" | "comfortable"; explainersSeen: Record<string, true>; toursDone: Record<string, true>; checklistDismissedAt: string | null; anthropomorphicAgents: boolean; agentStyle?: AgentStyle; builderView?: boolean };
-type Change = Partial<DateFormatPrefs> & Partial<{ guidance: Guidance["guidance"]; textSize: Guidance["textSize"]; explainersSeen: Record<string, true>; toursDone: Record<string, true>; checklistDismissed: boolean; anthropomorphicAgents: boolean; agentStyle: AgentStyle; builderView: boolean; reset: true }>;
+type Change = Partial<DateFormatPrefs> & Partial<{ guidance: Guidance["guidance"]; textSize: Guidance["textSize"]; explainersSeen: Record<string, true>; toursDone: Record<string, true>; checklistDismissed: boolean; anthropomorphicAgents: boolean; agentStyle: AgentStyle; builderView: boolean; reset: true; email: { decision_waiting: boolean } }>;
 
 const BUSINESS = "b1e5e5e5-0000-4000-8000-000000000001";
 const PREFS_KEY = [["founder", "preferences", "get"], { type: "query" }];
@@ -21,8 +21,12 @@ const guidanceDefaults = (): Guidance => ({ guidance: "on", textSize: "standard"
 
 let stored: DateFormatPrefs = { date: "us", time: "12h" };
 let guidanceStored: Guidance = guidanceDefaults();
+let emailStored = { decision_waiting: true };
+const NOTIFICATIONS_KEY = [["founder", "preferences", "notifications"], { type: "query" }];
+const notificationsView = () => ({ notifications: { decision: true }, hideAmountsOnLockScreen: false, email: { ...emailStored } });
 async function serverUpdate(change: Change) {
-  const { date, time, guidance, textSize, explainersSeen, toursDone, checklistDismissed, anthropomorphicAgents, agentStyle, builderView, reset } = change;
+  const { date, time, guidance, textSize, explainersSeen, toursDone, checklistDismissed, anthropomorphicAgents, agentStyle, builderView, reset, email } = change;
+  if (email) emailStored = { ...emailStored, ...email };
   stored = { ...stored, ...(date ? { date } : {}), ...(time ? { time } : {}) };
   const next: Guidance = { ...guidanceStored, explainersSeen: { ...guidanceStored.explainersSeen }, toursDone: { ...guidanceStored.toursDone } };
   if (guidance) next.guidance = guidance;
@@ -35,7 +39,7 @@ async function serverUpdate(change: Change) {
   for (const id of Object.keys(toursDone ?? {})) next.toursDone[id] = true;
   if (checklistDismissed !== undefined) next.checklistDismissedAt = checklistDismissed ? "2026-10-20T15:45:00.000Z" : null;
   guidanceStored = next;
-  return { ...stored, ...guidanceStored };
+  return { ...stored, ...guidanceStored, ...notificationsView() };
 }
 const update = vi.fn(serverUpdate);
 /** Holds the next request open until the returned function is called, so the optimistic state can be observed. */
@@ -68,6 +72,10 @@ vi.mock("@/lib/trpc-react", () => ({
         guidance: {
           queryKey: () => GUIDANCE_KEY,
           queryOptions: (_input: unknown, opts: Record<string, unknown>) => ({ queryKey: GUIDANCE_KEY, queryFn: async () => guidanceStored, ...opts }),
+        },
+        notifications: {
+          queryKey: () => NOTIFICATIONS_KEY,
+          queryOptions: (_input: unknown, opts: Record<string, unknown>) => ({ queryKey: NOTIFICATIONS_KEY, queryFn: async () => notificationsView(), ...opts }),
         },
         update: {
           mutationKey: () => [["founder", "preferences", "update"]],
@@ -118,6 +126,7 @@ function mount() {
 afterEach(() => {
   stored = { date: "us", time: "12h" };
   guidanceStored = guidanceDefaults();
+  emailStored = { decision_waiting: true };
   update.mockClear();
   saved.mockClear();
   failed.mockClear();
@@ -247,6 +256,38 @@ describe("Builder view switch", () => {
   it("words the toasts", () => {
     expect(builderViewSavedLine(true)).toEqual({ title: "Builder view on", description: "How the platform runs the team now shows, in every business." });
     expect(builderViewSavedLine(false)).toEqual({ title: "Builder view off", description: "The technical details are hidden again, in every business." });
+  });
+});
+
+describe("Email switch", () => {
+  it("is on by default, says what it sends in plain words, and saves at once with a toast", async () => {
+    mount();
+    const sw = await screen.findByTestId("email-decision-waiting-switch");
+    await waitFor(() => expect(sw.getAttribute("aria-checked")).toBe("true"));
+    expect(screen.getByLabelText("Email me when something has waited a day for my answer", { selector: "button" })).toBe(sw);
+    expect(screen.getByTestId("email-notifications-panel").textContent).toContain("at most one email a day for each project, and three a day in all");
+    fireEvent.click(sw);
+    await waitFor(() => expect(update).toHaveBeenCalledWith({ email: { decision_waiting: false } }));
+    await waitFor(() => expect(saved).toHaveBeenCalledTimes(1));
+    expect(saved.mock.calls[0]).toEqual(["Email off", "No more emails about answers that wait. Turn it on again any time from here."]);
+    expect(sw.getAttribute("aria-checked")).toBe("false");
+    fireEvent.click(sw);
+    await waitFor(() => expect(update).toHaveBeenLastCalledWith({ email: { decision_waiting: true } }));
+    await waitFor(() => expect(saved).toHaveBeenCalledTimes(2));
+    expect(saved.mock.calls[1]?.[0]).toBe("Email on");
+    expect(sw.getAttribute("aria-checked")).toBe("true");
+  });
+
+  it("goes back to what is stored when the save fails", async () => {
+    update.mockImplementationOnce(async () => {
+      throw new Error("Network down");
+    });
+    mount();
+    const sw = await screen.findByTestId("email-decision-waiting-switch");
+    await waitFor(() => expect(sw.getAttribute("aria-checked")).toBe("true"));
+    fireEvent.click(sw);
+    await waitFor(() => expect(failed).toHaveBeenCalledTimes(1));
+    expect(sw.getAttribute("aria-checked")).toBe("true");
   });
 });
 

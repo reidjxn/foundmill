@@ -1,5 +1,5 @@
 /** 0002 — founder profiles, businesses, ideas (+ the businessId() helper every business-scoped table uses); 0022 — account preferences; 0025 — the business currency. */
-import { AGENT_STOP_REASONS, AGENT_STYLES, ARCHETYPES, AUTOPILOT_CADENCES, AUTOPILOT_PAUSE_REASONS, BUSINESS_MODES, DATA_REGIONS, DATE_FORMAT_PREFERENCES, DEVICE_PLATFORMS, GAME_MODES, GUIDANCE_MODES, MODEL_BILLING, PLAN_TIERS, PUSH_PROVIDERS, TEXT_SIZES, TIME_FORMAT_PREFERENCES, VISIBILITY, type NotificationPrefs } from "@foundmill/shared";
+import { AGENT_STOP_REASONS, AGENT_STYLES, ARCHETYPES, AUTOPILOT_CADENCES, AUTOPILOT_PAUSE_REASONS, BUSINESS_MODES, DATA_REGIONS, DATE_FORMAT_PREFERENCES, DEVICE_PLATFORMS, GAME_MODES, GUIDANCE_MODES, MODEL_BILLING, PLAN_TIERS, PUSH_PROVIDERS, TEXT_SIZES, TIME_FORMAT_PREFERENCES, VISIBILITY, type EmailNotificationPrefs, type NotificationPrefs } from "@foundmill/shared";
 import { sql } from "drizzle-orm";
 import { boolean, char, index, integer, jsonb, numeric, pgTable, text, uniqueIndex, uuid, type AnyPgColumn } from "drizzle-orm/pg-core";
 import { authUsers } from "drizzle-orm/supabase";
@@ -59,8 +59,11 @@ export const accountPreferences = pgTable("account_preferences", {
   checklistDismissedAt: tstz("checklist_dismissed_at"),
   anthropomorphicAgents: boolean("anthropomorphic_agents").notNull().default(false),
   agentStyle: text("agent_style", { enum: AGENT_STYLES }).notNull().default("humans"),
-  /** 0075 — which kinds of push the person's phones get (`{ customer: false }`; an absent kind is on). */
-  notifications: jsonb("notifications").$type<Partial<NotificationPrefs>>().notNull().default(emptyObject),
+  /**
+   * 0075 — which kinds of push the person's phones get (`{ customer: false }`; an absent kind is on); and, under `email`,
+   * which kinds of email Foundmill sends them (`{ email: { decision_waiting: false } }`; an absent kind is on).
+   */
+  notifications: jsonb("notifications").$type<Partial<NotificationPrefs> & { email?: Partial<EmailNotificationPrefs> }>().notNull().default(emptyObject),
   /** 0075 — keep money amounts out of lock-screen notifications. */
   hideAmountsOnLockScreen: boolean("hide_amounts_on_lock_screen").notNull().default(false),
   builderView: boolean("builder_view").notNull().default(false),

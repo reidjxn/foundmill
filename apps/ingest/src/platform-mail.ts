@@ -28,6 +28,9 @@
  *                           the project, the consent record, the address hash and a nonce the record keeps the hash of.
  *                           A valid one confirms the record, gives the contact the lawful basis `consent` when it had
  *                           none, and writes `page.followed` (the real outcome) through the outbox, once.
+ *   GET|POST /mail/notify/off?t=  The link in Foundmill's own email to a person (packages 1.5 and 5.1): the same
+ *                           pattern; the token (`notifyOffToken`) names the person by id and the kind of email, and a
+ *                           valid one turns that kind off in their preferences.
  *
  * Whatever suppresses an address for a project here (an unsubscribe link, one-click, a reply asking to stop, a bounce, a
  * drop, a spam report) also withdraws the project's consent records for that address (`withdrawn_at`), so the person no
@@ -36,9 +39,9 @@
  * With PLATFORM_MAIL_DOMAIN unset every route answers 404, as if it did not exist. Bodies are capped before they are read
  * (app.ts: PLATFORM_MAIL_EVENTS_MAX_BYTES, PLATFORM_MAIL_INBOUND_MAX_BYTES).
  */
-import { DEV_PLATFORM_MAIL_SECRET, followConfirmNonceHash, platformMailSenderName, readFollowConfirmToken, inboundSenderVerified, normaliseInboundMail, normalisePlatformMailEvents, PLATFORM_MAIL_FOOTER_MARKERS, platformInboundLocalParts, readInboundMail, readPlatformUnsubscribeToken, safeEqual, stableHash, suppressionHashOfEmail, verifySendgridSignature, withinTolerance, type SgEvent } from "@foundmill/connectors";
+import { DEV_PLATFORM_MAIL_SECRET, PLATFORM_NOTIFY_OFF_PATH, readNotifyOffToken, followConfirmNonceHash, platformMailSenderName, readFollowConfirmToken, inboundSenderVerified, normaliseInboundMail, normalisePlatformMailEvents, PLATFORM_MAIL_FOOTER_MARKERS, platformInboundLocalParts, readInboundMail, readPlatformUnsubscribeToken, safeEqual, stableHash, suppressionHashOfEmail, verifySendgridSignature, withinTolerance, type SgEvent } from "@foundmill/connectors";
 import { repos } from "@foundmill/db";
-import { FOLLOW_CONFIRM_PAGE, PLATFORM_MAIL_SECRET_MIN_LENGTH, UNSUBSCRIBE_CONFIRM_BODY, UNSUBSCRIBE_CONFIRM_BUTTON, UNSUBSCRIBE_CONFIRM_TITLE, UNSUBSCRIBE_DONE_BODY, UNSUBSCRIBE_INVALID_BODY } from "@foundmill/shared";
+import { FOLLOW_CONFIRM_PAGE, NOTIFY_OFF_PAGE, PLATFORM_MAIL_SECRET_MIN_LENGTH, UNSUBSCRIBE_CONFIRM_BODY, UNSUBSCRIBE_CONFIRM_BUTTON, UNSUBSCRIBE_CONFIRM_TITLE, UNSUBSCRIBE_DONE_BODY, UNSUBSCRIBE_INVALID_BODY } from "@foundmill/shared";
 import { ingestPlatformEvents, writeEventRow } from "./ingest";
 import { nonceKey } from "./nonce-store";
 import type { IngestDeps } from "./types";
@@ -232,6 +235,36 @@ export async function handlePlatformUnsubscribe(deps: Deps, req: Request): Promi
     await repos.audit.append(deps.db, named.businessId, { actorKind: "webhook", actorId: null, action: "mail.unsubscribed", target: { kind: "suppression" }, details: { source: PLATFORM_MAIL_SOURCE, emailHashPrefix: named.emailHash.slice(0, 12) } }).catch((e: unknown) => deps.log.warn({ err: (e as Error).message }, "unsubscribe audit not written"));
   }
   return { status: 200, html: unsubscribePage(UNSUBSCRIBE_DONE_BODY) };
+}
+
+/** The page behind the link in Foundmill's own email to a person (the same look as the unsubscribe page). */
+export function notifyOffPage(body: string, form?: { token: string }): string {
+  return mailPage(NOTIFY_OFF_PAGE.title, body, form ? { action: `${PLATFORM_NOTIFY_OFF_PATH}?t=${encodeURIComponent(form.token)}`, button: NOTIFY_OFF_PAGE.button } : undefined);
+}
+
+/**
+ * `GET|POST /mail/notify/off?t=` (packages 1.5 and 5.1): the link in the footer of Foundmill's own email to a person, and
+ * its one-click POST (RFC 8058). The token (`notifyOffToken`, signed by the gateway under its own label) names the
+ * person by id and the kind of email; a valid one turns that kind off in their own preferences
+ * (`account_preferences.notifications.email`), so no later pass emails them about it. GET shows a button (link scanners
+ * open links); only the POST changes anything. Idempotent; an account that no longer exists changes nothing. Nothing
+ * here knows or logs the address.
+ */
+export async function handleNotifyOff(deps: Deps, req: Request): Promise<UnsubscribeResult> {
+  if (!deps.platformMail?.domain) return { status: 404, html: notifyOffPage(NOTIFY_OFF_PAGE.invalid) };
+  const secret = signingSecretFor(deps);
+  const token = new URL(req.url).searchParams.get("t") ?? "";
+  const named = secret ? readNotifyOffToken(secret, token) : null;
+  if (!named) return { status: 400, html: notifyOffPage(NOTIFY_OFF_PAGE.invalid) };
+  if (req.method === "GET") return { status: 200, html: notifyOffPage(NOTIFY_OFF_PAGE.body, { token }) };
+  try {
+    await repos.preferences.update(deps.db, named.userId, { email: { [named.kind]: false } });
+    deps.log.info({ kind: named.kind }, "notify email turned off from its link");
+  } catch (e) {
+    // The account no longer exists (its preferences row cannot be written): there is nothing left to email.
+    deps.log.warn({ kind: named.kind, err: (e as Error).name }, "notify email not turned off");
+  }
+  return { status: 200, html: notifyOffPage(NOTIFY_OFF_PAGE.done) };
 }
 
 /** The project's name as the confirmation email showed it (never one that reads as Foundmill's own). */

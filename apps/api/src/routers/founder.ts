@@ -13,7 +13,8 @@
  * founder.tableViews.get/save: the views a person saves on a data table (saved_table_views, 0041), for a business they
  * belong to or for the account-wide LIVE pages; RLS holds them to their own rows and their own businesses.
  * founder.preferences.notifications and founder.devices.list/register/unregister (0075, docs/mobile): the mobile app's
- * push preferences (which kinds, amounts off the lock screen) and the phones it registered. `register` runs with the
+ * push preferences (which kinds, amounts off the lock screen), the email channel beside them (which kinds of email
+ * Foundmill sends the person, packages 1.5 and 5.1; changed through `update` with `email`) and the phones it registered. `register` runs with the
  * service role so a token follows the latest sign-in on a phone (packages/db repos/devices.ts); the rest run as the user.
  */
 import { freeDisplayName, liveModeOpen } from "@foundmill/config";
@@ -48,7 +49,7 @@ export function guidancePrefsOf(p: AccountPreferencesView): GuidancePrefs {
 
 /** The mobile app's part of the preferences row (what founder.preferences.notifications answers). */
 export function notificationPrefsOf(p: AccountPreferencesView): NotificationPreferences {
-  return { notifications: p.notifications, hideAmountsOnLockScreen: p.hideAmountsOnLockScreen };
+  return { notifications: p.notifications, hideAmountsOnLockScreen: p.hideAmountsOnLockScreen, email: p.email };
 }
 
 const SignalTourId = z.string().trim().min(1).max(120);
