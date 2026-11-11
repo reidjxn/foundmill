@@ -102,9 +102,9 @@ The "what the team can do" chip reads, in the business's own currency: "Asks bef
 
 - Continue tooltip (idle): "Let the team work until nothing is left to do. Their notes land in the Inbox."
 - Continue (blocked): "Respond · N" and "N notes need your answer before the team can carry on."
-- Continue (processing): "The team is working · cycle 3"
+- Continue (processing): "The team is working · round 3"
 - Stop all agents: "Stop all agents (pauses everything, nothing is lost)". Its confirmation starts with "Nothing is deleted."
-- Inbox empty: "Notes from your team land here after each cycle. Press Continue to start one."
+- Inbox empty: "Notes from your team land here after each round of work. Press Continue to start one."
 - Needs you empty: "Nothing needs you right now. The team keeps working."
 - Goal empty: "Your Chief of Staff proposes a goal after the first round of work."
 - Goal pace: "4 of 10 so far, 38 days left: on pace (Forecast)."
