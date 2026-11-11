@@ -3548,3 +3548,11 @@ The founder decided the rule (§14 item 9). How it was built, and what follows f
 - **Registry mode follows `LIVE_CONNECTORS`** in the api as in the gateway. Where the two services disagree, the api refuses a simulated answer rather than show it as real.
 - **The gateway writes the account settings with the credential;** the api writes them again with who connected. The rule for what a reconnect keeps (the chosen code repository) now lives in both and must stay the same.
 - **Not done: a separate secret for the api's service tokens.** It closes N4 but needs a new variable set on the api and the gateway on Railway at the same deploy; doing it in code alone would break production. Recorded for a change made together with the deploy.
+
+## 2026-11-11 — Packages 1.2 and 1.3: the calls made
+
+- **Sonnet at low effort drafts the page**, not Opus like the other first drafts: the page is short and mostly the founder's own text, it sits on the path the founder waits on, and a failure costs nothing visible because the starter draft is used.
+- **No founder name reaches the prompt.** "Built by" comes from the owners' names behind the founder's own switch, so a name in the draft could only leak into "about".
+- **A draft with a number the founder did not write is thrown away**, not edited: the starter draft replaces it.
+- **The team never writes over the founder:** it writes only when the project has no page row.
+- **"Later" answers the note;** Today's quiet line takes over. A snooze would need a new column.

@@ -390,7 +390,7 @@ Status, Nov 11, 2026: 0.1 done for the six answered decisions; 0.2 done (the pla
 
 ### Phase 1: A real first outcome that travels
 
-Status, Nov 11, 2026: 1.1 done (public project pages at `/p/<slug>`). Next: 1.2 and 1.3.
+Status, Nov 11, 2026: 1.1, 1.2 and 1.3 done (public project pages at `/p/<slug>`, drafted by the team first, the first note and the first checklist item). Next: 1.4 (real web research) and 1.5 (the Foundmill sending address).
 
 Goal: R5 and the first half of R4. In the first session a project has a live page with its own address, made by agents, that a person can send to a friend.
 
