@@ -176,6 +176,6 @@ Labels step their font down to a floor, then wrap to two lines, then truncate wi
 
 ## 8. Icons and images
 
-Lucide only (`lucide-react-native`), 20 px default, 16 px inline, 24 px in empty states, stroke 1.75. The "generate" glyph is Lucide **Fan** (the mill). Icon identifiers: Milestones `Trophy`, Leaderboards `Medal`, Today `Sun`, Inbox `Inbox`, Team `Users`, Journey `Route`, Business `Building2` (identifiers only; the word a founder reads is always "Milestones"). Never emoji, never a shield, ball or sports image. Business logos are drawn as an image on a white tile with 22 % corner rounding; without a logo, an initials mark (rounded square in the primary brand color with 1–2 letters).
+Lucide only (`lucide-react-native`), 20 px default, 16 px inline, 24 px in empty states, stroke 1.75. The "generate" glyph is Lucide **Fan** (the mill). Icon identifiers: Milestones `Trophy`, Today `Sun`, Inbox `Inbox`, Team `Users`, Journey `Route`, Business `Building2` (identifiers only; the word a founder reads is always "Milestones"). Never emoji, never a shield, ball or sports image. Business logos are drawn as an image on a white tile with 22 % corner rounding; without a logo, an initials mark (rounded square in the primary brand color with 1–2 letters).
 
 App icon: `foundmill-icon-512.png` (square, no transparency). Splash: canvas `#08090C` with the Foundmill wordmark in `#EDF0F4` at 120 px wide. The "FM" monogram is the app icon only; it never appears inside the UI.

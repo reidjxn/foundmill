@@ -168,7 +168,10 @@ export interface ChiefAnswer {
 // ---------------------------------------------------------------------------------------------------------------------
 
 const noFullStop = (s: string): string => s.trim().replace(/[.!?\s]+$/, "");
-const quoted = (title: string): string => `“${noFullStop(title)}”`;
+/** A title in quotes: a closing full stop goes, a question mark stays ("“Ready to start selling?”"). */
+const quoted = (title: string): string => `“${title.trim().replace(/[.\s]+$/, "")}”`;
+/** A plan failure already names itself ("This round's plan could not run: …"); the answer says "did not finish" once. */
+const failureWords = (failure: string): string => noFullStop(failure.replace(/^This (?:cycle|round)'s plan could not run:\s*/i, ""));
 const things = (n: number): string => `${formatCount(n)} ${n === 1 ? "note" : "notes"}`;
 const list = (items: readonly string[]): string => (items.length <= 1 ? (items[0] ?? "") : `${items.slice(0, -1).join(", ")} and ${items[items.length - 1]}`);
 
@@ -217,7 +220,7 @@ function blocking(f: ChiefFacts): string[] {
     const holding = n.holding > 0 ? ` ${n.holding === 1 ? "One holds" : `${formatCount(n.holding)} of them hold`} Continue until you answer.` : "";
     out.push(`${things(n.total)} ${n.total === 1 ? "waits" : "wait"} for you in Needs you.${top}${holding}`);
   }
-  if (f.failure && !f.stopped) out.push(`The last round of work did not finish: ${noFullStop(f.failure)}.`);
+  if (f.failure && !f.stopped) out.push(`The last round of work did not finish: ${failureWords(f.failure)}.`);
   if (f.paused && !f.stopped) out.push("The round of work is paused. Press Continue to pick up where the team stopped.");
   if (f.work && f.work.week.waiting > 0) {
     out.push(weekWaitingSentence(f.work.week.waiting)!);

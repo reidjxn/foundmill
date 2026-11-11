@@ -4,9 +4,24 @@ Send these to the Newly agent **in order, one per message**, in the mode named i
 
 Replace `<SUPABASE_ANON_KEY>` before sending prompt 1. Replace `<FIRST_NAME>` with the founder's name where it appears.
 
+## Where we are (Nov 11, 2026)
+
+Prompts 0 to 12 are built. Newly runs a short device-check budget per turn, so every prompt from 12 on is cut into messages that each build one thing and run one group of checks.
+
+**What changed around the app while it was being built.** The web app moved in three ways that the phone has to follow, and the founder recorded decisions on Nov 11 that change some of the words:
+
+1. **The web's navigation now follows the founder's questions, not the departments.** Five areas (Plan, Customers, Money, Product, Team) group the departments' tabs by the module that owns each tab; a department is a label inside its area. Each area opens on one plain sentence from the same facts as its tiles, with the figure's label (Estimate or Forecast) as a chip. Company (the legal module) is a section inside Money; Milestones sits in Plan and Contacts in Customers. Builder view, an account switch that is off by default, shows the engine (every tab, code, health, hierarchy, ratings as numbers). The phone is a founder surface: Builder view is always off there.
+2. **Help is one control: the Chief of Staff on every page.** "What's happening?", "What's blocking us?" and "Why am I seeing this?" are answered from Today's own facts with no model call (`chiefOfStaff.answer`); "Ask something else…" opens the conversation. On the web a separate "Explain this page" button shows a screen's three lines; on the phone the Chief of Staff's "Why am I seeing this?" covers it, so there is one control per screen.
+3. **The first week explains itself and the sample says it is a sample.** `today.get` carries `firstWeek` (Day 1, Days 2–3, Week 1 with done / now / next); fifteen empty screens have one sentence each about what fills them and when; the two seeded businesses (Northwind Skincare and Ledgerly) carry a "Sample business" caption and roll forward with the calendar; Customers this week is one server number (`journey.ribbon.customers`); Continue answers with one sentence (`business.continue().summary`) and shows the last round's cost; approvals carry "What exactly" rows; the founder's own idea survives to the specification ("Use my idea as written", Edit on every card, "Choose this idea").
+4. **The founder's decisions of Nov 11 (the thesis review, `docs/THESIS_REVIEW.md` on the roadmap branch).** **Solo is complete**: the main user is a solo founder who must feel able to do all of it alone; nothing is gated on a second person, no screen or sentence treats one person as missing someone, and agents cover every gap by default. Finding a cofounder or collaborator is seamless and always an offer, never a requirement. The humans of a business are its **People**: **cofounders** (equal standing, any number) and **collaborators** (limited access); "staff" and "seat" leave every string; people are free on every plan. A business is a **project** until its first sale and a business after. Nothing a person reads names jobs, employment, careers or AI taking work as the reason to be here. **Leaderboards are removed from the product** (routes, procedures, tables; never rebuild them). **The management-game wording stays the default view** (ratings out of 20, Form, Agent of the week, Hire / Let go / Lend, wage cap): build it as the product skill says. 18 or older is confirmed once at sign-up (not built yet). English only. The native app is the phone's home once it launches; the small-screen web will send people to the stores, and a public page on a phone keeps its content with a prompt to get the app.
+
+5. **Work in flight in the other sessions (afternoon of Nov 11).** The roadmap branch (`claude/vibrant-euler-uua9pw`, not on main yet) adds **public project pages** (`page.*`, `publicPage.bySlug`, a Product › Public page tab, `today.get().pageReady`), **channel availability** (the Channel Board shows only channels that can really act; `availability` and `noChannel` on `distribution.channels.list`) and **simulated results** that never read as done. The retention session is starting **measurement and the return loop**: founder email (waiting on you, customer won, milestone, run finished, credits out, a morning brief, a weekly review) with **one-click answers from email**, **"Since you were last here"** on Today, Autopilot on by default with a small cap, and a **daily streak** (the founder's choice; it replaces this pack's earlier "no streaks"). It also adds **Google sign-in next to the email code**, and the roadmap adds **18 or older at sign-up** and a **referral waitlist**. The approachability session moves the Company line to a 30-day window and says "MRR" on milestones only when revenue recurs. Prompts 12C, 13B and 15 below pick these up, each gated on its backend landing on main.
+
+Prompt 12A below puts Newly on the right track for all of this before anything new is built; 12B then catches the app up with 1 to 3. Prompt 14 and the voice skill carry 4. The thesis review plans person profiles, project pages, invitations, join requests and messaging as offers beside the solo path; those are Phase B at the end of this file and wait for the backend.
+
 ---
 
-## 0 · Start (the first message on Home; creates the project)
+## 0 · Start (the first message on Home; creates the project) ✅
 
 > Build the Foundmill mobile app for iPhone and Android. Foundmill (https://foundmill.com, look at the public landing page for the brand, the words and the interactive example) is where one founder builds and runs a real business with a team of AI agents. The desktop web app already exists; this app is the founder's companion: a much more visual, intuitive and engaging way to answer the team, keep it running and feel the business grow, connected to exactly the same backend.
 >
@@ -20,7 +35,7 @@ Replace `<SUPABASE_ANON_KEY>` before sending prompt 1. Replace `<FIRST_NAME>` wi
 
 ---
 
-## 1 · Standing instructions and skills (Build)
+## 1 · Standing instructions and skills (Build) ✅
 
 > Create `AGENTS.md` at the project root with exactly the content I paste below, and then create the four skills `foundmill-backend`, `foundmill-design`, `foundmill-voice`, `foundmill-product` from the four `SKILL.md` files I attach, scoped to this project. Afterwards, in `theme/tokens.ts` and `theme/type.ts`, replace the placeholder values with the exact tokens and type styles from the design skill, and add `app.json` `expo.extra` with `FOUNDMILL_API_URL: "https://api.foundmill.com"`, `FOUNDMILL_STREAM_URL: "wss://stream.foundmill.com"`, `SUPABASE_URL: "https://sdruubitufjqibsjyxlc.supabase.co"`, `SUPABASE_ANON_KEY: "<SUPABASE_ANON_KEY>"`, read through one `config.ts`. Set the URL scheme to `foundmill` and the bundle id to `com.foundmill.app`.
 >
@@ -28,9 +43,11 @@ Replace `<SUPABASE_ANON_KEY>` before sending prompt 1. Replace `<FIRST_NAME>` wi
 
 **Accept when:** the agent confirms the files exist; `theme/tokens.ts` contains every hex from the design skill and nothing else; a native rebuild runs once for the scheme.
 
+Newly does not let a skill be edited in place: when a skill changes, delete it in Settings › Skills and create it again with the new body (name, "when to use it" from the frontmatter's description, "what it does" = the whole body).
+
 ---
 
-## 2 · Design system components (Plan, then Build)
+## 2 · Design system components (Plan, then Build) ✅
 
 Plan message:
 
@@ -44,17 +61,17 @@ Then in Build mode:
 
 ---
 
-## 3 · Sign-in (Plan, then Build)
+## 3 · Sign-in (Plan, then Build) ✅
 
 > Plan sign-in exactly as section 1 of the foundmill-backend skill describes: supabase-js with the anon key, `signInWithOtp` with `emailRedirectTo: "foundmill://auth/callback"`, a six-digit code screen that calls `verifyOtp` with type "email", deep-link handling for the link, the session in expo-secure-store through a custom storage adapter, `autoRefreshToken` on, `detectSessionInUrl` off. After sign-in call `founder.businesses.list` over tRPC. Handle `not_invited` with the "Not on the list yet" screen from the voice skill. Then build it.
 >
-> Screens: Sign in (wordmark on the canvas with a faint brand aura, "Sign in with your email. No password.", email field, Continue), Code ("Check your email. Enter the six-digit code, or tap the link in the message.", six boxes, Resend after 30 s), Not on the list yet, and a Businesses chooser (logo tiles, name, role chip, "Demo" chip) that lands on the last-opened business or, with none, on Start.
+> Screens: Sign in (wordmark on the canvas with a faint brand aura, "Sign in with your email. No password.", email field, Continue), Code ("Check your email. Enter the six-digit code, or tap the link in the message.", six boxes, Resend after 30 s), Not on the list yet, and a Businesses chooser (logo tiles, name, role chip, "Sample" chip on a demo business) that lands on the last-opened business or, with none, on Start.
 
 **Accept when:** a real email arrives, the code signs in, the session survives an app restart, sign-out clears everything, and a wrong code shows one sentence under the boxes.
 
 ---
 
-## 4 · API client, business context, stream (Build)
+## 4 · API client, business context, stream (Build) ✅
 
 > Build `api/client.ts` exactly as section 2 of the backend skill shows (untyped tRPC client, superjson, splitLink with httpBatchStreamLink for the six streaming procedures using expo/fetch, bearer from `supabase.auth.getSession()` per request, 45 s read timeout, 4 min write timeout), `api/errors.ts` with the error table mapped to sentences, `api/stream.ts` as a `StreamClient` that implements the handshake with the two subprotocols, `sub`/`unsub`/`ping`/`auth`/`focus` frames, the `subscribed` gate, bursts as arrays, reconnect with jittered backoff, token refresh before `exp`, and `api/refetch-map.ts` with the event-type table from section 3. Add `useBusiness()`, `useStream()` and `useContinue()` hooks. Cache the last answers of the listed queries in MMKV and show them under a "Showing what you last saw" banner on launch. Write Jest tests for the error mapper, the frame parser, the refetch map, money and date formatting, and the mention regex.
 
@@ -62,7 +79,7 @@ Then in Build mode:
 
 ---
 
-## 5 · Today (Build)
+## 5 · Today (Build) ✅
 
 > Build the Today tab from section 4 of the foundmill-product skill: Your goal card (brand-lit; approve / change with a sheet), Needs you (up to three rows with one-tap recommended option and Open), This week and next, Health (2 × 2 metric tiles plus the channel spend line), Live now (horizontal strip of working agents from `team.agents.list` filtered to presence working), Latest from the team. Wire the Continue pill to `useContinue()` (`business.continue`, `pauseCycle`, `resumeCycle`; states from `cycle.continueState`). Call `goal.ensure` once on open. Pull to refetch. Haptic medium on Continue, success on approving the goal. Every string from the voice skill verbatim.
 
@@ -70,7 +87,7 @@ Then in Build mode:
 
 ---
 
-## 6 · Inbox list and note (Build)
+## 6 · Inbox list and note (Build) ✅
 
 > Build the Inbox tab and the note screen from section 5 of the product skill: segmented tabs All · Needs you · Customers · Updates · Archive with counts, rows with portrait, kind tag, two-line subject, preview, mono time, gold edge on customer wins, unread dot, swipe right to archive (not on notes that need an answer), the "Ask for an update" button on `inbox.refresh` with a 60 s "Writing…" state, infinite scroll on `nextCursor`. The note screen: header, subject, About chips, reading-style body via EntityText, status strip, exhibit folded under "Show the numbers" (chart as a Skia line or bars, table as rows, entity card, diff as "+12 −3 path" rows, agent tile as a mini tile), the conversation so far, and the pinned DecisionSheet / Go-ahead bar / composer. `inbox.markRead` after 1 s on screen. A landed note (from `inbox.item_created`) rises in with the "Just in" tag.
 
@@ -78,31 +95,33 @@ Then in Build mode:
 
 ---
 
-## 7 · Deciding and talking (Build)
+## 7 · Deciding and talking (Build) ✅
 
-> Wire decisions: option tap → `inbox.decide` with `chosenOption`, buttons disabled on press, success haptic, the sheet collapses into "Your answer: <label>". Free text → `inbox.decide` with `freeText`; when the answer is `pending_confirmation`, show the plan's actions as rows and a Confirm button on `plan.confirm`, with "Nothing runs until you confirm." Questions go to `agent.conversation.inboxReplyStream`. Approvals: Approve / Decline → `team.approvals.resolve`. Build the Conversation screen (`agent.conversation.get`, `sendStream` with `clientMessageId`, streamed bubble, quick replies rising 40 ms apart, hand-off → staged plan → Confirm, the typing line naming what the agent reads). Build the Nudge sheet (`dev.tasks.shout` with the presets from the agent's profile plus a 280-char custom line) and the "Understood." acknowledgment bubble.
+> Wire decisions: option tap → `inbox.decide` with `chosenOption`, buttons disabled on press, success haptic, the sheet collapses into "Your answer: <label>". Free text → `inbox.decide` with `freeText`; when the answer is `pending_confirmation`, show the plan's actions as rows and a Confirm button on `plan.confirm`, with "Nothing runs until you confirm." Questions go to `agent.conversation.inboxReplyStream`. Approvals: Approve / Decline → `team.approvals.resolve`. Build the Conversation screen (`agent.conversation.get`, `sendStream` with `clientMessageId`, streamed bubble, quick replies rising 40 ms apart, hand-off → staged plan → Confirm, the typing line naming what the agent reads). Build the Nudge sheet (`dev.tasks.shout` with the chips from the conversation's `persona.nudges` sent as `text`, plus a 280-char custom line) and the "Understood." acknowledgment bubble.
 
 **Accept when:** a decision on your own business returns and the note shows the answer; a streamed reply renders word by word; a retry with the same `clientMessageId` does not duplicate the message.
 
 ---
 
-## 8 · Team (Build)
+## 8 · Team (Build) ✅
 
-> Build the Team tab from section 6 of the product skill: the leads-first agents list (Chief of Staff pinned, leads with expanding specialists, background helpers behind one line and a sheet), the caption line, department filter chips; the Agent profile with ProfileHeader, Now card with "Watch", Talk, Nudge, the three skill sections with 20-cell bars and band words, Other roles, traits, Coach report with a development sparkline, Form, History, Contract; owner/admin actions Train (focus picker, Estimate, run with a live rail, results old → new with drops over 1 point highlighted, Promote / Discard, rollback during the seven-day watch), Change model (Opus / Sonnet / Haiku, comparison, apply scope sheet), Pause / Resume, Let go. Sub-screens Staff, Health (Down rows with expected back), Hierarchy, Recruitment.
+> Build the Team tab from section 6 of the product skill: the leads-first agents list (Chief of Staff pinned, leads with expanding specialists, background helpers behind one line and a sheet), the caption line, department filter chips; the Agent profile with ProfileHeader, Now card with "Watch", Talk, Nudge, the three skill sections with 20-cell bars and band words, Other roles, traits, Coach report with a development sparkline, Form, History, Contract; owner/admin actions Train (focus picker, Estimate, run with a live rail, results old → new with drops over 1 point highlighted, Promote / Discard, rollback during the seven-day watch), Change model (Opus / Sonnet / Haiku, comparison, apply scope sheet), Pause / Resume, Let go. Sub-screens People (the humans; built as "Staff", renamed in 12B), Health (Down rows with expected back), Hierarchy, Recruitment.
 
 **Accept when:** Northwind shows "Chief of Staff · 6 leads · 23 specialists · 2 need you", portraits load from `/personas/...`, a down agent reads "Down · expected back in …", and ratings read like "16.5 Excellent".
 
+Decided Nov 11: the ratings out of 20, Form, Agent of the week, Hire / Let go / Lend and the wage cap stay in the founder's view (the thesis review's §14 question 7, answered). The tab stays as built and the Agent of the week card (prompt 15) is on.
+
 ---
 
-## 9 · Live sessions (Build)
+## 9 · Live sessions (Build) ✅
 
-> Build "Watch <Agent> work": subscribe to `as:<sessionId>` while open, show the phase rail, progress ring, meter (elapsed, tokens, cost as Estimate, time left), test results as pills, the LogView on ink with `tool_call`, `stdout`, `file_changed`, `test_result`, `note` rows, auto-scroll with "Jump to latest", and the controls Pause, Resume, Nudge, Stop (`dev.tasks.*`). Load history with `dev.sessions.replay` before trusting the stream. Also build Development › Live sessions as a grid of small tiles (phase, progress, agent) that open this screen, and the Task graph as a pannable, zoomable Skia DAG colored by status.
+> Build "Watch <Agent> work": subscribe to `as:<sessionId>` while open, show the phase rail, progress ring, meter (elapsed, tokens, cost as Estimate, time left), test results as pills, the LogView on ink with `tool_call`, `stdout`, `file_changed`, `test_result`, `note` rows, auto-scroll with "Jump to latest", and the controls Pause, Resume, Nudge, Stop (`dev.tasks.*`). Load history with `dev.sessions.replay` before trusting the stream. Also build Development › Working now as a grid of small tiles (phase, progress, agent) that open this screen, and the Task graph as a pannable, zoomable Skia DAG colored by status.
 
 **Accept when:** a running session's log scrolls live, pausing flips the phase pill, and reduced motion freezes the ring on its current value.
 
 ---
 
-## 10 · Journey and the Customer Update player (Plan, then Build)
+## 10 · Journey and the Customer Update player (Plan, then Build) ✅
 
 > Plan the Journey tab from section 7 of the product skill and the JourneyRibbon and ChannelBoard anatomy in the design skill, then build it: the Ribbon as a horizontally scrollable Skia canvas (revenue line in kitLift drawing over 1.2 s on first open, bars beneath, chapters above, pins, the Today pill, the hatched forecast with a dashed line and 7 % cone, pinch to zoom, tap a day for facts, the runway sentence colored by months), the chapters carousel, the Customer Updates feed with gold-edged cards and "New", the Milestones 2 × 4 grid, and the daily round-up table.
 >
@@ -112,11 +131,11 @@ Then in Build mode:
 
 ---
 
-## 11 · Business tab, departments, module screens (Build, in three messages)
+## 11 · Business tab, departments, module screens (Build, in three messages) ✅
 
 Message A:
 
-> Build the Business tab: the department card grid from `department.list` in the founder's order (color dot, lead portrait, "2 of 3 working", Working on now, headline metric with a Skia sparkline, Next, health pill), then rows for Contacts, Milestones, Settings, and Network / Communities / Leaderboards only on a LIVE business. Build the department screen: a segmented control of the department's tabs, each rendering the supported widgets as a vertical stack and "Open on the web for this view" otherwise. Never hard-code a department name.
+> Build the Business tab: the department card grid from `department.list` in the founder's order (color dot, lead portrait, "2 of 3 working", Working on now, headline metric with a Skia sparkline, Next, health pill), then rows for Contacts, Milestones, Settings, and Network / Communities / Leaderboards only on a LIVE business (as built; 12A removes Leaderboards and puts the other two on hold). Build the department screen: a segmented control of the department's tabs, each rendering the supported widgets as a vertical stack and "Open on the web for this view" otherwise. Never hard-code a department name.
 
 Message B:
 
@@ -124,45 +143,137 @@ Message B:
 
 Message C:
 
-> Build Legal (Entity, Compliance calendar with "requires your identity" tags, Contracts, Regulatory, every recommendation captioned "Information, not legal or tax advice.", incorporation status linking to the web), Contacts (search, list with relationship strength 1–20 and lead score stars, the contact sheet with facts, roles, notes and Add a note, reachable from every mention in the app), and Milestones as its own screen.
+> Build Legal (Entity, Compliance calendar with "requires your identity" tags, Contracts, Regulatory, every recommendation captioned "Information, not legal or tax advice.", incorporation status linking to the web), Contacts (search, list with relationship strength 1–20 and role and stage chips, the contact sheet with facts, roles, notes and Add a note, reachable from every mention in the app), and Milestones as its own screen.
 
 **Accept when:** Northwind's "Formulation Lab" and "Retail Partnerships" appear as departments with their own colors; Finance opens on exactly one sentence and three numbers; the Channel Board places running channels by fit.
 
+Prompt 12B message A regroups this tab into the five areas; the department screens and module screens built here stay and are reached through their area.
+
 ---
 
-## 12 · Settings, vacation, stop, preferences (Build)
+## 12 · Settings, vacation, stop, preferences (Build) ✅ built, checks 2–7 open
 
 > Build Settings from section 9 of the product skill: Business (read-only), What the team can do (the shield block verbatim, three radio cards in words, the spend line money field, who answers, Autopilot), Vacation (Until: a date / a condition / until I return; authority; budget ceiling; wake events; while on, Continue reads "On vacation until Oct 21" with Come back), Stop all agents with the "Nothing is deleted." confirmation, Preferences (Explain things as I go, Text size, Date format, Agent names and faces with the four styles, Notifications per kind, Hide amounts on the lock screen, Haptics, Sounds off by default), Billing (plan, usage, Top up opening Checkout in the system browser for owners), Example business (Explore / Leave), Account (email, Sign out). Rows for Departments, Members, Integrations, Keys and Danger zone open `https://foundmill.com/b/<businessId>/settings/<tab>`.
 
 **Accept when:** changing the spend line updates the slab chip's words ("Asks over £100") after `business.get` refetches; starting a vacation flips Continue; a viewer sees every control disabled with the viewer sentence.
 
+**Close-out message** (checks 2 to 7, one group per turn as Newly asks):
+
+> Run the remaining Settings checks in order, one per turn, and tell me after each what you saw. (2) Tap the Continue pill while Commutair is on vacation: the sheet opens and Come back calls `business.endHoliday` with `{ reason: "founder_returned" }` (the only two values the server takes are "founder_returned" and "kill_switch"; anything else is a 400). The pill goes back to rest. (3) Stop all agents: the sheet's first line is "Nothing is deleted."; confirm, see the team stopped, then Resume. (4) Explain things as I go off and on. (5) Agent names and faces: Fantasy and back to Humans; portraits change. (6) Billing on Commutair: plan, usage this period labeled Estimate, Top up opens the checkout page in the system browser and nothing is charged (close it). (7) Open Northwind: every write control is disabled with "As a viewer you can follow this business, but not change it." If a round starts and stops with "the model account that runs Foundmill is out of credit", that is on Foundmill's side and not a bug in the app: show the sentence as the note says it.
+
+---
+
+## 12A · Course correction: the rules changed under the app (new chat; Build, then Ask, then Build)
+
+Send this before 12B, in a new chat, after re-creating the four skills in Settings › Skills (delete each and create it again with the new body) so the agent reads the current contract.
+
+Message 1 (Build):
+
+> Replace `AGENTS.md` at the project root with exactly the content I paste below. Then re-read the four skills `foundmill-backend`, `foundmill-design`, `foundmill-voice`, `foundmill-product` as they stand now in this project; they changed. Confirm the file is replaced and list, in one line each, the rules in AGENTS.md that are new to you.
+>
+> [paste the current AGENTS.md]
+
+Message 2 (Ask):
+
+> Audit the whole app against the new AGENTS.md and the four skills and list every disagreement, grouped: (a) **words**: "staff", "seat", "cycle" or a cycle number shown to a founder, "demo" as a chip or caption, "league" or "leaderboard" anywhere, any sentence that names jobs, employment, careers or AI taking work as a reason, any line that tells a founder they need another person or that a one-person project is missing someone; (b) **surfaces that no longer exist or are on hold**: Leaderboards (removed from the product for good), Network and Communities (on hold), any `live.*` call; (c) **shapes the skill now documents differently**: `team.personas.ensure` as a query with `names`, `business.get().isDemo` as the Sample business caption, `billing.plan().credits`, `business.example.get` and the Leave / Explore rule, `business.endHoliday`'s reason enum, `business.continue().summary.plainHeadline`, `cycle.status().lastCost`, `inbox.get().approval.what`, `today.get().firstWeek`, `journey.ribbon().customers`; (d) **navigation**: the Business tab still a department grid instead of the four areas, screens without the Chief of Staff control (both are built in 12B; list them, do not build them here). For each item give the file and the line. Change nothing in this turn.
+
+Message 3 (Build):
+
+> Fix groups (a), (b) and (c) from your list: rename every human-facing "Staff" to People and remove "seat"; replace "cycle" with "round of work" in every string a founder reads; remove the Leaderboards screen, its row, its route and every `live.leaderboards` call (do not hide it: delete it); hide Network and Communities behind a single `LIVE_SURFACES_ON_HOLD` flag set to true; move every call to the documented shape; add the new banned-word entries (staff, seat, cycle N to a founder, leaderboard, demo, the subtext phrases) to the lint test and make it pass. Leave group (d) for 12B. Rebuild, run the device checks on Team, Settings and the Business tab, and report what changed.
+
+**Accept when:** the banned-word test fails on a planted "staff" and on a planted "leaderboard"; no screen reaches `live.leaderboards.*`; `team.personas.ensure` is a GET; Settings shows "Explore an example" on Commutair and "Leave the example" on Northwind; the audit's group (d) is a short list handed to 12B.
+
+---
+
+## 12B · Catch up with the web: areas, the Chief of Staff, the first week, honest words (Build, in five messages)
+
+Message A, **areas**:
+
+> Regroup the Business tab into the founder's areas, exactly as the web's sidebar now does (backend skill, "Areas"). The tab opens on four area cards, in this order: **Plan, Customers, Money, Product** (Team is already the third tab, so it is not repeated here). Each card shows the area's one-sentence opening line from `business.areas.words` (words plus an Estimate or Forecast chip when `provenance` is set; a skeleton that says "Reading the numbers" until it answers; the Company line under Money's sentence), and under it the area's inline tabs as chips. Tapping a card opens the area screen: the sentence at the top, a segmented control of the area's **inline** tabs, a "More detail" sheet listing the rest, and each tab rendering the department screen you built in prompt 11 (module screen or widgets). Compute the grouping on the device from `department.list` with the mapping in the backend skill: a tab goes to the area of the module that owns its slug (product and development → Product, distribution → Customers, finance and legal → Money, team → Team; `roadmap` goes to Plan), a founder's own tab goes with the department's first module, a department with no modules keeps its own card after the areas, two departments with the same tab title in one area carry the department after a "·". Inline tabs are each module's default pair; a department with no inline tab gets its first one promoted so it is never only behind "More detail". Plan also lists **Milestones**; Customers also lists **Contacts**. Below the four cards keep the Settings row (Network and Communities stay behind the `LIVE_SURFACES_ON_HOLD` flag from 12A; Leaderboards no longer exist). Under a department's name show the kind line when it differs from the area ("Formulation Lab is part of Product."). Never hard-code a department name.
+
+**Accept when:** Northwind's Business tab shows four cards with four sentences; Money's reads like "You have £25K and earn more than you spend, so cash is not running out." with an Estimate chip and a Company line; Plan lists Specification, Roadmap, Milestones and (behind More detail) the Product department's other tabs; "Formulation Lab › Specialists" is reachable from Product.
+
+Message B, **the Chief of Staff on every screen**:
+
+> Add one "Ask <Chief of Staff's name>" control to every screen's header (a ghost button with the Chief of Staff's portrait; hidden while `chiefOfStaff.who` is null). It opens a sheet with three rows, "What's happening?", "What's blocking us?", "Why am I seeing this?" (this third row only while "Explain things as I go" is on, the one thing that switch governs on the phone), and a last row "Ask something else…". A row calls `chiefOfStaff.answer { question, page: { path, area, purpose } }` and shows the two to four sentences through EntityText (mentions tappable), with "Continue in chat" opening the conversation with the question as the first message; "Ask something else…" opens the conversation with nothing typed. `page.path` is the web path of the screen you are on (`/b/<id>/today`, `/b/<id>/inbox`, `/b/<id>/d/<deptSlug>/<tabSlug>`, `/b/<id>/agents/<agentId>`, `/b/<id>/settings`, `/b/<id>/crm`, `/b/<id>/milestones`, `/b/<id>/journey`), `page.area` the area key when the screen is in one, `page.purpose` the screen's own one-line purpose from `docs/screens.md` when it has one (plain text, under 300 characters). Keep the answers as they come: the server already labels Forecast and Estimate and writes US dates. No model call happens here and no cost: say so nowhere, just make it instant.
+
+**Accept when:** on Northwind's Today the three questions answer in under a second; "What's blocking us?" names the first note in Needs you; on a department tab "Why am I seeing this?" starts with the area's purpose sentence.
+
+Message C, **Today's first week, empty states, the sample**:
+
+> On Today, when `today.get().firstWeek` is not null, show the "Your first week" panel under Needs you: three steps (Day 1, Days 2–3, Week 1) with their state (Done / Now / Next), `when`, `team` and `asks` lines as the server sends them, and the `paused` line when present; nothing is computed on the device and the panel disappears when the field is null. Replace every bare empty state on Today, Customers' Leads and Campaigns, Contacts, Milestones, the Roadmap, the Specification, Money's cash views, Company's entity and compliance and Recruitment with the exact sentences in the voice skill's "Empty screens" list (the Needs you sentence has a first-days variant: use it when `firstWeek` is not null). On any business whose `business.get().isDemo` is true, show a quiet "Sample business" caption under the name in the slab, with the sentence "Its figures are made up for the example: nothing here is real money or real customers." in the business switcher; on the example business add "Nothing you do here is saved." Read Customers this week from `journey.ribbon().customers.thisWeek` (and `previousWeek` for the delta) instead of counting rows, and name the revenue tile "Average monthly revenue" when `finance.overview().revenue.recurring` is false and "Monthly recurring revenue" when true.
+
+**Accept when:** a brand-new business shows "Your first week" with Day 1 as Now and the two later steps labeled Estimate; Northwind shows the Sample business caption and no first-week panel; the Customers this week tile matches the web's Home tile.
+
+Message D, **Continue's words and the honest numbers**:
+
+> Make Continue answer in words. After `business.continue` resolves, show `summary.plainHeadline` as the toast with `summary.detail` as its second line and, when the answer carries `item` (the one note written because the orchestrator was unreachable), make the toast open that note. Within a second of the press, before the server answers, the pill's label reads "Starting the next round of work…". On the pill's long-press sheet add "Last round cost $0.52 · Estimate" from `cycle.status().lastCost` (hide the line when null). When `business.get().orchestrator.reachable` is false, the idle pill's sheet says "The team cannot run right now: the service that runs the team's work is not reachable. A press writes one note; no agent works." and the press still works. Everywhere the app speaks to the founder, say "round of work", never "cycle N"; "cycle" stays only in code. On approval notes, render `inbox.get().approval.what` under the sentence: the `headline` when set, then `rows` as label and value pairs (mono face when `mono`), and when `what.empty` is true show the server's sentence as it is and make Reject the recommended option under the label "Ask for the details". When `approval.githubConnected` is false, show "Connect GitHub first" as the recommended action opening the web's Integrations page. When `approval.batch` has more than one entry, show one expander per request (agent, action, amount, what) and one Approve all / Reject all.
+
+**Accept when:** pressing Continue on your own business shows "The next round of work started: 3 tasks ready to build" (or the "nothing is ready to build yet" variant) within a second; an approval note on Commutair shows its What exactly rows; the sheet shows the last round's cost.
+
+Message E, **People**:
+
+> Rename every human-facing use of "Staff" to **People** (the Team sub-screen, its row, the invite sheet, `docs/screens.md`): the humans of a business are its People, **cofounders** (equal standing, any number) and **collaborators** (limited access). The role chips keep the API's role words where the API has no cofounder role yet (owner, admin, member, viewer) and the sheet's title reads "People". Remove the word "seat" anywhere it appears and never cap the number of people in copy. Call the business a **project** in the app's own sentences while `journey.ribbon().customers.total` is 0 and a **business** after the first sale (one `useProjectWord()` helper; API-written text is left as it comes). Run the banned-word check with the new entries from the voice skill (staff, seat, and the subtext list: job, jobs, employment, unemployment, career, 9 to 5, laid off, "AI taking", as reasons).
+
+**Accept when:** Team shows a People row and screen; the banned-word test fails on a planted "staff" string; a business with no sale reads "project" in the app's own lines.
+
+---
+
+## 12C · Public page (Build; send only once package 1.1 is on main)
+
+Gate: the roadmap branch's public project pages (migration 0077, `page.*`, `publicPage.bySlug`) are merged and deployed, and the backend skill's "Public page" section is no longer marked coming. Until then, skip this prompt.
+
+> Add Product › **Public page** as a native module screen (the tab slug is `public-page`; it is one of Product's inline tabs). Read `page.get` → `{ slug, url, saved, draft: { pitch, about, forWhom, stage, showFounders }, published, live, publishedAt, unpublishedAt, changed, canEdit, canPublish, isSample, preview: { name, brandPrimary, brandSecondary, founderNames } }`. Show a phone-sized preview of the page first (name, the pitch, "What it is", "Who it is for", the stage as Idea / Being built / Live, "Built by" only when `showFounders` is on), then the fields to edit when `canEdit` (pitch up to 140 characters, about up to 1,500, who it is for up to 300; save with `page.saveDraft { draft }`), the address with `page.setSlug { slug }` while the page is not live, and, when `canPublish`, **Publish** (`page.publish { content }`), **Publish changes** when `changed`, and **Take it down** (`page.unpublish`). A publish may answer `{ outcome: "held", message }` (an email address, a phone number or code in the text): show the message as it comes and keep the page unpublished. The state line reads "Not published yet", "Live since Oct 7, 2026" or "Live, with changes not yet published". When live, a **Share** button opens the system share sheet with `url`. A sample business never has a page (`isSample`): say "A sample business has no public page." On Today, when `today.get().pageReady` is true, show one quiet row "Your project's public page is ready to check" with Open, never a badge or a count.
+
+**Accept when:** on Commutair the page previews from the project's own words, a publish puts it live at its address and the share sheet opens with the link; Northwind says a sample business has no page.
+
 ---
 
 ## 13 · Push notifications (Build)
 
-> This is a native batch: in the same build also add `expo-crypto` so the tapped-link PKCE flow uses sha256 instead of plain, and set the Android package id to `com.foundmill.app` to match iOS (both deferred from prompt 3). Then add push notifications with OneSignal through Newly's Integrations › Push notifications, connecting **our own OneSignal account** (not the Newly-managed app): Foundmill's server sends through that OneSignal app's REST API key, so the app id must be ours. On sign-in and on every launch, send the OneSignal subscription id to `founder.devices.register` ({ platform, provider: "onesignal", token, appVersion }) and on sign-out to `founder.devices.unregister`; never block sign-in on either, log a failure and retry on the next launch. Route a tapped notification on its payload (`kind: inbox | journey | team | today`, `businessId`, `itemId`, `journeyId`, `agentId`) to the matching screen after switching business. While the app is in the foreground show the stream's toasts instead of local notifications. Add the per-kind notification switches to Preferences and store them with `founder.preferences.update` under `notifications`.
+> This is a native batch: in the same build also add `expo-crypto` so the tapped-link PKCE flow uses sha256 instead of plain, and set the Android package id to `com.foundmill.app` to match iOS (both deferred from prompt 3). Then add push notifications with OneSignal through Newly's Integrations › Push notifications, connecting **our own OneSignal account** (not the Newly-managed app): Foundmill's server sends through that OneSignal app's REST API key, so the app id must be ours. On sign-in and on every launch, send the OneSignal subscription id to `founder.devices.register` ({ platform, provider: "onesignal", token, appVersion }) and on sign-out to `founder.devices.unregister`; never block sign-in on either, log a failure and retry on the next launch. Route a tapped notification on its payload (`kind: inbox | journey | team | today`, `businessId`, `itemId`, `journeyId`, `agentId`, `approvalId`, `goalId`) to the matching screen after switching business. While the app is in the foreground show the stream's toasts instead of local notifications. Wire the per-kind notification switches in Preferences to `founder.preferences.notifications` and `founder.preferences.update` under `notifications` (the seven kinds: decision, approval, customer, agent_down, runway, run_finished, goal; every kind is on until turned off).
 
 **Accept when:** a test push from the OneSignal dashboard with `{"kind":"inbox","businessId":"…","itemId":"…"}` opens that note cold-start and warm.
+
+Before sending: the founder creates Foundmill's own OneSignal app, connects it in Newly, and sets `ONESIGNAL_APP_ID`, `ONESIGNAL_API_KEY` and `LIVE_CONNECTORS=onesignal` on the gateway (docs/DEPLOY.md §5.6).
+
+Also in this native batch, so no second rebuild is needed later: **universal links** (iOS associated domains `applinks:foundmill.com`, Android intent filters for `https://foundmill.com/b/*` and `https://foundmill.com/p/*`), routed exactly like the push payloads. The retention work sends founders email with links and one-click answers; on a phone those links must open the app, not the website. They start working once the web serves `apple-app-site-association` and `assetlinks.json` (`BACKEND_CHANGES.md` item 5); until then the links open the website, which is fine.
+
+When `founder.preferences.notifications` (or `founder.preferences.get`) starts returning email preferences (the retention session's founder email), show them in Preferences as a second group, "Email", under the push switches, wired the same way. Until the fields exist, show only the push group.
+
+---
+
+## 13B · Sign-in additions: Google, Apple, 18 or older, the waitlist (Build; send only when the backend says so)
+
+Gate: `BACKEND_CHANGES.md` item 12 is marked done (the api accepts Google-proven sessions; Supabase has the Google provider with iOS and Android client ids, and Apple if the founder decides to offer it), and the backend skill's sign-in section names the new methods. Until then the app keeps the email code only.
+
+> Add **Continue with Google** above the email field on the sign-in screen, using native Google sign-in (`@react-native-google-signin/google-signin`) and `supabase.auth.signInWithIdToken({ provider: "google", token })`; on iOS also add **Continue with Apple** (`expo-apple-authentication` and `signInWithIdToken({ provider: "apple", token, nonce })`), because the App Store asks for an equivalent private sign-in option whenever a third-party one is offered. Keep "Sign in with your email" as the third option, unchanged. After any sign-in, if the API answers that the person has not confirmed they are 18 or older, show one screen, "Foundmill is for people 18 or older." with a checkbox "I am 18 or older" and Continue, calling the confirmation procedure the backend skill names; and when the API answers that the person is on the waitlist, show their place and their referral link with the system share sheet, in the words the API sends. This is a native batch (two new modules): say so and rebuild once.
+
+**Accept when:** Google sign-in reaches Today on iOS and Android, Apple on iOS, the 18-or-older screen shows once for a new account and never again, and the email code still works.
+
+---
 
 ---
 
 ## 14 · Start flow: profile, doors, ideation, commit, import (Plan, then Build in two messages)
 
-> Plan section 12 of the product skill: Before you start (two passes, skill sliders with the None / Some / Solid / Expert anchors mapping to 3 / 8 / 13 / 18, "Show me an example", the Welcome aboard toast), Your first business (three doors), Ideation (the brief with the Fan generate control streaming `idea.draft`, swipeable concept cards with ten attributes and stars, Shortlist / Merge / Fork / Ask / Discard, More like this, Compare up to four with a Skia radar), Commit (name with `idea.domainCheck`, logo upload / generate / initials, brand colors with the contrast check, archetype, How it runs, Take charge → `idea.commit` → Today with the first-week checklist), Import (sources, polling `import.status`, the Import report, Commit). Then build the profile and doors, then ideation, commit and import.
+> Plan section 12 of the product skill: Before you start (two passes; the time-commitment card that used to say "Keep my day job for now" reads "Fits around what I already do"; skill sliders with the None / Some / Solid / Expert anchors mapping to 3 / 8 / 13 / 18; "Show me an example"; the Welcome aboard toast), Your first project (three doors; the example door says what it opens: a business two years in, whose figures are its own and not a forecast of yours), Ideation (the brief with the Fan generate control streaming `idea.draft`; **"Use my idea as written"** → `idea.write` makes one card from the founder's words; swipeable concept cards with ten attributes and stars; **Edit** on every card → `idea.edit` for the name, the pitch and the kind of business; a "Your words" chip while the pitch is the founder's and a "Sample" chip when the mock model wrote it; Shortlist / Merge / Fork / Ask / Discard; More like this; Compare up to four with a Skia radar; the card's button reads **"Choose this idea"**), Commit (name with `idea.domainCheck` stamped with the time this device received the list; logo upload / generate / initials; brand colors with the contrast check; four labeled lines Where it runs / Who decides / Kind of business / On a schedule instead of a chip row; the roster without background helpers and its monthly wage line in USD labeled Estimate; a renamed department introduced as "Editorial · your Product department"; **Take charge** → `idea.commit` → Today, which shows "Your first week" from `today.get().firstWeek`), Import (sources, polling `import.status`, the Import report, Commit). Then build the profile and doors, then ideation, commit and import.
+>
+> Keep the profile and Commit screens thin and data-driven: the web plans to shrink both to a few plain questions (what should we call you, what are you good at, what are you here for) with everything else later, so no screen here may hard-code the question list.
 
-**Accept when:** a new account can go from sign-in to Today of a brand-new business entirely on the phone, and "Explore an example" opens Northwind in read-only mode with "Start your own" in Continue's slot.
-
----
-
-## 15 · Mobile-only delight (Build)
-
-> Add the mobile-only touches from section 10 of the product skill, each computed from existing data and labeled honestly: the "Answered within a day, N days running" line on Today's Needs you header (from `cycle.history` and answered notes), the Sunday "Your week" card (notes answered, customers won, cycles run, AI usage from `billing.usage`), the Agent of the week card on Mondays, a long-press on any portrait for a quick profile card, a long-press on Continue for "Run one cycle only" (`business.continue` then `pauseCycle` after the first `cycle.completed`), and home-screen quick actions (iOS and Android) for "Needs you" and "Continue". Keep every one inside the voice and design rules: no points, no badges, no streak fire, no emoji.
+**Accept when:** a new account can go from sign-in to Today of a brand-new project entirely on the phone, "Use my idea as written" produces a card that keeps the typed words and goes straight to Commit, and "Explore an example" opens Northwind in read-only mode with "Start your own" in Continue's slot.
 
 ---
 
-## 16 · LIVE social (Build; only after the business is LIVE)
+## 15 · Mobile-only touches (Build)
 
-> When `business.get().gameMode === "live"`, add Network (connections, requests, people search, visibility), Communities (feed, post, join, invitations) and Leaderboards (boards by kind, period and division, position and movement, the business's own row highlighted, labels like "Customers won · B2B SaaS · EU") under the Business tab, driven by `live.*`, and subscribe to `u:<userId>` for the badge. Hide all of it on Personal businesses; the API answers FORBIDDEN "LIVE is not open yet" there.
+> Add the mobile-only touches from section 10 of the product skill, each computed from existing data and labeled honestly: a **"Since you were last here"** card at the top of Today when the app was closed for more than six hours (notes landed, customers won, rounds finished, from `inbox.list`, `journey.list` and `cycle.history` since the last-open time kept in MMKV; "Nothing happened while you were away." when nothing did); the Sunday **"Your week"** card (notes answered, customers won, rounds run, AI usage from `billing.usage`); the **Agent of the week** card on Mondays (the best agent of the week by rating, form or value from `team.agents.list`, with the reason in one line); a long-press on any portrait for a quick profile card; a long-press on Continue for **"Run one round only"** (`business.continue` then `pauseCycle` after the first `cycle.completed`); home-screen quick actions (iOS and Android) for "Needs you" and "Continue". **The daily streak** (founder, Nov 11): show it only from the field the server sends once the retention work ships it (never counted on the device, so the phone and the web always agree and a vacation is treated the way the server decides), as one quiet line on Today in words ("Back 5 days in a row"), with no flame, no emoji, no badge and no sound; when the server sends no streak, show nothing. When the server ships its own "Since you were last here", replace the device-computed card with the server's version. No points, no badges beyond the Milestones.
+
+---
+
+## 16 · LIVE social (on hold; Leaderboards removed for good)
+
+Do not send this. **Leaderboards were removed from the product on Nov 11** (routes, procedures and tables; migration 0076 on the rebuild branch): never build them, and 12A deletes any trace. The thesis review retires "game mode" (Personal or Live becomes "Who can see this: only us / anyone") and opens the people layer to everyone (package 2.5), so Network and Communities would be built against an API that is about to change; they stay behind the `LIVE_SURFACES_ON_HOLD` flag. The People surfaces that replace them are Phase B below.
 
 ---
 
@@ -170,7 +281,7 @@ Message C:
 
 Ask message:
 
-> Review the whole app against AGENTS.md and the four skills and list every violation: hex outside tokens, a banned word or British spelling in a string, a dash shown for a missing value, a number without Estimate or Forecast where it is not measured, a control under 44 × 44, text under 4.5:1, an animation without a reduced-motion state, a screen without an empty / loading / error / read-only state, a fetch outside the api layer, a place where a founder could see an id, enum or mode name.
+> Review the whole app against AGENTS.md and the four skills and list every violation: hex outside tokens, a banned word or British spelling in a string ("staff" and "seat" included), a sentence that names jobs, employment or careers as a reason to be here, a dash shown for a missing value, a number without Estimate or Forecast where it is not measured, "cycle" shown to a founder, a control under 44 × 44, text under 4.5:1, an animation without a reduced-motion state, a screen without an empty / loading / error / read-only state, a screen without the Chief of Staff control, a fetch outside the api layer, a place where a founder could see an id, enum or mode name.
 
 Then:
 
@@ -178,8 +289,21 @@ Then:
 
 ---
 
+## Phase B · People (after the backend ships it; not before)
+
+The thesis review's roadmap (docs/THESIS_REVIEW.md §13, phases 2 to 5) makes the native app the phone's home for the people side: a person exists before any project, can find people and projects, invite, join and message. **Every one of these is an offer beside the solo path (R0, "Solo is complete")**: a project with one person looks and works exactly as before, with no empty People panel, no "invite someone" step, no note addressed to an absent group, and no suggestion of people to a founder who did not say they are looking. None of it is in the API yet. Each prompt below names the backend package it waits for; send it only once `BACKEND_CHANGES.md` marks that package shipped and the backend skill carries the procedures.
+
+- **18 · The person** (packages 2.2, 2.3, 2.4): sign-up confirms 18 or older once; Before you start becomes three plain questions (what should we call you; what are you good at or enjoy, as tags; what are you here for: start something, find a project or people, not sure yet; the import door a smaller third option), a public person page with per-field visibility, and Home for a person with no project: start something first, then people and projects that fit for those who asked, requests, messages.
+- **19 · People in a project** (packages 3.1, 3.3, 3.4, 3.5): the People screen with cofounders, collaborators and open roles; invitations by link and email with accept / decline; join requests landing in Needs you; the two-week trial with its check-in note.
+- **20 · Share** (packages 1.1, 5.3): the project page hosted free at a Foundmill address, its link from Today and from every milestone; milestone cards as images with a link to the page; "this is live, send it to someone" as the first session's ending. A public page opened on a phone keeps its content with a prompt to get the app.
+- **21 · Messages and finding people** (packages 3.7, 4.2, 4.3): a project thread, comments on notes and tasks, browse people by strengths and projects by need, the matcher's suggestions with one honest line of why.
+- **22 · Store hand-over** (package 2.1): once the app is in the stores, the small-screen web sends people to download it through one config value; nothing to build in the app beyond universal links (`BACKEND_CHANGES.md` item 5).
+
+---
+
 ## Reusable follow-up prompts
 
 - **A screen looks wrong:** "On <screen> the <element> shows <what I see>; it should <what the skill says>. Attach: screenshot. Diagnose first in Ask mode, then fix."
 - **New data from Foundmill:** "Foundmill added `<procedure>` returning `<fields>`. Use it on <screen> for <purpose>, with the empty state '<sentence>'."
-- **Copy audit:** "List every string in app/, components/ and features/ that is not sentence case, contains an exclamation mark, a banned word, a British spelling, or a dash used as a placeholder."
+- **Copy audit:** "List every string in app/, components/ and features/ that is not sentence case, contains an exclamation mark, a banned word, a British spelling, 'staff', 'seat', 'cycle', or a dash used as a placeholder."
+- **A skill changed:** "I replaced the `<skill>` skill. Re-read it before the next change; list anything in the app that now disagrees with it."
