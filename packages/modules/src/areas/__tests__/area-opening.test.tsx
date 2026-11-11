@@ -89,7 +89,7 @@ describe("AreaOpening", () => {
     expect(screen.getByRole("region", { name: "Money at a glance" })).toBeTruthy();
     expect(sentence()).toBe("You have £25K and spend about £18K a month more than comes in, so you have about 1.4 months of cash.Estimate");
     expect(line().querySelector("[data-area-sentence] [data-provenance='estimate']")).toBeTruthy();
-    expect(line().querySelector("[data-area-section='company']")?.textContent).toBe("Company: Northwind Ltd: 2 filings are due in the next 90 days, the first on Dec 1.");
+    expect(line().querySelector("[data-area-section='company']")?.textContent).toBe("Company: Northwind Ltd: 1 filing is due in the next 30 days, on Dec 1.");
     expect(line().querySelector("[data-area-kind]")?.textContent).toBe("Finance is part of Money.");
     // The same reads as the tabs, so the line shares their cache entries.
     expect(fake.queried.get("finance.overview")).toEqual({});
@@ -172,10 +172,13 @@ describe("the facts behind the lines", () => {
   it("counts each deadline once and reads filed and waived filings as done", () => {
     const facts = companyFacts(legalStatus, compliance, TODAY);
     expect(facts.deadlines).toEqual([
-      { dueOn: "2026-12-01", open: true },
+      { dueOn: "2026-12-01", open: true, window: "due" },
       { dueOn: "2026-10-01", open: false },
-      { dueOn: "2027-01-20", open: true },
+      { dueOn: "2027-01-20", open: true, window: "upcoming" },
     ]);
+    // A filing the nightly roll already moved to due counts as due, as on Compliance.
+    const rolled = companyFacts(legalStatus, { filings: [{ id: "f2", dueAt: "2027-02-01T00:00:00.000Z", filedAt: null, status: "due" }] }, TODAY);
+    expect(rolled.deadlines).toEqual([{ dueOn: "2027-02-01", open: true, window: "due" }]);
   });
 
   it("picks the channel most customers came from, else most leads", () => {

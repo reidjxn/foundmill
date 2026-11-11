@@ -21,6 +21,15 @@ describe("milestones (BUILD §11.4 trophy cabinet)", () => {
     expect(trophyCards(rows, "EUR", false).every((c) => !c.shareable)).toBe(true);
     expect(trophyCards(undefined, "GBP", false).every((c) => c.achievedAt === null)).toBe(true);
   });
+  it("names a revenue milestone as Finance names its monthly figure, the same figure (DECISIONS 2026-11-11)", () => {
+    const recurringCard = trophyCards(rows, "GBP", false, true).find((c) => c.key === "mrr_10k")!;
+    expect(recurringCard.label).toBe("First £10K MRR");
+    expect(recurringCard.description).toBe("Monthly recurring revenue (MRR) reaches £10K: the last 3 full months' revenue ÷ 3, as on Finance (Estimate).");
+    const oneOff = trophyCards(rows, "GBP", false, false);
+    expect(oneOff.find((c) => c.key === "mrr_10k")).toMatchObject({ label: "First £10K monthly revenue", description: "Average monthly revenue reaches £10K: the last 3 full months' revenue ÷ 3, as on Finance (Estimate)." });
+    // A stored row keeps its own date and is still matched by its key, whatever its stored label.
+    expect(trophyCards(rows, "EUR", false, false).find((c) => c.key === "mrr_1k")!.achievedAt).toBe("2026-05-01T10:00:00Z");
+  });
   it("falls back to kind + label when the ref carries no key", () => {
     const cards = trophyCards([{ id: "x", kind: "customer", label: "First customer", achievedAt: "2026-01-01T00:00:00Z" }], "EUR", false);
     expect(cards.find((c) => c.key === "customer_1")?.achievedAt).toBe("2026-01-01T00:00:00Z");

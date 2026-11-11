@@ -9,7 +9,7 @@
  * Errors the agent can act on come back as `PlatformToolError`s; any other failure is logged without its parameters
  * and answered with a plain "try again".
  */
-import { AppError, ConflictError, NotFoundError, uuid, type TaskStatus } from "@foundmill/shared";
+import { AppError, ConflictError, NotFoundError, filingWindow, uuid, type TaskStatus } from "@foundmill/shared";
 import { attachAddedSkills, repos, resolveLibrarySkill, resolveSkillFile, skillLibraryEntries, type Agent, type Db, type ResolvedSkill, type Task } from "@foundmill/db";
 import { PlatformToolError, type PlatformCaller, type PlatformHost, type TaskSummaryT } from "@foundmill/connectors";
 import { writeGatewayEvent } from "./events";
@@ -25,7 +25,7 @@ const REPOSITORY_DOC_NOTICE = "Text from the business's code repository (default
 
 /** Messages `list_messages` reads back: the newest of the business's typed messages, filtered to the caller. */
 export const PLATFORM_MESSAGE_WINDOW = 500;
-/** How far ahead `read_legal` looks for filing and compliance deadlines (days). */
+/** How far ahead `read_legal` looks for filing and compliance deadlines (days): a lookahead; each carries `dueSoon` for the shared 30-day window. */
 export const PLATFORM_DEADLINE_DAYS = 90;
 const TERMINAL: ReadonlySet<TaskStatus> = new Set(["done", "failed", "stopped"]);
 
@@ -273,9 +273,12 @@ export function createDbPlatformHost({ db, log, now = () => new Date(), reposito
     },
     async readLegal(caller) {
       const [entity, deadlines, contracts] = await Promise.all([repos.legal.primaryEntity(db, caller.businessId), repos.legal.upcomingDeadlines(db, caller.businessId, PLATFORM_DEADLINE_DAYS, now()), repos.legal.listContracts(db, caller.businessId, { limit: 100 })]);
+      const at = now();
+      // Inside the shared due-soon window, counted as Compliance counts it (whole days left, rounded up).
+      const dueSoon = (d: Date | null) => d !== null && filingWindow(Math.ceil((d.getTime() - at.getTime()) / 86_400_000)) === "due";
       const due = [
-        ...deadlines.filings.map((f) => ({ id: f.id, kind: "filing" as const, title: f.title || f.kind, dueAt: f.dueAt ? f.dueAt.toISOString() : null, status: f.status })),
-        ...deadlines.compliance.map((c) => ({ id: c.id, kind: "compliance" as const, title: c.title || c.kind, dueAt: c.dueAt.toISOString(), status: c.completedAt ? "done" : "pending" })),
+        ...deadlines.filings.map((f) => ({ id: f.id, kind: "filing" as const, title: f.title || f.kind, dueAt: f.dueAt ? f.dueAt.toISOString() : null, status: f.status, dueSoon: f.status !== "overdue" && dueSoon(f.dueAt) })),
+        ...deadlines.compliance.map((c) => ({ id: c.id, kind: "compliance" as const, title: c.title || c.kind, dueAt: c.dueAt.toISOString(), status: c.completedAt ? "done" : "pending", dueSoon: !c.completedAt && dueSoon(c.dueAt) })),
       ].sort((a, b) => (a.dueAt ?? "9999").localeCompare(b.dueAt ?? "9999"));
       return {
         entity: entity ? { id: entity.id, name: entity.legalName, jurisdiction: entity.jurisdiction, status: entity.status } : null,

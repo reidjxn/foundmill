@@ -341,6 +341,28 @@ export const financeRepo = {
   },
 
   /**
+   * `categoryTotals` per calendar month (UTC, "2026-09"), oldest first: the same sums `finance.pnl` makes over a range,
+   * one month at a time, so a run of month windows (the revenue milestones' replay) needs one query, not one per month.
+   */
+  async monthlyCategoryTotals(db: Executor, businessId: string, range: DateRange = {}): Promise<Array<CategoryTotal & { month: string }>> {
+    const r = parseInput(DateRange, range, "date range");
+    const month = sql<string>`to_char(${transactions.bookedAt} at time zone 'UTC', 'YYYY-MM')`;
+    const rows = await db
+      .select({
+        month,
+        category: transactions.category,
+        inflow: sql<number>`coalesce(sum(case when ${transactions.amountMinor} > 0 then ${transactions.amountMinor} else 0 end), 0)::bigint`,
+        outflow: sql<number>`coalesce(sum(case when ${transactions.amountMinor} < 0 then -${transactions.amountMinor} else 0 end), 0)::bigint`,
+        count: sql<number>`count(*)::int`,
+      })
+      .from(transactions)
+      .where(and(eq(transactions.businessId, businessId), timeRange(transactions.bookedAt, r)))
+      .groupBy(month, transactions.category)
+      .orderBy(month);
+    return rows.map((x) => ({ month: x.month, category: x.category, inflowMinor: Number(x.inflow), outflowMinor: Number(x.outflow), count: Number(x.count) }));
+  },
+
+  /**
    * Net burn = trailing average of (operating outflows − operating inflows) over the last `months` full months; positive
    * means burning. Gross burn = operating outflows per month. Financing (a raise, a director loan, its repayment) and
    * transfers between the business's own accounts are not operating cash flow (BUILD §11.8), so a raise never turns net

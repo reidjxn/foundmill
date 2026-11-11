@@ -14,6 +14,7 @@
 import { AREA_LABELS, AREA_SECTIONS, type AreaKey, type AreaSectionKey } from "./areas";
 import { formatCount } from "./copy";
 import type { ProductStage } from "./constants";
+import { FILINGS_DUE_SOON_DAYS, filingWindow, type FilingWindow } from "./filings";
 import { daysBetweenDays, goalDateWords } from "./goals";
 import { formatMoney } from "./money";
 
@@ -29,8 +30,6 @@ export interface AreaWords {
 /** Why there is no runway figure (`runwayState` in @foundmill/widgets/shared/runway; null when there is one). */
 export type AreaRunwayState = "positive" | "no_bank" | "short_history" | "negative";
 
-/** The Company line counts filings due in this many days. */
-export const COMPANY_LINE_DAYS = 90;
 /** The Product line counts what went live in this many days. */
 export const PRODUCT_LINE_DAYS = 7;
 
@@ -110,18 +109,21 @@ export interface CompanyAreaFacts {
   legalName: string | null;
   /** The entity's status ("planned", "forming", "active", "dissolved"); null without an entity. */
   status: string | null;
-  /** Every filing and compliance date, as the Compliance calendar lists them. */
-  deadlines: readonly { dueOn: string | null; open: boolean }[];
+  /**
+   * Every filing and compliance date, as the Compliance calendar lists them; `window` is the deadline's place in the
+   * shared due-soon window (`deadlineWindow`, which keeps a filing's stored due/overdue status), else its date decides.
+   */
+  deadlines: readonly { dueOn: string | null; open: boolean; window?: FilingWindow }[];
   /** The business's day ("2026-11-09"). */
   today: string;
-  /** The window counted (default `COMPANY_LINE_DAYS`). */
-  days?: number;
 }
 
 /**
- * The Company line under the Money sentence:
- * - "Northwind Ltd: 2 filings are due in the next 90 days, the first on Dec 1."
- * - "Northwind Ltd: 1 filing is overdue, and 2 more are due in the next 90 days."
+ * The Company line under the Money sentence, counting the same "due soon" window as Company › Compliance's "Due within
+ * 30 days" tile (`FILINGS_DUE_SOON_DAYS`, `filingWindow`), so the line and the tile are one fact:
+ * - "Northwind Ltd: 2 filings are due in the next 30 days, the first on Dec 1."
+ * - "Northwind Ltd: nothing is due in the next 30 days; the next filing is Jan 20." (or "…, and no later filing is on the calendar.")
+ * - "Northwind Ltd: 1 filing is overdue, and 2 more are due in the next 30 days."
  * - "Your company is not incorporated yet." / "Your company is being incorporated."
  */
 export function companyAreaWords(f: CompanyAreaFacts): AreaWords {
@@ -129,16 +131,22 @@ export function companyAreaWords(f: CompanyAreaFacts): AreaWords {
   if (f.status === "forming") return { text: "Your company is being incorporated.", provenance: null };
   const name = f.legalName.trim();
   if (f.status === "dissolved") return { text: `${name} is dissolved.`, provenance: null };
-  const days = f.days ?? COMPANY_LINE_DAYS;
-  const open = f.deadlines.filter((d): d is { dueOn: string; open: boolean } => d.open && typeof d.dueOn === "string").map((d) => d.dueOn.slice(0, 10));
-  const overdue = open.filter((d) => d < f.today).length;
-  const due = open.filter((d) => d >= f.today && daysBetweenDays(f.today, d) <= days).sort();
-  const window = `in the next ${formatCount(days)} days`;
+  const open = f.deadlines
+    .filter((d): d is { dueOn: string; open: boolean; window?: FilingWindow } => d.open && typeof d.dueOn === "string")
+    .map((d) => ({ day: d.dueOn.slice(0, 10), window: d.window ?? filingWindow(daysBetweenDays(f.today, d.dueOn.slice(0, 10))) }))
+    .sort((a, b) => a.day.localeCompare(b.day));
+  const overdue = open.filter((d) => d.window === "overdue").length;
+  const due = open.filter((d) => d.window === "due").map((d) => d.day);
+  const later = open.filter((d) => d.window === "upcoming").map((d) => d.day);
+  const window = `in the next ${formatCount(FILINGS_DUE_SOON_DAYS)} days`;
   if (overdue > 0) {
     const first = `${name}: ${plural(overdue, "filing")} ${overdue === 1 ? "is" : "are"} overdue`;
     return { text: due.length ? `${first}, and ${formatCount(due.length)} more ${due.length === 1 ? "is" : "are"} due ${window}.` : `${first}.`, provenance: null };
   }
-  if (!due.length) return { text: `${name}: nothing is due ${window}.`, provenance: null };
+  if (!due.length) {
+    if (!later[0]) return { text: `${name}: nothing is due ${window}, and no later filing is on the calendar.`, provenance: null };
+    return { text: `${name}: nothing is due ${window}; the next filing is ${goalDateWords(later[0], f.today)}.`, provenance: null };
+  }
   const on = goalDateWords(due[0]!, f.today);
   if (due.length === 1) return { text: `${name}: 1 filing is due ${window}, on ${on}.`, provenance: null };
   return { text: `${name}: ${plural(due.length, "filing")} are due ${window}, the first on ${on}.`, provenance: null };

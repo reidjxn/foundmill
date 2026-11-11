@@ -372,7 +372,7 @@ describe("seedDemo on PGlite", () => {
     // The subscription business's renewals are payments that are not new customers: its revenue is the records' revenue.
     const renewals = await scalar(`select count(*)::int as n from conversions where business_id = '${LEDGERLY_BUSINESS_ID}' and kind = 'payment' and not first_payment`);
     expect(renewals).toBeGreaterThan(0);
-    // Northwind has no subscriptions: its "MRR" milestones are trailing 30-day revenue and say Estimate.
+    // Revenue milestones are Finance's monthly figure, an Estimate (Northwind has no subscriptions: "monthly revenue").
     const mrr = await db.select().from(s.milestones).where(eq(s.milestones.businessId, NORTHWIND_BUSINESS_ID));
     for (const m of mrr.filter((x) => String((x.ref as Record<string, unknown>)?.trophyKey ?? "").startsWith("mrr_"))) expect(m.ref).toMatchObject({ estimate: true });
   }, 120_000);

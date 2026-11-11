@@ -4,8 +4,8 @@
  * (releases, decisions, incorporation, funding, launch). Pure and unit-tested; the screen feeds it `journey.ribbon`.
  */
 import type { DateFormatPrefs, TrophyCard } from "@foundmill/dugout";
-import { TROPHIES, type TrophyDefinition } from "@foundmill/journey";
-import type { MilestoneKind } from "@foundmill/shared";
+import { TROPHIES, formatThreshold, thresholdFor, type TrophyDefinition } from "@foundmill/journey";
+import { monthlyRevenueWords, type MilestoneKind } from "@foundmill/shared";
 import { formatDate, formatNumber } from "@/lib/format";
 
 export interface MilestoneRowLike {
@@ -19,10 +19,20 @@ export interface MilestoneRowLike {
   trophyKey?: string | null;
 }
 
-export function describeTrophy(t: TrophyDefinition, currency: string): string {
+/**
+ * A trophy's line under its name. A revenue trophy is Finance's monthly figure, named as Finance names it (DECISIONS
+ * 2026-11-11): "Monthly recurring revenue (MRR) reaches £10K: …" when revenue recurs, "Average monthly revenue …"
+ * when the business's customers buy once (`recurring === false`).
+ */
+export function describeTrophy(t: TrophyDefinition, currency: string, recurring?: boolean | null): string {
   if (t.metric === "customers") return t.threshold === 1 ? "The first paying customer." : `${formatNumber(t.threshold)} paying customers.`;
-  if (t.metric === "mrrMinor") return `Monthly recurring revenue reaches ${t.label(currency).replace(/^First /, "").replace(/ MRR$/, "")}.`;
+  if (t.metric === "mrrMinor") return monthlyRevenueTrophyWords(t, currency, recurring);
   return "A signed contract above the enterprise threshold.";
+}
+
+/** "Average monthly revenue reaches £10K: the last 3 full months' revenue ÷ 3, as on Finance (Estimate)." */
+export function monthlyRevenueTrophyWords(t: Pick<TrophyDefinition, "threshold" | "thresholdMajor">, currency: string, recurring?: boolean | null): string {
+  return `${monthlyRevenueWords(recurring).label} reaches ${formatThreshold(thresholdFor(t, currency), currency)}: the last 3 full months' revenue ÷ 3, as on Finance (Estimate).`;
 }
 
 /**
@@ -44,16 +54,16 @@ export function trophyKeyOf(m: MilestoneRowLike): string | null {
 const SHAREABLE_VISIBILITY = new Set(["public", "connections", "community"]);
 
 /** One card per trophy definition; won ones carry the date, the amount and (with permission) the customer. */
-export function trophyCards(milestones: readonly MilestoneRowLike[] | undefined, currency: string, live: boolean): TrophyCard[] {
+export function trophyCards(milestones: readonly MilestoneRowLike[] | undefined, currency: string, live: boolean, recurring?: boolean | null): TrophyCard[] {
   return TROPHIES.map((t) => {
-    const label = t.label(currency);
-    const won = (milestones ?? []).find((m) => trophyKeyOf(m) === t.key || (m.kind === t.kind && m.label === label));
+    const label = t.label(currency, recurring);
+    const won = (milestones ?? []).find((m) => trophyKeyOf(m) === t.key || (m.kind === t.kind && (m.label === label || m.label === t.label(currency))));
     const ref = (won?.ref ?? {}) as Record<string, unknown>;
     const permission = ref.permission === true || ref.shareCustomer === true;
     return {
       key: t.key,
       label,
-      description: describeTrophy(t, currency),
+      description: describeTrophy(t, currency, recurring),
       achievedAt: won ? (typeof won.achievedAt === "string" ? won.achievedAt : won.achievedAt.toISOString()) : null,
       customerName: won && permission && typeof ref.customerName === "string" ? ref.customerName : null,
       amountMinor: typeof ref.amountMinor === "number" ? ref.amountMinor : null,

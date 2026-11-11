@@ -42,12 +42,12 @@ describe("AreaLine", () => {
         area="Money"
         sentence="You have £25K and earn more than you spend, so cash is not running out."
         provenance="estimate"
-        sections={[{ id: "company", label: "Company", sentence: "Northwind Ltd: 2 filings are due in the next 90 days, the first on Dec 1." }, { id: "empty", label: "Empty", sentence: null }]}
+        sections={[{ id: "company", label: "Company", sentence: "Northwind Ltd: 2 filings are due in the next 30 days, the first on Dec 1." }, { id: "empty", label: "Empty", sentence: null }]}
         kind="Legal is part of Money, in its Company section."
       />,
     );
     const line = screen.getByTestId("area-line");
-    expect(line.querySelector("[data-area-section='company']")?.textContent).toBe("Company: Northwind Ltd: 2 filings are due in the next 90 days, the first on Dec 1.");
+    expect(line.querySelector("[data-area-section='company']")?.textContent).toBe("Company: Northwind Ltd: 2 filings are due in the next 30 days, the first on Dec 1.");
     expect(line.querySelector("[data-area-section='empty']")).toBeNull();
     expect(line.querySelector("[data-area-kind]")?.textContent).toBe("Legal is part of Money, in its Company section.");
   });

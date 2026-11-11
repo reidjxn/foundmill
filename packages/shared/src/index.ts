@@ -17,6 +17,8 @@ export * from "./areas";
 export * from "./runway-state";
 export * from "./area-facts";
 export * from "./area-words";
+export * from "./filings";
+export * from "./monthly-revenue";
 export * from "./env";
 export * from "./import-routes";
 export * from "./domains";

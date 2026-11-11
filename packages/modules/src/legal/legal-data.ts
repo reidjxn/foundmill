@@ -5,6 +5,7 @@
  * here files, signs, pays or accepts terms (BUILD §11.11, AC-11.11.4).
  */
 import { ARCHETYPE_LABELS, type Archetype, type IncorporationRoute } from "@foundmill/shared/constants";
+import { filingDaysLeft, filingWindow } from "@foundmill/shared/filings";
 import { usSpelling } from "@foundmill/shared/us-spelling";
 import { formatDate } from "@foundmill/dugout/lib/format";
 import type { DateFormatPrefs } from "@foundmill/dugout/lib/date-preferences";
@@ -330,7 +331,6 @@ export interface CalendarRow {
   completedAt: string | null;
 }
 
-export const DUE_WINDOW_DAYS = 30;
 
 export function titleForKind(kind: string, title: string | null | undefined): string {
   const t = (title ?? "").trim();
@@ -344,29 +344,42 @@ function iso(d: string | Date | null | undefined): string | null {
   return date ? date.toISOString() : null;
 }
 
-export function complianceStatus(e: ComplianceEventRow, now: Date): CalendarStatus {
-  if (e.completedAt) return "done";
-  const days = daysUntil(e.dueAt, now);
-  if (days === null) return "upcoming";
-  if (days < 0) return "overdue";
-  if (days <= DUE_WINDOW_DAYS) return "due";
-  return "upcoming";
+/**
+ * Days left to a deadline: whole calendar days from the business's `today` when given (the count the Money area's Company
+ * line uses, `filingDaysLeft`), else rounded up from `now`.
+ */
+function daysLeftOf(due: string | Date | null | undefined, now: Date, today?: string): number | null {
+  const d = toDate(due);
+  if (!d) return null;
+  return today ? filingDaysLeft(d, today) : daysUntil(d, now);
 }
 
-export function filingStatus(f: FilingRow, now: Date): CalendarStatus {
+/**
+ * "Due soon" is the shared window (`filingWindow`, `FILINGS_DUE_SOON_DAYS` in @foundmill/shared, 30 days): the Money
+ * area's Company line, this calendar's statuses and the nightly roll count the same days (DECISIONS 2026-11-11).
+ */
+export function complianceStatus(e: ComplianceEventRow, now: Date, today?: string): CalendarStatus {
+  if (e.completedAt) return "done";
+  const days = daysLeftOf(e.dueAt, now, today);
+  if (days === null) return "upcoming";
+  return filingWindow(days);
+}
+
+export function filingStatus(f: FilingRow, now: Date, today?: string): CalendarStatus {
   const s: FilingStatus = f.status;
   if (s === "filed") return "done";
   if (s === "waived") return "waived";
   if (s === "overdue") return "overdue";
   if (s === "due") return "due";
-  const days = daysUntil(f.dueAt, now);
-  if (days !== null && days < 0) return "overdue";
-  if (days !== null && days <= DUE_WINDOW_DAYS) return "due";
-  return "upcoming";
+  const days = daysLeftOf(f.dueAt, now, today);
+  return days === null ? "upcoming" : filingWindow(days);
 }
 
-/** Compliance events and filings as one calendar, soonest first, with the status computed against `now`. */
-export function calendarRows(data: ComplianceListResponse | undefined, now: Date): CalendarRow[] {
+/**
+ * Compliance events and filings as one calendar, soonest first, with the status computed against `now` (in whole days
+ * from the business's `today` when given, as the Company line counts them).
+ */
+export function calendarRows(data: ComplianceListResponse | undefined, now: Date, today?: string): CalendarRow[] {
   if (!data) return [];
   const seen = new Set<string>();
   const rows: CalendarRow[] = [];
@@ -374,13 +387,13 @@ export function calendarRows(data: ComplianceListResponse | undefined, now: Date
   for (const e of events) {
     if (seen.has(`c:${e.id}`)) continue;
     seen.add(`c:${e.id}`);
-    rows.push({ id: e.id, kind: "compliance", category: e.kind, title: titleForKind(e.kind, e.title), dueAt: iso(e.dueAt), status: complianceStatus(e, now), daysLeft: daysUntil(e.dueAt, now), recurrence: e.recurrence, ref: null, completedAt: iso(e.completedAt) });
+    rows.push({ id: e.id, kind: "compliance", category: e.kind, title: titleForKind(e.kind, e.title), dueAt: iso(e.dueAt), status: complianceStatus(e, now, today), daysLeft: daysLeftOf(e.dueAt, now, today), recurrence: e.recurrence, ref: null, completedAt: iso(e.completedAt) });
   }
   const filings = [...(data.filings ?? []), ...(data.upcoming?.filings ?? [])];
   for (const f of filings) {
     if (seen.has(`f:${f.id}`)) continue;
     seen.add(`f:${f.id}`);
-    rows.push({ id: f.id, kind: "filing", category: f.kind, title: titleForKind(f.kind, f.title), dueAt: iso(f.dueAt), status: filingStatus(f, now), daysLeft: daysUntil(f.dueAt, now), recurrence: null, ref: f.ref, completedAt: iso(f.filedAt) });
+    rows.push({ id: f.id, kind: "filing", category: f.kind, title: titleForKind(f.kind, f.title), dueAt: iso(f.dueAt), status: filingStatus(f, now, today), daysLeft: daysLeftOf(f.dueAt, now, today), recurrence: null, ref: f.ref, completedAt: iso(f.filedAt) });
   }
   return rows.sort((a, b) => {
     if (a.dueAt === b.dueAt) return a.title.localeCompare(b.title);
