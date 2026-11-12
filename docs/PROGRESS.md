@@ -1782,3 +1782,15 @@ The founder's default way for a project to post (DECISIONS, two entries of this 
   - Storybook was not built (stories are typechecked).
   - A milestone on a business in the old "Live" mode shows two controls both labeled "Share" (the older one copies a line of text).
 
+## 2026-11-12 — Sign-up attribution writes its events to the person-level store; one step for a new person
+
+- **Two account events, one per person** (replacing the business-scoped `signup.attributed` that was declared and never written). `signup.attributed` goes to the new person; `referral.arrived` goes to the person credited, when there is one. Both carry only what was in a public address: `sourceKind` and `sourceRef`. Neither names the other person in any way, and the idempotency keys come from the attribution row's own id.
+- **Written with the row, never instead of it.** Both events go in a savepoint inside the transaction that inserts the `attributions` row: both with the row, or the row without them. The row is what credit is later paid from and is written once, so an event that cannot be written (a page address shaped like an id is one real case) never loses it.
+- **The SQL list of account-scoped types** (`fm_account_event_types()`) is redefined inside `0086_attributions` with all four types; 0085, which is applied in production, is untouched. A test reads the latest definition across migrations and holds it equal to `ACCOUNT_EVENT_TYPES`.
+- **`onPersonCreated`** (`apps/api/src/services/person-created.ts`): the one place for what runs once when a person's profile is first created. Each step in its own try, so one failing never stops another or fails the save. Today it has one step, attribution. `founder.profile.update` also accepts an optional `ideaDraftToken` and passes it through; no step reads it yet (the idea-box work adds its claim, if the founder chooses "questions first").
+- **Verified on this branch after merging the change:** workspace typecheck 25 of 25; vitest: shared 784, events 129, stream 97, db 2106 (13 skipped). The build's own run of the api suite on its base: 1170 passed, 3 skipped; rerun here after this entry.
+- **Open.**
+  - A person can read their own account events, so a person credited can see that someone arrived through their page and when, with no screen for it yet. The spec said the store was "one that only the service reads"; what #86 built lets a person read their own rows. For the founder to confirm.
+  - Nothing has run on real Postgres. A database that already applied an earlier 0086 from this branch needs the function redefined by hand.
+  - The account relay is off on main, so these events are written and not relayed.
+
