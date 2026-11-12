@@ -4,6 +4,11 @@
  * (the next one while one plays) and played in order through one HTMLAudioElement. Simulated speech is spoken by the
  * browser's own voice, tuned to the agent's accent; a clip that cannot play, or a turn whose speech failed, waits out
  * its reading time so the call keeps its rhythm. The queue's rules are in `playback-queue.ts`.
+ *
+ * The founder starting to speak only holds the team (`hold`): the line playing pauses and nothing new starts. What they
+ * said decides the rest: a line that is sent stops the team (`stop`); a sound that comes to nothing (a cough, a click, an
+ * empty transcript, the mic switched off mid-word) releases them (`release`) and they carry on where they were. A hold
+ * that is never released lets go by itself after `HOLD_MAX_MS`, so the team is never kept silent.
  */
 import { useCallback, useEffect, useReducer, useRef } from "react";
 import type { TeamCallSpeechView, TeamCallTurnView } from "@foundmill/shared/team-call";
@@ -14,8 +19,14 @@ import { publicEnv } from "@/lib/env";
 export interface CallPlayback {
   /** Adds agent turns (each once) to the queue. */
   enqueue: (turns: readonly TeamCallTurnView[]) => void;
-  /** Barge-in, mute or the end of the call: stops the voice now and drops what has not been said. */
+  /** The founder said something, or the call ended: stops the voice now and drops what has not been said. */
   stop: () => void;
+  /** The founder began to speak: pause the team until it is known whether they said anything. One per utterance. */
+  hold: () => void;
+  /** The utterance that held the team has been dealt with (sent, or it came to nothing): carry on when none is left. */
+  release: () => void;
+  /** Held: the turn playing (if any) is paused. */
+  paused: boolean;
   /** The turn being spoken now. */
   playing: { turnId: string; agentId: string } | null;
   /** Every queued turn has been said (or dropped). */
@@ -23,6 +34,9 @@ export interface CallPlayback {
 }
 
 /** Where a streamed turn's audio is played from: the api's ticket path on the api's own origin. */
+/** The longest a hold lasts without being released (the longest utterance, 60 s, and its transcription). */
+export const HOLD_MAX_MS = 75_000;
+
 export function streamSource(apiUrl: string, streamUrl: string): string {
   return `${apiUrl.replace(/\/+$/, "")}${streamUrl}`;
 }
@@ -41,12 +55,20 @@ export function useCallPlayback(fetchSpeech: (turnId: string, opts?: { stream?: 
   const utterance = useRef<SpeechSynthesisUtterance | null>(null);
   // The turn started now: the effect may run twice for one state (Strict Mode), and a line must never be spoken twice.
   const started = useRef<string | null>(null);
+  // The current turn's wait: when it is due and what it then does, so a hold can pause it and a release re-arm it.
+  const due = useRef<{ at: number; then: () => void } | null>(null);
+  // Utterances not yet dealt with, and what a hold paused so the release can resume it.
+  const holds = useRef(0);
+  const holdTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const paused = useRef<{ audio: boolean; synth: boolean; waitMs: number | null } | null>(null);
 
   const silence = useCallback(() => {
     token.current += 1;
     started.current = null;
     if (timer.current) clearTimeout(timer.current);
     timer.current = null;
+    due.current = null;
+    paused.current = null;
     const el = audio.current;
     if (el) {
       el.onended = null;
@@ -71,6 +93,51 @@ export function useCallPlayback(fetchSpeech: (turnId: string, opts?: { stream?: 
     silence();
     dispatch({ type: "stop" });
   }, [silence]);
+
+  const resume = useCallback(() => {
+    if (holdTimer.current) clearTimeout(holdTimer.current);
+    holdTimer.current = null;
+    holds.current = 0;
+    const was = paused.current;
+    paused.current = null;
+    dispatch({ type: "release" });
+    if (!was) return;
+    const el = audio.current;
+    if (was.audio && el) void el.play().catch(() => undefined);
+    if (was.synth && typeof window !== "undefined" && "speechSynthesis" in window) window.speechSynthesis.resume?.();
+    const then = due.current?.then;
+    if (was.waitMs !== null && then) {
+      due.current = { at: Date.now() + was.waitMs, then };
+      timer.current = setTimeout(then, was.waitMs);
+    }
+  }, []);
+
+  const hold = useCallback(() => {
+    holds.current += 1;
+    if (holdTimer.current) clearTimeout(holdTimer.current);
+    holdTimer.current = setTimeout(resume, HOLD_MAX_MS);
+    if (holds.current > 1) return;
+    dispatch({ type: "hold" });
+    // Pause whatever is being said now; a turn that has not started yet simply waits (the queue starts nothing while held).
+    const el = audio.current;
+    const audioOn = !!el && !el.paused;
+    if (audioOn) el.pause();
+    const synthOn = utterance.current !== null && typeof window !== "undefined" && "speechSynthesis" in window;
+    if (synthOn) window.speechSynthesis.pause?.();
+    let waitMs: number | null = null;
+    if (timer.current && due.current) {
+      clearTimeout(timer.current);
+      timer.current = null;
+      waitMs = Math.max(0, due.current.at - Date.now());
+    }
+    paused.current = audioOn || synthOn || waitMs !== null ? { audio: audioOn, synth: synthOn, waitMs } : null;
+  }, [resume]);
+
+  const release = useCallback(() => {
+    if (holds.current === 0) return;
+    holds.current -= 1;
+    if (holds.current === 0) resume();
+  }, [resume]);
 
   // Fetch the speech of the turn that is next and the one after it.
   useEffect(() => {
@@ -107,12 +174,20 @@ export function useCallPlayback(fetchSpeech: (turnId: string, opts?: { stream?: 
       started.current = null;
       if (timer.current) clearTimeout(timer.current);
       timer.current = null;
+      due.current = null;
       dispatch({ type: "ended", id });
     };
     const text = turns.current.get(id)?.text ?? "";
     const view = speech.current.get(id);
     const waitOut = (ms: number) => {
       if (timer.current) clearTimeout(timer.current);
+      due.current = { at: Date.now() + ms, then: finish };
+      // Held meanwhile (the founder began to speak): the wait is kept for the release to re-arm.
+      if (holds.current > 0) {
+        paused.current = { audio: paused.current?.audio ?? false, synth: paused.current?.synth ?? false, waitMs: ms };
+        timer.current = null;
+        return;
+      }
       timer.current = setTimeout(finish, ms);
     };
     if (!view) {
@@ -149,6 +224,11 @@ export function useCallPlayback(fetchSpeech: (turnId: string, opts?: { stream?: 
           .then((whole) => {
             if (token.current !== my || finished) return;
             el.src = toDataUrl(whole.mime, whole.base64);
+            // Held meanwhile: the clip waits for the release.
+            if (holds.current > 0) {
+              paused.current = { audio: true, synth: paused.current?.synth ?? false, waitMs: paused.current?.waitMs ?? null };
+              return;
+            }
             void el.play().catch(() => waitOut(estimateSpeakMs(whole.spokenText || text)));
           })
           .catch(finish);
@@ -159,14 +239,22 @@ export function useCallPlayback(fetchSpeech: (turnId: string, opts?: { stream?: 
     }
     // A line that is spoken for real may run long; a silent clip is only its timing.
     waitOut(view.simulated ? estimateSpeakMs(view.spokenText || text) + 1_500 : 90_000);
-    void el.play().catch(() => {
+    void el.play().catch((err: unknown) => {
+      // Paused before it began (the founder started to speak): the release plays it.
+      if (err instanceof Error && err.name === "AbortError") return;
       // Autoplay refused: the line still takes its time, and the caption shows it.
       waitOut(estimateSpeakMs(view.spokenText || text));
     });
   }, [state]);
 
-  useEffect(() => silence, [silence]);
+  useEffect(
+    () => () => {
+      silence();
+      if (holdTimer.current) clearTimeout(holdTimer.current);
+    },
+    [silence],
+  );
 
   const playing = playingItem(state);
-  return { enqueue, stop, playing: playing ? { turnId: playing.id, agentId: playing.agentId } : null, idle: queueIdle(state) };
+  return { enqueue, stop, hold, release, paused: !!state.held && playing !== null, playing: playing ? { turnId: playing.id, agentId: playing.agentId } : null, idle: queueIdle(state) };
 }
