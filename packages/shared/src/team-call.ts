@@ -345,6 +345,11 @@ export interface TeamCallSpeechView {
   simulated: boolean;
   /** The words spoken, with names as this listener reads them (what the browser's speech says when simulated). */
   spokenText: string;
+  /**
+   * Live and asked for as a stream: a path on the api (`/team-call-audio/<ticket>`) that answers the turn's audio as it
+   * is made; `base64` is then empty. A short-lived, few-use link: play it at once.
+   */
+  streamUrl?: string;
 }
 
 export interface TeamCallTranscriptView {

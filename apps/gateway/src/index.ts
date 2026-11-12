@@ -12,7 +12,7 @@ import { createVault, type Vault } from "@foundmill/shared/crypto";
 import { drainHttpServer, onShutdown } from "@foundmill/shared/shutdown";
 import { installTelemetry } from "@foundmill/shared/telemetry";
 import { closeDb, createServiceDb, keepPoolWarm, repos, watchPoolOrExit, type Db, type PoolWarmer, type PoolWatchdog } from "@foundmill/db";
-import { createDefaultRegistry, platformSecretsFromEnv, type ConnectorRegistry } from "@foundmill/connectors";
+import { createDefaultRegistry, createElevenlabsSpeechStreamer, platformSecretsFromEnv, type ConnectorRegistry } from "@foundmill/connectors";
 import { createModelClient, effectiveModelMode, type ModelClient } from "@foundmill/models";
 import { createGatewayApp, type GatewayApp } from "./app";
 import { createGatewayBuiltins, gatewayUsageSink } from "./builtins";
@@ -134,7 +134,7 @@ export function buildGateway(options: BuildDepsOptions = {}): BuiltGateway {
   // Recipients first seen in untrusted content are one register per business, shared by every session and replica (Redis).
   const recipients: UntrustedRegister = options.recipients ?? (redisClient ? new RedisUntrustedRegister(redisClient, { onFallback: (e) => log.warn({ err: e }, "the untrusted-recipient register fell back to this process's memory") }) : new UntrustedRecipientRegistry());
   const reader: UntrustedReader = options.reader ?? createUntrustedReader(createReaderModelClient(env, db, log));
-  const deps: GatewayDeps = { db, registry, vault, mode: config.integrationsMode, liveConnectors: config.liveConnectors, appEnv: config.appEnv, rateLimits, recipients, reader, log, platformMail };
+  const deps: GatewayDeps = { db, registry, vault, mode: config.integrationsMode, liveConnectors: config.liveConnectors, appEnv: config.appEnv, rateLimits, recipients, reader, log, platformMail, speechStreamer: createElevenlabsSpeechStreamer({ secrets }) };
   repositoryFiles = createRepositoryFiles(deps);
   // Until prepare() has run the database is assumed reachable (tests build the graph over an already-migrated PGlite).
   let readiness: DbReadiness | null = null;

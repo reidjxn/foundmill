@@ -27,7 +27,11 @@ export interface AutopilotStatus {
   waitingFor: string | null;
   /** The next planned cycle, an Estimate (ISO); null when none is planned. */
   nextAt: string | null;
-  settings: { cadence: AutopilotCadence; dailyHour: number; maxCyclesPerDay: number; spendCeilingMinor: number | null; maxIdleCycles: number };
+  settings: { cadence: AutopilotCadence; dailyHour: number; maxCyclesPerDay: number; spendCeilingMinor: number | null; maxIdleCycles: number; ownMaxCyclesPerDay: number | null; ownSpendCeilingMinor: number | null };
+  /** Cycles Autopilot itself started today (UTC), apart from Continue's (0084). */
+  ownCyclesToday: number;
+  /** What those cycles cost today, USD cents (an Estimate). */
+  ownSpentTodayMinor: number;
   /** Autopilot cycles started today (UTC). */
   cyclesToday: number;
   /** Model spend today in USD cents (an Estimate). */
@@ -59,6 +63,8 @@ export async function autopilotStatus(ctx: Pick<BusinessContext, "db" | "busines
     settings: facts.settings,
     cyclesToday: facts.cyclesToday,
     spentTodayMinor: facts.spentTodayMinor,
+    ownCyclesToday: facts.ownCyclesToday ?? 0,
+    ownSpentTodayMinor: facts.ownSpentTodayMinor ?? 0,
     creditsRemainingMinor: facts.creditsRemainingMinor,
     changedAt: business.autopilotChangedAt ? business.autopilotChangedAt.toISOString() : null,
   };
@@ -71,6 +77,8 @@ export interface SetAutopilotInput {
   maxCyclesPerDay?: number;
   spendCeilingMinor?: number | null;
   maxIdleCycles?: number;
+  ownMaxCyclesPerDay?: number | null;
+  ownSpendCeilingMinor?: number | null;
 }
 
 export interface SetAutopilotResult {

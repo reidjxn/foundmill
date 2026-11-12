@@ -30,6 +30,11 @@ export function BusinessProvider({ value, children }: { value: BusinessContextVa
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }
 
+/** The business when inside the /b/[bid] layout, else null (a section that also renders outside one). */
+export function useOptionalBusiness(): BusinessContextValue | null {
+  return useContext(Ctx);
+}
+
 export function useBusiness(): BusinessContextValue {
   const v = useContext(Ctx);
   if (!v) throw new Error("useBusiness must be used inside the /b/[bid] layout");

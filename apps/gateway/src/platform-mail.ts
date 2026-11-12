@@ -26,6 +26,7 @@
  * arguments. Every refusal is a deny with its own policy id and a plain sentence (packages/shared `PLATFORM_MAIL_REFUSALS`), audited like any deny;
  * an approval used for a refused call is given back by the pipeline.
  */
+import { emailLinkSecret } from "@foundmill/shared/email-links";
 import { randomUUID } from "node:crypto";
 import { repos, type Business } from "@foundmill/db";
 import { mockResultsAllowed, PLATFORM_MAIL_REFUSALS, PLATFORM_MAIL_SECRET_MIN_LENGTH, platformMailAddress, platformMailDomain, platformMailSigningSecret, type Env } from "@foundmill/shared";
@@ -47,6 +48,11 @@ export interface PlatformMailConfig {
   appUrl?: string;
   /** That email's own daily ceiling, every person together (PLATFORM_NOTIFY_DAILY_CEILING, `pn:all:day`; default 1,000). */
   notifyCeiling?: number;
+  /**
+   * The key the "Pause every email" link is signed under (`@foundmill/shared/email-links`, derived from
+   * SESSION_TOKEN_SECRET under its own label; the api's `email.pause` checks it). Absent: no pause link.
+   */
+  pauseSecret?: string;
 }
 
 /** Only for mock sends in development and test: links signed with it are never honored anywhere else (ingest refuses them). */
@@ -54,7 +60,7 @@ export { DEV_PLATFORM_MAIL_SECRET };
 
 /** Throws at boot when the domain is set outside development and test without a signing secret of 32+ characters. */
 export function platformMailConfig(
-  env: Pick<Env, "APP_ENV" | "PLATFORM_MAIL_DOMAIN" | "PLATFORM_MAIL_DAILY_CAP" | "PLATFORM_MAIL_DAILY_CEILING" | "PLATFORM_MAIL_SIGNING_SECRET" | "INGEST_PUBLIC_URL" | "INGEST_URL"> & Partial<Pick<Env, "PLATFORM_NOTIFY_LOCAL_PART" | "APP_URL" | "PLATFORM_NOTIFY_DAILY_CEILING">>,
+  env: Pick<Env, "APP_ENV" | "PLATFORM_MAIL_DOMAIN" | "PLATFORM_MAIL_DAILY_CAP" | "PLATFORM_MAIL_DAILY_CEILING" | "PLATFORM_MAIL_SIGNING_SECRET" | "INGEST_PUBLIC_URL" | "INGEST_URL"> & Partial<Pick<Env, "PLATFORM_NOTIFY_LOCAL_PART" | "APP_URL" | "PLATFORM_NOTIFY_DAILY_CEILING" | "SESSION_TOKEN_SECRET">>,
 ): PlatformMailConfig {
   return {
     domain: platformMailDomain(env),
@@ -65,7 +71,17 @@ export function platformMailConfig(
     notifyLocalPart: env.PLATFORM_NOTIFY_LOCAL_PART || "hello",
     notifyCeiling: env.PLATFORM_NOTIFY_DAILY_CEILING ?? PLATFORM_NOTIFY_DEFAULT_CEILING,
     ...(env.APP_URL ? { appUrl: env.APP_URL.trim().replace(/\/+$/, "") } : {}),
+    ...(pauseSecretOf(env) ? { pauseSecret: pauseSecretOf(env)! } : {}),
   };
+}
+
+/** The pause link's key: SESSION_TOKEN_SECRET, or the development one in development and test (`emailLinkSecret`). */
+function pauseSecretOf(env: Partial<Pick<Env, "APP_ENV" | "SESSION_TOKEN_SECRET">>): string | null {
+  try {
+    return emailLinkSecret({ APP_ENV: env.APP_ENV ?? "development", SESSION_TOKEN_SECRET: env.SESSION_TOKEN_SECRET });
+  } catch {
+    return null;
+  }
 }
 
 export const PLATFORM_MAIL_POLICY = {

@@ -279,7 +279,7 @@ test.describe("settings › preferences: guidance", () => {
 type NotificationPrefs = { email: { decision_waiting: boolean } };
 
 /**
- * Settings › Preferences › Email (packages 1.5 and 5.1): "Email me when something has waited a day for my answer", on by
+ * Settings › Preferences › Email (packages 1.5 and 5.1): "Something waits for my answer", on by
  * default; it saves at once with a toast, survives a reload, holds in another business, and the account agrees. The
  * dev founder's choice is put back afterwards.
  */
@@ -312,29 +312,29 @@ test.describe("settings › preferences: email", () => {
     const screen = settingsScreen(page);
     const panel = screen.getByTestId("email-notifications-panel");
     await expect(panel).toBeVisible({ timeout: LONG });
-    await expect(panel).toContainText("To the address you sign in with: at most one email a day for each project, and three a day in all.");
-    const sw = screen.getByRole("switch", { name: "Email me when something has waited a day for my answer" });
+    await expect(panel).toContainText("To the address you sign in with, never while you are in the app: at most three a day in all and one a day for each project.");
+    const sw = screen.getByRole("switch", { name: "Something waits for my answer" });
     await expect(sw).toHaveAttribute("aria-checked", "true", { timeout: LONG });
 
     await sw.click();
     await expect(toast(page, "Email off")).toBeVisible({ timeout: LONG });
     await expect(sw).toHaveAttribute("aria-checked", "false");
     const api = await devApi(playwright);
-    expect((await read(api)).email).toEqual({ decision_waiting: false });
+    expect((await read(api)).email).toMatchObject({ decision_waiting: false, daily_brief: true });
 
     await page.reload();
     await expect(page.getByTestId("app-shell")).toBeVisible({ timeout: LONG });
     await settled(page);
-    await expect(screen.getByRole("switch", { name: "Email me when something has waited a day for my answer" })).toHaveAttribute("aria-checked", "false", { timeout: LONG });
+    await expect(screen.getByRole("switch", { name: "Something waits for my answer" })).toHaveAttribute("aria-checked", "false", { timeout: LONG });
 
     await page.goto(`/b/${LEDGERLY_BUSINESS_ID}/settings/preferences`);
     await settled(page);
-    const there = screen.getByRole("switch", { name: "Email me when something has waited a day for my answer" });
+    const there = screen.getByRole("switch", { name: "Something waits for my answer" });
     await expect(there).toHaveAttribute("aria-checked", "false", { timeout: LONG });
     await there.click();
     await expect(toast(page, "Email on")).toBeVisible({ timeout: LONG });
     await expect(there).toHaveAttribute("aria-checked", "true");
-    expect((await read(api)).email).toEqual({ decision_waiting: true });
+    expect((await read(api)).email).toMatchObject({ decision_waiting: true });
     await api.dispose();
     expect(hydration, hydration.join("\n")).toEqual([]);
   });

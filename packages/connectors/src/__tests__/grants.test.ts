@@ -120,6 +120,10 @@ describe("resolveGrants", () => {
       { connectorKey: "openai_images", capability: "generate_image", reason: SERVICE_ONLY_REASON },
       { connectorKey: "openai_images", capability: "*", reason: SERVICE_ONLY_REASON },
     ]);
+    const mail = resolveGrants([{ connectorKey: "platform_notify", tools: ["send_notification"] }]);
+    expect(mail.servers).toEqual([]);
+    expect(mail.toolRefs).toEqual([]);
+    expect(mail.unresolved).toEqual([{ connectorKey: "platform_notify", capability: "send_notification", reason: SERVICE_ONLY_REASON }]);
     expect(SERVICE_ONLY_REASON).toBe("the platform calls this connector itself; agents never do");
   });
 });

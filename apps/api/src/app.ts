@@ -7,7 +7,7 @@
 import { APP_NAME, LIMITS } from "@foundmill/config";
 import { platformBillingRefusal } from "@foundmill/models";
 import { fetchRequestHandler } from "@trpc/server/adapters/fetch";
-import { DEFAULT_AGENT_STYLE, isAgentStyle } from "@foundmill/shared";
+import { AppError, DEFAULT_AGENT_STYLE, isAgentStyle } from "@foundmill/shared";
 import { Hono, type Context } from "hono";
 import { bodyLimit } from "hono/body-limit";
 import { compress } from "hono/compress";
@@ -17,6 +17,8 @@ import { createContextFactory } from "./context";
 import { requestIdFrom } from "./request-id";
 import { appRouter } from "./router";
 import { etagMatches, storedPortrait } from "./services/personas";
+import { speechTickets } from "./services/speech-tickets";
+import { assertPlatformCredits } from "@foundmill/db";
 import { checkWorker } from "./services/worker-health";
 import { getTracer } from "@foundmill/shared/telemetry";
 
@@ -102,6 +104,39 @@ export function clientOf(header: string | undefined): string | null {
   return /^[A-Za-z0-9._/+-]+(?: [A-Za-z0-9._/+-]+){0,2}$/.test(value) && value.length <= 64 ? value : null;
 }
 
+/** A path as it may be logged or traced: a Team call audio ticket (the key to one turn's speech) masked. */
+export function loggedPath(path: string): string {
+  return path.startsWith("/team-call-audio/") ? "/team-call-audio/:ticket" : path;
+}
+
+/** No byte for this long, and a streamed turn is cut (a stalled vendor never holds the api's and the gateway's connections). */
+export const AUDIO_IDLE_MS = 15_000;
+
+/** The gateway's audio, ended after `AUDIO_IDLE_MS` with no bytes (the upstream is cancelled with it). */
+export function withIdleTimeout(body: ReadableStream<Uint8Array>, idleMs = AUDIO_IDLE_MS): ReadableStream<Uint8Array> {
+  const reader = body.getReader();
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  return new ReadableStream<Uint8Array>({
+    async pull(controller) {
+      const next = reader.read();
+      const stalled = new Promise<"stalled">((resolve) => (timer = setTimeout(() => resolve("stalled"), idleMs)));
+      const got = await Promise.race([next, stalled]);
+      if (timer) clearTimeout(timer);
+      if (got === "stalled") {
+        void reader.cancel().catch(() => undefined);
+        controller.close();
+        return;
+      }
+      if (got.done) controller.close();
+      else controller.enqueue(got.value);
+    },
+    cancel(reason) {
+      if (timer) clearTimeout(timer);
+      return reader.cancel(reason);
+    },
+  });
+}
+
 export function createApp(deps: ApiDeps) {
   const app = new Hono<{ Variables: AppVariables }>();
   const origins = allowedOrigins(deps.env);
@@ -112,7 +147,8 @@ export function createApp(deps: ApiDeps) {
     c.set("requestId", requestId);
     c.header("x-request-id", requestId);
     const started = Date.now();
-    const path = c.req.path;
+    // A Team call audio ticket is the key to its turn's speech: never in a log line or a trace (the route's shape stays).
+    const path = loggedPath(c.req.path);
     // One trace span per request (a tRPC batch names its procedures), the parent of every model call it makes (BUILD §15).
     const tracer = getTracer();
     if (!tracer.enabled || path === "/health") await next();
@@ -220,6 +256,25 @@ export function createApp(deps: ApiDeps) {
   app.get("/personas/:key", (c) => servePortrait(c, c.req.param("key"), DEFAULT_AGENT_STYLE));
   app.get("/personas/:style/:key", (c) => servePortrait(c, c.req.param("key"), c.req.param("style")));
 
+  // Team call's streamed speech (services/speech-tickets.ts): the ticket `teamCall.speech({ stream: true })` issued after
+  // checking the person, the call and the credits; the gateway's audio piped as it arrives. No sign-in here (an <audio>
+  // element sends no bearer), so the ticket is the only key: random, short-lived and good for a few requests. Never cached.
+  app.get("/team-call-audio/:ticket", async (c) => {
+    const plain = { "cache-control": "no-store", "x-content-type-options": "nosniff" };
+    const ticket = await speechTickets(deps.redis).take(c.req.param("ticket")).catch(() => null);
+    if (!ticket || !deps.gateway.streamSpeech) return c.body(null, 404, plain);
+    try {
+      // Every request is a new vendor call: the credits gate holds for each, not only when the ticket was issued.
+      await assertPlatformCredits(deps.db, ticket.businessId, { live: true });
+      const res = await deps.gateway.streamSpeech({ businessId: ticket.businessId, callId: ticket.callId, turnId: ticket.turnId, speechAccent: ticket.speechAccent, text: ticket.text }, c.req.raw.signal);
+      return new Response(withIdleTimeout(res.body!), { status: 200, headers: { ...plain, "content-type": "audio/mpeg", "cross-origin-resource-policy": "same-site", "content-security-policy": "default-src 'none'; sandbox" } });
+    } catch (err) {
+      const status = err instanceof AppError && err.status >= 400 && err.status < 600 ? err.status : 502;
+      deps.log.warn({ code: err instanceof AppError ? err.code : "unknown", status }, "team call audio stream refused");
+      return c.body(null, status as 404, plain);
+    }
+  });
+
   // tRPC answers are JSON and shrink 5–10× with gzip (or deflate, whichever the client accepts). Hono's compress also
   // skips any answer that already sets Transfer-Encoding (tRPC's streamed batches) or is text/event-stream; streamed
   // requests are skipped up front as well, so a stream is never buffered.
@@ -249,9 +304,9 @@ export function createApp(deps: ApiDeps) {
     }),
   );
 
-  app.notFound((c) => c.json({ error: "not_found", path: c.req.path }, 404));
+  app.notFound((c) => c.json({ error: "not_found", path: loggedPath(c.req.path) }, 404));
   app.onError((err, c) => {
-    deps.log.error({ err, path: c.req.path }, "unhandled error");
+    deps.log.error({ err, path: loggedPath(c.req.path) }, "unhandled error");
     return c.json({ error: "internal", requestId: c.get("requestId") }, 500);
   });
 

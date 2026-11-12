@@ -16,7 +16,7 @@
  *   POST /v1/speech/transcribe     service JWT (api) → one recording of the founder transcribed, for Team call (speech.ts)
  *   POST /v1/push/send             service JWT (api) → one push notification to registered phones of the mobile app (push.ts)
  *   POST /v1/platform-mail/confirm-follow  service JWT (api) → the one email asking a page signup to confirm (follow-confirm.ts)
- *   POST /v1/notify/email          service JWT (api) → one email from Foundmill to one of its users about their own project (notify-email.ts)
+ *   POST /v1/notify/email          service JWT (api, orchestrator) → one email from Foundmill to one of its users about their own project (notify-email.ts)
  *   POST /v1/call                  session JWT → the pipeline (allow / ask / deny / rate_limited)
  *   POST /v1/github/archive        session JWT → the Code-tab repository's tarball for a code session's checkout (archive.ts)
  *   POST /v1/github/repository     service JWT (api) → a repository's id and visibility, before it is chosen on the Code tab (code-repository.ts)
@@ -38,7 +38,7 @@ import { CreateCheckoutRequest, createPlatformCheckout } from "./billing";
 import { CheckDomainsRequest, checkDomains } from "./domains";
 import { generatePortrait, PortraitRequest } from "./portraits";
 import { sendPush, SendPushRequest } from "./push";
-import { MAX_TRANSCRIBE_BODY_BYTES, SPEECH_SYNTHESIZE_ROUTE, SPEECH_TRANSCRIBE_ROUTE, SynthesizeSpeechRequest, synthesizeSpeech, TranscribeSpeechRequest, transcribeSpeech } from "./speech";
+import { MAX_TRANSCRIBE_BODY_BYTES, SPEECH_STREAM_ROUTE, SPEECH_SYNTHESIZE_ROUTE, SPEECH_TRANSCRIBE_ROUTE, streamSpeech, SynthesizeSpeechRequest, synthesizeSpeech, TranscribeSpeechRequest, transcribeSpeech } from "./speech";
 import { CONFIRM_FOLLOW_ROUTE, ConfirmFollowRequest, sendFollowConfirmation } from "./follow-confirm";
 import { NOTIFY_EMAIL_ROUTE, NotifyEmailRequest, sendNotifyEmail } from "./notify-email";
 import { handleMcpRequest } from "./mcp";
@@ -104,6 +104,7 @@ export function createGatewayApp(deps: GatewayDeps, options: GatewayAppOptions):
   app.use("/v1/personas/*", limit(MAX_SERVICE_BODY_BYTES));
   app.use("/v1/push/*", limit(MAX_SERVICE_BODY_BYTES));
   app.use(SPEECH_SYNTHESIZE_ROUTE, limit(MAX_SERVICE_BODY_BYTES));
+  app.use(SPEECH_STREAM_ROUTE, limit(MAX_SERVICE_BODY_BYTES));
   // A recording of up to 8 MiB travels as base64 in JSON.
   app.use(SPEECH_TRANSCRIBE_ROUTE, limit(MAX_TRANSCRIBE_BODY_BYTES));
   app.use(CONFIRM_FOLLOW_ROUTE, limit(MAX_SERVICE_BODY_BYTES));
@@ -200,6 +201,11 @@ export function createGatewayApp(deps: GatewayDeps, options: GatewayAppOptions):
     if (!parsed.success) throw new GatewayError("validation", "Send a business id, a call id, a turn id, a speech accent and the words", 400);
     return c.json(await synthesizeSpeech(deps, parsed.data, c.var.service.svc));
   });
+  app.post(SPEECH_STREAM_ROUTE, async (c) => {
+    const parsed = SynthesizeSpeechRequest.safeParse(await c.req.json().catch(() => null));
+    if (!parsed.success) throw new GatewayError("validation", "Send a business id, a call id, a turn id, a speech accent and the words", 400);
+    return streamSpeech(deps, parsed.data, c.var.service.svc, c.req.raw.signal);
+  });
   app.post(SPEECH_TRANSCRIBE_ROUTE, async (c) => {
     const parsed = TranscribeSpeechRequest.safeParse(await c.req.json().catch(() => null));
     if (!parsed.success) throw new GatewayError("validation", "Send a business id, a call id, the recording's type and the recording", 400);
@@ -227,15 +233,16 @@ export function createGatewayApp(deps: GatewayDeps, options: GatewayAppOptions):
     return c.json(await sendFollowConfirmation(deps, parsed.data, c.var.service.svc));
   });
 
-  // Foundmill's own email to one of its users (packages 1.5 and 5.1): only the api's notify pass asks (notify-email.ts).
+  // Foundmill's own email to one of its users (packages 1.5 and 5.1), the one sender of every kind: the api's notify
+  // pass asks for a waiting decision, the orchestrator's notify sweep for the rest (notify-email.ts).
   app.use(NOTIFY_EMAIL_ROUTE, requireService);
   app.use(NOTIFY_EMAIL_ROUTE, async (c, next) => {
-    if (c.var.service.svc !== "api") throw new GatewayError("forbidden_service", "Only the api asks for an email to a person", 403);
+    if (c.var.service.svc !== "api" && c.var.service.svc !== "orchestrator") throw new GatewayError("forbidden_service", "Only the api and the orchestrator ask for an email to a person", 403);
     await next();
   });
   app.post(NOTIFY_EMAIL_ROUTE, async (c) => {
     const parsed = NotifyEmailRequest.safeParse(await c.req.json().catch(() => null));
-    if (!parsed.success) throw new GatewayError("validation", "Send a user id, a kind of email, a business id and the note's id", 400);
+    if (!parsed.success) throw new GatewayError("validation", "Send a user id, a kind of email, a business id and the ids that kind needs", 400);
     return c.json(await sendNotifyEmail(deps, parsed.data, c.var.service.svc));
   });
 
