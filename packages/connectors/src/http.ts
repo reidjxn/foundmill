@@ -71,12 +71,16 @@ export function createHttp(options: HttpClientOptions): HttpClient {
   async function raw(method: string, path: string, opts: RequestOptions = {}): Promise<Response> {
     const url = buildUrl(options.baseUrl, path, opts.query);
     const headers: Record<string, string> = { accept: "application/json", "user-agent": options.userAgent ?? DEFAULT_USER_AGENT, ...options.headers, ...opts.headers };
-    let body: string | undefined;
+    let body: string | undefined; // or a FormData, which fetch accepts alike
     if (opts.form) {
       headers["content-type"] = "application/x-www-form-urlencoded";
       const params = new URLSearchParams();
       for (const [k, v] of Object.entries(opts.form)) if (v !== undefined) params.set(k, v);
       body = params.toString();
+    } else if (opts.body instanceof FormData) {
+      // Multipart: handed to fetch as is, which writes the Content-Type with its boundary.
+      delete headers["content-type"];
+      body = opts.body as unknown as string;
     } else if (opts.body !== undefined) {
       headers["content-type"] ??= "application/json";
       body = typeof opts.body === "string" ? opts.body : JSON.stringify(opts.body);

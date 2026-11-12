@@ -5,7 +5,7 @@
  *   member  → owner/admin/member may write (BUILD §7.1 default)
  *   admin   → only owner/admin may write
  *   service → app roles read only; rows are produced by services (service_role)
- *   append  → app roles may insert, never update/delete (audit_log)
+ *   append  → app roles may insert, never update/delete (audit_log, Team call turns and action items)
  *
  * Tables with a nullable business_id, user-owned tables, the social tables and `project_pages` (one row per business)
  * have their own suites.
@@ -163,6 +163,10 @@ export const TENANT_TABLES: TenantTableSpec[] = [
   // 0020 founder ↔ agent conversations (the Inbox's access model: members write, viewers read)
   spec("agent_threads", s.agentThreads, "member", (f) => ({ agentId: f.agentId, subjectKind: "task", subjectId: crypto.randomUUID() })),
   spec("agent_messages", s.agentMessages, "member", (f) => ({ threadId: f.agentThreadId, authorKind: "agent", agentId: f.agentId, bubbles: [uniq("bubble")] })),
+  // 0084 Team call (the desk's access model; turns and action items are insert-only for app roles; rls/team-calls.test.ts has the rest)
+  spec("team_calls", s.teamCalls, "member", (f) => ({ kind: "one_to_one", agentIds: [f.agentId], startedBy: f.ownerId, topic: uniq("topic") })),
+  spec("team_call_turns", s.teamCallTurns, "append", (f) => ({ callId: f.teamCallId, seq: 1000 + counter(), speaker: "agent", agentId: f.agentId, text: uniq("What is on your mind?"), addressedTo: "founder" }), { text: "tampered" }),
+  spec("team_call_actions", s.teamCallActions, "append", (f) => ({ callId: f.teamCallId, position: 1000 + counter(), actionType: "create_task", title: uniq("Draft the launch email"), status: "not_filed", reason: "Example" }), { title: "tampered" }),
 ];
 
 /** Keeps the catalogue honest: every spec must name the table its Drizzle object points at. */

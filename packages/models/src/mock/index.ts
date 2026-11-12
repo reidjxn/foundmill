@@ -40,6 +40,7 @@ import {
   WorkerOutput,
   AgentReplyOutput,
 } from "../schemas";
+import { TeamCallTurnsOutput, TeamCallWrapUpOutput } from "../team-call-schema";
 import { JsonElementScanner } from "../stream-json";
 import { type StreamCallArgs, type StreamCallResult, runStructuredStream } from "../structured-stream";
 import type { BilledTo, CompleteRequest, CompleteResult, CompleteResultWithJson, ModelClient, ModelLogger, StreamStructuredRequest, StreamStructuredResult, TokenUsage, UsageEvent, UsageSink } from "../types";
@@ -71,6 +72,7 @@ import { generateSourceProposal, generateSourceRelevance, isSourceProposalReques
 import { synthesizeFromZod } from "./synth";
 import { generateNightlyBatch, generateWorker } from "./worker";
 import { generateConversation } from "./conversation";
+import { generateTeamCallTurns, generateTeamCallWrapUp } from "./teamCall";
 
 export type MockGenerator = (ctx: MockContext) => unknown;
 
@@ -109,6 +111,8 @@ export const MOCK_ROUTES: Record<RouteKey, MockRouteDefinition> = {
   conversation: { route: "conversation", description: "A reply at the agent's desk: 1-3 bubbles in its voice quoting only figures from the inputs, a hand-off for instructions (never a claim that anything was done), 2-4 quick replies by subject.", schema: AgentReplyOutput, generate: generateConversation },
   goalProposal: { route: "goalProposal", description: "The founder's Change it words on a proposed goal read as a kind, a target and a date (packages/shared parseGoalWords); changed false when they name neither.", schema: GoalProposalOutput, generate: generateGoalProposal },
   projectPage: { route: "projectPage", description: "A project's public page from the founder's own words: the pitch is their first sentence, about is the idea as written, who it is for only when they name an audience, stage idea unless they say otherwise.", schema: ProjectPageOutput, generate: generateProjectPage },
+  teamCallTurn: { route: "teamCallTurn", description: "The next spoken turns of a Team call: the participant whose role fits the founder's words answers them (the Chief of Staff or the called agent first in an opening), a second agent builds on it by mention, one agent only on a one-to-one call; hand_back alternates by round.", schema: TeamCallTurnsOutput, generate: generateTeamCallTurns },
+  teamCallWrapUp: { route: "teamCallWrapUp", description: "A Team call's summary and action items: the plan compiler's rule engine reads each founder line and keeps the actions it finds (hard gates stay the founder's step, a roadmap mention becomes a roadmap item); the summary lists what the founder raised.", schema: TeamCallWrapUpOutput, generate: generateTeamCallWrapUp },
 };
 
 export interface MockRouteInfo {
@@ -358,3 +362,4 @@ export { generateModeration } from "./moderation";
 export { generateWorker, generateNightlyBatch } from "./worker";
 export { generateResearchPlan, isResearchPlanRequest } from "./productResearch";
 export { generateConversation, scriptedConversationReply, SCRIPTED_INTENTS } from "./conversation";
+export { generateTeamCallTurns, generateTeamCallWrapUp, MOCK_TEAM_CALL_FALLBACK } from "./teamCall";

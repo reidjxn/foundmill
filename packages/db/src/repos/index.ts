@@ -55,6 +55,7 @@ import { devicesRepo } from "./devices";
 import { portabilityRepo } from "./portability";
 import { tableViewsRepo } from "./table-views";
 import { personaPortraitsRepo } from "./persona-portraits";
+import { teamCallsRepo } from "./team-calls";
 
 export const repos = {
   businesses: businessesRepo,
@@ -108,6 +109,7 @@ export const repos = {
   portability: portabilityRepo,
   recordings: recordingsRepo,
   personaPortraits: personaPortraitsRepo,
+  teamCalls: teamCallsRepo,
 } as const;
 export type Repos = typeof repos;
 export type RepoArea = keyof Repos;
@@ -165,3 +167,4 @@ export * from "./table-views";
 export * from "./checkouts";
 export * from "./portability";
 export * from "./persona-portraits";
+export * from "./team-calls";

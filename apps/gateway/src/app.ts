@@ -12,6 +12,8 @@
  *   POST /v1/billing/checkout-sessions  service JWT (api) → a Stripe Checkout session on the platform account (billing.ts)
  *   POST /v1/domains/check         service JWT (api) → registry answers for up to 8 domain names (domains.ts)
  *   POST /v1/personas/portrait     service JWT (api) → the AI-generated portrait of one persona catalog key in one character style (portraits.ts)
+ *   POST /v1/speech/synthesize     service JWT (api) → one agent turn spoken in a speech accent, for Team call (speech.ts)
+ *   POST /v1/speech/transcribe     service JWT (api) → one recording of the founder transcribed, for Team call (speech.ts)
  *   POST /v1/push/send             service JWT (api) → one push notification to registered phones of the mobile app (push.ts)
  *   POST /v1/platform-mail/confirm-follow  service JWT (api) → the one email asking a page signup to confirm (follow-confirm.ts)
  *   POST /v1/notify/email          service JWT (api) → one email from Foundmill to one of its users about their own project (notify-email.ts)
@@ -36,6 +38,7 @@ import { CreateCheckoutRequest, createPlatformCheckout } from "./billing";
 import { CheckDomainsRequest, checkDomains } from "./domains";
 import { generatePortrait, PortraitRequest } from "./portraits";
 import { sendPush, SendPushRequest } from "./push";
+import { MAX_TRANSCRIBE_BODY_BYTES, SPEECH_SYNTHESIZE_ROUTE, SPEECH_TRANSCRIBE_ROUTE, SynthesizeSpeechRequest, synthesizeSpeech, TranscribeSpeechRequest, transcribeSpeech } from "./speech";
 import { CONFIRM_FOLLOW_ROUTE, ConfirmFollowRequest, sendFollowConfirmation } from "./follow-confirm";
 import { NOTIFY_EMAIL_ROUTE, NotifyEmailRequest, sendNotifyEmail } from "./notify-email";
 import { handleMcpRequest } from "./mcp";
@@ -100,6 +103,9 @@ export function createGatewayApp(deps: GatewayDeps, options: GatewayAppOptions):
   app.use("/v1/domains/*", limit(MAX_SERVICE_BODY_BYTES));
   app.use("/v1/personas/*", limit(MAX_SERVICE_BODY_BYTES));
   app.use("/v1/push/*", limit(MAX_SERVICE_BODY_BYTES));
+  app.use(SPEECH_SYNTHESIZE_ROUTE, limit(MAX_SERVICE_BODY_BYTES));
+  // A recording of up to 8 MiB travels as base64 in JSON.
+  app.use(SPEECH_TRANSCRIBE_ROUTE, limit(MAX_TRANSCRIBE_BODY_BYTES));
   app.use(CONFIRM_FOLLOW_ROUTE, limit(MAX_SERVICE_BODY_BYTES));
   app.use(NOTIFY_EMAIL_ROUTE, limit(MAX_SERVICE_BODY_BYTES));
   app.use(KEYS_VALIDATE_ROUTE, limit(MAX_SERVICE_BODY_BYTES));
@@ -181,6 +187,24 @@ export function createGatewayApp(deps: GatewayDeps, options: GatewayAppOptions):
   });
 
   app.post("/v1/personas/portrait", async (c) => c.json(await generatePortrait(deps, PortraitRequest.parse(await c.req.json()), c.var.service.svc)));
+
+  // Speech for Team call: only the api asks; the gateway holds ELEVENLABS_API_KEY and maps the speech accent to the vendor's id (speech.ts).
+  app.use("/v1/speech/*", requireService);
+  app.use("/v1/speech/*", async (c, next) => {
+    if (c.var.service.svc !== "api") throw new GatewayError("forbidden_service", "Only the api asks for speech", 403);
+    await next();
+  });
+  app.post(SPEECH_SYNTHESIZE_ROUTE, async (c) => {
+    // Never the Zod issues: they could quote the words of a turn.
+    const parsed = SynthesizeSpeechRequest.safeParse(await c.req.json().catch(() => null));
+    if (!parsed.success) throw new GatewayError("validation", "Send a business id, a call id, a turn id, a speech accent and the words", 400);
+    return c.json(await synthesizeSpeech(deps, parsed.data, c.var.service.svc));
+  });
+  app.post(SPEECH_TRANSCRIBE_ROUTE, async (c) => {
+    const parsed = TranscribeSpeechRequest.safeParse(await c.req.json().catch(() => null));
+    if (!parsed.success) throw new GatewayError("validation", "Send a business id, a call id, the recording's type and the recording", 400);
+    return c.json(await transcribeSpeech(deps, parsed.data, c.var.service.svc));
+  });
 
   // Push to the mobile app's phones: the api's notifier decided who gets what; the gateway holds the OneSignal keys.
   app.use("/v1/push/*", requireService);

@@ -51,6 +51,12 @@ const gateway: ApiGatewayClient = {
   async notifyEmail() {
     throw new Error("no notify email in these tests");
   },
+  async synthesizeSpeech() {
+    throw new Error("no speech in these tests");
+  },
+  async transcribeSpeech() {
+    throw new Error("no speech in these tests");
+  },
 };
 
 describe("integrations.connect for a live GitHub App", () => {

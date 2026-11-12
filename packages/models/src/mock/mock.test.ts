@@ -5,7 +5,7 @@ import { ROUTES, type RouteKey } from "../routing";
 import { ClassifierOutput } from "../schemas";
 import type { UsageEvent } from "../types";
 import { MOCK_ROUTES, MockModelClient, listMockRoutes } from "./index";
-import { AGENTS, COMPOSER_INPUT, MANIFEST, ORG_ALDER, PERSON_MARA, promptWith } from "./fixtures.test-helpers";
+import { AGENT_PRIYA, AGENT_TOMAS, AGENTS, COMPOSER_INPUT, MANIFEST, ORG_ALDER, PERSON_MARA, promptWith } from "./fixtures.test-helpers";
 
 const DEPARTMENT_LEAD_INPUT = {
   department: { id: "dept-eng", name: "Engineering" },
@@ -78,6 +78,30 @@ const SAMPLE_INPUT: Record<RouteKey, Record<string, unknown>> = {
     thread: [],
     manifest: MANIFEST,
     founder_message: { text: "How's the checkout fix going?", quick_reply: null },
+  },
+  teamCallTurn: {
+    business: { name: "Northwind Skincare", stage: "project", currency: "EUR" },
+    founder_name: "Mara",
+    kind: "team",
+    mode: "founder_spoke",
+    topic: null,
+    round: 1,
+    agent_rounds_since_founder: 0,
+    participants: [
+      { id: AGENT_TOMAS, name: "Tomas Berg", display_name: "Tomas Berg", role: "Backend engineer", department: "Engineering", remit: "I build and fix the product's checkout and orders.", talks_like: null, tone: null, is_chief_of_staff: false },
+      { id: AGENT_PRIYA, name: "Priya Natarajan", display_name: "Priya Natarajan", role: "Distribution strategist", department: "Distribution", remit: "I pick the channels that reach the first customers.", talks_like: null, tone: null, is_chief_of_staff: false },
+    ],
+    brief: { goal: null, roadmap_now: [], open_tasks: null, facts: [] },
+    founder_lines: [{ n: 1, text: "Which channels should reach our first customers?" }],
+    founder_just_said: "Which channels should reach our first customers?",
+  },
+  teamCallWrapUp: {
+    business: { name: "Northwind Skincare", stage: "project", currency: "EUR" },
+    founder_name: "Mara",
+    kind: "team",
+    agents: AGENTS,
+    roadmap: [],
+    founder_lines: [{ n: 1, text: "Fix the checkout bug for retail customers. Spend up to €500 on LinkedIn ads next week." }],
   },
 };
 

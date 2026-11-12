@@ -6,7 +6,7 @@ import { createRegistry } from "../registry";
 import { makeToolContext, TEST_BUSINESS_ID } from "../testing/contract-suite";
 import { z } from "zod";
 
-const EXPECTED_KEYS = ["anthropic", "voyage", "openai_images", "onesignal", "platform_notify", "github", "google_drive", "gmail", "google_calendar", "notion", "cloudflare_dns", "opencorporates", "bolagsverket", "companies_house", "e2b", "dropbox_sign", "ecb_rates", "domains", "stripe", "sendgrid", "shopify", "tink", "plaid"];
+const EXPECTED_KEYS = ["anthropic", "voyage", "openai_images", "elevenlabs", "onesignal", "platform_notify", "github", "google_drive", "gmail", "google_calendar", "notion", "cloudflare_dns", "opencorporates", "bolagsverket", "companies_house", "e2b", "dropbox_sign", "ecb_rates", "domains", "stripe", "sendgrid", "shopify", "tink", "plaid"];
 
 describe("registry: mode switching", () => {
   const registry = createDefaultRegistry({ secrets: {} });

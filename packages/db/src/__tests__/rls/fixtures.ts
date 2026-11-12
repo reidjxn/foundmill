@@ -49,6 +49,8 @@ export interface BusinessFixture {
   sessionId: string;
   /** 0020: the Chief of Staff's conversation about the fixture's inbox item. */
   agentThreadId: string;
+  /** 0084: a live team call with both agents, started by the owner. */
+  teamCallId: string;
 }
 
 const first = <T>(rows: T[], what: string): T => {
@@ -242,6 +244,11 @@ export async function createBusinessFixture(h: TestHarness, slug: string): Promi
     "agent_threads",
   );
 
+  const teamCall = first(
+    await db.insert(s.teamCalls).values({ businessId, kind: "team", agentIds: [agent.id, agent2.id], startedBy: ownerId }).returning({ id: s.teamCalls.id }),
+    "team_calls",
+  );
+
   return {
     slug,
     businessId,
@@ -280,6 +287,7 @@ export async function createBusinessFixture(h: TestHarness, slug: string): Promi
     skillDefinitionId: skillDefinition.id,
     sessionId: session.id,
     agentThreadId: agentThread.id,
+    teamCallId: teamCall.id,
   };
 }
 
