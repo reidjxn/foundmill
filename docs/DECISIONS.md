@@ -3636,3 +3636,24 @@ A proposal, not a decision record of the founder's: these are this session's jud
 - **Money between members is out of scope** (paid help, bounties, tips), and so is advertising a share of ownership. Help is thanked with a small credit from Foundmill, capped, on the asker's word.
 - **The daily streak stays the only streak.**
 
+## 2026-11-12 — The founder's answers to docs/NETWORK.md §14
+
+Fifteen of sixteen answered, from lettered options; they supersede the "all open" entry above where they differ. `docs/NETWORK.md` is revised to match and is now the plan for the network side.
+
+1. **The network is open to everyone, a founder building on their own included.** The founder: "Nobody should be excluded from the network features, and solo founders should certainly have the opportunity to network on the platform in order to potentially find cofounders, or if not, then at least get great advice and find people going through similar challenges." Reading with "Solo is complete": the feed, signals, asks, communities, cohorts and Find people are there for every member; what stays the founder's own step is being suggested a person to partner with, and nothing counts or rates one person lower.
+2. **The mark is "Built on Foundmill":** small and unobtrusive, more noticeable to a project's own visitors than to Foundmill members, removed completely on paid plans. **Judgment calls:** the answer was typed "Build on"; taken as "Built on" and kept in one constant. "More noticeable to visitors" is done by placement, not size: the mark lives on the visitor's path (a footer link that lights once at the end of the page for a signed-out visitor, a line after they follow, the foot of the confirmation email and page, the corner of the link preview) and stays off the founder's (plain dim text when signed in, shown once in the preview, never repeated in the console).
+3. **No "Shipped this week" page:** it reads as a ranking.
+4. **No public counts, on a person or a project.** Judgment call: read widely (no count on a post, no totals on the record, "started from this" told privately). A founder sees their own numbers.
+5. **An answer on a feedback link is never a real outcome.**
+6. **Credit for helping: yes,** capped per week, at most one credited answer per ask, amounts once cost is measured.
+7. **The waitlist stays plain and ordered by referral.** No admission in weekly cohorts, no invite passes. Judgment call: cohorts themselves stay, as part of the layer opened in answer 1.
+8. **The feed keeps scrolling.** This session had recommended a feed that ends; declined.
+9. **Message requests from non-connections: yes,** attached to a role, an ask, a shared cohort or a suggestion, limited for new accounts.
+10. **Built with: yes,** positive only, by consent, no ratings of people.
+11. **Sharing: the founder taps Share each time.**
+12. **Others teaming up appears in a solo founder's feed** as any milestone, never larger, no call to action beside it.
+13. **A group call in build hours: open.** The founder asked what it means.
+14. **Identity: proven links now;** an identity check only if scams appear.
+15. **The names stand.**
+16. **Build wave 1 first:** attribution and events, the mark and the story, cards, feedback links, invitations, credit for bringing people.
+

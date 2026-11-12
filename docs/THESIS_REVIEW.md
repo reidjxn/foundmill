@@ -363,7 +363,7 @@ Subtext, worked: say "something that is yours", "what you can do now that you co
 
 ## 13. Roadmap
 
-> **Nov 12, 2026:** `docs/NETWORK.md` specifies the network and community side in detail (how the product spreads, the features of phases 3 to 5 and what it adds to them, a build order in four waves). It is a proposal: its section 14 lists fifteen questions for the founder, and packages below are not changed by it until those are answered.
+> **Nov 12, 2026:** `docs/NETWORK.md` specifies the network and community side in detail (how the product spreads, the features of phases 3 to 5 and what it adds to them, a build order in four waves). The founder answered its questions the same day (its section 14): it is the plan for the network side, built in its own four waves, wave 1 first.
 
 Seven phases. Each work package lists what to build, where, and what done means. Every package also carries the standing definition of done from CLAUDE.md (typecheck, lint, unit tests, Playwright for a touched screen, a story for a new component, an eval for new agent behavior, cross-tenant tests for a new table, PROGRESS updated). Phases 1 and 2 can overlap; phase 3 depends on 1; phase 4 on 3.
 
