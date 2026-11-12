@@ -94,6 +94,8 @@ export * from "./person-profile";
 export * from "./post-draft";
 export * from "./share-targets";
 export * from "./share-drafts";
+// Posts the team writes for the founder to share by tap, zod-free: "@foundmill/shared/team-posts".
+export * from "./team-posts";
 
 export const GameMode = z.enum(GAME_MODES);
 export type GameMode = C.GameMode;
