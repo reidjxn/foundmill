@@ -18,9 +18,10 @@ export interface AuthUser {
   userId: string;
   email: string | null;
   /**
-   * When the user last authenticated: the most recent `amr` timestamp Supabase stamps on the token (password, otp,
-   * oauth, mfa...), falling back to `iat`. Permanent actions (BUILD §11.15 "re-auth") require it to be recent.
-   * The development bypass counts as authenticated now.
+   * When the user last signed in: the most recent `amr` timestamp of a sign-in method the product uses
+   * (`SIGN_IN_METHODS`; never `token_refresh`, `password`, `anonymous` or a method it does not know), falling back to
+   * `iat` only for a token with no `amr` claim at all. Permanent actions (BUILD §11.15 "re-auth") require it to be
+   * recent. The development bypass counts as authenticated now.
    */
   authenticatedAt: Date | null;
   /**
@@ -111,16 +112,22 @@ export function bearerToken(authorization: string | null | undefined): string | 
   return m?.[1]?.trim() || null;
 }
 
-/** Latest authentication moment from the `amr` claim (`[{ method, timestamp }]`, unix seconds), else `iat`. */
+/**
+ * Latest sign-in moment from the `amr` claim (`[{ method, timestamp }]`, unix seconds), counting only the sign-in
+ * methods the product uses (`SIGN_IN_METHODS`). A refreshed token (`token_refresh`), a password, an anonymous sign-in
+ * and any method this list does not know never make a session fresh: refreshing proves only that the browser kept its
+ * refresh token. A token with an `amr` claim but no sign-in entry has no known sign-in moment (null); `iat` is used only
+ * when the token carries no `amr` claim at all (Supabase always writes one; hand-made tokens may not).
+ */
 export function authenticatedAtFromPayload(payload: JWTPayload): Date | null {
-  const amr = Array.isArray(payload.amr) ? (payload.amr as unknown[]) : [];
+  if (!Array.isArray(payload.amr)) return typeof payload.iat === "number" ? new Date(payload.iat * 1000) : null;
   let latest: number | null = null;
-  for (const entry of amr) {
-    const ts = (entry as { timestamp?: unknown })?.timestamp;
-    if (typeof ts === "number" && Number.isFinite(ts)) latest = latest === null ? ts : Math.max(latest, ts);
+  for (const entry of payload.amr as unknown[]) {
+    const { method, timestamp } = (entry ?? {}) as { method?: unknown; timestamp?: unknown };
+    if (typeof method !== "string" || !SIGN_IN_METHODS.has(method)) continue;
+    if (typeof timestamp === "number" && Number.isFinite(timestamp)) latest = latest === null ? timestamp : Math.max(latest, timestamp);
   }
-  const seconds = latest ?? (typeof payload.iat === "number" ? payload.iat : null);
-  return seconds === null ? null : new Date(seconds * 1000);
+  return latest === null ? null : new Date(latest * 1000);
 }
 
 /**
@@ -132,22 +139,77 @@ export function authenticatedAtFromPayload(payload: JWTPayload): Date | null {
 const INBOX_PROVING_METHODS = new Set(["magiclink", "otp", "email/signup", "invite", "recovery", "email_change"]);
 
 /**
+ * The sign-in methods (`amr[].method`, Supabase Auth `models.AuthenticationMethod`) the product issues: the email link
+ * and code family above, and `oauth` (Continue with Google). Not `password` (the product never issues password
+ * sessions; a token that has nothing else is refused), not `token_refresh`, `anonymous`, MFA factors or SSO.
+ */
+export const SIGN_IN_METHODS: ReadonlySet<string> = new Set([...INBOX_PROVING_METHODS, "oauth"]);
+
+/**
+ * The identity providers a Google-proven session may carry in `app_metadata.providers`: Google itself, and the email
+ * identity of an account that signed in by magic link before and was linked to Google by its verified address. Any
+ * other provider on the account (another social sign-in, a phone) makes an `oauth` entry in `amr` ambiguous, since
+ * Supabase does not say in `amr` which provider an `oauth` sign-in used; such a session is not trusted by this rule.
+ */
+const GOOGLE_SESSION_PROVIDERS = new Set(["google", "email"]);
+
+function amrMethods(payload: JWTPayload): string[] {
+  const amr = Array.isArray(payload.amr) ? (payload.amr as unknown[]) : [];
+  return amr.map((entry) => String((entry as { method?: unknown })?.method ?? ""));
+}
+
+/**
+ * A session proven by Google (Supabase's Google provider, web sign-in): `amr` has an `oauth` entry, the account's
+ * providers (`app_metadata.providers`, falling back to `app_metadata.provider`) include `google` and nothing but
+ * `google` and `email`, and the address is marked verified (`user_metadata.email_verified`).
+ *
+ * `amr` and `app_metadata` are written by Supabase Auth alone (a user cannot change their own `app_metadata`); they are
+ * what proves the sign-in. `user_metadata.email_verified` is user-writable: any signed-in user can set it to true on
+ * their own account with one `updateUser` call, so it protects nothing on its own. It is checked only so that a
+ * Google account whose address Google did not verify is refused; it can make this rule refuse, never accept. What
+ * actually keeps an unverified address out is Supabase's "Confirm email" (on, Supabase will not finish a Google
+ * sign-in for an unverified address; off, it auto-confirms every address), so the api watches that setting and counts
+ * no session as confirmed while it is off (services/confirm-email.ts, docs/DEPLOY.md §4).
+ */
+export function googleVerifiedFromPayload(payload: JWTPayload): boolean {
+  if (!amrMethods(payload).includes("oauth")) return false;
+  const app = payload.app_metadata && typeof payload.app_metadata === "object" ? (payload.app_metadata as { provider?: unknown; providers?: unknown }) : {};
+  const providers = Array.isArray(app.providers) ? app.providers.map(String) : typeof app.provider === "string" ? [app.provider] : [];
+  if (!providers.includes("google") || !providers.every((p) => GOOGLE_SESSION_PROVIDERS.has(p))) return false;
+  const meta = payload.user_metadata && typeof payload.user_metadata === "object" ? (payload.user_metadata as { email_verified?: unknown }) : {};
+  return meta.email_verified === true;
+}
+
+/**
  * Whether a Supabase access token shows its holder controls its `email` (SEC2 S11). Supabase access tokens carry no
  * `email_confirmed_at`; they carry `is_anonymous` and `amr`, how the session was authenticated. An anonymous sign-in
- * never counts; otherwise only an inbox-proving sign-in does. `user_metadata.email_verified` is deliberately not
- * trusted: a signed-in user can write their own `user_metadata`, so a client could set it for an address it cannot read.
- * `amr` is written by Supabase Auth alone. The web signs in by magic link only, so every real session carries a proof.
+ * never counts; otherwise an inbox-proving sign-in does, and so does a Google sign-in (`googleVerifiedFromPayload`):
+ * Google verified the address. `user_metadata.email_verified` alone is deliberately not trusted: a signed-in user can
+ * write their own `user_metadata`, so a client could set it for an address it cannot read. `amr` is written by Supabase
+ * Auth alone. The web signs in by magic link or with Google, so every real session carries a proof.
  */
 export function emailConfirmedFromPayload(payload: JWTPayload): boolean {
   if (payload.is_anonymous === true) return false;
   if (typeof payload.email !== "string" || !payload.email.trim()) return false;
-  const amr = Array.isArray(payload.amr) ? (payload.amr as unknown[]) : [];
-  return amr.some((entry) => INBOX_PROVING_METHODS.has(String((entry as { method?: unknown })?.method ?? "")));
+  if (amrMethods(payload).some((method) => INBOX_PROVING_METHODS.has(method))) return true;
+  return googleVerifiedFromPayload(payload);
+}
+
+/**
+ * A password session: `amr` names `password` and no sign-in method the product issues. The product never signs anyone
+ * in with a password (the Email provider's password sign-up is off, docs/DEPLOY.md §4), so such a token came from
+ * somewhere else and is refused like an invalid one. A password beside an email code, a link or Google follows the
+ * normal rules (the other method is the proof).
+ */
+export function passwordOnlyFromPayload(payload: JWTPayload): boolean {
+  const methods = amrMethods(payload);
+  return methods.includes("password") && !methods.some((method) => SIGN_IN_METHODS.has(method));
 }
 
 function userFromPayload(payload: JWTPayload): AuthUser {
   const sub = payload.sub;
   if (!sub || !UUID_RE.test(sub)) throw new AuthError("token has no UUID subject");
+  if (passwordOnlyFromPayload(payload)) throw new AuthError("password sessions are not accepted");
   const email = typeof payload.email === "string" ? payload.email : null;
   return { userId: sub, email, authenticatedAt: authenticatedAtFromPayload(payload), emailConfirmed: emailConfirmedFromPayload(payload) };
 }

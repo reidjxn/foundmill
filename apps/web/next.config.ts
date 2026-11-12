@@ -27,6 +27,8 @@ const PUBLIC_DEFAULTS: Record<string, string> = {
   NEXT_PUBLIC_INTEGRATIONS_MODE: "mock",
   // Empty on purpose: staging and production then use APP_ORIGIN (https://foundmill.com) as the canonical origin.
   NEXT_PUBLIC_APP_URL: "",
+  // Off until the founder has set up Google in Supabase (docs/DEPLOY.md §4 "Signing in with Google"); "on" shows the button.
+  NEXT_PUBLIC_AUTH_GOOGLE: "",
 };
 
 const env = Object.fromEntries(Object.entries(PUBLIC_DEFAULTS).map(([k, v]) => [k, process.env[k] ?? v]));

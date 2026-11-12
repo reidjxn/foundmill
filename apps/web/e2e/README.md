@@ -57,6 +57,7 @@ Keep `COMPOSER_URL` unset (or pointing at nothing) so the api uses its in-proces
 | File | Covers |
 | --- | --- |
 | `shell.spec.ts` | login form and dev bypass, redirect to `/login?next=`, AppShell at 1440 px, NeedsLargerWindow below 1280 px, G-chords, every Settings tab |
+| `login.spec.ts` | the sign-in page at 1280 and 390 px (no horizontal scroll, 44 px targets, the callback's notices), Continue with Google present exactly when `NEXT_PUBLIC_AUTH_GOOGLE=on` and its "isn't available" line on this stack (no Supabase), the developer sign-in with `next`. The spec reads the flag from its own environment: run it as is (off, as CI does) and once more with `NEXT_PUBLIC_AUTH_GOOGLE=on` given to both the runner and the web server (restart `next dev`: the value is built into the page) |
 | `server-path.spec.ts` | a signed-in `/` redirects to the last business's Home from the proxy; a last business that no longer opens is forgotten (no dead end, no loop); the app frame and the document head go out before the business layout's data; the browser title follows navigations with one `<title>`; the profile the layout read is not asked again |
 | `home.spec.ts` | dashboards as tabs, Edit mode on E, presets (AC-11.2.4) |
 | `inbox.spec.ts` | 380 px list, tabs, J/K, reading pane anatomy, R refresh debounce (AC-11.3.2), decide → Continue drops (AC-11.3.3) |

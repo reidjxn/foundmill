@@ -66,7 +66,8 @@ test.describe("the return loop", () => {
     expect(box && box.x >= 0 && box.x + box.width <= 390).toBe(true);
     await page.goto("/email/pause?t=forged.token");
     await expect(page.getByTestId("email-pause")).toBeVisible({ timeout: LONG });
-    await page.goto("/login");
+    // The landing page stays desktop only (the sign-in page works from 390 px since the Google sign-in change).
+    await page.goto("/");
     await expect(page.getByTestId("needs-larger-window")).toBeVisible({ timeout: LONG });
     await context.close();
   });
