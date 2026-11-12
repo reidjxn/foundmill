@@ -95,6 +95,8 @@ export type CreateOutT = z.infer<typeof CreateOut>;
 
 /* ---- Typed reads (src/facts.ts): checked values only, never a commit message or an error message ---- */
 const FACT_TARGETS = ["production", "preview"] as const;
+/** Vercel gives a preview deployment no target, which is what the redeploy rule reads as "preview" too. A custom environment is null. */
+const factTarget = (t: unknown): (typeof FACT_TARGETS)[number] | null => (t === null || t === undefined || t === "" ? "preview" : fact.oneOf(t, FACT_TARGETS));
 const FACT_LIST_MAX = 20;
 
 /** A branch name: each slash-separated segment must be identifier-like; null otherwise. */
@@ -114,7 +116,7 @@ const factDeployment = (d: DeploymentItemT) => ({
   url: fact.host(d.url),
   name: fact.label(d.name) ?? fact.id(d.name),
   state: fact.oneOf(d.state, DEPLOYMENT_STATES),
-  target: fact.oneOf(d.target, FACT_TARGETS),
+  target: factTarget(d.target),
   createdAt: fact.date(d.createdAt),
   gitBranch: factBranch(d.gitBranch),
   gitCommitSha: fact.hex(d.gitCommitSha, 40),
@@ -190,7 +192,7 @@ export const vercelTools = [
       id: factDeploymentId(data.id),
       url: fact.host(data.url),
       state: fact.oneOf(data.state, DEPLOYMENT_STATES),
-      target: fact.oneOf(data.target, FACT_TARGETS),
+      target: factTarget(data.target),
       inspectorUrl: factVercelUrl(data.inspectorUrl),
       gitBranch: factBranch(data.gitBranch),
       gitCommitSha: fact.hex(data.gitCommitSha, 40),

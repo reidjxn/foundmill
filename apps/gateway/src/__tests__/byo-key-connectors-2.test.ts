@@ -7,7 +7,7 @@
  * - a suppressed recipient is refused before any vendor request.
  */
 import { afterEach, describe, expect, it } from "vitest";
-import { createApolloConnector, createDefaultRegistry, createPlatformMailMock, createPosthogConnector, createResendConnector, createVercelConnector, jsonResponse, type Connector } from "@foundmill/connectors";
+import { factsProblem, createApolloConnector, createDefaultRegistry, createPlatformMailMock, createPosthogConnector, createResendConnector, createVercelConnector, jsonResponse, type Connector } from "@foundmill/connectors";
 import { repos, suppressionHash } from "@foundmill/db";
 import { storeCredential } from "../credentials";
 import { PLATFORM_MAIL_POLICY, type PlatformMailConfig } from "../platform-mail";
@@ -176,6 +176,53 @@ describe("mock mode", () => {
       expect(a.result, key).toMatchObject({ ok: true, simulated: true, notice: SIMULATED_NOTICE });
       if (untrusted.has(call.connector)) expect(a.result.untrusted, key).toBe(true);
     }
+  });
+});
+
+describe("typed reads: an agent that only gets the reader's digest still gets the checked values", () => {
+  const DIGEST = { title: null, sender: null, summary: "A list of people.", amounts: [], dates: [] };
+  const setup = async () => {
+    const mock = createDefaultRegistry({ secrets: {}, fetch: recordingFetch().fetch }).list("mock").filter((c) => c.key === "apollo");
+    const g = await setupGateway({ mode: "mock", businessMode: "automated", connectors: mock });
+    open = g;
+    const read: unknown[] = [];
+    g.deps.reader = { digest: async ({ content }) => (read.push(content), DIGEST) };
+    return { g, read };
+  };
+
+  it("holding Apollo's paid calls: the search comes back as the digest plus facts, with lead ids and no raw text", async () => {
+    const { g, read } = await setup();
+    const token = await g.token({ allowedTools: ["apollo:*"] });
+    const r = asAllow(await g.client.call(token, CALLS["apollo.search_people"]));
+    const data = r.result.data as { untrusted: boolean; quarantined?: boolean; content: unknown; facts?: { people: { id: string | null; title: string | null }[] } };
+    expect(data).toMatchObject({ untrusted: true, quarantined: true, content: DIGEST });
+    // The reader read the whole answer; the agent got the summary and the checked values.
+    expect(read).toHaveLength(1);
+    expect(data.facts?.people.length).toBeGreaterThan(0);
+    for (const person of data.facts!.people) expect(person.id).toMatch(/^[A-Za-z0-9_.:-]+$/);
+    expect(factsProblem(data.facts)).toBeNull();
+  });
+
+  it("holding only the free search: the content is read raw, and the same facts ride along", async () => {
+    const { g, read } = await setup();
+    const token = await g.token({ allowedTools: ["apollo:search_people"] });
+    const r = asAllow(await g.client.call(token, CALLS["apollo.search_people"]));
+    const data = r.result.data as { quarantined?: boolean; content: { people: unknown[] }; facts?: { people: unknown[] } };
+    expect(data.quarantined).toBeUndefined();
+    expect(read).toEqual([]);
+    expect(data.content.people.length).toBeGreaterThan(0);
+    expect(data.facts?.people).toHaveLength(data.content.people.length);
+  });
+
+  it("when the reader fails, the content is withheld and the checked values still arrive", async () => {
+    const { g } = await setup();
+    g.deps.reader = { digest: async () => Promise.reject(new Error("reader down")) };
+    const token = await g.token({ allowedTools: ["apollo:*"] });
+    const r = asAllow(await g.client.call(token, CALLS["apollo.search_people"]));
+    const data = r.result.data as { quarantined?: boolean; content: unknown; unavailable?: string; facts?: { people: unknown[] } };
+    expect(data).toMatchObject({ quarantined: true, content: null });
+    expect(data.unavailable).toBeTruthy();
+    expect(data.facts?.people.length).toBeGreaterThan(0);
   });
 });
 

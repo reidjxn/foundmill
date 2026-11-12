@@ -77,7 +77,7 @@ describe("apollo typed reads (facts)", () => {
   const factsOf = (r: { data?: unknown }): Record<string, unknown> => (r.data as { facts: Record<string, unknown> }).facts;
   const MAYA = {
     id: "ppl_fx_maya001",
-    name: null, // Apollo hides most of the last name in a search; the mask is not a label, so it is not passed through
+    name: "Maya", // Apollo masks the last name in a search ("Maya Ok***r"): the first name alone comes through
     title: "Founder",
     organizationName: "Glow Lab Studio",
     organizationDomain: "glowlab.example.com",
@@ -125,7 +125,7 @@ describe("apollo typed reads (facts)", () => {
     expect(factsProblem(factsOf(r))).toBeNull();
     // A status word that is not identifier-shaped ("likely to engage") is null, never rewritten.
     const priya = await apolloMock.callTool("enrich_person", { id: "ppl_fx_priya003" }, ctx);
-    expect(factsOf(priya)).toMatchObject({ id: "ppl_fx_priya003", email: "priya.raman@example.com", emailStatus: null });
+    expect(factsOf(priya)).toMatchObject({ id: "ppl_fx_priya003", email: "priya.raman@example.com", emailStatus: "likely to engage" });
   });
 
   it("live (canned): only what fits its kind comes through", async () => {
@@ -140,8 +140,8 @@ describe("apollo typed reads (facts)", () => {
     const people = factsOf(await c.callTool("search_people", {}, ctx));
     expect(people).toEqual({
       people: [
-        { id: "ppl_fx_maya001", name: null, title: "Founder", organizationName: "Glow Lab Studio", organizationDomain: null, linkedinUrl: null, location: null, hasEmail: true },
-        { id: "ppl_fx_priya003", name: null, title: "Owner", organizationName: "Botanica Beauty Co", organizationDomain: null, linkedinUrl: null, location: null, hasEmail: false },
+        { id: "ppl_fx_maya001", name: "Maya", title: "Founder", organizationName: "Glow Lab Studio", organizationDomain: null, linkedinUrl: null, location: null, hasEmail: true },
+        { id: "ppl_fx_priya003", name: "Priya", title: "Owner", organizationName: "Botanica Beauty Co", organizationDomain: null, linkedinUrl: null, location: null, hasEmail: false },
       ],
       page: 1,
       totalEntries: 2,
@@ -175,6 +175,7 @@ describe("apollo typed reads (facts)", () => {
     for (const part of ["Ignore", "instructions", "evil", "boss", "javascript", "alert", "\\n", "AAAA", "BBBB", "CCCC", "Dropped"]) expect(json).not.toContain(part);
   };
 
+  // The mapper already folds a line break into a space, so a short two-word value is a harmless label; the sentences are what come out null.
   it("hostile answers come out as nulls, and ids that are not ids drop the entry", async () => {
     const c = hostileConnector();
     const ctx = makeToolContext(c, { mode: "live", credential });
@@ -192,12 +193,12 @@ describe("apollo typed reads (facts)", () => {
     expect(factsProblem(people)).toBeNull();
 
     const orgs = factsOf(await c.callTool("search_organizations", {}, ctx));
-    expect(orgs).toEqual({ organizations: [{ id: "org_hostile_01", name: null, domain: null, industry: null, employeeCount: null, location: null, linkedinUrl: null }], page: 1, totalEntries: 1 });
+    expect(orgs).toEqual({ organizations: [{ id: "org_hostile_01", name: null, domain: null, industry: "Line break", employeeCount: null, location: null, linkedinUrl: null }], page: 1, totalEntries: 1 });
     notHostile(orgs);
     expect(factsProblem(orgs)).toBeNull();
 
     const person = factsOf(await c.callTool("enrich_person", { id: "ppl_hostile_003" }, ctx));
-    expect(person).toEqual({ id: "ppl_hostile_003", name: null, title: null, email: null, emailStatus: null, organizationName: null, organizationDomain: null, linkedinUrl: null, location: null, matchConfidence: null });
+    expect(person).toEqual({ id: "ppl_hostile_003", name: null, title: "Line break", email: null, emailStatus: null, organizationName: null, organizationDomain: null, linkedinUrl: null, location: null, matchConfidence: null });
     notHostile(person);
     expect(factsProblem(person)).toBeNull();
   });

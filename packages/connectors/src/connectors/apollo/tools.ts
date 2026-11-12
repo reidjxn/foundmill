@@ -173,7 +173,9 @@ export function peopleFacts(data: SearchPeopleOutput): Record<string, unknown> {
     if (id === null || people.length >= MAX_PEOPLE) continue;
     people.push({
       id,
-      name: fact.label(p.name),
+      // A search masks the last name ("Maya Ok***r"), which is not a label: then the first name alone, and only for
+      // exactly that shape (one word, then one masked word). Anything else is not trimmed to fit.
+      name: fact.label(p.name) ?? fact.label(typeof p.name === "string" ? (/^(\S+) [^\s*]*\*+[^\s*]*$/.exec(p.name)?.[1] ?? null) : null),
       title: fact.label(p.title),
       organizationName: fact.label(p.organizationName),
       organizationDomain: fact.host(p.organizationDomain),
@@ -212,7 +214,8 @@ export function enrichFacts(data: EnrichPersonOutput): Record<string, unknown> {
     name: fact.label(data.name),
     title: fact.label(data.title),
     email: fact.email(data.email),
-    emailStatus: fact.id(data.emailStatus, 40),
+    // Apollo's status is one of its own short phrases ("verified", "likely to engage"): an identifier, else a short label.
+    emailStatus: fact.id(data.emailStatus, 40) ?? fact.label(data.emailStatus, 40),
     organizationName: fact.label(data.organizationName),
     organizationDomain: fact.host(data.organizationDomain),
     linkedinUrl: linkedinFact(data.linkedinUrl),

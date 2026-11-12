@@ -41,6 +41,12 @@ export const PERPLEXITY_PANEL_COST_MINOR = 1;
 
 export const PanelCitation = z.object({ url: z.string().url(), title: z.string().nullable() });
 
+const modelFact = (v: unknown): string | null => {
+  if (typeof v !== "string" || v.length > 80) return null;
+  const parts = v.split("/").map((part) => fact.id(part, 60));
+  return parts.length <= 2 && parts.every((part) => part !== null) ? parts.join("/") : null;
+};
+
 export const perplexityTools = [
   defineTool({
     name: "ask_panel",
@@ -56,7 +62,8 @@ export const perplexityTools = [
         return url ? [{ url, host: fact.hostOf(url) }] : [];
       }).slice(0, 20);
       return {
-        model: fact.id(data.model, 80),
+        // Perplexity names a model as `provider/model`: each part an identifier, joined again; anything else is null.
+        model: modelFact(data.model),
         answerChars: fact.int(data.answer.length),
         mentions: countMentions(data.answer, args.lookFor),
         citations,
