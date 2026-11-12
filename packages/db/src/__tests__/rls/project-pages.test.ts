@@ -9,7 +9,8 @@
  *     owner's or an admin's, whichever client wrote;
  *   - the address and the published copy are checked by the database itself;
  *   - the public view: exactly its eight columns, and no row for a draft, a page taken down, an archived business, a
- *     sample business or a business not yet committed.
+ *     sample business or a business not yet committed; readable by the service role only since 0081 (anon and
+ *     signed-in clients are refused: the api serves it one address at a time, rate-limited).
  */
 import { PAGE_RESERVED_SLUGS, PAGE_SLUG_TAKEN, type ProjectPageContent } from "@foundmill/shared";
 import { bytesToBase64 } from "@foundmill/shared/logo";
@@ -42,7 +43,7 @@ async function expectNoEffect(p: Promise<unknown>) {
 
 const rows = async <T>(q: ReturnType<typeof sql>): Promise<T[]> => ((await h.db.execute(q)) as unknown as { rows: T[] }).rows;
 const commit = (businessId: string) => h.db.update(s.businesses).set({ committedAt: new Date("2026-10-01T00:00:00Z") }).where(eq(s.businesses.id, businessId));
-const publicSlugs = async (runner = h.anon()) => (await runner.execute<{ slug: string }>(sql`select slug from public_project_pages order by slug`)).map((r) => r.slug);
+const publicSlugs = async (runner = h.service()) => (await runner.execute<{ slug: string }>(sql`select slug from public_project_pages order by slug`)).map((r) => r.slug);
 
 beforeAll(async () => {
   h = await createTestDb();
@@ -220,7 +221,7 @@ describe("public_project_pages: what anyone may read", () => {
     const columns = (await rows<{ column_name: string }>(sql`select column_name from information_schema.columns where table_schema = 'public' and table_name = 'public_project_pages' order by ordinal_position`)).map((r) => r.column_name);
     expect(columns).toEqual([...PUBLIC_PROJECT_PAGE_COLUMNS]);
     expect(columns).toEqual(["slug", "published", "published_at", "name", "logo_version", "kit_primary", "kit_secondary", "founder_names"]);
-    const row = (await h.anon().execute<Record<string, unknown>>(sql`select * from public_project_pages where slug = 'bravo-page'`))[0]!;
+    const row = (await h.service().execute<Record<string, unknown>>(sql`select * from public_project_pages where slug = 'bravo-page'`))[0]!;
     expect(Object.keys(row).sort()).toEqual([...PUBLIC_PROJECT_PAGE_COLUMNS].sort());
     // Nothing that identifies the row, the business or a person travels with it.
     for (const leaked of ["id", "business_id", "draft", "published_by", "updated_by", "unpublished_at", "user_id", "created_by", "plan_tier", "game_mode"]) expect(row).not.toHaveProperty(leaked);
@@ -228,9 +229,17 @@ describe("public_project_pages: what anyone may read", () => {
     expect(row.published).toEqual(content({ pitch: "Bravo's page" }));
   });
 
-  it("anon and signed-in people read it, and still nothing from the table", async () => {
-    expect(await publicSlugs(h.anon())).toContain("bravo-page");
-    expect(await publicSlugs(h.asUser(outsiderId))).toContain("bravo-page");
+  it("the service connection reads it; anon and signed-in clients are refused (0081), and get nothing from the table", async () => {
+    expect(await publicSlugs(h.service())).toContain("bravo-page");
+    for (const runner of [h.anon(), h.asUser(outsiderId), h.asUser(B.ownerId)]) {
+      await expect(runner.execute(sql`select slug from public_project_pages`)).rejects.toThrow(/permission denied/);
+      await expect(runner.execute(sql`select * from public_project_pages where slug = 'bravo-page'`)).rejects.toThrow(/permission denied/);
+    }
+    const grants = await rows<{ grantee: string; privilege_type: string }>(sql`select grantee, privilege_type from information_schema.role_table_grants where table_schema = 'public' and table_name = 'public_project_pages' and grantee <> 'postgres'`);
+    expect(grants).toEqual([{ grantee: "service_role", privilege_type: "SELECT" }]);
+    // What the api reads on the service connection is unchanged.
+    expect((await h.service().run((tx) => repos.pages.public.bySlug(tx, "bravo-page")))?.slug).toBe("bravo-page");
+    expect((await h.service().run((tx) => repos.followers.target(tx, "bravo-page")))?.slug).toBe("bravo-page");
     await expectNoEffect(h.anon().run((tx) => tx.select().from(s.projectPages)));
     // The view is read-only for everyone.
     await expect(h.anon().execute(sql`update public_project_pages set name = 'x'`)).rejects.toThrow();
@@ -291,7 +300,7 @@ describe("public_project_pages: what anyone may read", () => {
   });
 
   it("names the owners only while the published copy says so, and only the owners", async () => {
-    const names = async () => (await h.anon().execute<{ founder_names: string[] }>(sql`select founder_names from public_project_pages where slug = 'bravo-page'`))[0]?.founder_names;
+    const names = async () => (await h.service().execute<{ founder_names: string[] }>(sql`select founder_names from public_project_pages where slug = 'bravo-page'`))[0]?.founder_names;
     await h.db.insert(s.founderProfiles).values([
       { userId: B.ownerId, displayName: "Maya Okafor", visibility: "private" },
       { userId: B.adminId, displayName: "An Admin" },

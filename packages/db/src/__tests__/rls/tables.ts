@@ -176,6 +176,8 @@ export const NON_TENANT_TABLES = [
   "account_preferences",
   // 0074: a person's phones (user-owned, no business_id); covered by rls/founder-devices.test.ts.
   "founder_devices",
+  // 0080: handles a person left, kept for them for 90 days (user-owned, service role only); rls/person-profiles.test.ts.
+  "person_handle_releases",
   "ideas",
   "idea_versions",
   "idea_comparisons",

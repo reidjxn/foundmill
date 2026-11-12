@@ -1,5 +1,5 @@
 /** founder_profiles — account-scoped (userId first), routers founder.profile.get/update. */
-import { RESERVED_NAME_MESSAGE, isReservedName } from "@foundmill/config";
+import { BIDI_NAME_MESSAGE, RESERVED_NAME_MESSAGE, hasBidiControl, isReservedName } from "@foundmill/config";
 import { VISIBILITY, ValidationError } from "@foundmill/shared";
 import { and, asc, eq, isNull, sql } from "drizzle-orm";
 import { authUsers } from "drizzle-orm/supabase";
@@ -11,7 +11,14 @@ const SkillRatings = z.record(z.string(), z.number().int().min(1).max(20));
 
 export const FounderProfileInput = z.object({
   // Not a name that poses as the platform or its staff ("Foundmill Support"): other founders read it as who wrote to them.
-  displayName: z.string().trim().min(1).max(120).refine((n) => !isReservedName(n), RESERVED_NAME_MESSAGE),
+  // Never a bidi control either: it turns the text after it around on every page that shows the name.
+  displayName: z
+    .string()
+    .trim()
+    .min(1)
+    .max(120)
+    .refine((n) => !isReservedName(n), RESERVED_NAME_MESSAGE)
+    .refine((n) => !hasBidiControl(n), BIDI_NAME_MESSAGE),
   experience: z.string().max(4000).nullable().optional(),
   skills: SkillRatings.default({}),
   timeCommitment: z.string().max(120).nullable().optional(),
@@ -32,6 +39,7 @@ export type FounderProfilePatch = z.input<typeof FounderProfilePatch>;
 /** Says why in the person's words (parseInput would only say "Invalid founder profile"); the schema holds the same rule. */
 function assertNameFree(displayName: string | undefined): void {
   if (displayName !== undefined && isReservedName(displayName)) throw new ValidationError(RESERVED_NAME_MESSAGE);
+  if (displayName !== undefined && hasBidiControl(displayName)) throw new ValidationError(BIDI_NAME_MESSAGE, { field: "displayName" });
 }
 
 export const foundersRepo = {

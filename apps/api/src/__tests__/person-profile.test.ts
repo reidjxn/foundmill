@@ -8,10 +8,10 @@
  * and null for anything not public; private fields never leave; a person building on their own is asked nothing more.
  */
 import { repos } from "@foundmill/db";
-import { PERSON_HANDLE_TAKEN, PERSON_HOLD_MESSAGES, type PersonProfileContent, type ProjectPageContent } from "@foundmill/shared";
+import { PERSON_HANDLE_RESERVED, PERSON_HANDLE_TAKEN, PERSON_HOLD_MESSAGES, type PersonProfileContent, type ProjectPageContent } from "@foundmill/shared";
 import { sql } from "drizzle-orm";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
-import { PROFILE_MISSING_MESSAGE, profileHoldReason } from "../services/person-profile";
+import { PROFILE_MISSING_MESSAGE, PUBLIC_PERSON_LIMITS, PUBLIC_PROFILE_OWN_LIMITS, handlePosesAsPlatform, profileHoldReason, publicPersonByHandle, publicPersonLimitKeys, publishPublicProfile } from "../services/person-profile";
 import { createApiHarness, type ApiHarness } from "./harness";
 
 let hz: ApiHarness;
@@ -32,6 +32,17 @@ async function person(displayName: string, options: { profile?: boolean } = {}) 
 }
 
 const code = (p: Promise<unknown>) => p.then(() => "ok", (err: { code?: string }) => err.code ?? "unknown");
+
+async function fill(key: string, rule: { limit: number; windowMs: number }, left = 0) {
+  for (let i = 0; i < rule.limit - left; i++) await hz.limits.take([{ key, rule }]);
+}
+/** How many hits `key` holds in its window now (taken back at once). */
+async function hits(key: string, windowMs = 60_000): Promise<number> {
+  const probe = await hz.limits.take([{ key, rule: { limit: 100_000, windowMs } }]);
+  if (!probe.ok) throw new Error("probe refused");
+  await hz.limits.refund(probe.ticket);
+  return 100_000 - 1 - probe.remaining;
+}
 
 describe("founder.publicProfile", () => {
   it("is the signed-in person's own: signed out is refused, and nobody reads anyone else's", async () => {
@@ -187,5 +198,150 @@ describe("publicPerson.byHandle", () => {
     expect(await hz.caller(null).publicPerson.byHandle({ handle: "gone-person" })).not.toBeNull();
     await hz.db.execute(sql`update founder_profiles set archived_at = now() where user_id = ${p.userId}`);
     expect(await hz.caller(null).publicPerson.byHandle({ handle: "gone-person" })).toBeNull();
+  });
+});
+
+describe("the display name, changed in Your profile", () => {
+  it("is screened while the public profile is public, and refused with the profile's sentence", async () => {
+    const p = await person("Nia Cole");
+    await p.me.founder.publicProfile.publish({ content: content() });
+    for (const [name, reason] of [["Nia nia@example.com", "personal_data"], ["Nia 555 201 3344", "personal_data"], ["Nia <script>", "markup"]] as const) {
+      await expect(p.me.founder.profile.update({ displayName: name }), name).rejects.toThrow(PERSON_HOLD_MESSAGES[reason]);
+    }
+    expect((await hz.caller(null).publicPerson.byHandle({ handle: "nia-cole" }))?.displayName).toBe("Nia Cole");
+    // An ordinary new name goes out at once.
+    await p.me.founder.profile.update({ displayName: "Nia Cole-Hart" });
+    expect((await hz.caller(null).publicPerson.byHandle({ handle: "nia-cole" }))?.displayName).toBe("Nia Cole-Hart");
+  });
+
+  it("is screened while a published project page names the person, even with a private profile", async () => {
+    const p = await person("Omar Diaz");
+    const b = await repos.businesses.create(hz.db, { name: `Omar Makes ${n}`, archetype: "b2b_saas" });
+    await repos.businesses.commit(hz.db, b.id, { archetype: "b2b_saas" });
+    await repos.memberships.add(hz.db, b.id, { userId: p.userId, role: "owner" });
+    const page = (showFounders: boolean): ProjectPageContent => ({ pitch: "Chairs", about: "Made by hand.", forWhom: "", stage: "building", showFounders, followForm: false });
+    // A page that does not name its founders: the name is nobody else's business.
+    await repos.pages.publish(hz.db, b.id, { content: page(false), slug: `omar-makes-${n}`, userId: p.userId });
+    await p.me.founder.profile.update({ displayName: "Omar omar@example.com" });
+    await p.me.founder.profile.update({ displayName: "Omar Diaz" });
+    // Named on it: held.
+    await repos.pages.publish(hz.db, b.id, { content: page(true), slug: `omar-makes-${n}`, userId: p.userId });
+    await expect(p.me.founder.profile.update({ displayName: "Omar omar@example.com" })).rejects.toThrow(PERSON_HOLD_MESSAGES.personal_data);
+    expect((await hz.caller(null).publicPage.bySlug({ slug: `omar-makes-${n}` }))?.founderNames).toEqual(["Omar Diaz"]);
+    // Other fields of the profile change as before, and the same name is no change.
+    await p.me.founder.profile.update({ displayName: "Omar Diaz", riskAppetite: "low" });
+  });
+
+  it("is free while nothing public shows it, and the publish that follows screens it", async () => {
+    const p = await person("Pia Lund");
+    await p.me.founder.profile.update({ displayName: "Pia pia@example.com" });
+    expect((await repos.founders.get(hz.db, p.userId))?.displayName).toBe("Pia pia@example.com");
+    expect(await p.me.founder.publicProfile.publish({ content: content() })).toMatchObject({ outcome: "held", reason: "personal_data" });
+    expect(await hz.caller(null).publicPerson.byHandle({ handle: "pia-lund" })).toBeNull();
+  });
+
+  it("publish screens the name as it is locked for the publish, not as it was read before", async () => {
+    const p = await person("Quinn Ash");
+    await p.me.founder.publicProfile.update({ content: content() });
+    // A name change lands between the publish's first read and its write (another tab, "Your profile").
+    const db = new Proxy(hz.db, {
+      get(target, key) {
+        if (key === "transaction") {
+          return async (fn: (tx: unknown) => Promise<unknown>) => {
+            await target.execute(sql`update founder_profiles set display_name = 'Quinn quinn@example.com' where user_id = ${p.userId}`);
+            return target.transaction(fn as never);
+          };
+        }
+        const v = Reflect.get(target, key) as unknown;
+        return typeof v === "function" ? (v as (...a: unknown[]) => unknown).bind(target) : v;
+      },
+    });
+    const result = await publishPublicProfile({ db, env: hz.deps.env, limits: hz.limits, userId: p.userId }, { content: content() });
+    expect(result).toMatchObject({ outcome: "held", reason: "personal_data", profile: { public: false } });
+    expect(await hz.caller(null).publicPerson.byHandle({ handle: "quinn-ash" })).toBeNull();
+  });
+
+  it("a name with a bidi control is refused", async () => {
+    const p = await person("Rena Holt");
+    await expect(p.me.founder.profile.update({ displayName: "Rena\u202eHolt" })).rejects.toThrow(/direction of the text/);
+  });
+});
+
+describe("the address", () => {
+  it("never poses as the product or its staff", async () => {
+    const p = await person("Sol Brandt");
+    for (const handle of ["foundmill-support", "foundmill-team", "team-foundmill", "my-foundmill-page", "support-desk", "admin-team", "f0undmill", "official-help"]) {
+      expect(handlePosesAsPlatform(handle), handle).toBe(true);
+      await expect(p.me.founder.publicProfile.update({ handle, content: content() }), handle).rejects.toThrow(PERSON_HANDLE_RESERVED);
+    }
+    for (const handle of ["sol-brandt", "mill-house", "teamwork-studio", "found-it-bakery"]) expect(handlePosesAsPlatform(handle), handle).toBe(false);
+    expect((await p.me.founder.publicProfile.update({ handle: "sol-brandt", content: content() })).profile.handle).toBe("sol-brandt");
+  });
+
+  it("one a person left stays theirs for 90 days", async () => {
+    const a = await person("Tao Reyes");
+    const b = await person("Tao Rivers");
+    await a.me.founder.publicProfile.update({ handle: "tao-r", content: content() });
+    await a.me.founder.publicProfile.update({ handle: "tao-reyes", content: content() });
+    await expect(b.me.founder.publicProfile.update({ handle: "tao-r", content: content() })).rejects.toThrow(PERSON_HANDLE_TAKEN);
+    // The suggestion for B steps around it too.
+    expect((await b.me.founder.publicProfile.get()).handle).not.toBe("tao-r");
+    // A can take it back at any time.
+    expect((await a.me.founder.publicProfile.update({ handle: "tao-r", content: content() })).profile.handle).toBe("tao-r");
+    await a.me.founder.publicProfile.update({ handle: "tao-reyes", content: content() });
+    // After 90 days it is free.
+    await hz.db.execute(sql`update person_handle_releases set released_at = now() - interval '91 days' where handle = 'tao-r'`);
+    expect((await b.me.founder.publicProfile.update({ handle: "tao-r", content: content() })).profile.handle).toBe("tao-r");
+  });
+});
+
+describe("limits", () => {
+  it("the person's own get, update and publish are limited per account", async () => {
+    const p = await person("Uma Price");
+    const other = await person("Uma Pierce");
+    for (const what of ["get", "update", "publish"] as const) await fill(`public-profile:${what}:${p.userId}`, PUBLIC_PROFILE_OWN_LIMITS[what]);
+    expect(await code(p.me.founder.publicProfile.get())).toBe("TOO_MANY_REQUESTS");
+    expect(await code(p.me.founder.publicProfile.update({ handle: "probe-one", content: content() }))).toBe("TOO_MANY_REQUESTS");
+    expect(await code(p.me.founder.publicProfile.publish({ handle: "probe-two", content: content() }))).toBe("TOO_MANY_REQUESTS");
+    // Taking a profile down is never held back, and another account is not affected.
+    expect((await p.me.founder.publicProfile.unpublish()).public).toBe(false);
+    expect((await other.me.founder.publicProfile.get()).public).toBe(false);
+    expect(PUBLIC_PROFILE_OWN_LIMITS.update.limit).toBeLessThanOrEqual(30);
+  });
+
+  it("random unknown handles do not use up the per-handle or the global bucket of a real handle", async () => {
+    const p = await person("Vic Lane");
+    await p.me.founder.publicProfile.publish({ content: content() });
+    const anon = hz.caller(null);
+    for (let i = 0; i < 25; i++) expect(await anon.publicPerson.byHandle({ handle: `no-such-person-${i}` })).toBeNull();
+    // A private profile reads as unknown, and is counted the same way.
+    const q = await person("Vic Quiet");
+    await q.me.founder.publicProfile.update({ content: content() });
+    expect(await anon.publicPerson.byHandle({ handle: "vic-quiet" })).toBeNull();
+    expect(await hits(publicPersonLimitKeys.all)).toBe(0);
+    expect(await hits(publicPersonLimitKeys.handle("no-such-person-0"))).toBe(0);
+    expect(await hits(publicPersonLimitKeys.unknown)).toBe(26);
+    expect((await anon.publicPerson.byHandle({ handle: "vic-lane" }))?.displayName).toBe("Vic Lane");
+    expect(await hits(publicPersonLimitKeys.all)).toBe(1);
+    expect(await hits(publicPersonLimitKeys.handle("vic-lane"))).toBe(1);
+
+    // With the unknown ceiling full, random lookups are refused and the real page still reads.
+    await fill(publicPersonLimitKeys.unknown, PUBLIC_PERSON_LIMITS.unknown);
+    expect(await code(anon.publicPerson.byHandle({ handle: "no-such-person-x" }))).toBe("TOO_MANY_REQUESTS");
+    expect((await anon.publicPerson.byHandle({ handle: "vic-lane" }))?.displayName).toBe("Vic Lane");
+    expect(await hits(publicPersonLimitKeys.all)).toBe(2);
+  });
+
+  it("limits each caller by the address the api sees, generously", async () => {
+    const p = await person("Wen Ford");
+    await p.me.founder.publicProfile.publish({ content: content() });
+    await fill(publicPersonLimitKeys.caller(hz.deps.env, "203.0.113.20"), PUBLIC_PERSON_LIMITS.perCaller);
+    const refused = await publicPersonByHandle({ ...hz.deps, clientAddress: "203.0.113.20" }, "wen-ford").then(() => "ok", (e: { code?: string }) => e.code);
+    expect(refused).toBe("rate_limited");
+    // Refused before anything else was spent.
+    expect(await hits(publicPersonLimitKeys.all)).toBe(0);
+    expect((await publicPersonByHandle({ ...hz.deps, clientAddress: "203.0.113.21" }, "wen-ford"))?.displayName).toBe("Wen Ford");
+    expect(publicPersonLimitKeys.caller(hz.deps.env, "203.0.113.20")).not.toContain("203.0.113.20");
+    expect(PUBLIC_PERSON_LIMITS.perCaller.limit).toBeGreaterThanOrEqual(300);
   });
 });

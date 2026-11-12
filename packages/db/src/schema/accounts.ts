@@ -45,6 +45,24 @@ export const founderProfiles = pgTable(
 export type FounderProfile = typeof founderProfiles.$inferSelect;
 export type NewFounderProfile = typeof founderProfiles.$inferInsert;
 
+/**
+ * 0080 — a handle a person left (renamed or cleared), kept for them for 90 days (`PERSON_HANDLE_HOLD_DAYS`): another
+ * account cannot take it in that time (trigger `fm_founder_profiles_handle_hold`, and `repos.personProfiles.handleTaken`).
+ * Written by the database's triggers on `founder_profiles`; service role only, no client role reads or writes it.
+ */
+export const personHandleReleases = pgTable(
+  "person_handle_releases",
+  {
+    id: id(),
+    handle: text("handle").notNull().unique(),
+    userId: uuid("user_id").notNull().references(() => authUsers.id, { onDelete: "cascade" }),
+    releasedAt: tstz("released_at").notNull().defaultNow(),
+    ...timestamps(),
+  },
+  (t) => [index("person_handle_releases_user_id_idx").on(t.userId)],
+);
+export type PersonHandleRelease = typeof personHandleReleases.$inferSelect;
+
 /** One project page a public person profile lists (`public_person_profiles.projects`). */
 export interface PublicPersonProject {
   slug: string;
@@ -53,8 +71,9 @@ export interface PublicPersonProject {
 }
 
 /**
- * 0080 — what anyone may read of a person's public profile, signed in or not (granted to anon). Exactly these columns:
- * nothing else of the account leaves through it. Rows only while the profile is public and not archived. `projects`
+ * 0080 — what anyone may read of a person's public profile, signed in or not, through the api (granted to service_role
+ * only: the api serves it one handle at a time, rate-limited). Exactly these columns: nothing else of the account leaves
+ * through it. Rows only while the profile is public and not archived. `projects`
  * lists the person's published project pages, only where they are an owner and the page names its founders.
  */
 export const publicPersonProfiles = pgView("public_person_profiles", {

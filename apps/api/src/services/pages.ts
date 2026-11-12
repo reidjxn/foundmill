@@ -15,8 +15,10 @@
  *   addresses, phone numbers). A held page stays unpublished and the answer says why in one plain sentence
  *   (`PAGE_HOLD_MESSAGES`). No model is called anywhere here. Each change writes its event through the outbox and an
  *   audit row in the same transaction.
- * - **The public read** (`publicPageBySlug`): the view `public_project_pages` on the service connection, so only its
- *   columns leave, plus the logo of a page the view lists.
+ * - **The public read** (`publicPageBySlug`): the view `public_project_pages` on the service connection (since 0081 the
+ *   view is the service role's only), so only its columns leave, plus the logo of a page the view lists. Limited per
+ *   caller, then per address and across all of them; a lookup that finds nothing gives those back and draws from a
+ *   ceiling of its own (`PUBLIC_PAGE_LIMITS`).
  * - **The team's first draft** (packages 1.2 and 1.3): the foundations runners write the row with the Product lead's
  *   draft and the note "Your project's page is ready" (`repos.pages.writeTeamDraft`); `decidePageNote` answers that
  *   note, and publishing answers it too.
@@ -282,24 +284,45 @@ export interface PublicPageView {
 }
 
 /**
- * Signed-out reads of public pages, shared by every api replica (`ctx.limits`). The api sees the web server, not the
- * reader, so these are ceilings that keep a flood off the database: one per address and one across all of them.
+ * Signed-out reads of public pages, shared by every api replica (`ctx.limits`), in the order `publicPageBySlug` takes
+ * them:
+ *   - `perCaller`: by the address the api itself sees (`ctx.clientAddress`, as the Follow form). A page rendered by the
+ *     web comes from the web's egress addresses, so every reader of the web shares a few buckets here: generous, and it
+ *     is what stops a caller hitting the api directly from emptying the ceilings below alone.
+ *   - `perSlug` and `all`: ceilings that keep a flood off the database, one per address and one across all of them.
+ *   - `unknown`: a lookup that finds nothing (an unknown address, or a page that is not public) gives its `perSlug` and
+ *     `all` hits back and draws from this ceiling instead, so random addresses cannot use up what real pages read from.
  */
 export const PUBLIC_PAGE_LIMITS = {
+  perCaller: { limit: 300, windowMs: 60_000 },
   perSlug: { limit: 600, windowMs: 60_000 },
   all: { limit: 6000, windowMs: 60_000 },
+  unknown: { limit: 600, windowMs: 60_000 },
+} as const;
+
+export const publicPageLimitKeys = {
+  caller: (env: Pick<Env, "SESSION_TOKEN_SECRET">, address: string) => callerLimitKey(env, "public-page", address),
+  slug: (slug: string) => `public-page:slug:${slug}`,
+  all: "public-page:all",
+  unknown: "public-page:unknown",
 } as const;
 
 /** `publicPage.bySlug`: the published page at `slug`, or null for an unknown address or a page that is not public. */
-export async function publicPageBySlug(ctx: Pick<Context, "db" | "env" | "limits">, slug: string): Promise<PublicPageView | null> {
+export async function publicPageBySlug(ctx: Pick<Context, "db" | "env" | "limits"> & { clientAddress?: string | null }, slug: string): Promise<PublicPageView | null> {
   const clean = slug.trim().toLowerCase();
   if (pageSlugProblem(clean)) return null;
-  await takeOrThrow(ctx.limits, "Page view", [
-    { key: `public-page:slug:${clean}`, rule: PUBLIC_PAGE_LIMITS.perSlug },
-    { key: "public-page:all", rule: PUBLIC_PAGE_LIMITS.all },
+  if (ctx.clientAddress) await takeOrThrow(ctx.limits, "Page view", [{ key: publicPageLimitKeys.caller(ctx.env, ctx.clientAddress), rule: PUBLIC_PAGE_LIMITS.perCaller }]);
+  const ticket = await takeOrThrow(ctx.limits, "Page view", [
+    { key: publicPageLimitKeys.slug(clean), rule: PUBLIC_PAGE_LIMITS.perSlug },
+    { key: publicPageLimitKeys.all, rule: PUBLIC_PAGE_LIMITS.all },
   ]);
-  const [page, logo] = await Promise.all([repos.pages.public.bySlug(ctx.db, clean), repos.pages.public.logoBySlug(ctx.db, clean)]);
-  if (!page) return null;
+  const page = await repos.pages.public.bySlug(ctx.db, clean);
+  if (!page) {
+    await ctx.limits.refund(ticket);
+    await takeOrThrow(ctx.limits, "Page view", [{ key: publicPageLimitKeys.unknown, rule: PUBLIC_PAGE_LIMITS.unknown }]);
+    return null;
+  }
+  const logo = await repos.pages.public.logoBySlug(ctx.db, clean);
   const { pitch, about, forWhom, stage, showFounders, followForm } = page.content;
   return {
     slug: page.slug,
@@ -358,8 +381,13 @@ export function followAddressKey(env: Pick<Env, "SESSION_TOKEN_SECRET">, kind: "
   return createHmac("sha256", secret).update(`${FOLLOW_KEY_LABEL}\n${kind}\n${value.trim().toLowerCase()}`).digest("base64url");
 }
 
+/** A per-caller rate-limit key for `scope` (`public-page`, `public-person`, `page-follow`): the caller's address, keyed. */
+export function callerLimitKey(env: Pick<Env, "SESSION_TOKEN_SECRET">, scope: string, address: string): string {
+  return `${scope}:caller:${followAddressKey(env, "caller", address)}`;
+}
+
 export const followLimitKeys = {
-  caller: (env: Pick<Env, "SESSION_TOKEN_SECRET">, address: string) => `page-follow:caller:${followAddressKey(env, "caller", address)}`,
+  caller: (env: Pick<Env, "SESSION_TOKEN_SECRET">, address: string) => callerLimitKey(env, "page-follow", address),
   perAddress: (env: Pick<Env, "SESSION_TOKEN_SECRET">, slug: string, email: string) => `page-follow:addr:${slug}:${followAddressKey(env, "email", email)}`,
   confirmAnyProject: (env: Pick<Env, "SESSION_TOKEN_SECRET">, email: string) => `page-follow:confirm:${followAddressKey(env, "email", email)}`,
   closed: "page-follow:closed",

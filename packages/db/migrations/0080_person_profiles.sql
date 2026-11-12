@@ -11,7 +11,12 @@
 --     make it public, or change what a public profile shows (the guard trigger below).
 --
 -- What is public: the view `public_person_profiles`, and only its ten columns. Nothing else of the row (email lives in
--- auth.users; residence, citizenship, budget, skill ratings, experience, time, constraints and risk stay private).
+-- auth.users; residence, citizenship, budget, skill ratings, experience, time, constraints and risk stay private). The
+-- view is read by the api alone (service role), through `publicPerson.byHandle` and its rate limits: anon and
+-- authenticated cannot select it straight through PostgREST, so a reader cannot list every public profile at once.
+--
+-- A handle a person leaves stays theirs for 90 days (`person_handle_releases`, service role only): nobody else can take
+-- it and pose as them at an address people already have.
 
 -- True when a text array is a list of 0 to 8 tags of 1 to 30 characters on one line each. Mirrors `PersonProfileContent`
 -- in @foundmill/shared.
@@ -55,12 +60,27 @@ alter table founder_profiles
 create unique index founder_profiles_handle_key on founder_profiles (handle);
 --> statement-breakpoint
 -- Going public, and changing what a public profile shows, is the api's to do (service role), after its screen. A
--- signed-in client may still take the profile down (public -> false), and change anything while it is not public.
--- Not security definer: `current_user` must be the caller's role.
+-- signed-in client may still take the profile down (public -> false), and change anything while it is not public,
+-- except the display name while a published project page names the person as one of its founders (the page shows it).
+-- Not security definer: `current_user` must be the caller's role (the page check reads the caller's own memberships
+-- and pages under RLS, which an owner can see).
 create function fm_founder_profiles_public_guard() returns trigger
 language plpgsql set search_path = public as $$
 begin
-  if current_user not in ('authenticated', 'anon') or not new.public then
+  if current_user not in ('authenticated', 'anon') then
+    return new;
+  end if;
+  if tg_op = 'UPDATE' and new.display_name is distinct from old.display_name and exists (
+       select 1
+         from memberships m
+         join project_pages p on p.business_id = m.business_id
+         join businesses b on b.id = p.business_id
+        where m.user_id = new.user_id and m.role = 'owner'
+          and p.published->'showFounders' = 'true'::jsonb
+          and b.committed_at is not null and b.archived_at is null and not b.is_demo) then
+    raise exception 'permission denied for founder_profiles: a name a public page shows is changed through the app' using errcode = '42501';
+  end if;
+  if not new.public then
     return new;
   end if;
   if tg_op = 'INSERT' or not old.public
@@ -82,7 +102,66 @@ $$;
 --> statement-breakpoint
 create trigger founder_profiles_public_guard before insert or update on founder_profiles for each row execute function fm_founder_profiles_public_guard();
 --> statement-breakpoint
--- The public read. Exactly these columns, for anyone, signed in or not: the handle, the display name, what the person
+-- A handle a person leaves (renamed, or cleared), kept for them for 90 days: one row per handle, the account it was
+-- released by and when. Account-scoped but written and read only by the database's own triggers and the api (service
+-- role): no client role reads it (it would list who used which address), and no client writes it (a person could
+-- otherwise reserve addresses they never held). Taking the handle back, or a newer release by its next holder, replaces
+-- the row; an account's rows go with the account.
+create table person_handle_releases (
+  id uuid primary key default gen_random_uuid(),
+  handle text not null unique check (handle ~ '^[a-z0-9][a-z0-9-]{1,38}[a-z0-9]$'),
+  user_id uuid not null references auth.users(id) on delete cascade,
+  released_at timestamptz not null default now(),
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+--> statement-breakpoint
+create index person_handle_releases_user_id_idx on person_handle_releases (user_id);
+--> statement-breakpoint
+alter table person_handle_releases enable row level security;
+--> statement-breakpoint
+revoke all on person_handle_releases from public, anon, authenticated;
+--> statement-breakpoint
+grant select, insert, update, delete on person_handle_releases to service_role;
+--> statement-breakpoint
+select fm_track_updated_at('person_handle_releases');
+--> statement-breakpoint
+-- Whoever writes (the api, a signed-in client while the profile is private, a migration): a handle released by another
+-- account in the last 90 days is refused as taken, with the same error as the unique index, so every writer gets the
+-- person's sentence ("That address is taken"). Security definer: the releases are not readable by client roles.
+create function fm_founder_profiles_handle_hold() returns trigger
+language plpgsql security definer set search_path = public as $$
+begin
+  if new.handle is not null and (tg_op = 'INSERT' or new.handle is distinct from old.handle) and exists (
+       select 1 from person_handle_releases r
+        where r.handle = new.handle and r.user_id <> new.user_id and r.released_at > now() - interval '90 days') then
+    raise exception 'duplicate key value violates unique constraint "founder_profiles_handle_key"'
+      using errcode = '23505', constraint = 'founder_profiles_handle_key', detail = 'The handle was released by another account less than 90 days ago.';
+  end if;
+  return new;
+end;
+$$;
+--> statement-breakpoint
+create trigger founder_profiles_handle_hold before insert or update of handle on founder_profiles for each row execute function fm_founder_profiles_handle_hold();
+--> statement-breakpoint
+-- Records the handle a person leaves, and forgets a release once its owner takes the handle back.
+create function fm_founder_profiles_handle_released() returns trigger
+language plpgsql security definer set search_path = public as $$
+begin
+  if old.handle is not null and new.handle is distinct from old.handle then
+    insert into person_handle_releases (handle, user_id, released_at) values (old.handle, old.user_id, now())
+      on conflict (handle) do update set user_id = excluded.user_id, released_at = excluded.released_at;
+  end if;
+  if new.handle is not null then
+    delete from person_handle_releases where handle = new.handle and user_id = new.user_id;
+  end if;
+  return null;
+end;
+$$;
+--> statement-breakpoint
+create trigger founder_profiles_handle_released after update of handle on founder_profiles for each row execute function fm_founder_profiles_handle_released();
+--> statement-breakpoint
+-- The public read. Exactly these columns, for the api to serve to anyone, signed in or not: the handle, the display name, what the person
 -- wrote for their profile (headline, about, the two tag lists, what they are here for, the place) and when it went
 -- public; and the person's published project pages (slug, name, pitch), only for projects where they are an owner AND
 -- the published page itself chose to name the people building it (`showFounders`), so a membership the founders did not
@@ -111,6 +190,8 @@ create view public_person_profiles with (security_barrier) as
     from founder_profiles fp
    where fp.public and fp.handle is not null and fp.published_at is not null and fp.archived_at is null;
 --> statement-breakpoint
-revoke all on public_person_profiles from anon, authenticated;
+-- The service role only: the api reads it on the service connection, one handle at a time and rate-limited
+-- (`publicPerson.byHandle`). A client role selecting it straight through PostgREST is refused.
+revoke all on public_person_profiles from public, anon, authenticated;
 --> statement-breakpoint
-grant select on public_person_profiles to anon, authenticated, service_role;
+grant select on public_person_profiles to service_role;

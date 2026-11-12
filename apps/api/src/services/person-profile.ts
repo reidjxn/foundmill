@@ -12,19 +12,34 @@
  *   suffix from a hash of the account id when another person holds it); the first save stores it.
  * - **Screening**: before a profile goes public, and on every save while it is public, the text goes through the same
  *   deterministic checks as a project page (`communityScreenLocalFlags`: markup and script links, email addresses,
- *   phone numbers), the display name included. A held profile is not made public, and a public one keeps what it showed;
- *   the answer says why in one sentence (`PERSON_HOLD_MESSAGES`). No model is called.
+ *   phone numbers, after NFKC and with format characters removed), the display name included. What is screened is the
+ *   row locked for the write that follows (`repos.personProfiles.lock`, `select … for update` in the same
+ *   transaction), so a name changed in between cannot go out unscreened. A held profile is not made public, and a
+ *   public one keeps what it showed; the answer says why in one sentence (`PERSON_HOLD_MESSAGES`). No model is called.
+ * - **The display name** is changed in "Your profile" (`founder.profile.update`, `updateFounderProfile` below): while
+ *   the public profile is public, or a published project page names the person as one of its founders, the new name is
+ *   screened the same way, on the locked row, and a held one is refused with the same sentence.
+ * - **The address** (`checkHandle`): the page rule, nothing that poses as the product (`isReservedName` with hyphens
+ *   read as spaces, or APP_NAME anywhere in it), and not another person's, including a handle someone left less than
+ *   `PERSON_HANDLE_HOLD_DAYS` ago (it stays theirs).
+ * - **Limits**: the person's own `get`, `update` and `publish` are limited per account (`PUBLIC_PROFILE_OWN_LIMITS`), so
+ *   a signed-in script cannot probe handles at speed.
  * - **Audit**: none. The audit log and the events are business-scoped (`audit_log.business_id`), and this is the
  *   account's own; like `founder.preferences`, nothing is written there.
  * - **The public read** (`publicPersonByHandle`, unauthenticated): the view `public_person_profiles` on the service
- *   connection, so only its columns leave; null for an unknown handle or a profile that is not public.
+ *   connection (the view is the service role's only), so only its columns leave; null for an unknown handle or a
+ *   profile that is not public. Limited per caller, then per handle and across all handles; a lookup that finds nothing
+ *   gives those back and draws from a ceiling of its own (`PUBLIC_PERSON_LIMITS`).
  */
 import { communityScreenLocalFlags } from "@foundmill/agents";
+import { APP_NAME, isReservedName } from "@foundmill/config";
 import { createHash } from "node:crypto";
-import { repos, type PersonProfileRow, type PublicPersonProject } from "@foundmill/db";
+import { repos, type FounderProfile, type FounderProfilePatch, type PersonProfileRow, type PublicPersonProject } from "@foundmill/db";
 import {
   AppError,
   ConflictError,
+  EMPTY_PERSON_PROFILE,
+  PERSON_HANDLE_RESERVED,
   PERSON_HANDLE_TAKEN,
   PERSON_HOLD_MESSAGES,
   PersonProfileContent,
@@ -40,9 +55,24 @@ import {
   type PersonProfileContent as ProfileContent,
 } from "@foundmill/shared";
 import type { Context } from "../context";
-import { takeOrThrow } from "./rate-limit";
+import { callerLimitKey } from "./pages";
+import { takeOrThrow, type WindowLimit } from "./rate-limit";
 
-type AccountContext = Pick<Context, "db" | "env"> & { userId: string };
+type AccountContext = Pick<Context, "db" | "env" | "limits"> & { userId: string };
+
+/**
+ * The person's own reads and changes (`founder.publicProfile.get`, `update`, `publish`), per account and per procedure:
+ * generous for a person at the editor (a read on focus, a save per press), too few to probe handles at speed.
+ */
+export const PUBLIC_PROFILE_OWN_LIMITS: Readonly<Record<"get" | "update" | "publish", WindowLimit>> = {
+  get: { limit: 30, windowMs: 60_000 },
+  update: { limit: 30, windowMs: 60_000 },
+  publish: { limit: 30, windowMs: 60_000 },
+};
+
+async function takeOwn(ctx: AccountContext, what: keyof typeof PUBLIC_PROFILE_OWN_LIMITS): Promise<void> {
+  await takeOrThrow(ctx.limits, "Public profile", [{ key: `public-profile:${what}:${ctx.userId}`, rule: PUBLIC_PROFILE_OWN_LIMITS[what] }]);
+}
 
 /** What the edit screen reads (`founder.publicProfile.get`) and every change answers. */
 export interface PublicProfileView {
@@ -103,12 +133,24 @@ function parseContent(content: unknown): ProfileContent {
   throw new ValidationError(first?.[1] ?? "Check the profile's fields and try again.", { field: first?.[0], problems });
 }
 
-/** A new handle checked: the address rule, then whether another person holds it. Undefined keeps the stored one. */
+/**
+ * Whether a handle poses as the product or its staff: the reserved-name rule of display names with hyphens read as
+ * spaces ("foundmill-support", "admin-desk", look-alike letters too), or the product's name anywhere in it.
+ */
+export function handlePosesAsPlatform(handle: string): boolean {
+  return isReservedName(handle.replace(/-/g, " ")) || handle.toLowerCase().includes(APP_NAME.toLowerCase());
+}
+
+/**
+ * A new handle checked: the address rule, nothing that poses as the product, then whether another person holds it (or
+ * left it less than `PERSON_HANDLE_HOLD_DAYS` ago). Undefined keeps the stored one.
+ */
 async function checkHandle(ctx: AccountContext, raw: string | undefined): Promise<string | undefined> {
   if (raw === undefined) return undefined;
   const handle = raw.trim().toLowerCase();
   const problem = personHandleProblem(handle);
   if (problem) throw new ValidationError(problem, { field: "handle" });
+  if (handlePosesAsPlatform(handle)) throw new ValidationError(PERSON_HANDLE_RESERVED, { field: "handle" });
   if (await repos.personProfiles.handleTaken(ctx.db, ctx.userId, handle)) throw new ConflictError(PERSON_HANDLE_TAKEN, { field: "handle" });
   return handle;
 }
@@ -121,6 +163,7 @@ async function current(ctx: AccountContext): Promise<PersonProfileRow> {
 
 /** `founder.publicProfile.get`: the profile as it stands (nothing is written). */
 export async function getPublicProfile(ctx: AccountContext): Promise<PublicProfileView> {
+  await takeOwn(ctx, "get");
   return viewOf(ctx, await current(ctx));
 }
 
@@ -136,14 +179,20 @@ export interface ProfileInput {
  * changes nothing and says why.
  */
 export async function updatePublicProfile(ctx: AccountContext, input: ProfileInput): Promise<SaveProfileResult> {
+  await takeOwn(ctx, "update");
   const content = parseContent(input.content);
   const existing = await current(ctx);
   const handle = (await checkHandle(ctx, input.handle)) ?? (existing.handle ? undefined : await suggestedHandle(ctx, existing.displayName));
-  if (existing.public) {
-    const reason = profileHoldReason(content, existing.displayName);
-    if (reason) return { outcome: "held", reason, message: PERSON_HOLD_MESSAGES[reason], profile: await viewOf(ctx, existing) };
-  }
-  return { outcome: "saved", profile: await viewOf(ctx, await repos.personProfiles.save(ctx.db, ctx.userId, { handle, content })) };
+  // Screened on the row as it is locked for the save: a profile published, or a name changed, in between is seen.
+  const result = await ctx.db.transaction(async (tx) => {
+    const locked = await repos.personProfiles.lock(tx, ctx.userId);
+    if (!locked) throw missing();
+    const reason = locked.public ? profileHoldReason(content, locked.displayName) : null;
+    if (reason) return { reason, row: locked };
+    return { reason: null, row: await repos.personProfiles.save(tx, ctx.userId, { handle, content }) };
+  });
+  if (result.reason) return { outcome: "held", reason: result.reason, message: PERSON_HOLD_MESSAGES[result.reason], profile: await viewOf(ctx, result.row) };
+  return { outcome: "saved", profile: await viewOf(ctx, result.row) };
 }
 
 /**
@@ -152,19 +201,42 @@ export async function updatePublicProfile(ctx: AccountContext, input: ProfileInp
  * showing what it showed.
  */
 export async function publishPublicProfile(ctx: AccountContext, input: ProfileInput): Promise<PublishProfileResult> {
+  await takeOwn(ctx, "publish");
   const content = parseContent(input.content);
   const existing = await current(ctx);
   const handle = (await checkHandle(ctx, input.handle)) ?? (existing.handle ? undefined : await suggestedHandle(ctx, existing.displayName));
-  const reason = profileHoldReason(content, existing.displayName);
-  if (reason) {
-    const row = existing.public ? existing : await repos.personProfiles.save(ctx.db, ctx.userId, { handle, content });
-    return { outcome: "held", reason, message: PERSON_HOLD_MESSAGES[reason], profile: await viewOf(ctx, row) };
-  }
-  const row = await ctx.db.transaction(async (tx) => {
+  // The screen reads the row locked for the publish (the display name as it is now, not as it was read above), so a
+  // name changed in "Your profile" between the two cannot go public unscreened.
+  const result = await ctx.db.transaction(async (tx) => {
+    const locked = await repos.personProfiles.lock(tx, ctx.userId);
+    if (!locked) throw missing();
+    const reason = profileHoldReason(content, locked.displayName);
+    if (reason) return { reason, row: locked.public ? locked : await repos.personProfiles.save(tx, ctx.userId, { handle, content }) };
     await repos.personProfiles.save(tx, ctx.userId, { handle, content });
-    return repos.personProfiles.publish(tx, ctx.userId);
+    return { reason: null, row: await repos.personProfiles.publish(tx, ctx.userId) };
   });
-  return { outcome: "published", profile: await viewOf(ctx, row) };
+  if (result.reason) return { outcome: "held", reason: result.reason, message: PERSON_HOLD_MESSAGES[result.reason], profile: await viewOf(ctx, result.row) };
+  return { outcome: "published", profile: await viewOf(ctx, result.row) };
+}
+
+/**
+ * `founder.profile.update` for an account that has a profile: the change, with the display name screened first when the
+ * public can read it (the public profile is public, or a published project page names the person as a founder). The row
+ * is locked for the change, so a publish in between waits for it and then screens the new name itself. A held name is
+ * refused with the profile's sentence (`PERSON_HOLD_MESSAGES`); nothing changes.
+ */
+export async function updateFounderProfile(ctx: Pick<Context, "db"> & { userId: string }, patch: FounderProfilePatch): Promise<FounderProfile> {
+  return ctx.db.transaction(async (tx) => {
+    const locked = await repos.personProfiles.lock(tx, ctx.userId);
+    const name = typeof patch.displayName === "string" ? patch.displayName.trim() : undefined;
+    if (locked && name !== undefined && name !== locked.displayName) {
+      const shown = locked.public || (await repos.personProfiles.projectsShown(tx, ctx.userId)).length > 0;
+      // A public profile is screened with what it shows; a name shown only on a page, on its own.
+      const reason = shown ? profileHoldReason(locked.public ? locked.content : EMPTY_PERSON_PROFILE, name) : null;
+      if (reason) throw new ValidationError(PERSON_HOLD_MESSAGES[reason], { field: "displayName", reason });
+    }
+    return repos.founders.update(tx, ctx.userId, patch);
+  });
 }
 
 /** `founder.publicProfile.unpublish`: takes the profile down (everything written stays). A private profile is unchanged. */
@@ -190,24 +262,44 @@ export interface PublicPersonView {
 }
 
 /**
- * Signed-out reads of person pages, shared by every api replica (`ctx.limits`): ceilings that keep a flood off the
- * database (the api sees the web server, not the reader), one per handle and one across all of them, like the pages'.
+ * Signed-out reads of person pages, shared by every api replica (`ctx.limits`), in the order `publicPersonByHandle`
+ * takes them:
+ *   - `perCaller`: by the address the api itself sees (`ctx.clientAddress`, the Follow form's `clientAddressOf`). A page
+ *     rendered by the web comes from the web's egress addresses, so every reader of the web shares a few buckets here:
+ *     generous, and it is what stops a caller hitting the api directly from emptying the ceilings below alone.
+ *   - `perHandle` and `all`: ceilings that keep a flood off the database, one per handle and one across all of them.
+ *   - `unknown`: a lookup that finds nothing (an unknown handle, or a profile that is not public) gives its `perHandle`
+ *     and `all` hits back and draws from this ceiling instead, so random handles cannot use up what real pages read from.
  */
 export const PUBLIC_PERSON_LIMITS = {
+  perCaller: { limit: 300, windowMs: 60_000 },
   perHandle: { limit: 600, windowMs: 60_000 },
   all: { limit: 6000, windowMs: 60_000 },
+  unknown: { limit: 600, windowMs: 60_000 },
+} as const;
+
+export const publicPersonLimitKeys = {
+  caller: (env: Context["env"], address: string) => callerLimitKey(env, "public-person", address),
+  handle: (handle: string) => `public-person:handle:${handle}`,
+  all: "public-person:all",
+  unknown: "public-person:unknown",
 } as const;
 
 /** `publicPerson.byHandle`: the public profile at `handle`, or null for an unknown handle or a profile that is not public. */
-export async function publicPersonByHandle(ctx: Pick<Context, "db" | "env" | "limits">, handle: string): Promise<PublicPersonView | null> {
+export async function publicPersonByHandle(ctx: Pick<Context, "db" | "env" | "limits"> & { clientAddress?: string | null }, handle: string): Promise<PublicPersonView | null> {
   const clean = handle.trim().toLowerCase();
   if (personHandleProblem(clean)) return null;
-  await takeOrThrow(ctx.limits, "Profile view", [
-    { key: `public-person:handle:${clean}`, rule: PUBLIC_PERSON_LIMITS.perHandle },
-    { key: "public-person:all", rule: PUBLIC_PERSON_LIMITS.all },
+  if (ctx.clientAddress) await takeOrThrow(ctx.limits, "Profile view", [{ key: publicPersonLimitKeys.caller(ctx.env, ctx.clientAddress), rule: PUBLIC_PERSON_LIMITS.perCaller }]);
+  const ticket = await takeOrThrow(ctx.limits, "Profile view", [
+    { key: publicPersonLimitKeys.handle(clean), rule: PUBLIC_PERSON_LIMITS.perHandle },
+    { key: publicPersonLimitKeys.all, rule: PUBLIC_PERSON_LIMITS.all },
   ]);
   const person = await repos.personProfiles.public.byHandle(ctx.db, clean);
-  if (!person) return null;
+  if (!person) {
+    await ctx.limits.refund(ticket);
+    await takeOrThrow(ctx.limits, "Profile view", [{ key: publicPersonLimitKeys.unknown, rule: PUBLIC_PERSON_LIMITS.unknown }]);
+    return null;
+  }
   return {
     handle: person.handle,
     url: personUrl(ctx.env.APP_URL, person.handle),

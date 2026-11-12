@@ -25,7 +25,7 @@ import { GUIDANCE_OFF_SOURCES, PAGE_SLUG_MAX, PERSON_ABOUT_MAX, PERSON_HEADLINE_
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import { writeEventRow } from "../services/events";
-import { getPublicProfile, publicPersonByHandle, publishPublicProfile, unpublishPublicProfile, updatePublicProfile } from "../services/person-profile";
+import { getPublicProfile, publicPersonByHandle, publishPublicProfile, unpublishPublicProfile, updateFounderProfile, updatePublicProfile } from "../services/person-profile";
 import { protectedProcedure, publicProcedure, router } from "../trpc";
 import { founderBusinessesRouter } from "./founder-businesses";
 
@@ -106,10 +106,13 @@ export const founderRouter = router({
      * ("Guidance is off for experienced founders. Turn it on any time in Settings › Preferences."). The same save turns
      * Builder view on (0073; founder, Nov 8, 2026): they see how the platform runs the team from the start. A later edit
      * never touches either switch, whatever the experience becomes.
+     * A new display name the public can read (the public profile is public, or a published project page names the
+     * person as a founder) is screened first, like the profile's own text, and refused with its sentence when held
+     * (services/person-profile.ts `updateFounderProfile`).
      */
     update: protectedProcedure.input(FounderProfilePatch).mutation(async ({ ctx, input }) => {
       const existing = await repos.founders.get(ctx.db, ctx.userId);
-      if (existing) return { ...(await repos.founders.update(ctx.db, ctx.userId, input)), guidanceTurnedOff: false };
+      if (existing) return { ...(await updateFounderProfile(ctx, input)), guidanceTurnedOff: false };
       const created = FounderProfileInput.parse({ displayName: input.displayName ?? freeDisplayName(ctx.email?.split("@")[0]), ...input });
       const profile = await repos.founders.upsert(ctx.db, ctx.userId, created);
       const guidanceTurnedOff = guidanceOffByDefault(profile.experience);
@@ -159,7 +162,7 @@ export const founderRouter = router({
    * The person's own public profile at /u/<handle> (0080; services/person-profile.ts): the signed-in account only, its
    * own row. `update` saves (screened while the profile is public); `publish` saves and makes it public after the
    * screen; `unpublish` takes it down. A held save or publish answers `{ outcome: "held", message }` and changes nothing
-   * public.
+   * public. `get`, `update` and `publish` are limited per account (`PUBLIC_PROFILE_OWN_LIMITS`, 30 a minute each).
    */
   publicProfile: router({
     get: protectedProcedure.query(({ ctx }) => getPublicProfile(ctx)),

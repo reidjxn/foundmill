@@ -10,7 +10,7 @@ import { repos } from "@foundmill/db";
 import { PAGE_HOLD_MESSAGES, PAGE_SLUG_TAKEN, type ProjectPageContent } from "@foundmill/shared";
 import { sql } from "drizzle-orm";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
-import { PAGE_PUBLISH_ROLE_MESSAGE, PAGE_SAMPLE_MESSAGE, pageHoldReason } from "../services/pages";
+import { PAGE_PUBLISH_ROLE_MESSAGE, PAGE_SAMPLE_MESSAGE, PUBLIC_PAGE_LIMITS, pageHoldReason, publicPageBySlug, publicPageLimitKeys } from "../services/pages";
 import { createApiHarness, type ApiHarness } from "./harness";
 
 let hz: ApiHarness;
@@ -34,6 +34,17 @@ async function project(name: string, options: { demo?: boolean } = {}) {
 }
 
 const code = (p: Promise<unknown>) => p.then(() => "ok", (err: { code?: string }) => err.code ?? "unknown");
+
+async function fill(key: string, rule: { limit: number; windowMs: number }) {
+  for (let i = 0; i < rule.limit; i++) await hz.limits.take([{ key, rule }]);
+}
+/** How many hits `key` holds in its window now (taken back at once). */
+async function hits(key: string, windowMs = 60_000): Promise<number> {
+  const probe = await hz.limits.take([{ key, rule: { limit: 100_000, windowMs } }]);
+  if (!probe.ok) throw new Error("probe refused");
+  await hz.limits.refund(probe.ticket);
+  return 100_000 - 1 - probe.remaining;
+}
 const pageEvents = async (businessId: string) => (await repos.events.outboxPending(hz.db, businessId)).filter((o) => o.event.type.startsWith("page.")).map((o) => ({ type: o.event.type, payload: o.event.payload }));
 
 describe("page.get", () => {
@@ -183,5 +194,40 @@ describe("today.get › pageReady", () => {
     expect((await b.member.today.get({ businessId: b.id })).pageReady).toBe(true);
     const sample = await project("Today Sample", { demo: true });
     expect((await sample.owner.today.get({ businessId: sample.id })).pageReady).toBe(false);
+  });
+});
+
+describe("publicPage.bySlug limits", () => {
+  it("random unknown addresses do not use up the per-address or the global bucket of a real page", async () => {
+    const b = await project("Real Page");
+    const live = (await b.owner.page.publish({ businessId: b.id, content: page() })).page;
+    const anon = hz.caller(null);
+    for (let i = 0; i < 25; i++) expect(await anon.publicPage.bySlug({ slug: `no-such-page-${i}` })).toBeNull();
+    // A page that is not live reads as unknown, and is counted the same way.
+    const draft = await project("Draft Only");
+    const drafted = await draft.member.page.saveDraft({ businessId: draft.id, draft: page() });
+    expect(await anon.publicPage.bySlug({ slug: drafted.slug })).toBeNull();
+    expect(await hits(publicPageLimitKeys.all)).toBe(0);
+    expect(await hits(publicPageLimitKeys.slug("no-such-page-0"))).toBe(0);
+    expect(await hits(publicPageLimitKeys.unknown)).toBe(26);
+    expect((await anon.publicPage.bySlug({ slug: live.slug }))?.name).toBe(b.name);
+    expect(await hits(publicPageLimitKeys.all)).toBe(1);
+    expect(await hits(publicPageLimitKeys.slug(live.slug))).toBe(1);
+
+    // With the unknown ceiling full, random lookups are refused and the real page still reads.
+    await fill(publicPageLimitKeys.unknown, PUBLIC_PAGE_LIMITS.unknown);
+    expect(await code(anon.publicPage.bySlug({ slug: "no-such-page-x" }))).toBe("TOO_MANY_REQUESTS");
+    expect((await anon.publicPage.bySlug({ slug: live.slug }))?.name).toBe(b.name);
+  });
+
+  it("limits each caller by the address the api sees, generously", async () => {
+    const b = await project("Caller Page");
+    const live = (await b.owner.page.publish({ businessId: b.id, content: page() })).page;
+    await fill(publicPageLimitKeys.caller(hz.deps.env, "203.0.113.30"), PUBLIC_PAGE_LIMITS.perCaller);
+    expect(await publicPageBySlug({ ...hz.deps, clientAddress: "203.0.113.30" }, live.slug).then(() => "ok", (e: { code?: string }) => e.code)).toBe("rate_limited");
+    expect(await hits(publicPageLimitKeys.all)).toBe(0);
+    expect((await publicPageBySlug({ ...hz.deps, clientAddress: "203.0.113.31" }, live.slug))?.name).toBe(b.name);
+    expect(publicPageLimitKeys.caller(hz.deps.env, "203.0.113.30")).not.toContain("203.0.113.30");
+    expect(PUBLIC_PAGE_LIMITS.perCaller.limit).toBeGreaterThanOrEqual(300);
   });
 });

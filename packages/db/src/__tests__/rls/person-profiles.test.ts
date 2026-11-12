@@ -8,7 +8,9 @@
  *   - the view: exactly its ten columns; no row for a private, archived or handle-less profile; every private field
  *     (email, residence, citizenship, budget, skills, experience, time, constraints, risk, visibility, ids) stays out,
  *     with values planted to prove it; project pages listed only where the person is an owner and the page names its
- *     founders.
+ *     founders; readable by the service role only (anon and signed-in clients are refused);
+ *   - a display name a published page shows changes only through the api;
+ *   - a handle a person leaves stays theirs for 90 days (`person_handle_releases`, service role only).
  */
 import { PAGE_RESERVED_SLUGS, PERSON_HANDLE_TAKEN, type PersonProfileContent, type ProjectPageContent } from "@foundmill/shared";
 import { eq, sql } from "drizzle-orm";
@@ -52,7 +54,7 @@ async function expectNoEffect(p: Promise<unknown>) {
 
 const rows = async <T>(q: ReturnType<typeof sql>): Promise<T[]> => ((await h.db.execute(q)) as unknown as { rows: T[] }).rows;
 const commit = (businessId: string) => h.db.update(s.businesses).set({ committedAt: new Date("2026-10-01T00:00:00Z") }).where(eq(s.businesses.id, businessId));
-const publicHandles = async (runner = h.anon()) => (await runner.execute<{ handle: string }>(sql`select handle from public_person_profiles order by handle`)).map((r) => r.handle);
+const publicHandles = async (runner = h.service()) => (await runner.execute<{ handle: string }>(sql`select handle from public_person_profiles order by handle`)).map((r) => r.handle);
 
 /** A founder profile written as the api writes it (service role), with private values planted. */
 async function makeProfile(userId: string, displayName: string) {
@@ -161,20 +163,27 @@ describe("public_person_profiles: what anyone may read", () => {
     const columns = (await rows<{ column_name: string }>(sql`select column_name from information_schema.columns where table_schema = 'public' and table_name = 'public_person_profiles' order by ordinal_position`)).map((r) => r.column_name);
     expect(columns).toEqual([...PUBLIC_PERSON_PROFILE_COLUMNS]);
     expect(columns).toEqual(["handle", "display_name", "headline", "about", "strengths", "wants_to_learn", "looking_for", "place", "published_at", "projects"]);
-    const row = (await h.anon().execute<Record<string, unknown>>(sql`select * from public_person_profiles where handle = 'sam-lee'`))[0]!;
+    const row = (await h.service().execute<Record<string, unknown>>(sql`select * from public_person_profiles where handle = 'sam-lee'`))[0]!;
     expect(Object.keys(row).sort()).toEqual([...PUBLIC_PERSON_PROFILE_COLUMNS].sort());
     for (const leaked of ["id", "user_id", "email", "experience", "skills", "time_commitment", "budget_minor", "currency", "citizenship", "residence", "target_markets", "constraints", "risk_appetite", "visibility", "public", "archived_at", "created_at", "updated_at"]) expect(row).not.toHaveProperty(leaked);
     expect(row).toMatchObject({ handle: "sam-lee", display_name: "Sam Lee", headline: "Sam's headline", strengths: ["Baking", "Talking to people"], wants_to_learn: ["Selling"], looking_for: "open_to_people", place: "Leeds, UK", projects: [] });
-    // The planted private values appear nowhere in what anon reads, nor the account's email or id.
-    const all = JSON.stringify(await h.anon().execute(sql`select * from public_person_profiles`));
+    // The planted private values appear nowhere in what the view gives, nor the account's email or id.
+    const all = JSON.stringify(await h.service().execute(sql`select * from public_person_profiles`));
     for (const marker of [...Object.values(PRIVATE_MARKERS).flat().map((v) => (typeof v === "object" ? JSON.stringify(v) : String(v))), "4242424", "test.local", B.ownerId, A.ownerId, "GBP"]) expect(all, String(marker)).not.toContain(String(marker).replace(/^\{|\}$/g, ""));
   });
 
-  it("anon and signed-in people read it, nobody writes it", async () => {
-    expect(await publicHandles(h.anon())).toContain("sam-lee");
-    expect(await publicHandles(h.asUser(outsiderId))).toContain("sam-lee");
+  it("the service connection reads it; anon and signed-in clients are refused, and nobody writes it", async () => {
+    expect(await publicHandles(h.service())).toContain("sam-lee");
+    for (const runner of [h.anon(), h.asUser(outsiderId), h.asUser(B.ownerId)]) {
+      await expect(runner.execute(sql`select handle from public_person_profiles`)).rejects.toThrow(/permission denied/);
+      await expect(runner.execute(sql`select * from public_person_profiles where handle = 'sam-lee'`)).rejects.toThrow(/permission denied/);
+    }
+    const grants = await rows<{ grantee: string; privilege_type: string }>(sql`select grantee, privilege_type from information_schema.role_table_grants where table_schema = 'public' and table_name = 'public_person_profiles' and grantee <> 'postgres'`);
+    expect(grants).toEqual([{ grantee: "service_role", privilege_type: "SELECT" }]);
     await expect(h.anon().execute(sql`update public_person_profiles set headline = 'x'`)).rejects.toThrow();
     await expect(h.asUser(B.ownerId).execute(sql`delete from public_person_profiles`)).rejects.toThrow();
+    await expect(h.service().execute(sql`update public_person_profiles set headline = 'x'`)).rejects.toThrow();
+    expect((await h.service().run((tx) => repos.personProfiles.public.byHandle(tx, "sam-lee")))?.content.headline).toBe("Sam's headline");
     expect((await repos.personProfiles.public.byHandle(h.db as never, "sam-lee"))?.content.headline).toBe("Sam's headline");
   });
 
@@ -184,7 +193,7 @@ describe("public_person_profiles: what anyone may read", () => {
     await repos.personProfiles.save(h.db as never, p, { handle: "pat-private", content: profile({ headline: "PAT-PRIVATE-headline" }) });
     expect(await publicHandles()).not.toContain("pat-private");
     expect(await repos.personProfiles.public.byHandle(h.db as never, "pat-private")).toBeNull();
-    const everything = JSON.stringify(await h.anon().execute(sql`select * from public_person_profiles`));
+    const everything = JSON.stringify(await h.service().execute(sql`select * from public_person_profiles`));
     expect(everything).not.toContain("PAT-PRIVATE-headline");
 
     await repos.personProfiles.publish(h.db as never, p);
@@ -199,7 +208,7 @@ describe("public_person_profiles: what anyone may read", () => {
   });
 
   it("lists a project page only where the person owns it and the published page names its founders", async () => {
-    const projects = async () => (await h.anon().execute<{ projects: unknown }>(sql`select projects from public_person_profiles where handle = 'sam-lee'`))[0]?.projects;
+    const projects = async () => (await h.service().execute<{ projects: unknown }>(sql`select projects from public_person_profiles where handle = 'sam-lee'`))[0]?.projects;
     // B's page, published without naming the founders: not listed.
     await h.service().run((tx) => repos.pages.publish(tx, B.businessId, { content: page({ showFounders: false }), slug: "bread-by-bike", userId: B.ownerId }));
     expect(await projects()).toEqual([]);
@@ -225,5 +234,99 @@ describe("public_person_profiles: what anyone may read", () => {
     await repos.personProfiles.unpublish(h.db as never, B.ownerId);
     expect(await projects()).toBeUndefined();
     await repos.personProfiles.publish(h.db as never, B.ownerId);
+  });
+});
+
+describe("founder_profiles 0080: a name a public page shows", () => {
+  it("the owner's own client cannot change it while a published page names them; the service connection can", async () => {
+    const C = await createBusinessFixture(h, "person-c");
+    await commit(C.businessId);
+    await makeProfile(C.ownerId, "Cleo Hart");
+    const rename = (name: string) => h.asUser(C.ownerId).run((tx) => tx.update(s.founderProfiles).set({ displayName: name }).where(eq(s.founderProfiles.userId, C.ownerId)).returning({ name: s.founderProfiles.displayName }));
+    // No page yet: the person's own client may rename a private profile.
+    expect(await rename("Cleo H")).toEqual([{ name: "Cleo H" }]);
+    // A page that does not name its founders: still free.
+    await h.service().run((tx) => repos.pages.publish(tx, C.businessId, { content: page({ showFounders: false }), slug: "cleo-page", userId: C.ownerId }));
+    expect(await rename("Cleo Hart")).toEqual([{ name: "Cleo Hart" }]);
+    // Named on the published page: refused straight through the table, whatever the name.
+    await h.service().run((tx) => repos.pages.publish(tx, C.businessId, { content: page(), slug: "cleo-page", userId: C.ownerId }));
+    await expect(rename("cleo@example.com")).rejects.toThrow(RLS_DENIED);
+    await expect(rename("Cleo Two")).rejects.toThrow(RLS_DENIED);
+    // Other private fields stay the person's to edit.
+    await h.asUser(C.ownerId).run((tx) => tx.update(s.founderProfiles).set({ riskAppetite: "high" }).where(eq(s.founderProfiles.userId, C.ownerId)));
+    // The api (service role) may, after its own screen.
+    await repos.founders.update(h.db as never, C.ownerId, { displayName: "Cleo Hart-Lee" });
+    expect((await repos.pages.public.bySlug(h.db as never, "cleo-page"))?.founderNames).toEqual(["Cleo Hart-Lee"]);
+    // Taken down: free again.
+    await h.service().run((tx) => repos.pages.unpublish(tx, C.businessId, { userId: C.ownerId }));
+    expect(await rename("Cleo Hart")).toEqual([{ name: "Cleo Hart" }]);
+  });
+
+  it("a display name with a bidi control is refused", async () => {
+    const d = await h.createUser("person-bidi@test.local");
+    await expect(repos.founders.upsert(h.db as never, d, { displayName: "Ana\u202emoc.elpmaxe" })).rejects.toThrow(/direction of the text/);
+    await makeProfile(d, "Ana Bidi");
+    await expect(repos.founders.update(h.db as never, d, { displayName: "Ana\u2066Bidi" })).rejects.toThrow(/direction of the text/);
+    expect((await repos.founders.get(h.db as never, d))?.displayName).toBe("Ana Bidi");
+  });
+});
+
+describe("person_handle_releases 0080: a handle a person leaves stays theirs for 90 days", () => {
+  let first: string;
+  let second: string;
+  beforeAll(async () => {
+    first = await h.createUser("person-release-a@test.local");
+    second = await h.createUser("person-release-b@test.local");
+    await makeProfile(first, "Rio Vance");
+    await makeProfile(second, "Rio Vale");
+  });
+
+  it("A renames; B cannot take A's old handle, through the repo or straight through the table; A can take it back", async () => {
+    await repos.personProfiles.save(h.db as never, first, { handle: "rio-v", content: profile() });
+    await repos.personProfiles.save(h.db as never, first, { handle: "rio-vance", content: profile() });
+    const released = await rows<{ handle: string; user_id: string }>(sql`select handle, user_id from person_handle_releases where handle = 'rio-v'`);
+    expect(released).toEqual([{ handle: "rio-v", user_id: first }]);
+
+    expect(await repos.personProfiles.handleTaken(h.db as never, second, "rio-v")).toBe(true);
+    expect(await repos.personProfiles.handleTaken(h.db as never, first, "rio-v")).toBe(false);
+    await expect(repos.personProfiles.save(h.db as never, second, { handle: "rio-v", content: profile() })).rejects.toThrow(PERSON_HANDLE_TAKEN);
+    // B's own client, while B's profile is private (the guard allows edits then): refused by the database too.
+    await expect(h.asUser(second).run((tx) => tx.update(s.founderProfiles).set({ handle: "rio-v" }).where(eq(s.founderProfiles.userId, second)))).rejects.toThrow(/founder_profiles_handle_key|duplicate key/);
+    expect((await repos.personProfiles.get(h.db as never, second))?.handle).toBeNull();
+
+    // A takes it back: the release is forgotten, and the handle A left in turn is kept for A.
+    await repos.personProfiles.save(h.db as never, first, { handle: "rio-v", content: profile() });
+    expect(await rows(sql`select 1 from person_handle_releases where handle = 'rio-v'`)).toEqual([]);
+    expect(await repos.personProfiles.handleTaken(h.db as never, second, "rio-vance")).toBe(true);
+  });
+
+  it("after 90 days, B can take it", async () => {
+    await h.pg.query(`update person_handle_releases set released_at = now() - interval '89 days' where handle = 'rio-vance'`);
+    expect(await repos.personProfiles.handleTaken(h.db as never, second, "rio-vance")).toBe(true);
+    await h.pg.query(`update person_handle_releases set released_at = now() - interval '91 days' where handle = 'rio-vance'`);
+    expect(await repos.personProfiles.handleTaken(h.db as never, second, "rio-vance")).toBe(false);
+    const taken = await repos.personProfiles.save(h.db as never, second, { handle: "rio-vance", content: profile() });
+    expect(taken.handle).toBe("rio-vance");
+  });
+
+  it("is the service role's only: no client role reads or writes it", async () => {
+    expect((await h.service().execute(sql`select handle from person_handle_releases`)).length).toBeGreaterThan(0);
+    for (const runner of [h.anon(), h.asUser(first), h.asUser(second)]) {
+      await expect(runner.execute(sql`select handle from person_handle_releases`)).rejects.toThrow(/permission denied/);
+      await expect(runner.execute(sql`insert into person_handle_releases (handle, user_id) values ('squat-this', ${first})`)).rejects.toThrow(/permission denied/);
+      await expect(runner.execute(sql`delete from person_handle_releases`)).rejects.toThrow(/permission denied/);
+    }
+    const grants = await rows<{ grantee: string }>(sql`select distinct grantee from information_schema.role_table_grants where table_schema = 'public' and table_name = 'person_handle_releases' and grantee <> 'postgres'`);
+    expect(grants.map((g) => g.grantee)).toEqual(["service_role"]);
+  });
+
+  it("an account's releases go with the account", async () => {
+    const gone = await h.createUser("person-release-gone@test.local");
+    await makeProfile(gone, "Gone Soon");
+    await repos.personProfiles.save(h.db as never, gone, { handle: "gone-soon", content: profile() });
+    await repos.personProfiles.save(h.db as never, gone, { handle: "gone-later", content: profile() });
+    expect(await rows(sql`select 1 from person_handle_releases where user_id = ${gone}`)).toHaveLength(1);
+    await h.pg.query(`delete from auth.users where id = $1`, [gone]);
+    expect(await rows(sql`select 1 from person_handle_releases where user_id = ${gone}`)).toEqual([]);
   });
 });

@@ -6,11 +6,15 @@
  *
  * `public.byHandle` is the one read without an account: the signed-out page at /u/<handle> asks by handle and gets only
  * what the view `public_person_profiles` lists. An unknown handle and a profile that is not public read the same: null.
+ * The view is granted to the service role only, so every read here runs on the service connection.
+ *
+ * A handle a person leaves stays theirs for `PERSON_HANDLE_HOLD_DAYS` (`person_handle_releases`, written by the table's
+ * triggers): `handleTaken` counts it as taken for everyone else, and the database refuses it the same way.
  */
-import { ConflictError, NotFoundError, PERSON_HANDLE_TAKEN, PersonHandle, PersonProfileContent, readPersonProfile, type PersonProfileContent as ProfileContent } from "@foundmill/shared";
+import { ConflictError, NotFoundError, PERSON_HANDLE_HOLD_DAYS, PERSON_HANDLE_TAKEN, PersonHandle, PersonProfileContent, readPersonProfile, type PersonProfileContent as ProfileContent } from "@foundmill/shared";
 import { and, desc, eq, isNull, ne, sql } from "drizzle-orm";
 import { z } from "zod";
-import { founderProfiles, memberships, projectPages, publicPersonProfiles, publicProjectPages, type FounderProfile, type PublicPersonProject } from "../schema";
+import { founderProfiles, memberships, personHandleReleases, projectPages, publicPersonProfiles, publicProjectPages, type FounderProfile, type PublicPersonProject } from "../schema";
 import { Id, maybeOne, parseInput, uniqueViolation, type Executor } from "./_shared";
 
 const HANDLE_CONSTRAINT = "founder_profiles_handle_key";
@@ -74,10 +78,29 @@ export const personProfilesRepo = {
     return row ? rowOf(row) : null;
   },
 
-  /** Whether another account already holds this handle. Service connection only: under RLS a person sees no other row. */
+  /**
+   * The person's row locked for the rest of the caller's transaction (`select … for update`), or null without an open
+   * founder profile: what a screen checks is then what the write that follows changes, with no other save in between.
+   */
+  async lock(db: Executor, userId: string): Promise<PersonProfileRow | null> {
+    const id = parseInput(Id, userId, "user id");
+    const row = maybeOne(await db.select().from(founderProfiles).where(mine(id)).limit(1).for("update"));
+    return row ? rowOf(row) : null;
+  },
+
+  /**
+   * Whether another account holds this handle, or released it less than `PERSON_HANDLE_HOLD_DAYS` ago (it stays theirs).
+   * Service connection only: under RLS a person sees no other row, and nobody but the service role reads the releases.
+   */
   async handleTaken(db: Executor, userId: string, handle: string): Promise<boolean> {
-    const rows = await db.select({ id: founderProfiles.id }).from(founderProfiles).where(and(eq(founderProfiles.handle, handle), ne(founderProfiles.userId, userId))).limit(1);
-    return rows.length > 0;
+    const held = await db.select({ id: founderProfiles.id }).from(founderProfiles).where(and(eq(founderProfiles.handle, handle), ne(founderProfiles.userId, userId))).limit(1);
+    if (held.length > 0) return true;
+    const released = await db
+      .select({ id: personHandleReleases.id })
+      .from(personHandleReleases)
+      .where(and(eq(personHandleReleases.handle, handle), ne(personHandleReleases.userId, userId), sql`${personHandleReleases.releasedAt} > now() - make_interval(days => ${PERSON_HANDLE_HOLD_DAYS}::int)`))
+      .limit(1);
+    return released.length > 0;
   },
 
   /**

@@ -157,6 +157,15 @@ export const isPersonHandle = (handle: unknown): handle is string => typeof hand
 
 export const PERSON_HANDLE_TAKEN = "That address is taken. Try another one.";
 
+/** An address that poses as the product or its staff ("foundmill-support", "admin-team"). */
+export const PERSON_HANDLE_RESERVED = "That address is kept for the product itself. Try another one.";
+
+/**
+ * How long a handle a person leaves (renamed or cleared) stays theirs: nobody else can take it in that time, so a link
+ * people already have never starts pointing at someone else (migration 0080 `person_handle_releases` says the same).
+ */
+export const PERSON_HANDLE_HOLD_DAYS = 90;
+
 /**
  * A usable handle from a name: lowercased, accents dropped, everything else turned into hyphens, cut to 40 characters;
  * a result that is too short or reserved gets "-profile" so it always passes `personHandleProblem`.
