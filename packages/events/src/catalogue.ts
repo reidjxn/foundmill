@@ -30,6 +30,7 @@ import {
   DecisionType,
   EVENT_TYPES,
   EventType,
+  FOUNDER_RETURN_VIA,
   GameMode,
   GOAL_METRIC_KINDS,
   GOAL_PROPOSAL_REASONS,
@@ -1216,6 +1217,9 @@ const autopilotChanged = declareEvent(
     /** The day's spend ceiling in USD (an Estimate); null: the credits left. */
     spendCeiling: Money.nullable().default(null),
     maxIdleCycles: z.number().int().min(1).max(10),
+    /** Autopilot's own limits (0084): cycles it starts itself per day, and their spend ceiling in USD; null: none. */
+    ownMaxCyclesPerDay: z.number().int().min(1).max(24).nullable().default(null),
+    ownSpendCeiling: Money.nullable().default(null),
   }),
   {
     doc: "Autopilot was turned on or off, its settings changed, or a guard rail (Stop all agents, used-up credits, failed or empty cycles) paused it. Only an owner or admin turns it back on.",
@@ -1445,6 +1449,29 @@ const pushSent = declareEvent(
   }),
   {
     doc: "The api's push notifier sent a notification about a business event to the registered phones of the people who may see it (section walls and their own switches applied). The audit of what reached a founder's phone; never the title or the body.",
+    consumers: ["metrics"],
+    narratable: false,
+  },
+);
+
+// ---------------------------------------------------------------------------------------------------
+// The return loop (retention plan, founder 2026-11-11): founders coming back, and what brought them
+// ---------------------------------------------------------------------------------------------------
+
+const founderSessionStarted = declareEvent(
+  "founder.session_started",
+  z.object({
+    /** How the session started: on their own, from a founder email, or from a browser notification. */
+    via: z.enum(FOUNDER_RETURN_VIA),
+    /** The notification whose link started it, when there was one. */
+    notificationId: Id.nullable().default(null),
+    /** Minutes since the end of the session before it; null on the founder's first session in this business. */
+    minutesAway: Count.nullable(),
+    /** The founder's sessions in this business so far, this one included. */
+    sessions: z.number().int().positive(),
+  }),
+  {
+    doc: "A founder opened the business after more than 30 minutes away (or for the first time). Written by founder.presence.ping (the envelope's actor is the founder); the retention report counts returns and returns from notifications from it. Metrics only, never narrated.",
     consumers: ["metrics"],
     narratable: false,
   },
@@ -1786,15 +1813,19 @@ const notifyEmailSent = declareEvent(
     kind: z.enum(EMAIL_NOTIFICATION_KINDS),
     /** The person it went to, by account id only: never the address. */
     userId: Id,
-    /** The note it was about. */
-    inboxItemId: Id,
+    /** The note it was about (`decision_waiting`, `win`, `credits`, a milestone's note); null for the others. */
+    inboxItemId: Id.nullable(),
     /** SendGrid's `X-Message-Id` (live), or the mock's id (simulated). */
     messageId: z.string().min(1).max(200),
     /** True when the mock ran (SendGrid not live on the gateway): nothing left Foundmill. */
     simulated: z.boolean(),
+    /** The `founder_notifications` row that holds the email (readable only by its person); its id travels in the links. */
+    notificationId: Id,
+    /** The email offered a one-click answer. */
+    offersAnswer: z.boolean().default(false),
   }),
   {
-    doc: "Foundmill emailed one of the business's people about their own project (a note that waited a day for their answer and that they had not opened on any device), from its own address through the gateway, after the person's own switch, their section walls and the daily limits. The record of what reached a person's inbox and the per-day key of the api's notify pass; never the address, the subject or the body. Not an outcome of the project (the north star never counts it); never narrated.",
+    doc: "Foundmill emailed one of the business's people about their own project (a note waiting for their answer, a win, a milestone, a finished Autopilot run, used-up credits, the morning brief or the weekly review), from its own address through the gateway, after the person's own switch, their section walls and the daily limits. The record of what reached a person's inbox and the per-day key of the api's notify pass; the words stay on the founder_notifications row, readable only by that person; never the address. Not an outcome of the project (the north star never counts it); never narrated.",
     consumers: ["metrics"],
     narratable: false,
   },
@@ -1899,6 +1930,7 @@ export const EVENTS = {
   "push.sent": pushSent,
   "mail.sent": mailSent,
   "notify.email_sent": notifyEmailSent,
+  "founder.session_started": founderSessionStarted,
   "profile.published": profilePublished,
   "profile.unpublished": profileUnpublished,
 } as const satisfies { readonly [K in EventTypeT]: EventDeclaration<K, z.ZodType, EventScopeOf<K>> };

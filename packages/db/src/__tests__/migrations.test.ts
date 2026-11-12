@@ -96,6 +96,8 @@ describe("journal", () => {
       "0080_person_profiles",
       "0081_public_page_grants",
       "0082_team_calls",
+      "0083_founder_return",
+      "0084_autopilot_own_limits",
       "0085_account_events",
     ]);
     // strictly increasing `when` so drizzle applies them in order

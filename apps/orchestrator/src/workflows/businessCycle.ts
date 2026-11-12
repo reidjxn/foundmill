@@ -205,7 +205,9 @@ export async function businessCycle(input: BusinessCycleInput): Promise<Business
     if (patched(MERGE_SWEEP_PATCH)) await startPendingMerges(input.businessId);
 
     const maxConcurrent = Math.max(1, Math.min(input.maxConcurrent ?? brief.maxAgents, brief.maxAgents));
-    let budgetRemaining = brief.budgetRemainingMinor;
+    // A capped cycle (Autopilot's own spend ceiling, 0077) has the smaller of its cap and the credits left.
+    const cap = typeof input.budgetCapMinor === "number" ? Math.max(0, input.budgetCapMinor) : null;
+    let budgetRemaining = cap === null ? brief.budgetRemainingMinor : brief.budgetRemainingMinor === null ? cap : Math.min(cap, brief.budgetRemainingMinor);
     const reconcileBudget = patched(CYCLE_BUDGET_RECONCILE_PATCH);
     const pending: CycleStart[] = [...plan.starts];
     const skipped: { taskId: string; reason: string }[] = [];
@@ -248,6 +250,8 @@ export async function businessCycle(input: BusinessCycleInput): Promise<Business
         // The row is created first and carries the workflow id `session:<id>` the child is started with. The id is
         // chosen here, so a retried `openSession` finds the row it opened instead of opening a second session.
         const sessionId = uuid4();
+        // A capped cycle hands each session its reserve as the most it may spend (decided before it is opened).
+        const sessionCap = cap !== null && budgetRemaining !== null ? taskReserveMinor(s.budgetMinor, budgetRemaining, maxConcurrent - running.size) : null;
         const opened = await acts.openSession({ businessId: input.businessId, agentId: s.agentId, taskId: s.taskId, sessionId });
         if (!opened.sessionId) {
           skipped.push({ taskId: s.taskId, reason: opened.detail ?? opened.refused ?? "not dispatched" });
@@ -256,13 +260,13 @@ export async function businessCycle(input: BusinessCycleInput): Promise<Business
         }
         const handle = await startChild(agentSession, {
           workflowId: `session:${opened.sessionId}`,
-          args: [{ businessId: input.businessId, agentId: s.agentId, taskId: s.taskId, sessionId: opened.sessionId, cycleId, briefText: brief.text }],
+          args: [{ businessId: input.businessId, agentId: s.agentId, taskId: s.taskId, sessionId: opened.sessionId, cycleId, briefText: brief.text, ...(sessionCap !== null ? { spendCapMinor: sessionCap } : {}) }],
           parentClosePolicy: ParentClosePolicy.ABANDON,
         });
         const entry: Running = { start: s, sessionId: opened.sessionId, handle, done: false, outcome: null, error: null, reservedMinor: 0 };
         running.set(s.taskId, entry);
         if (budgetRemaining !== null) {
-          entry.reservedMinor = taskReserveMinor(s.budgetMinor, budgetRemaining, maxConcurrent - running.size + 1);
+          entry.reservedMinor = sessionCap ?? taskReserveMinor(s.budgetMinor, budgetRemaining, maxConcurrent - running.size + 1);
           budgetRemaining -= entry.reservedMinor;
         }
         // The stop landed while this session was being opened: the fan-out ran before the child existed, so it gets its own.

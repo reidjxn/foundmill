@@ -54,7 +54,7 @@ describe("schedule registration", () => {
   it("defines a schedule for every periodic job, each naming a workflow the worker bundles", () => {
     const ids = SCHEDULES.map((s) => s.id);
     expect(new Set(ids).size).toBe(ids.length);
-    for (const job of ["journeyDailyRefresh", "journeyMatviewRefresh", "benchmarksRebuild", "credentialExpiryScan", "consentRenewalScan", "agentMetricsRollup", "agentHealthSweep", "legalCalendarRoll", "sourceWatchSweep", "channelEngineReconcile", "crmDeletionSweep", "businessDeletionSweep"]) {
+    for (const job of ["journeyDailyRefresh", "journeyMatviewRefresh", "benchmarksRebuild", "credentialExpiryScan", "consentRenewalScan", "agentMetricsRollup", "agentHealthSweep", "legalCalendarRoll", "sourceWatchSweep", "channelEngineReconcile", "crmDeletionSweep", "businessDeletionSweep", "founderNotifications"]) {
       expect(SCHEDULES.map((s) => s.workflowType)).toContain(job);
       expect(typeof (workflows as Record<string, unknown>)[job]).toBe("function");
     }

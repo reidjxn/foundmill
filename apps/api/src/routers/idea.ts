@@ -342,6 +342,11 @@ export const ideaRouter = router({
         confirmAdult: z.boolean().optional(),
         /** "Run on autopilot": the business starts its own cycles; off unless chosen. */
         autopilot: z.boolean().default(false),
+        /**
+         * The overnight shift (retention plan, 2026-11-11): with `autopilot`, the daily cadence at about 2 AM in this zone
+         * (the founder's browser), one round of work a night. Absent: Autopilot's own defaults.
+         */
+        overnight: z.object({ timeZone: z.string().trim().max(64) }).optional(),
         /** The Launch step's "Anthropomorphic agents" switch; when given it becomes the founder's account preference. */
         anthropomorphicAgents: z.boolean().optional(),
         /** The Launch step's character style for them (0069); when given it becomes the founder's account preference too. */
