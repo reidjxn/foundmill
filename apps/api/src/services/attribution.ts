@@ -2,7 +2,8 @@
  * Who or what brought a new person (docs/NETWORK.md §5 "Attribution is part of every loop", §11; migration 0086).
  * Every public address accepts `?via=<reference>` (@foundmill/shared/via: `p.<slug>` a project's public page,
  * `u.<handle>` a person's public profile); the web keeps the first one a visitor arrives with in a cookie and hands it
- * to `founder.profile.update` on the save that creates the person's profile. This records it, once per account.
+ * to `founder.profile.update` on the save that creates the person's profile, which runs this as the first step of
+ * `onPersonCreated` (./person-created). This records it, once per account.
  *
  * The rules, all of them silent (the caller's answer is the same whatever happens here, so a reference cannot be used to
  * ask whether a page or a person exists, or whether an account was already attributed):
