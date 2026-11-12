@@ -141,3 +141,56 @@ describe("RedisRateLimitStore after a Redis failure", () => {
     expect(fallbacks).toBe(2);
   });
 });
+
+describe("reading a count and setting a marker (notify email, security review Nov 11, 2026)", () => {
+  it("memory: a count read without counting; a marker set once until its time is up, and taken back", async () => {
+    const store = new MemoryRateLimitStore();
+    await store.hit("k", DAY_MS, T0);
+    expect(await store.count("k", DAY_MS, T0)).toBe(1);
+    expect(await store.count("k", DAY_MS, T0)).toBe(1);
+    expect(await store.claim("m", 8 * DAY_MS, T0)).toBe(true);
+    expect(await store.claim("m", 8 * DAY_MS, T0 + 7 * DAY_MS)).toBe(false);
+    expect(await store.claim("m", 8 * DAY_MS, T0 + 8 * DAY_MS)).toBe(true);
+    await store.unclaim("m");
+    expect(await store.claim("m", 8 * DAY_MS, T0 + 8 * DAY_MS)).toBe(true);
+  });
+
+  it("redis: GET for the count, SET PX NX for the marker, DEL to take it back; memory while Redis is down", async () => {
+    const kv = new Map<string, string>();
+    let up = true;
+    const calls: unknown[][] = [];
+    const redis: RedisCounter = {
+      incr: async (k) => {
+        if (!up) throw new Error("ECONNRESET");
+        const n = Number(kv.get(k) ?? 0) + 1;
+        kv.set(k, String(n));
+        return n;
+      },
+      pexpire: async () => 1,
+      get: async (k) => {
+        if (!up) throw new Error("ECONNRESET");
+        return kv.get(k) ?? null;
+      },
+      set: async (...args) => {
+        if (!up) throw new Error("ECONNRESET");
+        calls.push(args);
+        if (kv.has(args[0])) return null;
+        kv.set(args[0], args[1]);
+        return "OK";
+      },
+      del: async (k) => (kv.delete(k) ? 1 : 0),
+    };
+    const store = new RedisRateLimitStore(redis, { retryAfterMs: 1_000 });
+    await store.hit("k", DAY_MS, T0);
+    await store.hit("k", DAY_MS, T0);
+    expect(await store.count("k", DAY_MS, T0)).toBe(2);
+    expect(await store.claim("m", 8 * DAY_MS, T0)).toBe(true);
+    expect(calls[0]).toEqual(["m", "1", "PX", 8 * DAY_MS, "NX"]);
+    expect(await store.claim("m", 8 * DAY_MS, T0)).toBe(false);
+    await store.unclaim("m");
+    expect(await store.claim("m", 8 * DAY_MS, T0)).toBe(true);
+    up = false;
+    expect(await store.claim("n", 8 * DAY_MS, T0)).toBe(true);
+    expect(store.durable).toBe(false);
+  });
+});

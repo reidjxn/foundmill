@@ -135,16 +135,14 @@ export function localPaletteItems(input: LocalPaletteInput): PaletteItem[] {
   items.push({ id: "command:new-business", kind: "command", label: "Create a new business", description: "From an idea in the Ideation Studio, or import what already exists", href: accountRoutes.newBusiness, keywords: ["new business", "create", "start", "another", "business", "idea", "import"] });
   items.push({ id: "command:manage-businesses", kind: "command", label: "Manage businesses", description: "Open one, change its settings or restore an archived one", href: accountRoutes.businesses, keywords: ["businesses", "manage", "archived", "restore", "your businesses"] });
   items.push({ id: "command:profile", kind: "command", label: "Your profile", description: "Your founder profile: name, background and preferences", href: "/onboarding", keywords: ["profile", "founder", "account", "me"] });
+  items.push({ id: "command:public-profile", kind: "command", label: "Your public profile", description: "A page about you at its own address, public only when you publish it", href: accountRoutes.publicProfile, keywords: ["public profile", "profile", "page", "about me", "link", "share"] });
   for (const it of input.inboxItems ?? []) {
     if (it.state === "archived") continue;
     items.push({ id: `inbox:${it.id}`, kind: "inbox", label: it.subject, description: it.type.replace(/_/g, " "), href: routes.inbox(bid, it.id) });
   }
   // Network is the founder's own, in every mode (as in the sidebar).
   items.push({ id: "screen:network", kind: "screen", label: "Network", href: "/network" });
-  if (input.live) {
-    items.push({ id: "screen:communities", kind: "screen", label: "Communities", href: "/communities" });
-    items.push({ id: "screen:leaderboards", kind: "screen", label: "Leaderboards", href: "/leaderboards" });
-  }
+  if (input.live) items.push({ id: "screen:communities", kind: "screen", label: "Communities", href: "/communities" });
   return items;
 }
 

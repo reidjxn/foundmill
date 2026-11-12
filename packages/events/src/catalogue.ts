@@ -36,6 +36,7 @@ import {
   MatchdayLevel,
   Money,
   NOTIFICATION_KINDS,
+  EMAIL_NOTIFICATION_KINDS,
   PUSH_PROVIDERS,
   SIGNOFF_KINDS,
   Severity,
@@ -849,7 +850,7 @@ const modeChanged = declareEvent(
     }),
   ]),
   {
-    doc: "Game mode (LIVE ↔ Personal) or business mode (Augmented / Assisted / Automated) changed. LIVE → Personal starts the 15-minute removal from search and leaderboards.",
+    doc: "Game mode (LIVE ↔ Personal) or business mode (Augmented / Assisted / Automated) changed. LIVE → Personal starts the 15-minute removal from search.",
     consumers: ["composer", "metrics", "playbooks"],
   },
 );
@@ -1596,6 +1597,105 @@ const goalAchieved = declareEvent(
 );
 
 // ---------------------------------------------------------------------------------------------------
+// A project's public page (0077)
+// ---------------------------------------------------------------------------------------------------
+
+/** What both page events carry: the page, its address, and the full public URL it is (or was) served at. */
+const PageFacts = z.object({
+  pageId: Id,
+  /** The address under /p/ (3 to 40 lowercase letters, digits and hyphens). */
+  slug: z.string().min(3).max(40),
+  url: z.string().url().max(2048),
+});
+
+const pagePublished = declareEvent("page.published", PageFacts, {
+  doc: "A founder published the project's public page, or published changes to a page that is already live: from this moment anyone can open `url` signed out. A real outside result (the north star counts it). The founder did it themselves, so it is never narrated; apps/stream pushes it so Today and the Public page tab follow.",
+  consumers: ["stream", "metrics"],
+  narratable: false,
+});
+
+const pageUnpublished = declareEvent("page.unpublished", PageFacts, {
+  doc: "A founder took the project's public page down: `url` answers not found from now on (the draft is kept). Never narrated; apps/stream pushes it so Today and the Public page tab follow.",
+  consumers: ["stream", "metrics"],
+  narratable: false,
+});
+
+const pageFollowed = declareEvent(
+  "page.followed",
+  z.object({
+    /** The page they signed up on; null only when that page row was deleted before they confirmed. */
+    pageId: Id.nullable(),
+    /** The follower's CRM record (their lawful basis is now `consent` unless it already had one). Never the address itself. */
+    entityId: Id,
+    /** The consent record (0079 `contact_consents`): what they agreed to, when, and when they confirmed. */
+    consentId: Id,
+  }),
+  {
+    // North star (CLAUDE.md, founder 2026-11-11): a stranger who confirmed from their own inbox that they want to hear
+    // from the project is a real outside result, so each `page.followed` is a real outcome of its week. Written at the
+    // confirmation, never at the signup (double opt-in, SECURITY_REVIEW Nov 11). The measure reads this; it is not built yet.
+    doc: "A person confirmed, from the link in the one email the platform sent them, that they want to follow the project they signed up for on its public page: their consent record is confirmed and they count as a follower. Written by ingest's `/mail/confirm`, once per record (a second use of the link, or a second signup, writes nothing); a signup that was never confirmed writes nothing. A real outside result (the north star counts it). Not narrated: one note per follower would be noise, and no digest pattern exists yet; the Public page tab counts them.",
+    consumers: ["stream", "metrics"],
+    narratable: false,
+  },
+);
+
+// ---------------------------------------------------------------------------------------------------
+// A message sent from the project's Foundmill address (0078, package 1.5)
+// ---------------------------------------------------------------------------------------------------
+
+const mailSent = declareEvent(
+  "mail.sent",
+  z.object({
+    /** The gateway's own id for the message, signed into its custom args: delivery events are bound to the project by it. */
+    messageRef: Id,
+    /** SendGrid's `X-Message-Id` (live), or the mock's id (simulated). */
+    messageId: z.string().min(1).max(200),
+    /** sha256 hex of the recipient's address, trimmed and lowercased (`suppressionHash`); never the address itself. */
+    recipientHash: z.string().regex(/^[0-9a-f]{64}$/),
+    /** The local part it was sent from (`<fromLocalPart>@<PLATFORM_MAIL_DOMAIN>`). */
+    fromLocalPart: z.string().min(3).max(40),
+    channelKey: ChannelKey.nullable().default(null),
+    agentId: Id.nullable().default(null),
+    sessionId: Id.nullable().default(null),
+    /** True when the mock ran (SendGrid not live on the gateway): nothing left Foundmill. */
+    simulated: z.boolean(),
+  }),
+  {
+    // North star (CLAUDE.md, founder 2026-11-11): a `mail.sent` with `simulated: false` is a real outcome of its week; a
+    // simulated one never counts. The measure reads this flag; it is not built yet.
+    doc: "An agent sent one message from the project's Foundmill sending address through the gateway, after the policy for outside contact, the suppression list, the project's daily cap and the platform's ceiling. A real outside action when `simulated` is false (the north star counts only those). Never narrated on its own; a reply, if one comes, is `lead.replied`.",
+    consumers: ["stream", "metrics"],
+    narratable: false,
+  },
+);
+
+// ---------------------------------------------------------------------------------------------------
+// Email from Foundmill to a person (packages 1.5 and 5.1)
+// ---------------------------------------------------------------------------------------------------
+
+const notifyEmailSent = declareEvent(
+  "notify.email_sent",
+  z.object({
+    /** Which kind of email (`EMAIL_NOTIFICATION_KINDS`): the per-kind switch each person holds in their preferences. */
+    kind: z.enum(EMAIL_NOTIFICATION_KINDS),
+    /** The person it went to, by account id only: never the address. */
+    userId: Id,
+    /** The note it was about. */
+    inboxItemId: Id,
+    /** SendGrid's `X-Message-Id` (live), or the mock's id (simulated). */
+    messageId: z.string().min(1).max(200),
+    /** True when the mock ran (SendGrid not live on the gateway): nothing left Foundmill. */
+    simulated: z.boolean(),
+  }),
+  {
+    doc: "Foundmill emailed one of the business's people about their own project (a note that waited a day for their answer and that they had not opened on any device), from its own address through the gateway, after the person's own switch, their section walls and the daily limits. The record of what reached a person's inbox and the per-day key of the api's notify pass; never the address, the subject or the body. Not an outcome of the project (the north star never counts it); never narrated.",
+    consumers: ["metrics"],
+    narratable: false,
+  },
+);
+
+// ---------------------------------------------------------------------------------------------------
 // Registry
 // ---------------------------------------------------------------------------------------------------
 
@@ -1660,12 +1760,17 @@ export const EVENTS = {
   "goal.approved": goalApproved,
   "goal.change_requested": goalChangeRequested,
   "goal.achieved": goalAchieved,
+  "page.published": pagePublished,
+  "page.unpublished": pageUnpublished,
+  "page.followed": pageFollowed,
   "guidance.tour_completed": guidanceTourCompleted,
   "guidance.tour_skipped": guidanceTourSkipped,
   "guidance.explainer_dismissed": guidanceExplainerDismissed,
   "guidance.term_opened": guidanceTermOpened,
   "guidance.turned_off": guidanceTurnedOff,
   "push.sent": pushSent,
+  "mail.sent": mailSent,
+  "notify.email_sent": notifyEmailSent,
 } as const satisfies { readonly [K in EventTypeT]: EventDeclaration<K> };
 
 export type EventsRegistry = typeof EVENTS;

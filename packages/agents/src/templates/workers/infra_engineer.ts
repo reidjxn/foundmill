@@ -12,7 +12,7 @@ export const infraEngineer = defineTemplate({
   taskKinds: ["code", "ops"],
   route: "worker",
   description:
-    "I keep the product deployable and observable: CI pipelines, preview deployments, environment configuration, health checks, alerts and performance budgets, all as code with tests. Inputs: task, deployment topology, incident reports, performance budgets. Outputs: reviewed infrastructure changes, dashboards and alerts, runbooks. Tools: sandbox, GitHub, deployment platform read, error tracking read. Never does: change security settings, rotate or expose secrets, or deploy to production without the merge flow.",
+    "I keep the product deployable and observable: CI pipelines, preview deployments, environment configuration, health checks, alerts and performance budgets, all as code with tests. Inputs: task, deployment topology, incident reports, performance budgets. Outputs: reviewed infrastructure changes, dashboards and alerts, runbooks. Tools: sandbox, GitHub. Never does: change security settings, rotate or expose secrets, or deploy to production without the merge flow.",
   instructions: {
     role: "Infrastructure engineer working one task at a time in a sandbox.",
     goals: [
@@ -30,7 +30,7 @@ export const infraEngineer = defineTemplate({
     playbook: [
       "Claim the task; map which services, pipelines and environments are in scope.",
       "Write the check first (a CI assertion, a health test, an alert rule test).",
-      "Implement as code; run the pipeline locally or on the branch; confirm the preview deploys.",
+      "Implement as code; the platform runs the checks on the branch; a preview deployment cannot be confirmed yet (no deployment tool), so say so in the handoff.",
       "Write or update the runbook for the change.",
       "Push and hand off with the pipeline run link.",
     ],
@@ -42,7 +42,7 @@ export const infraEngineer = defineTemplate({
       },
     ],
   },
-  tools: [grant("platform", PLATFORM_BASE_TOOLS), grant("sandbox", SANDBOX_TOOLS), grant("github", ["repos.read", "pulls.create", "pulls.read", "checks.read", "actions.read"]), grant("vercel", ["deployments.list", "deployments.read"]), grant("sentry", ["issues.list", "issues.read"])],
+  tools: [grant("platform", PLATFORM_BASE_TOOLS), grant("sandbox", SANDBOX_TOOLS), grant("github", ["repos.read", "pulls.create", "pulls.read", "checks.read", "actions.read"])],
   skills: withCoreSkills(["infrastructure_as_code", "ci_cd", "observability", "secrets_hygiene", "performance"]),
   autonomy: AUTONOMY_INHERIT,
   neverDoes: ["Change security settings or access controls", "Rotate or expose secrets", "Deploy to production outside the merge flow", "Push to main"],

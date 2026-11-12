@@ -27,6 +27,7 @@ import { superviseOutboxRelay, type RelaySupervisor } from "./services/relay";
 import { monitorWorker, type WorkerMonitor } from "./services/worker-health";
 import { seedOnBoot } from "./services/seed-on-boot";
 import { DEMO_ROLL_BOOT_WAIT_MS, demoRollForwardEnabled, startDemoRollForward } from "./services/demo-roll-forward";
+import { notifyEmailEnabled, startNotifyEmail } from "./services/push/email-pass";
 import { backfillPersonasOnBoot } from "./services/persona-backfill";
 import { startWorkflowReconciler } from "./services/workflow-reconcile";
 
@@ -131,6 +132,7 @@ export async function main(): Promise<void> {
   let pushNotifier: PushNotifier | null = null;
   let reconciler: { stop(): void } | null = null;
   let demoRoller: { stop(): void } | null = null;
+  let notifyEmail: { stop(): Promise<void> } | null = null;
   let workerMonitor: WorkerMonitor | null = null;
   let warmer: PoolWarmer | null = null;
   let watchdog: PoolWatchdog | null = null;
@@ -158,6 +160,7 @@ export async function main(): Promise<void> {
       { name: "stop pool watchdog", run: () => watchdog?.stop() },
       { name: "stop outbox relay", run: () => relay?.stop() },
       { name: "stop push notifier", run: () => pushNotifier?.stop() },
+      { name: "stop notify email", run: () => notifyEmail?.stop() },
       { name: "stop worker monitor", run: () => workerMonitor?.stop() },
       { name: "close temporal", run: () => deps.temporal.close() },
       {
@@ -201,6 +204,9 @@ export async function main(): Promise<void> {
     demoRoller = roller;
     return Promise.race([roller.done, new Promise<void>((resolve) => setTimeout(resolve, DEMO_ROLL_BOOT_WAIT_MS).unref?.())]);
   });
+  // Email from Foundmill to a person (packages 1.5 and 5.1): a note that waited a day for their answer, at boot and every
+  // hour; only with PLATFORM_MAIL_DOMAIN set, and NOTIFY_EMAIL=off turns it off. The gateway sends and counts.
+  if (migrated && notifyEmailEnabled(env)) notifyEmail = startNotifyEmail(deps);
   // Every minute: is the orchestrator taking the work waiting on its task queues? An error line when it stops (SOAK-06).
   workerMonitor = monitorWorker({ temporal: deps.temporal, log: deps.log, taskQueue: env.TEMPORAL_TASK_QUEUE });
   if (env.APP_ENV === "development") void deps.temporal.reachable().then((ok) => !ok && deps.log.warn({ address: env.TEMPORAL_ADDRESS }, "Temporal is unreachable: start it with `temporal server start-dev` (workflows will report queued: false until then)"));

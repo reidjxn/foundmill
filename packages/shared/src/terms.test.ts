@@ -42,7 +42,7 @@ const REQUIRED_IDS = [
   "acceptance", "hard_gate", "policy", "autonomy", "business_mode", "autopilot", "vacation", "wage", "wage_cap",
   "line_manager", "chief_of_staff", "cycle", "chapter", "estimate", "forecast", "specification", "roadmap", "proposal",
   "sign_off", "jurisdiction", "lawful_basis", "archetype", "fit", "form", "rating", "potential", "training", "coach",
-  "position_map", "health", "hierarchy", "milestone", "leaderboard", "customer_update", "channel_board", "lead", "campaign",
+  "position_map", "health", "hierarchy", "milestone", "customer_update", "channel_board", "lead", "campaign",
   "creative", "integration", "source_watcher", "planner", "distribution_strategist", "product_lead", "team_health",
   "runway_horizon",
   // Wave B (the screens that wired the guided layer asked for these): the status strip's Revenue, the channel cost

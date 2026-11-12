@@ -160,6 +160,11 @@
   --reading-measure: 640px;
   --min-viewport: 1280px;
 
+  /* ---------- Small screens (DESIGN §2 "Small screens"): the outer product works from 390 px ---------- */
+  --phone-width: 390px; /* the narrowest width a public page supports; the console's phone preview frame */
+  --tap-target: 44px; /* the smallest touch target on a small-screen page */
+  --page-wide: 640px; /* a public page's container width at which it leaves its one-column phone layout */
+
   /* ---------- Type families ---------- */
   --font-display: "Barlow Semi Condensed", system-ui, sans-serif;
   --font-body: "Inter", system-ui, sans-serif;

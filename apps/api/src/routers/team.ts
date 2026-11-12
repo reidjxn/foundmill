@@ -9,7 +9,7 @@ import { modelLimited } from "../services/model-limits";
 import { ensurePortraits } from "../services/personas";
 import { archivePlaybook, compilePlaybookText, createPlaybook, setPlaybookEnabled, toPlaybookView, updatePlaybook } from "../services/playbooks";
 import { SkillChoice, SkillFileUpload, attachSkills, libraryView, resolveSkillChoice, uploadPreview } from "../services/skills";
-import { hireFromTemplate } from "../services/squad";
+import { hireFromTemplate, shownToolGrants } from "../services/squad";
 import { SIGNALS, workflowIds } from "../services/temporal";
 import { Id, adminProcedure, audit, businessProcedure, emit, router, sectionAdmin, sectionRead, sectionWrite, writeProcedure } from "../trpc";
 
@@ -135,7 +135,8 @@ export const teamRouter = router({
             wage: { costMinor: wages.find((w) => w.agentId === a.id)?.costMinor ?? 0, currency: CREDITS_CURRENCY, capMinor: a.wageCapMinor, period, label: "Estimate" as const },
             chiefOfStaff: a.id === chiefId,
             tier: agentTier({ ...a, chiefOfStaff: a.layer === "assistant" ? a.id === chiefId : undefined }, leads),
-            tools: Array.isArray(tools) ? (tools as { connectorKey?: unknown; tools?: unknown }[]).filter((t) => typeof t?.connectorKey === "string").map((t) => ({ connectorKey: t.connectorKey as string, tools: Array.isArray(t.tools) ? (t.tools as string[]) : [] })) : [],
+            // Only grants that resolve to a tool: a version hired before Nov 11, 2026 may still list connectors that were never built.
+            tools: shownToolGrants(tools),
             form: seen?.form ?? [],
             latestUpdate: seen?.latest ? latestUpdate(seen.latest) : null,
             health: {
@@ -276,7 +277,7 @@ export const teamRouter = router({
         if (!userId) throw new ValidationError("No account signs in with that email yet. Ask them to sign in once, then add them by email or by the account ID on their profile.");
         return ctx.rls(async (tx) => {
           if (await repos.memberships.get(tx, ctx.businessId, userId)) throw new ConflictError("That person is already a member of this business; change their role instead", { userId });
-          // Every membership is a seat; the plan tier's seats are a limit (TierLimitError past it).
+          // People are free on every plan (no limit today); the check stays for a limit that might return.
           await assertSeatAvailable(tx, ctx.business);
           const membership = await repos.memberships.add(tx, ctx.businessId, { userId, role: input.role, sectionPermissions: input.sectionPermissions });
           await audit(tx, ctx, { action: "team.humans.invite", target: { kind: "membership", id: membership.id }, details: { userId, role: input.role, by: input.userId ? "account_id" : "email" } });

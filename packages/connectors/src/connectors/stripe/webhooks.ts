@@ -8,7 +8,7 @@
  */
 import type { ConnectorWebhook, PlatformEvent } from "../../contract";
 import { makeEvent, uuidFromSeed } from "../../mock-utils";
-import { DEFAULT_TOLERANCE_SECONDS, header, hmacSha256, parseJsonBody, rawBody, ReplayGuard, resolveBusinessId, safeEqual, webhookPath, withinTolerance, type BusinessResolver } from "../../webhooks";
+import { DEFAULT_TOLERANCE_SECONDS, header, hmacSha256, parseJsonBody, rawBody, type ReplayGuard, resolveBusinessId, safeEqual, webhookPath, withinTolerance, type BusinessResolver } from "../../webhooks";
 import { invoiceProductRef, invoiceSubscriptionId, refId, STRIPE_KEY, type StCheckoutSession, type StEvent, type StInvoice, type StSubscription } from "./tools";
 
 export const STRIPE_SIGNATURE_HEADER = "stripe-signature";
@@ -53,7 +53,9 @@ export interface StripeWebhookDeps {
 }
 
 export function createStripeWebhook(deps: StripeWebhookDeps): ConnectorWebhook {
-  const replay = deps.replay ?? new ReplayGuard();
+  // No guard of its own unless one is passed (the mocks pass one): `apps/ingest` holds the replay record and releases it
+  // when a delivery is not stored, so a vendor's retry after a refusal or a failed write is accepted (SEC-11).
+  const replay = deps.replay ?? null;
   const now = deps.now ?? (() => new Date());
   const businessFor = async (req: Request, event: StEvent | null) => resolveBusinessId(req, STRIPE_KEY, event?.account ?? null, deps.resolveBusinessId);
   return {
@@ -68,7 +70,10 @@ export function createStripeWebhook(deps: StripeWebhookDeps): ConnectorWebhook {
       const secret = await deps.secretFor(businessId);
       if (!secret) return false;
       if (!verifyStripeSignature(secret, body, sig, now().getTime(), deps.toleranceSeconds)) return false;
-      return replay.check(`${event.account ?? "platform"}:${event.id}`);
+      return replay ? replay.check(`${event.account ?? "platform"}:${event.id}`) : true;
+    },
+    async accountOf(req) {
+      return parseJsonBody<StEvent>(await rawBody(req))?.account ?? null;
     },
     async normalise(req) {
       const event = parseJsonBody<StEvent>(await rawBody(req));

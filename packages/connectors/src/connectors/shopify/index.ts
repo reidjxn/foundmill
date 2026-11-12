@@ -98,6 +98,8 @@ export function createShopifyConnector(options: LiveConnectorOptions = {}): Conn
       healthcheck: async (integration) => {
         const startedAt = now().getTime();
         if (!integration.externalAccountId) return healthResult("disconnected", startedAt, { now, message: "no shop domain on the integration" });
+        // Checked again here, as on every tool call: a stored setting is never fetched unless it is a shop's own domain (SEC-16).
+        if (!ShopDomain.safeParse(integration.externalAccountId).success) return healthResult("disconnected", startedAt, { now, message: "the stored shop domain is not a Shopify domain" });
         // The access token is a per-business credential the host injects per call; without one, only the shop's reachability can be checked.
         try {
           const res = await fetch(`${shopBaseUrl(integration.externalAccountId)}/shop.json`, { method: "GET", headers: { accept: "application/json" } });

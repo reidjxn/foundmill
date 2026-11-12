@@ -13,7 +13,7 @@ const noop = () => {};
 
 describe("Today's tiles are the status strip's", () => {
   it("Cash, Runway and Customers this week match the strip's tiles exactly", () => {
-    const strip = statusTiles({ finance, ribbon, live: false, today: TODAY, currency: "USD", loading: { finance: false, ribbon: false, departments: false, positions: false }, open: noop });
+    const strip = statusTiles({ finance, ribbon, today: TODAY, currency: "USD", loading: { finance: false, ribbon: false, departments: false }, open: noop });
     const pick = (label: string) => strip.find((t) => t.label === label)!;
     const strip0 = (t: object) => JSON.parse(JSON.stringify({ ...t, onClick: undefined }));
     expect(strip0(cashTile(finance, false, "USD", noop))).toEqual(strip0(pick("Cash")));

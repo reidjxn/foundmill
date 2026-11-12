@@ -1,4 +1,4 @@
-/** LIVE social: public profiles, connections, threads/messages, communities/posts, leaderboards, negotiations. */
+/** LIVE social: public profiles, connections, threads/messages, communities/posts, negotiations. */
 import { and, eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { repos } from "../../repos";
@@ -400,66 +400,6 @@ describe("community membership and replies", () => {
     await repos.social.setPostStatus(r.db, top.id, "hidden");
     await expect(repos.social.createPost(r.db, { communityId: here.id, authorUserId: author, bodyMd: "x", parentPostId: top.id })).rejects.toThrow(/not found/);
     expect((await repos.social.replyCounts(r.db, [elsewhere.id])).size).toBe(0);
-  });
-});
-
-describe("leaderboards", () => {
-  it("ranks verified values first, computes movement between rebuilds, and removes a business on LIVE → Personal", async () => {
-    const board = await repos.social.upsertLeaderboard(r.db, { boardKind: "mrr_growth", period: "2026-Q4", metric: "mrr_growth_pct", archetype: "b2b_saas" });
-    expect((await repos.social.upsertLeaderboard(r.db, { boardKind: "mrr_growth", period: "2026-Q4", metric: "mrr_growth_pct", archetype: "b2b_saas" })).id).toBe(board.id);
-    const first = await repos.social.setLeaderboardEntries(r.db, board.id, [
-      { businessId: r.A.businessId, metricValue: 12.5 },
-      { businessId: r.B.businessId, metricValue: 30, verified: false },
-    ]);
-    // Unverified values never enter a board (check constraint in 0012).
-    expect(first.map((e) => [e.businessId, e.position, e.verified])).toEqual([[r.A.businessId, 1, true]]);
-    // B is LIVE but not committed: its (verified) number takes no position either.
-    const second = await repos.social.setLeaderboardEntries(r.db, board.id, [
-      { businessId: r.A.businessId, metricValue: 10 },
-      { businessId: r.B.businessId, metricValue: 30, verified: true, form: "WWD" },
-    ]);
-    expect(second.map((e) => [e.businessId, e.position])).toEqual([[r.A.businessId, 1]]);
-    await repos.businesses.commit(r.db, r.B.businessId, { archetype: "b2b_saas" });
-    const third = await repos.social.setLeaderboardEntries(r.db, board.id, [
-      { businessId: r.A.businessId, metricValue: 10 },
-      { businessId: r.B.businessId, metricValue: 30, verified: true, form: "WWD" },
-    ]);
-    expect(third.map((e) => [e.businessId, e.position, e.movement])).toEqual([
-      [r.B.businessId, 1, 0],
-      [r.A.businessId, 2, -1],
-    ]);
-    expect((await repos.social.positionsForBusiness(r.db, r.A.businessId, "2026-Q4"))[0]).toMatchObject({ position: 2, board: { boardKind: "mrr_growth" } });
-    expect((await repos.social.getLeaderboard(r.db, board.id)).computedAt).toBeInstanceOf(Date);
-    expect(await repos.social.removeBusinessFromLeaderboards(r.db, r.B.businessId)).toBe(1);
-    expect((await repos.social.leaderboardEntries(r.db, board.id)).map((e) => e.businessId)).toEqual([r.A.businessId]);
-  });
-
-  it("serves only listed businesses: a business that is not LIVE, committed and active is hidden even if a row is left over", async () => {
-    const board = await repos.social.upsertLeaderboard(r.db, { boardKind: "visible_only", period: "2026-Q4", metric: "mrr", archetype: "b2b_saas" });
-    await repos.social.setLeaderboardEntries(r.db, board.id, [
-      { businessId: r.A.businessId, metricValue: 5 },
-      { businessId: r.B.businessId, metricValue: 9 },
-    ]);
-    const ids = async () => (await repos.social.leaderboardEntries(r.db, board.id)).map((e) => e.businessId);
-    expect(await ids()).toEqual([r.B.businessId, r.A.businessId]);
-    expect((await repos.social.positionsForBusiness(r.db, r.B.businessId)).map((p) => p.board.id)).toContain(board.id);
-    // LIVE → Personal: the stored row is still there, but is neither served nor counted as a position.
-    await repos.businesses.setGameMode(r.db, r.B.businessId, "personal");
-    expect(await ids()).toEqual([r.A.businessId]);
-    expect(await repos.social.positionsForBusiness(r.db, r.B.businessId)).toEqual([]);
-    expect((await r.db.select().from(s.leaderboardEntries).where(eq(s.leaderboardEntries.leaderboardId, board.id)))).toHaveLength(2);
-    // And the next computation gives a Personal business no position, so nobody below is displaced by a hidden one.
-    const recomputed = await repos.social.setLeaderboardEntries(r.db, board.id, [
-      { businessId: r.A.businessId, metricValue: 5 },
-      { businessId: r.B.businessId, metricValue: 9 },
-    ]);
-    expect(recomputed.map((e) => [e.businessId, e.position])).toEqual([[r.A.businessId, 1]]);
-    await repos.businesses.setGameMode(r.db, r.B.businessId, "live");
-    // Archived businesses are hidden too.
-    await repos.social.setLeaderboardEntries(r.db, board.id, [{ businessId: r.A.businessId, metricValue: 5 }, { businessId: r.B.businessId, metricValue: 9 }]);
-    await repos.businesses.archive(r.db, r.B.businessId);
-    expect(await ids()).toEqual([r.A.businessId]);
-    await r.db.update(s.businesses).set({ archivedAt: null }).where(eq(s.businesses.id, r.B.businessId));
   });
 });
 

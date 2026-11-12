@@ -1,7 +1,7 @@
 /** Deterministic API fixtures for every path the gallery widgets query. */
 import type { FakeResponse } from "../testing";
 import { addDays, dayKey, lastDays } from "../shared/time";
-import type { ChannelMetricRow, ChannelsListResponse, CommunityPostRow, CommunityRow, ComplianceResponse, CustomMetricResult, DepartmentRow, FinanceOverview, FirstWeekResponse, InboxListResponse, LeaderboardEntryRow, LeaderboardPositionRow, LeaderboardRow, MetricCatalogEntry, Page, RibbonResponse, RoadmapListResponse, TaskRow, TeamAgentRow } from "../shared/types";
+import type { ChannelMetricRow, ChannelsListResponse, CommunityPostRow, CommunityRow, ComplianceResponse, CustomMetricResult, DepartmentRow, FinanceOverview, FirstWeekResponse, InboxListResponse, MetricCatalogEntry, Page, RibbonResponse, RoadmapListResponse, TaskRow, TeamAgentRow } from "../shared/types";
 import type { SessionRow } from "../widgets/squad-pulse";
 
 export const BID = "11111111-1111-4111-8111-111111111111";
@@ -183,9 +183,6 @@ export const compliance: ComplianceResponse = {
   filings: [{ id: uuid(2, "3"), kind: "annual_report", title: "Annual report", dueAt: `${addDays(TODAY, 120)}T00:00:00.000Z`, filedAt: null, status: "upcoming" }],
 };
 
-export const leaderboards: LeaderboardRow[] = [{ id: uuid(1, "2"), period: "2026-10", boardKind: "mrr_growth", division: "Division 2", title: "MRR growth", metricLabel: "MRR Δ" }];
-export const leaderboardEntries: LeaderboardEntryRow[] = Array.from({ length: 12 }, (_, i) => ({ leaderboardId: uuid(1, "2"), businessId: i === 7 ? BID : uuid(i + 1, "0"), position: i + 1, movement: i % 3 === 0 ? 2 : i % 3 === 1 ? -1 : 0, metricValue: 12_000 - i * 700, businessName: i === 7 ? "Ledgerly" : `Club ${i + 1}` }));
-export const positions: LeaderboardPositionRow[] = [{ ...leaderboardEntries[7]!, board: leaderboards[0]! }];
 
 export const communities: CommunityRow[] = [{ id: uuid(1, "e"), name: "B2B SaaS founders", slug: "b2b-saas", memberCount: 128 }];
 export const posts: Page<CommunityPostRow> = {
@@ -205,8 +202,8 @@ export const metricCatalog: MetricCatalogEntry[] = [
 ];
 
 /** business.firstWeek.get: two of the seven first-week items done. */
-export const firstWeek: FirstWeekResponse = { specificationSignedOff: true, roadmapSignedOff: true, cycleCompleted: false, noteRead: false, conversationReplySent: false, distributionStarted: false, bankOrStripeConnected: false };
-export const firstWeekNone: FirstWeekResponse = { specificationSignedOff: false, roadmapSignedOff: false, cycleCompleted: false, noteRead: false, conversationReplySent: false, distributionStarted: false, bankOrStripeConnected: false };
+export const firstWeek: FirstWeekResponse = { pagePublished: false, specificationSignedOff: true, roadmapSignedOff: true, cycleCompleted: false, noteRead: false, conversationReplySent: false, distributionStarted: false };
+export const firstWeekNone: FirstWeekResponse = { pagePublished: false, specificationSignedOff: false, roadmapSignedOff: false, cycleCompleted: false, noteRead: false, conversationReplySent: false, distributionStarted: false };
 
 /** Every path with data: the "data" state of each widget. */
 export function dataResponses(): Record<string, FakeResponse> {
@@ -232,9 +229,6 @@ export function dataResponses(): Record<string, FakeResponse> {
     "distribution.channels.metrics": channelMetrics,
     "legal.compliance.list": compliance,
     "team.agents.list": team,
-    "live.leaderboards.list": leaderboards,
-    "live.leaderboards.entries": leaderboardEntries,
-    "live.leaderboards.positions": positions,
     "live.communities.list": communities,
     "live.communities.posts": posts,
     "dashboard.customMetric.get": customMetric,
@@ -258,9 +252,6 @@ export function emptyResponses(): Record<string, FakeResponse> {
     "distribution.channels.metrics": [],
     "legal.compliance.list": { events: [], deadlines: [], filings: [] },
     "team.agents.list": [],
-    "live.leaderboards.list": [],
-    "live.leaderboards.entries": [],
-    "live.leaderboards.positions": [],
     "live.communities.list": [],
     "live.communities.posts": { items: [], nextCursor: null },
     "dashboard.customMetric.get": { value: null },

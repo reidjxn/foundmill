@@ -64,7 +64,7 @@ export const Loading: Story = {
   ),
 };
 
-/** Home status strip: six tiles. */
+/** Home status strip: five tiles. */
 export const HomeStatusStrip: Story = {
   render: () => (
     <StatusStrip
@@ -97,12 +97,6 @@ export const HomeStatusStrip: Story = {
           delta: { value: 7, label: "vs last week" },
         },
         { label: "Team health", value: 4 / 6, format: "percent", caption: "4 of 6 agents healthy" },
-        {
-          label: "Leaderboard position",
-          value: "14th",
-          caption: "DTC founders · Nordics",
-          delta: { value: 3, label: "places" },
-        },
       ]}
     />
   ),

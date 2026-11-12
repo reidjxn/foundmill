@@ -15,6 +15,7 @@ import {
   type ConnectorMode,
   type ConnectorPhase,
   type ConnectorWebhook,
+  type DecryptedCredential,
   type HealthResult,
   type HumanActionDescriptor,
   type IntegrationRecord,
@@ -116,7 +117,7 @@ export interface ConnectorSpec<S extends readonly AnyToolSpec[]> {
   connectFields?: Connector["connectFields"];
   webhooks?: ConnectorWebhook[];
   connect(businessId: string, input: unknown): Promise<IntegrationRecord>;
-  healthcheck(integration: IntegrationRecord): Promise<HealthResult>;
+  healthcheck(integration: IntegrationRecord, credential?: DecryptedCredential): Promise<HealthResult>;
   /** Mock side only: named simulations for the dev Simulate panel and tests. */
   simulations?: Record<string, (params: SimulateParams) => Promise<PlatformEvent[]> | PlatformEvent[]>;
   now?: () => Date;
@@ -226,7 +227,7 @@ function assemble<S extends readonly AnyToolSpec[]>(spec: ConnectorSpec<S>, mode
     phase: spec.phase,
     auth: spec.auth,
     connect: (businessId, input) => spec.connect(businessId, input),
-    healthcheck: (integration) => spec.healthcheck(integration),
+    healthcheck: (integration, credential) => spec.healthcheck(integration, credential),
     tools: spec.tools.map(toMcpDefinition),
     callTool: createCallTool(spec as ConnectorSpec<readonly AnyToolSpec[]>, mode, now),
     rateLimits: spec.rateLimits,

@@ -7,6 +7,7 @@
  */
 import type { FetchCreateContextFnOptions } from "@trpc/server/adapters/fetch";
 import type { Context as HonoContext } from "hono";
+import { getConnInfo } from "@hono/node-server/conninfo";
 import { loadEnv, type Env } from "@foundmill/shared";
 import { createVault, type Vault } from "@foundmill/shared/crypto";
 import type { Db, PoolWatchdog } from "@foundmill/db";
@@ -44,6 +45,7 @@ export interface ApiDeps {
   composer: ComposerClient;
   /** Envelope-encryption vault; null when neither KMS_KEY_ID nor DEV_MASTER_KEY is configured (keys.* refuse). */
   vault: Vault | null;
+  /** Static connector metadata and mocks only; built without platform secrets (SEC-14). */
   connectors: ConnectorRegistry;
   auth: AuthVerifier;
   log: ApiLogger;
@@ -51,7 +53,7 @@ export interface ApiDeps {
   recordings: RecordingResolver | null;
   /** apps/ingest over the private network; `dev.simulate` mints the service token and proxies through it (SEC-2). */
   ingest: IngestClient;
-  /** apps/gateway for App connectors (GitHub): their connect and health run where the App's keys are. */
+  /** apps/gateway: every call that could reach a vendor (live connect and health, key checks, registry lookups, checkouts, domains, portraits, push). */
   gateway: ApiGatewayClient;
   /** Reachability probes for /health; each must never throw. */
   health: {
@@ -76,6 +78,13 @@ export interface Context extends ApiDeps {
    */
   emailConfirmed: boolean;
   requestId: string;
+  /**
+   * The address of whoever opened the connection, as the api sees it (`clientAddressOf`): on Railway the address its
+   * edge proxy saw (the rightmost `x-forwarded-for` entry it appends), else the socket's peer. Only ever a coarse rate
+   * limit key (`publicPage.follow`); never a visitor's address forwarded by the web. Absent for the in-process caller and
+   * tests.
+   */
+  clientAddress?: string | null;
   /**
    * The membership and business lookups `businessProcedure` made in this HTTP request (trpc.ts), keyed by user and
    * business, so a batch of procedures for one business checks membership once. A new, empty map for every request
@@ -136,7 +145,10 @@ export function createApiDeps(options: CreateApiDepsOptions = {}): ApiDeps {
     log.warn({ err: (err as Error).message }, "vault not configured; keys.* will refuse until KMS_KEY_ID or DEV_MASTER_KEY is set");
   }
 
-  const connectors = createDefaultRegistry();
+  // The api reads connectors' static metadata (catalog, tools, connect fields, policy hints) and runs their mocks; every
+  // call that could reach a vendor goes through the gateway (SEC-14). So the live side gets no platform secrets here:
+  // the vendors' keys are the gateway's alone, and a live call made here by mistake fails as unconfigured.
+  const connectors = createDefaultRegistry({ secrets: {} });
   const recordings = options.recordings === undefined ? createSandboxRecordingResolver() : options.recordings;
   const ingest = createIngestClient({ url: env.INGEST_URL, secret: env.SESSION_TOKEN_SECRET ?? null });
   const gateway = createApiGatewayClient({ url: env.GATEWAY_URL, secret: env.SESSION_TOKEN_SECRET ?? null });
@@ -185,8 +197,25 @@ export function createContextFactory(deps: ApiDeps) {
     const authorization = opts.req.headers.get("authorization");
     const user = await deps.auth.resolve(authorization);
     const requestId = c?.get("requestId") ?? requestIdFrom(opts.req.headers.get("x-request-id"));
-    return { ...deps, userId: user?.userId ?? null, email: user?.email ?? null, authenticatedAt: user?.authenticatedAt ?? null, emailConfirmed: user?.emailConfirmed === true, requestId, accessMemo: new Map() };
+    return { ...deps, userId: user?.userId ?? null, email: user?.email ?? null, authenticatedAt: user?.authenticatedAt ?? null, emailConfirmed: user?.emailConfirmed === true, requestId, clientAddress: clientAddressOf(opts.req.headers, c), accessMemo: new Map() };
   };
+}
+
+/**
+ * The caller's address for a coarse per-caller limit. Behind Railway's edge proxy the rightmost `x-forwarded-for` entry
+ * is the one the proxy appended (the peer it accepted the connection from); anything a caller wrote into the header sits
+ * to its left and is ignored. Without the header (local stacks), the socket's peer. Calls that come through the web's
+ * server (the public page's Follow form) all carry the web's egress address, so the limit keyed on it must be generous.
+ */
+export function clientAddressOf(headers: Headers, c?: HonoContext): string | null {
+  const forwarded = headers.get("x-forwarded-for");
+  const last = forwarded?.split(",").map((s) => s.trim()).filter(Boolean).at(-1);
+  if (last && last.length <= 64) return last;
+  try {
+    return c ? (getConnInfo(c).remote.address ?? null) : null;
+  } catch {
+    return null;
+  }
 }
 
 /** Context for tests and the in-process caller (`authenticatedAt` defaults to now for a signed-in user). */

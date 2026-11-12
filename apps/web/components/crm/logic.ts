@@ -6,6 +6,7 @@
 import type { FilterChipValue, SavedView } from "@foundmill/dugout";
 import { formatMoney } from "@foundmill/dugout/lib/format";
 import type { EntityKind } from "@foundmill/shared";
+import { FOLLOW_SOURCE, FOLLOW_SOURCE_LABEL } from "@foundmill/shared/project-page";
 import type { RouterOutputs } from "@/lib/trpc";
 import { formatDate, plainWords } from "@/lib/format";
 import { chipValue, roleKey, type CrmFilterField } from "./search";
@@ -288,7 +289,7 @@ export function roleWord(role: string): string {
 export const KIND_WORD: Record<EntityKind, string> = { person: "Person", organisation: "Organization", agent: "Agent", team_member: "Staff", platform_member: "Member", community: "Community", venue: "Venue" };
 
 /** Where a record came from, in words. The agents' own records were filed under "squad" before the rename. */
-const SOURCE_WORDS: Record<string, string> = { squad: "Your team", team: "Your team", manual: "Added by hand", import: "Import", agent: "An agent", membership: "Membership", conversions: "Payments", stripe: "Stripe", hubspot: "HubSpot", affinity: "Affinity", salesforce: "Salesforce", pipedrive: "Pipedrive", attio: "Attio", gmail: "Gmail", outlook: "Outlook" };
+const SOURCE_WORDS: Record<string, string> = { [FOLLOW_SOURCE]: FOLLOW_SOURCE_LABEL, squad: "Your team", team: "Your team", manual: "Added by hand", import: "Import", agent: "An agent", membership: "Membership", conversions: "Payments", stripe: "Stripe", hubspot: "HubSpot", affinity: "Affinity", salesforce: "Salesforce", pipedrive: "Pipedrive", attio: "Attio", gmail: "Gmail", outlook: "Outlook" };
 
 export function sourceWord(source: string | null | undefined): string {
   if (!source) return "";

@@ -11,7 +11,7 @@ import { Activity, ExternalLink, FlaskConical, FolderGit2, KeyRound, Plug, Refre
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import { Button, Chip, Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, Field, IconButton, Input, SimpleSelect, StatusPill, Term, cn, useDateFormat, type StatusTone, type DateFormatPrefs } from "@foundmill/dugout";
-import type { IntegrationStatus } from "@foundmill/shared";
+import { PLATFORM_MAIL_APPROVAL_LINE, PLATFORM_MAIL_OWN_SENDER_LINE, PLATFORM_MAIL_PAUSED_LINE, PLATFORM_MAIL_REPLIES_LINE, PLATFORM_MAIL_SIMULATED_LINE, PLATFORM_MAIL_TITLE, platformMailCountLine, type IntegrationStatus } from "@foundmill/shared";
 import { routes } from "@foundmill/widgets/shared/routes";
 import { ShellLinkButton } from "@/components/live/ShellLinkButton";
 import { simulatePanelAvailable } from "@/lib/env";
@@ -214,6 +214,41 @@ export function ConnectFieldsDialog({ connector, pending, onConnect, onClose }: 
   );
 }
 
+/** What `integrations.platformMail` answers (null when the deployment has no sending domain: no row at all). */
+export interface PlatformMailView {
+  address: string;
+  sentToday: number;
+  cap: number;
+  paused: boolean;
+  live: boolean;
+  ownSender: boolean;
+}
+
+/**
+ * "Email from your project" (package 1.5): the project's Foundmill sending address, today's count against its cap, and
+ * the line about outside contact. Nothing to connect and nothing to change here: the cap is raised by Foundmill.
+ */
+export function PlatformMailSection({ data }: { data: PlatformMailView | null | undefined }) {
+  if (!data) return null;
+  return (
+    <SettingsSection title={PLATFORM_MAIL_TITLE} data-testid="platform-mail" actions={data.live ? null : <Chip tone="info">Test mode</Chip>}>
+      <div className="flex flex-wrap items-center gap-3">
+        <span className="font-mono text-body-strong text-primary" data-testid="platform-mail-address">
+          {data.address}
+        </span>
+        <span className="text-small text-secondary" data-testid="platform-mail-count">
+          {platformMailCountLine(data.sentToday, data.cap)}
+        </span>
+      </div>
+      <Hint>{PLATFORM_MAIL_APPROVAL_LINE}</Hint>
+      <Hint>{PLATFORM_MAIL_REPLIES_LINE}</Hint>
+      {data.paused ? <Hint>{PLATFORM_MAIL_PAUSED_LINE}</Hint> : null}
+      {data.ownSender ? <Hint>{PLATFORM_MAIL_OWN_SENDER_LINE}</Hint> : null}
+      {data.live ? null : <Hint>{PLATFORM_MAIL_SIMULATED_LINE}</Hint>}
+    </SettingsSection>
+  );
+}
+
 export function IntegrationsTab() {
   const datePrefs = useDateFormat();
   const { businessId, departments } = useBusiness();
@@ -223,6 +258,7 @@ export function IntegrationsTab() {
   const invalidate = useInvalidateRouters();
   const t = useSettingsToast();
   const list = useQuery(trpc.integrations.list.queryOptions({ businessId }));
+  const platformMail = useQuery(trpc.integrations.platformMail.queryOptions({ businessId }));
   /** The connector whose key dialog is open (Connect on a live API-key connector). */
   const [keyForKey, setKeyForKey] = useState<string | null>(null);
   const connect = useMutation(
@@ -294,6 +330,7 @@ export function IntegrationsTab() {
           </div>
         </SettingsSection>
       ) : null}
+      <PlatformMailSection data={platformMail.data} />
       <OAuthFinish businessId={businessId} connectors={rows} pending={connect.isPending} onFinish={(connectorKey, input, done) => connect.mutate({ businessId, connectorKey, input }, { onSettled: done })} />
       <SettingsSection wide title="Connectors" meta={list.data ? plural(rows.filter((r) => r.integration && r.integration.status !== "disconnected").length, "connected", "connected") : undefined} actions={list.data ? <Chip tone={list.data.mode === "mock" ? "info" : "good"}>{modeLabel(list.data.mode, rows)}</Chip> : undefined} loading={list.isLoading}>
         <Hint>Consents and API keys are yours to grant: a connector that needs one opens the vendor's page and waits for you. Secrets are stored encrypted and never shown again.</Hint>

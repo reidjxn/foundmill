@@ -56,16 +56,16 @@ describe("area registry", () => {
     expect(departmentArea(["finance", "legal"])).toBe("money");
   });
 
-  it("Ledgerly: 14 inline tabs across the five areas", () => {
+  it("Ledgerly: 15 inline tabs across the five areas", () => {
     expect(labels("plan", LEDGERLY)).toEqual(["Roadmap", "Milestones"]);
     expect(labels("customers", LEDGERLY)).toEqual(["(Board)", "(Channels)", "Leads", "Campaigns", "(Creative)", "(Attribution)", "Contacts"]);
     expect(labels("money", LEDGERLY)).toEqual(["Overview", "(Profit and loss)", "(Cash)", "Runway", "(Payroll)", "(Cap table)", "Company", "(Incorporate)", "Compliance", "(Contracts)", "(IP)", "(Policies)", "(Regulatory)"]);
-    expect(labels("product", LEDGERLY)).toEqual(["(Vision)", "Specification", "(Changes)", "(Sources)", "(Research)", "(Working now)", "(Work list)", "What changed", "Live product", "(Specialists)"]);
+    expect(labels("product", LEDGERLY)).toEqual(["(Vision)", "Specification", "Public page", "(Changes)", "(Sources)", "(Research)", "(Working now)", "(Work list)", "What changed", "Live product", "(Specialists)"]);
     expect(labels("team", LEDGERLY)).toEqual(["Agents", "(Staff)", "(Responsibilities)", "Recruitment"]);
-    expect(defaultCount(LEDGERLY)).toBe(14);
+    expect(defaultCount(LEDGERLY)).toBe(15);
   });
 
-  it("Northwind: Formulation Lab lands in Product with its first tab promoted, Retail Partnerships in Customers; 15 inline", () => {
+  it("Northwind: Formulation Lab lands in Product with its first tab promoted, Retail Partnerships in Customers; 16 inline", () => {
     const product = areaTabs("product", NORTHWIND, { builder: false });
     expect(product.filter((t) => t.department?.name === "Formulation Lab").map((t) => [t.label, t.tier])).toEqual([
       ["Specialists · Formulation Lab", "default"],
@@ -73,7 +73,7 @@ describe("area registry", () => {
     ]);
     expect(product.find((t) => t.id === "development/specialists")).toMatchObject({ label: "Specialists · Development", tier: "detail" });
     expect(areaTabs("customers", NORTHWIND, { builder: false }).filter((t) => t.department).every((t) => t.department!.name === "Retail Partnerships")).toBe(true);
-    expect(defaultCount(NORTHWIND)).toBe(15);
+    expect(defaultCount(NORTHWIND)).toBe(16);
   });
 
   it("a merged department splits its tabs across areas; a department with no modules keeps its own item", () => {
@@ -81,7 +81,7 @@ describe("area registry", () => {
     const notes: AreaDepartment = { id: "notes", slug: "notes", name: "Notes", position: 9, moduleKeys: [], tabs: [{ slug: "board", title: "Board", position: 0 }] };
     const rows = [growth, notes];
     const map = areaTabsByArea(rows, { builder: false });
-    expect(map.get("product")?.map((t) => t.id)).toEqual(["growth/vision", "growth/specification", "growth/changes", "growth/sources", "growth/research"]);
+    expect(map.get("product")?.map((t) => t.id)).toEqual(["growth/vision", "growth/specification", "growth/public-page", "growth/changes", "growth/sources", "growth/research"]);
     expect(map.get("plan")?.map((t) => t.id)).toEqual(["growth/roadmap", "milestones"]);
     expect(map.get("customers")?.some((t) => t.id === "growth/leads")).toBe(true);
     // Money and Team have no department here and no fixed surface, so they are left out.
@@ -117,6 +117,6 @@ describe("area registry", () => {
     // Builder view shows the stored titles and its own tabs.
     expect(areaTabs("product", LEDGERLY, { builder: true }).map((t) => t.label)).toContain("Code");
     expect(areaTabs("money", LEDGERLY, { builder: true }).map((t) => t.label)).toContain("Entity");
-    expect(defaultCount(LEDGERLY, true)).toBe(39);
+    expect(defaultCount(LEDGERLY, true)).toBe(40);
   });
 });

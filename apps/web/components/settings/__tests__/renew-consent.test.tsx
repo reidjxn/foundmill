@@ -20,6 +20,7 @@ vi.mock("next/navigation", () => ({ useSearchParams: () => search, useRouter: ()
 vi.mock("@/lib/trpc-react", () => ({
   useTRPC: () => ({
     integrations: {
+      platformMail: { queryOptions: () => ({ queryKey: [["integrations", "platformMail"]], queryFn: async () => null }) },
       list: { queryOptions: () => ({ queryKey: [["integrations", "list"]], queryFn: async () => ({ mode: "mock", integrations: [], catalogue }) }) },
       connect: { mutationOptions: (opts: Record<string, unknown>) => ({ mutationKey: [["integrations", "connect"]], mutationFn: (vars: unknown) => connect(vars), ...opts }) },
       disconnect: { mutationOptions: (opts: Record<string, unknown>) => ({ mutationKey: [["integrations", "disconnect"]], mutationFn: (vars: unknown) => disconnect(vars), ...opts }) },

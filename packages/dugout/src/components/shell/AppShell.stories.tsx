@@ -1,6 +1,6 @@
 import { useState, type ReactNode } from "react";
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { CircleCheck, Hourglass, Landmark, TrendingUp, Trophy, Users } from "lucide-react";
+import { CircleCheck, Hourglass, Landmark, TrendingUp, Users } from "lucide-react";
 import { formatMoney } from "../../lib/format";
 import { Avatar, AvatarStack } from "../foundation/Avatar";
 import { SAMPLE_LOGOS } from "../foundation/logo-samples";
@@ -114,7 +114,6 @@ function HomeContent() {
       <StatTile icon={TrendingUp} label="Revenue (30 d)" value={formatMoney({ amountMinor: 1120000, currency: "EUR" })} caption="▲ 8.4% vs previous 30 d" />
       <StatTile icon={Users} label="Customers this week" value="23" caption="4 from Nordic Beauty AB" />
       <StatTile icon={CircleCheck} label="Team health" value="67%" caption="4 of 6 agents healthy" />
-      <StatTile icon={Trophy} label="Leaderboard position" value="14th" caption="DTC skincare · 212 businesses" />
       {DEPARTMENTS.map((d) => (
         <DepartmentCard key={d.id} d={d} />
       ))}

@@ -4,6 +4,10 @@
  * from `@foundmill/agents/foundations-steps` and hand it their models client and a progress store. Every model call
  * goes through that client (packages/models), streamed so each part is stored the moment it is complete.
  *
+ * Step 0 is the project's public page (docs/THESIS_REVIEW.md package 1.2, `runProjectPageStep`): one `projectPage` call
+ * before the plan, written through the runner's `ProjectPageStore`; it never fails the drafting (any model failure
+ * writes the starter draft instead).
+ *
  * Failure policy:
  * - the plan (step 1) fails the attempt if it fails (the client already retried connection errors);
  * - a section batch that fails or leaves a section out is followed by one call per missing section, alone; a section
@@ -17,7 +21,9 @@ import { FoundationsRoadmapItem, FoundationsSection, FoundationsSkeletonSection,
 import { streamStructured } from "@foundmill/models/structured-stream";
 import type { ModelKey } from "@foundmill/models/routing";
 import type { CompleteResult, ModelClient, UsageAttribution } from "@foundmill/models/types";
+import type { ProjectPageContent } from "@foundmill/shared";
 import { finaliseVision, knownNumbers, type FoundationsInputs } from "./foundations";
+import { buildProjectPageRequest, finaliseProjectPage, projectPageReadyNote, starterProjectPage, type ProjectPageNote } from "./project-page";
 import {
   buildFoundationsRoadmapRequest,
   buildFoundationsSectionsRequest,
@@ -247,6 +253,65 @@ export async function runFoundationsRoadmap(ctx: FoundationsStepContext, progres
     ctx.log?.warn({ err: (err as Error)?.message, code: (err as { code?: string })?.code }, "foundations: the roadmap call failed; retrying it once");
     return once();
   }
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+// Step 0: the project's public page (docs/THESIS_REVIEW.md package 1.2)
+// ---------------------------------------------------------------------------------------------------------------------
+
+/** Where the page step writes: each runner implements it over `repos.pages` (the same repo call in both). */
+export interface ProjectPageStore {
+  /** False when the page needs no draft: a row exists already (the founder saved, or an earlier attempt wrote it) or a sample business. */
+  needed(): Promise<boolean>;
+  /** Writes the draft (never over an existing row) with the Product lead's note; `written: false` when a row appeared meanwhile. */
+  write(input: { draft: ProjectPageContent; source: "model" | "starter"; reason: string | null; note: ProjectPageNote; usage: FoundationsUsage }): Promise<{ written: boolean; inboxItemId: string | null }>;
+}
+
+export type ProjectPageStepContext = Omit<FoundationsStepContext, "store">;
+
+export interface ProjectPageDrafted {
+  draft: ProjectPageContent;
+  /** `model`: the Product lead's draft; `starter`: the deterministic draft (the call failed, was refused or the answer was not usable). */
+  source: "model" | "starter";
+  /** Why the starter was used (a refusal of the answer, or the error code of the call); null for a model draft. */
+  reason: string | null;
+  usage: FoundationsUsage;
+}
+
+/**
+ * The page draft: one call on the `projectPage` route, checked against the shared page schema. Any failure (the call
+ * failed, used-up credits, an answer outside the rules) falls back silently to the starter draft, so the founder always
+ * gets a page; only an abort of the run itself is rethrown.
+ */
+export async function draftProjectPage(ctx: ProjectPageStepContext): Promise<ProjectPageDrafted> {
+  const starter = (reason: string, usage: FoundationsUsage = NO_FOUNDATIONS_USAGE): ProjectPageDrafted => ({ draft: starterProjectPage(ctx.inputs), source: "starter", reason, usage });
+  let res: CompleteResult<unknown>;
+  try {
+    const req = buildProjectPageRequest(ctx.inputs);
+    res = await ctx.models.complete({ ...req, signal: ctx.signal, scope: ctx.scope, attribution: ctx.attribution });
+  } catch (err) {
+    if (ctx.signal?.aborted) throw err;
+    const code = String((err as { code?: unknown })?.code ?? "error");
+    ctx.log?.warn({ err: (err as Error)?.message, code }, "project page: the model call failed; using the starter draft");
+    return starter(code);
+  }
+  const fin = finaliseProjectPage(res.json, ctx.inputs);
+  if ("refused" in fin) {
+    ctx.log?.warn({ refused: fin.refused }, "project page: the answer was not usable; using the starter draft");
+    return starter(fin.refused, usageOf(res));
+  }
+  return { draft: fin.draft, source: "model", reason: null, usage: usageOf(res) };
+}
+
+/**
+ * Step 0 of the foundations: the page, before the vision. Nothing is asked of the model when the page already has a
+ * row. Never published here: publishing is the founder's act.
+ */
+export async function runProjectPageStep(ctx: ProjectPageStepContext, store: ProjectPageStore): Promise<{ written: boolean; source: ProjectPageDrafted["source"] | null; inboxItemId: string | null; usage: FoundationsUsage }> {
+  if (!(await store.needed())) return { written: false, source: null, inboxItemId: null, usage: NO_FOUNDATIONS_USAGE };
+  const drafted = await draftProjectPage(ctx);
+  const out = await store.write({ draft: drafted.draft, source: drafted.source, reason: drafted.reason, note: projectPageReadyNote(), usage: drafted.usage });
+  return { written: out.written, source: drafted.source, inboxItemId: out.inboxItemId, usage: drafted.usage };
 }
 
 /**

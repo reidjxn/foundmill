@@ -26,7 +26,7 @@ vi.mock("@/components/shell/business-context", () => ({ useBusiness: () => ({ bu
 vi.mock("../shared", async (importOriginal) => ({ ...(await importOriginal<typeof SharedModule>()), useSettingsToast: () => toast }));
 vi.mock("../SettingsScreen", () => ({ useInvalidateRouters: () => invalidate }));
 
-import { ConnectFieldsDialog, connectInputFrom, needsConnectFields, SimulatePanel, type ConnectFieldView } from "../IntegrationsTab";
+import { ConnectFieldsDialog, connectInputFrom, needsConnectFields, PlatformMailSection, SimulatePanel, type ConnectFieldView, type PlatformMailView } from "../IntegrationsTab";
 
 const BUSINESS = "6f1d2c3b-4a5e-4f60-8a71-0b2c3d4e5f60";
 
@@ -156,5 +156,37 @@ describe("Connect with the founder's own key (live API-key connectors)", () => {
     await act(async () => rerender(dialog(sendgrid)));
     expect((document.getElementById("connect-sendgrid-apiKey") as HTMLInputElement).value).toBe("");
     expect((screen.getByRole("button", { name: "Connect" }) as HTMLButtonElement).disabled).toBe(true);
+  });
+});
+
+describe("PlatformMailSection (Settings › Integrations › Email from your project)", () => {
+  const view = (over: Partial<PlatformMailView> = {}): PlatformMailView => ({ address: "evergreen@mail.foundmill.com", sentToday: 3, cap: 50, paused: false, live: true, ownSender: false, ...over });
+  const show = (data: PlatformMailView | null) =>
+    render(
+      <TooltipProvider>
+        <PlatformMailSection data={data} />
+      </TooltipProvider>,
+    );
+
+  it("shows the address, today's count against the cap and the line about outside contact", () => {
+    show(view());
+    expect(screen.getByText("Email from your project")).toBeTruthy();
+    expect(screen.getByTestId("platform-mail-address").textContent).toBe("evergreen@mail.foundmill.com");
+    expect(screen.getByTestId("platform-mail-count").textContent).toBe("3 of 50 sent today");
+    expect(screen.getByText("Messages to people outside the project wait for your OK unless you said otherwise in What the team can do.")).toBeTruthy();
+    expect(screen.queryByText(/simulated/i)).toBeNull();
+  });
+
+  it("says when sending is simulated, paused, or goes through the founder's own SendGrid", () => {
+    show(view({ live: false, paused: true, ownSender: true, sentToday: 1_200, cap: 2_000 }));
+    expect(screen.getByTestId("platform-mail-count").textContent).toBe("1,200 of 2,000 sent today");
+    expect(screen.getByText("Sending is simulated here: no message leaves for real.")).toBeTruthy();
+    expect(screen.getByText("Sending from this address is paused for now. Nothing is waiting on you.")).toBeTruthy();
+    expect(screen.getByText("Your own SendGrid account is connected, so the team sends from it instead.")).toBeTruthy();
+  });
+
+  it("renders no row at all when the feature is off", () => {
+    const { container } = show(null);
+    expect(container.querySelector('[data-testid="platform-mail"]')).toBeNull();
   });
 });

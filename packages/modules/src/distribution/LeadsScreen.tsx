@@ -28,7 +28,9 @@ import {
   type RowAction,
   type SavedView,
   type TermDefinition,
+  useFormatters,
 } from "@foundmill/dugout";
+import { followConsentLine } from "@foundmill/shared/project-page";
 import { moduleHref, useDepartments } from "@foundmill/widgets/shared/departments";
 import { routes } from "@foundmill/widgets/shared/routes";
 import { useBusinessEvents, useWidgetData, useWidgetQuery } from "@foundmill/widgets/data";
@@ -74,6 +76,12 @@ export const LAWFUL_BASIS_DEFINITION = "Your legal reason for contacting someone
 /** The Term's own definition where the map does not reach (stories, tests): the same sentence, under the shared id. */
 export const LAWFUL_BASIS_TERM: TermDefinition = { id: "lawful_basis", word: "Lawful basis", short: LAWFUL_BASIS_DEFINITION };
 
+/** "Agreed to email on Oct 7, 2026" in the person's own date format: a follower of the public page (package 1.6). */
+export function ConsentLine({ at }: { at: string | Date }) {
+  const { formatDate } = useFormatters();
+  return <>{followConsentLine(formatDate(at))}</>;
+}
+
 export function leadColumns(businessId: string, agents: readonly AgentRow[] | undefined, sizes: Record<LeadColumnId, number> = fitColumns<LeadColumnId>(null, LEAD_FIT, [])): DataTableColumn<LeadRow>[] {
   const agentName = (id: string) => agents?.find((a) => a.id === id)?.name ?? "Agent";
   return [
@@ -95,7 +103,17 @@ export function leadColumns(businessId: string, agents: readonly AgentRow[] | un
       header: "Lawful basis",
       size: sizes.lawfulBasis,
       cell: ({ row }) => (
-        <Tooltip content={LAWFUL_BASIS_DEFINITION}>
+        <Tooltip
+          content={
+            row.original.emailConsentAt ? (
+              <span data-consent-note="">
+                <ConsentLine at={row.original.emailConsentAt} />. {LAWFUL_BASIS_DEFINITION}
+              </span>
+            ) : (
+              LAWFUL_BASIS_DEFINITION
+            )
+          }
+        >
           {row.original.lawfulBasis ? (
             <Chip tone="good" icon={ScrollText} className="whitespace-nowrap">
               {lawfulBasisLabel(row.original.lawfulBasis)}

@@ -86,7 +86,7 @@ describe("saved_table_views (0041)", () => {
     expect(upd).toHaveLength(0);
   });
   it("saved_table_views: account-wide rows (the LIVE pages, no business) are the person's own too", async () => {
-    await h.asUser(outsiderId).run((tx) => tx.insert(s.savedTableViews).values({ businessId: null, userId: outsiderId, tableKey: "live.leaderboards" }));
+    await h.asUser(outsiderId).run((tx) => tx.insert(s.savedTableViews).values({ businessId: null, userId: outsiderId, tableKey: "live.communities" }));
     expect(await h.asUser(A.ownerId).run((tx) => tx.select().from(s.savedTableViews).where(isNull(s.savedTableViews.businessId)))).toHaveLength(0);
     expect(await h.asUser(outsiderId).run((tx) => tx.select().from(s.savedTableViews))).toHaveLength(1);
   });
@@ -345,21 +345,10 @@ describe("network_attestations (0027)", () => {
   });
 });
 
-describe("leaderboards and public views (LIVE only)", () => {
-  it("leaderboard_entries: visible only for committed LIVE businesses; never writable by app roles", async () => {
-    const [board] = await h.service().run((tx) => tx.insert(s.leaderboards).values({ boardKind: "revenue", period: "2026-Q4", metric: "mrr" }).returning());
-    await h.service().run((tx) =>
-      tx.insert(s.leaderboardEntries).values([
-        { leaderboardId: board!.id, businessId: A.businessId, position: 1, metricValue: "1000" },
-        { leaderboardId: board!.id, businessId: B.businessId, position: 2, metricValue: "900" },
-      ]),
-    );
-    expect(await h.asUser(outsiderId).run((tx) => tx.select().from(s.leaderboardEntries))).toHaveLength(0);
-    await h.db.update(s.businesses).set({ gameMode: "live", committedAt: new Date() }).where(eq(s.businesses.id, A.businessId));
-    const visible = await h.asUser(outsiderId).run((tx) => tx.select().from(s.leaderboardEntries));
-    expect(visible.map((e) => e.businessId)).toEqual([A.businessId]);
-    await expect(h.asUser(A.ownerId).run((tx) => tx.insert(s.leaderboardEntries).values({ leaderboardId: board!.id, businessId: A.businessId, position: 0, metricValue: "1" }))).rejects.toThrow(RLS_DENIED);
-    await expect(h.asUser(A.ownerId).run((tx) => tx.insert(s.leaderboards).values({ boardKind: "x", period: "p", metric: "m" }))).rejects.toThrow(/permission denied/);
+describe("public views (LIVE only)", () => {
+  it("leaderboards are gone (0076): neither table is left for any role to read", async () => {
+    const res = await h.db.execute(sql`select to_regclass('public.leaderboards')::text as boards, to_regclass('public.leaderboard_entries')::text as entries`);
+    expect((res as unknown as { rows: { boards: string | null; entries: string | null }[] }).rows[0]).toEqual({ boards: null, entries: null });
   });
   it("public_profiles: lists LIVE businesses and their public founders only", async () => {
     await h.db.update(s.businesses).set({ gameMode: "live", committedAt: new Date() }).where(eq(s.businesses.id, A.businessId));

@@ -68,12 +68,12 @@ export function includedCreditsFact(tier: TierKey): string {
   return (typeof TIERS[tier].includedCreditsMinor === "number" ? `${amount} of model credits a month` : `Monthly credits to be announced (at least ${amount})`) + forWhom;
 }
 
-/** What a tier includes, in plain words with correct plurals ("1 business", "3 seats", "Unlimited businesses"). */
+/** What a tier includes, in plain words with correct plurals ("1 business", "Unlimited businesses"). People are free on every plan. */
 export function tierFacts(tier: TierKey): string[] {
   const spec = TIERS[tier];
   const businesses = typeof spec.businesses === "number" ? plural(spec.businesses, "business", "businesses") : "Unlimited businesses";
   const billing: string = spec.modelBilling;
-  return [businesses, `${plural(spec.maxConcurrentAgents, "agent")} at once`, plural(spec.seats, "seat"), includedCreditsFact(tier), billing === "byok_required" ? "Your Anthropic key" : "Then credits or your key"];
+  return [businesses, `${plural(spec.maxConcurrentAgents, "agent")} at once`, typeof spec.seats === "number" ? plural(spec.seats, "person", "people") : "As many people as you like", includedCreditsFact(tier), billing === "byok_required" ? "Your Anthropic key" : "Then credits or your key"];
 }
 
 type CheckoutView = RouterOutputs["billing"]["checkout"]["status"]["checkout"];

@@ -121,7 +121,7 @@ describe("WidgetGrid", () => {
     expect(
       within(dialog).getByRole("button", { name: "Add Journey Ribbon" }).hasAttribute("disabled"),
     ).toBe(true);
-    expect(within(dialog).queryByText("Leaderboard")).toBeNull();
+    expect(within(dialog).queryByText("Community feed")).toBeNull();
     await user.click(within(dialog).getByRole("button", { name: "Add Custom metric" }));
     const last = onChange.mock.calls.at(-1)?.[0].at(-1);
     expect(last).toMatchObject({ widget: "custom_metric", y: nextRow(FOUNDERS_VIEW_LAYOUT) });

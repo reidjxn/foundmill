@@ -120,6 +120,32 @@ describe("team.agents (W19)", () => {
     expect(row.chiefOfStaff).toBe(false);
   });
 
+  it("team.agents.list shows only tools that exist: grants stored for connectors that were never built are not listed, and every hire holds none", async () => {
+    const { businessId, ownerId, departmentId } = hz.A;
+    // What an agent hired before Nov 11, 2026 still holds: its version was copied from the old social template.
+    const stored = [
+      { connectorKey: "platform", tools: ["tasks.list", "campaigns.create", "assets.create", "inbox.request_human_action"] },
+      { connectorKey: "instagram", tools: ["media.publish", "comments.reply"] },
+      { connectorKey: "x_publishing", tools: ["posts.publish"] },
+      { connectorKey: "gmail", tools: ["drafts.create"] },
+    ];
+    const old = await repos.agents.create(hz.db, businessId, { name: "Old social engine", agentType: "channel_social", initialVersion: { tools: stored } });
+    const owner = hz.caller({ userId: ownerId });
+    const row = (await owner.team.agents.list({ businessId })).agents.find((x) => x.id === old.id)!;
+    expect(row.tools).toEqual([
+      { connectorKey: "platform", tools: ["tasks.list", "inbox.request_human_action"] },
+      { connectorKey: "gmail", tools: ["drafts.create"] },
+    ]);
+    // The row itself is not rewritten (no data migration): a session resolves it to the same real tools either way.
+    expect((await repos.agents.getVersion(hz.db, businessId, old.currentVersionId!)).tools).toEqual(stored);
+    // A hire today copies the template, which grants only what resolves: nothing is hidden from what is stored.
+    const agent = await owner.team.agents.hire({ businessId, templateKey: "channel_social", departmentId });
+    const hired = (await owner.team.agents.list({ businessId })).agents.find((x) => x.id === agent.id)!;
+    const version = await repos.agents.getVersion(hz.db, businessId, hired.currentVersionId!);
+    expect(hired.tools).toEqual(version.tools);
+    expect(hired.tools.map((t) => t.connectorKey)).toEqual(["platform", "quarantine"]);
+  });
+
   it("team.agents.list rates each agent on the one /20 scale (`rating20`, one decimal) and keeps the deprecated /10 `rating` for one release", async () => {
     const { businessId, ownerId } = hz.A;
     const rated = await repos.agents.create(hz.db, businessId, { name: "Rated agent", agentType: "engineer" });

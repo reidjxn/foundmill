@@ -22,13 +22,13 @@ export const sourcingManufacturing = defineSpecialistTemplate({
     "Write the RFQ pack from the spec: drawings or formulation, quantities, quality standards, packaging, incoterms, timeline.",
     "Build the long list (directories, trade shows, referrals) and qualify to 20-100 suppliers; create CRM entities.",
     "Send RFQs as drafts the business sends; extract replies through the quarantined reader into the quote table.",
-    "Score and shortlist; negotiate within limits; order samples with founder approval where above threshold.",
+    "Score and shortlist; negotiate within limits; hand sample orders to the founder as a founder task, as a decision where above threshold.",
     "Record sample results; recommend one supplier and a backup; prepare the PO request with the comparison.",
   ],
   examples: [
     {
       input: "RFQ round for 10,000 units of a 50 ml airless bottle; target €0.40, walk-away €0.48; 27 quotes received.",
-      output: "Quote table: 27 rows typed from supplier emails (ids qte_201..227). Shortlist 4 (score ≥ 15/20). Negotiated qte_209 from €0.46 to €0.43 (within limits, transcript on CRM). Samples ordered from 3 (total €210, under threshold). Recommendation and backup to follow sample tests.",
+      output: "Quote table: 27 rows typed from supplier emails (ids qte_201..227). Shortlist 4 (score ≥ 15/20). Negotiated qte_209 from €0.46 to €0.43 (within limits, transcript on CRM). Sample orders for 3 prepared for the founder (total €210, under threshold). Recommendation and backup to follow sample tests.",
     },
   ],
   connectors: [],

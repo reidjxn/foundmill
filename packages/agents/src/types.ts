@@ -55,6 +55,7 @@ export const ROUTE_KEYS = [
   "founderTitle",
   "conversation",
   "goalProposal",
+  "projectPage",
 ] as const;
 export const RouteKey = z.enum(ROUTE_KEYS);
 export type RouteKey = (typeof ROUTE_KEYS)[number];
@@ -91,6 +92,7 @@ export const ROUTE_DEFAULT_MODEL: Record<RouteKey, ModelKey> = {
   founderTitle: "haiku",
   conversation: "sonnet",
   goalProposal: "sonnet",
+  projectPage: "sonnet",
 };
 
 // ---------------------------------------------------------------------------------------------------------------------

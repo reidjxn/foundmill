@@ -3,7 +3,7 @@ import { LONG, NORTHWIND_BUSINESS_ID, areaTabBar, departmentBase, openBusiness, 
 
 /**
  * Builder view (founder, 2026-11-08; docs/DESIGN.md "Builder view"): one account-wide switch, off by default, that shows
- * how the platform runs the team. Off: the Product area shows Specification, What changed and Live product inline (Working now,
+ * how the platform runs the team. Off: the Product area shows Specification, Public page, What changed and Live product inline (Working now,
  * Work list and Specialists behind More detail), nothing links to Code, Health or Hierarchy, a gated tab opened by URL says "This is part of Builder
  * view", the Agents table has no Form or "Rating /20", and no cycle number, tokens, ETA or test count shows; What
  * changed reads "Waiting for your go-ahead" and "Gone live", Live product shows "Your live product" and the previews,
@@ -37,7 +37,7 @@ test.describe("Builder view", () => {
     // The Product area's bar: its defaults, the open Work list, and Formulation Lab's promoted tab; the rest behind
     // More detail, never Code (docs/DESIGN.md §9).
     await openTab(page, `${dev}/plan`, "development/plan");
-    await expect(areaTabBar(page, "Product").getByRole("tab")).toHaveText(["Specification", "Work list · Development", "What changed", "Live product", "Specialists · Formulation Lab"]);
+    await expect(areaTabBar(page, "Product").getByRole("tab")).toHaveText(["Specification", "Public page", "Work list · Development", "What changed", "Live product", "Specialists · Formulation Lab"]);
     await page.getByRole("button", { name: /^More detail/ }).click();
     await expect(page.getByTestId("more-detail-menu").getByRole("menuitem")).toHaveText(["Vision", "Changes", "Sources", "Research", "Working now", "Specialists · Development", "Work list · Formulation Lab"]);
     await page.keyboard.press("Escape");

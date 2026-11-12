@@ -8,7 +8,21 @@
  * row reads the defaults (US dates, 12-hour times, guidance on, standard text, nothing seen), so reading never writes;
  * the first change creates the row.
  */
-import { AGENT_STYLES, DEFAULT_AGENT_STYLE, DEFAULT_DATE_FORMAT_PREFS, DEFAULT_NOTIFICATION_PREFS, DateFormatPreference, NOTIFICATION_KINDS, TimeFormatPreference, type AgentStyle, type DateFormatPrefs, type NotificationPrefs } from "@foundmill/shared";
+import {
+  AGENT_STYLES,
+  DEFAULT_AGENT_STYLE,
+  DEFAULT_DATE_FORMAT_PREFS,
+  DEFAULT_EMAIL_NOTIFICATION_PREFS,
+  DEFAULT_NOTIFICATION_PREFS,
+  DateFormatPreference,
+  EMAIL_NOTIFICATION_KINDS,
+  NOTIFICATION_KINDS,
+  TimeFormatPreference,
+  type AgentStyle,
+  type DateFormatPrefs,
+  type EmailNotificationPrefs,
+  type NotificationPrefs,
+} from "@foundmill/shared";
 import { eq, sql } from "drizzle-orm";
 import { z } from "zod";
 import { accountPreferences, GUIDANCE_MODES, TEXT_SIZES, type GuidanceMode, type SeenMap, type TextSize } from "../schema";
@@ -42,6 +56,11 @@ export interface GuidancePrefs {
 export interface NotificationPreferences {
   notifications: NotificationPrefs;
   hideAmountsOnLockScreen: boolean;
+  /**
+   * Which kinds of email Foundmill sends the person (packages 1.5 and 5.1; Settings › Preferences, and the link in every
+   * such email turns its kind off). Stored under `email` in the same `notifications` map; every kind on until turned off.
+   */
+  email: EmailNotificationPrefs;
 }
 
 /** Everything on the row a person can choose: the date and time format, the guided layer's preferences and the notification preferences. */
@@ -50,8 +69,8 @@ export interface AccountPreferencesView extends DateFormatPrefs, GuidancePrefs, 
 /** What everyone reads until they choose: guidance on, standard text, nothing seen, the checklist showing, agents as agents (humans when turned on). */
 export const DEFAULT_GUIDANCE_PREFS: Readonly<GuidancePrefs> = Object.freeze({ guidance: "on", textSize: "standard", explainersSeen: {}, toursDone: {}, checklistDismissedAt: null, anthropomorphicAgents: false, agentStyle: DEFAULT_AGENT_STYLE, builderView: false });
 
-/** Every kind of push on, amounts shown. */
-export const DEFAULT_NOTIFICATION_PREFERENCES: Readonly<NotificationPreferences> = Object.freeze({ notifications: { ...DEFAULT_NOTIFICATION_PREFS }, hideAmountsOnLockScreen: false });
+/** Every kind of push and of email on, amounts shown. */
+export const DEFAULT_NOTIFICATION_PREFERENCES: Readonly<NotificationPreferences> = Object.freeze({ notifications: { ...DEFAULT_NOTIFICATION_PREFS }, hideAmountsOnLockScreen: false, email: { ...DEFAULT_EMAIL_NOTIFICATION_PREFS } });
 
 export const DEFAULT_ACCOUNT_PREFERENCES: Readonly<AccountPreferencesView> = Object.freeze({ ...DEFAULT_DATE_FORMAT_PREFS, ...DEFAULT_GUIDANCE_PREFS, ...DEFAULT_NOTIFICATION_PREFERENCES });
 
@@ -61,10 +80,21 @@ const SeenMarks = z.record(z.string().trim().min(1).max(120), z.literal(true)).r
 /** The kinds of push to turn on or off in one change (`{ customer: false }`); only the known kinds, at least one. */
 const NotificationMarks = z.partialRecord(z.enum(NOTIFICATION_KINDS), z.boolean()).refine((m) => Object.keys(m).length > 0, { message: "Name at least one kind of notification" });
 
+/** The kinds of email to turn on or off in one change (`{ decision_waiting: false }`); only the known kinds, at least one. */
+const EmailNotificationMarks = z.partialRecord(z.enum(EMAIL_NOTIFICATION_KINDS), z.boolean()).refine((m) => Object.keys(m).length > 0, { message: "Name at least one kind of email" });
+
 /** The stored map (only what was chosen) merged over the defaults, in the kinds' own order. */
 export function notificationPrefsOf(stored: Partial<NotificationPrefs> | null | undefined): NotificationPrefs {
   const out = { ...DEFAULT_NOTIFICATION_PREFS };
   for (const kind of NOTIFICATION_KINDS) if (typeof stored?.[kind] === "boolean") out[kind] = stored[kind];
+  return out;
+}
+
+/** The stored `email` map merged over the defaults (every kind on until turned off). */
+export function emailNotificationPrefsOf(stored: unknown): EmailNotificationPrefs {
+  const out = { ...DEFAULT_EMAIL_NOTIFICATION_PREFS };
+  const map = stored && typeof stored === "object" ? (stored as Partial<Record<string, unknown>>) : {};
+  for (const kind of EMAIL_NOTIFICATION_KINDS) if (typeof map[kind] === "boolean") out[kind] = map[kind];
   return out;
 }
 
@@ -85,6 +115,7 @@ export const AccountPreferencesPatch = z
     anthropomorphicAgents: z.boolean().optional(),
     agentStyle: z.enum(AGENT_STYLES).optional(),
     notifications: NotificationMarks.optional(),
+    email: EmailNotificationMarks.optional(),
     hideAmountsOnLockScreen: z.boolean().optional(),
     builderView: z.boolean().optional(),
     reset: z.literal(true).optional(),
@@ -126,6 +157,7 @@ function view(row: Row): AccountPreferencesView {
     agentStyle: row.agentStyle ?? DEFAULT_AGENT_STYLE,
     notifications: notificationPrefsOf(row.notifications),
     hideAmountsOnLockScreen: row.hideAmountsOnLockScreen ?? false,
+    email: emailNotificationPrefsOf(row.notifications?.email),
     builderView: row.builderView ?? false,
   };
 }
@@ -146,12 +178,17 @@ export const preferencesRepo = {
     const dismissedAt = v.checklistDismissed === undefined ? undefined : v.checklistDismissed ? new Date() : null;
     const scalars = defined({ dateFormat: v.date, timeFormat: v.time, guidance: v.guidance, textSize: v.textSize, anthropomorphicAgents: v.anthropomorphicAgents, agentStyle: v.agentStyle, hideAmountsOnLockScreen: v.hideAmountsOnLockScreen, builderView: v.builderView });
     // A first row starts from the defaults, so a reset has nothing to clear and a mark is the whole map.
-    const insert = { userId, ...scalars, ...defined({ explainersSeen: v.explainersSeen, toursDone: v.toursDone, checklistDismissedAt: dismissedAt, notifications: v.notifications }) };
+    const notifications = v.notifications || v.email ? { ...(v.notifications ?? {}), ...(v.email ? { email: v.email } : {}) } : undefined;
+    const insert = { userId, ...scalars, ...defined({ explainersSeen: v.explainersSeen, toursDone: v.toursDone, checklistDismissedAt: dismissedAt, notifications }) };
+    // The push kinds are keys of the map; the email kinds merge into its `email` map, so one never clears the other.
+    const column = accountPreferences.notifications;
+    const pushMerged = v.notifications ? merged(column, v.notifications) : sql`${column}`;
+    const notificationsSet = v.email ? sql`${pushMerged} || jsonb_build_object('email', coalesce(${column} -> 'email', '{}'::jsonb) || ${JSON.stringify(v.email)}::jsonb)` : v.notifications ? pushMerged : undefined;
     const set = {
       ...scalars,
       ...(v.explainersSeen ? { explainersSeen: merged(accountPreferences.explainersSeen, v.explainersSeen) } : {}),
       ...(v.toursDone ? { toursDone: merged(accountPreferences.toursDone, v.toursDone) } : {}),
-      ...(v.notifications ? { notifications: merged(accountPreferences.notifications, v.notifications) } : {}),
+      ...(notificationsSet ? { notifications: notificationsSet } : {}),
       ...(dismissedAt !== undefined ? { checklistDismissedAt: dismissedAt } : {}),
       ...(v.reset ? { explainersSeen: {}, toursDone: {}, checklistDismissedAt: null } : {}),
     };

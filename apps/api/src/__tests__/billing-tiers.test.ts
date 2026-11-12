@@ -75,20 +75,15 @@ describe("a note's own cost", () => {
   });
 });
 
-describe("seats (TIERS.seats)", () => {
-  it("an invitation past the tier's seats is refused with a typed error; a larger tier has room", async () => {
+describe("people are free (TIERS.seats)", () => {
+  it("a free business adds another person without a plan change", async () => {
     const owner = hz.caller({ userId: hz.B.ownerId });
     const guest = await hz.h.createUser("tiers-guest@test.local");
-    // The fixture business already has four members; the free tier has one seat.
-    await expect(owner.team.humans.invite({ businessId: hz.B.businessId, userId: guest, role: "member" })).rejects.toMatchObject({ code: "FORBIDDEN", cause: { code: "tier_limit", details: { limit: "seats", tier: "free", allowed: 1, used: 4 } } });
-    expect(await repos.memberships.get(hz.db, hz.B.businessId, guest)).toBeNull();
-    await owner.billing.changeTier({ businessId: hz.B.businessId, tier: "scale" });
-    try {
-      const membership = await owner.team.humans.invite({ businessId: hz.B.businessId, userId: guest, role: "member" });
-      expect(membership.role).toBe("member");
-    } finally {
-      await owner.billing.changeTier({ businessId: hz.B.businessId, tier: "free" });
-    }
+    // The fixture business already has four members and is on the free plan: no limit refuses a fifth.
+    expect((await repos.businesses.get(hz.db, hz.B.businessId)).planTier).toBe("free");
+    const membership = await owner.team.humans.invite({ businessId: hz.B.businessId, userId: guest, role: "member" });
+    expect(membership.role).toBe("member");
+    expect(await repos.memberships.get(hz.db, hz.B.businessId, guest)).not.toBeNull();
   });
 });
 

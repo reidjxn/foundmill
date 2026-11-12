@@ -41,7 +41,6 @@ const FIXED_ROUTES = [
   ...["business", "members", "departments", "mode", "integrations", "keys", "glossary", "billing", "preferences", "danger"].map((t) => `${B}/settings/${t}`),
   "/network",
   "/communities",
-  "/leaderboards",
   "/onboarding",
   "/new",
   "/businesses",

@@ -37,8 +37,8 @@ describe("founder.tableViews", () => {
 
   it("works for the account-wide LIVE pages and refuses a business the person is not in", async () => {
     const owner = hz.caller({ userId: hz.B.ownerId });
-    await owner.founder.tableViews.save({ tableKey: "live.leaderboards", views: [view], activeViewId: "view-1" });
-    expect((await owner.founder.tableViews.get({ tableKey: "live.leaderboards" }))?.activeViewId).toBe("view-1");
+    await owner.founder.tableViews.save({ tableKey: "live.communities", views: [view], activeViewId: "view-1" });
+    expect((await owner.founder.tableViews.get({ tableKey: "live.communities" }))?.activeViewId).toBe("view-1");
     expect(await code(owner.founder.tableViews.save({ tableKey: "team.agents", businessId: hz.A.businessId, views: [], activeViewId: null }))).not.toBe("OK");
     expect(await code(owner.founder.tableViews.save({ tableKey: "Not A Key", views: [], activeViewId: null }))).toBe("BAD_REQUEST");
   });

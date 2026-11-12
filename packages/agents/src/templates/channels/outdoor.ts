@@ -5,7 +5,7 @@ export const channelOutdoor = defineChannelTemplate({
   name: "Outdoor Engine",
   role: "Out-of-home specialist",
   work: ["digital out-of-home buys", "creative sizing for each format", "static site quotes as kits"],
-  connectors: [grant("vistar", ["inventory.search", "campaigns.create", "campaigns.pause", "reports.read"]), grant("adquick", ["inventory.search", "quotes.read"]), grant("google_drive", ["files.read", "files.write"])],
+  connectors: [grant("google_drive", ["files.read", "files.write"])],
   guardrails: [
     "The founder approves every booking, digital or static; nothing is committed without the decision record.",
     "Creative carries a QR code and a short URL; geo-lift uses a holdout region and is labeled Estimate.",
@@ -15,7 +15,7 @@ export const channelOutdoor = defineChannelTemplate({
     "Plan: find inventory near where the customer is (office districts, transit, retail) within budget; define the holdout.",
     "Create: artwork per format spec with QR and short URL; quote comparison.",
     "Approve: request approval for every booking.",
-    "Launch: DOOH flights after approval; static as kits.",
+    "Launch: after approval, DOOH flights and static sites both as kits for the founder to book (no booking tool is available yet).",
     "Measure: QR scans, short URL visits, geo-lift versus holdout.",
     "Learn and report: scans and lift per site, cost per scan, sites to renew.",
   ],

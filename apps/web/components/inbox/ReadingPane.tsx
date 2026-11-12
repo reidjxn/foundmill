@@ -51,6 +51,8 @@ import {
   type MetricTileProps,
 } from "@foundmill/dugout";
 import type { DeptColourToken, EntityKind } from "@foundmill/shared";
+import { PAGE_READY_NOTE, isPageReadyDecision } from "@foundmill/shared/project-page";
+import { moduleTabHref } from "@foundmill/widgets/shared/departments";
 import { humanSender, NETWORK_SENDER } from "@foundmill/widgets/shared/note-tags";
 import { routes } from "@foundmill/widgets/shared/routes";
 import { readOnlyReason } from "@/lib/access";
@@ -343,12 +345,15 @@ function ReadingPaneBody({ data, currency, departments, onArchived }: BodyProps)
         const a = res.approval;
         toast({ title: a.outcome === "approved" ? "Approved" : "Rejected", description: `${withNames(a.summary)}${a.cycle?.started ? " A cycle started." : ""}`, tone: a.outcome === "approved" ? "good" : "info", action: res.followUp ? { label: "Open the note", onClick: () => router.push(routes.inbox(businessId, res.followUp!.id)) } : undefined });
       } else if (res.requiresConfirmation) setConfirmOpen(true);
-      else {
+      else if (isPageReadyDecision(item.decision) && res.decision.chosenOption === PAGE_READY_NOTE.options.check) {
+        // "Check it and publish" (package 1.3): straight to Product › Public page, where the founder publishes.
+        router.push(moduleTabHref(businessId, departments, "product", "public-page"));
+      } else {
         toast({ title: "Decided", description: res.executed.length ? `${res.executed.length} action${res.executed.length === 1 ? "" : "s"} done, ${res.deferred.length} handed to the team.` : res.plan.summaryMd.slice(0, 140), tone: "good", action: res.followUp ? { label: "Open the update", onClick: () => router.push(routes.inbox(businessId, res.followUp!.id)) } : undefined });
         if (won && journeyId) router.push(routes.journey(businessId, journeyId));
       }
     },
-    [invalidate, toast, router, businessId, won, journeyId, withNames],
+    [invalidate, toast, router, businessId, won, journeyId, withNames, item.decision, departments],
   );
   const decide = useMutation(
     trpc.inbox.decide.mutationOptions({

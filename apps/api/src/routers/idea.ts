@@ -7,6 +7,8 @@ import { HOUSE_STYLE } from "@foundmill/agents";
 import { AGENT_STYLES, ARCHETYPES, Archetype, BUSINESS_MODES, CurrencyCode, GAME_MODES, ValidationError } from "@foundmill/shared";
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
+import { channelAvailabilityFacts } from "@foundmill/connectors";
+import { channelAnswer } from "../services/channel-availability";
 import { commitIdea, squadPreview } from "../services/commit";
 import { conceptPersona, conceptStarters, replyAboutConcept, replyStream, type ReplyHooks, type ReplyStreamEvent } from "../services/conversation";
 import { checkDomainAvailability, DomainCheckInput } from "../services/domains";
@@ -318,7 +320,8 @@ export const ideaRouter = router({
   domainCheck: protectedProcedure.input(DomainCheckInput).use(modelLimited("domains")).mutation(({ ctx, input }) => checkDomainAvailability(ctx, ctx.userId, input)),
 
   /** What "Take charge" will seed for an archetype (Commit screen preview). */
-  preview: protectedProcedure.input(z.object({ archetype: Archetype })).query(({ input }) => squadPreview(input.archetype)),
+  // The channels named are the starters a brand-new project can really run here (no integration is connected yet).
+  preview: protectedProcedure.input(z.object({ archetype: Archetype })).query(({ ctx, input }) => squadPreview(input.archetype, new Set(channelAnswer(channelAvailabilityFacts(ctx.env, { isDemo: false }, [])).available))),
 
   /** Take charge (AC-11.1.6, AC-11.1.7: default business mode is Assisted). */
   commit: protectedProcedure
@@ -356,6 +359,6 @@ export const ideaRouter = router({
       if (input.gameMode === "live") await requireAdultToGoLive(ctx.db, ctx.userId, input.confirmAdult);
       // A logo is an upload check like any other (the SVG check is CPU work).
       if (input.logo) await takeLogoCheck(ctx.limits, ctx.userId);
-      return commitIdea(ctx.db, ctx.temporal, ctx.userId, input, () => importJobKey(ctx.env), { log: ctx.log });
+      return commitIdea(ctx.db, ctx.temporal, ctx.userId, input, () => importJobKey(ctx.env), { log: ctx.log, env: ctx.env });
     }),
 });

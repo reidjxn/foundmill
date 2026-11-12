@@ -28,9 +28,11 @@ import { createTinkConnector } from "./connectors/tink";
 import { createVoyageConnector } from "./connectors/voyage";
 import { createOpenaiImagesConnector } from "./connectors/openai_images";
 import { createOnesignalConnector } from "./connectors/onesignal";
+import { createPlatformNotifyConnector } from "./connectors/platform_notify";
 import { createPlatformConnector } from "./connectors/platform";
 import { createQuarantineConnector } from "./connectors/quarantine";
 import { createWebConnector } from "./connectors/web";
+import { createPlatformMailConnector } from "./connectors/platform_mail";
 
 export type ConnectorFactory = (options?: LiveConnectorOptions) => Connector;
 
@@ -40,6 +42,8 @@ export const CONNECTOR_FACTORIES: Readonly<Record<string, ConnectorFactory>> = O
   voyage: createVoyageConnector,
   openai_images: createOpenaiImagesConnector,
   onesignal: createOnesignalConnector,
+  // Foundmill's own email to its users (packages 1.5 and 5.1): service-only, on the platform's SendGrid key.
+  platform_notify: createPlatformNotifyConnector,
   github: createGithubConnector,
   google_drive: createGoogleDriveConnector,
   gmail: createGmailConnector,
@@ -71,7 +75,18 @@ export const BUILTIN_CONNECTOR_FACTORIES = Object.freeze({
   platform: createPlatformConnector,
   web: createWebConnector,
   quarantine: createQuarantineConnector,
+  // A project's Foundmill sending address (package 1.5): the platform's own SendGrid account, nothing to connect.
+  platform_mail: createPlatformMailConnector,
 } satisfies Record<string, ConnectorFactory>);
+
+/**
+ * Connectors whose mode follows another key's switch: `platform_mail` and `platform_notify` are SendGrid underneath, so
+ * they run live exactly where `sendgrid` does (`INTEGRATIONS_MODE=live` or `LIVE_CONNECTORS` naming `sendgrid`; packages/shared `platformMailMode`).
+ */
+export const CONNECTOR_MODE_KEYS: Readonly<Record<string, string>> = Object.freeze({ platform_mail: "sendgrid", platform_notify: "sendgrid" });
+
+/** The key whose switch decides this connector's mode (itself, unless `CONNECTOR_MODE_KEYS` names another). */
+export const modeKeyOf = (connectorKey: string): string => CONNECTOR_MODE_KEYS[connectorKey] ?? connectorKey;
 
 export const BUILTIN_CONNECTOR_KEYS: readonly string[] = Object.freeze(Object.keys(BUILTIN_CONNECTOR_FACTORIES));
 

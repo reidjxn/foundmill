@@ -9,7 +9,7 @@ import { z } from "zod";
 import { savedTableViews, type StoredTableView } from "../schema";
 import { Id, maybeOne, one, parseInput, rowsOf, type Executor } from "./_shared";
 
-/** "team.agents", "crm.list", "live.leaderboards": lower-case, dotted, at most 80 characters (the table's own check). */
+/** "team.agents", "crm.list", "live.communities": lower-case, dotted, at most 80 characters (the table's own check). */
 export const TableKey = z.string().regex(/^[a-z0-9][a-z0-9_.:-]{0,79}$/, "Unknown table");
 
 const ViewId = z.string().min(1).max(80);

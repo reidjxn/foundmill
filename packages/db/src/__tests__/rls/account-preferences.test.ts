@@ -71,7 +71,7 @@ describe("account_preferences (table)", () => {
 
 /** The defaults everyone reads until they choose. */
 const NOTIFICATIONS_ON = { decision: true, approval: true, customer: true, agent_down: true, runway: true, run_finished: true, goal: true };
-const DEFAULTS = { date: "us", time: "12h", guidance: "on", textSize: "standard", explainersSeen: {}, toursDone: {}, checklistDismissedAt: null, anthropomorphicAgents: false, agentStyle: "humans", builderView: false, notifications: NOTIFICATIONS_ON, hideAmountsOnLockScreen: false };
+const DEFAULTS = { date: "us", time: "12h", guidance: "on", textSize: "standard", explainersSeen: {}, toursDone: {}, checklistDismissedAt: null, anthropomorphicAgents: false, agentStyle: "humans", builderView: false, notifications: NOTIFICATIONS_ON, hideAmountsOnLockScreen: false, email: { decision_waiting: true } };
 
 describe("repos.preferences under RLS", () => {
   it("reads the defaults without writing a row, then upserts only what changed", async () => {

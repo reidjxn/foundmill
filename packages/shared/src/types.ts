@@ -74,9 +74,17 @@ import {
   TIME_FORMAT_PREFERENCES,
 } from "./constants";
 import type * as C from "./constants";
+import { PAGE_ABOUT_MAX, PAGE_FOR_WHOM_MAX, PAGE_PITCH_MAX, PAGE_STAGES, normalizePageContent, pageSlugProblem } from "./project-page";
+import type * as P from "./project-page";
+import { PERSON_ABOUT_MAX, PERSON_HEADLINE_MAX, PERSON_LOOKING_FOR, PERSON_PLACE_MAX, PERSON_TAGS_MAX, PERSON_TAG_MAX, normalizePersonProfile, personHandleProblem } from "./person-profile";
+import type * as PP from "./person-profile";
 
 // The zod-free half (tuples, unions, records): "@foundmill/shared/constants".
 export * from "./constants";
+// A project's public page, zod-free: "@foundmill/shared/project-page". Its Zod schemas are at the end of this file.
+export * from "./project-page";
+// A person's public profile, zod-free: "@foundmill/shared/person-profile". Its Zod schemas follow the page's.
+export * from "./person-profile";
 
 export const GameMode = z.enum(GAME_MODES);
 export type GameMode = C.GameMode;
@@ -234,3 +242,83 @@ export type TimeFormatPreference = C.TimeFormatPreference;
 /** A signed-in person's date and time format (both fields required). */
 export const DateFormatPrefs = z.object({ date: DateFormatPreference, time: TimeFormatPreference });
 export type DateFormatPrefs = C.DateFormatPrefs;
+
+/**
+ * A project's public page (./project-page; migration 0077). `ProjectPageContent` is what may be published: the pitch on
+ * one line, 1 to 140 characters; `about` 1 to 1,500; "Who it is for" 0 to 300; plain text only. `ProjectPageDraft` is
+ * the same shape while it is being written (the pitch and `about` may still be empty). Both tidy the text first
+ * (`normalizePageContent`), so what is validated is what is stored.
+ */
+const PageFields = z.object({
+  // Generous outer bounds on the raw strings; the real limits apply to the tidied text below.
+  pitch: z.string().max(PAGE_PITCH_MAX * 4),
+  about: z.string().max(PAGE_ABOUT_MAX * 4),
+  forWhom: z.string().max(PAGE_FOR_WHOM_MAX * 4).default(""),
+  stage: z.enum(PAGE_STAGES).default("idea"),
+  showFounders: z.boolean().default(false),
+  // The "Follow" form (package 1.6): on for every new page.
+  followForm: z.boolean().default(true),
+});
+const withinPageLimits = (v: P.ProjectPageContent, ctx: z.RefinementCtx, least: number): void => {
+  const check = (field: "pitch" | "about" | "forWhom", min: number, max: number) => {
+    const n = v[field].length;
+    if (n < min) ctx.addIssue({ code: "custom", path: [field], message: "Required" });
+    if (n > max) ctx.addIssue({ code: "custom", path: [field], message: `At most ${max} characters` });
+  };
+  check("pitch", least, PAGE_PITCH_MAX);
+  check("about", least, PAGE_ABOUT_MAX);
+  check("forWhom", 0, PAGE_FOR_WHOM_MAX);
+};
+export const ProjectPageContent = PageFields.transform((v) => normalizePageContent(v)).superRefine((v, ctx) => withinPageLimits(v, ctx, 1));
+export type ProjectPageContent = P.ProjectPageContent;
+export const ProjectPageDraft = PageFields.transform((v) => normalizePageContent(v)).superRefine((v, ctx) => withinPageLimits(v, ctx, 0));
+export type ProjectPageDraft = P.ProjectPageContent;
+/** A page's address: 3 to 40 lowercase letters, digits and hyphens, not one the product keeps (`pageSlugProblem`). */
+export const ProjectPageSlug = z
+  .string()
+  .trim()
+  .superRefine((v, ctx) => {
+    const problem = pageSlugProblem(v);
+    if (problem) ctx.addIssue({ code: "custom", message: problem });
+  });
+export const PageStage = z.enum(PAGE_STAGES);
+export type PageStage = P.PageStage;
+
+/**
+ * A person's public profile (./person-profile; migration 0080). The raw strings get generous outer bounds; the real
+ * limits apply to the tidied values (`normalizePersonProfile`), so what is validated is what is stored.
+ */
+export const PersonLookingFor = z.enum(PERSON_LOOKING_FOR);
+export type PersonLookingFor = PP.PersonLookingFor;
+const PersonTags = z.array(z.string().max(PERSON_TAG_MAX * 4)).max(PERSON_TAGS_MAX * 4).default([]);
+export const PersonProfileContent = z
+  .object({
+    headline: z.string().max(PERSON_HEADLINE_MAX * 4).default(""),
+    about: z.string().max(PERSON_ABOUT_MAX * 4).default(""),
+    strengths: PersonTags,
+    wantsToLearn: PersonTags,
+    lookingFor: PersonLookingFor.default("on_my_own"),
+    place: z.string().max(PERSON_PLACE_MAX * 4).default(""),
+  })
+  .transform((v) => normalizePersonProfile(v))
+  .superRefine((v, ctx) => {
+    const over = (field: "headline" | "about" | "place", max: number) => {
+      if (v[field].length > max) ctx.addIssue({ code: "custom", path: [field], message: `At most ${max} characters` });
+    };
+    over("headline", PERSON_HEADLINE_MAX);
+    over("about", PERSON_ABOUT_MAX);
+    over("place", PERSON_PLACE_MAX);
+    for (const field of ["strengths", "wantsToLearn"] as const) {
+      if (v[field].length > PERSON_TAGS_MAX) ctx.addIssue({ code: "custom", path: [field], message: `At most ${PERSON_TAGS_MAX} tags` });
+      if (v[field].some((t) => t.length > PERSON_TAG_MAX)) ctx.addIssue({ code: "custom", path: [field], message: `At most ${PERSON_TAG_MAX} characters a tag` });
+    }
+  });
+export type PersonProfileContent = PP.PersonProfileContent;
+/** A person's address under /u/: the project page's address rule (`personHandleProblem`). */
+export const PersonHandle = z
+  .string()
+  .trim()
+  .superRefine((v, ctx) => {
+    const problem = personHandleProblem(v);
+    if (problem) ctx.addIssue({ code: "custom", message: problem });
+  });
