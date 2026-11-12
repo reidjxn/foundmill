@@ -4,10 +4,13 @@
  */
 import { EVENTS, type StreamEntry } from "@foundmill/events";
 import { EVENT_FIXTURES, fixtureId } from "@foundmill/events/testing/fixtures";
-import { EVENT_TYPES, isPersonAddressedEvent, PERSON_ADDRESSED_EVENT_TYPES, type EventType, type SectionMembership } from "@foundmill/shared";
+import { ACCOUNT_EVENT_TYPES, EVENT_TYPES, isAccountEventType, isPersonAddressedEvent, PERSON_ADDRESSED_EVENT_TYPES, type BusinessEventType, type EventType, type SectionMembership } from "@foundmill/shared";
 import { describe, expect, it } from "vitest";
-import { EVENT_WALLS, eventView, membershipChangeOf, viewEvent } from "../walls";
-import { BUSINESS_A } from "./helpers";
+import { EVENT_WALLS, eventView, membershipChangeOf, viewAccountEvent, viewEvent } from "../walls";
+import { BUSINESS_A, USER_A, USER_B } from "./helpers";
+
+/** The business-scoped types: every type that can be on a business stream at all. */
+const BUSINESS_TYPES = EVENT_TYPES.filter((t): t is BusinessEventType => !isAccountEventType(t));
 
 let seq = 0;
 /** One `ev:` stream entry exactly as the outbox relay writes it (`id`, `type`, `json`). */
@@ -29,8 +32,9 @@ const seen = (e: StreamEntry, view = OPEN) => {
 };
 
 describe("event walls", () => {
-  it("file every event type under its sections (compile-time and at runtime)", () => {
-    expect(Object.keys(EVENT_WALLS).sort()).toEqual([...EVENT_TYPES].sort());
+  it("file every business-scoped event type under its sections (compile-time and at runtime); an account-scoped type has no place in the table", () => {
+    expect(Object.keys(EVENT_WALLS).sort()).toEqual([...BUSINESS_TYPES].sort());
+    for (const type of ACCOUNT_EVENT_TYPES) expect(Object.keys(EVENT_WALLS)).not.toContain(type);
   });
 
   it("hide only fields the event declares (a renamed payload field must not silently stop being hidden)", () => {
@@ -43,7 +47,7 @@ describe("event walls", () => {
       const [head, ...rest] = path;
       return def.type === "object" && !!def.shape && head! in def.shape && declares(def.shape[head!], rest);
     };
-    for (const [type, wall] of Object.entries(EVENT_WALLS) as [EventType, (typeof EVENT_WALLS)[EventType]][]) {
+    for (const [type, wall] of Object.entries(EVENT_WALLS) as [BusinessEventType, (typeof EVENT_WALLS)[BusinessEventType]][]) {
       const hide: Record<string, readonly string[]> = "hide" in wall ? wall.hide : {};
       for (const [section, paths] of Object.entries(hide)) {
         for (const path of paths) expect(declares(EVENTS[type].schema, path.split(".")), `${type} hides ${path} for ${section}`).toBe(true);
@@ -52,7 +56,7 @@ describe("event walls", () => {
   });
 
   it("a reader without walls gets each event's own JSON, untouched and unparsed", () => {
-    for (const type of EVENT_TYPES.filter((t) => !isPersonAddressedEvent(t))) {
+    for (const type of BUSINESS_TYPES.filter((t) => !isPersonAddressedEvent(t))) {
       const e = entry(type);
       expect(viewEvent(e, OPEN)).toBe(e.fields.json);
     }
@@ -139,5 +143,62 @@ describe("event walls", () => {
   it("reads who a membership change is about", () => {
     expect(membershipChangeOf(entry("membership.changed"))).toBe(EVENT_FIXTURES["membership.changed"].userId);
     expect(membershipChangeOf(entry("mode.changed"))).toBeNull();
+  });
+});
+
+describe("account events and the walls", () => {
+  let n = 0;
+  /** One `ae:` stream entry exactly as the account relay writes it (`id`, `type`, `json`). */
+  const accountEntry = (userId: string, over: { type?: string; fieldType?: string | null; json?: string; payload?: unknown; id?: unknown } = {}): StreamEntry => {
+    const id = fixtureId(`account-walls-${++n}`);
+    const type = over.type ?? "profile.published";
+    const event = { id: over.id === undefined ? id : over.id, userId, type, occurredAt: "2026-11-12T09:00:00.000Z", actor: { kind: "system", id: "internal-actor-name" }, payload: over.payload === undefined ? { handle: "maya-okafor" } : over.payload };
+    const fields: Record<string, string> = { id, json: over.json ?? JSON.stringify(event) };
+    if (over.fieldType !== null) fields.type = over.fieldType ?? type;
+    return { stream: `ae:${userId}`, id: `${n}-0`, fields };
+  };
+
+  it("an account-scoped event reaches no reader of a business stream, walls or none, even the person it is about", () => {
+    const views = [OPEN, NO_FINANCE, NO_CRM, NO_INBOX, eventView(null)];
+    for (const type of ACCOUNT_EVENT_TYPES) {
+      // As a stray writer would put it on `ev:`: the business envelope, the relay's fields.
+      const stray = entry(type as EventType);
+      // And with the `type` field missing, or naming a harmless type while the JSON says otherwise.
+      const untyped: StreamEntry = { ...stray, fields: { id: stray.fields.id!, json: stray.fields.json! } };
+      const disguised: StreamEntry = { ...stray, fields: { ...stray.fields, type: "task.started" } };
+      for (const view of views) {
+        for (const e of [stray, untyped, disguised]) expect(viewEvent(e, view), `${type} for ${[...view.walled].join(",") || "no walls"}`).toBeNull();
+      }
+    }
+    // A business event that only mentions the words in its text is still delivered.
+    const mention = entry("task.blocked", { ...(EVENT_FIXTURES["task.blocked"] as Record<string, unknown>), detail: "waiting for profile.published" });
+    expect(viewEvent(mention, OPEN)).toBe(mention.fields.json);
+  });
+
+  it("the owner of an account channel gets their own account events, cut to the fields a person may read", () => {
+    const e = accountEntry(USER_A);
+    const seenJson = viewAccountEvent(e, USER_A);
+    expect(JSON.parse(seenJson!)).toEqual({ id: e.fields.id, userId: USER_A, type: "profile.published", occurredAt: "2026-11-12T09:00:00.000Z", payload: { handle: "maya-okafor" } });
+    expect(seenJson).not.toContain("internal-actor-name");
+    expect(viewAccountEvent(e, USER_A.toUpperCase())).toBe(seenJson);
+  });
+
+  it("nothing else leaves on an account channel: another person's event, a business event, a signal, a mismatch, noise", () => {
+    // Another person's account event, whatever stream it sits on.
+    expect(viewAccountEvent(accountEntry(USER_B), USER_A)).toBeNull();
+    expect(viewAccountEvent({ ...accountEntry(USER_B), stream: `ae:${USER_A}` }, USER_A)).toBeNull();
+    // A business-scoped type, even one that names this account as `userId`.
+    expect(viewAccountEvent(accountEntry(USER_A, { type: "payment.received" }), USER_A)).toBeNull();
+    expect(viewAccountEvent(entry("payment.received"), USER_A)).toBeNull();
+    // The entry's `type` field and its JSON must agree.
+    expect(viewAccountEvent(accountEntry(USER_A, { fieldType: "profile.unpublished" }), USER_A)).toBeNull();
+    expect(viewAccountEvent(accountEntry(USER_A, { fieldType: null }), USER_A)).not.toBeNull();
+    // A content-free signal, text that is not JSON, a JSON value that is not an event, an event without an id or a payload object.
+    expect(viewAccountEvent({ stream: `ae:${USER_A}`, id: "1-0", fields: { kind: "message_received", json: JSON.stringify({ type: "live.signal", kind: "message_received", at: "2026-11-12T09:00:00.000Z" }) } }, USER_A)).toBeNull();
+    expect(viewAccountEvent(accountEntry(USER_A, { json: "{not json" }), USER_A)).toBeNull();
+    expect(viewAccountEvent(accountEntry(USER_A, { json: "[1,2]" }), USER_A)).toBeNull();
+    expect(viewAccountEvent(accountEntry(USER_A, { payload: "text" }), USER_A)).toBeNull();
+    expect(viewAccountEvent(accountEntry(USER_A, { id: null }), USER_A)).toBeNull();
+    expect(viewAccountEvent({ stream: `ae:${USER_A}`, id: "2-0", fields: { id: "x" } }, USER_A)).toBeNull();
   });
 });

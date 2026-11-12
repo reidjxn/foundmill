@@ -14,7 +14,7 @@ import { isModelBillingError } from "@foundmill/models";
 import { assertAllowlisted } from "./services/access";
 import { modelBillingAppError } from "./services/model-errors";
 import { writeEventRow } from "./services/events";
-import { AppError, ConflictError, DEFAULT_AGENT_STYLE, NotFoundError, WRITE_ROLES, effectivePermission, isAgentStyle, type Actor, type AgentStyle, type EventType, type MembershipRole, type PermissionLevel, type Section } from "@foundmill/shared";
+import { AppError, ConflictError, DEFAULT_AGENT_STYLE, NotFoundError, WRITE_ROLES, effectivePermission, isAgentStyle, type Actor, type AgentStyle, type BusinessEventType, type MembershipRole, type PermissionLevel, type Section } from "@foundmill/shared";
 import type { Context } from "./context";
 
 export const Id = z.guid();
@@ -406,7 +406,7 @@ export function audit(tx: Executor, ctx: Pick<BusinessContext, "businessId" | "u
   return repos.audit.append(tx, ctx.businessId, { actorKind: "user", actorId: ctx.userId, action: input.action, target: input.target ?? {}, details: input.details ?? {} });
 }
 
-export interface EmitInput<T extends EventType> {
+export interface EmitInput<T extends BusinessEventType> {
   type: T;
   payload: EventPayloadInput<T>;
   entityIds?: readonly string[];
@@ -418,7 +418,7 @@ export interface EmitInput<T extends EventType> {
 }
 
 /** Write an event through the transactional outbox in the same transaction as the change it describes. */
-export function emit<T extends EventType>(tx: Executor, ctx: Pick<BusinessContext, "businessId" | "userId">, input: EmitInput<T>): Promise<string> {
+export function emit<T extends BusinessEventType>(tx: Executor, ctx: Pick<BusinessContext, "businessId" | "userId">, input: EmitInput<T>): Promise<string> {
   return writeEventRow(tx, { businessId: ctx.businessId, type: input.type, actor: input.actor ?? { kind: "user", id: ctx.userId }, payload: input.payload, entityIds: input.entityIds, ...(input.occurredAt ? { occurredAt: input.occurredAt } : {}) }, input.idempotencyKey);
 }
 

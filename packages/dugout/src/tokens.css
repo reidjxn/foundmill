@@ -24,6 +24,11 @@
   --ink: #05070a; /* terminals, the generation log, code */
   --white: #ffffff;
   --black: #000000;
+  /* Google's own sign-in button, light theme (developers.google.com/identity/branding-guidelines): the only place a
+     third party's colors appear. Never reuse them for anything else. */
+  --google-fill: #ffffff;
+  --google-stroke: #747775;
+  --google-text: #1f1f1f;
 
   /* ---------- Lines: alpha on white, so one set sits on every surface ---------- */
   --line-faint: rgba(255, 255, 255, 0.045); /* row dividers */

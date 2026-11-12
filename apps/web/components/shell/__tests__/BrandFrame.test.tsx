@@ -40,4 +40,20 @@ describe("BrandFrame (login and signed-out frames)", () => {
       Object.defineProperty(window, "innerWidth", { value: before, configurable: true, writable: true });
     }
   });
+
+  it("with smallScreen (the sign-in page) it renders at 390 px instead of asking for a larger window", () => {
+    const before = window.innerWidth;
+    try {
+      Object.defineProperty(window, "innerWidth", { value: 390, configurable: true, writable: true });
+      render(
+        <BrandFrame smallScreen>
+          <p>body</p>
+        </BrandFrame>,
+      );
+      expect(screen.queryByTestId("needs-larger-window")).toBeNull();
+      expect(screen.getByText("body")).toBeTruthy();
+    } finally {
+      Object.defineProperty(window, "innerWidth", { value: before, configurable: true, writable: true });
+    }
+  });
 });

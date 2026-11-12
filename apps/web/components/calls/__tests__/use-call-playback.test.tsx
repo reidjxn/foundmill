@@ -6,7 +6,7 @@
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { TeamCallSpeechView, TeamCallTurnView } from "@foundmill/shared/team-call";
-import { useCallPlayback } from "../use-call-playback";
+import { HOLD_MAX_MS, useCallPlayback } from "../use-call-playback";
 
 const turn = (seq: number, agentId = `a${seq}`): TeamCallTurnView => ({ id: `t${seq}`, seq, speaker: "agent", agentId, userId: null, text: `Line ${seq}.`, to: "founder", via: null, createdAt: "2026-11-12T15:00:00Z" });
 const speechFor = (id: string, accent = "talia"): TeamCallSpeechView => ({ turnId: id, speechAccent: accent, mime: "audio/wav", base64: "UklGRg==", simulated: true, spokenText: `Spoken ${id}` });
@@ -87,6 +87,62 @@ describe("useCallPlayback", () => {
     expect(spoken).toHaveLength(1);
   });
 
+  it("the founder starting to speak holds the team's answer, and a sound that came to nothing lets it be spoken", async () => {
+    let answer: ((v: TeamCallSpeechView) => void) | null = null;
+    const fetchSpeech = vi.fn((id: string) => new Promise<TeamCallSpeechView>((resolve) => (answer = () => resolve(speechFor(id)))));
+    const { result } = renderHook(() => useCallPlayback(fetchSpeech));
+    act(() => result.current.enqueue([turn(1)]));
+    await waitFor(() => expect(fetchSpeech).toHaveBeenCalledTimes(1));
+    // A sound at the mic just before the answer's speech arrives (what happened on the first live call).
+    act(() => result.current.hold());
+    await act(async () => answer!(speechFor("t1")));
+    await new Promise((r) => setTimeout(r, 30));
+    expect(spoken).toHaveLength(0);
+    expect(result.current.idle).toBe(false);
+    act(() => result.current.release());
+    await waitFor(() => expect(spoken).toHaveLength(1));
+    expect(result.current.playing?.turnId).toBe("t1");
+  });
+
+  it("a hold pauses the line being spoken and the release resumes it; holds count one per utterance", async () => {
+    const pause = vi.fn();
+    const resume = vi.fn();
+    Object.assign(window.speechSynthesis, { pause, resume });
+    const fetchSpeech = vi.fn(async (id: string) => speechFor(id));
+    const { result } = renderHook(() => useCallPlayback(fetchSpeech));
+    act(() => result.current.enqueue([turn(1), turn(2)]));
+    await waitFor(() => expect(spoken).toHaveLength(1));
+    act(() => {
+      result.current.hold();
+      result.current.hold();
+    });
+    expect(pause).toHaveBeenCalledTimes(1);
+    expect(result.current.paused).toBe(true);
+    act(() => result.current.release());
+    expect(resume).not.toHaveBeenCalled();
+    act(() => result.current.release());
+    expect(resume).toHaveBeenCalledTimes(1);
+    expect(result.current.paused).toBe(false);
+    act(() => spoken[0]!.onend?.(new Event("end") as SpeechSynthesisEvent));
+    await waitFor(() => expect(spoken).toHaveLength(2));
+  });
+
+  it("a hold that is never released lets go by itself", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      const fetchSpeech = vi.fn(async (id: string) => speechFor(id));
+      const { result } = renderHook(() => useCallPlayback(fetchSpeech));
+      act(() => result.current.hold());
+      act(() => result.current.enqueue([turn(1)]));
+      await vi.advanceTimersByTimeAsync(50);
+      expect(spoken).toHaveLength(0);
+      await act(async () => vi.advanceTimersByTimeAsync(HOLD_MAX_MS));
+      await waitFor(() => expect(spoken).toHaveLength(1));
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("a turn whose speech cannot be fetched still takes its place (it waits out its reading time) and the next one is spoken", async () => {
     const fetchSpeech = vi.fn(async (id: string) => {
       if (id === "t1") throw new Error("speech failed");
@@ -107,10 +163,14 @@ describe("useCallPlayback: streamed speech", () => {
     played.length = 0;
     class FakeAudio {
       src = "";
+      paused = true;
       onended: (() => void) | null = null;
       onerror: (() => void) | null = null;
-      pause() {}
+      pause() {
+        this.paused = true;
+      }
       play() {
+        this.paused = false;
         played.push({ src: this.src, el: this });
         return Promise.resolve();
       }
@@ -133,5 +193,19 @@ describe("useCallPlayback: streamed speech", () => {
     expect(played[1]!.src).toBe("data:audio/mpeg;base64,SUQz");
     act(() => played[1]!.el.onended?.());
     await waitFor(() => expect(result.current.idle).toBe(true));
+  });
+
+  it("a hold pauses a streamed line and the release plays it on from where it was", async () => {
+    const fetchSpeech = vi.fn(async (id: string) => streamed(id));
+    const { result } = renderHook(() => useCallPlayback(fetchSpeech, "https://api.example.test"));
+    act(() => result.current.enqueue([turn(1)]));
+    await waitFor(() => expect(played).toHaveLength(1));
+    const el = played[0]!.el as unknown as { paused: boolean; src: string };
+    act(() => result.current.hold());
+    expect(el.paused).toBe(true);
+    act(() => result.current.release());
+    expect(played).toHaveLength(2);
+    expect(played[1]!.src).toBe("https://api.example.test/team-call-audio/ticket-t1");
+    expect(el.paused).toBe(false);
   });
 });

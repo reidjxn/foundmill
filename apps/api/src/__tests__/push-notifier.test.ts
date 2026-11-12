@@ -7,7 +7,7 @@
 import { eq } from "drizzle-orm";
 import { events, memberships, repos } from "@foundmill/db";
 import { buildEvent, type PlatformEvent, type WriteEventInput } from "@foundmill/events";
-import type { EventType } from "@foundmill/shared";
+import type { BusinessEventType } from "@foundmill/shared";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { GatewayPushRequest, GatewayPushResult } from "../services/gateway";
 import { createPushNotifier, type PushNotifier } from "../services/push/notifier";
@@ -42,7 +42,7 @@ beforeAll(async () => {
 }, 120_000);
 afterAll(() => hz.close());
 
-const ev = <T extends EventType>(type: T, payload: WriteEventInput<T>["payload"], businessId = hz.A.businessId): PlatformEvent => buildEvent({ businessId, type, actor: { kind: "system", id: "test" }, payload }) as PlatformEvent;
+const ev = <T extends BusinessEventType>(type: T, payload: WriteEventInput<T>["payload"], businessId = hz.A.businessId): PlatformEvent => buildEvent({ businessId, type, actor: { kind: "system", id: "test" }, payload }) as PlatformEvent;
 
 const decision = (subject: string, businessId?: string) => ev("inbox.item_created", { inboxItemId: hz.A.inboxItemId, type: "decision", fromAgentId: hz.A.agentId, subject, blocksContinue: false, sourceEventIds: [], cost: null }, businessId);
 

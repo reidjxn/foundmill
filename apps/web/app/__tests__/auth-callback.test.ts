@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { NextRequest } from "next/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { classifyCallbackParams, classifyExchangeError, parseSignInError, signInErrorCopy } from "@/lib/auth/sign-in-errors";
+import { classifyCallbackParams, classifyExchangeError, googleSignInReason, parseSignInError, signInErrorCopy } from "@/lib/auth/sign-in-errors";
 
 type ExchangeResult = { error: { name?: string; code?: string; message: string } | null };
 const exchangeCodeForSession = vi.fn<(code: string) => Promise<ExchangeResult>>();
@@ -135,5 +135,47 @@ describe("sign-in error reasons", () => {
     expect(copy.title).toMatch(/different address/);
     expect(copy.body).toMatch(/Send a new link/);
     for (const reason of ["expired", "missing_code", "failed"] as const) expect(signInErrorCopy(reason).body, reason).toMatch(/Send a new link/);
+  });
+});
+
+describe("/auth/callback after Continue with Google (via=google)", () => {
+  it("lands exactly like the email link: the code is exchanged, then next (clamped to an in-app path)", async () => {
+    exchangeCodeForSession.mockResolvedValue({ error: null });
+    expect(await callback("?code=g1&next=%2Fb%2Fx%2Finbox&via=google")).toEqual({ status: 307, location: "https://foundmill.com/b/x/inbox" });
+    expect(exchangeCodeForSession).toHaveBeenCalledWith("g1");
+    expect((await callback("?code=g2&next=%2F%2Fevil.example&via=google")).location).toBe("https://foundmill.com/");
+    expect((await callback("?code=g3&next=https%3A%2F%2Fevil.example&via=google")).location).toBe("https://foundmill.com/");
+  });
+
+  it("new sign-ups closed in Supabase reads as the email form's own words, for Google and the email link alike", async () => {
+    const closed = "?error=access_denied&error_code=signup_disabled&error_description=Signups+not+allowed+for+this+instance";
+    expect((await callback(`${closed}&via=google&next=%2Fb%2Fx`)).location).toBe("https://foundmill.com/login?error=signups_closed&next=%2Fb%2Fx");
+    expect((await callback(closed)).location).toBe("https://foundmill.com/login?error=signups_closed");
+    expect(signInErrorCopy("signups_closed")).toEqual({ title: "New sign-ups are closed", body: "There is no account for this address, and new sign-ups are closed for now." });
+    expect(exchangeCodeForSession).not.toHaveBeenCalled();
+  });
+
+  it("an address Google has not verified, a canceled consent and a failed exchange each say so in Google's terms, never a link's", async () => {
+    expect((await callback("?error=access_denied&error_code=provider_email_needs_verification&error_description=Unverified+email+with+google&via=google")).location).toBe("https://foundmill.com/login?error=google_unverified");
+    expect((await callback("?error=access_denied&error_description=The+user+denied+access&via=google")).location).toBe("https://foundmill.com/login?error=google_failed");
+    exchangeCodeForSession.mockResolvedValue({ error: verifierMissing });
+    expect((await callback("?code=x&via=google&next=%2Fb%2Fx")).location).toBe("https://foundmill.com/login?error=google_failed&next=%2Fb%2Fx");
+    exchangeCodeForSession.mockResolvedValue({ error: { name: "AuthApiError", code: "flow_state_expired", message: "x" } });
+    expect((await callback("?code=x&via=google")).location).toBe("https://foundmill.com/login?error=google_failed");
+    configured = false;
+    expect((await callback("?code=x&via=google")).location).toBe("https://foundmill.com/login?error=not_configured");
+  });
+
+  it("maps every reason for a Google start and words the Google ones without a link", () => {
+    expect(googleSignInReason("signups_closed")).toBe("signups_closed");
+    expect(googleSignInReason("google_unverified")).toBe("google_unverified");
+    expect(googleSignInReason("not_configured")).toBe("not_configured");
+    for (const r of ["expired", "missing_code", "other_address", "failed"] as const) expect(googleSignInReason(r), r).toBe("google_failed");
+    for (const r of ["google_failed", "google_unverified"] as const) {
+      expect(parseSignInError(r)).toBe(r);
+      expect(signInErrorCopy(r).body, r).toMatch(/email link below/);
+      expect(signInErrorCopy(r).body, r).not.toMatch(/Send a new link/);
+    }
+    expect(parseSignInError("signups_closed")).toBe("signups_closed");
   });
 });

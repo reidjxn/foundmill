@@ -15,7 +15,10 @@ import { sql } from "drizzle-orm";
 import { safeParseEvent, serializeEvent, type PlatformEvent } from "../catalogue";
 import { BUSINESS_STREAM_RETENTION_MS, businessStreamKey, DEFAULT_STREAM_MAXLEN, minIdFor, RELAY_DEAD_LETTER_KEY } from "../keys";
 import type { StreamRedis } from "../redis";
+import { createRelayLoop, type OutboxRelay } from "./relay-loop";
 import { EVENTS_TABLE, OUTBOX_TABLE, type Queryable, type TransactionalQueryable } from "./writer";
+
+export type { OutboxRelay } from "./relay-loop";
 
 export type RelayDb = Queryable | TransactionalQueryable;
 
@@ -44,24 +47,6 @@ export interface OutboxRelayOptions {
   onPublished?: (events: readonly PlatformEvent[]) => void;
   /** Use a transaction + row locks when the db supports it (default true). */
   lockRows?: boolean;
-}
-
-export interface OutboxRelay {
-  /** Publish one batch now. Resolves to the number of rows marked published (valid + dead-lettered). */
-  tick(): Promise<number>;
-  /** Start the polling loop (no-op if already running). */
-  start(): void;
-  /**
-   * Run the next tick now instead of after the idle wait (call it after committing outbox rows). A wake during a tick
-   * runs one more right after it, so rows committed while it read are not left to the poll. Ignored while the loop is
-   * not running or is backing off after a failure.
-   */
-  wake(): void;
-  /** Stop after the in-flight tick finishes. Resolves when the loop has exited. */
-  stop(): Promise<void>;
-  readonly running: boolean;
-  /** Resolves when the loop exits (after `stop()`). Resolved immediately if never started. */
-  readonly done: Promise<void>;
 }
 
 /** Shape of one joined outbox row as the relay reads it (column aliases match the select below). */
@@ -148,34 +133,6 @@ function hasTransaction(db: RelayDb): db is TransactionalQueryable {
   return typeof (db as TransactionalQueryable).transaction === "function";
 }
 
-interface LoopSignal {
-  cancelled: boolean;
-  /** Ends the current sleep early (set while sleeping). */
-  wake?: () => void;
-  /** A `wake()` arrived while no idle sleep was running: the next idle sleep returns at once. */
-  woken: boolean;
-}
-
-/** An idle wait (`wakeable`) ends early on `wake()` or `stop()`; a backoff after a failure ends early only on `stop()`. */
-const sleep = (ms: number, signal: LoopSignal, wakeable: boolean) =>
-  new Promise<void>((resolve) => {
-    if (signal.cancelled) return resolve();
-    if (wakeable && signal.woken) {
-      signal.woken = false;
-      return resolve();
-    }
-    const t = setTimeout(() => {
-      signal.wake = undefined;
-      resolve();
-    }, ms);
-    const end = () => {
-      clearTimeout(t);
-      signal.wake = undefined;
-      resolve();
-    };
-    signal.wake = wakeable ? end : () => (signal.cancelled ? end() : undefined);
-  });
-
 /** Build a relay without starting it (tests call `tick()` directly). */
 export function createOutboxRelay(
   db: RelayDb,
@@ -191,10 +148,6 @@ export function createOutboxRelay(
   const onError =
     opts.onError ?? ((err: unknown) => console.error("[events] outbox relay error", err));
   const lock = (opts.lockRows ?? true) && hasTransaction(db);
-
-  const state: LoopSignal & { running: boolean } = { running: false, cancelled: false, wake: undefined, woken: false };
-  let loopPromise: Promise<void> = Promise.resolve();
-  let inFlight: Promise<number> | null = null;
 
   async function publishRows(q: Queryable, rows: Record<string, unknown>[]): Promise<number> {
     if (rows.length === 0) return 0;
@@ -278,61 +231,7 @@ export function createOutboxRelay(
     return publishRows(db, rows);
   }
 
-  function tick(): Promise<number> {
-    if (inFlight) return inFlight;
-    inFlight = tickOnce().finally(() => {
-      inFlight = null;
-    });
-    return inFlight;
-  }
-
-  async function loop(): Promise<void> {
-    let backoff = errorBackoffMs;
-    while (!state.cancelled) {
-      let n: number;
-      try {
-        n = await tick();
-        backoff = errorBackoffMs;
-      } catch (err) {
-        onError(err);
-        await sleep(backoff, state, false);
-        backoff = Math.min(backoff * 2, 30_000);
-        continue;
-      }
-      if (state.cancelled) break;
-      if (n >= batch) continue; // more waiting: drain without pausing
-      await sleep(intervalMs, state, true);
-    }
-    state.running = false;
-  }
-
-  return {
-    tick,
-    start() {
-      if (state.running) return;
-      state.running = true;
-      state.cancelled = false;
-      state.woken = false;
-      loopPromise = loop();
-    },
-    wake() {
-      if (!state.running || state.cancelled) return;
-      if (state.wake) state.wake();
-      else state.woken = true;
-    },
-    async stop() {
-      if (!state.running) return;
-      state.cancelled = true;
-      state.wake?.();
-      await loopPromise;
-    },
-    get running() {
-      return state.running;
-    },
-    get done() {
-      return loopPromise;
-    },
-  };
+  return createRelayLoop({ tickOnce, batch, intervalMs, errorBackoffMs, onError });
 }
 
 /** Create and start the relay loop. `await relay.stop()` for a graceful shutdown. */

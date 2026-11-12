@@ -10,8 +10,13 @@
  * `wake()` asks the relay to publish now: trpc.ts calls it after every mutation, so the events a founder's click
  * committed reach the stream without waiting for the idle poll (about 220 ms on average until 2026-10-15). Writes made
  * by other services wait for the poll, which stays at 250 ms.
+ *
+ * Two relays run here, started together once Redis answers: the business relay (`outbox` → `ev:{businessId}`) and the
+ * account relay (`account_outbox` → `ae:{userId}`, docs/ARCHITECTURE.md §5 "Account events"). Each has its own loop,
+ * its own transactions and its own backoff, so an account outbox that is stuck never holds up a project's events, and
+ * the reverse; `wake()` wakes both and `stop()` stops both. `status()` describes the supervisor: both start with it.
  */
-import { runOutboxRelay, type OutboxRelay, type PlatformEvent } from "@foundmill/events";
+import { runAccountOutboxRelay, runOutboxRelay, type OutboxRelay, type PlatformEvent } from "@foundmill/events";
 import type { ApiDeps } from "../context";
 import { redisReachable, type ApiRedis } from "./redis";
 
@@ -37,6 +42,8 @@ export interface RelaySupervisorOptions {
   reachable?: () => Promise<boolean>;
   /** Start the relay (default: `runOutboxRelay` on `deps.db` and `deps.redis`). */
   start?: () => OutboxRelay;
+  /** Start the account relay (default: `runAccountOutboxRelay` on `deps.db` and `deps.redis`). */
+  startAccount?: () => OutboxRelay;
   /** Wait before the next probe; `attempt` counts from 1 (default: 1 s doubling to 30 s). */
   backoffMs?: (attempt: number) => number;
   now?: () => Date;
@@ -69,12 +76,20 @@ export function superviseOutboxRelay(deps: Pick<ApiDeps, "db" | "redis" | "log" 
             }
           : {}),
       }));
+  const startAccount =
+    options.startAccount ??
+    (() =>
+      runAccountOutboxRelay(deps.db as unknown as Parameters<typeof runAccountOutboxRelay>[0], redis!, {
+        // The relay's errors come from Redis and from validation paths: a message, never a person's event.
+        onError: (err) => deps.log.warn({ err: (err as Error).message }, "account outbox relay tick failed"),
+      }));
   const backoff = options.backoffMs ?? relayBackoffMs;
   const now = options.now ?? (() => new Date());
   let state: RelayState = "starting";
   let attempts = 0;
   let since: string | null = null;
   let relay: OutboxRelay | null = null;
+  let accountRelay: OutboxRelay | null = null;
   let timer: ReturnType<typeof setTimeout> | null = null;
   let stopped = false;
 
@@ -98,18 +113,28 @@ export function superviseOutboxRelay(deps: Pick<ApiDeps, "db" | "redis" | "log" 
     state = "running";
     since = now().toISOString();
     deps.log.info({ attempts }, "outbox relay started");
+    // Beside it, never in its way: a failure to start the account relay leaves the business relay running.
+    try {
+      accountRelay = startAccount();
+      deps.log.info({ attempts }, "account outbox relay started");
+    } catch (err) {
+      deps.log.warn({ err: (err as Error).message }, "account outbox relay did not start (account events stay in their outbox until a restart)");
+    }
   };
   void attempt();
 
   return {
     status: () => ({ state, attempts, since }),
-    wake: () => relay?.wake(),
+    wake: () => {
+      relay?.wake();
+      accountRelay?.wake();
+    },
     async stop() {
       stopped = true;
       if (timer) clearTimeout(timer);
       timer = null;
       state = "stopped";
-      await relay?.stop();
+      await Promise.all([relay?.stop(), accountRelay?.stop()]);
     },
   };
 }
