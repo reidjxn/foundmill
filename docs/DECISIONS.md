@@ -3667,3 +3667,18 @@ Fifteen of sixteen answered, from lettered options; they supersede the "all open
 - **The link goes to the home page until the story exists** (`/p/<slug>/story`, the next package), carrying `?via=p.<slug>`.
 - **The person page keeps "Made with Foundmill" for now.** Open question for the founder: a person has no plan to remove it by.
 
+## 2026-11-12 — Working beside the other sessions; three answers relayed from the founder
+
+The session the founder set up to keep the Foundmill sessions aligned wrote to this one. Recorded here as it was relayed; the founder gave these in that session, not in this one.
+
+1. **The mark reads "Built on Foundmill"** (not "Build on"). Matches what was built.
+2. **One exception to "Plans differ by agent work only": the mark alone.** The founder told this session directly that the mark is "completely removed for paid plans"; the alignment session relayed that it is to be written into the CLAUDE.md rule itself, scoped to the mark, so no later session reads it as a precedent. Done in this change.
+3. **This session owns invitations (THESIS 3.1) and the referral-ordered waitlist (the waitlist half of 2.2).** The roadmap session keeps Google sign-in, small screens (2.1) and the home for a person with no project (2.4). The sign-up and access code (`apps/api/src/auth.ts`, `services/access.ts`, `/login`, `redirects.ts`) is not touched here until the Google sign-in change ([reidjxn/foundmill#82](https://github.com/reidjxn/foundmill/pull/82)) merges; invitations and the waitlist are built after a rebase onto it.
+
+Consequences taken here:
+- **Migration numbers.** 0082 (Team call) and 0083, 0084 (retention) are taken on branches that merge first. This branch uses 0085 (`attributions`) and 0086 (public milestones), with journal `when` values after 1796128080000, and renumbers in order at rebase.
+- **`docs/mobile` is the mobile session's.** The one sentence this branch had added to its backend skill is taken out again; the new shapes (`mark` on `page.get` and `publicPage.bySlug`, and the story and card procedures when they merge) are sent to that session instead.
+- **Email about people (NETWORK F20) rides the retention work:** new kinds on its one sender (`POST /v1/notify/email`, `EMAIL_NOTIFICATION_KINDS`) and its one preference map, inside the founder's limit of three emails a day per person. No second channel.
+- **Build hours never reuse "Call" or `/calls`,** which are the founder's calls with agents (Team call). A call between people would need a real-time vendor of its own (NETWORK §14, question 13, still open).
+- **Message requests from people you are not connected to (NETWORK F17) get their own security review before merge.**
+

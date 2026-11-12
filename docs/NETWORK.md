@@ -250,6 +250,7 @@ The Network item in the sidebar, and a tab in the native app. Tabs: **Latest**, 
 **F13. Build hours.** A set time when a few people work on their own projects in the same room.
 
 - Each says in one line what they will finish. A shared clock runs for 50 minutes. At the end each shows what they made.
+- Never called a "call" and never at `/calls`: those are the founder's calls with agents.
 - Version one is presence, the clock and text. Hearing and seeing each other (a small group call inside the build hour) would need a calling vendor behind the gateway; whether and when is question 13 of section 14.
 - Scheduled for cohorts and communities, or opened by anyone for their connections.
 - (The name avoids "Live sessions", which already means the agents' sessions.)
@@ -305,6 +306,7 @@ The Network item in the sidebar, and a tab in the native app. Tabs: **Latest**, 
 
 - **Kinds:** someone followed your project; a signal; an answer to your ask; your answer was marked helpful; "your feedback changed this"; a message or request; a request to join; an invitation; a trial check-in; your cohort's Friday; an ask you could answer.
 - **Limits:** bundled by kind; a daily cap on pushes about people; quiet hours; a preference per kind; vacation silences all of them.
+- **One sender, one preference.** Email about people is new kinds on the sender and preference map the retention work brings (`POST /v1/notify/email`, `EMAIL_NOTIFICATION_KINDS`, `account_preferences.notifications.email`), inside the founder's limit of three emails a day per person. No second channel.
 - **The weekly letter:** what the project shipped, who responded, the week card, what the cohort did. For someone who is looking, one suggestion. Written by the Composer.
 - **"Since you were last here"** on Today gains the people lines.
 
@@ -488,7 +490,7 @@ All but one answered; the text above follows them. Also recorded in `docs/DECISI
 
 Readings this session made of the answers, to be corrected if wrong:
 
-- **The mark's words.** The answer was typed "Build on Foundmill". It is taken as "Built on Foundmill" (the answer says "rather than made on"). The words live in one constant.
+- **The mark's words.** The answer was typed "Build on Foundmill"; the founder has since confirmed "Built on Foundmill" (relayed Nov 12). The words live in one constant. Removing the mark on paid plans is the one exception to "plans differ by agent work only", written into CLAUDE.md.
 - **No public counts is read widely.** Beyond follower counts: no count on a post, no totals on the record (dated lines only), and "N projects started from this" is told to the publisher privately. A founder still sees their own numbers.
 - **Cohorts stay** (they are in the alongside layer the founder opened); only their use as the waitlist's admission groups is dropped.
 - **Latest keeps a quiet line** where "since you were last here" stops, and continues past it.
