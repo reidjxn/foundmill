@@ -6,6 +6,7 @@ import { createModelClient, TeamCallTurnsOutput, TeamCallWrapUpOutput } from "@f
 import { TEAM_CALL_LIMITS } from "@foundmill/shared";
 import { describe, expect, it } from "vitest";
 import { CLUB_RULES_HEADER, hasClubRulesPrefix } from "../club-rules";
+import { chiefOfStaff, productLead } from "../templates";
 import {
   TEAM_CALL_AI_NOTE,
   TEAM_CALL_DONE_NOTE,
@@ -16,6 +17,8 @@ import {
   cutAtSentence,
   finaliseTeamCallTurns,
   finaliseTeamCallWrapUp,
+  teamCallDoneClaim,
+  teamCallRemit,
   teamCallRound,
   teamCallTurnPrompt,
   teamCallTurnsContext,
@@ -125,6 +128,19 @@ describe("buildTeamCallTurnRequest", () => {
   });
 });
 
+describe("teamCallDoneClaim and teamCallRemit", () => {
+  it("reads the team's own claims as well as the desk's, never a plan, a condition or a denial", () => {
+    for (const t of ["We've already sent the launch email.", "The team has booked the venue.", "We just paid the designer.", "We sent it this morning.", "I've sent it.", "It has been published."]) expect(teamCallDoneClaim(t), t).not.toBeNull();
+    for (const t of ["Once we've sent the email, we can measure replies.", "Could we set up a call with cafes?", "We've started looking at the numbers.", "Nothing has been sent.", "We could post it next week.", "If we paid for ads, it would cost more.", "We should launch on Friday."]) expect(teamCallDoneClaim(t), t).toBeNull();
+  });
+
+  it("a remit is the first sentence that is not an introduction, at most 200 characters", () => {
+    expect(teamCallRemit(chiefOfStaff.description)).toBe("I run the team so you only read and decide.");
+    expect(teamCallRemit(productLead.description)).toBe("I own the living specification and the roadmap.");
+    expect(teamCallRemit("word ".repeat(100)).length).toBeLessThanOrEqual(200);
+  });
+});
+
 describe("finaliseTeamCallTurns", () => {
   it("keeps a clean round as it is, addressed as written", () => {
     const out = finaliseTeamCallTurns({ turns: [turn(GROWTH, "I'd start with the cafes you already know. It costs nothing to ask."), turn(PRODUCT, `[[ent:${GROWTH}|Rio]], I'd push back a little: the page has to be ready first.`, { agent_id: GROWTH })], hand_back: false }, ctx());
@@ -182,10 +198,13 @@ describe("finaliseTeamCallTurns", () => {
   });
 
   it("drops a self-introduction, and replaces claims to be human or that something was done", () => {
-    const out = finaliseTeamCallTurns({ turns: [turn(PRODUCT, "Hi, I'm Ada, your product lead. I've already sent the launch email. I'm a real person. The roadmap matters most.")], hand_back: false }, ctx());
+    const out = finaliseTeamCallTurns({ turns: [turn(PRODUCT, "Hi, I'm Ada, your product lead. I've already sent the launch email. We just booked the venue. I'm a real person. The roadmap matters most.")], hand_back: false }, ctx());
     const text = out.turns[0]!.text;
     expect(text).not.toMatch(/I'm Ada/);
     expect(text).toContain(TEAM_CALL_DONE_NOTE);
+    // Two claims in a row are one note.
+    expect(text.split(TEAM_CALL_DONE_NOTE)).toHaveLength(2);
+    expect(text).not.toMatch(/sent the launch email|booked the venue/);
     expect(text).toContain(TEAM_CALL_AI_NOTE);
     expect(text).toContain("The roadmap matters most.");
   });

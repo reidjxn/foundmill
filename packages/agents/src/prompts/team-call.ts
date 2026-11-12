@@ -276,6 +276,17 @@ export interface TeamCallWrapUpRequest {
   cacheSystem: true;
 }
 
+/**
+ * The one-line remit a participant carries (`TeamCallParticipantInput.remit`): the first sentence of its template's
+ * description that is not an introduction ("I'm your Chief of Staff." would invite the agent to introduce itself), at
+ * most 200 characters.
+ */
+export function teamCallRemit(description: string): string {
+  const sentences = description.replace(/\s+/g, " ").trim().split(/(?<=[.!?])\s+/);
+  const first = sentences.find((x) => !/^(?:I'm|I am|This is|Meet)\s+(?:your|the)\b/i.test(x)) ?? sentences[0] ?? "";
+  return cutAtSentence(first, 200);
+}
+
 /** The house rules and the Chief of Staff's instructions: the first system block of both calls (cached). */
 function teamCallSystem(input: Pick<TeamCallTurnInput, "business" | "appName" | "chiefOfStaff" | "glossary">): string {
   const template = input.chiefOfStaff ?? { instructions: chiefOfStaff.instructions, description: chiefOfStaff.description };
@@ -474,6 +485,33 @@ export function cutAtSentence(text: string, max: number): string {
   return `${(space > max * 0.5 ? cut.slice(0, space) : cut).replace(/[\s,;:–—-]+$/, "")}.`;
 }
 
+/** Verbs that report an outside action as done ("sent", "booked"); "started" is left out, so "we've started looking" passes. */
+const CALL_DONE_VERBS = "sent|emailed|messaged|posted|published|launched|booked|scheduled|filed|submitted|paid|wired|transferred|ordered|signed|approved|deployed|shipped|created|set\\s+up|turned\\s+on|switched\\s+on|enabled|cancel(?:l)?ed|deleted|removed";
+/** The team's own claims, which the desk check (first person singular) does not read: "we've sent", "the team has booked". */
+const WE_DONE_RE = new RegExp(`\\b(?:we(?:'ve|’ve|\\s+have)|the\\s+team(?:'s|’s|\\s+has))(?:\\s+(?:already|just|now))*\\s+(?:${CALL_DONE_VERBS})\\b`, "i");
+/** "We sent it", "we just booked it": the simple past, minus the forms that read the same in the present ("could we set up"). */
+const WE_PAST_RE = new RegExp(`\\b(?:we|the\\s+team)(?:\\s+(?:already|just))*\\s+(?:${CALL_DONE_VERBS.replace("|set\\s+up|turned\\s+on|switched\\s+on", "")})\\b`, "i");
+/** A claim inside a condition ("once we've sent it", "when the team has booked it") is a plan, not a report. */
+const CONDITION_BEFORE_RE = /\b(?:once|when|whenever|if|until|before|after|as\s+soon\s+as|unless|until)\s*$/i;
+
+/**
+ * The first sentence of `text` that says something was done (docs/TEAM_CALL.md §1: nothing is done during a call), or
+ * null: the desk's check (`doneClaimIn`: "I've sent it", "it has been paid", "Done.") plus the team's own plural
+ * claims ("we've booked the venue", "we just sent it", "the team has sent the email"). One definition for the
+ * server-side repair and the evals.
+ */
+export function teamCallDoneClaim(text: string): string | null {
+  const desk = doneClaimIn(text);
+  if (desk) return desk;
+  for (const sentence of text.split(/(?<=[.!?])\s+/)) {
+    for (const re of [WE_DONE_RE, WE_PAST_RE]) {
+      const m = re.exec(sentence);
+      if (m && !CONDITION_BEFORE_RE.test(sentence.slice(0, m.index))) return sentence.trim();
+    }
+  }
+  return null;
+}
+
 const HUMAN_CLAIM_RE = /\bI(?:'m|’m| am)\s+(?:a\s+|an\s+)?(?:human|real\s+person|person|employee|staff\s+member)\b|\bI(?:'m|’m| am)\s+not\s+(?:an?\s+)?(?:ai|bot|agent|machine)\b/i;
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -510,9 +548,9 @@ export function teamCallTurnsContext(input: Pick<TeamCallTurnInput, "participant
   return { participants: input.participants, kind: input.kind, mode: input.mode, knownText: knownTextOf(input) };
 }
 
-function knownTextOf(input: Pick<TeamCallTurnInput, "brief" | "transcript" | "topic">): string[] {
+function knownTextOf(input: Pick<TeamCallTurnInput, "brief" | "transcript" | "topic"> & { participants?: readonly Pick<TeamCallParticipantInput, "remit">[] }): string[] {
   const b = input.brief;
-  return [input.topic ?? "", b?.goal ?? "", ...(b?.roadmapNow ?? []), b?.openTasks != null ? String(b.openTasks) : "", ...(b?.facts ?? []).flatMap((f) => [f.label, f.value]), ...input.transcript.filter((t) => t.speaker === "founder").map((t) => t.text)].filter((t) => t.length > 0);
+  return [input.topic ?? "", b?.goal ?? "", ...(input.participants ?? []).map((p) => p.remit), ...(b?.roadmapNow ?? []), b?.openTasks != null ? String(b.openTasks) : "", ...(b?.facts ?? []).flatMap((f) => [f.label, f.value]), ...input.transcript.filter((t) => t.speaker === "founder").map((t) => t.text)].filter((t) => t.length > 0);
 }
 
 const isObj = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
@@ -557,7 +595,7 @@ export function finaliseTurnText(raw: string, speaker: Pick<TeamCallParticipantI
     if (HUMAN_CLAIM_RE.test(line)) {
       line = TEAM_CALL_AI_NOTE;
       repairs.push("removed a claim to be human");
-    } else if (doneClaimIn(line)) {
+    } else if (teamCallDoneClaim(line)) {
       line = TEAM_CALL_DONE_NOTE;
       repairs.push("replaced a claim that something was done");
     } else {
@@ -674,7 +712,7 @@ export interface FinalisedTeamCallWrapUp {
   repairs: string[];
 }
 
-export function teamCallWrapUpContext(input: Pick<TeamCallWrapUpInput, "agents" | "roadmap" | "brief" | "transcript" | "topic">): TeamCallWrapUpContext {
+export function teamCallWrapUpContext(input: Pick<TeamCallWrapUpInput, "agents" | "roadmap" | "brief" | "transcript" | "topic" | "participants">): TeamCallWrapUpContext {
   return { agents: input.agents, roadmap: input.roadmap, knownText: knownTextOf(input) };
 }
 
@@ -682,7 +720,7 @@ export function teamCallWrapUpContext(input: Pick<TeamCallWrapUpInput, "agents" 
 function plainProse(text: string, known: ReadonlySet<string>, repairs: string[], what: string): string {
   const out: string[] = [];
   for (const s of sentencesOf(spokenPlain(text))) {
-    if (doneClaimIn(s)) {
+    if (teamCallDoneClaim(s)) {
       repairs.push(`dropped a claim that something was done from the ${what}`);
       continue;
     }

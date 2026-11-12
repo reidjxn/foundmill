@@ -20,7 +20,7 @@
  * text }]`, `founder_just_said`; the wrap-up adds `agents`, `roadmap` and `business.currency`. The agents' own turns
  * arrive in an untrusted block as `call_transcript[{ n, agent_id, text }]`: only who spoke last is read from it.
  */
-import { CHANNEL_KEYS, CHANNEL_META, TEAM_CALL_LIMITS, type ChannelKey, type PlanActionType } from "@foundmill/shared";
+import { CHANNEL_KEYS, CHANNEL_META, TEAM_CALL_LIMITS, type ChannelKey, type PlanActionType, type TaskKind } from "@foundmill/shared";
 import { uuidFromSeed } from "../hash";
 import type { PlanAction } from "../schemas";
 import type { TeamCallTurnOutput, TeamCallTurnsOutput, TeamCallWrapUpAction, TeamCallWrapUpOutput } from "../team-call-schema";
@@ -107,7 +107,8 @@ function remitClause(remit: string): string {
   return truncate(first, 110).replace(/[.!?…]+$/, "");
 }
 
-const areaOf = (p: Participant) => (/^my$/i.test(p.area) ? "my" : `the ${p.area}`);
+/** "the Product", "the team's": the side an agent speaks for (the Chief of Staff speaks for the whole team). */
+const areaOf = (p: Participant) => (p.isChief ? "the team's" : /^my$/i.test(p.area) ? "my" : `the ${p.area}`);
 const askFounder = (founder: string, question: string) => (founder ? `${founder}, ${question.charAt(0).toLowerCase()}${question.slice(1)}` : question);
 
 function turn(agent: Participant, to: TeamCallTurnOutput["to"], sentences: Array<string | null | false>): TeamCallTurnOutput {
@@ -157,7 +158,7 @@ export function generateTeamCallTurns(ctx: MockContext): TeamCallTurnsOutput {
   if (mode === "continue") {
     const from = lastSpeaker && lastSpeaker.id !== first.id ? `Picking up from ${ent(lastSpeaker)},` : "Picking up where we left off,";
     const lastOfRound = !second;
-    turns.push(turn(first, lastOfRound && handBack ? "founder" : "team", [`${from} the next thing to settle on ${phrase} is who takes the first step.`, lastOfRound && handBack ? askFounder(founder, "Do you want us to write that up as an action when the call ends?") : null]));
+    turns.push(turn(first, lastOfRound && handBack ? "founder" : "team", [`${from} the next thing to settle is who takes the first step on what you raised.`, lastOfRound && handBack ? askFounder(founder, "Do you want us to write that up as an action when the call ends?") : null]));
     if (second) {
       turns.push(
         turn(second, handBack ? "founder" : { agent_id: first.id }, [
@@ -175,7 +176,7 @@ export function generateTeamCallTurns(ctx: MockContext): TeamCallTurnsOutput {
   turns.push(
     turn(first, "founder", [
       first.ack,
-      /\?\s*$/.test(said.trim().split(/(?<=[.!?])\s+/)[0] ?? "") ? `You asked ${phrase}. Here is how I see it from ${areaOf(first)} side.` : `On ${phrase}, here is how I see it from ${areaOf(first)} side.`,
+      `${/\?\s*$/.test(said.trim().split(/(?<=[.!?])\s+/)[0] ?? "") ? "You asked" : "You said"} ${phrase}. Here is how I see it from ${areaOf(first)} side.`,
       remit,
       lastOfRound ? (handBack ? "What would you like me to look at first?" : "I would start by agreeing what a good first step looks like.") : null,
     ]),
@@ -201,15 +202,38 @@ const countWord = (n: number) => COUNT_WORDS[n] ?? "many";
 const ROADMAP_LINE_RE = /\broadmap\b/i;
 const ROADMAP_ADD_RE = /\b(?:add|put|include|plan|get)\b/i;
 
-const LEAD_IN_RE = /^(?:let's|let us|we should|we could|please|can we|could we|i want to|i'd like to|we need to|i think we should)\s+/i;
-/** The founder's sentence as a title: no lead-in ("Let's", "We should"), sentence case, no closing punctuation. */
-const asTitle = (sentence: string) => truncate(sentenceCase(sentence.replace(/[.!?]+$/, "").replace(LEAD_IN_RE, "").trim()), 200);
+/** What opens a spoken instruction without being part of it: "First,", "And", "Let's", "The engineering side should". */
+const LEAD_IN_RES: readonly RegExp[] = [
+  /^(?:first|second|third|also|and|so|then|next|finally|ok(?:ay)?|right|yes|great|agreed)\b[,:]?\s+/i,
+  /^(?:let's|let us|please|can we|could we|i want to|i'd like to|we need to|i think we should)\s+/i,
+  /^(?:the\s+)?(?:[a-z]+\s+){0,2}?(?:side\s+|team\s+|lead\s+)?(?:should|could|can|will|needs?\s+to)\s+/i,
+];
+function withoutLeadIn(sentence: string): string {
+  let out = sentence.trim();
+  for (let i = 0; i < 4; i++) {
+    const next = LEAD_IN_RES.reduce((t, re) => t.replace(re, ""), out).trim();
+    if (next === out) break;
+    out = next;
+  }
+  return out || sentence.trim();
+}
+/** The founder's sentence as a title: no lead-in, sentence case, no closing punctuation, a long one cut at its first comma. */
+function asTitle(sentence: string): string {
+  const plain = withoutLeadIn(sentence.replace(/[.!?]+$/, ""));
+  const short = plain.length > 60 && plain.indexOf(",") > 10 ? plain.slice(0, plain.indexOf(",")) : plain;
+  return truncate(sentenceCase(short), 120);
+}
+
+/** A sentence that turns something down or only frames the call ("Let's not do the journalists yet", "I want to plan the next few weeks"): nothing to file. */
+const NOT_AGREED_RE = /\b(?:let's\s+not|let\s+us\s+not|don't|do\s+not|not\s+yet|not\s+now|hold\s+off|skip\s+(?:it|that|the)|no\s+need|never\s*mind|leave\s+(?:it|that)\s+for\s+now)\b/i;
+const FRAMING_RE = /^(?:i\s+want\s+to|i'd\s+like\s+to|let's|we\s+should)\s+(?:plan|talk|discuss|go\s+over|look\s+at|think\s+about|catch\s+up)\b[^,;]*$/i;
+
+/** The kind of work each module's department does (docs/TEAM_CALL.md §4: a task's kind follows its department's work). */
+const MODULE_TASK_KIND: Readonly<Record<string, TaskKind>> = { development: "code", distribution: "channel", finance: "finance", legal: "legal", product: "research", team: "ops" };
 
 /** "Add a referral program to the roadmap" → "Referral program": what goes on the roadmap, in the founder's words. */
 function roadmapTitle(sentence: string): string {
-  const what = sentence
-    .replace(/[.!?]+$/, "")
-    .replace(LEAD_IN_RE, "")
+  const what = withoutLeadIn(sentence.replace(/[.!?]+$/, ""))
     .replace(/^(?:add|put|include|plan|get)\s+(?:a|an|the)?\s*/i, "")
     .replace(/\s+(?:to|on|onto|in|into)\s+(?:the|our)?\s*roadmap\b.*$/i, "")
     .trim();
@@ -251,6 +275,18 @@ export function generateTeamCallWrapUp(ctx: MockContext): TeamCallWrapUpOutput {
   const currency = str(business?.currency) || ctx.getString("currency") || undefined;
   const roadmap = ctx.getArray<Record<string, unknown>>("roadmap").flatMap((r) => (isRecord(r) && typeof r.id === "string" && typeof r.title === "string" ? [{ id: r.id, title: r.title }] : []));
   const agents = agentsFrom(ctx);
+  const moduleOf = new Map(ctx.getArray<Record<string, unknown>>("departments").flatMap((d) => (isRecord(d) && str(d.name) ? [[str(d.name).toLowerCase(), str(d.module)] as const] : [])));
+  const departmentOf = new Map(ctx.getArray<Record<string, unknown>>("agents").flatMap((a) => (isRecord(a) && str(a.id) ? [[str(a.id), str(a.department)] as const] : [])));
+  /** The agent the sentence names by department or role ("marketing should…", "the engineering side"), with its department's kind of work. */
+  const namedOwner = (sentence: string): { id: string; kind: TaskKind | null } | null => {
+    const lower = sentence.toLowerCase();
+    for (const a of agents) {
+      const department = departmentOf.get(a.id) ?? "";
+      const words = [department, ...a.role.split(/\s+/)].map((w) => w.toLowerCase()).filter((w) => w.length > 4 && !/^(?:head|chief|staff|lead)$/.test(w));
+      if (words.some((w) => new RegExp(`\\b${w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`).test(lower))) return { id: a.id, kind: MODULE_TASK_KIND[moduleOf.get(department.toLowerCase()) ?? ""] ?? null };
+    }
+    return null;
+  };
 
   const actions: TeamCallWrapUpAction[] = [];
   const seen = new Set<string>();
@@ -266,6 +302,7 @@ export function generateTeamCallWrapUp(ctx: MockContext): TeamCallWrapUpOutput {
   const sentences = lines.flatMap((l) => l.replace(/\s+/g, " ").split(/(?<=[.!?])\s+/)).map((s) => s.trim()).filter(Boolean);
   for (const sentence of sentences) {
     const gated = detectHardGates(sentence).length > 0;
+    if (!gated && (NOT_AGREED_RE.test(sentence) || FRAMING_RE.test(sentence.replace(/[.!?]+$/, "")))) continue;
     // A sentence that puts something on the roadmap ("add a referral program to the roadmap") is a roadmap item, and
     // only that: never the channel work its words also name.
     const roadmapAdd = !gated && ROADMAP_LINE_RE.test(sentence) && ROADMAP_ADD_RE.test(sentence);
@@ -275,7 +312,15 @@ export function generateTeamCallWrapUp(ctx: MockContext): TeamCallWrapUpOutput {
     for (const a of found) {
       // An item the words do not match on the roadmap is a new one, titled in the founder's words.
       const params = a.type === "update_roadmap" && !a.params.roadmap_item_id ? { ...a.params, create: true, title: roadmapTitle(sentence) } : a.params;
-      add({ ...a, params: a.type === "create_task" ? { ...params, title: asTitle(str(params.title) || sentence) } : params }, sentence);
+      if (a.type === "create_task") {
+        // Work a sentence gives to a department goes to its agent, with the kind of work that department does.
+        const owner = a.params.channel ? null : namedOwner(sentence);
+        const kind = owner?.kind ?? (a.params.kind as TaskKind);
+        const agentId = owner?.id ?? a.agent_id;
+        // Channel work keeps the rule engine's name for it ("Paid advertising campaign"); other work is the founder's sentence.
+        const title = asTitle(a.params.channel ? str(params.title) || sentence : sentence);
+        add({ type: "create_task", params: { ...params, kind, title }, agent_id: agentId }, sentence);
+      } else add({ ...a, params }, sentence);
     }
   }
 
