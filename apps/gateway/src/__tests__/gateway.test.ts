@@ -501,7 +501,9 @@ describe("LIVE_CONNECTORS", () => {
   });
 });
 
-describe("live mode: App connectors (GitHub)", () => {
+// Each test boots its own gateway (a fresh database and every migration), which takes 12 to 17 s on CI while the
+// Playwright jobs share the runner; 30 s left no room for the second test's extra work.
+describe("live mode: App connectors (GitHub)", { timeout: 90_000 }, () => {
   it("run only for the installation the gateway verified, without a stored secret, and stop once disconnected", async () => {
     const live = await setupGateway({ mode: "live", connector: { authKind: "app" } });
     try {

@@ -2,7 +2,8 @@
  * @foundmill/api — Hono + tRPC (docs/ARCHITECTURE.md §13).
  *
  * Boot: load env → build deps → shutdown handlers → fetch Supabase's signing keys (and every 5 minutes after, auth.ts
- * `keepKeysFresh`) → log every private service address still on localhost in staging or production → run migrations in
+ * `keepKeysFresh`) → with SIGNUP_ALLOWLIST, read Supabase's "Confirm email" setting (and every 10 minutes after, never
+ * awaited: services/confirm-email.ts) → log every private service address still on localhost in staging or production → run migrations in
  * one transaction under pg_advisory_xact_lock(7461, 1) (idempotent; exit 1 when the lock is not granted within
  * MIGRATION_LOCK_TIMEOUT_MS; keep serving if the db is down) → open the database pool's connections and keep them open
  * (a `select 1` per connection every minute, packages/db `keepPoolWarm`) → supervise the outbox relay
@@ -138,6 +139,8 @@ export async function main(): Promise<void> {
   let watchdog: PoolWatchdog | null = null;
   // Fetched now and refreshed in the background: no request waits for Supabase's signing keys.
   const keys: KeyRefresher | null = deps.auth.keepKeysFresh?.({ onError: (err) => deps.log.warn({ err: (err as Error)?.message }, "fetching Supabase's signing keys failed; retrying in 5 minutes (a token with an unknown key fetches them at once)") }) ?? null;
+  // With SIGNUP_ALLOWLIST: is Supabase's "Confirm email" on? Read in the background; boot never waits for it.
+  const confirmEmail = deps.confirmEmail?.start() ?? null;
   // Installed before the migration: a SIGTERM during boot still closes the pool (the migration transaction rolls back).
   const lifecycle = onShutdown({
     service: "api",
@@ -156,6 +159,7 @@ export async function main(): Promise<void> {
       { name: "stop workflow reconciler", run: () => reconciler?.stop() },
       { name: "stop sample roll-forward", run: () => demoRoller?.stop() },
       { name: "stop key refresh", run: () => keys?.stop() },
+      { name: "stop confirm-email check", run: () => confirmEmail?.stop() },
       { name: "stop pool warmer", run: () => warmer?.stop() },
       { name: "stop pool watchdog", run: () => watchdog?.stop() },
       { name: "stop outbox relay", run: () => relay?.stop() },

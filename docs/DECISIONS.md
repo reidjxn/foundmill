@@ -3622,6 +3622,15 @@ A step back across the active sessions before the next Newly prompt. Judgment ca
 
 ### The Sample business marker only for visitors exploring the example (2026-11-12)
 - **Founder's call:** the "Sample business" caption shows only to a visitor exploring the example (an example-source membership on a demo business), with its line "Its figures are made up for the example: nothing here is real money or real customers. Nothing you do here is saved." The demo's own owner and invited members no longer see it (this supersedes "whoever opens the business" in the Nov 10 entry). `sampleMarker` in `apps/web/lib/access.ts` returns null unless `isDemo` and `isExample` are both true; it still never shows on a founder's own business.
+
+## 2026-11-12 — Google sign-in on the web (package 2.2): the calls made
+
+- **Founder's decision:** Google on the web only, for now; no Apple; the phone app keeps the email code. Relayed by the alignment session and confirmed by the founder in this session before merge.
+- **Ownership (founder, Nov 12, relayed by the alignment session):** the network session (`docs/NETWORK.md`) owns invitations (THESIS 3.1) and the referral-ordered waitlist (the waitlist half of 2.2); this roadmap keeps Google sign-in, 2.1 (small screens) and 2.4 (a home for a person with no project).
+- **What counts as confirmed:** `amr` oauth plus Google as the account's only social provider plus Google's verified email. `user_metadata.email_verified` is user-writable and can only refuse; the protection is Supabase's own rule (it links and confirms only verified addresses) with "Confirm email" on, which the api now checks itself and fails closed on.
+- **Hidden until set up:** the button needs the Vercel flag and a live check of Supabase's settings, so a half-finished setup never shows a button that fails.
+- **Not on previews:** the PKCE cookie lives on the preview host and the callback on the apex, so Google stays off on Vercel previews.
+- **Password sessions are refused** in the api: the product never issues them, and Supabase has no switch that closes password sign-up alone.
 ## 2026-11-12 — Team call speech (ElevenLabs connector, gateway routes, api client): the calls made
 
 - **Names.** The thing an agent sounds like is a speech accent (`SPEECH_ACCENTS` in packages/shared): tool field `speechAccent`, gateway field `speechAccent`, error `unknown_speech_accent`, map `elevenlabs/speech-accents.ts` (`SPEECH_ACCENT_IDS`, `speechAccentId`), env `ELEVENLABS_SPEECH_ACCENT_IDS`. ElevenLabs' `voice_id` appears only in that connector. A bare `accent` identifier is avoided because the design system uses it for its accent color.

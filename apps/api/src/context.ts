@@ -16,6 +16,8 @@ import type { StreamRedis } from "@foundmill/events";
 import type { ModelClient } from "@foundmill/models";
 import { createDefaultRegistry, type ConnectorRegistry } from "@foundmill/connectors";
 import { createAuthVerifier, type AuthVerifier } from "./auth";
+import { parseSignupAllowlist } from "./services/access";
+import { createConfirmEmailGuard, type ConfirmEmailGuard } from "./services/confirm-email";
 import { requestIdFrom } from "./request-id";
 import { createComposerClient, type ComposerClient } from "./services/composer";
 import { createDevUserBootstrap } from "./services/dev-users";
@@ -48,6 +50,12 @@ export interface ApiDeps {
   /** Static connector metadata and mocks only; built without platform secrets (SEC-14). */
   connectors: ConnectorRegistry;
   auth: AuthVerifier;
+  /**
+   * Supabase's "Confirm email" setting, read at boot and every 10 minutes while SIGNUP_ALLOWLIST is set
+   * (services/confirm-email.ts; index.ts starts it). While Supabase auto-confirms addresses no session counts as a
+   * confirmed address. Absent (tests, no list, no SUPABASE_URL): tokens alone decide.
+   */
+  confirmEmail?: ConfirmEmailGuard | null;
   log: ApiLogger;
   /** Mock sandbox recordings for session replays without Redis (null when the sandbox package is not linked). */
   recordings: RecordingResolver | null;
@@ -74,7 +82,8 @@ export interface Context extends ApiDeps {
   authenticatedAt: Date | null;
   /**
    * The token shows the user controls `email` (auth.ts `emailConfirmedFromPayload`): what SIGNUP_ALLOWLIST requires
-   * before it trusts the address (SEC2 S11). False when the token did not say.
+   * before it trusts the address (SEC2 S11). False when the token did not say, and for every session while Supabase
+   * auto-confirms addresses (`confirmEmail`).
    */
   emailConfirmed: boolean;
   requestId: string;
@@ -162,6 +171,9 @@ export function createApiDeps(options: CreateApiDepsOptions = {}): ApiDeps {
     onDevUserError: (err, userId) => log.warn({ userId, err: (err as Error)?.message }, "dev account bootstrap failed"),
   });
 
+  // The allow-list's confirmed-address rule rests on Supabase's "Confirm email": watched only while there is a list.
+  const confirmEmail = env.SUPABASE_URL && parseSignupAllowlist(env.SIGNUP_ALLOWLIST) ? createConfirmEmailGuard({ supabaseUrl: env.SUPABASE_URL, anonKey: env.SUPABASE_ANON_KEY, log }) : null;
+
   const health = {
     db: async () => {
       try {
@@ -188,7 +200,7 @@ export function createApiDeps(options: CreateApiDepsOptions = {}): ApiDeps {
     temporal: () => temporal.reachable(),
   };
 
-  return { env, db, redis, limits, temporal, models, composer, vault, connectors, auth, log, recordings, ingest, gateway, health };
+  return { env, db, redis, limits, temporal, models, composer, vault, connectors, auth, confirmEmail, log, recordings, ingest, gateway, health };
 }
 
 /** Per-request context factory for `trpcServer({ createContext })`. */
@@ -196,8 +208,10 @@ export function createContextFactory(deps: ApiDeps) {
   return async (opts: FetchCreateContextFnOptions, c?: HonoContext): Promise<Context> => {
     const authorization = opts.req.headers.get("authorization");
     const user = await deps.auth.resolve(authorization);
+    // Fail closed while Supabase auto-confirms addresses: no token then shows its holder read the inbox.
+    const emailConfirmed = user?.emailConfirmed === true && (deps.confirmEmail?.confirmationTrusted() ?? true);
     const requestId = c?.get("requestId") ?? requestIdFrom(opts.req.headers.get("x-request-id"));
-    return { ...deps, userId: user?.userId ?? null, email: user?.email ?? null, authenticatedAt: user?.authenticatedAt ?? null, emailConfirmed: user?.emailConfirmed === true, requestId, clientAddress: clientAddressOf(opts.req.headers, c), accessMemo: new Map() };
+    return { ...deps, userId: user?.userId ?? null, email: user?.email ?? null, authenticatedAt: user?.authenticatedAt ?? null, emailConfirmed, requestId, clientAddress: clientAddressOf(opts.req.headers, c), accessMemo: new Map() };
   };
 }
 
