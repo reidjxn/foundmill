@@ -32,6 +32,7 @@ export * from "./founder-words";
 export * from "./personas";
 export * from "./channel-availability";
 export * from "./platform-mail";
+export * from "./indexnow";
 export * from "./notify-email";
 export * from "./empty-why";
 export * from "./first-week";

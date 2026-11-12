@@ -14,3 +14,12 @@ export const publicProjectPage = cache(async (slug: string): Promise<PublicProje
   const api = createApiClient({ getToken: () => null, fetch: retryDroppedRead((input, init) => fetch(input, { ...init, cache: "no-store" })), limits: SERVER_LIMITS });
   return api.publicPage.bySlug.query({ slug });
 });
+
+/**
+ * The IndexNow key file of a public page (app/p/[slug]/[keyFile]): the key when it is the one the project's founders
+ * connected IndexNow with for this page, else null. Not cached: each request names its own key.
+ */
+export async function publicIndexNowKeyFile(slug: string, key: string): Promise<string | null> {
+  const api = createApiClient({ getToken: () => null, fetch: retryDroppedRead((input, init) => fetch(input, { ...init, cache: "no-store" })), limits: SERVER_LIMITS });
+  return (await api.publicPage.indexNowKeyFile.query({ slug, key }))?.key ?? null;
+}

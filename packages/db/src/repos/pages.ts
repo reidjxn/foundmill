@@ -10,11 +10,11 @@
  * gets only what the view `public_project_pages` lists (0077). An unknown address and a page that is not published
  * answer the same: null.
  */
-import { ConflictError, PAGE_READY_NOTE, PAGE_SLUG_TAKEN, ProjectPageContent, ProjectPageDraft, ProjectPageSlug, readPageContent, suffixPageSlug, suggestPageSlug, type ProjectPageContent as PageContent } from "@foundmill/shared";
+import { ConflictError, isIndexNowKey, PAGE_READY_NOTE, PAGE_SLUG_TAKEN, ProjectPageContent, ProjectPageDraft, ProjectPageSlug, readPageContent, suffixPageSlug, suggestPageSlug, type ProjectPageContent as PageContent } from "@foundmill/shared";
 import { toLogoDataUrl } from "@foundmill/shared/logo";
 import { and, desc, eq, inArray, isNotNull, isNull, ne, sql } from "drizzle-orm";
 import { z } from "zod";
-import { businessFoundations, businessLogos, businesses, founderProfiles, ideaVersions, ideas, inboxItems, memberships, projectPages, publicProjectPages, type InboxItem, type ProjectPage } from "../schema";
+import { businessFoundations, businessLogos, businesses, founderProfiles, ideaVersions, ideas, inboxItems, integrations, memberships, projectPages, publicProjectPages, type InboxItem, type ProjectPage } from "../schema";
 import { auditRepo } from "./audit";
 import { inboxRepo } from "./inbox";
 import { toBytes } from "./logos";
@@ -326,6 +326,28 @@ export const pagesRepo = {
       );
       if (!row) return null;
       return toLogoDataUrl(row.mime, Buffer.from(toBytes(row.content)).toString("base64"));
+    },
+
+    /**
+     * The IndexNow key a public page's key file serves (`/p/<slug>/<key>.txt`; founder, 2026-11-12), or null. Only for a
+     * page the view lists (published, not a sample), whose business connected IndexNow for its hosted page (`hosted` in
+     * the integration's stored config, written at connect) and has not disconnected it. The key is public by protocol:
+     * anyone may read the file, which is how search engines check that a submission comes from the page's owner.
+     */
+    async indexNowKeyBySlug(db: Executor, slug: string): Promise<string | null> {
+      if (!ProjectPageSlug.safeParse(slug).success) return null;
+      const row = maybeOne(
+        await db
+          .select({ settings: integrations.settings })
+          .from(publicProjectPages)
+          .innerJoin(projectPages, eq(projectPages.slug, publicProjectPages.slug))
+          .innerJoin(integrations, eq(integrations.businessId, projectPages.businessId))
+          .where(and(eq(publicProjectPages.slug, slug), eq(integrations.connectorKey, "indexnow"), isNull(integrations.archivedAt), inArray(integrations.status, ["connected", "degraded"])))
+          .limit(1),
+      );
+      const config = (row?.settings as { config?: { hosted?: unknown; slug?: unknown; key?: unknown } } | undefined)?.config;
+      if (!config || config.hosted !== true || config.slug !== slug || !isIndexNowKey(config.key)) return null;
+      return config.key;
     },
   },
 };

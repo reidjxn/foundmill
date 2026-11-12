@@ -73,6 +73,7 @@ Internal identifiers may keep old names until a rename is worth its churn: packa
 - Write US English with US dates and times in everything a user can read (see the 2026-10-10 rule above). English only: no translation layer or string catalog (founder, 2026-11-11).
 - 18 or older for the whole product, confirmed once at sign-up (founder, 2026-11-11).
 - Foundmill hosts every project's public page at a Foundmill address for free, and gives a project an address to send email from, with a daily cap per project and the founder's approval for outside contact (founder, 2026-11-11).
+- A connector the founder connects with their own key runs on the founder's own vendor account, always (founder, 2026-11-12): the key is entered in Settings › Integrations (auth kind `api_key`), sealed in the vault and used only by the gateway, and the vendor bills the founder. Never fall back to a Foundmill platform key for these connectors: not connected means the agent says "not connected". Foundmill registers no developer apps for them, and vendors' own MCP servers are not plugged in: each is the vendor's API behind the gateway's tools. Anything outward or costly asks first (Needs you) in augmented and assisted mode; read-only lookups run.
 - Update docs/PROGRESS.md after each task; record judgement calls in docs/DECISIONS.md.
 
 ## Never
