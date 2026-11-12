@@ -395,7 +395,7 @@ Each feature ships with a test of the right-hand column. The north star is read 
 
 The record is a read over verified events. It is never a table a client can write.
 
-**Events about a person** (a sign-up that a page brought, a follow, a signal, an ask) go to a private, person-level event store that only the service reads, built before wave 2 (founder, Nov 12): the project event store is read by a project's members, so a person's facts never go there.
+**Events about a person** (a sign-up that a page brought, a follow, a signal, an ask) go to a private, person-level event store that only the service writes and in which a person reads only their own rows, built before wave 2 (founder, Nov 12; merged as reidjxn/foundmill#86): the project event store is read by a project's members, so a person's facts never go there.
 
 **Events** (declared in `packages/events`, written through the outbox): `share.created`, `share.opened`, `visit.attributed`, `signup.attributed`, `referral.credited`, `feedback.requested`, `feedback.answered`, `feedback.acted_on`, `follow.created`, `signal.sent`, `post.shared`, `ask.posted`, `ask.answered`, `ask.thanked`, `cohort.joined`, `build_hour.completed`, `role.opened`, `join.requested`, `invitation.sent`, `invitation.accepted`, `trial.started`, `trial.ended`, `cofounder.joined`, `split.agreed`, `built_with.accepted`, `person.reported`.
 

@@ -1,9 +1,10 @@
 /**
  * 0086 — `attributions`: who or what brought a new person (docs/NETWORK.md §5, §11).
  *
- *   - the service role's only: no client role reads or writes it, not even the person's own row, so who referred them
- *     and which project it was never reach a client (another account, the referrer and the source project's members
- *     are refused the same way);
+ *   - the service role's only: no client role reads or writes it, not even the person's own row, so who is credited
+ *     and which project it was, by id, never reach a client (another account, the referrer and the source project's
+ *     members are refused the same way). What each of the two people does read is their own account event, which
+ *     carries the public address and nothing else (rls/account-events.test.ts, migration-0086.test.ts);
  *   - one row per account, ever: the first stays, whatever arrives later;
  *   - the database checks the kind, the reference's shape, that nobody brings themselves and that only a project page
  *     names a business;

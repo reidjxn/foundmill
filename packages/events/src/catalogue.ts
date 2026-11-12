@@ -1836,38 +1836,6 @@ const notifyEmailSent = declareEvent(
 );
 
 // ---------------------------------------------------------------------------------------------------
-// Who or what brought a new person (0086 `attributions`; docs/NETWORK.md §5, §11)
-// ---------------------------------------------------------------------------------------------------
-
-// NOT WRITTEN YET. This event is about an account, and a person creating their profile has no business: `events` and
-// `outbox` carry a NOT NULL `business_id`, the relay publishes on `ev:{businessId}`, and every member of a business
-// reads its events, so there is nowhere to write it without putting a new person's account id in front of a project's
-// members (the reason 0060 took person facts out of business events). Until an account-level transport is decided,
-// the api records the `attributions` row only (apps/api `services/attribution.ts`); the row holds this whole payload,
-// so the events can be written from the rows later, one for one. The declaration fixes the contract, and the api
-// checks every row it writes against it.
-const signupAttributed = declareEvent(
-  "signup.attributed",
-  z.object({
-    /** The new person, by account id. */
-    userId: Id,
-    /** What the reference named: a project's public page or a person's public profile (`VIA_KINDS`). */
-    sourceKind: z.enum(VIA_KINDS),
-    /** The slug or handle as it arrived (3 to 40 lowercase letters, digits and hyphens). Public: it was in an address. */
-    sourceRef: z.string().regex(/^[a-z0-9][a-z0-9-]{1,38}[a-z0-9]$/),
-    /** The project whose page it was; null for a person's profile. */
-    sourceBusinessId: Id.nullable(),
-    /** The person credited: the page's longest-standing owner, or the profile's own person. Null when none could be named. */
-    referrerUserId: Id.nullable(),
-  }),
-  {
-    doc: "A new person's profile was created after they arrived through a `?via=` reference that resolved to a public project page or a public person profile: recorded once per account, never for a reference that did not resolve or that named the person themselves. How the growth loops are measured and how credit for bringing someone is later paid. Account-level: not written to any business's events (see the note above the declaration); never narrated.",
-    consumers: ["metrics"],
-    narratable: false,
-  },
-);
-
-// ---------------------------------------------------------------------------------------------------
 // Milestones a founder chooses to show (0087; docs/NETWORK.md F2 "the story", F3 "cards")
 // ---------------------------------------------------------------------------------------------------
 
@@ -1939,6 +1907,49 @@ const profilePublished = declareAccountEvent("profile.published", ProfileFacts, 
 const profileUnpublished = declareAccountEvent("profile.unpublished", ProfileFacts, {
   doc: "The person took their own public profile down: /u/<handle> answers not found from now on (everything they wrote is kept). Written once per change from public to private, in the same transaction, to the person's own account events. The payload is the handle and nothing else.",
   consumers: ["stream"],
+});
+
+// ---------------------------------------------------------------------------------------------------
+// Account events: who or what brought a new person (0086 `attributions`; docs/NETWORK.md §5, §11; account-scoped)
+// ---------------------------------------------------------------------------------------------------
+
+// One sign-up that a public address brought is a fact about two people, so it is two rows (the two-person rule,
+// docs/ARCHITECTURE.md §5): `signup.attributed` in the new person's account events and, when someone is credited,
+// `referral.arrived` in theirs. Both are written by apps/api `services/attribution.ts` in the transaction that inserts
+// the `attributions` row. That row, which only the services read, is where the two accounts and the source project are
+// held together by id; neither payload carries any of the three.
+
+/** What the reference named, by its public address and nothing else. The same two fields for both readers. */
+const AttributionSource = z.strictObject({
+  /** A project's public page or a person's public profile (`VIA_KINDS`). */
+  sourceKind: z.enum(VIA_KINDS),
+  /**
+   * The slug or handle as it arrived (3 to 40 lowercase letters, digits and hyphens). Public: it was in an address. An
+   * address shaped like an id (32 letters a to f and digits in a row) is refused when the event is written, like any
+   * id-shaped text in an account event; the `attributions` row is then the only record.
+   */
+  sourceRef: z.string().regex(/^[a-z0-9][a-z0-9-]{1,38}[a-z0-9]$/),
+});
+
+const signupAttributed = declareAccountEvent("signup.attributed", AttributionSource, {
+  doc: "For the new person: you arrived through this public page or profile. Written once per account, to the new person's own account events, when their profile is first created after they arrived with a `?via=` reference that resolved to a public project page or a public person profile; never for a reference that did not resolve or that named the person themselves. The payload is the kind and the address as it arrived (the address the person themselves opened) and nothing else: not the project's id, and not who is credited (a page need not name its founders). How the growth loops are measured.",
+  consumers: ["metrics"],
+});
+
+// Whether `referral.arrived` can tell its reader who signed up. It carries nothing of the new person: no id, no handle
+// (they have none yet), no name, no email address, no count, no ordinal and no time of its own. What is left is the
+// fact and the row's own time (`occurred_at`, `created_at`, and the moment it reaches `ae:`), which is the moment of
+// the sign-up. So a person who gave their address to one person only learns that this person signed up, and when. That
+// is what "someone arrived through your page" says, and it cannot be taken out without not writing the event; it does
+// not let the reader find the account, because nothing here can be looked up. The exact time is the one thing that
+// could later be matched with something the new person does in public (a profile that goes public minutes after).
+// Nothing is built here to blur it: rounding `occurred_at` would change nothing while `created_at` and live delivery
+// say the same, and holding the row back is delay machinery that belongs with the credit for bringing people (a pass
+// that writes these rows late and in groups). Until that is decided the rule is: nothing is ever added to this payload
+// that narrows who it was.
+const referralArrived = declareAccountEvent("referral.arrived", AttributionSource, {
+  doc: "For the person credited: someone signed up through your page or profile. Written once per sign-up, to the credited person's own account events (a project page's longest-standing owner, or a profile's own person), in the same transaction as the new person's `signup.attributed`; not written when nobody is credited. The payload is the kind and the address, the reader's own public address, and nothing else: it never says who signed up (no id, no handle, no name, no email address, no count and no time beyond the event's own). A reader who gave that address to one person only still learns that this person signed up, and when: that is the fact itself, and nothing here lets them find the account. Nothing may be added to this payload that narrows who it was. How credit for bringing someone is later paid; nothing is paid from it yet.",
+  consumers: ["metrics"],
 });
 
 // ---------------------------------------------------------------------------------------------------
@@ -2027,6 +2038,7 @@ export const EVENTS = {
   "milestone.shown": milestoneShown,
   "milestone.hidden": milestoneHidden,
   "share.opened": shareOpened,
+  "referral.arrived": referralArrived,
 } as const satisfies { readonly [K in EventTypeT]: EventDeclaration<K, z.ZodType, EventScopeOf<K>> };
 
 export type EventsRegistry = typeof EVENTS;

@@ -19,10 +19,11 @@
  * stream, not even to the owner or to a reader without walls; the api no longer writes them to a business at all (FU-S-2)
  * and this keeps one that still arrives (an older api during a deploy, a stray writer) from reaching the staff.
  *
- * An account-scoped event (`ACCOUNT_EVENT_TYPES`: a fact about one person, such as their profile going public) is walled
- * from every reader of a business stream in the same way, and has no line in the table: it is never written to a
- * business and never relayed to `ev:`. It travels on the person's own `ae:<userId>`, where `viewAccountEvent` lets
- * through only that person's own account events, cut to the fields a person may read of them.
+ * An account-scoped event (`ACCOUNT_EVENT_TYPES`: a fact about one person, such as their profile going public, or a
+ * sign-up that a public page brought: `signup.attributed` for the new person, `referral.arrived` for the person
+ * credited) is walled from every reader of a business stream in the same way, and has no line in the table: it is
+ * never written to a business and never relayed to `ev:`. It travels on the person's own `ae:<userId>`, where
+ * `viewAccountEvent` lets through only that person's own account events, cut to the fields a person may read of them.
  */
 import type { StreamEntry } from "@foundmill/events";
 import { ACCOUNT_EVENT_TYPES, isAccountEventType, isPersonAddressedEvent, PERSON_ADDRESSED_EVENT_TYPES, SECTIONS, walledSections, type BusinessEventType, type Section, type SectionMembership } from "@foundmill/shared";
@@ -129,9 +130,6 @@ export const EVENT_WALLS = {
   "notify.email_sent": { sections: ["settings"] },
   // The return loop: one founder's own sessions and the emails sent to them. Metrics only; Settings readers alone.
   "founder.session_started": { sections: ["settings"] },
-  // Who or what brought a new person (0086): about an account, not a business, and not written to any business's events
-  // (packages/events catalogue). Filed with the metrics-only events so a stray one reaches no one but Settings' readers.
-  "signup.attributed": { sections: ["settings"] },
   // A milestone shown on the project's page or taken off it (0087): its id, key and public addresses.
   "milestone.shown": { sections: ["product"] },
   "milestone.hidden": { sections: ["product"] },

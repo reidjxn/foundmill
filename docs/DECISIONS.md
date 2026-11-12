@@ -3933,6 +3933,17 @@ The founder: "Yes so let's go with Buffer." Tap-to-post stays the default way a 
 - **The evidence for each network is its documentation and its signed-out answer.** No account was signed in to see a composer filled in. One check by a person on each of the three counted networks is worth doing before this is relied on.
 - **A share is never an outcome.** `share.opened` is filed for measurement only; the test that pins this reads the catalogue's own words, because no code counts real outcomes yet.
 
+## 2026-11-12 — Attribution on account events: the calls made
+
+- **The event was split in two because the store refuses a payload that names another person by account id.** One fact for each person it belongs to, each saying only which public page or profile it was.
+- **`referral.arrived` says when, and nothing else about who.** A person who gave their address to exactly one friend learns that this friend signed up. That is what being credited means and cannot be removed without not writing the event. No delay or rounding was added: the row's own time and live delivery say the same. If matching the time against something public matters, the answer is to write these late and in groups, with the credit work (NETWORK F6).
+- **The attribution row outranks its events** (a savepoint, not all-or-nothing): credit is paid from the row, and it can only be written once.
+- **One step for a new person**, agreed with the retention session for its idea box, so there is one moment after sign-up and not two hooks.
+
+## 2026-11-12 — Correction: the pool wedge was not new with #86
+
+This session recorded (in the hotfix's commit and its first description) that no pool warning was logged before [reidjxn/foundmill#86](https://github.com/reidjxn/foundmill/pull/86). That was wrong: the search matched the log's message text, and the count is in an attribute. One warning was logged at 15:49 UTC on Nov 12, before #84 and #86, and a 10-procedure request hung for 45 s at 15:56. The retention session's reading of the logs stands: single requests that open 8 to 10 transactions saturate the pool of 10, client aborts under saturation lose connections in the driver (the 2026-10-19 pattern), and the account relay made it worse without being the root. What stays true: no watchdog exit and no slow shutdown before #86; continuous warnings and two exits after it. The relay stays off until the pool fix (the retention session's) is on main, then returns folded into the business relay's tick, with a bound on how long a stopping relay waits for a tick.
+
 ## 2026-11-12 — A page's dates are the database's to record: the calls made
 
 Migration `0088_page_dates_recorded` (the open point of the milestones entry above). All this session's calls.

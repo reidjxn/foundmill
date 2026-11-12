@@ -1,7 +1,8 @@
 /**
  * One catalog, two scopes (docs/ARCHITECTURE.md §5 "Account events"): every declaration states `business` or
- * `account`, the shared vocabulary and the catalog agree, the two envelopes refuse each other's types, and the first
- * two account events carry a handle and nothing else.
+ * `account`, the shared vocabulary and the catalog agree, the two envelopes refuse each other's types, the first
+ * two account events carry a handle and nothing else, and the two attribution events (`signup.attributed` for the new
+ * person, `referral.arrived` for the person credited) carry a public address and nothing else.
  */
 import { ACCOUNT_EVENT_TYPES, EVENT_SCOPES, EVENT_TYPES, eventScopeOf, isAccountEventType, ValidationError, type AccountEventType, type BusinessEventType } from "@foundmill/shared";
 import { describe, expect, it } from "vitest";
@@ -19,6 +20,13 @@ export type _NoTypeHasBothScopes = Assert<Equal<Extract<BusinessEventType, Accou
 export type _ScopeIsOnTheDeclaration = Assert<Equal<(typeof EVENTS)["profile.published"]["scope"], "account">>;
 export type _BusinessScopeIsOnTheDeclaration = Assert<Equal<(typeof EVENTS)["payment.received"]["scope"], "business">>;
 export type _ProfilePayloadIsTheHandle = Assert<Equal<EventPayload<"profile.published">, { handle: string }>>;
+// One sign-up, two rows, and the same two public fields in both: no account id, no business id, nothing about the other person.
+type AttributionSource = { sourceKind: "project_page" | "person_profile"; sourceRef: string };
+export type _SignupAttributedIsAccountScoped = Assert<Equal<(typeof EVENTS)["signup.attributed"]["scope"], "account">>;
+export type _ReferralArrivedIsAccountScoped = Assert<Equal<(typeof EVENTS)["referral.arrived"]["scope"], "account">>;
+export type _SignupAttributedPayload = Assert<Equal<EventPayload<"signup.attributed">, AttributionSource>>;
+export type _ReferralArrivedPayload = Assert<Equal<EventPayload<"referral.arrived">, AttributionSource>>;
+export type _NeitherIsABusinessEvent = Assert<Equal<Extract<PlatformEvent["type"], "signup.attributed" | "referral.arrived">, never>>;
 
 describe("event scope", () => {
   it("every declaration states its scope, and the catalog and the shared vocabulary agree", () => {
@@ -33,8 +41,8 @@ describe("event scope", () => {
     expect(eventTypesOfScope("business").length + eventTypesOfScope("account").length).toBe(EVENT_TYPES.length);
   });
 
-  it("the account-scoped types are the two profile events, each in the vocabulary", () => {
-    expect([...ACCOUNT_EVENT_TYPES]).toEqual(["profile.published", "profile.unpublished"]);
+  it("the account-scoped types are the two profile events and the two attribution events, each in the vocabulary", () => {
+    expect([...ACCOUNT_EVENT_TYPES]).toEqual(["profile.published", "profile.unpublished", "signup.attributed", "referral.arrived"]);
     // Where they sit in the vocabulary is not pinned: every team appends its types at the end, of either scope.
     for (const type of ACCOUNT_EVENT_TYPES) expect(EVENT_TYPES as readonly string[]).toContain(type);
     for (const type of ACCOUNT_EVENT_TYPES) {
@@ -42,11 +50,56 @@ describe("event scope", () => {
       expect(decl.scope).toBe("account");
       // The Composer writes a project's Inbox: a person's own fact is never narrated there.
       expect(decl.narratable).toBe(false);
-      expect(decl.consumers).toEqual(["stream"]);
+      expect(decl.recordIds).toEqual([]);
+    }
+    for (const type of ["profile.published", "profile.unpublished"] as const) {
+      expect(EVENTS[type].consumers).toEqual(["stream"]);
       expect(EVENT_FIXTURES[type]).toEqual({ handle: "maya-okafor" });
     }
     expect(isAccountEventType("page.published")).toBe(false);
     expect(isAccountEventType(null)).toBe(false);
+  });
+
+  it("a sign-up a public address brought is two account events, one per person, each a public address and nothing else", () => {
+    const signup = EVENTS["signup.attributed"];
+    const referral = EVENTS["referral.arrived"];
+    for (const decl of [signup, referral]) {
+      expect([decl.scope, decl.narratable, [...decl.consumers], [...decl.recordIds]]).toEqual(["account", false, ["metrics"], []]);
+      // The same closed schema for both readers: the kind and the slug or handle as it arrived.
+      expect(decl.schema).toBe(signup.schema);
+      expect(decl.schema.parse({ sourceKind: "project_page", sourceRef: "bread-by-bike" })).toEqual({ sourceKind: "project_page", sourceRef: "bread-by-bike" });
+      expect(decl.schema.parse({ sourceKind: "person_profile", sourceRef: "sam-lee" })).toEqual({ sourceKind: "person_profile", sourceRef: "sam-lee" });
+      // What the business-scoped declaration used to carry is refused, field by field: both accounts and the project.
+      for (const extra of [{ userId: FIXTURE_USER_ID }, { referrerUserId: FIXTURE_USER_ID }, { referrerUserId: null }, { sourceBusinessId: FIXTURE_BUSINESS_ID }, { sourceBusinessId: null }]) {
+        expect(decl.schema.safeParse({ sourceKind: "project_page", sourceRef: "bread-by-bike", ...extra }).success, `${decl.type} ${Object.keys(extra)[0]}`).toBe(false);
+      }
+      // And anything that could say who signed up, or narrow it: a handle, a name, an email address, a time, a count.
+      for (const extra of [{ handle: "the-newcomer" }, { newHandle: "the-newcomer" }, { displayName: "New Person" }, { email: "new@example.com" }, { at: "2026-11-12T09:00:00.000Z" }, { signedUpAt: "2026-11-12T09:00:00.000Z" }, { count: 1 }, { ordinal: 1 }, { first: true }]) {
+        expect(decl.schema.safeParse({ sourceKind: "project_page", sourceRef: "bread-by-bike", ...extra }).success, `${decl.type} ${Object.keys(extra)[0]}`).toBe(false);
+      }
+      // The address is a slug or a handle, as the public address spells it; the kind is one of the two.
+      for (const sourceRef of ["ab", "x".repeat(41), "-abc", "abc-", "Bread-By-Bike", "bread by bike", "p.bread-by-bike", "bread_by_bike", "", FIXTURE_USER_ID.toUpperCase()]) {
+        expect(decl.schema.safeParse({ sourceKind: "project_page", sourceRef }).success, `${decl.type} ${sourceRef}`).toBe(false);
+      }
+      for (const sourceKind of ["card", "invitation", "", "PROJECT_PAGE"]) expect(decl.schema.safeParse({ sourceKind, sourceRef: "bread-by-bike" }).success, `${decl.type} ${sourceKind}`).toBe(false);
+      expect(decl.schema.safeParse({ sourceKind: "project_page" }).success).toBe(false);
+      expect(decl.schema.safeParse({ sourceRef: "bread-by-bike" }).success).toBe(false);
+    }
+    expect(Object.keys(EVENT_FIXTURES["signup.attributed"]).sort()).toEqual(["sourceKind", "sourceRef"]);
+    expect(Object.keys(EVENT_FIXTURES["referral.arrived"]).sort()).toEqual(["sourceKind", "sourceRef"]);
+    // The credited person's declaration says, where a consumer reads it, what the row must never say.
+    expect(referral.doc).toMatch(/never says who signed up/);
+    expect(signup.doc).toMatch(/not who is credited/);
+    // The fixtures build as account events and are refused as business events.
+    expect(accountFixtureEvent("signup.attributed")).toMatchObject({ userId: FIXTURE_USER_ID, type: "signup.attributed", payload: { sourceKind: "project_page", sourceRef: "northwind-skincare" } });
+    expect(accountFixtureEvent("referral.arrived")).toMatchObject({ userId: FIXTURE_USER_ID, type: "referral.arrived", payload: { sourceKind: "person_profile", sourceRef: "maya-okafor" } });
+    for (const type of ["signup.attributed", "referral.arrived"] as const) {
+      const wire = { ...JSON.parse(JSON.stringify(fixtureEvent("page.published"))), type, payload: EVENT_FIXTURES[type] };
+      const parsed = safeParseEvent(wire);
+      expect(parsed.ok).toBe(false);
+      if (!parsed.ok) expect(parsed.error.message).toBe(`${type} is account-scoped and is never a business event`);
+      expect(() => declareEvent(type as never, z.object({ sourceRef: z.string() }), { doc: "x", consumers: ["metrics"] })).toThrow(/is account-scoped; declare it with declareAccountEvent/);
+    }
   });
 
   it("each declaring helper refuses the other scope, and an account payload that breaks the conventions", () => {

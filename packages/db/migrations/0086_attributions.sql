@@ -9,9 +9,18 @@
 -- or the profile's own person.
 --
 -- Who may do what: the api alone, on the service connection (`founder.profile.update`, services/attribution.ts). No
--- client role reads or writes it, not even the person's own row: who referred them and which project it was are not
--- theirs to read (a profile or a page can be taken down, and an account id never leaves through a public address), and
+-- client role reads or writes it, not even the person's own row: who is credited and which project it was, by id, are
+-- not theirs to read (a page need not name its founders, and an account id never leaves through a public address), and
 -- a client that could insert here could credit anyone for itself. RLS is on with no policy, and the grants say the same.
+--
+-- The events. One sign-up that a public address brought is a fact about two people, so the api writes two account
+-- events (0085) in the transaction that inserts the row here, one per person, each in that person's own
+-- `account_events`: `signup.attributed` for the new person ("you arrived through this public page or profile") and,
+-- when someone is credited, `referral.arrived` for them ("someone signed up through your page or profile"). Both carry
+-- `sourceKind` and `sourceRef` (the slug or handle as it arrived: public, it was in an address) and nothing else: no
+-- account id, no business id, and nothing in the credited person's row about who signed up. This table is where the
+-- two accounts and the project are held together by id. Nothing goes to a business's `events` or `outbox`. The last
+-- statements of this file add the two types to the database's list of account-scoped types.
 create table attributions (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references auth.users(id) on delete cascade,
@@ -44,3 +53,26 @@ revoke all on attributions from public, anon, authenticated;
 grant select, insert, update, delete on attributions to service_role;
 --> statement-breakpoint
 select fm_track_updated_at('attributions');
+--> statement-breakpoint
+-- The account-scoped event types, redefined with the two this migration brings (0085 defined the function and asks
+-- for exactly this: a later migration with `create or replace`). The list is `ACCOUNT_EVENT_TYPES` in
+-- @foundmill/shared, in its order; packages/db `rls/account-events.test.ts` compares the two, and reads the latest
+-- definition among the migrations. Both checks call the function by name each time a row is written, so
+-- `account_events_type_account_scoped` takes the two new types from here on and `events_not_account_scoped` refuses
+-- them, whoever writes. Language, volatility, parallel safety and `search_path` are restated as 0085 has them, because
+-- `create or replace` resets every attribute that is left out; the owner and the grants are kept by it, and the two
+-- statements after it say them again so this file can be read on its own.
+create or replace function fm_account_event_types() returns text[]
+language sql immutable parallel safe set search_path = '' as $$
+  select array['profile.published', 'profile.unpublished', 'signup.attributed', 'referral.arrived']::text[]
+$$;
+--> statement-breakpoint
+revoke all on function fm_account_event_types() from public, anon;
+--> statement-breakpoint
+grant execute on function fm_account_event_types() to authenticated, service_role;
+--> statement-breakpoint
+-- A check is not run again over the rows already there when the function it calls changes. No writer ever produced
+-- either type in `events` (`signup.attributed` was declared and never written; `referral.arrived` is new), but until
+-- now a member could plant a row under either name straight through RLS. Such a row goes, as 0085 did for its own two
+-- types, so every row of `events` satisfies the check as it now reads (its outbox row cascades).
+delete from events where type in ('signup.attributed', 'referral.arrived');
