@@ -4,10 +4,11 @@
  */
 import { eq, sql } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { preferencesRepo } from "../../repos/preferences";
+import { DEFAULT_EMAIL_PREFS, emailPrefsRepo, preferencesRepo } from "../../repos/preferences";
 import * as s from "../../schema";
 import { createTestDb, type TestHarness } from "../../testing/pglite";
 import { RLS_DENIED } from "./fixtures";
+import { DEFAULT_EMAIL_NOTIFICATION_PREFS } from "@foundmill/shared";
 
 let h: TestHarness;
 let ada: string;
@@ -71,7 +72,7 @@ describe("account_preferences (table)", () => {
 
 /** The defaults everyone reads until they choose. */
 const NOTIFICATIONS_ON = { decision: true, approval: true, customer: true, agent_down: true, runway: true, run_finished: true, goal: true };
-const DEFAULTS = { date: "us", time: "12h", guidance: "on", textSize: "standard", explainersSeen: {}, toursDone: {}, checklistDismissedAt: null, anthropomorphicAgents: false, agentStyle: "humans", builderView: false, notifications: NOTIFICATIONS_ON, hideAmountsOnLockScreen: false };
+const DEFAULTS = { date: "us", time: "12h", guidance: "on", textSize: "standard", explainersSeen: {}, toursDone: {}, checklistDismissedAt: null, anthropomorphicAgents: false, agentStyle: "humans", builderView: false, notifications: NOTIFICATIONS_ON, hideAmountsOnLockScreen: false, email: { ...DEFAULT_EMAIL_NOTIFICATION_PREFS } };
 
 describe("repos.preferences under RLS", () => {
   it("reads the defaults without writing a row, then upserts only what changed", async () => {
@@ -177,5 +178,26 @@ describe("account_preferences: Builder view (0073)", () => {
     await expect(h.asUser(kim).run((tx) => preferencesRepo.update(tx, kim, { builderView: "yes" } as never))).rejects.toThrow(/Invalid preferences/);
     const truth = await h.service().run((tx) => tx.select({ builderView: s.accountPreferences.builderView }).from(s.accountPreferences).where(eq(s.accountPreferences.userId, kim)));
     expect(truth).toEqual([{ builderView: false }]);
+  });
+});
+
+describe("account_preferences: founder notifications (0083)", () => {
+  it("reads the defaults, merges email switches, and only its owner can change them", async () => {
+    const kai = await h.createUser("kai@test.local");
+    const lu = await h.createUser("lu@test.local");
+    expect(await h.asUser(kai).run((tx) => emailPrefsRepo.get(tx, kai))).toEqual(DEFAULT_EMAIL_PREFS);
+    await h.asUser(kai).run((tx) => emailPrefsRepo.update(tx, kai, { email: { win: false } }));
+    const after = await h.asUser(kai).run((tx) => emailPrefsRepo.update(tx, kai, { email: { daily_brief: false }, briefHour: 7, timeZone: "America/Chicago" }));
+    expect(after.email).toMatchObject({ win: false, daily_brief: false, decision_waiting: true });
+    expect(after).toMatchObject({ briefHour: 7, timeZone: "America/Chicago", emailsPausedAt: null });
+    expect((await h.asUser(kai).run((tx) => emailPrefsRepo.update(tx, kai, { emailsPaused: true }))).emailsPausedAt).not.toBeNull();
+    await expect(h.asUser(kai).run((tx) => emailPrefsRepo.update(tx, kai, { timeZone: "Mars/Olympus" }))).rejects.toThrow();
+    // Lu cannot change Kai's, and reads only defaults for Kai.
+    await expect(h.asUser(lu).run((tx) => emailPrefsRepo.update(tx, kai, { briefHour: 3 }))).rejects.toThrow(RLS_DENIED);
+    expect((await h.asUser(lu).run((tx) => emailPrefsRepo.get(tx, kai))).briefHour).toBe(8);
+    // The notifier (service role) reads many at once; an account with no row reads the defaults.
+    const many = await emailPrefsRepo.getMany(h.db, [kai, lu]);
+    expect(many.get(kai)?.email.win).toBe(false);
+    expect(many.get(lu)).toEqual(DEFAULT_EMAIL_PREFS);
   });
 });

@@ -14,6 +14,7 @@ export { BankAccount, BankTransaction, ConsentStatus, SyncResult, makeBankingToo
 export { createAnthropicConnector, anthropicMock, ANTHROPIC_KEY } from "./connectors/anthropic";
 export { createVoyageConnector, voyageMock, VOYAGE_KEY } from "./connectors/voyage";
 export { createOpenaiImagesConnector, openaiImagesMock, placeholderPortraitPng, MOCK_IMAGE_MODEL, OPENAI_IMAGES_KEY, OPENAI_IMAGES_GENERATION_TIMEOUT_MS, estimateImageCostMinor } from "./connectors/openai_images";
+export { createElevenlabsConnector, elevenlabsMock, silentWav, estimateSpeakingMs, estimateSpeechCostMinor, estimateTranscriptionCostMinor, decodedBytes, SynthesizeSpeechOutput, TranscribeSpeechOutput, SynthesizeSpeechInput, TranscribeSpeechInput, ELEVENLABS_KEY, ELEVENLABS_SPEECH_TIMEOUT_MS, ELEVENLABS_TRANSCRIPTION_TIMEOUT_MS, MOCK_SPEECH_MODEL, MOCK_TRANSCRIPTION_MODEL, SPEECH_ACCENT_IDS, resolveSpeechAccentIds, createElevenlabsSpeechStreamer, SPEECH_FIRST_BYTE_TIMEOUT_MS, type SpeechStream, type SpeechStreamer, type SpeechStreamInput } from "./connectors/elevenlabs";
 export { createOnesignalConnector, onesignalMock, ONESIGNAL_KEY, SendPushInput, SendPushOutput, MAX_SUBSCRIPTIONS_PER_SEND, PUSH_BODY_MAX, PUSH_TITLE_MAX } from "./connectors/onesignal";
 export { createGithubConnector, githubMock, GITHUB_KEY, githubSignature, normaliseGithubEvent, signedDeliveryRequest as signedGithubDeliveryRequest } from "./connectors/github";
 export { createGoogleDriveConnector, googleDriveMock, GOOGLE_DRIVE_KEY } from "./connectors/google_drive";
@@ -35,5 +36,8 @@ export { createShopifyConnector, shopifyMock, SHOPIFY_KEY, normaliseShopifyEvent
 export { createTinkConnector, tinkMock, TINK_KEY } from "./connectors/tink";
 export { createPlaidConnector, plaidMock, PLAID_KEY } from "./connectors/plaid";
 export * from "./grants";
+export * from "./channel-availability";
 export { createPlatformConnector, platformMock, createPlatformMock, createMemoryPlatformHost, PLATFORM_KEY, PlatformToolError, MESSAGE_TYPES, type PlatformHost, type PlatformCaller, type PlatformArgs, type PlatformResult, type TaskSummaryT, type TaskDetailT, type AgentMessageT } from "./connectors/platform";
 export { createQuarantineConnector, quarantineMock, QUARANTINE_KEY, quarantinedReaderRequest } from "./connectors/quarantine";
+export * from "./connectors/platform_mail";
+export * from "./connectors/platform_notify";

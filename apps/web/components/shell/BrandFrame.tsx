@@ -7,6 +7,8 @@
  * header (title in sentence case, a rule that fades out), never a striped band.
  */
 import type { ReactNode } from "react";
+import { usePathname } from "next/navigation";
+import { worksOnSmallScreens } from "@/components/providers/DesktopOnly";
 import { APP_NAME, APP_TAGLINE } from "@foundmill/config";
 import { NeedsLargerWindow, Panel, ToastPlacement, Wordmark, isViewportTooSmall, useViewportWidth } from "@foundmill/dugout";
 
@@ -20,9 +22,11 @@ export interface BrandFrameProps {
 }
 
 export function BrandFrame({ title, meta, children, footer }: BrandFrameProps) {
-  // Desktop only: below 1280 px the window is asked to grow, as on the landing page and in the business shell.
+  // Desktop only: below 1280 px the window is asked to grow, as on the landing page and in the business shell, except on
+  // the small-screen routes (CLAUDE.md "Small screens": the pages an email opens use this frame).
   const width = useViewportWidth();
-  if (isViewportTooSmall(width)) return <NeedsLargerWindow width={width} />;
+  const pathname = usePathname();
+  if (!worksOnSmallScreens(pathname) && isViewportTooSmall(width)) return <NeedsLargerWindow width={width} />;
   return (
     <main className="relative isolate flex min-h-screen items-center justify-center overflow-hidden bg-canvas p-gutter text-primary">
       <div aria-hidden className="brand-backdrop -z-10" />

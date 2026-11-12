@@ -5,12 +5,18 @@
  *   GET  /health                   liveness + what this replica runs (mode, connectors, policy, vault)
  *   GET  /v1/connectors            catalogue: phase, auth kind, tools, policyHints (public within the private network)
  *   POST /v1/session-tokens        service JWT → session JWT for one agent session
- *   POST /v1/integrations/connect  service JWT → connect an App connector (GitHub) whose keys only the gateway holds
- *   POST /v1/integrations/health   service JWT → that integration's health check
+ *   POST /v1/integrations/connect  service JWT (api) → connect a business's integration: App installations verified, a vendor's secret sealed here (integrations.ts)
+ *   POST /v1/integrations/health   service JWT (api) → that integration's health check (integrations.ts)
+ *   POST /v1/keys/validate         service JWT (api) → a founder's own Anthropic key checked with Anthropic, never logged or echoed (keys.ts)
+ *   POST /v1/registry/lookup       service JWT (api) → an allow-listed company-registry lookup for Legal › Import (registry-lookup.ts)
  *   POST /v1/billing/checkout-sessions  service JWT (api) → a Stripe Checkout session on the platform account (billing.ts)
  *   POST /v1/domains/check         service JWT (api) → registry answers for up to 8 domain names (domains.ts)
  *   POST /v1/personas/portrait     service JWT (api) → the AI-generated portrait of one persona catalog key in one character style (portraits.ts)
+ *   POST /v1/speech/synthesize     service JWT (api) → one agent turn spoken in a speech accent, for Team call (speech.ts)
+ *   POST /v1/speech/transcribe     service JWT (api) → one recording of the founder transcribed, for Team call (speech.ts)
  *   POST /v1/push/send             service JWT (api) → one push notification to registered phones of the mobile app (push.ts)
+ *   POST /v1/platform-mail/confirm-follow  service JWT (api) → the one email asking a page signup to confirm (follow-confirm.ts)
+ *   POST /v1/notify/email          service JWT (api, orchestrator) → one email from Foundmill to one of its users about their own project (notify-email.ts)
  *   POST /v1/call                  session JWT → the pipeline (allow / ask / deny / rate_limited)
  *   POST /v1/github/archive        session JWT → the Code-tab repository's tarball for a code session's checkout (archive.ts)
  *   POST /v1/github/repository     service JWT (api) → a repository's id and visibility, before it is chosen on the Code tab (code-repository.ts)
@@ -20,17 +26,21 @@ import { Hono } from "hono";
 import { bodyLimit } from "hono/body-limit";
 import { ZodError, z } from "zod";
 import { APP_NAME } from "@foundmill/config";
-import { AppError, NotFoundError, UnauthorizedError } from "@foundmill/shared";
-import { isConfigError, type Connector, type HealthResult } from "@foundmill/connectors";
+import { AppError, UnauthorizedError } from "@foundmill/shared";
 import { repos } from "@foundmill/db";
 import { cedarVersion, getPolicyEngine } from "@foundmill/policy";
 import { bearerToken, mintSessionToken, sessionKey, verifyServiceToken, verifySessionToken, type ServiceToken, type SessionToken } from "./tokens";
-import { toIntegrationRecord } from "./credentials";
-import { appInstallationVerified, GatewayError, modeFor, safeError, type GatewayDeps } from "./pipeline";
+import { GatewayError, safeError, type GatewayDeps } from "./pipeline";
+import { connectIntegration, integrationHealth } from "./integrations";
+import { KEYS_VALIDATE_ROUTE, ValidateKeyRequest, validateFounderKey } from "./keys";
+import { lookupRegistry, REGISTRY_LOOKUP_ROUTE, RegistryLookupRequest } from "./registry-lookup";
 import { CreateCheckoutRequest, createPlatformCheckout } from "./billing";
 import { CheckDomainsRequest, checkDomains } from "./domains";
 import { generatePortrait, PortraitRequest } from "./portraits";
 import { sendPush, SendPushRequest } from "./push";
+import { MAX_TRANSCRIBE_BODY_BYTES, SPEECH_STREAM_ROUTE, SPEECH_SYNTHESIZE_ROUTE, SPEECH_TRANSCRIBE_ROUTE, streamSpeech, SynthesizeSpeechRequest, synthesizeSpeech, TranscribeSpeechRequest, transcribeSpeech } from "./speech";
+import { CONFIRM_FOLLOW_ROUTE, ConfirmFollowRequest, sendFollowConfirmation } from "./follow-confirm";
+import { NOTIFY_EMAIL_ROUTE, NotifyEmailRequest, sendNotifyEmail } from "./notify-email";
 import { handleMcpRequest } from "./mcp";
 import { ARCHIVE_ROUTE, ArchiveRequest, routeOnlyCall, serveArchive } from "./archive";
 import { checkRepository, REPOSITORY_CHECK_ROUTE, RepositoryCheckRequest } from "./code-repository";
@@ -93,6 +103,14 @@ export function createGatewayApp(deps: GatewayDeps, options: GatewayAppOptions):
   app.use("/v1/domains/*", limit(MAX_SERVICE_BODY_BYTES));
   app.use("/v1/personas/*", limit(MAX_SERVICE_BODY_BYTES));
   app.use("/v1/push/*", limit(MAX_SERVICE_BODY_BYTES));
+  app.use(SPEECH_SYNTHESIZE_ROUTE, limit(MAX_SERVICE_BODY_BYTES));
+  app.use(SPEECH_STREAM_ROUTE, limit(MAX_SERVICE_BODY_BYTES));
+  // A recording of up to 8 MiB travels as base64 in JSON.
+  app.use(SPEECH_TRANSCRIBE_ROUTE, limit(MAX_TRANSCRIBE_BODY_BYTES));
+  app.use(CONFIRM_FOLLOW_ROUTE, limit(MAX_SERVICE_BODY_BYTES));
+  app.use(NOTIFY_EMAIL_ROUTE, limit(MAX_SERVICE_BODY_BYTES));
+  app.use(KEYS_VALIDATE_ROUTE, limit(MAX_SERVICE_BODY_BYTES));
+  app.use(REGISTRY_LOOKUP_ROUTE, limit(MAX_SERVICE_BODY_BYTES));
   app.use(REPOSITORY_CHECK_ROUTE, limit(MAX_SERVICE_BODY_BYTES));
 
   app.get("/health", (c) => {
@@ -125,9 +143,9 @@ export function createGatewayApp(deps: GatewayDeps, options: GatewayAppOptions):
   };
   app.use("/v1/session-tokens", requireService);
   app.use("/v1/integrations/*", requireService);
-  // Connecting an App installation is the api's job alone (it checked the founder's signed state).
+  // Connecting an integration is the api's job alone (it checked settings administration and the founder's signed state).
   app.use("/v1/integrations/*", async (c, next) => {
-    if (c.var.service.svc !== "api") throw new GatewayError("forbidden_service", "Only the api connects App installations", 403);
+    if (c.var.service.svc !== "api") throw new GatewayError("forbidden_service", "Only the api connects integrations", 403);
     await next();
   });
   // Foundmill's own billing: only the api opens a checkout (after its owner check).
@@ -136,6 +154,23 @@ export function createGatewayApp(deps: GatewayDeps, options: GatewayAppOptions):
     if (c.var.service.svc !== "api") throw new GatewayError("forbidden_service", "Only the api opens checkouts", 403);
     await next();
   });
+
+  // A founder's own Anthropic key, checked before Settings › Keys stores it (keys.ts), and Legal › Import's registry
+  // lookups (registry-lookup.ts): the api asks; the gateway reaches Anthropic and the registries (SEC-14).
+  for (const route of [KEYS_VALIDATE_ROUTE, REGISTRY_LOOKUP_ROUTE]) {
+    app.use(route, requireService);
+    app.use(route, async (c, next) => {
+      if (c.var.service.svc !== "api") throw new GatewayError("forbidden_service", "Only the api asks for this", 403);
+      await next();
+    });
+  }
+  app.post(KEYS_VALIDATE_ROUTE, async (c) => {
+    // Never the Zod issues: they would put the pasted key back in the answer.
+    const parsed = ValidateKeyRequest.safeParse(await c.req.json().catch(() => null));
+    if (!parsed.success) throw new GatewayError("validation", "Send a business id and a key of at most 400 characters", 400);
+    return c.json(await validateFounderKey(deps, parsed.data, c.var.service.svc, deps.validateModelKey));
+  });
+  app.post(REGISTRY_LOOKUP_ROUTE, async (c) => c.json(await lookupRegistry(deps, RegistryLookupRequest.parse(await c.req.json()), c.var.service.svc)));
 
   // Domain availability for the Commit screen: the api asks for a signed-in founder; the gateway reaches the registries.
   app.use("/v1/domains/*", requireService);
@@ -154,6 +189,29 @@ export function createGatewayApp(deps: GatewayDeps, options: GatewayAppOptions):
 
   app.post("/v1/personas/portrait", async (c) => c.json(await generatePortrait(deps, PortraitRequest.parse(await c.req.json()), c.var.service.svc)));
 
+  // Speech for Team call: only the api asks; the gateway holds ELEVENLABS_API_KEY and maps the speech accent to the vendor's id (speech.ts).
+  app.use("/v1/speech/*", requireService);
+  app.use("/v1/speech/*", async (c, next) => {
+    if (c.var.service.svc !== "api") throw new GatewayError("forbidden_service", "Only the api asks for speech", 403);
+    await next();
+  });
+  app.post(SPEECH_SYNTHESIZE_ROUTE, async (c) => {
+    // Never the Zod issues: they could quote the words of a turn.
+    const parsed = SynthesizeSpeechRequest.safeParse(await c.req.json().catch(() => null));
+    if (!parsed.success) throw new GatewayError("validation", "Send a business id, a call id, a turn id, a speech accent and the words", 400);
+    return c.json(await synthesizeSpeech(deps, parsed.data, c.var.service.svc));
+  });
+  app.post(SPEECH_STREAM_ROUTE, async (c) => {
+    const parsed = SynthesizeSpeechRequest.safeParse(await c.req.json().catch(() => null));
+    if (!parsed.success) throw new GatewayError("validation", "Send a business id, a call id, a turn id, a speech accent and the words", 400);
+    return streamSpeech(deps, parsed.data, c.var.service.svc, c.req.raw.signal);
+  });
+  app.post(SPEECH_TRANSCRIBE_ROUTE, async (c) => {
+    const parsed = TranscribeSpeechRequest.safeParse(await c.req.json().catch(() => null));
+    if (!parsed.success) throw new GatewayError("validation", "Send a business id, a call id, the recording's type and the recording", 400);
+    return c.json(await transcribeSpeech(deps, parsed.data, c.var.service.svc));
+  });
+
   // Push to the mobile app's phones: the api's notifier decided who gets what; the gateway holds the OneSignal keys.
   app.use("/v1/push/*", requireService);
   app.use("/v1/push/*", async (c, next) => {
@@ -161,6 +219,32 @@ export function createGatewayApp(deps: GatewayDeps, options: GatewayAppOptions):
     await next();
   });
   app.post("/v1/push/send", async (c) => c.json(await sendPush(deps, SendPushRequest.parse(await c.req.json()), c.var.service.svc)));
+
+  // A follow confirmation (package 1.6): only the api asks, right after a signup on a public page (follow-confirm.ts).
+  app.use(CONFIRM_FOLLOW_ROUTE, requireService);
+  app.use(CONFIRM_FOLLOW_ROUTE, async (c, next) => {
+    if (c.var.service.svc !== "api") throw new GatewayError("forbidden_service", "Only the api asks for a follow confirmation", 403);
+    await next();
+  });
+  app.post(CONFIRM_FOLLOW_ROUTE, async (c) => {
+    // Never the Zod issues: they would put the address back in the answer and the log.
+    const parsed = ConfirmFollowRequest.safeParse(await c.req.json().catch(() => null));
+    if (!parsed.success) throw new GatewayError("validation", "Send a business id, a consent id, an address and the nonce", 400);
+    return c.json(await sendFollowConfirmation(deps, parsed.data, c.var.service.svc));
+  });
+
+  // Foundmill's own email to one of its users (packages 1.5 and 5.1), the one sender of every kind: the api's notify
+  // pass asks for a waiting decision, the orchestrator's notify sweep for the rest (notify-email.ts).
+  app.use(NOTIFY_EMAIL_ROUTE, requireService);
+  app.use(NOTIFY_EMAIL_ROUTE, async (c, next) => {
+    if (c.var.service.svc !== "api" && c.var.service.svc !== "orchestrator") throw new GatewayError("forbidden_service", "Only the api and the orchestrator ask for an email to a person", 403);
+    await next();
+  });
+  app.post(NOTIFY_EMAIL_ROUTE, async (c) => {
+    const parsed = NotifyEmailRequest.safeParse(await c.req.json().catch(() => null));
+    if (!parsed.success) throw new GatewayError("validation", "Send a user id, a kind of email, a business id and the ids that kind needs", 400);
+    return c.json(await sendNotifyEmail(deps, parsed.data, c.var.service.svc));
+  });
 
   app.post("/v1/domains/check", async (c) => c.json(await checkDomains(deps, CheckDomainsRequest.parse(await c.req.json()))));
 
@@ -214,46 +298,8 @@ export function createGatewayApp(deps: GatewayDeps, options: GatewayAppOptions):
     return c.json(body, 201);
   });
 
-  // --- App connectors: connect and health run here, where the App's keys are (BUILD §2.1 rule 2) ---------------
-  const appConnector = (key: string): Connector => {
-    let connector: Connector;
-    try {
-      connector = deps.registry.get(key, modeFor(deps, key));
-    } catch (e) {
-      if (e instanceof NotFoundError) throw new GatewayError("unknown_connector", `Unknown connector "${key}"`, 404, { connector: key });
-      throw e;
-    }
-    if (connector.auth.kind !== "app") throw new GatewayError("not_app_connector", `${connector.displayName} is not connected through the gateway`, 400, { connector: key });
-    return connector;
-  };
-  const vendorFailure = (e: unknown, connector: string): never => {
-    if (isConfigError(e)) throw new GatewayError("connector_unconfigured", e.message, 503, { connector });
-    if (e instanceof AppError) throw e;
-    const status = (e as { status?: unknown }).status;
-    throw new GatewayError("vendor_error", typeof status === "number" ? `${connector} answered ${status}` : `${connector} could not be reached`, 502, { connector });
-  };
-
-  app.post("/v1/integrations/connect", async (c) => {
-    const input = ConnectIntegrationRequest.parse(await c.req.json());
-    const connector = appConnector(input.connector);
-    await repos.businesses.get(deps.db, input.businessId).catch(() => {
-      throw new GatewayError("business_not_found", `business ${input.businessId} is not available to this gateway`, 404);
-    });
-    const record = await connector.connect(input.businessId, input.input).catch((e: unknown) => vendorFailure(e, connector.key));
-    const { credentialToStore: _never, ...safe } = record;
-    const { verifiedBy, verifiedAt } = record.config as { verifiedBy?: unknown; verifiedAt?: unknown };
-    if (record.status === "connected" && record.externalAccountId && typeof verifiedBy === "string" && typeof verifiedAt === "string") {
-      // The one place a verified installation is recorded: only this service role write makes it usable.
-      await repos.integrations.recordVerifiedInstallation(deps.db, input.businessId, { connectorKey: connector.key, installationId: record.externalAccountId, accountLabel: record.accountLabel, verifiedBy, verifiedAt: new Date(verifiedAt) });
-      await repos.audit.append(deps.db, input.businessId, {
-        actorKind: "system",
-        action: "gateway.integration.connected",
-        target: { connector: connector.key },
-        details: { service: c.var.service.svc, status: record.status, externalAccountId: record.externalAccountId, verifiedBy },
-      });
-    }
-    return c.json({ mode: modeFor(deps, connector.key), record: safe });
-  });
+  // --- integrations: connect and health run here, where the vendors' keys are (BUILD §2.1 rule 2; integrations.ts) ------
+  app.post("/v1/integrations/connect", async (c) => c.json(await connectIntegration(deps, ConnectIntegrationRequest.parse(await c.req.json()), c.var.service.svc)));
 
   // The repository the founder is choosing on Development › Code: reachable by the installation, its id and visibility.
   app.post(REPOSITORY_CHECK_ROUTE, async (c) => {
@@ -265,19 +311,7 @@ export function createGatewayApp(deps: GatewayDeps, options: GatewayAppOptions):
     return c.json(await checkRepository(deps, input));
   });
 
-  app.post("/v1/integrations/health", async (c) => {
-    const input = IntegrationHealthRequest.parse(await c.req.json());
-    const connector = appConnector(input.connector);
-    const row = await repos.integrations.getByKey(deps.db, input.businessId, connector.key);
-    if (!row || row.archivedAt !== null) throw new GatewayError("integration_not_connected", `${connector.displayName} is not connected for this business`, 409, { connector: connector.key });
-    // Only a live installation this gateway verified is ever checked with the vendor (no token for any other id).
-    if (modeFor(deps, connector.key) !== "live" || !appInstallationVerified(row, await repos.integrations.verifiedInstallation(deps.db, input.businessId, connector.key))) {
-      const health: HealthResult = { ok: false, status: "disconnected", checkedAt: now().toISOString(), latencyMs: 0, message: `${connector.displayName} is not connected through a verified installation; connect it again from Settings › Integrations` };
-      return c.json({ health });
-    }
-    const health = await connector.healthcheck(toIntegrationRecord(row, null)).catch((e: unknown) => vendorFailure(e, connector.key));
-    return c.json({ health });
-  });
+  app.post("/v1/integrations/health", async (c) => c.json(await integrationHealth(deps, IntegrationHealthRequest.parse(await c.req.json()), c.var.service.svc)));
 
   // --- session auth -------------------------------------------------------------------------------------------
   const requireSession = async (c: { req: { header(name: string): string | undefined }; set(key: "session", value: SessionToken): void }, next: () => Promise<void>) => {

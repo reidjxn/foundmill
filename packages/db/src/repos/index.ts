@@ -22,6 +22,11 @@ import { financeRepo } from "./finance";
 import { foundationsRepo } from "./foundations";
 import { foundersRepo } from "./founders";
 import { goalsRepo } from "./goals";
+import { pagesRepo } from "./pages";
+import { personProfilesRepo } from "./person-profiles";
+import { mailRepo } from "./mail";
+import { followersRepo } from "./followers";
+import { notifyEmailRepo } from "./notify-email";
 import { holidaysRepo } from "./holidays";
 import { ideasRepo } from "./ideas";
 import { inboxRepo } from "./inbox";
@@ -45,11 +50,15 @@ import { trainingRepo } from "./training";
 import { usageRepo } from "./usage";
 import { workspacesRepo } from "./workspaces";
 import { conversationsRepo } from "./conversations";
-import { preferencesRepo } from "./preferences";
+import { emailPrefsRepo, preferencesRepo } from "./preferences";
 import { devicesRepo } from "./devices";
 import { portabilityRepo } from "./portability";
 import { tableViewsRepo } from "./table-views";
 import { personaPortraitsRepo } from "./persona-portraits";
+import { teamCallsRepo } from "./team-calls";
+import { presenceRepo } from "./presence";
+import { notificationsRepo } from "./notifications";
+import { notifyFactsRepo } from "./notify-facts";
 
 export const repos = {
   businesses: businessesRepo,
@@ -60,6 +69,11 @@ export const repos = {
   product: productRepo,
   productSignoffs: productSignoffsRepo,
   goals: goalsRepo,
+  pages: pagesRepo,
+  personProfiles: personProfilesRepo,
+  projectMail: mailRepo,
+  followers: followersRepo,
+  notifyEmail: notifyEmailRepo,
   departments: departmentsRepo,
   screens: screensRepo,
   dashboards: dashboardsRepo,
@@ -98,6 +112,11 @@ export const repos = {
   portability: portabilityRepo,
   recordings: recordingsRepo,
   personaPortraits: personaPortraitsRepo,
+  teamCalls: teamCallsRepo,
+  presence: presenceRepo,
+  notifications: notificationsRepo,
+  emailPrefs: emailPrefsRepo,
+  notifyFacts: notifyFactsRepo,
 } as const;
 export type Repos = typeof repos;
 export type RepoArea = keyof Repos;
@@ -122,6 +141,10 @@ export * from "./finance";
 export * from "./foundations";
 export * from "./founders";
 export * from "./goals";
+export * from "./pages";
+export * from "./person-profiles";
+export * from "./mail";
+export * from "./notify-email";
 export * from "./holidays";
 export * from "./ideas";
 export * from "./inbox";
@@ -151,3 +174,7 @@ export * from "./table-views";
 export * from "./checkouts";
 export * from "./portability";
 export * from "./persona-portraits";
+export * from "./team-calls";
+export * from "./presence";
+export * from "./notifications";
+export * from "./notify-facts";

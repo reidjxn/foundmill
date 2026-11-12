@@ -1,5 +1,6 @@
 /** Single place that reads process.env (docs/ARCHITECTURE.md §3). */
 import { z } from "zod";
+import { MAIL_LOCAL_PART_PATTERN, mailLocalPartReserved } from "./platform-mail";
 
 const Env = z.object({
   APP_ENV: z.enum(["development", "test", "staging", "production"]).default("development"),
@@ -44,6 +45,10 @@ const Env = z.object({
   VOYAGE_API_KEY: z.string().optional(),
   /** apps/gateway: the platform key behind the `openai_images` connector (AI-generated faces of anthropomorphic agents). */
   OPENAI_API_KEY: z.string().optional(),
+  /** apps/gateway: the platform key behind the `elevenlabs` connector (speech for Team call, docs/TEAM_CALL.md §3). */
+  ELEVENLABS_API_KEY: z.string().optional(),
+  /** apps/gateway: optional JSON `{ "<accent>": "<ElevenLabs voice id>" }` replacing the connector's default accent ids key by key. */
+  ELEVENLABS_SPEECH_ACCENT_IDS: z.string().optional(),
   /** apps/gateway: the OneSignal app id and REST API key behind the `onesignal` connector (push to the mobile app's phones, docs/mobile). */
   ONESIGNAL_APP_ID: z.string().optional(),
   ONESIGNAL_API_KEY: z.string().optional(),
@@ -85,6 +90,54 @@ const Env = z.object({
   STRIPE_CONNECT_CLIENT_ID: z.string().optional(),
   /** apps/ingest: the token SendGrid Inbound Parse carries as `?token=` (Inbound Parse has no signature). */
   SENDGRID_INBOUND_TOKEN: z.string().optional(),
+  /*
+   * The Foundmill sending address of every project (docs/THESIS_REVIEW.md package 1.5; packages/shared
+   * `platform-mail.ts`). Unset domain: the feature is off everywhere and nothing changes. It sends for real only where
+   * SendGrid runs live on the gateway (INTEGRATIONS_MODE=live or LIVE_CONNECTORS naming `sendgrid`), on the platform's
+   * own SENDGRID_API_KEY (gateway only); elsewhere it runs its mock and every result says it was simulated.
+   */
+  /** The sending domain, e.g. `mail.foundmill.com` (api, gateway, ingest, orchestrator). A project sends from `<slug>@<domain>`. */
+  PLATFORM_MAIL_DOMAIN: z
+    .string()
+    .optional()
+    .transform((v) => v?.trim().toLowerCase() || undefined)
+    .refine((v) => v === undefined || /^(?=.{4,253}$)([a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/.test(v), { message: "PLATFORM_MAIL_DOMAIN must be a domain name such as mail.foundmill.com" }),
+  /** Messages one project may send from its Foundmill address per UTC day (gateway; the api shows it). An operator raises one project's cap in `project_mail.daily_cap`. */
+  PLATFORM_MAIL_DAILY_CAP: z.coerce.number().int().min(1).max(10_000).default(50),
+  /** Messages every project together may send from the platform domain per UTC day: protects the domain's reputation (gateway). */
+  PLATFORM_MAIL_DAILY_CEILING: z.coerce.number().int().min(1).max(1_000_000).default(2_000),
+  /**
+   * gateway: Foundmill's own emails to its users (packages 1.5 and 5.1) per UTC day, every person together. A ceiling
+   * of their own (`pn:all:day`), never counted against PLATFORM_MAIL_DAILY_CEILING, so they never take the projects'
+   * room; and they wait while the projects' mail has used more than 75% of that ceiling.
+   */
+  PLATFORM_NOTIFY_DAILY_CEILING: z.coerce.number().int().min(1).max(1_000_000).default(1_000),
+  /** gateway + ingest: signs the custom args on every send and the unsubscribe links, so a delivery event or an unsubscribe is bound to its project. 32+ random bytes. */
+  PLATFORM_MAIL_SIGNING_SECRET: z.string().optional(),
+  /** ingest: the token the platform's Inbound Parse URL carries as `?token=` (`/mail/inbound`). Never the businesses' SENDGRID_INBOUND_TOKEN. */
+  PLATFORM_MAIL_INBOUND_TOKEN: z.string().optional(),
+  /** ingest: the verification key of the platform account's Event Webhook that posts to `/mail/events` (base64 SPKI, as SendGrid shows it). */
+  PLATFORM_MAIL_EVENT_PUBLIC_KEY: z.string().optional(),
+  /** gateway: the public address of ingest (`https://ingest.foundmill.com`): every message's unsubscribe link points at `<it>/mail/unsubscribe`. Defaults to INGEST_URL. */
+  INGEST_PUBLIC_URL: z.string().optional(),
+  /**
+   * gateway: the local part Foundmill's own email to its users is sent from, on PLATFORM_MAIL_DOMAIN (`hello` gives
+   * `Foundmill <hello@mail.foundmill.com>`; packages 1.5 and 5.1). It must be one of the reserved words no project's
+   * address may hold (`MAIL_RESERVED_LOCAL_PARTS`), so no project can ever send as Foundmill.
+   */
+  PLATFORM_NOTIFY_LOCAL_PART: z
+    .string()
+    .optional()
+    .transform((v) => v?.trim().toLowerCase() || "hello")
+    .refine((v) => MAIL_LOCAL_PART_PATTERN.test(v) && mailLocalPartReserved(v), { message: "PLATFORM_NOTIFY_LOCAL_PART must be a reserved local part such as hello, so no project can hold it" }),
+  /**
+   * apps/api: email a person when a note has waited a day for their answer (the notify pass, hourly; packages 1.5 and
+   * 5.1). On unless "off" (or "0"/"false"); it sends only where PLATFORM_MAIL_DOMAIN is set.
+   */
+  NOTIFY_EMAIL: z
+    .string()
+    .optional()
+    .transform((v): "on" | "off" => (/^(off|0|false|no)$/i.test((v ?? "").trim()) ? "off" : "on")),
   /** Shopify public app (OAuth): its API key and secret key. */
   SHOPIFY_CLIENT_ID: z.string().optional(),
   SHOPIFY_CLIENT_SECRET: z.string().optional(),
@@ -142,7 +195,7 @@ const Env = z.object({
     }),
   /** apps/api: build the demo businesses once at boot and give SEED_OWNER_EMAILS owner memberships (docs/DEPLOY.md §3). */
   SEED_ON_BOOT: z.string().optional(),
-  /** Opens the LIVE surfaces (network, communities, leaderboards, Go live) on this deployment; closed unless 1/true/yes/on (`liveModeOpen`). */
+  /** Opens the LIVE surfaces (network, communities, Go live) on this deployment; closed unless 1/true/yes/on (`liveModeOpen`). */
   LIVE_MODE: z.string().optional(),
   /** Seed data volume multiplier (1 = the full two years of history). */
   SEED_VOLUME_SCALE: z.coerce.number().positive().optional(),
@@ -163,7 +216,14 @@ export const ENV_KEYS = Object.keys(Env.shape) as (keyof Env)[];
 let cached: Env | undefined;
 export function loadEnv(overrides: Partial<NodeJS.ProcessEnv> = {}): Env {
   if (cached && Object.keys(overrides).length === 0) return cached;
-  const parsed = Env.safeParse({ ...process.env, ...overrides });
+  const raw = { ...process.env, ...overrides };
+  // A deployed process (NODE_ENV=production, as the image sets) never runs on the development defaults: APP_ENV unset
+  // would otherwise mean development, with its public dev secrets and unverified dev sign-in (SECURITY_REVIEW SEC-9).
+  // `test` stays allowed when named: CI boots the built image with APP_ENV=test to check that it starts.
+  if (raw.NODE_ENV === "production" && (!raw.APP_ENV?.trim() || raw.APP_ENV.trim() === "development")) {
+    throw new Error("Invalid environment: APP_ENV must be set to staging or production when NODE_ENV=production (it is unset or development)");
+  }
+  const parsed = Env.safeParse(raw);
   if (!parsed.success) throw new Error(`Invalid environment: ${parsed.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; ")}`);
   const env = parsed.data;
   if (env.APP_ENV !== "development" && env.APP_ENV !== "test") {
@@ -190,6 +250,29 @@ export const connectorMode = (env: Pick<Env, "INTEGRATIONS_MODE" | "LIVE_CONNECT
 export const PLATFORM_BILLING_LIVE_KEY = "stripe_billing";
 /** How credit top-ups are paid here: through Stripe (live) or simulated (mock). */
 export const platformBillingMode = (env: Pick<Env, "INTEGRATIONS_MODE" | "LIVE_CONNECTORS">): "mock" | "live" => connectorMode(env, PLATFORM_BILLING_LIVE_KEY);
+/**
+ * The Foundmill sending address (package 1.5) runs on SendGrid: it is live exactly where SendGrid is live on this
+ * service (INTEGRATIONS_MODE=live or LIVE_CONNECTORS naming `sendgrid`) and its domain is set; with the domain set and
+ * SendGrid mock it runs its mock (simulated). Unset domain: off.
+ */
+export const PLATFORM_MAIL_MODE_KEY = "sendgrid";
+export const platformMailDomain = (env: Partial<Pick<Env, "PLATFORM_MAIL_DOMAIN">>): string | null => env.PLATFORM_MAIL_DOMAIN?.trim().toLowerCase() || null;
+export const platformMailMode = (env: Pick<Env, "INTEGRATIONS_MODE" | "LIVE_CONNECTORS">): "mock" | "live" => connectorMode(env, PLATFORM_MAIL_MODE_KEY);
+/** PLATFORM_MAIL_SIGNING_SECRET's shortest accepted length. */
+export const PLATFORM_MAIL_SECRET_MIN_LENGTH = 32;
+/**
+ * PLATFORM_MAIL_SIGNING_SECRET, trimmed (null when unset). The gateway and ingest call it at boot: with the domain set,
+ * anywhere but an explicit development or test stack, a missing or short secret stops the service from starting, so
+ * no deployment ever signs or verifies with the public development secret.
+ */
+export function platformMailSigningSecret(env: Pick<Env, "APP_ENV"> & Partial<Pick<Env, "PLATFORM_MAIL_DOMAIN" | "PLATFORM_MAIL_SIGNING_SECRET">>): string | null {
+  const secret = env.PLATFORM_MAIL_SIGNING_SECRET?.trim() || null;
+  if (platformMailDomain(env) === null || env.APP_ENV === "development" || env.APP_ENV === "test") return secret;
+  if (!secret || secret.length < PLATFORM_MAIL_SECRET_MIN_LENGTH) throw new Error(`PLATFORM_MAIL_SIGNING_SECRET must be set to at least ${PLATFORM_MAIL_SECRET_MIN_LENGTH} characters when PLATFORM_MAIL_DOMAIN is set and APP_ENV is ${env.APP_ENV}`);
+  return secret;
+}
+/** True when projects really send from their Foundmill address on this deployment. */
+export const platformMailLive = (env: Pick<Env, "INTEGRATIONS_MODE" | "LIVE_CONNECTORS"> & Partial<Pick<Env, "PLATFORM_MAIL_DOMAIN">>): boolean => platformMailDomain(env) !== null && platformMailMode(env) === "live";
 export const isMockModels = (env = loadEnv()) => env.MODEL_MODE === "mock";
 /** ALLOW_MOCK_PAYMENTS, or by default only in development and test: may a top-up be paid by simulation here? */
 export const allowMockPayments = (env: Pick<Env, "APP_ENV" | "ALLOW_MOCK_PAYMENTS">): boolean => env.ALLOW_MOCK_PAYMENTS ?? (env.APP_ENV === "development" || env.APP_ENV === "test");

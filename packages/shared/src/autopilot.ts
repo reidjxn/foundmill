@@ -55,6 +55,15 @@ export interface AutopilotSettings {
   spendCeilingMinor: number | null;
   /** Failed or empty cycles in a row that pause Autopilot. */
   maxIdleCycles: number;
+  /**
+   * Autopilot's own limits (founder, 2026-11-12: "split the limits"), apart from the shared daily ones above, which also
+   * bound Continue: how many cycles Autopilot itself may start a UTC day, and what those cycles may spend (USD cents, an
+   * Estimate). They count only the cycles Autopilot starts on its schedule, never a press of Continue or the rounds of
+   * its run. Null: no limit of its own. The spend ceiling is also the budget the cycle is given, so it holds while the
+   * cycle runs, not only at its start.
+   */
+  ownMaxCyclesPerDay: number | null;
+  ownSpendCeilingMinor: number | null;
 }
 
 export const AUTOPILOT_DEFAULT_SETTINGS: AutopilotSettings = {
@@ -63,6 +72,8 @@ export const AUTOPILOT_DEFAULT_SETTINGS: AutopilotSettings = {
   maxCyclesPerDay: AUTOPILOT_LIMITS.maxCyclesPerDay.default,
   spendCeilingMinor: null,
   maxIdleCycles: AUTOPILOT_LIMITS.maxIdleCycles.default,
+  ownMaxCyclesPerDay: null,
+  ownSpendCeilingMinor: null,
 };
 
 /** Why Autopilot is holding off for now (it stays on). */
@@ -153,6 +164,10 @@ export interface AutopilotFacts {
   cyclesToday: number;
   /** Model spend today in USD cents (an Estimate). */
   spentTodayMinor: number;
+  /** Cycles Autopilot itself started today (UTC): its schedule's, not a Continue run's rounds. Absent: 0. */
+  ownCyclesToday?: number;
+  /** What those cycles cost today, USD cents (an Estimate). Absent: 0. */
+  ownSpentTodayMinor?: number;
   /** Finished cycles since `since`, newest first (plus failures that wrote no cycle: `unrecordedFailures`). */
   recentCycles: readonly AutopilotCycleSummary[];
   unrecordedFailures?: number;
@@ -293,6 +308,16 @@ export function effectiveSpendCeiling(settings: Pick<AutopilotSettings, "spendCe
 }
 
 /**
+ * The budget a cycle Autopilot starts on its own is given (USD cents, an Estimate): what is left of its own spend
+ * ceiling today. Null: no ceiling of its own (the cycle has the credits, as any cycle does).
+ */
+export function autopilotCycleBudgetMinor(f: Pick<AutopilotFacts, "settings" | "ownSpentTodayMinor">): number | null {
+  const ceiling = f.settings.ownSpendCeilingMinor;
+  if (ceiling === null || ceiling === undefined) return null;
+  return Math.max(0, ceiling - (f.ownSpentTodayMinor ?? 0));
+}
+
+/**
  * The one decision, pure: what Autopilot does now. Order matters: what is off, paused or stopped first; then the
  * standing waits (vacation, a running cycle, the founder's decision, the day's limits); then the schedule.
  */
@@ -313,6 +338,10 @@ export function decideAutopilot(f: AutopilotFacts): AutopilotDecision {
   if (f.cyclesToday >= f.settings.maxCyclesPerDay) return { action: "wait", why: "daily_cycles", note: `Today's limit of ${f.settings.maxCyclesPerDay} cycle${f.settings.maxCyclesPerDay === 1 ? "" : "s"} is reached; Autopilot continues tomorrow (UTC).`, nextAt: Math.max(nextAt, tomorrow), until: tomorrow };
   const ceiling = effectiveSpendCeiling(f.settings, f.spentTodayMinor, f.creditsRemainingMinor);
   if (ceiling !== null && f.spentTodayMinor >= ceiling) return { action: "wait", why: "daily_spend", note: "Today's spend ceiling is reached (Estimate); Autopilot continues tomorrow (UTC).", nextAt: Math.max(nextAt, tomorrow), until: tomorrow };
+  // Autopilot's own limits: only the cycles it starts itself count (a press of Continue never uses them up).
+  const own = f.settings.ownMaxCyclesPerDay;
+  if (own !== null && own !== undefined && (f.ownCyclesToday ?? 0) >= own) return { action: "wait", why: "daily_cycles", note: `Autopilot's own limit of ${own} cycle${own === 1 ? "" : "s"} a day is reached; it continues tomorrow (UTC). Continue still works.`, nextAt: Math.max(nextAt, tomorrow), until: tomorrow };
+  if (autopilotCycleBudgetMinor(f) === 0) return { action: "wait", why: "daily_spend", note: "Autopilot's own spend for today is reached (Estimate); it continues tomorrow (UTC). Continue still works.", nextAt: Math.max(nextAt, tomorrow), until: tomorrow };
   if (nextAt > f.now) return { action: "wait", why: "schedule", note: "The next cycle is planned.", nextAt, until: nextAt };
   return { action: "start", nextAt };
 }
@@ -354,5 +383,29 @@ export function autopilotView(d: AutopilotDecision): AutopilotView {
       return { state: "on", label: "On", detail: d.why === "cycle_running" ? d.note : "Autopilot is running the business.", nextAt: d.nextAt };
     case "start":
       return { state: "on", label: "On", detail: "A cycle is about to start.", nextAt: d.nextAt };
+  }
+}
+
+/**
+ * The overnight shift (retention plan, founder 2026-11-11: "on by default with a small cap"): Commit turns Autopilot on
+ * with the daily cadence at about 2 AM in the founder's time zone, so there is news every morning. The cap is one round
+ * of work a night with a budget of $0.15 (an Estimate; about $4.50 a month, inside the free tier's $5): Autopilot's own limits (one cycle a day, its own spend ceiling,
+ * which is also that cycle's budget), apart from Continue's (founder, 2026-11-12); every Autopilot guard rail still holds (used-up credits,
+ * failed or empty nights in a row, a hard stop, a vacation) and it never answers a note. Settings › What the team can do
+ * changes or turns it off.
+ */
+export const OVERNIGHT_SHIFT = { localHour: 2, cadence: "daily" as AutopilotCadence, ownMaxCyclesPerDay: 1, ownSpendCeilingMinor: 15 } as const;
+
+/** The UTC hour that is `localHour` in `timeZone` on the day of `now` (UTC when the zone is unknown). */
+export function overnightUtcHour(timeZone: string | null | undefined, now: Date = new Date(), localHour: number = OVERNIGHT_SHIFT.localHour): number {
+  if (!timeZone) return localHour;
+  try {
+    // The zone's wall clock read back as if it were UTC: the difference is the zone's offset at that moment.
+    const wall = new Date(now.toLocaleString("en-US", { timeZone }) + " UTC");
+    const offsetHours = Math.round((wall.getTime() - Math.floor(now.getTime() / 60_000) * 60_000) / 3_600_000);
+    if (!Number.isFinite(offsetHours)) return localHour;
+    return (((localHour - offsetHours) % 24) + 24) % 24;
+  } catch {
+    return localHour;
   }
 }

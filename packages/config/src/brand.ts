@@ -44,6 +44,20 @@ export function isReservedName(text: string, kind: "display-name" | "subject" = 
 /** What a refused name says. */
 export const RESERVED_NAME_MESSAGE = `That name is reserved for ${APP_NAME} and its staff. Choose another.`;
 
+/**
+ * The bidi embedding, override and isolate controls (U+202A–U+202E, U+2066–U+2069). In a name they turn the text that
+ * follows around ("Ana" + U+202E + "moc.elpmaxe" reads as an address), so a name never holds one.
+ */
+export const BIDI_CONTROL_RE = /[\u202a-\u202e\u2066-\u2069]/;
+
+/** Whether a name holds a bidi embedding, override or isolate control. */
+export function hasBidiControl(text: string): boolean {
+  return BIDI_CONTROL_RE.test(text);
+}
+
+/** What a name with a bidi control says. */
+export const BIDI_NAME_MESSAGE = "That name has a hidden character that changes the direction of the text. Type it again without it.";
+
 /** A name derived from something else (an email's local part) when it is free to use, else `fallback`. */
 export function freeDisplayName(candidate: string | null | undefined, fallback = "Founder"): string {
   const name = candidate?.trim();

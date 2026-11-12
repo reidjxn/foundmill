@@ -103,6 +103,13 @@ export const EVENT_WALLS = {
   "goal.approved": { sections: ["inbox"], hide: { finance: ["targetValue", "startValue"] } },
   "goal.change_requested": { sections: ["inbox"], hide: freeText("words") },
   "goal.achieved": { sections: ["inbox"], hide: { finance: ["targetValue", "achievedValue"] } },
+  // A project's public page went live or was taken down (0077): its id and address, which are public anyway.
+  "page.published": { sections: ["product"] },
+  "team_call.started": { sections: ["team"], hide: freeText("topic") },
+  "team_call.ended": { sections: ["team"] },
+  "page.unpublished": { sections: ["product"] },
+  // Someone followed the page (0079): ids only; the follower's record is the CRM's to show.
+  "page.followed": { sections: ["product"], hide: { crm: ["entityId", "consentId"] } },
   // The guided layer's product signals (one founder's own use of tours, explainers and definitions): metrics only, so
   // on the stream they reach no one but the readers of Settings.
   "guidance.tour_completed": { sections: ["settings"] },
@@ -111,6 +118,12 @@ export const EVENT_WALLS = {
   "guidance.term_opened": { sections: ["settings"] },
   "guidance.turned_off": { sections: ["settings"] },
   "push.sent": { sections: ["settings"] },
+  // A message sent from the project's Foundmill address (0078): ids and a recipient hash, never the address or the body.
+  "mail.sent": { sections: ["distribution"] },
+  // Foundmill emailed one of the business's people about a waiting note: ids only, like push.sent.
+  "notify.email_sent": { sections: ["settings"] },
+  // The return loop: one founder's own sessions and the emails sent to them. Metrics only; Settings readers alone.
+  "founder.session_started": { sections: ["settings"] },
 } as const satisfies { readonly [K in EventType]: EventWall };
 
 /** What one reader may see of business events: their walls (sections they may not read at all). */

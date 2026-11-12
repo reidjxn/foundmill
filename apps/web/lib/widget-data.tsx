@@ -44,8 +44,8 @@ export function withBusiness(businessId: string, input: Record<string, unknown> 
  * or a read scoped by an optional `businessId` (saved table views are kept per business).
  */
 const ACCOUNT_ROUTERS: ReadonlySet<string> = new Set(["founder", "idea", "import", "live"]);
-const ACCOUNT_READS: ReadonlySet<string> = new Set(["health", "business.listArchived", "business.example.get"]);
-const BUSINESS_READS_IN_ACCOUNT_ROUTERS: ReadonlySet<string> = new Set(["live.leaderboards.positions", "founder.tableViews.get"]);
+const ACCOUNT_READS: ReadonlySet<string> = new Set(["health", "business.listArchived", "business.example.get", "publicPage.bySlug", "publicPerson.byHandle", "teamCall.sharing.get", "email.action.get"]);
+const BUSINESS_READS_IN_ACCOUNT_ROUTERS: ReadonlySet<string> = new Set(["founder.tableViews.get", "founder.presence.get", "founder.email.recent"]);
 
 /**
  * A read whose input has no `businessId` at all (lib/__tests__/account-reads.test.ts checks this against the API's
@@ -82,6 +82,8 @@ export const INVALIDATION_MAP: Record<string, readonly string[]> = {
   team: ["team", "department", "agent"],
   agent: ["agent", "team"],
   product: ["product"],
+  // A public page published or taken down changes Today's quiet line too.
+  page: ["page", "today"],
   finance: ["finance"],
   legal: ["legal"],
   crm: ["crm"],

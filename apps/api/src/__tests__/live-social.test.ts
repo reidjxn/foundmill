@@ -7,7 +7,7 @@
  *   and mute;
  * - posts pass a moderation screen (held ones wait for a moderator), members report, authors edit and delete,
  *   moderators hide, restore and remove; communities are created here and private ones are joined by invitation;
- * - "Ask to connect" reaches a leaderboard business's owner.
+ * - "Ask to connect" with a listed business reaches its owner.
  */
 import { events, inboxItems, messageThreads, messages, outbox, repos } from "@foundmill/db";
 import { businessStreamKey, MemoryRedis, userStreamKey } from "@foundmill/events";
@@ -498,22 +498,17 @@ describe("#28: the network is for adults", () => {
   });
 });
 
-describe("#66: asking to connect from a leaderboard row reaches the business's owner", () => {
+describe("#66: asking a listed business to connect reaches its owner", () => {
   it("resolves a listed business to its owner, refuses one's own business and an unlisted one", async () => {
     const me = await founder("lb-me");
     const them = await founder("lb-them");
     const hidden = await founder("lb-hidden", false);
-    const c = await as(me.userId).live.connections.request({ businessId: me.businessId, toBusinessId: them.businessId, message: "Congrats on the board" });
+    const c = await as(me.userId).live.connections.request({ businessId: me.businessId, toBusinessId: them.businessId, message: "Congrats on the launch" });
     expect(c).toMatchObject({ fromUser: me.userId, toUser: them.userId, status: "requested" });
     expect(await signals(them.userId)).toEqual([expect.objectContaining({ kind: "connection_requested" })]);
     expect(await eventsOf(them.businessId, "connection.requested")).toEqual([]);
     expect((await failure(as(me.userId).live.connections.request({ businessId: me.businessId, toBusinessId: me.businessId }))).code).toBe("BAD_REQUEST");
     expect((await failure(as(me.userId).live.connections.request({ businessId: me.businessId, toBusinessId: hidden.businessId }))).code).toBe("NOT_FOUND");
     expect((await failure(as(me.userId).live.connections.request({ businessId: me.businessId }))).code).toBe("BAD_REQUEST");
-
-    const board = await repos.social.upsertLeaderboard(hz.db, { boardKind: "growth", period: "2026-Q4", metric: "mrr_growth_pct", region: "eu" });
-    await repos.social.setLeaderboardEntries(hz.db, board.id, [{ businessId: me.businessId, metricValue: 3 }, { businessId: them.businessId, metricValue: 5 }]);
-    const entries = await as(me.userId).live.leaderboards.entries({ leaderboardId: board.id });
-    expect(entries.map((e) => [e.businessId, e.own])).toEqual([[them.businessId, false], [me.businessId, true]]);
   });
 });

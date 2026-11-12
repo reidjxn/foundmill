@@ -108,11 +108,12 @@ test.describe("inbox", () => {
     await signIn(page);
     const { bid } = await commitFreshBusiness(page, `Playwright Inbox ${Date.now().toString(36)}`);
     // The foundations draft in the background (mock models); their two sign-off notes wait in Needs you. Since Nov 7, 2026
-    // a decision never holds Continue: the button stays Continue and the Inbox counts what needs the founder.
+    // a decision never holds Continue: the button stays Continue and the Inbox counts what needs the founder (the two
+    // sign-offs and, since package 1.3, the Product lead's "Your project's page is ready").
     await page.goto(`/b/${bid}/inbox`);
     await expect(inboxRow(page, SPEC_SIGNOFF)).toBeVisible({ timeout: LONG });
     await expect(inboxRow(page, ROADMAP_SIGNOFF)).toBeVisible({ timeout: LONG });
-    await expect(page.getByRole("navigation", { name: "Primary" }).getByRole("link", { name: /^Needs you/ })).toContainText("2", { timeout: LONG });
+    await expect(page.getByRole("navigation", { name: "Primary" }).getByRole("link", { name: /^Needs you/ })).toContainText("3", { timeout: LONG });
     await expect(page.getByRole("button", { name: /^Continue$/ })).toBeVisible({ timeout: LONG });
     await inboxRow(page, SPEC_SIGNOFF).click();
     const item = page.getByTestId("inbox-item");
@@ -147,7 +148,7 @@ test.describe("inbox", () => {
     await expect(answered).toBeVisible();
     // Decided from the DecisionBar: the desk keeps 2–4 replies but no longer offers "Go with: …" (no second decision).
     await expect(desk.locator('[data-quick-reply="go_with"]')).toHaveCount(0, { timeout: LONG });
-    await expect(page.getByRole("navigation", { name: "Primary" }).getByRole("link", { name: /^Needs you/ })).toContainText("1", { timeout: LONG });
+    await expect(page.getByRole("navigation", { name: "Primary" }).getByRole("link", { name: /^Needs you/ })).toContainText("2", { timeout: LONG });
     // The second approval starts the build: Development › Plan gets the Planner's first tasks.
     await approveFromInbox(page, bid, ROADMAP_SIGNOFF);
     await expect(inboxRow(page, /Building starts:/)).toBeVisible({ timeout: LONG });

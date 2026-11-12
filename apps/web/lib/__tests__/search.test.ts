@@ -14,10 +14,19 @@ describe("universal search", () => {
     expect(items.filter((i) => i.kind === "command").length).toBeGreaterThanOrEqual(9 + 4);
     expect(items.find((i) => i.id === "inbox:i1")?.href).toBe(`/b/${BID}/inbox/i1`);
     expect(items.find((i) => i.id === "inbox:i2")).toBeUndefined();
-    // Network is the founder's own in every mode; Communities and Leaderboards come with a LIVE business.
+    // Network is the founder's own in every mode; Communities comes with a LIVE business.
     expect(items.some((i) => i.id === "screen:network")).toBe(true);
     expect(items.some((i) => i.id === "screen:communities")).toBe(false);
     expect(localPaletteItems({ businessId: BID, departments, live: true }).some((i) => i.id === "screen:communities")).toBe(true);
+  });
+
+  it("offers Team call and Start a team call to whoever may use them", () => {
+    const items = localPaletteItems({ businessId: BID, departments, live: false });
+    expect(items.find((i) => i.id === "screen:calls")).toMatchObject({ label: "Team call", href: `/b/${BID}/calls` });
+    expect(items.find((i) => i.id === "command:start-team-call")).toMatchObject({ kind: "command", label: "Start a team call", href: `/b/${BID}/calls` });
+    const reader = accessFor({ role: "viewer", sectionPermissions: {} } as never);
+    const viewerItems = localPaletteItems({ businessId: BID, departments, live: false, access: reader });
+    expect(viewerItems.some((i) => i.id === "command:start-team-call")).toBe(false);
   });
 
   it("maps entity hits to palette rows with the CRM href", () => {

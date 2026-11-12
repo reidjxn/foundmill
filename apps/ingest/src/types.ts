@@ -5,6 +5,7 @@ import type { Db } from "@foundmill/db";
 import type { ConnectorMode, ConnectorRegistry } from "@foundmill/connectors";
 import type { IngestFollowups } from "./followups";
 import type { NonceStore } from "./nonce-store";
+import type { IngestPlatformMailConfig } from "./platform-mail";
 
 /** Minimal structural logger; pino's `Logger` satisfies it, tests pass a silent one. */
 export interface IngestLogger {
@@ -47,6 +48,8 @@ export interface IngestDeps {
   billingWebhookSecret?: string | null;
   /** After-commit work: narrating a customer won, journeyBuild, playbooks (`followups.ts`). */
   followups: IngestFollowups;
+  /** A project's Foundmill sending address: replies, delivery events and unsubscribes (`platform-mail.ts`). Absent = off. */
+  platformMail?: IngestPlatformMailConfig;
 }
 
 export const INGEST_SERVICE = "ingest";

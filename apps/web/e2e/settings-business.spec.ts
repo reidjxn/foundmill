@@ -164,7 +164,8 @@ test.describe("settings › business: the currency", () => {
     await page.goto(`/b/${businessId}/milestones`);
     await settled(page);
     await expect(page.getByTestId("milestones-screen")).toBeVisible({ timeout: LONG });
-    await expect(page.locator("[data-trophy]").filter({ hasText: "MRR" }).first()).toContainText("$", { timeout: LONG });
+    // Northwind sells once, so its revenue milestones read "monthly revenue" (MRR only when revenue recurs).
+    await expect(page.locator("[data-trophy]").filter({ hasText: /MRR|monthly revenue/ }).first()).toContainText("$", { timeout: LONG });
     await expect(page.locator("[data-trophy]").filter({ hasText: "£" })).toHaveCount(0);
 
     const again = await openSettings(page, "business", businessId);

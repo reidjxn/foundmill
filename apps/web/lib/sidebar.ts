@@ -3,11 +3,11 @@
  * Respond tab; badge: items to respond to), the founder areas Plan, Customers, Money, Product and Team (each a mapping
  * over module tabs, lib/areas.ts; badge: unread items from its departments' agents), then each department with no
  * modules as its own item (its dot and letter), the LIVE block (Network in every mode, badged with what waits for the
- * founder; Communities and Leaderboards once LIVE) and the foot (Settings, Sign out). Contacts (the CRM) is a Customers
- * tab and Milestones a Plan tab. The Anthropic key lives in Settings › Keys (reached from Settings and the palette),
+ * founder; Communities once LIVE) and the foot (Settings, Sign out). Contacts (the CRM) is a Customers
+ * tab and Milestones a Plan tab; Team call is its own item under Team. The Anthropic key lives in Settings › Keys (reached from Settings and the palette),
  * not in the foot (B13). Pure and unit-tested; the layout feeds it `department.list` + `inbox.list`.
  */
-import { BookOpen, Compass, Globe, Inbox, LogOut, Medal, Megaphone, PiggyBank, Settings, Sun, Users, Users2, type LucideIcon } from "lucide-react";
+import { BookOpen, Compass, Globe, Inbox, LogOut, Megaphone, PiggyBank, Settings, Sun, Users, Users2, Video, type LucideIcon } from "lucide-react";
 import type { SidebarBrand, SidebarItem } from "@foundmill/dugout";
 import type { DeptColourToken } from "@foundmill/shared";
 import { AREA_LABELS, departmentArea, moduleLessDepartments, type AreaKey } from "@foundmill/shared/areas";
@@ -56,13 +56,16 @@ export interface SidebarInput {
   builder?: boolean;
 }
 
-export const SIDEBAR_IDS = { home: "home", inbox: "inbox", settings: "settings", signOut: "sign-out", network: "network", communities: "communities", leaderboards: "leaderboards" } as const;
+export const SIDEBAR_IDS = { home: "home", inbox: "inbox", settings: "settings", signOut: "sign-out", network: "network", communities: "communities", calls: "calls" } as const;
 
 /** The sidebar id of an area's item. */
 export const areaSidebarId = (area: AreaKey) => `area-${area}`;
 
 /** The Inbox's sidebar label: what it holds for the founder (founder areas, 2026-11-09); the id and G I stay. */
 export const NEEDS_YOU_LABEL = "Needs you";
+
+/** The Team call item's label (docs/TEAM_CALL.md): the feature's own name. */
+export const TEAM_CALL_LABEL = "Team call";
 
 /** The CRM's display label (founder, 2026-10-20: "Contacts"), now a Customers tab; its slug keeps "crm". */
 export const CRM_LABEL = "Contacts";
@@ -124,6 +127,8 @@ export function buildSidebarItems(input: SidebarInput): SidebarItem[] {
   }
   for (const [area, tabs] of nav) {
     items.push({ id: areaSidebarId(area), label: AREA_LABELS[area], icon: AREA_ICONS[area], href: areaHref(bid, tabs), group: "area", area, badge: areaBadge.get(area) || undefined, hint: AREA_HINTS[area] });
+    // Team call (docs/TEAM_CALL.md §6) sits in the Team area's group, right under Team, for whoever may read the Team section.
+    if (area === "team" && access.canRead("team")) items.push({ id: SIDEBAR_IDS.calls, label: TEAM_CALL_LABEL, icon: Video, href: routes.calls(bid), group: "area", hint: "talk it through with your team" });
   }
   // A department with no modules is no area's: it keeps its own item, dot and letter after Team.
   for (const d of moduleLessDepartments(departments)) {
@@ -132,13 +137,10 @@ export function buildSidebarItems(input: SidebarInput): SidebarItem[] {
     items.push({ id: row.id, label: row.name, icon: iconByName(row.icon) as LucideIcon, href: departmentHref(bid, row, input.builder ?? false), group: "department", dept: row.colourToken, shortcut: row.shortcut ?? null, badge: badges.get(row.id) || undefined });
   }
   // Network is the founder's own (their connections, messages and invitations), so it is there in every mode with its
-  // badge: a request or a message must reach a founder whichever business they have open. Communities and Leaderboards
-  // are about the business on the network, so they appear once it is LIVE.
+  // badge: a request or a message must reach a founder whichever business they have open. Communities
+  // is about the business on the network, so it appears once it is LIVE.
   items.push({ id: SIDEBAR_IDS.network, label: "Network", icon: Globe, href: "/network", group: "live", badge: input.network?.total || undefined });
-  if (input.live) {
-    items.push({ id: SIDEBAR_IDS.communities, label: "Communities", icon: Users2, href: "/communities", group: "live", badge: input.network?.moderation || undefined });
-    items.push({ id: SIDEBAR_IDS.leaderboards, label: "Leaderboards", icon: Medal, href: "/leaderboards", group: "live" });
-  }
+  if (input.live) items.push({ id: SIDEBAR_IDS.communities, label: "Communities", icon: Users2, href: "/communities", group: "live", badge: input.network?.moderation || undefined });
   items.push({ id: SIDEBAR_IDS.settings, label: "Settings", icon: Settings, href: routes.settings(bid, "business"), group: "foot" });
   // A button, not a link: the shell signs out with a POST (lib/auth/sign-out.ts), so nothing can prefetch it.
   items.push({ id: SIDEBAR_IDS.signOut, label: "Sign out", icon: LogOut, group: "foot" });
@@ -151,7 +153,6 @@ const LIVE_ROUTE_ITEMS = [
   // A public profile is reached from search or the Network; it lights the Network item.
   ["/profiles", SIDEBAR_IDS.network],
   ["/communities", SIDEBAR_IDS.communities],
-  ["/leaderboards", SIDEBAR_IDS.leaderboards],
 ] as const;
 
 /**
@@ -168,6 +169,7 @@ export function activeSidebarId(pathname: string, businessId: string, department
   if (rest === "" || rest === "/" || rest.startsWith("/today") || rest.startsWith("/home")) return SIDEBAR_IDS.home;
   if (rest.startsWith("/inbox")) return SIDEBAR_IDS.inbox;
   if (rest.startsWith("/crm")) return areaSidebarId("customers");
+  if (rest.startsWith("/calls")) return SIDEBAR_IDS.calls;
   if (rest.startsWith("/milestones") || rest.startsWith("/trophies")) return areaSidebarId("plan");
   // Settings › Keys included: the key is a Settings tab, not a sidebar item.
   if (rest.startsWith("/settings")) return SIDEBAR_IDS.settings;

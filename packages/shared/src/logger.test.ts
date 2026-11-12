@@ -23,4 +23,10 @@ describe("createLogger", () => {
     createLogger("gateway", "info", stream).info({ call: { apiKey: "sk-live-1", token: "t" } }, "call");
     expect(lines[0]).toMatchObject({ call: { apiKey: "[redacted]", token: "[redacted]" } });
   });
+
+  it("redacts the sending address's secrets, as config fields and as variables", () => {
+    const { lines, stream } = capture();
+    createLogger("ingest", "info", stream).info({ platformMail: { domain: "mail.foundmill.com", signingSecret: "s".repeat(32), inboundToken: "t", eventPublicKey: "k" }, env: { PLATFORM_MAIL_SIGNING_SECRET: "s", PLATFORM_MAIL_INBOUND_TOKEN: "t", PLATFORM_MAIL_EVENT_PUBLIC_KEY: "k" } }, "boot");
+    expect(lines[0]).toMatchObject({ platformMail: { domain: "mail.foundmill.com", signingSecret: "[redacted]", inboundToken: "[redacted]", eventPublicKey: "[redacted]" }, env: { PLATFORM_MAIL_SIGNING_SECRET: "[redacted]", PLATFORM_MAIL_INBOUND_TOKEN: "[redacted]", PLATFORM_MAIL_EVENT_PUBLIC_KEY: "[redacted]" } });
+  });
 });

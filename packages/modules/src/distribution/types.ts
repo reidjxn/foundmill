@@ -4,7 +4,7 @@
  * depends only on wave-1 packages; dates arrive as ISO strings on the wire and every field the API may omit is
  * optional-tolerant.
  */
-import type { AgentStatus, ApprovalState, AssetKind, CampaignStatus, ChannelKey, ChannelLine, ConversionKind, DeptColourToken, EntityKind, MatchdayLevel } from "@foundmill/shared";
+import type { AgentStatus, ApprovalState, AssetKind, CampaignStatus, ChannelAvailabilityRow, ChannelKey, ChannelLine, ConversionKind, DeptColourToken, EntityKind, MatchdayLevel } from "@foundmill/shared";
 
 export type Iso = string;
 
@@ -57,12 +57,21 @@ export interface ChannelRow {
   meta?: { label: string; line: ChannelLine; coreMetric: string; kitModeByDefault?: boolean };
   form: ChannelSummaryRow | null;
   updatedAt?: Iso;
+  /**
+   * Whether the channel can really act for this business, why, and one plain sentence when it cannot (founder,
+   * 2026-11-11). Computed by the API; absent only in an older response, which reads as available.
+   */
+  availability?: ChannelAvailabilityRow;
 }
 
 export interface ChannelsListResponse {
   channels: ChannelRow[];
   lines: Record<ChannelLine, string[]>;
   blended: BlendedSummary;
+  /** Every channel's availability by key, so a channel with no stored row has one too. */
+  availability?: Partial<Record<ChannelKey, ChannelAvailabilityRow>>;
+  /** The sentence for a Board with no channel that can run; null or absent otherwise. */
+  noChannel?: string | null;
 }
 
 /* ---------- distribution.channels.metrics ---------- */
@@ -102,6 +111,8 @@ export interface RecommendResponse {
   channels: ChannelRow[];
   recommendation: RecommendationRow[];
   cpaLabel: "Estimate";
+  /** Why nothing is recommended, when no channel can run (one plain sentence); null otherwise. */
+  note?: string | null;
 }
 
 /* ---------- distribution.channels.enable / disable ---------- */
@@ -172,6 +183,8 @@ export interface LeadRow {
   source: string | null;
   createdAt?: Iso;
   role: LeadRoleRow;
+  /** When they agreed to email (a follower of the public page, package 1.6); null or absent otherwise. */
+  emailConsentAt?: Iso | null;
 }
 
 /* ---------- journey.list ---------- */

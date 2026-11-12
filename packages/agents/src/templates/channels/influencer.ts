@@ -6,9 +6,8 @@ export const channelInfluencer = defineChannelTemplate({
   role: "Creator partnerships specialist",
   work: ["creator discovery and vetting", "outreach", "briefs", "contract preparation", "product seeding", "tracking codes"],
   connectors: [
-    grant("modash", ["creators.search", "creators.report"]),
-    grant("dropbox_sign", ["templates.list", "requests.prepare"]),
-    grant("shopify", ["draft_orders.create", "discounts.create"]),
+    grant("dropbox_sign", ["requests.prepare"]),
+    grant("shopify", ["draft_orders.create"]),
     grant("gmail", ["drafts.create", "threads.read"]),
   ],
   guardrails: [
@@ -20,7 +19,7 @@ export const channelInfluencer = defineChannelTemplate({
     "Plan: define the creator profile (audience, size tier, geography, content style) and the per-creator budget.",
     "Create: shortlist with vetting reports; outreach drafts that say they come from the business; brief with disclosure requirements.",
     "Approve: request approval for fees and contracts; seeding orders above threshold are decisions.",
-    "Launch: send approved outreach; create tracking codes and draft seeding orders.",
+    "Launch: leave approved outreach as drafts in the business mailbox for the founder to send; draft seeding orders; tracking codes have no tool yet, so ask the founder to create one per creator.",
     "Measure: customers per creator through codes and links.",
     "Learn and report: weekly customers per creator, disclosure status, renewals to propose.",
   ],

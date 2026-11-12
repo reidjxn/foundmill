@@ -217,6 +217,12 @@ const VOCAB_TERMS = [
       /\bseasons?\s+(?:of\s+the\s+year|of\s+giving)\b/gi,
     ],
   },
+  // Founder, 2026-11-11 (CLAUDE.md "Subtext"): the product never names jobs or employment as the reason to build
+  // something. Ownership, capability and company are the message; the worry stays the reader's. The ordinary words stay
+  // (an agent's job, a hiring plan, a job title on a contact); these phrases do not.
+  { term: "subtext: names a job as the reason (say it without the job)", re: /\bday\s+jobs?\b|\b(?:9|nine)\s*(?:-|–|to)\s*(?:5|five)\b|\bjob[-\s]proof\w*|\bjob\s+market\b|\binstead\s+of\s+(?:getting\s+|finding\s+|having\s+)?a\s+job\b|\b(?:quit|quitting|leave|leaving|lose|losing|lost)\s+(?:your|my|their|a|the)\s+jobs?\b|\bbe(?:come|ing)?\s+your\s+own\s+boss\b/gi },
+  { term: "subtext: names unemployment (leave it unsaid)", re: /\bunemploy(?:ed|ment)\b|\blaid[-\s]off\b|\blay-?offs?\b|\bjobless\w*|\bredundanc(?:y|ies)\b/gi },
+  { term: "subtext: AI taking work (leave it unsaid)", re: /\bAI\s+(?:is\s+|will\s+be\s+|will\s+)?(?:tak(?:e|es|ing)|replac(?:e|es|ing)|eat(?:s|ing)?)\s+(?:your\s+|our\s+|the\s+|all\s+the\s+|people's\s+)?(?:jobs?|work|careers?)\b|\breplaced\s+by\s+(?:an?\s+)?AI\b|\bbefore\s+AI\s+(?:takes|does)\b/gi },
 ];
 
 /**

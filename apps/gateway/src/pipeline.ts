@@ -17,8 +17,9 @@
  */
 import { createHash } from "node:crypto";
 import { LIMITS } from "@foundmill/config";
-import { AppError, NotFoundError } from "@foundmill/shared";
+import { AppError, mockResultsAllowed, NotFoundError } from "@foundmill/shared";
 import type { Vault } from "@foundmill/shared/crypto";
+import type { KeyValidation } from "@foundmill/models";
 import { bookUsage, codeRepositoryOf, openApprovalItem, repos, type Db, type Agent, type AppInstallation, type Business, type Integration } from "@foundmill/db";
 import { agentAutonomy, businessApprovalThreshold, evaluate, getPolicyEngine, type AgentCtxInput, type EvaluateInputInput, type EvaluateResult, type PolicyEngine, type ToolCtxInput } from "@foundmill/policy";
 import {
@@ -28,6 +29,8 @@ import {
   isServiceOnlyConnector,
   isUntrusted,
   mockIntegrationRecord,
+  modeKeyOf,
+  PLATFORM_MAIL_KEY,
   readForQuarantine,
   toAgentEnvelope,
   type Connector,
@@ -40,6 +43,7 @@ import {
   type ToolContext,
   type ToolLogger,
   type ToolResult,
+  type SpeechStreamer,
 } from "@foundmill/connectors";
 import { loadCredential, persistRefreshedCredential, toIntegrationRecord, type LoadedCredential } from "./credentials";
 import { writeGatewayEvent } from "./events";
@@ -50,7 +54,8 @@ import { checkRateLimit, type RateLimitStore } from "./rate-limit";
 import { candidatesFromArgs, candidatesFromContent, hashRecipient, type RecipientCandidate, type UntrustedRegister } from "./recipients";
 import { checkByokKey, SessionStateCache, stateDenial, type StateDenial } from "./state";
 import { sessionKey, toolAllowed, toolRef, type SessionToken } from "./tokens";
-import type { AllowResponse, AskResponse, CallRequestParsed, CallResponse, DenyResponse, RateLimitedResponse } from "./types";
+import { preparePlatformMail, type PlatformMailConfig, type PreparedPlatformMail } from "./platform-mail";
+import { SIMULATED_NOTICE, type AllowResponse, type AskResponse, type CallRequestParsed, type CallResponse, type DenyResponse, type RateLimitedResponse } from "./types";
 
 export interface GatewayLogger extends ToolLogger {
   child?(bindings: Record<string, unknown>): GatewayLogger;
@@ -64,6 +69,12 @@ export interface GatewayDeps {
   mode: ConnectorMode;
   /** Connectors that run live while `mode` is mock (LIVE_CONNECTORS, e.g. GitHub before every other vendor). */
   liveConnectors?: readonly string[];
+  /**
+   * `APP_ENV`. With it set, a mock connector the business never connected is refused for a person's own business on
+   * staging and production (`mockResultsAllowed`): "not connected" is the truth there, a simulated success is not.
+   * Unset (tests that do not exercise the rule): mock connectors answer for every business, as in development.
+   */
+  appEnv?: string;
   rateLimits: RateLimitStore;
   /** Recipients first seen in untrusted content, shared by every session of a business (Redis in staging and production). */
   recipients: UntrustedRegister;
@@ -73,6 +84,8 @@ export interface GatewayDeps {
    */
   reader?: UntrustedReader;
   log: GatewayLogger;
+  /** Team call's streamed speech (ElevenLabs' streaming endpoint on the platform key); unset, `/v1/speech/stream` answers 503. */
+  speechStreamer?: SpeechStreamer;
   now?: () => Date;
   policyEngine?: PolicyEngine;
   /** Per-session memo of the BYOK credential check (≤ 5 s). One is created per `deps` when omitted. */
@@ -81,6 +94,13 @@ export interface GatewayDeps {
   repoCache?: RepoMetadataCache;
   /** Repository archives served at once (`download_archive`, archive.ts); default MAX_CONCURRENT_ARCHIVES. */
   archiveConcurrency?: number;
+  /**
+   * The one-token check of a founder's own Anthropic key (`POST /v1/keys/validate`, keys.ts); default packages/models
+   * `validateApiKey` in live mode. Tests pass one over a fake Anthropic.
+   */
+  validateModelKey?: (apiKey: string) => Promise<KeyValidation>;
+  /** A project's Foundmill sending address (platform-mail.ts); absent or with no domain, `platform_mail` refuses every send. */
+  platformMail?: PlatformMailConfig;
 }
 
 const defaultStateCaches = new WeakMap<GatewayDeps, SessionStateCache>();
@@ -101,10 +121,11 @@ export interface ToolCallResult {
 
 /**
  * The mode one connector runs in for this gateway. The built-in `platform` and `quarantine` connectors always run live:
- * their live side is the platform's own database and model client (ALWAYS_LIVE_CONNECTORS), never a vendor.
+ * their live side is the platform's own database and model client (ALWAYS_LIVE_CONNECTORS), never a vendor. A connector
+ * whose switch is another's follows it (`modeKeyOf`: `platform_mail` runs live exactly where `sendgrid` does).
  */
 export function modeFor(deps: Pick<GatewayDeps, "mode" | "liveConnectors">, connectorKey: string): ConnectorMode {
-  return deps.mode === "live" || deps.liveConnectors?.includes(connectorKey) || ALWAYS_LIVE_CONNECTORS.has(connectorKey) ? "live" : deps.mode;
+  return deps.mode === "live" || deps.liveConnectors?.includes(modeKeyOf(connectorKey)) || ALWAYS_LIVE_CONNECTORS.has(connectorKey) ? "live" : deps.mode;
 }
 
 /** Thrown for request errors that are not policy outcomes (unknown connector/tool, missing integration...). */
@@ -370,6 +391,26 @@ const rethrowNotFound =
     throw e;
   };
 
+/**
+ * `mail.sent` for a message that left from the project's Foundmill address (through the outbox). The vendor call has
+ * run, so a failure to write it is logged, never returned.
+ */
+async function recordPlatformMailSent(deps: GatewayDeps, session: SessionToken, sent: PreparedPlatformMail, result: ToolResult, mode: ConnectorMode, log: GatewayLogger): Promise<void> {
+  const data = (result.data ?? {}) as { messageId?: unknown };
+  try {
+    await deps.db.transaction((tx) =>
+      writeGatewayEvent(tx, {
+        businessId: session.businessId,
+        type: "mail.sent",
+        actor: { kind: "agent", id: session.agentId },
+        payload: { messageRef: sent.envelope.messageRef, messageId: typeof data.messageId === "string" && data.messageId ? data.messageId.slice(0, 200) : sent.envelope.messageRef, recipientHash: sent.recipientHash, fromLocalPart: sent.localPart, channelKey: null, agentId: session.agentId, sessionId: session.sessionId, simulated: mode === "mock" },
+      }),
+    );
+  } catch (e) {
+    log.error({ err: safeError(e) }, "message sent from the project's address but mail.sent could not be written");
+  }
+}
+
 /** Gateway errors raised before the vendor is called: the call did nothing. */
 const NOT_RUN_ERRORS = new Set(["vault_unavailable", "integration_not_connected", "connector_unconfigured"]);
 
@@ -443,6 +484,10 @@ async function buildPolicyInput(deps: GatewayDeps, session: SessionToken, req: C
     // A seeded session whose seed this replica does not hold (restart, another replica) fails closed.
     const seedMissing = session.untrustedSeeded && !(await deps.recipients.isSeeded(sessionKey(session)));
     recipientFirstSeenInUntrusted = candidates.length > 0 && (seedMissing || (await deps.recipients.firstSeenInUntrusted(session.businessId, sessionKey(session), candidates)).length > 0);
+    // A page signup nobody confirmed (package 1.6, double opt-in) proves nothing about who owns the address: a contact
+    // whose only basis it is counts as an address first seen in untrusted content, so the same policy refuses it.
+    const emails = candidates.filter((c) => c.kind === "email").map((c) => c.value);
+    if (!recipientFirstSeenInUntrusted && emails.length > 0) recipientFirstSeenInUntrusted = (await repos.followers.awaitingConfirmation(deps.db, session.businessId, emails)).length > 0;
   }
 
   return {
@@ -674,6 +719,12 @@ async function allow(deps: GatewayDeps, session: SessionToken, req: CallRequestP
   if (mode === "live" && connector.auth.kind !== "none" && !credential && !appInstalled && !onPlatformKey) {
     throw new GatewayError("integration_not_connected", `${connector.displayName} is not connected for this business`, 409, { connector: connector.key });
   }
+  // A mock connector the business never connected: a sample business, development and test get the mock's answer
+  // (marked simulated below); a person's own business on staging or production is told the truth, before anything
+  // runs, so no agent plans around a send, a lookup or a post that cannot happen (docs/THESIS_REVIEW.md, package 0.3).
+  if (mode === "mock" && connector.auth.kind !== "none" && !loaded.integrationRow && deps.appEnv !== undefined && !mockResultsAllowed(deps.appEnv, loaded.business.isDemo)) {
+    throw new GatewayError("integration_not_connected", `${connector.displayName} is not connected for this business, so nothing was done`, 409, { connector: connector.key });
+  }
   const integration: IntegrationRecord = loaded.integrationRow ? toIntegrationRecord(loaded.integrationRow, credential) : mockIntegrationRecord(connector.key, session.businessId, mode === "mock" ? {} : { status: "connected" });
 
   const vault = deps.vault;
@@ -698,12 +749,35 @@ async function allow(deps: GatewayDeps, session: SessionToken, req: CallRequestP
     return { status: 403, body: { outcome: "deny", reasons, policyIds: [GITHUB_PUSH_SETTINGS_POLICY_ID], costMinor: 0, auditId: audit.id } };
   }
 
+  // A project's Foundmill sending address: its own guards, after Cedar and before the vendor (platform-mail.ts).
+  let platformMail: PreparedPlatformMail | null = null;
+  if (connector.key === PLATFORM_MAIL_KEY) {
+    const decision = await preparePlatformMail({ db: deps.db, rateLimits: deps.rateLimits, config: deps.platformMail, ...(deps.appEnv !== undefined ? { appEnv: deps.appEnv } : {}) }, { business: loaded.business, args: guarded.args, mode, now: now().getTime() });
+    if (!decision.ok) {
+      const reasons = [decision.reason];
+      const audit = await appendAudit(deps, session, req, { outcome: "deny", reasons, policyIds: [decision.policyId] });
+      log.info({ policyId: decision.policyId }, "tool call refused: Foundmill sending address");
+      return { status: 403, body: { outcome: "deny", reasons, policyIds: [decision.policyId], costMinor: 0, auditId: audit.id } };
+    }
+    platformMail = decision.prepared;
+    ctx.platformMail = platformMail.envelope;
+  }
+
   let result: ToolResult;
   try {
     result = await connector.callTool(tool.name, guarded.args, ctx);
   } catch (e) {
-    if (isConfigError(e)) throw new GatewayError("connector_unconfigured", e.message, 503, { connector: connector.key });
+    // The count goes back only when nothing can have gone out: the connector stopped before the vendor (configuration).
+    if (isConfigError(e)) {
+      await platformMail?.release();
+      throw new GatewayError("connector_unconfigured", e.message, 503, { connector: connector.key });
+    }
     throw e;
+  }
+  if (platformMail) {
+    // A definite refusal (a 4xx, or the connector's own check) sent nothing; a timeout or a 5xx may have, so it stays counted.
+    if (!result.ok && vendorRefusedOutright(result.error)) await platformMail.release();
+    else if (result.ok) await recordPlatformMailSent(deps, session, platformMail, result, mode, log);
   }
 
   // Untrusted content: the agent receives the envelope; its recipients are remembered for this session (BUILD §9.8).
@@ -783,7 +857,7 @@ async function allow(deps: GatewayDeps, session: SessionToken, req: CallRequestP
   log.info({ ok: result.ok, costMinor, untrusted, ...(firstParty ? { firstParty } : {}), errorCode: result.error?.code }, "tool call executed");
   const body: AllowResponse = {
     outcome: "allow",
-    result: { ok: result.ok, ...(data !== undefined ? { data } : {}), ...(result.error ? { error: result.error } : {}), untrusted, costMinor },
+    result: { ok: result.ok, ...(data !== undefined ? { data } : {}), ...(result.error ? { error: result.error } : {}), untrusted, costMinor, ...(mode === "mock" ? { simulated: true as const, notice: SIMULATED_NOTICE } : {}) },
     costMinor,
     auditId: audit.id,
     reasons: decision.reasons,

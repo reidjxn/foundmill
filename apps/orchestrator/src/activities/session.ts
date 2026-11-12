@@ -33,12 +33,13 @@ import path from "node:path";
 import type { Query } from "@anthropic-ai/claude-agent-sdk";
 import { AgentInstructions, buildSystemPrompt, docText, getTemplate, getTemplateByAgentType, hasClubRulesPrefix, listTemplates, restoredWorkspaceNote, ToolGrant, type AgentSkillPrompt, type AgentTemplate } from "@foundmill/agents";
 import { APP_NAME, CREDITS_CURRENCY, sandboxCostMicroMinor } from "@foundmill/config";
-import { resolveGrants } from "@foundmill/connectors";
+import { firstChannelToOpen, resolveGrants } from "@foundmill/connectors";
 import { bookUsage, closeApprovalItem, loadByokApiKey, MICRO_PER_MINOR, repos, signoffDecisionBlock, type Agent, type AgentVersion, type Approval, type Business, type Task } from "@foundmill/db";
 import { publishSessionEvent, type SessionEventInput } from "@foundmill/events";
 import { meter, MODEL_PRICING, resolveModel, type ModelId, type RouteKey } from "@foundmill/models";
 import { assertNoLongLivedCredentials, MockSandbox, MockSandboxProvider, RECORDINGS, redactCredentialValues, stableHash32, type Sandbox, type SandboxSpecInput } from "@foundmill/sandbox";
-import { CHANNEL_META, isUuid, type AgentStatus, type ChannelKey, type ModelKey, type TaskStatus } from "@foundmill/shared";
+import { CHANNEL_KEYS, CHANNEL_META, channelMayRun, isUuid, noChannelSentence, type AgentStatus, type ChannelKey, type ModelKey, type TaskStatus } from "@foundmill/shared";
+import { channelAvailabilityFor } from "./channel-availability";
 import { currentTraceparent } from "@foundmill/shared/telemetry";
 import { Context } from "@temporalio/activity";
 import { ApplicationFailure } from "@temporalio/common";
@@ -1093,12 +1094,16 @@ export async function offerReadyToSellAfterTask(deps: OrchestratorDeps, business
   if (siblings.items.length === 0 || siblings.items.some((t) => t.status !== "done")) return null;
   const [item, chief, channels, agents] = await Promise.all([repos.product.getRoadmapItem(db, businessId, task.roadmapItemId), repos.agents.chiefOfStaff(db, businessId), repos.channels.list(db, businessId, { enabled: true }), repos.agents.list(db, businessId, { limit: 500 })]);
   if (!chief) return null;
-  const labels = channels.map((c) => CHANNEL_META[c.channelKey as ChannelKey]?.label ?? c.channelKey);
+  // Only channels that can really act (or are in offline tracking) are named as waiting; when none can run at all, the
+  // note says so in the Board's own words instead of promising a start (founder, 2026-11-11).
+  const availability = await channelAvailabilityFor(deps, businessId);
+  const labels = channels.filter((c) => channelMayRun(availability[c.channelKey as ChannelKey], c.kitMode)).map((c) => CHANNEL_META[c.channelKey as ChannelKey]?.label ?? c.channelKey);
+  const noneCanRun = labels.length === 0 && !CHANNEL_KEYS.some((k) => availability[k].available);
   const n = siblings.items.length;
   const body = [
     `${item.title} shipped: its ${n} task${n === 1 ? " is" : "s are"} done.`,
-    labels.length ? `The channels on the board (${labels.join(", ")}) are waiting for the product.` : "No channel is on the board yet.",
-    "Start distribution now, or keep building first.",
+    labels.length ? `The channels on the board (${labels.join(", ")}) are waiting for the product.` : noneCanRun ? noChannelSentence({ opensFirst: firstChannelToOpen(availability) }) : "No channel is on the board yet.",
+    noneCanRun ? "Start distribution now so a channel starts the day it opens, or keep building first." : "Start distribution now, or keep building first.",
   ].join(" ");
   const offered = await repos.productSignoffs.offerReadyToSell(db, businessId, {
     roadmapItemId: item.id,
@@ -1415,7 +1420,7 @@ async function runLiveSession(deps: OrchestratorDeps, recorder: SessionRecorder,
   // What the session may spend (./session-budget): the task's budget less its earlier sessions, the credits left when the
   // platform key pays, and what is left of the agent's wage cap and the business's monthly model budget (either key).
   // A task with nothing left does not start.
-  const budget = await sessionBudget(deps, { business: live.business, task, agentId: agent.id, sessionId: input.sessionId });
+  const budget = await sessionBudget(deps, { business: live.business, task, agentId: agent.id, sessionId: input.sessionId, spendCapMinor: input.spendCapMinor ?? null });
   if (budget.remainingMinor <= 0) return { outcome: "blocked", reason: `model budget exhausted: ${LIMIT_WORDS[budget.limit].used}`, blockedReason: "budget", approvalId: null, summary: budgetSummary(budget.limit, budget), providerSessionId: null };
   // Everything that can fail without a workspace runs before one exists (no restored code left on disk, no token).
   const systemPrompt = buildSystemPrompt({ businessName: live.business.name, appName: APP_NAME, template: { instructions: instructionsFor(live.version, live.template), description: live.template.description }, brief: live.briefText ?? undefined, glossary: live.business.glossary, skills: live.skills });

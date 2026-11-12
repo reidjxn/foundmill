@@ -395,11 +395,11 @@ describe("the example founder (UX plan §6.2 ExampleToggle, Phase 3)", () => {
       budget: "5000",
       noBudget: false,
       targetMarkets: ["UK", "Ireland"],
-      constraints: ["Keep my day job for now", "No physical inventory"],
+      constraints: ["Fits around what I already do", "No physical inventory"],
       riskAppetite: "low",
     });
     // The constraints are the suggestion chips' own words, so they read the same as the ones a founder can pick.
-    expect(filled.constraints.every((c) => (["Bootstrapped, no outside funding", "Remote only", "No physical inventory", "B2B only", "Must be profitable within a year", "Keep my day job for now", "No regulated industries", "English-speaking markets only"] as string[]).includes(c))).toBe(true);
+    expect(filled.constraints.every((c) => (["Bootstrapped, no outside funding", "Remote only", "No physical inventory", "B2B only", "Must be profitable within a year", "Fits around what I already do", "No regulated industries", "English-speaking markets only"] as string[]).includes(c))).toBe(true);
     expect(isProfileValid(filled)).toBe(true);
     expect(profileSummary(filled)).toBe("First-time founder · evenings and weekends · £5,000 · based in the United Kingdom · markets: UK, Ireland");
     expect(profilePatch(filled).budgetMinor).toBe(500_000);

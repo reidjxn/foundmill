@@ -12,6 +12,7 @@ import { z } from "zod";
 import { modelLimited } from "../services/model-limits";
 import { changeAgentModels, routeOf, startModelRetests } from "../services/agent-model";
 import { SkillChoice, addedSkillView, attachSkills, detachSkill, resolveSkillChoice } from "../services/skills";
+import { shownToolGrants } from "../services/squad";
 import { assertAgentsRunning } from "../services/stop-guard";
 import { SIGNALS, WORKFLOWS, workflowIds } from "../services/temporal";
 import { Id, audit, emit, router, sectionAdmin, sectionRead, sectionWrite, type BusinessContext } from "../trpc";
@@ -127,7 +128,7 @@ export const agentRouter = router({
         const period = input.period ?? periodOf(new Date());
         const to = new Date();
         const from = new Date(Date.UTC(to.getUTCFullYear(), to.getUTCMonth(), to.getUTCDate()) - (RECENT_DAYS - 1) * 86_400_000);
-        const [versions, skills, rolled, daily, runs, sessions, spend, departments] = await Promise.all([
+        const [storedVersions, skills, rolled, daily, runs, sessions, spend, departments] = await Promise.all([
           repos.agents.listVersions(tx, ctx.businessId, agent.id),
           repos.skills.listForAgent(tx, ctx.businessId, agent.id),
           repos.agents.metrics(tx, ctx.businessId, agent.id, { from: from.toISOString().slice(0, 10) }),
@@ -141,6 +142,10 @@ export const agentRouter = router({
           repos.tasks.summaries(tx, ctx.businessId, sessions.items.map((s) => s.taskId).filter((t): t is string => t !== null)),
           agent.lineManagerId ? repos.agents.byIds(tx, ctx.businessId, [agent.lineManagerId]).then((rows) => rows[0] ?? null) : null,
         ]);
+        // The profile shows only tools that exist (`shownToolGrants`): a version stored before Nov 11, 2026 may still
+        // hold grants on connectors that were never built. The rows keep what they hold; a draft saved from the Tools
+        // tab starts from what is shown.
+        const versions = storedVersions.map((v) => ({ ...v, tools: shownToolGrants(v.tools) }));
         const current = versions.find((v) => v.id === agent.currentVersionId) ?? null;
         const parsed = current ? AgentInstructions.safeParse(current.instructions) : null;
         const traits = parsed?.success ? deriveTraits(parsed.data) : [];
@@ -381,7 +386,8 @@ export const agentRouter = router({
           if (agent.archivedAt) throw new ValidationError(`${agent.name} has left the team`);
           const [existing, skills, version] = await Promise.all([repos.skills.findDefinition(tx, ctx.businessId, agent.agentType, skillKey), repos.skills.listForAgent(tx, ctx.businessId, agent.id), agent.currentVersionId ? repos.agents.getVersion(tx, ctx.businessId, agent.currentVersionId) : null]);
           if (existing || skills.some((s) => s.skillKey === skillKey)) throw new ConflictError(`${agent.name} already has a skill called "${input.name}"`, { skillKey });
-          const connectors = Array.isArray(version?.tools) ? (version.tools as { connectorKey?: unknown }[]).map((t) => t.connectorKey).filter((k): k is string => typeof k === "string") : [];
+          // Only connectors the agent really holds tools on: a version stored before Nov 11, 2026 may still name ones never built.
+          const connectors = shownToolGrants(version?.tools).map((g) => g.connectorKey);
           return { agent, mockTools: [...new Set(["quarantine.read_untrusted", ...connectors.map((k) => `${k}.mock`)])] };
         });
         const template = getTemplateByAgentType(agent.agentType);

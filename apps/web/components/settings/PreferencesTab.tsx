@@ -18,11 +18,13 @@
  *   cards (Humans, 3D cartoon humans, 2D cartoon humans and animals, Fantasy). Both save through the same host at once.
  * - Builder view (0073, founder 2026-11-08): one switch that shows how the platform runs the team (round numbers, tokens,
  *   live screens, test counts, the technical tabs and columns, ratings). Off by default; saves through the same host.
+ * - Email (packages 1.5 and 5.1): "Email me when something has waited a day for my answer", on by default; the link in
+ *   every such email turns the same switch off.
  *
  * Open to every member, whatever their role: it changes nothing of the business.
  */
-import { useQuery } from "@tanstack/react-query";
-import { UserRound } from "lucide-react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Globe, UserRound } from "lucide-react";
 import { useCallback, useState } from "react";
 import {
   AgentStylePicker,
@@ -42,15 +44,21 @@ import {
   type DateFormatPrefs,
   type SegmentedOption,
   type TextSize,
+  useFormatters,
 } from "@foundmill/dugout";
 import type { AgentStyle } from "@foundmill/shared/personas";
+import { personStateLine } from "@foundmill/shared/person-profile";
+import { TEAM_CALL_WORDS } from "@foundmill/shared/team-call";
 import { ANTHROPOMORPHIC_EXPLAINER, anthropomorphicSavedLine } from "@/lib/anthropomorphic";
 import { useClientNow } from "@/lib/today";
 import { useDatePreferences } from "@/components/providers/DateFormatHost";
 import { agentStyleOf, useGuidancePreferences, type GuidancePatch, type GuidancePrefs } from "@/components/providers/GuidanceHost";
 import { builderViewSavedLine } from "@/components/providers/guidance-context";
 import { useTRPC } from "@/lib/trpc-react";
+import { accountRoutes } from "@/lib/account-routes";
+import { LinkButton } from "@/components/new/LinkButton";
 import { AccountId } from "./AccountId";
+import { EmailNotificationsSection } from "./EmailNotificationsSection";
 import { Hint, SettingsSection, useSettingsToast } from "./shared";
 
 /** The one field a choice changed, or null when it changed nothing. */
@@ -254,6 +262,76 @@ export function BuilderViewSection() {
   );
 }
 
+/**
+ * Team call (founder, Nov 12, 2026): one-to-one calls are private to the person who made them by default. One switch,
+ * off by default, shares this person's one-to-one calls (past and future) with the project; team calls are always the
+ * project's. Saved at once (`teamCall.sharing.set`) with a toast.
+ */
+export function CallSharingSection() {
+  const trpc = useTRPC();
+  const queryClient = useQueryClient();
+  const t = useSettingsToast();
+  const options = trpc.teamCall.sharing.get.queryOptions(undefined, { staleTime: 60_000 });
+  const stored = useQuery(options);
+  const update = useMutation(trpc.teamCall.sharing.set.mutationOptions());
+  const [optimistic, setOptimistic] = useState<boolean | null>(null);
+  const on = optimistic ?? stored.data?.share ?? false;
+  const change = (next: boolean) => {
+    setOptimistic(next);
+    update.mutateAsync({ share: next }).then(
+      (saved) => {
+        queryClient.setQueryData(options.queryKey, { share: saved.share });
+        void queryClient.invalidateQueries({ queryKey: trpc.teamCall.pathKey() });
+        setOptimistic(null);
+        t.saved(saved.share ? "One-to-one calls shared" : "One-to-one calls private", saved.share ? "Everyone on the project can read your calls with one agent." : "Only you can read your calls with one agent.");
+      },
+      (err: unknown) => {
+        setOptimistic(null);
+        t.failed(err, "Preference not saved");
+      },
+    );
+  };
+  return (
+    <SettingsSection title="Calls" data-testid="call-sharing-panel">
+      <div className="flex items-start gap-3" data-testid="call-sharing-choice">
+        <Switch id="call-sharing-switch" checked={on} disabled={stored.isPending} onCheckedChange={(next) => void change(next)} aria-describedby="call-sharing-hint" data-testid="call-sharing-switch" />
+        <div className="flex flex-col gap-1">
+          <Label htmlFor="call-sharing-switch">{TEAM_CALL_WORDS.shareSettingTitle}</Label>
+          <p id="call-sharing-hint" className="text-small text-secondary">
+            {TEAM_CALL_WORDS.shareSettingHint}
+          </p>
+        </div>
+      </div>
+    </SettingsSection>
+  );
+}
+
+/**
+ * Your public profile (package 2.3): a page about the person at their own address, which needs no project. Edited on its
+ * own account page (/public-profile); this section says where it is and whether it is public.
+ */
+export function PublicProfileSection() {
+  const trpc = useTRPC();
+  const profile = useQuery(trpc.founder.publicProfile.get.queryOptions(undefined, { staleTime: 60_000 }));
+  const { formatDate } = useFormatters();
+  const data = profile.data;
+  return (
+    <SettingsSection title="Your public profile" data-testid="public-profile-panel">
+      <Hint>A page about you at its own address, with no project needed. Only you can see it until you publish it.</Hint>
+      {data ? (
+        <p className="t-body text-primary" data-testid="public-profile-panel-state">
+          {personStateLine({ public: data.public, publishedOn: data.publishedAt ? formatDate(data.publishedAt) : null })}
+        </p>
+      ) : null}
+      <div>
+        <LinkButton icon={Globe} href={accountRoutes.publicProfile} data-testid="public-profile-edit">
+          Edit your public profile
+        </LinkButton>
+      </div>
+    </SettingsSection>
+  );
+}
+
 export function PreferencesTab() {
   const { prefs, save } = useDatePreferences();
   const t = useSettingsToast();
@@ -295,6 +373,9 @@ export function PreferencesTab() {
       <GuidanceSection />
       <AnthropomorphicAgentsSection />
       <BuilderViewSection />
+      <EmailNotificationsSection />
+      <CallSharingSection />
+      <PublicProfileSection />
       <SettingsSection title="Your account ID" data-testid="account-id-panel">
         <AccountId accountId={viewer.data?.userId} />
       </SettingsSection>

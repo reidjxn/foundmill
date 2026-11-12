@@ -25,6 +25,30 @@ describe("proxy redirect rules", () => {
     expect(decideRedirect({ pathname: "/auth/callback", authenticated: true }).kind).toBe("next");
   });
 
+  it("serves a project's public page to anyone, signed in or out, and only under /p/", () => {
+    for (const p of ["/p/northwind-skincare", "/p/northwind-skincare/opengraph-image"]) {
+      expect(isPublicPath(p), p).toBe(true);
+      expect(decideRedirect({ pathname: p, authenticated: false }).kind).toBe("next");
+      expect(decideRedirect({ pathname: p, authenticated: true }).kind).toBe("next");
+    }
+    // Not a prefix match on the letter: the LIVE profiles stay signed-in only.
+    for (const p of ["/profiles", "/profiles/x", "/p", "/people"]) expect(isPublicPath(p), p).toBe(false);
+    expect(isFounderPath("/p/northwind-skincare")).toBe(false);
+  });
+
+  it("serves a person's public profile to anyone, signed in or out, and only under /u/", () => {
+    for (const p of ["/u/maya-okafor", "/u/maya-okafor/opengraph-image"]) {
+      expect(isPublicPath(p), p).toBe(true);
+      expect(decideRedirect({ pathname: p, authenticated: false }).kind).toBe("next");
+      expect(decideRedirect({ pathname: p, authenticated: true }).kind).toBe("next");
+    }
+    for (const p of ["/u", "/users", "/public-profile"]) expect(isPublicPath(p), p).toBe(false);
+    expect(isFounderPath("/u/maya-okafor")).toBe(false);
+    // Where the person edits it is a signed-in account page, like Your businesses.
+    expect(isFounderPath("/public-profile")).toBe(true);
+    expect(decideRedirect({ pathname: "/public-profile", authenticated: false })).toEqual({ kind: "redirect", to: "/login?next=%2Fpublic-profile" });
+  });
+
   it("bounces a signed-in visitor off /login to next (clamped)", () => {
     expect(decideRedirect({ pathname: "/login", search: "?next=%2Fb%2Fabc%2Finbox", authenticated: true })).toEqual({ kind: "redirect", to: "/b/abc/inbox" });
     expect(decideRedirect({ pathname: "/login", search: "?next=https%3A%2F%2Fevil.example", authenticated: true })).toEqual({ kind: "redirect", to: "/" });
@@ -85,7 +109,7 @@ describe("proxy redirect rules", () => {
   });
 
   it("keeps the LIVE pages signed-in only: never public, sent to /login with next when signed out", () => {
-    for (const p of ["/network", "/communities", "/communities/3f1c0e9e-1111-4222-8333-944445555666", "/leaderboards", "/leaderboards/aae7068c-fd0f-4615-9534-8da4cd7e35e0", "/profiles/founder/3f1c0e9e-1111-4222-8333-944445555666", "/profiles/business/3f1c0e9e-1111-4222-8333-944445555666"]) {
+    for (const p of ["/network", "/communities", "/communities/3f1c0e9e-1111-4222-8333-944445555666", "/profiles/founder/3f1c0e9e-1111-4222-8333-944445555666", "/profiles/business/3f1c0e9e-1111-4222-8333-944445555666"]) {
       expect(isPublicPath(p), p).toBe(false);
       expect(isFounderPath(p), p).toBe(true);
       expect(decideRedirect({ pathname: p, authenticated: false }), p).toEqual({ kind: "redirect", to: `/login?next=${encodeURIComponent(p)}` });
@@ -139,6 +163,11 @@ describe("proxy redirect rules", () => {
   it("classifies paths", () => {
     expect(isPublicPath("/auth")).toBe(true);
     expect(isPublicPath("/b/x")).toBe(false);
+    // Founder email links open without a session (retention plan, 2026-11-11); nothing else under /email is public.
+    expect(isPublicPath(`/a/${"x".repeat(43)}`)).toBe(true);
+    expect(isPublicPath("/email/pause")).toBe(true);
+    expect(isPublicPath("/email/unsubscribe")).toBe(true);
+    expect(isPublicPath("/email/other")).toBe(false);
     expect(isFounderPath("/new/ideate")).toBe(true);
     expect(isFounderPath("/businesses")).toBe(true);
     expect(isFounderPath("/login")).toBe(false);

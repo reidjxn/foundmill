@@ -537,12 +537,20 @@ export const EVENT_FIXTURES: { readonly [K in EventType]: EventPayloadInput<K> }
   "goal.approved": { goalId: fixtureId("goal"), revision: 1, metricKind: "paying_customers", targetValue: 10, currency: null, dueOn: "2026-12-19", approvedBy: { kind: "user", id: FIXTURE_USER_ID }, startValue: 0, replacedGoalId: null, via: "inbox" },
   "goal.change_requested": { goalId: fixtureId("goal"), revision: 1, requestedBy: { kind: "user", id: FIXTURE_USER_ID }, words: "20 customers by Jan 31", revisedGoalId: fixtureId("goal-2"), via: "inbox" },
   "goal.achieved": { goalId: fixtureId("goal"), revision: 1, metricKind: "paying_customers", targetValue: 10, currency: null, dueOn: "2026-12-19", achievedValue: 10, inboxItemId: fixtureId("inbox-item") },
+  "page.published": { pageId: fixtureId("page"), slug: "northwind-skincare", url: "https://foundmill.example/p/northwind-skincare" },
+  "page.unpublished": { pageId: fixtureId("page"), slug: "northwind-skincare", url: "https://foundmill.example/p/northwind-skincare" },
+  "team_call.started": { callId: fixtureId("team_call"), kind: "team", agentIds: [fixtureId("agent")], topic: "Launch plan" },
+  "team_call.ended": { callId: fixtureId("team_call"), kind: "team", turnCount: 12, actionCount: 3, filedCount: 2, awaitingCount: 1, durationSeconds: 540 },
+  "page.followed": { pageId: fixtureId("page"), entityId: fixtureId("entity"), consentId: fixtureId("consent") },
   "guidance.tour_completed": { tourId: "home", steps: 4 },
   "guidance.tour_skipped": { tourId: "inbox", atStep: 2, steps: 4 },
   "guidance.explainer_dismissed": { screenId: "finance/runway" },
   "guidance.term_opened": { termId: "runway", screenId: "home" },
   "guidance.turned_off": { from: "settings", toursDone: 2, explainersSeen: 5 },
+  "mail.sent": { messageRef: fixtureId("mail"), messageId: "14c5d75ce93.dfd.64b469.filter0001.16648.5515E0B88.0", recipientHash: "a".repeat(64), fromLocalPart: "northwind-skincare", channelKey: "email_automation", agentId: fixtureId("agent"), sessionId: null, simulated: false },
+  "notify.email_sent": { kind: "decision_waiting", userId: fixtureId("user"), inboxItemId: fixtureId("inbox"), messageId: "14c5d75ce93.dfd.64b469.filter0001.16648.5515E0B88.1", simulated: false, notificationId: fixtureId("notification"), offersAnswer: false },
   "push.sent": { kind: "decision", sourceEventId: fixtureId("event-source"), sourceEventType: "inbox.item_created", recipients: 2, devices: 3, provider: "onesignal", mode: "mock", providerMessageIds: [fixtureId("push-1")] },
+  "founder.session_started": { via: "email", notificationId: fixtureId("notification"), minutesAway: 720, sessions: 3 },
 };
 
 /** A valid `WriteEventInput` for the given type, with the fixture payload and envelope. */

@@ -62,15 +62,11 @@ test.describe("the example business, as the seeded owner", () => {
     await expect(page.getByTestId("door-example")).toHaveCount(0);
   });
 
-  test("Your businesses lists nothing under Example; Northwind still says it is a sample, without the Example frame", async ({ page }) => {
+  test("Your businesses lists nothing under Example; Northwind's owner sees no sample marker and no Example frame", async ({ page }) => {
     await openBusiness(page);
     await expect(page.getByTestId("kitbar-business-name")).toHaveText("Northwind Skincare", { timeout: LONG });
-    // The quiet sample marker is on every demo business, whoever opens it; the owner is not in the Example frame.
-    const sample = page.getByTestId("sample-chip");
-    await expect(sample).toHaveText("Sample business");
-    await expect(sample).not.toHaveAttribute("data-example", "true");
-    await sample.hover();
-    await expect(page.getByRole("tooltip")).toContainText("Its figures are made up for the example: nothing here is real money or real customers.", { timeout: LONG });
+    // The sample marker is only for a visitor exploring the example (founder, Nov 12, 2026); the owner is not one.
+    await expect(page.getByTestId("sample-chip")).toHaveCount(0);
     await expect(page.getByTestId("stop-all-trigger")).toBeVisible();
     await page.goto("/businesses");
     await expect(page.getByRole("heading", { level: 1 })).toHaveText("Your businesses", { timeout: LONG });

@@ -241,6 +241,8 @@ export const businessesRepo = {
       autopilotPausedReason: null,
       autopilotChangedAt: null,
       autopilotNextAt: null,
+      autopilotOwnMaxCyclesPerDay: null,
+      autopilotOwnSpendCeilingMinor: null,
       distributionStartedAt: null,
       createdAt: new Date(),
       updatedAt: new Date(),

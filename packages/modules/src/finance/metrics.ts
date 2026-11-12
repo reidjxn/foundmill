@@ -7,6 +7,7 @@
 import { formatDate, formatMoney } from "@foundmill/dugout/lib/format";
 import type { DateFormatPrefs } from "@foundmill/dugout/lib/date-preferences";
 import { projectForecast, type ForecastProjection } from "@foundmill/shared/forecast";
+import { monthlyRevenueWords } from "@foundmill/shared/monthly-revenue";
 import { readVesting } from "@foundmill/shared/vesting";
 import type { CapTableEntryRow, CapTableSummary, CategoryTotal, ForecastDrivers, ForecastPoint, ForecastScenario, MonthlyTotal, SecurityRow } from "./types";
 import { categoryLabel, categoryNet, plainWords, pnlTotals, sectionOf, PNL_SECTION_LABELS, type PnlSection } from "./pnl";
@@ -133,7 +134,8 @@ export const METRIC_DEFINITIONS: Record<MetricKey, { label: string; definition: 
   netBurn: { label: "Net burn (spending beyond income)", definition: "How much more you spend than you earn in a typical month; operating outflows minus operating inflows, trailing 3-month average, financing excluded.", term: "net_burn" },
   runway: { label: "Runway", definition: "How many months your cash lasts at today's spending; cash ÷ net burn, plus the Base forecast's own runway.", term: "runway" },
   revenue: { label: "Revenue", definition: "What customers paid you in the last 3 months; from the ledger when one is connected, otherwise Stripe, Shopify and bank inflows, counted when the cash moves." },
-  mrr: { label: "Monthly recurring revenue (MRR)", definition: "What you earn from customers in a typical month; average monthly revenue over the trailing 3 months, counted when the cash moves.", term: "mrr" },
+  // The one monthly-revenue definition (@foundmill/shared/monthly-revenue), which the revenue milestones count too.
+  mrr: { label: monthlyRevenueWords(true).label, definition: monthlyRevenueWords(true).definition, term: "mrr" },
   arr: { label: "Annual recurring revenue (ARR)", definition: "What a year of today's monthly revenue adds up to; MRR × 12.", term: "arr" },
   grossMargin: { label: "Gross margin", definition: "The share of revenue left after the direct cost of what you sell; (revenue − cost of sales) ÷ revenue, trailing 3 months.", term: "gross_margin" },
   acquisitionCost: { label: "Cost to win a customer", definition: "What it costs, on average, to win one new customer; channel spend ÷ new customers, blended across channels (per channel in the tooltip).", term: "acquisition_cost" },
@@ -146,7 +148,7 @@ export const METRIC_DEFINITIONS: Record<MetricKey, { label: string; definition: 
  * 2026-11-10: "£25K a month recurring" for a skincare brand read as a second, different fact beside its revenue).
  */
 export const ONE_OFF_METRIC_WORDS: Partial<Record<MetricKey, { label: string; definition: string; term?: string }>> = {
-  mrr: { label: "Average monthly revenue", definition: "What customers paid you in a typical month of the last 3; the 3-month revenue ÷ 3. Your customers buy once, so none of it is recurring." },
+  mrr: { label: monthlyRevenueWords(false).label, definition: monthlyRevenueWords(false).definition },
   arr: { label: "Yearly revenue at this rate", definition: "What a year at the average monthly revenue adds up to; average monthly revenue × 12. A run rate, not money already in the bank." },
 };
 

@@ -12,6 +12,7 @@ import {
   withProvenance,
   type MoneyAreaFacts,
 } from "./area-words";
+import { FILINGS_DUE_SOON_DAYS, deadlineWindow, filingDaysLeft, filingWindow } from "./filings";
 import { goalPaceSentence, goalSentence } from "./goals";
 import { usSpelling } from "./us-spelling";
 
@@ -66,20 +67,34 @@ describe("moneyAreaWords", () => {
 describe("companyAreaWords", () => {
   const entity = { legalName: "Northwind Ltd", status: "active", today: TODAY };
 
-  it("counts the filings due in the next 90 days with the first date", () => {
+  it("counts the filings due in the next 30 days (the Compliance tile's window) with the first date", () => {
     const deadlines = [
       { dueOn: "2026-12-01", open: true },
+      { dueOn: "2026-11-20", open: true },
       { dueOn: "2027-01-20", open: true },
-      { dueOn: "2027-06-30", open: true },
       { dueOn: "2026-10-01", open: false },
     ];
-    expect(companyAreaWords({ ...entity, deadlines })).toEqual({ text: "Northwind Ltd: 2 filings are due in the next 90 days, the first on Dec 1.", provenance: null });
-    expect(companyAreaWords({ ...entity, deadlines: deadlines.slice(0, 1) }).text).toBe("Northwind Ltd: 1 filing is due in the next 90 days, on Dec 1.");
-    expect(companyAreaWords({ ...entity, deadlines: [] }).text).toBe("Northwind Ltd: nothing is due in the next 90 days.");
+    expect(FILINGS_DUE_SOON_DAYS).toBe(30);
+    expect(companyAreaWords({ ...entity, deadlines })).toEqual({ text: "Northwind Ltd: 2 filings are due in the next 30 days, the first on Nov 20.", provenance: null });
+    expect(companyAreaWords({ ...entity, deadlines: deadlines.slice(0, 1) }).text).toBe("Northwind Ltd: 1 filing is due in the next 30 days, on Dec 1.");
+  });
+
+  it("counts the window's last day and not the day after, as the Compliance tile does", () => {
+    // Nov 9 + 30 days is Dec 9.
+    expect(companyAreaWords({ ...entity, deadlines: [{ dueOn: "2026-12-09", open: true }] }).text).toBe("Northwind Ltd: 1 filing is due in the next 30 days, on Dec 9.");
+    expect(companyAreaWords({ ...entity, deadlines: [{ dueOn: "2026-12-10", open: true }] }).text).toBe("Northwind Ltd: nothing is due in the next 30 days; the next filing is Dec 10.");
+    expect(companyAreaWords({ ...entity, deadlines: [{ dueOn: TODAY, open: true }] }).text).toBe("Northwind Ltd: 1 filing is due in the next 30 days, on Nov 9.");
+  });
+
+  it("names the next filing when nothing falls inside the window", () => {
+    expect(companyAreaWords({ ...entity, deadlines: [{ dueOn: "2027-06-30", open: true }, { dueOn: "2027-01-20", open: true }] }).text).toBe("Northwind Ltd: nothing is due in the next 30 days; the next filing is Jan 20.");
+    expect(companyAreaWords({ ...entity, deadlines: [{ dueOn: "2027-11-30", open: true }] }).text).toBe("Northwind Ltd: nothing is due in the next 30 days; the next filing is Nov 30, 2027.");
+    expect(companyAreaWords({ ...entity, deadlines: [{ dueOn: "2026-12-20", open: false }] }).text).toBe("Northwind Ltd: nothing is due in the next 30 days, and no later filing is on the calendar.");
+    expect(companyAreaWords({ ...entity, deadlines: [] }).text).toBe("Northwind Ltd: nothing is due in the next 30 days, and no later filing is on the calendar.");
   });
 
   it("says what is overdue first", () => {
-    expect(companyAreaWords({ ...entity, deadlines: [{ dueOn: "2026-11-01", open: true }, { dueOn: "2026-12-01T00:00:00.000Z", open: true }] }).text).toBe("Northwind Ltd: 1 filing is overdue, and 1 more is due in the next 90 days.");
+    expect(companyAreaWords({ ...entity, deadlines: [{ dueOn: "2026-11-01", open: true }, { dueOn: "2026-12-01T00:00:00.000Z", open: true }, { dueOn: "2027-01-20", open: true }] }).text).toBe("Northwind Ltd: 1 filing is overdue, and 1 more is due in the next 30 days.");
     expect(companyAreaWords({ ...entity, deadlines: [{ dueOn: "2026-11-01", open: true }, { dueOn: "2026-10-01", open: true }] }).text).toBe("Northwind Ltd: 2 filings are overdue.");
   });
 
@@ -88,6 +103,26 @@ describe("companyAreaWords", () => {
     expect(companyAreaWords({ ...entity, status: "planned", deadlines: [] }).text).toBe("Your company is not incorporated yet.");
     expect(companyAreaWords({ ...entity, status: "forming", deadlines: [] }).text).toBe("Your company is being incorporated.");
     expect(companyAreaWords({ ...entity, status: "dissolved", deadlines: [] }).text).toBe("Northwind Ltd is dissolved.");
+  });
+});
+
+describe("filingWindow", () => {
+  it("is overdue before today, due soon up to the window's last day, upcoming after it", () => {
+    expect([-1, 0, 30, 31].map(filingWindow)).toEqual(["overdue", "due", "due", "upcoming"]);
+  });
+
+  it("counts whole calendar days from the business's day, whatever the hour, and keeps a rolled filing's status", () => {
+    expect(filingDaysLeft("2026-12-09", TODAY)).toBe(30);
+    expect(filingDaysLeft("2026-12-09T23:00:00.000Z", TODAY)).toBe(30);
+    expect(filingDaysLeft(new Date("2026-11-08T00:00:00.000Z"), TODAY)).toBe(-1);
+    expect(deadlineWindow("2026-12-10", TODAY)).toBe("upcoming");
+    expect(deadlineWindow("2026-12-10", TODAY, "due")).toBe("due");
+    expect(deadlineWindow("2026-12-10", TODAY, "overdue")).toBe("overdue");
+    expect(deadlineWindow("2026-12-09", TODAY, "upcoming")).toBe("due");
+  });
+
+  it("the Company line reads a deadline's given window", () => {
+    expect(companyAreaWords({ legalName: "Northwind Ltd", status: "active", today: TODAY, deadlines: [{ dueOn: "2027-02-01", open: true, window: "due" }] }).text).toBe("Northwind Ltd: 1 filing is due in the next 30 days, on Feb 1.");
   });
 });
 

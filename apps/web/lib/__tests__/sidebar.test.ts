@@ -2,6 +2,7 @@
 import { describe, expect, it } from "vitest";
 import { withSidebarKeys } from "@foundmill/dugout";
 import { MODULE_TABS, type ModuleKey } from "@foundmill/shared/constants";
+import { FULL_ACCESS } from "../access";
 import { SIDEBAR_BRAND, activeSidebarId, buildSidebarItems, departmentBadges, departmentHref, type SidebarDepartment } from "../sidebar";
 
 const BID = "00000000-0000-4000-8000-000000000001";
@@ -30,16 +31,35 @@ const NORTHWIND: SidebarDepartment[] = [
   dept("d-retail", "Retail Partnerships", "distribution", 3, ["distribution"]),
 ];
 
+describe("Team call in the sidebar", () => {
+  it("sits right under Team with the Video icon, opens the lobby, and lights on /calls routes", () => {
+    const items = buildSidebarItems({ businessId: BID, departments: LEDGERLY, live: false });
+    const labels = items.filter((i) => i.group === "area").map((i) => i.label);
+    expect(labels.indexOf("Team call")).toBe(labels.indexOf("Team") + 1);
+    const call = items.find((i) => i.id === "calls")!;
+    expect(call).toMatchObject({ label: "Team call", href: `/b/${BID}/calls`, group: "area" });
+    expect(call.icon).toBeTruthy();
+    expect(activeSidebarId(`/b/${BID}/calls`, BID, LEDGERLY)).toBe("calls");
+    expect(activeSidebarId(`/b/${BID}/calls/a1000000-0000-4000-8000-000000000001`, BID, LEDGERLY)).toBe("calls");
+  });
+
+  it("is not offered to someone who cannot read the Team section", () => {
+    const access = { ...FULL_ACCESS, canRead: (s: string) => s !== "team" };
+    const items = buildSidebarItems({ businessId: BID, departments: LEDGERLY, live: false, access });
+    expect(items.some((i) => i.id === "calls")).toBe(false);
+  });
+});
+
 describe("sidebar items", () => {
   it("reads Today, Needs you, then Plan, Customers, Money, Product and Team; Contacts and Milestones are area tabs", () => {
     const items = buildSidebarItems({ businessId: BID, departments: LEDGERLY, live: false });
-    expect(items.filter((i) => i.group === "main" || i.group === "area" || i.group === "department").map((i) => i.label)).toEqual(["Today", "Needs you", "Plan", "Customers", "Money", "Product", "Team"]);
+    expect(items.filter((i) => i.group === "main" || i.group === "area" || i.group === "department").map((i) => i.label)).toEqual(["Today", "Needs you", "Plan", "Customers", "Money", "Product", "Team", "Team call"]);
     // Today is the front door (founder, 2026-11-07): the item keeps its id and `fixed: "home"`, so G H follows it.
     expect(items.find((i) => i.id === "home")).toMatchObject({ fixed: "home", label: "Today", href: `/b/${BID}/today` });
     // Needs you keeps the Inbox's id and `fixed`, and opens it on Respond.
     expect(items.find((i) => i.id === "inbox")).toMatchObject({ fixed: "inbox", label: "Needs you", href: `/b/${BID}/inbox?tab=respond` });
     // Each area links to its first inline tab, wherever its department is.
-    expect(Object.fromEntries(items.filter((i) => i.group === "area").map((i) => [i.area, i.href]))).toEqual({
+    expect(Object.fromEntries(items.filter((i) => i.group === "area" && i.area).map((i) => [i.area, i.href]))).toEqual({
       plan: `/b/${BID}/d/product/roadmap`,
       customers: `/b/${BID}/d/distribution/leads`,
       money: `/b/${BID}/d/finance/overview`,
@@ -61,7 +81,7 @@ describe("sidebar items", () => {
 
   it("maps Northwind's renamed departments by module: Formulation Lab is Product's, Retail Partnerships Customers'", () => {
     const items = buildSidebarItems({ businessId: BID, departments: NORTHWIND, live: false });
-    expect(items.filter((i) => i.group === "area").map((i) => i.label)).toEqual(["Plan", "Customers", "Money", "Product", "Team"]);
+    expect(items.filter((i) => i.group === "area").map((i) => i.label)).toEqual(["Plan", "Customers", "Money", "Product", "Team", "Team call"]);
     expect(items.some((i) => i.label === "Formulation Lab" || i.label === "Retail Partnerships")).toBe(false);
     expect(activeSidebarId(`/b/${BID}/d/operations/specialists`, BID, NORTHWIND)).toBe("area-product");
     expect(activeSidebarId(`/b/${BID}/d/distribution/formation`, BID, NORTHWIND)).toBe("area-customers");
@@ -73,7 +93,7 @@ describe("sidebar items", () => {
     const growth = dept("d-growth", "Growth", "growth", 0, ["product", "distribution"]);
     const rows = [growth, ...LEDGERLY.filter((d) => !["product", "distribution"].includes(d.slug)), notes];
     const items = buildSidebarItems({ businessId: BID, departments: rows, live: false, inboxItems: [{ fromAgentId: "a-notes", state: "unread" }] });
-    expect(items.filter((i) => i.group !== "live" && i.group !== "foot").map((i) => i.label)).toEqual(["Today", "Needs you", "Plan", "Customers", "Money", "Product", "Team", "Studio"]);
+    expect(items.filter((i) => i.group !== "live" && i.group !== "foot").map((i) => i.label)).toEqual(["Today", "Needs you", "Plan", "Customers", "Money", "Product", "Team", "Team call", "Studio"]);
     expect(items.find((i) => i.id === "d-notes")).toMatchObject({ group: "department", dept: "dept-7", href: `/b/${BID}/d/studio/notes`, badge: 1 });
     expect(withSidebarKeys(items).find((i) => i.id === "d-notes")?.keys).toEqual(["G", "S"]);
     expect(departmentHref(BID, notes)).toBe(`/b/${BID}/d/studio/notes`);
@@ -84,9 +104,9 @@ describe("sidebar items", () => {
     expect(activeSidebarId(`/b/${BID}/d/studio/notes`, BID, rows)).toBe("d-notes");
   });
 
-  it("adds the LIVE block in live mode, Leaderboards with its own icon", () => {
+  it("adds the LIVE block in live mode: Network and Communities", () => {
     const items = buildSidebarItems({ businessId: BID, departments: LEDGERLY, live: true });
-    expect(items.filter((i) => i.group === "live").map((i) => i.label)).toEqual(["Network", "Communities", "Leaderboards"]);
+    expect(items.filter((i) => i.group === "live").map((i) => i.label)).toEqual(["Network", "Communities"]);
   });
 
   it("badges Network with what waits for the founder in every mode, and Communities with posts to moderate (audit #65)", () => {
@@ -144,8 +164,8 @@ describe("sidebar items", () => {
     expect(activeSidebarId("/network", BID, LEDGERLY)).toBe("network");
     expect(activeSidebarId("/communities", BID, LEDGERLY)).toBe("communities");
     expect(activeSidebarId(`/communities/${BID}`, BID, LEDGERLY)).toBe("communities");
-    expect(activeSidebarId("/leaderboards", BID, LEDGERLY)).toBe("leaderboards");
-    expect(activeSidebarId(`/leaderboards/${BID}`, BID, LEDGERLY)).toBe("leaderboards");
+    // A removed page lights nothing.
+    expect(activeSidebarId("/leaderboards", BID, LEDGERLY)).toBeUndefined();
     expect(activeSidebarId(`/profiles/founder/${BID}`, BID, LEDGERLY)).toBe("network");
     expect(activeSidebarId("/networking", BID, LEDGERLY)).toBeUndefined();
   });

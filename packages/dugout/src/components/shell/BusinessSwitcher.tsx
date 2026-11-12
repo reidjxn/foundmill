@@ -9,7 +9,7 @@
  */
 import { useId, useMemo, useRef, useState, type ReactNode } from "react";
 import { Command } from "cmdk";
-import { Building2, Check, ChevronDown, Plus, Sun, UserRound } from "lucide-react";
+import { Building2, Check, ChevronDown, Globe, Plus, Sun, UserRound } from "lucide-react";
 import { cn } from "../../lib/cn";
 import { BusinessLogo } from "../foundation/BusinessLogo";
 import { Button } from "../foundation/Button";
@@ -45,6 +45,8 @@ export interface KitBarBusinessMenu {
   onNewBusiness?: () => void;
   onManageBusinesses?: () => void;
   onProfile?: () => void;
+  /** Your public profile (the person's own page at /u/<handle>, package 2.3). */
+  onPublicProfile?: () => void;
   /** Pointer over, focus on or opening the switcher: the host starts loading the list and logos. */
   onIntent?: () => void;
   /** The list is loading (the current business still shows). */
@@ -256,7 +258,7 @@ export function BusinessSwitcher({ businessName, menu, onHome, defaultOpen = fal
                 <Icon icon={Building2} size="inline" className="shrink-0" /> Manage businesses
               </Command.Item>
             ) : null}
-            {onHome || menu.onProfile ? <div className={menuSeparatorClass} role="separator" /> : null}
+            {onHome || menu.onProfile || menu.onPublicProfile ? <div className={menuSeparatorClass} role="separator" /> : null}
             {onHome ? (
               <Command.Item value="action:home" onSelect={() => pick(onHome)} className={ROW_CLASS}>
                 <Icon icon={Sun} size="inline" className="shrink-0" /> Today
@@ -265,6 +267,11 @@ export function BusinessSwitcher({ businessName, menu, onHome, defaultOpen = fal
             {menu.onProfile ? (
               <Command.Item value="action:profile" onSelect={() => pick(menu.onProfile)} className={ROW_CLASS}>
                 <Icon icon={UserRound} size="inline" className="shrink-0" /> Your profile
+              </Command.Item>
+            ) : null}
+            {menu.onPublicProfile ? (
+              <Command.Item value="action:public-profile" onSelect={() => pick(menu.onPublicProfile)} data-testid="switcher-public-profile" className={ROW_CLASS}>
+                <Icon icon={Globe} size="inline" className="shrink-0" /> Your public profile
               </Command.Item>
             ) : null}
           </Command.List>

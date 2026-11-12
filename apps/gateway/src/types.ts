@@ -87,7 +87,18 @@ export interface CallResultPayload {
   error?: ToolError;
   untrusted: boolean;
   costMinor: number;
+  /**
+   * Set when the connector ran its mock: the call reached no vendor, so nothing was sent, published, charged or changed
+   * outside the platform. Absent on a live call. An agent must never report a simulated result as an action it took.
+   */
+  simulated?: true;
+  /** The sentence that travels with a simulated result, for the model that reads it. */
+  notice?: string;
 }
+
+/** What an agent reads beside a mock connector's result (docs/THESIS_REVIEW.md, package 0.3). */
+export const SIMULATED_NOTICE =
+  "Simulated: this tool ran in practice mode and reached no outside service. Nothing was sent, published, charged, booked or changed outside the platform, and any data returned is sample data. Do not report this as done; say it was simulated and what is needed for it to happen for real.";
 
 export interface AllowResponse {
   outcome: "allow";

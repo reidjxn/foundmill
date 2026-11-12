@@ -15,6 +15,8 @@
 import { z } from "zod";
 import {
   Actor,
+  TEAM_CALL_KINDS,
+  TEAM_CALL_LIMITS,
   AgentStatus,
   Archetype,
   AUTOPILOT_CADENCES,
@@ -28,6 +30,7 @@ import {
   DecisionType,
   EVENT_TYPES,
   EventType,
+  FOUNDER_RETURN_VIA,
   GameMode,
   GOAL_METRIC_KINDS,
   GOAL_PROPOSAL_REASONS,
@@ -36,6 +39,7 @@ import {
   MatchdayLevel,
   Money,
   NOTIFICATION_KINDS,
+  EMAIL_NOTIFICATION_KINDS,
   PUSH_PROVIDERS,
   SIGNOFF_KINDS,
   Severity,
@@ -849,7 +853,7 @@ const modeChanged = declareEvent(
     }),
   ]),
   {
-    doc: "Game mode (LIVE ↔ Personal) or business mode (Augmented / Assisted / Automated) changed. LIVE → Personal starts the 15-minute removal from search and leaderboards.",
+    doc: "Game mode (LIVE ↔ Personal) or business mode (Augmented / Assisted / Automated) changed. LIVE → Personal starts the 15-minute removal from search.",
     consumers: ["composer", "metrics", "playbooks"],
   },
 );
@@ -1146,6 +1150,9 @@ const autopilotChanged = declareEvent(
     /** The day's spend ceiling in USD (an Estimate); null: the credits left. */
     spendCeiling: Money.nullable().default(null),
     maxIdleCycles: z.number().int().min(1).max(10),
+    /** Autopilot's own limits (0084): cycles it starts itself per day, and their spend ceiling in USD; null: none. */
+    ownMaxCyclesPerDay: z.number().int().min(1).max(24).nullable().default(null),
+    ownSpendCeiling: Money.nullable().default(null),
   }),
   {
     doc: "Autopilot was turned on or off, its settings changed, or a guard rail (Stop all agents, used-up credits, failed or empty cycles) paused it. Only an owner or admin turns it back on.",
@@ -1381,6 +1388,29 @@ const pushSent = declareEvent(
 );
 
 // ---------------------------------------------------------------------------------------------------
+// The return loop (retention plan, founder 2026-11-11): founders coming back, and what brought them
+// ---------------------------------------------------------------------------------------------------
+
+const founderSessionStarted = declareEvent(
+  "founder.session_started",
+  z.object({
+    /** How the session started: on their own, from a founder email, or from a browser notification. */
+    via: z.enum(FOUNDER_RETURN_VIA),
+    /** The notification whose link started it, when there was one. */
+    notificationId: Id.nullable().default(null),
+    /** Minutes since the end of the session before it; null on the founder's first session in this business. */
+    minutesAway: Count.nullable(),
+    /** The founder's sessions in this business so far, this one included. */
+    sessions: z.number().int().positive(),
+  }),
+  {
+    doc: "A founder opened the business after more than 30 minutes away (or for the first time). Written by founder.presence.ping (the envelope's actor is the founder); the retention report counts returns and returns from notifications from it. Metrics only, never narrated.",
+    consumers: ["metrics"],
+    narratable: false,
+  },
+);
+
+// ---------------------------------------------------------------------------------------------------
 // Founder ↔ agent conversations (audit-conversation §4)
 // ---------------------------------------------------------------------------------------------------
 
@@ -1596,6 +1626,145 @@ const goalAchieved = declareEvent(
 );
 
 // ---------------------------------------------------------------------------------------------------
+// A project's public page (0077)
+// ---------------------------------------------------------------------------------------------------
+
+/** What both page events carry: the page, its address, and the full public URL it is (or was) served at. */
+const PageFacts = z.object({
+  pageId: Id,
+  /** The address under /p/ (3 to 40 lowercase letters, digits and hyphens). */
+  slug: z.string().min(3).max(40),
+  url: z.string().url().max(2048),
+});
+
+// Team call (docs/TEAM_CALL.md §5): a spoken call between the founder and their team of agents, or one agent.
+const teamCallStarted = declareEvent(
+  "team_call.started",
+  z.object({
+    callId: Id,
+    kind: z.enum(TEAM_CALL_KINDS),
+    agentIds: z.array(Id).min(1).max(TEAM_CALL_LIMITS.maxAgentsInTeamCall),
+    topic: z.string().max(TEAM_CALL_LIMITS.maxTopicChars).nullable().default(null),
+  }),
+  {
+    doc: "A founder started a team call with their agents (`team`) or a call with one agent (`one_to_one`). The founder did it themselves, so it is never narrated; apps/stream pushes it so Team call's list follows.",
+    consumers: ["stream", "metrics"],
+    narratable: false,
+  },
+);
+
+const teamCallEnded = declareEvent(
+  "team_call.ended",
+  z.object({
+    callId: Id,
+    kind: z.enum(TEAM_CALL_KINDS),
+    turnCount: z.number().int().nonnegative(),
+    actionCount: z.number().int().nonnegative(),
+    /** Action items filed at once (a task in its department, an item on the roadmap). */
+    filedCount: z.number().int().nonnegative(),
+    /** Action items staged as a plan that waits for the founder's go-ahead. */
+    awaitingCount: z.number().int().nonnegative(),
+    durationSeconds: z.number().int().nonnegative(),
+  }),
+  {
+    doc: "A call ended and its action items were filed: the summary and the actions are on the call, and the Chief of Staff's note in the Inbox says what was agreed. Filing work inside the project is not an outside result, so the north star never counts it. Never narrated (the note is written by the api with the call).",
+    consumers: ["stream", "metrics"],
+    narratable: false,
+  },
+);
+
+const pagePublished = declareEvent("page.published", PageFacts, {
+  doc: "A founder published the project's public page, or published changes to a page that is already live: from this moment anyone can open `url` signed out. A real outside result (the north star counts it). The founder did it themselves, so it is never narrated; apps/stream pushes it so Today and the Public page tab follow.",
+  consumers: ["stream", "metrics"],
+  narratable: false,
+});
+
+const pageUnpublished = declareEvent("page.unpublished", PageFacts, {
+  doc: "A founder took the project's public page down: `url` answers not found from now on (the draft is kept). Never narrated; apps/stream pushes it so Today and the Public page tab follow.",
+  consumers: ["stream", "metrics"],
+  narratable: false,
+});
+
+const pageFollowed = declareEvent(
+  "page.followed",
+  z.object({
+    /** The page they signed up on; null only when that page row was deleted before they confirmed. */
+    pageId: Id.nullable(),
+    /** The follower's CRM record (their lawful basis is now `consent` unless it already had one). Never the address itself. */
+    entityId: Id,
+    /** The consent record (0079 `contact_consents`): what they agreed to, when, and when they confirmed. */
+    consentId: Id,
+  }),
+  {
+    // North star (CLAUDE.md, founder 2026-11-11): a stranger who confirmed from their own inbox that they want to hear
+    // from the project is a real outside result, so each `page.followed` is a real outcome of its week. Written at the
+    // confirmation, never at the signup (double opt-in, SECURITY_REVIEW Nov 11). The measure reads this; it is not built yet.
+    doc: "A person confirmed, from the link in the one email the platform sent them, that they want to follow the project they signed up for on its public page: their consent record is confirmed and they count as a follower. Written by ingest's `/mail/confirm`, once per record (a second use of the link, or a second signup, writes nothing); a signup that was never confirmed writes nothing. A real outside result (the north star counts it). Not narrated: one note per follower would be noise, and no digest pattern exists yet; the Public page tab counts them.",
+    consumers: ["stream", "metrics"],
+    narratable: false,
+  },
+);
+
+// ---------------------------------------------------------------------------------------------------
+// A message sent from the project's Foundmill address (0078, package 1.5)
+// ---------------------------------------------------------------------------------------------------
+
+const mailSent = declareEvent(
+  "mail.sent",
+  z.object({
+    /** The gateway's own id for the message, signed into its custom args: delivery events are bound to the project by it. */
+    messageRef: Id,
+    /** SendGrid's `X-Message-Id` (live), or the mock's id (simulated). */
+    messageId: z.string().min(1).max(200),
+    /** sha256 hex of the recipient's address, trimmed and lowercased (`suppressionHash`); never the address itself. */
+    recipientHash: z.string().regex(/^[0-9a-f]{64}$/),
+    /** The local part it was sent from (`<fromLocalPart>@<PLATFORM_MAIL_DOMAIN>`). */
+    fromLocalPart: z.string().min(3).max(40),
+    channelKey: ChannelKey.nullable().default(null),
+    agentId: Id.nullable().default(null),
+    sessionId: Id.nullable().default(null),
+    /** True when the mock ran (SendGrid not live on the gateway): nothing left Foundmill. */
+    simulated: z.boolean(),
+  }),
+  {
+    // North star (CLAUDE.md, founder 2026-11-11): a `mail.sent` with `simulated: false` is a real outcome of its week; a
+    // simulated one never counts. The measure reads this flag; it is not built yet.
+    doc: "An agent sent one message from the project's Foundmill sending address through the gateway, after the policy for outside contact, the suppression list, the project's daily cap and the platform's ceiling. A real outside action when `simulated` is false (the north star counts only those). Never narrated on its own; a reply, if one comes, is `lead.replied`.",
+    consumers: ["stream", "metrics"],
+    narratable: false,
+  },
+);
+
+// ---------------------------------------------------------------------------------------------------
+// Email from Foundmill to a person (packages 1.5 and 5.1)
+// ---------------------------------------------------------------------------------------------------
+
+const notifyEmailSent = declareEvent(
+  "notify.email_sent",
+  z.object({
+    /** Which kind of email (`EMAIL_NOTIFICATION_KINDS`): the per-kind switch each person holds in their preferences. */
+    kind: z.enum(EMAIL_NOTIFICATION_KINDS),
+    /** The person it went to, by account id only: never the address. */
+    userId: Id,
+    /** The note it was about (`decision_waiting`, `win`, `credits`, a milestone's note); null for the others. */
+    inboxItemId: Id.nullable(),
+    /** SendGrid's `X-Message-Id` (live), or the mock's id (simulated). */
+    messageId: z.string().min(1).max(200),
+    /** True when the mock ran (SendGrid not live on the gateway): nothing left Foundmill. */
+    simulated: z.boolean(),
+    /** The `founder_notifications` row that holds the email (readable only by its person); its id travels in the links. */
+    notificationId: Id,
+    /** The email offered a one-click answer. */
+    offersAnswer: z.boolean().default(false),
+  }),
+  {
+    doc: "Foundmill emailed one of the business's people about their own project (a note waiting for their answer, a win, a milestone, a finished Autopilot run, used-up credits, the morning brief or the weekly review), from its own address through the gateway, after the person's own switch, their section walls and the daily limits. The record of what reached a person's inbox and the per-day key of the api's notify pass; the words stay on the founder_notifications row, readable only by that person; never the address. Not an outcome of the project (the north star never counts it); never narrated.",
+    consumers: ["metrics"],
+    narratable: false,
+  },
+);
+
+// ---------------------------------------------------------------------------------------------------
 // Registry
 // ---------------------------------------------------------------------------------------------------
 
@@ -1660,12 +1829,20 @@ export const EVENTS = {
   "goal.approved": goalApproved,
   "goal.change_requested": goalChangeRequested,
   "goal.achieved": goalAchieved,
+  "page.published": pagePublished,
+  "team_call.started": teamCallStarted,
+  "team_call.ended": teamCallEnded,
+  "page.unpublished": pageUnpublished,
+  "page.followed": pageFollowed,
   "guidance.tour_completed": guidanceTourCompleted,
   "guidance.tour_skipped": guidanceTourSkipped,
   "guidance.explainer_dismissed": guidanceExplainerDismissed,
   "guidance.term_opened": guidanceTermOpened,
   "guidance.turned_off": guidanceTurnedOff,
   "push.sent": pushSent,
+  "mail.sent": mailSent,
+  "notify.email_sent": notifyEmailSent,
+  "founder.session_started": founderSessionStarted,
 } as const satisfies { readonly [K in EventTypeT]: EventDeclaration<K> };
 
 export type EventsRegistry = typeof EVENTS;

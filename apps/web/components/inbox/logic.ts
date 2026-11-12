@@ -4,7 +4,7 @@
  * summary, follow-up links from plan actions, and the replay lookup for won customers.
  */
 import type { DecisionAnswer, DecisionOption, MetricTileProps, TabItem } from "@foundmill/dugout";
-import { notePreview, type InboxItemType, type InboxState, type Money } from "@foundmill/shared";
+import { MONTHLY_REVENUE_MONTHS, monthlyRevenueMinor, monthlyRevenueWindow, notePreview, type InboxItemType, type InboxState, type Money } from "@foundmill/shared";
 import { monthRevenueMinor } from "@foundmill/widgets/shared/cash";
 import { applyGlossary } from "@foundmill/shared/glossary";
 import { routes } from "@foundmill/widgets/shared/routes";
@@ -336,7 +336,8 @@ export interface MetricSources {
     cash: { amountMinor: number; currency: string; asOf?: Date | string | null };
     burn: { netBurnMinor: number; grossBurnMinor: number };
     runway: { months: number | null };
-    revenue: { monthly: readonly { month: string; inflowMinor: number; netMinor: number; operatingInflowMinor?: number }[] };
+    /** `recurring` (finance.overview): MRR only when the business's revenue recurs, else "Monthly revenue" (as on Finance). */
+    revenue: { monthly: readonly { month: string; inflowMinor: number; netMinor: number; operatingInflowMinor?: number }[]; recurring?: boolean | null };
     customers30d: number;
   } | null;
   /**
@@ -361,12 +362,15 @@ function countKind(conversions: MetricSources["conversions"], kind: string, days
   return conversions.filter((c) => c.kind === kind && Date.parse(String(c.occurredAt)) >= since).length;
 }
 
-/** Months the trailing revenue and MRR cover (BUILD §11.8: "average monthly revenue over the trailing 3 months"). */
-export const TRAILING_MONTHS = 3;
+/**
+ * Months the trailing revenue and MRR cover (BUILD §11.8: "average monthly revenue over the trailing 3 months"): the one
+ * monthly-revenue window (@foundmill/shared/monthly-revenue) Finance and the revenue milestones use.
+ */
+export const TRAILING_MONTHS = MONTHLY_REVENUE_MONTHS;
 
 /** The `n` full calendar months before `now`'s month ("2026-09" for the one before "2026-10"), UTC like the ledger's month keys. */
 export function trailingMonthKeys(now: Date, n = TRAILING_MONTHS): string[] {
-  return Array.from({ length: n }, (_, i) => new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - (n - i), 1)).toISOString().slice(0, 7));
+  return monthlyRevenueWindow(now, n).months;
 }
 
 /**
@@ -397,6 +401,7 @@ const SOURCE_WORDS: Record<string, string> = {
   runway_forecast: "The cash forecast",
   roadmap_status: "The roadmap",
   metrics: "Business metrics",
+  pnl: "Money received, last 3 full months",
 };
 
 /** "usage_ledger" → "Model and tool usage"; free words pass through, keys are spelled out ("journey_daily" → "Journey daily"). */
@@ -510,9 +515,11 @@ function statusStripFigures(strip: readonly unknown[], sources: MetricSources): 
         case "revenue": {
           // The same definitions as Finance: revenue over the trailing 3 full months, MRR a third of it.
           const revenue = trailingRevenueMinor(sources, now);
-          const amountMinor = revenue === null ? null : key === "mrr" ? Math.round(revenue / TRAILING_MONTHS) : revenue;
+          const amountMinor = revenue === null ? null : key === "mrr" ? monthlyRevenueMinor(revenue, TRAILING_MONTHS) : revenue;
+          // Named as Finance names it: MRR only when the business's revenue recurs (DECISIONS 2026-11-10, 2026-11-11).
+          const monthlyLabel = f?.revenue.recurring === false ? "Monthly revenue" : "MRR";
           // plain-allow: the strip's labels are wrapped in a Term where they show (ReadingPane tilesWithTerms, STRIP_TERM_IDS).
-          return { label: key === "mrr" ? "MRR" : "Revenue", value: amountMinor === null || !f ? null : { amountMinor, currency: f.cash.currency }, estimate: key === "mrr" ? "estimate" : undefined, caption: key === "mrr" ? "per month" : `trailing ${TRAILING_MONTHS} months`, provenance: provenance(m, "Money received, last 3 full months") };
+          return { label: key === "mrr" ? monthlyLabel : "Revenue", value: amountMinor === null || !f ? null : { amountMinor, currency: f.cash.currency }, estimate: key === "mrr" ? "estimate" : undefined, caption: key === "mrr" ? "per month" : `trailing ${TRAILING_MONTHS} months`, provenance: provenance(m, "Money received, last 3 full months") };
         }
         case "customers_week":
           return { label: "Customers this week", value: countKind(sources.conversions, "payment", 7, now), format: "integer", provenance: provenance(m, "Payments, last 7 days") };
@@ -564,7 +571,7 @@ export interface DepartmentForLinks {
   tabs: readonly { slug: string; position: number }[];
 }
 
-function moduleTab(departments: readonly DepartmentForLinks[], moduleKey: string, tabSlug: string): { slug: string; tab: string } | null {
+export function moduleTab(departments: readonly DepartmentForLinks[], moduleKey: string, tabSlug: string): { slug: string; tab: string } | null {
   const d = departments.find((x) => x.moduleKeys.includes(moduleKey));
   if (!d) return null;
   const tab = d.tabs.find((t) => t.slug === tabSlug) ?? [...d.tabs].sort((a, b) => a.position - b.position)[0];

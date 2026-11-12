@@ -1,5 +1,5 @@
 /**
- * live.connections.* / messages.* / communities.* / posts.* / leaderboards.* / profile.visibility.* / summary (BUILD
+ * live.connections.* / messages.* / communities.* / posts.* / profile.visibility.* / summary (BUILD
  * §11.14). Human messages are sent by humans only; agents may draft but never call `messages.send`.
  *
  * Requests and messages are delivered to their recipient alone (services/live.ts): a signal on their own stream channel
@@ -19,11 +19,10 @@ import { z } from "zod";
 import type { Context } from "../context";
 import { messageRecipients, screenText, signalPeople, takeLive } from "../services/live";
 import { takeConnectionRequest, takeMessage, takePost } from "../services/live-limits";
-import { Id, businessProcedure as anyBusinessProcedure, effectivePermission, liveGate, pgErrorCode, protectedProcedure as anyProtectedProcedure, router, sectionWrite as anySectionWrite, type Section } from "../trpc";
+import { Id, effectivePermission, liveGate, pgErrorCode, protectedProcedure as anyProtectedProcedure, router, sectionWrite as anySectionWrite, type Section } from "../trpc";
 
 // Every LIVE procedure is closed while LIVE is (FLAGS.liveMode / LIVE_MODE, audit VLS2-X1).
 const protectedProcedure = anyProtectedProcedure.use(liveGate);
-const businessProcedure = anyBusinessProcedure.use(liveGate);
 const sectionWrite = (section: Section) => anySectionWrite(section).use(liveGate);
 
 const Page = z.object({ limit: z.number().int().min(1).max(200).default(50), cursor: z.string().nullish() }).optional();
@@ -158,7 +157,7 @@ export const liveRouter = router({
     list: protectedProcedure.input(z.object({ status: z.enum(["requested", "accepted", "blocked"]).optional(), direction: z.enum(["incoming", "outgoing"]).optional() }).optional()).query(({ ctx, input }) => repos.social.listConnections(ctx.db, ctx.userId, input ?? {})),
     /**
      * A LIVE business's writer asks a person to connect: by their user id (community members, post authors), or by a
-     * listed business (a leaderboard row), which reaches its owner. A new request reaches the recipient alone (their badge
+     * listed business, which reaches its owner. A new request reaches the recipient alone (their badge
      * and Requests list, signalled on their own stream channel once it commits); asking again notifies nobody.
      */
     request: sectionWrite("live")
@@ -468,25 +467,6 @@ export const liveRouter = router({
       await signalPeople(ctx, [post.authorUserId], "moderation", { communityId: post.communityId });
       return postView(post, ctx.userId, true);
     }),
-  }),
-
-  leaderboards: router({
-    list: protectedProcedure.input(z.object({ period: z.string().optional(), boardKind: z.string().optional() }).optional()).query(({ ctx, input }) => repos.social.listLeaderboards(ctx.db, input ?? {})),
-    get: protectedProcedure.input(z.object({ leaderboardId: Id })).query(({ ctx, input }) => repos.social.getLeaderboard(ctx.db, input.leaderboardId)),
-    /**
-     * A board's entries, each with the business's public card (name, logo inputs) when it is listed (null otherwise),
-     * and whether the viewer belongs to it (their own rows offer no "Ask to connect"). A demo business's entry
-     * (synthetic numbers) is there only for its own members (0044).
-     */
-    entries: protectedProcedure.input(z.object({ leaderboardId: Id, limit: z.number().int().min(1).max(500).default(100) })).query(async ({ ctx, input }) => {
-      const rows = await repos.social.leaderboardEntries(ctx.db, input.leaderboardId, input.limit, { viewerId: ctx.userId });
-      const [{ businesses }, mine] = await Promise.all([repos.social.lookupPeople(ctx.db, ctx.userId, { businessIds: rows.map((r) => r.businessId) }), repos.memberships.listForUser(ctx.db, ctx.userId)]);
-      const cards = new Map(businesses.map((b) => [b.businessId, b]));
-      const own = new Set(mine.map((m) => m.businessId));
-      return rows.map((r) => ({ ...r, businessName: cards.get(r.businessId)?.name ?? null, business: cards.get(r.businessId) ?? null, own: own.has(r.businessId) }));
-    }),
-    /** This business's positions (verified integration metrics only; AC-11.14.1). */
-    positions: businessProcedure.input(z.object({ period: z.string().optional() })).query(({ ctx, input }) => repos.social.positionsForBusiness(ctx.db, ctx.businessId, input.period)),
   }),
 
   people: router({

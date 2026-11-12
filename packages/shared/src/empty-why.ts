@@ -11,6 +11,7 @@
  *
  * Loading skeletons are not empty states: callers show this only once the read has answered.
  */
+import { noChannelSentence, type NoChannelFacts } from "./channel-availability";
 
 export type EmptyWhyId =
   | "today_needs_you"
@@ -27,7 +28,8 @@ export type EmptyWhyId =
   | "entity"
   | "officers"
   | "compliance"
-  | "hired_agents";
+  | "hired_agents"
+  | "channel_board";
 
 /** What the caller knows; every field is optional, the words fall back to the sentence that holds either way. */
 export interface EmptyWhyFacts {
@@ -35,6 +37,8 @@ export interface EmptyWhyFacts {
   firstDays?: boolean;
   /** The business has started distribution (answered "Ready to start selling?"). */
   distributionStarted?: boolean;
+  /** The Channel Board with no channel that can run on its own: what opens first (channel-availability.ts). */
+  noChannel?: NoChannelFacts;
 }
 
 export interface EmptyWhy {
@@ -84,5 +88,7 @@ export function emptyWhy(id: EmptyWhyId, facts: EmptyWhyFacts = {}): EmptyWhy {
       return { title: "No deadlines yet", text: "The calendar fills when you import a company, from its registry, or when an incorporation adds its first filings. Deadlines the legal lead records appear here too." };
     case "hired_agents":
       return { text: "Nothing hired yet. An agent you hire from the catalog appears here as soon as you confirm; use the … on a row to duplicate it, lend it to another department or let it go." };
+    case "channel_board":
+      return { title: "No channels to run yet", text: noChannelSentence(facts.noChannel) };
   }
 }

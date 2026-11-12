@@ -30,7 +30,7 @@ test.describe("today", () => {
     const screen = page.getByTestId("today-screen");
     await expect(screen).toBeVisible({ timeout: LONG });
     await settled(page);
-    await expect(page).toHaveTitle(/^Today · Northwind Skincare · /);
+    await expect(page).toHaveTitle(/^(?:\(\d+\) )?Today · Northwind Skincare · /);
     // The sidebar's first item is Today, lit here (it keeps G H).
     const today = page.getByRole("navigation", { name: "Primary" }).getByRole("link", { name: "Today", exact: true });
     await expect(today).toHaveAttribute("aria-current", "page");
@@ -81,7 +81,7 @@ test.describe("today", () => {
     await page.getByRole("tab", { name: "Details" }).click();
     await expect(page).toHaveURL(new RegExp(`${B}/home`), { timeout: LONG });
     await expect(page.getByTestId("home-screen")).toBeVisible({ timeout: LONG });
-    await expect(page).toHaveTitle(/^Details · Northwind Skincare · /);
+    await expect(page).toHaveTitle(/^(?:\(\d+\) )?Details · Northwind Skincare · /);
     await expect(today).toHaveAttribute("aria-current", "page");
     const detailsStrip = "[data-widget=status_strip] [data-status-strip]";
     await expect(page.locator(detailsStrip).locator("[role=listitem]").filter({ hasText: /^Runway/ }).first()).toBeVisible({ timeout: LONG });
@@ -137,7 +137,27 @@ test.describe("today", () => {
       await expect(needs.getByRole("button", { name: label })).toHaveCount(0, { timeout: LONG });
     }
 
-    // Both sign-offs answered: Day 1 is done with its real date and Days 2–3 is under way.
+    // Both sign-offs answered: Day 1 still asks for the page (package 1.3). The Product lead's note waits in Needs you;
+    // its one tap opens Product › Public page, where the founder publishes the team's draft.
+    await untilOnToday(page, bid, async () => {
+      await expect(timeline.locator("[data-first-week-step=day1]")).toContainText("You are asked to publish your page.", { timeout: 10_000 });
+    });
+    await expect(timeline.locator("[data-first-week-step=day1]")).toHaveAttribute("data-state", "now");
+    await expect(page.getByTestId("public-page-note")).toHaveCount(0);
+    await dismissCoachmarks(page);
+    await needs.getByRole("button", { name: "Check it and publish" }).click();
+    await page.waitForURL(new RegExp(`/b/${bid}/d/[^/]+/public-page$`), { timeout: LONG });
+    await settled(page);
+    await dismissCoachmarks(page);
+    const editor = page.getByTestId("public-page-editor");
+    await expect(editor).toBeVisible({ timeout: LONG });
+    await editor.getByRole("button", { name: "Publish", exact: true }).click();
+    await page.getByRole("dialog").getByTestId("page-confirm-publish").click();
+    await expect(page.getByTestId("page-state")).toHaveText(/Live since/, { timeout: LONG });
+    await page.goto(`/b/${bid}/today`);
+    await expect(page.getByTestId("today-screen")).toBeVisible({ timeout: LONG });
+
+    // The page is live and both sign-offs answered: Day 1 is done with its real date and Days 2–3 is under way.
     await untilOnToday(page, bid, async () => {
       await expect(timeline.locator("[data-first-week-step=day1]")).toHaveAttribute("data-state", "done", { timeout: 10_000 });
     });

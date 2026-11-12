@@ -72,15 +72,15 @@ test.describe("the business frame", () => {
     /** The page's own titles: an icon's SVG `<title>` is not one. */
     const pageTitles = () => page.evaluate(() => [...document.querySelectorAll("title")].filter((t) => !t.closest("svg")).map((t) => t.textContent));
     await openBusiness(page);
-    await expect(page).toHaveTitle(/^Details · Northwind Skincare · /);
+    await expect(page).toHaveTitle(/^(?:\(\d+\) )?Details · Northwind Skincare · /);
     await page.getByRole("navigation", { name: "Primary" }).locator("[data-sidebar-item='inbox']").first().click();
     await expect(page).toHaveURL(new RegExp(`${B}/inbox`), { timeout: LONG });
-    await expect(page).toHaveTitle(/^Inbox · Northwind Skincare · /);
+    await expect(page).toHaveTitle(/^(?:\(\d+\) )?Inbox · Northwind Skincare · /);
     expect(await pageTitles()).toHaveLength(1);
     // A screen with charts (SVG titles above the streamed page title) loaded in full.
     await page.goto(`${B}/d/finance/overview`);
     await settled(page);
-    await expect(page).toHaveTitle(/^Overview · Finance · Northwind Skincare · /);
+    await expect(page).toHaveTitle(/^(?:\(\d+\) )?Overview · Finance · Northwind Skincare · /);
     expect(await pageTitles()).toEqual([await page.title()]);
   });
 

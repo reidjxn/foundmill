@@ -43,8 +43,9 @@ import { runwayFigure, runwayWords } from "@foundmill/widgets/shared/runway";
 import { usePinToHomeMenu } from "@foundmill/widgets/shared/pin";
 import { CHANNEL_WINDOW_DAYS } from "@foundmill/shared/constants";
 import { emptyWhy } from "@foundmill/shared/empty-why";
+import { MONTHLY_REVENUE_MONTHS, monthlyRevenueMinor, monthlyRevenueWindow } from "@foundmill/shared/monthly-revenue";
 
-const TRAILING = 3;
+const TRAILING = MONTHLY_REVENUE_MONTHS;
 const HISTORY = 6;
 /** What the Overview opens on (Nov 7, 2026, one number per fact): cash, monthly spend and months left; the rest sit behind "More numbers". */
 export const HEADLINE_METRICS: readonly MetricKey[] = ["cash", "netBurn", "runway"];
@@ -130,7 +131,8 @@ export function overviewTiles(args: { overview: FinanceOverview; pnl: PnlRespons
   const monthly = overview.revenue.monthly ?? [];
   const totals = pnl ? pnlTotals(pnl.categories) : null;
   const revenue = totals?.revenueMinor ?? 0;
-  const mrr = Math.round(revenue / TRAILING);
+  // The one monthly figure (@foundmill/shared/monthly-revenue): the revenue milestones count the same.
+  const mrr = monthlyRevenueMinor(revenue, TRAILING);
   // A business whose customers buy once has no recurring revenue: its monthly figure is the average month (finance.overview `revenue.recurring`).
   const recurring = overview.revenue.recurring;
   const revenueWindow = monthRangeWords(trailingMonths(now, TRAILING), args.datePrefs);
@@ -205,7 +207,11 @@ export function OverviewScreen({ businessId }: ModuleScreenProps) {
   const datePrefs = useDateFormat();
   const currency = useCurrency();
   const { navigate } = useWidgetData();
-  const range = useMemo(() => ({ from: monthStart(now, -TRAILING).toISOString(), to: monthStart(now, 0).toISOString() }), [now]);
+  // The monthly figure's window (@foundmill/shared/monthly-revenue): the revenue milestones read the same months.
+  const range = useMemo(() => {
+    const w = monthlyRevenueWindow(now);
+    return { from: w.from.toISOString(), to: w.to.toISOString() };
+  }, [now]);
   const overview = useWidgetQuery<FinanceOverview>("finance.overview", {});
   // Pin to Home (audit #394): the Cash panel is the gallery's Cash and runway widget.
   const pinMenu = usePinToHomeMenu({ key: "cash_runway" });

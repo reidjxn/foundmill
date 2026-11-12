@@ -1,7 +1,7 @@
 /** founder_profiles — account-scoped (userId first), routers founder.profile.get/update. */
-import { RESERVED_NAME_MESSAGE, isReservedName } from "@foundmill/config";
+import { BIDI_NAME_MESSAGE, RESERVED_NAME_MESSAGE, hasBidiControl, isReservedName } from "@foundmill/config";
 import { VISIBILITY, ValidationError } from "@foundmill/shared";
-import { and, asc, eq, isNull, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull, ne, sql } from "drizzle-orm";
 import { authUsers } from "drizzle-orm/supabase";
 import { z } from "zod";
 import { businesses, founderProfiles, memberships, type Business, type FounderProfile, type Membership } from "../schema";
@@ -11,7 +11,14 @@ const SkillRatings = z.record(z.string(), z.number().int().min(1).max(20));
 
 export const FounderProfileInput = z.object({
   // Not a name that poses as the platform or its staff ("Foundmill Support"): other founders read it as who wrote to them.
-  displayName: z.string().trim().min(1).max(120).refine((n) => !isReservedName(n), RESERVED_NAME_MESSAGE),
+  // Never a bidi control either: it turns the text after it around on every page that shows the name.
+  displayName: z
+    .string()
+    .trim()
+    .min(1)
+    .max(120)
+    .refine((n) => !isReservedName(n), RESERVED_NAME_MESSAGE)
+    .refine((n) => !hasBidiControl(n), BIDI_NAME_MESSAGE),
   experience: z.string().max(4000).nullable().optional(),
   skills: SkillRatings.default({}),
   timeCommitment: z.string().max(120).nullable().optional(),
@@ -32,6 +39,7 @@ export type FounderProfilePatch = z.input<typeof FounderProfilePatch>;
 /** Says why in the person's words (parseInput would only say "Invalid founder profile"); the schema holds the same rule. */
 function assertNameFree(displayName: string | undefined): void {
   if (displayName !== undefined && isReservedName(displayName)) throw new ValidationError(RESERVED_NAME_MESSAGE);
+  if (displayName !== undefined && hasBidiControl(displayName)) throw new ValidationError(BIDI_NAME_MESSAGE, { field: "displayName" });
 }
 
 export const foundersRepo = {
@@ -44,6 +52,29 @@ export const foundersRepo = {
     const rows = await db.select({ id: authUsers.id }).from(authUsers).where(sql`lower(${authUsers.email}) = lower(${e})`).limit(2);
     // Two accounts on one address (case variants) are ambiguous: the account ID is needed instead.
     return rows.length === 1 ? rows[0]!.id : null;
+  },
+
+  /**
+   * Who the notifier asks the gateway to email about one business (retention plan, 2026-11-11): its owners and admins,
+   * by account id with their walls (never an example membership: a walk around a demo gets no mail). No address: the
+   * gateway reads that itself (`emailOf`).
+   */
+  async notifyRecipients(db: Executor, businessId: string): Promise<{ userId: string; role: Membership["role"]; sectionPermissions: Membership["sectionPermissions"] }[]> {
+    return db
+      .select({ userId: memberships.userId, role: memberships.role, sectionPermissions: memberships.sectionPermissions })
+      .from(memberships)
+      .where(and(eq(memberships.businessId, businessId), inArray(memberships.role, ["owner", "admin"]), ne(memberships.source, "example")));
+  },
+
+  /**
+   * The address the account signs in with, or null (no account, no address, or a malformed one). Reads auth.users, so it
+   * runs on the service connection; only the gateway asks, to email the person from Foundmill (never from a request).
+   */
+  async emailOf(db: Executor, userId: string): Promise<string | null> {
+    const id = parseInput(Id, userId, "user id");
+    const row = maybeOne(await db.select({ email: authUsers.email }).from(authUsers).where(eq(authUsers.id, id)).limit(1));
+    const email = row?.email?.trim().toLowerCase() ?? "";
+    return z.email().max(254).safeParse(email).success ? email : null;
   },
 
   async get(db: Executor, userId: string): Promise<FounderProfile | null> {

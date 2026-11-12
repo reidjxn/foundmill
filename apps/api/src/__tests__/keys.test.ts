@@ -1,9 +1,10 @@
 import { sql } from "drizzle-orm";
-import { createDefaultRegistry } from "@foundmill/connectors";
+import { createAnthropicConnector, createDefaultRegistry, createRegistry } from "@foundmill/connectors";
 import { loadByokApiKey, repos, resumeBusinessAgents } from "@foundmill/db";
-import { MODELS } from "@foundmill/models";
+import { MODELS, validateApiKey } from "@foundmill/models";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { createCaller } from "../router";
+import { guardLiveCalls, inProcessGateway } from "./gateway-double";
 import { createApiHarness, type ApiHarness } from "./harness";
 
 let hz: ApiHarness;
@@ -119,27 +120,38 @@ describe("the key is checked the way it will be used (audit BILL-04)", () => {
   const ok = () => new Response(JSON.stringify({ id: "msg_1", type: "message", role: "assistant", model: MODELS.haiku, content: [{ type: "text", text: "p" }], stop_reason: "max_tokens", stop_sequence: null, usage: { input_tokens: 8, output_tokens: 1 } }), { status: 200, headers: { "content-type": "application/json", "request-id": "req_1" } });
   const refused = (status: number, type: string, message: string) => () => new Response(JSON.stringify({ type: "error", error: { type, message } }), { status, headers: { "content-type": "application/json" } });
 
-  /** Production's shape: live models, mock connectors. */
+  /**
+   * Production's shape: live models, mock connectors. Anthropic is reached only by the gateway (SEC-14): the api's own
+   * registry refuses to run a live connector, and the process's fetch reaches nothing, so a direct call would fail.
+   */
   const liveModels = (fetch: typeof globalThis.fetch) => {
-    vi.stubGlobal("fetch", fetch);
-    return createCaller({ ...hz.deps, env: { ...hz.deps.env, MODEL_MODE: "live", INTEGRATIONS_MODE: "mock" }, connectors: createDefaultRegistry({ fetch }) }, { userId: hz.A.ownerId });
+    const guarded = guardLiveCalls(createDefaultRegistry({ secrets: {} }));
+    const gateway = inProcessGateway();
+    gateway.bind({ db: hz.db, vault: hz.deps.vault, registry: createRegistry([createAnthropicConnector({ secrets: {}, fetch })]), validateModelKey: (k) => validateApiKey(k, { mode: "live", fetch }) });
+    vi.stubGlobal("fetch", async () => {
+      throw new Error("the api called a vendor directly");
+    });
+    const caller = createCaller({ ...hz.deps, env: { ...hz.deps.env, MODEL_MODE: "live", INTEGRATIONS_MODE: "mock" }, connectors: guarded.registry, gateway: gateway.client }, { userId: hz.A.ownerId });
+    return { caller, paths: gateway.paths, liveCalls: guarded.liveCalls };
   };
   afterEach(() => vi.unstubAllGlobals());
 
-  it("with live models a look-alike key is refused by a real call, and the business stays where it was", async () => {
+  it("with live models a look-alike key is refused by a real call through the gateway, and the business stays where it was", async () => {
     const before = (await repos.businesses.get(hz.db, hz.A.businessId)).modelBilling;
     const anthropic = anthropicFetch(refused(401, "authentication_error", "invalid x-api-key"));
-    const caller = liveModels(anthropic.fetch);
+    const { caller, paths, liveCalls } = liveModels(anthropic.fetch);
     const validation = await caller.keys.validate({ businessId: hz.A.businessId, apiKey: "sk-ant-not-a-real-key" });
     expect(validation).toMatchObject({ valid: false, mode: "live", routedModels: [] });
     expect(anthropic.calls).toEqual(["/v1/messages"]);
+    expect(paths).toEqual(["/v1/keys/validate"]);
+    expect(liveCalls).toEqual([]);
     expect(Date.now() - Date.parse(validation.checkedAt)).toBeLessThan(60_000);
     await expect(caller.keys.setAnthropic({ businessId: hz.A.businessId, apiKey: "sk-ant-not-a-real-key" })).rejects.toMatchObject({ code: "BAD_REQUEST" });
     expect((await repos.businesses.get(hz.db, hz.A.businessId)).modelBilling).toBe(before);
   });
 
   it("an account with no credit is refused too, in words the founder can act on", async () => {
-    const caller = liveModels(anthropicFetch(refused(400, "invalid_request_error", "Your credit balance is too low to access the Anthropic API.")).fetch);
+    const { caller } = liveModels(anthropicFetch(refused(400, "invalid_request_error", "Your credit balance is too low to access the Anthropic API.")).fetch);
     const validation = await caller.keys.validate({ businessId: hz.A.businessId, apiKey: KEY });
     expect(validation).toMatchObject({ valid: false, mode: "live" });
     expect(validation.reason).toMatch(/no credit left\. Add credit in the Anthropic Console/);
@@ -147,7 +159,7 @@ describe("the key is checked the way it will be used (audit BILL-04)", () => {
 
   it("a working key is stored as a live connection with the routed models checked", async () => {
     const anthropic = anthropicFetch(ok);
-    const caller = liveModels(anthropic.fetch);
+    const { caller, paths, liveCalls } = liveModels(anthropic.fetch);
     try {
       const stored = await caller.keys.setAnthropic({ businessId: hz.A.businessId, apiKey: KEY });
       expect(stored.validation).toMatchObject({ valid: true, mode: "live" });
@@ -155,7 +167,12 @@ describe("the key is checked the way it will be used (audit BILL-04)", () => {
       expect(stored.validation.routedModels.every((m) => m.available)).toBe(true);
       expect(anthropic.calls[0]).toBe("/v1/messages");
       expect(anthropic.calls).toContain("/v1/models");
+      expect(paths).toEqual(["/v1/keys/validate"]);
+      expect(liveCalls).toEqual([]);
       expect((await repos.integrations.get(hz.db, hz.A.businessId, stored.integrationId)).status).toBe("connected");
+      // The gateway's audit row says only that a key was checked; neither it nor the api's own row holds the key.
+      expect((await repos.audit.list(hz.db, hz.A.businessId, { action: "gateway.keys.validated", limit: 1 })).items[0]?.details).toEqual({ service: "api", validated: "ok" });
+      expect(JSON.stringify(await repos.audit.list(hz.db, hz.A.businessId, { limit: 200 }))).not.toContain(KEY);
     } finally {
       await hz.caller({ userId: hz.A.ownerId }).keys.revoke({ businessId: hz.A.businessId });
       await resumeBusinessAgents(hz.db, hz.A.businessId);

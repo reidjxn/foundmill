@@ -449,6 +449,69 @@
       "when": 1796127420000,
       "tag": "0075_founder_devices",
       "breakpoints": true
+    },
+    {
+      "idx": 64,
+      "version": "7",
+      "when": 1796127480000,
+      "tag": "0076_drop_leaderboards",
+      "breakpoints": true
+    },
+    {
+      "idx": 65,
+      "version": "7",
+      "when": 1796127540000,
+      "tag": "0077_project_pages",
+      "breakpoints": true
+    },
+    {
+      "idx": 66,
+      "version": "7",
+      "when": 1796127600000,
+      "tag": "0078_project_mail",
+      "breakpoints": true
+    },
+    {
+      "idx": 67,
+      "version": "7",
+      "when": 1796127660000,
+      "tag": "0079_page_followers",
+      "breakpoints": true
+    },
+    {
+      "idx": 68,
+      "version": "7",
+      "when": 1796127720000,
+      "tag": "0080_person_profiles",
+      "breakpoints": true
+    },
+    {
+      "idx": 69,
+      "version": "7",
+      "when": 1796127780000,
+      "tag": "0081_public_page_grants",
+      "breakpoints": true
+    },
+    {
+      "idx": 70,
+      "version": "7",
+      "when": 1796127960000,
+      "tag": "0082_team_calls",
+      "breakpoints": true
+    },
+    {
+      "idx": 71,
+      "version": "7",
+      "when": 1796128020000,
+      "tag": "0083_founder_return",
+      "breakpoints": true
+    },
+    {
+      "idx": 72,
+      "version": "7",
+      "when": 1796128080000,
+      "tag": "0084_autopilot_own_limits",
+      "breakpoints": true
     }
   ]
 }

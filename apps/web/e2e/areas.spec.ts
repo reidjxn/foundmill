@@ -19,11 +19,11 @@ test.afterAll(async ({ playwright }) => {
 });
 
 test.describe("founder areas", () => {
-  test("the sidebar reads Today, Needs you, Plan, Customers, Money, Product, Team; no department and no Contacts item", async ({ page }) => {
+  test("the sidebar reads Today, Needs you, Plan, Customers, Money, Product, Team and Team call; no department and no Contacts item", async ({ page }) => {
     await openBusiness(page, "today");
     const nav = page.getByRole("navigation", { name: "Primary" });
     const labels = await nav.locator("ul").first().locator("[data-sidebar-label]").allTextContents();
-    expect(labels).toEqual(["Today", "Needs you", "Plan", "Customers", "Money", "Product", "Team"]);
+    expect(labels).toEqual(["Today", "Needs you", "Plan", "Customers", "Money", "Product", "Team", "Team call"]);
     for (const gone of ["Inbox", "Contacts", "Milestones", "Formulation Lab", "Retail Partnerships", "Finance", "Legal"]) await expect(nav.getByRole("link", { name: new RegExp(`^${gone}(,|$)`) })).toHaveCount(0);
     await expect(nav.locator("[data-sidebar-item='inbox']")).toHaveAttribute("href", `${B}/inbox?tab=respond`);
     await expect(areaLink(page, "money")).toHaveAttribute("href", `${B}/d/finance/overview`);
@@ -99,10 +99,24 @@ test.describe("founder areas", () => {
     // Money: cash, spending and months of cash (Estimate) in Northwind's pounds, with the Company line under it.
     const MONEY = /^(You have £[\d,.]+[KM]? and (spend about £[\d,.]+[KM]? a month( more than comes in)?, so you have (about [\d.]+ months?|less than a month) of cash|earn more than you spend, so cash is not running out)\.Estimate|You have £[\d,.]+[KM]?; how long it lasts .*|Connect your bank and this line shows your cash and how long it lasts\.|Your bank balance is £[\d,.]+[KM]? below zero, .*)$/;
     const money = await opening("d/finance/overview", "Money", MONEY, "Finance is part of Money.");
-    await expect(money.locator("[data-area-section='company']")).toHaveText(/^Company: (Northwind Skincare Ltd: (nothing is due|\d+ filings? (is|are) (due|overdue))[^.]*\.|Your company is (not incorporated yet|being incorporated)\.)$/);
+    // The Company line counts Compliance's 30-day window ("Due within 30 days"); with nothing inside it, it names the next filing.
+    const DAY = String.raw`[A-Z][a-z]{2} \d{1,2}(, \d{4})?`;
+    const COMPANY = new RegExp(
+      String.raw`^Company: (Northwind Skincare Ltd: (\d+ filings? (is|are) due in the next 30 days, (on|the first on) ${DAY}|nothing is due in the next 30 days(; the next filing is ${DAY}|, and no later filing is on the calendar)|\d+ filings? (is|are) overdue(, and \d+ more (is|are) due in the next 30 days)?)\.|Your company is (not incorporated yet|being incorporated)\.)$`,
+    );
+    await expect(money.locator("[data-area-section='company']")).toHaveText(COMPANY);
     await opening("d/finance/runway", "Money", MONEY);
     const legal = await opening("d/legal/entity", "Money", MONEY, "Legal is part of Money, in its Company section.");
     await expect(legal.locator("[data-area-section='company']")).toBeVisible();
+    // One fact: the line's due-soon count is the Compliance tile's "Due within 30 days", on the same page.
+    const compliance = await opening("d/legal/compliance", "Money", MONEY);
+    await expect(compliance.locator("[data-area-section='company']")).toHaveText(COMPANY, { timeout: LONG });
+    const companyLine = (await compliance.locator("[data-area-section='company']").textContent()) ?? "";
+    const dueTile = page.locator("[data-metric-tile]").filter({ has: page.locator("[data-metric-label]", { hasText: /^Due within 30 days$/ }) });
+    await expect(dueTile.locator("[data-value]")).toHaveAttribute("data-value", /^\d+$/, { timeout: LONG });
+    const tileCount = Number(await dueTile.locator("[data-value]").getAttribute("data-value"));
+    const lineCount = Number(/(\d+) (?:more )?(?:filings? )?(?:is|are) due in the next 30 days/.exec(companyLine)?.[1] ?? 0);
+    expect(lineCount, companyLine).toBe(tileCount);
 
     // Plan: the goal (or that none is set) and what is in Now, on the Roadmap and on Milestones.
     const PLAN = /^(Your goal: .+\.|A goal waits for your answer: .+\.|No goal is set yet\.)( .+)?( \d+ things? (is|are) in Now.*| \d+ things? in Now (is|are) done\.| Nothing is in Now on the roadmap yet\.)(Estimate|Forecast)?$/;

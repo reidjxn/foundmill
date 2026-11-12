@@ -16,6 +16,7 @@ import { createHolidayActivities } from "./holiday";
 import { createJourneyActivities } from "./journey";
 import { createMergeActivities } from "./merge";
 import { createMiscActivities } from "./misc";
+import { createNotifyActivities } from "./notify";
 import { createPlanActivities } from "./plan";
 import { createRoadmapPlanActivities } from "./roadmap-plan";
 import { createScheduleActivities } from "./schedules";
@@ -47,6 +48,7 @@ export function createActivities(deps: OrchestratorDeps) {
     ...createScheduleActivities(deps),
     ...createAutopilotActivities(deps),
     ...createSourceWatcherActivities(deps),
+    ...createNotifyActivities(deps),
   };
 }
 

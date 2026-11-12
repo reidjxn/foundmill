@@ -19,6 +19,9 @@ export const AutopilotSettingsInput = z.object({
   /** USD cents per UTC day (an Estimate); null: the credits left. */
   spendCeilingMinor: MinorAmount.nonnegative().nullable().optional(),
   maxIdleCycles: z.number().int().min(L.maxIdleCycles.min).max(L.maxIdleCycles.max).optional(),
+  /** Autopilot's own limits (0084): cycles it starts itself per UTC day, and their spend in USD cents; null: none. */
+  ownMaxCyclesPerDay: z.number().int().min(L.maxCyclesPerDay.min).max(L.maxCyclesPerDay.max).nullable().optional(),
+  ownSpendCeilingMinor: MinorAmount.nonnegative().nullable().optional(),
 });
 export type AutopilotSettingsInput = z.input<typeof AutopilotSettingsInput>;
 
@@ -34,14 +37,22 @@ export interface SetAutopilotResult {
   /** A cadence, hour or limit is now different from what it was. */
   settingsChanged: boolean;
   /** The row before the change. */
-  before: Pick<Business, "autopilotEnabled" | "autopilotPausedReason" | "autopilotCadence" | "autopilotDailyHour" | "autopilotMaxCyclesPerDay" | "autopilotSpendCeilingMinor" | "autopilotMaxIdleCycles">;
+  before: Pick<Business, "autopilotEnabled" | "autopilotPausedReason" | "autopilotCadence" | "autopilotDailyHour" | "autopilotMaxCyclesPerDay" | "autopilotSpendCeilingMinor" | "autopilotMaxIdleCycles" | "autopilotOwnMaxCyclesPerDay" | "autopilotOwnSpendCeilingMinor">;
 }
 
 const notArchived = isNull(businesses.archivedAt);
 
 /** The settings columns of a business row, as the pure decision reads them. */
-export function autopilotSettingsOf(b: Pick<Business, "autopilotCadence" | "autopilotDailyHour" | "autopilotMaxCyclesPerDay" | "autopilotSpendCeilingMinor" | "autopilotMaxIdleCycles">): AutopilotSettings {
-  return { cadence: b.autopilotCadence, dailyHour: b.autopilotDailyHour, maxCyclesPerDay: b.autopilotMaxCyclesPerDay, spendCeilingMinor: b.autopilotSpendCeilingMinor === null ? null : Number(b.autopilotSpendCeilingMinor), maxIdleCycles: b.autopilotMaxIdleCycles };
+export function autopilotSettingsOf(b: Pick<Business, "autopilotCadence" | "autopilotDailyHour" | "autopilotMaxCyclesPerDay" | "autopilotSpendCeilingMinor" | "autopilotMaxIdleCycles"> & Partial<Pick<Business, "autopilotOwnMaxCyclesPerDay" | "autopilotOwnSpendCeilingMinor">>): AutopilotSettings {
+  return {
+    cadence: b.autopilotCadence,
+    dailyHour: b.autopilotDailyHour,
+    maxCyclesPerDay: b.autopilotMaxCyclesPerDay,
+    spendCeilingMinor: b.autopilotSpendCeilingMinor === null ? null : Number(b.autopilotSpendCeilingMinor),
+    maxIdleCycles: b.autopilotMaxIdleCycles,
+    ownMaxCyclesPerDay: b.autopilotOwnMaxCyclesPerDay ?? null,
+    ownSpendCeilingMinor: b.autopilotOwnSpendCeilingMinor === null || b.autopilotOwnSpendCeilingMinor === undefined ? null : Number(b.autopilotOwnSpendCeilingMinor),
+  };
 }
 
 export const autopilotRepo = {
@@ -65,15 +76,19 @@ export const autopilotRepo = {
         (v.dailyHour !== undefined && v.dailyHour !== row.autopilotDailyHour) ||
         (v.maxCyclesPerDay !== undefined && v.maxCyclesPerDay !== row.autopilotMaxCyclesPerDay) ||
         (v.spendCeilingMinor !== undefined && !sameMinor(v.spendCeilingMinor, row.autopilotSpendCeilingMinor)) ||
-        (v.maxIdleCycles !== undefined && v.maxIdleCycles !== row.autopilotMaxIdleCycles);
+        (v.maxIdleCycles !== undefined && v.maxIdleCycles !== row.autopilotMaxIdleCycles) ||
+        (v.ownMaxCyclesPerDay !== undefined && v.ownMaxCyclesPerDay !== row.autopilotOwnMaxCyclesPerDay) ||
+        (v.ownSpendCeilingMinor !== undefined && !sameMinor(v.ownSpendCeilingMinor, row.autopilotOwnSpendCeilingMinor));
       if (v.cadence !== undefined) patch.autopilotCadence = v.cadence;
       if (v.dailyHour !== undefined) patch.autopilotDailyHour = v.dailyHour;
       if (v.maxCyclesPerDay !== undefined) patch.autopilotMaxCyclesPerDay = v.maxCyclesPerDay;
       if (v.spendCeilingMinor !== undefined) patch.autopilotSpendCeilingMinor = v.spendCeilingMinor;
       if (v.maxIdleCycles !== undefined) patch.autopilotMaxIdleCycles = v.maxIdleCycles;
+      if (v.ownMaxCyclesPerDay !== undefined) patch.autopilotOwnMaxCyclesPerDay = v.ownMaxCyclesPerDay;
+      if (v.ownSpendCeilingMinor !== undefined) patch.autopilotOwnSpendCeilingMinor = v.ownSpendCeilingMinor;
       if (v.enabled !== undefined) patch.autopilotEnabled = v.enabled;
       if (turnedOn || turnedOff) Object.assign(patch, { autopilotPausedReason: null, autopilotChangedAt: at, autopilotNextAt: null });
-      const before = { autopilotEnabled: row.autopilotEnabled, autopilotPausedReason: row.autopilotPausedReason, autopilotCadence: row.autopilotCadence, autopilotDailyHour: row.autopilotDailyHour, autopilotMaxCyclesPerDay: row.autopilotMaxCyclesPerDay, autopilotSpendCeilingMinor: row.autopilotSpendCeilingMinor, autopilotMaxIdleCycles: row.autopilotMaxIdleCycles };
+      const before = { autopilotEnabled: row.autopilotEnabled, autopilotPausedReason: row.autopilotPausedReason, autopilotCadence: row.autopilotCadence, autopilotDailyHour: row.autopilotDailyHour, autopilotMaxCyclesPerDay: row.autopilotMaxCyclesPerDay, autopilotSpendCeilingMinor: row.autopilotSpendCeilingMinor, autopilotMaxIdleCycles: row.autopilotMaxIdleCycles, autopilotOwnMaxCyclesPerDay: row.autopilotOwnMaxCyclesPerDay, autopilotOwnSpendCeilingMinor: row.autopilotOwnSpendCeilingMinor };
       if (Object.keys(patch).length === 0) return { business: row, turnedOn, turnedOff, settingsChanged, before };
       const updated = one(await tx.update(businesses).set(patch).where(eq(businesses.id, businessId)).returning(), "business", businessId);
       return { business: updated, turnedOn, turnedOff, settingsChanged, before };

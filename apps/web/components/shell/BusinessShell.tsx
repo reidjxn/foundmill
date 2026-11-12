@@ -27,6 +27,8 @@ import { agentsStoppedView } from "@/lib/agents-stopped";
 import { formatMoney as formatCredits } from "@/lib/format";
 import { SIDEBAR_COLLAPSED_PREFIX } from "@/lib/auth/constants";
 import { rememberLastBusiness } from "@/lib/auth/last-business";
+import { usePresencePing } from "@/lib/presence";
+import { showWinNotice, winNoticeFor } from "@/lib/browser-notifications";
 import { accountRoutes } from "@/lib/account-routes";
 import { readOnlyReason, sampleMarker, type Access, type SampleMarker } from "@/lib/access";
 import { CONTINUE_RUN_END_REASONS, RUN_UNTIL_DONE, continueRunEndedMessage, type ContinueRunEndReason } from "@foundmill/shared";
@@ -54,7 +56,7 @@ import { SpecUserProvider, specUserName } from "@/components/spec/spec-user";
 import { AgentDeskHost, prefetchAgentDesk, type AgentDeskApi } from "@/components/conversation/DeskHost";
 import { useNetworkBadge } from "@/components/live/signals";
 import { termsFor } from "@/components/providers/GuidanceHost";
-import { agentOfAskItem, askPaletteItems, askQuestion, generatePaletteItems, paletteAgents } from "@/components/conversation/palette";
+import { agentOfAskItem, agentOfCallItem, askPaletteItems, askQuestion, callPaletteItems, generatePaletteItems, paletteAgents } from "@/components/conversation/palette";
 import { BusinessProvider, makeBusinessContext, type BusinessGet, type DepartmentList } from "./business-context";
 import { switcherBusinesses } from "./business-switcher";
 import { AskChief } from "./AskChief";
@@ -118,6 +120,11 @@ export const INVALIDATE_ON_EVENT: Record<string, readonly string[]> = {
   // Stop all agents and its resume write one per agent (from any tab or service): the business carries the stop flag.
   "agent.health_changed": ["department", "team", "business"],
   "mode.changed": ["business"],
+  // A public page published or taken down from another tab or by another owner (0077): the tab and Today's line follow.
+  "page.published": ["page", "today"],
+  "page.unpublished": ["page", "today"],
+  // Someone followed the page (0079): its count and the contact lists follow; Today does not change.
+  "page.followed": ["page", "crm"],
   // A rename or new brand colors saved in another tab or by a co-founder (audit RES-07).
   "business.updated": ["business"],
   // Autopilot turned on or off, its settings changed, or a guard rail paused it: the chip and Settings read business.autopilot.
@@ -154,6 +161,10 @@ export const INVALIDATE_ON_EVENT: Record<string, readonly string[]> = {
   // Someone's role or section permissions changed (maybe this reader's): the business carries the reader's own role
   // and walls, the Team the staff list. apps/stream has already re-checked the reader's open channels.
   "membership.changed": ["business", "team"],
+  // A team call started (here or in another tab) or ended: the lobby's list follows; an ended call has filed its actions,
+  // so the Inbox note, the plans, the tasks, the roadmap and Today follow too (docs/TEAM_CALL.md §5).
+  "team_call.started": ["teamCall"],
+  "team_call.ended": ["teamCall", "inbox", "plan", "dev", "product", "today"],
 };
 
 function readCollapsed(businessId: string): boolean {
@@ -445,9 +456,17 @@ function ShellInner({ businessId, initialBusiness, initialDepartments, viewer, c
     claimZoneFor({ businessId, timeZone: zone });
   }, [businessId, business.timeZone, data.role, claimZoneFor]);
 
+  // Opt-in browser notifications for wins (Settings › Preferences › Email; retention plan, 2026-11-11).
+  const notifyPrefs = useQuery(trpc.founder.email.get.queryOptions(undefined, { staleTime: 5 * 60_000 }));
+  const browserNotices = notifyPrefs.data?.browserNotifications === true;
+
   useStreamSubscription(`ev:${businessId}`, (raw) => {
     const event: WidgetEvent | null = readWidgetEvent(raw);
     if (!event) return;
+    if (browserNotices) {
+      const notice = winNoticeFor(event, { id: businessId, name: business.name });
+      if (notice) showWinNotice(notice, (href) => router.push(href));
+    }
     if ((CYCLE_EVENT_TYPES as readonly string[]).includes(event.type)) dispatch({ type: "event", event, agentDepartment });
     // The orchestrator's own mark catches the strip up: its sentence takes over from the press's answer.
     if (event.type === "cycle.started") announce(null, null);
@@ -468,6 +487,9 @@ function ShellInner({ businessId, initialBusiness, initialDepartments, viewer, c
   useEffect(() => {
     rememberLastBusiness(businessId);
   }, [businessId]);
+
+  // --- presence: the founder is here (sessions, "Since you were last here", returns from notifications) ------------
+  usePresencePing(businessId);
 
   // --- sidebar -------------------------------------------------------------------------------------------------
   const [collapsed, setCollapsed] = useState(false);
@@ -699,6 +721,18 @@ function ShellInner({ businessId, initialBusiness, initialDepartments, viewer, c
   const askText = parsed?.text ?? searchText;
   const askItems = useMemo(() => askPaletteItems(agents, askText, (a) => <Avatar size={20} name={a.name} agent={{ seed: a.avatarSeed, dept: a.dept, personaKey: a.personaKey }} />), [agents, askText]);
   const generateItems = useMemo(() => generatePaletteItems(businessId, departments, builder), [businessId, departments, builder]);
+  // "Call <agent>" (docs/TEAM_CALL.md §6): one-to-one calls, offered once the query names an agent or says "call", to whoever may write the Team section.
+  const callItems = useMemo(() => (access.canWrite("team") ? callPaletteItems(agents, askText, (a) => <Avatar size={20} name={a.name} agent={{ seed: a.avatarSeed, dept: a.dept, personaKey: a.personaKey }} />) : []), [agents, askText, access]);
+  const startCall = useMutation(
+    trpc.teamCall.start.mutationOptions({
+      onSuccess: (call) => {
+        queryClient.setQueryData(trpc.teamCall.get.queryKey({ businessId, callId: call.id }), call);
+        router.push(routes.call(businessId, call.id));
+      },
+      onError: (err) => toast({ title: "The call did not start", description: errorMessage(err), tone: "bad" }),
+    }),
+  );
+  const allPaletteItems = useMemo(() => [...paletteItems, ...callItems], [paletteItems, callItems]);
   const onAsk = useCallback(
     (item: PaletteItem, text: string) => {
       const a = agentOfAskItem(item, agents);
@@ -712,6 +746,8 @@ function ShellInner({ businessId, initialBusiness, initialDepartments, viewer, c
     (item: PaletteItem) => {
       setSearchOpen(false);
       if (item.id === "command:refresh-inbox") return refreshInbox.mutate({ businessId });
+      const callee = agentOfCallItem(item, agents);
+      if (callee) return startCall.mutate({ businessId, kind: "one_to_one", agentIds: [callee.id] });
       if (item.id === "command:edit-layout") return shortcuts.onEditLayout?.();
       // While the team is stopped the same place holds Resume agents, which says so.
       if (item.id === "command:stop-all") return document.querySelector<HTMLButtonElement>("[data-testid=stop-all-trigger], [data-testid=resume-agents-trigger]")?.click();
@@ -719,7 +755,7 @@ function ShellInner({ businessId, initialBusiness, initialDepartments, viewer, c
       if (item.id.startsWith("business:")) rememberLastBusiness(item.id.slice("business:".length));
       if (item.href) router.push(item.href);
     },
-    [router, refreshInbox, businessId, shortcuts, setSearchOpen],
+    [router, refreshInbox, startCall, agents, businessId, shortcuts, setSearchOpen],
   );
 
   // --- providers for the surfaces below ---------------------------------------------------------------------------
@@ -770,6 +806,7 @@ function ShellInner({ businessId, initialBusiness, initialDepartments, viewer, c
       onNewBusiness: () => router.push(accountRoutes.newBusiness),
       onManageBusinesses: () => router.push(accountRoutes.businesses),
       onProfile: () => router.push(accountRoutes.profile),
+      onPublicProfile: () => router.push(accountRoutes.publicProfile),
       pendingBusinessId: switching ? switchingTo : null,
     }),
     [businessesData, businessesLoading, businessesFailed, refetchBusinesses, businessId, business.name, business.isDemo, data.kit.primary, data.role, access.isExample, logoSrc, businessLogos, wantBusinesses, openBusiness, router, switching, switchingTo],
@@ -850,7 +887,7 @@ function ShellInner({ businessId, initialBusiness, initialDepartments, viewer, c
                 pageActions={<AskChief desk={deskApi} />}
                 rightRail={chrome.rightRail}
                 search={{
-                  items: paletteItems,
+                  items: allPaletteItems,
                   query: searchText,
                   onQueryChange,
                   remote: true,

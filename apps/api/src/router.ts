@@ -9,9 +9,10 @@ import { crmRouter } from "./routers/crm";
 import { cycleRouter } from "./routers/cycle";
 import { dashboardRouter, departmentRouter, screenRouter } from "./routers/department";
 import { devRouter } from "./routers/dev";
+import { emailRouter } from "./routers/email";
 import { distributionRouter } from "./routers/distribution";
 import { financeRouter } from "./routers/finance";
-import { founderRouter } from "./routers/founder";
+import { founderRouter, publicPersonRouter } from "./routers/founder";
 import { goalRouter } from "./routers/goal";
 import { ideaRouter } from "./routers/idea";
 import { importRouter } from "./routers/import";
@@ -20,16 +21,19 @@ import { integrationsRouter, keysRouter } from "./routers/integrations";
 import { journeyRouter } from "./routers/journey";
 import { legalRouter } from "./routers/legal";
 import { liveRouter } from "./routers/live";
+import { pageRouter, publicPageRouter } from "./routers/page";
 import { productRouter } from "./routers/product";
 import { teamRouter } from "./routers/team";
 import { todayRouter } from "./routers/today";
 import { chiefOfStaffRouter } from "./routers/chief-of-staff";
 import { conversationRouter } from "./routers/conversation";
+import { speechAccentRouter, teamCallRouter } from "./routers/team-call";
 import { createCallerFactory, mergeRouters, publicProcedure, router } from "./trpc";
 
 export const appRouter = router({
   health: publicProcedure.query(() => ({ ok: true })),
   founder: founderRouter,
+  email: emailRouter,
   idea: ideaRouter,
   business: businessRouter,
   cycle: cycleRouter,
@@ -42,6 +46,9 @@ export const appRouter = router({
   journey: journeyRouter,
   product: productRouter,
   goal: goalRouter,
+  page: pageRouter,
+  publicPage: publicPageRouter,
+  publicPerson: publicPersonRouter,
   today: todayRouter,
   chiefOfStaff: chiefOfStaffRouter,
   dev: devRouter,
@@ -49,7 +56,8 @@ export const appRouter = router({
   finance: financeRouter,
   team: teamRouter,
   // agent.conversation.* (the agent's desk) sits beside agent.profile/training/model/autonomy/negotiation.
-  agent: mergeRouters(agentRouter, router({ conversation: conversationRouter })),
+  agent: mergeRouters(agentRouter, router({ conversation: conversationRouter, speechAccent: speechAccentRouter })),
+  teamCall: teamCallRouter,
   legal: legalRouter,
   crm: crmRouter,
   integrations: integrationsRouter,

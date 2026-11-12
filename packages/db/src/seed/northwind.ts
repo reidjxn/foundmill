@@ -14,7 +14,7 @@ import { DEMO_OWNER_DISPLAY_NAME, DEMO_SEED_AUDIT_ACTION, NORTHWIND_BUSINESS_ID,
 import { addDays, atHour, mention, money, pct, proseDoc, type SeedCtx } from "./context";
 import { recordSampleRows } from "./roll-forward";
 import { seedFinance } from "./finance";
-import { seedJourney } from "./journey";
+import { seedJourney, seedRevenueMilestones } from "./journey";
 import { seedLegal } from "./legal";
 import { seedNorthwindResearch } from "./research";
 import { applyAgentStatuses, seedSquad } from "./squad";
@@ -370,9 +370,9 @@ export async function seedNorthwind(ctx: SeedCtx): Promise<SeededBusiness> {
   const latest = journey.latestPayments[0];
   const won = latest ? mention(latest.customer.entityId, latest.customer.displayName) : "a new customer";
   const runwayText = finance.runwayMonths === null ? "no runway limit yet, as the business stays cash-flow positive" : `${finance.runwayMonths} months of runway (Estimate)`;
-  const trophy = journey.data.milestones.filter((m) => m.trophyKey).at(-1);
-  // A non-recurring business's "MRR" is its trailing 30-day revenue: the milestone says Estimate.
-  const trophyLabel = trophy ? `${trophy.label}${trophy.ref?.estimate === true ? " (Estimate)" : ""}` : "";
+  // Revenue milestones from Finance's monthly figure (the bank seeded above); a revenue milestone says Estimate.
+  const trophy = await seedRevenueMilestones(ctx, businessId, "private");
+  const trophyLabel = trophy ? `${trophy.label}${trophy.estimate ? " (Estimate)" : ""}` : "";
   const inboxDrafts: Array<InboxSpec | null> = [
     {
       type: "decision",

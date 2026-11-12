@@ -238,6 +238,9 @@ describe("status strip (AC-11.3.6: numbers come from live queries, never the not
     for (const t of [mrr, revenue, fromPnl]) expect(t!.caption).not.toMatch(/\d{4}-\d{2}/);
     // No finance data yet: no figure, not a made-up zero.
     expect(statusStripTiles([{ metric: "mrr", source: "x" }], { finance: null, now })[0]).toMatchObject({ value: null });
+    // A business whose customers buy once reads "Monthly revenue", as Finance and the milestones name it (the same figure).
+    const [oneOff] = statusStripTiles([{ metric: "mrr", source: "x" }], { finance: { ...finance, revenue: { monthly, recurring: false } }, now });
+    expect(oneOff).toMatchObject({ label: "Monthly revenue", value: { amountMinor: 13_233_333 } });
   });
   it("a refresh folds the fresh first page into the held one, so older pages are not fetched again (audit SOAK-09)", () => {
     const note = (n: number) => ({ id: `00000000-0000-4000-8000-${String(n).padStart(12, "0")}`, createdAt: new Date(Date.UTC(2026, 9, 1, 0, n)).toISOString() });

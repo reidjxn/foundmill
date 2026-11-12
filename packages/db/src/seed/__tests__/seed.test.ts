@@ -299,7 +299,7 @@ describe("seedDemo on PGlite", () => {
     expect(customerPage.items.every((e) => e.roles.some((r) => r.role === "customer"))).toBe(true);
   }, 600_000); // the role-filtered CRM page scans every seeded customer on PGlite (slow, not wrong)
 
-  it("gives Ledgerly its LIVE extras: holiday, GitHub repo, Stripe payments, cap table with two SAFEs, community, leaderboard, training", async () => {
+  it("gives Ledgerly its LIVE extras: holiday, GitHub repo, Stripe payments, cap table with two SAFEs, community, training", async () => {
     // The vacation runs eleven days past the seed's own today, so "current" is read as of that day, not the real clock.
     const holiday = await repos.holidays.current(db, LEDGERLY_BUSINESS_ID, TODAY);
     expect(holiday).not.toBeNull();
@@ -323,9 +323,6 @@ describe("seedDemo on PGlite", () => {
     expect(feed.items).toHaveLength(2);
     expect((await repos.social.replyCounts(db, feed.items.map((p) => p.id))).size).toBe(1);
     expect(await repos.social.getCommunityBySlug(db, BOOTSTRAPPED_COMMUNITY_SLUG)).toMatchObject({ visibility: "public", memberCount: 0, ownerBusinessId: null });
-    // Verified metrics only: Ledgerly is first on both of its boards.
-    const positions = await repos.social.positionsForBusiness(db, LEDGERLY_BUSINESS_ID);
-    expect(positions.map((p) => [p.board.boardKind, p.position]).sort()).toEqual([["customers_won", 1], ["growth", 1]]);
     expect(await repos.approvals.countPending(db, LEDGERLY_BUSINESS_ID)).toBe(1);
     const backend = (await repos.agents.list(db, LEDGERLY_BUSINESS_ID, { agentType: "backend_engineer" })).items[0]!;
     expect((await repos.agents.listVersions(db, LEDGERLY_BUSINESS_ID, backend.id)).length).toBe(2);
@@ -372,7 +369,7 @@ describe("seedDemo on PGlite", () => {
     // The subscription business's renewals are payments that are not new customers: its revenue is the records' revenue.
     const renewals = await scalar(`select count(*)::int as n from conversions where business_id = '${LEDGERLY_BUSINESS_ID}' and kind = 'payment' and not first_payment`);
     expect(renewals).toBeGreaterThan(0);
-    // Northwind has no subscriptions: its "MRR" milestones are trailing 30-day revenue and say Estimate.
+    // Revenue milestones are Finance's monthly figure, an Estimate (Northwind has no subscriptions: "monthly revenue").
     const mrr = await db.select().from(s.milestones).where(eq(s.milestones.businessId, NORTHWIND_BUSINESS_ID));
     for (const m of mrr.filter((x) => String((x.ref as Record<string, unknown>)?.trophyKey ?? "").startsWith("mrr_"))) expect(m.ref).toMatchObject({ estimate: true });
   }, 120_000);

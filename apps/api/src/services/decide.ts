@@ -20,7 +20,7 @@
  */
 import { classifyFounderText } from "@foundmill/agents";
 import { approvalOutcomeOf, closeApprovalItem, repos, type Approval, type DbTx, type Decision, type InboxItem, type PlanWithActions } from "@foundmill/db";
-import { ValidationError, endSentence, hasSectionAccess, type SectionMembership } from "@foundmill/shared";
+import { ONE_CLICK_ACTION_TYPES, ValidationError, endSentence, hasSectionAccess, isPageReadyDecision, type SectionMembership } from "@foundmill/shared";
 import type { BusinessContext } from "../trpc";
 import { audit, emit } from "../trpc";
 import { assertApprovalAccess, deliverApprovalAnswer, recordApprovalAnswer, type ApprovalAnswer } from "./approvals";
@@ -28,6 +28,7 @@ import { assertMayConfirmAsks } from "./approver";
 import { idsOfItem, inboxWalls, isWalled, loadRedactionSource, mentionIds, noteMask, redactInboxItem, redactPlan, redactValue } from "./inbox-redaction";
 import { startModelRetests } from "./agent-model";
 import { decideGoalItem } from "./goals";
+import { decidePageNote } from "./pages";
 import { decideSignoffItem } from "./signoff";
 import { assertInstructionSectionAccess, assertPlanSectionAccess, choiceOf, compileOptionPlan, compilePlan, dispatchPlan, evaluatePlan, executePlanActions, planSectionRefusal, redispatchPlans, requiresConfirmation, stagedAction, syncChannelEngines, type ActionEvaluation, type ChannelToggle, type DecisionOption, type DispatchResult, type ModelRetests, type PlanContext } from "./plans";
 
@@ -73,6 +74,24 @@ export function decidesByText(item: Pick<InboxItem, "state" | "decision">): bool
   return item.state !== "answered" && item.state !== "archived" && !!decision && decision.free_text !== false;
 }
 
+/**
+ * Whether a one-click answer from a founder email may give this option now (retention plan and its security review,
+ * 2026-11-11): the option's plan is compiled exactly as a click in the Inbox would compile it and checked against the
+ * policies, and every action must be one of ONE_CLICK_ACTION_TYPES, allowed without asking, and not a hard gate. An
+ * approval or a sign-off is never answered this way; the goal's approval (decided in-process, no plan) is.
+ */
+export async function oneClickPlanAllowed(ctx: BusinessContext, itemId: string, optionId: string): Promise<boolean> {
+  const item = await ctx.rls((tx) => repos.inbox.get(tx, ctx.businessId, itemId));
+  const option = ((item.decision as ItemDecision | null)?.options ?? []).find((o) => o.id === optionId);
+  if (!option) return false;
+  if ((await ctx.rls((tx) => repos.approvals.listForInboxItem(tx, ctx.businessId, item.id))).length > 0) return false;
+  if (await ctx.rls((tx) => repos.productSignoffs.forInboxItem(tx, ctx.businessId, item.id))) return false;
+  if (await ctx.rls((tx) => repos.goals.forInboxItem(tx, ctx.businessId, item.id))) return true;
+  const planCtx = { ...(await planContextFor(ctx)), choice: choiceOf(option) };
+  const evaluations = evaluatePlan(compileOptionPlan(option, item, planCtx).actions, planCtx);
+  return evaluations.length > 0 && evaluations.every((e) => e.outcome === "allow" && !e.hardGate && ONE_CLICK_ACTION_TYPES.includes(e.action.type));
+}
+
 export async function decideInboxItem(ctx: BusinessContext, input: DecideItemInput): Promise<DecideItemResult> {
   const chosenOption = input.chosenOption?.trim() || null;
   const freeText = input.freeText?.trim() || null;
@@ -108,6 +127,8 @@ export async function decideInboxItem(ctx: BusinessContext, input: DecideItemInp
   // proposal follows); decided in-process, no plan compiler.
   const goal = await ctx.rls((tx) => repos.goals.forInboxItem(tx, ctx.businessId, item.id));
   if (goal) return decideGoalItem(ctx, item, goal, { chosenOption, freeText });
+  // The Product lead's "Your project's page is ready" (package 1.3): Check it and publish, or Later; decided in-process.
+  if (isPageReadyDecision(item.decision) && item.fromAgentId) return decidePageNote(ctx, item, { chosenOption, freeText });
   if (freeText && !chosenOption && decision.free_text === false) throw new ValidationError("This decision takes one of its options. Pick one, or talk it through with the agent first.", { route: "conversation", itemId: item.id });
   const options = decision.options ?? [];
   const option = chosenOption ? options.find((o) => o.id === chosenOption) : undefined;
@@ -135,7 +156,7 @@ export async function decideInboxItem(ctx: BusinessContext, input: DecideItemInp
       actions: evaluations.map(stagedAction),
     });
     const decided = await repos.inbox.decide(tx, ctx.businessId, item.id, { chosenOption, freeText, decidedByKind: "user", decidedBy: ctx.userId, planId: plan.id });
-    const exec = confirm ? { ...NOTHING_RUN, deferred: plan.actions.map((a) => a.id) } : await executePlanActions(tx, ctx.businessId, plan, { actorUserId: ctx.userId, temporal: ctx.temporal, currency: planCtx.currency });
+    const exec = confirm ? { ...NOTHING_RUN, deferred: plan.actions.map((a) => a.id) } : await executePlanActions(tx, ctx.businessId, plan, { actorUserId: ctx.userId, temporal: ctx.temporal, currency: planCtx.currency, availability: ctx });
 
     await emit(tx, ctx, {
       type: "decision.made",
@@ -279,7 +300,7 @@ export async function confirmPlan(ctx: BusinessContext, planId: string) {
     const claimed = await repos.plans.claimConfirmation(tx, ctx.businessId, planId);
     if (!claimed) return { plan: await repos.plans.get(tx, ctx.businessId, planId), exec: NOTHING_RUN, item: null, alreadyConfirmed: true };
     const confirmed = await repos.plans.get(tx, ctx.businessId, planId);
-    const exec = await executePlanActions(tx, ctx.businessId, confirmed, { actorUserId: ctx.userId, temporal: ctx.temporal, currency: planCtx.currency });
+    const exec = await executePlanActions(tx, ctx.businessId, confirmed, { actorUserId: ctx.userId, temporal: ctx.temporal, currency: planCtx.currency, availability: ctx });
     await audit(tx, ctx, { action: "plan.confirm", target: { kind: "plan", id: planId }, details: { executed: exec.executed.length, deferred: exec.deferred.length } });
     const item = plan.inboxItemId ? await repos.inbox.get(tx, ctx.businessId, plan.inboxItemId) : null;
     return { plan: await repos.plans.get(tx, ctx.businessId, planId), exec, item, alreadyConfirmed: false };

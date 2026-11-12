@@ -1,7 +1,7 @@
 /** 0002 — founder profiles, businesses, ideas (+ the businessId() helper every business-scoped table uses); 0022 — account preferences; 0025 — the business currency. */
-import { AGENT_STOP_REASONS, AGENT_STYLES, ARCHETYPES, AUTOPILOT_CADENCES, AUTOPILOT_PAUSE_REASONS, BUSINESS_MODES, DATA_REGIONS, DATE_FORMAT_PREFERENCES, DEVICE_PLATFORMS, GAME_MODES, GUIDANCE_MODES, MODEL_BILLING, PLAN_TIERS, PUSH_PROVIDERS, TEXT_SIZES, TIME_FORMAT_PREFERENCES, VISIBILITY, type NotificationPrefs } from "@foundmill/shared";
+import { AGENT_STOP_REASONS, AGENT_STYLES, ARCHETYPES, AUTOPILOT_CADENCES, AUTOPILOT_PAUSE_REASONS, BUSINESS_MODES, DATA_REGIONS, DATE_FORMAT_PREFERENCES, DEVICE_PLATFORMS, GAME_MODES, GUIDANCE_MODES, MODEL_BILLING, PERSON_LOOKING_FOR, PLAN_TIERS, PUSH_PROVIDERS, TEXT_SIZES, TIME_FORMAT_PREFERENCES, VISIBILITY, type EmailNotificationPrefs, type NotificationPrefs } from "@foundmill/shared";
 import { sql } from "drizzle-orm";
-import { boolean, char, index, integer, jsonb, numeric, pgTable, text, uniqueIndex, uuid, type AnyPgColumn } from "drizzle-orm/pg-core";
+import { boolean, char, index, integer, jsonb, numeric, pgTable, pgView, text, uniqueIndex, uuid, type AnyPgColumn } from "drizzle-orm/pg-core";
 import { authUsers } from "drizzle-orm/supabase";
 import { archivedAt, currency, emptyArray, emptyObject, id, minor, timestamps, timestampsWithArchive, tstz } from "./_common";
 
@@ -22,11 +22,76 @@ export const founderProfiles = pgTable(
     constraints: text("constraints").array().notNull().default(emptyArray),
     riskAppetite: text("risk_appetite"),
     visibility: text("visibility", { enum: VISIBILITY }).notNull().default("private"),
+    /**
+     * 0080 — the person's own public profile at /u/<handle> (docs/THESIS_REVIEW.md package 2.3): the address, what the
+     * person writes for it, "What are you here for?" (`on_my_own` by default, a complete answer) and the switch. Public
+     * only while `public` is true; only the api (service role) makes it public or changes a public one (trigger
+     * `fm_founder_profiles_public_guard`). Anyone reads it through `public_person_profiles` and nothing else.
+     */
+    handle: text("handle"),
+    headline: text("headline").notNull().default(""),
+    about: text("about").notNull().default(""),
+    strengths: text("strengths").array().notNull().default(emptyArray),
+    wantsToLearn: text("wants_to_learn").array().notNull().default(emptyArray),
+    lookingFor: text("looking_for", { enum: PERSON_LOOKING_FOR }).notNull().default("on_my_own"),
+    place: text("place").notNull().default(""),
+    public: boolean("public").notNull().default(false),
+    /** When the profile last went public (kept after it is taken down). */
+    publishedAt: tstz("published_at"),
     ...timestampsWithArchive(),
   },
+  (t) => [uniqueIndex("founder_profiles_handle_key").on(t.handle)],
 );
 export type FounderProfile = typeof founderProfiles.$inferSelect;
 export type NewFounderProfile = typeof founderProfiles.$inferInsert;
+
+/**
+ * 0080 — a handle a person left (renamed or cleared), kept for them for 90 days (`PERSON_HANDLE_HOLD_DAYS`): another
+ * account cannot take it in that time (trigger `fm_founder_profiles_handle_hold`, and `repos.personProfiles.handleTaken`).
+ * Written by the database's triggers on `founder_profiles`; service role only, no client role reads or writes it.
+ */
+export const personHandleReleases = pgTable(
+  "person_handle_releases",
+  {
+    id: id(),
+    handle: text("handle").notNull().unique(),
+    userId: uuid("user_id").notNull().references(() => authUsers.id, { onDelete: "cascade" }),
+    releasedAt: tstz("released_at").notNull().defaultNow(),
+    ...timestamps(),
+  },
+  (t) => [index("person_handle_releases_user_id_idx").on(t.userId)],
+);
+export type PersonHandleRelease = typeof personHandleReleases.$inferSelect;
+
+/** One project page a public person profile lists (`public_person_profiles.projects`). */
+export interface PublicPersonProject {
+  slug: string;
+  name: string;
+  pitch: string;
+}
+
+/**
+ * 0080 — what anyone may read of a person's public profile, signed in or not, through the api (granted to service_role
+ * only: the api serves it one handle at a time, rate-limited). Exactly these columns: nothing else of the account leaves
+ * through it. Rows only while the profile is public and not archived. `projects`
+ * lists the person's published project pages, only where they are an owner and the page names its founders.
+ */
+export const publicPersonProfiles = pgView("public_person_profiles", {
+  handle: text("handle").notNull(),
+  displayName: text("display_name").notNull(),
+  headline: text("headline").notNull(),
+  about: text("about").notNull(),
+  strengths: text("strengths").array().notNull(),
+  wantsToLearn: text("wants_to_learn").array().notNull(),
+  lookingFor: text("looking_for", { enum: PERSON_LOOKING_FOR }).notNull(),
+  place: text("place").notNull(),
+  publishedAt: tstz("published_at").notNull(),
+  projects: jsonb("projects").$type<PublicPersonProject[]>().notNull(),
+}).existing();
+export type PublicPersonProfile = typeof publicPersonProfiles.$inferSelect;
+
+/** The columns `public_person_profiles` exposes, in order (the view's test compares the catalog with this list). */
+export const PUBLIC_PERSON_PROFILE_COLUMNS = ["handle", "display_name", "headline", "about", "strengths", "wants_to_learn", "looking_for", "place", "published_at", "projects"] as const;
 
 /**
  * 0064 — the guided layer's one switch and the account's type size (docs/UX_AUDIT_AND_PLAN.md §6.3). The tuples live
@@ -59,11 +124,25 @@ export const accountPreferences = pgTable("account_preferences", {
   checklistDismissedAt: tstz("checklist_dismissed_at"),
   anthropomorphicAgents: boolean("anthropomorphic_agents").notNull().default(false),
   agentStyle: text("agent_style", { enum: AGENT_STYLES }).notNull().default("humans"),
-  /** 0075 — which kinds of push the person's phones get (`{ customer: false }`; an absent kind is on). */
-  notifications: jsonb("notifications").$type<Partial<NotificationPrefs>>().notNull().default(emptyObject),
+  /**
+   * 0075 — which kinds of push the person's phones get (`{ customer: false }`; an absent kind is on); and, under `email`,
+   * which kinds of email Foundmill sends them (`{ email: { decision_waiting: false } }`; an absent kind is on).
+   */
+  notifications: jsonb("notifications").$type<Partial<NotificationPrefs> & { email?: Partial<EmailNotificationPrefs> }>().notNull().default(emptyObject),
   /** 0075 — keep money amounts out of lock-screen notifications. */
   hideAmountsOnLockScreen: boolean("hide_amounts_on_lock_screen").notNull().default(false),
   builderView: boolean("builder_view").notNull().default(false),
+  /** 0082 — share this person's one-to-one calls with the project (default false: private to them). */
+  shareOneToOneCalls: boolean("share_one_to_one_calls").notNull().default(false),
+  /**
+   * 0083 — founder email (retention plan, 2026-11-11): the morning brief's hour and the time zone it is read in (null:
+   * the business's), opt-in browser notifications, and when every email was paused from an email's footer. The switch
+   * for each kind is `notifications.email` above (founder 2026-11-12: one sender, one preference).
+   */
+  briefHour: integer("brief_hour").notNull().default(8),
+  timeZone: text("time_zone"),
+  browserNotifications: boolean("browser_notifications").notNull().default(false),
+  emailsPausedAt: tstz("emails_paused_at"),
   ...timestamps(),
 });
 export type AccountPreferences = typeof accountPreferences.$inferSelect;
@@ -142,7 +221,7 @@ export const businesses = pgTable(
     timeZone: text("time_zone"),
     /**
      * 0044 — a seeded demo business (Northwind, Ledgerly): its numbers are synthetic, so it is never listed on the
-     * network (public views, leaderboards, community owners) for anyone outside it. Set by the seed only.
+     * network (public views, community owners) for anyone outside it. Set by the seed only.
      */
     isDemo: boolean("is_demo").notNull().default(false),
     /**
@@ -161,6 +240,13 @@ export const businesses = pgTable(
     autopilotPausedReason: text("autopilot_paused_reason", { enum: AUTOPILOT_PAUSE_REASONS }),
     autopilotChangedAt: tstz("autopilot_changed_at"),
     autopilotNextAt: tstz("autopilot_next_at"),
+    /**
+     * 0084 — Autopilot's own limits (founder, 2026-11-12): cycles it starts itself per UTC day, and what they may spend
+     * (USD cents, an Estimate; also each such cycle's budget). The shared limits above still bound Continue and
+     * Autopilot alike. Null: none of its own.
+     */
+    autopilotOwnMaxCyclesPerDay: integer("autopilot_own_max_cycles_per_day"),
+    autopilotOwnSpendCeilingMinor: minor("autopilot_own_spend_ceiling_minor"),
     /**
      * 0062 — when the founder started distribution (Distribution › Board › Start distribution, or the "Ready to start
      * selling?" note). Null until then: no channel engine starts, the cycle planner defers channel tasks and the Board

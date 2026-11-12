@@ -5,21 +5,18 @@
 import { CREDITS_CURRENCY, LIMITS } from "@foundmill/config";
 import { CreateEntryInput, CreateForecastInput, CreateSecurityInput, UpdateEntryInput, repos } from "@foundmill/db";
 import { z } from "zod";
-import { revenueIsRecurring } from "@foundmill/shared";
+import { MONTHLY_REVENUE_MONTHS, monthlyRevenueWindow, revenueIsRecurring } from "@foundmill/shared";
 import { Id, audit, emit, router, sectionAdmin, sectionRead, sectionWrite } from "../trpc";
 
 const read = sectionRead("finance");
 const write = sectionWrite("finance");
 const admin = sectionAdmin("finance");
 
-/** Net burn, revenue, MRR and the paying-customer base all read the same trailing full months (BUILD §11.8). */
-const TRAILING_MONTHS = 3;
-
-/** The last `months` full calendar months (UTC) before `now`'s month: [from, to). */
-function trailingMonthsWindow(now: Date, months: number): { from: Date; to: Date } {
-  const to = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
-  return { from: new Date(Date.UTC(to.getUTCFullYear(), to.getUTCMonth() - months, 1)), to };
-}
+/**
+ * Net burn, revenue, MRR and the paying-customer base all read the same trailing full months (BUILD §11.8): the monthly
+ * revenue window of @foundmill/shared/monthly-revenue, which the revenue milestones count too.
+ */
+const TRAILING_MONTHS = MONTHLY_REVENUE_MONTHS;
 
 const Period = z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/, "period is YYYY-MM");
 const currentPeriod = () => new Date().toISOString().slice(0, 7);
@@ -47,7 +44,7 @@ export const financeRouter = router({
   /** Cash, burn, runway (Estimate), revenue (cash basis) and the latest forecast. */
   overview: read.query(({ ctx }) =>
     ctx.rls(async (tx) => {
-      const window = trailingMonthsWindow(new Date(), TRAILING_MONTHS);
+      const window = monthlyRevenueWindow(new Date(), TRAILING_MONTHS);
       const [cash, burn, forecasts, monthly, conversions, payingCustomers] = await Promise.all([
         repos.finance.cashPosition(tx, ctx.businessId),
         repos.finance.netBurn(tx, ctx.businessId, { months: TRAILING_MONTHS }),

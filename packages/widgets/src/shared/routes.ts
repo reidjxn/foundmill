@@ -15,7 +15,9 @@ export const routes = {
   crm: (bid: string, entityId?: string, tab = "overview") => (entityId ? `/b/${bid}/crm/${entityId}/${tab}` : `/b/${bid}/crm`),
   /** Milestones page (CLAUDE.md vocabulary: never "trophies" in anything a user reads; apps/web redirects /trophies here). */
   milestones: (bid: string, shareKey?: string) => (shareKey ? `/b/${bid}/milestones?share=${encodeURIComponent(shareKey)}` : `/b/${bid}/milestones`),
+  /** Team call (docs/TEAM_CALL.md): the lobby, and one call by id. */
+  calls: (bid: string) => `/b/${bid}/calls`,
+  call: (bid: string, callId: string) => `/b/${bid}/calls/${callId}`,
   settings: (bid: string, tab: string) => `/b/${bid}/settings/${tab}`,
-  leaderboard: (boardId: string) => `/leaderboards/${boardId}`,
   community: (communityId: string) => `/communities/${communityId}`,
 } as const;

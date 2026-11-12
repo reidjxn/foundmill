@@ -40,6 +40,11 @@ describe("assertNoLongLivedCredentials (AC-11.6.6)", () => {
     ["LONG_JWT", jwt({ sub: "x", exp: Math.floor(NOW.getTime() / 1000) + 30 * 24 * 3600 }), "value.long_lived_jwt"],
     ["APP_PASSWORD", "hunter2", "name.api_key"],
     ["GITHUB_APP_PRIVATE_KEY", "whatever", "name.platform_secret"],
+    // A project's Foundmill sending address (package 1.5): the signing secret, the Inbound Parse token, the event key.
+    ["PLATFORM_MAIL_SIGNING_SECRET", "a-plain-looking-random-string-of-32-chars", "name.platform_secret"],
+    ["PLATFORM_MAIL_INBOUND_TOKEN", "plain-token", "name.platform_secret"],
+    ["PLATFORM_MAIL_EVENT_PUBLIC_KEY", "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE", "name.platform_secret"],
+    ["SENDGRID_INBOUND_TOKEN", "plain-token", "name.platform_secret"],
   ])("rejects %s (%s) as %s", (name, value, patternId) => {
     const findings = findLongLivedCredentials({ [name]: value }, { now: () => NOW });
     expect(findings).toHaveLength(1);

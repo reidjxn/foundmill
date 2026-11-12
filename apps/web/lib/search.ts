@@ -86,6 +86,9 @@ export function localPaletteItems(input: LocalPaletteInput): PaletteItem[] {
     // "Contacts" on screen, a Customers tab; "crm" stays a keyword so the old name still finds it.
     ...(access.canRead("crm") ? [{ id: "screen:crm", kind: "screen" as const, label: CRM_LABEL, description: AREA_LABELS.customers, href: routes.crm(bid), keywords: ["crm", "contacts", "people", "organizations"] }] : []),
     { id: "screen:milestones", kind: "screen", label: "Milestones", description: AREA_LABELS.plan, href: `/b/${bid}/milestones` },
+    // Team call (docs/TEAM_CALL.md): the lobby, and the one-step "Start a team call" for whoever may speak on one.
+    ...(access.canRead("team") ? [{ id: "screen:calls", kind: "screen" as const, label: "Team call", description: AREA_LABELS.team, href: routes.calls(bid), keywords: ["calls", "call", "meeting", "talk", "video"] }] : []),
+    ...(access.canWrite("team") ? [{ id: "command:start-team-call", kind: "command" as const, label: "Start a team call", description: "Talk your project through with your team", href: routes.calls(bid), keywords: ["call", "team call", "meeting", "talk", "speak", "video"] }] : []),
   ];
   // The founder areas (docs/DESIGN.md §8) with their chords, then every tab under its area's name: "Customers · Leads".
   // Tabs behind "More detail" are offered too; Builder view's only while it is on.
@@ -135,16 +138,14 @@ export function localPaletteItems(input: LocalPaletteInput): PaletteItem[] {
   items.push({ id: "command:new-business", kind: "command", label: "Create a new business", description: "From an idea in the Ideation Studio, or import what already exists", href: accountRoutes.newBusiness, keywords: ["new business", "create", "start", "another", "business", "idea", "import"] });
   items.push({ id: "command:manage-businesses", kind: "command", label: "Manage businesses", description: "Open one, change its settings or restore an archived one", href: accountRoutes.businesses, keywords: ["businesses", "manage", "archived", "restore", "your businesses"] });
   items.push({ id: "command:profile", kind: "command", label: "Your profile", description: "Your founder profile: name, background and preferences", href: "/onboarding", keywords: ["profile", "founder", "account", "me"] });
+  items.push({ id: "command:public-profile", kind: "command", label: "Your public profile", description: "A page about you at its own address, public only when you publish it", href: accountRoutes.publicProfile, keywords: ["public profile", "profile", "page", "about me", "link", "share"] });
   for (const it of input.inboxItems ?? []) {
     if (it.state === "archived") continue;
     items.push({ id: `inbox:${it.id}`, kind: "inbox", label: it.subject, description: it.type.replace(/_/g, " "), href: routes.inbox(bid, it.id) });
   }
   // Network is the founder's own, in every mode (as in the sidebar).
   items.push({ id: "screen:network", kind: "screen", label: "Network", href: "/network" });
-  if (input.live) {
-    items.push({ id: "screen:communities", kind: "screen", label: "Communities", href: "/communities" });
-    items.push({ id: "screen:leaderboards", kind: "screen", label: "Leaderboards", href: "/leaderboards" });
-  }
+  if (input.live) items.push({ id: "screen:communities", kind: "screen", label: "Communities", href: "/communities" });
   return items;
 }
 

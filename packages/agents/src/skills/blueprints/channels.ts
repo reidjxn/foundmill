@@ -35,13 +35,13 @@ export const CHANNEL_BLUEPRINTS: BlueprintSet = {
   lead_sourcing: [
     bp(
       "Source a batch for {business}",
-      "Using the mock Apollo/PDL/Hunter tools, source 50 contacts matching {business}'s target customer (fixture). Enrich, verify emails, record lawful basis and source on each, and report counts: found, enriched, verified, excluded (and why).",
+      "No sourcing, enrichment or email verification tool is available yet. From the CRM, find up to 50 contacts matching {business}'s target customer (fixture), record lawful basis and source on each, mark every email unverified, and report counts: found, unverified, excluded (and why).",
       [
-        "Counts reconcile; exclusions explained (suppression, unverifiable, wrong country basis).",
-        "Each contact has source and lawful basis.",
+        "Counts reconcile; exclusions explained (suppression, wrong country basis).",
+        "Each contact has source and lawful basis; no email is reported as verified or enriched.",
         "No EU/UK consumer contacts for cold email.",
       ],
-      { mockTools: ["apollo.mock.people.search", "people_data_labs.mock.enrich", "hunter.mock.verify", "platform.suppression.check", "platform.crm.entities.create"], fixtures: { icp: "fixtures/channels/icp_{business}.json" }, checks: [CHECK.policy()] },
+      { mockTools: ["platform.crm.entities.search", "platform.suppression.check"], fixtures: { icp: "fixtures/channels/icp_{business}.json" }, checks: [CHECK.policy()] },
     ),
     bp(
       "Enrichment rules at {business}",
@@ -472,13 +472,13 @@ export const CHANNEL_BLUEPRINTS: BlueprintSet = {
   answer_share_analysis: [
     bp(
       "Baseline answer share for {business}",
-      "Using the mock assistant panel tools, run the 20-question set for {business} across 4 assistants, compute the share of answers mentioning the business and {competitor}, label it approximate, and report by question.",
+      "Using the mock assistant panel tool (one assistant is available), run the 20-question set for {business}, compute the share of answers mentioning the business and {competitor}, label it approximate, and report by question.",
       [
         "Share computed correctly and labeled approximate.",
-        "Reported per question and assistant.",
+        "Reported per question, naming the one assistant asked.",
         "Competitor comparison included.",
       ],
-      { mockTools: ["anthropic.mock.panel", "openai.mock.panel", "gemini.mock.panel", "perplexity.mock.panel"], checks: [CHECK.all("approximate")] },
+      { mockTools: ["anthropic.mock.panel"], checks: [CHECK.all("approximate")] },
     ),
     bp(
       "Interpret a share move at {business}",
@@ -628,7 +628,7 @@ export const CHANNEL_BLUEPRINTS: BlueprintSet = {
   community_management: [
     bp(
       "Reply to comments for {business}",
-      "Reply to the fixture comments (10) on {business}'s posts: factual answers with sources, polite handling of criticism, what you escalate (refund request, legal threat, personal data), and what you never promise.",
+      "Draft replies to the fixture comments (10) on {business}'s posts for the founder to post (no tool posts replies yet): factual answers with sources, polite handling of criticism, what you escalate (refund request, legal threat, personal data), and what you never promise.",
       [
         "Replies are factual and polite; criticism handled without defensiveness.",
         "Escalations correct.",
@@ -764,23 +764,23 @@ export const CHANNEL_BLUEPRINTS: BlueprintSet = {
     ),
     bp(
       "Overspend risk at {business}",
-      "A campaign for {business} spent 60% of its lifetime budget in 3 days with its cost to win a customer at the cap. Decide and act: pause, reduce, or continue; justify with numbers; write the report.",
+      "A campaign for {business} spent 60% of its lifetime budget in 3 days with its cost to win a customer at the cap. Decide: pause, reduce, or continue; no ad platform tool is available yet, so the change goes to the founder as a founder task; justify with numbers; write the report.",
       [
         "Decision is proportionate and numeric.",
-        "Action within authority; report factual.",
+        "Action within authority; report factual, never saying the change was made.",
         "Stays within caps.",
       ],
-      { mockTools: TOOLS.ads },
+      { mockTools: TOOLS.board },
     ),
     bp(
       "Shift budget to a winner at {business}",
-      "Fixture: cost to win a customer, campaign A {currency} 98 (14 conversions), B {currency} 212 (3 conversions, 52 hours over cap). Apply the rules, move budget, and state what you do not conclude from 3 conversions.",
+      "Fixture: cost to win a customer, campaign A {currency} 98 (14 conversions), B {currency} 212 (3 conversions, 52 hours over cap). Apply the rules, hand the pause and the budget move to the founder as a founder task (no ad platform tool is available yet), and state what you do not conclude from 3 conversions.",
       [
-        "Pauses B per the 48-hour rule; shifts budget to A.",
+        "Has B paused per the 48-hour rule and budget shifted to A, as a founder task, never reported as done.",
         "Avoids over-reading B's small sample.",
         "Report with ids.",
       ],
-      { fixtures: { results: "fixtures/ads/campaign_results.json" }, mockTools: TOOLS.ads, checks: [CHECK.policy()] },
+      { fixtures: { results: "fixtures/ads/campaign_results.json" }, mockTools: TOOLS.board, checks: [CHECK.policy()] },
     ),
   ],
   conversion_tracking: [
@@ -1132,13 +1132,13 @@ export const CHANNEL_BLUEPRINTS: BlueprintSet = {
   address_hygiene: [
     bp(
       "Clean a mailing list for {business}",
-      "Clean the fixture list (1,200) for {business}: verify addresses with the mock tool, remove undeliverables, apply suppression and do-not-mail registers for {market}, dedupe households, and report counts.",
+      "Clean the fixture list (1,200) for {business}: no address verification tool is available yet, so mark the addresses unverified and say so; apply suppression and do-not-mail registers for {market}, dedupe households, and report counts.",
       [
         "Counts reconcile at each step.",
         "Suppression and registers applied.",
         "Dedup logic sensible.",
       ],
-      { fixtures: { list: "fixtures/mail/list_{business}.json" }, mockTools: ["lob.mock.addresses.verify", "platform.suppression.check"], checks: [CHECK.policy()] },
+      { fixtures: { list: "fixtures/mail/list_{business}.json" }, mockTools: ["platform.suppression.check"], checks: [CHECK.policy()] },
     ),
     bp(
       "Undeliverable spike at {business}",

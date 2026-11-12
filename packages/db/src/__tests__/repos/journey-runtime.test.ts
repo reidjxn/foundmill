@@ -6,7 +6,7 @@
 import { CHANNEL_META } from "@foundmill/shared";
 import { sql } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { awardMilestonesForConversion, catchUpMilestones } from "../../milestones";
+import { awardMilestonesForConversion, awardRevenueMilestones, catchUpMilestones, monthlyRevenueAt } from "../../milestones";
 import { BUSINESS_DELETION_CANCEL_ACTION, BUSINESS_DELETION_REQUEST_ACTION, repos, suppressionHash } from "../../repos";
 import { rowsOf } from "../../repos/_shared";
 import { day, setupRepoHarness, type RepoHarness } from "./helpers";
@@ -57,24 +57,16 @@ describe("milestones from real payments", () => {
     expect((await repos.journeys.listMilestones(r.db, B)).length).toBe(1);
   });
 
-  it("repeat payments add revenue (MRR, labeled Estimate) but no customers; other kinds award nothing", async () => {
+  it("repeat payments are revenue, not customers, and never award a revenue milestone on their own; other kinds award nothing", async () => {
     const B = await newBusiness("Milestone Revenue");
     const p1 = await payment(B, "2026-09-01T09:00:00Z", 60_000);
     await awardMilestonesForConversion(r.db, B, p1.id);
     const renewal = await payment(B, "2026-09-15T09:00:00Z", 50_000, { firstPayment: false });
-    const awarded = await awardMilestonesForConversion(r.db, B, renewal.id);
-    expect(awarded.map((m) => m.ref)).toEqual([expect.objectContaining({ trophyKey: "mrr_1k", estimate: true, basis: "trailing_30_day_revenue" })]);
-    expect(awarded[0]!.label).toBe("First $1K MRR");
+    // Revenue milestones are Finance's monthly figure (bank revenue, last 3 full months ÷ 3), not the payments.
+    expect(await awardMilestonesForConversion(r.db, B, renewal.id)).toEqual([]);
     const signup = await repos.journeys.recordConversion(r.db, B, { kind: "signup" });
     expect(await awardMilestonesForConversion(r.db, B, signup.id)).toEqual([]);
-    expect(await keys(B)).toEqual(["customer_1", "mrr_1k"]);
-  });
-
-  it("revenue older than 30 days does not count toward MRR", async () => {
-    const B = await newBusiness("Milestone Window");
-    await payment(B, "2026-08-01T09:00:00Z", 60_000);
-    const late = await payment(B, "2026-09-15T09:00:00Z", 50_000);
-    expect((await awardMilestonesForConversion(r.db, B, late.id)).map((m) => m.ref?.trophyKey)).toEqual([]);
+    expect(await keys(B)).toEqual(["customer_1"]);
   });
 
   it("the nightly catch-up awards what the live path missed, at the payment that reached it", async () => {
@@ -83,11 +75,73 @@ describe("milestones from real payments", () => {
     for (let i = 0; i < 10; i++) ids.push((await payment(B, `2026-09-${String(i + 1).padStart(2, "0")}T12:00:00Z`, i === 4 ? 1_200_000 : 1_000)).id);
     const found = await catchUpMilestones(r.db, B, { until: day("2026-10-01") });
     const byKey = Object.fromEntries(found.map((m) => [m.ref?.trophyKey, m]));
-    expect(Object.keys(byKey).sort()).toEqual(["customer_1", "customer_10", "first_enterprise_contract", "mrr_10k", "mrr_1k"].sort());
+    // No bank revenue is recorded, so Finance's monthly figure is zero: no revenue milestone.
+    expect(Object.keys(byKey).sort()).toEqual(["customer_1", "customer_10", "first_enterprise_contract"].sort());
     expect(byKey.customer_10!.ref).toMatchObject({ conversionId: ids[9] });
     expect(byKey.first_enterprise_contract!.ref).toMatchObject({ conversionId: ids[4] });
     expect(byKey.customer_1!.achievedAt.toISOString()).toBe("2026-09-01T12:00:00.000Z");
     expect(await catchUpMilestones(r.db, B, { until: day("2026-10-01") })).toEqual([]);
+  });
+});
+
+describe("revenue milestones are Finance's monthly figure (DECISIONS 2026-11-11)", () => {
+  /** A bank account with one transaction per [day, amount, category]. */
+  const bank = async (businessId: string, rows: [string, number, string][], currency = "USD") => {
+    const account = await repos.finance.upsertAccount(r.db, businessId, { provider: "test", externalId: `test:${businessId}`, name: "Current", currency });
+    await repos.finance.upsertTransactions(r.db, businessId, rows.map(([d, amountMinor, category], i) => ({ accountId: account.id, externalId: `t${i}`, bookedAt: new Date(`${d}T10:00:00.000Z`), amountMinor, currency, category, description: category })));
+  };
+
+  it("is reached on the first day of the month whose last 3 full months of revenue ÷ 3 first pass the line, once", async () => {
+    const B = await newBusiness("Revenue Line");
+    await bank(B, [
+      ["2026-07-10", 40_000, "revenue"],
+      ["2026-08-10", 120_000, "revenue"],
+      ["2026-09-10", 150_000, "stripe payout"],
+      ["2026-09-20", -10_000, "refunds"],
+      // Not revenue: a raise and the costs never count.
+      ["2026-09-12", 5_000_000, "financing"],
+      ["2026-09-15", -30_000, "marketing"],
+      // The current partial month never counts.
+      ["2026-10-05", 900_000, "revenue"],
+    ]);
+    // Sep 1: (Jul + Aug) ÷ 3 = 53,333; Oct 1: (40,000 + 120,000 + 140,000) ÷ 3 = 100,000, the $1K line.
+    expect(await monthlyRevenueAt(r.db, B, day("2026-09-15"))).toBe(53_333);
+    expect(await monthlyRevenueAt(r.db, B, day("2026-10-15"))).toBe(100_000);
+    expect(await awardRevenueMilestones(r.db, B, { until: day("2026-09-30") })).toEqual([]);
+    const found = await awardRevenueMilestones(r.db, B, { until: day("2026-10-15") });
+    expect(found.map((m) => m.ref?.trophyKey)).toEqual(["mrr_1k"]);
+    expect(found[0]!.achievedAt.toISOString()).toBe("2026-10-01T00:00:00.000Z");
+    expect(found[0]!.label).toBe("First $1K MRR");
+    expect(found[0]!.ref).toMatchObject({ trophyKey: "mrr_1k", value: 100_000, threshold: 100_000, estimate: true, basis: "last_3_full_months_revenue_div_3", months: 3, recurring: true });
+    // The catch-up and a second run award nothing more.
+    expect(await catchUpMilestones(r.db, B, { until: day("2026-10-15") })).toEqual([]);
+    expect(await awardRevenueMilestones(r.db, B, { until: day("2026-11-15") })).toEqual([]);
+    expect(await keys(B)).toEqual(["mrr_1k"]);
+  });
+
+  it("names it monthly revenue, not MRR, for a business whose customers buy once, in the money Finance shows", async () => {
+    const b = await repos.businesses.create(r.db, { name: "Revenue Once", archetype: "dtc_physical" });
+    await repos.businesses.commit(r.db, b.id, { archetype: "dtc_physical" });
+    await bank(b.id, [["2026-06-03", 1_200_000, "revenue"], ["2026-07-03", 1_800_000, "revenue"], ["2026-08-03", 900_000, "revenue"]], "GBP");
+    const found = await catchUpMilestones(r.db, b.id, { until: day("2026-09-02") });
+    // Jul 1: 400,000; Aug 1: 1,000,000 (£10K); Sep 1: 1,300,000.
+    expect(found.map((m) => [m.ref?.trophyKey, m.achievedAt.toISOString().slice(0, 10), m.label])).toEqual([
+      ["mrr_1k", "2026-07-01", "First £1K monthly revenue"],
+      ["mrr_10k", "2026-08-01", "First £10K monthly revenue"],
+    ]);
+    expect(found[1]!.ref).toMatchObject({ value: 1_000_000, currency: "GBP", recurring: false, estimate: true });
+  });
+
+  it("never rewrites a milestone awarded under the old rule", async () => {
+    const B = await newBusiness("Revenue History");
+    const old = await repos.journeys.awardMilestone(r.db, B, { kind: "revenue", label: "First $1K MRR", achievedAt: new Date("2026-08-15T09:00:00Z"), ref: { trophyKey: "mrr_1k", estimate: true, basis: "trailing_30_day_revenue" } });
+    await bank(B, [["2026-08-10", 600_000, "revenue"], ["2026-09-10", 600_000, "revenue"]]);
+    const found = await awardRevenueMilestones(r.db, B, { until: day("2026-10-15") });
+    expect(found.map((m) => m.ref?.trophyKey)).toEqual([]);
+    const rows = await repos.journeys.listMilestones(r.db, B, {});
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ id: old!.id, ref: { basis: "trailing_30_day_revenue" } });
+    expect(rows[0]!.achievedAt.toISOString()).toBe("2026-08-15T09:00:00.000Z");
   });
 });
 

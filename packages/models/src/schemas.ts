@@ -9,6 +9,10 @@ import {
   Archetype,
   ExhibitKind,
   InboxItemType,
+  PAGE_ABOUT_MAX,
+  PAGE_FOR_WHOM_MAX,
+  PAGE_PITCH_MAX,
+  PAGE_STAGES,
   PlanActionType,
   ResearchArtifactKind,
   RoadmapHorizon,
@@ -403,6 +407,23 @@ export const GoalProposalOutput = z.object({
   custom_words: z.string().max(120).nullable(),
 });
 export type GoalProposalOutput = z.infer<typeof GoalProposalOutput>;
+
+// ---------------------------------------------------------------------------------------------------------------------
+// A project's public page (package 1.2): the Product lead's first draft from the founder's own words. The limits are
+// the shared page schema's (packages/shared project-page.ts); packages/agents `finaliseProjectPage` checks the answer
+// against `ProjectPageDraft` and never sets `showFounders` (that is the founder's choice).
+// ---------------------------------------------------------------------------------------------------------------------
+
+export const ProjectPageOutput = z.object({
+  /** One line, 1 to 140 characters. */
+  pitch: z.string().min(1).max(PAGE_PITCH_MAX),
+  /** 1 to 1,500 characters; paragraphs split on blank lines. */
+  about: z.string().min(1).max(PAGE_ABOUT_MAX),
+  /** "Who it is for", at most 300 characters; empty unless the inputs name an audience. */
+  for_whom: z.string().max(PAGE_FOR_WHOM_MAX),
+  stage: z.enum(PAGE_STAGES),
+});
+export type ProjectPageOutput = z.infer<typeof ProjectPageOutput>;
 
 export const CHART_OF_ACCOUNTS = [
   "revenue",

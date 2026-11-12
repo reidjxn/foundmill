@@ -48,6 +48,24 @@ beforeAll(async () => {
     sendPush: async () => {
       throw new Error("unused");
     },
+    validateKey: async () => {
+      throw new Error("unused");
+    },
+    registryLookup: async () => {
+      throw new Error("unused");
+    },
+    confirmFollow: async () => {
+      throw new Error("unused");
+    },
+    notifyEmail: async () => {
+      throw new Error("unused");
+    },
+    synthesizeSpeech: async () => {
+      throw new Error("unused");
+    },
+    transcribeSpeech: async () => {
+      throw new Error("unused");
+    },
   } satisfies ApiGatewayClient;
   // Live, so the gateway double is the one asked.
   hz = await createApiHarness({ prefix: "team-personas", gateway, env: { LIVE_CONNECTORS: "openai_images" } });

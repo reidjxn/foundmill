@@ -5,7 +5,7 @@ import { ROUTES, type RouteKey } from "../routing";
 import { ClassifierOutput } from "../schemas";
 import type { UsageEvent } from "../types";
 import { MOCK_ROUTES, MockModelClient, listMockRoutes } from "./index";
-import { AGENTS, COMPOSER_INPUT, MANIFEST, ORG_ALDER, PERSON_MARA, promptWith } from "./fixtures.test-helpers";
+import { AGENT_PRIYA, AGENT_TOMAS, AGENTS, COMPOSER_INPUT, MANIFEST, ORG_ALDER, PERSON_MARA, promptWith } from "./fixtures.test-helpers";
 
 const DEPARTMENT_LEAD_INPUT = {
   department: { id: "dept-eng", name: "Engineering" },
@@ -70,6 +70,7 @@ const SAMPLE_INPUT: Record<RouteKey, Record<string, unknown>> = {
   quarantinedReader: { fields: ["price", "moq", "lead_time_days"], content: "Unit price: €4.20 per unit. MOQ 500 units. Lead time 21 days." },
   moderation: { kind: "email", text: "Subject: Welcome\n\nThanks for joining Northwind. Sent by the team at Northwind Skincare Ltd. Unsubscribe any time." },
   goalProposal: { founder_words: "20 customers by Jan 31", today: "2026-11-07", currency: "GBP", current: { kind: "paying_customers", target: 10, due_on: "2026-12-19", custom_words: null } },
+  projectPage: { business_name: "Shiftly", founder_words: "Same-day cafe shifts for students in Manchester. Cafes post a shift in the morning and a student picks it up by lunch.", brief: null },
   conversation: {
     agent: { id: "agent-cos", name: "Chief of Staff", role: "Chief of Staff", voice: { greeting: "I'm here. What do you need?", thinking: ["Checking the plan…"], ack: ["Got it."] } },
     current_work: { task: { id: "t1", title: "Fix checkout bug", status: "running", phase: "implementing", progress_pct: 45 }, status: "healthy", presence: "working" },
@@ -77,6 +78,30 @@ const SAMPLE_INPUT: Record<RouteKey, Record<string, unknown>> = {
     thread: [],
     manifest: MANIFEST,
     founder_message: { text: "How's the checkout fix going?", quick_reply: null },
+  },
+  teamCallTurn: {
+    business: { name: "Northwind Skincare", stage: "project", currency: "EUR" },
+    founder_name: "Mara",
+    kind: "team",
+    mode: "founder_spoke",
+    topic: null,
+    round: 1,
+    agent_rounds_since_founder: 0,
+    participants: [
+      { id: AGENT_TOMAS, name: "Tomas Berg", display_name: "Tomas Berg", role: "Backend engineer", department: "Engineering", remit: "I build and fix the product's checkout and orders.", talks_like: null, tone: null, is_chief_of_staff: false },
+      { id: AGENT_PRIYA, name: "Priya Natarajan", display_name: "Priya Natarajan", role: "Distribution strategist", department: "Distribution", remit: "I pick the channels that reach the first customers.", talks_like: null, tone: null, is_chief_of_staff: false },
+    ],
+    brief: { goal: null, roadmap_now: [], open_tasks: null, facts: [] },
+    founder_lines: [{ n: 1, text: "Which channels should reach our first customers?" }],
+    founder_just_said: "Which channels should reach our first customers?",
+  },
+  teamCallWrapUp: {
+    business: { name: "Northwind Skincare", stage: "project", currency: "EUR" },
+    founder_name: "Mara",
+    kind: "team",
+    agents: AGENTS,
+    roadmap: [],
+    founder_lines: [{ n: 1, text: "Fix the checkout bug for retail customers. Spend up to €500 on LinkedIn ads next week." }],
   },
 };
 

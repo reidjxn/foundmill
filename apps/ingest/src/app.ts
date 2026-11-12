@@ -5,11 +5,14 @@
  * `GET /simulate` + `POST /simulate/:eventName`.
  */
 import { APP_NAME, simulatePanelHonoured } from "@foundmill/config";
+import { PLATFORM_MAIL_CONFIRM_PATH, PLATFORM_MAIL_EVENTS_PATH, PLATFORM_MAIL_INBOUND_PATH, PLATFORM_MAIL_UNSUBSCRIBE_PATH, PLATFORM_NOTIFY_OFF_PATH } from "@foundmill/connectors";
 import { AppError, UnauthorizedError } from "@foundmill/shared";
 import { Hono, type MiddlewareHandler } from "hono";
+import { bodyLimit } from "hono/body-limit";
 import { repos } from "@foundmill/db";
 import { ackBody, handleWebhook, webhookMounts, type MountedWebhook } from "./webhooks";
 import { BILLING_WEBHOOK_PATH, handleBillingWebhook } from "./billing";
+import { handleFollowConfirm, handleNotifyOff, handlePlatformInbound, handlePlatformMailEvents, handlePlatformUnsubscribe, PLATFORM_MAIL_EVENTS_MAX_BYTES, PLATFORM_MAIL_INBOUND_MAX_BYTES } from "./platform-mail";
 import { runSimulation, SimulateBody, simulateRoutesMounted, simulationCatalogue } from "./simulate";
 import { bearerToken, verifySimulateToken, type SimulateTokenClaims } from "./simulate-token";
 import { INGEST_SERVICE, type IngestDeps } from "./types";
@@ -83,6 +86,39 @@ export function createIngestApp(deps: IngestDeps): CreatedIngestApp {
     const outcome = await handleBillingWebhook(deps, c.req.raw);
     return c.json(outcome.body, outcome.status);
   });
+  // A project's Foundmill sending address (platform-mail.ts): one endpoint each, the project resolved from the content.
+  // A larger body is a 413 before it is read, whatever its Content-Length says (a chunked one is counted as it arrives).
+  const tooLarge = (maxSize: number) => bodyLimit({ maxSize, onError: (c) => c.json({ ok: false, error: "payload_too_large", message: `Request body is larger than ${Math.round(maxSize / (1024 * 1024))} MB` }, 413) });
+  app.use(PLATFORM_MAIL_INBOUND_PATH, tooLarge(PLATFORM_MAIL_INBOUND_MAX_BYTES));
+  app.use(PLATFORM_MAIL_EVENTS_PATH, tooLarge(PLATFORM_MAIL_EVENTS_MAX_BYTES));
+  app.post(PLATFORM_MAIL_INBOUND_PATH, async (c) => {
+    const outcome = await handlePlatformInbound(deps, c.req.raw);
+    return c.json(outcome.body, outcome.status);
+  });
+  app.post(PLATFORM_MAIL_EVENTS_PATH, async (c) => {
+    const outcome = await handlePlatformMailEvents(deps, c.req.raw);
+    return c.json(outcome.body, outcome.status);
+  });
+  const unsubscribe = async (req: Request) => {
+    const outcome = await handlePlatformUnsubscribe(deps, req);
+    return new Response(outcome.html, { status: outcome.status, headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store", "referrer-policy": "no-referrer", "x-robots-tag": "noindex", "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; frame-ancestors 'none'" } });
+  };
+  app.get(PLATFORM_MAIL_UNSUBSCRIBE_PATH, (c) => unsubscribe(c.req.raw));
+  app.post(PLATFORM_MAIL_UNSUBSCRIBE_PATH, (c) => unsubscribe(c.req.raw));
+  // The link in a follow confirmation email (package 1.6, double opt-in): the same page and headers as unsubscribe.
+  const confirm = async (req: Request) => {
+    const outcome = await handleFollowConfirm(deps, req);
+    return new Response(outcome.html, { status: outcome.status, headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store", "referrer-policy": "no-referrer", "x-robots-tag": "noindex", "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; frame-ancestors 'none'" } });
+  };
+  app.get(PLATFORM_MAIL_CONFIRM_PATH, (c) => confirm(c.req.raw));
+  app.post(PLATFORM_MAIL_CONFIRM_PATH, (c) => confirm(c.req.raw));
+  // The link in Foundmill's own email to a person (packages 1.5 and 5.1): turns that kind of email off for them.
+  const notifyOff = async (req: Request) => {
+    const outcome = await handleNotifyOff(deps, req);
+    return new Response(outcome.html, { status: outcome.status, headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store", "referrer-policy": "no-referrer", "x-robots-tag": "noindex", "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; frame-ancestors 'none'" } });
+  };
+  app.get(PLATFORM_NOTIFY_OFF_PATH, (c) => notifyOff(c.req.raw));
+  app.post(PLATFORM_NOTIFY_OFF_PATH, (c) => notifyOff(c.req.raw));
 
   if (simulateRoutesMounted(deps)) {
     // SEC-2: the service token is verified before anything else happens (the body is not even read), so a request

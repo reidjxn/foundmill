@@ -9,6 +9,9 @@
  * 2. Needs you (`today.get`): up to three notes of the Inbox's Needs you tab, one tap only where it needs no plan
  *    compiler (`inbox.decide` with the note's own option), Open for the rest, "See all in the Inbox".
  * 3. This week and next (`today.get`): three to five sentences from data.
+ * 3a. The public page (`today.get` › `pageReady`): one quiet line to Product › Public page while the project has no
+ *     page live (never for a sample business) and the Product lead's "Your project's page is ready" note is not open:
+ *     while it is, the note is in Needs you and its one tap, Check it and publish, opens the Public page tab.
  * 4. Health: Cash, Runway and Customers this week are the status strip's own tiles over the same reads
  *    (`finance.overview`, `journey.ribbon`), so they always match Details; then the week's spend, never added across
  *    currencies (AI usage in US dollars, channel spend in the business's currency; one figure for a dollar business).
@@ -16,11 +19,12 @@
  * The tab bar is Today | Details. `goal.ensure` runs once per visit (lead.tsx).
  */
 import { emptyWhy } from "@foundmill/shared/empty-why";
+import { PAGE_READY_NOTE } from "@foundmill/shared/project-page";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
 import { useCallback, useMemo, useState } from "react";
-import { FirstWeekTimeline, GoalPanel, NeedsYouList, PageGrid, Panel, StatusStrip, Term, WeekPlan, useAgentPersona, useToast, type MetricTileProps, type NeedsYouRow } from "@foundmill/dugout";
-import { cashTile, customersWeekTile, moduleHref, routes, runwayTile, spendWeekTiles, unavailableTile, type StatusTile } from "@foundmill/widgets";
+import { FirstWeekTimeline, GoalPanel, NeedsYouList, PageGrid, Panel, PublicPageNote, SinceLastVisit, StatusStrip, StreakStrip, Term, WeekPlan, formatDateTime, useAgentPersona, useDateFormat, useToast, type MetricTileProps, type NeedsYouRow } from "@foundmill/dugout";
+import { cashTile, customersWeekTile, moduleHref, moduleTabHref, routes, runwayTile, spendWeekTiles, unavailableTile, type StatusTile } from "@foundmill/widgets";
 import type { FinanceOverview, RibbonResponse } from "@foundmill/widgets/shared/types";
 import { useGlossary, useToday } from "@foundmill/widgets/data";
 import { recentRibbonInput } from "@foundmill/widgets/shared/ribbon";
@@ -31,7 +35,8 @@ import { useShellChrome } from "@/components/shell/chrome";
 import { shellPollIntervals } from "@/components/shell/BusinessShell";
 import { useBusinessLive } from "@/lib/stream-status";
 import { GoalEnsure, HomeBlockers, HomeFoundations } from "@/components/home/lead";
-import { needsYouHref, toNeedsYouRows, toPanelGoal, toPanelProposal } from "./today-view";
+import { formatMoney } from "@/lib/format";
+import { needsYouHref, sinceLastVisitLines, streakStripProps, toNeedsYouRows, toPanelGoal, toPanelProposal } from "./today-view";
 
 /** The reads a Today answer changes. */
 const AFTER_ANSWER = ["inbox", "today", "goal", "plan", "business", "product", "dev"] as const;
@@ -105,9 +110,14 @@ export function TodayScreen() {
     (row: NeedsYouRow) => {
       if (!row.quickOption) return;
       setPendingId(row.id);
-      decide.mutate({ businessId, itemId: row.id, chosenOption: row.quickOption.id }, { onSuccess: () => toast({ title: "Answered", description: row.quickOption!.label, tone: "good" }) });
+      // The page note's one tap (package 1.3) opens Product › Public page, where the founder checks and publishes it.
+      const opensPage = row.quickOption.id === PAGE_READY_NOTE.options.check;
+      decide.mutate(
+        { businessId, itemId: row.id, chosenOption: row.quickOption.id },
+        { onSuccess: () => (opensPage ? router.push(moduleTabHref(businessId, departments, "product", "public-page")) : toast({ title: "Answered", description: row.quickOption!.label, tone: "good" })) },
+      );
     },
-    [decide, businessId, toast],
+    [decide, businessId, toast, router, departments],
   );
   const needsYou = todayQ.data?.needsYou;
   // Subjects and senders name agents under the reader's preference, as the Inbox does (One name everywhere).
@@ -159,6 +169,13 @@ export function TodayScreen() {
   );
   useShellChrome({ title: TODAY_WORDS.title, tabs: { tabs, activeId: "today", onChange: (id) => router.push(id === "details" ? routes.home(businessId) : routes.today(businessId)), "aria-label": "Today and Details" } }, [tabs, businessId]);
 
+  // "Since you were last here" (retention plan, 2026-11-11): what happened between the previous visit and now.
+  const datePrefs = useDateFormat();
+  const sinceQ = useQuery(trpc.today.sinceLastVisit.queryOptions({ businessId }, { staleTime: 60_000 }));
+  const sinceLines = sinceQ.data ? sinceLastVisitLines(sinceQ.data, businessId, (m) => formatMoney(m)) : [];
+  // The daily streak (retention plan, 2026-11-11): the founder's own days in a row here; vacation days are frozen.
+  const streakQ = useQuery(trpc.today.streak.queryOptions({ businessId }, { staleTime: 5 * 60_000 }));
+
   const week = todayQ.data?.week;
   // "Your first week": the API answers it only while the business is in its first days and not yet selling (packages/shared first-week.ts).
   const firstWeek = todayQ.data?.firstWeek ?? null;
@@ -168,6 +185,8 @@ export function TodayScreen() {
       <GoalEnsure />
       <HomeFoundations />
       <PageGrid flush>
+        {sinceQ.data && sinceLines.length ? <SinceLastVisit span={12} meta={`Since ${formatDateTime(sinceQ.data.since, datePrefs)}`} lines={sinceLines} /> : null}
+        {streakQ.data ? <StreakStrip span={12} {...streakStripProps(streakQ.data)} /> : null}
         {firstWeek ? <FirstWeekTimeline span={12} steps={firstWeek.steps} paused={firstWeek.paused} /> : null}
         <GoalPanel
           span={6}
@@ -193,6 +212,7 @@ export function TodayScreen() {
           error={todayQ.error && !todayQ.data ? errorMessage(todayQ.error) : undefined}
           onRetry={() => void todayQ.refetch()}
         />
+        {todayQ.data?.pageReady ? <PublicPageNote span={12} href={moduleTabHref(businessId, departments, "product", "public-page")} /> : null}
         <WeekPlan
           span={12}
           done={week?.done ?? []}

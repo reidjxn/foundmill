@@ -120,6 +120,41 @@ describe("term list", () => {
   });
 });
 
+describe("subtext (founder, 2026-11-11): the product never names a job as the reason", () => {
+  const hit = (text) => findTermHits(text).filter((h) => h.term.startsWith("subtext")).map((h) => h.match.toLowerCase());
+  it("flags phrases that say the quiet part", () => {
+    for (const text of [
+      "Keep my day job for now",
+      "Escape the 9 to 5",
+      "Build this instead of getting a job",
+      "A job-proof way to earn",
+      "Be your own boss",
+      "Thinking of quitting your job?",
+      "After being laid off, start here",
+      "Unemployment is rising",
+      "Before AI takes your job",
+      "Do not get replaced by AI",
+      "AI is eating the jobs",
+    ]) {
+      assert.ok(hit(text).length > 0, text);
+    }
+  });
+  it("leaves the ordinary words alone", () => {
+    for (const text of [
+      "A founder has to do every job at once.",
+      "The agent finished the job in 4 minutes.",
+      "Job title: Head of Finance",
+      "Hire a specialist for this role",
+      "Open 9 AM to 5 PM on weekdays",
+      "Fits around what I already do",
+      "Something that is yours, built with people you chose",
+      "The AI team takes the work you cannot do yet", // capability, not replacement
+    ]) {
+      assert.deepEqual(hit(text), [], text);
+    }
+  });
+});
+
 describe("identifier heuristics", () => {
   it("treats tokens as identifiers and labels as copy", () => {
     for (const id of [

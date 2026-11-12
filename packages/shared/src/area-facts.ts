@@ -7,6 +7,7 @@
 import type { CompanyAreaFacts, CustomersAreaFacts, MoneyAreaFacts, PlanAreaFacts, ProductAreaFacts, TeamAreaFacts } from "./area-words";
 import { CHANNEL_META, type ChannelKey } from "./constants";
 import { CHANNEL_WINDOW_DAYS } from "./constants";
+import { deadlineWindow } from "./filings";
 import { daysBetweenDays } from "./goals";
 import { runwayState } from "./runway-state";
 import { agentTier, isBackgroundAgent, type TierAgent, type TierDepartment } from "./team-tiers";
@@ -57,12 +58,16 @@ export function companyFacts(status: IncorporationStatusLike | undefined, compli
   for (const e of [...(compliance?.events ?? []), ...(compliance?.upcoming?.compliance ?? [])]) {
     if (seen.has(`c:${e.id}`)) continue;
     seen.add(`c:${e.id}`);
-    deadlines.push({ dueOn: dayOf(e.dueAt), open: !e.completedAt });
+    const dueOn = dayOf(e.dueAt);
+    deadlines.push({ dueOn, open: !e.completedAt, ...(dueOn && !e.completedAt ? { window: deadlineWindow(dueOn, today) } : {}) });
   }
   for (const f of [...(compliance?.filings ?? []), ...(compliance?.upcoming?.filings ?? [])]) {
     if (seen.has(`f:${f.id}`)) continue;
     seen.add(`f:${f.id}`);
-    deadlines.push({ dueOn: dayOf(f.dueAt), open: !f.filedAt && f.status !== "filed" && f.status !== "waived" });
+    const dueOn = dayOf(f.dueAt);
+    const open = !f.filedAt && f.status !== "filed" && f.status !== "waived";
+    // The same window and stored-status rule as Compliance's calendar (`deadlineWindow`, ./filings).
+    deadlines.push({ dueOn, open, ...(dueOn && open ? { window: deadlineWindow(dueOn, today, f.status) } : {}) });
   }
   return { legalName: status?.entity?.legalName ?? null, status: status?.entity?.status ?? null, deadlines, today };
 }

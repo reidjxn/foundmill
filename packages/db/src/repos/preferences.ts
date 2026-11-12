@@ -8,8 +8,23 @@
  * row reads the defaults (US dates, 12-hour times, guidance on, standard text, nothing seen), so reading never writes;
  * the first change creates the row.
  */
-import { AGENT_STYLES, DEFAULT_AGENT_STYLE, DEFAULT_DATE_FORMAT_PREFS, DEFAULT_NOTIFICATION_PREFS, DateFormatPreference, NOTIFICATION_KINDS, TimeFormatPreference, type AgentStyle, type DateFormatPrefs, type NotificationPrefs } from "@foundmill/shared";
-import { eq, sql } from "drizzle-orm";
+import {
+  AGENT_STYLES,
+  DEFAULT_AGENT_STYLE,
+  DEFAULT_DATE_FORMAT_PREFS,
+  DEFAULT_EMAIL_NOTIFICATION_PREFS,
+  DEFAULT_NOTIFICATION_PREFS,
+  DateFormatPreference,
+  EMAIL_NOTIFICATION_KINDS,
+  NOTIFICATION_KINDS,
+  TimeFormatPreference,
+  type AgentStyle,
+  type DateFormatPrefs,
+  type EmailNotificationPrefs,
+  type NotificationPrefs,
+} from "@foundmill/shared";
+import { FOUNDER_NOTIFICATION_LIMITS, isValidTimeZone } from "@foundmill/shared";
+import { eq, inArray, sql } from "drizzle-orm";
 import { z } from "zod";
 import { accountPreferences, GUIDANCE_MODES, TEXT_SIZES, type GuidanceMode, type SeenMap, type TextSize } from "../schema";
 import { defined, maybeOne, one, parseInput, type Executor } from "./_shared";
@@ -42,6 +57,11 @@ export interface GuidancePrefs {
 export interface NotificationPreferences {
   notifications: NotificationPrefs;
   hideAmountsOnLockScreen: boolean;
+  /**
+   * Which kinds of email Foundmill sends the person (packages 1.5 and 5.1; Settings › Preferences, and the link in every
+   * such email turns its kind off). Stored under `email` in the same `notifications` map; every kind on until turned off.
+   */
+  email: EmailNotificationPrefs;
 }
 
 /** Everything on the row a person can choose: the date and time format, the guided layer's preferences and the notification preferences. */
@@ -50,8 +70,8 @@ export interface AccountPreferencesView extends DateFormatPrefs, GuidancePrefs, 
 /** What everyone reads until they choose: guidance on, standard text, nothing seen, the checklist showing, agents as agents (humans when turned on). */
 export const DEFAULT_GUIDANCE_PREFS: Readonly<GuidancePrefs> = Object.freeze({ guidance: "on", textSize: "standard", explainersSeen: {}, toursDone: {}, checklistDismissedAt: null, anthropomorphicAgents: false, agentStyle: DEFAULT_AGENT_STYLE, builderView: false });
 
-/** Every kind of push on, amounts shown. */
-export const DEFAULT_NOTIFICATION_PREFERENCES: Readonly<NotificationPreferences> = Object.freeze({ notifications: { ...DEFAULT_NOTIFICATION_PREFS }, hideAmountsOnLockScreen: false });
+/** Every kind of push and of email on, amounts shown. */
+export const DEFAULT_NOTIFICATION_PREFERENCES: Readonly<NotificationPreferences> = Object.freeze({ notifications: { ...DEFAULT_NOTIFICATION_PREFS }, hideAmountsOnLockScreen: false, email: { ...DEFAULT_EMAIL_NOTIFICATION_PREFS } });
 
 export const DEFAULT_ACCOUNT_PREFERENCES: Readonly<AccountPreferencesView> = Object.freeze({ ...DEFAULT_DATE_FORMAT_PREFS, ...DEFAULT_GUIDANCE_PREFS, ...DEFAULT_NOTIFICATION_PREFERENCES });
 
@@ -61,10 +81,21 @@ const SeenMarks = z.record(z.string().trim().min(1).max(120), z.literal(true)).r
 /** The kinds of push to turn on or off in one change (`{ customer: false }`); only the known kinds, at least one. */
 const NotificationMarks = z.partialRecord(z.enum(NOTIFICATION_KINDS), z.boolean()).refine((m) => Object.keys(m).length > 0, { message: "Name at least one kind of notification" });
 
+/** The kinds of email to turn on or off in one change (`{ decision_waiting: false }`); only the known kinds, at least one. */
+const EmailNotificationMarks = z.partialRecord(z.enum(EMAIL_NOTIFICATION_KINDS), z.boolean()).refine((m) => Object.keys(m).length > 0, { message: "Name at least one kind of email" });
+
 /** The stored map (only what was chosen) merged over the defaults, in the kinds' own order. */
 export function notificationPrefsOf(stored: Partial<NotificationPrefs> | null | undefined): NotificationPrefs {
   const out = { ...DEFAULT_NOTIFICATION_PREFS };
   for (const kind of NOTIFICATION_KINDS) if (typeof stored?.[kind] === "boolean") out[kind] = stored[kind];
+  return out;
+}
+
+/** The stored `email` map merged over the defaults (every kind on until turned off). */
+export function emailNotificationPrefsOf(stored: unknown): EmailNotificationPrefs {
+  const out = { ...DEFAULT_EMAIL_NOTIFICATION_PREFS };
+  const map = stored && typeof stored === "object" ? (stored as Partial<Record<string, unknown>>) : {};
+  for (const kind of EMAIL_NOTIFICATION_KINDS) if (typeof map[kind] === "boolean") out[kind] = map[kind];
   return out;
 }
 
@@ -85,6 +116,7 @@ export const AccountPreferencesPatch = z
     anthropomorphicAgents: z.boolean().optional(),
     agentStyle: z.enum(AGENT_STYLES).optional(),
     notifications: NotificationMarks.optional(),
+    email: EmailNotificationMarks.optional(),
     hideAmountsOnLockScreen: z.boolean().optional(),
     builderView: z.boolean().optional(),
     reset: z.literal(true).optional(),
@@ -126,6 +158,7 @@ function view(row: Row): AccountPreferencesView {
     agentStyle: row.agentStyle ?? DEFAULT_AGENT_STYLE,
     notifications: notificationPrefsOf(row.notifications),
     hideAmountsOnLockScreen: row.hideAmountsOnLockScreen ?? false,
+    email: emailNotificationPrefsOf(row.notifications?.email),
     builderView: row.builderView ?? false,
   };
 }
@@ -146,16 +179,124 @@ export const preferencesRepo = {
     const dismissedAt = v.checklistDismissed === undefined ? undefined : v.checklistDismissed ? new Date() : null;
     const scalars = defined({ dateFormat: v.date, timeFormat: v.time, guidance: v.guidance, textSize: v.textSize, anthropomorphicAgents: v.anthropomorphicAgents, agentStyle: v.agentStyle, hideAmountsOnLockScreen: v.hideAmountsOnLockScreen, builderView: v.builderView });
     // A first row starts from the defaults, so a reset has nothing to clear and a mark is the whole map.
-    const insert = { userId, ...scalars, ...defined({ explainersSeen: v.explainersSeen, toursDone: v.toursDone, checklistDismissedAt: dismissedAt, notifications: v.notifications }) };
+    const notifications = v.notifications || v.email ? { ...(v.notifications ?? {}), ...(v.email ? { email: v.email } : {}) } : undefined;
+    const insert = { userId, ...scalars, ...defined({ explainersSeen: v.explainersSeen, toursDone: v.toursDone, checklistDismissedAt: dismissedAt, notifications }) };
+    // The push kinds are keys of the map; the email kinds merge into its `email` map, so one never clears the other.
+    const column = accountPreferences.notifications;
+    const pushMerged = v.notifications ? merged(column, v.notifications) : sql`${column}`;
+    const notificationsSet = v.email ? sql`${pushMerged} || jsonb_build_object('email', coalesce(${column} -> 'email', '{}'::jsonb) || ${JSON.stringify(v.email)}::jsonb)` : v.notifications ? pushMerged : undefined;
     const set = {
       ...scalars,
       ...(v.explainersSeen ? { explainersSeen: merged(accountPreferences.explainersSeen, v.explainersSeen) } : {}),
       ...(v.toursDone ? { toursDone: merged(accountPreferences.toursDone, v.toursDone) } : {}),
-      ...(v.notifications ? { notifications: merged(accountPreferences.notifications, v.notifications) } : {}),
+      ...(notificationsSet ? { notifications: notificationsSet } : {}),
       ...(dismissedAt !== undefined ? { checklistDismissedAt: dismissedAt } : {}),
       ...(v.reset ? { explainersSeen: {}, toursDone: {}, checklistDismissedAt: null } : {}),
     };
     const rows = await db.insert(accountPreferences).values(insert).onConflictDoUpdate({ target: accountPreferences.userId, set }).returning(columns);
     return view(one(rows, "preferences", userId));
+  },
+
+  /** Team call (0082): whether this person's one-to-one calls are shared with the project (default false: private). */
+  async shareOneToOneCalls(db: Executor, userId: string): Promise<boolean> {
+    const row = maybeOne(await db.select({ v: accountPreferences.shareOneToOneCalls }).from(accountPreferences).where(eq(accountPreferences.userId, userId)).limit(1));
+    return row?.v ?? false;
+  },
+
+  /**
+   * Changes the signed-in person's one-to-one call sharing and, in the same statement, the visibility of every
+   * one-to-one call they made in a business they still belong to (`fm_set_share_one_to_one_calls`, security definer,
+   * keyed on `auth.uid()`). Run it as the person (`withRls`): it changes nobody else's calls. Returns the calls changed.
+   */
+  async setShareOneToOneCalls(db: Executor, share: boolean): Promise<{ share: boolean; calls: number }> {
+    const v = parseInput(z.boolean(), share, "one-to-one call sharing");
+    const rows = (await db.execute(sql`select fm_set_share_one_to_one_calls(${v}) as calls`)) as unknown as { calls: number }[] | { rows: { calls: number }[] };
+    const list = Array.isArray(rows) ? rows : rows.rows;
+    return { share: v, calls: Number(list[0]?.calls ?? 0) };
+  },
+};
+
+// ---------------------------------------------------------------------------------------------------
+// 0083 — founder email (retention plan, 2026-11-11): kept apart from the view above so the guided layer's
+// answers do not change shape. Same row, same policy (`user_id = auth.uid()`).
+// ---------------------------------------------------------------------------------------------------
+
+/** What Settings › Preferences › Email shows and the notifier reads. */
+export interface EmailPrefs {
+  /** Every kind, the person's choice over the default: `notifications.email`, the platform's one map. */
+  email: EmailNotificationPrefs;
+  /** The morning brief's hour (0–23) in `timeZone`. */
+  briefHour: number;
+  /** The zone the brief's hour is read in; null: the business's. */
+  timeZone: string | null;
+  browserNotifications: boolean;
+  /** Every email paused from an email's footer (or Settings); null: not paused. */
+  emailsPausedAt: string | null;
+}
+
+export const DEFAULT_EMAIL_PREFS: Readonly<EmailPrefs> = Object.freeze({
+  email: { ...DEFAULT_EMAIL_NOTIFICATION_PREFS },
+  briefHour: FOUNDER_NOTIFICATION_LIMITS.defaultBriefHour,
+  timeZone: null,
+  browserNotifications: false,
+  emailsPausedAt: null,
+});
+
+export const EmailPrefsPatch = z
+  .object({
+    email: z.partialRecord(z.enum(EMAIL_NOTIFICATION_KINDS), z.boolean()).optional(),
+    briefHour: z.number().int().min(0).max(23).optional(),
+    timeZone: z.string().trim().max(64).refine((tz) => isValidTimeZone(tz), "Choose a real time zone").nullable().optional(),
+    browserNotifications: z.boolean().optional(),
+    emailsPaused: z.boolean().optional(),
+  })
+  .strict()
+  .refine((p) => Object.values(p).some((v) => v !== undefined), { message: "Choose something to change" });
+export type EmailPrefsPatch = z.input<typeof EmailPrefsPatch>;
+
+const emailColumns = {
+  notifications: accountPreferences.notifications,
+  briefHour: accountPreferences.briefHour,
+  timeZone: accountPreferences.timeZone,
+  browserNotifications: accountPreferences.browserNotifications,
+  emailsPausedAt: accountPreferences.emailsPausedAt,
+};
+
+function emailView(row: { notifications: { email?: unknown } | null; briefHour: number; timeZone: string | null; browserNotifications: boolean; emailsPausedAt: Date | null }): EmailPrefs {
+  return { email: emailNotificationPrefsOf(row.notifications?.email), briefHour: row.briefHour, timeZone: row.timeZone, browserNotifications: row.browserNotifications, emailsPausedAt: row.emailsPausedAt ? row.emailsPausedAt.toISOString() : null };
+}
+
+export const emailPrefsRepo = {
+  async get(db: Executor, userId: string): Promise<EmailPrefs> {
+    const row = maybeOne(await db.select(emailColumns).from(accountPreferences).where(eq(accountPreferences.userId, userId)).limit(1));
+    return row ? emailView(row) : { ...DEFAULT_EMAIL_PREFS, email: { ...DEFAULT_EMAIL_PREFS.email } };
+  },
+
+  /** Many people at once (the notifier, service role); people with no row read the defaults. */
+  async getMany(db: Executor, userIds: readonly string[]): Promise<Map<string, EmailPrefs>> {
+    const out = new Map<string, EmailPrefs>();
+    if (userIds.length === 0) return out;
+    const rows = await db.select({ userId: accountPreferences.userId, ...emailColumns }).from(accountPreferences).where(inArray(accountPreferences.userId, [...userIds]));
+    for (const id of userIds) out.set(id, { ...DEFAULT_EMAIL_PREFS, email: { ...DEFAULT_EMAIL_PREFS.email } });
+    for (const r of rows) out.set(r.userId, emailView(r));
+    return out;
+  },
+
+  /**
+   * Changes what was given; creates the row on the first change. The switches go through `preferencesRepo.update` (the
+   * same merge into `notifications.email` that founder.preferences.update makes), so there is one place they are written.
+   */
+  async update(db: Executor, userId: string, patch: EmailPrefsPatch): Promise<EmailPrefs> {
+    const v = parseInput(EmailPrefsPatch, patch, "email preferences");
+    if (v.email && Object.keys(v.email).length > 0) await preferencesRepo.update(db, userId, { email: v.email });
+    const pausedAt = v.emailsPaused === undefined ? undefined : v.emailsPaused ? new Date() : null;
+    const scalars = defined({ briefHour: v.briefHour, timeZone: v.timeZone, browserNotifications: v.browserNotifications, emailsPausedAt: pausedAt });
+    if (Object.keys(scalars).length > 0) await db.insert(accountPreferences).values({ userId, ...scalars }).onConflictDoUpdate({ target: accountPreferences.userId, set: scalars });
+    return emailPrefsRepo.get(db, userId);
+  },
+
+  /** Pauses every email (an email footer's link, service role after the token is checked). */
+  async pauseEmails(db: Executor, userId: string, at: Date = new Date()): Promise<void> {
+    await db.insert(accountPreferences).values({ userId, emailsPausedAt: at }).onConflictDoUpdate({ target: accountPreferences.userId, set: { emailsPausedAt: at } });
   },
 };

@@ -93,6 +93,24 @@ function controlledGateway() {
     sendPush: async () => {
       throw new Error("unused");
     },
+    validateKey: async () => {
+      throw new Error("unused");
+    },
+    registryLookup: async () => {
+      throw new Error("unused");
+    },
+    confirmFollow: async () => {
+      throw new Error("unused");
+    },
+    notifyEmail: async () => {
+      throw new Error("unused");
+    },
+    synthesizeSpeech: async () => {
+      throw new Error("unused");
+    },
+    transcribeSpeech: async () => {
+      throw new Error("unused");
+    },
   } satisfies ApiGatewayClient;
   return { gateway, calls, peak: () => peak };
 }

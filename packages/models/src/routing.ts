@@ -39,6 +39,20 @@ export type ImageModelKey = keyof typeof IMAGE_MODELS;
 export type ImageModelId = (typeof IMAGE_MODELS)[ImageModelKey];
 
 /**
+ * Speech models for Team call (docs/TEAM_CALL.md §3). Verified against ElevenLabs' model docs on 2026-11-12: Flash v2.5
+ * is the lower-cost real-time text-to-speech model (~100 ms median latency, 40,000 characters a request), Scribe v3 the
+ * batch transcription model (successor to Scribe v2). Called only by the gateway's `elevenlabs` connector; never routed
+ * through the Claude client.
+ */
+export const SPEECH_MODELS = {
+  /** An agent's spoken turn on a call. */
+  call_speech: "eleven_flash_v2_5",
+  /** What the founder said on a call, transcribed. */
+  call_transcription: "scribe_v3",
+} as const;
+export type SpeechModelKey = keyof typeof SPEECH_MODELS;
+
+/**
  * Older models a real Anthropic account still lists. Nothing routes to them; the mock `list_models` tool reports them
  * as not routed, so an agent reading the list sees what a live account shows.
  */
@@ -124,6 +138,17 @@ export const ROUTES = {
   // The founder's "Change it" words on the Chief of Staff's goal (founder, 2026-11-07): the model picks only the kind, the
   // target and the date (packages/shared writes every word the founder reads), so Sonnet at low effort answers in seconds.
   goalProposal: { model: "sonnet", effort: "low", maxTokens: LOW_EFFORT_MAX_TOKENS },
+  // A new project's public page, drafted first after commit from the founder's own words (package 1.2): one short page
+  // (a pitch, a few paragraphs, who it is for) that mostly keeps the founder's text, on the path before the vision.
+  // Sonnet at low effort writes it in seconds and holds to "keep their words, invent nothing"; Opus would add cost and
+  // wait for no gain on a page this short. Any failure falls back to the deterministic starter draft.
+  projectPage: { model: "sonnet", effort: "low", maxTokens: LOW_EFFORT_MAX_TOKENS },
+  // Team call (docs/TEAM_CALL.md §4): the next one to four spoken turns of a call. The founder is listening and waiting,
+  // so Sonnet at low effort, like a reply at the desk; turns are short spoken sentences.
+  teamCallTurn: { model: "sonnet", effort: "low", maxTokens: LOW_EFFORT_MAX_TOKENS },
+  // The call's summary and its action items as typed plan actions, written once when the call ends: Opus, which the
+  // plan compiler also uses, because a wrong action files real work.
+  teamCallWrapUp: { model: "opus", effort: "low", maxTokens: LOW_EFFORT_MAX_TOKENS },
 } as const satisfies Record<string, RouteDefinition>;
 export type RouteKey = keyof typeof ROUTES;
 

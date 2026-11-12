@@ -1,9 +1,10 @@
 /**
  * integrations.connect for a live API-key connector (audits GPC-05 / VMLSL-X2 and MLSL-24): the key the founder enters in
- * Settings › Integrations reaches `connect()`, is sealed under the credential kind the gateway loads
- * (INTEGRATION_CREDENTIAL_KIND, the auth kind stays inside the payload), and is never echoed. A live connect without
- * the key is refused with the connector's own message instead of falling back to the platform's key. The last test runs
- * the whole path: connect through the api, then a tool call through a live gateway over the same database and vault.
+ * Settings › Integrations reaches `connect()` in the gateway (SEC-14: never in the api), is sealed there under the
+ * credential kind the gateway loads (INTEGRATION_CREDENTIAL_KIND, the auth kind stays inside the payload), and is never
+ * echoed. A live connect without the key is refused with the connector's own message instead of falling back to the
+ * platform's key. The last test runs the whole path: connect through the api and the gateway, then a tool call through
+ * another live gateway over the same database and vault.
  */
 import { z } from "zod";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -14,6 +15,7 @@ import { createGatewayApp } from "../../../gateway/src/app";
 import { MemoryRateLimitStore } from "../../../gateway/src/rate-limit";
 import { UntrustedRecipientRegistry } from "../../../gateway/src/recipients";
 import { mintSessionToken } from "../../../gateway/src/tokens";
+import { guardLiveCalls, inProcessGateway } from "./gateway-double";
 import { createApiHarness, type ApiHarness } from "./harness";
 
 const KEY = "keyed";
@@ -53,8 +55,12 @@ function keyedConnector(seen: (string | null)[] = []) {
 }
 
 let hz: ApiHarness;
+// The api's own registry refuses to run a live connector; the gateway runs it over the api's database and vault.
+const gateway = inProcessGateway();
+const guarded = guardLiveCalls(createRegistry([keyedConnector()]));
 beforeAll(async () => {
-  hz = await createApiHarness({ prefix: "intconnect", env: { LIVE_CONNECTORS: KEY }, connectors: createRegistry([keyedConnector()]) });
+  hz = await createApiHarness({ prefix: "intconnect", env: { LIVE_CONNECTORS: KEY }, connectors: guarded.registry, gateway: gateway.client });
+  gateway.bind({ db: hz.db, vault: hz.deps.vault, registry: createRegistry([keyedConnector()]), liveConnectors: [KEY] });
 }, 120_000);
 afterAll(() => hz.close());
 
@@ -67,6 +73,8 @@ describe("integrations.connect with the founder's own key", () => {
   it("refuses a live connect without the key and stores nothing", async () => {
     await expect(hz.caller({ userId: hz.A.ownerId }).integrations.connect({ businessId: hz.A.businessId, connectorKey: KEY, input: {} })).rejects.toMatchObject({ code: "BAD_REQUEST", message: "Enter your Keyed vendor API key to connect it" });
     expect(await repos.integrations.getByKey(hz.db, hz.A.businessId, KEY)).toBeNull();
+    expect(gateway.paths.at(-1)).toBe("/v1/integrations/connect");
+    expect(guarded.liveCalls).toEqual([]);
   });
 
   it("seals the key under the kind the gateway loads and never returns it", async () => {
@@ -83,7 +91,19 @@ describe("integrations.connect with the founder's own key", () => {
     const credential = await decryptJson(hz.deps.vault!, loaded!.record, buildAad(hz.A.businessId, "credentials", loaded!.meta.id));
     expect(credential).toEqual({ kind: "api_key", secret });
     const audits = await repos.audit.list(hz.db, hz.A.businessId, { action: "integrations.connect" });
-    expect(JSON.stringify(audits)).not.toContain(secret);
+    expect(audits.items[0]?.details).toMatchObject({ secretStored: true, secretHint: "foun***", credentialId: loaded!.meta.id });
+    expect(JSON.stringify(await repos.audit.list(hz.db, hz.A.businessId, { limit: 200 }))).not.toContain(secret);
+    // Sealed by the gateway; the api's own connector never ran.
+    expect((await repos.audit.list(hz.db, hz.A.businessId, { action: "gateway.integration.connect", limit: 1 })).items[0]?.details).toMatchObject({ service: "api", mode: "live", secretStored: true, integrationId });
+    expect(guarded.liveCalls).toEqual([]);
+  });
+
+  it("checks a live integration's health through the gateway, never in the api", async () => {
+    const row = (await repos.integrations.getByKey(hz.db, hz.A.businessId, KEY))!;
+    const r = await hz.caller({ userId: hz.A.ownerId }).integrations.health({ businessId: hz.A.businessId, integrationId: row.id });
+    expect(r.health).toMatchObject({ ok: true });
+    expect(gateway.paths.at(-1)).toBe("/v1/integrations/health");
+    expect(guarded.liveCalls).toEqual([]);
   });
 });
 

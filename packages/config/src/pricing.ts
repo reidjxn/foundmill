@@ -10,11 +10,15 @@
  * (`tierBusinessLimit`, packages/db `assertBusinessAllowance`): put a number back in `businesses` to bring a limit back.
  * The included-credit pool is its own number (`includedCreditBusinesses`, SEC2 S6), so lifting the business limit never
  * hands out more free credits.
+ *
+ * People are free on every plan (founder, 2026-11-11; CLAUDE.md "the words for people"): `seats` is "unlimited", so a
+ * cofounder or collaborator is never a plan limit and plans differ by agent work only. The machinery stays
+ * (`tierSeatLimit`, packages/db `assertSeatAvailable`), as for businesses.
  */
 export const TIERS = {
-  free: { priceMonthly: null, modelBilling: "credits_or_byok", businesses: "unlimited", includedCreditBusinesses: 1, maxConcurrentAgents: 4, channels: "all", seats: 1, includedCreditsMinor: 500 },
-  pro: { priceMonthly: "TBD", modelBilling: "credits_or_byok", businesses: "unlimited", includedCreditBusinesses: 3, maxConcurrentAgents: 16, channels: "all", seats: 3, includedCreditsMinor: "TBD" },
-  scale: { priceMonthly: "TBD", modelBilling: "credits_or_byok", businesses: "unlimited", includedCreditBusinesses: "unlimited", maxConcurrentAgents: 64, channels: "all", seats: 10, includedCreditsMinor: "TBD", prioritySupport: true },
+  free: { priceMonthly: null, modelBilling: "credits_or_byok", businesses: "unlimited", includedCreditBusinesses: 1, maxConcurrentAgents: 4, channels: "all", seats: "unlimited", includedCreditsMinor: 500 },
+  pro: { priceMonthly: "TBD", modelBilling: "credits_or_byok", businesses: "unlimited", includedCreditBusinesses: 3, maxConcurrentAgents: 16, channels: "all", seats: "unlimited", includedCreditsMinor: "TBD" },
+  scale: { priceMonthly: "TBD", modelBilling: "credits_or_byok", businesses: "unlimited", includedCreditBusinesses: "unlimited", maxConcurrentAgents: 64, channels: "all", seats: "unlimited", includedCreditsMinor: "TBD", prioritySupport: true },
 } as const;
 export type TierKey = keyof typeof TIERS;
 /** Lowest to highest: an owner's allowance follows the highest tier any business they own is on. */
@@ -64,6 +68,12 @@ export function initialModelBilling(tier: TierKey): "credits" | "byok" {
 /** How many businesses an owner on `tier` may hold (null = unlimited; every plan for now, founder 2026-10-16). */
 export function tierBusinessLimit(tier: TierKey): number | null {
   const limit: number | string = TIERS[tier].businesses;
+  return typeof limit === "number" ? limit : null;
+}
+
+/** How many people a business on `tier` may hold (null = unlimited; every plan, founder 2026-11-11: people are free). */
+export function tierSeatLimit(tier: TierKey): number | null {
+  const limit: number | string = TIERS[tier].seats;
   return typeof limit === "number" ? limit : null;
 }
 

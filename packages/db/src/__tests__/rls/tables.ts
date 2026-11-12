@@ -5,9 +5,10 @@
  *   member  → owner/admin/member may write (BUILD §7.1 default)
  *   admin   → only owner/admin may write
  *   service → app roles read only; rows are produced by services (service_role)
- *   append  → app roles may insert, never update/delete (audit_log)
+ *   append  → app roles may insert, never update/delete (audit_log, Team call turns and action items)
  *
- * Tables with a nullable business_id, user-owned tables and the social tables have their own suites.
+ * Tables with a nullable business_id, user-owned tables, the social tables and `project_pages` (one row per business)
+ * have their own suites.
  */
 import { CHANNEL_KEYS } from "@foundmill/shared";
 import type { AnyPgColumn, PgTable } from "drizzle-orm/pg-core";
@@ -124,6 +125,8 @@ export const TENANT_TABLES: TenantTableSpec[] = [
   spec("mentions", s.mentions, "member", (f) => ({ entityId: f.entityId, containerKind: "inbox_item", containerId: crypto.randomUUID() })),
   spec("field_provenance", s.fieldProvenance, "member", (f) => ({ entityId: f.entityId, field: "email", source: "import" })),
   spec("merge_log", s.mergeLog, "member", (f) => ({ keptId: f.entityId, mergedId: crypto.randomUUID() })),
+  // 0079 what a contact agreed to (a follower of the public page): written by the api's service connection only
+  spec("contact_consents", s.contactConsents, "service", (f) => ({ entityId: f.entityId, purpose: "email", source: "page", sourceRef: uniq("page"), consentText: "I agree to get email from Alpha about this project. I can unsubscribe at any time." })),
   // 0009 finance
   spec("accounts", s.accounts, "admin", () => ({ provider: "mock_bank", externalId: uniq("acct"), name: "Ops" })),
   spec("transactions", s.transactions, "member", (f) => ({ accountId: f.accountId, externalId: uniq("tx"), bookedAt: new Date(), amountMinor: -1200 })),
@@ -160,6 +163,10 @@ export const TENANT_TABLES: TenantTableSpec[] = [
   // 0020 founder ↔ agent conversations (the Inbox's access model: members write, viewers read)
   spec("agent_threads", s.agentThreads, "member", (f) => ({ agentId: f.agentId, subjectKind: "task", subjectId: crypto.randomUUID() })),
   spec("agent_messages", s.agentMessages, "member", (f) => ({ threadId: f.agentThreadId, authorKind: "agent", agentId: f.agentId, bubbles: [uniq("bubble")] })),
+  // 0082 Team call (the desk's access model; turns and action items are insert-only for app roles; rls/team-calls.test.ts has the rest)
+  spec("team_calls", s.teamCalls, "member", (f) => ({ kind: "one_to_one", agentIds: [f.agentId], startedBy: f.memberId, topic: uniq("topic") })),
+  spec("team_call_turns", s.teamCallTurns, "append", (f) => ({ callId: f.teamCallId, seq: 1000 + counter(), speaker: "founder", userId: f.memberId, via: "typed", text: uniq("What is on our list?") }), { text: "tampered" }),
+  spec("team_call_actions", s.teamCallActions, "append", (f) => ({ callId: f.teamCallId, position: 1000 + counter(), actionType: "create_task", title: uniq("Draft the launch email"), status: "not_filed", reason: "Example" }), { title: "tampered" }),
 ];
 
 /** Keeps the catalogue honest: every spec must name the table its Drizzle object points at. */
@@ -173,6 +180,8 @@ export const NON_TENANT_TABLES = [
   "account_preferences",
   // 0074: a person's phones (user-owned, no business_id); covered by rls/founder-devices.test.ts.
   "founder_devices",
+  // 0080: handles a person left, kept for them for 90 days (user-owned, service role only); rls/person-profiles.test.ts.
+  "person_handle_releases",
   "ideas",
   "idea_versions",
   "idea_comparisons",
@@ -191,10 +200,18 @@ export const NON_TENANT_TABLES = [
   "posts",
   "post_reports",
   "network_attestations",
-  "leaderboards",
-  "leaderboard_entries",
   "negotiation_threads",
   // 0067: a platform asset (no business_id), service role only; covered by repos/personas.test.ts.
   "persona_portraits",
+  // 0077: business-scoped, but one row per business (the generated suite inserts a second); covered by rls/project-pages.test.ts.
+  "project_pages",
+  // 0078: business-scoped, one row per business, written by services only; covered by rls/project-mail.test.ts.
+  "project_mail",
+  // 0078: a platform table (no business_id: the project it belonged to is gone), service role only; covered by rls/project-mail.test.ts.
+  "retired_mail_local_parts",
+  // 0083: one person's rows in one business (presence, visit days, founder emails); covered by rls/founder-return.test.ts.
+  "founder_presence",
+  "founder_visit_days",
+  "founder_notifications",
 ] as const;
 

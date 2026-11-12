@@ -275,3 +275,67 @@ test.describe("settings › preferences: guidance", () => {
     await api.dispose();
   });
 });
+
+type NotificationPrefs = { email: { decision_waiting: boolean } };
+
+/**
+ * Settings › Preferences › Email (packages 1.5 and 5.1): "Something waits for my answer", on by
+ * default; it saves at once with a toast, survives a reload, holds in another business, and the account agrees. The
+ * dev founder's choice is put back afterwards.
+ */
+test.describe("settings › preferences: email", () => {
+  let before: NotificationPrefs | null = null;
+  const read = async (api: Awaited<ReturnType<typeof devApi>>) => {
+    const res = await api.get("/trpc/founder.preferences.notifications");
+    expect(res.ok(), `founder.preferences.notifications answered ${res.status()}`).toBe(true);
+    return ((await res.json()) as { result: { data: { json: NotificationPrefs } } }).result.data.json;
+  };
+
+  test.beforeAll(async ({ playwright }) => {
+    const api = await devApi(playwright);
+    before = await read(api);
+    const reset = await api.post("/trpc/founder.preferences.update", { data: { json: { email: { decision_waiting: true } } } });
+    expect(reset.ok(), await reset.text()).toBe(true);
+    await api.dispose();
+  });
+
+  test.afterAll(async ({ playwright }) => {
+    const api = await devApi(playwright);
+    const put = await api.post("/trpc/founder.preferences.update", { data: { json: { email: { decision_waiting: before?.email.decision_waiting ?? true } } } });
+    expect(put.ok(), await put.text()).toBe(true);
+    await api.dispose();
+  });
+
+  test("the switch is on, saves at once with a toast, survives a reload and holds in another business", async ({ page, playwright }) => {
+    const hydration = watchHydration(page);
+    await openBusiness(page, "settings/preferences");
+    const screen = settingsScreen(page);
+    const panel = screen.getByTestId("email-notifications-panel");
+    await expect(panel).toBeVisible({ timeout: LONG });
+    await expect(panel).toContainText("To the address you sign in with, never while you are in the app: at most three a day in all and one a day for each project.");
+    const sw = screen.getByRole("switch", { name: "Something waits for my answer" });
+    await expect(sw).toHaveAttribute("aria-checked", "true", { timeout: LONG });
+
+    await sw.click();
+    await expect(toast(page, "Email off")).toBeVisible({ timeout: LONG });
+    await expect(sw).toHaveAttribute("aria-checked", "false");
+    const api = await devApi(playwright);
+    expect((await read(api)).email).toMatchObject({ decision_waiting: false, daily_brief: true });
+
+    await page.reload();
+    await expect(page.getByTestId("app-shell")).toBeVisible({ timeout: LONG });
+    await settled(page);
+    await expect(screen.getByRole("switch", { name: "Something waits for my answer" })).toHaveAttribute("aria-checked", "false", { timeout: LONG });
+
+    await page.goto(`/b/${LEDGERLY_BUSINESS_ID}/settings/preferences`);
+    await settled(page);
+    const there = screen.getByRole("switch", { name: "Something waits for my answer" });
+    await expect(there).toHaveAttribute("aria-checked", "false", { timeout: LONG });
+    await there.click();
+    await expect(toast(page, "Email on")).toBeVisible({ timeout: LONG });
+    await expect(there).toHaveAttribute("aria-checked", "true");
+    expect((await read(api)).email).toMatchObject({ decision_waiting: true });
+    await api.dispose();
+    expect(hydration, hydration.join("\n")).toEqual([]);
+  });
+});

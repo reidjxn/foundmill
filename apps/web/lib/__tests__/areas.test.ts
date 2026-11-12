@@ -31,7 +31,7 @@ describe("area tab bars", () => {
   it("Northwind's Product bar spans three departments; ids are dept/tab and each links to its own department", () => {
     const product = areaNav({ businessId: BID, departments: NORTHWIND }).get("product")!;
     const items = areaTabItems(BID, product);
-    expect(items.filter((t) => t.tier === "default").map((t) => t.label)).toEqual(["Specification", "What changed", "Live product", "Specialists · Formulation Lab"]);
+    expect(items.filter((t) => t.tier === "default").map((t) => t.label)).toEqual(["Specification", "Public page", "What changed", "Live product", "Specialists · Formulation Lab"]);
     expect(items.find((t) => t.id === areaTabId("operations", "specialists"))).toMatchObject({ href: "/b/b1/d/operations/specialists", tier: "default" });
     expect(items.find((t) => t.id === "development/specialists")).toMatchObject({ label: "Specialists · Development", tier: "detail" });
     // Builder view: every tab inline, Code included.
@@ -78,7 +78,7 @@ describe("search and the palette", () => {
 
 describe("Settings › Departments", () => {
   it("says where each department's tabs show: their area, inline or More detail", () => {
-    expect(tabPlacementLines(NORTHWIND[0]!)).toEqual(["Plan: Roadmap", "Product: Specification · More detail: Vision, Changes, Sources, Research"]);
+    expect(tabPlacementLines(NORTHWIND[0]!)).toEqual(["Plan: Roadmap", "Product: Specification, Public page · More detail: Vision, Changes, Sources, Research"]);
     expect(tabPlacementLines(NORTHWIND[2]!)).toEqual(["Product: Specialists · More detail: Work list"]);
     expect(tabPlacementLines(NORTHWIND[6]!)).toEqual(["Money: Company, Compliance · More detail: Incorporate, Contracts, IP, Policies, Regulatory"]);
     expect(tabPlacementLines({ id: "x", name: "Studio", slug: "studio", position: 0, moduleKeys: [], tabs: [] })).toEqual(["Its own sidebar item"]);

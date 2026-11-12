@@ -58,7 +58,7 @@ export type ModuleKey = (typeof MODULE_KEYS)[number];
 
 /** Default tabs per module (BUILD §6.3). Slugs are stable ids; titles are display text. */
 export const MODULE_TABS: Record<ModuleKey, readonly { slug: string; title: string }[]> = {
-  product: [{ slug: "vision", title: "Vision" }, { slug: "specification", title: "Specification" }, { slug: "roadmap", title: "Roadmap" }, { slug: "changes", title: "Changes" }, { slug: "sources", title: "Sources" }, { slug: "research", title: "Research" }],
+  product: [{ slug: "vision", title: "Vision" }, { slug: "specification", title: "Specification" }, { slug: "public-page", title: "Public page" }, { slug: "roadmap", title: "Roadmap" }, { slug: "changes", title: "Changes" }, { slug: "sources", title: "Sources" }, { slug: "research", title: "Research" }],
   development: [{ slug: "training-ground", title: "Live sessions" }, { slug: "plan", title: "Plan" }, { slug: "pull-requests", title: "Pull requests" }, { slug: "code", title: "Code" }, { slug: "environments", title: "Environments" }, { slug: "specialists", title: "Specialists" }],
   distribution: [{ slug: "formation", title: "Board" }, { slug: "channels", title: "Channels" }, { slug: "leads", title: "Leads" }, { slug: "campaigns", title: "Campaigns" }, { slug: "creative", title: "Creative" }, { slug: "attribution", title: "Attribution" }],
   finance: [{ slug: "overview", title: "Overview" }, { slug: "pnl", title: "Profit and loss" }, { slug: "cash", title: "Cash" }, { slug: "runway", title: "Runway" }, { slug: "wage-bill", title: "Payroll" }, { slug: "cap-table", title: "Cap table" }],
@@ -93,7 +93,7 @@ export const FOUNDER_TAB_TITLES: Partial<Record<ModuleKey, Readonly<Record<strin
  * view's own tabs (`BUILDER_ONLY_TABS`) are not offered at all then. With Builder view on every tab shows inline.
  */
 export const DEFAULT_TABS: Readonly<Record<ModuleKey, readonly string[]>> = {
-  product: ["specification", "roadmap"],
+  product: ["specification", "public-page", "roadmap"],
   development: ["pull-requests", "environments"],
   distribution: ["leads", "campaigns"],
   finance: ["overview", "runway"],
@@ -237,7 +237,7 @@ export const PLAN_ACTION_TYPES = [
 ] as const;
 export type PlanActionType = (typeof PLAN_ACTION_TYPES)[number];
 
-export const PLAN_ORIGINS = ["option", "free_text", "playbook", "holiday"] as const;
+export const PLAN_ORIGINS = ["option", "free_text", "playbook", "holiday", "team_call"] as const;
 export type PlanOrigin = (typeof PLAN_ORIGINS)[number];
 
 export const PLAN_STATUSES = ["pending_confirmation", "executing", "done", "failed"] as const;
@@ -438,8 +438,13 @@ export const EVENT_TYPES = [
   "distribution.started",
   "product.research_drafted",
   "goal.proposed", "goal.approved", "goal.change_requested", "goal.achieved",
+  "page.published", "page.unpublished", "page.followed",
   "guidance.tour_completed", "guidance.tour_skipped", "guidance.explainer_dismissed", "guidance.term_opened", "guidance.turned_off",
   "push.sent",
+  "mail.sent",
+  "notify.email_sent",
+  "team_call.started", "team_call.ended",
+  "founder.session_started",
 ] as const;
 export type EventType = (typeof EVENT_TYPES)[number];
 
@@ -541,6 +546,19 @@ export const NOTIFICATION_KINDS = ["decision", "approval", "customer", "agent_do
 export type NotificationKind = (typeof NOTIFICATION_KINDS)[number];
 export type NotificationPrefs = Record<NotificationKind, boolean>;
 export const DEFAULT_NOTIFICATION_PREFS: Readonly<NotificationPrefs> = Object.freeze({ decision: true, approval: true, customer: true, agent_down: true, runway: true, run_finished: true, goal: true });
+/**
+ * What Foundmill may email a person about (the `email` channel beside push in `account_preferences.notifications`,
+ * docs/THESIS_REVIEW.md packages 1.5 and 5.1; the retention plan's kinds joined it, founder 2026-11-12: one sender, one
+ * preference): a note that needs their answer, a customer won, a milestone, a run they started and left finishing,
+ * used-up credits, and the morning brief and the Monday weekly review. Every kind is on until the person turns it off
+ * (Settings › Preferences, or the link in the email).
+ */
+export const EMAIL_NOTIFICATION_KINDS = ["decision_waiting", "win", "milestone", "run_finished", "credits", "daily_brief", "weekly_review"] as const;
+export type EmailNotificationKind = (typeof EMAIL_NOTIFICATION_KINDS)[number];
+export type EmailNotificationPrefs = Record<EmailNotificationKind, boolean>;
+export const DEFAULT_EMAIL_NOTIFICATION_PREFS: Readonly<EmailNotificationPrefs> = Object.freeze({ decision_waiting: true, win: true, milestone: true, run_finished: true, credits: true, daily_brief: true, weekly_review: true });
+/** The kinds the daily limits count; the morning brief and the weekly review are on their own schedule (founder, 2026-11-12). */
+export const LIMITED_EMAIL_KINDS: readonly EmailNotificationKind[] = ["decision_waiting", "win", "milestone", "run_finished", "credits"];
 
 /** The account's type size (`account_preferences.text_size`, 0064): comfortable grows body and small text; the structure keeps its sizes. */
 export const TEXT_SIZES = ["standard", "comfortable"] as const;

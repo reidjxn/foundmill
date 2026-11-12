@@ -39,6 +39,7 @@ export const EXPORT_TABLES: Readonly<Record<string, ExportTableSpec>> = {
   spec_versions: t(s.specVersions, "product"),
   product_signoffs: t(s.productSignoffs, "product"),
   goals: t(s.goals, "product"),
+  project_pages: t(s.projectPages, "product"),
   change_proposals: t(s.changeProposals, "product"),
   proposal_hunks: t(s.proposalHunks, "product"),
   roadmap_items: t(s.roadmapItems, "product"),
@@ -66,6 +67,9 @@ export const EXPORT_TABLES: Readonly<Record<string, ExportTableSpec>> = {
   playbooks: t(s.playbooks, "team"),
   agent_threads: t(s.agentThreads, "team"),
   agent_messages: t(s.agentMessages, "team"),
+  team_calls: t(s.teamCalls, "team"),
+  team_call_turns: t(s.teamCallTurns, "team"),
+  team_call_actions: t(s.teamCallActions, "team"),
   // distribution (channels, campaigns and the customer journey)
   channels: t(s.channels, "distribution"),
   campaigns: t(s.campaigns, "distribution"),
@@ -85,6 +89,7 @@ export const EXPORT_TABLES: Readonly<Record<string, ExportTableSpec>> = {
   interactions: t(s.interactions, "crm"),
   mentions: t(s.mentions, "crm"),
   field_provenance: t(s.fieldProvenance, "crm"),
+  contact_consents: t(s.contactConsents, "crm"),
   merge_log: t(s.mergeLog, "crm"),
   // finance
   accounts: t(s.accounts, "finance", { omit: ["externalId"] }),
@@ -117,6 +122,7 @@ export const EXPORT_TABLES: Readonly<Record<string, ExportTableSpec>> = {
   // seat of this business, so it never travels in the business's archive.
   memberships: t(s.memberships, "settings", { pick: ["id", "userId", "role", "createdAt"], rows: ne(s.memberships.source, "example") }),
   integrations: t(s.integrations, "settings", { pick: ["id", "connectorKey", "status", "authKind", "scopes", "accountLabel", "lastHealthAt", "lastError", "createdAt", "updatedAt"] }),
+  project_mail: t(s.projectMail, "settings", { pick: ["id", "localPart", "status", "dailyCap", "createdAt"] }),
   app_installations: t(s.appInstallations, "settings", { pick: ["id", "connectorKey", "accountLabel", "verifiedAt", "createdAt"] }),
   policies: t(s.policies, "settings"),
   holiday_periods: t(s.holidayPeriods, "settings"),
@@ -133,13 +139,15 @@ export const EXPORT_EXCLUDED_TABLES: Readonly<Record<string, string>> = {
   webhooks: "Webhook endpoints and their secret references are connector plumbing, not business data.",
   events: "The internal event log; the audit log and the Inbox in this archive record what happened.",
   outbox: "The event delivery queue (internal).",
+  founder_presence: "When each person was last in the business: one person's own activity, not business data.",
+  founder_visit_days: "The days each person opened the business: one person's own activity, not business data.",
+  founder_notifications: "The emails sent to each founder: one person's own mail, readable only by them in Settings.",
   composer_buffer: "Inbox notes waiting to be written (internal queue).",
   workspace_blobs: "Sandbox file snapshots; the code reaches your repository through pushes.",
   workspace_snapshots: "Sandbox file snapshots; the code reaches your repository through pushes.",
   session_recordings: "Replay copies of agent session streams (kept so a session can be replayed after its stream expires); the sessions themselves are exported.",
   posts: "LIVE network posts belong to the network, not to the business.",
   community_members: "LIVE network memberships belong to the network, not to the business.",
-  leaderboard_entries: "LIVE leaderboard rows belong to the network, not to the business.",
   demo_sample_rows: "Which rows of a sample business are the sample's own (internal to the sample's roll-forward).",
 };
 

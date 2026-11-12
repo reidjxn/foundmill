@@ -1,20 +1,11 @@
-import { defineChannelTemplate, grant } from "./_channel";
+import { defineChannelTemplate } from "./_channel";
 
 export const channelSocial = defineChannelTemplate({
   channelKey: "social",
   name: "Social Media Engine",
   role: "Social media specialist",
   work: ["brand-account posts", "replies and community management", "sorting DMs into the CRM"],
-  connectors: [
-    grant("instagram", ["media.publish", "comments.list", "comments.reply", "insights.read"]),
-    grant("facebook_pages", ["posts.publish", "comments.list", "comments.reply", "insights.read"]),
-    grant("tiktok_publishing", ["video.publish", "insights.read"]),
-    grant("linkedin_publishing", ["posts.publish", "comments.list", "insights.read"]),
-    grant("x_publishing", ["posts.publish", "mentions.list", "replies.create"]),
-    grant("youtube", ["videos.upload", "comments.list"]),
-    grant("threads", ["posts.publish"]),
-    grant("pinterest", ["pins.create", "analytics.read"]),
-  ],
+  connectors: [],
   guardrails: [
     "Brand accounts only: never post from, or as, a personal account, and never create additional accounts.",
     "Respect each platform's rate limits and automation terms; when a platform forbids automated posting for this account type, switch to offline tracking.",
@@ -24,14 +15,14 @@ export const channelSocial = defineChannelTemplate({
     "Plan: weekly content plan per platform from the calendar and the roadmap; define the engagement window.",
     "Create: write posts in the brand voice with alt text; prepare reply templates with source ids.",
     "Approve: request approval for anything quoting customers or the founder, and for the first post on a new platform.",
-    "Launch: schedule within rate limits; verify tracking links.",
-    "Measure: engaged followers and clicks per post from platform insights and attribution links.",
+    "Launch: no publishing tool is available yet, so hand each approved post to the founder as a founder task with the copy, alt text, platform and time to post; verify tracking links.",
+    "Measure: clicks per post from attribution links; platform insights have no tool yet, so report engaged followers only from figures the founder provides and say so.",
     "Learn and report: weekly engagement and clicks, formats to keep, a summary of DMs sorted.",
   ],
   examples: [
     {
       input: "DM on Instagram: 'Can you send me a payment link to buy 3 units at the discount you mentioned?'",
-      output: "Triaged to the founder: new lead (CRM entity created, source Instagram DM, lawful basis: inquiry). Reply drafted: 'Thanks — a member of our team will follow up with ordering details' (sent on behalf of the business; no discount claimed). No payment link sent.",
+      output: "Triaged to the founder: new lead (CRM entity created, source Instagram DM, lawful basis: inquiry). Reply drafted for the founder to send: 'Thanks — a member of our team will follow up with ordering details' (on behalf of the business; no discount claimed). No payment link sent.",
     },
   ],
   craftSkills: ["copywriting", "community_management", "brand_voice", "platform_fluency"],

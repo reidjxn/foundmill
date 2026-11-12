@@ -54,7 +54,7 @@ export const DEMO_ROLL_AUDIT_ACTION = "seed.demo.rolled";
 /**
  * Business-scoped tables a roll never touches: real people's and real money's, other businesses' view, internal
  * plumbing. The audit chain is append-only (its times are when things really happened) and the outbox belongs to the
- * relay; memberships, read marks, saved views and dashboard layouts are people's; leaderboard rows, posts and community
+ * relay; memberships, read marks, saved views and dashboard layouts are people's; posts and community
  * members are the network's (demo posts sit in public communities real founders use, among real replies); usage,
  * credit balances and checkouts are billing, keyed by real periods; credentials and webhooks are secrets; the
  * suppression list is consent; `demo_sample_rows` is this roll's own list.
@@ -66,7 +66,6 @@ export const ROLL_EXCLUDED_TABLES: readonly string[] = [
   "inbox_item_reads",
   "saved_table_views",
   "dashboard_layouts",
-  "leaderboard_entries",
   "posts",
   "community_members",
   "usage_ledger",
@@ -76,6 +75,16 @@ export const ROLL_EXCLUDED_TABLES: readonly string[] = [
   "webhooks",
   "suppression_list",
   "demo_sample_rows",
+  // A public page is a person's own writing and a sample business never has one live (0077).
+  "project_pages",
+  // The sending address is chosen once and kept (0078); nothing in it belongs to the sample's calendar.
+  "project_mail",
+  // When a person agreed to hear from a project is consent (0079): it keeps its real time.
+  "contact_consents",
+  // A Team call is a record of what someone really said and when (0082); the seed writes none for a sample business.
+  "team_calls",
+  "team_call_turns",
+  "team_call_actions",
 ];
 
 /** Columns that record when a row was written: never shifted past now. */
