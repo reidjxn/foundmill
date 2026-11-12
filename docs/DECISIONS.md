@@ -3806,3 +3806,11 @@ The security review of the account events branch found no blocker, three things 
   - Events for one person can arrive out of order after a transient failure (a failed row is retried after newer rows were published); consumers that need order must sort by `occurredAt`.
   - A future event with client-supplied record ids could turn the trigger's distinct error into an "is this UUID an account" oracle. Writers must check record ids against their own table first, and the api must map that error to a generic one.
   - None of this was run on real Postgres or Supabase (PGlite only). The definer trigger under `service_role`, EXECUTE on `fm_account_event_types()` for `authenticated` inside the check on `events`, and the platform's default privileges need one check on a real project before the migration is applied to production.
+
+## A home for a person with no project (Nov 12, 2026; THESIS_REVIEW 2.4)
+
+- **Its own address, `/home`, not `/`.** A signed-out `/` is the landing page, which stays desktop until 2.1/2.7, and the small-screen rule is decided by path (`SMALL_SCREEN_PREFIXES`); one address for the person's home lets it work from 390 px without opening the landing page too. The signed-in index still answers `/` and sends a person with no project there.
+- **Start something leads; finding people is an offer beside it.** The card says the person can do all of it on their own (CLAUDE.md "Solo is complete"). No people are suggested anywhere on the home, for anyone: the find card is a way to go and look, not a list. Reading `lookingFor` to tailor it waits until there is something to tailor.
+- **Closed people layer.** Where LIVE is off (production today), the find card says "Opening soon" without a link, and the waiting counts are not read: nobody can have written to the person.
+- **Onboarding still continues to /new.** A person who has just finished the profile is mid-way through starting; the home is where they land on a later visit. Revisit with 2.3's three questions ("start something", "join something", "not sure yet").
+- **The `(live)` layout is left to the network session.** Its pages call `useBusiness()` (PersonalNotice, connect, community and profile screens), so working without a project is a change to those screens, which that session owns.

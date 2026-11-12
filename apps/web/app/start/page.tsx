@@ -2,7 +2,8 @@
  * The signed-in index: proxy.ts serves it for `/` when the last-business cookie does not answer that itself (no cookie,
  * or the cookie's business is gone). The last business's Home when the founder still has it, else their newest business
  * of their own (never the example business they are walking around, which counts only as the last one opened), else
- * /new (profile complete) or /onboarding (BUILD §6.2, AC-11.1.1). The address stays `/`.
+ * the person's home at /home (profile complete; docs/THESIS_REVIEW.md 2.4) or /onboarding (BUILD §6.2, AC-11.1.1).
+ * The address stays `/` for a business.
  */
 import { redirect } from "next/navigation";
 import { routes } from "@foundmill/widgets/shared/routes";
@@ -29,5 +30,5 @@ export default async function StartPage() {
   if (!profile.complete) redirect("/onboarding");
   const target = pickCurrentBusiness(await getLastBusinessId(), profile.businesses);
   if (target) redirect(routes.today(target.id));
-  redirect("/new");
+  redirect("/home");
 }
