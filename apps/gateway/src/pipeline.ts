@@ -826,6 +826,7 @@ async function allow(deps: GatewayDeps, session: SessionToken, req: CallRequestP
       // tools reads it and the agent gets typed fields only (BUILD §9.8 step 2). If the reader fails, the agent gets nothing.
       try {
         const digest = await deps.reader.digest({ content, businessId: session.businessId, agentId: session.agentId, sessionId: session.sessionId });
+        // `toAgentEnvelope` carries the tool's typed read (`facts`, already held to the facts limits) beside the digest.
         data = { ...toAgentEnvelope(result.data), content: digest, quarantined: true };
       } catch (err) {
         log.warn({ err: (err as Error).message }, "quarantined reader failed; the content is withheld");

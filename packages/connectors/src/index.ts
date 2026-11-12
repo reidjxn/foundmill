@@ -5,6 +5,7 @@ export * from "./registry";
 export * from "./catalogue";
 export * from "./mock-utils";
 export * from "./quarantine";
+export * from "./facts";
 export * from "./webhooks";
 export * from "./http";
 export * from "./platform";
