@@ -60,14 +60,14 @@ export const perplexityTools = [
       const citations = data.citations.flatMap((c) => {
         const url = fact.url(c.url);
         return url ? [{ url, host: fact.hostOf(url) }] : [];
-      }).slice(0, 20);
+      }).slice(0, 10);
       return {
         // Perplexity names a model as `provider/model`: each part an identifier, joined again; anything else is null.
         model: modelFact(data.model),
         answerChars: fact.int(data.answer.length),
         mentions: countMentions(data.answer, args.lookFor),
         citations,
-        citedHosts: [...new Set(citations.flatMap((c) => (c.host ? [c.host] : [])))].slice(0, 20),
+        citedHosts: [...new Set(citations.flatMap((c) => (c.host ? [c.host] : [])))].slice(0, 10),
       };
     },
     untrustedRef: (a) => `panel:${a.question.slice(0, 80)}`,

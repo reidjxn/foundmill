@@ -64,7 +64,7 @@ describe("anthropic ask_panel typed read (facts)", () => {
     expect(factsOf(r)).toEqual({
       model: resolveModel("worker").modelId,
       answerChars: answer.length,
-      mentions: [{ term: "well-reviewed", mentioned: true, count: 1 }, { term: "Acme", mentioned: false, count: 0 }],
+      mentions: [{ index: 0, term: "well-reviewed", mentioned: true, count: 1 }, { index: 1, term: "Acme", mentioned: false, count: 0 }],
       citations: [],
       citedHosts: [],
     });

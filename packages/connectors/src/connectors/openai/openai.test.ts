@@ -164,7 +164,7 @@ describe("openai typed read (facts)", () => {
     expect(factsOf(r)).toEqual({
       model: PANEL_MODELS.openai,
       answerChars: answer.length,
-      mentions: [{ term: "mock answer", mentioned: true, count: 1 }, { term: "Acme", mentioned: false, count: 0 }],
+      mentions: [{ index: 0, term: "mock answer", mentioned: true, count: 1 }, { index: 1, term: "Acme", mentioned: false, count: 0 }],
       citations: [
         { url: "https://www.example-reviews.test/best-invoicing-apps", host: "www.example-reviews.test" },
         { url: "https://northwindskincare.example/", host: "northwindskincare.example" },
@@ -181,7 +181,7 @@ describe("openai typed read (facts)", () => {
     expect(factsOf(r)).toEqual({
       model: "gpt-6-astra-2026-10-01",
       answerChars: "Popular picks are Northwind Invoices for simple billing and a few larger suites for teams.".length,
-      mentions: [{ term: "Northwind", mentioned: true, count: 1 }, { term: "invoices", mentioned: true, count: 1 }, { term: "Acme", mentioned: false, count: 0 }],
+      mentions: [{ index: 0, term: "Northwind", mentioned: true, count: 1 }, { index: 1, term: "invoices", mentioned: true, count: 1 }, { index: 2, term: "Acme", mentioned: false, count: 0 }],
       citations: [
         { url: "https://northwindskincare.example/", host: "northwindskincare.example" },
         { url: "https://www.example-reviews.test/best-invoicing-apps", host: "www.example-reviews.test" },

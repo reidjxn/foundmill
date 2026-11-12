@@ -147,7 +147,7 @@ describe("gemini typed read (facts)", () => {
     expect(factsOf(r)).toEqual({
       model: PANEL_MODELS.gemini,
       answerChars: (unwrap(r.data) as { answer: string }).answer.length,
-      mentions: [{ term: "mock answer", mentioned: true, count: 1 }, { term: "Acme", mentioned: false, count: 0 }],
+      mentions: [{ index: 0, term: "mock answer", mentioned: true, count: 1 }, { index: 1, term: "Acme", mentioned: false, count: 0 }],
       citations: [
         { url: PANEL_CITATIONS[0].url, host: "vertexaisearch.cloud.google.com" },
         { url: PANEL_CITATIONS[1].url, host: "www.example.com" },
@@ -164,7 +164,7 @@ describe("gemini typed read (facts)", () => {
     expect(factsOf(r)).toEqual({
       model: "gemini-3.8-flash",
       answerChars: INTERACTION_ANSWER.length,
-      mentions: [{ term: "Northwind Skincare", mentioned: true, count: 1 }, { term: "serum", mentioned: true, count: 1 }, { term: "Acme", mentioned: false, count: 0 }],
+      mentions: [{ index: 0, term: "Northwind Skincare", mentioned: true, count: 1 }, { index: 1, term: "serum", mentioned: true, count: 1 }, { index: 2, term: "Acme", mentioned: false, count: 0 }],
       citations: [
         { url: PANEL_CITATIONS[0].url, host: "vertexaisearch.cloud.google.com" },
         { url: PANEL_CITATIONS[1].url, host: "www.example.com" },

@@ -47,13 +47,13 @@ export const openaiTools = [
       const citations = data.citations.flatMap((c) => {
         const url = fact.url(c.url);
         return url ? [{ url, host: fact.hostOf(url) }] : [];
-      }).slice(0, 20);
+      }).slice(0, 10);
       return {
         model: fact.id(data.model, 80),
         answerChars: fact.int(data.answer.length),
         mentions: countMentions(data.answer, args.lookFor),
         citations,
-        citedHosts: [...new Set(citations.flatMap((c) => (c.host ? [c.host] : [])))].slice(0, 20),
+        citedHosts: [...new Set(citations.flatMap((c) => (c.host ? [c.host] : [])))].slice(0, 10),
       };
     },
     untrustedRef: (a) => `panel:${a.question.slice(0, 80)}`,

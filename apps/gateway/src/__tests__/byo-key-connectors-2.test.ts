@@ -226,6 +226,26 @@ describe("typed reads: an agent that only gets the reader's digest still gets th
   });
 });
 
+describe("a value in a typed read is still first seen in untrusted content", () => {
+  it("the work email from an Apollo lookup cannot be mailed until the founder approves it", async () => {
+    const mock = createDefaultRegistry({ secrets: {}, fetch: recordingFetch().fetch }).list("mock").filter((c) => ["apollo", "resend"].includes(c.key));
+    const g = await setupGateway({ mode: "mock", businessMode: "automated", connectors: mock });
+    open = g;
+    g.deps.appEnv = "test";
+    g.deps.platformMail = MAIL_CONFIG;
+    g.deps.reader = { digest: async () => ({ title: null, sender: null, summary: "One person.", amounts: [], dates: [] }) };
+    const token = await g.token({ allowedTools: ["apollo:*", "resend:*"] });
+    const looked = asAllow(await g.client.call(token, CALLS["apollo.enrich_person"]));
+    const facts = (looked.result.data as { quarantined?: boolean; facts?: { email: string | null } }).facts;
+    expect((looked.result.data as { quarantined?: boolean }).quarantined).toBe(true);
+    expect(facts?.email).toMatch(/@/);
+    // The agent holds the address now, and the recipient rule still stands between it and a send.
+    const send = await g.client.call(token, { connector: "resend", tool: "send_mail", args: { ...MAIL, to: { email: facts!.email! } } });
+    expect(send.outcome).toBe("deny");
+    expect((send as { policyIds: string[] }).policyIds).toContain("untrusted-recipient");
+  });
+});
+
 describe("resend.send_mail carries the gateway's own unsubscribe link", () => {
   const sendBody = async (platformMail: PlatformMailConfig | undefined, args: Record<string, unknown> = MAIL) => {
     const bodies: Record<string, unknown>[] = [];

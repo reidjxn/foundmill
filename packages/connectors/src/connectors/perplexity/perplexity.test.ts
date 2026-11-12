@@ -149,7 +149,7 @@ describe("perplexity typed read (facts)", () => {
     expect(factsOf(r)).toEqual({
       model: "perplexity/sonar",
       answerChars: answer.length,
-      mentions: [{ term: "mock answer", mentioned: true, count: 1 }, { term: "Acme", mentioned: false, count: 0 }],
+      mentions: [{ index: 0, term: "mock answer", mentioned: true, count: 1 }, { index: 1, term: "Acme", mentioned: false, count: 0 }],
       citations: [
         { url: "https://www.example-reviews.test/best-invoicing-apps", host: "www.example-reviews.test" },
         { url: "https://northwindskincare.example/", host: "northwindskincare.example" },
@@ -166,7 +166,7 @@ describe("perplexity typed read (facts)", () => {
     expect(factsOf(r)).toEqual({
       model: "perplexity/sonar",
       answerChars: ANSWER.length,
-      mentions: [{ term: "Northwind", mentioned: true, count: 1 }, { term: "suites", mentioned: true, count: 1 }, { term: "Acme", mentioned: false, count: 0 }],
+      mentions: [{ index: 0, term: "Northwind", mentioned: true, count: 1 }, { index: 1, term: "suites", mentioned: true, count: 1 }, { index: 2, term: "Acme", mentioned: false, count: 0 }],
       citations: [
         { url: PERPLEXITY_FIXTURE_CITATIONS[0].url, host: "www.example-reviews.test" },
         { url: PERPLEXITY_FIXTURE_CITATIONS[1].url, host: "northwindskincare.example" },
