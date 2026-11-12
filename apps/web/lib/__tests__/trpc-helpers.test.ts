@@ -160,6 +160,19 @@ describe("trpc helpers", () => {
     expect(paths).toContain("inbox.list,cycle.status");
   });
 
+  it("sends each spoken turn of a call in its own request, so the first agent never waits for the second's audio", async () => {
+    const urls: string[] = [];
+    const fetchSpy = (async (input: RequestInfo | URL) => {
+      urls.push(String(input));
+      return new Response("{}", { status: 500, headers: { "content-type": "application/json" } });
+    }) as typeof fetch;
+    const client = createUntypedApiClient({ getToken: () => "jwt", url: "http://api.test/trpc", fetch: fetchSpy });
+    await Promise.allSettled([client.mutation("teamCall.speech", { businessId: "b", callId: "c", turnId: "t1" }), client.mutation("teamCall.speech", { businessId: "b", callId: "c", turnId: "t2" }), client.mutation("teamCall.say", { businessId: "b" }), client.mutation("inbox.decide", { businessId: "b" })]);
+    const paths = urls.map((u) => new URL(u).pathname.replace("/trpc/", ""));
+    expect(paths.filter((p) => p.includes("teamCall.speech"))).toEqual(["teamCall.speech", "teamCall.speech"]);
+    expect(paths).toContain("teamCall.say,inbox.decide");
+  });
+
   it("never batches more calls than the API accepts in one request (LIMITS.trpcMaxBatchSize)", async () => {
     const urls: string[] = [];
     const fetchSpy = (async (input: RequestInfo | URL) => {

@@ -100,3 +100,38 @@ describe("useCallPlayback", () => {
     expect((spoken[0] as unknown as { text: string }).text).toBe("Spoken t2");
   });
 });
+
+describe("useCallPlayback: streamed speech", () => {
+  const played: { src: string; el: { onerror: (() => void) | null; onended: (() => void) | null } }[] = [];
+  beforeEach(() => {
+    played.length = 0;
+    class FakeAudio {
+      src = "";
+      onended: (() => void) | null = null;
+      onerror: (() => void) | null = null;
+      pause() {}
+      play() {
+        played.push({ src: this.src, el: this });
+        return Promise.resolve();
+      }
+    }
+    vi.stubGlobal("Audio", FakeAudio);
+  });
+
+  const streamed = (id: string): TeamCallSpeechView => ({ turnId: id, speechAccent: "talia", mime: "audio/mpeg", base64: "", simulated: false, spokenText: `Spoken ${id}`, streamUrl: `/team-call-audio/ticket-${id}` });
+
+  it("plays a live turn from the api's stream, and falls back once to the whole clip when the stream cannot play", async () => {
+    const fetchSpeech = vi.fn(async (id: string, opts?: { stream?: boolean }) => (opts?.stream === false ? { ...streamed(id), streamUrl: undefined, base64: "SUQz" } : streamed(id)));
+    const { result } = renderHook(() => useCallPlayback(fetchSpeech, "https://api.example.test/"));
+    act(() => result.current.enqueue([turn(1)]));
+    await waitFor(() => expect(played).toHaveLength(1));
+    expect(played[0]!.src).toBe("https://api.example.test/team-call-audio/ticket-t1");
+    // The stream fails: the same turn is asked for as a whole clip and played from it.
+    act(() => played[0]!.el.onerror?.());
+    await waitFor(() => expect(played).toHaveLength(2));
+    expect(fetchSpeech).toHaveBeenLastCalledWith("t1", { stream: false });
+    expect(played[1]!.src).toBe("data:audio/mpeg;base64,SUQz");
+    act(() => played[1]!.el.onended?.());
+    await waitFor(() => expect(result.current.idle).toBe(true));
+  });
+});
