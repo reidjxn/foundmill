@@ -3703,3 +3703,13 @@ Order into main: retention (0083, 0084), Google sign-in (no migration), then the
 
 The founder: "text and presence first, voice and video later". Version one of build hours is who is there, a shared clock and text. Hearing and seeing each other comes later and needs a real-time calling vendor behind the gateway (not the speech connector Team call added, which is the founder talking with agents). With this every question of `docs/NETWORK.md` §14 is answered.
 
+## 2026-11-12 — Tap-to-post sharing (relayed from the founder by the alignment session; to be confirmed here)
+
+Relayed as the founder's decision, given in the alignment session and not in this one: tap-to-post is the default way a project posts to social networks, and this session builds it in wave 1 after attribution and the cards.
+
+- **What.** For a drafted post (a milestone card, a real outcome, a page going live, a draft from the social channel agent): one button per network that opens that network's own share window with the text and link filled in; the founder presses Post there. Where a network takes no pre-filled web post (Instagram, TikTok): "Copy text", "Open the app" and the image to download. On a phone, the device's own share sheet where the browser offers it.
+- **No API, key, developer app or cost.** Foundmill posts nothing, so the founder's own tap is the only approval.
+- **Honesty.** A tap on Share is not a published post: it is recorded as a share, never reported as posted, and never a real outcome for the north star unless a visit comes back through the link. Every shared link carries the `via` reference.
+- **One draft shape** in `packages/shared` (text, link, image, per-network variants), agreed with the connectors session before either adds it, so the same draft can be shared by tap or published through its optional connector.
+- **Open point for the founder (this session's):** the relayed text says sharing makes the social channel "available" on the Channel Board with no connector. The Nov 11 rule is that the Board shows only channels that can really act. A channel the founder posts for by hand is a different state from one an agent can publish to; the Board should say which ("You post it" beside "The team posts it"), not show them as the same.
+

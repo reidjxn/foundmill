@@ -168,7 +168,8 @@ Twenty-one features in six groups. Each has: what it is, why it matters for spre
 
 - New early milestones (package 5.3): page live, first follower, first reply from a customer, first dollar. Later ones stay.
 - Two sizes from one design: wide for link previews, tall for story posts. The project's own brand colors and logo, the fact, the date, "Verified by Foundmill".
-- One tap opens the phone's share sheet. The card's page shows the project, its Follow button and "Start yours", and stays up while the project is visible.
+- One tap opens the phone's share sheet.
+- **Tap-to-post** (relayed from the founder, Nov 12; DECISIONS): beside any drafted post, one button per network that opens that network's own share window with the text and link filled in, and "Copy text" with the image to download where a network takes no pre-filled post. Foundmill posts nothing and needs no key. A tap is recorded as a share, never as a post, and counts as a real outcome only when a visit comes back through the link. Every shared link carries `via`. The card's page shows the project, its Follow button and "Start yours", and stays up while the project is visible.
 - **The week card** (Fridays) and **the chapter recap** are the same object with more on it.
 - **Why:** L3, and the handing-over of a card is the reward moment of the minutes loop.
 
