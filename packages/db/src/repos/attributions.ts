@@ -1,7 +1,11 @@
 /**
  * attributions (0086) — account-scoped (userId first): who or what brought a new person (docs/NETWORK.md §5, §11). One
  * row per account, ever, written by the api when the person's founder profile is first created
- * (`founder.profile.update`, apps/api services/attribution.ts).
+ * (`founder.profile.update`, apps/api services/attribution.ts). In the same transaction the api writes the row's two
+ * account events, one per person (`signup.attributed` for the new person, `referral.arrived` for the person credited;
+ * @foundmill/events `writeAccountEvents`): they carry `sourceKind` and `sourceRef` only, so this row is the one place
+ * that holds the two accounts and the source project together by id, and `record` returns it for that (its `id` is
+ * what the events' idempotency keys are built from).
  *
  * Service connection only, every function: the table is the service role's (no client role reads or writes it), and
  * `resolve` reads the two public views, which are the service role's too (0080, 0081).

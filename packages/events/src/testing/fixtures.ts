@@ -555,11 +555,13 @@ export const EVENT_FIXTURES: { readonly [K in EventType]: EventPayloadInput<K> }
   "founder.session_started": { via: "email", notificationId: fixtureId("notification"), minutesAway: 720, sessions: 3 },
   "milestone.shown": { milestoneId: fixtureId("milestone"), key: "page_live", slug: "northwind-skincare", url: `https://foundmill.example/m/${fixtureId("milestone")}` },
   "milestone.hidden": { milestoneId: fixtureId("milestone"), key: "page_live", slug: "northwind-skincare", url: `https://foundmill.example/m/${fixtureId("milestone")}` },
-  "signup.attributed": { userId: fixtureId("user-new"), sourceKind: "project_page", sourceRef: "northwind-skincare", sourceBusinessId: fixtureId("business-source"), referrerUserId: FIXTURE_USER_ID },
   "share.opened": { network: "x", kind: "milestone", refId: fixtureId("milestone"), target: "tap" },
   // Account-scoped (a person's own): written with `accountFixtureInput`, never with `fixtureInput`.
   "profile.published": { handle: "maya-okafor" },
   "profile.unpublished": { handle: "maya-okafor" },
+  // One sign-up, two people, two rows: the new person's and the credited person's. A public address and nothing else.
+  "signup.attributed": { sourceKind: "project_page", sourceRef: "northwind-skincare" },
+  "referral.arrived": { sourceKind: "person_profile", sourceRef: "maya-okafor" },
 };
 
 /** A valid `WriteEventInput` for the given business-scoped type, with the fixture payload and envelope. */

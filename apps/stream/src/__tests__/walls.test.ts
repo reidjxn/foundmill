@@ -183,6 +183,25 @@ describe("account events and the walls", () => {
     expect(viewAccountEvent(e, USER_A.toUpperCase())).toBe(seenJson);
   });
 
+  it("a sign-up a page brought: each of the two people gets their own row on their own channel, and never the other's", () => {
+    // The new person is USER_A, the person credited USER_B; one row each, the same public address in both.
+    const payload = { sourceKind: "project_page", sourceRef: "bread-by-bike" };
+    const arrived = accountEntry(USER_A, { type: "signup.attributed", payload });
+    const credited = accountEntry(USER_B, { type: "referral.arrived", payload });
+    expect(JSON.parse(viewAccountEvent(arrived, USER_A)!)).toEqual({ id: arrived.fields.id, userId: USER_A, type: "signup.attributed", occurredAt: "2026-11-12T09:00:00.000Z", payload });
+    expect(JSON.parse(viewAccountEvent(credited, USER_B)!)).toEqual({ id: credited.fields.id, userId: USER_B, type: "referral.arrived", occurredAt: "2026-11-12T09:00:00.000Z", payload });
+    // What the credited person receives holds nothing of the new person, and the actor never leaves.
+    expect(viewAccountEvent(credited, USER_B)).not.toContain(USER_A);
+    expect(viewAccountEvent(credited, USER_B)).not.toContain("internal-actor-name");
+    // Neither row leaves on the other person's channel, even when it was written to that stream.
+    expect(viewAccountEvent(arrived, USER_B)).toBeNull();
+    expect(viewAccountEvent(credited, USER_A)).toBeNull();
+    expect(viewAccountEvent({ ...arrived, stream: `ae:${USER_B}` }, USER_B)).toBeNull();
+    expect(viewAccountEvent({ ...credited, stream: `ae:${USER_A}` }, USER_A)).toBeNull();
+    // And neither has a line in the business walls: on `ev:` they reach nobody.
+    for (const type of ["signup.attributed", "referral.arrived"]) expect(Object.keys(EVENT_WALLS)).not.toContain(type);
+  });
+
   it("nothing else leaves on an account channel: another person's event, a business event, a signal, a mismatch, noise", () => {
     // Another person's account event, whatever stream it sits on.
     expect(viewAccountEvent(accountEntry(USER_B), USER_A)).toBeNull();

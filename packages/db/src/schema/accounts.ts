@@ -269,7 +269,8 @@ export type NewBusiness = typeof businesses.$inferInsert;
  * with, recorded once when their founder profile is first created (apps/api services/attribution.ts). One row per
  * account, ever. Account-scoped, no `business_id`: `sourceBusinessId` is the project whose page brought them (null for a
  * person's profile) and `referrerUserId` the person credited. Service role only: no client role reads or writes it,
- * not even the person's own row.
+ * not even the person's own row. Each row has its account events, written with it, one per person: `signup.attributed`
+ * for the new person and `referral.arrived` for the person credited, both carrying `sourceKind` and `sourceRef` only.
  */
 export const attributions = pgTable(
   "attributions",

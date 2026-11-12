@@ -286,8 +286,9 @@ describe("event catalogue", () => {
     expect(decl.narratable).toBe(false);
     expect([...decl.consumers]).toEqual(["metrics"]);
     expect(isPersonAddressedEvent("share.opened")).toBe(false);
-    // Appended last: the list of types is only ever added to at its end.
-    expect(EVENT_TYPES[EVENT_TYPES.length - 1]).toBe("share.opened");
+    // Appended after every type that was there before it: the list of types is only ever added to at its end
+    // (not pinned to the last place, which the next type to be added takes).
+    expect(EVENT_TYPES.indexOf("share.opened")).toBeGreaterThan(EVENT_TYPES.indexOf("milestone.hidden"));
     const fixture = EVENT_FIXTURES["share.opened"];
     expect(parsePayload("share.opened", fixture)).toEqual(fixture);
     // Nothing of the post fits in the payload: the text, the link and anything else typed are dropped.

@@ -1,8 +1,9 @@
 /**
  * Who or what brought a visitor (docs/NETWORK.md §5 "Attribution is part of every loop"). Every public address accepts
  * `?via=<reference>`; the web keeps the first one a visitor arrives with in a cookie, and when that visitor becomes a
- * person the api records it once (`attributions`, `signup.attributed`). It is how the growth loops are measured and how
- * credit for bringing someone is paid.
+ * person the api records it once (`attributions`, with the account events `signup.attributed` for the new person and
+ * `referral.arrived` for the person credited). It is how the growth loops are measured and how credit for bringing
+ * someone is paid.
  *
  * A reference names a public thing by its public address, never by an internal id:
  *   - `p.<slug>`   a project's public page (`/p/<slug>`)
