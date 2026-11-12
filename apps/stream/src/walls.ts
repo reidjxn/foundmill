@@ -123,6 +123,9 @@ export const EVENT_WALLS = {
   // Who or what brought a new person (0086): about an account, not a business, and not written to any business's events
   // (packages/events catalogue). Filed with the metrics-only events so a stray one reaches no one but Settings' readers.
   "signup.attributed": { sections: ["settings"] },
+  // A milestone shown on the project's page or taken off it (0087): its id, key and public addresses.
+  "milestone.shown": { sections: ["product"] },
+  "milestone.hidden": { sections: ["product"] },
 } as const satisfies { readonly [K in EventType]: EventWall };
 
 /** What one reader may see of business events: their walls (sections they may not read at all). */

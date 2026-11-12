@@ -41,7 +41,7 @@
  */
 import { DEV_PLATFORM_MAIL_SECRET, PLATFORM_NOTIFY_OFF_PATH, readNotifyOffToken, followConfirmNonceHash, platformMailSenderName, readFollowConfirmToken, inboundSenderVerified, normaliseInboundMail, normalisePlatformMailEvents, PLATFORM_MAIL_FOOTER_MARKERS, platformInboundLocalParts, readInboundMail, readPlatformUnsubscribeToken, safeEqual, stableHash, suppressionHashOfEmail, verifySendgridSignature, withinTolerance, type SgEvent } from "@foundmill/connectors";
 import { APP_NAME, tierShowsBuiltOnMark } from "@foundmill/config";
-import { repos } from "@foundmill/db";
+import { awardFirstFollowerMilestone, repos } from "@foundmill/db";
 import { builtOnWords, FOLLOW_CONFIRM_PAGE, NOTIFY_OFF_PAGE, PLATFORM_MAIL_SECRET_MIN_LENGTH, UNSUBSCRIBE_CONFIRM_BODY, UNSUBSCRIBE_CONFIRM_BUTTON, UNSUBSCRIBE_CONFIRM_TITLE, UNSUBSCRIBE_DONE_BODY, UNSUBSCRIBE_INVALID_BODY } from "@foundmill/shared";
 import { ingestPlatformEvents, writeEventRow } from "./ingest";
 import { nonceKey } from "./nonce-store";
@@ -305,6 +305,9 @@ export async function handleFollowConfirm(deps: Deps, req: Request): Promise<Uns
       idempotencyKey: `page.followed:${result.consentId}`,
     });
     await repos.audit.append(tx, business.id, { actorKind: "system", actorId: null, action: "page.followed", target: { kind: "entity", id: result.entityId }, details: { consentId: result.consentId, pageId: result.pageId, lawfulBasisSet: result.lawfulBasisSet } });
+    // The project's first confirmed follower is a milestone (0087), recorded once, here, with the consent record's id
+    // and nothing about the person. Every later follower awards nothing; a sample business has no real followers.
+    if (!business.isDemo) await awardFirstFollowerMilestone(tx, business.id, { consentId: result.consentId, at });
     return "confirmed" as const;
   });
   if (outcome === "invalid") return invalid(400);

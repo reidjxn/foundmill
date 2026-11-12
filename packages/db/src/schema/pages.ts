@@ -55,5 +55,23 @@ export const publicProjectPages = pgView("public_project_pages", {
 }).existing();
 export type PublicProjectPage = typeof publicProjectPages.$inferSelect;
 
+/**
+ * The milestones a project's founders chose to show (0087): the rows of its story (`/p/<slug>/story`) and its cards
+ * (`/m/<id>`). The service connection's only, like the page view. Exactly these columns: the milestone's id, the page's
+ * address, the key, the public words (built from the key, so nothing of a customer travels) and the date. Rows exist
+ * only for a milestone that is shown and not archived, while its business has a row in `public_project_pages`.
+ */
+export const publicProjectMilestones = pgView("public_project_milestones", {
+  id: uuid("id").notNull(),
+  slug: text("slug").notNull(),
+  key: text("key").notNull(),
+  label: text("label").notNull(),
+  achievedAt: tstz("achieved_at").notNull(),
+}).existing();
+export type PublicProjectMilestone = typeof publicProjectMilestones.$inferSelect;
+
+/** The columns `public_project_milestones` exposes, in order (the view's test compares the catalog with this list). */
+export const PUBLIC_PROJECT_MILESTONE_COLUMNS = ["id", "slug", "key", "label", "achieved_at"] as const;
+
 /** The columns `public_project_pages` exposes, in order (the view's test compares the catalog with this list). */
 export const PUBLIC_PROJECT_PAGE_COLUMNS = ["slug", "published", "published_at", "name", "logo_version", "kit_primary", "kit_secondary", "founder_names"] as const;

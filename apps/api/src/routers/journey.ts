@@ -1,16 +1,24 @@
-/** journey.get/list/markViewed + daily rows and milestones for the Ribbon (BUILD §11.2, §11.4). */
+/**
+ * journey.get/list/markViewed + daily rows and milestones for the Ribbon (BUILD §11.2, §11.4), and
+ * journey.showMilestone / journey.hideMilestone: an owner or an admin shows a reached milestone on the project's page
+ * or takes it off (services/milestones.ts; migration 0087), audited, with `milestone.shown` / `milestone.hidden`
+ * through the outbox in the same transaction.
+ */
 import { JourneyListFilter, NO_DEPARTMENT_ID, repos } from "@foundmill/db";
 import { buildChapters, compareByTimeThenId, shouldPlayFullMatchDay } from "@foundmill/journey";
 import { addDaysToDay, dayKeyIn, dayRangeIn } from "@foundmill/shared";
 import { loadRedactionSource, redactValue } from "../services/inbox-redaction";
 import { attributionSummary, buildJourneyRecord } from "../services/journey";
 import { journeyWalls, wallConversion, wallJourneyDetail, wallRibbon } from "../services/journey-walls";
+import { hideMilestone, showMilestone } from "../services/milestones";
 import { z } from "zod";
-import { Id, businessProcedure, router, sectionRead } from "../trpc";
+import { Id, businessProcedure, router, sectionAdmin, sectionRead } from "../trpc";
 
 const DayKey = z.string().date();
 /** Customer Updates and their conversions are the Distribution section's; money and names follow the Finance and CRM walls. */
 const read = sectionRead("distribution");
+/** Showing a milestone puts it on the project's public page: the right that publishes that page (`page.publish`). */
+const showOnPage = sectionAdmin("product");
 
 const DAY_MS = 86_400_000;
 /** How far the Ribbon reaches: ten years back for `from`, two years ahead for `to` (the forecast horizon is shorter). */
@@ -147,6 +155,11 @@ export const journeyRouter = router({
       return wallRibbon({ rows: dailyRows, conversions: labelled.map((c) => ({ ...c, occurredAt: c.occurredAt.toISOString() })), conversionCount, milestones: milestones.map((m) => ({ ...m, achievedAt: m.achievedAt.toISOString() })), chapters, customers, kickoff: firstDay, firstDay, today: to, forecastLabel: "Forecast" as const }, journeyWalls(ctx.membership));
     }),
   ),
+
+  /** Shows a reached milestone on the project's page: a line of its story (`/p/<slug>/story`) and a card (`/m/<id>`). */
+  showMilestone: showOnPage.input(z.object({ milestoneId: Id })).mutation(({ ctx, input }) => showMilestone(ctx, input)),
+  /** Takes a shown milestone off the page; its card answers not found. */
+  hideMilestone: showOnPage.input(z.object({ milestoneId: Id })).mutation(({ ctx, input }) => hideMilestone(ctx, input)),
 
   roundup: read.input(z.object({ day: DayKey })).query(({ ctx, input }) =>
     ctx.rls(async (tx) => {

@@ -307,6 +307,8 @@ export function builtOnWords(appName: string) {
     afterFollow: (name: string) => `${oneLine(name)} is built on ${appName}.`,
     /** The link after that sentence. */
     afterFollowLink: "Start your own",
+    /** The same link once the project shows a story (`/p/<slug>/story`): it goes there instead (docs/NETWORK.md F2). */
+    afterFollowStoryLink: "See how it was made",
     /** The foot of the confirmation email and of the page its link opens. */
     foot: (name: string) => `${oneLine(name)} is built on ${appName}.`,
     /** Beside the console's preview, for the founders of a project on the free plan. */

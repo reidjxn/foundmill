@@ -1727,6 +1727,31 @@ const signupAttributed = declareEvent(
     narratable: false,
   },
 );
+// Milestones a founder chooses to show (0087; docs/NETWORK.md F2 "the story", F3 "cards")
+// ---------------------------------------------------------------------------------------------------
+
+/** What both events carry: the milestone, which one it is, and the addresses it is (or was) shown at. */
+const ShownMilestoneFacts = z.object({
+  milestoneId: Id,
+  /** The milestone's key (`TROPHY_KEYS` in @foundmill/journey): "page_live", "first_follower", "customer_1", ... */
+  key: z.string().min(1).max(60),
+  /** The project page's address under /p/: the story is `/p/<slug>/story`. */
+  slug: z.string().min(3).max(40),
+  /** The card's full public URL (`/m/<milestoneId>`). */
+  url: z.string().url().max(2048),
+});
+
+const milestoneShown = declareEvent("milestone.shown", ShownMilestoneFacts, {
+  doc: "An owner or an admin chose to show a reached milestone on the project's page: from this moment it is a line of the project's story and anyone can open its card at `url`, while the page is public. The founder's own press, each time (nothing becomes public on its own). Not an outside result in itself (the north star does not count it: the milestone's own event already was one); never narrated.",
+  consumers: ["stream", "metrics"],
+  narratable: false,
+});
+
+const milestoneHidden = declareEvent("milestone.hidden", ShownMilestoneFacts, {
+  doc: "An owner or an admin took a shown milestone off the project's page: it leaves the story and `url` answers not found from now on. The milestone itself stays reached. Never narrated.",
+  consumers: ["stream", "metrics"],
+  narratable: false,
+});
 
 // ---------------------------------------------------------------------------------------------------
 // Registry
@@ -1805,6 +1830,8 @@ export const EVENTS = {
   "mail.sent": mailSent,
   "notify.email_sent": notifyEmailSent,
   "signup.attributed": signupAttributed,
+  "milestone.shown": milestoneShown,
+  "milestone.hidden": milestoneHidden,
 } as const satisfies { readonly [K in EventTypeT]: EventDeclaration<K> };
 
 export type EventsRegistry = typeof EVENTS;

@@ -83,6 +83,8 @@ import type * as PP from "./person-profile";
 export * from "./constants";
 // A project's public page, zod-free: "@foundmill/shared/project-page". Its Zod schemas are at the end of this file.
 export * from "./project-page";
+// A project's story and its milestone cards, zod-free: "@foundmill/shared/project-story".
+export * from "./project-story";
 // A person's public profile, zod-free: "@foundmill/shared/person-profile". Its Zod schemas follow the page's.
 export * from "./person-profile";
 

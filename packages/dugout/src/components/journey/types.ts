@@ -438,7 +438,14 @@ export interface TrophyCard {
   shareable?: boolean;
   /** The figure behind the milestone is an estimate (an "MRR" milestone of a business without subscriptions): labeled Estimate. */
   estimate?: boolean;
+  /**
+   * Where a reached milestone stands on the project's public page (0087): "hidden" can be shown, "shown" is a line of
+   * the story with a card, "waiting" was shown and the page is not live right now. Left out when it cannot be shown.
+   */
+  page?: TrophyPageState | null;
 }
+
+export type TrophyPageState = "hidden" | "shown" | "waiting";
 
 export interface SquadPulseCell {
   departmentId: string;

@@ -98,6 +98,29 @@ const milestonesView = () => (
   </div>
 );
 
+const milestonesOnPageView = () => (
+  <div className="w-[1000px]">
+    <TrophyCabinet
+      trophies={[
+        { key: "page_live", label: "Page live", description: "Your project's public page went live.", achievedAt: "2026-11-12T09:00:00.000Z", page: "shown" },
+        { key: "first_follower", label: "First follower", description: "The first person confirmed that they follow your project.", achievedAt: "2026-11-14T08:00:00.000Z", page: "hidden" },
+        { key: "customer_1", label: "First customer", description: "The first paying customer.", achievedAt: "2026-11-19T10:00:00.000Z", page: "waiting" },
+        { key: "customer_10", label: "10th customer", description: "10 paying customers.", achievedAt: null },
+      ]}
+      onOpen={() => {}}
+      onShowOnPage={() => {}}
+      onHideFromPage={() => {}}
+      onCopyCardLink={() => {}}
+    />
+  </div>
+);
+
+/** The project's public page (0087): "Show on your page", the quiet "On your page" state with Hide and Copy card link, and a milestone shown before whose page is not live. */
+export const MilestonesOnThePage: Story = {
+  name: "Milestones · shown on the public page",
+  render: milestonesOnPageView,
+};
+
 export const Milestones: Story = {
   name: "Milestones",
   render: milestonesView,

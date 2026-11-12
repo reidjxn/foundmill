@@ -14,7 +14,7 @@ import { ConflictError, PAGE_READY_NOTE, PAGE_SLUG_TAKEN, ProjectPageContent, Pr
 import { toLogoDataUrl } from "@foundmill/shared/logo";
 import { and, desc, eq, inArray, isNotNull, isNull, ne, sql } from "drizzle-orm";
 import { z } from "zod";
-import { businessFoundations, businessLogos, businesses, founderProfiles, ideaVersions, ideas, inboxItems, memberships, projectPages, publicProjectPages, type InboxItem, type ProjectPage } from "../schema";
+import { businessFoundations, businessLogos, businesses, founderProfiles, ideaVersions, ideas, inboxItems, memberships, projectPages, publicProjectMilestones, publicProjectPages, type InboxItem, type ProjectPage } from "../schema";
 import { auditRepo } from "./audit";
 import { inboxRepo } from "./inbox";
 import { toBytes } from "./logos";
@@ -69,6 +69,20 @@ export interface PublicPage {
   /** Empty unless the page says to name its founders. */
   founderNames: string[];
 }
+
+/** A milestone the founders chose to show, as anyone may read it (the view `public_project_milestones`, 0087). */
+export interface PublicMilestone {
+  /** The card's address: `/m/<id>`. */
+  id: string;
+  /** The page it belongs to: `/p/<slug>`. */
+  slug: string;
+  key: string;
+  /** The public words, built from the key: never a customer's name. */
+  label: string;
+  achievedAt: Date;
+}
+
+const UUID = z.guid();
 
 /** What the starter draft is built from (packages/shared `starterPageDraft`). */
 export interface PageStarterInputs {
@@ -308,6 +322,29 @@ export const pagesRepo = {
       const content = readPageContent(row.published);
       if (!content) return null;
       return { slug: row.slug, content, publishedAt: row.publishedAt, name: row.name, logoVersion: row.logoVersion ?? null, brandPrimary: row.kitPrimary, brandSecondary: row.kitSecondary, founderNames: row.founderNames ?? [] };
+    },
+
+    /**
+     * The project's story: the milestones its founders chose to show, oldest first (0087). Empty for an unknown
+     * address, a page that is not public and a page that shows none: the view lists a milestone only while its page is
+     * in `public_project_pages`. Service connection only.
+     */
+    async storyBySlug(db: Executor, slug: string): Promise<PublicMilestone[]> {
+      if (!ProjectPageSlug.safeParse(slug).success) return [];
+      return db.select().from(publicProjectMilestones).where(eq(publicProjectMilestones.slug, slug)).orderBy(publicProjectMilestones.achievedAt, publicProjectMilestones.id);
+    },
+
+    /** Whether the page at `slug` shows at least one milestone (the page links to its story only then). */
+    async hasStory(db: Executor, slug: string): Promise<boolean> {
+      if (!ProjectPageSlug.safeParse(slug).success) return false;
+      const rows = await db.select({ id: publicProjectMilestones.id }).from(publicProjectMilestones).where(eq(publicProjectMilestones.slug, slug)).limit(1);
+      return rows.length > 0;
+    },
+
+    /** One shown milestone by its id (the card at `/m/<id>`), or null: unknown, hidden, or its page is not public. */
+    async cardById(db: Executor, id: string): Promise<PublicMilestone | null> {
+      if (!UUID.safeParse(id).success) return null;
+      return maybeOne(await db.select().from(publicProjectMilestones).where(eq(publicProjectMilestones.id, id)).limit(1));
     },
 
     /**

@@ -498,6 +498,13 @@
       "when": 1796128680000,
       "tag": "0086_attributions",
       "breakpoints": true
+    },
+    {
+      "idx": 71,
+      "version": "7",
+      "when": 1796128980000,
+      "tag": "0087_public_milestones",
+      "breakpoints": true
     }
   ]
 }

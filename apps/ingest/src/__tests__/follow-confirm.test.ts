@@ -78,6 +78,27 @@ describe("/mail/confirm", () => {
     expect((await followed()).length).toBe(before + 1);
   });
 
+  it("the first confirmation is the milestone \"First follower\", once, with ids only; a later follower awards nothing", async () => {
+    // The test above confirmed the project's first follower (maya@example.com).
+    const first = (await repos.journeys.listMilestones(hz.db, hz.A.businessId)).filter((m) => (m.ref as { trophyKey?: string } | null)?.trophyKey === "first_follower");
+    expect(first).toHaveLength(1);
+    expect(first[0]).toMatchObject({ kind: "trophy", label: "First follower", visibility: "private" });
+    expect(first[0]!.achievedAt.toISOString()).toBe(MOCK_NOW.toISOString());
+    const ref = first[0]!.ref as Record<string, unknown>;
+    expect(Object.keys(ref).sort()).toEqual(["consentId", "trophyKey"]);
+    expect((await consent(String(ref.consentId))).confirmed_at).not.toBeNull();
+    expect(JSON.stringify(first[0])).not.toContain("@");
+    // A signup that was never confirmed, and a link that was only opened, award nothing for another project.
+    expect((await repos.journeys.listMilestones(hz.db, hz.B.businessId)).filter((m) => m.label === "First follower")).toEqual([]);
+
+    const next = await signup();
+    expect((await fetch(confirmUrl(next.token()), { method: "POST" })).status).toBe(200);
+    expect((await consent(next.consentId)).confirmed_at).not.toBeNull();
+    const after = (await repos.journeys.listMilestones(hz.db, hz.A.businessId)).filter((m) => m.label === "First follower");
+    expect(after.map((m) => m.id)).toEqual([first[0]!.id]);
+    expect((after[0]!.ref as Record<string, unknown>).consentId).toBe(ref.consentId);
+  });
+
   it("says the visitor's words: who they now follow, and how to stop", async () => {
     const f = await signup();
     const html = await (await fetch(confirmUrl(f.token()), { method: "POST" })).text();

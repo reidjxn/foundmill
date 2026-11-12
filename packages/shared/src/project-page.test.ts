@@ -264,6 +264,7 @@ describe("the 'Built on' mark", () => {
     expect(words.mark).toBe("Built on Foundmill");
     expect(words.afterFollow("Maple\nBakes")).toBe("Maple Bakes is built on Foundmill.");
     expect(words.afterFollowLink).toBe("Start your own");
+    expect(words.afterFollowStoryLink).toBe("See how it was made");
     expect(words.foot("Maple Bakes")).toBe("Maple Bakes is built on Foundmill.");
     expect(words.previewNote).toBe("The small line at the foot is removed on a paid plan.");
   });

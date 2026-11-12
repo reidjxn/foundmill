@@ -1,5 +1,6 @@
 "use client";
-import { Lock, Share2, Trophy } from "lucide-react";
+import { Eye, Globe, Link2, Lock, Share2, Trophy } from "lucide-react";
+import { MILESTONE_SHOW_WORDS } from "@foundmill/shared/project-story";
 import { cn } from "../../lib/cn";
 import { formatMoney } from "../../lib/format";
 import { Button } from "../foundation/Button";
@@ -13,6 +14,17 @@ export interface TrophyCabinetProps {
   onOpen?: (key: string) => void;
   /** LIVE: shareable milestone cards (BUILD §11.4). Hidden when absent. */
   onShare?: (key: string) => void;
+  /**
+   * The project's public page (0087): "Show on your page" under a reached milestone whose `page` is "hidden". Left out
+   * for a reader who cannot publish, and while the page is not live.
+   */
+  onShowOnPage?: (key: string) => void;
+  /** "Hide" beside the quiet "On your page" state. Left out for a reader who cannot publish (the state still shows). */
+  onHideFromPage?: (key: string) => void;
+  /** "Copy card link" beside it, while the milestone is on the page. */
+  onCopyCardLink?: (key: string) => void;
+  /** The milestone whose change is on its way: its controls wait. */
+  pendingKey?: string | null;
   /** Columns. Default 4. */
   columns?: 2 | 3 | 4;
   className?: string;
@@ -21,7 +33,7 @@ export interface TrophyCabinetProps {
 const COLS = { 2: "grid-cols-2", 3: "grid-cols-3", 4: "grid-cols-4" } as const;
 
 /** Milestone cards with the gold treatment for reached milestones (DESIGN §5: gold is reserved for Customer Updates and milestones). */
-export function TrophyCabinet({ trophies, onOpen, onShare, columns = 4, className }: TrophyCabinetProps) {
+export function TrophyCabinet({ trophies, onOpen, onShare, onShowOnPage, onHideFromPage, onCopyCardLink, pendingKey = null, columns = 4, className }: TrophyCabinetProps) {
   const { formatDate } = useFormatters();
   const won = trophies.filter((t) => t.achievedAt).length;
   return (
@@ -92,6 +104,30 @@ export function TrophyCabinet({ trophies, onOpen, onShare, columns = 4, classNam
                 <Button size="sm" variant="ghost" icon={Share2} className="self-start px-1.5" onClick={() => onShare(t.key)} aria-label={`Share ${t.label}`} data-trophy-share>
                   Share
                 </Button>
+              ) : null}
+              {/* The project's public page: one press shows a reached milestone, and it stays the founder's to hide. */}
+              {achieved && t.page === "hidden" && onShowOnPage ? (
+                <Button size="sm" variant="ghost" icon={Eye} className="self-start px-1.5" disabled={pendingKey === t.key} onClick={() => onShowOnPage(t.key)} aria-label={`${MILESTONE_SHOW_WORDS.show}: ${t.label}`} data-trophy-show>
+                  {MILESTONE_SHOW_WORDS.show}
+                </Button>
+              ) : null}
+              {achieved && (t.page === "shown" || t.page === "waiting") ? (
+                <div className="flex min-w-0 flex-wrap items-center gap-x-1 gap-y-0.5 px-1.5" data-trophy-on-page={t.page}>
+                  <span className="inline-flex min-w-0 items-center gap-1.5 text-small text-secondary">
+                    <Icon icon={Globe} size="inline" className="shrink-0 text-tertiary" />
+                    {t.page === "shown" ? MILESTONE_SHOW_WORDS.shown : MILESTONE_SHOW_WORDS.waiting}
+                  </span>
+                  {onHideFromPage ? (
+                    <Button size="sm" variant="ghost" className="px-1.5" disabled={pendingKey === t.key} onClick={() => onHideFromPage(t.key)} aria-label={`${MILESTONE_SHOW_WORDS.hide}: ${t.label}`} data-trophy-hide>
+                      {MILESTONE_SHOW_WORDS.hide}
+                    </Button>
+                  ) : null}
+                  {t.page === "shown" && onCopyCardLink ? (
+                    <Button size="sm" variant="ghost" icon={Link2} className="px-1.5" onClick={() => onCopyCardLink(t.key)} aria-label={`${MILESTONE_SHOW_WORDS.copy}: ${t.label}`} data-trophy-copy-link>
+                      {MILESTONE_SHOW_WORDS.copy}
+                    </Button>
+                  ) : null}
+                </div>
               ) : null}
             </li>
           );

@@ -251,6 +251,24 @@ describe("event catalogue", () => {
     expect(() => parseEvent(null)).toThrow(ValidationError);
   });
 
+  it("milestone.shown and milestone.hidden: a founder's own press, pushed to open tabs, never narrated (0087)", () => {
+    for (const type of ["milestone.shown", "milestone.hidden"] as const) {
+      const decl = EVENTS[type];
+      expect(decl.narratable, type).toBe(false);
+      expect([...decl.consumers].sort(), type).toEqual(["metrics", "stream"]);
+      expect(isPersonAddressedEvent(type)).toBe(false);
+      const fixture = EVENT_FIXTURES[type];
+      expect(parsePayload(type, fixture)).toEqual(fixture);
+      // Ids and public addresses only: nothing of a customer or a follower fits in the payload.
+      expect(Object.keys(parsePayload(type, { ...fixture, customerName: "Acme Corp", email: "a@b.example" })).sort()).toEqual(["key", "milestoneId", "slug", "url"]);
+      const bad = (patch: Record<string, unknown>) => () => parsePayload(type, { ...fixture, ...patch });
+      expect(bad({ milestoneId: "not-an-id" })).toThrow(ValidationError);
+      expect(bad({ key: "" })).toThrow(ValidationError);
+      expect(bad({ slug: "ab" })).toThrow(ValidationError);
+      expect(bad({ url: "/m/relative" })).toThrow(ValidationError);
+    }
+  });
+
   it("entityIds default to [] and narrated to false on the envelope", () => {
     const wire = toWire(fixtureEvent("cycle.started")) as Record<string, unknown>;
     delete wire.entityIds;

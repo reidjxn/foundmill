@@ -444,6 +444,7 @@ export const EVENT_TYPES = [
   "mail.sent",
   "notify.email_sent",
   "signup.attributed",
+  "milestone.shown", "milestone.hidden",
 ] as const;
 export type EventType = (typeof EVENT_TYPES)[number];
 

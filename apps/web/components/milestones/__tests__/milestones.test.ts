@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { customersSoFarWords, milestoneForTrophy, otherMilestones, replayRefOf, shareText, trophyCards, trophyKeyOf } from "../milestones";
+import { customersSoFarWords, describeTrophy, milestoneForTrophy, otherMilestones, pageStateOf, replayRefOf, shareText, trophyCards, trophyKeyOf } from "../milestones";
+import { TROPHY_BY_KEY } from "@foundmill/journey";
 
 const rows = [
   { id: "m1", kind: "customer", label: "First customer", achievedAt: new Date("2026-03-01T10:00:00Z"), ref: { trophyKey: "customer_1", amountMinor: 4_900, customerName: "Acme", permission: true, journeyId: "j-1" }, visibility: "public" },
@@ -9,9 +10,43 @@ const rows = [
 ];
 
 describe("milestones (BUILD §11.4 trophy cabinet)", () => {
-  it("matches stored milestones to the eight trophies by ref.trophyKey, with customer names only on permission", () => {
+  it("lists the two early milestones before the customer and revenue ones, each with its own plain line", () => {
+    const cards = trophyCards(rows, "EUR", false);
+    expect(cards.map((c) => c.key)).toEqual(["page_live", "first_follower", "customer_1", "customer_10", "customer_100", "customer_1000", "mrr_1k", "mrr_10k", "mrr_100k", "first_enterprise_contract"]);
+    expect(cards.slice(0, 2).map((c) => [c.label, c.description, c.achievedAt])).toEqual([
+      ["Page live", "Your project's public page went live.", null],
+      ["First follower", "The first person confirmed that they follow your project.", null],
+    ]);
+    expect(describeTrophy(TROPHY_BY_KEY.page_live, "GBP", false)).toBe("Your project's public page went live.");
+    const reached = trophyCards([...rows, { id: "m5", kind: "trophy", label: "Page live", achievedAt: "2026-11-12T09:00:00Z", ref: { trophyKey: "page_live", pageId: "p-1" }, visibility: "private" }], "EUR", false);
+    expect(reached[0]).toMatchObject({ key: "page_live", achievedAt: "2026-11-12T09:00:00Z", customerName: null, amountMinor: null });
+    // A milestone under a key stays out of the timeline of notes.
+    expect(otherMilestones([{ id: "m5", kind: "trophy", label: "Page live", achievedAt: "2026-11-12T09:00:00Z", ref: { trophyKey: "page_live" } }])).toEqual([]);
+  });
+  it("says where a reached milestone stands on the public page, from its visibility and whether the page is live", () => {
+    const recorded = (visibility: string) => ({ id: "m", kind: "trophy", label: "Page live", achievedAt: "2026-11-12T09:00:00Z", ref: { trophyKey: "page_live" }, visibility });
+    expect(pageStateOf(recorded("private"), { live: true })).toBe("hidden");
+    expect(pageStateOf(recorded("public"), { live: true })).toBe("shown");
+    // Shown before and the page is down: it can still be hidden; nothing new can be shown.
+    expect(pageStateOf(recorded("public"), { live: false })).toBe("waiting");
+    expect(pageStateOf(recorded("private"), { live: false })).toBeNull();
+    // No page to show on (a sample business, a reader with no view of the page), not reached, or a note someone typed in.
+    expect(pageStateOf(recorded("public"), null)).toBeNull();
+    expect(pageStateOf(undefined, { live: true })).toBeNull();
+    expect(pageStateOf({ id: "n", kind: "launch", label: "Public launch", achievedAt: "2026-04-01T10:00:00Z", ref: null, visibility: "public" }, { live: true })).toBeNull();
+    expect(pageStateOf({ id: "n", kind: "trophy", label: "Made up", achievedAt: "2026-04-01T10:00:00Z", ref: { trophyKey: "made_up" }, visibility: "private" }, { live: true })).toBeNull();
+    // On the cards: only reached ones carry a state, and it does not depend on the old Personal and Live setting.
+    for (const liveMode of [true, false]) {
+      const cards = trophyCards(rows, "EUR", liveMode, null, { live: true });
+      expect(cards.find((c) => c.key === "customer_1")!.page).toBe("shown");
+      expect(cards.find((c) => c.key === "mrr_1k")!.page).toBe("hidden");
+      expect(cards.find((c) => c.key === "customer_10")!.page).toBeNull();
+    }
+    expect(trophyCards(rows, "EUR", true).every((c) => c.page === null)).toBe(true);
+  });
+  it("matches stored milestones to the trophies by ref.trophyKey, with customer names only on permission", () => {
     const cards = trophyCards(rows, "EUR", true);
-    expect(cards).toHaveLength(8);
+    expect(cards).toHaveLength(10);
     const first = cards.find((c) => c.key === "customer_1")!;
     expect(first).toMatchObject({ achievedAt: "2026-03-01T10:00:00.000Z", customerName: "Acme", amountMinor: 4_900, shareable: true });
     const mrr = cards.find((c) => c.key === "mrr_1k")!;
