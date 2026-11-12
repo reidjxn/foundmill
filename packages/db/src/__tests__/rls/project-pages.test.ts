@@ -284,6 +284,13 @@ describe("public_project_pages: what anyone may read", () => {
     await h.db.update(s.businesses).set({ isDemo: true }).where(eq(s.businesses.id, demo.businessId));
     expect(await visible("pub-demo")).toBe(false);
     expect(await repos.pages.public.logoBySlug(h.db as never, "pub-demo")).toBeNull();
+    // The plan behind a page is read through the view too: nothing for a page the view does not list.
+    expect(await repos.pages.public.planTierBySlug(h.db as never, "pub-demo")).toBeNull();
+    expect(await repos.pages.public.planTierBySlug(h.db as never, "no-such-page")).toBeNull();
+    expect(await repos.pages.public.planTierBySlug(h.db as never, "pub-archived")).toBe("free");
+    await h.db.update(s.businesses).set({ planTier: "pro" }).where(eq(s.businesses.id, archived.businessId));
+    expect(await repos.pages.public.planTierBySlug(h.db as never, "pub-archived")).toBe("pro");
+    await h.db.update(s.businesses).set({ planTier: "free" }).where(eq(s.businesses.id, archived.businessId));
 
     // Not committed yet.
     const early = await createBusinessFixture(h, "pub-early");

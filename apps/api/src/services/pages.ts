@@ -27,6 +27,7 @@
  *   email. `page.followed` is written when the person confirms (ingest `/mail/confirm`), not here.
  */
 import { communityScreenLocalFlags } from "@foundmill/agents";
+import { tierShowsBuiltOnMark } from "@foundmill/config";
 import { createHash, createHmac, randomBytes } from "node:crypto";
 import { repos, type DbTx, type InboxItem, type ProjectPage } from "@foundmill/db";
 import {
@@ -90,6 +91,8 @@ export interface PageView {
   preview: { name: string; brandPrimary: string; brandSecondary: string; founderNames: string[] };
   /** How many people follow the page now (package 1.6): a count only, never who. */
   followers: number;
+  /** Whether the page carries the small "Built on" mark for its visitors (the free plan; docs/NETWORK.md F2). */
+  mark: boolean;
 }
 
 /** `page.publish`'s answer: published, or held with the reason and its sentence (the page stays as it was). */
@@ -143,6 +146,7 @@ async function viewOf(tx: DbTx, ctx: BusinessContext, row: ProjectPage | null, s
     isSample: ctx.business.isDemo,
     preview: { name: ctx.business.name, brandPrimary: ctx.business.kitPrimary, brandSecondary: ctx.business.kitSecondary, founderNames },
     followers,
+    mark: tierShowsBuiltOnMark(ctx.business.planTier),
   };
 }
 
@@ -281,6 +285,8 @@ export interface PublicPageView {
   founderNames: string[];
   /** Whether the page carries the "Follow" form (`publicPage.follow`). */
   followForm: boolean;
+  /** Whether the page carries the small "Built on" mark (a project on the free plan; a paid plan removes it). */
+  mark: boolean;
 }
 
 /**
@@ -322,7 +328,7 @@ export async function publicPageBySlug(ctx: Pick<Context, "db" | "env" | "limits
     await takeOrThrow(ctx.limits, "Page view", [{ key: publicPageLimitKeys.unknown, rule: PUBLIC_PAGE_LIMITS.unknown }]);
     return null;
   }
-  const logo = await repos.pages.public.logoBySlug(ctx.db, clean);
+  const [logo, planTier] = await Promise.all([repos.pages.public.logoBySlug(ctx.db, clean), repos.pages.public.planTierBySlug(ctx.db, clean)]);
   const { pitch, about, forWhom, stage, showFounders, followForm } = page.content;
   return {
     slug: page.slug,
@@ -338,6 +344,8 @@ export async function publicPageBySlug(ctx: Pick<Context, "db" | "env" | "limits
     logo,
     founderNames: showFounders ? page.founderNames : [],
     followForm,
+    // Taken down between the two reads: no plan to go by, so the mark stays (the free plan's rule).
+    mark: tierShowsBuiltOnMark(planTier ?? "free"),
   };
 }
 

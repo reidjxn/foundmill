@@ -40,8 +40,9 @@
  * (app.ts: PLATFORM_MAIL_EVENTS_MAX_BYTES, PLATFORM_MAIL_INBOUND_MAX_BYTES).
  */
 import { DEV_PLATFORM_MAIL_SECRET, PLATFORM_NOTIFY_OFF_PATH, readNotifyOffToken, followConfirmNonceHash, platformMailSenderName, readFollowConfirmToken, inboundSenderVerified, normaliseInboundMail, normalisePlatformMailEvents, PLATFORM_MAIL_FOOTER_MARKERS, platformInboundLocalParts, readInboundMail, readPlatformUnsubscribeToken, safeEqual, stableHash, suppressionHashOfEmail, verifySendgridSignature, withinTolerance, type SgEvent } from "@foundmill/connectors";
+import { APP_NAME, tierShowsBuiltOnMark } from "@foundmill/config";
 import { repos } from "@foundmill/db";
-import { FOLLOW_CONFIRM_PAGE, NOTIFY_OFF_PAGE, PLATFORM_MAIL_SECRET_MIN_LENGTH, UNSUBSCRIBE_CONFIRM_BODY, UNSUBSCRIBE_CONFIRM_BUTTON, UNSUBSCRIBE_CONFIRM_TITLE, UNSUBSCRIBE_DONE_BODY, UNSUBSCRIBE_INVALID_BODY } from "@foundmill/shared";
+import { builtOnWords, FOLLOW_CONFIRM_PAGE, NOTIFY_OFF_PAGE, PLATFORM_MAIL_SECRET_MIN_LENGTH, UNSUBSCRIBE_CONFIRM_BODY, UNSUBSCRIBE_CONFIRM_BUTTON, UNSUBSCRIBE_CONFIRM_TITLE, UNSUBSCRIBE_DONE_BODY, UNSUBSCRIBE_INVALID_BODY } from "@foundmill/shared";
 import { ingestPlatformEvents, writeEventRow } from "./ingest";
 import { nonceKey } from "./nonce-store";
 import type { IngestDeps } from "./types";
@@ -211,13 +212,14 @@ export function unsubscribePage(body: string, form?: { token: string }): string 
 }
 
 /** The follow confirmation's page (the same look as the unsubscribe page). */
-export function followConfirmPage(body: string, form?: { token: string }): string {
-  return mailPage(FOLLOW_CONFIRM_PAGE.title, body, form ? { action: `/mail/confirm?t=${encodeURIComponent(form.token)}`, button: FOLLOW_CONFIRM_PAGE.button } : undefined);
+export function followConfirmPage(body: string, form?: { token: string }, foot?: string | null): string {
+  return mailPage(FOLLOW_CONFIRM_PAGE.title, body, form ? { action: `/mail/confirm?t=${encodeURIComponent(form.token)}`, button: FOLLOW_CONFIRM_PAGE.button } : undefined, foot);
 }
 
-function mailPage(title: string, body: string, form?: { action: string; button: string }): string {
+/** `foot`: one small line under everything (the "Built on" mark of a project on the free plan, docs/NETWORK.md F2): words only. */
+function mailPage(title: string, body: string, form?: { action: string; button: string }, foot?: string | null): string {
   const button = form ? `<form method="post" action="${escapeHtml(form.action)}"><button type="submit">${escapeHtml(form.button)}</button></form>` : "";
-  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="robots" content="noindex"><title>${escapeHtml(title)}</title><style>body{font:16px/1.5 system-ui,sans-serif;max-width:32rem;margin:4rem auto;padding:0 1rem;color:#1b1b1b}button{font:inherit;padding:.5rem 1rem;border-radius:6px;border:1px solid #1b1b1b;background:#1b1b1b;color:#fff;cursor:pointer}</style></head><body><h1>${escapeHtml(title)}</h1><p>${escapeHtml(body)}</p>${button}</body></html>`;
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="robots" content="noindex"><title>${escapeHtml(title)}</title><style>body{font:16px/1.5 system-ui,sans-serif;max-width:32rem;margin:4rem auto;padding:0 1rem;color:#1b1b1b}button{font:inherit;padding:.5rem 1rem;border-radius:6px;border:1px solid #1b1b1b;background:#1b1b1b;color:#fff;cursor:pointer}.foot{margin-top:3rem;font-size:13px;color:#6b6b6b}</style></head><body><h1>${escapeHtml(title)}</h1><p>${escapeHtml(body)}</p>${button}${foot ? `<p class="foot">${escapeHtml(foot)}</p>` : ""}</body></html>`;
 }
 
 export type UnsubscribeResult = { status: 200 | 400 | 404; html: string };
@@ -306,5 +308,6 @@ export async function handleFollowConfirm(deps: Deps, req: Request): Promise<Uns
     return "confirmed" as const;
   });
   if (outcome === "invalid") return invalid(400);
-  return { status: 200, html: followConfirmPage(FOLLOW_CONFIRM_PAGE.done(name)) };
+  // The visitor has just said yes to the project: the one place on their path where the mark is a sentence (free plan only).
+  return { status: 200, html: followConfirmPage(FOLLOW_CONFIRM_PAGE.done(name), undefined, tierShowsBuiltOnMark(business.planTier) ? builtOnWords(APP_NAME).foot(name) : null) };
 }

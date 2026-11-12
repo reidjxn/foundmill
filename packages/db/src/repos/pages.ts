@@ -327,5 +327,23 @@ export const pagesRepo = {
       if (!row) return null;
       return toLogoDataUrl(row.mime, Buffer.from(toBytes(row.content)).toString("base64"));
     },
+
+    /**
+     * The plan of the business behind a public page, or null for an address the view does not list. Joined through the
+     * view like the logo, on the service connection. The api turns it into one fact a visitor can already see for
+     * themselves, whether the page carries the "Built on" mark (`tierShowsBuiltOnMark`); the plan's name goes no further.
+     */
+    async planTierBySlug(db: Executor, slug: string): Promise<(typeof businesses.$inferSelect)["planTier"] | null> {
+      const row = maybeOne(
+        await db
+          .select({ planTier: businesses.planTier })
+          .from(publicProjectPages)
+          .innerJoin(projectPages, eq(projectPages.slug, publicProjectPages.slug))
+          .innerJoin(businesses, eq(businesses.id, projectPages.businessId))
+          .where(eq(publicProjectPages.slug, slug))
+          .limit(1),
+      );
+      return row?.planTier ?? null;
+    },
   },
 };

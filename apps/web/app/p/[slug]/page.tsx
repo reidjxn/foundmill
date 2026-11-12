@@ -6,13 +6,20 @@
  * the API's public view; an unknown address and a page that is not published are the same not-found. When the
  * founders left "Let people follow this project" on, the page ends with the "Follow" form (package 1.6), which posts to
  * a Server Action (./actions.ts) and works without JavaScript.
+ *
+ * A project on the free plan carries the small "Built on Foundmill" mark (docs/NETWORK.md F2; founder, 2026-11-12),
+ * drawn for whoever is looking: a signed-out visitor gets it as a quiet link and, after following, one more line; a
+ * signed-in Foundmill member gets plain words and no link. Both links name this page as where the visitor came from
+ * (`?via=p.<slug>`, @foundmill/shared/via). A paid plan shows none of it.
  */
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { APP_NAME } from "@foundmill/config";
 import { ProjectPage } from "@foundmill/dugout";
-import { pageDescription, pageTitle } from "@foundmill/shared/project-page";
+import { builtOnWords, pageDescription, pageTitle } from "@foundmill/shared/project-page";
+import { withVia } from "@foundmill/shared/via";
 import { FollowProjectForm } from "@/components/public/FollowProjectForm";
+import { getServerAuth } from "@/lib/auth/server";
 import { publicProjectPage } from "@/lib/public-page.server";
 
 // Read on every request: a page taken down is gone at once, and changes show as soon as they are published.
@@ -40,6 +47,11 @@ export default async function PublicProjectPageRoute({ params }: Props) {
   const { slug } = await params;
   const page = await publicProjectPage(slug);
   if (!page) notFound();
+  // Who is looking decides how the mark is drawn. A session that cannot be read counts as a visitor.
+  const member = page.mark ? (await getServerAuth().catch(() => null)) !== null : false;
+  const mark = !page.mark ? "none" : member ? "member" : "visitor";
+  const words = builtOnWords(APP_NAME);
+  const markHref = withVia("/", { kind: "project_page", ref: page.slug });
   return (
     <ProjectPage
       name={page.name}
@@ -52,8 +64,13 @@ export default async function PublicProjectPageRoute({ params }: Props) {
       brandSecondary={page.brandSecondary}
       logo={page.logo}
       founderNames={page.founderNames}
-      homeHref="/"
-      follow={page.followForm ? <FollowProjectForm name={page.name} slug={page.slug} /> : null}
+      mark={mark}
+      markHref={markHref}
+      follow={
+        page.followForm ? (
+          <FollowProjectForm name={page.name} slug={page.slug} builtOn={mark === "visitor" ? { line: words.afterFollow(page.name), linkLabel: words.afterFollowLink, href: markHref } : null} />
+        ) : null
+      }
     />
   );
 }

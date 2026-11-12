@@ -97,7 +97,13 @@ describe("writing and publishing", () => {
     // Signed out: exactly what the page shows.
     const anon = hz.caller(null);
     const pub = await anon.publicPage.bySlug({ slug: live.slug });
-    expect(pub).toEqual({ slug: live.slug, url, name: b.name, pitch: page().pitch, about: page().about, forWhom: page().forWhom, stage: "building", publishedAt: live.publishedAt, brandPrimary: expect.any(String), brandSecondary: expect.any(String), logo: null, founderNames: [], followForm: true });
+    expect(pub).toEqual({ slug: live.slug, url, name: b.name, pitch: page().pitch, about: page().about, forWhom: page().forWhom, stage: "building", publishedAt: live.publishedAt, brandPrimary: expect.any(String), brandSecondary: expect.any(String), logo: null, founderNames: [], followForm: true, mark: true });
+    // The mark is the free plan's: a paid plan removes it, for the visitor and in the founders' own view (docs/NETWORK.md F2).
+    expect((await b.owner.page.get({ businessId: b.id })).mark).toBe(true);
+    await repos.businesses.update(hz.db, b.id, { planTier: "pro" });
+    expect((await anon.publicPage.bySlug({ slug: live.slug }))!.mark).toBe(false);
+    expect((await b.owner.page.get({ businessId: b.id })).mark).toBe(false);
+    await repos.businesses.update(hz.db, b.id, { planTier: "free" });
 
     // A draft edit shows "changes not yet published" and does not reach the public page.
     const edited = await b.member.page.saveDraft({ businessId: b.id, draft: page({ stage: "live" }) });

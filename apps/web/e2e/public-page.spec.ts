@@ -57,9 +57,13 @@ async function expectPublicPage(page: Page, pagePath: string, width: number, sho
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
   expect(overflow, `horizontal overflow at ${width} px`).toBeLessThanOrEqual(0);
   // Every link is a 44 px target; no text under the design system's 11 px floor.
-  const made = page.getByRole("link", { name: "Made with Foundmill" });
-  await expect(made).toHaveAttribute("href", "/");
+  // The mark, as a signed-out visitor meets it (docs/NETWORK.md F2): the page's one link, small, naming this page as where they came from.
+  await expect(article.locator("[data-project-mark]")).toHaveAttribute("data-project-mark", "visitor");
+  const made = page.getByRole("link", { name: "Built on Foundmill" });
+  await expect(made).toHaveAttribute("href", `/?via=p.${pagePath.replace("/p/", "")}`);
   expect((await made.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+  expect(await made.evaluate((e) => parseFloat(getComputedStyle(e).fontSize))).toBeLessThanOrEqual(13);
+  await expect(article.getByRole("link")).toHaveCount(1);
   const smallest = await article.evaluate((root) => Math.min(...[...root.querySelectorAll<HTMLElement>("p, h1, h2, span, a")].filter((e) => e.textContent?.trim()).map((e) => parseFloat(getComputedStyle(e).fontSize))));
   expect(smallest).toBeGreaterThanOrEqual(11);
   if (process.env.E2E_UX_AUDIT) {
@@ -111,6 +115,9 @@ test.describe("public page", () => {
     const preview = page.getByTestId("public-page-preview");
     await expect(preview.getByRole("heading", { level: 1 })).toHaveText(PITCH);
     expect(Math.round((await preview.locator("[data-project-page]").boundingBox())!.width)).toBeLessThanOrEqual(390);
+    // The preview shows the mark as a visitor will see it, and says once that a paid plan removes it.
+    await expect(preview.locator("[data-project-mark]")).toHaveAttribute("data-project-mark", "visitor");
+    await expect(preview.getByTestId("page-mark-note")).toHaveText("The small line at the foot is removed on a paid plan.");
 
     // Publish asks first and says what becomes public.
     await editor.getByRole("button", { name: "Publish", exact: true }).click();
@@ -136,9 +143,9 @@ test.describe("public page", () => {
       await expect(phone.page.locator('meta[property="og:title"]')).toHaveAttribute("content", /Bike repairs at your door/);
       await expect(phone.page.locator('meta[property="og:image"]')).toHaveAttribute("content", /\/p\/[a-z0-9-]+\/opengraph-image/);
       await expect(phone.page.locator('link[rel="canonical"]')).toHaveAttribute("href", /\/p\/[a-z0-9-]+$/);
-      // Made with Foundmill goes to the landing page.
-      await phone.page.getByRole("link", { name: "Made with Foundmill" }).click();
-      await phone.page.waitForURL(/\/$/, { timeout: LONG });
+      // The mark goes to the landing page, carrying where the visitor came from.
+      await phone.page.getByRole("link", { name: "Built on Foundmill" }).click();
+      await phone.page.waitForURL(/\/\?via=p\.[a-z0-9-]+$/, { timeout: LONG });
     } finally {
       await phone.close();
     }
@@ -166,6 +173,10 @@ test.describe("public page", () => {
       await form.getByRole("button", { name: "Follow" }).click();
       const done = fan.page.locator("[data-project-follow='done']");
       await expect(done.getByRole("status")).toHaveText(/^Check your email to confirm\. Doorstep Bikes [a-z0-9]+ will only write to you after you do\.$/, { timeout: LONG });
+      // The one moment the mark is a sentence: after a visitor follows, small, under the answer.
+      const builtOn = done.locator("[data-follow-built-on]");
+      await expect(builtOn).toHaveText(/^Doorstep Bikes [a-z0-9]+ is built on Foundmill\.\s*Start your own$/);
+      await expect(builtOn.getByRole("link", { name: "Start your own" })).toHaveAttribute("href", `/?via=p.${pagePath.replace("/p/", "")}`);
       // Nothing else is revealed, and no follower's address is on the page.
       await expect(fan.page.locator("input[type=email]")).toHaveCount(0);
       await expect(fan.page.locator("body")).not.toContainText(follower);
@@ -202,6 +213,12 @@ test.describe("public page", () => {
     await settled(page);
     await expect(editor).toBeVisible({ timeout: LONG });
     await expect(page.getByTestId("page-followers")).toHaveCount(0);
+    // Signed in, the founder's own view of the public page carries the mark as plain words: no link, dimmer.
+    await page.goto(pagePath);
+    const own = page.locator("[data-project-mark]");
+    await expect(own).toHaveAttribute("data-project-mark", "member", { timeout: LONG });
+    await expect(own).toHaveText("Built on Foundmill");
+    await expect(page.locator("[data-project-page]").getByRole("link")).toHaveCount(0);
     await page.goto(`/b/${bid}/crm`);
     const grid = page.getByRole("grid", { name: "CRM records" });
     await expect(grid).toBeVisible({ timeout: LONG });

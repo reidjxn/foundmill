@@ -1631,3 +1631,18 @@ The founder asked for a whole specification of the network side, written around 
 - **Checked.** `node scripts/us-english.mjs docs/NETWORK.md` passes; no word from the vocabulary table or the subtext list in it. Nothing else was run: no code changed.
 - **Found while reading.** The daily streak (founder, Nov 11) is decided and described in `docs/mobile`, and no code on this branch counts it yet; the specification says so and adds no second streak.
 
+## 2026-11-12 — Network, wave 1 (first part): the "Built on Foundmill" mark
+
+The founder answered the questions of `docs/NETWORK.md` §14 (DECISIONS, same date); the specification is revised to match and wave 1 started with the mark (F2, first half; the story page is next).
+- **The rule.** `tierShowsBuiltOnMark` (packages/config): the free plan carries the mark, a paid plan removes every part of it. `builtOnWords` (packages/shared `project-page`) holds the words; the mark's text is "Built on Foundmill" in one place.
+- **Made for the visitor, quiet for the member.** By placement, never by size:
+  - The foot of `/p/<slug>` (`mark` on Dugout `ProjectPage`): for a signed-out visitor the page's one link, small, to the home page with `?via=p.<slug>`, coming up from dim as it scrolls into view (`mark-arrive`: opacity only; at full with reduced motion, without scroll timelines and on a page too short to scroll). For someone signed in: plain dim words, no link. On a paid plan: no foot.
+  - After a visitor follows: one small line under "Check your email to confirm", "‹name› is built on Foundmill." with "Start your own".
+  - The confirmation email ends with that sentence (words only), and the page after "Confirm" shows it small under the answer.
+  - The share image: the words small in a corner.
+  - The console: the phone preview shows the mark once with "The small line at the foot is removed on a paid plan." under the frame.
+- **Api.** `publicPage.bySlug` and `page.get` answer `mark`. The plan behind a public page is read through the public view (`repos.pages.public.planTierBySlug`), on the service connection; the view itself is unchanged and still exposes no plan.
+- **Attribution, the shared part.** `@foundmill/shared/via`: `p.<slug>` and `u.<handle>`, `parseVia`, `formatVia`, `withVia`, the parameter and cookie names. Recording it at sign-up is being built separately.
+- **Verified.** Typecheck of the nine touched packages; eslint on the changed files; vitest: shared 682, config 19, dugout 1151, modules 601, web 1260, gateway 293, ingest 110, api `pages` and `page-follow` 29, db `rls/project-pages` 20; banned-terms, us-english, focus-visible, plain-language gate 2. **Playwright ran:** `public-page.spec.ts` (8 passed) against the PGlite stack: the visitor's link and its address at 390 and 1280 px, the line after a follow, the founder's own signed-in view (plain words, no link), the preview note. Screenshots 40 and 41 retaken.
+- **Not done.** The story page the mark will link to (it goes to the home page until then). The person page (`/u/<handle>`) still ends with "Made with Foundmill": a person has no plan, so whether it carries a mark at all is a question for the founder. The full api and db suites were not run, only the files named above.
+

@@ -11,8 +11,9 @@ import { createHash } from "node:crypto";
 import { followConfirmNonceHash, followConfirmToken, MOCK_NOW, platformMailCustomArgs, platformUnsubscribeToken, suppressionHashOfEmail } from "@foundmill/connectors";
 import { MOCK_SENDGRID_PRIVATE_KEY_PEM, MOCK_SENDGRID_PUBLIC_KEY } from "@foundmill/connectors/connectors/sendgrid/fixtures/sendgrid";
 import { signSendgridBody } from "@foundmill/connectors/connectors/sendgrid/mock";
+import { APP_NAME } from "@foundmill/config";
 import { repos } from "@foundmill/db";
-import { FOLLOW_CONFIRM_PAGE } from "@foundmill/shared";
+import { builtOnWords, FOLLOW_CONFIRM_PAGE } from "@foundmill/shared";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createIngestHarness, type IngestHarness } from "./harness";
 
@@ -84,6 +85,24 @@ describe("/mail/confirm", () => {
     const escaped = FOLLOW_CONFIRM_PAGE.done(name).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
     expect(html).toContain(escaped);
     expect(FOLLOW_CONFIRM_PAGE.done(name)).toBe(`You're following ${name}. You can unsubscribe from any email it sends.`);
+    // A project on the free plan: the mark as one small line under the answer, words only (docs/NETWORK.md F2).
+    const foot = builtOnWords(APP_NAME).foot(name).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+    expect(html).toContain(`<p class="foot">${foot}</p>`);
+    expect(html).not.toContain("<a ");
+  });
+
+  it("the 'Built on' line is only on the confirmed page, and never for a project on a paid plan", async () => {
+    const asked = await (await fetch(confirmUrl((await signup()).token()))).text();
+    expect(asked).not.toContain('class="foot"');
+    await repos.businesses.update(hz.db, hz.A.businessId, { planTier: "pro" });
+    try {
+      const html = await (await fetch(confirmUrl((await signup()).token()), { method: "POST" })).text();
+      expect(html).toContain("You're following");
+      expect(html).not.toContain('class="foot"');
+      expect(html).not.toContain("is built on");
+    } finally {
+      await repos.businesses.update(hz.db, hz.A.businessId, { planTier: "free" });
+    }
   });
 
   it("an expired, edited, superseded or foreign link changes nothing", async () => {

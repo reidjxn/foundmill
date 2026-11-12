@@ -637,6 +637,28 @@
   }
 }
 
+/* The "Built on" mark at the foot of a project's public page, as a visitor meets it (DESIGN §9b): it comes up from
+   dim to full as the foot of the page scrolls into view, and rests there. Opacity only, never a glow on text. Without
+   scroll timelines, and with reduced motion, it simply rests at full. */
+@keyframes dugout-mark-arrive {
+  from {
+    opacity: 0.55;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@utility mark-arrive {
+  @supports (animation-timeline: view()) {
+    @media (prefers-reduced-motion: no-preference) {
+      animation: dugout-mark-arrive linear both;
+      animation-timeline: view();
+      /* Done the moment the whole mark is on screen: on a short page that never scrolls it rests at full. */
+      animation-range: entry 0% entry 100%;
+    }
+  }
+}
+
 /* ---------- Typography utilities (DESIGN §4) ----------
    Case rules: sentence case for every action, tab, sidebar item, panel title, form label and pill. Caps only for data
    labels, through `t-data`, never by typing. Barlow is for figures and titles; Inter for everything you read or press. */

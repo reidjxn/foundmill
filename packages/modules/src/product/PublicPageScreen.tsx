@@ -10,6 +10,7 @@
  */
 import { useEffect, useId, useMemo, useState, type ReactNode } from "react";
 import { Copy, ExternalLink, Globe, Pencil, Rocket, Undo2 } from "lucide-react";
+import { APP_NAME } from "@foundmill/config";
 import {
   Button,
   Dialog,
@@ -40,6 +41,7 @@ import {
   PAGE_SLUG_RULE,
   PAGE_STAGES,
   PAGE_STAGE_LABELS,
+  builtOnWords,
   followerCountLine,
   pageContentProblems,
   pageSlugProblem,
@@ -71,6 +73,8 @@ export interface PageViewResponse {
   preview: { name: string; brandPrimary: string; brandSecondary: string; founderNames: string[] };
   /** How many people follow the page (package 1.6); absent from an older api. */
   followers?: number;
+  /** Whether visitors see the small "Built on" mark (the free plan; docs/NETWORK.md F2); absent from an older api. */
+  mark?: boolean;
 }
 
 type PublishResponse = { outcome: "published"; page: PageViewResponse } | { outcome: "held"; reason: PageHoldReason; message: string; page: PageViewResponse };
@@ -425,10 +429,15 @@ export function PublicPageScreen(_props: ModuleScreenProps) {
               brandPrimary={data.preview.brandPrimary}
               brandSecondary={data.preview.brandSecondary}
               founderNames={founderNames}
-              homeHref="/"
+              mark={data.mark ? "visitor" : "none"}
               follow={content.followForm ? <ProjectFollowForm name={data.preview.name} preview /> : null}
             />
           </div>
+        ) : null}
+        {data?.mark && content ? (
+          <p className="t-small mx-auto mt-3 w-phone max-w-full text-secondary" data-testid="page-mark-note">
+            {builtOnWords(APP_NAME).previewNote}
+          </p>
         ) : null}
       </Panel>
 

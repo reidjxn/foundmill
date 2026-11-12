@@ -3657,3 +3657,13 @@ Fifteen of sixteen answered, from lettered options; they supersede the "all open
 15. **The names stand.**
 16. **Build wave 1 first:** attribution and events, the mark and the story, cards, feedback links, invitations, credit for bringing people.
 
+## 2026-11-12 — The "Built on Foundmill" mark: the calls made
+
+- **Which plan decides.** The project's own plan (`businesses.plan_tier`), not the owner's highest plan across projects. A mark is about one page; the simpler rule is also the one a founder can predict.
+- **The public view stays as it is.** `public_project_pages` exposes no plan and its test forbids `plan_tier`. The api reads the plan with a join through the view on the service connection (as it reads the logo) and gives out one boolean. A visitor can see the same fact by looking at the page.
+- **"A member" means signed in to Foundmill, any account**, not only the project's own people. The founder asked that it be less noticeable to "our own Foundmill users"; a member already knows where the page was made.
+- **The lift is opacity, never a glow.** DESIGN forbids glows on text. With reduced motion, without scroll timelines, or on a page that does not scroll, the mark rests at full, so it never stays below the contrast floor.
+- **Words only in the confirmation email and page.** The email was security-reviewed around having one link in its body; a second one would compete with "Confirm". Ingest does not know the web's address either.
+- **The link goes to the home page until the story exists** (`/p/<slug>/story`, the next package), carrying `?via=p.<slug>`.
+- **The person page keeps "Made with Foundmill" for now.** Open question for the founder: a person has no plan to remove it by.
+
