@@ -269,6 +269,48 @@ describe("event catalogue", () => {
     }
   });
 
+  it("share.opened: a share control was pressed; the control and an id, never the words, for metrics only (tap-to-post)", () => {
+    const decl = EVENTS["share.opened"];
+    expect(decl.narratable).toBe(false);
+    expect([...decl.consumers]).toEqual(["metrics"]);
+    expect(isPersonAddressedEvent("share.opened")).toBe(false);
+    // Appended last: the list of types is only ever added to at its end.
+    expect(EVENT_TYPES[EVENT_TYPES.length - 1]).toBe("share.opened");
+    const fixture = EVENT_FIXTURES["share.opened"];
+    expect(parsePayload("share.opened", fixture)).toEqual(fixture);
+    // Nothing of the post fits in the payload: the text, the link and anything else typed are dropped.
+    expect(Object.keys(parsePayload("share.opened", { ...fixture, text: "Maple Bakes reached a milestone", link: "https://foundmill.example/m/1", title: "x" })).sort()).toEqual(["kind", "network", "refId", "target"]);
+    // Every control: a network's window, a copy, a message, the device's own sheet; a drafted post has no id.
+    for (const payload of [
+      { network: "bluesky", kind: "page", refId: fixtureId("page"), target: "tap" },
+      { network: "linkedin", kind: "page", refId: fixtureId("page"), target: "link_only" },
+      { network: "instagram", kind: "milestone", refId: fixtureId("milestone"), target: "copy" },
+      { network: null, kind: "draft", refId: null, target: "copy" },
+      { network: "whatsapp", kind: "milestone", refId: fixtureId("milestone"), target: "message" },
+      { network: null, kind: "draft", refId: null, target: "device" },
+    ] as const)
+      expect(parsePayload("share.opened", payload)).toEqual(payload);
+    const bad = (patch: Record<string, unknown>) => () => parsePayload("share.opened", { ...fixture, ...patch });
+    expect(bad({ network: "myspace" })).toThrow(ValidationError);
+    expect(bad({ kind: "campaign" })).toThrow(ValidationError);
+    expect(bad({ target: "posted" })).toThrow(ValidationError);
+    expect(bad({ refId: "not-an-id" })).toThrow(ValidationError);
+    expect(bad({ network: undefined })).toThrow(ValidationError);
+  });
+
+  it("share.opened is not a real outcome: the north star never counts a press it cannot see the end of", () => {
+    // The events the catalogue marks as real outside results say so in their own words. Pinned: adding one is a decision.
+    const counts = (doc: string) => /the north star counts it/i.test(doc);
+    const real = EVENT_TYPES.filter((t) => counts(EVENTS[t].doc));
+    expect(real).toEqual(["page.published", "page.followed"]);
+    expect(real).not.toContain("share.opened");
+    const doc = EVENTS["share.opened"].doc;
+    expect(doc).toMatch(/not an outside result and the north star does not count it/);
+    expect(doc).toMatch(/nothing calls this posted or published/);
+    // Neither does any other event claim a share as its outcome.
+    for (const t of real) expect(EVENTS[t].doc, t).not.toMatch(/share/i);
+  });
+
   it("entityIds default to [] and narrated to false on the envelope", () => {
     const wire = toWire(fixtureEvent("cycle.started")) as Record<string, unknown>;
     delete wire.entityIds;
