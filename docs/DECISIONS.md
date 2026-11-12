@@ -3731,6 +3731,14 @@ The founder, in this session: "the only by-hand part of the social post should b
 - **The card's `via` names the project page** (`p.<slug>`), not the card: one reference kind per public thing a person can be credited for.
 - **The foot follows who is looking**, as on the project page: a signed-in member sees the sentence without the "Start your own" link.
 
+## 2026-11-12 — The optional publishing connector is Buffer (founder, in this session)
+
+The founder: "Yes so let's go with Buffer." Tap-to-post stays the default way a project posts and needs no connector; the connector is for founders who want scheduling. Buffer was recommended because its free plan includes the API (three channels, ten queued posts per channel, a personal key), which fits a connector that runs on the founder's own key. Those figures come from third-party comparisons, not from Buffer's own documentation: the connectors session, which builds it, confirms the current API, the free plan's limits and that a personal key is enough before building. Passed to that session. The post-draft type in `packages/shared` is still to be agreed with it before either side writes it.
+
+## 2026-11-12 — The person-level event store is open as its own pull request
+
+[reidjxn/foundmill#86](https://github.com/reidjxn/foundmill/pull/86), branch `claude/account-events`, migration `0085_account_events`. Security-reviewed before it opened; three findings fixed (account-scoped types could be written into `events` at the database; a handle containing an id could block taking a profile down; the account-id check caught one spelling only). It adds one check constraint to `events`. It merges after retention, then this branch rebases onto it and `signup.attributed` is written through it.
+
 ## 2026-11-12 — A page's dates are the database's to record: the calls made
 
 Migration `0088_page_dates_recorded` (the open point of the milestones entry above). All this session's calls.
