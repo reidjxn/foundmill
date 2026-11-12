@@ -2,7 +2,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const publicIndexNowKeyFile = vi.fn<(slug: string, key: string) => Promise<string | null>>();
-vi.mock("@/lib/public-page.server", () => ({ publicIndexNowKeyFile: (slug: string, key: string) => publicIndexNowKeyFile(slug, key) }));
+vi.mock("@/lib/public-page.server", () => ({ publicIndexNowKeyFile: async (slug: string, key: string) => publicIndexNowKeyFile(slug, key) }));
 
 import { GET } from "../[keyFile]/route";
 
@@ -45,13 +45,13 @@ describe("GET /p/[slug]/[keyFile]", () => {
   });
 
   it("is a 503 with a retry hint, and no key, when the api cannot be asked", async () => {
-    publicIndexNowKeyFile.mockRejectedValue(new Error("fetch failed"));
+    publicIndexNowKeyFile.mockRejectedValue(new Error("api down"));
     const res = await ask(`${KEY}.txt`);
     expect(res.status).toBe(503);
     expect(res.headers.get("retry-after")).toBe("60");
     expect(res.headers.get("cache-control")).toBe("no-store");
     const body = await res.text();
     expect(body).not.toContain(KEY);
-    expect(body).not.toContain("fetch failed");
+    expect(body).not.toContain("api down");
   });
 });
