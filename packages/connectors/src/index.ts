@@ -41,6 +41,10 @@ export { createPerplexityConnector, perplexityMock, PERPLEXITY_KEY } from "./con
 export { createSerpapiConnector, serpapiMock, SERPAPI_KEY } from "./connectors/serpapi";
 export { createFirecrawlConnector, firecrawlMock, FIRECRAWL_KEY } from "./connectors/firecrawl";
 export { createIndexNowConnector, indexNowMock, INDEXNOW_KEY } from "./connectors/indexnow";
+export { createApolloConnector, apolloMock, APOLLO_KEY } from "./connectors/apollo";
+export { createVercelConnector, vercelMock, VERCEL_KEY } from "./connectors/vercel";
+export { createPosthogConnector, posthogMock, POSTHOG_KEY } from "./connectors/posthog";
+export { createResendConnector, resendMock, RESEND_KEY } from "./connectors/resend";
 export * from "./grants";
 export * from "./channel-availability";
 export { createPlatformConnector, platformMock, createPlatformMock, createMemoryPlatformHost, PLATFORM_KEY, PlatformToolError, MESSAGE_TYPES, type PlatformHost, type PlatformCaller, type PlatformArgs, type PlatformResult, type TaskSummaryT, type TaskDetailT, type AgentMessageT } from "./connectors/platform";

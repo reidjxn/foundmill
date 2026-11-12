@@ -42,7 +42,7 @@ export const dataEngineer = defineTemplate({
       },
     ],
   },
-  tools: [grant("platform", PLATFORM_BASE_TOOLS), grant("sandbox", SANDBOX_TOOLS), grant("github", ["repos.read", "pulls.create", "pulls.read", "checks.read"])],
+  tools: [grant("platform", PLATFORM_BASE_TOOLS), grant("sandbox", SANDBOX_TOOLS), grant("github", ["repos.read", "pulls.create", "pulls.read", "checks.read"]), grant("posthog", ["insights.query"])],
   skills: withCoreSkills(["data_pipelines", "data_quality", "sql_analytics", "data_modelling", "testing"]),
   autonomy: AUTONOMY_INHERIT,
   neverDoes: ["Expose cross-business data", "Edit production data by hand", "Ship a metric without a fixture test", "Push to main"],

@@ -27,8 +27,6 @@ Generated from the templates as they were before the removal; one table per temp
 | `platform` | `sessions.pause` | no tool serves this capability |
 | `platform` | `sessions.resume` | no tool serves this capability |
 | `github` | `branches.list` | no tool serves this capability |
-| `vercel` | `deployments.list` | connector not built |
-| `vercel` | `deployments.read` | connector not built |
 | `sentry` | `issues.list` | connector not built |
 
 ## `distribution_strategist`
@@ -42,7 +40,6 @@ Generated from the templates as they were before the removal; one table per temp
 | `platform` | `attribution.read` | no tool serves this capability |
 | `platform` | `benchmarks.read` | no tool serves this capability |
 | `ga4` | `reports.run` | connector not built |
-| `posthog` | `insights.query` | connector not built |
 
 ## `finance_lead`
 
@@ -91,15 +88,12 @@ Generated from the templates as they were before the removal; one table per temp
 
 | Connector | Capability | Why it resolved to nothing |
 | --- | --- | --- |
-| `posthog` | `insights.query` | connector not built |
 | `ga4` | `reports.run` | connector not built |
 
 ## `infra_engineer`
 
 | Connector | Capability | Why it resolved to nothing |
 | --- | --- | --- |
-| `vercel` | `deployments.list` | connector not built |
-| `vercel` | `deployments.read` | connector not built |
 | `sentry` | `issues.list` | connector not built |
 | `sentry` | `issues.read` | connector not built |
 
@@ -154,9 +148,6 @@ Generated from the templates as they were before the removal; one table per temp
 | `platform` | `attribution.codes.create` | no tool serves this capability |
 | `platform` | `crm.entities.create` | no tool serves this capability |
 | `platform` | `crm.interactions.append` | no tool serves this capability |
-| `apollo` | `people.search` | connector not built |
-| `apollo` | `organizations.search` | connector not built |
-| `apollo` | `people.enrich` | connector not built |
 | `people_data_labs` | `person.enrich` | connector not built |
 | `people_data_labs` | `company.enrich` | connector not built |
 | `hunter` | `email.find` | connector not built |

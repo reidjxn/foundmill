@@ -42,7 +42,7 @@ export const infraEngineer = defineTemplate({
       },
     ],
   },
-  tools: [grant("platform", PLATFORM_BASE_TOOLS), grant("sandbox", SANDBOX_TOOLS), grant("github", ["repos.read", "pulls.create", "pulls.read", "checks.read", "actions.read"])],
+  tools: [grant("vercel", ["deployments.list", "deployments.read"]), grant("platform", PLATFORM_BASE_TOOLS), grant("sandbox", SANDBOX_TOOLS), grant("github", ["repos.read", "pulls.create", "pulls.read", "checks.read", "actions.read"])],
   skills: withCoreSkills(["infrastructure_as_code", "ci_cd", "observability", "secrets_hygiene", "performance"]),
   autonomy: AUTONOMY_INHERIT,
   neverDoes: ["Change security settings or access controls", "Rotate or expose secrets", "Deploy to production outside the merge flow", "Push to main"],

@@ -12,6 +12,10 @@
  * them no tool, and `servedGrants` is what a screen shows.
  */
 import { anthropicTools } from "./connectors/anthropic/tools";
+import { apolloTools } from "./connectors/apollo/tools";
+import { posthogTools } from "./connectors/posthog/tools";
+import { resendTools } from "./connectors/resend/tools";
+import { vercelTools } from "./connectors/vercel/tools";
 import { firecrawlTools } from "./connectors/firecrawl/tools";
 import { geminiTools } from "./connectors/gemini/tools";
 import { indexNowTools } from "./connectors/indexnow/tools";
@@ -80,6 +84,10 @@ export const GATEWAY_TOOL_NAMES: Readonly<Record<string, readonly string[]>> = O
   serpapi: names(serpapiTools),
   firecrawl: names(firecrawlTools),
   indexnow: names(indexNowTools),
+  apollo: names(apolloTools),
+  vercel: names(vercelTools),
+  posthog: names(posthogTools),
+  resend: names(resendTools),
   platform: names(platformTools),
   web: names(webTools),
   quarantine: names(quarantineTools),
@@ -99,6 +107,13 @@ export const CAPABILITY_TOOLS: Readonly<Record<string, Readonly<Record<string, r
   serpapi: { "serp.read": ["search_google"] },
   firecrawl: { "pages.read": ["scrape_page"] },
   indexnow: { "urls.submit": ["submit_urls"] },
+  // Searching people is free at Apollo; a company search and a person lookup spend the founder's credits and ask first.
+  apollo: { "people.search": ["search_people"], "organizations.search": ["search_organizations"], "people.enrich": ["enrich_person"] },
+  // A redeploy goes live and uses the founder's build minutes: it asks first.
+  vercel: { "deployments.list": ["list_deployments"], "deployments.read": ["list_deployments", "get_deployment"], "deployments.create": ["create_deployment"] },
+  posthog: { "insights.query": ["query_insights"] },
+  // The founder's own Resend account and verified domain; a message to someone outside the project asks first.
+  resend: { "mail.send": ["send_mail", "list_domains"], "domains.read": ["list_domains"] },
   github: {
     // download_archive is the platform's own checkout (the gateway's archive route, ROUTE_ONLY_TOOLS): never an agent's tool.
     "repos.read": ["list_repos", "read_tree", "read_file", "compare_refs"],

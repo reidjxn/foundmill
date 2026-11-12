@@ -90,6 +90,8 @@ export const PLATFORM_MAIL_CEILING_KEY = "pm:all:day";
 export const PLATFORM_NOTIFY_DEFAULT_CEILING = 1_000;
 
 const OWN_SENDER_STATUSES = new Set(["connected", "degraded"]);
+/** The connectors that are a founder's own sender: when one is connected, the project's Foundmill address steps aside. */
+const OWN_SENDER_CONNECTORS = ["sendgrid", "resend"] as const;
 
 export interface PreparedPlatformMail {
   envelope: PlatformMailEnvelope;
@@ -123,9 +125,11 @@ export async function preparePlatformMail(deps: PlatformMailDeps, input: { busin
   // A simulated send is never reported to a person's project on staging or production as if it went out.
   if (input.mode === "mock" && deps.appEnv !== undefined && !mockResultsAllowed(deps.appEnv, input.business.isDemo)) return refuse(PLATFORM_MAIL_POLICY.simulated, PLATFORM_MAIL_REFUSALS.off);
 
-  // 2. The founder's own SendGrid wins.
-  const own = await repos.integrations.getByKey(deps.db, businessId, "sendgrid");
-  if (own && own.archivedAt === null && OWN_SENDER_STATUSES.has(own.status)) return refuse(PLATFORM_MAIL_POLICY.own_sender, PLATFORM_MAIL_REFUSALS.own_sender);
+  // 2. The founder's own sender wins: their SendGrid or their Resend (founder-key connectors, 2026-11-12).
+  for (const ownKey of OWN_SENDER_CONNECTORS) {
+    const own = await repos.integrations.getByKey(deps.db, businessId, ownKey);
+    if (own && own.archivedAt === null && OWN_SENDER_STATUSES.has(own.status)) return refuse(PLATFORM_MAIL_POLICY.own_sender, PLATFORM_MAIL_REFUSALS.own_sender);
+  }
 
   // 3. One recipient, plain text and simple HTML, nothing attached.
   const parsed = PlatformSendMail.safeParse(input.args ?? {});

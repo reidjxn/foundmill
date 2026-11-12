@@ -48,11 +48,12 @@ describe("CHANNEL_ACTING_TOOLS", () => {
   it("pins which channels act and which have no publisher yet (edit this list when a publisher is built)", () => {
     const acting = CHANNEL_KEYS.filter((k) => CHANNEL_ACTING_TOOLS[k].length > 0);
     const empty = CHANNEL_KEYS.filter((k) => CHANNEL_ACTING_TOOLS[k].length === 0);
-    expect(CHANNEL_ACTING_TOOLS.email_automation).toEqual(["sendgrid:send_mail", "platform_mail:send_mail"]);
+    expect(CHANNEL_ACTING_TOOLS.email_automation).toEqual(["sendgrid:send_mail", "platform_mail:send_mail", "resend:send_mail"]);
+    expect(CHANNEL_ACTING_TOOLS.lead_generation).toEqual(["apollo:search_people"]);
     expect(CHANNEL_ACTING_TOOLS.seo).toEqual(["github:commit_files"]);
     expect(CHANNEL_ACTING_TOOLS.geo).toEqual(["github:commit_files"]);
-    expect(acting).toEqual(["email_automation", "seo", "geo"]);
-    expect(empty).toEqual(["lead_generation", "content", "social", "paid_ads", "influencer", "affiliate", "direct_mail", "print", "broadcast", "outdoor", "pr", "events"]);
+    expect(acting).toEqual(["lead_generation", "email_automation", "seo", "geo"]);
+    expect(empty).toEqual(["content", "social", "paid_ads", "influencer", "affiliate", "direct_mail", "print", "broadcast", "outdoor", "pr", "events"]);
   });
 });
 
