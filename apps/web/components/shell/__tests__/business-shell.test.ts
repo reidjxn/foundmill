@@ -157,11 +157,11 @@ describe("the Example frame (UX plan §12 item 5)", () => {
     expect(EXAMPLE_CHIP_TOOLTIP).toBe("Its figures are made up for the example: nothing here is real money or real customers. Nothing you do here is saved.");
   });
 
-  it("the Sample business marker: on every demo business, with the made-up line; never on a founder's own business", () => {
+  it("the Sample business marker: only for a visitor exploring the example; never for the demo's own members or on a founder's own business", () => {
     expect(sampleMarker({ isDemo: true }, example)).toEqual({ label: "Sample business", tooltip: EXAMPLE_CHIP_TOOLTIP });
-    // The demo's own owner (the seeded founder) and an invited viewer still see that its figures are made up.
-    expect(sampleMarker({ isDemo: true }, owner)).toEqual({ label: "Sample business", tooltip: SAMPLE_BUSINESS_LINE });
-    expect(sampleMarker({ isDemo: true }, viewer)).toEqual({ label: "Sample business", tooltip: SAMPLE_BUSINESS_LINE });
+    // The demo's own owner (the seeded founder) and an invited viewer don't see it (founder, Nov 12, 2026).
+    expect(sampleMarker({ isDemo: true }, owner)).toBeNull();
+    expect(sampleMarker({ isDemo: true }, viewer)).toBeNull();
     expect(SAMPLE_BUSINESS_LINE).toBe("Its figures are made up for the example: nothing here is real money or real customers.");
     // A founder's own business, before or after the membership loads.
     const own = accessFor({ role: "owner", sectionPermissions: {}, source: "founder" }, { isDemo: false });
