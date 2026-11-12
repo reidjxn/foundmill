@@ -3713,3 +3713,12 @@ Relayed as the founder's decision, given in the alignment session and not in thi
 - **One draft shape** in `packages/shared` (text, link, image, per-network variants), agreed with the connectors session before either adds it, so the same draft can be shared by tap or published through its optional connector.
 - **Open point for the founder (this session's):** the relayed text says sharing makes the social channel "available" on the Channel Board with no connector. The Nov 11 rule is that the Board shows only channels that can really act. A channel the founder posts for by hand is a different state from one an agent can publish to; the Board should say which ("You post it" beside "The team posts it"), not show them as the same.
 
+## 2026-11-12 — Tap-to-post: confirmed by the founder here, with the test for "available"
+
+The founder, in this session: "the only by-hand part of the social post should be clicking the button to actually post it, nothing else should be required by the user. If that's the case, the social channel is available". This confirms the relayed decision above and settles its open point.
+
+- **The test.** A network is available through tap-to-post only where the draft arrives filled in (text and link, with the image carried by the link's preview card) and the founder's one action is pressing Post in that network's own window. Then the social channel shows as available on the Channel Board with no connector.
+- **What does not pass.** A network that takes no pre-filled post (Instagram and TikTok today), where the founder would have to copy text, open the app and attach an image. Those keep "Copy text" and the image as a help, and do not make the channel available by themselves. Judgment call: they are offered, never counted.
+- **Consequences for the build.** Nothing the founder has to type, paste, pick or attach: the text, the link with its `via` reference and the preview image are all ready before the button is shown; a draft that is too long for a network is fitted to it beforehand, never left for the founder to trim. Each network's share address is checked against its current format before it ships, and a network whose share window stops taking pre-filled text loses "available" until it does again.
+- **Honesty, unchanged.** Opening the share window is recorded as a share. It is never reported as posted (Foundmill cannot see the press), and it counts toward the north star only when a visit comes back through the link.
+
