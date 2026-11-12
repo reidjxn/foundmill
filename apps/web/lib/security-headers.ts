@@ -9,7 +9,9 @@
  *   root layout's text-size head script (components/providers/text-size-cookie.ts) need `'unsafe-inline'`; the rest of
  *   the policy (no remote script hosts, no `object`, a fixed `base-uri` and `form-action`) is what limits an injected tag;
  * - nosniff, a strict-origin-when-cross-origin referrer policy and a Permissions-Policy that turns off every device API
- *   the app never uses; HSTS for the HTTPS deployments (browsers ignore it over http://localhost).
+ *   the app never uses and allows the microphone for the app's own pages only (Team call, docs/TEAM_CALL.md: the browser
+ *   still asks the person; `microphone=()` refused it without asking); HSTS for the HTTPS deployments (browsers ignore it
+ *   over http://localhost).
  */
 
 /** The NEXT_PUBLIC_* variables next.config.ts resolves: the API, stream, collab, ingest and Supabase URLs are read from it. */
@@ -58,6 +60,9 @@ export function contentSecurityPolicy(env: SecurityHeaderEnv, options: { dev?: b
     // local API is plain http (https: alone would block it).
     ["img-src", ["'self'", "data:", "blob:", "https:", ...(apiOrigin ? [apiOrigin] : [])]],
     ["font-src", ["'self'", "data:"]],
+    // Team call plays each spoken turn from a data: URL (the api answers the audio as base64) and may hand the player a
+    // blob: URL; without this the audio fell back to default-src 'self' and was blocked without a word.
+    ["media-src", ["'self'", "data:", "blob:"]],
     ["connect-src", [...connect]],
     // The Development preview shows the branch's own deployment in a sandboxed iframe.
     ["frame-src", ["'self'", "https:"]],
@@ -75,7 +80,7 @@ export function securityHeaders(env: SecurityHeaderEnv, options: { dev?: boolean
     { key: "X-Frame-Options", value: "DENY" },
     { key: "X-Content-Type-Options", value: "nosniff" },
     { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
-    { key: "Permissions-Policy", value: "camera=(), microphone=(), geolocation=(), payment=(), usb=(), interest-cohort=()" },
+    { key: "Permissions-Policy", value: "camera=(), microphone=(self), geolocation=(), payment=(), usb=(), interest-cohort=()" },
     { key: "Strict-Transport-Security", value: "max-age=63072000; includeSubDomains" },
   ];
 }

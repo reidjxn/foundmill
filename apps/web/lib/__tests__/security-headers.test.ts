@@ -20,7 +20,14 @@ describe("security headers (audit SECX-7, PAS-3)", () => {
     expect(headers["X-Content-Type-Options"]).toBe("nosniff");
     expect(headers["Referrer-Policy"]).toBe("strict-origin-when-cross-origin");
     expect(headers["Permissions-Policy"]).toContain("camera=()");
+    // Team call: the microphone for the app's own pages (the browser still asks), never for a frame of another site.
+    expect(headers["Permissions-Policy"]).toContain("microphone=(self)");
+    expect(headers["Permissions-Policy"]).not.toContain("microphone=()");
     expect(headers["Strict-Transport-Security"]).toMatch(/^max-age=\d+/);
+  });
+
+  it("lets Team call play its spoken turns (data: and blob: audio) and nothing from other hosts", () => {
+    expect(directive(contentSecurityPolicy(PROD), "media-src")).toEqual(["'self'", "data:", "blob:"]);
   });
 
   it("forbids framing, plugins and a changed base, and keeps forms on the site", () => {
