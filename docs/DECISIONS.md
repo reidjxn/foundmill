@@ -3582,3 +3582,12 @@ The founder decided the rule (§14 item 9). How it was built, and what follows f
 - **No link but the one into the app.** Anything that looks like a link, domain or address in text an agent or a founder wrote is replaced, because the email comes from Foundmill's own authenticated domain and a phishing link there would carry Foundmill's name.
 - **Its own ceiling, and project mail first.** Reminders never use the budget project mail and follow confirmations need.
 - **Replies to `hello@` reach no one,** and the email says so.
+
+## 2026-11-12 — The person profile (package 2.3): the calls made
+
+- **"Building on my own" is the default and shows nothing.** The public page never says a person works alone; a line about people appears only when they chose one. Nothing on the editor asks about people when "on my own" is chosen.
+- **Projects appear on a person's page only where that page names its founders**, a choice the founder already made on the project page.
+- **The editor is an account page (`/public-profile`)**, not a Settings tab, because a person may have no project.
+- **No draft: fields are live; while public, every save is screened** and a held save changes nothing public. A display name changed in "Your profile" is screened too while anything public shows it.
+- **Public views are read through the api only.** Browser keys can no longer list every profile or page.
+- **A released profile address stays its owner's for 90 days**, so a shared link never starts showing someone else.

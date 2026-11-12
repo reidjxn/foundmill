@@ -412,6 +412,8 @@ Goal: R5 and the first half of R4. In the first session a project has a live pag
 
 ### Phase 2: Reach and the person
 
+Status, Nov 12, 2026: 2.3 first part done (a person's own public profile at `/u/<handle>`). Next: 2.4 (a home for a person with no project) and 2.1 (small screens for the outer product).
+
 Goal: R1 and R6. A person on a phone can arrive, exist and be found before any project exists.
 
 - **2.1 Small screens for the outer product.** Landing, sign-in, profile, the doors, project and person pages, messages, Today and Needs you work from 390 px. The dense console keeps its 1280 px floor behind a kinder note with "email me the link". Needs decision 14.1.
