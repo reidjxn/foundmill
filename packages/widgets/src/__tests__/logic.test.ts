@@ -410,6 +410,13 @@ describe("milestones", () => {
     expect(cards.find((c) => c.key === "mrr_10k")!.achievedAt).toBeNull();
     expect(trophyCards(ribbon().milestones, "EUR", true).find((c) => c.key === "customer_1")!.shareable).toBe(true);
   });
+  it("names a revenue milestone as Finance names its monthly figure: MRR only when revenue recurs", () => {
+    expect(trophyCards(ribbon().milestones, "EUR", false, true).find((c) => c.key === "mrr_10k")).toMatchObject({ label: "First €10K MRR", description: "Monthly recurring revenue (MRR) reaches €10K: the last 3 full months' revenue ÷ 3, as on Finance (Estimate)." });
+    const oneOff = trophyCards(ribbon().milestones, "EUR", false, false);
+    expect(oneOff.find((c) => c.key === "mrr_10k")).toMatchObject({ label: "First €10K monthly revenue", description: "Average monthly revenue reaches €10K: the last 3 full months' revenue ÷ 3, as on Finance (Estimate)." });
+    // A row stored under its old label is still matched by its key.
+    expect(oneOff.find((c) => c.key === "mrr_1k")!.achievedAt).toEqual(expect.any(String));
+  });
   it("matches seeded rows that keep the key in ref.trophyKey (milestones has no trophy_key column)", () => {
     const seeded = ribbon().milestones.map((m) => ({ ...m, trophyKey: undefined as unknown as string, ref: { ...(m.ref as object), trophyKey: m.trophyKey } }));
     expect(milestoneKey(seeded[0]!)).toBe("customer_1");

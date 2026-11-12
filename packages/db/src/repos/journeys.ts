@@ -439,22 +439,21 @@ export const journeysRepo = {
   },
 
   /**
-   * The trophy counters just before a payment (`src/milestones.ts`): first payments, first payments at or above
-   * `enterpriseMinMinor`, and the revenue in `currency` since `mrrSince`, all over the payments strictly earlier than
-   * this one (by occurred_at, then id).
+   * The trophy counters just before a payment (`src/milestones.ts`): first payments and first payments at or above
+   * `enterpriseMinMinor`, over the payments strictly earlier than this one (by occurred_at, then id). Revenue is not
+   * counted from payments: the revenue milestones read Finance's monthly figure (`awardRevenueMilestones`).
    */
-  async paymentCountersBefore(db: Executor, businessId: string, input: { conversionId: string; occurredAt: Date; currency: string; mrrSince: Date; enterpriseMinMinor: number }): Promise<{ customers: number; enterpriseContracts: number; revenueMinor: number }> {
+  async paymentCountersBefore(db: Executor, businessId: string, input: { conversionId: string; occurredAt: Date; enterpriseMinMinor: number }): Promise<{ customers: number; enterpriseContracts: number }> {
     const earlier = sql`(${conversions.occurredAt}, ${conversions.id}) < (${input.occurredAt.toISOString()}::timestamptz, ${input.conversionId}::uuid)`;
     const rows = await db
       .select({
         customers: sql<number>`count(*) filter (where ${conversions.firstPayment})::int`,
         enterprise: sql<number>`count(*) filter (where ${conversions.firstPayment} and ${conversions.amountMinor} >= ${input.enterpriseMinMinor})::int`,
-        revenue: sql<string>`coalesce(sum(${conversions.amountMinor}) filter (where ${conversions.currency} = ${input.currency} and ${conversions.occurredAt} > ${input.mrrSince.toISOString()}::timestamptz), 0)`,
       })
       .from(conversions)
       .where(and(eq(conversions.businessId, businessId), eq(conversions.kind, "payment"), earlier));
     const r = rows[0];
-    return { customers: Number(r?.customers ?? 0), enterpriseContracts: Number(r?.enterprise ?? 0), revenueMinor: Number(r?.revenue ?? 0) };
+    return { customers: Number(r?.customers ?? 0), enterpriseContracts: Number(r?.enterprise ?? 0) };
   },
 
   /** Every payment up to `until`, oldest first (the milestone catch-up replays them; one row per payment, a few columns). */

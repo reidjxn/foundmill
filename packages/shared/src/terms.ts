@@ -90,7 +90,7 @@ export const TERMS = {
     id: "mrr",
     word: "MRR",
     short: "Monthly recurring revenue: the subscription money that comes in every month.",
-    long: "Add up what every active subscriber pays per month. It only applies to businesses that charge a subscription; one-off sales are not recurring.",
+    long: "Here it is what customers paid in the last 3 full months divided by 3, an Estimate, the same figure on Finance and on the revenue milestones. It only applies to businesses that charge a subscription; a business whose customers buy once sees monthly revenue instead.",
     learn: "finance/overview",
   },
   arr: {

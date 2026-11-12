@@ -217,8 +217,12 @@ export const platformTools = [
     input: z.object({}),
     output: z.object({
       entity: z.object({ id: z.string(), name: z.string(), jurisdiction: z.string().nullable(), status: z.string() }).nullable(),
-      /** Filings and compliance events due in the next 90 days, soonest first. */
-      deadlines: z.array(z.object({ id: z.string(), kind: z.enum(["filing", "compliance"]), title: z.string(), dueAt: z.string().nullable(), status: z.string() })),
+      /**
+       * Filings and compliance events due in the next 90 days (a lookahead), soonest first. `dueSoon` marks the ones
+       * inside the shared due-soon window (`FILINGS_DUE_SOON_DAYS`, 30 days): the count Compliance's "Due within 30
+       * days" tile and the Money area's Company line show, so an agent says the same number.
+       */
+      deadlines: z.array(z.object({ id: z.string(), kind: z.enum(["filing", "compliance"]), title: z.string(), dueAt: z.string().nullable(), status: z.string(), dueSoon: z.boolean() })),
       contracts: z.array(z.object({ id: z.string(), title: z.string(), status: z.string() })),
     }),
     hints: {},

@@ -101,7 +101,7 @@ export function createScheduleActivities(deps: OrchestratorDeps) {
       return { businesses: input.businessIds.length, touched, eventIds: [], notes };
     },
 
-    /** Awards every trophy a business reached but does not hold (a payment the live path missed); idempotent. */
+    /** Awards every trophy a business reached but does not hold (a payment the live path missed, a revenue line Finance's monthly figure passed); idempotent. */
     async milestonesCatchUp(input: ScheduleBatch): Promise<ScheduleResult> {
       const notes: string[] = [];
       let touched = 0;

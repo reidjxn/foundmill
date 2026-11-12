@@ -58,7 +58,8 @@ import { routes } from "@foundmill/widgets/shared/routes";
 import { readOnlyReason } from "@/lib/access";
 import { entityHref } from "@/lib/entity-links";
 import { isGuid } from "@/lib/ids";
-import { monthStart, pnlTotals } from "@foundmill/modules/finance/pnl";
+import { pnlTotals } from "@foundmill/modules/finance/pnl";
+import { monthlyRevenueWindow } from "@foundmill/shared/monthly-revenue";
 import { usePageShortcuts } from "@/lib/keys";
 import { useHydrated } from "@/lib/today";
 import { errorMessage, trpcPathPrefix, type RouterOutputs } from "@/lib/trpc";
@@ -272,7 +273,10 @@ function ReadingPaneBody({ data, currency, departments, onArchived }: BodyProps)
   const financeQ = useQuery(trpc.finance.overview.queryOptions({ businessId }, { enabled: needs.has("finance"), staleTime: 60_000, retry: false }));
   // MRR and Revenue are the P&L revenue of the trailing three full months, as on Finance (audit OL-17).
   const wantsRevenue = useMemo(() => (Array.isArray(item.statusStrip) ? item.statusStrip : []).some((m) => ["mrr", "revenue"].includes(metricKey(String((m as { metric?: unknown } | null)?.metric ?? "")) ?? "")), [item.statusStrip]);
-  const pnlRange = useMemo(() => ({ from: monthStart(new Date(), -TRAILING_MONTHS).toISOString(), to: monthStart(new Date(), 0).toISOString() }), []);
+  const pnlRange = useMemo(() => {
+    const w = monthlyRevenueWindow(new Date(), TRAILING_MONTHS);
+    return { from: w.from.toISOString(), to: w.to.toISOString() };
+  }, []);
   const pnlQ = useQuery(trpc.finance.pnl.queryOptions({ businessId, ...pnlRange }, { enabled: needs.has("finance") && wantsRevenue, staleTime: 60_000, retry: false }));
   const trailingRevenue = pnlQ.data ? pnlTotals(pnlQ.data.categories).revenueMinor : null;
   const ribbonQ = useQuery(trpc.journey.ribbon.queryOptions({ businessId, from: from30, to: today }, { enabled: needs.has("conversions"), staleTime: 60_000, retry: false }));

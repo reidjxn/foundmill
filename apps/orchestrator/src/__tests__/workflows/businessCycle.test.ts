@@ -387,7 +387,7 @@ describe("businessCycle workflow", () => {
   });
 
   it("a plan the model account cannot pay for ends the cycle failed at once, with the reason in the Inbox (audit BILL-06)", async () => {
-    const billing = "This cycle's plan could not run: the model account that runs Foundmill is out of credit. Our team has been alerted, and nothing was charged to your credits. Try again later.";
+    const billing = "This round's plan could not run: the model account that runs Foundmill is out of credit. Our team has been alerted, and nothing was charged to your credits. Try again later.";
     const m = mockActivities({ planError: () => ApplicationFailure.create({ type: CYCLE_PLAN_FAILURE, message: billing, nonRetryable: true, details: [{ kind: "billing", billedTo: "credits", reason: "credit_balance" }] }) });
     const result = await rig.run(m.acts, (client, taskQueue) => client.workflow.execute(businessCycle, { workflowId: `cycle:${B}:6`, taskQueue, args: [{ businessId: B, cycleNumber: 6, trigger: "continue" }] }));
     expect(result).toMatchObject({ outcome: "failed", tasksDispatched: 0, costMinor: 0, inboxItemIds: [id(556)] });

@@ -17,7 +17,8 @@ import { BOOTSTRAPPED_COMMUNITY_SLUG, DEMO_OWNER_DISPLAY_NAME, DEMO_SEED_AUDIT_A
 import { addDays, addHours, atHour, mention, money, pct, type SeedCtx } from "./context";
 import { recordSampleRows } from "./roll-forward";
 import { seedFinance } from "./finance";
-import { seedJourney } from "./journey";
+import { seedJourney, seedRevenueMilestones } from "./journey";
+import { monthlyRevenueAt } from "../milestones";
 import { seedLegal } from "./legal";
 import { seedLedgerlyResearch } from "./research";
 import { applyAgentStatuses, seedSquad } from "./squad";
@@ -476,7 +477,10 @@ export async function seedLedgerly(ctx: SeedCtx): Promise<SeededBusiness> {
   const chief = squad.chief;
   const latest = journey.latestPayments[0];
   const won = latest ? mention(latest.customer.entityId, latest.customer.displayName) : "a new account";
-  const trophy = journey.data.milestones.filter((m) => m.trophyKey).at(-1);
+  // Revenue milestones from Finance's monthly figure (the bank seeded above), and that figure for the notes' MRR.
+  const trophy = await seedRevenueMilestones(ctx, businessId, "public");
+  const trophyLabel = trophy ? `${trophy.label}${trophy.estimate ? " (Estimate)" : ""}` : "";
+  const mrrNow = await monthlyRevenueAt(db, businessId, ctx.today);
   const inboxDrafts: Array<InboxSpec | null> = [
     {
       type: "report",
@@ -486,10 +490,10 @@ export async function seedLedgerly(ctx: SeedCtx): Promise<SeededBusiness> {
         `You are away for 11 more days. Within the authority grant I took two decisions today and queued one.`,
         `Decided: published the month-end close checklist article by ${agentMention(agentEntities, squad.byTemplate.get("channel_seo")!)} (publish_content; reason: founder-approved outline, no claims in your name); merged the invoice PDF fix by ${agentMention(agentEntities, backend)} after ${agentMention(agentEntities, squad.byTemplate.get("review_agent")!)} cleared it (merge_to_main).`,
         `Queued for you: the paid search budget increase to ${money(60_000, CURRENCY)} per month is above the per-decision cap. Spend so far this vacation: ${money(32_400, CURRENCY)} of the ${money(250_000, CURRENCY)} ceiling (Estimate).`,
-        `${agentMention(agentEntities, dataEngineer)} is down (GitHub rate limit hit on the backfill job); expected back tomorrow. MRR ${money(journey.mrrMinorNow, CURRENCY)} (synthetic).`,
+        `${agentMention(agentEntities, dataEngineer)} is down (GitHub rate limit hit on the backfill job); expected back tomorrow. MRR ${money(mrrNow, CURRENCY)} (synthetic, Estimate).`,
       ].join("\n\n"),
       statusStrip: [
-        { metric: `MRR ${money(journey.mrrMinorNow, CURRENCY)}`, source: "conversions" },
+        { metric: `MRR ${money(mrrNow, CURRENCY)} (Estimate)`, source: "pnl" },
         { metric: `Runway ${finance.runwayMonths ?? "n/a"} mo (Estimate)`, source: "forecasts" },
         { metric: `Vacation spend ${money(32_400, CURRENCY)}`, source: "usage_ledger" },
       ],
@@ -563,8 +567,8 @@ export async function seedLedgerly(ctx: SeedCtx): Promise<SeededBusiness> {
       ? {
           type: "milestone",
           fromAgentId: chief.agent.id,
-          subject: `Milestone: ${trophy.label}`,
-          bodyMd: `${trophy.label} reached (synthetic demo data). ${journey.paidCustomers} paying accounts; MRR ${money(journey.mrrMinorNow, CURRENCY)}. Standout agent: ${agentMention(agentEntities, outbound!)}, most first touches this quarter.`,
+          subject: `Milestone: ${trophyLabel}`,
+          bodyMd: `${trophyLabel} reached (synthetic demo data). ${journey.paidCustomers} paying accounts; MRR ${money(mrrNow, CURRENCY)} (Estimate). Standout agent: ${agentMention(agentEntities, outbound!)}, most first touches this quarter.`,
           createdDaysAgo: 2,
           state: "read",
         }

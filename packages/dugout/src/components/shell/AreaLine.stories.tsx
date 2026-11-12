@@ -22,7 +22,7 @@ export default meta;
 type Story = StoryObj<typeof meta>;
 
 export const Money: Story = {
-  args: { sections: [{ id: "company", label: "Company", sentence: "Northwind Ltd: 2 filings are due in the next 90 days, the first on Dec 1." }] },
+  args: { sections: [{ id: "company", label: "Company", sentence: "Northwind Ltd: 2 filings are due in the next 30 days, the first on Dec 1." }] },
 };
 export const MoneyNoBank: Story = { name: "Money, no bank yet", args: { sentence: "Connect your bank and this line shows your cash and how long it lasts.", provenance: null, sections: [{ id: "company", label: "Company", sentence: "Your company is not incorporated yet." }] } };
 export const Plan: Story = {

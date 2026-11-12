@@ -63,6 +63,17 @@ describe("trophy cabinet", () => {
     expect(formatThreshold(10_000_000, "GBP")).toBe("£100K");
   });
 
+  it("names a revenue trophy as Finance names its monthly figure: MRR only when revenue recurs", () => {
+    const mrr10k = TROPHY_BY_KEY.mrr_10k;
+    expect(mrr10k.label("GBP")).toBe("First £10K MRR");
+    expect(mrr10k.label("GBP", true)).toBe("First £10K MRR");
+    expect(mrr10k.label("GBP", null)).toBe("First £10K MRR");
+    expect(mrr10k.label("GBP", false)).toBe("First £10K monthly revenue");
+    const [m] = detectTrophies({ before: counters(), after: counters({ mrrMinor: 100_000 }), at, currency: "GBP", recurring: false });
+    expect(m!.label).toBe("First £1K monthly revenue");
+    expect(TROPHY_BY_KEY.customer_10.label("GBP", false)).toBe("10th customer");
+  });
+
   it("revenue thresholds scale from major units of the business's currency, so the label and the award agree (JM-14)", () => {
     // 100,000 yen of MRR is not "First 1K MRR" in disguise: 1K of yen is 1,000 yen, 1K of dinars is 1,000.000 dinars.
     expect(detectTrophies({ before: counters(), after: counters({ mrrMinor: 999 }), at, currency: "JPY" })).toEqual([]);

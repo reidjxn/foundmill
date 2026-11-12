@@ -10,7 +10,7 @@
  * Importing a registry record is idempotent: the same company (jurisdiction + registration number) is updated in
  * place, its officers and deadlines are matched to the ones already recorded, never added twice.
  */
-import { INCORPORATION_ROUTES, ValidationError } from "@foundmill/shared";
+import { FILINGS_DUE_SOON_DAYS, INCORPORATION_ROUTES, ValidationError } from "@foundmill/shared";
 import { and, asc, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 import {
@@ -366,8 +366,11 @@ export const legalRepo = {
     );
   },
 
-  /** Flips upcoming filings to due/overdue relative to `now` (the nightly schedule); returns how many changed. */
-  async rollFilingStatuses(db: Executor, businessId: string, now = new Date(), dueWindowDays = 30): Promise<number> {
+  /**
+   * Flips upcoming filings to due/overdue relative to `now` (the nightly schedule); returns how many changed. "Due" is the
+   * shared due-soon window (`FILINGS_DUE_SOON_DAYS`), the one Compliance and the Company line count.
+   */
+  async rollFilingStatuses(db: Executor, businessId: string, now = new Date(), dueWindowDays = FILINGS_DUE_SOON_DAYS): Promise<number> {
     const windowEnd = new Date(now.getTime() + dueWindowDays * 86_400_000);
     const overdue = await db
       .update(filings)
@@ -572,8 +575,8 @@ export const legalRepo = {
     );
   },
 
-  /** Deadlines (filings + compliance) due within `days` — the "Legal deadline" wake event and the Inbox reminders. */
-  async upcomingDeadlines(db: Executor, businessId: string, days = 30, now = new Date()): Promise<{ filings: Filing[]; compliance: ComplianceEvent[] }> {
+  /** Deadlines (filings + compliance) due within `days` (default the shared due-soon window) — the "Legal deadline" wake event and the Inbox reminders. */
+  async upcomingDeadlines(db: Executor, businessId: string, days = FILINGS_DUE_SOON_DAYS, now = new Date()): Promise<{ filings: Filing[]; compliance: ComplianceEvent[] }> {
     const until = new Date(now.getTime() + days * 86_400_000);
     const [f, c] = await Promise.all([
       legalRepo.listFilings(db, businessId, { status: ["upcoming", "due", "overdue"], dueBefore: until, limit: 200 }),

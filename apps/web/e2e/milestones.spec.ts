@@ -24,11 +24,15 @@ test.describe("milestones", () => {
     expect(await page.locator("[data-trophy][data-achieved]").count()).toBeGreaterThanOrEqual(1);
     await expect(page.getByTestId("milestones-screen")).toHaveAttribute("data-won", /^[1-8]$/);
     // Money milestones are in the business's own currency: Northwind keeps its books in pounds, never euros.
-    await expect(page.locator("[data-trophy]").filter({ hasText: "MRR" }).first()).toContainText("£");
+    const revenue = page.locator("[data-trophy]").filter({ hasText: /First £[\d.]+K monthly revenue/ });
+    await expect(revenue).toHaveCount(3);
     await expect(page.locator("[data-trophy]").filter({ hasText: "€" })).toHaveCount(0);
-    // Northwind sells a physical product (no subscriptions): a reached "MRR" milestone is trailing revenue, labeled Estimate.
-    const reachedMrr = page.locator("[data-trophy][data-achieved]").filter({ hasText: "MRR" });
-    for (const card of await reachedMrr.all()) await expect(card.locator("[data-provenance='estimate']")).toBeVisible();
+    // Northwind sells a physical product (no subscriptions): its revenue milestones are Finance's monthly figure, named
+    // as Finance names it ("Average monthly revenue", never MRR), and a reached one is labeled Estimate.
+    await expect(page.locator("[data-trophy]").filter({ hasText: "MRR" })).toHaveCount(0);
+    await expect(revenue.first()).toContainText("Average monthly revenue reaches £1K: the last 3 full months' revenue ÷ 3, as on Finance (Estimate).");
+    const reachedRevenue = page.locator("[data-trophy][data-achieved]").filter({ hasText: "monthly revenue" });
+    for (const card of await reachedRevenue.all()) await expect(card.locator("[data-provenance='estimate']")).toBeVisible();
   });
 
   test("a reached milestone opens its Customer Update when one is recorded", async ({ page }) => {
@@ -37,8 +41,9 @@ test.describe("milestones", () => {
     const reached = page.locator("[data-trophy][data-achieved] button").first();
     await expect(reached, "the seed gives Northwind at least one reached milestone").toBeVisible();
     await reached.click();
-    // Either the replay of the win that reached it, or the note that none was recorded (Radix toasts repeat their title for the live region).
-    await expect(page.getByTestId("journey-screen").or(page.getByText("No replay recorded for this milestone").first())).toBeVisible({ timeout: LONG });
+    // Either the replay of the win that reached it, or the note that none was recorded, or (a revenue milestone) where its
+    // figure comes from (Radix toasts repeat their title for the live region).
+    await expect(page.getByTestId("journey-screen").or(page.getByText("No replay recorded for this milestone").first()).or(page.getByText("Reached on Finance's monthly figure").first())).toBeVisible({ timeout: LONG });
     // Opened from Milestones, the replay goes back to Milestones.
     if (await page.getByTestId("journey-screen").count()) {
       await expect(page.getByTestId("journey-back")).toHaveText(/Milestones/);

@@ -2,13 +2,16 @@
  * The sample businesses roll forward with the calendar (DECISIONS 2026-11-10): a seed dated Oct 7, 2026 read on
  * Nov 10 moves every demo timestamp forward 33 whole days (never past now), keeps founders' businesses and real
  * people's rows untouched, keeps updated_at shifted rather than stamped, redates the goal sentence, and is idempotent.
- * Also the seed's internal consistency: the customer milestones reached agree with the first payments counted, and
+ * Also the seed's internal consistency: the customer milestones reached agree with the first payments counted, the
+ * revenue milestones are reached the day Finance's monthly figure first passes them (DECISIONS 2026-11-11), and
  * Finance's monthly figure is the three-month total over three.
  */
-import { TROPHIES } from "@foundmill/journey";
+import { TROPHIES, thresholdFor } from "@foundmill/journey";
+import { revenueIsRecurring } from "@foundmill/shared";
 import { sql } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { Db } from "../../client";
+import { monthlyRevenueAt } from "../../milestones";
 import { repos } from "../../repos";
 import { rowsOf } from "../../repos/_shared";
 import { createTestDb, type TestHarness } from "../../testing/pglite";
@@ -67,6 +70,38 @@ describe("the seed agrees with itself", () => {
       const week = (await repos.journeys.countConversions(db, id, { from: new Date(SEEDED.getTime() - 7 * DAY), to: SEEDED })).payment;
       expect(week, id).toBeGreaterThan(0);
     }
+  });
+
+  it("reaches each revenue milestone exactly when Finance's monthly figure (last 3 full months ÷ 3) first passes it, named as Finance names it", async () => {
+    for (const id of [NORTHWIND_BUSINESS_ID, LEDGERLY_BUSINESS_ID]) {
+      const business = await repos.businesses.get(db, id);
+      const recurring = revenueIsRecurring(business.archetype);
+      const currency = (await repos.finance.cashPosition(db, id)).byCurrency[0]?.currency ?? business.currency;
+      const milestones = await repos.journeys.listMilestones(db, id, {});
+      const byKey = new Map(milestones.map((m) => [(m.ref as { trophyKey?: string } | null)?.trophyKey, m]));
+      // Finance's figure at the first day of each month of the sample's two years, with the function Finance uses.
+      const firstDays: Date[] = [];
+      for (let d = new Date(Date.UTC(SEEDED.getUTCFullYear() - 2, SEEDED.getUTCMonth(), 1)); d <= SEEDED; d = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 1))) firstDays.push(d);
+      const figures = await Promise.all(firstDays.map((d) => monthlyRevenueAt(db, id, d)));
+      let reachedAny = false;
+      for (const t of TROPHIES.filter((x) => x.metric === "mrrMinor")) {
+        const line = thresholdFor(t, currency);
+        const first = figures.findIndex((f) => f >= line);
+        const won = byKey.get(t.key);
+        expect(!!won, `${id} ${t.key}: Finance's figure peaks at ${Math.max(...figures)}`).toBe(first >= 0);
+        if (!won) continue;
+        reachedAny = true;
+        expect(won.achievedAt.toISOString(), `${id} ${t.key}`).toBe(firstDays[first]!.toISOString());
+        expect(won.label).toBe(t.label(currency, recurring));
+        expect(won.ref).toMatchObject({ estimate: true, value: figures[first], basis: "last_3_full_months_revenue_div_3" });
+      }
+      expect(reachedAny, id).toBe(true);
+      // Today's figure is Finance's tile: the same function over `finance.pnl`'s range.
+      expect(await monthlyRevenueAt(db, id, SEEDED)).toBe(figures.at(-1));
+    }
+    // Northwind sells once: "monthly revenue", never MRR; Ledgerly's subscriptions keep MRR.
+    const northwind = await repos.journeys.listMilestones(db, NORTHWIND_BUSINESS_ID, {});
+    expect(northwind.filter((m) => String((m.ref as { trophyKey?: string } | null)?.trophyKey).startsWith("mrr_")).every((m) => /monthly revenue$/.test(m.label))).toBe(true);
   });
 });
 

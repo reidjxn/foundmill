@@ -7,12 +7,12 @@ description: Use whenever you write any text a founder can read in the Foundmill
 
 ## 1. The product's words (always)
 
-- The product is **Foundmill**. What a founder builds is a **project** until its first sale and a **business** after; where the stage is not known, say project. API fields keep the word business.
-- The AI agents are the **team**. The humans are the project's **People**: **cofounders** (equal standing, any number; write "the founders" when there are several) and **collaborators** (someone trying out or helping). Never "staff", never "seat": people are free on every plan.
-- One founder building alone is the normal case. Never write a line that says or implies someone is missing ("find a cofounder to get started", "better with a partner", an empty slot for a second person).
-- Never name jobs, employment, careers or AI taking work as the reason to be here. Say what is theirs and what they can do now.
+- The product is **Foundmill**. What a person runs is a **project** until its first sale and a **business** after (in the app's own sentences; text the API writes is left as it comes). The person who runs it is the **founder**; one person is complete (never a line that says or implies they need someone else), and where several people run it they are its founders.
+- The AI agents are the **team**. The humans of a business are its **People**: **cofounders** (equal standing, any number) and **collaborators** (limited access). Never "staff", never "seat", never a limit on people (founder, Nov 11, 2026).
+- **Subtext, never text.** Nothing a person reads says or implies "do this instead of getting a job". Say ownership ("something that is yours"), capability ("what you can do now") and, as an offer, company ("people to build it with, if you want them"). Never jobs, employment, unemployment, careers, "9 to 5", "laid off" or AI taking work as the reason to be here. An agent's job, a job title on a contact and hiring an agent are ordinary words and stay.
+- A round of agent work is a **round of work** in everything a founder reads; "cycle" and cycle numbers are the engine's words and stay in code and in the web's Builder view.
 - The agent that plans each round of work and talks for the team is the **Chief of Staff**.
-- A round of agent work is a **cycle**; a press of **Continue** starts a run of cycles that goes until nothing is left to do.
+- A press of **Continue** starts rounds of work that go on until nothing is left to do.
 - Notes from the team land in the **Inbox**. A note that needs the founder is either a **decision** ("Needs your answer", "Your decision") or a **go-ahead** ("Needs your go-ahead", "Waiting for your go-ahead"). Those are the only two families of "needs you" words.
 - The business's mark is its **logo**. Its colors are its **brand colors**.
 - Three months of the business's life is a **chapter**.
@@ -25,7 +25,9 @@ description: Use whenever you write any text a founder can read in the Foundmill
 - The founder's away mode is **Vacation** ("On vacation until Oct 21"; the button to end it is **Come back**).
 - Agent pay is **Payroll** (Finance tab). AI cost is "AI usage (USD)".
 - The founder's one-sentence target is the **goal**. Tests are **quality checks**. "PR" means public relations, never a pull request (say "merged change").
-- The Team department's tab of agents is **Agents** (never "Team › Team").
+- The Team department's tab of agents is **Agents** (never "Team › Team"). The founder's areas are **Plan, Customers, Money, Product, Team**; the legal module's tabs are the **Company** section of Money and its first tab is **Company**. Development's tabs read **Working now**, **Work list**, **What changed**, **Live product**; Finance's P&L tab **Profit and loss**; Distribution's board **Board**.
+- The help control on every screen is **Ask <Chief of Staff's name>** with the three questions **What's happening?**, **What's blocking us?**, **Why am I seeing this?** and the row **Ask something else…**.
+- A seeded business is a **Sample business** (its caption); "Demo" is not shown to a founder.
 - The first-run screens are **Before you start** (the founder profile) and **Welcome aboard** (the confirmation).
 - Training, coach, form, recruitment and wage are fine: they are ordinary words for a team of agents.
 
@@ -43,7 +45,7 @@ description: Use whenever you write any text a founder can read in the Foundmill
 | assistant manager | Chief of Staff |
 | scouting report | Import report |
 | form guide | Channel performance |
-| league, league table, league position | nothing: there is no ranking of businesses in the product (leaderboards were removed on Nov 11, 2026) |
+| league, league table, league position, leaderboard | nothing: the leaderboards feature was removed on Nov 11, 2026 and is never shown |
 | match, match day, match commentator, cup tie | Customer Update, win, narrate |
 | kick-off, team sheet, goal (as a sports event), full time, player of the match, whistle, half-time, line-up | First touch, Who was involved, Win moment, Debrief, Standout agent |
 | friendly / league / cup (update levels) | Brief / Standard / Featured |
@@ -58,6 +60,11 @@ description: Use whenever you write any text a founder can read in the Foundmill
 | wage bill | Payroll |
 | dugout | the design system (never shown) |
 | manager, game, play, score a goal, win the match | founder, business, run, win a customer |
+| staff, seat, seats | People; cofounders and collaborators; never a count of seats |
+| cycle N, "cycle" (to a founder), tokens, PR #N, "N tests passed" | round of work, some AI usage, a finished change, the quality checks passed |
+| job, jobs, employment, unemployment, career, "9 to 5", laid off, "AI taking work" (as the reason to be here) | something that is yours; what you can do now; people to build it with |
+| demo (as a chip or caption) | Sample business |
+| "Keep my day job for now" | "Fits around what I already do" |
 
 Allowed in their ordinary sense: "full-time" employment, "holiday season" / "tax season", "elevator pitch" / "pitch deck", "company formation", a "book club" in CRM data. Code identifiers may keep old names (`matchday_level`, `holiday`, `injured`, `squad` slugs); display text never does.
 
@@ -95,9 +102,9 @@ The "what the team can do" chip reads, in the business's own currency: "Asks bef
 
 - Continue tooltip (idle): "Let the team work until nothing is left to do. Their notes land in the Inbox."
 - Continue (blocked): "Respond · N" and "N notes need your answer before the team can carry on."
-- Continue (processing): "The team is working · cycle 3"
+- Continue (processing): "The team is working · round 3"
 - Stop all agents: "Stop all agents (pauses everything, nothing is lost)". Its confirmation starts with "Nothing is deleted."
-- Inbox empty: "Notes from your team land here after each cycle. Press Continue to start one."
+- Inbox empty: "Notes from your team land here after each round of work. Press Continue to start one."
 - Needs you empty: "Nothing needs you right now. The team keeps working."
 - Goal empty: "Your Chief of Staff proposes a goal after the first round of work."
 - Goal pace: "4 of 10 so far, 38 days left: on pace (Forecast)."
@@ -114,6 +121,42 @@ The "what the team can do" chip reads, in the business's own currency: "Asks bef
 - Not invited: "Not on the list yet. Foundmill is opening up in waves. Ask the person who invited you, or sign in with the address they used."
 - Credits: "The team has stopped: credits are used up."
 - Magic code screen: "Check your email. Enter the six-digit code, or tap the link in the message."
+- Continue, within a second of a press: "Starting the next round of work…"; then the server's `plainHeadline` as it comes ("The next round of work started: 3 tasks ready to build", "The next round of work started: nothing is ready to build yet", "The team cannot run right now: the orchestrator is not reachable", "The round of work resumed", "The round of work is already running").
+- Continue's cost line: "Last round cost $0.52 · Estimate".
+- Orchestrator down (idle sheet): "The team cannot run right now: the service that runs the team's work is not reachable. A press writes one note; no agent works."
+- Round paused: "The round of work is paused. Press Continue to pick up where the team stopped."
+- Pause sheet: "Pause the round?" with Pause and Keep going.
+- Sample business caption: "Sample business" · "Its figures are made up for the example: nothing here is real money or real customers." · for an example viewer add "Nothing you do here is saved."
+- Example door: "Walk around a running business before you start yours. Nothing you do there is saved. It is a business two years in: its spend and customer figures are its own, not a forecast of yours."
+- Approval without content: Reject labeled "Ask for the details"; Approve labeled "Approve anyway". No GitHub: "Connect GitHub first".
+- Model account out of credit (a credits business; the note's own words): "This round's plan could not run: the model account that runs Foundmill refused its key. Our team has been alerted, and nothing was charged to your credits. Try again later." Show it as the note says it; it is Foundmill's problem, not the founder's.
+- Chief of Staff with nothing to say: "Nothing is blocking the team." / "There is nothing to report yet: the team has not started, and no goal is set." / "Nothing needs you right now."
+- First week: title "Your first week"; states Done / Now / Next; "Done Oct 8"; "Oct 10 – 13 (Estimate)"; stopped line "The team is stopped, so nothing moves on until you resume it."
+- Area skeleton: "Reading the numbers".
+- Since you were last here: "Since you were last here" · "Nothing happened while you were away."
+- Live product: "No release recorded yet" · "Updated Nov 7" · "No artifact yet" · "Nothing exists outside these screens yet".
+- Public page: "Your project's public page is ready to check" · "Not published yet" · "Live since Oct 7, 2026" · "Live, with changes not yet published" · "A sample business has no public page." · stages "Idea" / "Being built" / "Live".
+- Streak (only from the server's count): "Back 5 days in a row". Never a flame, an emoji or "streak" as a badge.
+- Revenue milestones: "First $1K MRR" only when revenue recurs; otherwise "First $1K monthly revenue".
+- Idea cards: "Use my idea as written" · "Choose this idea" · "Your words" · "Sample" · "Written by you" · "Edit it in your words first".
+
+### Empty screens (what will appear and when; verbatim)
+
+- Needs you (first days): "Nothing needs you yet. Your first notes, the specification and the roadmap to sign off, arrive once the team finishes drafting them, usually on day 1."
+- Leads, before selling: "No leads yet" · "Leads appear here once the team starts selling, after you answer “Ready to start selling?”. Each arrives with its lawful basis." After: "Qualified leads arrive here with their lawful basis as soon as Lead generation finds someone who fits."
+- Campaigns, before selling: "No campaigns yet" · "Campaigns appear here once the team starts selling, after you answer “Ready to start selling?”. Each asks for your approval before it launches." After: "Each channel on the board plans its first campaign here and asks for your approval before launch."
+- Contacts: "Nothing here yet. People and organizations arrive as imports run and as the team works, starting with the first leads once you answer “Ready to start selling?” Add one by hand or connect an importer to fill it sooner."
+- Milestones: "Nothing here yet. Releases, decisions, incorporation, funding and launches appear as they happen; the first usually come with the first changes going live, from day 2."
+- Roadmap: "Nothing on the roadmap yet" · "The Product lead turns the specification into Now, Next and Later in the team's first round of work, usually on day 1, and asks for your sign-off. You can add an item yourself any time."
+- Specification: "No spec yet" · "The team drafts the specification in its first round of work, usually on day 1, and asks for your sign-off before building starts."
+- Specification versions: "Nothing published yet. A version appears when you sign off the specification, when a change proposal is accepted or when you publish the current spec."
+- Cash history: "Cash history appears after you connect a bank account in Settings › Integrations, and grows as transactions sync."
+- Cash flow: "Monthly inflows and outflows appear after you connect a bank account, once its transactions sync."
+- Bank: "No bank or revenue data yet" · "Connect a bank account (Tink or Plaid) or Stripe and the tiles fill with cash, burn, runway and revenue as soon as the first transactions sync."
+- Company (entity): "No legal entity yet" · "Import an existing company on the web, or start an incorporation there; the entity's facts appear here as soon as either is done."
+- Officers: "Nothing here yet. Officers appear once a company is imported or formed; each becomes a contact with the officer role."
+- Compliance: "No deadlines yet" · "The calendar fills when you import a company, from its registry, or when an incorporation adds its first filings. Deadlines the legal lead records appear here too."
+- Recruitment (hired): "Nothing hired yet. An agent you hire from the catalog appears here as soon as you confirm."
 
 ## 7. Push notification copy (title · body)
 
