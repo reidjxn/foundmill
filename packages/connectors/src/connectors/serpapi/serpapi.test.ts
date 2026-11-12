@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { isUntrusted } from "../../quarantine";
 import { jsonResponse, routedFetch } from "../../http";
-import { collectingLogger, describeConnectorContract, envKeysPresent, makeToolContext } from "../../testing/contract-suite";
+import type { collectingLogger } from "../../testing/contract-suite";
+import { describeConnectorContract, envKeysPresent, makeToolContext } from "../../testing/contract-suite";
 import { ACCOUNT, ACCOUNT_KEY_ECHO, followUp, searchInline, searchWithToken, SKINCARE_AI_OVERVIEW_TEXT, SKINCARE_QUERY } from "./fixtures/serp";
 import { createSerpapiConnector, scrub } from "./index";
 import { mockSearch, serpapiMock } from "./mock";

@@ -3,13 +3,13 @@ import type { SerpAccount, SerpAiOverview, SerpSearchResponse } from "../tools";
 
 export const SKINCARE_QUERY = "best moisturizer for dry skin";
 
-export const SKINCARE_ORGANIC = [
+export const SKINCARE_ORGANIC: NonNullable<SerpSearchResponse["organic_results"]> = [
   { position: 1, title: "The 12 Best Moisturizers for Dry Skin, Tested", link: "https://www.example-derm.org/best-moisturizers-dry-skin", snippet: "Dermatologists pick ceramide and hyaluronic acid creams that hold water in the skin barrier." },
   { position: 2, title: "How to Choose a Moisturizer for Dry Skin", link: "https://www.skinbasics.example/moisturizer-guide", snippet: "Look for humectants, emollients and occlusives, and apply to damp skin." },
   { position: 3, title: "Dry Skin Care: Tips and Products", link: "https://clinic.example/health/dry-skin", snippet: "Thicker creams and ointments work better than lotions in winter." },
-  { position: 4, title: "Northwind Barrier Cream", link: "https://northwindskincare.com/products/barrier-cream", snippet: null },
+  { position: 4, title: "Northwind Barrier Cream", link: "https://northwindskincare.com/products/barrier-cream" },
   { position: 5, title: "r/SkincareAddiction: Moisturizer for very dry skin?", link: "https://forum.example/r/skincare/dry-moisturizer", snippet: "Anyone tried a ceramide cream that does not sting?" },
-] as const;
+];
 
 export const SKINCARE_AI_OVERVIEW: SerpAiOverview = {
   text_blocks: [

@@ -120,12 +120,7 @@ export function createIndexNowConnector(options: IndexNowConnectorOptions = {}):
         const locationInput = connectInputValue(input, "keyLocation");
         let keyLocation = indexNowKeyFileUrl(host, key);
         if (locationInput) {
-          let u: URL | null = null;
-          try {
-            u = new URL(locationInput);
-          } catch {
-            u = null;
-          }
+          const u = URL.canParse(locationInput) ? new URL(locationInput) : null;
           if (!u || u.protocol !== "https:" || u.hostname.toLowerCase() !== host || u.port || u.username || u.password || u.search || u.hash) {
             throw new ConnectInputError(INDEXNOW_KEY, "keyLocation", `The key file address must be an https address on ${host}.`);
           }
