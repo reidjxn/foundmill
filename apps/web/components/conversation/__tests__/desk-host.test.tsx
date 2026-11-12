@@ -20,7 +20,7 @@ function Talk({ useDesk = useAgentDesk }: { useDesk?: () => AgentDeskApi | null 
   return (
     <>
       <button type="button" onPointerEnter={desk?.prefetch} onClick={() => desk?.open({ kind: "agent", id: "a1" }, { persona: { name: "Juno", avatarSeed: "juno" }, text: "Why is cash down?" })}>
-        Talk to Juno
+        Chat with Juno
       </button>
       <button type="button" onClick={() => desk?.close()}>
         Close
@@ -40,7 +40,7 @@ describe("AgentDeskHost", () => {
     expect(screen.queryByTestId("agent-desk")).toBeNull();
     expect(screen.getByTestId("current").textContent).toBe("none");
 
-    fireEvent.click(screen.getByRole("button", { name: "Talk to Juno" }));
+    fireEvent.click(screen.getByRole("button", { name: "Chat with Juno" }));
     const sheet = await screen.findByTestId("agent-desk");
     expect(sheet.getAttribute("data-variant")).toBe("sheet");
     expect(sheet.getAttribute("data-open")).toBe("true");
@@ -63,7 +63,7 @@ describe("AgentDeskHost", () => {
         <Talk useDesk={host.useAgentDesk} />
       </host.AgentDeskHost>,
     );
-    fireEvent.click(screen.getByRole("button", { name: "Talk to Juno" }));
+    fireEvent.click(screen.getByRole("button", { name: "Chat with Juno" }));
     const sheet = await screen.findByTestId("agent-desk");
     expect(sheet.getAttribute("data-provided")).toBe("true");
     expect(sheet.getAttribute("data-subject")).toBe("agent:a1");

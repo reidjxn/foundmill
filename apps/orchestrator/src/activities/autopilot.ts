@@ -8,7 +8,7 @@
  * approval, hard gate, section wall and policy check applies to its cycles exactly as to a founder press.
  */
 import { autopilotChangedPayload, loadAutopilotFacts, repos, runRoundsOf } from "@foundmill/db";
-import { CONTINUE_RUN_LIMITS, decideAutopilot, decideRun, pauseNote, type AutopilotCadence, type AutopilotDecision, type AutopilotPauseReason, type ContinueRunDecision, type ContinueRunEndReason } from "@foundmill/shared";
+import { CONTINUE_RUN_LIMITS, autopilotCycleBudgetMinor, decideAutopilot, decideRun, pauseNote, type AutopilotCadence, type AutopilotDecision, type AutopilotPauseReason, type ContinueRunDecision, type ContinueRunEndReason } from "@foundmill/shared";
 import type { OrchestratorDeps } from "../deps";
 import { emitEvent, systemActor } from "../events";
 
@@ -25,6 +25,8 @@ export interface AutopilotEvaluation {
   maxIdleCycles: number;
   /** Cycles started today (UTC) that count toward the daily cap, before this decision. */
   cyclesToday: number;
+  /** The budget a cycle Autopilot starts on its own is given (the rest of its own spend ceiling today, 0077); null: none. */
+  cycleBudgetMinor?: number | null;
   /** The run's own decision (Continue runs until done), taken before the schedule's; null without a run. */
   run: { decision: ContinueRunDecision; waitMs: number } | null;
 }
@@ -50,7 +52,7 @@ export function createAutopilotActivities(deps: OrchestratorDeps) {
       const planned = decision.action === "wait" || decision.action === "start" ? decision.nextAt : null;
       const plannedAt = planned === null ? null : new Date(planned);
       if ((business.autopilotNextAt?.getTime() ?? null) !== (plannedAt?.getTime() ?? null) && business.autopilotEnabled) await repos.autopilot.setNextAt(db, input.businessId, plannedAt);
-      return { decision, waitMs, cadence: facts.settings.cadence, maxIdleCycles: facts.settings.maxIdleCycles, cyclesToday: facts.cyclesToday, run };
+      return { decision, waitMs, cadence: facts.settings.cadence, maxIdleCycles: facts.settings.maxIdleCycles, cyclesToday: facts.cyclesToday, cycleBudgetMinor: autopilotCycleBudgetMinor(facts), run };
     },
 
     /**

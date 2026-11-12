@@ -18,9 +18,14 @@
  * or a message from another founder). It is about its recipient, not the business, so it is never delivered on a business
  * stream, not even to the owner or to a reader without walls; the api no longer writes them to a business at all (FU-S-2)
  * and this keeps one that still arrives (an older api during a deploy, a stray writer) from reaching the staff.
+ *
+ * An account-scoped event (`ACCOUNT_EVENT_TYPES`: a fact about one person, such as their profile going public) is walled
+ * from every reader of a business stream in the same way, and has no line in the table: it is never written to a
+ * business and never relayed to `ev:`. It travels on the person's own `ae:<userId>`, where `viewAccountEvent` lets
+ * through only that person's own account events, cut to the fields a person may read of them.
  */
 import type { StreamEntry } from "@foundmill/events";
-import { isPersonAddressedEvent, PERSON_ADDRESSED_EVENT_TYPES, SECTIONS, walledSections, type EventType, type Section, type SectionMembership } from "@foundmill/shared";
+import { ACCOUNT_EVENT_TYPES, isAccountEventType, isPersonAddressedEvent, PERSON_ADDRESSED_EVENT_TYPES, SECTIONS, walledSections, type BusinessEventType, type Section, type SectionMembership } from "@foundmill/shared";
 
 export interface EventWall {
   /** Sections the reader must be able to read to receive the event at all; empty for every member. */
@@ -105,6 +110,8 @@ export const EVENT_WALLS = {
   "goal.achieved": { sections: ["inbox"], hide: { finance: ["targetValue", "achievedValue"] } },
   // A project's public page went live or was taken down (0077): its id and address, which are public anyway.
   "page.published": { sections: ["product"] },
+  "team_call.started": { sections: ["team"], hide: freeText("topic") },
+  "team_call.ended": { sections: ["team"] },
   "page.unpublished": { sections: ["product"] },
   // Someone followed the page (0079): ids only; the follower's record is the CRM's to show.
   "page.followed": { sections: ["product"], hide: { crm: ["entityId", "consentId"] } },
@@ -120,6 +127,8 @@ export const EVENT_WALLS = {
   "mail.sent": { sections: ["distribution"] },
   // Foundmill emailed one of the business's people about a waiting note: ids only, like push.sent.
   "notify.email_sent": { sections: ["settings"] },
+  // The return loop: one founder's own sessions and the emails sent to them. Metrics only; Settings readers alone.
+  "founder.session_started": { sections: ["settings"] },
   // Who or what brought a new person (0086): about an account, not a business, and not written to any business's events
   // (packages/events catalogue). Filed with the metrics-only events so a stray one reaches no one but Settings' readers.
   "signup.attributed": { sections: ["settings"] },
@@ -129,7 +138,7 @@ export const EVENT_WALLS = {
   // A share control was pressed (tap-to-post): a product signal for metrics, never pushed for a screen. Filed with the
   // metrics-only events so a stray one reaches no one but Settings' readers.
   "share.opened": { sections: ["settings"] },
-} as const satisfies { readonly [K in EventType]: EventWall };
+} as const satisfies { readonly [K in BusinessEventType]: EventWall };
 
 /** What one reader may see of business events: their walls (sections they may not read at all). */
 export interface EventView {
@@ -180,14 +189,24 @@ function typeInJson(json: string): string | undefined {
   }
 }
 
+/** A type that belongs to a person and never to a business's readers: person-addressed, or account-scoped. */
+const belongsToAPerson = (type: string | null | undefined): boolean => isPersonAddressedEvent(type) || isAccountEventType(type);
+const PERSONAL_TYPES: readonly string[] = [...PERSON_ADDRESSED_EVENT_TYPES, ...ACCOUNT_EVENT_TYPES];
+
+/** The answer of `personAddressed` per stream entry: decided once, whatever the number of readers. */
+const personal = new WeakMap<StreamEntry, boolean>();
+
 /**
- * Whether the entry is a person-addressed event (never delivered on a business stream). The relay always writes `type`
- * beside the JSON, so that is the whole check on the fast path; an entry without it is parsed only when its text names one.
+ * Whether the entry is a person's own event (person-addressed or account-scoped: never delivered on a business
+ * stream). The relay always writes `type` beside the JSON; the JSON is parsed as well only when its text names one of
+ * these types, so an entry whose `type` field and JSON disagree is still caught.
  */
 function personAddressed(entry: StreamEntry, json: string): boolean {
-  const type = entry.fields.type;
-  if (type !== undefined) return isPersonAddressedEvent(type);
-  return PERSON_ADDRESSED_EVENT_TYPES.some((t) => json.includes(t)) && isPersonAddressedEvent(typeInJson(json));
+  const known = personal.get(entry);
+  if (known !== undefined) return known;
+  const answer = belongsToAPerson(entry.fields.type) || (PERSONAL_TYPES.some((t) => json.includes(t)) && belongsToAPerson(typeInJson(json)));
+  personal.set(entry, answer);
+  return answer;
 }
 
 function decide(json: string, typeField: string | undefined, view: EventView): string | null {
@@ -200,7 +219,7 @@ function decide(json: string, typeField: string | undefined, view: EventView): s
     return null;
   }
   const type = typeof event.type === "string" ? event.type : typeField;
-  if (isPersonAddressedEvent(type)) return null;
+  if (belongsToAPerson(type)) return null;
   const wall = type ? (EVENT_WALLS as Record<string, EventWall | undefined>)[type] : undefined;
   if (!wall) return null;
   const payload = isObject(event.payload) ? event.payload : {};
@@ -234,6 +253,35 @@ export function viewEvent(entry: StreamEntry, view: EventView): string | null {
   const out = decide(json, entry.fields.type, view);
   byView.set(view.key, out);
   return out;
+}
+
+/** The fields of an account event a person may read (the column grant of `account_events`): not the actor. */
+const ACCOUNT_EVENT_FIELDS = ["id", "userId", "type", "occurredAt", "payload"] as const;
+
+/**
+ * The event JSON the owner of an `ae:<userId>` channel receives for one stream entry, or null. The authorizer has
+ * already held the channel to its own account; this holds every entry to it as well, so nothing that is not this
+ * person's own account event leaves on the channel, whatever was written to the stream:
+ *   - the event must name this account as its `userId`;
+ *   - its type must be account-scoped (a business event planted here goes nowhere), and agree with the entry's `type`;
+ *   - only `ACCOUNT_EVENT_FIELDS` are sent (what the person may also select from the table; never the actor).
+ */
+export function viewAccountEvent(entry: StreamEntry, userId: string): string | null {
+  const json = entry.fields.json;
+  if (json === undefined) return null;
+  let event: Json;
+  try {
+    const parsed: unknown = JSON.parse(json);
+    if (!isObject(parsed)) return null;
+    event = parsed;
+  } catch {
+    return null;
+  }
+  if (typeof event.userId !== "string" || event.userId.toLowerCase() !== userId.toLowerCase()) return null;
+  if (typeof event.type !== "string" || !isAccountEventType(event.type)) return null;
+  if (entry.fields.type !== undefined && entry.fields.type !== event.type) return null;
+  if (typeof event.id !== "string" || !isObject(event.payload)) return null;
+  return JSON.stringify(Object.fromEntries(ACCOUNT_EVENT_FIELDS.map((field) => [field, event[field]])));
 }
 
 /** The staff member a `membership.changed` entry is about (apps/stream re-checks their subscriptions); null otherwise. */

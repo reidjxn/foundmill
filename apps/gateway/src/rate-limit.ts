@@ -15,13 +15,13 @@ export interface RateLimitHit {
 }
 
 export interface RateLimitStore {
-  /** Increments the counter for `key` inside a fixed window of `windowMs` and returns the new count. */
-  hit(key: string, windowMs: number, now: number): Promise<RateLimitHit>;
+  /** Increments the counter for `key` (by `by`, default 1) inside a fixed window of `windowMs` and returns the new count. */
+  hit(key: string, windowMs: number, now: number, by?: number): Promise<RateLimitHit>;
   /**
    * Gives back one count in the current window (a counted send that did not go out: refused by the next guard, or by the
    * vendor). Optional: a store without it keeps the count, which only errs on the strict side.
    */
-  release?(key: string, windowMs: number, now: number): Promise<void>;
+  release?(key: string, windowMs: number, now: number, by?: number): Promise<void>;
   /** The count of `key` in the current window, without counting. Optional: a store without it cannot be read ahead. */
   count?(key: string, windowMs: number, now: number): Promise<number>;
   /**
@@ -45,21 +45,21 @@ export class MemoryRateLimitStore implements RateLimitStore {
   /** This process's memory: another replica, or this one after a restart, counts from zero. */
   readonly durable: boolean = false;
 
-  async hit(key: string, windowMs: number, now: number): Promise<RateLimitHit> {
+  async hit(key: string, windowMs: number, now: number, by = 1): Promise<RateLimitHit> {
     this.sweep(now);
     const current = this.counters.get(key);
     if (current && current.resetAt > now) {
-      current.count += 1;
+      current.count += by;
       return { ...current };
     }
-    const fresh = { count: 1, resetAt: windowStart(now, windowMs) + windowMs };
+    const fresh = { count: by, resetAt: windowStart(now, windowMs) + windowMs };
     this.counters.set(key, fresh);
     return { ...fresh };
   }
 
-  async release(key: string, windowMs: number, now: number): Promise<void> {
+  async release(key: string, windowMs: number, now: number, by = 1): Promise<void> {
     const current = this.counters.get(key);
-    if (current && current.resetAt > now && current.resetAt === windowStart(now, windowMs) + windowMs && current.count > 0) current.count -= 1;
+    if (current && current.resetAt > now && current.resetAt === windowStart(now, windowMs) + windowMs && current.count > 0) current.count = Math.max(0, current.count - by);
   }
 
   async count(key: string, _windowMs: number, now: number): Promise<number> {
@@ -101,6 +101,9 @@ export interface RedisCounter {
   incr(key: string): Promise<number>;
   pexpire(key: string, milliseconds: number): Promise<unknown>;
   decr?(key: string): Promise<number>;
+  /** For counts of more than one (the day's spoken characters, `sp:<businessId>:day`). */
+  incrby?(key: string, increment: number): Promise<number>;
+  decrby?(key: string, decrement: number): Promise<number>;
   /** For `count`: the counter's value, or null. */
   get?(key: string): Promise<string | null>;
   /** For `claim`: `SET key value PX ttl NX`, "OK" when set, null when the key was there. */
@@ -143,13 +146,14 @@ export class RedisRateLimitStore implements RateLimitStore {
     return !this.degraded;
   }
 
-  async hit(key: string, windowMs: number, now: number): Promise<RateLimitHit> {
-    if (this.degraded && now < this.retryAt) return this.fallback.hit(key, windowMs, now);
+  async hit(key: string, windowMs: number, now: number, by = 1): Promise<RateLimitHit> {
+    if (this.degraded && now < this.retryAt) return this.fallback.hit(key, windowMs, now, by);
     const start = windowStart(now, windowMs);
     const windowKey = `${key}:${start}`;
     try {
-      const count = await this.redis.incr(windowKey);
-      if (count === 1) await this.redis.pexpire(windowKey, windowMs + 1000);
+      if (by !== 1 && !this.redis.incrby) throw new Error("this Redis client cannot count by more than one");
+      const count = by === 1 ? await this.redis.incr(windowKey) : await this.redis.incrby!(windowKey, by);
+      if (count === by) await this.redis.pexpire(windowKey, windowMs + 1000);
       if (this.degraded) {
         this.degraded = false;
         this.options.onRecover?.();
@@ -159,15 +163,16 @@ export class RedisRateLimitStore implements RateLimitStore {
       if (!this.degraded) this.options.onFallback?.(e);
       this.degraded = true;
       this.retryAt = now + (this.options.retryAfterMs ?? 30_000);
-      return this.fallback.hit(key, windowMs, now);
+      return this.fallback.hit(key, windowMs, now, by);
     }
   }
 
-  async release(key: string, windowMs: number, now: number): Promise<void> {
-    if (this.degraded && now < this.retryAt) return this.fallback.release(key, windowMs, now);
-    if (!this.redis.decr) return;
+  async release(key: string, windowMs: number, now: number, by = 1): Promise<void> {
+    if (this.degraded && now < this.retryAt) return this.fallback.release(key, windowMs, now, by);
+    const windowKey = `${key}:${windowStart(now, windowMs)}`;
     try {
-      await this.redis.decr(`${key}:${windowStart(now, windowMs)}`);
+      if (by === 1) await this.redis.decr?.(windowKey);
+      else await this.redis.decrby?.(windowKey, by);
     } catch {
       // Best effort: a count that stays only errs on the strict side.
     }

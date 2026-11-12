@@ -547,6 +547,16 @@ export const agentsRepo = {
     return one(await db.update(agents).set({ modelKey: m }).where(scoped(businessId, agentId)).returning(), "agent", agentId);
   },
 
+  /**
+   * 0082 — the founder's own choice of how the agent sounds on a Team call (a `SPEECH_ACCENTS` key; the api checks the
+   * key is known, this checks its shape), or null to go back to the derived default (`defaultSpeechAccents`). Only an
+   * owner or an admin may change it under RLS (trigger `fm_agents_speech_accent_guard`).
+   */
+  async setSpeechAccent(db: Executor, businessId: string, agentId: string, key: string | null): Promise<Agent> {
+    const k = parseInput(z.string().regex(/^[a-z]{2,20}$/, "a speech accent key is 2 to 20 lowercase letters").nullable(), key, "speech accent");
+    return one(await db.update(agents).set({ speechAccent: k }).where(scoped(businessId, agentId)).returning(), "agent", agentId);
+  },
+
   async setAutonomy(db: Executor, businessId: string, agentId: string, autonomy: Record<string, unknown>): Promise<Agent> {
     return agentsRepo.update(db, businessId, agentId, { autonomy: parseInput(JsonObject, autonomy, "autonomy") });
   },

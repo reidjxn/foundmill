@@ -17,12 +17,21 @@ export const SCREEN_TITLES = {
   inbox: "Inbox",
   crm: "Contacts",
   milestones: "Milestones",
+  calls: "Team call",
   journey: "Customer Update",
 } as const;
 
 /** The whole title: the screen, then the business, then the product; the business and the product without a screen. */
 export function businessDocumentTitle(screen: string | null, businessName: string, appName: string): string {
   return screen ? `${screen} · ${businessName} · ${appName}` : `${businessName} · ${appName}`;
+}
+
+/**
+ * The title with how many things need the founder in front ("(2) Today · Northwind · Foundmill"; retention plan,
+ * 2026-11-11), so a background tab says there is something waiting. Nothing in front when there is nothing.
+ */
+export function withNeedsYouCount(title: string, count: number): string {
+  return count > 0 ? `(${count > 99 ? "99+" : count}) ${title}` : title;
 }
 
 /** "Members · Settings"; the label is the list's (so the glossary slug reads "Your words · Settings"), "Settings" alone for an unknown tab. */
@@ -91,6 +100,8 @@ export function businessScreenTitle(pathname: string, businessId: string, depart
       return a ? entityTitle(entityName, b) : SCREEN_TITLES.crm;
     case "milestones":
       return SCREEN_TITLES.milestones;
+    case "calls":
+      return SCREEN_TITLES.calls;
     case "journey":
       return SCREEN_TITLES.journey;
     case "settings":

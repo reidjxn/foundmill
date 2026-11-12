@@ -22,6 +22,9 @@ import { Hint, SettingsSection, useSettingsToast } from "./shared";
 type Status = RouterOutputs["business"]["autopilot"]["get"];
 
 /** The one-line help under the switch: what Autopilot does and what it never does. */
+/** Autopilot's own limits (founder, 2026-11-12: split from the ones Continue shares). */
+export const AUTOPILOT_OWN_LIMITS_HINT = "These count only the cycles Autopilot starts on its own schedule, so they never hold back Continue. The overnight shift starts with 1 cycle and $0.15 a night.";
+
 export const AUTOPILOT_HELP = "Autopilot presses Continue for you on a schedule. It never answers notes for you.";
 
 /**
@@ -91,6 +94,18 @@ function SettingsForm({ businessId, status }: { businessId: string; status: Stat
         <Field htmlFor="autopilot-idle" label="Pause after failed or empty cycles" error={errors.maxIdleCycles} hint="In a row. Autopilot leaves a note in the Inbox when it pauses itself.">
           <Input id="autopilot-idle" controlSize="lg" inputMode="numeric" value={draft.maxIdleCycles} onChange={(e) => patch({ maxIdleCycles: e.target.value })} invalid={Boolean(errors.maxIdleCycles)} />
         </Field>
+      </div>
+      <div className="flex flex-col gap-2" data-testid="autopilot-own-limits">
+        <p className="text-small-strong text-primary">Autopilot&rsquo;s own limits</p>
+        <p className="text-small text-secondary">{AUTOPILOT_OWN_LIMITS_HINT}</p>
+        <div className="grid grid-cols-2 gap-3">
+          <Field htmlFor="autopilot-own-cycles" label="Its own cycles per day" error={errors.ownMaxCyclesPerDay} hint="Empty means only the limit above.">
+            <Input id="autopilot-own-cycles" controlSize="lg" inputMode="numeric" value={draft.ownMaxCyclesPerDay} onChange={(e) => patch({ ownMaxCyclesPerDay: e.target.value })} invalid={Boolean(errors.ownMaxCyclesPerDay)} placeholder="No limit of its own" data-testid="autopilot-own-cycles" />
+          </Field>
+          <Field htmlFor="autopilot-own-ceiling" label="Its own spend per day (Estimate)" error={errors.ownSpendCeiling} hint="In US dollars. Each cycle it starts gets what is left as its budget, so the cycle stops there too.">
+            <MoneyInput id="autopilot-own-ceiling" controlSize="lg" inputMode="decimal" value={draft.ownSpendCeiling} currency="USD" onValueChange={(v) => patch({ ownSpendCeiling: v })} invalid={Boolean(errors.ownSpendCeiling)} placeholder="No limit of its own" data-testid="autopilot-own-ceiling" />
+          </Field>
+        </div>
       </div>
       <div>
         <Button type="submit" variant="default" loading={set.isPending} disabled={!parsed.ok || !draftChanged(draft, status.settings)} data-testid="autopilot-save">

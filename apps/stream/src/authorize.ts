@@ -1,7 +1,10 @@
 /**
  * Per-subscription membership checks (docs/ARCHITECTURE.md §12): `ev:<businessId>` needs a membership of that
  * business (not archived); `u:<userId>` is the person's own channel, open to that signed-in user only (no database
- * lookup, no section walls: it carries content-free LIVE signals); `as:<sessionId>` needs a membership of the business the session belongs to and read access
+ * lookup, no section walls: it carries content-free LIVE signals); `ae:<userId>` is the person's own account events,
+ * open to that signed-in account only by the same comparison (no membership of any business opens it: a cofounder in
+ * the same project is another account), and the server then delivers only entries that are that person's own account
+ * events (walls.ts `viewAccountEvent`); `as:<sessionId>` needs a membership of the business the session belongs to and read access
  * to every section the session's work belongs to (`sessionSections`: Development plus its department's modules, the
  * same wall as dev.sessions.* in apps/api). An allowed decision carries the business and the membership: the server
  * filters business events through the membership's section walls (walls.ts). The service role reaches the database
@@ -47,9 +50,13 @@ export interface RepoAuthorizerOptions {
   now?: () => number;
 }
 
-/** `u:<userId>`: a person reads only their own signals. User ids are compared case-insensitively (they are uuids). */
+/**
+ * `u:<userId>` and `ae:<userId>`: a person reads only their own signals and their own account events. User ids are
+ * compared case-insensitively (they are uuids). Nothing else is consulted: no membership, role or section opens them.
+ */
 const ownChannel = (userId: string, channelUserId: string): AuthorizationResult =>
   userId.toLowerCase() === channelUserId.toLowerCase() ? { ok: true } : deny("forbidden", "this is another person's channel");
+const personal = (kind: string): boolean => kind === "user" || kind === "account";
 
 /** Repo-backed authorizer used in production. */
 export function createRepoAuthorizer(db: Db, opts: RepoAuthorizerOptions = {}): Authorizer {
@@ -89,7 +96,7 @@ export function createRepoAuthorizer(db: Db, opts: RepoAuthorizerOptions = {}): 
     async canSubscribe(userId, channel) {
       const parsed = parseChannel(channel);
       if (!parsed) return deny("invalid_channel", `unknown channel "${channel}"`);
-      if (parsed.kind === "user") return ownChannel(userId, parsed.id);
+      if (personal(parsed.kind)) return ownChannel(userId, parsed.id);
       try {
         const scope = parsed.kind === "business" ? { businessId: parsed.id, moduleKeys: null } : await findScope(userId, parsed.id);
         if (!scope) return deny("forbidden", "session is not in one of your businesses");
@@ -183,7 +190,7 @@ export function createMemoryAuthorizer(input: {
     async canSubscribe(userId, channel) {
       const parsed = parseChannel(channel);
       if (!parsed) return deny("invalid_channel", `unknown channel "${channel}"`);
-      if (parsed.kind === "user") return ownChannel(userId, parsed.id);
+      if (personal(parsed.kind)) return ownChannel(userId, parsed.id);
       const businesses = input.members[userId] ?? [];
       if (parsed.kind === "business") return businesses.includes(parsed.id) ? allow(parsed.id, membershipOf(userId, parsed.id)) : deny("forbidden", "not a member of this business");
       const businessId = input.sessions?.[parsed.id];

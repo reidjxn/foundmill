@@ -27,6 +27,7 @@ import { channelCreativePrompt } from "./channel-creative";
 import { productResearchPlanPrompt } from "./product-research";
 import { goalProposalPrompt } from "./goal-proposal";
 import { projectPagePrompt } from "./project-page";
+import { teamCallTurnPrompt, teamCallWrapUpPrompt } from "./team-call";
 
 export * from "./template";
 export * from "./club-rules";
@@ -56,6 +57,7 @@ export * from "./channel-creative";
 export * from "./product-research";
 export * from "./goal-proposal";
 export * from "./project-page";
+export * from "./team-call";
 
 export const PROMPT_LIST = [
   clubRulesPrompt,
@@ -91,6 +93,8 @@ export const PROMPT_LIST = [
   productResearchPlanPrompt,
   goalProposalPrompt,
   projectPagePrompt,
+  teamCallTurnPrompt,
+  teamCallWrapUpPrompt,
 ] as const;
 
 export type PromptKey = (typeof PROMPT_LIST)[number]["key"];

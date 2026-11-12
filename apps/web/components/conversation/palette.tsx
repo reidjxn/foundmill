@@ -72,6 +72,32 @@ export function askPaletteItems(agents: readonly PaletteAgent[], text: string, a
 }
 
 /**
+ * The "Call <agent>" rows (docs/TEAM_CALL.md §6): shown once the query names an agent or says "call", at most `max`;
+ * choosing one starts a one-to-one call with that agent. The id carries the agent: `call:<agentId>`.
+ */
+export function callPaletteItems(agents: readonly PaletteAgent[], text: string, avatar: (a: PaletteAgent) => ReactNode, max = 3): PaletteItem[] {
+  const q = words(text);
+  if (q.length === 0) return [];
+  const asksToCall = q.some((w) => "call".startsWith(w) || w === "phone" || w === "ring");
+  const named = agents.filter((a) => q.some((w) => words(`${a.name} ${a.displayName ?? ""} ${a.role ?? ""}`).some((x) => x.startsWith(w))));
+  const pick = (named.length > 0 ? named : asksToCall ? agents.filter((a) => a.lead) : []).slice(0, max);
+  return pick.map((a) => ({
+    id: `call:${a.id}`,
+    kind: "command" as const,
+    label: `Call ${a.displayName ?? a.name}`,
+    description: [a.role && a.role !== a.name ? a.role : null, a.departmentName].filter(Boolean).join(" · "),
+    keywords: [a.name, a.displayName ?? "", a.role ?? "", a.departmentName, "call", "phone", "talk"],
+    avatar: avatar(a),
+    dept: a.dept,
+  }));
+}
+
+/** The agent behind a Call row. */
+export function agentOfCallItem(item: Pick<PaletteItem, "id">, agents: readonly PaletteAgent[]): PaletteAgent | null {
+  return item.id.startsWith("call:") ? (agents.find((a) => a.id === item.id.slice(5)) ?? null) : null;
+}
+
+/**
  * The question the palette carries to the agent: the typed words without the ones that only picked the agent
  * ("ask juno why is cash down?" → "Why is cash down?"); empty when nothing else was typed.
  */

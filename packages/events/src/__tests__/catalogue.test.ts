@@ -209,6 +209,18 @@ describe("event catalogue", () => {
     expect(() => parsePayload("guidance.turned_off", { from: "settings", toursDone: -1, explainersSeen: 0 })).toThrow(ValidationError);
   });
 
+  it("founder.*: the return loop's signals, for metrics only, never narrated (retention plan)", () => {
+    for (const t of ["founder.session_started"] as const) {
+      expect(EVENTS[t].narratable, t).toBe(false);
+      expect(EVENTS[t].consumers, t).toEqual(["metrics"]);
+    }
+    expect(parsePayload("founder.session_started", { via: "direct", minutesAway: null, sessions: 1 })).toEqual({ via: "direct", notificationId: null, minutesAway: null, sessions: 1 });
+    expect(() => parsePayload("founder.session_started", { via: "sms", minutesAway: 3, sessions: 2 })).toThrow(ValidationError);
+    expect(() => parsePayload("founder.session_started", { via: "email", minutesAway: 3, sessions: 0 })).toThrow(ValidationError);
+    expect(() => parsePayload("notify.email_sent", { ...EVENT_FIXTURES["notify.email_sent"], kind: "promo" })).toThrow(ValidationError);
+    expect(parsePayload("notify.email_sent", { ...EVENT_FIXTURES["notify.email_sent"], kind: "daily_brief", inboxItemId: null }).inboxItemId).toBeNull();
+  });
+
   it("declareEvent refuses a type outside EVENT_TYPES at runtime", () => {
     expect(() =>
       declareEvent("made.up" as never, z.object({}), { doc: "x", consumers: ["metrics"] }),

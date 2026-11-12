@@ -6,10 +6,14 @@
  */
 import { repos, type Executor } from "@foundmill/db";
 import { buildEvent, type WriteEventInput } from "@foundmill/events";
-import type { EventType } from "@foundmill/shared";
+import type { BusinessEventType } from "@foundmill/shared";
 
-/** Validate against the catalogue, then write events + outbox in the caller's transaction. Returns the event id. */
-export async function writeEventRow<T extends EventType>(tx: Executor, input: WriteEventInput<T>, idempotencyKey?: string): Promise<string> {
+/**
+ * Validate against the catalogue, then write events + outbox in the caller's transaction. Returns the event id.
+ * Business-scoped types only: a fact about one person (an account-scoped type) is written with `writeAccountEvent`
+ * from `@foundmill/events`, to that person's own `account_events`.
+ */
+export async function writeEventRow<T extends BusinessEventType>(tx: Executor, input: WriteEventInput<T>, idempotencyKey?: string): Promise<string> {
   const event = buildEvent(input);
   const row = await repos.events.write(tx, event.businessId, {
     id: event.id,

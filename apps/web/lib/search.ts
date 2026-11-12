@@ -86,6 +86,9 @@ export function localPaletteItems(input: LocalPaletteInput): PaletteItem[] {
     // "Contacts" on screen, a Customers tab; "crm" stays a keyword so the old name still finds it.
     ...(access.canRead("crm") ? [{ id: "screen:crm", kind: "screen" as const, label: CRM_LABEL, description: AREA_LABELS.customers, href: routes.crm(bid), keywords: ["crm", "contacts", "people", "organizations"] }] : []),
     { id: "screen:milestones", kind: "screen", label: "Milestones", description: AREA_LABELS.plan, href: `/b/${bid}/milestones` },
+    // Team call (docs/TEAM_CALL.md): the lobby, and the one-step "Start a team call" for whoever may speak on one.
+    ...(access.canRead("team") ? [{ id: "screen:calls", kind: "screen" as const, label: "Team call", description: AREA_LABELS.team, href: routes.calls(bid), keywords: ["calls", "call", "meeting", "talk", "video"] }] : []),
+    ...(access.canWrite("team") ? [{ id: "command:start-team-call", kind: "command" as const, label: "Start a team call", description: "Talk your project through with your team", href: routes.calls(bid), keywords: ["call", "team call", "meeting", "talk", "speak", "video"] }] : []),
   ];
   // The founder areas (docs/DESIGN.md §8) with their chords, then every tab under its area's name: "Customers · Leads".
   // Tabs behind "More detail" are offered too; Builder view's only while it is on.

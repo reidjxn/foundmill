@@ -60,6 +60,7 @@ import {
   type TrademarkScreen,
 } from "./naming";
 import { kitFromSeed } from "../ideate/concepts";
+import { browserTimeZone } from "@/lib/today";
 
 export interface CommitScreenProps {
   ideaId: string;
@@ -496,7 +497,7 @@ export function CommitForm({ idea, viewer, currency, initialName, suggestedArche
     e?.preventDefault();
     setTouched(true);
     if (!valid || committing) return;
-    onCommit(commitInput(idea.id, form));
+    onCommit(commitInput(idea.id, form, browserTimeZone()));
   }
 
   const show = (key: keyof CommitFormValues) => (touched ? errors[key] : undefined);
@@ -684,10 +685,10 @@ export function CommitForm({ idea, viewer, currency, initialName, suggestedArche
                 <dt className="text-small text-secondary">On a schedule</dt>
                 <dd className="flex flex-wrap items-center gap-x-1.5 text-primary">
                   <span data-summary="autopilot">
-                    <Term id="autopilot">Autopilot</Term>
+                    <Term id="autopilot">{form.autopilot ? "Overnight shift" : "Autopilot"}</Term>
                     {form.autopilot ? " on" : " off"}
                   </span>
-                  <span className="text-small text-secondary">{form.autopilot ? "· the team presses Continue for you" : "· the team works when you press Continue"}</span>
+                  <span className="text-small text-secondary">{form.autopilot ? "· one round of work each night, news every morning" : "· the team works when you press Continue"}</span>
                 </dd>
               </dl>
               <ReassuranceLine icon="settings" data-testid="reassure-how-it-runs">
@@ -766,9 +767,9 @@ export function CommitForm({ idea, viewer, currency, initialName, suggestedArche
                   <div className="flex items-start gap-3 border-t border-line pt-3" data-testid="autopilot-choice">
                     <Switch id="run-on-autopilot" checked={form.autopilot} onCheckedChange={(on) => set("autopilot", on)} aria-describedby="run-on-autopilot-hint" data-testid="run-on-autopilot" />
                     <div className="flex flex-col gap-1">
-                      <Label htmlFor="run-on-autopilot">Run on autopilot</Label>
+                      <Label htmlFor="run-on-autopilot">Overnight shift</Label>
                       <p id="run-on-autopilot-hint" className="text-small text-secondary">
-                        Off by default. The team starts its own <Term id="cycle">cycles</Term>, about every 4 hours, the way Continue does: every approval and <Term id="hard_gate">hard gate</Term> still waits for you, and Autopilot pauses itself when <Term id="credits">credits</Term> run out or Inbox decisions are waiting.
+                        On by default. While you sleep, the team runs one <Term id="cycle">cycle</Term> a night, at about 2 AM your time, with a budget of $0.15 (Estimate), so there is news every morning. Continue keeps its own limits. It never answers notes for you: every approval and <Term id="hard_gate">hard gate</Term> still waits for you, and it pauses itself when <Term id="credits">credits</Term> run out. Change it any time in Settings › What the team can do.
                       </p>
                     </div>
                   </div>

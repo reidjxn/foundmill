@@ -386,6 +386,35 @@ describe("businessCycle workflow", () => {
     expect(result.tasksDispatched).toBe(3);
   });
 
+  it("a capped cycle (Autopilot's own spend, 0077) starts work only within its cap, and hands each session its share", async () => {
+    // Plenty of credits, but a cap of 10 cents: the reserves stop new starts at the cap.
+    const m = mockActivities({ budgetMinor: 100_000 });
+    const caps: (number | null | undefined)[] = [];
+    m.acts.runAgentSession = async (input) => {
+      caps.push(input.spendCapMinor);
+      await new Promise((r) => setTimeout(r, 100));
+      return { ...done(), costMinor: input.spendCapMinor ?? 5 };
+    };
+    const result = await rig.run(m.acts, (client, taskQueue) => client.workflow.execute(businessCycle, { workflowId: `cycle:${B}:73`, taskQueue, args: [{ businessId: B, cycleNumber: 73, trigger: "autopilot", budgetCapMinor: 10 }] }));
+    expect(caps.length).toBeGreaterThan(0);
+    expect(caps.every((c) => typeof c === "number" && c > 0)).toBe(true);
+    // What the sessions were allowed to spend never adds up past the cap.
+    expect(caps.reduce<number>((n, c) => n + (c ?? 0), 0)).toBeLessThanOrEqual(10);
+    expect(result.tasksDispatched).toBeLessThan(tasks.length + 1);
+  });
+
+  it("an uncapped cycle hands sessions no cap of its own", async () => {
+    const m = mockActivities({ budgetMinor: 100_000 });
+    const caps: (number | null | undefined)[] = [];
+    m.acts.runAgentSession = async (input) => {
+      caps.push(input.spendCapMinor);
+      await new Promise((r) => setTimeout(r, 50));
+      return done();
+    };
+    await rig.run(m.acts, (client, taskQueue) => client.workflow.execute(businessCycle, { workflowId: `cycle:${B}:74`, taskQueue, args: [{ businessId: B, cycleNumber: 74, trigger: "continue" }] }));
+    expect(caps.every((c) => c === undefined)).toBe(true);
+  });
+
   it("a plan the model account cannot pay for ends the cycle failed at once, with the reason in the Inbox (audit BILL-06)", async () => {
     const billing = "This round's plan could not run: the model account that runs Foundmill is out of credit. Our team has been alerted, and nothing was charged to your credits. Try again later.";
     const m = mockActivities({ planError: () => ApplicationFailure.create({ type: CYCLE_PLAN_FAILURE, message: billing, nonRetryable: true, details: [{ kind: "billing", billedTo: "credits", reason: "credit_balance" }] }) });

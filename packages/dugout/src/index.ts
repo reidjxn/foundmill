@@ -6,6 +6,7 @@ export * from "./components/data";
 export * from "./components/journey";
 export * from "./components/agents";
 export * from "./components/conversation";
+export * from "./components/call";
 export * from "./components/guidance";
 export * from "./components/firstrun";
 export * from "./components/today";

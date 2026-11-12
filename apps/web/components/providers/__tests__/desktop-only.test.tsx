@@ -50,7 +50,11 @@ describe("desktop only (audit PAS-4: a phone rendered a 390 px slice of a 1280 p
   });
 
   it("a project's public page and a person's public profile work from 390 px: the one list of small-screen routes, nothing else changes", () => {
-    expect(SMALL_SCREEN_PREFIXES).toEqual(["/p/", "/u/", "/m/"]);
+    expect(SMALL_SCREEN_PREFIXES).toEqual(["/p/", "/u/", "/m/", "/a/", "/email/pause"]);
+    // The pages an email opens (founder, 2026-11-12): the one-click answer and the pause page, and nothing beside them.
+    expect(worksOnSmallScreens("/a/AbC_123-xyz")).toBe(true);
+    expect(worksOnSmallScreens("/email/pause")).toBe(true);
+    for (const p of ["/a", "/a/", "/email", "/email/unsubscribe", "/email/pause-all", "/email/pauses"]) expect(worksOnSmallScreens(p), p).toBe(false);
     expect(worksOnSmallScreens("/p/northwind-skincare")).toBe(true);
     expect(worksOnSmallScreens("/u/maya-okafor")).toBe(true);
     // A project's story hangs under its page; a milestone's card has its own prefix (docs/NETWORK.md F2, F3).
