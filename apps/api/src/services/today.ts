@@ -234,8 +234,9 @@ export async function firstWeekFor(tx: DbTx, ctx: BusinessContext, now: Date = n
     firstRoundOn: dayOf(firstRound),
     goalApprovedOn: dayOf(approvedAt),
     stopped: ctx.business.agentsStoppedAt !== null,
-    // Week 1 does not promise an approach no channel can make yet (founder, 2026-11-11).
-    noChannelCanRun: channels.available.length === 0,
+    // Week 1 does not promise an approach no channel can make yet (founder, 2026-11-11). The promise is the team's, so a
+    // channel the founder posts by tap does not make it true.
+    noChannelCanRun: channels.teamRuns.length === 0,
   });
 }
 
