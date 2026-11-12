@@ -3622,3 +3622,17 @@ A step back across the active sessions before the next Newly prompt. Judgment ca
 
 ### The Sample business marker only for visitors exploring the example (2026-11-12)
 - **Founder's call:** the "Sample business" caption shows only to a visitor exploring the example (an example-source membership on a demo business), with its line "Its figures are made up for the example: nothing here is real money or real customers. Nothing you do here is saved." The demo's own owner and invited members no longer see it (this supersedes "whoever opens the business" in the Nov 10 entry). `sampleMarker` in `apps/web/lib/access.ts` returns null unless `isDemo` and `isExample` are both true; it still never shows on a founder's own business.
+
+## 2026-11-12 — The network specification (docs/NETWORK.md): the calls made, all open to the founder
+
+A proposal, not a decision record of the founder's: these are this session's judgment calls in writing it, and each is listed as a question in the document's section 14.
+
+- **"Solo is complete" is read as a rule about partnering, not about other people.** The Nov 11 rule hides People and withholds suggestions of people from a founder building alone. The specification keeps that for everything that puts a person on a project (open roles, suggestions, the matcher) and gives every member the layer it calls alongside: a feed of what others shipped, four signals, asks, the weekly page, and a cohort offered once. Why: without it the main user has nothing to return to between outcomes and no response to their own work, and none of those surfaces says or implies that someone is missing. Considered: the whole network opt-in. Rejected for the recommendation because it leaves the solo founder, who is most of the product, outside the loop that holds people.
+- **Growth is carried by loops a solo founder starts for their own project** (the page as storefront, feedback links, cards, the weekly page). Loops that need a second person (invitations, group links, open roles) are added on top. Why: the product has promised never to push a founder toward a partner, so its growth cannot depend on doing so.
+- **A weekly "Shipped this week" page is proposed although leaderboards were removed.** It has no positions, no counts on tiles and a shuffled order; it lists every visible project with a real outcome that week. It is the north star shown as a place. If the founder reads it as a ranking, it goes.
+- **No score of a person anywhere:** no ratings, stars, levels, points or follower count on a person; "Built with" is one positive line shown by consent. A project may show its followers.
+- **The feed ends** ("You're caught up"). An endless feed would raise visits and pull against the north star.
+- **Names avoid words already taken:** "build hours" (not "live sessions", which are the agents'), "starting points" (not "playbooks", which are standing rules), "the cohort's week" (not "board").
+- **Money between members is out of scope** (paid help, bounties, tips), and so is advertising a share of ownership. Help is thanked with a small credit from Foundmill, capped, on the asker's word.
+- **The daily streak stays the only streak.**
+
