@@ -17,6 +17,7 @@ export const SCREEN_TITLES = {
   inbox: "Inbox",
   crm: "Contacts",
   milestones: "Milestones",
+  calls: "Team call",
   journey: "Customer Update",
 } as const;
 
@@ -91,6 +92,8 @@ export function businessScreenTitle(pathname: string, businessId: string, depart
       return a ? entityTitle(entityName, b) : SCREEN_TITLES.crm;
     case "milestones":
       return SCREEN_TITLES.milestones;
+    case "calls":
+      return SCREEN_TITLES.calls;
     case "journey":
       return SCREEN_TITLES.journey;
     case "settings":

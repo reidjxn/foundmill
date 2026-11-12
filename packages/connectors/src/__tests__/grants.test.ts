@@ -97,8 +97,15 @@ describe("resolveGrants", () => {
     expect(wildcard.servers).toEqual(["github"]);
   });
 
-  it("never gives an agent a service-only connector (openai_images, onesignal, platform_notify), whatever the grant names", () => {
-    expect([...SERVICE_ONLY_CONNECTORS]).toEqual(["openai_images", "onesignal", "platform_notify"]);
+  it("never gives an agent a service-only connector (openai_images, onesignal, platform_notify, elevenlabs), whatever the grant names", () => {
+    expect([...SERVICE_ONLY_CONNECTORS]).toEqual(["openai_images", "onesignal", "platform_notify", "elevenlabs"]);
+    const speech = resolveGrants([{ connectorKey: "elevenlabs", tools: ["synthesize_speech", "*"] }]);
+    expect(speech.toolRefs).toEqual([]);
+    expect(speech.servers).toEqual([]);
+    expect(speech.unresolved).toEqual([
+      { connectorKey: "elevenlabs", capability: "synthesize_speech", reason: SERVICE_ONLY_REASON },
+      { connectorKey: "elevenlabs", capability: "*", reason: SERVICE_ONLY_REASON },
+    ]);
     const notify = resolveGrants([{ connectorKey: "platform_notify", tools: ["send_notification", "*"] }]);
     expect(notify.toolRefs).toEqual([]);
     expect(notify.servers).toEqual([]);

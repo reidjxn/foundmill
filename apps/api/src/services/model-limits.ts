@@ -43,6 +43,10 @@ export const MODEL_LIMITS = {
   logo: { what: "Logo generation" },
   /** Sends at an agent's desk and Ask on a concept: the conversation allowance (services/conversation.ts) applies inside. */
   conversation: { what: "Conversation" },
+  /** Team call (docs/TEAM_CALL.md): the opening, each round of the turn director and the wrap-up are model calls. */
+  teamCall: { what: "Team call", user: [{ limit: 30, windowMs: MINUTE }, { limit: 400, windowMs: HOUR }], business: [{ limit: 800, windowMs: HOUR }] },
+  /** Team call speech: each agent turn spoken aloud and each recording transcribed (the gateway's daily ceiling applies too). */
+  teamCallSpeech: { what: "Speech on calls", user: [{ limit: 90, windowMs: MINUTE }, { limit: 1_500, windowMs: HOUR }], business: [{ limit: 3_000, windowMs: HOUR }] },
   /** Inbox Refresh (R): one composer note per press (BILL-19); the composer's 3 s debounce is not an allowance. */
   refresh: { what: "Refresh", user: [{ limit: 10, windowMs: MINUTE }, { limit: 120, windowMs: HOUR }], business: [{ limit: 240, windowMs: HOUR }] },
   /** plan.preview and a free-text decision: one plan compile each. */

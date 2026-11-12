@@ -20,6 +20,15 @@ describe("universal search", () => {
     expect(localPaletteItems({ businessId: BID, departments, live: true }).some((i) => i.id === "screen:communities")).toBe(true);
   });
 
+  it("offers Team call and Start a team call to whoever may use them", () => {
+    const items = localPaletteItems({ businessId: BID, departments, live: false });
+    expect(items.find((i) => i.id === "screen:calls")).toMatchObject({ label: "Team call", href: `/b/${BID}/calls` });
+    expect(items.find((i) => i.id === "command:start-team-call")).toMatchObject({ kind: "command", label: "Start a team call", href: `/b/${BID}/calls` });
+    const reader = accessFor({ role: "viewer", sectionPermissions: {} } as never);
+    const viewerItems = localPaletteItems({ businessId: BID, departments, live: false, access: reader });
+    expect(viewerItems.some((i) => i.id === "command:start-team-call")).toBe(false);
+  });
+
   it("maps entity hits to palette rows with the CRM href", () => {
     const rows = entityPaletteItems(BID, [{ entity: { id: "e1", kind: "person", displayName: "Ada Lovelace", identifiers: { email: "ada@example.com" } }, score: 0.9, matchedOn: "name" }]);
     expect(rows[0]).toMatchObject({ id: "entity:e1", kind: "person", label: "Ada Lovelace", description: "ada@example.com", href: `/b/${BID}/crm/e1/overview` });

@@ -67,6 +67,9 @@ export const EXPORT_TABLES: Readonly<Record<string, ExportTableSpec>> = {
   playbooks: t(s.playbooks, "team"),
   agent_threads: t(s.agentThreads, "team"),
   agent_messages: t(s.agentMessages, "team"),
+  team_calls: t(s.teamCalls, "team"),
+  team_call_turns: t(s.teamCallTurns, "team"),
+  team_call_actions: t(s.teamCallActions, "team"),
   // distribution (channels, campaigns and the customer journey)
   channels: t(s.channels, "distribution"),
   campaigns: t(s.campaigns, "distribution"),

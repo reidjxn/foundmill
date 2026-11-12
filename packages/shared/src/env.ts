@@ -45,6 +45,10 @@ const Env = z.object({
   VOYAGE_API_KEY: z.string().optional(),
   /** apps/gateway: the platform key behind the `openai_images` connector (AI-generated faces of anthropomorphic agents). */
   OPENAI_API_KEY: z.string().optional(),
+  /** apps/gateway: the platform key behind the `elevenlabs` connector (speech for Team call, docs/TEAM_CALL.md §3). */
+  ELEVENLABS_API_KEY: z.string().optional(),
+  /** apps/gateway: optional JSON `{ "<accent>": "<ElevenLabs voice id>" }` replacing the connector's default accent ids key by key. */
+  ELEVENLABS_SPEECH_ACCENT_IDS: z.string().optional(),
   /** apps/gateway: the OneSignal app id and REST API key behind the `onesignal` connector (push to the mobile app's phones, docs/mobile). */
   ONESIGNAL_APP_ID: z.string().optional(),
   ONESIGNAL_API_KEY: z.string().optional(),

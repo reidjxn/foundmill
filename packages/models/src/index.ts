@@ -12,6 +12,8 @@ export * from "./rate-limit";
 export { gateModelClient, type ModelCallGate } from "./gate";
 export * from "./schemas";
 export * from "./planParams";
+// Team call (docs/TEAM_CALL.md §4): not through ./schemas, which this module imports `PlanAction` from.
+export * from "./team-call-schema";
 export {
   createModelClient,
   effectiveModelMode,

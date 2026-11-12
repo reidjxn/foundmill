@@ -26,6 +26,7 @@ import { teamRouter } from "./routers/team";
 import { todayRouter } from "./routers/today";
 import { chiefOfStaffRouter } from "./routers/chief-of-staff";
 import { conversationRouter } from "./routers/conversation";
+import { speechAccentRouter, teamCallRouter } from "./routers/team-call";
 import { createCallerFactory, mergeRouters, publicProcedure, router } from "./trpc";
 
 export const appRouter = router({
@@ -53,7 +54,8 @@ export const appRouter = router({
   finance: financeRouter,
   team: teamRouter,
   // agent.conversation.* (the agent's desk) sits beside agent.profile/training/model/autonomy/negotiation.
-  agent: mergeRouters(agentRouter, router({ conversation: conversationRouter })),
+  agent: mergeRouters(agentRouter, router({ conversation: conversationRouter, speechAccent: speechAccentRouter })),
+  teamCall: teamCallRouter,
   legal: legalRouter,
   crm: crmRouter,
   integrations: integrationsRouter,

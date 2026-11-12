@@ -105,6 +105,12 @@ function controlledGateway() {
     notifyEmail: async () => {
       throw new Error("unused");
     },
+    synthesizeSpeech: async () => {
+      throw new Error("unused");
+    },
+    transcribeSpeech: async () => {
+      throw new Error("unused");
+    },
   } satisfies ApiGatewayClient;
   return { gateway, calls, peak: () => peak };
 }

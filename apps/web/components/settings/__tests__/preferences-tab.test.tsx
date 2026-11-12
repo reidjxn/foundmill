@@ -54,6 +54,7 @@ function holdNextUpdate(): () => void {
 const saved = vi.fn();
 const failed = vi.fn();
 
+const callSharing = vi.hoisted(() => ({ share: false }));
 vi.mock("next/navigation", () => ({ usePathname: () => `/b/${BUSINESS}/settings/preferences`, useParams: () => ({ bid: BUSINESS }) }));
 vi.mock("@/lib/trpc-react", () => ({
   useTRPC: () => ({
@@ -90,8 +91,30 @@ vi.mock("@/lib/trpc-react", () => ({
       },
     },
     business: { get: { queryKey: (input: { businessId: string }) => [["business", "get"], { input, type: "query" }] } },
+    // Team call: whether the person's one-to-one calls are shared with the project (off by default).
+    teamCall: {
+      pathKey: () => [["teamCall"]],
+      sharing: {
+        get: { queryOptions: (_input: unknown, opts: Record<string, unknown>) => ({ queryKey: [["teamCall", "sharing", "get"], { type: "query" }], queryFn: async () => ({ share: callSharing.share }), ...opts }) },
+        set: { mutationOptions: (opts: Record<string, unknown>) => ({ mutationKey: [["teamCall", "sharing", "set"]], mutationFn: async (input: { share: boolean }) => ((callSharing.share = input.share), { share: input.share, calls: 0 }), ...opts }) },
+      },
+    },
   }),
 }));
+
+describe("Calls", () => {
+  it("keeps one-to-one calls private by default and shares them at once when switched on", async () => {
+    callSharing.share = false;
+    mount();
+    const sw = await screen.findByTestId("call-sharing-switch");
+    await waitFor(() => expect((sw as HTMLButtonElement).disabled).toBe(false));
+    expect(sw.getAttribute("aria-checked")).toBe("false");
+    expect(screen.getByTestId("call-sharing-panel").textContent).toContain("only you can see your calls with one agent");
+    fireEvent.click(sw);
+    await waitFor(() => expect(callSharing.share).toBe(true));
+    await waitFor(() => expect(saved).toHaveBeenCalledWith("One-to-one calls shared", expect.any(String)));
+  });
+});
 vi.mock("../shared", async (importOriginal) => ({ ...(await importOriginal<typeof SharedModule>()), useSettingsToast: () => ({ saved, failed, info: vi.fn() }) }));
 
 import { DateFormatHost } from "@/components/providers/DateFormatHost";

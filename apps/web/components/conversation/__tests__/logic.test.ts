@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { QuickReplyItem } from "@foundmill/dugout";
 import { CHOICE_SUBLINE, RETRY_REPLY_ID, STREAM_CUT_MESSAGE, TAKE_A_BREAK_ID, TAKE_A_BREAK_SUBLINE, bubbleNeedsMarkdown, deskFailureOf, deskMessagesOf, deskPersonaOf, failureQuickReplies, failureReply, openFailureLine, readReplyStream, roleBesideName, samePersonaWords, sayOf, voiceAck, withChoiceSubline, withChoiceSublines, withPlanId, withSent, withoutChoices, type ConversationView, type ReplyStreamEvent } from "../logic";
-import { agentOfAskItem, askPaletteItems, askQuestion, generatePaletteItems, paletteAgents } from "../palette";
+import { agentOfAskItem, agentOfCallItem, askPaletteItems, callPaletteItems, askQuestion, generatePaletteItems, paletteAgents } from "../palette";
 
 const persona = (over: Partial<ConversationView["persona"]> = {}): ConversationView["persona"] =>
   ({
@@ -251,5 +251,31 @@ describe("readReplyStream (a reply streamed bubble by bubble, audit MB-1)", () =
     const cut = readReplyStream(events<string>({ type: "bubble", index: 0, text: "One." }), () => undefined);
     await expect(cut).rejects.toThrow(STREAM_CUT_MESSAGE);
     expect(deskFailureOf(new Error(STREAM_CUT_MESSAGE)).kind).toBe("offline");
+  });
+});
+
+describe("the command palette's Call rows (Team call)", () => {
+  const departments = [
+    { id: "d1", name: "Retail Partnerships", slug: "retail", colourToken: "dept-3", moduleKeys: ["distribution"], lead: { id: "juno", name: "Juno", role: "Head of Retail Partnerships", avatarSeed: "j" }, squad: [{ id: "juno", name: "Juno", role: "Head of Retail Partnerships", avatarSeed: "j" }, { id: "pike", name: "Pike", role: "Wholesale analyst", avatarSeed: null }], tabs: [] },
+  ];
+  const agents = paletteAgents(departments);
+
+  it("offers nothing until the query names an agent or says call", () => {
+    expect(callPaletteItems(agents, "", () => null)).toEqual([]);
+    expect(callPaletteItems(agents, "cash runway", () => null)).toEqual([]);
+  });
+
+  it("'call' offers the leads; a name offers that agent, as one-to-one calls carrying the agent's id", () => {
+    expect(callPaletteItems(agents, "call", () => null).map((i) => i.label)).toEqual(["Call Juno"]);
+    const named = callPaletteItems(agents, "call pike", () => null);
+    expect(named.map((i) => i.label)).toEqual(["Call Pike"]);
+    expect(named[0]).toMatchObject({ id: "call:pike", kind: "command", description: "Wholesale analyst · Retail Partnerships" });
+    expect(agentOfCallItem(named[0]!, agents)?.id).toBe("pike");
+    expect(agentOfCallItem({ id: "ask:pike" }, agents)).toBeNull();
+  });
+
+  it("with anthropomorphic agents on, calls the persona by first name", () => {
+    const withName = agents.map((a) => (a.id === "pike" ? { ...a, displayName: "Malik" } : a));
+    expect(callPaletteItems(withName, "malik", () => null).map((i) => i.label)).toEqual(["Call Malik"]);
   });
 });

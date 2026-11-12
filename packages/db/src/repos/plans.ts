@@ -198,7 +198,7 @@ export const plansRepo = {
     return db
       .select()
       .from(plans)
-      .where(and(eq(plans.businessId, businessId), eq(plans.status, "executing"), inArray(plans.origin, ["option", "free_text"]), isNull(plans.workflowId), isNull(plans.archivedAt), pending))
+      .where(and(eq(plans.businessId, businessId), eq(plans.status, "executing"), inArray(plans.origin, ["option", "free_text", "team_call"]), isNull(plans.workflowId), isNull(plans.archivedAt), pending))
       .orderBy(asc(plans.createdAt))
       .limit(Math.min(Math.max(options.limit ?? 20, 1), 100));
   },

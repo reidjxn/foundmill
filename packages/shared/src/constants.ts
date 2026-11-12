@@ -237,7 +237,7 @@ export const PLAN_ACTION_TYPES = [
 ] as const;
 export type PlanActionType = (typeof PLAN_ACTION_TYPES)[number];
 
-export const PLAN_ORIGINS = ["option", "free_text", "playbook", "holiday"] as const;
+export const PLAN_ORIGINS = ["option", "free_text", "playbook", "holiday", "team_call"] as const;
 export type PlanOrigin = (typeof PLAN_ORIGINS)[number];
 
 export const PLAN_STATUSES = ["pending_confirmation", "executing", "done", "failed"] as const;
@@ -443,6 +443,7 @@ export const EVENT_TYPES = [
   "push.sent",
   "mail.sent",
   "notify.email_sent",
+  "team_call.started", "team_call.ended",
 ] as const;
 export type EventType = (typeof EVENT_TYPES)[number];
 
