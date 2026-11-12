@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { ConnectInputError } from "../../contract";
-import { jsonResponse, routedFetch } from "../../http";
+import { routedFetch } from "../../http";
 import { collectingLogger, describeConnectorContract, envKeysPresent, makeToolContext } from "../../testing/contract-suite";
 import { mockIntegrationRecord } from "../../mock-utils";
 import { IN_HOST, IN_KEY, IN_KEY_FILE, IN_KEY_FILE_BODY, IN_NESTED_KEY_FILE, IN_URLS } from "./fixtures/indexnow";
@@ -68,7 +68,7 @@ describe("indexnow live (canned)", () => {
 
   it("posts host, key and urlList as JSON and maps 200 and 202", async () => {
     let seen: { body: unknown; type: string | null } | undefined;
-    const { connector, ctx } = live({ [API]: async (req) => ((seen = { body: await req.json(), type: req.headers.get("content-type") }), new Response(null, { status: seen ? 200 : 200 })) });
+    const { connector, ctx } = live({ [API]: async (req) => ((seen = { body: await req.json(), type: req.headers.get("content-type") }), new Response(null, { status: 200 })) });
     const ok = await connector.callTool("submit_urls", { urls: IN_URLS }, ctx);
     expect(ok.data).toEqual({ submitted: 3, host: IN_HOST, status: "received", urls: IN_URLS });
     expect(ok.costMinor).toBe(0);
@@ -185,7 +185,6 @@ describe("indexnow live (canned)", () => {
     const { connector, ctx, log } = live({ [API]: () => new Response("", { status: 503 }) });
     await connector.callTool("submit_urls", { urls: IN_URLS }, ctx);
     expect(JSON.stringify(log.entries)).not.toContain(IN_KEY);
-    void jsonResponse;
   });
 });
 
