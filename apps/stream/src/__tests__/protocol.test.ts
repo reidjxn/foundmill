@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { eventFrame } from "../connection";
 import { parseClientFrame } from "../frames";
-import { BEARER_PROTOCOL_PREFIX, businessChannel, isAuthedFrame, isErrorFrame, isEventFrame, isPongFrame, isSubscribedFrame, parseChannel, sessionChannel, STREAM_SUBPROTOCOL, streamProtocols, tokenExpiry, tokenFromProtocols, userChannel } from "../protocol";
+import { accountChannel, BEARER_PROTOCOL_PREFIX, businessChannel, isAuthedFrame, isErrorFrame, isEventFrame, isPongFrame, isSubscribedFrame, parseChannel, sessionChannel, STREAM_SUBPROTOCOL, streamProtocols, tokenExpiry, tokenFromProtocols, userChannel } from "../protocol";
 import { BUSINESS_A, SESSION_A } from "./helpers";
 
 describe("protocol", () => {
@@ -10,6 +10,13 @@ describe("protocol", () => {
     expect(parseChannel(sessionChannel(SESSION_A))).toEqual({ kind: "session", id: SESSION_A, streamKey: `as:${SESSION_A}` });
     expect(parseChannel(userChannel(BUSINESS_A))).toEqual({ kind: "user", id: BUSINESS_A, streamKey: `u:${BUSINESS_A}` });
     expect(parseChannel("u:someone")).toBeNull();
+    // A person's own account events: its own kind, and one lowercase stream key whatever case the channel was asked in.
+    expect(parseChannel(accountChannel(BUSINESS_A))).toEqual({ kind: "account", id: BUSINESS_A, streamKey: `ae:${BUSINESS_A}` });
+    expect(parseChannel(`ae:${BUSINESS_A.toUpperCase()}`)).toEqual({ kind: "account", id: BUSINESS_A.toUpperCase(), streamKey: `ae:${BUSINESS_A}` });
+    expect(accountChannel(BUSINESS_A.toUpperCase())).toBe(`ae:${BUSINESS_A}`);
+    expect(parseChannel("ae:someone")).toBeNull();
+    expect(parseChannel("ae:*")).toBeNull();
+    expect(parseChannel(`a:${BUSINESS_A}`)).toBeNull();
     expect(parseChannel("ev:not-a-uuid")).toBeNull();
     expect(parseChannel(`dlq:${BUSINESS_A}`)).toBeNull();
     expect(parseChannel(`ev:${BUSINESS_A} `)).toBeNull();

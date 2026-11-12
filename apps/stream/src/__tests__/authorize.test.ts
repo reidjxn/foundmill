@@ -6,7 +6,7 @@ import { createTestDb, type TestHarness } from "@foundmill/db/testing/pglite";
 import { businesses, memberships as membershipsTable, repos, type Db } from "@foundmill/db";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createCachedAuthorizer, createMemoryAuthorizer, createRepoAuthorizer, type Authorizer } from "../authorize";
-import { businessChannel, sessionChannel, userChannel } from "../protocol";
+import { accountChannel, businessChannel, sessionChannel, userChannel } from "../protocol";
 import { BUSINESS_A, memberships, SESSION_A, SESSION_B, USER_A, USER_B } from "./helpers";
 
 let h: TestHarness;
@@ -89,6 +89,28 @@ describe("repo authorizer (PGlite)", () => {
     expect(await authorizer.canSubscribe(A.adminId, userChannel(A.ownerId))).toMatchObject({ ok: false, code: "forbidden" });
     expect(await authorizer.canSubscribe(B.ownerId, userChannel(A.ownerId))).toMatchObject({ ok: false, code: "forbidden" });
     expect(await authorizer.canSubscribe(A.ownerId, "u:*")).toMatchObject({ ok: false, code: "invalid_channel" });
+  });
+
+  it("opens ae:<userId> to that account only: not to a cofounder in the same project, not to another account, whatever anyone's role", async () => {
+    const stranger = await h.createUser("no-business-account-events@stream.test");
+    expect(await authorizer.canSubscribe(A.ownerId, accountChannel(A.ownerId))).toEqual({ ok: true });
+    // A person with no project at all has their own account events.
+    expect(await authorizer.canSubscribe(stranger, accountChannel(stranger))).toEqual({ ok: true });
+    expect(await authorizer.canSubscribe(stranger, `ae:${stranger.toUpperCase()}`)).toEqual({ ok: true });
+    // Every other member of the person's own business is another account: owner, admin, member and viewer alike.
+    for (const other of [A.adminId, A.memberId, A.viewerId]) expect(await authorizer.canSubscribe(other, accountChannel(A.ownerId)), other).toEqual({ ok: false, code: "forbidden", message: "this is another person's channel" });
+    expect(await authorizer.canSubscribe(A.ownerId, accountChannel(A.memberId))).toMatchObject({ ok: false, code: "forbidden" });
+    expect(await authorizer.canSubscribe(B.ownerId, accountChannel(A.ownerId))).toMatchObject({ ok: false, code: "forbidden" });
+    expect(await authorizer.canSubscribe(stranger, accountChannel(A.ownerId))).toMatchObject({ ok: false, code: "forbidden" });
+    // No decision ever carries a business or a membership: nothing of a project opens or shapes the channel.
+    expect(await authorizer.canSubscribe(A.ownerId, accountChannel(A.ownerId))).not.toHaveProperty("businessId");
+    expect(await authorizer.canSubscribe(A.ownerId, "ae:*")).toMatchObject({ ok: false, code: "invalid_channel" });
+    expect(await authorizer.canSubscribe(A.ownerId, `ae:${A.businessId}`)).toMatchObject({ ok: false, code: "forbidden" });
+    // The cached authorizer keeps the decisions apart per person.
+    const cached = createCachedAuthorizer(authorizer);
+    expect(await cached.canSubscribe(A.ownerId, accountChannel(A.ownerId))).toEqual({ ok: true });
+    expect(await cached.canSubscribe(A.adminId, accountChannel(A.ownerId))).toMatchObject({ ok: false, code: "forbidden" });
+    expect(await cached.canSubscribe(A.ownerId, accountChannel(A.ownerId))).toEqual({ ok: true });
   });
 
   it("rejects channels that are not ev:/as: with a uuid", async () => {
@@ -195,6 +217,8 @@ describe("memory authorizer", () => {
     expect(await m.canSubscribe(USER_A, sessionChannel(SESSION_B))).toMatchObject({ ok: false, code: "forbidden" });
     expect(await m.canSubscribe(USER_A, userChannel(USER_A))).toEqual({ ok: true });
     expect(await m.canSubscribe(USER_B, userChannel(USER_A))).toMatchObject({ ok: false, code: "forbidden" });
+    expect(await m.canSubscribe(USER_A, accountChannel(USER_A))).toEqual({ ok: true });
+    expect(await m.canSubscribe(USER_B, accountChannel(USER_A))).toMatchObject({ ok: false, code: "forbidden" });
     expect(await m.canSubscribe(USER_A, "nope")).toMatchObject({ ok: false, code: "invalid_channel" });
   });
 });
