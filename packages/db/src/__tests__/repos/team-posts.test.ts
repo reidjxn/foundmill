@@ -3,9 +3,9 @@
  * new table), one draft per trigger, the caps, the drop, the founder's two answers, the walls between businesses, and
  * the whole path (`draftTeamPost`) with the mock model: the existing gates, and that nothing private reaches the model.
  */
-import { buildPostDraftRequest } from "@foundmill/agents";
+import { buildPostDraftRequest, postDraftFacts } from "@foundmill/agents";
 import { createModelClient, type CompleteRequest, type ModelClient } from "@foundmill/models";
-import { CHANNEL_META, TEAM_POST_CAPS, parseTeamPostRef, teamPostRef, type ProjectPageContent } from "@foundmill/shared";
+import { CHANNEL_META, TEAM_POST_CAPS, parseTeamPostRef, teamPostRef, teamPostShareDraft, type ProjectPageContent } from "@foundmill/shared";
 import { and, eq, sql } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { awardFirstFollowerMilestone, awardPageLiveMilestone } from "../../milestones";
@@ -314,10 +314,12 @@ describe("draftTeamPost", () => {
     expect(user).toContain('"project_name":"Maple Bakes"');
     expect(user).toContain("The first person confirmed that they follow the project, on Nov 14, 2026.");
     expect(user).toContain("Sourdough, baked each morning in Leeds");
-    // The same request the pure builder makes from the same four fields: nothing is added on the way.
+    // The same request the pure builder makes from the name, the page's four fields and the fact: nothing is added on the way.
     const src = (await repos.teamPosts.sources(r.db, A.businessId, { kind: "first_follower" }, NOW))!;
     expect(Object.keys(src.page!).sort()).toEqual(["about", "forWhom", "id", "pitch", "slug", "stage"]);
-    expect(buildPostDraftRequest).toBeTypeOf("function");
+    const link = teamPostShareDraft({ text: "", ref: src.ref!, page: { origin: "https://foundmill.example", slug: src.page!.slug, projectName: "Maple Bakes", pitch: src.page!.pitch } }).link;
+    const built = buildPostDraftRequest(postDraftFacts({ businessName: "Maple Bakes", page: src.page!, trigger: "first_follower", subject: "first_follower", at: src.at!, timeZone: src.business.timeZone, link }));
+    expect({ system: requests[0]!.system, messages: requests[0]!.messages }).toEqual({ system: built.system, messages: built.messages });
   });
 
   it("holds every existing gate before any model is asked", async () => {
