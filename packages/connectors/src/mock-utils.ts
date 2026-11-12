@@ -7,7 +7,7 @@
 import { createHash } from "node:crypto";
 import seedrandom from "seedrandom";
 import { parsePayload, type EventPayloadInput, type PlatformEvent } from "@foundmill/events/catalogue";
-import type { Actor, ChannelKey, EventType, IntegrationStatus } from "@foundmill/shared";
+import type { Actor, BusinessEventType, ChannelKey, EventType, IntegrationStatus } from "@foundmill/shared";
 import type { HealthResult, IntegrationRecord, SimulateParams } from "./contract";
 import { canonicalJson } from "./quarantine";
 
@@ -182,7 +182,7 @@ export function mockHealth(connectorKey: string, details: Record<string, unknown
 
 export const SIMULATE_ACTOR: Actor = { kind: "system", id: "simulate" };
 
-export interface MakeEventInput<T extends EventType> {
+export interface MakeEventInput<T extends BusinessEventType> {
   businessId: string;
   payload: EventPayloadInput<T>;
   actor?: Actor;
@@ -193,7 +193,7 @@ export interface MakeEventInput<T extends EventType> {
 }
 
 /** Build a validated PlatformEvent (payload parsed against the catalogue; throws ValidationError on drift). */
-export function makeEvent<T extends EventType>(type: T, input: MakeEventInput<T>): PlatformEvent<T> {
+export function makeEvent<T extends BusinessEventType>(type: T, input: MakeEventInput<T>): PlatformEvent<T> {
   const payload = parsePayload(type, input.payload);
   const occurredAt = input.occurredAt ?? MOCK_NOW;
   const id = uuidFromSeed("event", type, input.businessId, input.seed ?? stableHash(payload));

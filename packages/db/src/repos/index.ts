@@ -52,6 +52,7 @@ import { workspacesRepo } from "./workspaces";
 import { conversationsRepo } from "./conversations";
 import { emailPrefsRepo, preferencesRepo } from "./preferences";
 import { devicesRepo } from "./devices";
+import { accountEventsRepo } from "./account-events";
 import { portabilityRepo } from "./portability";
 import { tableViewsRepo } from "./table-views";
 import { personaPortraitsRepo } from "./persona-portraits";
@@ -117,6 +118,7 @@ export const repos = {
   notifications: notificationsRepo,
   emailPrefs: emailPrefsRepo,
   notifyFacts: notifyFactsRepo,
+  accountEvents: accountEventsRepo,
 } as const;
 export type Repos = typeof repos;
 export type RepoArea = keyof Repos;
@@ -178,3 +180,4 @@ export * from "./team-calls";
 export * from "./presence";
 export * from "./notifications";
 export * from "./notify-facts";
+export * from "./account-events";

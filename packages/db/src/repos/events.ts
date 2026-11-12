@@ -7,7 +7,7 @@
  * payment event) plus `write` for callers inside packages/db (seeds, tests) that already hold a validated
  * payload: it checks the type against the shared vocabulary and the ids, but not the payload shape.
  */
-import { Actor, EVENT_TYPES, isPersonAddressedEvent, uuid, ValidationError, type EventType } from "@foundmill/shared";
+import { Actor, EVENT_TYPES, isAccountEventType, isPersonAddressedEvent, uuid, ValidationError, type EventType } from "@foundmill/shared";
 import { and, asc, desc, eq, inArray, isNull, notInArray, sql } from "drizzle-orm";
 import { z } from "zod";
 import { events, outbox, type Event, type OutboxRow } from "../schema";
@@ -57,6 +57,14 @@ export const EVENT_PRIORITY: Partial<Record<EventType, number>> = {
   "spec.proposal_created": 9,
 };
 const DEFAULT_PRIORITY = 10;
+
+/**
+ * An account-scoped type (`ACCOUNT_EVENT_TYPES`: a fact about one person) is never written to a business, where every
+ * member could read it. Its store is `account_events` and its one writer `@foundmill/events` `writeAccountEvent`.
+ */
+function refuseAccountScoped(type: EventType): void {
+  if (isAccountEventType(type)) throw new ValidationError(`${type} is account-scoped and is never written to a business's events`, { type });
+}
 const toArray = <T>(v: T | T[] | undefined): T[] | undefined => (v === undefined ? undefined : Array.isArray(v) ? v : [v]);
 
 export const eventsRepo = {
@@ -66,6 +74,7 @@ export const eventsRepo = {
     // A request or message from another founder belongs to its recipient, not to a business everyone on the staff can read
     // (FU-S-2): it travels as a signal on the person's own stream and is read through the Network procedures.
     if (isPersonAddressedEvent(v.type)) throw new ValidationError(`${v.type} is addressed to a person and is never written to a business's events`, { type: v.type });
+    refuseAccountScoped(v.type);
     return db.transaction(async (tx) => {
       if (v.idempotencyKey) {
         const existing = await tx.select().from(events).where(and(eq(events.businessId, businessId), eq(events.idempotencyKey, v.idempotencyKey))).limit(1);
@@ -93,6 +102,7 @@ export const eventsRepo = {
       const v = parseInput(WriteEventInput, input, "event");
       if (v.idempotencyKey) throw new ValidationError("writeMany takes no idempotency keys; write the event with write", { type: v.type });
       if (isPersonAddressedEvent(v.type)) throw new ValidationError(`${v.type} is addressed to a person and is never written to a business's events`, { type: v.type });
+      refuseAccountScoped(v.type);
       return { id: v.id ?? uuid(), businessId, type: v.type, occurredAt: v.occurredAt ?? new Date(), actor: v.actor, entityIds: [...new Set(v.entityIds)], payload: v.payload, narrated: options.narrated === true, idempotencyKey: null };
     });
     if (rows.length === 0) return [];

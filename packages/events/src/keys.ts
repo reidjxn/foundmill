@@ -4,12 +4,15 @@
  * - `ev:{businessId}`   platform events for one business (relay → consumers, apps/stream fan-out)
  * - `as:{sessionId}`    agent session events (orchestrator → Training Ground tiles, replay)
  * - `u:{userId}`        signals for one person (LIVE: a request, a message or an invitation reached them); content-free
+ * - `ae:{userId}`       account events for one person (account relay → account consumers, apps/stream to that person only)
  * - `dlq:{group}`       dead letters for one consumer group (entries that failed `maxRetries` times)
  * - `dlq:outbox-relay`  outbox rows the relay could not publish as valid platform events
+ * - `dlq:account-outbox-relay`  account outbox rows the account relay could not publish (id, type and reason; never the payload)
  */
 export const BUSINESS_STREAM_PREFIX = "ev:";
 export const SESSION_STREAM_PREFIX = "as:";
 export const USER_STREAM_PREFIX = "u:";
+export const ACCOUNT_STREAM_PREFIX = "ae:";
 export const DEAD_LETTER_PREFIX = "dlq:";
 
 export const businessStreamKey = (businessId: string): string =>
@@ -17,11 +20,16 @@ export const businessStreamKey = (businessId: string): string =>
 export const sessionStreamKey = (sessionId: string): string =>
   `${SESSION_STREAM_PREFIX}${sessionId}`;
 export const userStreamKey = (userId: string): string => `${USER_STREAM_PREFIX}${userId}`;
+/** A person's account events. Account ids are UUIDs; the key is always lowercase, so one person has one stream. */
+export const accountStreamKey = (userId: string): string => `${ACCOUNT_STREAM_PREFIX}${userId.toLowerCase()}`;
 export const deadLetterKey = (group: string): string => `${DEAD_LETTER_PREFIX}${group}`;
 export const RELAY_DEAD_LETTER_KEY = deadLetterKey("outbox-relay");
+export const ACCOUNT_RELAY_DEAD_LETTER_KEY = deadLetterKey("account-outbox-relay");
 
 /** Pattern matching every business stream (for consumers that want all businesses). */
 export const ALL_BUSINESS_STREAMS_PATTERN = `${BUSINESS_STREAM_PREFIX}*`;
+/** Pattern matching every account stream (for consumers of account events for every person). */
+export const ALL_ACCOUNT_STREAMS_PATTERN = `${ACCOUNT_STREAM_PREFIX}*`;
 
 /** Default retention per stream: XADD ... MAXLEN ~ 100000 (approximate trimming). */
 export const DEFAULT_STREAM_MAXLEN = 100_000;
@@ -38,6 +46,13 @@ export const DEFAULT_STREAM_MAXLEN = 100_000;
 export const SESSION_STREAM_TTL_SECONDS = 14 * 86_400;
 export const SESSION_STREAM_ARCHIVED_TTL_SECONDS = 3_600;
 export const BUSINESS_STREAM_RETENTION_MS = 30 * 86_400_000;
+/**
+ * `ae:{userId}`: every account event is also in Postgres (`account_events`), so the account relay trims each stream it
+ * writes to 7 days and sets the same TTL. Shorter than a business stream on purpose: the stream is a copy of a person's
+ * private facts outside the database, and after an account is deleted (the rows cascade at once) the copy is gone
+ * within this window at the latest; `deleteAccountStream` removes it at once.
+ */
+export const ACCOUNT_STREAM_RETENTION_MS = 7 * 86_400_000;
 
 /** The oldest stream id a `retentionMs` window keeps, for XTRIM/XADD MINID. */
 export const minIdFor = (nowMs: number, retentionMs: number): string => `${Math.max(0, Math.floor(nowMs - retentionMs))}-0`;
@@ -48,4 +63,9 @@ export function businessIdFromStreamKey(key: string): string | null {
 
 export function sessionIdFromStreamKey(key: string): string | null {
   return key.startsWith(SESSION_STREAM_PREFIX) ? key.slice(SESSION_STREAM_PREFIX.length) : null;
+}
+
+/** The account an `ae:` stream belongs to (lowercase), or null for any other key. */
+export function userIdFromAccountStreamKey(key: string): string | null {
+  return key.startsWith(ACCOUNT_STREAM_PREFIX) ? key.slice(ACCOUNT_STREAM_PREFIX.length).toLowerCase() : null;
 }

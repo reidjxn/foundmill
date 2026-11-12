@@ -48,8 +48,14 @@ import {
   TaskKind,
   TaskPhase,
   ValidationError,
+  isAccountEventType,
+  PersonHandle,
+  type AccountEventType,
+  type BusinessEventType,
+  type EventScope,
   type EventType as EventTypeT,
 } from "@foundmill/shared";
+import { assertAccountPayloadSchema } from "./account-payload";
 
 // ---------------------------------------------------------------------------------------------------
 // Building blocks
@@ -85,11 +91,21 @@ export type EventConsumer = (typeof EVENT_CONSUMERS)[number];
 // Declaration helper and registry
 // ---------------------------------------------------------------------------------------------------
 
+/** The scope an event type has in the shared vocabulary (`ACCOUNT_EVENT_TYPES`): what its declaration must state. */
+export type EventScopeOf<T extends EventTypeT> = T extends AccountEventType ? "account" : "business";
+
 export interface EventDeclaration<
   T extends EventTypeT = EventTypeT,
   S extends z.ZodType = z.ZodType,
+  Sc extends EventScope = EventScope,
 > {
   readonly type: T;
+  /**
+   * Where the event belongs: `business` (a fact about a project: `events`, `ev:{businessId}`, written with
+   * `writeEvent`) or `account` (a fact about one person: `account_events`, `ae:{userId}`, written with
+   * `writeAccountEvent`). Each writer refuses the other scope, at compile time and at run time.
+   */
+  readonly scope: Sc;
   readonly schema: S;
   /** One or two sentences: when it fires and what the payload carries. */
   readonly doc: string;
@@ -97,32 +113,83 @@ export interface EventDeclaration<
   readonly consumers: readonly EventConsumer[];
   /** Whether the Inbox Composer may narrate this event as an inbox item (false = internal / already narrated). */
   readonly narratable: boolean;
+  /** Account scope only: the payload keys allowed to hold a UUID (ids of records, never of accounts). */
+  readonly recordIds: readonly string[];
 }
 
 interface DeclareOptions {
+  /** Business is the scope of `declareEvent`; an account-scoped event is declared with `declareAccountEvent`. */
+  scope?: "business";
   doc: string;
   consumers: readonly EventConsumer[];
   narratable?: boolean;
 }
 
+interface DeclareAccountOptions {
+  doc: string;
+  consumers: readonly EventConsumer[];
+  /** Payload keys allowed to hold a UUID: ids of records (an ask, a thread), never of accounts. */
+  recordIds?: readonly string[];
+}
+
 /**
- * Declare one event type. The type must be a member of `EVENT_TYPES`; this is enforced both by the
- * TypeScript signature and at runtime (so a stale catalogue cannot register a type the vocabulary dropped).
+ * Declare one business-scoped event type (the scope of every event of a project; `scope: "business"` may be written
+ * out, and is what this helper states when it is not). The type must be a member of `EVENT_TYPES` and not one of
+ * `ACCOUNT_EVENT_TYPES`; both are enforced by the TypeScript signature and at runtime (so a stale catalog cannot
+ * register a type the vocabulary dropped, or move a person's fact into a project's events).
  */
-export function declareEvent<T extends EventTypeT, S extends z.ZodType>(
+export function declareEvent<T extends BusinessEventType, S extends z.ZodType>(
   type: T,
   schema: S,
   opts: DeclareOptions,
-): EventDeclaration<T, S> {
+): EventDeclaration<T, S, "business"> {
   if (!EventType.safeParse(type).success) {
     throw new Error(`declareEvent: "${type}" is not in EVENT_TYPES (packages/shared/src/types.ts)`);
   }
+  if (isAccountEventType(type) || (opts.scope ?? "business") !== "business") {
+    throw new Error(`declareEvent: "${type}" is account-scoped; declare it with declareAccountEvent`);
+  }
   return Object.freeze({
     type,
+    scope: "business" as const,
     schema,
     doc: opts.doc,
     consumers: Object.freeze([...opts.consumers]),
     narratable: opts.narratable ?? true,
+    recordIds: Object.freeze([]),
+  });
+}
+
+/**
+ * Declare one account-scoped event type: a fact about one person, stored in their own `account_events` rows and never
+ * in a project's events. The type must be one of `ACCOUNT_EVENT_TYPES`, and a new one also needs a migration that
+ * redefines `fm_account_event_types()` with it (the database lets only the listed types into `account_events` and
+ * keeps them out of `events`; packages/db `rls/account-events.test.ts` compares the two lists). The payload schema is checked against the
+ * account payload conventions as the catalog loads (./account-payload: a closed object, nobody named by an account id,
+ * an email address or a private field; another person only by something public about them, such as a handle). Never
+ * narrated: the Composer writes a project's Inbox, and this is not a project's fact.
+ */
+export function declareAccountEvent<T extends AccountEventType, S extends z.ZodType>(
+  type: T,
+  schema: S,
+  opts: DeclareAccountOptions,
+): EventDeclaration<T, S, "account"> {
+  if (!EventType.safeParse(type).success) {
+    throw new Error(`declareAccountEvent: "${type}" is not in EVENT_TYPES (packages/shared/src/types.ts)`);
+  }
+  if (!isAccountEventType(type)) {
+    throw new Error(`declareAccountEvent: "${type}" is not in ACCOUNT_EVENT_TYPES (packages/shared/src/constants.ts); declare it with declareEvent`);
+  }
+  const recordIds = Object.freeze([...(opts.recordIds ?? [])]);
+  assertAccountPayloadSchema(type, schema, recordIds);
+  return Object.freeze({
+    type,
+    scope: "account" as const,
+    schema,
+    doc: opts.doc,
+    consumers: Object.freeze([...opts.consumers]),
+    narratable: false,
+    recordIds,
   });
 }
 
@@ -1765,12 +1832,33 @@ const notifyEmailSent = declareEvent(
 );
 
 // ---------------------------------------------------------------------------------------------------
+// Account events: a person's own public profile (0080; account-scoped, docs/ARCHITECTURE.md §5 "Account events")
+// ---------------------------------------------------------------------------------------------------
+
+/** The address of the person's own public profile (`/u/<handle>`), and nothing private. */
+const ProfileFacts = z.strictObject({
+  /** The person's own handle as it was when this happened (a later change of address is not written back). */
+  handle: PersonHandle,
+});
+
+const profilePublished = declareAccountEvent("profile.published", ProfileFacts, {
+  doc: "The person made their own public profile public: from this moment anyone can open /u/<handle> signed out. Written once per change from private to public, in the same transaction, to the person's own account events; a save while it is already public writes nothing. The payload is the handle and nothing else.",
+  consumers: ["stream"],
+});
+
+const profileUnpublished = declareAccountEvent("profile.unpublished", ProfileFacts, {
+  doc: "The person took their own public profile down: /u/<handle> answers not found from now on (everything they wrote is kept). Written once per change from public to private, in the same transaction, to the person's own account events. The payload is the handle and nothing else.",
+  consumers: ["stream"],
+});
+
+// ---------------------------------------------------------------------------------------------------
 // Registry
 // ---------------------------------------------------------------------------------------------------
 
 /**
  * Every declared event, keyed by type. `satisfies Record<EventType, ...>` makes the compiler fail if a
- * type is added to EVENT_TYPES without a declaration here, or declared twice.
+ * type is added to EVENT_TYPES without a declaration here, or declared twice, or declared with a scope other than
+ * the one the shared vocabulary gives it (`ACCOUNT_EVENT_TYPES`).
  */
 export const EVENTS = {
   "idea.committed": ideaCommitted,
@@ -1843,7 +1931,9 @@ export const EVENTS = {
   "mail.sent": mailSent,
   "notify.email_sent": notifyEmailSent,
   "founder.session_started": founderSessionStarted,
-} as const satisfies { readonly [K in EventTypeT]: EventDeclaration<K> };
+  "profile.published": profilePublished,
+  "profile.unpublished": profileUnpublished,
+} as const satisfies { readonly [K in EventTypeT]: EventDeclaration<K, z.ZodType, EventScopeOf<K>> };
 
 export type EventsRegistry = typeof EVENTS;
 
@@ -1865,16 +1955,29 @@ export function isEventType(value: unknown): value is EventTypeT {
   return typeof value === "string" && Object.prototype.hasOwnProperty.call(EVENTS, value);
 }
 
+/** The scope the catalog declares for a type (`business` or `account`). Throws `ValidationError` for an unknown type. */
+export function eventScope(type: EventTypeT): EventScope {
+  return getEventDeclaration(type).scope;
+}
+
+type TypesOfScope<Sc extends EventScope> = Sc extends "account" ? AccountEventType : BusinessEventType;
+
+/** The declared types of one scope, in catalog order. */
+export function eventTypesOfScope<Sc extends EventScope>(scope: Sc): TypesOfScope<Sc>[] {
+  return DECLARED_EVENT_TYPES.filter((t) => EVENTS[t].scope === scope) as TypesOfScope<Sc>[];
+}
+
 // ---------------------------------------------------------------------------------------------------
 // PlatformEvent
 // ---------------------------------------------------------------------------------------------------
 
 /**
- * The envelope every event shares (BUILD §8.1). `occurredAt` is a `Date` in TypeScript and an ISO
- * string on the wire (docs/ARCHITECTURE.md §2); `JSON.stringify` does the right thing.
+ * The envelope every business-scoped event shares (BUILD §8.1). `occurredAt` is a `Date` in TypeScript and an ISO
+ * string on the wire (docs/ARCHITECTURE.md §2); `JSON.stringify` does the right thing. An account-scoped type is never
+ * a `PlatformEvent`: its envelope is `AccountEvent` (./account-event), keyed by a person instead of a business.
  */
-export type PlatformEvent<T extends EventTypeT = EventTypeT> = {
-  [K in EventTypeT]: {
+export type PlatformEvent<T extends BusinessEventType = BusinessEventType> = {
+  [K in BusinessEventType]: {
     id: string;
     businessId: string;
     type: K;
@@ -1887,7 +1990,7 @@ export type PlatformEvent<T extends EventTypeT = EventTypeT> = {
 }[T];
 
 /** Wire form: what goes into `events.payload`'s row JSON and the Redis `json` field. */
-export type PlatformEventWire<T extends EventTypeT = EventTypeT> = Omit<
+export type PlatformEventWire<T extends BusinessEventType = BusinessEventType> = Omit<
   PlatformEvent<T>,
   "occurredAt"
 > & { occurredAt: string };
@@ -1933,6 +2036,12 @@ export function safeParseEvent(raw: unknown): ParseEventSuccess | ParseEventFail
       error: new ValidationError(`Unknown event type "${env.data.type}"`, { type: env.data.type }),
     };
   }
+  if (decl.scope !== "business") {
+    return {
+      ok: false,
+      error: new ValidationError(`${env.data.type} is account-scoped and is never a business event`, { type: env.data.type }),
+    };
+  }
   const payload = decl.schema.safeParse(env.data.payload);
   if (!payload.success) {
     return {
@@ -1970,12 +2079,12 @@ export function serializeEvent(event: PlatformEvent): string {
   return JSON.stringify(toWire(event));
 }
 
-export function toWire<T extends EventTypeT>(event: PlatformEvent<T>): PlatformEventWire<T> {
+export function toWire<T extends BusinessEventType>(event: PlatformEvent<T>): PlatformEventWire<T> {
   return { ...event, occurredAt: event.occurredAt.toISOString() } as PlatformEventWire<T>;
 }
 
 /** Narrow a PlatformEvent to one type (type guard for consumers with a switch per type). */
-export function isEventOfType<T extends EventTypeT>(
+export function isEventOfType<T extends BusinessEventType>(
   event: PlatformEvent,
   type: T,
 ): event is PlatformEvent<T> {
@@ -1986,4 +2095,7 @@ export function isEventOfType<T extends EventTypeT>(
 for (const t of EVENT_TYPES) {
   if (!Object.prototype.hasOwnProperty.call(EVENTS, t))
     throw new Error(`packages/events catalog is missing a declaration for "${t}"`);
+  const declared = (EVENTS as Record<string, EventDeclaration>)[t]!.scope;
+  if (declared !== (isAccountEventType(t) ? "account" : "business"))
+    throw new Error(`packages/events catalog declares "${t}" as ${declared}-scoped, and the shared vocabulary says otherwise (ACCOUNT_EVENT_TYPES)`);
 }

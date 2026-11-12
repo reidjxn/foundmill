@@ -445,6 +445,7 @@ export const EVENT_TYPES = [
   "notify.email_sent",
   "team_call.started", "team_call.ended",
   "founder.session_started",
+  "profile.published", "profile.unpublished",
 ] as const;
 export type EventType = (typeof EVENT_TYPES)[number];
 
@@ -470,6 +471,30 @@ export type GuidanceOffSource = (typeof GUIDANCE_OFF_SOURCES)[number];
  */
 export const PERSON_ADDRESSED_EVENT_TYPES = ["connection.requested", "message.received"] as const satisfies readonly EventType[];
 export const isPersonAddressedEvent = (type: string | null | undefined): boolean => (PERSON_ADDRESSED_EVENT_TYPES as readonly string[]).includes(type ?? "");
+
+/**
+ * Where an event belongs (founder, 2026-11-12). A `business` event is a fact about a project: it is stored in `events`,
+ * read by the project's members under their section walls and published on `ev:{businessId}`. An `account` event is a
+ * fact about one person (their profile went public; later a follow, an ask, an answer): it is stored in
+ * `account_events`, keyed by the person's account, read by that person and nobody else, and published on
+ * `ae:{userId}`. A fact about a person never goes into a business's events, where every member could read it.
+ *
+ * The event catalog (packages/events `catalogue.ts`) states the scope of every declaration; this tuple is the same
+ * fact for the packages below it (packages/db refuses these types in `repos.events.write`, apps/stream never delivers
+ * them on a business stream), and the catalog fails to compile, and to load, when the two disagree. Append only.
+ *
+ * The database holds the same list (`fm_account_event_types()`, migration `account_events`): `account_events` takes only
+ * these types and `events` refuses them, whoever writes. A new account-scoped type therefore needs a migration that
+ * redefines that function; packages/db `rls/account-events.test.ts` fails until the two lists are the same.
+ */
+export const EVENT_SCOPES = ["business", "account"] as const;
+export type EventScope = (typeof EVENT_SCOPES)[number];
+export const ACCOUNT_EVENT_TYPES = ["profile.published", "profile.unpublished"] as const satisfies readonly EventType[];
+export type AccountEventType = (typeof ACCOUNT_EVENT_TYPES)[number];
+/** Every event type that belongs to a project: all of `EVENT_TYPES` but the account-scoped ones. */
+export type BusinessEventType = Exclude<EventType, AccountEventType>;
+export const isAccountEventType = (type: string | null | undefined): type is AccountEventType => (ACCOUNT_EVENT_TYPES as readonly string[]).includes(type ?? "");
+export const eventScopeOf = (type: EventType): EventScope => (isAccountEventType(type) ? "account" : "business");
 
 /** Entity mention markup written by agents: [[ent:<uuid>|Display]] */
 export const ENTITY_MARKUP_RE = /\[\[ent:([0-9a-f-]{36})\|([^\]]+)\]\]/g;
