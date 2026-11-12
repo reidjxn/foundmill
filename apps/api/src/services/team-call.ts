@@ -34,7 +34,7 @@ import {
   type TeamCallTranscriptTurn,
   type TeamCallTurnMode,
 } from "@foundmill/agents";
-import { repos, type Agent, type Department, type DbTx, type PlanWithActions, type TeamCall, type TeamCallTurn } from "@foundmill/db";
+import { assertPlatformCredits, repos, type Agent, type Department, type DbTx, type PlanWithActions, type TeamCall, type TeamCallTurn } from "@foundmill/db";
 import type { PlanAction } from "@foundmill/models";
 import {
   agentDisplayName,
@@ -70,7 +70,7 @@ import {
 import { audit, emit, type BusinessContext } from "../trpc";
 import { planContextFor } from "./decide";
 import { dispatchPlan, evaluatePlan, executePlanActions, ownAgentsOnly, redispatchPlans, stagedAction, type ActionEvaluation } from "./plans";
-import { speechModes, synthesizeCallSpeech, transcribeCallSpeech } from "./speech";
+import { speechLive, speechModes, synthesizeCallSpeech, transcribeCallSpeech } from "./speech";
 
 // ---------------------------------------------------------------------------------------------------------------------
 // Rules
@@ -188,9 +188,23 @@ async function briefOf(tx: DbTx, businessId: string) {
 
 const transcriptOf = (turns: readonly TeamCallTurn[]): TeamCallTranscriptTurn[] => turns.map((t) => ({ speaker: t.speaker, agentId: t.agentId, text: t.text }));
 
-/** Model rounds so far: each round's agent turns are written together, at one instant. */
+/**
+ * Model rounds so far: each round's agent turns are written together (one millisecond apart), so a run of agent turns
+ * written within a second of each other is one round. Turns in seq order.
+ */
 export function modelRoundsOf(turns: readonly Pick<TeamCallTurn, "speaker" | "createdAt">[]): number {
-  return new Set(turns.filter((t) => t.speaker === "agent").map((t) => new Date(t.createdAt).getTime())).size;
+  let rounds = 0;
+  let last: number | null = null;
+  for (const t of turns) {
+    if (t.speaker !== "agent") {
+      last = null;
+      continue;
+    }
+    const at = new Date(t.createdAt).getTime();
+    if (last === null || at - last > 1_000) rounds += 1;
+    last = at;
+  }
+  return rounds;
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -219,6 +233,13 @@ export async function listTeamCalls(ctx: BusinessContext, limit = 20): Promise<T
   }));
 }
 
+/** An action's words, unless they belong to a section the reader is walled from (a budget's amount behind Finance). */
+function actionWords(ctx: BusinessContext, a: { actionType: PlanActionType; title: string; detail: string | null }): { title: string; detail: string | null } {
+  const section = planActionSection({ type: a.actionType, params: a.actionType === "set_budget" ? {} : undefined });
+  if (section && !hasSectionAccess(ctx.membership, section, "read")) return { title: "A step for a part of the project you cannot see", detail: null };
+  return { title: a.title, detail: a.detail };
+}
+
 export async function getTeamCall(ctx: BusinessContext, callId: string): Promise<TeamCallView> {
   return ctx.rls(async (tx) => {
     const [call, turns, actions, roster] = await Promise.all([repos.teamCalls.get(tx, ctx.businessId, callId), repos.teamCalls.turns(tx, ctx.businessId, callId), repos.teamCalls.actions(tx, ctx.businessId, callId), rosterOf(tx, ctx.businessId)]);
@@ -237,8 +258,7 @@ export async function getTeamCall(ctx: BusinessContext, callId: string): Promise
         (a): TeamCallActionView => ({
           id: a.id,
           actionType: a.actionType,
-          title: a.title,
-          detail: a.detail,
+          ...actionWords(ctx, a),
           departmentId: a.departmentId,
           agentId: a.agentId,
           status: a.status,
@@ -388,8 +408,20 @@ export async function speakTurn(ctx: BusinessContext, input: { callId: string; t
     return agent ? name(agent) : stored;
   });
   const speechAccent = roster.accents.get(turn.agentId) ?? roster.accents.values().next().value!;
+  await speechCredits(ctx);
   const spoken = await synthesizeCallSpeech({ env: ctx.env, gateway: ctx.gateway }, { businessId: ctx.businessId, callId: input.callId, turnId: turn.id, speechAccent, text: words.slice(0, TEAM_CALL_LIMITS.maxTurnChars) || "…" });
   return { turnId: turn.id, speechAccent, mime: spoken.mime, base64: spoken.base64, simulated: spoken.simulated, spokenText: words };
+}
+
+const NIL_ID = "00000000-0000-0000-0000-000000000000";
+
+/**
+ * Live speech and transcription are paid on the platform's own account whatever pays the business's models, so they
+ * need the business's credits like every platform call (security review M3); simulated speech costs nothing.
+ */
+async function speechCredits(ctx: BusinessContext): Promise<void> {
+  if (!speechLive(ctx.env)) return;
+  await assertPlatformCredits(ctx.db, ctx.businessId, { live: true });
 }
 
 /** A short fixed sentence in one accent, for Accent on the agent's profile ("Hear it"). */
@@ -397,7 +429,9 @@ export const ACCENT_PREVIEW_LINE = "Hi, this is how I sound on our calls.";
 
 export async function previewSpeechAccent(ctx: BusinessContext, input: { agentId: string; speechAccent: string }): Promise<Omit<TeamCallSpeechView, "turnId">> {
   await ctx.rls((tx) => repos.agents.get(tx, ctx.businessId, input.agentId));
-  const spoken = await synthesizeCallSpeech({ env: ctx.env, gateway: ctx.gateway }, { businessId: ctx.businessId, callId: input.agentId, turnId: input.agentId, speechAccent: input.speechAccent, text: ACCENT_PREVIEW_LINE });
+  await speechCredits(ctx);
+  // Not a call: the nil id keeps the gateway's audit row from naming the agent as if it were a call (the turn names the agent).
+  const spoken = await synthesizeCallSpeech({ env: ctx.env, gateway: ctx.gateway }, { businessId: ctx.businessId, callId: NIL_ID, turnId: input.agentId, speechAccent: input.speechAccent, text: ACCENT_PREVIEW_LINE });
   return { speechAccent: input.speechAccent, mime: spoken.mime, base64: spoken.base64, simulated: spoken.simulated, spokenText: ACCENT_PREVIEW_LINE };
 }
 
@@ -420,6 +454,7 @@ export async function speechAccentsOf(ctx: BusinessContext): Promise<{ agentId: 
 export async function transcribeOnCall(ctx: BusinessContext, input: { callId: string; mime: TeamCallAudioMime; base64: string }): Promise<TeamCallTranscriptView> {
   const call = await ctx.rls((tx) => repos.teamCalls.get(tx, ctx.businessId, input.callId));
   if (call.status !== "live") throw new ConflictError("This call has ended", { callId: input.callId });
+  await speechCredits(ctx);
   if (Math.floor((input.base64.length * 3) / 4) > TEAM_CALL_LIMITS.maxAudioBytes) throw new ValidationError("That recording is too long. Try a shorter one, or type instead.");
   const heard = await transcribeCallSpeech({ env: ctx.env, gateway: ctx.gateway }, { businessId: ctx.businessId, callId: input.callId, mime: input.mime, base64: input.base64 });
   return { text: heard.text.slice(0, TEAM_CALL_LIMITS.maxFounderChars), simulated: heard.simulated };
@@ -444,6 +479,11 @@ export function routeOf(e: ActionEvaluation, mayWrite: (section: NonNullable<Ret
   const section = planActionSection(e.action);
   if (section && !mayWrite(section)) return { route: "refuse", reason: "You cannot change this part of the project, so it was not filed. Someone who can will see it in the call's notes." };
   if (e.outcome === "deny") return { route: "refuse", reason: e.reasons[0] ?? "The rules for what the team can do do not allow this." };
+  // A task that would reach outside or spend once it runs waits too (security review M2): channel work, a channel, a budget.
+  const p = (e.action.params ?? {}) as Record<string, unknown>;
+  if (e.action.type === "create_task" && (p.kind === "channel" || typeof p.channel === "string" || (typeof p.budget_minor === "number" && p.budget_minor > 0))) {
+    return { route: "stage", reason: "This work reaches people outside the project or spends money once it starts, so it waits for your go-ahead." };
+  }
   if (FILED_AT_ONCE.has(e.action.type) && e.outcome === "allow") return { route: "file", reason: null };
   return { route: "stage", reason: e.reasons[0] ?? "Waiting for your go-ahead." };
 }
@@ -504,6 +544,9 @@ async function wrapUp(ctx: BusinessContext, callId: string): Promise<TeamCallVie
     summary = "You ended the call before anything was discussed, so there is nothing to file.";
   }
 
+  // Only the words of the person ending the call file work at once under their permissions (security review M1): when
+  // someone else spoke on this call too, everything it agreed waits for a go-ahead.
+  const othersSpoke = turns.some((t) => t.speaker === "founder" && t.userId !== ctx.userId);
   const planCtx = await planContextFor(ctx);
   const actions = ownAgentsOnly(
     finalActions.map((a) => ({ ...a.action, agent_id: a.agentId ?? a.action.agent_id ?? null })),
@@ -516,7 +559,7 @@ async function wrapUp(ctx: BusinessContext, callId: string): Promise<TeamCallVie
     detail: finalActions[index]!.detail,
     agentId: e.action.agent_id ?? null,
     evaluation: e,
-    ...routeOf(e, (section) => hasSectionAccess(ctx.membership, section, "write")),
+    ...onlyYourWords(routeOf(e, (section) => hasSectionAccess(ctx.membership, section, "write")), othersSpoke),
   }));
   const filed = sorted.filter((s) => s.route === "file");
   const staged = sorted.filter((s) => s.route === "stage");
@@ -583,6 +626,12 @@ async function wrapUp(ctx: BusinessContext, callId: string): Promise<TeamCallVie
     else await redispatchPlans(ctx).catch(() => undefined);
   }
   return getTeamCall(ctx, callId);
+}
+
+/** Someone else spoke on the call: what would be filed at once waits for the go-ahead instead. */
+export function onlyYourWords(r: { route: Sorted["route"]; reason: string | null }, othersSpoke: boolean): { route: Sorted["route"]; reason: string | null } {
+  if (!othersSpoke || r.route !== "file") return r;
+  return { route: "stage", reason: "Someone else spoke on this call too, so what it agreed waits for a go-ahead." };
 }
 
 function statusOf(s: Pick<Sorted, "route" | "evaluation">): TeamCallActionStatus {

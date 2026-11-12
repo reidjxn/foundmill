@@ -71,8 +71,13 @@ export const TEAM_CALL_LIMITS = {
   maxTopicChars: 200,
   /** Action items written when a call ends. */
   maxActionsPerCall: 20,
-  /** One recording sent for transcription. */
-  maxAudioBytes: 8 * 1024 * 1024,
+  /**
+   * One recording sent for transcription: 1.4 MB, so its base64 stays inside the api's 2 MB request body (about a
+   * minute and a half of speech in opus). A longer turn is cut there by the call's own 60-second cap first.
+   */
+  maxAudioBytes: 1_400_000,
+  /** Audio transcribed per business per UTC day, in bytes (the gateway's ceiling; about three hours of opus speech). */
+  transcriptionBytesPerBusinessPerDay: 50_000_000,
   /**
    * Model rounds in one call (opening, replies, agent-only rounds; the wrap-up is one more): the call's spend ceiling,
    * since agents talking to each other could otherwise run up cost. Past it the call asks to be wrapped up.

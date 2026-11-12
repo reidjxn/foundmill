@@ -69,6 +69,19 @@ describe("team calls (0084): tenancy through the repo", () => {
     expect(b).toMatchObject({ status: "live", turnCount: 2 });
   });
 
+  it("an app role starts a call only as itself, live, and speaks only as itself", async () => {
+    const forged = (values: Partial<typeof s.teamCalls.$inferInsert>) =>
+      h.asUser(A.memberId).run((tx) => tx.insert(s.teamCalls).values({ businessId: A.businessId, kind: "team", agentIds: [A.agentId], startedBy: A.memberId, ...values }));
+    await expect(forged({ startedBy: A.ownerId })).rejects.toThrow(/permission denied/);
+    await expect(forged({ status: "ended" })).rejects.toThrow(/permission denied/);
+    await expect(forged({ turnCount: 5 })).rejects.toThrow();
+    await expect(forged({ agentIds: [B.agentId] })).rejects.toThrow(/permission denied/);
+    const callId = await h.asUser(A.memberId).run(async (tx) => (await repos.teamCalls.create(tx, A.businessId, { kind: "team", agentIds: [A.agentId], startedBy: A.memberId })).id);
+    await expect(h.asUser(A.memberId).run((tx) => repos.teamCalls.appendTurns(tx, A.businessId, callId, [say(A.ownerId, "Words put in the owner's mouth")]))).rejects.toThrow(/permission denied/);
+    const own = await h.asUser(A.memberId).run((tx) => repos.teamCalls.appendTurns(tx, A.businessId, callId, [say(A.memberId, "My own words")]));
+    expect(own.turns[0]!.userId).toBe(A.memberId);
+  });
+
   it("a row of A cannot point at B's call, agents, departments or plans", async () => {
     // The composite key (call_id, business_id): a turn or an action item of A on B's call does not exist for the database.
     await expect(

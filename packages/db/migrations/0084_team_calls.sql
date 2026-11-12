@@ -177,3 +177,37 @@ end;
 $$;
 --> statement-breakpoint
 create trigger agents_speech_accent_guard before insert or update of speech_accent on agents for each row execute function fm_agents_speech_accent_guard();
+--> statement-breakpoint
+-- Defense in depth for a client that writes these tables directly (security review, Nov 12, 2026): an app role starts
+-- a call only as itself, live, with fresh counters and agents of the business, and speaks only as itself. The api
+-- writes the same values; service code is not an app role and passes. Not security definer, so `current_user` is the
+-- caller's role.
+create function fm_team_calls_insert_guard() returns trigger
+language plpgsql set search_path = public as $$
+begin
+  if current_user in ('authenticated', 'anon') then
+    if new.started_by is distinct from auth.uid() or new.status <> 'live' or new.turn_count <> 0 or new.agent_rounds_since_founder <> 0
+       or new.summary is not null or new.ended_at is not null then
+      raise exception 'permission denied: a call starts live, as the person starting it' using errcode = '42501';
+    end if;
+    if exists (select 1 from unnest(new.agent_ids) as a(id) where not exists (select 1 from agents g where g.id = a.id and g.business_id = new.business_id)) then
+      raise exception 'permission denied: every agent on a call is one of the business''s agents' using errcode = '42501';
+    end if;
+  end if;
+  return new;
+end;
+$$;
+--> statement-breakpoint
+create trigger team_calls_insert_guard before insert on team_calls for each row execute function fm_team_calls_insert_guard();
+--> statement-breakpoint
+create function fm_team_call_turns_own_words() returns trigger
+language plpgsql set search_path = public as $$
+begin
+  if current_user in ('authenticated', 'anon') and new.speaker = 'founder' and new.user_id is distinct from auth.uid() then
+    raise exception 'permission denied: a person speaks on a call only as themselves' using errcode = '42501';
+  end if;
+  return new;
+end;
+$$;
+--> statement-breakpoint
+create trigger team_call_turns_own_words before insert on team_call_turns for each row execute function fm_team_call_turns_own_words();

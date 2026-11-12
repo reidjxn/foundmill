@@ -13,7 +13,7 @@ import { createGatewayApp } from "../app";
 import type { GatewayDeps } from "../pipeline";
 import { DAY_MS, MemoryRateLimitStore, RedisRateLimitStore, type RateLimitStore, type RedisCounter } from "../rate-limit";
 import { UntrustedRecipientRegistry } from "../recipients";
-import { speechDayKey } from "../speech";
+import { speechDayKey, transcriptionDayKey } from "../speech";
 import { signServiceToken } from "../tokens";
 import { SIMULATED_NOTICE } from "../types";
 import { silentLog, TEST_SECRET } from "./harness";
@@ -389,5 +389,19 @@ describe("transcribe", () => {
     const rateLimits = new MemoryRateLimitStore();
     await hear(appFor(live({ rateLimits })));
     expect(rateLimits.peek(speechDayKey(businessId), NOW)).toBe(0);
+  });
+});
+
+describe("transcribe: the day's audio", () => {
+  it("counts the recording's bytes under st:<businessId>:day and refuses past the ceiling, giving the refused bytes back", async () => {
+    const ceiling = TEAM_CALL_LIMITS.transcriptionBytesPerBusinessPerDay;
+    const rateLimits = new MemoryRateLimitStore();
+    const biz = (await repos.businesses.create(db, { name: "Listening Co" })).id;
+    const bytes = Buffer.from(RECORDING, "base64").length;
+    await rateLimits.hit(transcriptionDayKey(biz), DAY_MS, NOW, ceiling - bytes + 1);
+    const app = appFor(live({ seen: [], rateLimits }));
+    const refused = await send(app, "transcribe", { businessId: biz, callId: CALL_ID, mime: "audio/webm", base64: RECORDING });
+    expect(refused).toMatchObject({ status: 429, body: { error: { code: "speech_daily_limit", details: { limit: ceiling } } } });
+    expect(rateLimits.peek(transcriptionDayKey(biz), NOW)).toBe(ceiling - bytes + 1);
   });
 });

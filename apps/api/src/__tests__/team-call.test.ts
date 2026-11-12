@@ -11,7 +11,7 @@ import { repos } from "@foundmill/db";
 import { MockModelClient, type ModelClient } from "@foundmill/models";
 import { SPEECH_ACCENTS, TEAM_CALL_LIMITS } from "@foundmill/shared";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
-import { FILED_AT_ONCE, modelRoundsOf, routeOf } from "../services/team-call";
+import { FILED_AT_ONCE, modelRoundsOf, onlyYourWords, routeOf } from "../services/team-call";
 import { createApiHarness, type ApiHarness } from "./harness";
 
 let hz: ApiHarness;
@@ -111,9 +111,9 @@ describe("teamCall.say and continue", () => {
     expect(after.agentRoundsSinceFounder).toBe(0);
   });
 
-  it("counts model rounds by the instants their turns were written", () => {
-    const at = (s: number) => new Date(Date.UTC(2026, 10, 12, 10, 0, s));
-    expect(modelRoundsOf([{ speaker: "agent", createdAt: at(1) }, { speaker: "agent", createdAt: at(1) }, { speaker: "founder", createdAt: at(2) }, { speaker: "agent", createdAt: at(3) }])).toBe(2);
+  it("counts model rounds, not turns: a round's turns are written a millisecond apart", () => {
+    const at = (s: number, ms = 0) => new Date(Date.UTC(2026, 10, 12, 10, 0, s, ms));
+    expect(modelRoundsOf([{ speaker: "agent", createdAt: at(1, 0) }, { speaker: "agent", createdAt: at(1, 1) }, { speaker: "founder", createdAt: at(2) }, { speaker: "agent", createdAt: at(9, 0) }, { speaker: "agent", createdAt: at(9, 1) }, { speaker: "agent", createdAt: at(20) }])).toBe(3);
   });
 });
 
@@ -211,6 +211,19 @@ describe("routing an action", () => {
     expect(routeOf(e("send_message", "deny"), all).route).toBe("refuse");
     expect(routeOf(e("create_task", "allow", { kind: "code" }), () => false).route).toBe("refuse");
     expect([...FILED_AT_ONCE]).toEqual(expect.arrayContaining(["create_task", "update_roadmap"]));
+  });
+
+  it("stages a task that would reach outside or spend once it runs", () => {
+    const all = () => true;
+    expect(routeOf(e("create_task", "allow", { kind: "channel", title: "Email the waitlist" }), all).route).toBe("stage");
+    expect(routeOf(e("create_task", "allow", { kind: "research", channel: "email_automation" }), all).route).toBe("stage");
+    expect(routeOf(e("create_task", "allow", { kind: "ops", budget_minor: 5000 }), all).route).toBe("stage");
+  });
+
+  it("stages what would be filed at once when someone else spoke on the call", () => {
+    expect(onlyYourWords({ route: "file", reason: null }, true).route).toBe("stage");
+    expect(onlyYourWords({ route: "file", reason: null }, false).route).toBe("file");
+    expect(onlyYourWords({ route: "refuse", reason: "x" }, true).route).toBe("refuse");
   });
 });
 

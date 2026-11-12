@@ -76,6 +76,8 @@ export interface TranscribeSpeechResponse {
 
 /** The business's spoken characters today (a UTC-day window; the store appends the window start). */
 export const speechDayKey = (businessId: string): string => `sp:${businessId}:day`;
+/** Redis key of a business's transcribed audio today, in bytes (`TEAM_CALL_LIMITS.transcriptionBytesPerBusinessPerDay`). */
+export const transcriptionDayKey = (businessId: string): string => `st:${businessId}:day`;
 
 const NIL_ID = "00000000-0000-0000-0000-000000000000";
 const VENDOR_CODE = /^[a-z][a-z0-9_]{0,59}$/;
@@ -226,13 +228,38 @@ export async function synthesizeSpeech(deps: GatewayDeps, input: SynthesizeSpeec
 export async function transcribeSpeech(deps: GatewayDeps, input: TranscribeSpeechRequest, service: string): Promise<TranscribeSpeechResponse> {
   if (!(TEAM_CALL_AUDIO_MIMES as readonly string[]).includes(input.mime)) throw new GatewayError("unsupported_audio", "That recording type is not supported", 400);
   if (!/^[A-Za-z0-9+/]+={0,2}$/.test(input.base64) || input.base64.length % 4 !== 0) throw new GatewayError("validation", "The recording is not valid base64", 400);
-  if (decodedBytes(input.base64) > TEAM_CALL_LIMITS.maxAudioBytes) throw new GatewayError("audio_too_large", `A recording can be at most ${TEAM_CALL_LIMITS.maxAudioBytes / 1024 / 1024} MiB`, 413);
+  if (decodedBytes(input.base64) > TEAM_CALL_LIMITS.maxAudioBytes) throw new GatewayError("audio_too_large", `A recording can be at most ${(TEAM_CALL_LIMITS.maxAudioBytes / 1_000_000).toFixed(1)} MB`, 413);
 
   const prepared = await prepare(deps, input.businessId);
   const { mode } = prepared;
-  const result = await runTool(deps, prepared, "transcribe_speech", { mime: input.mime, base64: input.base64 }, async () => {});
+  const nowMs = prepared.now().getTime();
+
+  // The business's transcribed audio today (security review M3): the same counting and give-back as spoken characters.
+  const dayKey = transcriptionDayKey(input.businessId);
+  const bytes = decodedBytes(input.base64);
+  const hit = await deps.rateLimits.hit(dayKey, DAY_MS, nowMs, bytes);
+  let counted = true;
+  const giveBack = async () => {
+    if (!counted) return;
+    counted = false;
+    await deps.rateLimits.release?.(dayKey, DAY_MS, nowMs, bytes);
+  };
+  if (mode === "live" && !devStack(deps) && deps.rateLimits.durable !== true) {
+    await giveBack();
+    throw new GatewayError("speech_store_unavailable", "Speech is paused for a moment while the server's counters recover. Try again shortly.", 503);
+  }
+  if (hit.count > TEAM_CALL_LIMITS.transcriptionBytesPerBusinessPerDay) {
+    await giveBack();
+    throw new GatewayError("speech_daily_limit", "Your team has listened to as much as one project can in a day. Listening starts again tomorrow; you can keep going by typing.", 429, {
+      retryAfterSeconds: Math.max(1, Math.ceil((hit.resetAt - nowMs) / 1000)),
+      limit: TEAM_CALL_LIMITS.transcriptionBytesPerBusinessPerDay,
+    });
+  }
+
+  const result = await runTool(deps, prepared, "transcribe_speech", { mime: input.mime, base64: input.base64 }, giveBack);
   if (!result.ok) {
     const failure = speechFailure(result.error);
+    if (failure.nothingDone) await giveBack();
     deps.log.warn({ businessId: input.businessId, callId: input.callId, code: result.error?.code, status: result.error?.status, vendorCode: failure.details.vendorCode }, "transcription refused");
     throw new GatewayError(failure.code, failure.message, failure.status, failure.details);
   }

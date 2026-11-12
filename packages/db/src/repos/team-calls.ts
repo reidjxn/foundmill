@@ -22,6 +22,9 @@
  */
 import { PLAN_ACTION_TYPES, TEAM_CALL_ACTION_STATUSES, TEAM_CALL_KINDS, TEAM_CALL_LIMITS, TEAM_CALL_TARGET_KINDS, uuid, ValidationError } from "@foundmill/shared";
 import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
+
+/** A wrap-up older than this whose call is still `wrapping_up` was lost with its request: it may be claimed again. */
+export const WRAP_UP_STALE_MS = 10 * 60_000;
 import { z } from "zod";
 import { planActions, plans, TEAM_CALL_TURN_VIA, teamCallActions, teamCalls, teamCallTurns, type NewTeamCallAction, type TeamCall, type TeamCallAction, type TeamCallTurn } from "../schema";
 import { assertAgentsOwned, assertDepartmentsOwned } from "./_refs";
@@ -284,7 +287,9 @@ export const teamCallsRepo = {
     const rows = await db
       .update(teamCalls)
       .set({ status: "wrapping_up", updatedAt: new Date() })
-      .where(and(scoped(businessId, id), eq(teamCalls.status, "live")))
+      // A wrap-up whose request died (its process gone between the claim and `finish`) may be claimed again after
+      // `WRAP_UP_STALE_MS`, so a call is never stuck "being written up".
+      .where(and(scoped(businessId, id), sql`(${teamCalls.status} = 'live' or (${teamCalls.status} = 'wrapping_up' and ${teamCalls.updatedAt} < now() - make_interval(secs => ${WRAP_UP_STALE_MS / 1000})))`))
       .returning({ id: teamCalls.id });
     if (rows.length > 0) return true;
     await teamCallsRepo.get(db, businessId, id);

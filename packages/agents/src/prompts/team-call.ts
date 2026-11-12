@@ -470,6 +470,15 @@ function spokenPlain(text: string): string {
 }
 
 /** Cut at the last sentence end within `max` characters; a text without one is cut at a word, ending with a period. */
+/** Every string anywhere in a value (nested arrays and objects too), so a gated step hidden in `acceptance[]` is still seen. */
+export function nestedStrings(value: unknown, out: string[] = [], depth = 0): string[] {
+  if (depth > 6) return out;
+  if (typeof value === "string") out.push(value);
+  else if (Array.isArray(value)) for (const v of value) nestedStrings(v, out, depth + 1);
+  else if (value && typeof value === "object") for (const v of Object.values(value)) nestedStrings(v, out, depth + 1);
+  return out;
+}
+
 export function cutAtSentence(text: string, max: number): string {
   const t = text.trim();
   if (t.length <= max) return t;
@@ -805,7 +814,7 @@ export function finaliseTeamCallWrapUp(draft: unknown, ctx: TeamCallWrapUpContex
     // A hard gate is the founder's own step, and so is approving a spend: never an automated action.
     // What would be executed is scanned: the title and the params (a task's goal is its detail when it has none).
     if (type === "create_task" && !str(params.goal) && detail) params.goal = detail;
-    const gates = type === "request_human_action" ? [] : detectHardGates([title, ...Object.values(params).filter((v): v is string => typeof v === "string")].join(". "));
+    const gates = type === "request_human_action" ? [] : detectHardGates([title, ...nestedStrings(params)].join(". "));
     if (gates.length > 0 || type === "approve_spend") {
       repairs.push(type === "approve_spend" ? "a spend approval became the founder's step" : "a hard gate became the founder's step");
       params = { request: title, instructions: gates[0]?.instruction ?? TEAM_CALL_SPEND_STEP, ...(gates[0] ? { gate: gates[0].gate } : {}), ...(typeof params.amount_minor === "number" ? { amount_minor: params.amount_minor, currency: params.currency ?? null } : {}) };
