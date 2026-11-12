@@ -165,7 +165,7 @@ export const TENANT_TABLES: TenantTableSpec[] = [
   spec("agent_messages", s.agentMessages, "member", (f) => ({ threadId: f.agentThreadId, authorKind: "agent", agentId: f.agentId, bubbles: [uniq("bubble")] })),
   // 0082 Team call (the desk's access model; turns and action items are insert-only for app roles; rls/team-calls.test.ts has the rest)
   spec("team_calls", s.teamCalls, "member", (f) => ({ kind: "one_to_one", agentIds: [f.agentId], startedBy: f.memberId, topic: uniq("topic") })),
-  spec("team_call_turns", s.teamCallTurns, "append", (f) => ({ callId: f.teamCallId, seq: 1000 + counter(), speaker: "agent", agentId: f.agentId, text: uniq("What is on your mind?"), addressedTo: "founder" }), { text: "tampered" }),
+  spec("team_call_turns", s.teamCallTurns, "append", (f) => ({ callId: f.teamCallId, seq: 1000 + counter(), speaker: "founder", userId: f.memberId, via: "typed", text: uniq("What is on our list?") }), { text: "tampered" }),
   spec("team_call_actions", s.teamCallActions, "append", (f) => ({ callId: f.teamCallId, position: 1000 + counter(), actionType: "create_task", title: uniq("Draft the launch email"), status: "not_filed", reason: "Example" }), { title: "tampered" }),
 ];
 

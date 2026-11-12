@@ -42,7 +42,7 @@ export const teamCallRouter = router({
    */
   sharing: router({
     get: protectedProcedure.query(({ ctx }) => oneToOneSharing(ctx.userId, asUserOf(ctx))),
-    set: protectedProcedure.input(z.object({ share: z.boolean() })).mutation(({ ctx, input }) => setOneToOneSharing(ctx, asUserOf(ctx), input.share)),
+    set: protectedProcedure.input(z.object({ share: z.boolean() })).mutation(({ input, ctx }) => setOneToOneSharing(asUserOf(ctx), input.share)),
   }),
 
   /** Whether accents and transcription are real here, or the browser's own stand in. No model call. */

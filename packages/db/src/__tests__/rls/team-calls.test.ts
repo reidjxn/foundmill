@@ -106,7 +106,7 @@ describe("team calls (0082): viewers never write", () => {
   for (const who of ["viewer", "example viewer"] as const) {
     it(`a ${who} reads A's calls and writes none of them`, async () => {
       const userId = who === "viewer" ? A.viewerId : exampleViewerId;
-      const call = await h.asUser(A.memberId).run((tx) => repos.teamCalls.create(tx, A.businessId, { kind: "one_to_one", agentIds: [A.agentId], startedBy: A.memberId }));
+      const call = await h.asUser(A.memberId).run((tx) => repos.teamCalls.create(tx, A.businessId, { kind: "team", agentIds: [A.agentId], startedBy: A.memberId }));
       expect((await h.asUser(userId).run((tx) => repos.teamCalls.get(tx, A.businessId, call.id))).id).toBe(call.id);
       await expect(h.asUser(userId).run((tx) => repos.teamCalls.create(tx, A.businessId, { kind: "one_to_one", agentIds: [A.agentId], startedBy: userId }))).rejects.toThrow(RLS_DENIED);
       // The row lock is an update: a reader takes none, so the call is not found to append to.
@@ -229,8 +229,10 @@ describe("plans.origin (0082)", () => {
 });
 
 describe("one-to-one calls are private by default (0082)", () => {
-  it("only the person who made a private call reads it, its turns and its actions, or speaks on it; shared, every member does", async () => {
-    const callId = await h.asUser(A.memberId).run(async (tx) => (await repos.teamCalls.create(tx, A.businessId, { kind: "one_to_one", agentIds: [A.agentId], startedBy: A.memberId, visibility: "private" })).id);
+  it("only the person who made a private call reads it, its turns and its actions, or speaks on it", async () => {
+    // The database decides from the person's own setting, whatever the caller asks for.
+    const callId = await h.asUser(A.memberId).run(async (tx) => (await repos.teamCalls.create(tx, A.businessId, { kind: "one_to_one", agentIds: [A.agentId], startedBy: A.memberId, visibility: "project" })).id);
+    expect((await h.asUser(A.memberId).run((tx) => repos.teamCalls.get(tx, A.businessId, callId))).visibility).toBe("private");
     await h.asUser(A.memberId).run((tx) => repos.teamCalls.appendTurns(tx, A.businessId, callId, [say(A.memberId, "Just between us")]));
     expect((await h.asUser(A.memberId).run((tx) => repos.teamCalls.turns(tx, A.businessId, callId))).map((t) => t.text)).toEqual(["Just between us"]);
     // The owner of the business sees none of it, and cannot add to it.
@@ -241,20 +243,39 @@ describe("one-to-one calls are private by default (0082)", () => {
     await expect(h.asUser(A.ownerId).run((tx) => tx.insert(s.teamCallTurns).values({ businessId: A.businessId, callId, seq: 50, speaker: "founder", userId: A.ownerId, text: "Let me in" }))).rejects.toThrow();
     // A team call is always the project's.
     await expect(h.asUser(A.memberId).run((tx) => repos.teamCalls.create(tx, A.businessId, { kind: "team", agentIds: [A.agentId], startedBy: A.memberId, visibility: "private" }))).rejects.toThrow();
-    // Sharing (the service connection, from the person's setting) opens it to the project, and back.
-    expect(await repos.teamCalls.setOneToOneVisibilityForPerson(h.db, A.memberId, "project")).toBeGreaterThan(0);
-    expect((await h.asUser(A.ownerId).run((tx) => repos.teamCalls.turns(tx, A.businessId, callId))).map((t) => t.text)).toEqual(["Just between us"]);
-    await repos.teamCalls.setOneToOneVisibilityForPerson(h.db, A.memberId, "private");
-    expect(await h.asUser(A.ownerId).run((tx) => repos.teamCalls.turns(tx, A.businessId, callId))).toEqual([]);
     // An app role cannot change visibility itself.
     await expect(h.asUser(A.memberId).run((tx) => tx.update(s.teamCalls).set({ visibility: "project" }).where(eq(s.teamCalls.id, callId)))).rejects.toThrow();
   });
 
-  it("keeps the sharing choice per person, off by default", async () => {
+  it("sharing changes the setting and the person's calls together; shared calls are read by the project but spoken on only by their person", async () => {
+    const callId = await h.asUser(A.adminId).run(async (tx) => (await repos.teamCalls.create(tx, A.businessId, { kind: "one_to_one", agentIds: [A.agentId], startedBy: A.adminId })).id);
+    await h.asUser(A.adminId).run((tx) => repos.teamCalls.appendTurns(tx, A.businessId, callId, [say(A.adminId, "Thinking out loud")]));
     expect(await h.asUser(A.adminId).run((tx) => repos.preferences.shareOneToOneCalls(tx, A.adminId))).toBe(false);
-    expect(await h.asUser(A.adminId).run((tx) => repos.preferences.setShareOneToOneCalls(tx, A.adminId, true))).toBe(true);
+    const shared = await h.asUser(A.adminId).run((tx) => repos.preferences.setShareOneToOneCalls(tx, true));
+    expect(shared.share).toBe(true);
+    expect(shared.calls).toBeGreaterThanOrEqual(1);
     expect(await h.asUser(A.adminId).run((tx) => repos.preferences.shareOneToOneCalls(tx, A.adminId))).toBe(true);
+    // Read by the project now…
+    expect((await h.asUser(A.ownerId).run((tx) => repos.teamCalls.turns(tx, A.businessId, callId))).map((t) => t.text)).toEqual(["Thinking out loud"]);
+    // …but nobody else speaks on it, ends it or changes it.
+    await expect(h.asUser(A.ownerId).run((tx) => repos.teamCalls.appendTurns(tx, A.businessId, callId, [say(A.ownerId, "Me too")]))).rejects.toThrow();
+    expect(await h.asUser(A.ownerId).run((tx) => repos.teamCalls.claimWrapUp(tx, A.businessId, callId)).catch(() => false)).toBe(false);
+    // A new call follows the setting.
+    const next = await h.asUser(A.adminId).run((tx) => repos.teamCalls.create(tx, A.businessId, { kind: "one_to_one", agentIds: [A.agentId], startedBy: A.adminId }));
+    expect(next.visibility).toBe("project");
+    // Off again: private again, and changing it twice reports no calls the second time.
+    expect((await h.asUser(A.adminId).run((tx) => repos.preferences.setShareOneToOneCalls(tx, false))).calls).toBeGreaterThanOrEqual(2);
+    expect((await h.asUser(A.adminId).run((tx) => repos.preferences.setShareOneToOneCalls(tx, false))).calls).toBe(0);
+    expect(await h.asUser(A.ownerId).run((tx) => repos.teamCalls.turns(tx, A.businessId, callId))).toEqual([]);
+    // Nobody else's calls move: the member's private call above stays private for the admin's switch.
     expect(await h.asUser(A.memberId).run((tx) => repos.preferences.shareOneToOneCalls(tx, A.memberId))).toBe(false);
+  });
+
+  it("no member writes an agent's turn: agent turns are the service's", async () => {
+    const callId = await h.asUser(A.memberId).run(async (tx) => (await repos.teamCalls.create(tx, A.businessId, { kind: "team", agentIds: [A.agentId], startedBy: A.memberId })).id);
+    await expect(h.asUser(A.memberId).run((tx) => repos.teamCalls.appendTurns(tx, A.businessId, callId, [reply(A.agentId, "Planted words")]))).rejects.toThrow();
+    const written = await repos.teamCalls.appendTurns(h.db, A.businessId, callId, [reply(A.agentId, "The api's own words")]);
+    expect(written.turns[0]!.speaker).toBe("agent");
   });
 });
 

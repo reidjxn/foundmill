@@ -156,16 +156,6 @@ export const teamCallsRepo = {
     return row!;
   },
 
-  /**
-   * Every one-to-one call this person made, in every business, to `visibility` (Settings › Preferences, "Share my
-   * one-to-one calls"). Service connection only: no app role may change a call's visibility (no column grant).
-   */
-  async setOneToOneVisibilityForPerson(db: Executor, userId: string, visibility: "project" | "private"): Promise<number> {
-    const id = parseInput(Id, userId, "user id");
-    const rows = await db.update(teamCalls).set({ visibility, updatedAt: new Date() }).where(and(eq(teamCalls.startedBy, id), eq(teamCalls.kind, "one_to_one"))).returning({ id: teamCalls.id });
-    return rows.length;
-  },
-
   /** The call, or a NotFoundError (also for another business's call). */
   async get(db: Executor, businessId: string, callId: string): Promise<TeamCall> {
     const id = parseInput(Id, callId, "team call id");

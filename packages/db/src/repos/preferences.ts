@@ -202,10 +202,15 @@ export const preferencesRepo = {
     return row?.v ?? false;
   },
 
-  /** Changes the one-to-one call sharing choice (creating the row on the first change); returns it. */
-  async setShareOneToOneCalls(db: Executor, userId: string, share: boolean): Promise<boolean> {
+  /**
+   * Changes the signed-in person's one-to-one call sharing and, in the same statement, the visibility of every
+   * one-to-one call they made in a business they still belong to (`fm_set_share_one_to_one_calls`, security definer,
+   * keyed on `auth.uid()`). Run it as the person (`withRls`): it changes nobody else's calls. Returns the calls changed.
+   */
+  async setShareOneToOneCalls(db: Executor, share: boolean): Promise<{ share: boolean; calls: number }> {
     const v = parseInput(z.boolean(), share, "one-to-one call sharing");
-    const rows = await db.insert(accountPreferences).values({ userId, shareOneToOneCalls: v }).onConflictDoUpdate({ target: accountPreferences.userId, set: { shareOneToOneCalls: v } }).returning({ v: accountPreferences.shareOneToOneCalls });
-    return one(rows, "preferences", userId).v;
+    const rows = (await db.execute(sql`select fm_set_share_one_to_one_calls(${v}) as calls`)) as unknown as { calls: number }[] | { rows: { calls: number }[] };
+    const list = Array.isArray(rows) ? rows : rows.rows;
+    return { share: v, calls: Number(list[0]?.calls ?? 0) };
   },
 };

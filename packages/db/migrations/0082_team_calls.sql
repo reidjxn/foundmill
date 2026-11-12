@@ -263,3 +263,77 @@ drop policy team_call_actions_insert on team_call_actions;
 --> statement-breakpoint
 create policy team_call_actions_insert on team_call_actions for insert
   with check (has_role(business_id, array['owner','admin','member']) and exists (select 1 from team_calls c where c.id = team_call_actions.call_id and c.business_id = team_call_actions.business_id and fm_team_call_visible(c.business_id, c.kind, c.visibility, c.started_by)));
+--> statement-breakpoint
+-- Second security review of the privacy change (Nov 12, 2026). (1) Who may speak and end: on a one-to-one call only the
+-- person who made it, even once shared (sharing grants reading only); on a team call every writer. (2) App roles write
+-- only their own founder turns; agent turns are written by the api on the service connection, so nobody can put words
+-- in an agent's mouth on a call. (3) The database, not the api, decides a new one-to-one call's visibility from the
+-- person's own setting (fail closed: no row reads as not shared), and one security-definer function changes the
+-- setting and that person's calls together, in the businesses they still belong to.
+create function fm_team_call_may_speak(b uuid, call_kind text, call_visibility text, call_started_by uuid) returns boolean
+language sql stable set search_path = public as $$
+  select fm_team_call_visible(b, call_kind, call_visibility, call_started_by) and (call_kind = 'team' or call_started_by = auth.uid())
+$$;
+--> statement-breakpoint
+grant execute on function fm_team_call_may_speak(uuid, text, text, uuid) to authenticated, service_role;
+--> statement-breakpoint
+drop policy team_calls_update on team_calls;
+--> statement-breakpoint
+create policy team_calls_update on team_calls for update
+  using (has_role(business_id, array['owner','admin','member']) and fm_team_call_may_speak(business_id, kind, visibility, started_by))
+  with check (has_role(business_id, array['owner','admin','member']) and fm_team_call_may_speak(business_id, kind, visibility, started_by));
+--> statement-breakpoint
+drop policy team_call_turns_insert on team_call_turns;
+--> statement-breakpoint
+create policy team_call_turns_insert on team_call_turns for insert
+  with check (speaker = 'founder' and has_role(business_id, array['owner','admin','member']) and exists (select 1 from team_calls c where c.id = team_call_turns.call_id and c.business_id = team_call_turns.business_id and fm_team_call_may_speak(c.business_id, c.kind, c.visibility, c.started_by)));
+--> statement-breakpoint
+drop policy team_call_actions_insert on team_call_actions;
+--> statement-breakpoint
+create policy team_call_actions_insert on team_call_actions for insert
+  with check (has_role(business_id, array['owner','admin','member']) and exists (select 1 from team_calls c where c.id = team_call_actions.call_id and c.business_id = team_call_actions.business_id and fm_team_call_may_speak(c.business_id, c.kind, c.visibility, c.started_by)));
+--> statement-breakpoint
+create or replace function fm_team_calls_insert_guard() returns trigger
+language plpgsql set search_path = public as $$
+begin
+  if current_user in ('authenticated', 'anon') then
+    if new.started_by is distinct from auth.uid() or new.status <> 'live' or new.turn_count <> 0 or new.agent_rounds_since_founder <> 0
+       or new.summary is not null or new.ended_at is not null then
+      raise exception 'permission denied: a call starts live, as the person starting it' using errcode = '42501';
+    end if;
+    if exists (select 1 from unnest(new.agent_ids) as a(id) where not exists (select 1 from agents g where g.id = a.id and g.business_id = new.business_id)) then
+      raise exception 'permission denied: every agent on a call is one of the business''s agents' using errcode = '42501';
+    end if;
+    -- The person's own setting decides, whatever the caller asked; no row (never chose) is private.
+    if new.kind = 'one_to_one' then
+      new.visibility := case when coalesce((select p.share_one_to_one_calls from account_preferences p where p.user_id = auth.uid()), false) then 'project' else 'private' end;
+    else
+      new.visibility := 'project';
+    end if;
+  end if;
+  return new;
+end;
+$$;
+--> statement-breakpoint
+create function fm_set_share_one_to_one_calls(share boolean) returns integer
+language plpgsql security definer set search_path = public as $$
+declare
+  me uuid := auth.uid();
+  target text := case when share then 'project' else 'private' end;
+  changed integer;
+begin
+  if me is null or share is null then
+    raise exception 'permission denied: a person changes their own setting' using errcode = '42501';
+  end if;
+  insert into account_preferences (user_id, share_one_to_one_calls) values (me, share)
+    on conflict (user_id) do update set share_one_to_one_calls = excluded.share_one_to_one_calls;
+  update team_calls set visibility = target, updated_at = now()
+    where started_by = me and kind = 'one_to_one' and visibility <> target and is_member(business_id);
+  get diagnostics changed = row_count;
+  return changed;
+end;
+$$;
+--> statement-breakpoint
+revoke all on function fm_set_share_one_to_one_calls(boolean) from public, anon;
+--> statement-breakpoint
+grant execute on function fm_set_share_one_to_one_calls(boolean) to authenticated;

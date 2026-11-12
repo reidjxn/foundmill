@@ -225,10 +225,9 @@ export async function oneToOneSharing(userId: string, asUser: <T>(fn: (tx: DbTx)
  * their choice, past ones too). The calls are changed on the service connection: no app role may change a call's
  * visibility.
  */
-export async function setOneToOneSharing(ctx: { db: BusinessContext["db"]; userId: string }, asUser: <T>(fn: (tx: DbTx) => Promise<T>) => Promise<T>, share: boolean): Promise<{ share: boolean; calls: number }> {
-  const saved = await asUser((tx) => repos.preferences.setShareOneToOneCalls(tx, ctx.userId, share));
-  const calls = await repos.teamCalls.setOneToOneVisibilityForPerson(ctx.db, ctx.userId, saved ? "project" : "private");
-  return { share: saved, calls };
+export async function setOneToOneSharing(asUser: <T>(fn: (tx: DbTx) => Promise<T>) => Promise<T>, share: boolean): Promise<{ share: boolean; calls: number }> {
+  // The setting and the person's calls change together, in one statement, as the person (security review, Nov 12).
+  return asUser((tx) => repos.preferences.setShareOneToOneCalls(tx, share));
 }
 
 export async function listTeamCalls(ctx: BusinessContext, limit = 20): Promise<TeamCallSummaryView[]> {
@@ -395,14 +394,14 @@ async function runRound(ctx: BusinessContext, callId: string, mode: TeamCallTurn
   const final = finaliseTeamCallTurns(result.json, teamCallTurnsContext(input));
   const at = new Date();
   try {
-    const stored = await ctx.rls((tx) =>
-      repos.teamCalls.appendTurns(
-        tx,
-        ctx.businessId,
-        callId,
-        final.turns.map((t) => ({ speaker: "agent" as const, agentId: t.agentId, text: t.text, to: t.to })),
-        { agentRound: mode === "continue", at },
-      ),
+    // Agent turns are the api's own words for the agents: written on the service connection, never by a member's role
+    // (app roles may write only their own founder turns), after this person's read of the call above passed RLS.
+    const stored = await repos.teamCalls.appendTurns(
+      ctx.db,
+      ctx.businessId,
+      callId,
+      final.turns.map((t) => ({ speaker: "agent" as const, agentId: t.agentId, text: t.text, to: t.to })),
+      { agentRound: mode === "continue", at },
     );
     const rounds = stored.call.agentRoundsSinceFounder;
     return { founderTurn: null, turns: stored.turns.map(toTurnView), handBack: final.handBack || rounds >= TEAM_CALL_LIMITS.agentRoundsWithoutFounder, agentRoundsSinceFounder: rounds };
@@ -588,13 +587,15 @@ async function wrapUp(ctx: BusinessContext, callId: string): Promise<TeamCallVie
   const durationSeconds = Math.max(0, Math.round((Date.now() - new Date(call.startedAt).getTime()) / 1000));
 
   const written = await ctx.rls(async (tx) => {
+    // Visibility as it is now, not as it was before the model call (the person may have changed their setting since).
+    const visibility = (await repos.teamCalls.get(tx, ctx.businessId, callId)).visibility;
     const filedPlan = filed.length
       ? await repos.plans.create(tx, ctx.businessId, { origin: "team_call", summaryMd: `What you agreed on your team call: ${filed.map((s) => s.title).join("; ")}`.slice(0, 4000), inboxItemId: null, status: "executing", actions: filed.map((s) => stagedAction(s.evaluation)) })
       : null;
     const exec = filedPlan ? await executePlanActions(tx, ctx.businessId, filedPlan, { actorUserId: ctx.userId, temporal: ctx.temporal, currency: planCtx.currency, availability: ctx }) : null;
     const filedAfter = filedPlan ? await repos.plans.get(tx, ctx.businessId, filedPlan.id) : null;
 
-    const lines = sorted.map((s) => `- ${s.title}${s.route === "stage" ? ` (${TEAM_CALL_WORDS.awaiting.toLowerCase()})` : s.route === "refuse" ? ` (${TEAM_CALL_WORDS.notFiled.toLowerCase()})` : ""}`);
+    const lines = sorted.filter((s) => visibility !== "private" || s.route !== "refuse").map((s) => `- ${s.title}${s.route === "stage" ? ` (${TEAM_CALL_WORDS.awaiting.toLowerCase()})` : s.route === "refuse" ? ` (${TEAM_CALL_WORDS.notFiled.toLowerCase()})` : ""}`);
     const statuses = sorted.map((s) => ({ status: statusOf(s) }));
     const note = chief
       ? await repos.inbox.createItem(tx, ctx.businessId, {
@@ -602,7 +603,7 @@ async function wrapUp(ctx: BusinessContext, callId: string): Promise<TeamCallVie
           from_agent_id: chief.id,
           subject: call.kind === "team" ? "Notes from your team call" : "Notes from your call",
           // A private call's note (the Inbox is the project's) says what it filed and what waits, never what was said.
-          body_md: (call.visibility === "private" ? [teamCallActionsLine(statuses), ...(lines.length ? ["", ...lines] : [])] : [summary, "", teamCallActionsLine(statuses), ...(lines.length ? ["", ...lines] : [])]).join("\n").slice(0, 8000),
+          body_md: (visibility === "private" ? [teamCallActionsLine(statuses), ...(lines.length ? ["", ...lines] : [])] : [summary, "", teamCallActionsLine(statuses), ...(lines.length ? ["", ...lines] : [])]).join("\n").slice(0, 8000),
           status_strip: [],
           exhibit: { kind: "none", spec_ref: null },
           decision: null,

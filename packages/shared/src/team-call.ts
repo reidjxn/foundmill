@@ -380,7 +380,7 @@ export const TEAM_CALL_WORDS = {
   noMic: "Your browser did not give access to the microphone. You can type instead.",
   privateCall: "Only you can see this call",
   shareSettingTitle: "Share my one-to-one calls",
-  shareSettingHint: "Off: only you can see your calls with one agent. On: everyone on the project can read them. Team calls are always the project's, and what a call files (tasks, roadmap items) is the project's either way.",
+  shareSettingHint: "Off: only you can see your calls with one agent. On: everyone on the project can read them, and only you can speak on them. Team calls are always the project's, and so is what a call files (tasks, roadmap items). Notes already sent to the project's Inbox stay when you switch this off.",
 } as const;
 
 /** "3 filed · 1 needs your go-ahead": the line under a finished call. */

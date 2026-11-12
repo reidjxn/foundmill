@@ -1,4 +1,4 @@
-/** repos.teamCalls (0082): turns numbered under the call's lock, retried sends, the counters, the limits, the wrap-up. */
+/** repos.teamCalls (0082; agent turns are the service's, as the api writes them): turns numbered under the call's lock, retried sends, the counters, the limits, the wrap-up. */
 import { NotFoundError, TEAM_CALL_LIMITS, ValidationError } from "@foundmill/shared";
 import { eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -32,7 +32,7 @@ describe("teamCalls.create / get", () => {
 describe("teamCalls.appendTurns", () => {
   it("numbers turns 1, 2, 3… across rounds and keeps them in speaking order", async () => {
     const call = await start();
-    const first = await r.as(r.A.ownerId, (tx) => repos.teamCalls.appendTurns(tx, r.A.businessId, call.id, [reply(r.A.agentId, "What is on your mind?"), reply(r.A.agent2Id, "I can talk about the build.", { agentId: r.A.agentId })]));
+    const first = await r.svc((tx) => repos.teamCalls.appendTurns(tx, r.A.businessId, call.id, [reply(r.A.agentId, "What is on your mind?"), reply(r.A.agent2Id, "I can talk about the build.", { agentId: r.A.agentId })]));
     expect(first.turns.map((t) => [t.seq, t.speaker, t.agentId])).toEqual([
       [1, "agent", r.A.agentId],
       [2, "agent", r.A.agent2Id],
@@ -49,7 +49,7 @@ describe("teamCalls.appendTurns", () => {
 
   it("two sends at once get different numbers (the call's row is locked)", async () => {
     const call = await start();
-    const results = await Promise.all(Array.from({ length: 4 }, (_, i) => r.as(r.A.ownerId, (tx) => repos.teamCalls.appendTurns(tx, r.A.businessId, call.id, [say(r.A.ownerId, `Point ${i}`, `p-${i}`), reply(r.A.agentId, `Answer ${i}`)]))));
+    const results = await Promise.all(Array.from({ length: 4 }, (_, i) => r.svc((tx) => repos.teamCalls.appendTurns(tx, r.A.businessId, call.id, [say(r.A.ownerId, `Point ${i}`, `p-${i}`), reply(r.A.agentId, `Answer ${i}`)]))));
     const seqs = results.flatMap((x) => x.turns.map((t) => t.seq)).sort((a, b) => a - b);
     expect(seqs).toEqual([1, 2, 3, 4, 5, 6, 7, 8]);
     for (const x of results) expect(x.turns[1]!.seq).toBe(x.turns[0]!.seq + 1);
@@ -59,13 +59,13 @@ describe("teamCalls.appendTurns", () => {
   it("a repeated client turn id returns the turn already written and writes nothing, even after the call moved on", async () => {
     const call = await start();
     const once = await r.as(r.A.ownerId, (tx) => repos.teamCalls.appendTurns(tx, r.A.businessId, call.id, [say(r.A.ownerId, "Price it at $20", "same")]));
-    await r.as(r.A.ownerId, (tx) => repos.teamCalls.appendTurns(tx, r.A.businessId, call.id, [reply(r.A.agentId, "Twenty works.")]));
+    await r.svc((tx) => repos.teamCalls.appendTurns(tx, r.A.businessId, call.id, [reply(r.A.agentId, "Twenty works.")]));
     const again = await r.as(r.A.ownerId, (tx) => repos.teamCalls.appendTurns(tx, r.A.businessId, call.id, [say(r.A.ownerId, "Price it at $20", "same")]));
     expect(again.turns[0]!.id).toBe(once.turns[0]!.id);
     expect(again.replayedTurnIds).toEqual([once.turns[0]!.id]);
     expect(again.call.turnCount).toBe(2);
     // The counters are untouched by a replay: an agent round after it still counts.
-    await r.as(r.A.ownerId, (tx) => repos.teamCalls.appendTurns(tx, r.A.businessId, call.id, [reply(r.A.agentId, "More on that.")], { agentRound: true }));
+    await r.svc((tx) => repos.teamCalls.appendTurns(tx, r.A.businessId, call.id, [reply(r.A.agentId, "More on that.")], { agentRound: true }));
     expect((await r.as(r.A.ownerId, (tx) => repos.teamCalls.appendTurns(tx, r.A.businessId, call.id, [say(r.A.ownerId, "Price it at $20", "same")]))).call.agentRoundsSinceFounder).toBe(1);
     // Two concurrent sends of the same id: one turn.
     const [x, y] = await Promise.all([1, 2].map(() => r.as(r.A.ownerId, (tx) => repos.teamCalls.appendTurns(tx, r.A.businessId, call.id, [say(r.A.ownerId, "Ship Friday", "race")]))));
@@ -81,7 +81,7 @@ describe("teamCalls.appendTurns", () => {
   it("a founder turn resets the agent rounds; an agent-only round adds one; the limit refuses one more", async () => {
     const call = await start();
     const rounds = async (turns: Parameters<typeof repos.teamCalls.appendTurns>[3], agentRound?: boolean) =>
-      (await r.as(r.A.ownerId, (tx) => repos.teamCalls.appendTurns(tx, r.A.businessId, call.id, turns, { agentRound }))).call.agentRoundsSinceFounder;
+      (await r.svc((tx) => repos.teamCalls.appendTurns(tx, r.A.businessId, call.id, turns, { agentRound }))).call.agentRoundsSinceFounder;
     expect(await rounds([reply(r.A.agentId, "Opening.")])).toBe(0);
     for (let i = 1; i <= TEAM_CALL_LIMITS.agentRoundsWithoutFounder; i++) expect(await rounds([reply(r.A.agentId, `Round ${i}`), reply(r.A.agent2Id, `Builds on ${i}`)], true)).toBe(i);
     await expect(rounds([reply(r.A.agentId, "One more")], true)).rejects.toThrow(/founder's turn/);
@@ -93,16 +93,16 @@ describe("teamCalls.appendTurns", () => {
 
   it("refuses a call that is not live, past its length, and agents not on the call", async () => {
     const call = await start("one_to_one");
-    await expect(r.as(r.A.ownerId, (tx) => repos.teamCalls.appendTurns(tx, r.A.businessId, call.id, [reply(r.A.agentId, "Not my call")]))).rejects.toThrow(/agent on the call/);
-    await expect(r.as(r.A.ownerId, (tx) => repos.teamCalls.appendTurns(tx, r.A.businessId, call.id, [reply(r.A.agent2Id, "Hi", { agentId: r.A.agentId })]))).rejects.toThrow(/addresses an agent on the call/);
+    await expect(r.svc((tx) => repos.teamCalls.appendTurns(tx, r.A.businessId, call.id, [reply(r.A.agentId, "Not my call")]))).rejects.toThrow(/agent on the call/);
+    await expect(r.svc((tx) => repos.teamCalls.appendTurns(tx, r.A.businessId, call.id, [reply(r.A.agent2Id, "Hi", { agentId: r.A.agentId })]))).rejects.toThrow(/addresses an agent on the call/);
     await expect(r.as(r.A.ownerId, (tx) => repos.teamCalls.appendTurns(tx, r.A.businessId, call.id, []))).rejects.toBeInstanceOf(ValidationError);
-    await expect(r.as(r.A.ownerId, (tx) => repos.teamCalls.appendTurns(tx, r.A.businessId, call.id, [reply(r.A.agent2Id, "x".repeat(TEAM_CALL_LIMITS.maxTurnChars + 1))]))).rejects.toBeInstanceOf(ValidationError);
+    await expect(r.svc((tx) => repos.teamCalls.appendTurns(tx, r.A.businessId, call.id, [reply(r.A.agent2Id, "x".repeat(TEAM_CALL_LIMITS.maxTurnChars + 1))]))).rejects.toBeInstanceOf(ValidationError);
 
     await r.db.update(s.teamCalls).set({ turnCount: TEAM_CALL_LIMITS.maxTurnsPerCall - 1 }).where(eq(s.teamCalls.id, call.id));
-    await expect(r.as(r.A.ownerId, (tx) => repos.teamCalls.appendTurns(tx, r.A.businessId, call.id, [say(r.A.ownerId, "a"), reply(r.A.agent2Id, "b")]))).rejects.toThrow(/reached its length/);
+    await expect(r.svc((tx) => repos.teamCalls.appendTurns(tx, r.A.businessId, call.id, [say(r.A.ownerId, "a"), reply(r.A.agent2Id, "b")]))).rejects.toThrow(/reached its length/);
     const last = await r.as(r.A.ownerId, (tx) => repos.teamCalls.appendTurns(tx, r.A.businessId, call.id, [say(r.A.ownerId, "Last word")]));
     expect(last.call.turnCount).toBe(TEAM_CALL_LIMITS.maxTurnsPerCall);
-    await expect(r.as(r.A.ownerId, (tx) => repos.teamCalls.appendTurns(tx, r.A.businessId, call.id, [reply(r.A.agent2Id, "One more")]))).rejects.toThrow(/reached its length/);
+    await expect(r.svc((tx) => repos.teamCalls.appendTurns(tx, r.A.businessId, call.id, [reply(r.A.agent2Id, "One more")]))).rejects.toThrow(/reached its length/);
 
     const other = await start();
     expect(await r.as(r.A.ownerId, (tx) => repos.teamCalls.claimWrapUp(tx, r.A.businessId, other.id))).toBe(true);
@@ -114,7 +114,7 @@ describe("teamCalls.appendTurns", () => {
 describe("teamCalls wrap-up", () => {
   it("claims once, finishes with the summary and action items, and lists the counts", async () => {
     const call = await start();
-    await r.as(r.A.ownerId, (tx) => repos.teamCalls.appendTurns(tx, r.A.businessId, call.id, [say(r.A.ownerId, "Let's file it"), reply(r.A.agentId, "Agreed.")]));
+    await r.svc((tx) => repos.teamCalls.appendTurns(tx, r.A.businessId, call.id, [say(r.A.ownerId, "Let's file it"), reply(r.A.agentId, "Agreed.")]));
     const claims = await Promise.all([1, 2, 3].map(() => r.as(r.A.ownerId, (tx) => repos.teamCalls.claimWrapUp(tx, r.A.businessId, call.id))));
     expect(claims.filter(Boolean)).toHaveLength(1);
     await expect(r.as(r.A.ownerId, (tx) => repos.teamCalls.claimWrapUp(tx, r.A.businessId, crypto.randomUUID()))).rejects.toBeInstanceOf(NotFoundError);
