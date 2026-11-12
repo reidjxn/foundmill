@@ -12,14 +12,22 @@
  *
  * With `pattern` (e.g. `ev:*`) the consumer discovers streams with SCAN every `discoverIntervalMs`,
  * so a business created after start-up is picked up without a restart.
+ *
+ * `consumeAccountEvents(redis, { userId | "*", group, consumer, handler, types? })` is the same reader over the account
+ * streams `ae:{userId}` (docs/ARCHITECTURE.md §5 "Account events"), with the same guarantees: it hands the handler a
+ * typed `AccountEvent`, and treats an entry that is not a valid account event of the stream's own person as poison.
  */
-import { ValidationError } from "@foundmill/shared";
+import { ValidationError, type AccountEventType } from "@foundmill/shared";
+import { parseAccountEvent, type AccountEvent } from "./account-event";
 import { parseEvent, type PlatformEvent } from "./catalogue";
 import {
+  ALL_ACCOUNT_STREAMS_PATTERN,
   ALL_BUSINESS_STREAMS_PATTERN,
+  accountStreamKey,
   businessStreamKey,
   deadLetterKey,
   DEFAULT_STREAM_MAXLEN,
+  userIdFromAccountStreamKey,
 } from "./keys";
 import {
   isBusyGroupError,
@@ -74,6 +82,11 @@ export interface ConsumeOptions<T = PlatformEvent> {
   deadLetterKey?: string;
   /** MAXLEN ~ for the dead-letter stream (default 100 000). */
   deadLetterMaxLen?: number;
+  /**
+   * The entry fields copied onto the dead-letter stream (default: all of them). Account consumers copy `id` and `type`
+   * only: a person's event is not kept on a stream that outlives their account.
+   */
+  deadLetterFields?: (entry: StreamEntry) => Record<string, string>;
   onError?: (
     err: unknown,
     ctx: { stage: "read" | "handle" | "ack" | "claim" | "discover" | "group"; entry?: StreamEntry },
@@ -224,7 +237,7 @@ export function consume<T = PlatformEvent>(redis: StreamRedis, opts: ConsumeOpti
 
   async function deadLetter(entry: StreamEntry, err: unknown, deliveries: number): Promise<void> {
     const fields: string[] = [];
-    for (const [k, v] of Object.entries(entry.fields)) fields.push(k, v);
+    for (const [k, v] of Object.entries(opts.deadLetterFields ? opts.deadLetterFields(entry) : entry.fields)) fields.push(k, v);
     fields.push(
       "source_stream",
       entry.stream,
@@ -418,4 +431,64 @@ export function consume<T = PlatformEvent>(redis: StreamRedis, opts: ConsumeOpti
     streams: () => [...subscribed],
     runOnce,
   };
+}
+
+/**
+ * Decoder for account streams: the account relay writes `id`, `type`, `json`; `json` is the serialized AccountEvent.
+ * An entry whose event names another person than the stream it sits on is refused (poison): a consumer never acts on
+ * a person's stream with someone else's fact.
+ */
+export function decodeAccountEntry(entry: StreamEntry): AccountEvent {
+  const json = entry.fields.json;
+  // The errors name the stream and the entry, never the JSON: a dead letter's reason must not quote a person's event.
+  if (json === undefined) throw new ValidationError(`Stream entry ${entry.stream}/${entry.id} has no "json" field`);
+  let raw: unknown;
+  try {
+    raw = JSON.parse(json);
+  } catch {
+    throw new ValidationError(`Stream entry ${entry.stream}/${entry.id} has invalid JSON`);
+  }
+  const event = parseAccountEvent(raw);
+  const owner = userIdFromAccountStreamKey(entry.stream);
+  if (owner === null || owner !== event.userId.toLowerCase()) {
+    throw new ValidationError(`Stream entry ${entry.stream}/${entry.id} carries an account event of another account`);
+  }
+  return event;
+}
+
+export interface ConsumeAccountOptions<T extends AccountEventType = AccountEventType>
+  extends Omit<ConsumeOptions<AccountEvent>, "stream" | "pattern" | "businessId" | "decode" | "handler"> {
+  /** One person's account stream, or `"*"` for every person's (discovered with SCAN, like `businessId: "*"`). */
+  userId: string | "*";
+  /** Only these types reach the handler; every other entry is acknowledged untouched. Default: every account type. */
+  types?: readonly T[];
+  handler: EventHandler<AccountEvent<T>>;
+}
+
+/** What an account consumer's dead letter keeps of an entry: which event it was, never what it said. */
+export function accountDeadLetterFields(entry: StreamEntry): Record<string, string> {
+  return { id: entry.fields.id ?? "", type: entry.fields.type ?? "" };
+}
+
+/**
+ * Consume account-scoped events with a consumer group: the sibling of `consume` for `ae:{userId}`, with the same
+ * at-least-once delivery, retries, pending-claim and dead-lettering (handlers de-duplicate on `event.id`). A dead
+ * letter keeps the event's id and type, not its payload (the row is in `account_events`), unless `deadLetterFields`
+ * says otherwise.
+ *
+ * ```ts
+ * consumeAccountEvents(redis, { userId: "*", group: "network", consumer: "api-1", types: ["profile.published"], handler: async (event) => { ... } });
+ * ```
+ */
+export function consumeAccountEvents<T extends AccountEventType = AccountEventType>(redis: StreamRedis, opts: ConsumeAccountOptions<T>): Consumer {
+  const { userId, types, handler, ...rest } = opts;
+  if (!userId) throw new Error("consumeAccountEvents: userId (or \"*\") is required");
+  const wanted = types ? new Set<string>(types) : null;
+  return consume<AccountEvent>(redis, {
+    deadLetterFields: accountDeadLetterFields,
+    ...rest,
+    ...(userId === "*" ? { pattern: ALL_ACCOUNT_STREAMS_PATTERN } : { stream: accountStreamKey(userId) }),
+    decode: decodeAccountEntry,
+    handler: (event, meta) => (wanted === null || wanted.has(event.type) ? handler(event as AccountEvent<T>, meta) : undefined),
+  });
 }
