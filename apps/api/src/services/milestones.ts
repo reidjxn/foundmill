@@ -39,6 +39,7 @@ import { z } from "zod";
 import type { Context } from "../context";
 import { audit, emit, type BusinessContext } from "../trpc";
 import { callerLimitKey } from "./pages";
+import { queuePostDraft } from "./post-drafts";
 import { takeOrThrow, type WindowLimit } from "./rate-limit";
 
 /** What showing or hiding answers: the milestone, how it reads now, and its public addresses. */
@@ -65,7 +66,8 @@ const keyOf = (ref: Record<string, unknown> | null | undefined): string | null =
 async function setShown(ctx: BusinessContext, milestoneId: string, shown: boolean): Promise<MilestoneShownView> {
   if (ctx.business.isDemo) throw sampleRefusal();
   if (!canShow(ctx)) throw new ForbiddenError(MILESTONE_SHOW_ROLE_MESSAGE);
-  return ctx.rls(async (tx) => {
+  let nowShown = false;
+  const view = await ctx.rls(async (tx) => {
     const milestone = await repos.journeys.getMilestone(tx, ctx.businessId, milestoneId);
     const key = keyOf(milestone?.ref);
     // Only what the platform recorded: a note someone typed in (no key) is not a milestone to show.
@@ -79,6 +81,7 @@ async function setShown(ctx: BusinessContext, milestoneId: string, shown: boolea
     const url = cardUrl(ctx.env.APP_URL, milestone.id);
     const changed = await repos.journeys.setMilestoneShown(tx, ctx.businessId, milestone.id, shown);
     if (changed) {
+      nowShown = shown;
       const slug = page?.slug ?? null;
       // An event names the page's address; a milestone hidden after the page row was deleted has none to name.
       if (slug) await emit(tx, ctx, { type: shown ? "milestone.shown" : "milestone.hidden", payload: { milestoneId: milestone.id, key, slug, url } });
@@ -86,6 +89,10 @@ async function setShown(ctx: BusinessContext, milestoneId: string, shown: boolea
     }
     return { milestoneId: milestone.id, key, shown, url, storyUrl: page ? storyUrl(ctx.env.APP_URL, page.slug) : null };
   });
+  // A milestone was just put on the page: the social agent may draft a post about it for the founder to share by tap,
+  // where the founder put the social channel on the board (services/post-drafts.ts). Never waited on.
+  if (nowShown) queuePostDraft(ctx, ctx.businessId, { kind: "milestone_shown", milestoneId: view.milestoneId });
+  return view;
 }
 
 /** `journey.showMilestone`: the milestone becomes a line of the project's story and gets its card. Pressing twice changes nothing twice. */

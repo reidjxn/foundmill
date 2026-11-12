@@ -15,6 +15,7 @@ import { APP_NAME } from "@foundmill/config";
 import { repos } from "@foundmill/db";
 import { builtOnWords, FOLLOW_CONFIRM_PAGE } from "@foundmill/shared";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { noFollowups } from "../followups";
 import { createIngestHarness, type IngestHarness } from "./harness";
 
 const DOMAIN = "mail.foundmill.test";
@@ -32,8 +33,8 @@ afterAll(() => hz?.close());
 
 let n = 0;
 /** A pending signup as the api writes it, with the nonce reserved, and the link the gateway would send. */
-async function signup(email = `f${++n}@example.com`, businessId = hz.A.businessId) {
-  const recorded = await hz.db.transaction((tx) => repos.followers.record(tx, businessId, { pageId: pageA.id, slug: pageA.slug, email, consentText: "I agree.", at: new Date(MOCK_NOW.getTime() - 60_000) }));
+async function signup(email = `f${++n}@example.com`, businessId = hz.A.businessId, page: { id: string; slug: string } = pageA) {
+  const recorded = await hz.db.transaction((tx) => repos.followers.record(tx, businessId, { pageId: page.id, slug: page.slug, email, consentText: "I agree.", at: new Date(MOCK_NOW.getTime() - 60_000) }));
   if (recorded.status === "nothing") throw new Error("expected a record");
   const nonce = createHash("sha256").update(`n-${n}-${Math.random()}`).digest("base64url");
   await repos.followers.reserveConfirmation(hz.db, businessId, recorded.consentId, { tokenHash: followConfirmNonceHash(nonce), at: new Date(MOCK_NOW.getTime() - 60_000) });
@@ -97,6 +98,26 @@ describe("/mail/confirm", () => {
     const after = (await repos.journeys.listMilestones(hz.db, hz.A.businessId)).filter((m) => m.label === "First follower");
     expect(after.map((m) => m.id)).toEqual([first[0]!.id]);
     expect((after[0]!.ref as Record<string, unknown>).consentId).toBe(ref.consentId);
+  });
+
+  it("the first follower asks for a post the social agent may draft, once, after the commit; a later follower and a second press ask for none", async () => {
+    const asked: string[] = [];
+    const built = hz.build({ followups: { ...noFollowups, firstFollower: (businessId) => void asked.push(businessId) } });
+    const pageB = await repos.pages.saveDraft(hz.db, hz.B.businessId, { draft: { pitch: "Soap", about: "Cut by hand.", forWhom: "", stage: "idea", showFounders: false, followForm: true }, slug: "ingest-follow-b", userId: null });
+    const press = (token: string, method: "GET" | "POST" = "POST") => built.app.fetch(new Request(`https://ingest.example/mail/confirm?t=${encodeURIComponent(token)}`, { method }));
+    const one = await signup(undefined, hz.B.businessId, pageB);
+    // Opening the link, and a link that does not verify, ask for nothing.
+    expect((await press(one.token(), "GET")).status).toBe(200);
+    expect((await press(one.token({ nonce: "another-nonce" }))).status).toBe(400);
+    expect(asked).toEqual([]);
+    expect((await press(one.token())).status).toBe(200);
+    expect(asked).toEqual([hz.B.businessId]);
+    // Only the business is named: nothing of the person.
+    expect(JSON.stringify(asked)).not.toContain(one.email);
+    expect((await press(one.token())).status).toBe(200);
+    const two = await signup(undefined, hz.B.businessId, pageB);
+    expect((await press(two.token())).status).toBe(200);
+    expect(asked).toEqual([hz.B.businessId]);
   });
 
   it("says the visitor's words: who they now follow, and how to stop", async () => {
