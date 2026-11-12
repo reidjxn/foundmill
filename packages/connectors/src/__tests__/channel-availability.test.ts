@@ -103,6 +103,27 @@ describe("channelAvailability", () => {
     expect(firstChannelToOpen(rows)).toBeNull();
   });
 
+  it("lead_generation needs Apollo live and connected, and names it until then", () => {
+    expect(channelAvailability("lead_generation", facts())).toEqual({ available: false, reason: "not_connected", connectorKey: "apollo", connectable: false });
+    expect(channelAvailability("lead_generation", facts({ liveConnectors: ["apollo"] }))).toEqual({ available: false, reason: "not_connected", connectorKey: "apollo", connectable: true });
+    // Connected but not live here: still not real.
+    expect(channelAvailability("lead_generation", facts({ connectedConnectors: ["apollo"] }))).toEqual({ available: false, reason: "not_connected", connectorKey: "apollo", connectable: false });
+    expect(channelAvailability("lead_generation", facts({ liveConnectors: ["apollo"], connectedConnectors: ["apollo"] }))).toEqual({ available: true, reason: "acts" });
+    expect(channelAvailability("lead_generation", facts({ liveConnectors: "all", connectedConnectors: ["sendgrid", "resend", "github"], platformMail: true })).available).toBe(false);
+  });
+
+  it("the founder's own Resend opens email on its own; with nothing connected and platform mail off the reason still names SendGrid first", () => {
+    expect(channelAvailability("email_automation", facts({ liveConnectors: ["resend"], connectedConnectors: ["resend"] }))).toEqual({ available: true, reason: "acts" });
+    expect(channelAvailability("email_automation", facts({ liveConnectors: "all", connectedConnectors: ["resend"] }))).toEqual({ available: true, reason: "acts" });
+    // Connected but Resend is not live here.
+    expect(channelAvailability("email_automation", facts({ connectedConnectors: ["resend"] })).available).toBe(false);
+    // Nothing connected, platform mail off: the first live acting connector in table order is named (SendGrid), else the first connectable.
+    expect(channelAvailability("email_automation", facts({ liveConnectors: "all", platformMail: false }))).toEqual({ available: false, reason: "not_connected", connectorKey: "sendgrid", connectable: true });
+    expect(channelAvailability("email_automation", facts({ platformMail: false }))).toEqual({ available: false, reason: "not_connected", connectorKey: "sendgrid", connectable: false });
+    // Only Resend live: Resend is the one the founder could connect.
+    expect(channelAvailability("email_automation", facts({ liveConnectors: ["resend"] }))).toEqual({ available: false, reason: "not_connected", connectorKey: "resend", connectable: true });
+  });
+
   it("any one of several acting tools is enough", () => {
     const table = { ...CHANNEL_ACTING_TOOLS, social: ["sendgrid:send_mail", "github:commit_files"] } as Record<ChannelKey, readonly string[]>;
     expect(channelAvailability("social", facts({ liveConnectors: ["github"], connectedConnectors: ["github"] }), table)).toEqual({ available: true, reason: "acts" });

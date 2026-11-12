@@ -409,6 +409,21 @@ const RAW_TASKS: GoldenTask[] = [
     ],
   }),
   t({
+    id: "channel_lead_generation.own_apollo_account",
+    templateKey: "channel_lead_generation",
+    title: "Leads from the founder's own Apollo account, a credit only with the founder's OK",
+    prompt: `Lead run lr_apollo_3 for Ledgerly (target: operations managers at UK fintechs with 20 to 200 people; weekly target 15 qualified leads). Tool results: apollo search_people returned 25 people (first name, role and company only; no email addresses; 14 flagged as having an email on file). apollo enrich_person for the first of them came back "waiting for the founder's approval" (it spends one of the founder's Apollo credits; Estimate 5 cents each). apollo search_organizations was not called. The founder's CRM has 6 of the 25 already. Write the report for the founder: what was found, what is waiting for them and what it would cost (Estimate), what happens if they say no, and the lawful basis you will record. Cite lr_apollo_3. Under 220 words.`,
+    checks: [CHECK.all("lr_apollo_3", "Estimate"), CHECK.none("emailed", "sent the sequence", "verified email"), CHECK.words(70, 250)],
+    sourceIds: ["lr_apollo_3"],
+    rubric: [
+      "Says 25 people were found with roles and companies and that the search gives no email addresses; does not invent an address or a full surname.",
+      "Says looking up work emails is waiting for the founder, with the cost as an Estimate (about 5 cents each; 70 cents for the 14 with an email on file), on the founder's own Apollo account.",
+      "Says nothing was looked up, emailed or added to a sequence yet, and what it will do without the lookups (score from role and company, work the 6 already in the CRM).",
+      "Records a lawful basis (B2B legitimate interest in the UK) and the source on each lead.",
+      "Treats the lookups as the founder's choice, with no pressure to approve.",
+    ],
+  }),
+  t({
     id: "channel_geo.connected_assistants",
     templateKey: "channel_geo",
     title: "A panel only on the assistants that are connected",
