@@ -104,5 +104,10 @@ export const MILESTONE_NEEDS_PAGE_MESSAGE = "Publish your project's page first. 
 export const MILESTONE_SAMPLE_MESSAGE = "This is a sample business, so it shows nothing in public. Start your own project to show its milestones.";
 /** Showing and hiding are an owner's or an admin's. */
 export const MILESTONE_SHOW_ROLE_MESSAGE = "Only an owner or an admin can show a milestone on the page or hide it.";
+/**
+ * A reached milestone that cannot be shown yet (`appCode: "milestone_not_showable"`): a customer or revenue milestone
+ * is counted or estimated, not recorded from one real outside event, so it does not carry "Verified" in public.
+ */
+export const MILESTONE_NOT_SHOWABLE_MESSAGE = "This milestone cannot be shown on your page yet. For now your page shows only what was recorded from one real event: the page going live and your first follower.";
 /** A milestone that is not reached, was archived, or was not recorded by the platform. */
 export const MILESTONE_NOT_FOUND_MESSAGE = "That milestone is not one this project has reached.";

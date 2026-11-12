@@ -30,6 +30,10 @@ describe("milestones (BUILD §11.4 trophy cabinet)", () => {
     // Shown before and the page is down: it can still be hidden; nothing new can be shown.
     expect(pageStateOf(recorded("public"), { live: false })).toBe("waiting");
     expect(pageStateOf(recorded("private"), { live: false })).toBeNull();
+    // A counted or estimated milestone (customers, revenue) cannot be shown yet; one already public can still be hidden.
+    const counted = (visibility: string) => ({ id: "c", kind: "customer", label: "First customer", achievedAt: "2026-11-12T09:00:00Z", ref: { trophyKey: "customer_1" }, visibility });
+    expect(pageStateOf(counted("private"), { live: true })).toBeNull();
+    expect(pageStateOf(counted("public"), { live: true })).toBe("shown");
     // No page to show on (a sample business, a reader with no view of the page), not reached, or a note someone typed in.
     expect(pageStateOf(recorded("public"), null)).toBeNull();
     expect(pageStateOf(undefined, { live: true })).toBeNull();
@@ -39,7 +43,8 @@ describe("milestones (BUILD §11.4 trophy cabinet)", () => {
     for (const liveMode of [true, false]) {
       const cards = trophyCards(rows, "EUR", liveMode, null, { live: true });
       expect(cards.find((c) => c.key === "customer_1")!.page).toBe("shown");
-      expect(cards.find((c) => c.key === "mrr_1k")!.page).toBe("hidden");
+      // A revenue milestone is an Estimate, not one recorded event: reached and private, it offers nothing to show.
+      expect(cards.find((c) => c.key === "mrr_1k")!.page).toBeNull();
       expect(cards.find((c) => c.key === "customer_10")!.page).toBeNull();
     }
     expect(trophyCards(rows, "EUR", true).every((c) => c.page === null)).toBe(true);

@@ -143,3 +143,11 @@ export function customerTrophyFor(nthCustomer: number): TrophyDefinition | null 
 }
 
 export const isTrophyKey = (s: string): s is TrophyKey => (TROPHY_KEYS as readonly string[]).includes(s);
+
+/**
+ * Whether a milestone may be shown in public as "Verified by Foundmill" (0087): only one recorded from a single real
+ * outside event (`metric: "event"`: the page went live, the first follower confirmed). A customer or revenue milestone
+ * is worked out from counters and, for revenue, is an Estimate; until each is tied to a real payment it stays the
+ * founders' own to see. The table's guard trigger holds the same list for a write made around the api.
+ */
+export const isShowableTrophyKey = (s: string): boolean => TROPHIES.some((t) => t.key === s && t.metric === "event");

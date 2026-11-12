@@ -12,7 +12,7 @@
  *   - the early milestones: awarded once, with ids only, and given by the catch-up to a project that already reached
  *     them (never to a sample business).
  */
-import { TROPHIES, TROPHY_KEYS } from "@foundmill/journey";
+import { TROPHIES, TROPHY_KEYS, isShowableTrophyKey } from "@foundmill/journey";
 import type { ProjectPageContent } from "@foundmill/shared";
 import { and, eq, sql } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
@@ -73,7 +73,8 @@ beforeAll(async () => {
   await commit(B.businessId);
   await h.asUser(B.ownerId).run((tx) => repos.pages.publish(tx, B.businessId, { content: content({ pitch: "Bravo's page" }), slug: "ms-bravo", userId: B.ownerId, at: new Date("2026-11-01T09:00:00Z") }));
   bShownId = (await record(B.businessId, "customer_1", "First customer", "2026-11-05T10:00:00Z", { entityId: B.entityId, customerName: "Acme Corp" })).id;
-  await h.asUser(B.ownerId).run((tx) => repos.journeys.setMilestoneShown(tx, B.businessId, bShownId, true));
+  // A customer milestone cannot be shown by a client (below); the view's own rules are tested on rows the service made public.
+  await repos.journeys.setMilestoneShown(db(), B.businessId, bShownId, true);
 }, 120_000);
 afterAll(() => h?.close());
 
@@ -131,6 +132,27 @@ describe("milestones: what the platform records is not written by hand", () => {
       }
     }
     expect((await h.db.select().from(s.milestones).where(eq(s.milestones.id, m.id)))[0]).toMatchObject({ label: "Page live", kind: "trophy", ref: m.ref });
+  });
+});
+
+describe("milestones: only one recorded from a real outside event can be shown", () => {
+  it("a customer or revenue milestone is counted or estimated: no client makes it public, an owner included; hiding one is never refused", async () => {
+    const customer = await record(A.businessId, "customer_10", "10th customer", "2026-11-20T10:00:00Z");
+    const revenue = await record(A.businessId, "mrr_1k", "First $1K MRR", "2026-11-21T10:00:00Z", {}, "revenue");
+    for (const m of [customer, revenue]) {
+      for (const userId of [A.ownerId, A.adminId]) {
+        await expect(h.asUser(userId).run((tx) => repos.journeys.setMilestoneShown(tx, A.businessId, m.id, true))).rejects.toThrow(/cannot be shown yet/);
+        await expect(h.asUser(userId).run((tx) => tx.update(s.milestones).set({ visibility: "public" }).where(eq(s.milestones.id, m.id)))).rejects.toThrow(/cannot be shown yet/);
+      }
+      expect((await h.db.select().from(s.milestones).where(eq(s.milestones.id, m.id)))[0]!.visibility).toBe("private");
+    }
+    // The journey package's rule and the trigger's list are the same two keys.
+    expect(TROPHY_KEYS.filter(isShowableTrophyKey)).toEqual(["page_live", "first_follower"]);
+    const migration = readMigrations().find((m) => m.tag === "0087_public_milestones")!.sql;
+    expect(migration).toContain("not in ('page_live', 'first_follower')");
+    // One the service made public (an older row) can still be taken off the page by an owner.
+    await repos.journeys.setMilestoneShown(db(), A.businessId, customer.id, true);
+    expect(await h.asUser(A.ownerId).run((tx) => repos.journeys.setMilestoneShown(tx, A.businessId, customer.id, false))).not.toBeNull();
   });
 });
 
@@ -213,7 +235,7 @@ describe("public_project_milestones: what anyone may read", () => {
 
   it("builds the words from the key: a label that names a customer never leaves, and a revenue milestone keeps only its threshold", async () => {
     const f = await withPage("ms-words");
-    const show = (id: string) => h.asUser(f.ownerId).run((tx) => repos.journeys.setMilestoneShown(tx, f.businessId, id, true));
+    const show = (id: string) => repos.journeys.setMilestoneShown(db(), f.businessId, id, true);
     // Rows as an old writer or a seed might have left them, on the service connection.
     const named = await record(f.businessId, "customer_10", "10th customer: Acme Corp", "2026-11-13T10:00:00Z", { customerName: "Acme Corp" });
     const revenue = await record(f.businessId, "mrr_1k", "First £1K monthly revenue", "2026-11-14T10:00:00Z", {}, "revenue");
@@ -261,7 +283,8 @@ describe("public_project_milestones: what anyone may read", () => {
     expect(await repos.pages.public.cardById(db(), live!.id)).toBeNull();
 
     // Shown newest first; read oldest first.
-    for (const m of [customer, follower!, live!]) await h.asUser(f.adminId).run((tx) => repos.journeys.setMilestoneShown(tx, f.businessId, m.id, true));
+    await repos.journeys.setMilestoneShown(db(), f.businessId, customer.id, true);
+    for (const m of [follower!, live!]) await h.asUser(f.adminId).run((tx) => repos.journeys.setMilestoneShown(tx, f.businessId, m.id, true));
     const story = await repos.pages.public.storyBySlug(db(), "ms-story");
     expect(story.map((m) => m.label)).toEqual(["Page live", "First follower", "First customer"]);
     expect(story.map((m) => m.achievedAt.toISOString())).toEqual(["2026-11-12T09:00:00.000Z", "2026-11-14T08:00:00.000Z", "2026-11-19T10:00:00.000Z"]);

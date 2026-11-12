@@ -8,7 +8,7 @@
  * says where each one stands, from the row's `visibility` and whether the page is live.
  */
 import type { DateFormatPrefs, TrophyCard, TrophyPageState } from "@foundmill/dugout";
-import { TROPHIES, eventTrophyDescription, formatThreshold, isTrophyKey, thresholdFor, type TrophyDefinition } from "@foundmill/journey";
+import { TROPHIES, eventTrophyDescription, formatThreshold, isShowableTrophyKey, isTrophyKey, thresholdFor, type TrophyDefinition } from "@foundmill/journey";
 import { monthlyRevenueWords, type MilestoneKind } from "@foundmill/shared";
 import { formatDate, formatNumber } from "@/lib/format";
 
@@ -74,7 +74,8 @@ export function pageStateOf(m: MilestoneRowLike | undefined, page: MilestonePage
   const key = typeof m.ref?.trophyKey === "string" ? m.ref.trophyKey : null;
   if (!key || !isTrophyKey(key)) return null;
   if (m.visibility === "public") return page.live ? "shown" : "waiting";
-  return page.live ? "hidden" : null;
+  // Only a milestone recorded from one real outside event can be shown (a counted or estimated one cannot yet).
+  return page.live && isShowableTrophyKey(key) ? "hidden" : null;
 }
 
 /** One card per trophy definition; won ones carry the date, the amount and (with permission) the customer. */

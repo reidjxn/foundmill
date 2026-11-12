@@ -19,12 +19,13 @@
  */
 import { tierShowsBuiltOnMark } from "@foundmill/config";
 import { repos } from "@foundmill/db";
-import { isTrophyKey } from "@foundmill/journey";
+import { isShowableTrophyKey, isTrophyKey } from "@foundmill/journey";
 import {
   AppError,
   ForbiddenError,
   MILESTONE_NEEDS_PAGE_MESSAGE,
   MILESTONE_NOT_FOUND_MESSAGE,
+  MILESTONE_NOT_SHOWABLE_MESSAGE,
   MILESTONE_SAMPLE_MESSAGE,
   MILESTONE_SHOW_ROLE_MESSAGE,
   cardUrl,
@@ -54,6 +55,7 @@ export interface MilestoneShownView {
 const sampleRefusal = () => new AppError("page_sample_business", MILESTONE_SAMPLE_MESSAGE, 409);
 const needsPageRefusal = () => new AppError("milestone_needs_page", MILESTONE_NEEDS_PAGE_MESSAGE, 409);
 const notFound = () => new AppError("milestone_not_found", MILESTONE_NOT_FOUND_MESSAGE, 404);
+const notShowable = () => new AppError("milestone_not_showable", MILESTONE_NOT_SHOWABLE_MESSAGE, 409);
 
 /** The right that publishes the page shows things on it: an owner or an admin with Product write. */
 const canShow = (ctx: BusinessContext): boolean => (ctx.role === "owner" || ctx.role === "admin") && hasSectionAccess(ctx.membership, "product", "write");
@@ -68,6 +70,9 @@ async function setShown(ctx: BusinessContext, milestoneId: string, shown: boolea
     const key = keyOf(milestone?.ref);
     // Only what the platform recorded: a note someone typed in (no key) is not a milestone to show.
     if (!milestone || !key || !isTrophyKey(key)) throw notFound();
+    // "Verified" in public is only true of a milestone recorded from one real outside event; a counted or estimated one
+    // (customers, revenue) is not shown yet. Hiding is never refused.
+    if (shown && !isShowableTrophyKey(key)) throw notShowable();
     const page = await repos.pages.get(tx, ctx.businessId);
     // Showing needs the page it is shown on. Hiding never does: a founder can always take something back.
     if (shown && !page?.published) throw needsPageRefusal();

@@ -8,7 +8,7 @@
  * sample business; `publicPage.bySlug` says whether there is a story; the reads are limited like the page read.
  */
 import { repos } from "@foundmill/db";
-import { MILESTONE_NEEDS_PAGE_MESSAGE, MILESTONE_NOT_FOUND_MESSAGE, MILESTONE_SAMPLE_MESSAGE, MILESTONE_SHOW_ROLE_MESSAGE, type ProjectPageContent } from "@foundmill/shared";
+import { MILESTONE_NEEDS_PAGE_MESSAGE, MILESTONE_NOT_FOUND_MESSAGE, MILESTONE_NOT_SHOWABLE_MESSAGE, MILESTONE_SAMPLE_MESSAGE, MILESTONE_SHOW_ROLE_MESSAGE, type ProjectPageContent } from "@foundmill/shared";
 import { sql } from "drizzle-orm";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { PUBLIC_STORY_LIMITS, publicCardById, publicCardLimitKeys, publicStoryBySlug, publicStoryLimitKeys } from "../services/milestones";
@@ -191,23 +191,38 @@ describe("journey.showMilestone and journey.hideMilestone", () => {
 
   it("showing needs a published page, in one plain sentence; hiding never does", async () => {
     const b = await project("No Page Yet");
-    const customer = await record(b.id, "customer_1", "First customer");
-    await expect(b.owner.journey.showMilestone({ businessId: b.id, milestoneId: customer.id })).rejects.toMatchObject({ code: "CONFLICT", message: MILESTONE_NEEDS_PAGE_MESSAGE });
+    const follower = await record(b.id, "first_follower", "First follower");
+    await expect(b.owner.journey.showMilestone({ businessId: b.id, milestoneId: follower.id })).rejects.toMatchObject({ code: "CONFLICT", message: MILESTONE_NEEDS_PAGE_MESSAGE });
     await b.member.page.saveDraft({ businessId: b.id, draft: page() });
-    await expect(b.owner.journey.showMilestone({ businessId: b.id, milestoneId: customer.id })).rejects.toMatchObject({ code: "CONFLICT", message: MILESTONE_NEEDS_PAGE_MESSAGE });
-    expect((await byKey(b.id, "customer_1"))!.visibility).toBe("private");
+    await expect(b.owner.journey.showMilestone({ businessId: b.id, milestoneId: follower.id })).rejects.toMatchObject({ code: "CONFLICT", message: MILESTONE_NEEDS_PAGE_MESSAGE });
+    expect((await byKey(b.id, "first_follower"))!.visibility).toBe("private");
     expect(await shownEvents(b.id)).toEqual([]);
     expect(MILESTONE_NEEDS_PAGE_MESSAGE.split(". ")).toHaveLength(2);
 
     const slug = (await b.owner.page.publish({ businessId: b.id, content: page() })).page.slug;
-    expect((await b.owner.journey.showMilestone({ businessId: b.id, milestoneId: customer.id })).shown).toBe(true);
+    expect((await b.owner.journey.showMilestone({ businessId: b.id, milestoneId: follower.id })).shown).toBe(true);
     // Taken down: the story and the card are gone at once, and the founder can still hide the milestone.
     await b.owner.page.unpublish({ businessId: b.id });
     const anon = hz.caller(null);
     expect(await anon.publicPage.storyBySlug({ slug })).toBeNull();
-    expect(await anon.publicPage.cardById({ id: customer.id })).toBeNull();
+    expect(await anon.publicPage.cardById({ id: follower.id })).toBeNull();
+    expect((await b.owner.journey.hideMilestone({ businessId: b.id, milestoneId: follower.id })).shown).toBe(false);
+    await expect(b.owner.journey.showMilestone({ businessId: b.id, milestoneId: follower.id })).rejects.toMatchObject({ code: "CONFLICT", message: MILESTONE_NEEDS_PAGE_MESSAGE });
+  });
+
+  it("a customer or revenue milestone cannot be shown yet (counted or estimated, not one real event); hiding one always works", async () => {
+    const b = await live("Counted Not Recorded");
+    const customer = await record(b.id, "customer_1", "First customer");
+    const revenue = await record(b.id, "mrr_1k", "First $1K MRR");
+    for (const m of [customer, revenue]) {
+      await expect(b.owner.journey.showMilestone({ businessId: b.id, milestoneId: m.id })).rejects.toMatchObject({ code: "CONFLICT", message: MILESTONE_NOT_SHOWABLE_MESSAGE });
+    }
+    expect((await byKey(b.id, "customer_1"))!.visibility).toBe("private");
+    expect(await shownEvents(b.id)).toEqual([]);
+    expect(await hz.caller(null).publicPage.storyBySlug({ slug: b.slug })).toBeNull();
+    // A row the service made public before the rule can still be taken off the page.
+    await repos.journeys.setMilestoneShown(hz.db, b.id, customer.id, true);
     expect((await b.owner.journey.hideMilestone({ businessId: b.id, milestoneId: customer.id })).shown).toBe(false);
-    await expect(b.owner.journey.showMilestone({ businessId: b.id, milestoneId: customer.id })).rejects.toMatchObject({ code: "CONFLICT", message: MILESTONE_NEEDS_PAGE_MESSAGE });
   });
 
   it("a sample business shows nothing, and a note someone typed in is not a milestone to show", async () => {
@@ -232,7 +247,8 @@ describe("what the public reads", () => {
   it("a milestone about a customer is its label and date: never the customer, the amount or an internal id", async () => {
     const b = await live("Customer Story");
     const customer = await record(b.id, "customer_1", "First customer", { entityId: "0f0a0d00-0000-4000-8000-00000000c0de", customerName: "Acme Corp", amountMinor: 4900, currency: "USD", conversionId: "0f0a0d00-0000-4000-8000-00000000c0ff" });
-    await b.owner.journey.showMilestone({ businessId: b.id, milestoneId: customer.id });
+    // A customer milestone cannot be shown by a founder yet; the public read's own rule is tested on a row the service made public.
+    await repos.journeys.setMilestoneShown(hz.db, b.id, customer.id, true);
     await b.owner.journey.showMilestone({ businessId: b.id, milestoneId: b.pageLiveId });
     const anon = hz.caller(null);
     const story = (await anon.publicPage.storyBySlug({ slug: b.slug }))!;

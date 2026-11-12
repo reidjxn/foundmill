@@ -1727,6 +1727,8 @@ const signupAttributed = declareEvent(
     narratable: false,
   },
 );
+
+// ---------------------------------------------------------------------------------------------------
 // Milestones a founder chooses to show (0087; docs/NETWORK.md F2 "the story", F3 "cards")
 // ---------------------------------------------------------------------------------------------------
 

@@ -15,7 +15,9 @@
 --            and that date (the api awards it in the transaction that publishes the page, as the signed-in founder);
 --            every other platform-recorded milestone is written on the service connection (ingest, the nightly sweep)
 --   update   a row with `ref.trophyKey` keeps its kind, label, date, ref and business; showing, hiding, archiving or
---            restoring a shown milestone is an owner's or an admin's
+--            restoring a shown milestone is an owner's or an admin's; only "Page live" and "First follower" can be
+--            shown at all (each is recorded from one real outside event; a customer or revenue milestone is counted
+--            or estimated and is not shown as "Verified" yet)
 --   delete   a shown milestone is an owner's or an admin's to delete (deleting it takes it off the page)
 -- Rows without `ref.trophyKey` (a release, a decision, a launch someone noted) stay as writable as before; the view never
 -- lists them. Not security definer: `current_user` must be the caller's role.
@@ -55,6 +57,12 @@ begin
   if recorded and (new.business_id is distinct from old.business_id or new.kind is distinct from old.kind or new.label is distinct from old.label
                    or new.achieved_at is distinct from old.achieved_at or new.ref is distinct from old.ref) then
     raise exception 'permission denied for milestones: a milestone the platform records is not changed by hand' using errcode = '42501';
+  end if;
+  -- Only a milestone recorded from one real outside event is shown as "Verified" (@foundmill/journey `isShowableTrophyKey`):
+  -- a customer or revenue milestone is counted or estimated, so a client cannot make one public, whoever they are.
+  if new.visibility = 'public' and old.visibility is distinct from 'public'
+     and coalesce(new.ref ->> 'trophyKey', '') not in ('page_live', 'first_follower') then
+    raise exception 'permission denied for milestones: this milestone cannot be shown yet' using errcode = '42501';
   end if;
   if ((new.visibility is distinct from old.visibility and 'public' in (old.visibility, new.visibility))
       or (old.visibility = 'public' and new.archived_at is distinct from old.archived_at))

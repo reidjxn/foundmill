@@ -3722,3 +3722,12 @@ The founder, in this session: "the only by-hand part of the social post should b
 - **Consequences for the build.** Nothing the founder has to type, paste, pick or attach: the text, the link with its `via` reference and the preview image are all ready before the button is shown; a draft that is too long for a network is fitted to it beforehand, never left for the founder to trim. Each network's share address is checked against its current format before it ships, and a network whose share window stops taking pre-filled text loses "available" until it does again.
 - **Honesty, unchanged.** Opening the share window is recorded as a share. It is never reported as posted (Foundmill cannot see the press), and it counts toward the north star only when a visit comes back through the link.
 
+## 2026-11-12 — Milestones in public: the calls made
+
+- **Only "Page live" and "First follower" can be shown for now.** This session's call, to confirm with the founder. The story says "Foundmill recorded each of these when it happened. None was typed in." That is true of a milestone recorded from one real outside event. It is not yet true of a customer milestone (counted from conversions, which on a deployment running mock integrations may not be real payments) or a revenue milestone (an Estimate: three months of revenue divided by three). Showing those as "Verified" would break the honesty rule and the rule that every non-real number is labeled. They become showable when each is tied to a real payment. Held in three places: the api, the console (no control is offered) and the table's guard trigger.
+- **A guard trigger on `milestones`** (the build's call, kept): the table let any member write any row, which was harmless while nothing public read it. Now a client cannot insert or alter a platform-recorded milestone, and only an owner or an admin shows or hides one.
+- **Public words come from the key, never from a stored label**, so a label that ever carried a customer's name cannot leave.
+- **A shown milestone stays chosen while the page is down** and returns when the page is republished; the console says "Shown when your page is live". The stricter reading of "the founder taps each time" would reset it on take-down; say if that is wanted.
+- **The card's `via` names the project page** (`p.<slug>`), not the card: one reference kind per public thing a person can be credited for.
+- **The foot follows who is looking**, as on the project page: a signed-in member sees the sentence without the "Start your own" link.
+
