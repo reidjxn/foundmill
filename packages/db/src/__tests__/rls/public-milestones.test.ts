@@ -10,7 +10,13 @@
  *     and no row for a private or archived milestone, a note someone typed in, a page taken down, an archived business
  *     or a sample business;
  *   - the early milestones: awarded once, with ids only, and given by the catch-up to a project that already reached
- *     them (never to a sample business).
+ *     them (never to a sample business);
+ *   - 0088: a recorded milestone is not deleted by hand, and a signed-in owner cannot backdate a page or its "Page
+ *     live" milestone by any route (the page's date, a re-insert, the nightly catch-up); deleting a business still
+ *     removes its milestones.
+ *
+ * A fixture that needs a known date publishes its page on the service connection: for a signed-in client the database
+ * records the date itself (0088).
  */
 import { TROPHIES, TROPHY_KEYS, isShowableTrophyKey } from "@foundmill/journey";
 import type { ProjectPageContent } from "@foundmill/shared";
@@ -42,11 +48,11 @@ const listed = async (id: string) => (await publicRows()).some((r) => r.id === i
 /** The fixture's businesses have a payment, so the catch-up also awards "First customer": these tests read the early two. */
 const early = <T extends { ref: unknown }>(ms: T[]): T[] => ms.filter((m) => ["page_live", "first_follower"].includes(String((m.ref as { trophyKey?: string } | null)?.trophyKey)));
 
-/** A committed business with a live page at `slug` (published by its owner at `at`). */
+/** A committed business with a live page at `slug`, dated `at` on the service connection (the only one that chooses a date, 0088). */
 async function withPage(slug: string, at = new Date("2026-11-12T09:00:00Z")) {
   const f = await createBusinessFixture(h, slug);
   await commit(f.businessId);
-  const { page } = await h.asUser(f.ownerId).run((tx) => repos.pages.publish(tx, f.businessId, { content: content(), slug, userId: f.ownerId, at }));
+  const { page } = await h.service().run((tx) => repos.pages.publish(tx, f.businessId, { content: content(), slug, userId: f.ownerId, at }));
   return { ...f, pageId: page.id, publishedAt: page.publishedAt! };
 }
 
@@ -71,7 +77,7 @@ beforeAll(async () => {
   outsiderId = await h.createUser("ms-outsider@test.local");
   await commit(A.businessId);
   await commit(B.businessId);
-  await h.asUser(B.ownerId).run((tx) => repos.pages.publish(tx, B.businessId, { content: content({ pitch: "Bravo's page" }), slug: "ms-bravo", userId: B.ownerId, at: new Date("2026-11-01T09:00:00Z") }));
+  await h.service().run((tx) => repos.pages.publish(tx, B.businessId, { content: content({ pitch: "Bravo's page" }), slug: "ms-bravo", userId: B.ownerId, at: new Date("2026-11-01T09:00:00Z") }));
   bShownId = (await record(B.businessId, "customer_1", "First customer", "2026-11-05T10:00:00Z", { entityId: B.entityId, customerName: "Acme Corp" })).id;
   // A customer milestone cannot be shown by a client (below); the view's own rules are tested on rows the service made public.
   await repos.journeys.setMilestoneShown(db(), B.businessId, bShownId, true);
@@ -100,25 +106,29 @@ describe("milestones: what the platform records is not written by hand", () => {
     await expect(h.asUser(A.ownerId).run((tx) => awardPageLiveMilestone(tx, A.businessId, { pageId: A.businessId, at }))).rejects.toThrow(/not written by hand/);
     const draft = await h.asUser(A.ownerId).run((tx) => repos.pages.saveDraft(tx, A.businessId, { draft: content(), slug: "ms-alpha", userId: A.ownerId }));
     await expect(h.asUser(A.ownerId).run((tx) => awardPageLiveMilestone(tx, A.businessId, { pageId: draft.id, at }))).rejects.toThrow(/not written by hand/);
-    // The api's transaction: publish, then the award at the page's own date.
-    const row = await h.asUser(A.adminId).run(async (tx) => {
+    // The api's transaction: publish, then the award at the page's own date, which the database recorded (0088):
+    // the date sent with the publish is not it.
+    const { row, wentLive } = await h.asUser(A.adminId).run(async (tx) => {
       const { page } = await repos.pages.publish(tx, A.businessId, { content: content(), slug: "ms-alpha", userId: A.adminId, at });
-      return awardPageLiveMilestone(tx, A.businessId, { pageId: page.id, at: page.publishedAt! });
+      return { row: await awardPageLiveMilestone(tx, A.businessId, { pageId: page.id, at: page.publishedAt! }), wentLive: page.publishedAt! };
     });
+    expect(wentLive).not.toEqual(at);
+    expect(Math.abs(wentLive.getTime() - Date.now())).toBeLessThan(60_000);
     // A date that is not the page's own is refused, for a business that holds the milestone and for one that does not.
     await expect(h.asUser(A.ownerId).run((tx) => awardPageLiveMilestone(tx, A.businessId, { pageId: draft.id, at: new Date("2020-01-01T00:00:00Z") }))).rejects.toThrow(/not written by hand/);
     const bPage = (await repos.pages.get(db(), B.businessId))!;
     await expect(h.asUser(B.ownerId).run((tx) => awardPageLiveMilestone(tx, B.businessId, { pageId: bPage.id, at: new Date("2020-01-01T00:00:00Z") }))).rejects.toThrow(/not written by hand/);
     expect(row).toMatchObject({ kind: "trophy", label: "Page live", visibility: "private" });
-    expect(row!.achievedAt.toISOString()).toBe("2026-11-12T09:00:00.000Z");
+    expect(row!.achievedAt).toEqual(wentLive);
     expect(row!.ref).toEqual({ trophyKey: "page_live", pageId: draft.id });
     // Another business's page proves nothing here, and a second award is a no-op.
     await expect(h.asUser(B.ownerId).run((tx) => tx.insert(s.milestones).values({ businessId: B.businessId, kind: "trophy", label: "Page live", achievedAt: bPage.publishedAt!, ref: { trophyKey: "page_live", pageId: draft.id } }))).rejects.toThrow(/not written by hand/);
-    expect(await h.asUser(A.ownerId).run((tx) => awardPageLiveMilestone(tx, A.businessId, { pageId: draft.id, at }))).toBeNull();
+    expect(await h.asUser(A.ownerId).run((tx) => awardPageLiveMilestone(tx, A.businessId, { pageId: draft.id, at: wentLive }))).toBeNull();
     // Publishing changes keeps the date and awards nothing new.
     await h.asUser(A.ownerId).run(async (tx) => {
       const { page, wasLive } = await repos.pages.publish(tx, A.businessId, { content: content({ stage: "live" }), slug: "ms-alpha", userId: A.ownerId, at: new Date("2026-11-20T09:00:00Z") });
       expect(wasLive).toBe(true);
+      expect(page.publishedAt).toEqual(wentLive);
       expect(await awardPageLiveMilestone(tx, A.businessId, { pageId: page.id, at: page.publishedAt! })).toBeNull();
     });
     expect(await repos.journeys.awardedTrophyKeys(db(), A.businessId)).toEqual(["page_live"]);
@@ -148,8 +158,8 @@ describe("milestones: only one recorded from a real outside event can be shown",
     }
     // The journey package's rule and the trigger's list are the same two keys.
     expect(TROPHY_KEYS.filter(isShowableTrophyKey)).toEqual(["page_live", "first_follower"]);
-    const migration = readMigrations().find((m) => m.tag === "0087_public_milestones")!.sql;
-    expect(migration).toContain("not in ('page_live', 'first_follower')");
+    // 0088 replaced the guard's function: both definitions carry the same list.
+    for (const tag of ["0087_public_milestones", "0088_page_dates_recorded"]) expect(readMigrations().find((m) => m.tag === tag)!.sql, tag).toContain("not in ('page_live', 'first_follower')");
     // One the service made public (an older row) can still be taken off the page by an owner.
     await repos.journeys.setMilestoneShown(db(), A.businessId, customer.id, true);
     expect(await h.asUser(A.ownerId).run((tx) => repos.journeys.setMilestoneShown(tx, A.businessId, customer.id, false))).not.toBeNull();
@@ -203,6 +213,110 @@ describe("milestones: showing and hiding are an owner's or an admin's", () => {
     const note = await h.asUser(A.ownerId).run((tx) => repos.journeys.createMilestone(tx, A.businessId, { kind: "release", label: "Version 2" }));
     expect(await h.asUser(A.ownerId).run((tx) => repos.journeys.setMilestoneShown(tx, A.businessId, note.id, true))).toBeNull();
     expect(await visibilityOf(note.id)).toBe("private");
+  });
+});
+
+describe("milestones: what the platform recorded stays recorded (0088)", () => {
+  const pageLive = async (businessId: string) => (await h.db.select().from(s.milestones).where(and(eq(s.milestones.businessId, businessId), sql`${s.milestones.ref} ->> 'trophyKey' = 'page_live'`)))[0];
+  /** A project whose owner published the page through the api's own path: the database dated it, and "Page live" with it. */
+  async function published(slug: string) {
+    const f = await createBusinessFixture(h, slug);
+    await commit(f.businessId);
+    const { page, milestone } = await h.asUser(f.ownerId).run(async (tx) => {
+      const { page } = await repos.pages.publish(tx, f.businessId, { content: content(), slug, userId: f.ownerId });
+      return { page, milestone: (await awardPageLiveMilestone(tx, f.businessId, { pageId: page.id, at: page.publishedAt! }))! };
+    });
+    return { ...f, pageId: page.id, wentLive: page.publishedAt!, milestoneId: milestone.id };
+  }
+
+  it("no signed-in client deletes a recorded milestone, private or shown; a note without a key is still deleted", async () => {
+    const f = await published("ms-keep");
+    const customer = await record(f.businessId, "customer_1", "First customer", "2026-11-19T10:00:00Z");
+    for (const userId of [f.ownerId, f.adminId, f.memberId]) {
+      for (const id of [f.milestoneId, customer.id]) {
+        await expect(h.asUser(userId).run((tx) => tx.delete(s.milestones).where(eq(s.milestones.id, id)))).rejects.toThrow(/not deleted by hand/);
+      }
+      await expect(h.asUser(userId).run((tx) => tx.delete(s.milestones).where(eq(s.milestones.businessId, f.businessId)))).rejects.toThrow(/not deleted by hand/);
+    }
+    await expectNoEffect(h.asUser(f.viewerId).run((tx) => tx.delete(s.milestones).where(eq(s.milestones.id, f.milestoneId)).returning({ id: s.milestones.id })));
+    // Shown: an owner hides it or archives it; deleting it is refused like any other recorded milestone.
+    await h.asUser(f.ownerId).run((tx) => repos.journeys.setMilestoneShown(tx, f.businessId, f.milestoneId, true));
+    await expect(h.asUser(f.ownerId).run((tx) => tx.delete(s.milestones).where(eq(s.milestones.id, f.milestoneId)))).rejects.toThrow(/not deleted by hand/);
+    await expect(h.asUser(f.memberId).run((tx) => tx.delete(s.milestones).where(eq(s.milestones.id, f.milestoneId)))).rejects.toThrow(/only an owner or an admin/);
+    expect(await listed(f.milestoneId)).toBe(true);
+    expect(await h.asUser(f.adminId).run((tx) => repos.journeys.setMilestoneShown(tx, f.businessId, f.milestoneId, false))).toMatchObject({ visibility: "private" });
+    expect((await repos.journeys.awardedTrophyKeys(db(), f.businessId)).sort()).toEqual(["customer_1", "page_live"]);
+
+    // Another business's people reach nothing.
+    for (const userId of [A.ownerId, A.memberId, outsiderId]) await expectNoEffect(h.asUser(userId).run((tx) => tx.delete(s.milestones).where(eq(s.milestones.id, f.milestoneId)).returning({ id: s.milestones.id })));
+    // A note someone typed in is theirs to delete, as before; the service connection is not limited.
+    const note = await h.asUser(f.memberId).run((tx) => repos.journeys.createMilestone(tx, f.businessId, { kind: "launch", label: "Opened the shop" }));
+    expect(await h.asUser(f.memberId).run((tx) => tx.delete(s.milestones).where(eq(s.milestones.id, note.id)).returning({ id: s.milestones.id }))).toHaveLength(1);
+    expect(await h.service().run((tx) => tx.delete(s.milestones).where(eq(s.milestones.id, customer.id)).returning({ id: s.milestones.id }))).toHaveLength(1);
+  });
+
+  it("a signed-in owner cannot backdate a page or its \"Page live\" milestone, by any route", async () => {
+    const f = await published("ms-honest");
+    const typed = new Date("2020-01-01T00:00:00Z");
+    expect(Math.abs(f.wentLive.getTime() - Date.now())).toBeLessThan(60_000);
+    const backdate = (userId: string) => h.asUser(userId).execute(sql`update project_pages set published_at = '2020-01-01T00:00:00Z' where business_id = ${f.businessId}`);
+    const holds = async () => {
+      expect((await repos.pages.get(db(), f.businessId))!.publishedAt).toEqual(f.wentLive);
+      expect((await pageLive(f.businessId))?.achievedAt).toEqual(f.wentLive);
+    };
+
+    for (const userId of [f.ownerId, f.adminId]) {
+      // 1. The page's own date, straight through the table: nothing moves.
+      await backdate(userId);
+      // 2. The milestone's date: refused. 3. Deleting it to record it again: refused.
+      await expect(h.asUser(userId).run((tx) => tx.update(s.milestones).set({ achievedAt: typed }).where(eq(s.milestones.id, f.milestoneId)))).rejects.toThrow(/not changed by hand/);
+      await expect(h.asUser(userId).run((tx) => tx.delete(s.milestones).where(eq(s.milestones.id, f.milestoneId)))).rejects.toThrow(/not deleted by hand/);
+      await holds();
+    }
+
+    // Had the milestone gone anyway (an older database, before deletes were refused), no route brings it back with a
+    // typed-in date: a re-insert must carry the page's date, and the page's date is the database's.
+    await h.service().run((tx) => tx.delete(s.milestones).where(eq(s.milestones.id, f.milestoneId)));
+    await backdate(f.ownerId);
+    await expect(h.asUser(f.ownerId).run((tx) => awardPageLiveMilestone(tx, f.businessId, { pageId: f.pageId, at: typed }))).rejects.toThrow(/not written by hand/);
+    await expect(h.asUser(f.ownerId).run((tx) => tx.insert(s.milestones).values({ businessId: f.businessId, kind: "trophy", label: "Page live", achievedAt: typed, ref: { trophyKey: "page_live", pageId: f.pageId } }))).rejects.toThrow(/not written by hand/);
+    // The nightly catch-up reads the page: the real date again.
+    const caught = early(await catchUpMilestones(db(), f.businessId));
+    expect(caught.map((m) => [m.label, m.achievedAt])).toEqual([["Page live", f.wentLive]]);
+
+    // Shown, the story says the day the page really went live.
+    await h.asUser(f.ownerId).run((tx) => repos.journeys.setMilestoneShown(tx, f.businessId, caught[0]!.id, true));
+    await backdate(f.ownerId);
+    expect((await repos.pages.public.storyBySlug(db(), "ms-honest")).map((m) => [m.label, m.achievedAt])).toEqual([["Page live", f.wentLive]]);
+    expect((await repos.pages.public.bySlug(db(), "ms-honest"))?.publishedAt).toEqual(f.wentLive);
+  });
+
+  it("a page that never went live earns nothing, whatever date its row was written with", async () => {
+    const f = await createBusinessFixture(h, "ms-never");
+    await commit(f.businessId);
+    // A row with a date and no published copy, then the same date written onto it again.
+    await h.asUser(f.ownerId).run((tx) => tx.insert(s.projectPages).values({ businessId: f.businessId, slug: "ms-never", draft: content(), publishedAt: new Date("2020-01-01T00:00:00Z") }));
+    await h.asUser(f.ownerId).execute(sql`update project_pages set published_at = '2020-01-01T00:00:00Z', unpublished_at = '2020-02-01T00:00:00Z' where business_id = ${f.businessId}`);
+    const row = (await repos.pages.get(db(), f.businessId))!;
+    expect(row).toMatchObject({ published: null, publishedAt: null, unpublishedAt: null });
+    expect(early(await catchUpMilestones(db(), f.businessId))).toEqual([]);
+    await expect(h.asUser(f.ownerId).run((tx) => awardPageLiveMilestone(tx, f.businessId, { pageId: row.id, at: new Date("2020-01-01T00:00:00Z") }))).rejects.toThrow(/not written by hand/);
+    expect(await pageLive(f.businessId)).toBeUndefined();
+  });
+
+  it("deleting a business still removes its milestones; no client role deletes a business", async () => {
+    const f = await published("ms-purge");
+    await record(f.businessId, "customer_1", "First customer", "2026-11-19T10:00:00Z");
+    await h.asUser(f.ownerId).run((tx) => repos.journeys.setMilestoneShown(tx, f.businessId, f.milestoneId, true));
+    const count = async () => (await h.db.select({ id: s.milestones.id }).from(s.milestones).where(eq(s.milestones.businessId, f.businessId))).length;
+    expect(await count()).toBe(2);
+    // A client's delete of the business reaches no row (0002: no delete policy), so no cascade starts under a client role.
+    expect(await h.asUser(f.ownerId).run((tx) => tx.delete(s.businesses).where(eq(s.businesses.id, f.businessId)).returning({ id: s.businesses.id }))).toHaveLength(0);
+    expect(await count()).toBe(2);
+    // The scheduled deletion, as the orchestrator runs it on the service connection.
+    expect(await h.service().run((tx) => repos.businesses.purge(tx, f.businessId))).toBe(true);
+    expect(await count()).toBe(0);
+    expect(await repos.pages.get(db(), f.businessId)).toBeNull();
   });
 });
 

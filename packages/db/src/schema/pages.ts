@@ -9,6 +9,8 @@ import { businessId } from "./_refs";
  * `draft` is what the founder is writing; `published` is the copy the public page shows (null until published and
  * again after it is taken down). Members read; owner, admin and member write the draft; only an owner or an admin
  * changes `published`, the publish columns or a live page's slug (trigger `fm_project_pages_guard`), and only they delete.
+ * `published_at` and `unpublished_at` are the database's to write for a signed-in client (0088): its clock when the page
+ * goes live or is taken down, unchanged otherwise, whatever the client sent.
  */
 export const projectPages = pgTable(
   "project_pages",
@@ -19,7 +21,7 @@ export const projectPages = pgTable(
     slug: text("slug").notNull(),
     draft: jsonb("draft").$type<ProjectPageContent>().notNull(),
     published: jsonb("published").$type<ProjectPageContent>(),
-    /** When the page last went live (kept after it is taken down). */
+    /** When the page last went live (kept after it is taken down). Recorded by the database for a client role (0088). */
     publishedAt: tstz("published_at"),
     publishedBy: uuid("published_by").references(() => authUsers.id, { onDelete: "set null" }),
     /** When it was taken down; null while it is live or was never published. */
