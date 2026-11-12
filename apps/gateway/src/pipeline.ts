@@ -811,7 +811,9 @@ async function allow(deps: GatewayDeps, session: SessionToken, req: CallRequestP
     // Recipients first seen here still need the founder's approval, first-party or not. An archive is compressed bytes
     // with no text to scan; it reaches an agent only when it is the Code tab's (withheld below otherwise).
     if (!archive) {
-      const found = candidatesFromContent(content);
+      // The typed read's values too: an address there is written the way the agent will use it (an encoded quote, a
+      // normalized path), which the scan of the raw content can cut short (security review, Nov 12, 2026).
+      const found = [...candidatesFromContent(content), ...candidatesFromContent(toAgentEnvelope(result.data).facts ?? null)];
       const added = await deps.recipients.record(session.businessId, found);
       if (added > 0) log.debug({ added }, "recipients first seen in untrusted content recorded for this business");
     }
@@ -820,7 +822,8 @@ async function allow(deps: GatewayDeps, session: SessionToken, req: CallRequestP
       // Still the untrusted envelope with its notice (data, never instructions); only the digest step is skipped.
       data = { ...toAgentEnvelope(result.data), firstParty: true };
     } else if (archive) {
-      data = { ...toAgentEnvelope(result.data), content: null, quarantined: true, unavailable: ARCHIVE_WITHHELD };
+      const { facts: _withheld, ...withoutFacts } = toAgentEnvelope(result.data);
+      data = { ...withoutFacts, content: null, quarantined: true, unavailable: ARCHIVE_WITHHELD };
     } else if (deps.reader && grantsOutboundTools(deps.registry, session.allowedTools)) {
       // An agent that can contact people, spend or do something irreversible never reads third-party text raw: a model with no
       // tools reads it and the agent gets typed fields only (BUILD §9.8 step 2). If the reader fails, the agent gets nothing.
