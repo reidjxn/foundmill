@@ -6,8 +6,7 @@
  * The address stays `/` for a business.
  */
 import { redirect } from "next/navigation";
-import { routes } from "@foundmill/widgets/shared/routes";
-import { pickCurrentBusiness } from "@/lib/auth/current-business";
+import { startDestination } from "@/lib/auth/start-destination";
 import { getLastBusinessId } from "@/lib/auth/server";
 import { serverApi } from "@/lib/trpc-server";
 import { ApiErrorPage } from "@/components/shell/ApiErrorPage";
@@ -27,8 +26,6 @@ export default async function StartPage() {
   } catch (err) {
     return <ApiErrorPage error={err} email={server.auth.email} />;
   }
-  if (!profile.complete) redirect("/onboarding");
-  const target = pickCurrentBusiness(await getLastBusinessId(), profile.businesses);
-  if (target) redirect(routes.today(target.id));
-  redirect("/home");
+  // The one routing table for a person just signed in (lib/auth/start-destination.ts).
+  redirect(startDestination({ profileComplete: profile.complete, businesses: profile.businesses, lastBusinessId: await getLastBusinessId() }));
 }
