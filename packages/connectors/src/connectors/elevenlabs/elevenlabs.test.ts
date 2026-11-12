@@ -3,7 +3,7 @@ import { SPEECH_MODELS } from "@foundmill/models";
 import { SPEECH_ACCENTS, TEAM_CALL_AUDIO_MIMES, TEAM_CALL_LIMITS } from "@foundmill/shared";
 import { SERVICE_ONLY_CONNECTORS } from "../../grants";
 import { jsonResponse, routedFetch } from "../../http";
-import { collectingLogger, describeConnectorContract, envKeysPresent, makeToolContext } from "../../testing/contract-suite";
+import { describeConnectorContract, envKeysPresent, makeToolContext, type collectingLogger } from "../../testing/contract-suite";
 import { speechAccentId, speechAccentsWithoutId, SPEECH_ACCENT_IDS, resolveSpeechAccentIds } from "./speech-accents";
 import { BAD_KEY, QUOTA_EXCEEDED, TINY_MP3, TINY_MP3_BASE64, TOO_MANY, TRANSCRIPT_NO_DURATION, TRANSCRIPT_OK, VALIDATION_ERROR } from "./fixtures/speech";
 import { createElevenlabsConnector, redactKeys } from "./index";
