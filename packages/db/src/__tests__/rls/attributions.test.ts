@@ -1,5 +1,5 @@
 /**
- * 0085 — `attributions`: who or what brought a new person (docs/NETWORK.md §5, §11).
+ * 0086 — `attributions`: who or what brought a new person (docs/NETWORK.md §5, §11).
  *
  *   - the service role's only: no client role reads or writes it, not even the person's own row, so who referred them
  *     and which project it was never reach a client (another account, the referrer and the source project's members
@@ -51,7 +51,7 @@ beforeAll(async () => {
 }, 120_000);
 afterAll(() => h?.close());
 
-describe("attributions 0085: the service role's only", () => {
+describe("attributions 0086: the service role's only", () => {
   it("the api (service connection) reads and writes it", async () => {
     const row = await h.service().run((tx) => repos.attributions.forUser(tx, newcomer));
     expect(row).toMatchObject({ userId: newcomer, sourceKind: "project_page", sourceRef: "bread-by-bike", sourceBusinessId: A.businessId, referrerUserId: A.ownerId });
@@ -86,7 +86,7 @@ describe("attributions 0085: the service role's only", () => {
   });
 });
 
-describe("attributions 0085: once per account, and what the database itself refuses", () => {
+describe("attributions 0086: once per account, and what the database itself refuses", () => {
   it("the first stays: a second record writes nothing, through the repo or straight to the table", async () => {
     expect(await h.service().run((tx) => repos.attributions.record(tx, newcomer, { kind: "person_profile", ref: "sam-lee", businessId: null, referrerUserId: B.ownerId }))).toBeNull();
     await expect(h.service().execute(sql`insert into attributions (user_id, source_kind, source_ref) values (${newcomer}, 'person_profile', 'sam-lee')`)).rejects.toThrow(/attributions_user_id_key|duplicate key/);
@@ -111,7 +111,7 @@ describe("attributions 0085: once per account, and what the database itself refu
   });
 
   it("the migration's kinds are the shared kinds", () => {
-    const migration = readMigrations().find((m) => m.tag === "0085_attributions")!.sql;
+    const migration = readMigrations().find((m) => m.tag === "0086_attributions")!.sql;
     const block = /check \(source_kind in \(([^)]*)\)\)/.exec(migration)?.[1] ?? "";
     expect([...block.matchAll(/'([a-z_]+)'/g)].map((m) => m[1]).sort()).toEqual([...VIA_KINDS].sort());
   });
@@ -176,7 +176,7 @@ describe("repos.attributions.resolve: the public views only", () => {
   });
 });
 
-describe("attributions 0085: what follows what", () => {
+describe("attributions 0086: what follows what", () => {
   it("the row goes with its account; a referrer or a source business that goes leaves the row", async () => {
     const C = await createBusinessFixture(h, "attr-c");
     const brought = await h.createUser("attr-brought@test.local");

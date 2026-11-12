@@ -1,5 +1,5 @@
 /**
- * attributions (0085) — account-scoped (userId first): who or what brought a new person (docs/NETWORK.md §5, §11). One
+ * attributions (0086) — account-scoped (userId first): who or what brought a new person (docs/NETWORK.md §5, §11). One
  * row per account, ever, written by the api when the person's founder profile is first created
  * (`founder.profile.update`, apps/api services/attribution.ts).
  *

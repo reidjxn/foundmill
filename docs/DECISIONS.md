@@ -3695,3 +3695,7 @@ Consequences taken here:
 - **The reference reaches the api through the page, not the cookie.** The save is a browser call to the api, which the web's cookie does not travel with. The server reads the httpOnly cookie and passes the parsed reference as a prop. Routing the whole save through the server was rejected: any signed-in client can send any `via` anyway, so it adds no integrity, and it would have changed the save's error handling.
 - **No event row** until person-level events have a home (the founder's decision of the same day).
 
+## 2026-11-12 — Merge order and migration numbers (from the alignment session)
+
+Order into main: retention (0083, 0084), Google sign-in (no migration), then the person-level event store on its own branch `claude/account-events` (**0085_account_events**), then this network branch (**0086_attributions**, **0087_public_milestones**). Supersedes the numbers in the two entries above (attributions was first 0085, the event store first 0087). A number and its journal `when` are final only at the rebase just before a merge: the next free number after main's last migration, with a strictly later `when`, because the migrator skips an entry older than the last one applied. Whoever merges out of order renumbers and says so first.
+

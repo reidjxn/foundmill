@@ -1,5 +1,5 @@
 /**
- * Who or what brought a new person (services/attribution.ts; migration 0085; docs/NETWORK.md §5, §11):
+ * Who or what brought a new person (services/attribution.ts; migration 0086; docs/NETWORK.md §5, §11):
  * `founder.profile.update` takes `via` on the save that creates the profile and records it once.
  *
  * Recorded for a public project page (the business and its longest-standing owner) and for a public person profile

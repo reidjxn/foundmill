@@ -1,4 +1,4 @@
--- 0085 — who or what brought a new person (docs/NETWORK.md §5 "Attribution is part of every loop", §11). Every public
+-- 0086 — who or what brought a new person (docs/NETWORK.md §5 "Attribution is part of every loop", §11). Every public
 -- address accepts `?via=<reference>`; the web keeps the first one a visitor arrives with in a cookie, and when that
 -- visitor becomes a person (their founder profile is first created) the api records it here, once. It is how the growth
 -- loops are measured and how credit for bringing someone is later paid; nothing is paid from this table yet.

@@ -1697,7 +1697,7 @@ const notifyEmailSent = declareEvent(
 );
 
 // ---------------------------------------------------------------------------------------------------
-// Who or what brought a new person (0085 `attributions`; docs/NETWORK.md §5, §11)
+// Who or what brought a new person (0086 `attributions`; docs/NETWORK.md §5, §11)
 // ---------------------------------------------------------------------------------------------------
 
 // NOT WRITTEN YET. This event is about an account, and a person creating their profile has no business: `events` and
