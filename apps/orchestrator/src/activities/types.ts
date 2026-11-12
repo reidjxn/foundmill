@@ -180,6 +180,12 @@ export interface BusinessCycleInput {
   timeBoxAgentHours?: number;
   /** Max concurrent sessions for this cycle (defaults from the brief). */
   maxConcurrent?: number;
+  /**
+   * What this cycle may spend, USD cents (an Estimate): the rest of Autopilot's own spend ceiling for the day (0084), for
+   * a cycle Autopilot starts on its own. Starts stop once it is reserved, and each session is capped at its reserve.
+   * Absent: the credits left, as for any cycle.
+   */
+  budgetCapMinor?: number | null;
 }
 
 export interface BusinessCycleResult {
@@ -204,6 +210,8 @@ export interface AgentSessionInput {
   sessionId: string;
   /** Cycle that dispatched the session, when any. */
   cycleId?: string | null;
+  /** The most the session may spend, USD cents: its share of a capped cycle's budget (`budgetCapMinor`). Absent: no such cap. */
+  spendCapMinor?: number | null;
 }
 
 export interface SessionLaunch {

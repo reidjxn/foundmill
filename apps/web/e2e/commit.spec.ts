@@ -35,7 +35,7 @@ test.describe("commit", () => {
     await expect(summary.locator('[data-summary="game-mode"]')).toHaveText("Personal");
     await expect(summary.locator('[data-summary="business-mode"]')).toHaveText("Assisted");
     await expect(summary.locator('[data-summary="spend-cap"]')).toHaveText(/^Asks you above /);
-    await expect(summary.locator('[data-summary="autopilot"]')).toHaveText("Autopilot off");
+    await expect(summary.locator('[data-summary="autopilot"]')).toHaveText("Overnight shift on");
     // Labeled lines, not bare chips (first-time founder report, Nov 8, 2026): each choice says what it is about.
     for (const label of ["Where it runs", "Who decides", "Kind of business", "On a schedule"]) await expect(summary).toContainText(label);
     // The team the archetype seeds, with what its wage caps add up to a month (an Estimate) and no background helper listed.
@@ -77,19 +77,20 @@ test.describe("commit", () => {
     if (await adult.count()) await expect(adult).toBeVisible();
   });
 
-  test("Run on autopilot is a choice, off by default, and shows in the summary when chosen", async ({ page }) => {
+  test("The overnight shift is on by default (retention plan, Nov 11, 2026), can be turned off, and shows in the summary", async ({ page }) => {
     await openHowItRuns(page);
     const toggle = page.getByTestId("run-on-autopilot");
     const chip = page.getByTestId("how-it-runs-summary").locator('[data-summary="autopilot"]');
-    await expect(page.getByTestId("autopilot-choice")).toContainText("Run on autopilot");
+    await expect(page.getByTestId("autopilot-choice")).toContainText("Overnight shift");
+    await expect(page.getByTestId("autopilot-choice")).toContainText("about 2 AM your time");
+    await expect(toggle).toHaveAttribute("aria-checked", "true");
+    await expect(chip).toHaveText("Overnight shift on");
+    await toggle.click();
     await expect(toggle).toHaveAttribute("aria-checked", "false");
     await expect(chip).toHaveText("Autopilot off");
     await toggle.click();
     await expect(toggle).toHaveAttribute("aria-checked", "true");
-    await expect(chip).toHaveText("Autopilot on");
-    await toggle.click();
-    await expect(toggle).toHaveAttribute("aria-checked", "false");
-    await expect(chip).toHaveText("Autopilot off");
+    await expect(chip).toHaveText("Overnight shift on");
   });
 
   test("name suggestions, live domain availability and the trademark screen with its caveat", async ({ page }) => {

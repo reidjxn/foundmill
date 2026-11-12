@@ -141,6 +141,6 @@ describe("Autopilot section", () => {
     expect(save.disabled).toBe(false);
     fireEvent.click(save);
     await waitFor(() => expect(set).toHaveBeenCalledTimes(1));
-    expect(set.mock.calls[0]![0]).toEqual({ businessId: BUSINESS, cadence: "every_4h", dailyHour: 9, maxCyclesPerDay: 8, spendCeilingMinor: 1250, maxIdleCycles: 2 });
+    expect(set.mock.calls[0]![0]).toEqual({ businessId: BUSINESS, cadence: "every_4h", dailyHour: 9, maxCyclesPerDay: 8, spendCeilingMinor: 1250, maxIdleCycles: 2, ownMaxCyclesPerDay: null, ownSpendCeilingMinor: null });
   });
 });

@@ -15,8 +15,8 @@ describe("Autopilot settings draft", () => {
 
   it("round-trips the saved settings", () => {
     const d = draftOf({ ...SAVED, spendCeilingMinor: 1250 });
-    expect(d).toEqual({ cadence: "every_4h", dailyHour: "9", maxCyclesPerDay: "6", spendCeiling: "12.5", maxIdleCycles: "3" });
-    expect(parseDraft(d)).toEqual({ ok: true, change: { ...SAVED, spendCeilingMinor: 1250 } });
+    expect(d).toEqual({ cadence: "every_4h", dailyHour: "9", maxCyclesPerDay: "6", spendCeiling: "12.5", maxIdleCycles: "3", ownMaxCyclesPerDay: "", ownSpendCeiling: "" });
+    expect(parseDraft(d)).toEqual({ ok: true, change: { ...SAVED, spendCeilingMinor: 1250, ownMaxCyclesPerDay: null, ownSpendCeilingMinor: null } });
     expect(draftChanged(d, { ...SAVED, spendCeilingMinor: 1250 })).toBe(false);
   });
 
@@ -46,5 +46,17 @@ describe("Autopilot settings draft", () => {
   it("says how many cycles ran today", () => {
     expect(cyclesTodayLine(2, 6)).toBe("2 of 6 cycles today");
     expect(cyclesTodayLine(0, 1)).toBe("0 of 1 cycle today");
+  });
+});
+
+describe("Autopilot's own limits in the draft (0084)", () => {
+  it("reads and parses its own cycles and dollars, empty meaning none", () => {
+    const d = draftOf({ ...SAVED, ownMaxCyclesPerDay: 1, ownSpendCeilingMinor: 15 });
+    expect(d).toMatchObject({ ownMaxCyclesPerDay: "1", ownSpendCeiling: "0.15" });
+    expect(parseDraft(d)).toMatchObject({ ok: true, change: { ownMaxCyclesPerDay: 1, ownSpendCeilingMinor: 15 } });
+    expect(parseDraft({ ...d, ownMaxCyclesPerDay: "", ownSpendCeiling: "" })).toMatchObject({ ok: true, change: { ownMaxCyclesPerDay: null, ownSpendCeilingMinor: null } });
+    expect(parseDraft({ ...d, ownMaxCyclesPerDay: "30" })).toMatchObject({ ok: false, errors: { ownMaxCyclesPerDay: expect.any(String) } });
+    expect(draftChanged({ ...d, ownSpendCeiling: "0.25" }, { ...SAVED, ownMaxCyclesPerDay: 1, ownSpendCeilingMinor: 15 })).toBe(true);
+    expect(draftChanged(d, { ...SAVED, ownMaxCyclesPerDay: 1, ownSpendCeilingMinor: 15 })).toBe(false);
   });
 });

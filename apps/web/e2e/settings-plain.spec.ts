@@ -227,7 +227,7 @@ test.describe("settings, plain words", () => {
     await expect(glossary.getByRole("heading", { name: "Your words" })).toBeVisible();
     await expect(glossary.getByTestId("your-words-lede")).toHaveText("Rename the product's nouns to yours (clients instead of customers).");
     await expect(glossary).not.toContainText(/Glossary/);
-    await expect(page).toHaveTitle(/^Your words · Settings · /);
+    await expect(page).toHaveTitle(/^(?:\(\d+\) )?Your words · Settings · /);
     const terms = await glossary.getByLabel("Default word").evaluateAll((els) => els.map((e) => (e as HTMLInputElement).value));
     expect(terms.filter((t) => /^(squad|club|crest|shout)$/i.test(t))).toEqual([]);
     const departments = await openSettings(page, "departments");

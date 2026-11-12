@@ -9,6 +9,7 @@ import { crmRouter } from "./routers/crm";
 import { cycleRouter } from "./routers/cycle";
 import { dashboardRouter, departmentRouter, screenRouter } from "./routers/department";
 import { devRouter } from "./routers/dev";
+import { emailRouter } from "./routers/email";
 import { distributionRouter } from "./routers/distribution";
 import { financeRouter } from "./routers/finance";
 import { founderRouter, publicPersonRouter } from "./routers/founder";
@@ -32,6 +33,7 @@ import { createCallerFactory, mergeRouters, publicProcedure, router } from "./tr
 export const appRouter = router({
   health: publicProcedure.query(() => ({ ok: true })),
   founder: founderRouter,
+  email: emailRouter,
   idea: ideaRouter,
   business: businessRouter,
   cycle: cycleRouter,

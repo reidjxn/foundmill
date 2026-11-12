@@ -9,6 +9,9 @@
  *     the projects' `pm:all:day`), and none while the projects' mail is above 75% of its ceiling;
  *   - once per note within the lookback, held here too (the event and a Redis marker), never for a note over 7 days old;
  *   - the subject as the Inbox shows it to the person: no amount behind a Finance wall, no customer behind a CRM wall;
+ *   - a note that holds up the team's work after 30 minutes away (founder 2026-11-12), never while the person is here;
+ *   - every other kind by the same route (a win, the morning brief), the brief outside the per-person limits;
+ *   - one founder_notifications row per email, its links' tokens never stored;
  *   - refused, with a plain sentence, when platform mail is off or not configured; never simulated for a person's
  *     project on staging or production.
  */
@@ -43,14 +46,14 @@ describe("email from Foundmill to a person (gateway)", () => {
   });
 
   /** A member with a profile and a note from the agent that has waited 26 hours. */
-  async function person(over: { role?: "owner" | "admin" | "member" | "viewer"; source?: "invite" | "example"; sectionPermissions?: Record<string, "read" | "write" | "none">; subject?: string; entityIds?: string[]; hoursAgo?: number } = {}) {
+  async function person(over: { role?: "owner" | "admin" | "member" | "viewer"; source?: "invite" | "example"; sectionPermissions?: Record<string, "read" | "write" | "none">; subject?: string; entityIds?: string[]; hoursAgo?: number; blocksContinue?: boolean; type?: "decision" | "customer_won" } = {}) {
     n += 1;
     const userId = await g.h.createUser(`Person${n}@Example.com`);
     await repos.founders.upsert(g.db, userId, { displayName: `Maya ${n}` });
     await g.h.db.insert(s.memberships).values({ businessId: g.businessId, userId, role: over.role ?? "owner", source: over.source ?? "invite", sectionPermissions: over.sectionPermissions ?? {} });
     const [item] = await g.h.db
       .insert(s.inboxItems)
-      .values({ businessId: g.businessId, type: "decision", fromAgentId: g.agentId, subject: over.subject ?? `Which price should [[ent:00000000-0000-4000-8000-000000000001|Starter]] have? (${n})`, entityIds: over.entityIds ?? [], createdAt: new Date(Date.now() - (over.hoursAgo ?? 26) * HOURS) })
+      .values({ businessId: g.businessId, type: over.type ?? "decision", blocksContinue: over.blocksContinue ?? false, fromAgentId: g.agentId, subject: over.subject ?? `Which price should [[ent:00000000-0000-4000-8000-000000000001|Starter]] have? (${n})`, entityIds: over.entityIds ?? [], createdAt: new Date(Date.now() - (over.hoursAgo ?? 26) * HOURS) })
       .returning({ id: s.inboxItems.id });
     return { userId, email: `person${n}@example.com`, itemId: item!.id };
   }
@@ -80,7 +83,8 @@ describe("email from Foundmill to a person (gateway)", () => {
     expect(sent!.text).toContain(`“Which price should Starter have? (${n})”`);
     expect(sent!.text).toContain(`Open it: http://localhost:3000/b/${g.businessId}/inbox/${p.itemId}`);
     expect(sent!.text).toContain(`You get this because you are part of Gateway Test Club on ${APP_NAME}. Turn these emails off: http://localhost:4005/mail/notify/off?t=`);
-    expect(sent!.html).toContain(`<a href="http://localhost:3000/b/${g.businessId}/inbox/${p.itemId}">Open it</a>`);
+    // The link carries the record's id, so the return it brings is counted (`founder.session_started`, via email).
+    expect(sent!.html).toMatch(new RegExp(`<a href="http://localhost:3000/b/${g.businessId}/inbox/${p.itemId}\\?via=email&amp;n=[0-9a-f-]{36}">Open it</a>`));
     const link = sent!.text.match(/\/mail\/notify\/off\?t=(\S+)/);
     expect(readNotifyOffToken(DEV_PLATFORM_MAIL_SECRET, decodeURIComponent(link![1]!))).toEqual({ userId: p.userId, kind: "decision_waiting" });
     expect((sent!.body as { headers: Record<string, string> }).headers["List-Unsubscribe-Post"]).toBe("List-Unsubscribe=One-Click");
@@ -250,9 +254,47 @@ describe("email from Foundmill to a person (gateway)", () => {
     expect(sentTo(p.email)).toHaveLength(0);
   });
 
-  it("only the api may ask, and a body with anything but ids is refused", async () => {
+  it("a note that holds up the team's work goes out 30 minutes after the person left, never while they are here; any other note waits a day", async () => {
+    const away = await person({ blocksContinue: true, hoursAgo: 0.75 });
+    expect((await ask(about(away))).body).toMatchObject({ sent: true });
+    const here = await person({ blocksContinue: true, hoursAgo: 0.75 });
+    await repos.presence.ping(g.db, g.businessId, here.userId, { now: new Date(Date.now() - 10 * 60_000) });
+    expect((await ask(about(here))).body).toMatchObject({ sent: false, reason: "present" });
+    const fresh = await person({ blocksContinue: true, hoursAgo: 0.25 });
+    expect((await ask(about(fresh))).body).toMatchObject({ sent: false, reason: "not_waiting" });
+    const plain = await person({ hoursAgo: 0.75 });
+    expect((await ask(about(plain))).body).toMatchObject({ sent: false, reason: "not_waiting" });
+    expect(sentTo(here.email)).toHaveLength(0);
+  });
+
+  it("sends the other kinds by the same route, and the morning brief never counts toward the three a day", async () => {
     const p = await person();
-    expect((await ask(about(p), "orchestrator")).status).toBe(403);
+    const win0 = await ask({ userId: p.userId, kind: "daily_brief", businessId: g.businessId, data: { day: "2026-11-12" } });
+    expect(win0.body).toMatchObject({ sent: false, reason: "not_started" });
+    await g.h.pg.query("update businesses set committed_at = $1 where id = $2", [new Date(Date.now() - 48 * HOURS).toISOString(), g.businessId]);
+    const [won] = await g.h.db.insert(s.inboxItems).values({ businessId: g.businessId, type: "customer_won", fromAgentId: g.agentId, subject: "Ada Byron paid for Starter" }).returning({ id: s.inboxItems.id });
+    const win = await ask({ userId: p.userId, kind: "win", businessId: g.businessId, data: { inboxItemId: won!.id } });
+    expect(win.body, JSON.stringify(win.body)).toMatchObject({ sent: true });
+    const [event] = await repos.events.list(g.db, g.businessId, { type: "notify.email_sent", limit: 50 }).then((es) => es.items.filter((e) => (e.payload as { userId: string }).userId === p.userId));
+    expect(event!.payload).toMatchObject({ kind: "win", inboxItemId: won!.id, simulated: true, offersAnswer: false });
+    // The person's three a day are used up: the brief still goes out.
+    await g.deps.rateLimits.hit(notifyPersonDayKey(p.userId), 86_400_000, Date.now());
+    await g.deps.rateLimits.hit(notifyPersonDayKey(p.userId), 86_400_000, Date.now());
+    await g.deps.rateLimits.hit(notifyPersonDayKey(p.userId), 86_400_000, Date.now());
+    const day = new Date().toISOString().slice(0, 10);
+    expect((await ask({ userId: p.userId, kind: "daily_brief", businessId: g.businessId, data: { day } })).body).toMatchObject({ sent: true });
+    // Once per day.
+    expect((await ask({ userId: p.userId, kind: "daily_brief", businessId: g.businessId, data: { day } })).body).toMatchObject({ sent: false, reason: "already_sent" });
+    // A kind without the id it needs is refused before anything is read.
+    expect((await ask({ userId: p.userId, kind: "run_finished", businessId: g.businessId, data: { day } })).status).toBe(400);
+    const { rows } = await g.h.pg.query<{ kind: string; status: string; body_text: string }>("select kind, status, body_text from founder_notifications where user_id = $1 order by kind", [p.userId]);
+    expect(rows.map((r) => [r.kind, r.status])).toEqual([["daily_brief", "sent"], ["win", "sent"]]);
+    for (const r of rows) expect(r.body_text).not.toMatch(/\/email\/pause\?t=|\/a\/[A-Za-z0-9_-]{20,}/);
+  });
+
+  it("only the api and the orchestrator may ask, and a body with anything but ids is refused", async () => {
+    const p = await person();
+    expect((await ask(about(p), "composer")).status).toBe(403);
     expect((await ask(about(p), null)).status).toBe(401);
     // An address, or words, from the caller are never taken.
     expect((await ask({ ...about(p), email: "attacker@example.com" })).status).toBe(400);

@@ -20,7 +20,7 @@
  */
 import { classifyFounderText } from "@foundmill/agents";
 import { approvalOutcomeOf, closeApprovalItem, repos, type Approval, type DbTx, type Decision, type InboxItem, type PlanWithActions } from "@foundmill/db";
-import { ValidationError, endSentence, hasSectionAccess, isPageReadyDecision, type SectionMembership } from "@foundmill/shared";
+import { ONE_CLICK_ACTION_TYPES, ValidationError, endSentence, hasSectionAccess, isPageReadyDecision, type SectionMembership } from "@foundmill/shared";
 import type { BusinessContext } from "../trpc";
 import { audit, emit } from "../trpc";
 import { assertApprovalAccess, deliverApprovalAnswer, recordApprovalAnswer, type ApprovalAnswer } from "./approvals";
@@ -72,6 +72,24 @@ export async function planContextFor(ctx: BusinessContext): Promise<PlanContext>
 export function decidesByText(item: Pick<InboxItem, "state" | "decision">): boolean {
   const decision = item.decision as ItemDecision | null;
   return item.state !== "answered" && item.state !== "archived" && !!decision && decision.free_text !== false;
+}
+
+/**
+ * Whether a one-click answer from a founder email may give this option now (retention plan and its security review,
+ * 2026-11-11): the option's plan is compiled exactly as a click in the Inbox would compile it and checked against the
+ * policies, and every action must be one of ONE_CLICK_ACTION_TYPES, allowed without asking, and not a hard gate. An
+ * approval or a sign-off is never answered this way; the goal's approval (decided in-process, no plan) is.
+ */
+export async function oneClickPlanAllowed(ctx: BusinessContext, itemId: string, optionId: string): Promise<boolean> {
+  const item = await ctx.rls((tx) => repos.inbox.get(tx, ctx.businessId, itemId));
+  const option = ((item.decision as ItemDecision | null)?.options ?? []).find((o) => o.id === optionId);
+  if (!option) return false;
+  if ((await ctx.rls((tx) => repos.approvals.listForInboxItem(tx, ctx.businessId, item.id))).length > 0) return false;
+  if (await ctx.rls((tx) => repos.productSignoffs.forInboxItem(tx, ctx.businessId, item.id))) return false;
+  if (await ctx.rls((tx) => repos.goals.forInboxItem(tx, ctx.businessId, item.id))) return true;
+  const planCtx = { ...(await planContextFor(ctx)), choice: choiceOf(option) };
+  const evaluations = evaluatePlan(compileOptionPlan(option, item, planCtx).actions, planCtx);
+  return evaluations.length > 0 && evaluations.every((e) => e.outcome === "allow" && !e.hardGate && ONE_CLICK_ACTION_TYPES.includes(e.action.type));
 }
 
 export async function decideInboxItem(ctx: BusinessContext, input: DecideItemInput): Promise<DecideItemResult> {

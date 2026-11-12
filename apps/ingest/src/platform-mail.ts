@@ -41,7 +41,7 @@
  */
 import { DEV_PLATFORM_MAIL_SECRET, PLATFORM_NOTIFY_OFF_PATH, readNotifyOffToken, followConfirmNonceHash, platformMailSenderName, readFollowConfirmToken, inboundSenderVerified, normaliseInboundMail, normalisePlatformMailEvents, PLATFORM_MAIL_FOOTER_MARKERS, platformInboundLocalParts, readInboundMail, readPlatformUnsubscribeToken, safeEqual, stableHash, suppressionHashOfEmail, verifySendgridSignature, withinTolerance, type SgEvent } from "@foundmill/connectors";
 import { repos } from "@foundmill/db";
-import { FOLLOW_CONFIRM_PAGE, NOTIFY_OFF_PAGE, PLATFORM_MAIL_SECRET_MIN_LENGTH, UNSUBSCRIBE_CONFIRM_BODY, UNSUBSCRIBE_CONFIRM_BUTTON, UNSUBSCRIBE_CONFIRM_TITLE, UNSUBSCRIBE_DONE_BODY, UNSUBSCRIBE_INVALID_BODY } from "@foundmill/shared";
+import { FOLLOW_CONFIRM_PAGE, NOTIFY_OFF_PAGE, notifyOffBody, PLATFORM_MAIL_SECRET_MIN_LENGTH, UNSUBSCRIBE_CONFIRM_BODY, UNSUBSCRIBE_CONFIRM_BUTTON, UNSUBSCRIBE_CONFIRM_TITLE, UNSUBSCRIBE_DONE_BODY, UNSUBSCRIBE_INVALID_BODY } from "@foundmill/shared";
 import { ingestPlatformEvents, writeEventRow } from "./ingest";
 import { nonceKey } from "./nonce-store";
 import type { IngestDeps } from "./types";
@@ -256,7 +256,7 @@ export async function handleNotifyOff(deps: Deps, req: Request): Promise<Unsubsc
   const token = new URL(req.url).searchParams.get("t") ?? "";
   const named = secret ? readNotifyOffToken(secret, token) : null;
   if (!named) return { status: 400, html: notifyOffPage(NOTIFY_OFF_PAGE.invalid) };
-  if (req.method === "GET") return { status: 200, html: notifyOffPage(NOTIFY_OFF_PAGE.body, { token }) };
+  if (req.method === "GET") return { status: 200, html: notifyOffPage(notifyOffBody(named.kind), { token }) };
   try {
     await repos.preferences.update(deps.db, named.userId, { email: { [named.kind]: false } });
     deps.log.info({ kind: named.kind }, "notify email turned off from its link");

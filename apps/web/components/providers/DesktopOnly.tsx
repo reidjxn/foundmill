@@ -12,15 +12,18 @@ import { usePathname } from "next/navigation";
 import { NeedsLargerWindow, isViewportTooSmall, useViewportWidth } from "@foundmill/dugout";
 
 /**
- * Path prefixes that work from 390 px and never show NeedsLargerWindow. The one list to grow as the outer product
- * gains small-screen routes (docs/THESIS_REVIEW.md package 2.1): a project's public page first, then a person's public
- * profile (package 2.3).
+ * The routes that work from 390 px and never show NeedsLargerWindow. The one list to grow as the outer product gains
+ * small-screen routes (docs/THESIS_REVIEW.md package 2.1): a project's public page first, then a person's public
+ * profile (package 2.3), then the two pages an email from Foundmill opens, read on a phone: the one-click answer
+ * (`/a/<token>`) and the pause page (`/email/pause`) (founder, 2026-11-12). An entry ending in "/" is a prefix; any
+ * other is that one path.
  */
-export const SMALL_SCREEN_PREFIXES: readonly string[] = ["/p/", "/u/"];
+export const SMALL_SCREEN_PREFIXES: readonly string[] = ["/p/", "/u/", "/a/", "/email/pause"];
 
 /** Whether `pathname` renders at every width (one of `SMALL_SCREEN_PREFIXES`). */
 export function worksOnSmallScreens(pathname: string | null | undefined): boolean {
-  return Boolean(pathname) && SMALL_SCREEN_PREFIXES.some((prefix) => pathname!.startsWith(prefix));
+  if (!pathname) return false;
+  return SMALL_SCREEN_PREFIXES.some((entry) => (entry.endsWith("/") ? pathname.startsWith(entry) && pathname.length > entry.length : pathname === entry || pathname === `${entry}/`));
 }
 
 export function DesktopOnly({ children }: { children: ReactNode }) {

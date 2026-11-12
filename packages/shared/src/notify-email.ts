@@ -3,14 +3,19 @@
  * the app. Sent by the gateway from `<PLATFORM_NOTIFY_LOCAL_PART>@<PLATFORM_MAIL_DOMAIN>` under the name APP_NAME, never
  * by an agent. Plain data and words, no Zod and no crypto, so the browser reads the same sentences and rules.
  *
- * The one kind so far is `decision_waiting`: a note that needs the person's answer (it holds Continue, or asks for a
- * decision) has been open 24 hours and they have not opened it on any device. The api's notify pass picks it
- * (apps/api `services/notify`), the gateway checks again, builds the words below and sends.
+ * `decision_waiting`: a note that needs the person's answer and that they have not opened on any device. Founder,
+ * 2026-11-12: when it holds up the team's work (it holds Continue, or an agent's call or a task waits on it) the email goes
+ * 30 minutes after they left (`NOTIFY_HOLDING_WAIT_MS`); every other waiting note waits 24 hours (`NOTIFY_WAIT_MS`). The
+ * api's notify pass picks it, the gateway checks again, builds the words below and sends. The retention plan's other
+ * kinds (wins, milestones, a finished run, used-up credits, the morning brief and the weekly review) go through the same
+ * gateway route, picked by the orchestrator's notifier; their words are in `notify-words.ts`.
  */
 import type { EmailNotificationKind } from "./constants";
 
 /** A note has to wait this long, unopened by the person, before they are emailed about it. */
 export const NOTIFY_WAIT_MS = 24 * 60 * 60 * 1000;
+/** A note that holds up the team's work is emailed this long after the person was last in the app (founder, 2026-11-12). */
+export const NOTIFY_HOLDING_WAIT_MS = 30 * 60 * 1000;
 /** Notes older than this are not looked at any more (one email about each was the chance). */
 export const NOTIFY_LOOKBACK_MS = 7 * 24 * 60 * 60 * 1000;
 /** How long the gateway remembers that a person was emailed about a note (longer than the lookback, so it outlives it). */
@@ -19,7 +24,10 @@ export const NOTIFY_ITEM_MARKER_MS = 8 * 24 * 60 * 60 * 1000;
 export const NOTIFY_PROJECT_MAIL_HEADROOM = 0.75;
 /** At most this many emails a person gets about one project in a UTC day. */
 export const NOTIFY_PER_PROJECT_PER_DAY = 1;
-/** At most this many emails a person gets in a UTC day, across every project. */
+/**
+ * At most this many emails a person gets in a UTC day, across every kind and every project (founder, 2026-11-12); the
+ * morning brief and the weekly review do not count toward it (`LIMITED_EMAIL_KINDS`).
+ */
 export const NOTIFY_PER_PERSON_PER_DAY = 3;
 
 const oneLine = (value: string, max: number): string => {
@@ -53,6 +61,10 @@ export interface DecisionWaitingFacts {
   /** The signed link that turns this kind of email off for the person. */
   offLink: string;
   appName: string;
+  /** The signed link that pauses every email (retention plan); absent: not offered. */
+  pauseLink?: string;
+  /** A one-click answer (retention plan; founder 2026-11-11): the recommended, reversible, free option; absent: none. */
+  answer?: { label: string; consequence: string; link: string } | null;
 }
 
 export interface NotifyEmailText {
@@ -123,30 +135,54 @@ export function decisionWaitingEmail(f: DecisionWaitingFacts): NotifyEmailText {
   const lead = decisionWaitingLead({ ...f, projectName: project, agentName: f.agentName ? withoutLinks(f.agentName) : null });
   const quoted = `“${oneLine(withoutLinks(f.noteSubject), 200)}”`;
   const footer = notifyEmailFooter(project, f.appName, f.offLink);
-  const text = `${hi}\n\n${lead}\n${quoted}\n\nOpen it: ${f.link}\n\n${NOTIFY_NO_REPLY_LINE}\n\n--\n${footer}`;
+  const answer = f.answer ? { label: oneLine(withoutLinks(f.answer.label), 80), consequence: oneLine(withoutLinks(f.answer.consequence), 300), link: f.answer.link } : null;
+  const answerText = answer ? `\n\nAnswer “${answer.label}”: ${answer.link}\nThis is the recommended answer and can be changed later${answer.consequence ? `: ${answer.consequence}` : "."}` : "";
+  const pauseText = f.pauseLink ? `\nPause every email: ${f.pauseLink}` : "";
+  const text = `${hi}\n\n${lead}\n${quoted}\n\nOpen it: ${f.link}${answerText}\n\n${NOTIFY_NO_REPLY_LINE}\n\n--\n${footer}${pauseText}`;
   const html = [
     `<p>${escapeHtml(hi)}</p>`,
     `<p>${escapeHtml(lead)}<br>${escapeHtml(quoted)}</p>`,
     `<p><a href="${href(f.link)}">Open it</a></p>`,
+    ...(answer ? [`<p><a href="${href(answer.link)}">Answer “${escapeHtml(answer.label)}”</a><br>${escapeHtml(`This is the recommended answer and can be changed later${answer.consequence ? `: ${answer.consequence}` : "."}`)}</p>`] : []),
     `<p>${escapeHtml(NOTIFY_NO_REPLY_LINE)}</p>`,
-    `<hr><p>You get this because you are part of ${escapeHtml(project)} on ${escapeHtml(f.appName)}. <a href="${href(f.offLink)}">Turn these emails off</a></p>`,
+    `<hr><p>You get this because you are part of ${escapeHtml(project)} on ${escapeHtml(f.appName)}. <a href="${href(f.offLink)}">Turn these emails off</a>${f.pauseLink ? ` · <a href="${href(f.pauseLink)}">Pause every email</a>` : ""}</p>`,
   ].join("");
   return { subject: `${project} needs your answer`, text, html };
 }
 
 /** Settings › Preferences › Email: the switch per kind, its help line and the toast after a change. */
-export const EMAIL_NOTIFICATION_LABELS: Readonly<Record<EmailNotificationKind, string>> = Object.freeze({ decision_waiting: "Email me when something has waited a day for my answer" });
-export const EMAIL_NOTIFICATIONS_HINT = "To the address you sign in with: at most one email a day for each project, and three a day in all.";
-export function emailNotificationSavedLine(on: boolean): { title: string; description: string } {
-  return on
-    ? { title: "Email on", description: "You get an email when something has waited a day for your answer." }
-    : { title: "Email off", description: "No more emails about answers that wait. Turn it on again any time from here." };
+export const EMAIL_NOTIFICATION_LABELS: Readonly<Record<EmailNotificationKind, string>> = Object.freeze({
+  decision_waiting: "Something waits for my answer",
+  win: "A customer was won",
+  milestone: "A milestone was reached",
+  run_finished: "My team finished a run I started",
+  credits: "Credits ran out",
+  daily_brief: "Morning brief",
+  weekly_review: "Weekly review",
+});
+/** One line under each switch. */
+export const EMAIL_NOTIFICATION_HINTS: Readonly<Record<EmailNotificationKind, string>> = Object.freeze({
+  decision_waiting: "30 minutes after you leave when it holds up the team's work; otherwise after a day.",
+  win: "The moment a customer pays, with who was involved.",
+  milestone: "Your first customer, your first revenue milestones and the like.",
+  run_finished: "When a run of work you started finishes after you left.",
+  credits: "When the team stops because the credits are used up.",
+  daily_brief: "What the team did since yesterday and the one thing that needs you, at your hour.",
+  weekly_review: "Monday morning, instead of the brief: the week in numbers and what comes next.",
+});
+export const EMAIL_NOTIFICATIONS_HINT = "To the address you sign in with, never while you are in the app: at most three a day in all and one a day for each project. The morning brief and the weekly review don't count.";
+export function emailNotificationSavedLine(kind: EmailNotificationKind, on: boolean): { title: string; description: string } {
+  const what = `“${EMAIL_NOTIFICATION_LABELS[kind]}”`;
+  return on ? { title: "Email on", description: `You get the ${what} emails.` } : { title: "Email off", description: `No more ${what} emails. Turn them on again any time from here.` };
+}
+/** The off page's question, naming the kind the link turns off. */
+export function notifyOffBody(kind: EmailNotificationKind): string {
+  return `Stop getting the “${EMAIL_NOTIFICATION_LABELS[kind]}” emails?`;
 }
 
 /** The page the link in the footer opens (served by ingest at `/mail/notify/off`): a button on GET, the change on POST. */
 export const NOTIFY_OFF_PAGE = {
   title: "Turn off these emails",
-  body: "Stop getting an email when something has waited a day for your answer?",
   button: "Turn off",
   done: "Done. You won't get these emails anymore. You can turn them on again in Settings › Preferences.",
   invalid: "This link is not valid, so nothing changed. You can turn these emails off in Settings › Preferences.",
@@ -170,5 +206,9 @@ export const NOTIFY_EMAIL_REFUSALS = {
   busy: "Projects' own email is close to today's limit and keeps the room, so nothing was sent.",
   store: "Sending is paused for a moment, so nothing was sent. Try again later.",
   vendor: "The email service did not take the message, so nothing was sent.",
+  paused: "This person paused every email, so nothing was sent.",
+  present: "This person is in the app right now and sees it there, so nothing was sent.",
+  nothing_new: "Nothing happened and nothing waits, so the brief had no news and was not sent.",
+  not_started: "This project has not started yet, so nothing was sent.",
 } as const;
 export type NotifyEmailNotSent = keyof typeof NOTIFY_EMAIL_REFUSALS;
