@@ -3687,3 +3687,11 @@ Consequences taken here:
 1. **A person's page carries no mark at all.** The founder: "Not on the person page it should not carry the mark at all, only on the product they build (unless they are a paid user of course)". Done: `/u/<handle>` loses its footer ("Made with Foundmill") and its share image loses the words; the mark stays on a project's page on the free plan only. The share image's alt text still says the profile is on Foundmill, which is a description for screen readers and not a mark.
 2. **A private, person-level event store is built before wave 2.** Events today belong to a project and are read by its members (`events.business_id` is required), so facts about a person (a sign-up brought by a page, a follow, a signal, an ask) have no place to be written without showing the person to a project's people. Until it exists, attribution is a row and its declared event writes nothing. It takes migration 0087 and is built once the attribution change has merged into this branch, because it changes the same files.
 
+## 2026-11-12 — Sign-up attribution: the calls made
+
+- **Nobody reads an attribution row but the service**, the person it is about included. Who referred them and which project it was are not theirs to read (a page or profile can be taken down), and a client that could insert could credit anyone.
+- **Recorded on the save that creates the profile**, not at account creation: that is the moment a visitor becomes a person, and it keeps this change out of the sign-up code another session is changing.
+- **The credit for a project page goes to its longest-standing owner.** With several founders, sharing the credit is a question for the credit package (F6), not for this record.
+- **The reference reaches the api through the page, not the cookie.** The save is a browser call to the api, which the web's cookie does not travel with. The server reads the httpOnly cookie and passes the parsed reference as a prop. Routing the whole save through the server was rejected: any signed-in client can send any `via` anyway, so it adds no integrity, and it would have changed the save's error handling.
+- **No event row** until person-level events have a home (the founder's decision of the same day).
+
