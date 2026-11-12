@@ -30,8 +30,13 @@
  *   publish while it is already public writes nothing. The payload is the handle and nothing else. Nothing is written to
  *   a business's events or audit log (`audit_log.business_id`): this is the account's own, and no project's members
  *   read it.
- * - **An address shaped like an id** (`handleLooksLikeAnId`: the 8-4-4-4-12 shape of an internal id) is refused like
- *   one that poses as the product: a public address must never be mistaken for, or be, an account's id.
+ * - **An address that holds an id** (`handleLooksLikeAnId`: 32 letters a to f and digits in a row once the hyphens are
+ *   out, so an id with its hyphens, without them or with them elsewhere, alone or inside a longer address) is refused
+ *   like one that poses as the product, when it is saved and when a profile goes public: a public address must never
+ *   be, or hold, an account's id. A suggested address never holds one either.
+ * - **Taking a profile down never depends on its event.** The event is built first; if it cannot be built, or cannot be
+ *   written, the profile is taken down all the same and the event is skipped (a warning with the account id and a
+ *   reason code, nothing else).
  * - **The public read** (`publicPersonByHandle`, unauthenticated): the view `public_person_profiles` on the service
  *   connection (the view is the service role's only), so only its columns leave; null for an unknown handle or a
  *   profile that is not public. Limited per caller, then per handle and across all handles; a lookup that finds nothing
@@ -41,7 +46,7 @@ import { communityScreenLocalFlags } from "@foundmill/agents";
 import { APP_NAME, isReservedName } from "@foundmill/config";
 import { createHash } from "node:crypto";
 import { repos, type FounderProfile, type FounderProfilePatch, type PersonProfileRow, type PublicPersonProject } from "@foundmill/db";
-import { writeAccountEvent } from "@foundmill/events";
+import { AccountEventParseError, AccountRuleError, buildAccountEvent, looksLikeAnId, writeAccountEvent, type WriteAccountEventInput } from "@foundmill/events";
 import {
   AppError,
   ConflictError,
@@ -65,7 +70,7 @@ import type { Context } from "../context";
 import { callerLimitKey } from "./pages";
 import { takeOrThrow, type WindowLimit } from "./rate-limit";
 
-type AccountContext = Pick<Context, "db" | "env" | "limits"> & { userId: string };
+type AccountContext = Pick<Context, "db" | "env" | "limits"> & { userId: string; log?: Pick<Context["log"], "warn"> };
 
 /**
  * The person's own reads and changes (`founder.publicProfile.get`, `update`, `publish`), per account and per procedure:
@@ -109,9 +114,13 @@ const missing = () => new AppError("profile_missing", PROFILE_MISSING_MESSAGE, 4
 /** A short, stable suffix that says nothing about the account (four characters of a hash of its id). */
 const accountSuffix = (userId: string): string => createHash("sha256").update(`foundmill/person-handle/v1\n${userId}`).digest("hex").slice(0, 4);
 
-/** The address a first save stores: the display name made into a handle, suffixed when another person holds it. */
+/**
+ * The address a first save stores: the display name made into a handle, suffixed when another person holds it. A name
+ * that would make an address holding an id (a display name that is one) gets a plain word instead.
+ */
 export async function suggestedHandle(ctx: AccountContext, displayName: string): Promise<string> {
-  const plain = suggestPersonHandle(displayName);
+  const fromName = suggestPersonHandle(displayName);
+  const plain = handleLooksLikeAnId(fromName) ? suggestPersonHandle("") : fromName;
   if (!(await repos.personProfiles.handleTaken(ctx.db, ctx.userId, plain))) return plain;
   const suffixed = suffixPageSlug(plain, accountSuffix(ctx.userId));
   return (await repos.personProfiles.handleTaken(ctx.db, ctx.userId, suffixed)) ? suffixPageSlug(plain, accountSuffix(`${ctx.userId}:2`)) : suffixed;
@@ -149,16 +158,17 @@ export function handlePosesAsPlatform(handle: string): boolean {
 }
 
 /**
- * Whether a handle has the shape of an internal id (8-4-4-4-12 letters a to f and digits). The address rule allows it
- * (letters, digits and hyphens), but a public address is never an id: the events about a profile carry the handle, and
- * an account event's payload never carries anything shaped like an account's id (the two-person rule).
+ * Whether a handle is, or holds, something shaped like an internal id: 32 letters a to f and digits in a row once the
+ * hyphens are out (`looksLikeAnId` in @foundmill/events, the account events' own rule). The address rule allows it
+ * (letters, digits and hyphens), but a public address never holds an id: it could be someone's account id, and the
+ * events about a profile carry the handle, where anything shaped like an id is refused (the two-person rule).
  */
 export function handleLooksLikeAnId(handle: string): boolean {
-  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(handle);
+  return looksLikeAnId(handle);
 }
 
 /**
- * A new handle checked: the address rule, nothing that poses as the product or is shaped like an id, then whether
+ * A new handle checked: the address rule, nothing that poses as the product or holds an id, then whether
  * another person holds it (or left it less than `PERSON_HANDLE_HOLD_DAYS` ago). Undefined keeps the stored one.
  */
 async function checkHandle(ctx: AccountContext, raw: string | undefined): Promise<string | undefined> {
@@ -229,7 +239,7 @@ export async function publishPublicProfile(ctx: AccountContext, input: ProfileIn
     const reason = profileHoldReason(content, locked.displayName);
     if (reason) return { reason, row: locked.public ? locked : await repos.personProfiles.save(tx, ctx.userId, { handle, content }) };
     const saved = await repos.personProfiles.save(tx, ctx.userId, { handle, content });
-    // An address that was stored, or suggested from a name, before the id rule: it cannot go public. Nothing is saved.
+    // An address that was stored before the id rule: it cannot go public. Nothing is saved.
     if (saved.handle && handleLooksLikeAnId(saved.handle)) throw new ValidationError(PERSON_HANDLE_RESERVED, { field: "handle" });
     const row = await repos.personProfiles.publish(tx, ctx.userId);
     // The change from private to public, once, with the row it describes (the lock above makes this the only writer).
@@ -262,17 +272,27 @@ export async function updateFounderProfile(ctx: Pick<Context, "db"> & { userId: 
   });
 }
 
+/** Why a take-down's event was skipped, as a code: the rule or the reason of the refusal, or `write_failed`. */
+const skipReason = (err: unknown): string => (err instanceof AccountRuleError ? err.rule : err instanceof AccountEventParseError ? err.reason : "write_failed");
+
 /**
  * `founder.publicProfile.unpublish`: takes the profile down (everything written stays). A private profile is unchanged,
- * and writes no event. Taking a profile down never waits on, or fails for, its event: the one handle the event could
- * not carry (an address shaped like an id, stored before that rule) is taken down without one.
+ * and writes no event. Taking a profile down never depends on its event: the event is built first, and if it cannot be
+ * built (an address stored before the id rule, changed while public) or its insert fails, the profile is taken down all
+ * the same and the event is skipped, with a warning that carries the account id and a reason code only. The insert
+ * runs in a savepoint, so its failure leaves the take-down's transaction whole.
  */
 export async function unpublishPublicProfile(ctx: AccountContext): Promise<PublicProfileView> {
   const taken = await ctx.db.transaction(async (tx) => {
     // `unpublish` changes the row only while it is public, so two calls at once write one event between them.
     const row = await repos.personProfiles.unpublish(tx, ctx.userId);
-    if (row?.handle && !handleLooksLikeAnId(row.handle)) {
-      await writeAccountEvent(tx, { userId: ctx.userId, type: "profile.unpublished", actor: { kind: "user", id: ctx.userId }, payload: { handle: row.handle } });
+    if (!row?.handle) return row;
+    const input: WriteAccountEventInput<"profile.unpublished"> = { userId: ctx.userId, type: "profile.unpublished", actor: { kind: "user", id: ctx.userId }, payload: { handle: row.handle } };
+    try {
+      buildAccountEvent(input);
+      await tx.transaction((savepoint) => writeAccountEvent(savepoint, input));
+    } catch (err) {
+      ctx.log?.warn({ userId: ctx.userId, reason: skipReason(err) }, "profile taken down without its profile.unpublished event");
     }
     return row;
   });

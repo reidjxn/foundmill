@@ -11,7 +11,7 @@ import { EVENT_FIXTURES } from "@foundmill/events/testing/fixtures";
 import { PERSON_HANDLE_RESERVED, type PersonProfileContent } from "@foundmill/shared";
 import { sql } from "drizzle-orm";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { handleLooksLikeAnId } from "../services/person-profile";
+import { handleLooksLikeAnId, suggestedHandle, unpublishPublicProfile } from "../services/person-profile";
 import { superviseOutboxRelay } from "../services/relay";
 import { writeEventRow } from "../services/events";
 import { createApiHarness, type ApiHarness } from "./harness";
@@ -130,29 +130,117 @@ describe("profile.published and profile.unpublished", () => {
       writeEventRow(hz.db, { businessId: hz.A.businessId, type: "profile.published", actor: { kind: "user", id: hz.A.ownerId }, payload: { handle: "olu-owner" } } as never),
     ).rejects.toThrow(/profile.published is account-scoped and is never written to a business's events/);
     await expect(repos.events.write(hz.db, hz.A.businessId, { type: "profile.unpublished", actor: { kind: "user", id: hz.A.ownerId }, payload: { handle: "olu-owner" } })).rejects.toThrow(/account-scoped/);
+    // And past every writer: a member's own insert straight into the table is refused by the database.
+    await expect(
+      hz.h.asUser(hz.A.memberId).execute(sql`insert into events (business_id, type, actor, payload) values (${hz.A.businessId}::uuid, 'profile.published', ${JSON.stringify({ kind: "user", id: hz.A.ownerId })}::jsonb, '{"handle":"forged"}'::jsonb)`),
+    ).rejects.toThrow(/events_not_account_scoped/);
     expect(await businessTables()).toEqual(before);
   });
 
-  it("an address shaped like an id is refused, cannot go public, and never blocks a take-down", async () => {
+  it("an address that is, or holds, an id is refused when it is saved and when a profile goes public", async () => {
     const p = await person("Idris Shape");
-    const idShaped = "0a1b2c3d-0a1b-4a1b-8a1b-0a1b2c3d4e5f";
-    expect(handleLooksLikeAnId(idShaped)).toBe(true);
-    expect(handleLooksLikeAnId("idris-shape")).toBe(false);
-    await expect(p.me.founder.publicProfile.update({ handle: idShaped, content: content() })).rejects.toThrow(PERSON_HANDLE_RESERVED);
-    await expect(p.me.founder.publicProfile.update({ handle: p.userId, content: content() })).rejects.toThrow(PERSON_HANDLE_RESERVED);
-    await expect(p.me.founder.publicProfile.publish({ handle: idShaped, content: content() })).rejects.toThrow(PERSON_HANDLE_RESERVED);
+    const other = await person("Otto Other");
+    const id = "0a1b2c3d-0a1b-4a1b-8a1b-0a1b2c3d4e5f";
+    const compact = id.replace(/-/g, "");
+    const holding = [
+      id, // an id
+      `x${id}`, // an id behind a letter: 37 characters, inside the address rule (the review's case)
+      `${id}-me`,
+      compact, // without hyphens: 32 letters and digits, which could be someone's account id
+      `me-${compact}`,
+      compact.replace(/(.{8})/g, "$1-").slice(0, -1), // hyphens in other places
+      other.userId, // another person's account id
+      other.userId.replace(/-/g, ""),
+      p.userId,
+    ];
+    for (const handle of holding) {
+      expect(handleLooksLikeAnId(handle), handle).toBe(true);
+      await expect(p.me.founder.publicProfile.update({ handle, content: content() }), `save ${handle}`).rejects.toThrow(PERSON_HANDLE_RESERVED);
+      await expect(p.me.founder.publicProfile.publish({ handle, content: content() }), `publish ${handle}`).rejects.toThrow(PERSON_HANDLE_RESERVED);
+    }
+    for (const fine of ["idris-shape", "dead-beef-cafe", "a1b2c3d4-e5f6", "maya-0a1b2c3d", "x".repeat(40), "1234567890-1234567890-1234567890"]) expect(handleLooksLikeAnId(fine), fine).toBe(false);
+    expect(await rows(sql`select handle, public from founder_profiles where user_id = ${p.userId}::uuid`)).toEqual([{ handle: null, public: false }]);
 
-    // An address stored before the rule (written past the api): it cannot be published, and nothing is saved or written.
-    await hz.db.execute(sql`update founder_profiles set handle = ${idShaped} where user_id = ${p.userId}::uuid`);
-    await expect(p.me.founder.publicProfile.publish({ content: content({ headline: "Changed" }) })).rejects.toThrow(PERSON_HANDLE_RESERVED);
-    expect(await rows(sql`select public, headline from founder_profiles where user_id = ${p.userId}::uuid`)).toEqual([{ public: false, headline: "" }]);
-    expect(await accountEvents(p.userId)).toEqual([]);
+    // While public too: a change of address to one that holds an id is refused, and the profile keeps the address it had.
+    await p.me.founder.publicProfile.publish({ handle: "idris-shape", content: content() });
+    await expect(p.me.founder.publicProfile.update({ handle: `x${id}`, content: content() })).rejects.toThrow(PERSON_HANDLE_RESERVED);
+    expect(await rows(sql`select handle, public from founder_profiles where user_id = ${p.userId}::uuid`)).toEqual([{ handle: "idris-shape", public: true }]);
 
-    // One that was already public with such an address is still taken down, without an event.
-    await hz.db.execute(sql`update founder_profiles set public = true, published_at = now() where user_id = ${p.userId}::uuid`);
+    // An address stored before the rule (written past the api) cannot go public: nothing is saved, nothing is written.
+    const q = await person("Quinn Legacy");
+    await hz.db.execute(sql`update founder_profiles set handle = ${`x${id}`} where user_id = ${q.userId}::uuid`);
+    await expect(q.me.founder.publicProfile.publish({ content: content({ headline: "Changed" }) })).rejects.toThrow(PERSON_HANDLE_RESERVED);
+    expect(await rows(sql`select public, headline from founder_profiles where user_id = ${q.userId}::uuid`)).toEqual([{ public: false, headline: "" }]);
+    expect(await accountEvents(q.userId)).toEqual([]);
+
+    // A display name that is an id never becomes a suggested address that holds one.
+    const named = await person(id);
+    const suggestion = await suggestedHandle({ db: hz.db, env: hz.deps.env, limits: hz.limits, userId: named.userId }, id);
+    expect(handleLooksLikeAnId(suggestion)).toBe(false);
+    expect(suggestion).toMatch(/^profile/);
+    expect((await named.me.founder.publicProfile.publish({ content: content() })).outcome).toBe("published");
+    expect((await accountEvents(named.userId)).map((e) => [e.type, e.payload])).toEqual([["profile.published", { handle: suggestion }]]);
+  });
+
+  it("a profile is taken down after its address changed while it was public, with the address it has now", async () => {
+    const p = await person("Maya Mover");
+    await p.me.founder.publicProfile.publish({ handle: "maya", content: content() });
+    // A change of address while public writes no event of its own.
+    expect((await p.me.founder.publicProfile.update({ handle: "maya-two", content: content() })).outcome).toBe("saved");
+    expect((await accountEvents(p.userId)).map((e) => [e.type, e.payload])).toEqual([["profile.published", { handle: "maya" }]]);
+    const down = await p.me.founder.publicProfile.unpublish();
+    expect([down.public, down.handle]).toEqual([false, "maya-two"]);
+    expect((await accountEvents(p.userId)).map((e) => [e.type, e.payload])).toEqual([
+      ["profile.published", { handle: "maya" }],
+      ["profile.unpublished", { handle: "maya-two" }],
+    ]);
+  });
+
+  it("taking a profile down never depends on its event: an address the event cannot carry is taken down without one", async () => {
+    const other = await person("Other Account");
+    const id = "1b2c3d4e-1b2c-4b2c-8b2c-1b2c3d4e5f6a";
+    // What the review reproduced: public as `maya`, then (past the rule now, so written straight to the table) an
+    // address that holds an id; and the same with an address that is another person's account id without its hyphens.
+    for (const [handle, reason] of [[`x${id}`, "id_shaped"], [id, "id_shaped"], [other.userId.replace(/-/g, ""), "id_shaped"]] as const) {
+      const p = await person("Maya Down");
+      await p.me.founder.publicProfile.publish({ handle: `maya-down-${n}`, content: content() });
+      await hz.db.execute(sql`update founder_profiles set handle = ${handle} where user_id = ${p.userId}::uuid`);
+      const warn = vi.fn();
+      const down = await unpublishPublicProfile({ db: hz.db, env: hz.deps.env, limits: hz.limits, userId: p.userId, log: { warn } });
+      expect(down.public, handle).toBe(false);
+      expect(await rows(sql`select public from founder_profiles where user_id = ${p.userId}::uuid`), handle).toEqual([{ public: false }]);
+      // No event for the take-down, and nothing left half-written.
+      expect((await accountEvents(p.userId)).map((e) => e.type), handle).toEqual(["profile.published"]);
+      expect(await queued(p.userId), handle).toHaveLength(1);
+      // The warning says who and which rule, and nothing else: not the address.
+      expect(warn.mock.calls, handle).toEqual([[{ userId: p.userId, reason }, "profile taken down without its profile.unpublished event"]]);
+      expect(JSON.stringify(warn.mock.calls)).not.toContain(handle);
+      await hz.db.execute(sql`update founder_profiles set handle = null where user_id = ${p.userId}::uuid`);
+    }
+    // Through the router as well (the review's path), where the log is the request's own.
+    const p = await person("Maya Router");
+    await p.me.founder.publicProfile.publish({ handle: "maya-router", content: content() });
+    await hz.db.execute(sql`update founder_profiles set handle = ${`y${id}`} where user_id = ${p.userId}::uuid`);
     expect((await p.me.founder.publicProfile.unpublish()).public).toBe(false);
     expect(await rows(sql`select public from founder_profiles where user_id = ${p.userId}::uuid`)).toEqual([{ public: false }]);
-    expect(await accountEvents(p.userId)).toEqual([]);
+  });
+
+  it("a take-down survives its event's insert failing in the database: the savepoint is undone, the profile is private", async () => {
+    const p = await person("Sava Point");
+    await p.me.founder.publicProfile.publish({ handle: "sava-point", content: content() });
+    // Make the database refuse the insert for a reason the writer cannot foresee.
+    await hz.db.execute(sql`alter table account_events add constraint test_refuse_unpublished check (type <> 'profile.unpublished') not valid`);
+    try {
+      const warn = vi.fn();
+      const down = await unpublishPublicProfile({ db: hz.db, env: hz.deps.env, limits: hz.limits, userId: p.userId, log: { warn } });
+      expect(down.public).toBe(false);
+      expect(warn.mock.calls).toEqual([[{ userId: p.userId, reason: "write_failed" }, "profile taken down without its profile.unpublished event"]]);
+    } finally {
+      await hz.db.execute(sql`alter table account_events drop constraint test_refuse_unpublished`);
+    }
+    expect(await rows(sql`select public from founder_profiles where user_id = ${p.userId}::uuid`)).toEqual([{ public: false }]);
+    expect((await accountEvents(p.userId)).map((e) => e.type)).toEqual(["profile.published"]);
+    expect(await queued(p.userId)).toHaveLength(1);
   });
 
   it("the events go with the account", async () => {
