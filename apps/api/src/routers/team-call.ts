@@ -15,7 +15,9 @@ import {
   endTeamCall,
   getTeamCall,
   listTeamCalls,
+  oneToOneSharing,
   previewSpeechAccent,
+  setOneToOneSharing,
   sayOnTeamCall,
   setSpeechAccent,
   speakTurn,
@@ -24,12 +26,25 @@ import {
   teamCallSpeechModes,
   transcribeOnCall,
 } from "../services/team-call";
-import { Id, router, sectionRead, sectionWrite } from "../trpc";
+import { withRls, type DbTx } from "@foundmill/db";
+import { Id, protectedProcedure, router, sectionRead, sectionWrite } from "../trpc";
 
 const SpeechAccentKey = z.string().refine(isSpeechAccentKey, { message: `An accent is one of: ${SPEECH_ACCENTS.map((s) => s.key).join(", ")}` });
 const Base64 = z.string().min(16).max(Math.ceil((TEAM_CALL_LIMITS.maxAudioBytes * 4) / 3) + 4).regex(/^[A-Za-z0-9+/]+=*$/);
 
+/** Runs fn as the signed-in person, so RLS holds their own preferences row to them. */
+const asUserOf = (ctx: { db: Parameters<typeof withRls>[0]; userId: string }) => <T>(fn: (tx: DbTx) => Promise<T>) => withRls(ctx.db, { userId: ctx.userId }, fn);
+
 export const teamCallRouter = router({
+  /**
+   * The person's own choice (account-wide, Settings › Preferences): whether their one-to-one calls are shared with the
+   * project. Off by default: only they read their calls with one agent. Not business-scoped, like the date format.
+   */
+  sharing: router({
+    get: protectedProcedure.query(({ ctx }) => oneToOneSharing(ctx.userId, asUserOf(ctx))),
+    set: protectedProcedure.input(z.object({ share: z.boolean() })).mutation(({ ctx, input }) => setOneToOneSharing(ctx, asUserOf(ctx), input.share)),
+  }),
+
   /** Whether accents and transcription are real here, or the browser's own stand in. No model call. */
   speechModes: sectionRead("team").query(({ ctx }) => teamCallSpeechModes(ctx)),
 

@@ -8,6 +8,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Lock } from "lucide-react";
 import { Button, CallCaptions, CallControls, CallStage, CallTranscript, CallWrapUp, Panel, StatusPill } from "@foundmill/dugout";
 import { TEAM_CALL_LIMITS, TEAM_CALL_WORDS, type TeamCallRoundView, type TeamCallView } from "@foundmill/shared/team-call";
 import { routes } from "@foundmill/widgets/shared/routes";
@@ -72,6 +73,11 @@ function FinishedCall({ call }: { call: TeamCallView }) {
       <div className="flex min-w-0 flex-1 flex-col gap-gutter overflow-y-auto">
         <div className="flex items-center gap-2">
           <StatusPill tone={call.status === "ended" ? "neutral" : "info"}>{call.status === "ended" ? "Call ended" : TEAM_CALL_WORDS.wrappingUp}</StatusPill>
+          {call.visibility === "private" ? (
+            <StatusPill tone="neutral" icon={Lock} data-testid="call-private">
+              {TEAM_CALL_WORDS.privateCall}
+            </StatusPill>
+          ) : null}
           <Button size="sm" variant="ghost" onClick={() => router.push(routes.calls(businessId))} data-testid="call-back-to-calls">
             Back to calls
           </Button>
@@ -272,6 +278,13 @@ function LiveCall({ call }: { call: TeamCallView }) {
     <div className="flex min-h-0 flex-1 flex-col" data-testid="call-room" data-kind={call.kind} data-ending={ending || undefined}>
       <div className="flex min-h-0 flex-1 gap-gutter overflow-y-auto p-gutter">
         <div className="flex min-w-0 flex-1 flex-col gap-3">
+          {call.visibility === "private" ? (
+            <div className="flex items-center gap-2" data-testid="call-private">
+              <StatusPill tone="neutral" icon={Lock}>
+                {TEAM_CALL_WORDS.privateCall}
+              </StatusPill>
+            </div>
+          ) : null}
           {notice ? (
             <div role="status" className="flex items-center gap-2" data-testid="call-simulated-notice">
               <StatusPill tone="info">Simulated</StatusPill>

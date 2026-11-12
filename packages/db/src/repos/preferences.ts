@@ -195,4 +195,17 @@ export const preferencesRepo = {
     const rows = await db.insert(accountPreferences).values(insert).onConflictDoUpdate({ target: accountPreferences.userId, set }).returning(columns);
     return view(one(rows, "preferences", userId));
   },
+
+  /** Team call (0082): whether this person's one-to-one calls are shared with the project (default false: private). */
+  async shareOneToOneCalls(db: Executor, userId: string): Promise<boolean> {
+    const row = maybeOne(await db.select({ v: accountPreferences.shareOneToOneCalls }).from(accountPreferences).where(eq(accountPreferences.userId, userId)).limit(1));
+    return row?.v ?? false;
+  },
+
+  /** Changes the one-to-one call sharing choice (creating the row on the first change); returns it. */
+  async setShareOneToOneCalls(db: Executor, userId: string, share: boolean): Promise<boolean> {
+    const v = parseInput(z.boolean(), share, "one-to-one call sharing");
+    const rows = await db.insert(accountPreferences).values({ userId, shareOneToOneCalls: v }).onConflictDoUpdate({ target: accountPreferences.userId, set: { shareOneToOneCalls: v } }).returning({ v: accountPreferences.shareOneToOneCalls });
+    return one(rows, "preferences", userId).v;
+  },
 };

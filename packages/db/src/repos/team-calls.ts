@@ -1,5 +1,5 @@
 /**
- * team_calls + team_call_turns + team_call_actions (0084; docs/TEAM_CALL.md §2): a spoken call between the founder and
+ * team_calls + team_call_turns + team_call_actions (0082; docs/TEAM_CALL.md §2): a spoken call between the founder and
  * their team (or one agent), its turns in speaking order and the action items filed when it ends.
  *
  * The api runs every call inside `withRls` as the signed-in member (members write, viewers and example viewers read
@@ -45,8 +45,11 @@ export const CreateTeamCallInput = z
     topic: z.string().trim().max(TEAM_CALL_LIMITS.maxTopicChars).nullish().transform(nullIfEmpty),
     /** The person starting the call. */
     startedBy: Id.nullable(),
+    /** `private` only for a one-to-one call its person did not share; a team call is always the project's. */
+    visibility: z.enum(["project", "private"]).default("project"),
   })
   .superRefine((c, ctx) => {
+    if (c.kind === "team" && c.visibility !== "project") ctx.addIssue({ code: "custom", message: "a team call is the project's", path: ["visibility"] });
     if (c.kind === "one_to_one" && c.agentIds.length !== 1) ctx.addIssue({ code: "custom", message: "a one-to-one call has exactly one agent", path: ["agentIds"] });
     if (new Set(c.agentIds.map((a) => a.toLowerCase())).size !== c.agentIds.length) ctx.addIssue({ code: "custom", message: "an agent is on a call once", path: ["agentIds"] });
   });
@@ -149,8 +152,18 @@ export const teamCallsRepo = {
   async create(db: Executor, businessId: string, input: CreateTeamCallInput): Promise<TeamCall> {
     const c = parseInput(CreateTeamCallInput, input, "team call");
     await assertAgentsOwned(db, businessId, c.agentIds, "agentIds");
-    const [row] = await db.insert(teamCalls).values({ businessId, kind: c.kind, agentIds: c.agentIds, topic: c.topic, startedBy: c.startedBy }).returning();
+    const [row] = await db.insert(teamCalls).values({ businessId, kind: c.kind, agentIds: c.agentIds, topic: c.topic, startedBy: c.startedBy, visibility: c.visibility }).returning();
     return row!;
+  },
+
+  /**
+   * Every one-to-one call this person made, in every business, to `visibility` (Settings › Preferences, "Share my
+   * one-to-one calls"). Service connection only: no app role may change a call's visibility (no column grant).
+   */
+  async setOneToOneVisibilityForPerson(db: Executor, userId: string, visibility: "project" | "private"): Promise<number> {
+    const id = parseInput(Id, userId, "user id");
+    const rows = await db.update(teamCalls).set({ visibility, updatedAt: new Date() }).where(and(eq(teamCalls.startedBy, id), eq(teamCalls.kind, "one_to_one"))).returning({ id: teamCalls.id });
+    return rows.length;
   },
 
   /** The call, or a NotFoundError (also for another business's call). */

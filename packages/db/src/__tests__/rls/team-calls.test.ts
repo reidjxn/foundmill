@@ -1,5 +1,5 @@
 /**
- * 0084 Team call: `team_calls`, `team_call_turns`, `team_call_actions`, the widened `plans.origin` and
+ * 0082 Team call: `team_calls`, `team_call_turns`, `team_call_actions`, the widened `plans.origin` and
  * `agents.speech_accent`. The generated suite (tables.ts) covers the generic tenancy cases per table; this one exercises
  * the repo as the api uses it under RLS and the parts the generic suite cannot see: the column grants on a call, the
  * insert-only turns and action items, references across businesses, the turn shape, the example viewer, the plan origin
@@ -45,7 +45,7 @@ beforeAll(async () => {
 }, 120_000);
 afterAll(() => h?.close());
 
-describe("team calls (0084): tenancy through the repo", () => {
+describe("team calls (0082): tenancy through the repo", () => {
   it("a member of A reads nothing of B's calls, turns or action items", async () => {
     await expect(h.asUser(A.memberId).run((tx) => repos.teamCalls.get(tx, B.businessId, bCallId))).rejects.toBeInstanceOf(NotFoundError);
     expect(await h.asUser(A.memberId).run((tx) => repos.teamCalls.list(tx, B.businessId))).toEqual([]);
@@ -83,13 +83,13 @@ describe("team calls (0084): tenancy through the repo", () => {
   });
 
   it("a row of A cannot point at B's call, agents, departments or plans", async () => {
-    // The composite key (call_id, business_id): a turn or an action item of A on B's call does not exist for the database.
+    // A turn or an action item of A on B's call: refused by the insert policy (the call is not one A can see), and by the composite key (call_id, business_id).
     await expect(
       h.asUser(A.ownerId).run((tx) => tx.insert(s.teamCallTurns).values({ businessId: A.businessId, callId: bCallId, seq: 99, speaker: "founder", userId: A.ownerId, text: "Hi" })),
-    ).rejects.toThrow(/foreign key/);
+    ).rejects.toThrow(/foreign key|row-level security/);
     await expect(
       h.asUser(A.ownerId).run((tx) => tx.insert(s.teamCallActions).values({ businessId: A.businessId, callId: bCallId, position: 99, actionType: "create_task", title: "x", status: "not_filed" })),
-    ).rejects.toThrow(/foreign key/);
+    ).rejects.toThrow(/foreign key|row-level security/);
     // The repo checks the ids an array or a plain foreign key would accept from another business.
     await expect(h.asUser(A.ownerId).run((tx) => repos.teamCalls.create(tx, A.businessId, { kind: "team", agentIds: [A.agentId, B.agentId], startedBy: A.ownerId }))).rejects.toThrow(/agent of this business/);
     const callId = await h.asUser(A.ownerId).run(async (tx) => (await repos.teamCalls.create(tx, A.businessId, { kind: "team", agentIds: [A.agentId], startedBy: A.ownerId })).id);
@@ -102,7 +102,7 @@ describe("team calls (0084): tenancy through the repo", () => {
   });
 });
 
-describe("team calls (0084): viewers never write", () => {
+describe("team calls (0082): viewers never write", () => {
   for (const who of ["viewer", "example viewer"] as const) {
     it(`a ${who} reads A's calls and writes none of them`, async () => {
       const userId = who === "viewer" ? A.viewerId : exampleViewerId;
@@ -127,7 +127,7 @@ describe("team calls (0084): viewers never write", () => {
   }
 });
 
-describe("team calls (0084): what app roles may change", () => {
+describe("team calls (0082): what app roles may change", () => {
   it("turns and action items are never updated or deleted by an app role, owner included", async () => {
     const call = await h.asUser(A.ownerId).run((tx) => repos.teamCalls.create(tx, A.businessId, { kind: "team", agentIds: [A.agentId], startedBy: A.ownerId }));
     const { turns } = await h.asUser(A.ownerId).run((tx) => repos.teamCalls.appendTurns(tx, A.businessId, call.id, [say(A.ownerId, "Let's plan the launch")]));
@@ -155,7 +155,7 @@ describe("team calls (0084): what app roles may change", () => {
   });
 });
 
-describe("team calls (0084): the database's checks", () => {
+describe("team calls (0082): the database's checks", () => {
   const callOf = async () => (await h.service().run((tx) => repos.teamCalls.create(tx, A.businessId, { kind: "team", agentIds: [A.agentId, A.agent2Id], startedBy: A.ownerId }))).id;
 
   it("a call has 1 to 8 distinct agents, exactly one when one-to-one, and an end time exactly when ended", async () => {
@@ -216,7 +216,7 @@ describe("team calls (0084): the database's checks", () => {
   });
 });
 
-describe("plans.origin (0084)", () => {
+describe("plans.origin (0082)", () => {
   it("accepts team_call, written by a member under RLS, and still refuses an unknown origin", async () => {
     const [plan] = await h.asUser(A.memberId).run((tx) => tx.insert(s.plans).values({ businessId: A.businessId, origin: "team_call", status: "executing" }).returning());
     expect(plan?.origin).toBe("team_call");
@@ -228,7 +228,37 @@ describe("plans.origin (0084)", () => {
   });
 });
 
-describe("agents.speech_accent (0084)", () => {
+describe("one-to-one calls are private by default (0082)", () => {
+  it("only the person who made a private call reads it, its turns and its actions, or speaks on it; shared, every member does", async () => {
+    const callId = await h.asUser(A.memberId).run(async (tx) => (await repos.teamCalls.create(tx, A.businessId, { kind: "one_to_one", agentIds: [A.agentId], startedBy: A.memberId, visibility: "private" })).id);
+    await h.asUser(A.memberId).run((tx) => repos.teamCalls.appendTurns(tx, A.businessId, callId, [say(A.memberId, "Just between us")]));
+    expect((await h.asUser(A.memberId).run((tx) => repos.teamCalls.turns(tx, A.businessId, callId))).map((t) => t.text)).toEqual(["Just between us"]);
+    // The owner of the business sees none of it, and cannot add to it.
+    await expect(h.asUser(A.ownerId).run((tx) => repos.teamCalls.get(tx, A.businessId, callId))).rejects.toBeInstanceOf(NotFoundError);
+    expect(await h.asUser(A.ownerId).run((tx) => repos.teamCalls.turns(tx, A.businessId, callId))).toEqual([]);
+    expect((await h.asUser(A.ownerId).run((tx) => repos.teamCalls.list(tx, A.businessId))).some((c) => c.id === callId)).toBe(false);
+    await expect(h.asUser(A.ownerId).run((tx) => repos.teamCalls.appendTurns(tx, A.businessId, callId, [say(A.ownerId, "Let me in")]))).rejects.toThrow();
+    await expect(h.asUser(A.ownerId).run((tx) => tx.insert(s.teamCallTurns).values({ businessId: A.businessId, callId, seq: 50, speaker: "founder", userId: A.ownerId, text: "Let me in" }))).rejects.toThrow();
+    // A team call is always the project's.
+    await expect(h.asUser(A.memberId).run((tx) => repos.teamCalls.create(tx, A.businessId, { kind: "team", agentIds: [A.agentId], startedBy: A.memberId, visibility: "private" }))).rejects.toThrow();
+    // Sharing (the service connection, from the person's setting) opens it to the project, and back.
+    expect(await repos.teamCalls.setOneToOneVisibilityForPerson(h.db, A.memberId, "project")).toBeGreaterThan(0);
+    expect((await h.asUser(A.ownerId).run((tx) => repos.teamCalls.turns(tx, A.businessId, callId))).map((t) => t.text)).toEqual(["Just between us"]);
+    await repos.teamCalls.setOneToOneVisibilityForPerson(h.db, A.memberId, "private");
+    expect(await h.asUser(A.ownerId).run((tx) => repos.teamCalls.turns(tx, A.businessId, callId))).toEqual([]);
+    // An app role cannot change visibility itself.
+    await expect(h.asUser(A.memberId).run((tx) => tx.update(s.teamCalls).set({ visibility: "project" }).where(eq(s.teamCalls.id, callId)))).rejects.toThrow();
+  });
+
+  it("keeps the sharing choice per person, off by default", async () => {
+    expect(await h.asUser(A.adminId).run((tx) => repos.preferences.shareOneToOneCalls(tx, A.adminId))).toBe(false);
+    expect(await h.asUser(A.adminId).run((tx) => repos.preferences.setShareOneToOneCalls(tx, A.adminId, true))).toBe(true);
+    expect(await h.asUser(A.adminId).run((tx) => repos.preferences.shareOneToOneCalls(tx, A.adminId))).toBe(true);
+    expect(await h.asUser(A.memberId).run((tx) => repos.preferences.shareOneToOneCalls(tx, A.memberId))).toBe(false);
+  });
+});
+
+describe("agents.speech_accent (0082)", () => {
   it("an owner or an admin chooses it; a member, a viewer and another business cannot; the shape is checked", async () => {
     const owner = await h.asUser(A.ownerId).run((tx) => repos.agents.setSpeechAccent(tx, A.businessId, A.agentId, "talia"));
     expect(owner.speechAccent).toBe("talia");

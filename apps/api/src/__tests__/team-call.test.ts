@@ -244,3 +244,40 @@ describe("agent.speechAccent", () => {
     expect(preview).toMatchObject({ speechAccent: other, simulated: true });
   });
 });
+
+describe("one-to-one calls are private by default", () => {
+  it("keeps a one-to-one call to the person who made it, its note without what was said, until they share their calls", async () => {
+    expect(await member().teamCall.sharing.get()).toEqual({ share: false });
+    const call = await member().teamCall.start({ businessId: A(), kind: "one_to_one", agentIds: [hz.A.agent2Id] });
+    expect(call.visibility).toBe("private");
+    await member().teamCall.say({ businessId: A(), callId: call.id, text: "I am not sure about the pricing yet, between us.", via: "typed", clientTurnId: turnId() });
+    // Nobody else in the project reads it, lists it or speaks on it.
+    expect(await code(owner().teamCall.get({ businessId: A(), callId: call.id }))).toBe("NOT_FOUND");
+    expect((await owner().teamCall.list({ businessId: A() })).some((c) => c.id === call.id)).toBe(false);
+    expect(await code(owner().teamCall.say({ businessId: A(), callId: call.id, text: "Hello?", via: "typed", clientTurnId: turnId() }))).not.toBe("ok");
+    // Its stream event carries no words of it.
+    const started = (await repos.events.outboxPending(hz.db, A())).find((o) => o.event.type === "team_call.started" && (o.event.payload as { callId: string }).callId === call.id);
+    expect((started?.event.payload as { topic: string | null }).topic).toBeNull();
+    // Ended, the project's Inbox note says what it filed, never the summary.
+    hz.deps.models = new MockModelClient({ overrides: { teamCallWrapUp: () => ({ summary: "Talked privately about pricing doubts.", actions: [{ title: "Research three pricing models", detail: null, agent_id: hz.A.agent2Id, action: { type: "create_task", params: { kind: "research", title: "Research three pricing models", goal: "Three options compared" }, agent_id: hz.A.agent2Id } }] }) } });
+    const ended = await member().teamCall.end({ businessId: A(), callId: call.id });
+    expect(ended.summary).toContain("pricing doubts");
+    const notes = await repos.inbox.list(hz.db, A(), { limit: 20 });
+    const note = notes.items.find((i) => i.subject === "Notes from your call");
+    expect(note?.bodyMd).toContain("Research three pricing models");
+    expect(note?.bodyMd).not.toContain("pricing doubts");
+    // Sharing opens their calls, past ones too; turning it off closes them again.
+    expect(await member().teamCall.sharing.set({ share: true })).toMatchObject({ share: true });
+    expect((await owner().teamCall.get({ businessId: A(), callId: call.id })).visibility).toBe("project");
+    const next = await member().teamCall.start({ businessId: A(), kind: "one_to_one", agentIds: [hz.A.agent2Id] });
+    expect(next.visibility).toBe("project");
+    await member().teamCall.sharing.set({ share: false });
+    expect(await code(owner().teamCall.get({ businessId: A(), callId: call.id }))).toBe("NOT_FOUND");
+  });
+
+  it("keeps team calls the project's", async () => {
+    const call = await member().teamCall.start({ businessId: A(), kind: "team" });
+    expect(call.visibility).toBe("project");
+    expect((await owner().teamCall.get({ businessId: A(), callId: call.id })).id).toBe(call.id);
+  });
+});

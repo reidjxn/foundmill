@@ -548,7 +548,7 @@ export const agentsRepo = {
   },
 
   /**
-   * 0084 — the founder's own choice of how the agent sounds on a Team call (a `SPEECH_ACCENTS` key; the api checks the
+   * 0082 — the founder's own choice of how the agent sounds on a Team call (a `SPEECH_ACCENTS` key; the api checks the
    * key is known, this checks its shape), or null to go back to the derived default (`defaultSpeechAccents`). Only an
    * owner or an admin may change it under RLS (trigger `fm_agents_speech_accent_guard`).
    */

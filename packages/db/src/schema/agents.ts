@@ -46,7 +46,7 @@ export const agents = pgTable(
      */
     personaKey: text("persona_key"),
     /**
-     * 0084 — how the agent sounds on a Team call when the founder chose it (a `SPEECH_ACCENTS` key in
+     * 0082 — how the agent sounds on a Team call when the founder chose it (a `SPEECH_ACCENTS` key in
      * @foundmill/shared); null = the derived default (`defaultSpeechAccents`), never stored. Only an owner or an admin
      * sets it (trigger `fm_agents_speech_accent_guard`).
      */

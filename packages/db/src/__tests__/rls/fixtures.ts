@@ -49,7 +49,7 @@ export interface BusinessFixture {
   sessionId: string;
   /** 0020: the Chief of Staff's conversation about the fixture's inbox item. */
   agentThreadId: string;
-  /** 0084: a live team call with both agents, started by the owner. */
+  /** 0082: a live team call with both agents, started by the owner. */
   teamCallId: string;
 }
 

@@ -81,7 +81,7 @@ export const ROLL_EXCLUDED_TABLES: readonly string[] = [
   "project_mail",
   // When a person agreed to hear from a project is consent (0079): it keeps its real time.
   "contact_consents",
-  // A Team call is a record of what someone really said and when (0084); the seed writes none for a sample business.
+  // A Team call is a record of what someone really said and when (0082); the seed writes none for a sample business.
   "team_calls",
   "team_call_turns",
   "team_call_actions",

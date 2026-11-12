@@ -4,7 +4,7 @@
  * ticked), an optional topic, and the past calls in a table with saved views and a right-click menu.
  */
 import { useQuery } from "@tanstack/react-query";
-import { Phone, Video } from "lucide-react";
+import { Lock, Phone, Video } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
 import { Button, CallLobbyPicker, Chip, DataTable, EntityLink, Field, Input, Panel, formatRelative, type CallPickerAgent, type DataTableColumn, type RowAction, type SavedView } from "@foundmill/dugout";
@@ -76,7 +76,12 @@ export function CallLobby() {
           const c = row.original;
           const a = c.kind === "one_to_one" ? agentById.get(c.agentIds[0] ?? "") : undefined;
           if (!a) return <span className="text-secondary">{c.agentIds.length} agents</span>;
-          return <EntityLink entity={{ id: a.id, kind: "agent", name: a.name, href: routes.agent(businessId, a.id) }} hoverCard={false} className="min-w-0 truncate" />;
+          return (
+            <span className="inline-flex min-w-0 items-center gap-1.5">
+              {c.visibility === "private" ? <Lock className="size-3.5 shrink-0 text-tertiary" aria-label={TEAM_CALL_WORDS.privateCall} data-testid="call-row-private" /> : null}
+              <EntityLink entity={{ id: a.id, kind: "agent", name: a.name, href: routes.agent(businessId, a.id) }} hoverCard={false} className="min-w-0 truncate" />
+            </span>
+          );
         },
       },
       { id: "topic", accessorFn: (c) => c.topic ?? "", header: "Topic", size: 180, cell: ({ getValue }) => ((getValue() as string) ? <span className="truncate">{getValue() as string}</span> : <span className="text-tertiary">None</span>) },

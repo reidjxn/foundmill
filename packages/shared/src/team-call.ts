@@ -274,10 +274,19 @@ export interface TeamCallActionView {
   reason: string | null;
 }
 
+/**
+ * Who reads a call (founder, Nov 12, 2026): a team call is the project's; a one-to-one call is `private` to the person who
+ * made it unless they share their one-to-one calls with the project in Settings › Preferences (default: private). The
+ * work a call files is the project's either way.
+ */
+export const TEAM_CALL_VISIBILITIES = ["project", "private"] as const;
+export type TeamCallVisibility = (typeof TEAM_CALL_VISIBILITIES)[number];
+
 export interface TeamCallView {
   id: string;
   kind: TeamCallKind;
   status: TeamCallStatus;
+  visibility: TeamCallVisibility;
   topic: string | null;
   startedAt: string;
   endedAt: string | null;
@@ -297,6 +306,7 @@ export interface TeamCallSummaryView {
   id: string;
   kind: TeamCallKind;
   status: TeamCallStatus;
+  visibility: TeamCallVisibility;
   topic: string | null;
   startedAt: string;
   endedAt: string | null;
@@ -368,6 +378,9 @@ export const TEAM_CALL_WORDS = {
   notFiled: "Not filed",
   roundLimit: "The team has talked it through. Your turn.",
   noMic: "Your browser did not give access to the microphone. You can type instead.",
+  privateCall: "Only you can see this call",
+  shareSettingTitle: "Share my one-to-one calls",
+  shareSettingHint: "Off: only you can see your calls with one agent. On: everyone on the project can read them. Team calls are always the project's, and what a call files (tasks, roadmap items) is the project's either way.",
 } as const;
 
 /** "3 filed · 1 needs your go-ahead": the line under a finished call. */

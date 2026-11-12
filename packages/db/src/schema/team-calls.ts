@@ -1,5 +1,5 @@
 /**
- * 0084 — Team call (docs/TEAM_CALL.md §2): a spoken call between the founder and their team (or one agent), its turns
+ * 0082 — Team call (docs/TEAM_CALL.md §2): a spoken call between the founder and their team (or one agent), its turns
  * in speaking order and the action items filed when it ends. Members read; owners, admins and members write (the agent
  * desk's model, 0020). Turns and actions are insert-only for app roles; on a call an app role changes only its status,
  * summary, counters, `ended_at` and `updated_at` (column grants). The SQL is the source of truth for checks and RLS.
@@ -37,6 +37,8 @@ export const teamCalls = pgTable(
     /** Agent-only rounds since the founder last spoke ("Let the team discuss" stops at the limit). */
     agentRoundsSinceFounder: integer("agent_rounds_since_founder").notNull().default(0),
     turnCount: integer("turn_count").notNull().default(0),
+    /** 0082 — `private`: only the person who made this one-to-one call reads it (the default for one-to-one calls, unless they share them in Settings › Preferences); `project`: every member. Team calls are always `project`. */
+    visibility: text("visibility", { enum: ["project", "private"] }).notNull().default("project"),
     ...timestamps(),
   },
   (t) => [

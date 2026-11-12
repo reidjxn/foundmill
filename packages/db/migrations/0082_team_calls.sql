@@ -1,4 +1,4 @@
--- 0084 — Team call (docs/TEAM_CALL.md §2, founder Nov 12, 2026): a spoken call between the founder and their team of
+-- 0082 — Team call (docs/TEAM_CALL.md §2, founder Nov 12, 2026): a spoken call between the founder and their team of
 -- agents (`team`) or one agent (`one_to_one`), its turns in speaking order, and the action items filed when it ends;
 -- `plans.origin` gains `team_call`; `agents.speech_accent` keeps the founder's own choice of how an agent sounds.
 --
@@ -211,3 +211,55 @@ end;
 $$;
 --> statement-breakpoint
 create trigger team_call_turns_own_words before insert on team_call_turns for each row execute function fm_team_call_turns_own_words();
+--> statement-breakpoint
+-- One-to-one calls are private to the person who made them by default (founder, Nov 12, 2026): only they read the
+-- call, its turns and its action items, unless they chose in Settings › Preferences to share their one-to-one calls
+-- with the project (`account_preferences.share_one_to_one_calls`, default false). Team calls are the project's. The work
+-- a call files (tasks, roadmap items, plans) is the project's either way. `visibility` is set by the api when a call
+-- starts and changed only by the service connection when the person changes the setting (no app-role grant).
+alter table team_calls add column visibility text not null default 'project' constraint team_calls_visibility_known check (visibility in ('project', 'private'));
+--> statement-breakpoint
+alter table team_calls add constraint team_calls_team_is_project check (kind = 'one_to_one' or visibility = 'project');
+--> statement-breakpoint
+alter table account_preferences add column share_one_to_one_calls boolean not null default false;
+--> statement-breakpoint
+create function fm_team_call_visible(b uuid, call_kind text, call_visibility text, call_started_by uuid) returns boolean
+language sql stable set search_path = public as $$
+  select is_member(b) and (call_kind = 'team' or call_visibility = 'project' or call_started_by = auth.uid())
+$$;
+--> statement-breakpoint
+grant execute on function fm_team_call_visible(uuid, text, text, uuid) to authenticated, service_role;
+--> statement-breakpoint
+-- The generated `team_calls_write` policy is `for all`, which also grants reads; split it so a private call is never
+-- readable through it.
+drop policy team_calls_select on team_calls;
+--> statement-breakpoint
+drop policy team_calls_write on team_calls;
+--> statement-breakpoint
+create policy team_calls_select on team_calls for select using (fm_team_call_visible(business_id, kind, visibility, started_by));
+--> statement-breakpoint
+create policy team_calls_insert on team_calls for insert with check (has_role(business_id, array['owner','admin','member']));
+--> statement-breakpoint
+create policy team_calls_update on team_calls for update
+  using (has_role(business_id, array['owner','admin','member']) and fm_team_call_visible(business_id, kind, visibility, started_by))
+  with check (has_role(business_id, array['owner','admin','member']));
+--> statement-breakpoint
+drop policy team_call_turns_select on team_call_turns;
+--> statement-breakpoint
+create policy team_call_turns_select on team_call_turns for select
+  using (exists (select 1 from team_calls c where c.id = team_call_turns.call_id and c.business_id = team_call_turns.business_id and fm_team_call_visible(c.business_id, c.kind, c.visibility, c.started_by)));
+--> statement-breakpoint
+drop policy team_call_actions_select on team_call_actions;
+--> statement-breakpoint
+create policy team_call_actions_select on team_call_actions for select
+  using (exists (select 1 from team_calls c where c.id = team_call_actions.call_id and c.business_id = team_call_actions.business_id and fm_team_call_visible(c.business_id, c.kind, c.visibility, c.started_by)));
+--> statement-breakpoint
+drop policy team_call_turns_insert on team_call_turns;
+--> statement-breakpoint
+create policy team_call_turns_insert on team_call_turns for insert
+  with check (has_role(business_id, array['owner','admin','member']) and exists (select 1 from team_calls c where c.id = team_call_turns.call_id and c.business_id = team_call_turns.business_id and fm_team_call_visible(c.business_id, c.kind, c.visibility, c.started_by)));
+--> statement-breakpoint
+drop policy team_call_actions_insert on team_call_actions;
+--> statement-breakpoint
+create policy team_call_actions_insert on team_call_actions for insert
+  with check (has_role(business_id, array['owner','admin','member']) and exists (select 1 from team_calls c where c.id = team_call_actions.call_id and c.business_id = team_call_actions.business_id and fm_team_call_visible(c.business_id, c.kind, c.visibility, c.started_by)));

@@ -215,12 +215,29 @@ export function teamCallSpeechModes(ctx: BusinessContext): TeamCallSpeechModes {
   return speechModes(ctx.env);
 }
 
+/** Whether this person shares their one-to-one calls with the project (Settings › Preferences; default false). */
+export async function oneToOneSharing(userId: string, asUser: <T>(fn: (tx: DbTx) => Promise<T>) => Promise<T>): Promise<{ share: boolean }> {
+  return { share: await asUser((tx) => repos.preferences.shareOneToOneCalls(tx, userId)) };
+}
+
+/**
+ * Changes the choice and applies it to every one-to-one call the person made, in every business (their calls follow
+ * their choice, past ones too). The calls are changed on the service connection: no app role may change a call's
+ * visibility.
+ */
+export async function setOneToOneSharing(ctx: { db: BusinessContext["db"]; userId: string }, asUser: <T>(fn: (tx: DbTx) => Promise<T>) => Promise<T>, share: boolean): Promise<{ share: boolean; calls: number }> {
+  const saved = await asUser((tx) => repos.preferences.setShareOneToOneCalls(tx, ctx.userId, share));
+  const calls = await repos.teamCalls.setOneToOneVisibilityForPerson(ctx.db, ctx.userId, saved ? "project" : "private");
+  return { share: saved, calls };
+}
+
 export async function listTeamCalls(ctx: BusinessContext, limit = 20): Promise<TeamCallSummaryView[]> {
   const rows = await ctx.rls((tx) => repos.teamCalls.list(tx, ctx.businessId, { limit }));
   return rows.map((r) => ({
     id: r.id,
     kind: r.kind,
     status: r.status,
+    visibility: r.visibility,
     topic: r.topic,
     startedAt: new Date(r.startedAt).toISOString(),
     endedAt: r.endedAt ? new Date(r.endedAt).toISOString() : null,
@@ -251,6 +268,7 @@ export async function getTeamCall(ctx: BusinessContext, callId: string): Promise
       startedAt: new Date(call.startedAt).toISOString(),
       endedAt: call.endedAt ? new Date(call.endedAt).toISOString() : null,
       startedBy: call.startedBy,
+      visibility: call.visibility,
       participants: callAgents(call, roster).map((a) => participantView(a, roster)),
       turns: turns.map(toTurnView),
       summary: call.summary,
@@ -301,8 +319,11 @@ export async function startTeamCall(ctx: BusinessContext, input: StartTeamCallIn
   }
   const topic = input.topic?.trim().slice(0, TEAM_CALL_LIMITS.maxTopicChars) || null;
   const call = await ctx.rls(async (tx) => {
-    const created = await repos.teamCalls.create(tx, ctx.businessId, { kind: input.kind, agentIds, topic, startedBy: ctx.userId });
-    await emit(tx, ctx, { type: "team_call.started", payload: { callId: created.id, kind: created.kind, agentIds, topic } });
+    // A one-to-one call is private to its person unless they share their one-to-one calls (Settings › Preferences).
+    const visibility = input.kind === "one_to_one" && !(await repos.preferences.shareOneToOneCalls(tx, ctx.userId)) ? "private" : "project";
+    const created = await repos.teamCalls.create(tx, ctx.businessId, { kind: input.kind, agentIds, topic, startedBy: ctx.userId, visibility });
+    // A private call's topic is its person's: the business's stream carries no words of it.
+    await emit(tx, ctx, { type: "team_call.started", payload: { callId: created.id, kind: created.kind, agentIds, topic: visibility === "private" ? null : topic } });
     await audit(tx, ctx, { action: "team_call.start", target: { kind: "team_call", id: created.id }, details: { kind: created.kind, agentCount: agentIds.length } });
     return created;
   });
@@ -580,7 +601,8 @@ async function wrapUp(ctx: BusinessContext, callId: string): Promise<TeamCallVie
           type: "update",
           from_agent_id: chief.id,
           subject: call.kind === "team" ? "Notes from your team call" : "Notes from your call",
-          body_md: [summary, "", teamCallActionsLine(statuses), ...(lines.length ? ["", ...lines] : [])].join("\n").slice(0, 8000),
+          // A private call's note (the Inbox is the project's) says what it filed and what waits, never what was said.
+          body_md: (call.visibility === "private" ? [teamCallActionsLine(statuses), ...(lines.length ? ["", ...lines] : [])] : [summary, "", teamCallActionsLine(statuses), ...(lines.length ? ["", ...lines] : [])]).join("\n").slice(0, 8000),
           status_strip: [],
           exhibit: { kind: "none", spec_ref: null },
           decision: null,

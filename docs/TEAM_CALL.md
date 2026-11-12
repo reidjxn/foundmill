@@ -16,7 +16,7 @@ The shared contract is `packages/shared/src/team-call.ts` (`@foundmill/shared/te
 - **Simulated speech is said so.** In mock mode the call works end to end with the browser's own speech and recognizer (or typing); the call shows `TEAM_CALL_WORDS.simulatedNotice` once. A simulated result is never presented as real.
 - **Desktop console.** The call is a business screen (1280 px and wider), like the department tabs.
 
-## 2. Data (`packages/db`, migration `0084_team_calls.sql`; 0082 and 0083 are held by another branch)
+## 2. Data (`packages/db`, migration `0082_team_calls.sql`)
 
 All three tables are business-scoped with RLS (`fm_tenant_table`), in the export tables, out of the demo roll-forward, with cross-tenant tests.
 
