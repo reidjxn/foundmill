@@ -20,6 +20,8 @@ test-results
 .pglite
 supabase/.temp
 .claude/settings.local.json
+# Working copies made for parallel builds: separate checkouts of this repository, never part of it.
+.claude/worktrees/
 *.tsbuildinfo
 .env*
 apps/web/AGENTS.md
