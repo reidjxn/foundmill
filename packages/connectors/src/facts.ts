@@ -44,7 +44,7 @@ export const FACT_LABEL_MAX_WORDS = 8;
 export const FACT_LABEL_MAX_DIGITS = 6;
 /** An address keeps its origin and path: no query, no fragment, and no path long enough to be a message. */
 export const FACT_URL_MAX = 200;
-export const FACT_URL_MAX_PATH_WORDS = 12;
+export const FACT_URL_MAX_PATH_WORDS = 8;
 export const FACT_HOST_MAX_LABELS = 5;
 export const FACT_HOST_LABEL_MAX = 30;
 
@@ -108,8 +108,11 @@ export const fact = {
   },
   /** The host of an http(s) address, or null. */
   hostOf(v: unknown): string | null {
-    const u = fact.url(v);
-    return u ? fact.host(new URL(u).hostname) : null;
+    const s = str(v)?.trim() ?? null;
+    if (s === null || s.length > 2_000 || !URL.canParse(s)) return null;
+    const u = new URL(s);
+    // The host of a link stands even when the link itself is refused for its path: a host is its own kind.
+    return (u.protocol === "https:" || u.protocol === "http:") && !u.username && !u.password ? fact.host(u.hostname) : null;
   },
   int(v: unknown, min = 0, max = Number.MAX_SAFE_INTEGER): number | null {
     return typeof v === "number" && Number.isInteger(v) && v >= min && v <= max ? v : null;

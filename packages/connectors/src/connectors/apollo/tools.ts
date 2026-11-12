@@ -158,29 +158,37 @@ export const EnrichPersonOutput = z.object({
 export type EnrichPersonOutput = z.output<typeof EnrichPersonOutput>;
 
 /* ---- Typed reads (facts): checked values only, built with fact.*; nothing here logs ---- */
-/** A LinkedIn address: https only, and only on linkedin.com or one of its subdomains. */
+/** A LinkedIn address: https only, on linkedin.com or one of its subdomains, and a profile or company path (`/in/<slug>`, `/company/<slug>`). */
+const LINKEDIN_PATH_RE = /^\/(in|company)\/[A-Za-z0-9_%-]{1,100}\/?$/;
 const linkedinFact = (v: unknown): string | null => {
   const u = fact.url(v, { httpsOnly: true });
   if (!u) return null;
-  const host = new URL(u).hostname.toLowerCase();
-  return host === "linkedin.com" || host.endsWith(".linkedin.com") ? u : null;
+  const parsed = new URL(u);
+  const host = parsed.hostname.toLowerCase();
+  return (host === "linkedin.com" || host.endsWith(".linkedin.com")) && LINKEDIN_PATH_RE.test(parsed.pathname) ? u : null;
 };
+/** An Apollo id: short and identifier-shaped. */
+const idFact = (v: unknown): string | null => fact.id(v, 32);
+const NAME = { words: 5 } as const;
+const COMPANY = { words: 6 } as const;
+const TITLE = { words: 8 } as const;
+const PLACE = { words: 6 } as const;
 
 export function peopleFacts(data: SearchPeopleOutput): Record<string, unknown> {
   const people: Record<string, unknown>[] = [];
   for (const p of data.people) {
-    const id = fact.id(p.id);
+    const id = idFact(p.id);
     if (id === null || people.length >= MAX_PEOPLE) continue;
     people.push({
       id,
       // A search masks the last name ("Maya Ok***r"), which is not a label: then the first name alone, and only for
       // exactly that shape (one word, then one masked word). Anything else is not trimmed to fit.
-      name: fact.label(p.name) ?? fact.label(typeof p.name === "string" ? (/^(\S+) [^\s*]*\*+[^\s*]*$/.exec(p.name)?.[1] ?? null) : null),
-      title: fact.label(p.title),
-      organizationName: fact.label(p.organizationName),
+      name: fact.label(p.name, NAME) ?? fact.label(typeof p.name === "string" ? (/^(\S+) [^\s*]*\*+[^\s*]*$/.exec(p.name)?.[1] ?? null) : null, NAME),
+      title: fact.label(p.title, TITLE),
+      organizationName: fact.label(p.organizationName, COMPANY),
       organizationDomain: fact.host(p.organizationDomain),
       linkedinUrl: linkedinFact(p.linkedinUrl),
-      location: fact.label(p.location),
+      location: fact.label(p.location, PLACE),
       hasEmail: fact.bool(p.hasEmail),
     });
   }
@@ -190,15 +198,15 @@ export function peopleFacts(data: SearchPeopleOutput): Record<string, unknown> {
 export function organizationsFacts(data: SearchOrganizationsOutput): Record<string, unknown> {
   const organizations: Record<string, unknown>[] = [];
   for (const o of data.organizations) {
-    const id = fact.id(o.id);
+    const id = idFact(o.id);
     if (id === null || organizations.length >= MAX_ORGANIZATIONS) continue;
     organizations.push({
       id,
-      name: fact.label(o.name),
+      name: fact.label(o.name, COMPANY),
       domain: fact.host(o.domain),
-      industry: fact.label(o.industry),
+      industry: fact.label(o.industry, PLACE),
       employeeCount: fact.int(o.employeeCount),
-      location: fact.label(o.location),
+      location: fact.label(o.location, PLACE),
       linkedinUrl: linkedinFact(o.linkedinUrl),
     });
   }
@@ -206,20 +214,20 @@ export function organizationsFacts(data: SearchOrganizationsOutput): Record<stri
 }
 
 export function enrichFacts(data: EnrichPersonOutput): Record<string, unknown> {
-  const id = fact.id(data.id);
+  const id = idFact(data.id);
   // A person that cannot be named cannot be acted on: no facts.
   if (id === null) return {};
   return {
     id,
-    name: fact.label(data.name),
-    title: fact.label(data.title),
+    name: fact.label(data.name, NAME),
+    title: fact.label(data.title, TITLE),
     email: fact.email(data.email),
     // Apollo's status is one of its own short phrases ("verified", "likely to engage"): an identifier, else a short label.
     emailStatus: fact.id(data.emailStatus, 40) ?? fact.label(data.emailStatus, 40),
-    organizationName: fact.label(data.organizationName),
+    organizationName: fact.label(data.organizationName, COMPANY),
     organizationDomain: fact.host(data.organizationDomain),
     linkedinUrl: linkedinFact(data.linkedinUrl),
-    location: fact.label(data.location),
+    location: fact.label(data.location, PLACE),
     matchConfidence: fact.oneOf(data.matchConfidence, ["high", "medium", "low", "none"] as const),
   };
 }

@@ -99,22 +99,23 @@ const FACT_TARGETS = ["production", "preview"] as const;
 const factTarget = (t: unknown): (typeof FACT_TARGETS)[number] | null => (t === null || t === undefined || t === "" ? "preview" : fact.oneOf(t, FACT_TARGETS));
 const FACT_LIST_MAX = 20;
 
-/** A branch name: each slash-separated segment must be identifier-like; null otherwise. */
+/** A branch name: at most 60 characters and 8 tokens (split at a slash or a hyphen), each slash segment identifier-like; null otherwise. */
+const BRANCH_MAX_CHARS = 60;
+const BRANCH_MAX_TOKENS = 8;
 const factBranch = (v: unknown): string | null => {
-  if (typeof v !== "string" || v.length > 100) return null;
-  const parts = v.split("/").map((s) => fact.id(s, 100));
+  if (typeof v !== "string" || v.length > BRANCH_MAX_CHARS || v.split(/[/-]/).length > BRANCH_MAX_TOKENS) return null;
+  const parts = v.split("/").map((s) => fact.id(s, BRANCH_MAX_CHARS));
   return parts.every((p) => p !== null) ? parts.join("/") : null;
 };
 
-const factDeploymentId = (v: unknown): string | null => {
-  const id = fact.id(v);
-  return id !== null && id.startsWith("dpl_") ? id : null;
-};
+/** A Vercel deployment id: `dpl_` and 8 to 40 letters or digits. */
+const FACT_DEPLOYMENT_ID_RE = /^dpl_[A-Za-z0-9]{8,40}$/;
+const factDeploymentId = (v: unknown): string | null => (typeof v === "string" && FACT_DEPLOYMENT_ID_RE.test(v) ? v : null);
 
 const factDeployment = (d: DeploymentItemT) => ({
   id: factDeploymentId(d.id),
   url: fact.host(d.url),
-  name: fact.label(d.name) ?? fact.id(d.name),
+  name: fact.label(d.name, { words: 4 }) ?? fact.id(d.name, 64),
   state: fact.oneOf(d.state, DEPLOYMENT_STATES),
   target: factTarget(d.target),
   createdAt: fact.date(d.createdAt),
