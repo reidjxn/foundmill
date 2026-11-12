@@ -38,7 +38,7 @@ import { CreateCheckoutRequest, createPlatformCheckout } from "./billing";
 import { CheckDomainsRequest, checkDomains } from "./domains";
 import { generatePortrait, PortraitRequest } from "./portraits";
 import { sendPush, SendPushRequest } from "./push";
-import { MAX_TRANSCRIBE_BODY_BYTES, SPEECH_SYNTHESIZE_ROUTE, SPEECH_TRANSCRIBE_ROUTE, SynthesizeSpeechRequest, synthesizeSpeech, TranscribeSpeechRequest, transcribeSpeech } from "./speech";
+import { MAX_TRANSCRIBE_BODY_BYTES, SPEECH_STREAM_ROUTE, SPEECH_SYNTHESIZE_ROUTE, SPEECH_TRANSCRIBE_ROUTE, streamSpeech, SynthesizeSpeechRequest, synthesizeSpeech, TranscribeSpeechRequest, transcribeSpeech } from "./speech";
 import { CONFIRM_FOLLOW_ROUTE, ConfirmFollowRequest, sendFollowConfirmation } from "./follow-confirm";
 import { NOTIFY_EMAIL_ROUTE, NotifyEmailRequest, sendNotifyEmail } from "./notify-email";
 import { handleMcpRequest } from "./mcp";
@@ -199,6 +199,11 @@ export function createGatewayApp(deps: GatewayDeps, options: GatewayAppOptions):
     const parsed = SynthesizeSpeechRequest.safeParse(await c.req.json().catch(() => null));
     if (!parsed.success) throw new GatewayError("validation", "Send a business id, a call id, a turn id, a speech accent and the words", 400);
     return c.json(await synthesizeSpeech(deps, parsed.data, c.var.service.svc));
+  });
+  app.post(SPEECH_STREAM_ROUTE, async (c) => {
+    const parsed = SynthesizeSpeechRequest.safeParse(await c.req.json().catch(() => null));
+    if (!parsed.success) throw new GatewayError("validation", "Send a business id, a call id, a turn id, a speech accent and the words", 400);
+    return streamSpeech(deps, parsed.data, c.var.service.svc, c.req.raw.signal);
   });
   app.post(SPEECH_TRANSCRIBE_ROUTE, async (c) => {
     const parsed = TranscribeSpeechRequest.safeParse(await c.req.json().catch(() => null));

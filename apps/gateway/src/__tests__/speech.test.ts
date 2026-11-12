@@ -5,7 +5,7 @@
  * maps to; the audit rows and the log never hold the words; the cost is booked as an Estimate tool row.
  */
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { createElevenlabsConnector, createRegistry, jsonResponse, routedFetch, SPEECH_ACCENT_IDS } from "@foundmill/connectors";
+import { createElevenlabsConnector, createElevenlabsSpeechStreamer, createRegistry, jsonResponse, routedFetch, SPEECH_ACCENT_IDS } from "@foundmill/connectors";
 import { repos, type Db } from "@foundmill/db";
 import { createTestDb, type TestHarness } from "@foundmill/db/testing/pglite";
 import { SPEECH_ACCENTS, TEAM_CALL_LIMITS } from "@foundmill/shared";
@@ -57,9 +57,7 @@ interface Opts {
 }
 
 function appFor(opts: Opts = {}) {
-  const live = createElevenlabsConnector({
-    secrets: opts.key ? { elevenlabsApiKey: opts.key } : {},
-    fetch: routedFetch({
+  const fetch = routedFetch({
       "POST https://api.elevenlabs.io/v1/text-to-speech/*": async (req, url) => {
         opts.seen?.push({ kind: "speech", path: url.pathname, apiKey: req.headers.get("xi-api-key"), body: (await req.json()) as Record<string, unknown> });
         if (opts.status && opts.status !== 200) return jsonResponse(opts.errorBody ?? { detail: { status: "internal_error", message: "The server had an error" } }, { status: opts.status });
@@ -70,8 +68,8 @@ function appFor(opts: Opts = {}) {
         if (opts.status && opts.status !== 200) return jsonResponse(opts.errorBody ?? { detail: { status: "internal_error", message: "boom" } }, { status: opts.status });
         return jsonResponse({ language_code: "eng", text: " Let's plan the launch. ", audio_duration_secs: 3.4 });
       },
-    }),
-  });
+    });
+  const live = createElevenlabsConnector({ secrets: opts.key ? { elevenlabsApiKey: opts.key } : {}, fetch });
   const log = (level: string) => (...args: unknown[]) => void opts.logs?.push({ level, args });
   const deps: GatewayDeps = {
     db,
@@ -84,6 +82,7 @@ function appFor(opts: Opts = {}) {
     log: opts.logs ? { debug: log("debug"), info: log("info"), warn: log("warn"), error: log("error"), child: () => silentLog } : silentLog,
     now: opts.now ?? (() => new Date(NOW)),
     ...(opts.appEnv ? { appEnv: opts.appEnv } : {}),
+    speechStreamer: createElevenlabsSpeechStreamer({ secrets: opts.key ? { elevenlabsApiKey: opts.key } : {}, fetch }),
   };
   return createGatewayApp(deps, { sessionTokenSecret: TEST_SECRET });
 }
@@ -403,5 +402,39 @@ describe("transcribe: the day's audio", () => {
     const refused = await send(app, "transcribe", { businessId: biz, callId: CALL_ID, mime: "audio/webm", base64: RECORDING });
     expect(refused).toMatchObject({ status: 429, body: { error: { code: "speech_daily_limit", details: { limit: ceiling } } } });
     expect(rateLimits.peek(transcriptionDayKey(biz), NOW)).toBe(ceiling - bytes + 1);
+  });
+});
+
+describe("stream: one turn's speech as it is made", () => {
+  async function stream(app: ReturnType<typeof appFor>, over: Record<string, unknown> = {}, svc: string | null = "api", biz = businessId) {
+    const headers: Record<string, string> = { "content-type": "application/json" };
+    if (svc) headers.authorization = `Bearer ${await signServiceToken(TEST_SECRET, svc)}`;
+    return app.request("/v1/speech/stream", { method: "POST", headers, body: JSON.stringify({ businessId: biz, callId: CALL_ID, turnId: TURN_ID, speechAccent: "talia", text: TEXT, ...over }) });
+  }
+
+  it("asks ElevenLabs' streaming endpoint with the accent's voice and answers the audio bytes, audited and counted", async () => {
+    const seen: Seen[] = [];
+    const rateLimits = new MemoryRateLimitStore();
+    const biz = (await repos.businesses.create(db, { name: "Stream Co" })).id;
+    const res = await stream(appFor(live({ seen, rateLimits })), {}, "api", biz);
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-type")).toBe("audio/mpeg");
+    expect([...new Uint8Array(await res.arrayBuffer())]).toEqual([...MP3]);
+    expect(seen[0]).toMatchObject({ kind: "speech", path: `/v1/text-to-speech/${SPEECH_ACCENT_IDS.talia}/stream`, apiKey: KEY });
+    expect(rateLimits.peek(speechDayKey(biz), NOW)).toBe(TEXT.length);
+    const audit = await repos.audit.list(db, biz, { action: "gateway.speech.streamed" });
+    expect(audit.items).toHaveLength(1);
+    expect(JSON.stringify(audit.items[0])).not.toContain(TEXT);
+  });
+
+  it("is the api's only, live only, and gives the day's characters back when the vendor refuses outright", async () => {
+    expect((await stream(appFor(live()), {}, "orchestrator")).status).toBe(403);
+    expect((await stream(appFor({ mode: "mock" }))).status).toBe(409);
+    expect((await stream(appFor(live()), { speechAccent: "nobody" })).status).toBe(400);
+    const rateLimits = new MemoryRateLimitStore();
+    const biz = (await repos.businesses.create(db, { name: "Refused Stream Co" })).id;
+    const refused = await stream(appFor(live({ rateLimits, status: 401, errorBody: { detail: { status: "invalid_api_key", message: "bad key" } } })), {}, "api", biz);
+    expect(refused.status).toBeGreaterThanOrEqual(400);
+    expect(rateLimits.peek(speechDayKey(biz), NOW)).toBe(0);
   });
 });

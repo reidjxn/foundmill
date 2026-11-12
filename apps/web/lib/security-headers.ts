@@ -60,9 +60,10 @@ export function contentSecurityPolicy(env: SecurityHeaderEnv, options: { dev?: b
     // local API is plain http (https: alone would block it).
     ["img-src", ["'self'", "data:", "blob:", "https:", ...(apiOrigin ? [apiOrigin] : [])]],
     ["font-src", ["'self'", "data:"]],
-    // Team call plays each spoken turn from a data: URL (the api answers the audio as base64) and may hand the player a
-    // blob: URL; without this the audio fell back to default-src 'self' and was blocked without a word.
-    ["media-src", ["'self'", "data:", "blob:"]],
+    // Team call plays each spoken turn as it streams from the api's own route (`/team-call-audio/<ticket>`, so the API's
+    // origin), or from a data: URL (simulated, or the whole clip when a stream fails), or a blob: URL; without this the
+    // audio fell back to default-src 'self' and was blocked without a word.
+    ["media-src", ["'self'", "data:", "blob:", ...(apiOrigin ? [apiOrigin] : [])]],
     ["connect-src", [...connect]],
     // The Development preview shows the branch's own deployment in a sandboxed iframe.
     ["frame-src", ["'self'", "https:"]],

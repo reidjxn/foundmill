@@ -27,7 +27,10 @@ describe("security headers (audit SECX-7, PAS-3)", () => {
   });
 
   it("lets Team call play its spoken turns (data: and blob: audio) and nothing from other hosts", () => {
-    expect(directive(contentSecurityPolicy(PROD), "media-src")).toEqual(["'self'", "data:", "blob:"]);
+    const media = directive(contentSecurityPolicy(PROD), "media-src");
+    expect(media.slice(0, 3)).toEqual(["'self'", "data:", "blob:"]);
+    // The streamed turns come from the API's own origin, and from nowhere else.
+    expect(media.slice(3)).toEqual([new URL(PROD.NEXT_PUBLIC_API_URL!).origin]);
   });
 
   it("forbids framing, plugins and a changed base, and keeps forms on the site", () => {

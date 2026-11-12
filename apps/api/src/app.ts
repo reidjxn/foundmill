@@ -7,7 +7,7 @@
 import { APP_NAME, LIMITS } from "@foundmill/config";
 import { platformBillingRefusal } from "@foundmill/models";
 import { fetchRequestHandler } from "@trpc/server/adapters/fetch";
-import { DEFAULT_AGENT_STYLE, isAgentStyle } from "@foundmill/shared";
+import { AppError, DEFAULT_AGENT_STYLE, isAgentStyle } from "@foundmill/shared";
 import { Hono, type Context } from "hono";
 import { bodyLimit } from "hono/body-limit";
 import { compress } from "hono/compress";
@@ -17,6 +17,7 @@ import { createContextFactory } from "./context";
 import { requestIdFrom } from "./request-id";
 import { appRouter } from "./router";
 import { etagMatches, storedPortrait } from "./services/personas";
+import { speechTickets } from "./services/speech-tickets";
 import { checkWorker } from "./services/worker-health";
 import { getTracer } from "@foundmill/shared/telemetry";
 
@@ -219,6 +220,23 @@ export function createApp(deps: ApiDeps) {
   };
   app.get("/personas/:key", (c) => servePortrait(c, c.req.param("key"), DEFAULT_AGENT_STYLE));
   app.get("/personas/:style/:key", (c) => servePortrait(c, c.req.param("key"), c.req.param("style")));
+
+  // Team call's streamed speech (services/speech-tickets.ts): the ticket `teamCall.speech({ stream: true })` issued after
+  // checking the person, the call and the credits; the gateway's audio piped as it arrives. No sign-in here (an <audio>
+  // element sends no bearer), so the ticket is the only key: random, short-lived and good for a few requests. Never cached.
+  app.get("/team-call-audio/:ticket", async (c) => {
+    const ticket = await speechTickets(deps.redis).take(c.req.param("ticket"));
+    const plain = { "cache-control": "no-store", "x-content-type-options": "nosniff" };
+    if (!ticket || !deps.gateway.streamSpeech) return c.body(null, 404, plain);
+    try {
+      const res = await deps.gateway.streamSpeech({ businessId: ticket.businessId, callId: ticket.callId, turnId: ticket.turnId, speechAccent: ticket.speechAccent, text: ticket.text }, c.req.raw.signal);
+      return new Response(res.body, { status: 200, headers: { ...plain, "content-type": "audio/mpeg", "cross-origin-resource-policy": "same-site", "content-security-policy": "default-src 'none'; sandbox" } });
+    } catch (err) {
+      const status = err instanceof AppError && err.status >= 400 && err.status < 600 ? err.status : 502;
+      deps.log.warn({ code: err instanceof AppError ? err.code : "unknown", status }, "team call audio stream refused");
+      return c.body(null, status as 404, plain);
+    }
+  });
 
   // tRPC answers are JSON and shrink 5–10× with gzip (or deflate, whichever the client accepts). Hono's compress also
   // skips any answer that already sets Transfer-Encoding (tRPC's streamed batches) or is text/event-stream; streamed
