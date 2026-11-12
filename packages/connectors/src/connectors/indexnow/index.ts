@@ -5,7 +5,7 @@
  * The key is public by protocol, but it still travels as the sealed credential so the gateway treats the integration as
  * the founder's own, and it is kept out of logs and errors.
  */
-import { AppError, uuid } from "@foundmill/shared";
+import { AppError, hostedKeyFileUrl, pageSlugProblem, uuid } from "@foundmill/shared";
 import { ConfigError, ConnectInputError, connectInputValue, VendorError, type Connector } from "../../contract";
 import { buildLiveConnector, healthResult } from "../../define";
 import { createHttp } from "../../http";
@@ -90,7 +90,7 @@ export function createIndexNowConnector(options: IndexNowConnectorOptions = {}):
           const target = indexNowTarget(ctx.integration.config, key);
           if (!target) throw new ConfigError(INDEXNOW_KEY, "the site address of the IndexNow connection", "connect IndexNow in Settings › Integrations");
           // Before any network call.
-          assertUrlsOnSite(urls, target.host, target.keyLocation);
+          assertUrlsOnSite(urls, target.host, target.keyLocation, target.hosted);
           const http = createHttp({ connectorKey: INDEXNOW_KEY, baseUrl: INDEXNOW_BASE_URL, fetch, headers: { "content-type": "application/json; charset=utf-8" } });
           const keyLocation = target.keyLocation === indexNowKeyFileUrl(target.host, key) ? undefined : target.keyLocation;
           const okStatuses = [200, 202, 400, 403, 422, 429];
@@ -110,6 +110,24 @@ export function createIndexNowConnector(options: IndexNowConnectorOptions = {}):
         },
       },
       connect: async (businessId, input) => {
+        // The project's Foundmill-hosted page: the gateway names the page's own slug (never the founder's input) after
+        // checking it is this business's published page. The key file is served by the web at `/p/<slug>/<key>.txt` only
+        // once this connection is stored, so there is nothing to fetch yet; the health check reads it afterwards.
+        const hostedSlug = connectInputValue(input, "hostedSlug");
+        if (hostedSlug) {
+          const origin = options.hostedPagesOrigin && URL.canParse(options.hostedPagesOrigin) ? new URL(options.hostedPagesOrigin) : null;
+          const hostedHost = origin && origin.protocol === "https:" && !origin.port ? normalizeIndexNowHost(origin.hostname) : null;
+          if (!origin || !hostedHost || pageSlugProblem(hostedSlug)) throw new ConnectInputError(INDEXNOW_KEY, "host", "Public pages here have no public https address yet, so search engines cannot be told about them. Enter your own site's address instead.");
+          const hostedKey = connectInputValue(input, "key");
+          if (!hostedKey || !isIndexNowKey(hostedKey)) throw new ConnectInputError(INDEXNOW_KEY, "key", "The IndexNow key must be 8 to 128 characters, using only letters, numbers and dashes.");
+          const createdAt = now().toISOString();
+          const keyLocation = hostedKeyFileUrl(`https://${hostedHost}`, hostedSlug, hostedKey);
+          return {
+            id: uuid(), businessId, connectorKey: INDEXNOW_KEY, status: "connected", scopes: [], accountLabel: `${hostedHost}/p/${hostedSlug}`, externalAccountId: `${hostedHost}/p/${hostedSlug}`,
+            config: { host: hostedHost, keyLocation, key: hostedKey, hosted: true, slug: hostedSlug }, credentialRef: null, expiresAt: null, lastHealthAt: createdAt, createdAt,
+            credentialToStore: { kind: "api_key" as const, secret: hostedKey },
+          };
+        }
         const hostInput = connectInputValue(input, "host");
         if (!hostInput) throw new ConnectInputError(INDEXNOW_KEY, "host", "Enter your site's host name, for example northwindskincare.com");
         const host = normalizeIndexNowHost(hostInput);

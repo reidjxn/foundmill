@@ -34,6 +34,12 @@ import { createPlatformConnector } from "./connectors/platform";
 import { createQuarantineConnector } from "./connectors/quarantine";
 import { createWebConnector } from "./connectors/web";
 import { createPlatformMailConnector } from "./connectors/platform_mail";
+import { createOpenaiConnector } from "./connectors/openai";
+import { createGeminiConnector } from "./connectors/gemini";
+import { createPerplexityConnector } from "./connectors/perplexity";
+import { createSerpapiConnector } from "./connectors/serpapi";
+import { createFirecrawlConnector } from "./connectors/firecrawl";
+import { createIndexNowConnector } from "./connectors/indexnow";
 
 export type ConnectorFactory = (options?: LiveConnectorOptions) => Connector;
 
@@ -65,6 +71,14 @@ export const CONNECTOR_FACTORIES: Readonly<Record<string, ConnectorFactory>> = O
   shopify: createShopifyConnector,
   tink: createTinkConnector,
   plaid: createPlaidConnector,
+  // The founder's own key at each vendor, never a platform key (founder, 2026-11-12): how a project appears in other
+  // assistants' answers and in Google, what a crawler reads on a page, and telling search engines a page changed.
+  openai: createOpenaiConnector,
+  gemini: createGeminiConnector,
+  perplexity: createPerplexityConnector,
+  serpapi: createSerpapiConnector,
+  firecrawl: createFirecrawlConnector,
+  indexnow: createIndexNowConnector,
 });
 
 export const CONNECTOR_KEYS = Object.freeze(Object.keys(CONNECTOR_FACTORIES));

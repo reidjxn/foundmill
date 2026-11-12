@@ -24,6 +24,23 @@ describe("connect fields for API-key connectors", () => {
     }
   });
 
+  it("the connectors that run on the founder's own key declare it, and none may use a platform key (founder, 2026-11-12)", () => {
+    const registry = createDefaultRegistry({ secrets: {} });
+    const own = ["openai", "gemini", "perplexity", "serpapi", "firecrawl", "indexnow"];
+    for (const mode of ["mock", "live"] as const) {
+      const byKey = new Map(registry.catalogue(mode).map((c) => [c.key, c]));
+      for (const key of own) {
+        const entry = byKey.get(key)!;
+        expect(entry.auth, key).toEqual({ kind: "api_key" });
+        expect(entry.connectFields.some((f) => f.required), key).toBe(true);
+        expect(entry.rateLimits.perMinute, key).toBeGreaterThan(0);
+        expect(entry.rateLimits.perDay, key).toBeGreaterThan(0);
+      }
+      expect(byKey.get("indexnow")!.connectFields.map((f) => `${f.name}${f.required ? "!" : ""}`)).toEqual(["host", "key!", "keyLocation"]);
+      for (const key of ["openai", "gemini", "perplexity", "serpapi", "firecrawl"]) expect(byKey.get(key)!.connectFields.map((f) => `${f.name}${f.secret ? "*" : ""}${f.required ? "!" : ""}`), key).toEqual(["apiKey*!"]);
+    }
+  });
+
   const cases: { name: string; field: string; build: (seen: string[]) => Connector }[] = [
     {
       name: "sendgrid",

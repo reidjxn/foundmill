@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { ConnectInputError } from "../../contract";
 import { routedFetch } from "../../http";
-import { collectingLogger, describeConnectorContract, envKeysPresent, makeToolContext } from "../../testing/contract-suite";
+import { collectingLogger, describeConnectorContract, envKeysPresent, makeToolContext, TEST_BUSINESS_ID } from "../../testing/contract-suite";
 import { mockIntegrationRecord } from "../../mock-utils";
 import { IN_HOST, IN_KEY, IN_KEY_FILE, IN_KEY_FILE_BODY, IN_NESTED_KEY_FILE, IN_URLS } from "./fixtures/indexnow";
 import { createIndexNowConnector } from "./index";
@@ -171,6 +171,40 @@ describe("indexnow live (canned)", () => {
     expect(health.status).toBe("degraded");
   });
 
+  it("a Foundmill-hosted page: connect() takes the slug the gateway names, fetches nothing, and the key speaks only for that page", async () => {
+    let calls = 0;
+    let body: Record<string, unknown> | null = null;
+    const connector = createIndexNowConnector({
+      secrets: {},
+      hostedPagesOrigin: "https://foundmill.test.app",
+      fetch: routedFetch({ [API]: async (req) => ((body = (await req.json()) as Record<string, unknown>), new Response(null, { status: 200 })), "*": () => (calls++, text("", 404)) }),
+    });
+    const record = await connector.connect(TEST_BUSINESS_ID, { key: "hosted-key-1234", hostedSlug: "northwind" });
+    expect(calls).toBe(0);
+    const keyLocation = "https://foundmill.test.app/p/northwind/hosted-key-1234.txt";
+    expect(record).toMatchObject({ status: "connected", externalAccountId: "foundmill.test.app/p/northwind", config: { host: "foundmill.test.app", hosted: true, slug: "northwind", key: "hosted-key-1234", keyLocation }, credentialToStore: { kind: "api_key", secret: "hosted-key-1234" } });
+    const ctx = makeToolContext(connector, { mode: "live", credential: { kind: "api_key", secret: "hosted-key-1234" }, integration: { ...record, credentialToStore: undefined } });
+    // The page itself and anything under it.
+    const ok = await connector.callTool("submit_urls", { urls: ["https://foundmill.test.app/p/northwind", "https://foundmill.test.app/p/northwind/story"] }, ctx);
+    expect(ok.ok).toBe(true);
+    expect(body).toMatchObject({ host: "foundmill.test.app", key: "hosted-key-1234", keyLocation });
+    // Never another project on the same host, a look-alike slug, or the rest of the site.
+    for (const url of ["https://foundmill.test.app/p/ledgerly", "https://foundmill.test.app/p/northwind-two", "https://foundmill.test.app/", "https://foundmill.test.app/p/northwind/../ledgerly"]) {
+      body = null;
+      const refused = await connector.callTool("submit_urls", { urls: [url] }, ctx);
+      expect(refused.ok, url).toBe(false);
+      expect(body, url).toBeNull();
+    }
+  });
+  it("a hosted connect is refused where pages have no public https address, and never without the gateway's origin", async () => {
+    for (const hostedPagesOrigin of [undefined, "http://localhost:3000", "https://localhost", "https://10.0.0.5", "https://foundmill.test.app:8443"]) {
+      const connector = createIndexNowConnector({ secrets: {}, ...(hostedPagesOrigin ? { hostedPagesOrigin } : {}), fetch: routedFetch({ "*": () => text("", 404) }) });
+      await expect(connector.connect(TEST_BUSINESS_ID, { key: "hosted-key-1234", hostedSlug: "northwind" }), String(hostedPagesOrigin)).rejects.toBeInstanceOf(ConnectInputError);
+    }
+    const connector = createIndexNowConnector({ secrets: {}, hostedPagesOrigin: "https://foundmill.test.app", fetch: routedFetch({ "*": () => text("", 404) }) });
+    await expect(connector.connect(TEST_BUSINESS_ID, { key: "hosted-key-1234", hostedSlug: "../ledgerly" })).rejects.toBeInstanceOf(ConnectInputError);
+    await expect(connector.connect(TEST_BUSINESS_ID, { key: "short", hostedSlug: "northwind" })).rejects.toBeInstanceOf(ConnectInputError);
+  });
   it("healthcheck: disconnected without a credential, connected or degraded by the key file", async () => {
     const good = createIndexNowConnector({ secrets: {}, fetch: routedFetch({ [`GET ${IN_KEY_FILE}`]: () => text(IN_KEY_FILE_BODY) }) });
     expect((await good.healthcheck(integration())).status).toBe("disconnected");

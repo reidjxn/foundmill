@@ -97,6 +97,8 @@ export function buildGateway(options: BuildDepsOptions = {}): BuiltGateway {
   if (!registry) {
     registry = createDefaultRegistry({
       secrets,
+      // IndexNow for a project's Foundmill-hosted page: the key file lives under this origin (`/p/<slug>/<key>.txt`).
+      hostedPagesOrigin: env.APP_URL,
       isSuppressed: (businessId, email) => repos.channels.isSuppressed(db, businessId, { emailHash: hashRecipient("email", email) }),
     });
     // The task board, typed messages, web reads and the quarantined reader are served here like any connector (BUILD §9.9).

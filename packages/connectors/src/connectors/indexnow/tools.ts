@@ -6,7 +6,8 @@
  */
 import { isIP } from "node:net";
 import { z } from "zod";
-import { AppError } from "@foundmill/shared";
+import { APP_NAME } from "@foundmill/config";
+import { AppError, hostedPageCovers, INDEXNOW_KEY_RE, isIndexNowKey } from "@foundmill/shared";
 import type { ConnectField } from "../../contract";
 import { defineTool } from "../../define";
 
@@ -22,8 +23,7 @@ export const INDEXNOW_KEY_FILE_TIMEOUT_MS = 5_000;
 export const INDEXNOW_KEY_FILE_MAX_REDIRECTS = 2;
 
 /** 8 to 128 characters of a-z, A-Z, 0-9 and dashes (the protocol's rule). */
-export const INDEXNOW_KEY_RE = /^[a-zA-Z0-9-]{8,128}$/;
-export const isIndexNowKey = (value: unknown): value is string => typeof value === "string" && INDEXNOW_KEY_RE.test(value);
+export { INDEXNOW_KEY_RE, isIndexNowKey };
 
 /** Where the key file lives when `keyLocation` is not given. */
 export const indexNowKeyFileUrl = (host: string, key: string): string => `https://${host}/${key}.txt`;
@@ -75,7 +75,7 @@ export function normalizeIndexNowHost(input: unknown): string | null {
 
 /** What the founder enters in Settings › Integrations to connect IndexNow: the site's host and a key file they publish. */
 export const INDEXNOW_CONNECT_FIELDS: ConnectField[] = [
-  { name: "host", label: "Site address", secret: false, required: true, placeholder: "northwindskincare.com", hint: "The host name of your site. You can paste a full address; only the host is kept." },
+  { name: "host", label: "Site address", secret: false, required: false, placeholder: "northwindskincare.com", hint: `The host name of your own site. You can paste a full address; only the host is kept. Leave it empty to use your public page on ${APP_NAME}: the key file is then published for you.` },
   { name: "key", label: "IndexNow key", secret: false, required: true, placeholder: "a1b2c3d4e5f6a7b8", hint: "Any 8 to 128 letters, numbers and dashes that you choose. It is public by design: publish it as a text file at https://<your site>/<key>.txt containing just the key." },
   { name: "keyLocation", label: "Key file address (optional)", secret: false, required: false, placeholder: "https://northwindskincare.com/indexnow/a1b2c3d4e5f6a7b8.txt", hint: "Only if the key file is not at the top of your site. Search engines then accept only addresses under that file's folder." },
 ];
@@ -108,15 +108,20 @@ export const INDEXNOW_RATE_LIMITS = { perMinute: 5, perDay: 200 };
  * The host and key file address a connected integration holds (`config`), or null when it holds none, for the tool and the
  * health check. The key file defaults to `https://<host>/<key>.txt`.
  */
-export function indexNowTarget(config: Record<string, unknown>, key: string): { host: string; keyLocation: string } | null {
+export function indexNowTarget(config: Record<string, unknown>, key: string): { host: string; keyLocation: string; hosted?: { origin: string; slug: string } } | null {
   const host = normalizeIndexNowHost(config.host);
   if (!host) return null;
   const keyLocation = typeof config.keyLocation === "string" && config.keyLocation ? config.keyLocation : indexNowKeyFileUrl(host, key);
+  // Connected for the project's Foundmill-hosted page: only that page's addresses, whatever else the host serves.
+  if (config.hosted === true) {
+    if (typeof config.slug !== "string" || !config.slug) return null;
+    return { host, keyLocation, hosted: { origin: `https://${host}`, slug: config.slug } };
+  }
   return { host, keyLocation };
 }
 
 /** Every address must be https, on exactly the connected host and under the key file's folder; else `invalid_args` naming it. Before any network call. */
-export function assertUrlsOnSite(urls: readonly string[], host: string, keyLocation: string): void {
+export function assertUrlsOnSite(urls: readonly string[], host: string, keyLocation: string, hosted?: { origin: string; slug: string }): void {
   for (const url of urls) {
     let parsed: URL;
     try {
@@ -126,6 +131,11 @@ export function assertUrlsOnSite(urls: readonly string[], host: string, keyLocat
     }
     if (parsed.protocol !== "https:") throw new AppError("invalid_args", `${url} must be an https address`, 400);
     if (parsed.hostname.toLowerCase() !== host || parsed.port || parsed.username || parsed.password) throw new AppError("invalid_args", `${url} is not on ${host}, the site connected to IndexNow`, 400);
+    // A hosted page: the page itself (`/p/<slug>`) and anything under it, never another project on the same host.
+    if (hosted) {
+      if (!hostedPageCovers(hosted.origin, hosted.slug, url)) throw new AppError("invalid_args", `${url} is not this project's public page, so it cannot be sent`, 400);
+      continue;
+    }
     if (!urlCoveredByKeyLocation(url, keyLocation)) throw new AppError("invalid_args", `${url} is outside the folder of the key file (${keyLocation}), so search engines would not accept it`, 400);
   }
 }
