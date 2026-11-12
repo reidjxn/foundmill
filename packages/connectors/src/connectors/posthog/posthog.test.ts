@@ -70,6 +70,57 @@ describe("posthog query guard", () => {
   });
 });
 
+describe("posthog person-data guard", () => {
+  const SENTENCE = "This tool reads counts and trends, not people: a query cannot name person tables or fields (persons, person.properties, $ip and the like).";
+  const personRefused = (q: string) => expect(() => prepareQuery(q), q).toThrow(SENTENCE);
+  it("refuses person tables, fields and IP or geo properties: plain, quoted, mixed case, in subqueries and CTEs", () => {
+    for (const q of [
+      "SELECT count() FROM persons",
+      "SELECT count() FROM person",
+      "SELECT * FROM raw_persons",
+      "SELECT * FROM person_distinct_ids",
+      "SELECT * FROM person_distinct_id2",
+      "SELECT * FROM cohort_people",
+      "SELECT * FROM groups",
+      "SELECT * FROM session_replay_events",
+      "SELECT person.properties.email FROM events",
+      "SELECT person.id, count() FROM events GROUP BY 1",
+      "SELECT pdi.person_id FROM events",
+      "SELECT properties.$ip FROM events",
+      "SELECT properties.$geoip_city_name FROM events",
+      "SELECT properties.$geoip_ FROM events",
+      "SELECT * FROM `persons`",
+      'SELECT * FROM "persons"',
+      'SELECT "person"."properties" FROM events',
+      "SELECT properties.`$ip` FROM events",
+      'SELECT properties."$geoip_country_code" FROM events',
+      "SELECT * FROM PERSONS",
+      "SELECT * FROM Person_Distinct_Id2",
+      "SELECT PERSON.Properties FROM events",
+      "SELECT properties.$IP FROM events",
+      "SELECT properties['$ip'] FROM events",
+      "SELECT JSONExtractString(properties, '$geoip_city_name') FROM events",
+      "SELECT n FROM (SELECT count() AS n FROM persons)",
+      "SELECT * FROM events WHERE distinct_id IN (SELECT distinct_id FROM person_distinct_ids)",
+      "WITH p AS (SELECT * FROM persons) SELECT count() FROM p",
+      "WITH a AS (SELECT 1) SELECT * FROM a, `Groups`",
+      "SELECT 1 FROM events /* ok */ WHERE person.properties.email = 'x'",
+    ]) personRefused(q);
+  });
+  it("refuses it in the mock too", async () => {
+    const r = await posthogMock.callTool("query_insights", { query: "SELECT properties.$ip FROM events" }, makeToolContext(posthogMock));
+    expect(r.error).toMatchObject({ code: "invalid_query", message: SENTENCE });
+  });
+  it("still allows the same words in a string literal, a comment and as parts of longer names", () => {
+    expect(prepareQuery("SELECT count() FROM events WHERE event = 'persons'").sql).toContain("'persons'");
+    expect(prepareQuery("SELECT count() FROM events WHERE properties.$current_url LIKE '%/groups/%' AND event = 'person.properties'").limit).toBe(200);
+    expect(prepareQuery("SELECT count() FROM events WHERE event = '$ip is not read'").limit).toBe(200);
+    expect(prepareQuery("SELECT count() FROM events -- persons\n").limit).toBe(200);
+    expect(prepareQuery("SELECT count() /* person.properties */ FROM events").limit).toBe(200);
+    expect(prepareQuery("SELECT count(DISTINCT person_id), properties.$pathname, properties.$pageview_id FROM events").limit).toBe(200);
+  });
+});
+
 describe("posthog live (canned)", () => {
   interface Seen {
     url: string;
