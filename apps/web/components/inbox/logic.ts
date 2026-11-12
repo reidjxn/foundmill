@@ -571,7 +571,7 @@ export interface DepartmentForLinks {
   tabs: readonly { slug: string; position: number }[];
 }
 
-function moduleTab(departments: readonly DepartmentForLinks[], moduleKey: string, tabSlug: string): { slug: string; tab: string } | null {
+export function moduleTab(departments: readonly DepartmentForLinks[], moduleKey: string, tabSlug: string): { slug: string; tab: string } | null {
   const d = departments.find((x) => x.moduleKeys.includes(moduleKey));
   if (!d) return null;
   const tab = d.tabs.find((t) => t.slug === tabSlug) ?? [...d.tabs].sort((a, b) => a.position - b.position)[0];

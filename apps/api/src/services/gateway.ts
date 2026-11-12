@@ -8,12 +8,14 @@
  * Credit top-ups open their Stripe Checkout session there too (`createCheckout`): STRIPE_SECRET_KEY lives only in the
  * gateway. The Commit screen's domain checks go there too (`checkDomains`): registries are reached only from the gateway.
  * So do the AI-generated faces of anthropomorphic agents (`generatePortrait`): the api sends a persona catalog key and a character style, never a
- * prompt, and OPENAI_API_KEY lives only in the gateway. Choosing the Code tab's repository asks there whether the
+ * prompt, and OPENAI_API_KEY lives only in the gateway. So do Team call's speech and transcription (`synthesizeSpeech`,
+ * `transcribeSpeech`): ELEVENLABS_API_KEY lives only in the gateway, and the api names a speech accent, never the vendor's
+ * id. Choosing the Code tab's repository asks there whether the
  * installation reaches it and whether it is private (`repository`).
  */
 import { randomUUID } from "node:crypto";
-import { OPENAI_IMAGES_GENERATION_TIMEOUT_MS } from "@foundmill/connectors";
-import { AppError, type AgentStyle, type EmailNotificationKind, type IntegrationStatus, type NotificationKind } from "@foundmill/shared";
+import { ELEVENLABS_SPEECH_TIMEOUT_MS, ELEVENLABS_TRANSCRIPTION_TIMEOUT_MS, OPENAI_IMAGES_GENERATION_TIMEOUT_MS } from "@foundmill/connectors";
+import { AppError, type AgentStyle, type EmailNotificationKind, type IntegrationStatus, type NotificationKind, type SpeechAccentKey, type TeamCallAudioMime } from "@foundmill/shared";
 import { SignJWT } from "jose";
 
 export const TOKEN_ISSUER = "foundmill-gateway";
@@ -134,6 +136,49 @@ export interface GatewayRepository {
  */
 export const PORTRAIT_TIMEOUT_MS = OPENAI_IMAGES_GENERATION_TIMEOUT_MS + 30_000;
 
+/** One spoken agent turn, as the api asks for it (apps/gateway speech.ts `SynthesizeSpeechRequest`). */
+export interface GatewaySynthesizeSpeechRequest {
+  businessId: string;
+  callId: string;
+  /** The turn being spoken: only attributes the gateway's audit row. */
+  turnId: string;
+  speechAccent: SpeechAccentKey;
+  text: string;
+}
+
+/** The spoken turn: MP3 from the vendor, or the mock's silent WAV with `simulated` (apps/gateway speech.ts). */
+export interface GatewaySpeech {
+  mode: "mock" | "live";
+  mime: "audio/mpeg" | "audio/wav";
+  base64: string;
+  simulated: boolean;
+  notice?: string;
+  characters: number;
+  /** An Estimate, in US cents. */
+  costMinor: number;
+}
+
+export interface GatewayTranscribeSpeechRequest {
+  businessId: string;
+  callId: string;
+  mime: TeamCallAudioMime;
+  base64: string;
+}
+
+export interface GatewayTranscript {
+  mode: "mock" | "live";
+  text: string;
+  simulated: boolean;
+  notice?: string;
+  durationSeconds: number;
+  costMinor: number;
+}
+
+/** A spoken turn waits for the gateway a little longer than the gateway waits for ElevenLabs. */
+export const SPEECH_CLIENT_TIMEOUT_MS = ELEVENLABS_SPEECH_TIMEOUT_MS + 5_000;
+/** A recording takes longer to transcribe; the same margin over the connector's wait. */
+export const TRANSCRIBE_CLIENT_TIMEOUT_MS = ELEVENLABS_TRANSCRIPTION_TIMEOUT_MS + 10_000;
+
 /** One push notification to registered phones, as the api's notifier asks for it (apps/gateway push.ts `SendPushRequest`). */
 export interface GatewayPushRequest {
   businessId: string;
@@ -213,6 +258,14 @@ export interface ApiGatewayClient {
    * re-checks the person, the note and the day's counts, builds the words and sends; the api's notify pass asks.
    */
   notifyEmail(input: GatewayNotifyEmailRequest): Promise<GatewayNotifyEmailResult>;
+  /**
+   * One agent turn spoken in a speech accent (Team call). Asked only when `elevenlabs` runs live; the gateway checks the
+   * accent (400 `unknown_speech_accent`), the words (1 to 600 characters) and the business's day of spoken characters
+   * (429 `speech_daily_limit`), and answers 503 `speech_unconfigured` without its key.
+   */
+  synthesizeSpeech(input: GatewaySynthesizeSpeechRequest): Promise<GatewaySpeech>;
+  /** One recording of the founder transcribed (Team call). Asked only when `elevenlabs` runs live. */
+  transcribeSpeech(input: GatewayTranscribeSpeechRequest): Promise<GatewayTranscript>;
 }
 
 export interface CreateApiGatewayClientOptions {
@@ -265,6 +318,8 @@ export function createApiGatewayClient(opts: CreateApiGatewayClientOptions): Api
     sendPush: (input) => post<GatewayPushResult>("/v1/push/send", input),
     confirmFollow: (input) => post<GatewayConfirmFollowResult>("/v1/platform-mail/confirm-follow", input, Math.min(timeoutMs, CONFIRM_FOLLOW_TIMEOUT_MS)),
     notifyEmail: (input) => post<GatewayNotifyEmailResult>("/v1/notify/email", input, Math.min(timeoutMs, CONFIRM_FOLLOW_TIMEOUT_MS)),
+    synthesizeSpeech: (input) => post<GatewaySpeech>("/v1/speech/synthesize", input, Math.max(timeoutMs, SPEECH_CLIENT_TIMEOUT_MS)),
+    transcribeSpeech: (input) => post<GatewayTranscript>("/v1/speech/transcribe", input, Math.max(timeoutMs, TRANSCRIBE_CLIENT_TIMEOUT_MS)),
     validateKey: (businessId, apiKey) => post<GatewayKeyValidation>("/v1/keys/validate", { businessId, apiKey }),
     registryLookup: (input) => post<GatewayRegistryLookup>("/v1/registry/lookup", input),
   };

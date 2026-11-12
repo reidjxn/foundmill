@@ -19,11 +19,11 @@ test.afterAll(async ({ playwright }) => {
 });
 
 test.describe("founder areas", () => {
-  test("the sidebar reads Today, Needs you, Plan, Customers, Money, Product, Team; no department and no Contacts item", async ({ page }) => {
+  test("the sidebar reads Today, Needs you, Plan, Customers, Money, Product, Team and Team call; no department and no Contacts item", async ({ page }) => {
     await openBusiness(page, "today");
     const nav = page.getByRole("navigation", { name: "Primary" });
     const labels = await nav.locator("ul").first().locator("[data-sidebar-label]").allTextContents();
-    expect(labels).toEqual(["Today", "Needs you", "Plan", "Customers", "Money", "Product", "Team"]);
+    expect(labels).toEqual(["Today", "Needs you", "Plan", "Customers", "Money", "Product", "Team", "Team call"]);
     for (const gone of ["Inbox", "Contacts", "Milestones", "Formulation Lab", "Retail Partnerships", "Finance", "Legal"]) await expect(nav.getByRole("link", { name: new RegExp(`^${gone}(,|$)`) })).toHaveCount(0);
     await expect(nav.locator("[data-sidebar-item='inbox']")).toHaveAttribute("href", `${B}/inbox?tab=respond`);
     await expect(areaLink(page, "money")).toHaveAttribute("href", `${B}/d/finance/overview`);

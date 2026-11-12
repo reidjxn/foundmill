@@ -54,7 +54,7 @@ import { SpecUserProvider, specUserName } from "@/components/spec/spec-user";
 import { AgentDeskHost, prefetchAgentDesk, type AgentDeskApi } from "@/components/conversation/DeskHost";
 import { useNetworkBadge } from "@/components/live/signals";
 import { termsFor } from "@/components/providers/GuidanceHost";
-import { agentOfAskItem, askPaletteItems, askQuestion, generatePaletteItems, paletteAgents } from "@/components/conversation/palette";
+import { agentOfAskItem, agentOfCallItem, askPaletteItems, askQuestion, callPaletteItems, generatePaletteItems, paletteAgents } from "@/components/conversation/palette";
 import { BusinessProvider, makeBusinessContext, type BusinessGet, type DepartmentList } from "./business-context";
 import { switcherBusinesses } from "./business-switcher";
 import { AskChief } from "./AskChief";
@@ -159,6 +159,10 @@ export const INVALIDATE_ON_EVENT: Record<string, readonly string[]> = {
   // Someone's role or section permissions changed (maybe this reader's): the business carries the reader's own role
   // and walls, the Team the staff list. apps/stream has already re-checked the reader's open channels.
   "membership.changed": ["business", "team"],
+  // A team call started (here or in another tab) or ended: the lobby's list follows; an ended call has filed its actions,
+  // so the Inbox note, the plans, the tasks, the roadmap and Today follow too (docs/TEAM_CALL.md §5).
+  "team_call.started": ["teamCall"],
+  "team_call.ended": ["teamCall", "inbox", "plan", "dev", "product", "today"],
 };
 
 function readCollapsed(businessId: string): boolean {
@@ -704,6 +708,18 @@ function ShellInner({ businessId, initialBusiness, initialDepartments, viewer, c
   const askText = parsed?.text ?? searchText;
   const askItems = useMemo(() => askPaletteItems(agents, askText, (a) => <Avatar size={20} name={a.name} agent={{ seed: a.avatarSeed, dept: a.dept, personaKey: a.personaKey }} />), [agents, askText]);
   const generateItems = useMemo(() => generatePaletteItems(businessId, departments, builder), [businessId, departments, builder]);
+  // "Call <agent>" (docs/TEAM_CALL.md §6): one-to-one calls, offered once the query names an agent or says "call", to whoever may write the Team section.
+  const callItems = useMemo(() => (access.canWrite("team") ? callPaletteItems(agents, askText, (a) => <Avatar size={20} name={a.name} agent={{ seed: a.avatarSeed, dept: a.dept, personaKey: a.personaKey }} />) : []), [agents, askText, access]);
+  const startCall = useMutation(
+    trpc.teamCall.start.mutationOptions({
+      onSuccess: (call) => {
+        queryClient.setQueryData(trpc.teamCall.get.queryKey({ businessId, callId: call.id }), call);
+        router.push(routes.call(businessId, call.id));
+      },
+      onError: (err) => toast({ title: "The call did not start", description: errorMessage(err), tone: "bad" }),
+    }),
+  );
+  const allPaletteItems = useMemo(() => [...paletteItems, ...callItems], [paletteItems, callItems]);
   const onAsk = useCallback(
     (item: PaletteItem, text: string) => {
       const a = agentOfAskItem(item, agents);
@@ -717,6 +733,8 @@ function ShellInner({ businessId, initialBusiness, initialDepartments, viewer, c
     (item: PaletteItem) => {
       setSearchOpen(false);
       if (item.id === "command:refresh-inbox") return refreshInbox.mutate({ businessId });
+      const callee = agentOfCallItem(item, agents);
+      if (callee) return startCall.mutate({ businessId, kind: "one_to_one", agentIds: [callee.id] });
       if (item.id === "command:edit-layout") return shortcuts.onEditLayout?.();
       // While the team is stopped the same place holds Resume agents, which says so.
       if (item.id === "command:stop-all") return document.querySelector<HTMLButtonElement>("[data-testid=stop-all-trigger], [data-testid=resume-agents-trigger]")?.click();
@@ -724,7 +742,7 @@ function ShellInner({ businessId, initialBusiness, initialDepartments, viewer, c
       if (item.id.startsWith("business:")) rememberLastBusiness(item.id.slice("business:".length));
       if (item.href) router.push(item.href);
     },
-    [router, refreshInbox, businessId, shortcuts, setSearchOpen],
+    [router, refreshInbox, startCall, agents, businessId, shortcuts, setSearchOpen],
   );
 
   // --- providers for the surfaces below ---------------------------------------------------------------------------
@@ -856,7 +874,7 @@ function ShellInner({ businessId, initialBusiness, initialDepartments, viewer, c
                 pageActions={<AskChief desk={deskApi} />}
                 rightRail={chrome.rightRail}
                 search={{
-                  items: paletteItems,
+                  items: allPaletteItems,
                   query: searchText,
                   onQueryChange,
                   remote: true,

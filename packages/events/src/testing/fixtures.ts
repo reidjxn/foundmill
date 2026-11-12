@@ -539,6 +539,8 @@ export const EVENT_FIXTURES: { readonly [K in EventType]: EventPayloadInput<K> }
   "goal.achieved": { goalId: fixtureId("goal"), revision: 1, metricKind: "paying_customers", targetValue: 10, currency: null, dueOn: "2026-12-19", achievedValue: 10, inboxItemId: fixtureId("inbox-item") },
   "page.published": { pageId: fixtureId("page"), slug: "northwind-skincare", url: "https://foundmill.example/p/northwind-skincare" },
   "page.unpublished": { pageId: fixtureId("page"), slug: "northwind-skincare", url: "https://foundmill.example/p/northwind-skincare" },
+  "team_call.started": { callId: fixtureId("team_call"), kind: "team", agentIds: [fixtureId("agent")], topic: "Launch plan" },
+  "team_call.ended": { callId: fixtureId("team_call"), kind: "team", turnCount: 12, actionCount: 3, filedCount: 2, awaitingCount: 1, durationSeconds: 540 },
   "page.followed": { pageId: fixtureId("page"), entityId: fixtureId("entity"), consentId: fixtureId("consent") },
   "guidance.tour_completed": { tourId: "home", steps: 4 },
   "guidance.tour_skipped": { tourId: "inbox", atStep: 2, steps: 4 },

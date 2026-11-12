@@ -238,6 +238,11 @@ describe("changes another member makes reach an open Inbox (audit RUI-09)", () =
     for (const type of ["inbox.item_created", "inbox.item_updated", "decision.made", "cycle.completed", "customer.converted", "goal.proposed", "goal.approved", "goal.change_requested", "goal.achieved"]) expect(INVALIDATE_ON_EVENT[type], type).toContain("today");
   });
 
+  it("a team call started or ended refetches the calls list; an ended one has filed actions, so the Inbox, plans, tasks, roadmap and Today follow", () => {
+    expect(INVALIDATE_ON_EVENT["team_call.started"]).toEqual(["teamCall"]);
+    expect(INVALIDATE_ON_EVENT["team_call.ended"]).toEqual(expect.arrayContaining(["teamCall", "inbox", "plan", "dev", "product", "today"]));
+  });
+
   it("maps only events the catalogue declares (a typo would never fire)", () => {
     for (const type of Object.keys(INVALIDATE_ON_EVENT)) expect(EVENT_TYPES as readonly string[], type).toContain(type);
   });

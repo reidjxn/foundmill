@@ -105,6 +105,8 @@ export const EVENT_WALLS = {
   "goal.achieved": { sections: ["inbox"], hide: { finance: ["targetValue", "achievedValue"] } },
   // A project's public page went live or was taken down (0077): its id and address, which are public anyway.
   "page.published": { sections: ["product"] },
+  "team_call.started": { sections: ["team"], hide: freeText("topic") },
+  "team_call.ended": { sections: ["team"] },
   "page.unpublished": { sections: ["product"] },
   // Someone followed the page (0079): ids only; the follower's record is the CRM's to show.
   "page.followed": { sections: ["product"], hide: { crm: ["entityId", "consentId"] } },

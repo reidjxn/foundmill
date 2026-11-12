@@ -27,3 +27,4 @@ export * from "./pages";
 export * from "./mail";
 export * from "./consents";
 export * from "./demo";
+export * from "./team-calls";
