@@ -56,7 +56,7 @@ describe("one press of Continue (BUILD §9.4; first-time founder report, Nov 8, 
     expect(describeContinue(local)).toEqual({ title: "The team cannot run right now: the orchestrator is not reachable", description: "No agent worked. One note was written from what the business already knows: “Three decisions for the Board”.", tone: "warn", itemId: item.id });
     // The e2e specs' toast regex matches every headline the api writes, Builder view on or off.
     for (const t of ["Cycle 2 started: 6 tasks ready to build", "The next round of work started: 6 tasks ready to build", "The next round of work started: nothing is ready to build yet", "The team cannot run right now: the orchestrator is not reachable", "Cycle 4 resumed", "The round of work resumed", "A round of work is already running"]) expect(t).toMatch(/(cycle \d+|round of work) started|cannot run right now|(cycle \d+|round of work) resumed|already running/i);
-    expect(RUN_UNTIL_DONE).toBe("New cycles start on their own until nothing is left to do, or until you pause.");
+    expect(RUN_UNTIL_DONE).toBe("New rounds of work start on their own until nothing is left to do, or until you pause.");
     expect(RUN).toBeTruthy();
   });
 

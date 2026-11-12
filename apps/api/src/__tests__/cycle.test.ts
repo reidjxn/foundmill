@@ -128,7 +128,7 @@ describe("business.continue / pauseCycle with Temporal reachable", () => {
     // The sentence names the cycle and what it has to build, and says the run keeps going.
     expect(result.summary).toMatchObject({ kind: expect.stringMatching(/^(started|nothing_ready)$/), orchestrator: true });
     expect(result.summary.headline).toMatch(/^Cycle 1 started: (\d+ tasks? ready to build|nothing is ready to build yet)$/);
-    expect(result.summary.detail).toContain("New cycles start on their own");
+    expect(result.summary.detail).toContain("New rounds of work start on their own");
     // Once connected, business.get reports the orchestrator reachable.
     expect((await owner.business.get({ businessId })).orchestrator).toEqual({ reachable: true });
     // Continue runs until done (Nov 7, 2026): the workflow starts cycle 1 and the rounds after it; the API starts no cycle itself.

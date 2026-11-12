@@ -286,7 +286,7 @@ test.describe("home > Continue during a run", () => {
     await expect(button).toHaveAttribute("data-continue-state", "processing", { timeout: LONG });
     await expect(button).toHaveText("Pause");
     await button.hover();
-    await expect(page.getByText("New cycles start on their own until nothing is left to do.", { exact: false }).first()).toBeVisible({ timeout: LONG });
+    await expect(page.getByText("New rounds of work start on their own until nothing is left to do.", { exact: false }).first()).toBeVisible({ timeout: LONG });
   });
 });
 
