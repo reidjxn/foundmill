@@ -37,7 +37,9 @@ const PLATFORM_SECRETS = { sendgridApiKey: "SG.platform-key-0123456789", openaiA
 const KEYS = { apollo: "apollo-founder-key-0123456789", vercel: "vercel-founder-token-0123456789", posthog: "phx_founder_key_0123456789", resend: "re_founder_key_0123456789" } as const;
 const POSTHOG_CONFIG = { projectId: "12345", region: "us" };
 
-const MAIL = { from: { email: "hello@northwindskincare.com", name: "Northwind" }, to: { email: "new.person@outside.example", name: "New Person" }, subject: "Hello", text: "Hi, thanks for your interest.", unsubscribeUrl: "https://northwindskincare.com/unsubscribe/abc" };
+const MAIL = { from: { email: "hello@northwindskincare.com", name: "Northwind" }, to: { email: "new.person@outside.example", name: "New Person" }, subject: "Hello", text: "Hi, thanks for your interest." };
+/** Where the gateway signs unsubscribe links from: platform mail switched on, with a secret and an https ingest address. */
+const MAIL_CONFIG: PlatformMailConfig = { domain: "mail.foundmill.test", dailyCap: 50, ceiling: 2_000, signingSecret: "s".repeat(40), unsubscribeBase: "https://ingest.foundmill.test" };
 const CALLS = {
   "apollo.search_people": { connector: "apollo", tool: "search_people", args: { titles: ["Founder"] } },
   "apollo.search_organizations": { connector: "apollo", tool: "search_organizations", args: { keywords: ["cosmetics"] } },
@@ -164,6 +166,8 @@ describe("mock mode", () => {
     expect(mock).toHaveLength(4);
     const g = await setupGateway({ mode: "mock", businessMode: "automated", connectors: mock });
     open = g;
+    g.deps.appEnv = "test";
+    g.deps.platformMail = MAIL_CONFIG;
     const token = await g.token({ allowedTools: ["apollo:*", "vercel:*", "posthog:*", "resend:*"] });
     const untrusted = new Set(["apollo", "vercel", "posthog"]);
     for (const [key, call] of Object.entries(CALLS)) {
@@ -171,6 +175,49 @@ describe("mock mode", () => {
       const a = asAllow(r);
       expect(a.result, key).toMatchObject({ ok: true, simulated: true, notice: SIMULATED_NOTICE });
       if (untrusted.has(call.connector)) expect(a.result.untrusted, key).toBe(true);
+    }
+  });
+});
+
+describe("resend.send_mail carries the gateway's own unsubscribe link", () => {
+  const sendBody = async (platformMail: PlatformMailConfig | undefined, args: Record<string, unknown> = MAIL) => {
+    const bodies: Record<string, unknown>[] = [];
+    const fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+      const req = new Request(input, init);
+      if (req.method === "POST") bodies.push((await req.json()) as Record<string, unknown>);
+      return req.url.endsWith("/domains") ? jsonResponse({ data: [{ id: "d1", name: "northwindskincare.com", status: "verified" }] }) : jsonResponse({ id: "email_1" });
+    }) as unknown as typeof globalThis.fetch;
+    const g = await setupGateway({ mode: "live", businessMode: "automated", connectors: liveConnectors(fetch) });
+    open = g;
+    g.deps.appEnv = "production";
+    if (platformMail) g.deps.platformMail = platformMail;
+    await connect(g, "resend");
+    const token = await g.token({ allowedTools: ["resend:*"] });
+    const r = await g.client.call(token, { connector: "resend", tool: "send_mail", args });
+    return { r, bodies };
+  };
+
+  it("signs the link for this project and recipient, and the agent cannot supply one", async () => {
+    const { r, bodies } = await sendBody(MAIL_CONFIG);
+    expect(asAllow(r).result.ok).toBe(true);
+    expect(bodies).toHaveLength(1);
+    const header = (bodies[0]!.headers as Record<string, string>)["List-Unsubscribe"]!;
+    expect(header).toMatch(/^<https:\/\/ingest\.foundmill\.test\/mail\/unsubscribe\?t=[^>]+>$/);
+    expect(String(bodies[0]!.text)).toContain(header.slice(1, -1));
+    await open?.close();
+    open = null;
+    const own = await sendBody(MAIL_CONFIG, { ...MAIL, unsubscribeUrl: "https://elsewhere.example/stop" });
+    expect(asAllow(own.r).result).toMatchObject({ ok: false, error: { code: "invalid_args" } });
+    expect(own.bodies).toEqual([]);
+  });
+
+  it("sends nothing where no signed link can be made (platform mail off, or no https ingest address)", async () => {
+    for (const config of [undefined, { ...MAIL_CONFIG, signingSecret: null }, { ...MAIL_CONFIG, unsubscribeBase: "http://localhost:4005" }]) {
+      const { r, bodies } = await sendBody(config);
+      expect(asAllow(r).result).toMatchObject({ ok: false, error: { code: "unsubscribe_unavailable" } });
+      expect(bodies).toEqual([]);
+      await open?.close();
+      open = null;
     }
   });
 });

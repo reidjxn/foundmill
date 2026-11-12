@@ -116,7 +116,7 @@ export const resendTools = [
     name: "send_mail",
     title: "Send an email",
     description:
-      "Send one email to one person from the founder's own Resend account and domain. Plain text (required), optionally with simple HTML (paragraphs, line breaks, bold, italics, lists, headings, links); no attachments, cc, bcc, scheduling or templates. Foundmill adds this person's unsubscribe link to the headers and the footer; you do not supply one. Refused when the `from` or `replyTo` domain is not verified on the account or when the person is on the project's suppression list. Never claim to be a person.",
+      "Send one email to one person from the founder's own Resend account and domain. Plain text (required), optionally with simple HTML (paragraphs, line breaks, bold, italics, lists, headings, links); no attachments, cc, bcc, scheduling or templates. This person's unsubscribe link is added to the headers and the footer; you do not supply one. Refused when the `from` or `replyTo` domain is not verified on the account or when the person is on the project's suppression list. Never claim to be a person.",
     input: ResendSendMail,
     output: ResendSendResult,
     hints: { contactsThirdParty: true, irreversible: true },
