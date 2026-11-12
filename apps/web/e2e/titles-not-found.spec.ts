@@ -15,13 +15,13 @@ test.describe("titles and misses inside a business", () => {
 
   test("each screen has its own browser title", async ({ page }) => {
     for (const [path, title] of [
-      ["today", /^Today · Northwind Skincare · /],
-      ["home", /^Details · Northwind Skincare · /],
-      ["inbox", /^Inbox · Northwind Skincare · /],
-      ["crm", /^Contacts · Northwind Skincare · /],
-      ["settings/members", /^Members · Settings · Northwind Skincare · /],
-      ["settings/danger", /^Danger zone · Settings · Northwind Skincare · /],
-      ["d/finance/overview", /^Overview · Finance · Northwind Skincare · /],
+      ["today", /^(?:\(\d+\) )?Today · Northwind Skincare · /],
+      ["home", /^(?:\(\d+\) )?Details · Northwind Skincare · /],
+      ["inbox", /^(?:\(\d+\) )?Inbox · Northwind Skincare · /],
+      ["crm", /^(?:\(\d+\) )?Contacts · Northwind Skincare · /],
+      ["settings/members", /^(?:\(\d+\) )?Members · Settings · Northwind Skincare · /],
+      ["settings/danger", /^(?:\(\d+\) )?Danger zone · Settings · Northwind Skincare · /],
+      ["d/finance/overview", /^(?:\(\d+\) )?Overview · Finance · Northwind Skincare · /],
     ] as const) {
       await page.goto(`${B}/${path}`);
       await expect(page.getByTestId("app-shell")).toBeVisible({ timeout: LONG });

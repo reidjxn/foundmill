@@ -311,7 +311,10 @@ export interface CommitForm {
   /** Major units as typed. */
   spendCap: string;
   currency: string;
-  /** "Run on autopilot": the business starts its own cycles (Settings › What the team can do can change it later). Off by default. */
+  /**
+   * "Overnight shift" (retention plan, founder 2026-11-11: on by default with a small cap): Autopilot with the daily
+   * cadence at about 2 AM in the founder's time zone, one round of work a night. Settings › What the team can do changes it.
+   */
   autopilot: boolean;
   /** "Anthropomorphic agents": the team shows human first names and AI-generated faces. Starts as the founder's account preference. */
   anthropomorphicAgents: boolean;
@@ -330,7 +333,7 @@ export function initialCommitForm(idea: { title: string; archetype: Archetype | 
     businessMode: "assisted",
     spendCap: String(DEFAULT_SPEND_CAP_MINOR.assisted / 100),
     currency,
-    autopilot: false,
+    autopilot: true,
     anthropomorphicAgents,
     agentStyle,
   };
@@ -365,7 +368,7 @@ export function isCommitValid(form: CommitForm, options: { adultOnRecord?: boole
 }
 
 /** The `idea.commit` input. */
-export function commitInput(ideaId: string, form: CommitForm) {
+export function commitInput(ideaId: string, form: CommitForm, timeZone: string | null = null) {
   const cap = parseSpendCapMinor(form.spendCap);
   return {
     ideaId,
@@ -380,6 +383,8 @@ export function commitInput(ideaId: string, form: CommitForm) {
     // Sent only when the founder ticked it for a LIVE start (the server records it once).
     ...(form.gameMode === "live" && form.adult ? { confirmAdult: true as const } : {}),
     autopilot: form.autopilot,
+    // The overnight shift's hour is the founder's 2 AM: the browser's zone travels with the choice.
+    ...(form.autopilot ? { overnight: { timeZone: timeZone ?? "UTC" } } : {}),
     // The Launch step's choice; the server also stores it as the founder's account preference.
     anthropomorphicAgents: form.anthropomorphicAgents,
     agentStyle: form.agentStyle,

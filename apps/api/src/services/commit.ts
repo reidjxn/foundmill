@@ -29,7 +29,7 @@ import { CREDITS_CURRENCY, initialModelBilling } from "@foundmill/config";
 const WAGE_CURRENCY = CREDITS_CURRENCY;
 import { assertBusinessAllowance, autopilotChangedPayload, creditsUsedUp, includedCreditsFor, periodOf, repos, type Business, type Db, type DbTx, type InboxItem } from "@foundmill/db";
 import { writeEventRow } from "./events";
-import { CHANNEL_KEYS, CHANNEL_META, CurrencyCode, DEFAULT_BUSINESS_CURRENCY, DEFAULT_BUSINESS_MODE, ValidationError, loadEnv, slugify, type AgentStyle, type Archetype, type BusinessMode, type Env, type GameMode, type OptionAction } from "@foundmill/shared";
+import { CHANNEL_KEYS, CHANNEL_META, CurrencyCode, DEFAULT_BUSINESS_CURRENCY, DEFAULT_BUSINESS_MODE, OVERNIGHT_SHIFT, ValidationError, isValidTimeZone, loadEnv, overnightUtcHour, slugify, type AgentStyle, type Archetype, type BusinessMode, type Env, type GameMode, type OptionAction } from "@foundmill/shared";
 import { presetLayout } from "../presets";
 import { channelRowsFor } from "./channel-availability";
 import { QUEUE_ACTION } from "./cycle";
@@ -59,6 +59,8 @@ export interface CommitIdeaInput {
   spendCapMinor?: number | null;
   /** "Run on autopilot" (Commit): the business starts its own cycles (0055). Off unless chosen. */
   autopilot?: boolean;
+  /** With `autopilot`: the overnight shift (daily cadence at about 2 AM in this zone; retention plan, 2026-11-11). */
+  overnight?: { timeZone: string };
   /** The Launch step's "Anthropomorphic agents" switch: written to the founder's account preferences when given (0067). */
   anthropomorphicAgents?: boolean;
   /** The Launch step's character style for them: written to the founder's account preferences when given (0069). */
@@ -214,8 +216,9 @@ export async function commitIdea(db: Db, temporal: TemporalService, userId: stri
     await repos.memberships.add(tx, businessId, { userId, role: "owner", source: "founder" });
     // "Run on autopilot": on from the first minute, audited like turning it on in Settings.
     if (input.autopilot) {
-      const on = await repos.autopilot.set(tx, businessId, { enabled: true });
-      await repos.audit.append(tx, businessId, { actorKind: "user", actorId: userId, action: "autopilot.turn_on", target: { kind: "business", id: businessId }, details: { enabled: true, cadence: on.business.autopilotCadence, maxCyclesPerDay: on.business.autopilotMaxCyclesPerDay, via: "commit" } });
+      const overnight = input.overnight ? { cadence: OVERNIGHT_SHIFT.cadence, dailyHour: overnightUtcHour(isValidTimeZone(input.overnight.timeZone) ? input.overnight.timeZone : null), ownMaxCyclesPerDay: OVERNIGHT_SHIFT.ownMaxCyclesPerDay, ownSpendCeilingMinor: OVERNIGHT_SHIFT.ownSpendCeilingMinor } : {};
+      const on = await repos.autopilot.set(tx, businessId, { enabled: true, ...overnight });
+      await repos.audit.append(tx, businessId, { actorKind: "user", actorId: userId, action: "autopilot.turn_on", target: { kind: "business", id: businessId }, details: { enabled: true, cadence: on.business.autopilotCadence, maxCyclesPerDay: on.business.autopilotMaxCyclesPerDay, via: input.overnight ? "commit_overnight" : "commit" } });
       await writeEventRow(tx, { businessId, type: "autopilot.changed", actor: { kind: "user", id: userId }, payload: autopilotChangedPayload(on.business, "turned_on", null) });
     }
         // This month's included credits (USD), so the first cycle already runs against a balance that pauses the team. They

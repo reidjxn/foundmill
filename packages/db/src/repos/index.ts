@@ -50,12 +50,15 @@ import { trainingRepo } from "./training";
 import { usageRepo } from "./usage";
 import { workspacesRepo } from "./workspaces";
 import { conversationsRepo } from "./conversations";
-import { preferencesRepo } from "./preferences";
+import { emailPrefsRepo, preferencesRepo } from "./preferences";
 import { devicesRepo } from "./devices";
 import { portabilityRepo } from "./portability";
 import { tableViewsRepo } from "./table-views";
 import { personaPortraitsRepo } from "./persona-portraits";
 import { teamCallsRepo } from "./team-calls";
+import { presenceRepo } from "./presence";
+import { notificationsRepo } from "./notifications";
+import { notifyFactsRepo } from "./notify-facts";
 
 export const repos = {
   businesses: businessesRepo,
@@ -110,6 +113,10 @@ export const repos = {
   recordings: recordingsRepo,
   personaPortraits: personaPortraitsRepo,
   teamCalls: teamCallsRepo,
+  presence: presenceRepo,
+  notifications: notificationsRepo,
+  emailPrefs: emailPrefsRepo,
+  notifyFacts: notifyFactsRepo,
 } as const;
 export type Repos = typeof repos;
 export type RepoArea = keyof Repos;
@@ -168,3 +175,6 @@ export * from "./checkouts";
 export * from "./portability";
 export * from "./persona-portraits";
 export * from "./team-calls";
+export * from "./presence";
+export * from "./notifications";
+export * from "./notify-facts";

@@ -32,7 +32,7 @@ describe("business.autopilot", () => {
   it("is off by default and shows the Off chip to any member", async () => {
     const s = await member().business.autopilot.get({ businessId: A() });
     expect(s).toMatchObject({ enabled: false, state: "off", label: "Off", pausedReason: null, nextAt: null });
-    expect(s.settings).toEqual({ cadence: "every_4h", dailyHour: 9, maxCyclesPerDay: 6, spendCeilingMinor: null, maxIdleCycles: 3 });
+    expect(s.settings).toEqual({ cadence: "every_4h", dailyHour: 9, maxCyclesPerDay: 6, spendCeilingMinor: null, maxIdleCycles: 3, ownMaxCyclesPerDay: null, ownSpendCeilingMinor: null });
   });
 
   it("only owners and admins change it; a member, and another business's owner, are refused", async () => {
@@ -75,7 +75,7 @@ describe("business.autopilot", () => {
     temporal.signals.length = 0;
     const r = await owner().business.autopilot.set({ businessId: A(), cadence: "daily", dailyHour: 14, maxCyclesPerDay: 2, spendCeilingMinor: 750, maxIdleCycles: 5 });
     expect(r.change).toBe("settings_changed");
-    expect(r.status.settings).toEqual({ cadence: "daily", dailyHour: 14, maxCyclesPerDay: 2, spendCeilingMinor: 750, maxIdleCycles: 5 });
+    expect(r.status.settings).toEqual({ cadence: "daily", dailyHour: 14, maxCyclesPerDay: 2, spendCeilingMinor: 750, maxIdleCycles: 5, ownMaxCyclesPerDay: null, ownSpendCeilingMinor: null });
     expect(temporal.signals.map((s) => s.signal)).toEqual(["autopilotRefresh"]);
     // The same values again change nothing: no second audit row.
     const again = await owner().business.autopilot.set({ businessId: A(), cadence: "daily", dailyHour: 14, maxCyclesPerDay: 2, spendCeilingMinor: 750, maxIdleCycles: 5 });

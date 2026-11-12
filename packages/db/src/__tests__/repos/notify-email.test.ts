@@ -9,6 +9,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { notifyEmailDayKey, repos, utcDayStart } from "../../repos";
 import * as s from "../../schema";
 import { setupRepoHarness, type RepoHarness } from "./helpers";
+import { DEFAULT_EMAIL_NOTIFICATION_PREFS } from "@foundmill/shared";
 
 let r: RepoHarness;
 const NOW = new Date("2026-11-11T15:00:00.000Z");
@@ -78,7 +79,7 @@ describe("what was sent already", () => {
   it("one event a day per person within a business; counted per business, and per note", async () => {
     const id = await item(r.A.businessId);
     const write = (businessId: string, at: Date, itemId = id) =>
-      repos.events.write(r.db, businessId, { type: "notify.email_sent", actor: { kind: "system", id: "notify-email" }, entityIds: [], occurredAt: at, payload: { kind: "decision_waiting", userId: r.A.ownerId, inboxItemId: itemId, messageId: "m", simulated: true }, idempotencyKey: notifyEmailDayKey("decision_waiting", r.A.ownerId, at) });
+      repos.events.write(r.db, businessId, { type: "notify.email_sent", actor: { kind: "system", id: "notify-email" }, entityIds: [], occurredAt: at, payload: { kind: "decision_waiting", userId: r.A.ownerId, inboxItemId: itemId, messageId: "m", simulated: true, notificationId: "00000000-0000-4000-8000-0000000000aa", offersAnswer: false }, idempotencyKey: notifyEmailDayKey("decision_waiting", r.A.ownerId, at) });
     const first = await write(r.A.businessId, NOW);
     // The same day again is the same event: a second email that day cannot be recorded.
     expect((await write(r.A.businessId, new Date(NOW.getTime() + HOURS))).id).toBe(first.id);
@@ -103,9 +104,9 @@ describe("the person's address and their email switch", () => {
 
   it("email kinds are on until turned off, live beside the push kinds, and neither change clears the other", async () => {
     const id = await r.h.createUser("prefs-email@test.local");
-    expect((await r.as(id, (tx) => repos.preferences.get(tx, id))).email).toEqual({ decision_waiting: true });
+    expect((await r.as(id, (tx) => repos.preferences.get(tx, id))).email).toEqual({ ...DEFAULT_EMAIL_NOTIFICATION_PREFS });
     let p = await r.as(id, (tx) => repos.preferences.update(tx, id, { email: { decision_waiting: false } }));
-    expect(p.email).toEqual({ decision_waiting: false });
+    expect(p.email).toEqual({ ...DEFAULT_EMAIL_NOTIFICATION_PREFS, decision_waiting: false });
     expect(p.notifications.decision).toBe(true);
     p = await r.as(id, (tx) => repos.preferences.update(tx, id, { notifications: { customer: false } }));
     expect([p.email.decision_waiting, p.notifications.customer]).toEqual([false, false]);

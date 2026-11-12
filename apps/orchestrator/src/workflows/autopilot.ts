@@ -31,6 +31,11 @@ export const AUTOPILOT_ROUNDS_PER_RUN = 300;
 
 /** Guards Continue's runs: histories recorded before them never register the run signals and replay unchanged. */
 export const CONTINUE_RUN_PATCH = "autopilot-continue-run";
+/**
+ * Autopilot's own limits (0084): a cycle it starts on its own schedule carries the rest of its own spend ceiling as its
+ * budget. A patch, so histories recorded before replay unchanged.
+ */
+export const AUTOPILOT_OWN_BUDGET_PATCH = "autopilot-own-budget";
 
 /** The run one press of Continue started, as the workflow holds it. */
 export interface AutopilotRun {
@@ -121,10 +126,10 @@ export async function autopilot(input: AutopilotInput): Promise<AutopilotResult>
   };
 
   /** Start cycle `cycleNumber` as a child and wait for it; false when nothing started (a collision or a failed start). */
-  const runCycle = async (cycleNumber: number, trigger: "continue" | "autopilot", cadence: Parameters<Activities["autopilotCycleStarted"]>[0]["cadence"] | null, cyclesToday: number): Promise<boolean> => {
+  const runCycle = async (cycleNumber: number, trigger: "continue" | "autopilot", cadence: Parameters<Activities["autopilotCycleStarted"]>[0]["cadence"] | null, cyclesToday: number, budgetCapMinor: number | null = null): Promise<boolean> => {
     const workflowId = `cycle:${businessId}:${cycleNumber}`;
     try {
-      child = await startChild(businessCycle, { workflowId, args: [{ businessId, cycleNumber, trigger }], parentClosePolicy: ParentClosePolicy.ABANDON });
+      child = await startChild(businessCycle, { workflowId, args: [{ businessId, cycleNumber, trigger, ...(budgetCapMinor !== null ? { budgetCapMinor } : {}) }], parentClosePolicy: ParentClosePolicy.ABANDON });
     } catch (err) {
       // A founder's Continue got there first (same cycle number): look again once that cycle has run.
       if ((err as Error).name === "WorkflowExecutionAlreadyStartedError") {
@@ -211,7 +216,9 @@ export async function autopilot(input: AutopilotInput): Promise<AutopilotResult>
         break;
       case "start": {
         const { cycleNumber } = await acts.nextCycleNumber({ businessId });
-        await runCycle(cycleNumber, "autopilot", evaluation.cadence, evaluation.cyclesToday);
+        // Autopilot's own cycle (never a run's round): its own spend ceiling is the cycle's budget.
+        const cap = patched(AUTOPILOT_OWN_BUDGET_PATCH) ? (evaluation.cycleBudgetMinor ?? null) : null;
+        await runCycle(cycleNumber, "autopilot", evaluation.cadence, evaluation.cyclesToday, cap);
         break;
       }
     }

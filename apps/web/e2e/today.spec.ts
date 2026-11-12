@@ -30,7 +30,7 @@ test.describe("today", () => {
     const screen = page.getByTestId("today-screen");
     await expect(screen).toBeVisible({ timeout: LONG });
     await settled(page);
-    await expect(page).toHaveTitle(/^Today · Northwind Skincare · /);
+    await expect(page).toHaveTitle(/^(?:\(\d+\) )?Today · Northwind Skincare · /);
     // The sidebar's first item is Today, lit here (it keeps G H).
     const today = page.getByRole("navigation", { name: "Primary" }).getByRole("link", { name: "Today", exact: true });
     await expect(today).toHaveAttribute("aria-current", "page");
@@ -81,7 +81,7 @@ test.describe("today", () => {
     await page.getByRole("tab", { name: "Details" }).click();
     await expect(page).toHaveURL(new RegExp(`${B}/home`), { timeout: LONG });
     await expect(page.getByTestId("home-screen")).toBeVisible({ timeout: LONG });
-    await expect(page).toHaveTitle(/^Details · Northwind Skincare · /);
+    await expect(page).toHaveTitle(/^(?:\(\d+\) )?Details · Northwind Skincare · /);
     await expect(today).toHaveAttribute("aria-current", "page");
     const detailsStrip = "[data-widget=status_strip] [data-status-strip]";
     await expect(page.locator(detailsStrip).locator("[role=listitem]").filter({ hasText: /^Runway/ }).first()).toBeVisible({ timeout: LONG });

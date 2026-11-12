@@ -1420,7 +1420,7 @@ async function runLiveSession(deps: OrchestratorDeps, recorder: SessionRecorder,
   // What the session may spend (./session-budget): the task's budget less its earlier sessions, the credits left when the
   // platform key pays, and what is left of the agent's wage cap and the business's monthly model budget (either key).
   // A task with nothing left does not start.
-  const budget = await sessionBudget(deps, { business: live.business, task, agentId: agent.id, sessionId: input.sessionId });
+  const budget = await sessionBudget(deps, { business: live.business, task, agentId: agent.id, sessionId: input.sessionId, spendCapMinor: input.spendCapMinor ?? null });
   if (budget.remainingMinor <= 0) return { outcome: "blocked", reason: `model budget exhausted: ${LIMIT_WORDS[budget.limit].used}`, blockedReason: "budget", approvalId: null, summary: budgetSummary(budget.limit, budget), providerSessionId: null };
   // Everything that can fail without a workspace runs before one exists (no restored code left on disk, no token).
   const systemPrompt = buildSystemPrompt({ businessName: live.business.name, appName: APP_NAME, template: { instructions: instructionsFor(live.version, live.template), description: live.template.description }, brief: live.briefText ?? undefined, glossary: live.business.glossary, skills: live.skills });

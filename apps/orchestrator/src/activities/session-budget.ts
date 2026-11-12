@@ -26,7 +26,7 @@ import type { OrchestratorDeps } from "../deps";
 import { DEFAULT_TASK_RESERVE_MINOR } from "../cycle-contract";
 
 /** What can bound a session: the task's budget, the month's credits, the agent's wage cap, the business's monthly model budget. */
-export type BudgetLimit = "task" | "credits" | "wage_cap" | "model_budget";
+export type BudgetLimit = "task" | "credits" | "wage_cap" | "model_budget" | "cycle";
 
 export interface SessionBudget {
   /** What the session may still spend, US cents (an Estimate). */
@@ -57,7 +57,7 @@ export function taskBudgetMinor(task: Pick<Task, "budgetMinor" | "currency">): n
  * business's monthly model budget and the agent's wage cap. A limit that is not set is null; on a tie the earlier one
  * stays the reason.
  */
-export function boundSpend(input: { taskBudgetMinor: number; taskSpentMinor: number; creditsLeftMinor: number | null; wageLeftMinor?: number | null; modelBudgetLeftMinor?: number | null }): Pick<SessionBudget, "remainingMinor" | "limit"> {
+export function boundSpend(input: { taskBudgetMinor: number; taskSpentMinor: number; creditsLeftMinor: number | null; wageLeftMinor?: number | null; modelBudgetLeftMinor?: number | null; cycleCapMinor?: number | null }): Pick<SessionBudget, "remainingMinor" | "limit"> {
   let remainingMinor = Math.max(0, input.taskBudgetMinor - input.taskSpentMinor);
   let limit: BudgetLimit = "task";
   const tighten = (left: number | null | undefined, by: BudgetLimit) => {
@@ -68,6 +68,8 @@ export function boundSpend(input: { taskBudgetMinor: number; taskSpentMinor: num
   tighten(input.creditsLeftMinor, "credits");
   tighten(input.modelBudgetLeftMinor, "model_budget");
   tighten(input.wageLeftMinor, "wage_cap");
+  // Its share of a capped cycle's budget (Autopilot's own spend ceiling, 0077).
+  tighten(input.cycleCapMinor, "cycle");
   return { remainingMinor, limit };
 }
 
@@ -83,7 +85,7 @@ async function taskSpentMinor(deps: OrchestratorDeps, businessId: string, taskId
   return spent;
 }
 
-export async function sessionBudget(deps: OrchestratorDeps, input: { business: Pick<Business, "id" | "planTier" | "modelBilling">; task: Pick<Task, "id" | "budgetMinor" | "currency">; agentId: string; sessionId: string }): Promise<SessionBudget> {
+export async function sessionBudget(deps: OrchestratorDeps, input: { business: Pick<Business, "id" | "planTier" | "modelBilling">; task: Pick<Task, "id" | "budgetMinor" | "currency">; agentId: string; sessionId: string; spendCapMinor?: number | null }): Promise<SessionBudget> {
   const budget = taskBudgetMinor(input.task);
   // The credits pool is per founder, so the state is read from the full business row.
   const business = await repos.businesses.get(deps.db, input.business.id, { includeArchived: true });
@@ -97,7 +99,7 @@ export async function sessionBudget(deps: OrchestratorDeps, input: { business: P
   const creditsLeftMinor = credits ? credits.balanceMinor : null;
   const wageLeftMinor = wage.remainingMinor;
   const modelBudgetLeftMinor = monthly.remainingMinor;
-  const bound = boundSpend({ taskBudgetMinor: budget, taskSpentMinor: spent, creditsLeftMinor, wageLeftMinor, modelBudgetLeftMinor });
+  const bound = boundSpend({ taskBudgetMinor: budget, taskSpentMinor: spent, creditsLeftMinor, wageLeftMinor, modelBudgetLeftMinor, cycleCapMinor: input.spendCapMinor ?? null });
   return { ...bound, maxUsd: bound.remainingMinor / 100, taskBudgetMinor: budget, taskSpentMinor: spent, creditsLeftMinor, wageLeftMinor, modelBudgetLeftMinor };
 }
 
@@ -107,6 +109,7 @@ export const LIMIT_WORDS: Record<BudgetLimit, { used: string; spent: string }> =
   credits: { used: "this month's credits are used up", spent: "the credits it was given" },
   wage_cap: { used: "the agent's wage cap for the month is reached", spent: "what was left of the agent's wage cap" },
   model_budget: { used: "the business's monthly model budget is used up", spent: "what was left of the monthly model budget" },
+  cycle: { used: "Autopilot's own spend for today is used up", spent: "its share of Autopilot's spend for today" },
 };
 
 const usd = (minor: number) => `$${(minor / 100).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -115,6 +118,7 @@ const usd = (minor: number) => `$${(minor / 100).toLocaleString("en-US", { minim
 export function budgetSummary(limit: BudgetLimit, b: Pick<SessionBudget, "taskBudgetMinor" | "taskSpentMinor">): string {
   if (limit === "credits") return "Blocked: this month's credits are used up, so the session stopped. What it spent is booked; the task runs again after a top-up in Settings › Billing or with next month's credits.";
   if (limit === "wage_cap") return "Blocked: this agent reached its wage cap for the month, so the session stopped. What it spent is booked (an Estimate). Raise the cap on the agent's profile, then run the task again, or wait for next month.";
+  if (limit === "cycle") return "Paused: this round of work reached Autopilot's own spend for today (an Estimate), so the session stopped. What it spent is booked; the task carries on in the next round, or raise Autopilot's own limit in Settings › What the team can do.";
   if (limit === "model_budget") return "Blocked: the business reached its monthly model budget, so the session stopped. What it spent is booked (an Estimate). An owner or admin can raise or remove the budget, then the task runs again; otherwise it waits for next month.";
   return `Blocked: this task has used its budget (${usd(Math.min(b.taskSpentMinor, b.taskBudgetMinor))} of ${usd(b.taskBudgetMinor)}, an Estimate). Raise the task's budget, then run it again.`;
 }
