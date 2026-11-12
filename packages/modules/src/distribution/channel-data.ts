@@ -5,6 +5,7 @@
  */
 import { LIMITS } from "@foundmill/config";
 import { formatMoney, type ChannelTokenData, type FormCell } from "@foundmill/dugout";
+import type { ChannelAvailabilityRow } from "@foundmill/shared/channel-availability";
 import { CHANNEL_KEYS, CHANNEL_META, CHANNEL_WINDOW_DAYS, type ApprovalState, type CampaignStatus, type ChannelKey, type ChannelLine } from "@foundmill/shared/constants";
 import { weekKey } from "@foundmill/widgets/shared/time";
 import type { AgentRow, AssetRow, BlendedSummary, CampaignRow, ChannelMetricRow, ChannelRow, ChannelSummaryRow, RecommendationRow } from "./types";
@@ -23,6 +24,25 @@ export interface ChannelView extends ChannelRow {
   paused: boolean;
   campaigns: CampaignRow[];
   form5: FormCell[];
+  /** Whether the channel can really act for this business (the API's answer; available when the API sent none). */
+  availability: ChannelAvailabilityRow;
+}
+
+/** An older response without availability reads as available, so nothing is hidden by a missing field. */
+const ASSUMED_AVAILABLE: ChannelAvailabilityRow = { available: true, reason: "acts", sentence: null };
+
+/**
+ * A channel the Board and the Channels table show: one that can really act, or one the founder put on the board in
+ * offline tracking (the agent prepares, the founder submits). The rest are listed as "Not available yet" in Builder
+ * view only (founder, 2026-11-11).
+ */
+export function channelShown(view: Pick<ChannelRow, "enabled" | "kitMode" | "availability">): boolean {
+  return view.availability?.available !== false || (view.enabled && !!view.kitMode);
+}
+
+/** The channels shown and the ones that are not available yet, in the order given. */
+export function splitByAvailability<V extends Pick<ChannelRow, "enabled" | "kitMode" | "availability">>(views: readonly V[]): { shown: V[]; unavailable: V[] } {
+  return { shown: views.filter(channelShown), unavailable: views.filter((v) => !channelShown(v)) };
 }
 
 export function potentialStars(potential: number | string | null | undefined): number {
@@ -63,10 +83,15 @@ export interface BuildChannelViewsInput {
   /** The business's own currency, for a channel not stored yet (a stored one carries its own). */
   currency: string;
   today?: string;
+  /** `distribution.channels.list`'s availability by key, for a channel with no stored row. */
+  availability?: Partial<Record<ChannelKey, ChannelAvailabilityRow>>;
 }
 
-/** All 15 channels in line order, each merged with its stored row, recommendation, campaigns and five-week form. */
-export function buildChannelViews({ channels, campaigns = [], metrics = [], recommendation, currency, today }: BuildChannelViewsInput): ChannelView[] {
+/**
+ * All 15 channels in line order, each merged with its stored row, recommendation, campaigns, five-week form and
+ * availability. Screens show `splitByAvailability(views).shown`; a channel that is not available is never recommended.
+ */
+export function buildChannelViews({ channels, campaigns = [], metrics = [], recommendation, currency, today, availability: byChannel }: BuildChannelViewsInput): ChannelView[] {
   const byKey = new Map((channels ?? []).map((c) => [c.channelKey, c]));
   const recByKey = new Map((recommendation ?? []).map((r) => [r.channel, r]));
   return CHANNEL_KEYS.map((key) => {
@@ -78,10 +103,12 @@ export function buildChannelViews({ channels, campaigns = [], metrics = [], reco
     const range = rec?.cpa_range_minor ?? null;
     const cpaRange = range && range.high > 0 ? { low: Math.min(range.low, range.high), high: Math.max(range.low, range.high) } : null;
     const cap = cpaRange?.high ?? row.form?.cpaMinor ?? null;
+    const availability = stored?.availability ?? byChannel?.[key] ?? ASSUMED_AVAILABLE;
     return {
       ...row,
+      availability,
       fit: clampFit(rec?.fit ?? row.fit),
-      recommended: rec ? rec.recommended : row.recommended,
+      recommended: (rec ? rec.recommended : row.recommended) && availability.available,
       persisted: !!stored,
       scored: !!rec || !!stored?.scoredAt,
       stars: rec ? potentialStars(rec.potential) : potentialStars(row.potential),

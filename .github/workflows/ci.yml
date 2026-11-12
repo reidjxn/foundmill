@@ -170,8 +170,10 @@ jobs:
       # Dev auth bypass (docs/DECISIONS.md): the seed owner from packages/db/src/seed/constants.ts DEMO_OWNER_USER_ID.
       DEV_AUTH_USER_ID: 0f0a0d00-0000-4000-8000-00000000f0a1
       API_PORT: 4000
-      # The LIVE pages (Network, Communities, Leaderboards) and Go live are closed without it (apps/web/e2e/README.md).
+      # The LIVE pages (Network, Communities) and Go live are closed without it (apps/web/e2e/README.md).
       LIVE_MODE: 1
+      # A project's Foundmill sending address, on its mock (apps/web/e2e/platform-mail.spec.ts; playwright.config.ts STACK_ENV).
+      PLATFORM_MAIL_DOMAIN: mail.foundmill.test
       # The screens press Take charge and the other model-backed buttons far more often than one person does in an hour, and a
       # shard shares one signed-in founder (apps/api/src/services/model-limits.ts honors this on test stacks only).
       MODEL_LIMIT_SCALE: 50

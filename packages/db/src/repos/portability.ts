@@ -39,6 +39,7 @@ export const EXPORT_TABLES: Readonly<Record<string, ExportTableSpec>> = {
   spec_versions: t(s.specVersions, "product"),
   product_signoffs: t(s.productSignoffs, "product"),
   goals: t(s.goals, "product"),
+  project_pages: t(s.projectPages, "product"),
   change_proposals: t(s.changeProposals, "product"),
   proposal_hunks: t(s.proposalHunks, "product"),
   roadmap_items: t(s.roadmapItems, "product"),
@@ -85,6 +86,7 @@ export const EXPORT_TABLES: Readonly<Record<string, ExportTableSpec>> = {
   interactions: t(s.interactions, "crm"),
   mentions: t(s.mentions, "crm"),
   field_provenance: t(s.fieldProvenance, "crm"),
+  contact_consents: t(s.contactConsents, "crm"),
   merge_log: t(s.mergeLog, "crm"),
   // finance
   accounts: t(s.accounts, "finance", { omit: ["externalId"] }),
@@ -117,6 +119,7 @@ export const EXPORT_TABLES: Readonly<Record<string, ExportTableSpec>> = {
   // seat of this business, so it never travels in the business's archive.
   memberships: t(s.memberships, "settings", { pick: ["id", "userId", "role", "createdAt"], rows: ne(s.memberships.source, "example") }),
   integrations: t(s.integrations, "settings", { pick: ["id", "connectorKey", "status", "authKind", "scopes", "accountLabel", "lastHealthAt", "lastError", "createdAt", "updatedAt"] }),
+  project_mail: t(s.projectMail, "settings", { pick: ["id", "localPart", "status", "dailyCap", "createdAt"] }),
   app_installations: t(s.appInstallations, "settings", { pick: ["id", "connectorKey", "accountLabel", "verifiedAt", "createdAt"] }),
   policies: t(s.policies, "settings"),
   holiday_periods: t(s.holidayPeriods, "settings"),
@@ -139,7 +142,6 @@ export const EXPORT_EXCLUDED_TABLES: Readonly<Record<string, string>> = {
   session_recordings: "Replay copies of agent session streams (kept so a session can be replayed after its stream expires); the sessions themselves are exported.",
   posts: "LIVE network posts belong to the network, not to the business.",
   community_members: "LIVE network memberships belong to the network, not to the business.",
-  leaderboard_entries: "LIVE leaderboard rows belong to the network, not to the business.",
   demo_sample_rows: "Which rows of a sample business are the sample's own (internal to the sample's roll-forward).",
 };
 

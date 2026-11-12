@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-/** /communities, /communities/[id], /leaderboards and /leaderboards/[boardId] against canned API answers. */
+/** /communities and /communities/[id] against canned API answers. */
 import { TRPCClientError } from "@trpc/client";
 import { cleanup, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import type { ReactElement } from "react";
@@ -26,8 +26,6 @@ vi.mock("next/link", () => ({ default: ({ href, children, prefetch: _prefetch, .
 
 import { CommunitiesScreen } from "../CommunitiesScreen";
 import { CommunityScreen } from "../CommunityScreen";
-import { LeaderboardScreen } from "../LeaderboardScreen";
-import { LeaderboardsScreen } from "../LeaderboardsScreen";
 import { LiveViewerProvider } from "../viewer";
 import { callsTo, ids, renderWithProviders } from "./fake-trpc";
 
@@ -431,133 +429,5 @@ describe("/communities/[id]", () => {
     expect(await screen.findByText("No such community")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "All communities" }));
     expect(ctx.push).toHaveBeenCalledWith("/communities");
-  });
-});
-
-describe("/leaderboards", () => {
-  const board = (id: string, kind: string, metric: string) => ({ id, boardKind: kind, division: "b2b_saas", period: "2026-Q4", metric, archetype: "b2b_saas", region: "eu", computedAt: AT(120), createdAt: AT(200), updatedAt: AT(120) });
-  const growth = board(ids.board, "growth", "mrr_growth_pct");
-  const won = board("00000000-0000-4000-8000-0000000000d1", "customers_won", "customers_won");
-  const position = (b: ReturnType<typeof board>, n: number, movement: number, value: string) => ({ id: `e-${b.id}`, leaderboardId: b.id, businessId: ids.business, position: n, movement, form: "WWDLW", metricValue: value, verified: true, createdAt: AT(1), updatedAt: AT(1), board: b });
-
-  it("lists every board with the business's position on each, and a panel of its positions", async () => {
-    api.handlers["live.leaderboards.list"] = () => [won, growth];
-    api.handlers["live.leaderboards.positions"] = () => [position(growth, 3, 1, "18.4000"), position(won, 2, -1, "47.0000")];
-    mount(<LeaderboardsScreen />);
-    const grid = await screen.findByRole("grid", { name: "Leaderboards" });
-    const rows = await within(grid).findAllByRole("row");
-    expect(rows).toHaveLength(3);
-    expect(rows[1]!.textContent).toContain("Customers won");
-    expect(rows[1]!.textContent).toContain("B2B SaaS · EU");
-    expect(rows[1]!.textContent).toContain("Q4 2026");
-    expect(rows[1]!.textContent).toContain("#2");
-    expect(rows[2]!.textContent).toContain("#3");
-    expect(callsTo(api, "live.leaderboards.positions")[0]).toEqual({ businessId: "b1" });
-
-    const panel = screen.getByTestId("positions-panel");
-    const links = within(panel).getAllByTestId("position-row");
-    expect(links.map((l) => l.getAttribute("href"))).toEqual([`/leaderboards/${ids.board}`, `/leaderboards/${won.id}`]);
-    expect(links[0]!.textContent).toContain("MRR growth 18.4%");
-    expect(links[1]!.getAttribute("aria-label") ?? links[1]!.textContent).toContain("47");
-
-    fireEvent.keyDown(grid, { key: "ArrowDown" });
-    fireEvent.keyDown(grid, { key: "Enter" });
-    expect(ctx.push).toHaveBeenCalledWith(`/leaderboards/${won.id}`);
-  });
-
-  it("tells a business that is not ranked how to get on a board, and a Personal one to go LIVE", async () => {
-    api.handlers["live.leaderboards.list"] = () => [growth];
-    api.handlers["live.leaderboards.positions"] = () => [];
-    const { unmount } = mount(<LeaderboardsScreen />);
-    expect(await screen.findByText(/is not on a leaderboard yet/)).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: /Open integrations/ }));
-    expect(ctx.push).toHaveBeenCalledWith("/b/b1/settings/integrations");
-    unmount();
-    ctx.gameMode = "personal";
-    mount(<LeaderboardsScreen />);
-    expect(await screen.findByText(/is a Personal business, so it is not ranked/)).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: /Open Settings/ }));
-    expect(ctx.push).toHaveBeenLastCalledWith("/b/b1/settings/business");
-  });
-
-  it("says what will appear when there are no boards", async () => {
-    api.handlers["live.leaderboards.list"] = () => [];
-    api.handlers["live.leaderboards.positions"] = () => [];
-    mount(<LeaderboardsScreen />);
-    expect(await screen.findByText(/No leaderboards yet/)).toBeTruthy();
-  });
-});
-
-describe("/leaderboards/[boardId]", () => {
-  const board = { id: ids.board, boardKind: "growth", division: "b2b_saas", period: "2026-Q4", metric: "mrr_growth_pct", archetype: "b2b_saas", region: "eu", computedAt: AT(120), createdAt: AT(200), updatedAt: AT(120) };
-  const entry = (n: number, businessId: string, name: string | null, value: string, movement: number, form: string) => ({
-    id: `e${n}`, leaderboardId: board.id, businessId, position: n, movement, form, metricValue: value, verified: true, createdAt: AT(1), updatedAt: AT(1),
-    businessName: name, business: name ? { businessId, name, slug: name.toLowerCase().replace(/\W+/g, "-"), kitPrimary: "#1F6FEB", kitSecondary: "#F5B841", archetype: "b2b_saas", live: true } : null,
-  });
-
-  it("ranks the entries with position, movement, logo, the metric and form, and marks the founder's own business", async () => {
-    api.handlers["live.leaderboards.get"] = () => board;
-    api.handlers["live.leaderboards.entries"] = () => [entry(1, "x1", "Northlight Payments", "33.0000", 0, "WWWWD"), entry(2, "b1", "Ledgerly", "18.4000", 2, "WWDLW"), entry(3, "x3", null, "9.1000", -1, "LDLWD")];
-    mount(<LeaderboardScreen boardId={board.id} />);
-    const grid = await screen.findByRole("grid", { name: /Growth · B2B SaaS · EU entries/ });
-    const rows = (await within(grid).findAllByRole("row")).slice(1);
-    expect(rows).toHaveLength(3);
-    expect(rows[0]!.textContent).toContain("#1");
-    expect(rows[0]!.textContent).toContain("Northlight Payments");
-    expect(rows[0]!.textContent).toContain("33.0%");
-    expect(rows[1]!.textContent).toContain("You");
-    // The movement reads "up 2" / "down 1": the word is screen-reader text beside the visible figure.
-    expect(rows[1]!.querySelector("[data-delta]")?.textContent).toBe("up 2");
-    expect(rows[2]!.querySelector("[data-delta]")?.textContent).toBe("down 1");
-    expect(rows[2]!.textContent).toContain("Unlisted business");
-    // The Form cells carry their key in words (FormCells, UX plan §6.2 `FormKey`): never only five colors.
-    expect(within(rows[0]!).getByLabelText("Form: Last 5 tasks: 4 went well, 1 partly, 0 failed")).toBeTruthy();
-    expect(within(grid).getByRole("columnheader", { name: /MRR growth/ })).toBeTruthy();
-    expect(rows[0]!.querySelector("svg[role=img], [role=img]")).not.toBeNull(); // the logo
-    const strip = screen.getByRole("list", { name: /at a glance/ });
-    expect(strip.textContent).toMatch(/Your position\s*#2/);
-    expect(strip.textContent).toMatch(/Businesses ranked\s*3/);
-    expect(screen.getByText(/Verified integration metrics only/)).toBeTruthy();
-    expect(callsTo(api, "live.leaderboards.entries")[0]).toEqual({ leaderboardId: board.id, limit: 200 });
-  });
-
-  it("audit #66: another business's row asks its founder to connect; the founder's own businesses do not offer it", async () => {
-    api.handlers["live.leaderboards.get"] = () => board;
-    api.handlers["live.leaderboards.entries"] = () => [{ ...entry(1, "x1", "Northlight Payments", "33.0000", 0, ""), own: false }, { ...entry(2, "b1", "Ledgerly", "18.4000", 0, ""), own: true }, { ...entry(3, "x9", "Other of mine", "9.0000", 0, ""), own: true }];
-    api.handlers["live.connections.request"] = () => ({ id: "c-new", status: "requested" });
-    mount(<LeaderboardScreen boardId={board.id} />);
-    const grid = await screen.findByRole("grid", { name: /entries/ });
-    const rows = (await within(grid).findAllByRole("row")).slice(1);
-    fireEvent.contextMenu(rows[2]!);
-    expect(screen.queryByRole("menuitem", { name: /to connect/ })).toBeNull();
-    fireEvent.keyDown(document.activeElement ?? document.body, { key: "Escape" });
-    fireEvent.contextMenu(rows[0]!);
-    fireEvent.click(await screen.findByRole("menuitem", { name: "Ask Northlight Payments to connect" }));
-    const dialog = await screen.findByTestId("ask-to-connect-dialog");
-    expect(dialog.textContent).toContain("The request goes to the founder who owns this business.");
-    fireEvent.click(within(dialog).getByTestId("ask-to-connect-send"));
-    await waitFor(() => expect(callsTo(api, "live.connections.request")).toEqual([{ businessId: "b1", toBusinessId: "x1" }]));
-  });
-
-  it("says so when the business is not on the board, and when nobody is ranked", async () => {
-    api.handlers["live.leaderboards.get"] = () => board;
-    api.handlers["live.leaderboards.entries"] = () => [entry(1, "x1", "Northlight Payments", "33.0000", 0, "")];
-    const { unmount } = mount(<LeaderboardScreen boardId={board.id} />);
-    expect(await screen.findByText("Not ranked")).toBeTruthy();
-    expect(screen.getByText("Ledgerly is not on this board")).toBeTruthy();
-    unmount();
-    api.handlers["live.leaderboards.entries"] = () => [];
-    mount(<LeaderboardScreen boardId={board.id} />);
-    expect(await screen.findByText(/Nobody is ranked on this board yet/)).toBeTruthy();
-  });
-
-  it("a board that does not exist reads as missing, with a way back", async () => {
-    api.handlers["live.leaderboards.get"] = () => {
-      throw notFound();
-    };
-    mount(<LeaderboardScreen boardId="00000000-0000-4000-8000-00000000dead" />);
-    expect(await screen.findByText("No such leaderboard")).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "All leaderboards" }));
-    expect(ctx.push).toHaveBeenCalledWith("/leaderboards");
   });
 });

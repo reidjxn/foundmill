@@ -1,7 +1,8 @@
 /**
  * Bring-your-own Anthropic key (BUILD §10.2). Validate the way the key will be used (`MODEL_MODE`, audit BILL-04: with
- * live models a real one-token messages call through packages/models, which also refuses a key whose account has no
- * credit, then the live connector's model list for the routed models; with mock models the mock connector), encrypt
+ * live models the gateway's `POST /v1/keys/validate`, a real one-token messages call that also refuses a key whose
+ * account has no credit, then the live connector's model list for the routed models; with mock models the mock
+ * connector, in-process), encrypt
  * with the business vault (envelope encryption, packages/shared/crypto) into `credentials`, never return or log the key.
  * Only the gateway/orchestrator decrypt. Revoke stops the team (the business's stop flag, reason `key_revoked`) and
  * posts an Inbox note; storing a key afterwards resumes it (and a stop for used-up credits), never Stop all agents.
@@ -14,7 +15,6 @@
  */
 import { TIERS } from "@foundmill/config";
 import { mockIntegrationRecord, type Connector, type ToolContext } from "@foundmill/connectors";
-import { validateApiKey } from "@foundmill/models";
 import { autopilotChangedPayload, BYOK_CREDENTIAL_KIND, repos, resumeBusinessAgents, stopBusinessAgents, type Executor } from "@foundmill/db";
 import { AppError, ValidationError, type AgentStopReason, type ModelBilling } from "@foundmill/shared";
 import { buildAad, encryptJson, redactSecret } from "@foundmill/shared/crypto";
@@ -36,23 +36,24 @@ const NIL = "00000000-0000-0000-0000-000000000000";
 /**
  * Checks a key the way it will be used. The models' mode decides, not the connectors': staging runs live models with
  * mock connectors, and the mock connector's look-alike check let any `sk-ant-…` string through, after which every model
- * call for the business failed (audit BILL-04). With live models the key must answer a real one-token messages call
- * (a typo, a revoked key and an account with no credit or at its spend limit are refused), then the routed models are
- * checked on the live connector (`models.list`, free). `checkedAt` is the time of this check.
+ * call for the business failed (audit BILL-04). With live models the gateway checks it (SEC-14: Anthropic is reached
+ * only from there): a real one-token messages call (a typo, a revoked key and an account with no credit or at its spend
+ * limit are refused), then the routed models on the live connector (`models.list`, free). With mock models the mock
+ * connector answers here, without a gateway, and reaches nothing. `checkedAt` is the time of this check.
  */
 export async function validateAnthropicKey(ctx: BusinessContext, apiKey: string): Promise<KeyValidationResult> {
   const mode: "mock" | "live" = ctx.env.MODEL_MODE === "live" ? "live" : "mock";
   const checkedAt = () => new Date().toISOString();
   if (mode === "live") {
-    const call = await validateApiKey(apiKey, { mode: "live" });
-    if (!call.ok) return { valid: false, reason: call.message ?? "Anthropic rejected the key", routedModels: [], checkedAt: checkedAt(), mode };
+    const checked = await ctx.gateway.validateKey(ctx.businessId, apiKey);
+    return { valid: checked.valid === true, reason: checked.reason ?? null, routedModels: checked.routedModels ?? [], checkedAt: checked.checkedAt ?? checkedAt(), mode };
   }
-  const connector: Connector = ctx.connectors.get(ANTHROPIC, mode);
+  const connector: Connector = ctx.connectors.get(ANTHROPIC, "mock");
   const toolCtx: ToolContext = {
     businessId: ctx.businessId,
     agentId: NIL,
     sessionId: NIL,
-    integration: mockIntegrationRecord(ANTHROPIC, ctx.businessId, mode === "live" ? { status: "connected" } : {}),
+    integration: mockIntegrationRecord(ANTHROPIC, ctx.businessId),
     credential: { kind: "api_key", secret: apiKey },
     log: { debug: () => undefined, info: () => undefined, warn: () => undefined, error: () => undefined },
     mode,

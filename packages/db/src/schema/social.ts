@@ -1,7 +1,7 @@
-/** 0012 — LIVE social: public profiles view, connections, messages, communities, leaderboards, negotiations (0016 hardening; 0027 delivery and moderation). */
+/** 0012 — LIVE social: public profiles view, connections, messages, communities, negotiations (0016 hardening; 0027 delivery and moderation; 0076 dropped leaderboards). */
 import { ARCHETYPES, DATA_REGIONS, VISIBILITY } from "@foundmill/shared";
 import { sql } from "drizzle-orm";
-import { boolean, index, integer, jsonb, numeric, pgTable, pgView, text, uniqueIndex, uuid, type AnyPgColumn } from "drizzle-orm/pg-core";
+import { index, integer, jsonb, pgTable, pgView, text, uniqueIndex, uuid, type AnyPgColumn } from "drizzle-orm/pg-core";
 import { authUsers } from "drizzle-orm/supabase";
 import { emptyArray, emptyObject, id, timestamps, timestampsWithArchive, tstz } from "./_common";
 import { businesses } from "./accounts";
@@ -233,49 +233,6 @@ export const networkAttestations = pgTable("network_attestations", {
   ...timestamps(),
 });
 export type NetworkAttestation = typeof networkAttestations.$inferSelect;
-
-export const leaderboards = pgTable(
-  "leaderboards",
-  {
-    id: id(),
-    boardKind: text("board_kind").notNull(),
-    division: text("division").notNull().default("open"),
-    period: text("period").notNull(),
-    metric: text("metric").notNull(),
-    archetype: text("archetype", { enum: ARCHETYPES }),
-    region: text("region", { enum: DATA_REGIONS }),
-    computedAt: tstz("computed_at"),
-    ...timestamps(),
-  },
-  (t) => [
-    uniqueIndex("leaderboards_board_kind_division_period_archetype_region_key").on(t.boardKind, t.division, t.period, t.archetype, t.region),
-    index("leaderboards_period_idx").on(t.period, t.boardKind),
-  ],
-);
-export type Leaderboard = typeof leaderboards.$inferSelect;
-export type NewLeaderboard = typeof leaderboards.$inferInsert;
-
-export const leaderboardEntries = pgTable(
-  "leaderboard_entries",
-  {
-    id: id(),
-    leaderboardId: uuid("leaderboard_id").notNull().references(() => leaderboards.id, { onDelete: "cascade" }),
-    businessId: uuid("business_id").notNull().references(() => businesses.id, { onDelete: "cascade" }),
-    position: integer("position").notNull(),
-    movement: integer("movement").notNull().default(0),
-    form: text("form").notNull().default(""),
-    metricValue: numeric("metric_value", { precision: 20, scale: 4 }).notNull(),
-    verified: boolean("verified").notNull().default(true),
-    ...timestamps(),
-  },
-  (t) => [
-    uniqueIndex("leaderboard_entries_leaderboard_id_business_id_key").on(t.leaderboardId, t.businessId),
-    index("leaderboard_entries_leaderboard_id_idx").on(t.leaderboardId, t.position),
-    index("leaderboard_entries_business_id_idx").on(t.businessId),
-  ],
-);
-export type LeaderboardEntry = typeof leaderboardEntries.$inferSelect;
-export type NewLeaderboardEntry = typeof leaderboardEntries.$inferInsert;
 
 export const negotiationThreads = pgTable(
   "negotiation_threads",

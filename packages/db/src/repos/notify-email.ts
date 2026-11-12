@@ -1,0 +1,103 @@
+/**
+ * What Foundmill's own email to a person reads (docs/THESIS_REVIEW.md packages 1.5 and 5.1; apps/api `services/notify`,
+ * apps/gateway `notify-email.ts`). No table of its own: the people and their walls are `memberships`, "opened on any
+ * device" is the person's receipt in `inbox_item_reads` (0048), and what was already sent is the `notify.email_sent`
+ * events (one per email, keyed `notify.email:<kind>:<user id>:<UTC day>` within the business, so a business's events can
+ * hold at most one a day per person).
+ *
+ * `waitingAnswers` reads across businesses and runs on the service connection only (the api's notify pass); the rest
+ * are scoped to one business like every other repo.
+ */
+import { and, asc, eq, gte, inArray, isNotNull, isNull, lte, ne, or, sql } from "drizzle-orm";
+import type { EmailNotificationKind } from "@foundmill/shared";
+import { businesses, events, inboxItems, memberships, type Membership } from "../schema";
+import { RESPOND_TYPES } from "./inbox";
+import type { Executor } from "./_shared";
+
+/** A note that asks the person for something: it holds Continue, is a decision, or is a warning with a choice to make. */
+const needsAnswer = and(
+  inArray(inboxItems.state, ["unread", "read"]),
+  isNull(inboxItems.archivedAt),
+  or(eq(inboxItems.blocksContinue, true), inArray(inboxItems.type, [...RESPOND_TYPES]), and(eq(inboxItems.type, "warning"), isNotNull(inboxItems.decision))),
+);
+
+/** One person who has not opened one waiting note. */
+export interface WaitingAnswer {
+  businessId: string;
+  inboxItemId: string;
+  createdAt: Date;
+  userId: string;
+  membership: Pick<Membership, "role" | "sectionPermissions">;
+}
+
+/** The idempotency key of a `notify.email_sent`: one a day per person and kind within a business. */
+export const notifyEmailDayKey = (kind: EmailNotificationKind, userId: string, at: Date): string => `notify.email:${kind}:${userId.toLowerCase()}:${at.toISOString().slice(0, 10)}`;
+
+/** Midnight UTC of the day `at` falls in. */
+export const utcDayStart = (at: Date): Date => new Date(Date.UTC(at.getUTCFullYear(), at.getUTCMonth(), at.getUTCDate()));
+
+export const notifyEmailRepo = {
+  /**
+   * Every (note, person) pair where the note needs an answer, was written between `since` and `olderThan`, belongs to a
+   * live business that is not a sample (`is_demo`), and the person is a member of it, not through an example
+   * membership, who has no receipt for it. Oldest first, at most `limit`. Section walls are the caller's
+   * (`hasSectionAccess` on `membership`). Service connection only: it reads across businesses.
+   */
+  async waitingAnswers(db: Executor, input: { olderThan: Date; since: Date; limit?: number }): Promise<WaitingAnswer[]> {
+    const rows = await db
+      .select({ businessId: inboxItems.businessId, inboxItemId: inboxItems.id, createdAt: inboxItems.createdAt, userId: memberships.userId, role: memberships.role, sectionPermissions: memberships.sectionPermissions })
+      .from(inboxItems)
+      .innerJoin(businesses, and(eq(businesses.id, inboxItems.businessId), eq(businesses.isDemo, false), isNull(businesses.archivedAt)))
+      .innerJoin(memberships, and(eq(memberships.businessId, inboxItems.businessId), ne(memberships.source, "example")))
+      .where(
+        and(
+          needsAnswer,
+          lte(inboxItems.createdAt, input.olderThan),
+          gte(inboxItems.createdAt, input.since),
+          // Qualified by hand (inbox.ts `stateFor`): the receipt is the person's own, for this note.
+          sql`not exists (select 1 from "inbox_item_reads" "r" where "r"."inbox_item_id" = "inbox_items"."id" and "r"."user_id" = "memberships"."user_id")`,
+        ),
+      )
+      .orderBy(asc(inboxItems.createdAt), asc(inboxItems.id))
+      .limit(Math.min(Math.max(input.limit ?? 2_000, 1), 10_000));
+    return rows.map((r) => ({ businessId: r.businessId, inboxItemId: r.inboxItemId, createdAt: r.createdAt, userId: r.userId, membership: { role: r.role, sectionPermissions: r.sectionPermissions } }));
+  },
+
+  /** The note, when it still needs an answer and the person has not opened it; null otherwise. */
+  async stillWaiting(db: Executor, businessId: string, inboxItemId: string, userId: string): Promise<{ id: string; subject: string; fromAgentId: string | null; blocksContinue: boolean; createdAt: Date } | null> {
+    const rows = await db
+      .select({ id: inboxItems.id, subject: inboxItems.subject, fromAgentId: inboxItems.fromAgentId, blocksContinue: inboxItems.blocksContinue, createdAt: inboxItems.createdAt })
+      .from(inboxItems)
+      .where(
+        and(
+          eq(inboxItems.businessId, businessId),
+          eq(inboxItems.id, inboxItemId),
+          needsAnswer,
+          sql`not exists (select 1 from "inbox_item_reads" "r" where "r"."business_id" = ${businessId}::uuid and "r"."inbox_item_id" = ${inboxItemId}::uuid and "r"."user_id" = ${userId}::uuid)`,
+        ),
+      )
+      .limit(1);
+    return rows[0] ?? null;
+  },
+
+  /** The notes of `itemIds` this business already emailed the person about (any day), as a set of ids. */
+  async emailedItems(db: Executor, businessId: string, userId: string, itemIds: readonly string[]): Promise<Set<string>> {
+    if (itemIds.length === 0) return new Set();
+    const rows = await db
+      .select({ itemId: sql<string>`${events.payload} ->> 'inboxItemId'` })
+      .from(events)
+      .where(and(eq(events.businessId, businessId), eq(events.type, "notify.email_sent"), sql`${events.payload} ->> 'userId' = ${userId}`, sql`${events.payload} ->> 'inboxItemId' in (${sql.join(itemIds.map((id) => sql`${id}`), sql`, `)})`));
+    return new Set(rows.map((r) => r.itemId));
+  },
+
+  /** How many emails went to the person since `since`, per business, among `businessIds` (the businesses they belong to). */
+  async sentSince(db: Executor, userId: string, businessIds: readonly string[], since: Date): Promise<Map<string, number>> {
+    if (businessIds.length === 0) return new Map();
+    const rows = await db
+      .select({ businessId: events.businessId, n: sql<number>`count(*)::int` })
+      .from(events)
+      .where(and(inArray(events.businessId, [...businessIds]), eq(events.type, "notify.email_sent"), gte(events.occurredAt, since), sql`${events.payload} ->> 'userId' = ${userId}`))
+      .groupBy(events.businessId);
+    return new Map(rows.map((r) => [r.businessId, Number(r.n)]));
+  },
+};

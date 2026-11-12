@@ -23,4 +23,7 @@ export * from "./payments";
 export * from "./table-views";
 export * from "./personas";
 export * from "./goals";
+export * from "./pages";
+export * from "./mail";
+export * from "./consents";
 export * from "./demo";

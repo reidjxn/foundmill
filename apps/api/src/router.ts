@@ -11,7 +11,7 @@ import { dashboardRouter, departmentRouter, screenRouter } from "./routers/depar
 import { devRouter } from "./routers/dev";
 import { distributionRouter } from "./routers/distribution";
 import { financeRouter } from "./routers/finance";
-import { founderRouter } from "./routers/founder";
+import { founderRouter, publicPersonRouter } from "./routers/founder";
 import { goalRouter } from "./routers/goal";
 import { ideaRouter } from "./routers/idea";
 import { importRouter } from "./routers/import";
@@ -20,6 +20,7 @@ import { integrationsRouter, keysRouter } from "./routers/integrations";
 import { journeyRouter } from "./routers/journey";
 import { legalRouter } from "./routers/legal";
 import { liveRouter } from "./routers/live";
+import { pageRouter, publicPageRouter } from "./routers/page";
 import { productRouter } from "./routers/product";
 import { teamRouter } from "./routers/team";
 import { todayRouter } from "./routers/today";
@@ -42,6 +43,9 @@ export const appRouter = router({
   journey: journeyRouter,
   product: productRouter,
   goal: goalRouter,
+  page: pageRouter,
+  publicPage: publicPageRouter,
+  publicPerson: publicPersonRouter,
   today: todayRouter,
   chiefOfStaff: chiefOfStaffRouter,
   dev: devRouter,

@@ -33,7 +33,7 @@ export const categoriser = defineTemplate({
       },
     ],
   },
-  tools: [grant("platform", ["finance.chart_of_accounts.read", "finance.rules.read"])],
+  tools: [grant("platform", ["finance.chart_of_accounts.read"])],
   skills: withCoreSkills(["chart_of_accounts", "transaction_categorisation", "rule_induction"]),
   autonomy: AUTONOMY_UTILITY,
   neverDoes: ["Move or approve money", "Invent payees or payers", "Override founder rules", "Treat financing as operating"],

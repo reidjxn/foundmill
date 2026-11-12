@@ -7,7 +7,8 @@
  *   service → app roles read only; rows are produced by services (service_role)
  *   append  → app roles may insert, never update/delete (audit_log)
  *
- * Tables with a nullable business_id, user-owned tables and the social tables have their own suites.
+ * Tables with a nullable business_id, user-owned tables, the social tables and `project_pages` (one row per business)
+ * have their own suites.
  */
 import { CHANNEL_KEYS } from "@foundmill/shared";
 import type { AnyPgColumn, PgTable } from "drizzle-orm/pg-core";
@@ -124,6 +125,8 @@ export const TENANT_TABLES: TenantTableSpec[] = [
   spec("mentions", s.mentions, "member", (f) => ({ entityId: f.entityId, containerKind: "inbox_item", containerId: crypto.randomUUID() })),
   spec("field_provenance", s.fieldProvenance, "member", (f) => ({ entityId: f.entityId, field: "email", source: "import" })),
   spec("merge_log", s.mergeLog, "member", (f) => ({ keptId: f.entityId, mergedId: crypto.randomUUID() })),
+  // 0079 what a contact agreed to (a follower of the public page): written by the api's service connection only
+  spec("contact_consents", s.contactConsents, "service", (f) => ({ entityId: f.entityId, purpose: "email", source: "page", sourceRef: uniq("page"), consentText: "I agree to get email from Alpha about this project. I can unsubscribe at any time." })),
   // 0009 finance
   spec("accounts", s.accounts, "admin", () => ({ provider: "mock_bank", externalId: uniq("acct"), name: "Ops" })),
   spec("transactions", s.transactions, "member", (f) => ({ accountId: f.accountId, externalId: uniq("tx"), bookedAt: new Date(), amountMinor: -1200 })),
@@ -173,6 +176,8 @@ export const NON_TENANT_TABLES = [
   "account_preferences",
   // 0074: a person's phones (user-owned, no business_id); covered by rls/founder-devices.test.ts.
   "founder_devices",
+  // 0080: handles a person left, kept for them for 90 days (user-owned, service role only); rls/person-profiles.test.ts.
+  "person_handle_releases",
   "ideas",
   "idea_versions",
   "idea_comparisons",
@@ -191,10 +196,14 @@ export const NON_TENANT_TABLES = [
   "posts",
   "post_reports",
   "network_attestations",
-  "leaderboards",
-  "leaderboard_entries",
   "negotiation_threads",
   // 0067: a platform asset (no business_id), service role only; covered by repos/personas.test.ts.
   "persona_portraits",
+  // 0077: business-scoped, but one row per business (the generated suite inserts a second); covered by rls/project-pages.test.ts.
+  "project_pages",
+  // 0078: business-scoped, one row per business, written by services only; covered by rls/project-mail.test.ts.
+  "project_mail",
+  // 0078: a platform table (no business_id: the project it belonged to is gone), service role only; covered by rls/project-mail.test.ts.
+  "retired_mail_local_parts",
 ] as const;
 

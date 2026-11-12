@@ -5,9 +5,11 @@
  * connector, and `resolveGrants` is what the orchestrator mints session tokens and configures MCP servers from.
  *
  * A grant names either a capability from the maps below, a connector's real tool name (what the Tools tab saves), or `*`.
- * Every capability a template grants on a connector this repo serves resolves to at least one real tool, or is listed in
- * NOT_YET_SERVED with the reason; connectors that do not exist yet (later phases) get no MCP server at all. The contract
- * test in apps/orchestrator holds every template to this.
+ * Every capability a template grants resolves: to a real gateway tool, to an SDK built-in of the session workspace, or to
+ * something the session runtime does itself. A template never grants on a connector that is not built or a capability no
+ * tool serves (founder, Nov 11, 2026: agents are granted only tools that exist); the contract test in apps/orchestrator
+ * holds every template to this. Agent versions stored before that date may still hold such grants: `resolveGrants` gives
+ * them no tool, and `servedGrants` is what a screen shows.
  */
 import { anthropicTools } from "./connectors/anthropic/tools";
 import { bolagsverketTools } from "./connectors/bolagsverket/tools";
@@ -32,8 +34,10 @@ import { tinkTools } from "./connectors/tink/tools";
 import { voyageTools } from "./connectors/voyage/tools";
 import { openaiImagesTools } from "./connectors/openai_images/tools";
 import { onesignalTools } from "./connectors/onesignal/tools";
+import { platformNotifyTools } from "./connectors/platform_notify/tools";
 import { webTools } from "./connectors/web/tools";
 import { e2bTools } from "./connectors/e2b/tools";
+import { platformMailTools } from "./connectors/platform_mail/tools";
 
 const names = (tools: readonly { name: string }[]) => Object.freeze(tools.map((t) => t.name));
 
@@ -43,6 +47,7 @@ export const GATEWAY_TOOL_NAMES: Readonly<Record<string, readonly string[]>> = O
   voyage: names(voyageTools),
   openai_images: names(openaiImagesTools),
   onesignal: names(onesignalTools),
+  platform_notify: names(platformNotifyTools),
   github: names(githubTools),
   google_drive: names(googleDriveTools),
   gmail: names(gmailTools),
@@ -64,6 +69,7 @@ export const GATEWAY_TOOL_NAMES: Readonly<Record<string, readonly string[]>> = O
   platform: names(platformTools),
   web: names(webTools),
   quarantine: names(quarantineTools),
+  platform_mail: names(platformMailTools),
 });
 
 const bankingCapabilities = { "accounts.list": ["list_accounts", "get_consent_status"], "transactions.list": ["list_transactions", "sync"] };
@@ -165,6 +171,8 @@ export const CAPABILITY_TOOLS: Readonly<Record<string, Readonly<Record<string, r
   },
   web: { search: ["search_web"], fetch: ["fetch_page"] },
   quarantine: { read_untrusted: ["read_untrusted"] },
+  // The project's Foundmill sending address (package 1.5): one message to one person, from the project.
+  platform_mail: { "mail.send": ["send_mail"] },
 };
 
 /**
@@ -193,39 +201,22 @@ export const SESSION_MANAGED_CAPABILITIES: Readonly<Record<string, Readonly<Reco
 };
 
 /**
- * Capabilities a template grants on a served connector that no tool serves yet, and why. Pinned by the contract test so
- * a new gap is a deliberate entry here, never a silent one.
+ * Capabilities a template grants on a served connector that no tool serves yet, and why. Empty since Nov 11, 2026: every
+ * template grant resolves (the contract test in apps/orchestrator fails on one that does not), and the grants removed
+ * then are listed in packages/agents/src/templates/PLANNED_GRANTS.md. A new gap is still a deliberate entry here, with
+ * its reason, and the contract test names it: build the tool, or leave the grant out of the template.
  */
-export const NOT_YET_SERVED: Readonly<Record<string, Readonly<Record<string, string>>>> = {
-  github: { "issues.list": "no Issues tool on the GitHub connector yet", "branches.list": "no branch listing tool yet (read_tree reads one ref)" },
-  dropbox_sign: { "templates.list": "no template tool on the Dropbox Sign connector yet" },
-  stripe: { "subscriptions.list": "no subscription tool on the Stripe connector yet" },
-  sendgrid: { "subusers.read": "subusers are not modeled", "inbound.read": "inbound mail arrives as pushed events, not a tool" },
-  shopify: { "payouts.list": "no Shopify Payments tool yet", "discounts.create": "no discount tool on the Shopify connector yet" },
-  sandbox: {
-    shell: "no shell in a live session: Bash is disallowed on the orchestrator host (SECURITY_REVIEW SEC-3)",
-    run_tests: "tests cannot run in a live session without a shell (SEC-3)",
-    playwright: "no browser in a live session without a shell (SEC-3)",
-  },
-  platform: Object.fromEntries(
-    [
-      "plans.compile", "cycles.read", "spec.publish", "roadmap.update", "sessions.pause", "sessions.resume", "channels.score", "channels.enable", "channels.disable", "channels.set_budget",
-      "campaigns.results", "attribution.read", "benchmarks.read", "finance.categorise", "finance.forecast", "finance.rules.read", "cap_table.read", "cap_table.propose",
-      "legal.contracts.review", "legal.policies.generate", "incorporation.prepare", "crm.entities.create", "crm.interactions.append", "documents.read", "documents.write",
-      "costing.model.read", "costing.model.update", "campaigns.create", "campaigns.update", "campaigns.pause", "assets.create", "attribution.links.create", "attribution.codes.create",
-      "rfq.create", "rfq.track", "quotes.record", "samples.track",
-    ].map((c) => [c, "no platform tool for this yet: the agent asks its lead (send_message) or hands it to the founder"]),
-  ),
-};
+export const NOT_YET_SERVED: Readonly<Record<string, Readonly<Record<string, string>>>> = Object.freeze({});
 
 /**
  * Connectors only the platform itself calls, from a service route of the gateway (never an agent session): `openai_images`
  * makes the faces of anthropomorphic agents on the platform key (`POST /v1/personas/portrait`); `onesignal` pushes to
- * founders' own phones from the mobile app (`POST /v1/push/send`). A grant on one resolves to nothing, the gateway refuses
+ * founders' own phones from the mobile app (`POST /v1/push/send`); `platform_notify` emails a person from Foundmill
+ * itself about their own project (`POST /v1/notify/email`). A grant on one resolves to nothing, the gateway refuses
  * it on `/v1/call` and `/mcp/:connector` whatever a session token says, and the api neither lists it in
  * Settings › Integrations nor connects it for a business.
  */
-export const SERVICE_ONLY_CONNECTORS: ReadonlySet<string> = new Set(["openai_images", "onesignal"]);
+export const SERVICE_ONLY_CONNECTORS: ReadonlySet<string> = new Set(["openai_images", "onesignal", "platform_notify"]);
 
 /** Why a grant on a service-only connector resolves to nothing (`ResolvedGrants.unresolved`). */
 export const SERVICE_ONLY_REASON = "the platform calls this connector itself; agents never do";
@@ -272,7 +263,7 @@ export interface ResolvedGrants {
   mcpTools: string[];
   /** Built-in SDK tools the grants ask for (the session's tool policy decides which a task kind gets). */
   builtinTools: string[];
-  /** Grants nothing serves (a connector of a later phase, a capability in NOT_YET_SERVED, or a service-only connector). */
+  /** Grants nothing serves (a connector that is not built, a capability no tool serves, or a service-only connector). */
   unresolved: UnresolvedGrant[];
 }
 
@@ -333,4 +324,20 @@ export function resolveGrants(grants: readonly ToolGrantLike[]): ResolvedGrants 
     }
   }
   return { toolRefs: [...refs], servers: [...servers], mcpTools: [...mcp], builtinTools: [...builtins], unresolved };
+}
+
+/**
+ * The grants a founder is shown (the agent profile's Tools tab, the Agents table): each grant without the capabilities
+ * `resolveGrants` leaves unresolved, and no grant that has none left. An agent version stored before Nov 11, 2026 may
+ * hold grants on connectors that were never built or capabilities no tool serves; a session never held them, so the
+ * product does not list them. Order is kept, and so are the capability names as stored.
+ */
+export function servedGrants<G extends ToolGrantLike>(grants: readonly G[]): { connectorKey: string; tools: string[] }[] {
+  const out: { connectorKey: string; tools: string[] }[] = [];
+  for (const g of grants) {
+    const gaps = new Set(resolveGrants([g]).unresolved.map((u) => u.capability));
+    const tools = g.tools.filter((t) => !gaps.has(t));
+    if (tools.length > 0) out.push({ connectorKey: g.connectorKey, tools });
+  }
+  return out;
 }

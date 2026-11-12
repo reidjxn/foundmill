@@ -19,11 +19,18 @@ const CHUNKS = [["Problem", "Customers"], ["Features", "Pricing"]];
 
 type Mode = "ok" | "unavailable" | "raw" | "stale" | "flaky";
 
-function acts(opts: { plan?: Mode; batch?: Mode; apply?: "ok" | "throws" } = {}) {
-  const calls = { plan: 0, sections: [] as string[], roadmap: 0, apply: [] as Record<string, unknown>[], fail: [] as string[] };
+function acts(opts: { plan?: Mode; batch?: Mode; apply?: "ok" | "throws"; page?: "ok" | "throws" } = {}) {
+  const calls = { page: 0, plan: 0, order: [] as string[], sections: [] as string[], roadmap: 0, apply: [] as Record<string, unknown>[], fail: [] as string[] };
   const a: Partial<Activities> = {
+    async draftProjectPage() {
+      calls.page++;
+      calls.order.push("page");
+      if (opts.page === "throws") throw ApplicationFailure.create({ message: "The page draft could not be saved.", type: "ProjectPageDraftError" });
+      return { current: true, written: true, source: "model" as const, inboxItemId: "22222222-2222-4222-8222-222222222222", usage: USAGE };
+    },
     async draftFoundationsPlan() {
       calls.plan++;
+      calls.order.push("plan");
       if (opts.plan === "unavailable") throw ApplicationFailure.create({ message: "The model service did not answer. Try again in a few minutes.", type: "FoundationsDraftError", nonRetryable: calls.plan >= 2 });
       // Any other failure (a worker crash, a provider error) carries raw text that must never reach the founder.
       if (opts.plan === "raw") throw ApplicationFailure.create({ message: "upstream 529 overloaded req_abc at 10.0.0.4", type: "ModelUnavailableError", nonRetryable: true });
@@ -64,6 +71,21 @@ describe("businessFoundations workflow (staged)", () => {
     expect(m.calls.sections).toHaveLength(2);
     expect(m.calls.apply).toEqual([{ route: "foundations", model: "claude-opus-5-5", mode: "mock", costMinor: 8, costLabel: "Estimate", repaired: false, runner: "temporal", staged: true, calls: 4 }]);
   });
+
+  it("drafts the project page first, before the plan (package 1.2); its cost stays out of the foundations summary", async () => {
+    const m = acts();
+    expect(await run(m, 10)).toMatchObject({ status: "ready" });
+    expect(m.calls.page).toBe(1);
+    expect(m.calls.order.slice(0, 2)).toEqual(["page", "plan"]);
+    expect(m.calls.apply[0]).toMatchObject({ calls: 4, costMinor: 8 });
+  });
+
+  it("a page step that keeps failing never holds up or fails the foundations", async () => {
+    const m = acts({ page: "throws" });
+    expect(await run(m, 11)).toMatchObject({ status: "ready" });
+    expect(m.calls.page).toBe(2);
+    expect(m.calls).toMatchObject({ plan: 1, roadmap: 1, fail: [] });
+  }, 120_000);
 
   it("a batch that fails once is retried on its own; nothing else runs twice", async () => {
     const m = acts({ batch: "flaky" });

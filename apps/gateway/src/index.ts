@@ -16,6 +16,7 @@ import { createDefaultRegistry, platformSecretsFromEnv, type ConnectorRegistry }
 import { createModelClient, effectiveModelMode, type ModelClient } from "@foundmill/models";
 import { createGatewayApp, type GatewayApp } from "./app";
 import { createGatewayBuiltins, gatewayUsageSink } from "./builtins";
+import { platformMailConfig } from "./platform-mail";
 import type { RepositoryFiles } from "./platform-host";
 import { createRepositoryFiles } from "./repository-files";
 import { gatewayConfig, type GatewayConfig } from "./config";
@@ -74,6 +75,8 @@ export interface BuiltGateway {
 export function buildGateway(options: BuildDepsOptions = {}): BuiltGateway {
   const env = options.env ?? loadEnv();
   const config = gatewayConfig(env);
+  // Throws (the gateway does not start) with the domain set outside development and test and no 32+ character secret.
+  const platformMail = platformMailConfig(env);
   const log = options.log ?? (createLogger("gateway", env.LOG_LEVEL) as unknown as GatewayLogger);
   const db = options.db ?? createServiceDb();
 
@@ -129,7 +132,7 @@ export function buildGateway(options: BuildDepsOptions = {}): BuiltGateway {
   // Recipients first seen in untrusted content are one register per business, shared by every session and replica (Redis).
   const recipients: UntrustedRegister = options.recipients ?? (redisClient ? new RedisUntrustedRegister(redisClient, { onFallback: (e) => log.warn({ err: e }, "the untrusted-recipient register fell back to this process's memory") }) : new UntrustedRecipientRegistry());
   const reader: UntrustedReader = options.reader ?? createUntrustedReader(createReaderModelClient(env, db, log));
-  const deps: GatewayDeps = { db, registry, vault, mode: config.integrationsMode, liveConnectors: config.liveConnectors, rateLimits, recipients, reader, log };
+  const deps: GatewayDeps = { db, registry, vault, mode: config.integrationsMode, liveConnectors: config.liveConnectors, appEnv: config.appEnv, rateLimits, recipients, reader, log, platformMail };
   repositoryFiles = createRepositoryFiles(deps);
   // Until prepare() has run the database is assumed reachable (tests build the graph over an already-migrated PGlite).
   let readiness: DbReadiness | null = null;

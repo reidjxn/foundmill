@@ -1,36 +1,28 @@
-import { defineChannelTemplate, grant } from "./_channel";
+import { defineChannelTemplate } from "./_channel";
 
 export const channelPaidAds = defineChannelTemplate({
   channelKey: "paid_ads",
   name: "Paid Advertising Engine",
   role: "Paid media specialist",
   work: ["audiences", "creative variants", "pacing and bids", "server-side conversions", "a kill-switch on cost per acquisition"],
-  connectors: [
-    grant("google_ads", ["campaigns.create", "campaigns.update", "campaigns.pause", "audiences.create", "reports.read", "conversions.upload"]),
-    grant("meta_marketing", ["campaigns.create", "adsets.update", "ads.pause", "audiences.create", "insights.read", "capi.send"]),
-    grant("tiktok_marketing", ["campaigns.create", "adgroups.update", "ads.pause", "reports.read", "events.send"]),
-    grant("linkedin_marketing", ["campaigns.create", "campaigns.update", "campaigns.pause", "analytics.read", "capi.send"]),
-    grant("microsoft_ads", ["campaigns.create", "campaigns.pause", "reports.read"]),
-    grant("reddit_ads", ["campaigns.create", "campaigns.pause", "reports.read"]),
-    grant("x_ads", ["campaigns.create", "campaigns.pause", "reports.read"]),
-  ],
+  connectors: [],
   guardrails: [
-    "Daily and lifetime caps on every campaign; a campaign whose cost to win a customer stays above its cap for 48 hours is paused automatically and reported.",
+    "Daily and lifetime caps on every campaign; a campaign whose cost to win a customer stays above its cap for 48 hours goes to the founder to pause the same day, with the evidence (no ad platform tool is available yet).",
     "Policy pre-check every creative and audience: special-category targeting (health, religion, politics, sexual orientation, financial hardship) is never used.",
     "Spend only within the channel share; any new campaign above the approval threshold is an Inbox decision.",
   ],
   playbook: [
     "Plan: pick platforms where the customer is reachable within budget; define audiences, caps and the target cost to win a customer.",
-    "Create: 2-4 creative variants per audience with claims traced to source ids; set up server-side conversion tracking.",
+    "Create: 2-4 creative variants per audience with claims traced to source ids; write the server-side conversion tracking setup as steps for the founder task.",
     "Approve: policy pre-check; request approval for new campaigns above threshold.",
-    "Launch: start with learning budgets; verify conversions arrive end to end.",
-    "Measure: cost to win a customer by campaign and audience, daily; pause breaches after 48 hours.",
+    "Launch: no ad platform tool is available yet, so raise a founder task with each campaign's platform, audience, creative, caps and learning budget to set up; report it as prepared, not launched.",
+    "Measure: cost to win a customer by campaign and audience from attributed customers and the spend figures the founder provides; ask the founder to pause a breach after 48 hours.",
     "Learn and report: weekly cost to win a customer, winners to scale, losers paused, next variants.",
   ],
   examples: [
     {
       input: "Campaign 'CFO-LinkedIn-A' cost to win a customer €212 vs cap €150 for 52 hours.",
-      output: "Paused 'CFO-LinkedIn-A' (cap breach 48 h rule). Shifted €40/day to 'CFO-LinkedIn-B' (€98 per customer, 14 conversions). Inbox warning sent with campaign ids and the conversion records.",
+      output: "Founder task raised: pause 'CFO-LinkedIn-A' (cap breach 48 h rule) and shift €40/day to 'CFO-LinkedIn-B' (€98 per customer, 14 conversions), with campaign ids and the conversion records. Nothing was changed on the ad platform by me.",
     },
   ],
   craftSkills: ["audience_targeting", "creative_testing", "bid_pacing", "conversion_tracking", "ad_policy_compliance"],

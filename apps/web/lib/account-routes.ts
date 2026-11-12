@@ -7,4 +7,6 @@ export const accountRoutes = {
   /** Create a new business: the two doors (Ideation Studio, Import). */
   newBusiness: "/new",
   profile: "/onboarding",
+  /** Your public profile: the person's own page at /u/<handle> (package 2.3). */
+  publicProfile: "/public-profile",
 } as const;

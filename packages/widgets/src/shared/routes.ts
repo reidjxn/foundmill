@@ -16,6 +16,5 @@ export const routes = {
   /** Milestones page (CLAUDE.md vocabulary: never "trophies" in anything a user reads; apps/web redirects /trophies here). */
   milestones: (bid: string, shareKey?: string) => (shareKey ? `/b/${bid}/milestones?share=${encodeURIComponent(shareKey)}` : `/b/${bid}/milestones`),
   settings: (bid: string, tab: string) => `/b/${bid}/settings/${tab}`,
-  leaderboard: (boardId: string) => `/leaderboards/${boardId}`,
   community: (communityId: string) => `/communities/${communityId}`,
 } as const;

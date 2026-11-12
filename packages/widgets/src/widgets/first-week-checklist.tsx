@@ -1,8 +1,8 @@
 "use client";
 /**
  * First-week checklist widget (docs/UX_AUDIT_AND_PLAN.md §6.2, §7.8): the span-4 "Your first week" panel on the
- * Founder's view, fed by `business.firstWeek.get` (one read-only flag per item: the sign-offs, a finished cycle, a
- * note read, a reply sent to an agent, distribution started, a bank or Stripe connected). "Hide" records the
+ * Founder's view, fed by `business.firstWeek.get` (one read-only flag per item: the page published, the sign-offs, a
+ * finished cycle, a note read, a reply sent to an agent, distribution started). "Hide" records the
  * dismissal through the guided layer's actions (`account_preferences.checklist_dismissed_at`); once every item is
  * done the panel says so once and records the same. Hidden when complete, dismissed or guidance is off: the cell
  * keeps its place on the grid (DESIGN §2) and shows one line only while the dashboard is being edited, so the founder
@@ -25,25 +25,24 @@ export type FirstWeekChecklistSettings = z.infer<typeof FirstWeekChecklistSettin
 
 /** The response flag behind each of the seven items. */
 export const FIRST_WEEK_FLAGS: Record<FirstWeekItemId, keyof FirstWeekResponse> = {
+  publish_page: "pagePublished",
   sign_off_specification: "specificationSignedOff",
   sign_off_roadmap: "roadmapSignedOff",
   run_cycle: "cycleCompleted",
   read_note: "noteRead",
   talk_to_agent: "conversationReplySent",
   start_distribution: "distributionStarted",
-  connect_bank: "bankOrStripeConnected",
 };
 
 /** Events after which a flag may have flipped, each with the flags it can flip. */
 export const FIRST_WEEK_EVENT_FLAGS: Record<string, readonly (keyof FirstWeekResponse)[]> = {
+  "page.published": ["pagePublished"],
   "product.signoff_decided": ["specificationSignedOff", "roadmapSignedOff"],
   "cycle.completed": ["cycleCompleted"],
   "inbox.item_updated": ["noteRead"],
   "decision.made": ["noteRead"],
   "conversation.message_posted": ["conversationReplySent"],
   "distribution.started": ["distributionStarted"],
-  "bank.balance_updated": ["bankOrStripeConnected"],
-  "customer.converted": ["bankOrStripeConnected"],
 };
 const FIRST_WEEK_EVENTS = Object.keys(FIRST_WEEK_EVENT_FLAGS);
 
@@ -68,17 +67,17 @@ export function focusContinueButton(): boolean {
   return true;
 }
 
-/** Where each item's "Go" leads: the Product tabs, Continue itself, the Inbox, the Team's agents, the Board, Settings › Integrations. */
+/** Where each item's "Go" leads: the Product tabs (the Public page first), Continue itself, the Inbox, the Team's agents, the Board. */
 export function firstWeekHrefs(businessId: string, departments: readonly DepartmentRow[] | undefined): Record<FirstWeekItemId, Pick<FirstWeekItem, "href" | "onGo">> {
   const product = (tab: string) => moduleHref(businessId, departments, "product", tab) ?? routes.department(businessId, "product", tab);
   return {
+    publish_page: { href: product("public-page") },
     sign_off_specification: { href: product("specification") },
     sign_off_roadmap: { href: product("roadmap") },
     run_cycle: { onGo: () => void focusContinueButton() },
     read_note: { href: routes.inbox(businessId) },
     talk_to_agent: { href: moduleHref(businessId, departments, "team", "squad") ?? routes.department(businessId, "team", "squad") },
     start_distribution: { href: moduleHref(businessId, departments, "distribution", "formation") ?? routes.department(businessId, "distribution", "formation") },
-    connect_bank: { href: routes.settings(businessId, "integrations") },
   };
 }
 

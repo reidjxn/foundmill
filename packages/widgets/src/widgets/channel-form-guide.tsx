@@ -8,6 +8,7 @@
 import { useMemo } from "react";
 import { z } from "zod";
 import { Megaphone } from "lucide-react";
+import { channelMayRun } from "@foundmill/shared/channel-availability";
 import { CHANNEL_META, type ChannelKey } from "@foundmill/shared/constants";
 import { COST_TREND_LABEL, FormGuide, MiniTable, ProvenanceChip, RatingFigure, Term, formatMoney, formatNumber, type FormCell, type MiniTableColumn } from "@foundmill/dugout";
 import { useBusinessEvents, useToday, useWidgetData, useWidgetQuery } from "../data";
@@ -73,6 +74,8 @@ export function buildFormRows(channels: readonly ChannelRow[], metrics: readonly
     byChannel.set(m.channelId, perWeek);
   }
   return channels
+    // Only channels that can really act are listed (or one the founder runs in offline tracking), as on the Channel Board.
+    .filter((c) => channelMayRun(c.availability, c.enabled && c.kitMode === true))
     .filter((c) => opts.includeDisabled || c.enabled)
     .sort((a, b) => Number(b.enabled) - Number(a.enabled) || b.fit - a.fit || a.channelKey.localeCompare(b.channelKey))
     .slice(0, opts.max)
@@ -124,7 +127,7 @@ function ChannelFormGuideWidget({ settings }: WidgetProps<ChannelFormGuideSettin
       data-widget="channel_form_guide"
       queries={[channels, metrics]}
       flush
-      empty={channels.data && rows.length === 0 ? { icon: Megaphone, text: "No channels are on the board yet. Put the first channels on the Channel Board.", action: { label: "Open Channel Board", onClick: () => navigate(moduleHref(businessId, departments.data, "distribution", "formation") ?? `/b/${businessId}/home`) } } : null}
+      empty={channels.data && rows.length === 0 ? { icon: Megaphone, text: channels.data.noChannel ?? "No channels are on the board yet. Put the first channels on the Channel Board.", action: { label: "Open Channel Board", onClick: () => navigate(moduleHref(businessId, departments.data, "distribution", "formation") ?? `/b/${businessId}/home`) } } : null}
       actions={<ProvenanceChip kind="estimate" aria-label="Estimate: the cost to win a customer is this week's spend divided by the customers the channel brought in" />}
       footer={
         <span>

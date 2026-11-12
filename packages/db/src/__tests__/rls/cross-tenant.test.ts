@@ -189,7 +189,7 @@ describe("tenant tables catalogue", () => {
          and table_name in (select tablename from pg_tables where schemaname = 'public')
        order by table_name`);
     const inSql = (res as unknown as { rows: { table_name: string }[] }).rows.map((r) => r.table_name);
-    const covered = new Set([...TENANT_TABLES.map((t) => t.name), "memberships", "credentials", "dashboard_layouts", "inbox_item_reads", "leaderboard_entries"]);
+    const covered = new Set([...TENANT_TABLES.map((t) => t.name), "memberships", "credentials", "dashboard_layouts", "inbox_item_reads", "project_pages", "project_mail"]);
     const missing = inSql.filter((n) => !covered.has(n));
     expect(missing).toEqual([]);
   });

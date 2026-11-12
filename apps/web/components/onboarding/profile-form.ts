@@ -48,7 +48,7 @@ export { CURRENCIES } from "@foundmill/shared/constants";
 
 export const MARKET_SUGGESTIONS = ["EU", "UK", "US", "Nordics", "DACH", "France", "Benelux", "Canada", "Australia", "Global"] as const;
 
-export const CONSTRAINT_SUGGESTIONS = ["Bootstrapped, no outside funding", "Remote only", "No physical inventory", "B2B only", "Must be profitable within a year", "Keep my day job for now", "No regulated industries", "English-speaking markets only"] as const;
+export const CONSTRAINT_SUGGESTIONS = ["Bootstrapped, no outside funding", "Remote only", "No physical inventory", "B2B only", "Must be profitable within a year", "Fits around what I already do", "No regulated industries", "English-speaking markets only"] as const;
 
 /** A compact country list for citizenship and residence (free text is also accepted). */
 export const COUNTRIES: readonly string[] = [
@@ -534,7 +534,7 @@ export type ExampleProfileKey = (typeof EXAMPLE_PROFILE_KEYS)[number];
 
 /**
  * A labeled example founder: first time, evenings and weekends, £5,000 of their own money, living in the United
- * Kingdom and aiming at the UK and Ireland, keeping their day job and holding no stock, with a low appetite for risk.
+ * Kingdom and aiming at the UK and Ireland, fitting it around what they already do and holding no stock, with a low appetite for risk.
  * The skills show one of each band word, so the legend has something to point at.
  */
 export const EXAMPLE_PROFILE: Readonly<Pick<ProfileForm, ExampleProfileKey>> = {
@@ -547,7 +547,7 @@ export const EXAMPLE_PROFILE: Readonly<Pick<ProfileForm, ExampleProfileKey>> = {
   noBudget: false,
   currency: "GBP",
   targetMarkets: ["UK", "Ireland"],
-  constraints: ["Keep my day job for now", "No physical inventory"],
+  constraints: ["Fits around what I already do", "No physical inventory"],
   riskAppetite: "low",
 };
 

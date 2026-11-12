@@ -1,7 +1,10 @@
 /**
- * The api's calls into apps/gateway for App connectors (GitHub): connecting an installation and checking its health run
- * in the gateway, the one service holding the App's keys (BUILD §2.1 rule 2), behind a one-minute service JWT of the
- * same shape as apps/gateway `signServiceToken` (`iss foundmill-gateway`, `aud foundmill-gateway/service`, `svc api`).
+ * The api's calls into apps/gateway, the one service that reaches vendors and holds their keys (BUILD §2.1 rule 2,
+ * SEC-14), behind a one-minute service JWT of the same shape as apps/gateway `signServiceToken` (`iss foundmill-gateway`,
+ * `aud foundmill-gateway/service`, `svc api`). Connecting an integration and checking its health run there for every
+ * connector that runs live (`connect`, `health`: GitHub's installation check, an API key the founder entered, an OAuth
+ * consent link or code exchange; the gateway seals any secret the vendor hands back). So do a founder's own Anthropic key
+ * check (`validateKey`, live models only) and Legal › Import's registry lookups (`registryLookup`, live registries only).
  * Credit top-ups open their Stripe Checkout session there too (`createCheckout`): STRIPE_SECRET_KEY lives only in the
  * gateway. The Commit screen's domain checks go there too (`checkDomains`): registries are reached only from the gateway.
  * So do the AI-generated faces of anthropomorphic agents (`generatePortrait`): the api sends a persona catalog key and a character style, never a
@@ -10,7 +13,7 @@
  */
 import { randomUUID } from "node:crypto";
 import { OPENAI_IMAGES_GENERATION_TIMEOUT_MS } from "@foundmill/connectors";
-import { AppError, type AgentStyle, type IntegrationStatus, type NotificationKind } from "@foundmill/shared";
+import { AppError, type AgentStyle, type EmailNotificationKind, type IntegrationStatus, type NotificationKind } from "@foundmill/shared";
 import { SignJWT } from "jose";
 
 export const TOKEN_ISSUER = "foundmill-gateway";
@@ -24,6 +27,47 @@ export interface GatewayIntegrationRecord {
   externalAccountId: string | null;
   config: Record<string, unknown>;
   expiresAt: string | null;
+}
+
+/** What the gateway's connect answers: the record without any secret, and where a secret the vendor handed back was sealed. */
+export interface GatewayConnectResult {
+  /** The mode the gateway ran the connector in (it decides what the row's status becomes). */
+  mode: "mock" | "live";
+  record: GatewayIntegrationRecord;
+  /** The integration row the gateway stored a credential with; null when it wrote nothing. */
+  integrationId: string | null;
+  /** The sealed credential: its row id and a four-character hint (`redactSecret`); null when there was none. */
+  credential: { stored: true; credentialId: string; hint: string } | null;
+}
+
+/** A founder's own Anthropic key, checked by the gateway with Anthropic (apps/gateway keys.ts `ValidateKeyResponse`). */
+export interface GatewayKeyValidation {
+  mode: "live";
+  valid: boolean;
+  reason: string | null;
+  routedModels: { key: string; modelId: string; available: boolean }[];
+  checkedAt: string;
+}
+
+/** The registries Legal › Import looks companies up in; the gateway runs only their lookup tools (registry-lookup.ts). */
+export type GatewayRegistryKey = "companies_house" | "bolagsverket" | "opencorporates";
+
+export interface GatewayRegistryLookupRequest {
+  businessId: string;
+  connector: GatewayRegistryKey;
+  tool: string;
+  args: Record<string, unknown>;
+}
+
+export interface GatewayRegistryLookup {
+  mode: "mock" | "live";
+  ok: boolean;
+  /** The untrusted envelope of the registry's answer (`{ untrusted: true, content, source, notice }`). */
+  data?: unknown;
+  /** The tool's code and the registry's HTTP status, never the registry's own words. */
+  error?: { code: string; status: number | null };
+  costMinor: number;
+  simulated?: true;
 }
 
 export interface GatewayHealth {
@@ -112,9 +156,40 @@ export interface GatewayPushResult {
   errors: string[];
 }
 
+/** The one email asking a page signup to confirm (apps/gateway follow-confirm.ts `ConfirmFollowRequest`). */
+export interface GatewayConfirmFollowRequest {
+  businessId: string;
+  consentId: string;
+  email: string;
+  /** The random nonce reserved on the consent record (its sha256 is stored there). */
+  nonce: string;
+}
+
+/** Sent (on the mock: simulated, nothing left), or not, and why; never an error for "not sent". */
+export type GatewayConfirmFollowResult = { sent: true; simulated: boolean } | { sent: false; reason: string };
+
+/** One email from Foundmill to one of its users (apps/gateway notify-email.ts `NotifyEmailRequest`): ids only. */
+export interface GatewayNotifyEmailRequest {
+  userId: string;
+  kind: EmailNotificationKind;
+  businessId: string;
+  data: { inboxItemId: string };
+}
+
+/** Sent (on the mock: simulated), or not, with the gateway's reason and a plain sentence; never an error for "not sent". */
+export type GatewayNotifyEmailResult = { sent: true; simulated: boolean; eventId: string | null } | { sent: false; reason: string; message: string };
+
+/** A follow confirmation waits at most this long: the visitor's form is waiting on it. */
+export const CONFIRM_FOLLOW_TIMEOUT_MS = 10_000;
+
 export interface ApiGatewayClient {
-  connect(businessId: string, connector: string, input: Record<string, unknown>): Promise<GatewayIntegrationRecord>;
+  /** Connects a live integration: an App installation verified, a vendor's secret sealed by the gateway and never returned. */
+  connect(businessId: string, connector: string, input: Record<string, unknown>): Promise<GatewayConnectResult>;
   health(businessId: string, connector: string): Promise<GatewayHealth>;
+  /** A founder's own Anthropic key, checked with Anthropic (a one-token call, then the routed models); asked only with live models. */
+  validateKey(businessId: string, apiKey: string): Promise<GatewayKeyValidation>;
+  /** A company-registry lookup for Legal › Import; asked only when the registry runs live. */
+  registryLookup(input: GatewayRegistryLookupRequest): Promise<GatewayRegistryLookup>;
   createCheckout(input: GatewayCheckoutRequest): Promise<GatewayCheckout>;
   /** Registry answers for up to eight domain names, on behalf of one founder (the gateway's rate-limit scope). */
   checkDomains(ownerKey: string, domains: string[]): Promise<GatewayDomainAnswer[]>;
@@ -131,6 +206,13 @@ export interface ApiGatewayClient {
   repository(businessId: string, owner: string, repo: string): Promise<{ mode: "mock" | "live"; repository: GatewayRepository }>;
   /** One push notification to the mobile app's phones (docs/mobile): the gateway holds the OneSignal keys and runs the connector. */
   sendPush(input: GatewayPushRequest): Promise<GatewayPushResult>;
+  /** The follow confirmation email (package 1.6): fixed words, from the project's Foundmill address, on a service path. */
+  confirmFollow(input: GatewayConfirmFollowRequest): Promise<GatewayConfirmFollowResult>;
+  /**
+   * Email from Foundmill to a person about their own project (packages 1.5 and 5.1): the gateway resolves the address,
+   * re-checks the person, the note and the day's counts, builds the words and sends; the api's notify pass asks.
+   */
+  notifyEmail(input: GatewayNotifyEmailRequest): Promise<GatewayNotifyEmailResult>;
 }
 
 export interface CreateApiGatewayClientOptions {
@@ -174,12 +256,16 @@ export function createApiGatewayClient(opts: CreateApiGatewayClientOptions): Api
   };
 
   return {
-    connect: async (businessId, connector, input) => (await post<{ record: GatewayIntegrationRecord }>("/v1/integrations/connect", { businessId, connector, input })).record,
+    connect: (businessId, connector, input) => post<GatewayConnectResult>("/v1/integrations/connect", { businessId, connector, input }),
     health: async (businessId, connector) => (await post<{ health: GatewayHealth }>("/v1/integrations/health", { businessId, connector })).health,
     createCheckout: (input) => post<GatewayCheckout>("/v1/billing/checkout-sessions", input),
     checkDomains: async (ownerKey, domains) => (await post<{ results: GatewayDomainAnswer[] }>("/v1/domains/check", { ownerKey, domains })).results,
     generatePortrait: (personaKey, businessId, style) => post<GatewayPortrait>("/v1/personas/portrait", { personaKey, ...(style ? { style } : {}), ...(businessId ? { businessId } : {}) }, Math.max(timeoutMs, PORTRAIT_TIMEOUT_MS)),
     repository: (businessId, owner, repo) => post<{ mode: "mock" | "live"; repository: GatewayRepository }>("/v1/github/repository", { businessId, owner, repo }),
     sendPush: (input) => post<GatewayPushResult>("/v1/push/send", input),
+    confirmFollow: (input) => post<GatewayConfirmFollowResult>("/v1/platform-mail/confirm-follow", input, Math.min(timeoutMs, CONFIRM_FOLLOW_TIMEOUT_MS)),
+    notifyEmail: (input) => post<GatewayNotifyEmailResult>("/v1/notify/email", input, Math.min(timeoutMs, CONFIRM_FOLLOW_TIMEOUT_MS)),
+    validateKey: (businessId, apiKey) => post<GatewayKeyValidation>("/v1/keys/validate", { businessId, apiKey }),
+    registryLookup: (input) => post<GatewayRegistryLookup>("/v1/registry/lookup", input),
   };
 }

@@ -12,7 +12,7 @@ const COMMON_CAPITALISED = new Set(
     "Monday Tuesday Wednesday Thursday Friday Saturday Sunday January February March April May June July August September October November December " +
     "Yes No Ok Okay Hi Hello Dear Thanks Thank Regards Best Please Note Update Warning Decision Milestone Report Summary Context Why What How Who Which Where " +
     // plain-allow: not prose. The linker's list of capitalized words that are never names; nobody reads it.
-    "Today Tomorrow Yesterday Week Month Quarter Year Inbox Continue Refresh Home Settings Team Team Staff Manager Founder Board Chief Of Staff Customer Win Debrief Chapter Leaderboard"
+    "Today Tomorrow Yesterday Week Month Quarter Year Inbox Continue Refresh Home Settings Team Team Staff Manager Founder Board Chief Of Staff Customer Win Debrief Chapter"
   ).split(/\s+/),
 );
 

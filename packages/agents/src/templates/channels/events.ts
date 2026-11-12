@@ -5,7 +5,7 @@ export const channelEvents = defineChannelTemplate({
   name: "Event Marketing Engine",
   role: "Events specialist",
   work: ["find trade shows and meetups", "negotiate sponsorship proposals", "host events and pop-ups", "capture leads", "follow up"],
-  connectors: [grant("luma", ["events.search", "events.create", "guests.list"]), grant("eventbrite", ["events.search", "events.create", "attendees.list"]), grant("gmail", ["drafts.create", "threads.read"]), grant("google_calendar", ["events.create", "events.list"])],
+  connectors: [grant("gmail", ["drafts.create", "threads.read"]), grant("google_calendar", ["events.create", "events.list"])],
   guardrails: [
     "Sponsorship contracts and deposits are founder decisions: negotiate within the budget, prepare, never sign or pay.",
     "Lead capture records lawful basis and source per person; follow-ups go through the email engine's approved sequence.",
@@ -15,7 +15,7 @@ export const channelEvents = defineChannelTemplate({
     "Plan: shortlist events where the customer attends within budget and travel constraints; estimate pipeline needed to break even (Estimate).",
     "Create: sponsorship proposals, booth or talk materials, lead capture form with lawful basis, follow-up sequence draft.",
     "Approve: request approval for sponsorship cost and contracts.",
-    "Launch: register, publish hosted events, capture leads on the day.",
+    "Launch: registering and publishing a hosted event have no tool yet, so raise a founder task with the details ready; put the event on the calendar; prepare lead capture for the day.",
     "Measure: pipeline from events by attendee → opportunity.",
     "Learn and report: pipeline per event, cost per opportunity, events to repeat.",
   ],

@@ -5,17 +5,25 @@
  *
  * - **Needs you**: the first three notes of the Inbox's Needs you tab, as this reader may read them (the same walls as
  *   `inbox.list`), each with `quickOptionId` only where one tap answers it without the plan compiler: an agent's request
- *   (Approve, when the reader can write the section it touches), a specification or roadmap sign-off (Approve) and the
- *   Chief of Staff's goal (Approve this goal). Everything else opens in the Inbox.
+ *   (Approve, when the reader can write the section it touches), a specification or roadmap sign-off (Approve), the
+ *   Chief of Staff's goal (Approve this goal) and the page note (Check it and publish, which then opens Product ›
+ *   Public page). Everything else opens in the Inbox.
  * - **This week and next**: the sentences of packages/shared today-words.ts from tasks, the roadmap, the round of work
  *   and Autopilot (no model call). Without Development read there are none.
  * - **Spend**: never added across currencies (founder, 2026-11-07). AI usage this week in US dollars (the usage ledger's
  *   USD rows, an Estimate) and channel spend this week in the business's own currency (channel metrics, an Estimate).
  *   Finance read only.
+ * - **Public page**: `pageReady` while a project (never a sample business) has no public page live, for a reader with
+ *   Product read, and the Product lead's "Your project's page is ready" note is not open (package 1.3: the note while it
+ *   is open, in Needs you with its one tap "Check it and publish"; the line otherwise). Today shows one quiet line to
+ *   the Public page tab.
+ * - **Your first week**: Day 1 asks to publish the page (done the day `project_pages.published_at` is set) and to sign
+ *   off the specification and the roadmap.
  */
 import { APPROVAL_OPTIONS, approvalSection, repos, type DbTx, type InboxItem, type Task } from "@foundmill/db";
 import { CREDITS_CURRENCY } from "@foundmill/config";
-import { GOAL_OPTION_IDS, WRITE_ROLES, addDaysToDay, dayKeyIn, firstWeekTimeline, firstWeekVisible, hasSectionAccess, weekPlanWords, type FirstWeekWords, type WeekFacts, type WeekPlanWords } from "@foundmill/shared";
+import { GOAL_OPTION_IDS, PAGE_READY_NOTE, WRITE_ROLES, addDaysToDay, dayKeyIn, firstWeekTimeline, firstWeekVisible, hasSectionAccess, isPageReadyDecision, weekPlanWords, type FirstWeekWords, type WeekFacts, type WeekPlanWords } from "@foundmill/shared";
+import { channelRowsFor } from "./channel-availability";
 import type { BusinessContext } from "../trpc";
 import { autopilotStatus } from "./autopilot";
 import { cycleStatus, type CycleStatus } from "./cycle";
@@ -62,6 +70,11 @@ export interface TodayView {
   chiefOfStaff: { id: string; name: string } | null;
   /** "Your first week": null once the business is past it (packages/shared first-week.ts), so an older business reads nothing extra. */
   firstWeek: FirstWeekWords | null;
+  /**
+   * True while the project has no public page live (0077) and the reader may open the Product area: Today shows one
+   * quiet line pointing at the Public page tab. Always false for a sample business.
+   */
+  pageReady: boolean;
 }
 
 interface DecisionOption {
@@ -93,6 +106,8 @@ async function quickAnswerFor(tx: DbTx, ctx: BusinessContext, item: InboxItem, a
   if (approval) return { kind: "approval", quickOption: quick(APPROVAL_OPTIONS.approve, approval.outcome === null && hasSectionAccess(ctx.membership, approvalSection(approval) ?? "inbox", "write")) };
   if (signoff) return { kind: "signoff", quickOption: quick("approve", (signoff.kind === "spec" || signoff.kind === "roadmap") && signoff.status === "pending") };
   if (goal) return { kind: "goal", quickOption: quick(GOAL_OPTION_IDS.approve, goal.status === "proposed") };
+  // The page note (package 1.3): one tap answers it and the web opens Product › Public page; nothing is published.
+  if (isPageReadyDecision(item.decision)) return { kind: "decision", quickOption: quick(PAGE_READY_NOTE.options.check, hasSectionAccess(ctx.membership, "product", "read")) };
   return { kind: item.type === "warning" ? "warning" : "decision", quickOption: null };
 }
 
@@ -201,16 +216,26 @@ export async function firstWeekFor(tx: DbTx, ctx: BusinessContext, now: Date = n
   const dayOf = (at: Date | null | undefined): string | null => (at ? dayKeyIn(at, zone) : null);
   const base = { today: dayKeyIn(now, zone), createdOn: dayKeyIn(ctx.business.createdAt, zone), distributionStartedOn: dayOf(ctx.business.distributionStartedAt) };
   if (!firstWeekVisible(base)) return null;
-  const [signoffs, rounds, goals] = await Promise.all([repos.productSignoffs.latest(tx, ctx.businessId), repos.events.list(tx, ctx.businessId, { type: "cycle.completed", limit: 50 }), repos.goals.recent(tx, ctx.businessId, 10)]);
+  const [signoffs, rounds, goals, channels, page] = await Promise.all([
+    repos.productSignoffs.latest(tx, ctx.businessId),
+    repos.events.list(tx, ctx.businessId, { type: "cycle.completed", limit: 50 }),
+    repos.goals.recent(tx, ctx.businessId, 10),
+    channelRowsFor(tx, ctx),
+    repos.pages.get(tx, ctx.businessId),
+  ]);
   const firstRound = rounds.items.reduce<Date | null>((a, e) => (a === null || e.occurredAt < a ? e.occurredAt : a), null);
   const approvedAt = goals.reduce<Date | null>((a, g) => (g.approvedAt && (a === null || g.approvedAt < a) ? g.approvedAt : a), null);
   return firstWeekTimeline({
     ...base,
+    // The page counts once it has gone live (published_at is kept after a take-down: it was published that day).
+    pagePublishedOn: dayOf(page?.publishedAt),
     specSignedOffOn: signoffs.spec?.status === "approved" ? (dayOf(signoffs.spec.decidedAt) ?? base.createdOn) : null,
     roadmapSignedOffOn: signoffs.roadmap?.status === "approved" ? (dayOf(signoffs.roadmap.decidedAt) ?? base.createdOn) : null,
     firstRoundOn: dayOf(firstRound),
     goalApprovedOn: dayOf(approvedAt),
     stopped: ctx.business.agentsStoppedAt !== null,
+    // Week 1 does not promise an approach no channel can make yet (founder, 2026-11-11).
+    noChannelCanRun: channels.available.length === 0,
   });
 }
 
@@ -220,13 +245,18 @@ export async function todayView(ctx: BusinessContext, now: Date = new Date()): P
   const week = hasSectionAccess(m, "development", "read");
   const autopilotNextOn = week ? await autopilotNextDay(ctx) : null;
   return ctx.rls(async (tx) => {
-    const [needsYou, words, spend, chief, firstWeek] = await Promise.all([
+    const [needsYou, words, spend, chief, firstWeek, pageReady] = await Promise.all([
       hasSectionAccess(m, "inbox", "read") ? needsYouFor(tx, ctx) : Promise.resolve(null),
       week ? weekFactsFor(tx, ctx, { now, autopilotNextOn }).then(weekPlanWords) : Promise.resolve(null),
       hasSectionAccess(m, "finance", "read") ? spendFor(tx, ctx, now) : Promise.resolve(null),
       repos.agents.chiefOfStaff(tx, ctx.businessId),
       firstWeekFor(tx, ctx, now),
+      // The quiet "public page" line: never for a sample business, never for a reader walled from Product, and not while
+      // the Product lead's "Your project's page is ready" note is open (Needs you shows the note instead: one or the other).
+      !ctx.business.isDemo && hasSectionAccess(m, "product", "read")
+        ? Promise.all([repos.pages.isUnpublished(tx, ctx.businessId), repos.pages.openReadyNote(tx, ctx.businessId)]).then(([unpublished, note]) => unpublished && note === null)
+        : Promise.resolve(false),
     ]);
-    return { today: dayKeyIn(now, ctx.business.timeZone), needsYou, week: words, spend, chiefOfStaff: chief ? { id: chief.id, name: chief.name } : null, firstWeek };
+    return { today: dayKeyIn(now, ctx.business.timeZone), needsYou, week: words, spend, chiefOfStaff: chief ? { id: chief.id, name: chief.name } : null, firstWeek, pageReady };
   });
 }

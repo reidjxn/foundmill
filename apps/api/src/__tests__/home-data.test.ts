@@ -316,7 +316,7 @@ describe("journey.ribbon", () => {
 });
 
 describe("demo businesses on the network", () => {
-  it("an outsider sees neither a demo's leaderboard entry nor its community; its own member does", async () => {
+  it("an outsider does not see a demo's community; its own member does", async () => {
     const demo = hz.A.businessId;
     const real = hz.B.businessId;
     for (const id of [demo, real]) {
@@ -324,20 +324,15 @@ describe("demo businesses on the network", () => {
       await repos.businesses.commit(hz.db, id, { archetype: "b2b_saas" });
     }
     await hz.db.update(businesses).set({ isDemo: true }).where(eq(businesses.id, demo));
-    const board = await repos.social.upsertLeaderboard(hz.db, { boardKind: "growth", division: "b2b_saas", period: "2026-Q4", metric: "mrr_growth_pct", archetype: "b2b_saas", region: "eu" });
-    await repos.social.setLeaderboardEntries(hz.db, board.id, [{ businessId: demo, metricValue: 18.4 }, { businessId: real, metricValue: 2.5 }]);
     const community = await repos.social.createCommunity(hz.db, { name: "Demo room", slug: "demo-home-room", ownerBusinessId: demo, createdBy: hz.A.ownerId });
     const outsider = await hz.h.createUser("home-outsider@test.local");
 
     const asOutsider = hz.caller({ userId: outsider });
-    const entries = await asOutsider.live.leaderboards.entries({ leaderboardId: board.id });
-    expect(entries.map((e) => [e.businessId, e.position])).toEqual([[real, 1]]);
     expect((await asOutsider.live.communities.list()).map((c) => c.id)).not.toContain(community.id);
     await expect(asOutsider.live.communities.get({ communityId: community.id })).rejects.toMatchObject({ code: "NOT_FOUND" });
     await expect(asOutsider.live.communities.join({ communityId: community.id })).rejects.toMatchObject({ code: "NOT_FOUND" });
 
     const asDemoOwner = hz.caller({ userId: hz.A.ownerId });
-    expect((await asDemoOwner.live.leaderboards.entries({ leaderboardId: board.id })).map((e) => e.businessId)).toEqual([real, demo]);
     expect((await asDemoOwner.live.communities.get({ communityId: community.id })).community.id).toBe(community.id);
   });
 });

@@ -1,5 +1,5 @@
 /**
- * The LIVE pages (BUILD §6.2, §11.14): /network, /communities[/id], /leaderboards[/boardId]. They are about the founder,
+ * The LIVE pages (BUILD §6.2, §11.14): /network, /communities[/id]. They are about the founder,
  * not about one business, so they live outside /b/[bid]; the app shell still needs a business (brand colours, departments,
  * Continue, search), so this layout picks the current one: the business the founder last opened (the cookie the business
  * layout sets), else their newest. A founder without a business is sent to /new. Signed-out visitors never get here:

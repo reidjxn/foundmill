@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
-  askToConnectBlocker, boardKindLabel, canSpeakAsBusiness, boardScope, boardTitle, connectStateOf, counterpartId, describeMetric, findDirectThread, formResults, formatMetricValue, groupConnections, humanise, joinNames,
-  leaveBlocker, leftNote, otherParticipants, periodLabel, personName, positionLabel, postStatusLabel, threadParticipants, threadSubject, REPORT_REASONS, reportReasonLabel, requestOutcome, threadTitle, UNNAMED_PERSON, VISIBILITY_OPTIONS, visibilityLabel,
+  askToConnectBlocker, canSpeakAsBusiness, connectStateOf, counterpartId, findDirectThread, groupConnections, joinNames,
+  leaveBlocker, leftNote, otherParticipants, personName, postStatusLabel, threadParticipants, threadSubject, REPORT_REASONS, reportReasonLabel, requestOutcome, threadTitle, UNNAMED_PERSON, VISIBILITY_OPTIONS, visibilityLabel,
 } from "../live";
 
 const ME = "00000000-0000-4000-8000-0000000000aa";
@@ -115,7 +115,7 @@ describe("asking to connect and moderation copy (audit #28, #34, #66)", () => {
     expect(connectStateOf(rows, ME, "00000000-0000-4000-8000-0000000000ff")).toBe("none");
   });
 
-  it("tells what a sent request came to (a leaderboard row cannot know its owner beforehand)", () => {
+  it("tells what a sent request came to (a request to a business cannot know its owner beforehand)", () => {
     expect(requestOutcome(row("1", ME, ANA, "requested"), ME)).toBe("sent");
     expect(requestOutcome(row("2", ANA, ME, "requested"), ME)).toBe("incoming");
     expect(requestOutcome(row("3", ANA, ME, "accepted"), ME)).toBe("connected");
@@ -165,43 +165,5 @@ describe("speaking as a business", () => {
     expect(canSpeakAsBusiness({ business: { ...live, gameMode: "personal" }, membership: { role: "owner" } })).toBe(false);
     expect(canSpeakAsBusiness({ business: { ...live, committedAt: null }, membership: { role: "owner" } })).toBe(false);
     expect(canSpeakAsBusiness({ business: { ...live, archivedAt: new Date() }, membership: { role: "owner" } })).toBe(false);
-  });
-});
-
-describe("leaderboards", () => {
-  it("humanises keys with the acronyms people expect", () => {
-    expect(humanise("customers_won")).toBe("Customers won");
-    expect(humanise("b2b_saas")).toBe("B2B SaaS");
-    expect(humanise("mrr_growth")).toBe("MRR growth");
-    expect(humanise("open")).toBe("Open");
-    expect(humanise("")).toBe("");
-  });
-  it("reads periods, scopes and titles", () => {
-    expect(periodLabel("2026-Q4")).toBe("Q4 2026");
-    expect(periodLabel("2026-10")).toBe("Oct 2026");
-    expect(periodLabel("all-time")).toBe("All time");
-    expect(periodLabel("whenever")).toBe("whenever");
-    const board = { id: "b", boardKind: "growth", division: "b2b_saas", period: "2026-Q4", metric: "mrr_growth_pct", archetype: "b2b_saas", region: "eu", computedAt: null };
-    expect(boardKindLabel("customers_won")).toBe("Customers won");
-    expect(boardScope(board)).toBe("B2B SaaS · EU");
-    expect(boardScope({ division: "open", archetype: null, region: null })).toBe("Open");
-    expect(boardScope({ division: "revenue_1m", archetype: "marketplace", region: "us" })).toBe("Marketplace · Revenue 1m · US");
-    expect(boardTitle(board)).toBe("Growth · B2B SaaS · EU");
-  });
-  it("knows what a board ranks on and how its values read", () => {
-    expect(describeMetric("mrr_growth_pct")).toEqual({ label: "MRR growth", format: "percent" });
-    expect(describeMetric("customers_won")).toEqual({ label: "Customers won", format: "integer" });
-    expect(describeMetric("mrr")).toEqual({ label: "MRR", format: "number" });
-    expect(describeMetric("net_revenue_retention")).toEqual({ label: "Net revenue retention", format: "number" });
-    expect(formatMetricValue("18.4000", "percent")).toBe("18.4%");
-    expect(formatMetricValue(47, "integer")).toBe("47");
-    expect(formatMetricValue("12400.5", "number")).toBe("12,400.5");
-    expect(formatMetricValue("n/a", "number")).toBe("—");
-    expect(positionLabel(3)).toBe("#3");
-  });
-  it("turns the form string into cells and ignores anything else", () => {
-    expect(formResults("WWDLW")).toEqual(["success", "success", "partial", "failure", "success"]);
-    expect(formResults("w-d l?")).toEqual(["success", "partial", "failure"]);
-    expect(formResults("")).toEqual([]);
   });
 });

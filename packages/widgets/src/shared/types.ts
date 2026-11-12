@@ -122,13 +122,13 @@ export interface FinanceOverview {
 
 /* business.firstWeek.get: one done flag per first-week item (UX plan §6.2 FirstWeekChecklist), read-only. */
 export interface FirstWeekResponse {
+  pagePublished: boolean;
   specificationSignedOff: boolean;
   roadmapSignedOff: boolean;
   cycleCompleted: boolean;
   noteRead: boolean;
   conversationReplySent: boolean;
   distributionStarted: boolean;
-  bankOrStripeConnected: boolean;
 }
 
 /* inbox.list */
@@ -179,11 +179,17 @@ export interface ChannelRow {
   currency: string;
   meta?: { label: string; line: ChannelLine; coreMetric: string };
   form: ChannelFormSummary | null;
+  /** Offline tracking: the team prepares the materials, the founder submits them. */
+  kitMode?: boolean;
+  /** Whether the channel can really act for this business (founder, 2026-11-11); absent reads as available. */
+  availability?: { available: boolean };
 }
 export interface ChannelsListResponse {
   channels: ChannelRow[];
   lines: Record<ChannelLine, string[]>;
   blended: Omit<ChannelFormSummary, "channelId" | "channelKey" | "line">;
+  /** The sentence for a business with no channel that can run yet; null or absent otherwise. */
+  noChannel?: string | null;
 }
 
 /* distribution.channels.metrics */
@@ -269,30 +275,6 @@ export interface ComplianceResponse {
   deadlines?: { id: string; title?: string; kind?: string; dueAt: Iso | null; status?: string }[];
   filings?: { id: string; kind: string; title: string; dueAt: Iso | null; filedAt: Iso | null; status: string }[];
 }
-
-/* live.leaderboards.* */
-export interface LeaderboardRow {
-  id: string;
-  period: string;
-  boardKind: string;
-  division?: string | null;
-  /** The ranked metric's key ("customers_won", "mrr_growth_pct"); the widget names it (shared/leaderboards.ts). */
-  metric?: string;
-  archetype?: string | null;
-  region?: string | null;
-  title?: string;
-  metricLabel?: string;
-}
-export interface LeaderboardEntryRow {
-  leaderboardId: string;
-  businessId: string;
-  position: number;
-  movement: number;
-  metricValue: number | string;
-  businessName?: string | null;
-  verified?: boolean;
-}
-export type LeaderboardPositionRow = LeaderboardEntryRow & { board: LeaderboardRow };
 
 /* live.communities.* */
 export interface CommunityRow {

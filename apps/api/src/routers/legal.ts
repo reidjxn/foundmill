@@ -2,10 +2,11 @@
  * legal.recommend / incorporate.start/status / import.lookup/confirm / contracts.* / compliance.list (BUILD §11.11).
  * Information, not legal or tax advice; signing and submission are founder clicks (AC-11.11.4).
  */
-import { mockIntegrationRecord, type ToolContext } from "@foundmill/connectors";
+import { isUntrusted, mockIntegrationRecord, readForQuarantine, type ToolContext } from "@foundmill/connectors";
 import { HOUSE_STYLE } from "@foundmill/agents";
 import { CANCELABLE_INCORPORATION_STATUSES, CreateContractInput, UpdateContractInput, repos } from "@foundmill/db";
-import { AppError, ConflictError, CurrencyCode, INCORPORATION_ROUTES, ValidationError } from "@foundmill/shared";
+import { AppError, ConflictError, connectorMode, CurrencyCode, INCORPORATION_ROUTES, ValidationError } from "@foundmill/shared";
+import type { GatewayRegistryKey } from "../services/gateway";
 import { SECTOR_GATES, SECTOR_KEYS } from "@foundmill/shared/sectors";
 import { z } from "zod";
 import { WORKFLOWS, workflowIds } from "../services/temporal";
@@ -58,28 +59,44 @@ export interface LookupResult {
   untrusted: true;
 }
 
-function toolCtx(ctx: BusinessContext, connectorKey: string): ToolContext {
-  const mode = ctx.env.INTEGRATIONS_MODE;
-  return { businessId: ctx.businessId, agentId: NIL, sessionId: NIL, integration: mockIntegrationRecord(connectorKey, ctx.businessId, mode === "live" ? { status: "connected" } : {}), log: { debug: () => undefined, info: () => undefined, warn: () => undefined, error: () => undefined }, mode };
+/** The mock's tool context: the registries' mocks read only the business's own sample world. */
+function mockToolCtx(ctx: BusinessContext, connectorKey: string): ToolContext {
+  return { businessId: ctx.businessId, agentId: NIL, sessionId: NIL, integration: mockIntegrationRecord(connectorKey, ctx.businessId), log: { debug: () => undefined, info: () => undefined, warn: () => undefined, error: () => undefined }, mode: "mock" };
 }
 
 /** The registries in words, for messages the founder reads (never a connector or tool key). */
-const REGISTRY_NAME: Record<string, string> = { companies_house: "Companies House", bolagsverket: "Bolagsverket", opencorporates: "OpenCorporates" };
+const REGISTRY_NAME: Record<GatewayRegistryKey, string> = { companies_house: "Companies House", bolagsverket: "Bolagsverket", opencorporates: "OpenCorporates" };
 
 /**
- * A registry tool call. A company the registry does not know is "not found" in the registry's own name; any other
- * failure says the registry could not be reached, never the internal connector and tool names.
+ * A registry tool call. A live registry is reached only through the gateway (SEC-14: the platform keys, the business's
+ * rate window, the audit row and the untrusted envelope are there); a mock one answers here from its fixtures, so the
+ * golden path needs no gateway. A company the registry does not know is "not found" in the registry's own name; any
+ * other failure says the registry could not be reached, never the internal connector and tool names. The answer is
+ * third-party content: its fields are read out of the untrusted envelope and typed by the caller.
  */
-async function call<T>(ctx: BusinessContext, connectorKey: string, tool: string, args: unknown, regNo: string): Promise<T> {
-  const connector = ctx.connectors.get(connectorKey, ctx.env.INTEGRATIONS_MODE);
-  const result = await connector.callTool(tool, args, toolCtx(ctx, connectorKey));
-  const registry = REGISTRY_NAME[connectorKey] ?? "the registry";
+async function call<T>(ctx: BusinessContext, connectorKey: GatewayRegistryKey, tool: string, args: Record<string, unknown>, regNo: string): Promise<T> {
+  const registry = REGISTRY_NAME[connectorKey];
+  let result: { ok: boolean; data?: unknown; error?: { code?: string; status?: number | null } };
+  if (connectorMode(ctx.env, connectorKey) === "live") {
+    try {
+      result = await ctx.gateway.registryLookup({ businessId: ctx.businessId, connector: connectorKey, tool, args });
+    } catch (e) {
+      if (e instanceof AppError && e.status === 429) throw new AppError("rate_limited", `${registry} lookups limit reached. Try again in a minute.`, 429);
+      throw new ValidationError(`${registry} could not be reached. Try again in a minute.`, { connector: connectorKey, tool, code: e instanceof AppError ? e.code : null });
+    }
+  } else {
+    result = await ctx.connectors.get(connectorKey, "mock").callTool(tool, args, mockToolCtx(ctx, connectorKey));
+  }
+  // A gateway that ran the registry's mock while this api treats it as live (the two services' LIVE_CONNECTORS differ)
+  // must not show sample companies as a real registry answer.
+  if (connectorMode(ctx.env, connectorKey) === "live" && (result as { simulated?: unknown }).simulated === true) {
+    throw new ValidationError(`${registry} could not be reached. Try again in a minute.`, { connector: connectorKey, tool, code: "simulated" });
+  }
   if (!result.ok) {
     if (result.error?.status === 404 || result.error?.code === "not_found") throw new AppError("not_found", `No company with number ${regNo} at ${registry}`, 404);
     throw new ValidationError(`${registry} could not be reached. Try again in a minute.`, { connector: connectorKey, tool, code: result.error?.code ?? null });
   }
-  const data = result.data as { untrusted?: boolean; content?: T } | T;
-  return (data && typeof data === "object" && "untrusted" in (data as object) && "content" in (data as object) ? (data as { content: T }).content : (data as T)) as T;
+  return (isUntrusted(result.data) ? readForQuarantine(result.data).content : result.data) as T;
 }
 
 const str = (v: unknown): string | null => (typeof v === "string" && v ? v : null);

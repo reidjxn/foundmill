@@ -14,7 +14,7 @@ import { Worker } from "@temporalio/worker";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { Activities } from "../../activities";
 import { WORKFLOWS_PATH } from "../../index";
-import { businessFoundations, FOUNDATIONS_STAGED_PATCH } from "../../workflows";
+import { businessFoundations, FOUNDATIONS_PAGE_PATCH, FOUNDATIONS_STAGED_PATCH } from "../../workflows";
 import { createTemporalRig, wfId, type TemporalRig } from "./temporal";
 
 const LEGACY = ["legacy-drafting", "legacy-ready", "legacy-draft-failed"] as const;
@@ -54,6 +54,7 @@ describe("businessFoundations: new workflows", () => {
         legacyCalls++;
         throw ApplicationFailure.create({ message: "a new workflow never takes the single-call path", nonRetryable: true });
       },
+      draftProjectPage: async () => ({ current: true, written: true, source: "model" as const, inboxItemId: null, usage }),
       draftFoundationsPlan: async () => ({ current: true, door: "ideation" as const, chunks: [["Problem"]], usage }),
       draftFoundationsSections: async () => ({ current: true, usage }),
       draftFoundationsRoadmap: async () => ({ current: true, usage }),
@@ -68,8 +69,11 @@ describe("businessFoundations: new workflows", () => {
     const history = await rig.client.workflow.getHandle(workflowId).fetchHistory();
     const markers = (history.events ?? []).flatMap((e) => (e.markerRecordedEventAttributes ? [e.markerRecordedEventAttributes] : []));
     const patches = markers.filter((m) => m.markerName === "core_patch").map((m) => JSON.parse(Buffer.from(m.details?.["patch-data"]?.payloads?.[0]?.data ?? new Uint8Array()).toString("utf8") || "null") as { id: string; deprecated: boolean } | null);
-    expect(patches).toEqual([{ id: FOUNDATIONS_STAGED_PATCH, deprecated: false }]);
-    expect(scheduled({ events: history.events ?? [] })).toEqual(["draftFoundationsPlan", "draftFoundationsSections", "draftFoundationsRoadmap", "applyFoundations"]);
+    expect(patches).toEqual([
+      { id: FOUNDATIONS_STAGED_PATCH, deprecated: false },
+      { id: FOUNDATIONS_PAGE_PATCH, deprecated: false },
+    ]);
+    expect(scheduled({ events: history.events ?? [] })).toEqual(["draftProjectPage", "draftFoundationsPlan", "draftFoundationsSections", "draftFoundationsRoadmap", "applyFoundations"]);
     await expect(Worker.runReplayHistory({ workflowsPath: WORKFLOWS_PATH, replayName: "staged" }, history)).resolves.toBeUndefined();
   }, 120_000);
 });

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { CREDITS_CURRENCY, higherTier, includedCreditsMinor, initialModelBilling, sandboxCostMicroMinor, SANDBOX_MICRO_MINOR_PER_SECOND, TIER_ORDER, TIERS, tierBusinessLimit, tierIncludedCreditPlaces } from "../pricing";
+import { CREDITS_CURRENCY, higherTier, includedCreditsMinor, initialModelBilling, sandboxCostMicroMinor, SANDBOX_MICRO_MINOR_PER_SECOND, TIER_ORDER, TIERS, tierBusinessLimit, tierSeatLimit, tierIncludedCreditPlaces } from "../pricing";
 
 describe("pricing tiers (BUILD §10.5)", () => {
   it("keeps credits in US dollars and includes a bounded platform credit on every tier", () => {
@@ -27,8 +27,9 @@ describe("pricing tiers (BUILD §10.5)", () => {
     expect(tierIncludedCreditPlaces("scale")).toBeNull();
   });
 
-  it("states the free tier's other limits: four agents at once, one seat", () => {
-    expect(TIERS.free).toMatchObject({ maxConcurrentAgents: 4, seats: 1 });
+  it("states the free tier's other limit, four agents at once; people are free on every plan", () => {
+    expect(TIERS.free).toMatchObject({ maxConcurrentAgents: 4, seats: "unlimited" });
+    for (const tier of TIER_ORDER) expect(tierSeatLimit(tier)).toBeNull();
   });
 
   it("orders tiers from free to scale", () => {

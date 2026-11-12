@@ -7,9 +7,6 @@ export const channelGeo = defineChannelTemplate({
   work: ["share-of-answer panels across AI assistants", "structured data", "entity consistency across the web", "llms.txt", "earning citations in answers"],
   connectors: [
     grant("anthropic", ["panel.query"]),
-    grant("openai", ["panel.query"]),
-    grant("gemini", ["panel.query"]),
-    grant("perplexity", ["panel.query"]),
     grant("github", ["repos.read", "pulls.create", "pulls.read"]),
   ],
   guardrails: [
@@ -22,13 +19,13 @@ export const channelGeo = defineChannelTemplate({
     "Create: fix entity consistency (name, description, founders, pricing) across owned surfaces; add schema.org data and llms.txt; brief content that earns citations.",
     "Approve: request approval for new public pages and any statement in the founder's name.",
     "Launch: ship through the engineering flow; re-run the panels after indexing.",
-    "Measure: answer share by question and assistant; citations earned; referral visits labeled by source.",
+    "Measure: answer share by question on the one assistant panel available today (say which assistant); citations earned; referral visits labeled by source.",
     "Learn and report: which questions moved, which did not, next content.",
   ],
   examples: [
     {
-      input: "Baseline: business mentioned in 2 of 40 answers across 4 assistants for the question set.",
-      output: "Answer share 5% (approximate, 40 queries × 4 assistants). Fixes: Organization + Product schema on 6 pages (PR #97), llms.txt added, inconsistent founding year corrected on 3 profiles. Content brief: comparison page for the 3 most-asked questions.",
+      input: "Baseline: business mentioned in 2 of 40 answers on the one assistant panel available for the question set.",
+      output: "Answer share 5% (approximate, 40 queries, one assistant). Fixes: Organization + Product schema on 6 pages (PR #97), llms.txt added, inconsistent founding year on 3 outside profiles listed for the founder to correct (founder task). Content brief: comparison page for the 3 most-asked questions.",
     },
   ],
   craftSkills: ["structured_data", "entity_consistency", "answer_share_analysis", "citation_earning"],

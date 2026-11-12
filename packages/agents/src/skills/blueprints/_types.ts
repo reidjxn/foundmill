@@ -41,7 +41,6 @@ export const TOOLS = {
   crm: ["platform.crm.entities.search", "platform.crm.entities.create", "platform.crm.interactions.append"],
   web: ["web.search", "web.fetch", "quarantine.read_untrusted"],
   email: ["sendgrid.mock.send", "platform.suppression.check", "platform.consent.check"],
-  ads: ["ads.mock.campaigns.create", "ads.mock.campaigns.pause", "ads.mock.reports.read"],
   docs: ["platform.documents.read", "platform.documents.write"],
   finance: ["platform.finance.transactions", "platform.finance.metrics", "ecb_rates.mock.latest"],
   spec: ["platform.spec.read", "platform.spec.propose", "platform.roadmap.read"],

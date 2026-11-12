@@ -2,7 +2,7 @@
  * Seeded demo data for shell stories and tests: Northwind Skincare (BUILD §17.2), a DTC skincare business with
  * six departments. Deterministic; no network. Not exported from the package barrel.
  */
-import { Bot, BookOpen, Compass, Globe, Home, Inbox, Medal, Megaphone, PiggyBank, Settings, Users, Users2, Wrench } from "lucide-react";
+import { Bot, BookOpen, Compass, Globe, Home, Inbox, Megaphone, PiggyBank, Settings, Users, Users2, Wrench } from "lucide-react";
 import { TERMS, type TermId } from "@foundmill/shared/terms";
 import { SAMPLE_LOGOS } from "../foundation/logo-samples";
 import type { SwitcherBusiness } from "./BusinessSwitcher";
@@ -30,7 +30,6 @@ export const NORTHWIND_SIDEBAR: SidebarItem[] = [
   { id: "d-studio", label: "Studio", icon: Wrench, href: "/b/northwind/d/studio/notes", group: "department", dept: "dept-7", badge: 1 },
   { id: "network", label: "Network", icon: Globe, href: "/live/network", group: "live" },
   { id: "communities", label: "Communities", icon: Users2, href: "/live/communities", group: "live", badge: 2 },
-  { id: "leaderboards", label: "Leaderboards", icon: Medal, href: "/live/leaderboards", group: "live" },
   { id: "settings", label: "Settings", icon: Settings, href: "/b/northwind/settings", group: "foot" },
 ];
 

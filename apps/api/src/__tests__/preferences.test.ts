@@ -29,7 +29,8 @@ const code = async (p: Promise<unknown>) => {
 const GUIDED = { guidance: "on", textSize: "standard", explainersSeen: {}, toursDone: {}, checklistDismissedAt: null, anthropomorphicAgents: false, agentStyle: "humans", builderView: false };
 /** The mobile app's notification defaults (0075): every kind on, amounts shown. */
 const NOTIFICATIONS_ON = { decision: true, approval: true, customer: true, agent_down: true, runway: true, run_finished: true, goal: true };
-const NOTIFIED = { notifications: NOTIFICATIONS_ON, hideAmountsOnLockScreen: false };
+/** With the email channel beside push (packages 1.5 and 5.1): every kind of email on, too. */
+const NOTIFIED = { notifications: NOTIFICATIONS_ON, hideAmountsOnLockScreen: false, email: { decision_waiting: true } };
 /** Everything `update` answers: the formats, the guided layer and the notification preferences. */
 const ALL = { ...GUIDED, ...NOTIFIED };
 
@@ -74,7 +75,12 @@ describe("founder.preferences", () => {
     expect(await me.founder.preferences.notifications()).toEqual(NOTIFIED);
     expect(await me.founder.preferences.update({ notifications: { customer: false } })).toMatchObject({ notifications: { ...NOTIFICATIONS_ON, customer: false }, hideAmountsOnLockScreen: false });
     expect(await me.founder.preferences.update({ hideAmountsOnLockScreen: true, notifications: { run_finished: false } })).toMatchObject({ notifications: { ...NOTIFICATIONS_ON, customer: false, run_finished: false }, hideAmountsOnLockScreen: true });
-    expect(await me.founder.preferences.notifications()).toEqual({ notifications: { ...NOTIFICATIONS_ON, customer: false, run_finished: false }, hideAmountsOnLockScreen: true });
+    expect(await me.founder.preferences.notifications()).toEqual({ notifications: { ...NOTIFICATIONS_ON, customer: false, run_finished: false }, hideAmountsOnLockScreen: true, email: { decision_waiting: true } });
+    // The email channel sits beside push: turning it off leaves the push kinds as they were, and the other way round.
+    expect(await me.founder.preferences.update({ email: { decision_waiting: false } })).toMatchObject({ notifications: { ...NOTIFICATIONS_ON, customer: false, run_finished: false }, email: { decision_waiting: false } });
+    expect((await me.founder.preferences.update({ notifications: { goal: false } })).email).toEqual({ decision_waiting: false });
+    expect((await me.founder.preferences.update({ email: { decision_waiting: true }, notifications: { goal: true } })).email).toEqual({ decision_waiting: true });
+    expect(await code(me.founder.preferences.update({ email: { weekly_summary: false } } as never))).toBe("BAD_REQUEST");
     // The guided layer's read is untouched, and a reset of the tours keeps the notification choices.
     expect(await me.founder.preferences.guidance()).toEqual(GUIDED);
     expect(await me.founder.preferences.update({ reset: true })).toMatchObject({ notifications: { ...NOTIFICATIONS_ON, customer: false, run_finished: false }, hideAmountsOnLockScreen: true });

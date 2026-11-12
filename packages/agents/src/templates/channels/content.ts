@@ -8,9 +8,6 @@ export const channelContent = defineChannelTemplate({
   connectors: [
     grant("google_drive", ["files.list", "files.read", "files.write"]),
     grant("notion", ["pages.search", "pages.read", "pages.write"]),
-    grant("elevenlabs", ["speech.synthesise"]),
-    grant("heygen", ["video.create"]),
-    grant("gelato", ["products.list", "quotes.read"]),
     grant("github", ["repos.read", "pulls.create", "pulls.read"]),
   ],
   guardrails: [
@@ -20,9 +17,9 @@ export const channelContent = defineChannelTemplate({
   ],
   playbook: [
     "Plan: build the calendar from keyword clusters, customer questions and the roadmap; one asset per week per format the budget allows.",
-    "Create: draft with the brand voice; cite sources; produce audio or video from approved scripts.",
+    "Create: draft with the brand voice; cite sources; audio and video production has no tool yet, so deliver the approved script and a production brief instead.",
     "Approve: request approval for founder-bylined pieces and for any new gated form.",
-    "Launch: publish through the site's merge flow or the newsletter provider; attach tracking links.",
+    "Launch: publish through the site's merge flow; hand a newsletter to the email engine as a task; attach tracking links.",
     "Measure: leads from content by asset; read-through and conversion.",
     "Learn and report: weekly leads from content, the asset to repurpose, the next three pieces.",
   ],

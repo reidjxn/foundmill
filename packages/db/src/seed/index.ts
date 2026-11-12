@@ -12,7 +12,7 @@ import { freeDisplayName } from "@foundmill/config";
 import { and, eq, inArray, notInArray, sql } from "drizzle-orm";
 import type { Db } from "../client";
 import { repos } from "../repos";
-import { auditLog, businesses, founderProfiles, leaderboardEntries } from "../schema";
+import { auditLog, businesses, founderProfiles } from "../schema";
 import { parseOwnerEmails, stubAuthProvisioner, type AuthProvisioner } from "./auth";
 import { detachDemoPosts } from "./community";
 import { DEFAULT_SEED_DAYS, DEMO_BUSINESS_IDS, DEMO_BUSINESS_SLUGS, DEMO_OWNER_DISPLAY_NAME, DEMO_OWNER_EMAIL, DEMO_OWNER_USER_ID, DEMO_SEED, DEMO_SEED_AUDIT_ACTION } from "./constants";
@@ -81,7 +81,6 @@ export async function deleteDemoBusinesses(db: Db): Promise<number> {
     await detachDemoPosts(tx, rows.map((r) => r.id));
     for (const { id } of rows) {
       await tx.execute(sql`select set_config('fm.purge_business', ${id}, true)`);
-      await tx.delete(leaderboardEntries).where(eq(leaderboardEntries.businessId, id));
       await tx.delete(businesses).where(eq(businesses.id, id));
     }
     await tx.execute(sql`select set_config('fm.purge_business', '', true)`);

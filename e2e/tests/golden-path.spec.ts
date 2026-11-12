@@ -272,8 +272,10 @@ test.describe("golden path", () => {
     await page.goto(`/b/${bid}/inbox`);
     await expect(inboxRow(page, SPEC_SIGNOFF)).toBeVisible({ timeout: LONG });
     await expect(inboxRow(page, ROADMAP_SIGNOFF)).toBeVisible({ timeout: LONG });
-    // Since Nov 7, 2026 a decision never holds Continue: the Inbox counts them and the button stays Continue.
-    await expect(inboxLink(page)).toContainText("2", { timeout: LONG });
+    // Since Nov 7, 2026 a decision never holds Continue: the Inbox counts them (the two sign-offs and, since package 1.3,
+    // "Your project's page is ready") and the button stays Continue.
+    await expect(inboxRow(page, "Your project's page is ready")).toBeVisible({ timeout: LONG });
+    await expect(inboxLink(page)).toContainText("3", { timeout: LONG });
     await expect(continueIdle(page)).toBeVisible({ timeout: LONG });
 
     // The specification first: a sign-off note is a decision from the Product lead with Approve and Request changes.
@@ -287,7 +289,7 @@ test.describe("golden path", () => {
     await ((await recommended.count()) ? recommended : options.getByRole("button").first()).click();
     await expect(item).toHaveAttribute("data-state", "answered", { timeout: LONG });
     await expect(page.getByTestId("answered-panel")).toBeVisible();
-    await expect(inboxLink(page)).toContainText("1", { timeout: LONG });
+    await expect(inboxLink(page)).toContainText("2", { timeout: LONG });
 
     // The roadmap: the second approval starts the build.
     await approveFromInbox(page, bid, ROADMAP_SIGNOFF);
@@ -325,8 +327,9 @@ test.describe("golden path", () => {
     await page.goto(`/b/${bid}/inbox`);
     await expect(inboxRow(page, WELCOME_NOTE)).toBeVisible({ timeout: LONG });
     // Nothing waits for an answer but the Chief of Staff's goal (proposed once the sign-offs and a round of work are done,
-    // founder 2026-11-07): the Board's question is not asked before distribution starts.
-    await expect(page.getByTestId("inbox-list").locator("[data-inbox-row][data-needs-answer='true']").filter({ hasNotText: /goal/i })).toHaveCount(0);
+    // founder 2026-11-07) and the Product lead's "Your project's page is ready" (package 1.3): the Board's question is not
+    // asked before distribution starts.
+    await expect(page.getByTestId("inbox-list").locator("[data-inbox-row][data-needs-answer='true']").filter({ hasNotText: /goal/i }).filter({ hasNotText: /page is ready/i })).toHaveCount(0);
     // Start distribution: the Board's question is in the Inbox, the channels start, the Board no longer waits.
     const { boardItemId } = await startDistributionFromBoard(page, bid);
     await expect(page.locator(`[data-inbox-row="${boardItemId}"]`)).toHaveAttribute("data-needs-answer", "true", { timeout: LONG });

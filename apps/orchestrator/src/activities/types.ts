@@ -679,6 +679,19 @@ export interface FoundationsPlanned {
   usage: FoundationsStepUsage;
 }
 
+/**
+ * Step 0 (the project's public page, package 1.2) done. `written` is false when nothing was needed (a page row exists,
+ * a sample business) or the attempt is no longer current; `source` says whether the Product lead's draft or the
+ * deterministic starter was written.
+ */
+export interface ProjectPageStepDone {
+  current: boolean;
+  written: boolean;
+  source: "model" | "starter" | null;
+  inboxItemId: string | null;
+  usage: FoundationsStepUsage;
+}
+
 /** Step 2 (a batch of sections) or step 3 (the roadmap) done. */
 export interface FoundationsStepDone {
   current: boolean;

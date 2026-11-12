@@ -4,3 +4,4 @@ export * from "./today/GoalPanel";
 export * from "./today/NeedsYouList";
 export * from "./today/WeekPlan";
 export * from "./today/FirstWeekTimeline";
+export * from "./today/PublicPageNote";

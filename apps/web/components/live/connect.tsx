@@ -1,9 +1,9 @@
 "use client";
 /**
  * "Ask to connect" (BUILD §11.14 request/accept/block; audit #66): the one way a founder starts a connection, offered on
- * community members, post authors and leaderboard rows. A dialog takes an optional note and calls
- * `live.connections.request` from the current business (a LIVE business the founder speaks for); a leaderboard row asks
- * the business, which reaches its owner. The person's state (connected, requested, waiting for you) comes from the
+ * community members and post authors. A dialog takes an optional note and calls
+ * `live.connections.request` from the current business (a LIVE business the founder speaks for); a request to a
+ * business reaches its owner. The person's state (connected, requested, waiting for you) comes from the
  * founder's own connection rows, so a button never offers to ask twice.
  */
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";

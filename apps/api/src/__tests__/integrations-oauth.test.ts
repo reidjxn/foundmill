@@ -6,8 +6,9 @@
  */
 import { createDefaultRegistry, jsonResponse, routedFetch } from "@foundmill/connectors";
 import { repos } from "@foundmill/db";
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { oauthRedirectUri, signConnectState, verifyConnectState } from "../services/install-state";
+import { guardLiveCalls, inProcessGateway } from "./gateway-double";
 import { createApiHarness, TEST_SESSION_TOKEN_SECRET, type ApiHarness } from "./harness";
 
 const APP_URL = "https://foundmill.test";
@@ -16,9 +17,13 @@ const exchanges: { connector: string; body: string }[] = [];
 
 describe("integrations.connect for OAuth connectors", () => {
   let hz: ApiHarness;
+  // The consent links and the code exchanges run in the gateway, which holds the OAuth clients (SEC-14); the api's own
+  // registry has no secrets and refuses to run a live connector.
+  const gateway = inProcessGateway();
+  const guarded = guardLiveCalls(createDefaultRegistry({ secrets: {} }));
   beforeAll(async () => {
-    hz = await createApiHarness({ prefix: "oauth", env: { LIVE_CONNECTORS: "notion,gmail,shopify", APP_URL } });
-    hz.deps.connectors = createDefaultRegistry({
+    hz = await createApiHarness({ prefix: "oauth", env: { LIVE_CONNECTORS: "notion,gmail,shopify", APP_URL }, connectors: guarded.registry, gateway: gateway.client });
+    const vendorRegistry = createDefaultRegistry({
       secrets: { notionClientId: "notion-client", notionClientSecret: "notion-secret", googleClientId: "google-client", googleClientSecret: "google-secret", shopifyClientId: "shopify-client", shopifyClientSecret: "shopify-secret" },
       fetch: routedFetch({
         "POST https://api.notion.com/v1/oauth/token": async (req) => (exchanges.push({ connector: "notion", body: await req.text() }), jsonResponse({ access_token: "secret_notion_token", workspace_name: "Northwind HQ", workspace_id: "ws-1", bot_id: "bot-1" })),
@@ -26,10 +31,15 @@ describe("integrations.connect for OAuth connectors", () => {
         "GET https://northwind.myshopify.com/admin/api/2025-10/shop.json": () => jsonResponse({ shop: { id: 1, name: "Northwind", domain: "northwind.example", myshopify_domain: "northwind.myshopify.com", currency: "usd" } }),
       }),
     });
+    gateway.bind({ db: hz.db, vault: hz.deps.vault, registry: vendorRegistry, liveConnectors: ["notion", "gmail", "shopify"] });
   }, 120_000);
   afterAll(() => hz.close());
   beforeEach(() => {
     exchanges.length = 0;
+  });
+  afterEach(() => {
+    // Nothing that could reach a vendor ran in the api.
+    expect(guarded.liveCalls).toEqual([]);
   });
 
   const start = async (userId: string, businessId: string, connectorKey: string, input: Record<string, unknown> = {}) => {
@@ -67,6 +77,9 @@ describe("integrations.connect for OAuth connectors", () => {
     const metas = await repos.credentials.listMetadata(hz.db, businessId, { integrationId: r.integration!.id });
     expect(metas).toHaveLength(1);
     expect(JSON.stringify(r)).not.toContain("secret_notion_token");
+    // The token was exchanged and sealed by the gateway: the api asked it, and the row it wrote is the gateway's.
+    expect(gateway.paths.filter((p) => p === "/v1/integrations/connect").length).toBeGreaterThanOrEqual(2);
+    expect(JSON.stringify(await repos.audit.list(hz.db, businessId, { limit: 200 }))).not.toContain("secret_notion_token");
   });
 
   it("Shopify asks the store named at the start and refuses a code for another store", async () => {
