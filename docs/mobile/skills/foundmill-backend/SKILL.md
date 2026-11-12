@@ -52,7 +52,7 @@ export const api = createTRPCUntypedClient({
 // api.mutation("inbox.decide", { businessId, itemId, chosenOption })
 ```
 
-**At most 4 procedures per request (Nov 12, 2026).** Every procedure in a batch opens its own database transaction, and the api's pool is small: batches of 8–10 from the app filled it and restarted the production api. Keep `maxItems: 4`; the server will refuse larger batches. And read each thing once: one shared hook per procedure (`useRibbon(businessId)`, `useToday(businessId)`, …) with one canonical input, so a screen's tiles share one query key instead of each calling it (six `journey.ribbon` reads in one batch were seen). Prefetch only the screen the founder is on, not every tab at launch.
+**At most 4 procedures per request (Nov 12, 2026).** Every procedure in a batch opens its own database transaction, and the api's pool is small: batches of 8–10 from the app filled it and restarted the production api. Keep `maxItems: 4`. The server never refuses a batch for this (it answers in full but runs four procedures at a time, so a wide batch is just slow); more calls than its hard batch limit in one request is a `BAD_REQUEST` (400). And read each thing once: one shared hook per procedure (`useRibbon(businessId)`, `useToday(businessId)`, …) with one canonical input, so a screen's tiles share one query key instead of each calling it (six `journey.ribbon` reads in one batch were seen). Prefetch only the screen the founder is on, not every tab at launch.
 
 Wrap it in TanStack Query (`@tanstack/react-query`). Query keys are `[path, input]`. Timeouts: 45 s for a read, 4 minutes for a change (the composer can take a while to write a note); streams have no timeout, the person stops them.
 
@@ -76,6 +76,7 @@ Every tRPC error carries `data.code` (tRPC code) and often `data.appCode` plus `
 | Plan tier limit | `appCode: "tier_limit"`, `details.limit` | "Your plan allows N businesses. Change it in Settings › Billing on the web." |
 | Field conflict (slug taken) | `appCode: "conflict"`, `details.field` | Show under that field. |
 | Validation | `BAD_REQUEST`, `details` is a list of `{path, message}` | Show the first message under its field. |
+| Request closed by the app | `CLIENT_CLOSED_REQUEST` (499) for procedures that had not started | Ignore: nothing reads it. Never show it or retry it. |
 | Network | fetch failure | "You're offline. Showing what you last saw." banner; keep the cached screen. |
 
 ### Rate limits the app must respect
