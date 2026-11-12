@@ -66,7 +66,7 @@ export const teamCallRouter = router({
 
   continue: sectionWrite("team").input(z.object({ callId: Id })).use(modelLimited("teamCall")).mutation(({ ctx, input }) => continueTeamCall(ctx, input.callId)),
 
-  speech: sectionWrite("team").input(z.object({ callId: Id, turnId: Id })).use(modelLimited("teamCallSpeech")).mutation(({ ctx, input }) => speakTurn(ctx, input)),
+  speech: sectionWrite("team").input(z.object({ callId: Id, turnId: Id, stream: z.boolean().optional() })).use(modelLimited("teamCallSpeech")).mutation(({ ctx, input }) => speakTurn(ctx, input)),
 
   transcribe: sectionWrite("team")
     .input(z.object({ callId: Id, mime: z.enum(TEAM_CALL_AUDIO_MIMES), base64: Base64 }))

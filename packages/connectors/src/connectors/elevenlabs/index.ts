@@ -148,5 +148,6 @@ export function createElevenlabsConnector(options: LiveConnectorOptions = {}): C
 export { elevenlabsMock, silentWav, estimateSpeakingMs, MOCK_SPEECH_MODEL, MOCK_TRANSCRIPTION_MODEL, MOCK_SAMPLE_RATE } from "./mock";
 export { elevenlabsTools, ELEVENLABS_KEY, estimateSpeechCostMinor, estimateTranscriptionCostMinor, decodedBytes, SynthesizeSpeechInput, SynthesizeSpeechOutput, TranscribeSpeechInput, TranscribeSpeechOutput, OUTPUT_FORMAT } from "./tools";
 export { SPEECH_ACCENT_IDS, resolveSpeechAccentIds, speechAccentId } from "./speech-accents";
+export { createElevenlabsSpeechStreamer, SPEECH_FIRST_BYTE_TIMEOUT_MS, type SpeechStream, type SpeechStreamer, type SpeechStreamInput } from "./stream";
 /** How long the live connector waits for ElevenLabs; the api's wait for the gateway must be longer. */
 export { SPEECH_TIMEOUT_MS as ELEVENLABS_SPEECH_TIMEOUT_MS, TRANSCRIPTION_TIMEOUT_MS as ELEVENLABS_TRANSCRIPTION_TIMEOUT_MS };
