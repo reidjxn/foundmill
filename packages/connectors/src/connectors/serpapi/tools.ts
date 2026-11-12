@@ -15,7 +15,7 @@ export const SERPAPI_CONNECT_FIELDS: ConnectField[] = [
 ];
 
 /** Conservative: the free plan is 250 searches a month, and a plan's hourly limit (Account API) starts near 20% of its month. */
-export const SERPAPI_RATE_LIMITS = { perMinute: 20, perDay: 300 };
+export const SERPAPI_RATE_LIMITS = { perMinute: 10, perDay: 100 }; // perDay keeps a loop or an injected page from running up the founder's bill (security review, Nov 12, 2026).
 
 export const MAX_ORGANIC = 10;
 export const MAX_TITLE_CHARS = 200;

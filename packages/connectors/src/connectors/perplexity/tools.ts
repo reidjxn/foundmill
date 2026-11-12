@@ -15,7 +15,7 @@ import { defineTool } from "../../define";
 export const PERPLEXITY_KEY = "perplexity";
 export const PERPLEXITY_BASE_URL = "https://api.perplexity.ai";
 /** Perplexity's request limit is 1 request a second on tier 0 (rate-limits-usage-tiers), so 30 a minute stays under it. */
-export const PERPLEXITY_RATE_LIMITS = { perMinute: 30, perDay: 1_000 };
+export const PERPLEXITY_RATE_LIMITS = { perMinute: 10, perDay: 200 }; // perDay keeps a loop or an injected page from running up the founder's bill (security review, Nov 12, 2026).
 
 /** What the founder enters in Settings › Integrations: an API key from their own Perplexity account. */
 export const PERPLEXITY_CONNECT_FIELDS: ConnectField[] = [

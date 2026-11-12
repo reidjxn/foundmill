@@ -126,6 +126,15 @@ test.describe("public page", () => {
     expect(pagePath).toMatch(/^\/p\/[a-z0-9-]{3,40}$/);
     await expect(editor.getByRole("link", { name: "Open" })).toHaveAttribute("href", url);
 
+    // The IndexNow key file route under a live page: a name that is not a key, and a key nobody connected, are the same quiet 404 as plain text.
+    for (const name of ["not-a-key.txt", "aaaaaaaa.txt"]) {
+      const res = await page.request.get(`${pagePath}/${name}`);
+      expect(res.status(), name).toBe(404);
+      expect(res.headers()["content-type"], name).toContain("text/plain");
+      expect(res.headers()["cache-control"], name).toBe("no-store");
+      expect(await res.text(), name).not.toContain("aaaaaaaa");
+    }
+
     // Signed out, on a phone and on a desktop.
     const phone = await visitor(browser, 390, 844);
     try {

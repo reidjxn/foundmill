@@ -32,9 +32,9 @@ export function createFirecrawlConnector(options: LiveConnectorOptions = {}): Co
       return await http.json<T>(method, path, body === undefined ? {} : { body });
     } catch (e) {
       if (!(e instanceof VendorError)) throw e;
-      const detail = (e.body as { error?: unknown } | undefined)?.error;
-      const text = typeof detail === "string" ? redactKeys(detail, secret).slice(0, 200) : "";
-      throw new VendorError(FIRECRAWL_KEY, e.httpStatus, `${method} ${path} → ${e.httpStatus}${text ? ` (${text})` : ""}`);
+      // Status only: Firecrawl's error text can quote the page it read, and an error message reaches the agent outside
+      // the untrusted envelope (security review, Nov 12, 2026).
+      throw new VendorError(FIRECRAWL_KEY, e.httpStatus, `${method} ${path} → ${e.httpStatus}`);
     }
   };
 
@@ -63,8 +63,7 @@ export function createFirecrawlConnector(options: LiveConnectorOptions = {}): Co
           const res = await call<FcScrapeResponse>(secret, "POST", "/v2/scrape", { url, formats: ["markdown"], onlyMainContent: true }, SCRAPE_TIMEOUT_MS);
           const page = mapScrape(url, res);
           if (!page) {
-            const why = typeof res?.error === "string" ? `: ${redactKeys(res.error, secret).slice(0, 200)}` : "";
-            throw new VendorError(FIRECRAWL_KEY, 502, `POST /v2/scrape answered without page content${why}`);
+            throw new VendorError(FIRECRAWL_KEY, 502, "POST /v2/scrape answered without page content");
           }
           return page;
         },

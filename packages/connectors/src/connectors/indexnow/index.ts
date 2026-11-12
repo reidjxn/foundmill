@@ -5,7 +5,8 @@
  * The key is public by protocol, but it still travels as the sealed credential so the gateway treats the integration as
  * the founder's own, and it is kept out of logs and errors.
  */
-import { AppError, hostedKeyFileUrl, pageSlugProblem, uuid } from "@foundmill/shared";
+import { APP_NAME } from "@foundmill/config";
+import { AppError, hostedKeyFileUrl, hostedPagesHost, pageSlugProblem, uuid } from "@foundmill/shared";
 import { ConfigError, ConnectInputError, connectInputValue, VendorError, type Connector } from "../../contract";
 import { buildLiveConnector, healthResult } from "../../define";
 import { createHttp } from "../../http";
@@ -25,6 +26,7 @@ import {
   indexNowKeyFileUrl,
   indexNowTarget,
   indexNowTools,
+  isOwnHost,
   isIndexNowKey,
   keyFileProblem,
   normalizeIndexNowHost,
@@ -42,6 +44,7 @@ export function createIndexNowConnector(options: IndexNowConnectorOptions = {}):
   // `secrets` is never read: IndexNow has no platform key, and the key is the founder's own.
   const { fetch, now } = resolveLiveOptions(options);
   const resolveHost = options.resolveHost ?? systemResolveHost;
+  const ownHost = options.hostedPagesOrigin ? hostedPagesHost(options.hostedPagesOrigin) : null;
   // Tests hand in `fetch`; the gateway does not, so its key-file reads dial only what publicOnlyLookup let through.
   const pageFetch: PageFetch = options.fetch ? (url, init) => fetch(url, { ...init, redirect: "manual" }) : lookupGuardedFetch(publicOnlyLookup(resolveHost));
 
@@ -87,7 +90,7 @@ export function createIndexNowConnector(options: IndexNowConnectorOptions = {}):
         submit_urls: async ({ urls }, ctx) => {
           const key = ctx.credential?.secret;
           if (!key) throw new ConfigError(INDEXNOW_KEY, "the business's own IndexNow key", "connect IndexNow in Settings › Integrations");
-          const target = indexNowTarget(ctx.integration.config, key);
+          const target = indexNowTarget(ctx.integration.config, key, ownHost);
           if (!target) throw new ConfigError(INDEXNOW_KEY, "the site address of the IndexNow connection", "connect IndexNow in Settings › Integrations");
           // Before any network call.
           assertUrlsOnSite(urls, target.host, target.keyLocation, target.hosted);
@@ -103,7 +106,7 @@ export function createIndexNowConnector(options: IndexNowConnectorOptions = {}):
             throw new VendorError(INDEXNOW_KEY, code, redactKey(code === 504 ? "IndexNow timed out" : `IndexNow could not take the request (${code})`, key));
           }
           if (status === 200 || status === 202) return { submitted: urls.length, host: target.host, status: status === 200 ? ("received" as const) : ("pending_key_validation" as const), urls };
-          if (status === 403) throw new AppError("key_not_valid", `IndexNow could not validate the key: the key file at ${target.keyLocation} must be reachable and contain exactly the key`, 403);
+          if (status === 403) throw new AppError("key_not_valid", `IndexNow could not validate the key: the key file at ${redactKey(target.keyLocation, key)} must be reachable and contain exactly the key`, 403);
           if (status === 422) throw new AppError("url_not_on_host", `IndexNow says these addresses do not belong to ${target.host}, or the key does not match its rules`, 422);
           if (status === 429) throw new VendorError(INDEXNOW_KEY, 429, "IndexNow is limiting requests; try again later");
           throw new VendorError(INDEXNOW_KEY, status, "IndexNow rejected the request as badly formed");
@@ -132,6 +135,7 @@ export function createIndexNowConnector(options: IndexNowConnectorOptions = {}):
         if (!hostInput) throw new ConnectInputError(INDEXNOW_KEY, "host", "Enter your site's host name, for example northwindskincare.com");
         const host = normalizeIndexNowHost(hostInput);
         if (!host) throw new ConnectInputError(INDEXNOW_KEY, "host", "That is not a public site address. Enter the host name of your live site, for example northwindskincare.com (not an IP address or localhost).");
+        if (isOwnHost(host, ownHost)) throw new ConnectInputError(INDEXNOW_KEY, "host", `To use your public page on ${APP_NAME}, leave the site address empty. A site address is for a site of your own.`);
         const key = connectInputValue(input, "key");
         if (!key) throw new ConnectInputError(INDEXNOW_KEY, "key", "Enter your IndexNow key. Choose 8 to 128 letters, numbers or dashes and publish it as a text file on your site.");
         if (!isIndexNowKey(key)) throw new ConnectInputError(INDEXNOW_KEY, "key", "The IndexNow key must be 8 to 128 characters, using only letters, numbers and dashes.");
@@ -157,7 +161,7 @@ export function createIndexNowConnector(options: IndexNowConnectorOptions = {}):
       healthcheck: async (integration, credential) => {
         const startedAt = now().getTime();
         if (!credential?.secret) return healthResult("disconnected", startedAt, { now, message: "No IndexNow key is connected" });
-        const target = indexNowTarget(integration.config, credential.secret);
+        const target = indexNowTarget(integration.config, credential.secret, ownHost);
         if (!target) return healthResult("degraded", startedAt, { now, message: "The connection has no site address; connect IndexNow again" });
         const check = await checkKeyFile(target.keyLocation, credential.secret);
         return check.ok

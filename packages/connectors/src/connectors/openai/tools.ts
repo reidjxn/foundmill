@@ -11,7 +11,7 @@ import { defineTool } from "../../define";
 export const OPENAI_KEY = "openai";
 export const OPENAI_BASE_URL = "https://api.openai.com/v1";
 /** Conservative against typical new-account limits; OpenAI's per-tier limits are shown in the founder's own dashboard. */
-export const OPENAI_RATE_LIMITS = { perMinute: 20, perDay: 1_000 };
+export const OPENAI_RATE_LIMITS = { perMinute: 10, perDay: 100 }; // perDay keeps a loop or an injected page from running up the founder's bill (security review, Nov 12, 2026).
 
 /** What the founder enters in Settings › Integrations: an API key from their own OpenAI account. */
 export const OPENAI_CONNECT_FIELDS: ConnectField[] = [

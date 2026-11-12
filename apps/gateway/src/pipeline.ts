@@ -723,6 +723,15 @@ async function allow(deps: GatewayDeps, session: SessionToken, req: CallRequestP
     throw new GatewayError("integration_not_connected", `${connector.displayName} is not connected for this business, so nothing was done`, 409, { connector: connector.key });
   }
   const integration: IntegrationRecord = loaded.integrationRow ? toIntegrationRecord(loaded.integrationRow, credential) : mockIntegrationRecord(connector.key, session.businessId, mode === "mock" ? {} : { status: "connected" });
+  // IndexNow connected for the project's Foundmill-hosted page speaks for the page at the address it was connected
+  // with. Once the page is taken down or its address changes (the old address may be another project's by now), nothing
+  // is sent until the founder connects it again (security review, Nov 12, 2026).
+  if (mode === "live" && connector.key === "indexnow" && integration.config.hosted === true) {
+    const page = await repos.pages.get(deps.db, session.businessId);
+    if (!page || page.published === null || page.slug !== integration.config.slug) {
+      throw new GatewayError("integration_not_connected", "IndexNow was connected for a public page address that is no longer this project's live page, so nothing was sent. Connect IndexNow again in Settings › Integrations.", 409, { connector: connector.key });
+    }
+  }
 
   const vault = deps.vault;
   const loadedCredential = credential;

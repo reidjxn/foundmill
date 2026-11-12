@@ -16,7 +16,7 @@ export const GEMINI_CONNECT_FIELDS: ConnectField[] = [
 ];
 
 /** Gemini 3+ rate limit on the paid tier is 1,500 grounded requests a day per project; stay well under it. */
-export const GEMINI_RATE_LIMITS = { perMinute: 20, perDay: 500 };
+export const GEMINI_RATE_LIMITS = { perMinute: 10, perDay: 100 }; // perDay keeps a loop or an injected page from running up the founder's bill (security review, Nov 12, 2026).
 
 /**
  * Estimate in US cents of one panel question. Grounded search is billed per search query the model runs, after a free

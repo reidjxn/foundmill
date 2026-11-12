@@ -35,7 +35,7 @@ export const FIRECRAWL_SCRAPE_COST_MINOR = 1;
  * Conservative against the plans' documented /scrape limits (pricing page, Nov 12, 2026): Free 10 per minute,
  * Hobby 100, Standard 500. The day cap keeps one runaway agent from using up a small plan's credits.
  */
-export const FIRECRAWL_RATE_LIMITS = { perMinute: 10, perDay: 500 };
+export const FIRECRAWL_RATE_LIMITS = { perMinute: 10, perDay: 200 };
 
 /** Refuse a hostname that is not a public name. Brackets of an IPv6 literal and a trailing dot are removed first. */
 const hostOf = (url: URL): string => url.hostname.toLowerCase().replace(/^\[|\]$/g, "").replace(/\.$/, "");

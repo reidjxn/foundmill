@@ -93,8 +93,10 @@ export const indexNowTools = [
       "Tell search engines that these pages of the project's own site are new or changed (IndexNow). Every address must be https and on the connected site's host (and under the key file's folder when the key file is not at the top). Search engines may then fetch the pages sooner; it is not a ranking promise.",
     input: z.object({ urls: z.array(IndexNowUrl).min(1).max(INDEXNOW_MAX_URLS) }),
     output: z.object({ submitted: z.number().int(), host: z.string(), status: z.enum(["received", "pending_key_validation"]), urls: z.array(z.string()) }),
-    // It contacts search engines, not a person, costs nothing and is harmless to repeat.
-    hints: {},
+    // Outward and not recallable: once search engines are told, they are told. So it asks first in augmented and assisted
+    // mode (founder, 2026-11-12: anything outward asks first). It contacts no person, so it is not `contactsThirdParty`
+    // (whose recipient rules would refuse the project's own address once a search result or a page read had shown it).
+    hints: { irreversible: true },
     annotations: { readOnlyHint: false, idempotentHint: true, openWorldHint: true },
     // IndexNow is free (no account, no charge): https://www.indexnow.org/faq, read Nov 12, 2026.
     costMinor: () => 0,
@@ -102,15 +104,17 @@ export const indexNowTools = [
 ] as const;
 
 /** IndexNow publishes no numeric limit; it answers 429 for suspected spam, so stay well under what one project needs. */
-export const INDEXNOW_RATE_LIMITS = { perMinute: 5, perDay: 200 };
+export const INDEXNOW_RATE_LIMITS = { perMinute: 2, perDay: 20 };
 
 /**
  * The host and key file address a connected integration holds (`config`), or null when it holds none, for the tool and the
  * health check. The key file defaults to `https://<host>/<key>.txt`.
  */
-export function indexNowTarget(config: Record<string, unknown>, key: string): { host: string; keyLocation: string; hosted?: { origin: string; slug: string } } | null {
+export function indexNowTarget(config: Record<string, unknown>, key: string, ownHost?: string | null): { host: string; keyLocation: string; hosted?: { origin: string; slug: string } } | null {
   const host = normalizeIndexNowHost(config.host);
   if (!host) return null;
+  // The deployment's own host is reachable only as a hosted page (see `isOwnHost`).
+  if (config.hosted !== true && isOwnHost(host, ownHost)) return null;
   const keyLocation = typeof config.keyLocation === "string" && config.keyLocation ? config.keyLocation : indexNowKeyFileUrl(host, key);
   // Connected for the project's Foundmill-hosted page: only that page's addresses, whatever else the host serves.
   if (config.hosted === true) {
@@ -133,11 +137,24 @@ export function assertUrlsOnSite(urls: readonly string[], host: string, keyLocat
     if (parsed.hostname.toLowerCase() !== host || parsed.port || parsed.username || parsed.password) throw new AppError("invalid_args", `${url} is not on ${host}, the site connected to IndexNow`, 400);
     // A hosted page: the page itself (`/p/<slug>`) and anything under it, never another project on the same host.
     if (hosted) {
-      if (!hostedPageCovers(hosted.origin, hosted.slug, url)) throw new AppError("invalid_args", `${url} is not this project's public page, so it cannot be sent`, 400);
+      // Exactly the page: it is the one address a hosted project has, and every project shares this host's standing
+      // with the search engines (security review, Nov 12, 2026). Widen it when pages gain subpages of their own.
+      if (!hostedPageCovers(hosted.origin, hosted.slug, url) || parsed.pathname.replace(/\/+$/, "") !== `/p/${hosted.slug}` || parsed.search) throw new AppError("invalid_args", `${url} is not this project's public page, so it cannot be sent`, 400);
       continue;
     }
     if (!urlCoveredByKeyLocation(url, keyLocation)) throw new AppError("invalid_args", `${url} is outside the folder of the key file (${keyLocation}), so search engines would not accept it`, 400);
   }
+}
+
+/**
+ * Whether `host` is this deployment's own host or one under it. A founder's "own site" is never Foundmill's: there a key
+ * speaks for one project's page only, through the hosted connect, where the gateway names the slug. Without this, anyone
+ * could connect with another project's public key and its key file's address and submit that project's addresses.
+ */
+export function isOwnHost(host: string, ownHost: string | null | undefined): boolean {
+  if (!ownHost) return false;
+  const own = ownHost.toLowerCase().replace(/:\d+$/, "");
+  return host === own || host.endsWith(`.${own}`);
 }
 
 /** Replace the key wherever text echoes it. */

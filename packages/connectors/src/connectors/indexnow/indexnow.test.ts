@@ -184,17 +184,37 @@ describe("indexnow live (canned)", () => {
     const keyLocation = "https://foundmill.test.app/p/northwind/hosted-key-1234.txt";
     expect(record).toMatchObject({ status: "connected", externalAccountId: "foundmill.test.app/p/northwind", config: { host: "foundmill.test.app", hosted: true, slug: "northwind", key: "hosted-key-1234", keyLocation }, credentialToStore: { kind: "api_key", secret: "hosted-key-1234" } });
     const ctx = makeToolContext(connector, { mode: "live", credential: { kind: "api_key", secret: "hosted-key-1234" }, integration: { ...record, credentialToStore: undefined } });
-    // The page itself and anything under it.
-    const ok = await connector.callTool("submit_urls", { urls: ["https://foundmill.test.app/p/northwind", "https://foundmill.test.app/p/northwind/story"] }, ctx);
+    // The page itself, and nothing else.
+    const ok = await connector.callTool("submit_urls", { urls: ["https://foundmill.test.app/p/northwind"] }, ctx);
     expect(ok.ok).toBe(true);
     expect(body).toMatchObject({ host: "foundmill.test.app", key: "hosted-key-1234", keyLocation });
     // Never another project on the same host, a look-alike slug, or the rest of the site.
-    for (const url of ["https://foundmill.test.app/p/ledgerly", "https://foundmill.test.app/p/northwind-two", "https://foundmill.test.app/", "https://foundmill.test.app/p/northwind/../ledgerly"]) {
+    for (const url of ["https://foundmill.test.app/p/ledgerly", "https://foundmill.test.app/p/northwind-two", "https://foundmill.test.app/", "https://foundmill.test.app/p/northwind/../ledgerly", "https://foundmill.test.app/p/northwind/made-up-1", "https://foundmill.test.app/p/northwind?x=1"]) {
       body = null;
       const refused = await connector.callTool("submit_urls", { urls: [url] }, ctx);
       expect(refused.ok, url).toBe(false);
       expect(body, url).toBeNull();
     }
+  });
+  it("Foundmill's own host is never a founder's own site: another project's public key and key file do not connect or submit there", async () => {
+    let calls = 0;
+    // Project B's key file is public and served; A tries to connect with it as a site of its own.
+    const connector = createIndexNowConnector({ secrets: {}, hostedPagesOrigin: "https://foundmill.test.app", fetch: routedFetch({ "*": () => (calls++, text("b-project-key-1")) }) });
+    for (const host of ["foundmill.test.app", "https://foundmill.test.app/p/ledgerly", "pages.foundmill.test.app"]) {
+      await expect(connector.connect(TEST_BUSINESS_ID, { host, key: "b-project-key-1", keyLocation: "https://foundmill.test.app/p/ledgerly/b-project-key-1.txt" }), host).rejects.toBeInstanceOf(ConnectInputError);
+    }
+    expect(calls).toBe(0);
+    // A row stored before the rule (or written some other way) is not usable either.
+    const stale = integration({ host: "foundmill.test.app", keyLocation: "https://foundmill.test.app/p/ledgerly/b-project-key-1.txt", key: "b-project-key-1" });
+    const ctx = makeToolContext(connector, { mode: "live", credential: { kind: "api_key", secret: "b-project-key-1" }, integration: stale });
+    await expect(connector.callTool("submit_urls", { urls: ["https://foundmill.test.app/p/ledgerly"] }, ctx)).rejects.toMatchObject({ code: "connector_unconfigured" });
+    expect((await connector.healthcheck(stale, { kind: "api_key", secret: "b-project-key-1" })).status).toBe("degraded");
+    expect(calls).toBe(0);
+  });
+  it("telling search engines asks first: the tool is marked as not recallable, and not as contacting a person", () => {
+    const connector = createIndexNowConnector({ secrets: {} });
+    expect(connector.policyHints.submit_urls).toEqual({ irreversible: true });
+    expect(indexNowMock.policyHints.submit_urls).toEqual({ irreversible: true });
   });
   it("a hosted connect is refused where pages have no public https address, and never without the gateway's origin", async () => {
     for (const hostedPagesOrigin of [undefined, "http://localhost:3000", "https://localhost", "https://10.0.0.5", "https://foundmill.test.app:8443"]) {
