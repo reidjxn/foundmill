@@ -44,13 +44,15 @@ export const api = createTRPCUntypedClient({
     splitLink({
       condition: (op) => STREAMING.has(op.path),
       true: httpBatchStreamLink({ url: `${API_URL}/trpc`, transformer: superjson, headers: authHeaders, fetch: expoFetch as any, maxItems: 1 }),
-      false: httpBatchLink({ url: `${API_URL}/trpc`, transformer: superjson, headers: authHeaders, maxItems: 10, maxURLLength: 8000 }),
+      false: httpBatchLink({ url: `${API_URL}/trpc`, transformer: superjson, headers: authHeaders, maxItems: 4, maxURLLength: 8000 }),
     }),
   ],
 });
 // api.query("inbox.list", { businessId, tab: "respond", limit: 50 })
 // api.mutation("inbox.decide", { businessId, itemId, chosenOption })
 ```
+
+**At most 4 procedures per request (Nov 12, 2026).** Every procedure in a batch opens its own database transaction, and the api's pool is small: batches of 8–10 from the app filled it and restarted the production api. Keep `maxItems: 4`; the server will refuse larger batches. And read each thing once: one shared hook per procedure (`useRibbon(businessId)`, `useToday(businessId)`, …) with one canonical input, so a screen's tiles share one query key instead of each calling it (six `journey.ribbon` reads in one batch were seen). Prefetch only the screen the founder is on, not every tab at launch.
 
 Wrap it in TanStack Query (`@tanstack/react-query`). Query keys are `[path, input]`. Timeouts: 45 s for a read, 4 minutes for a change (the composer can take a while to write a note); streams have no timeout, the person stops them.
 
