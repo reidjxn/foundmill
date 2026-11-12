@@ -481,6 +481,10 @@ export const isPersonAddressedEvent = (type: string | null | undefined): boolean
  * The event catalog (packages/events `catalogue.ts`) states the scope of every declaration; this tuple is the same
  * fact for the packages below it (packages/db refuses these types in `repos.events.write`, apps/stream never delivers
  * them on a business stream), and the catalog fails to compile, and to load, when the two disagree. Append only.
+ *
+ * The database holds the same list (`fm_account_event_types()`, migration `account_events`): `account_events` takes only
+ * these types and `events` refuses them, whoever writes. A new account-scoped type therefore needs a migration that
+ * redefines that function; packages/db `rls/account-events.test.ts` fails until the two lists are the same.
  */
 export const EVENT_SCOPES = ["business", "account"] as const;
 export type EventScope = (typeof EVENT_SCOPES)[number];

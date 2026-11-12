@@ -2,7 +2,8 @@
  * account_events and account_outbox (0085): the person-level event store. A person reads their own rows and only the
  * columns that are theirs; nobody else reads them (another account, a cofounder in the same project, a signed-out
  * visitor); no client role writes; the queue is the services' alone; the database refuses a payload that carries an
- * account id, an actor that is a second party and any rewrite; the rows go with the account.
+ * account id (in any common spelling), an actor that is a second party and any rewrite; an account-scoped type is
+ * never a row of a business's `events`, and only such a type is a row here; the rows go with the account.
  */
 import { ACCOUNT_EVENT_TYPES } from "@foundmill/shared";
 import { getTableColumns, sql } from "drizzle-orm";
@@ -187,6 +188,41 @@ describe("account_events: the two-person rule in the database", () => {
     await expect(write(ada, "profile.published", { handle: "ada-lovelace", [bo]: true })).rejects.toThrow(refused);
     // The owner connection is held to it too.
     await expect(asOwner(sql`insert into account_events (user_id, type, actor, payload) values (${ada}::uuid, 'profile.published', '{"kind":"system","id":"platform"}'::jsonb, ${JSON.stringify({ from: bo })}::jsonb)`)).rejects.toThrow(refused);
+    // Every common spelling of an id, the other person's and the row's own: without hyphens, with hyphens elsewhere,
+    // in capitals, with Unicode dashes, in braces, as a URN, and inside a longer run of letters and digits.
+    const compact = bo.replace(/-/g, "");
+    const spellings: Record<string, string> = {
+      compact,
+      "compact, capitals": compact.toUpperCase(),
+      "a hyphen every four": compact.replace(/(.{4})/g, "$1-").slice(0, -1),
+      "one stray hyphen": `${compact.slice(0, 5)}-${compact.slice(5)}`,
+      "hyphen U+2010": bo.replace(/-/g, "\u2010"),
+      "non-breaking hyphen U+2011": bo.replace(/-/g, "\u2011"),
+      "en dash U+2013": bo.replace(/-/g, "\u2013"),
+      "em dash U+2014": bo.replace(/-/g, "\u2014"),
+      "minus sign U+2212": bo.replace(/-/g, "\u2212"),
+      "fullwidth hyphen U+FF0D": bo.replace(/-/g, "\uff0d"),
+      braces: `{${bo}}`,
+      urn: `urn:uuid:${bo}`,
+      "spaces between the groups": bo.replace(/-/g, " "),
+      "dots between the groups": bo.replace(/-/g, "."),
+      "underscores between the groups": bo.replace(/-/g, "_"),
+      "colons between pairs": compact.replace(/(..)/g, "$1:").slice(0, -1),
+      "after other letters and digits": `ab12${compact}`,
+      "before other letters and digits": `${compact}cd34`,
+      "inside a longer run": `abcdef0123456789${compact}0123456789abcdef`,
+      "the row's own, compact": ada.replace(/-/g, ""),
+    };
+    for (const [how, value] of Object.entries(spellings)) {
+      await expect(write(ada, "profile.published", { handle: "ada-lovelace", n: value }), how).rejects.toThrow(refused);
+      await expect(write(ada, "profile.published", { handle: "ada-lovelace", deep: [{ list: [`see ${value}.`] }] }), `${how}, nested in text`).rejects.toThrow(refused);
+    }
+    await expect(write(ada, "profile.published", { handle: "ada-lovelace", [compact]: true }), "a compact id as a key").rejects.toThrow(refused);
+    // What the database cannot see, and says so (migration header, ARCHITECTURE §5): an id cut in two across values.
+    const split = await write(ada, "profile.published", { handle: "ada-lovelace", a: "7b0c5e0e-0000-4000", b: "-8000-000000000002" });
+    expect(split.eventId).toMatch(/^[0-9a-f-]{36}$/);
+    // A long run of letters and digits that holds no account's id (a hash) is not refused here.
+    await write(ada, "profile.published", { handle: "ada-lovelace", digest: "0123456789abcdef".repeat(4) });
     // A UUID that is no account's (the id of a record) is the writer's to judge, not the database's.
     const { eventId } = await write(ada, "profile.published", { handle: "ada-lovelace", recordId: "7b0c5e0e-0000-4000-8000-000000000001" });
     expect(eventId).toMatch(/^[0-9a-f-]{36}$/);
@@ -204,14 +240,52 @@ describe("account_events: the two-person rule in the database", () => {
     await expect(write(ada, "profile.published", { handle: "ada-lovelace" }, { actor: { kind: "webhook", id: "stripe" } })).rejects.toThrow(refused);
     await expect(write(ada, "profile.published", { handle: "ada-lovelace" }, { actor: { kind: "system" } })).rejects.toThrow(refused);
     await expect(asOwner(sql`insert into account_events (user_id, type, actor, payload) values (${ada}::uuid, 'profile.published', '"platform"'::jsonb, '{}'::jsonb)`)).rejects.toThrow(refused);
+    // An id in any spelling is not a word: without hyphens, in capitals, with Unicode dashes, behind a prefix.
+    const compact = bo.replace(/-/g, "");
+    for (const id of [compact, compact.toUpperCase(), `follow:${compact}`, `follow:${bo.replace(/-/g, ".")}`, `follow:${bo.replace(/-/g, "_")}`, `f:${compact.replace(/(.{8})/g, "$1:")}x`, bo.replace(/-/g, "\u2010"), compact.replace(/(.{4})/g, "$1-").slice(0, -1), "Platform", "platform team", "", "x".repeat(64)]) {
+      await expect(write(ada, "profile.published", { handle: "ada-lovelace" }, { actor: { kind: "system", id } }), id).rejects.toThrow(refused);
+    }
+    // Exactly `kind` and `id`, both text: nothing else rides in the actor.
+    for (const actor of [
+      { kind: "system", id: "platform", other: bo },
+      { kind: "system", id: "platform", note: "x" },
+      { kind: "user", id: ada, on_behalf_of: bo },
+      { kind: "system", id: 7 },
+      { kind: "system", id: ["platform"] },
+      { kind: ["system"], id: "platform" },
+      { kind: "user", id: ada.toUpperCase() },
+      { kind: "user", id: ada.replace(/-/g, "") },
+      {},
+    ]) {
+      await expect(write(ada, "profile.published", { handle: "ada-lovelace" }, { actor: actor as Record<string, unknown> }), JSON.stringify(actor)).rejects.toThrow(refused);
+    }
     await write(ada, "profile.published", { handle: "ada-lovelace" }, { actor: { kind: "system", id: "platform" } });
+    await write(ada, "profile.published", { handle: "ada-lovelace" }, { actor: { kind: "system", id: "public-page:follow_form.v2" } });
   });
 
-  it("the shape is held: a dotted type, an object payload of bounded size, a bounded key", async () => {
+  it("the guards run with an empty search path, and the helpers are not the clients' to call", async () => {
+    const functions = await truth<{ proname: string; prosecdef: boolean; proconfig: string[] | null }>(sql`
+      select proname, prosecdef, proconfig from pg_proc where pronamespace = 'public'::regnamespace and proname in ('fm_account_events_guard', 'fm_account_event_types', 'fm_account_id_text') order by 1`);
+    expect(functions.map((f) => [f.proname, f.prosecdef, f.proconfig])).toEqual([
+      ["fm_account_event_types", false, ['search_path=""']],
+      ["fm_account_events_guard", true, ['search_path=""']],
+      ["fm_account_id_text", false, ['search_path=""']],
+    ]);
+    // What the guard reads a value as: lower case, an id's punctuation gone (hyphen, dashes, space, dot, colon, underscore).
+    expect(await truth<{ t: string }>(sql`select fm_account_id_text(${"0A1B\u20102C3D\u2014x-Y\uff0dZ a.b:c_d"}) as t`)).toEqual([{ t: "0a1b2c3dxyzabcd" }]);
+    // JSON's own punctuation stays, so two values never run together.
+    expect(await truth<{ t: string }>(sql`select fm_account_id_text(${JSON.stringify({ a: "0a1b", b: ["2c3d", 7] })}::jsonb::text) as t`)).toEqual([{ t: '{"a""0a1b","b"["2c3d",7]}' }]);
+    await expect(h.asUser(ada).execute(sql`select fm_account_id_text('x')`)).rejects.toThrow(/permission denied/);
+    await expect(h.anon().execute(sql`select fm_account_id_text('x')`)).rejects.toThrow(/permission denied/);
+    await expect(h.anon().execute(sql`select fm_account_event_types()`)).rejects.toThrow(/permission denied/);
+  });
+
+  it("the shape is held: an account-scoped type, an object payload of bounded size, a bounded key", async () => {
     const insert = (type: string, payload: string, key: string | null = null) =>
       h.service().execute(sql`insert into account_events (user_id, type, actor, payload, idempotency_key) values (${ada}::uuid, ${type}, ${JSON.stringify({ kind: "user", id: ada })}::jsonb, ${payload}::jsonb, ${key})`);
-    await expect(insert("Profile Published", "{}")).rejects.toThrow(/check constraint/);
-    await expect(insert("profile", "{}")).rejects.toThrow(/check constraint/);
+    for (const type of ["Profile Published", "profile", "profile.published ", "PROFILE.PUBLISHED", "profile.renamed", "payment.received", "task.started", ""]) {
+      await expect(insert(type, "{}"), type).rejects.toThrow(/account_events_type_account_scoped/);
+    }
     await expect(insert("profile.published", "[]")).rejects.toThrow(/account_events_payload_object/);
     await expect(insert("profile.published", JSON.stringify({ handle: "x".repeat(17_000) }))).rejects.toThrow(/account_events_payload_object/);
     await expect(insert("profile.published", "{}", "")).rejects.toThrow(/check constraint/);
@@ -256,7 +330,40 @@ describe("account_events: lifecycle", () => {
     expect(await truth<{ n: number }>(sql`select count(*)::int as n from account_outbox o where not exists (select 1 from account_events e where e.id = o.event_id)`)).toEqual([{ n: 0 }]);
   });
 
-  it("a business's archive never carries them, and a business's events refuse the account-scoped types", async () => {
+  it("the database lists the account-scoped types once, and the list is the shared vocabulary's", async () => {
+    const [row] = await truth<{ types: string[] }>(sql`select fm_account_event_types() as types`);
+    // A type added to ACCOUNT_EVENT_TYPES without the migration that redefines the function fails here.
+    expect([...row!.types].sort()).toEqual([...ACCOUNT_EVENT_TYPES].sort());
+    const checks = await truth<{ table_name: string; conname: string; definition: string }>(sql`
+      select conrelid::regclass::text as table_name, conname, pg_get_constraintdef(oid) as definition from pg_constraint
+       where conname in ('events_not_account_scoped', 'account_events_type_account_scoped') order by 1`);
+    expect(checks.map((c) => [c.table_name, c.conname])).toEqual([["account_events", "account_events_type_account_scoped"], ["events", "events_not_account_scoped"]]);
+    for (const c of checks) expect(c.definition, c.conname).toContain("fm_account_event_types()");
+  });
+
+  it("the business events table refuses an account-scoped type, whoever writes: a member, an owner, the service role, the owner connection", async () => {
+    const before = await truth<{ n: number }>(sql`select count(*)::int as n from events`);
+    const refused = /events_not_account_scoped/;
+    for (const type of ACCOUNT_EVENT_TYPES) {
+      const insert = sql`insert into events (business_id, type, actor, payload) values (${A.businessId}::uuid, ${type}, ${JSON.stringify({ kind: "user", id: A.ownerId })}::jsonb, '{"handle":"forged"}'::jsonb)`;
+      // As a signed-in member straight through RLS (what the review reproduced), and as every other writer.
+      for (const member of [A.memberId, A.adminId, A.ownerId]) await expect(h.asUser(member).execute(insert), `${type} as ${member}`).rejects.toThrow(refused);
+      await expect(h.service().execute(insert), `${type} as service_role`).rejects.toThrow(refused);
+      await expect(asOwner(insert), `${type} on the owner connection`).rejects.toThrow(refused);
+      // Not by renaming a row that is already there either.
+      await expect(h.asUser(A.memberId).execute(sql`update events set type = ${type} where id = ${A.eventIds[0]!}::uuid`), `${type} by update`).rejects.toThrow(refused);
+    }
+    // A member still writes the business's own events, as before.
+    const [ok] = await h.asUser(A.memberId).execute<{ id: string }>(sql`insert into events (business_id, type, payload) values (${A.businessId}::uuid, 'task.started', '{}'::jsonb) returning id`);
+    expect(ok!.id).toMatch(/^[0-9a-f-]{36}$/);
+    await h.db.execute(sql`delete from events where id = ${ok!.id}::uuid`);
+    expect(await truth<{ n: number }>(sql`select count(*)::int as n from events`)).toEqual(before);
+    for (const reader of [A.ownerId, A.adminId, A.memberId, A.viewerId]) {
+      expect(await h.asUser(reader).execute(sql`select id from events where type = any (${sql`array[${sql.join(ACCOUNT_EVENT_TYPES.map((t) => sql`${t}`), sql`, `)}]`})`), reader).toEqual([]);
+    }
+  });
+
+  it("a business's archive never carries them, and the events repo refuses the account-scoped types before the database does", async () => {
     // The export classifies tables with a business_id; these have none, so they are in neither list and cannot be asked for.
     expect(repos.portability.businessScopedTables()).not.toContain("account_events");
     expect(repos.portability.businessScopedTables()).not.toContain("account_outbox");

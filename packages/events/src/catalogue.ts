@@ -161,7 +161,9 @@ export function declareEvent<T extends BusinessEventType, S extends z.ZodType>(
 
 /**
  * Declare one account-scoped event type: a fact about one person, stored in their own `account_events` rows and never
- * in a project's events. The type must be one of `ACCOUNT_EVENT_TYPES`. The payload schema is checked against the
+ * in a project's events. The type must be one of `ACCOUNT_EVENT_TYPES`, and a new one also needs a migration that
+ * redefines `fm_account_event_types()` with it (the database lets only the listed types into `account_events` and
+ * keeps them out of `events`; packages/db `rls/account-events.test.ts` compares the two lists). The payload schema is checked against the
  * account payload conventions as the catalog loads (./account-payload: a closed object, nobody named by an account id,
  * an email address or a private field; another person only by something public about them, such as a handle). Never
  * narrated: the Composer writes a project's Inbox, and this is not a project's fact.
