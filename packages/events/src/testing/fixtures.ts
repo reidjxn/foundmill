@@ -548,6 +548,7 @@ export const EVENT_FIXTURES: { readonly [K in EventType]: EventPayloadInput<K> }
   "mail.sent": { messageRef: fixtureId("mail"), messageId: "14c5d75ce93.dfd.64b469.filter0001.16648.5515E0B88.0", recipientHash: "a".repeat(64), fromLocalPart: "northwind-skincare", channelKey: "email_automation", agentId: fixtureId("agent"), sessionId: null, simulated: false },
   "notify.email_sent": { kind: "decision_waiting", userId: fixtureId("user"), inboxItemId: fixtureId("inbox"), messageId: "14c5d75ce93.dfd.64b469.filter0001.16648.5515E0B88.1", simulated: false },
   "push.sent": { kind: "decision", sourceEventId: fixtureId("event-source"), sourceEventType: "inbox.item_created", recipients: 2, devices: 3, provider: "onesignal", mode: "mock", providerMessageIds: [fixtureId("push-1")] },
+  "signup.attributed": { userId: fixtureId("user-new"), sourceKind: "project_page", sourceRef: "northwind-skincare", sourceBusinessId: fixtureId("business-source"), referrerUserId: FIXTURE_USER_ID },
 };
 
 /** A valid `WriteEventInput` for the given type, with the fixture payload and envelope. */

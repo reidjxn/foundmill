@@ -443,6 +443,7 @@ export const EVENT_TYPES = [
   "push.sent",
   "mail.sent",
   "notify.email_sent",
+  "signup.attributed",
 ] as const;
 export type EventType = (typeof EVENT_TYPES)[number];
 

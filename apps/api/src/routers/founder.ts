@@ -18,12 +18,16 @@
  * service role so a token follows the latest sign-in on a phone (packages/db repos/devices.ts); the rest run as the user.
  * founder.publicProfile.get/update/publish/unpublish (0080, package 2.3): the person's own public profile at /u/<handle>,
  * and publicPerson.byHandle, its signed-out read (services/person-profile.ts).
+ * founder.profile.update also takes `via` (0085, docs/NETWORK.md §5): who or what brought the person, recorded once on
+ * the save that creates the profile (services/attribution.ts).
  */
 import { freeDisplayName, liveModeOpen } from "@foundmill/config";
 import { AccountPreferencesPatch, RegisterDeviceInput, UnregisterDeviceInput, repos, withRls, FounderProfileInput, FounderProfilePatch, SaveTableViewsInput, TableViewsScope, type AccountPreferencesView, type Db, type DbTx, type GuidancePrefs, type NotificationPreferences } from "@foundmill/db";
 import { GUIDANCE_OFF_SOURCES, PAGE_SLUG_MAX, PERSON_ABOUT_MAX, PERSON_HEADLINE_MAX, PERSON_LOOKING_FOR, PERSON_PLACE_MAX, PERSON_TAGS_MAX, PERSON_TAG_MAX } from "@foundmill/shared";
+import { VIA_MAX_LENGTH } from "@foundmill/shared/via";
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
+import { recordSignupAttribution } from "../services/attribution";
 import { writeEventRow } from "../services/events";
 import { getPublicProfile, publicPersonByHandle, publishPublicProfile, unpublishPublicProfile, updateFounderProfile, updatePublicProfile } from "../services/person-profile";
 import { protectedProcedure, publicProcedure, router } from "../trpc";
@@ -85,6 +89,13 @@ export const PublicProfileInput = z.object({
   }),
 });
 
+/**
+ * founder.profile.update: the profile's fields, and `via`, the reference the person first arrived with
+ * (@foundmill/shared/via; the web hands over its cookie). It is read only on the save that creates the profile and
+ * never changes the answer (services/attribution.ts).
+ */
+export const FounderProfileUpdateInput = FounderProfilePatch.extend({ via: z.string().max(VIA_MAX_LENGTH).optional() });
+
 /** publicPerson.byHandle: anyone, signed in or not; the view `public_person_profiles` only; null when not public. */
 export const publicPersonRouter = router({
   byHandle: publicProcedure.input(z.object({ handle: z.string().max(PAGE_SLUG_MAX * 2) })).query(({ ctx, input }) => publicPersonByHandle(ctx, input.handle)),
@@ -109,14 +120,18 @@ export const founderRouter = router({
      * A new display name the public can read (the public profile is public, or a published project page names the
      * person as a founder) is screened first, like the profile's own text, and refused with its sentence when held
      * (services/person-profile.ts `updateFounderProfile`).
+     * `via` (who or what brought the person) is recorded once, on the save that creates the profile, when it names a
+     * public project page or a public person profile; the answer is the same whether it did, and a later save ignores it
+     * (services/attribution.ts).
      */
-    update: protectedProcedure.input(FounderProfilePatch).mutation(async ({ ctx, input }) => {
+    update: protectedProcedure.input(FounderProfileUpdateInput).mutation(async ({ ctx, input: { via, ...input } }) => {
       const existing = await repos.founders.get(ctx.db, ctx.userId);
       if (existing) return { ...(await updateFounderProfile(ctx, input)), guidanceTurnedOff: false };
       const created = FounderProfileInput.parse({ displayName: input.displayName ?? freeDisplayName(ctx.email?.split("@")[0]), ...input });
       const profile = await repos.founders.upsert(ctx.db, ctx.userId, created);
       const guidanceTurnedOff = guidanceOffByDefault(profile.experience);
       if (guidanceTurnedOff) await asUser(ctx, (tx) => repos.preferences.update(tx, ctx.userId, { guidance: "off", builderView: true }));
+      await recordSignupAttribution(ctx, ctx.userId, via);
       return { ...profile, guidanceTurnedOff };
     }),
   }),

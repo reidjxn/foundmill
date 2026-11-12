@@ -120,6 +120,9 @@ export const EVENT_WALLS = {
   "mail.sent": { sections: ["distribution"] },
   // Foundmill emailed one of the business's people about a waiting note: ids only, like push.sent.
   "notify.email_sent": { sections: ["settings"] },
+  // Who or what brought a new person (0085): about an account, not a business, and not written to any business's events
+  // (packages/events catalogue). Filed with the metrics-only events so a stray one reaches no one but Settings' readers.
+  "signup.attributed": { sections: ["settings"] },
 } as const satisfies { readonly [K in EventType]: EventWall };
 
 /** What one reader may see of business events: their walls (sections they may not read at all). */

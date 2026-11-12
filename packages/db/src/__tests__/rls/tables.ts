@@ -205,5 +205,7 @@ export const NON_TENANT_TABLES = [
   "project_mail",
   // 0078: a platform table (no business_id: the project it belonged to is gone), service role only; covered by rls/project-mail.test.ts.
   "retired_mail_local_parts",
+  // 0085: who or what brought a new person (user-owned, service role only); rls/attributions.test.ts.
+  "attributions",
 ] as const;
 

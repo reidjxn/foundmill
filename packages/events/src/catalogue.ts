@@ -47,6 +47,7 @@ import {
   ValidationError,
   type EventType as EventTypeT,
 } from "@foundmill/shared";
+import { VIA_KINDS } from "@foundmill/shared/via";
 
 // ---------------------------------------------------------------------------------------------------
 // Building blocks
@@ -1696,6 +1697,38 @@ const notifyEmailSent = declareEvent(
 );
 
 // ---------------------------------------------------------------------------------------------------
+// Who or what brought a new person (0085 `attributions`; docs/NETWORK.md §5, §11)
+// ---------------------------------------------------------------------------------------------------
+
+// NOT WRITTEN YET. This event is about an account, and a person creating their profile has no business: `events` and
+// `outbox` carry a NOT NULL `business_id`, the relay publishes on `ev:{businessId}`, and every member of a business
+// reads its events, so there is nowhere to write it without putting a new person's account id in front of a project's
+// members (the reason 0060 took person facts out of business events). Until an account-level transport is decided,
+// the api records the `attributions` row only (apps/api `services/attribution.ts`); the row holds this whole payload,
+// so the events can be written from the rows later, one for one. The declaration fixes the contract, and the api
+// checks every row it writes against it.
+const signupAttributed = declareEvent(
+  "signup.attributed",
+  z.object({
+    /** The new person, by account id. */
+    userId: Id,
+    /** What the reference named: a project's public page or a person's public profile (`VIA_KINDS`). */
+    sourceKind: z.enum(VIA_KINDS),
+    /** The slug or handle as it arrived (3 to 40 lowercase letters, digits and hyphens). Public: it was in an address. */
+    sourceRef: z.string().regex(/^[a-z0-9][a-z0-9-]{1,38}[a-z0-9]$/),
+    /** The project whose page it was; null for a person's profile. */
+    sourceBusinessId: Id.nullable(),
+    /** The person credited: the page's longest-standing owner, or the profile's own person. Null when none could be named. */
+    referrerUserId: Id.nullable(),
+  }),
+  {
+    doc: "A new person's profile was created after they arrived through a `?via=` reference that resolved to a public project page or a public person profile: recorded once per account, never for a reference that did not resolve or that named the person themselves. How the growth loops are measured and how credit for bringing someone is later paid. Account-level: not written to any business's events (see the note above the declaration); never narrated.",
+    consumers: ["metrics"],
+    narratable: false,
+  },
+);
+
+// ---------------------------------------------------------------------------------------------------
 // Registry
 // ---------------------------------------------------------------------------------------------------
 
@@ -1771,6 +1804,7 @@ export const EVENTS = {
   "push.sent": pushSent,
   "mail.sent": mailSent,
   "notify.email_sent": notifyEmailSent,
+  "signup.attributed": signupAttributed,
 } as const satisfies { readonly [K in EventTypeT]: EventDeclaration<K> };
 
 export type EventsRegistry = typeof EVENTS;

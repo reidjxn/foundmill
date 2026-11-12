@@ -1,5 +1,6 @@
 /** 0002 — founder profiles, businesses, ideas (+ the businessId() helper every business-scoped table uses); 0022 — account preferences; 0025 — the business currency. */
 import { AGENT_STOP_REASONS, AGENT_STYLES, ARCHETYPES, AUTOPILOT_CADENCES, AUTOPILOT_PAUSE_REASONS, BUSINESS_MODES, DATA_REGIONS, DATE_FORMAT_PREFERENCES, DEVICE_PLATFORMS, GAME_MODES, GUIDANCE_MODES, MODEL_BILLING, PERSON_LOOKING_FOR, PLAN_TIERS, PUSH_PROVIDERS, TEXT_SIZES, TIME_FORMAT_PREFERENCES, VISIBILITY, type EmailNotificationPrefs, type NotificationPrefs } from "@foundmill/shared";
+import { VIA_KINDS } from "@foundmill/shared/via";
 import { sql } from "drizzle-orm";
 import { boolean, char, index, integer, jsonb, numeric, pgTable, pgView, text, uniqueIndex, uuid, type AnyPgColumn } from "drizzle-orm/pg-core";
 import { authUsers } from "drizzle-orm/supabase";
@@ -244,6 +245,30 @@ export const businesses = pgTable(
 );
 export type Business = typeof businesses.$inferSelect;
 export type NewBusiness = typeof businesses.$inferInsert;
+
+/**
+ * 0085 — who or what brought a new person (docs/NETWORK.md §5, §11): the first `?via=` reference a visitor arrived
+ * with, recorded once when their founder profile is first created (apps/api services/attribution.ts). One row per
+ * account, ever. Account-scoped, no `business_id`: `sourceBusinessId` is the project whose page brought them (null for a
+ * person's profile) and `referrerUserId` the person credited. Service role only: no client role reads or writes it,
+ * not even the person's own row.
+ */
+export const attributions = pgTable(
+  "attributions",
+  {
+    id: id(),
+    userId: uuid("user_id").notNull().unique("attributions_user_id_key").references(() => authUsers.id, { onDelete: "cascade" }),
+    sourceKind: text("source_kind", { enum: VIA_KINDS }).notNull(),
+    /** The slug or handle as it arrived. */
+    sourceRef: text("source_ref").notNull(),
+    sourceBusinessId: uuid("source_business_id").references(() => businesses.id, { onDelete: "set null" }),
+    referrerUserId: uuid("referrer_user_id").references(() => authUsers.id, { onDelete: "set null" }),
+    ...timestamps(),
+  },
+  (t) => [index("attributions_source_business_id_idx").on(t.sourceBusinessId), index("attributions_referrer_user_id_idx").on(t.referrerUserId)],
+);
+export type Attribution = typeof attributions.$inferSelect;
+export type NewAttribution = typeof attributions.$inferInsert;
 
 // Local (not ./_refs) to avoid an import cycle with this file; ideas carry a nullable business_id until commit.
 const businessIdNullable = () => uuid("business_id").references(() => businesses.id, { onDelete: "cascade" });
