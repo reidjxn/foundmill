@@ -3,10 +3,10 @@
  * connect form and then from `ctx.credential`; there is no platform key and `secrets` is never read. The key travels in
  * the Authorization header and nowhere else.
  *
- * NO WEBHOOKS IN THIS VERSION. Bounces and spam complaints at Resend are not ingested yet, so they do not reach the
- * project's suppression list; only what the host's `isSuppressed` already knows (opt-outs through the unsubscribe link,
- * addresses learned from other channels) is honored before a send. Resend's own suppression of a bounced address still
- * applies on its side.
+ * NO WEBHOOKS IN THIS VERSION. Opt-outs through the unsubscribe link do reach the project's suppression list, because
+ * the link is Foundmill's own (the gateway's signed one-click link in `ctx.unsubscribeUrl`, never an agent argument).
+ * Bounces and spam complaints at Resend do not reach it yet (nothing ingests them); only what the host's `isSuppressed`
+ * already knows is honored before a send. Resend's own suppression of a bounced address still applies on its side.
  */
 import { AppError, uuid } from "@foundmill/shared";
 import { ConfigError, ConnectInputError, connectInputValue, VendorError, type Connector, type DecryptedCredential } from "../../contract";
@@ -15,7 +15,7 @@ import { bearer, createHttp } from "../../http";
 import { resolveLiveOptions, type LiveConnectorOptions } from "../../platform";
 import { assertNoneSuppressed } from "../sendgrid/tools";
 import { resendMock } from "./mock";
-import { assertContent, assertVerifiedFromDomain, buildSendBody, idempotencyKeyFor, isVerifiedDomain, mapDomain, publicDomain, RESEND_BASE_URL, RESEND_CONNECT_FIELDS, RESEND_KEY, RESEND_RATE_LIMITS, resendTools, type ResendDomainRaw } from "./tools";
+import { assertContent, assertVerifiedFromDomain, assertVerifiedReplyTo, buildSendBody, idempotencyKeyFor, isVerifiedDomain, mapDomain, publicDomain, requireUnsubscribeUrl, RESEND_BASE_URL, RESEND_CONNECT_FIELDS, RESEND_KEY, RESEND_RATE_LIMITS, resendTools, type ResendDomainRaw } from "./tools";
 
 const MACHINE_CODE = /^[a-z0-9_]{1,40}$/;
 
@@ -80,11 +80,14 @@ export function createResendConnector(options: LiveConnectorOptions = {}): Conne
         send_mail: async (mail, ctx) => {
           const secret = ctx.credential?.secret;
           if (!secret) throw missingKey();
-          // In this order, all before the send: the content, the sender's domain, the suppression list.
+          const unsubscribeUrl = requireUnsubscribeUrl(ctx.unsubscribeUrl);
+          // In this order, all before the send: the content, the sender's and reply-to domains, the suppression list.
           assertContent(mail);
-          assertVerifiedFromDomain(mail.from.email, await domains(secret));
+          const verified = await domains(secret);
+          assertVerifiedFromDomain(mail.from.email, verified);
+          assertVerifiedReplyTo(mail.replyTo, verified);
           await assertNoneSuppressed([mail.to.email.toLowerCase()], async (email) => (isSuppressed ? await isSuppressed(ctx.businessId, email) : false));
-          const res = await call<{ id?: unknown }>(secret, "POST", "/emails", { body: buildSendBody(mail), headers: { "Idempotency-Key": idempotencyKeyFor(ctx.businessId, mail) } });
+          const res = await call<{ id?: unknown }>(secret, "POST", "/emails", { body: buildSendBody(mail, unsubscribeUrl), headers: { "Idempotency-Key": idempotencyKeyFor(ctx.businessId, mail) } });
           if (typeof res?.id !== "string" || !res.id) throw new VendorError(RESEND_KEY, 502, "POST /emails answered without an id");
           return { id: res.id, to: mail.to.email, from: mail.from.email, subject: mail.subject };
         },

@@ -67,7 +67,7 @@ export const integrationsRouter = router({
       paused: row.status !== "active",
       live: platformMailLive(ctx.env),
       // The founder's own sender, SendGrid or Resend: the gateway sends from it and the project's address steps aside.
-      ownSender: owns.some((own) => own !== null && own.archivedAt === null && (own.status === "connected" || own.status === "degraded")),
+      ownSender: owns.some((own) => own !== null && own.archivedAt === null && (own.status === "connected" || (own.status === "degraded" && own.connectorKey !== "resend"))),
     };
   }),
 

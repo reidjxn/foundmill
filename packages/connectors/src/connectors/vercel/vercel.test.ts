@@ -73,6 +73,17 @@ describe("vercel mock world", () => {
     expect(ids(await mock.callTool("list_deployments", {}, a))).toHaveLength(before.length + 1);
   });
 
+  it("refuses in the mock what the live side refuses: a redeploy keeps its target, and a result says what went live", async () => {
+    const mock = createVercelMock();
+    const ctx = makeToolContext(mock);
+    expect((await mock.callTool("create_deployment", { deploymentId: PREVIEW_ID, target: "production" }, ctx)).error).toMatchObject({ code: "not_a_redeploy", status: 409 });
+    expect((await mock.callTool("create_deployment", { deploymentId: PROD_ID, target: "preview" }, ctx)).error).toMatchObject({ code: "not_a_redeploy" });
+    const ok = await mock.callTool("create_deployment", { deploymentId: PROD_ID, target: "production" }, ctx);
+    expect(content(ok.data)).toMatchObject({ gitBranch: "main", gitCommitSha: "9f1c2d3e4a5b6c7d8e9f0a1b2c3d4e5f6a7b8c9d" });
+    const list = ids(await mock.callTool("list_deployments", {}, ctx));
+    expect(list).toHaveLength(4);
+  });
+
   it("declares the hints, untrusted tools and no platform key", () => {
     expect(vercelMock.policyHints.list_deployments).toEqual({});
     expect(vercelMock.policyHints.get_deployment).toEqual({});
@@ -183,16 +194,28 @@ describe("vercel live (canned)", () => {
     expect(seen.map((s) => `${s.method} ${s.path}`)).toEqual([`GET /v13/deployments/${PROD_ID}`, "POST /v13/deployments"]);
     expect(seen[1]).toMatchObject({ query: { teamId: TEAM_ID }, authorization: `Bearer ${TOKEN}`, body: { name: "northwind-web", deploymentId: PROD_ID, target: "production" } });
     expect(Object.keys(seen[1]?.body as object).sort()).toEqual(["deploymentId", "name", "target"]);
-    expect(content(r.data)).toEqual({ id: "dpl_89qyp1cskzkLrVicDaZoDbjyHuDJ", url: "northwind-web-n3w8d1.vercel.app", state: "QUEUED", target: null, inspectorUrl: CREATED_OK.inspectorUrl });
+    expect(content(r.data)).toEqual({ id: "dpl_89qyp1cskzkLrVicDaZoDbjyHuDJ", url: "northwind-web-n3w8d1.vercel.app", state: "QUEUED", target: null, inspectorUrl: CREATED_OK.inspectorUrl, gitBranch: "main", gitCommitSha: "9f1c2d3e4a5b6c7d8e9f0a1b2c3d4e5f6a7b8c9d" });
     expect(JSON.stringify(r.data)).not.toContain(SECRET_ENV);
     expect(r.costMinor).toBe(5);
   });
 
-  it("leaves target out for a preview redeploy, as the docs describe", async () => {
+  it("leaves target out for a preview redeploy of a preview, as the docs describe, and reports its branch and commit", async () => {
     const seen: Seen[] = [];
-    const c = connectorWith(seen);
-    await c.callTool("create_deployment", { deploymentId: OLD_PROD_ID, target: "preview" }, ctxFor(c));
-    expect(seen[1]?.body).toEqual({ name: "northwind-web", deploymentId: OLD_PROD_ID });
+    const c = connectorWith(seen, { get: () => jsonResponse(VC_PREVIEW) });
+    const r = await c.callTool("create_deployment", { deploymentId: PREVIEW_ID, target: "preview" }, ctxFor(c));
+    expect(seen[1]?.body).toEqual({ name: "northwind-web", deploymentId: PREVIEW_ID });
+    expect(content(r.data)).toMatchObject({ gitBranch: "fix-checkout", gitCommitSha: "0a1b2c3d4e5f60718293a4b5c6d7e8f901234567" });
+  });
+
+  it("refuses to promote a preview to production, and a production deployment to a preview, before any POST", async () => {
+    const seen: Seen[] = [];
+    const fromPreview = connectorWith(seen, { get: () => jsonResponse(VC_PREVIEW) });
+    const up = await fromPreview.callTool("create_deployment", { deploymentId: PREVIEW_ID, target: "production" }, ctxFor(fromPreview));
+    expect(up.error).toMatchObject({ code: "not_a_redeploy", status: 409, message: "Nothing was deployed: a redeploy keeps its target. Putting a preview live is the founder's own step in Vercel." });
+    const fromProd = connectorWith(seen);
+    const down = await fromProd.callTool("create_deployment", { deploymentId: OLD_PROD_ID, target: "preview" }, ctxFor(fromProd));
+    expect(down.error).toMatchObject({ code: "not_a_redeploy", status: 409 });
+    expect(seen.some((s) => s.method === "POST")).toBe(false);
   });
 
   it("does not post when the source cannot be read or has no name", async () => {

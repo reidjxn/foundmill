@@ -3,7 +3,7 @@
  * founder's own SendGrid and to the project's Foundmill sending address). The founder's own key only; Resend bills
  * the founder. Every send is an outside message on behalf of the business, so it holds the same rules as `sendgrid`
  * and `platform_mail`: the sender's domain must be verified on the account, nobody on the project's suppression list
- * is written to, one recipient per call, an unsubscribe link in the headers and the footer, no attachments.
+ * is written to, one recipient per call, an unsubscribe link (the gateway's own, from the tool context) in the headers and the footer, no attachments.
  *
  * Docs read Nov 12, 2026: https://resend.com/docs/api-reference/emails/send-email (POST /emails),
  * https://resend.com/docs/api-reference/domains/list-domains (GET /domains), https://resend.com/docs/api-reference/errors,
@@ -52,22 +52,30 @@ export const RESEND_SEND_COST_MINOR = 1;
 export const RESEND_TEXT_MAX = 20_000;
 export const RESEND_HTML_MAX = 100_000;
 
-const Address = z.strictObject({ email: z.email().max(254), name: z.string().trim().min(1).max(120).regex(/^[^\r\n<>"]*$/, "a name on one line, without < > or quotes").optional() });
+/**
+ * A display name is plain words. It refuses every character that could end the name and start a second address or a
+ * look-alike sender ("Bob, eve@x.com"): , ; : @ ( ) [ ] \\ as well as line breaks, angle brackets and quotes.
+ */
+const Address = z.strictObject({ email: z.email().max(254), name: z.string().trim().min(1).max(120).regex(/^[^\r\n<>"@,;:()[\]\\]*$/, "a name on one line, without < > @ , ; : ( ) [ ] \\ or quotes").optional() });
 
 /** An https address with no spaces, quotes or angle brackets (it goes into a header and a link). */
-export const UnsubscribeUrl = z
-  .string()
-  .trim()
-  .max(2_000)
-  .refine((u) => {
-    if (!/^https:\/\/[^\s<>"'\\]+$/i.test(u)) return false;
-    try {
-      const p = new URL(u);
-      return p.protocol === "https:" && !p.username && !p.password;
-    } catch {
-      return false;
-    }
-  }, "An https address without spaces, quotes or angle brackets");
+export const isSafeUnsubscribeUrl = (u: unknown): u is string => {
+  if (typeof u !== "string" || u.length > 2_000 || !/^https:\/\/[^\s<>"'\\]+$/i.test(u)) return false;
+  try {
+    const p = new URL(u);
+    return p.protocol === "https:" && !p.username && !p.password;
+  } catch {
+    return false;
+  }
+};
+
+export const UNSUBSCRIBE_UNAVAILABLE = "unsubscribe_unavailable";
+
+/** The link comes from the gateway (`ctx.unsubscribeUrl`), never from the agent. Refuses before any vendor call. */
+export function requireUnsubscribeUrl(url: string | undefined): string {
+  if (!isSafeUnsubscribeUrl(url)) throw new AppError(UNSUBSCRIBE_UNAVAILABLE, "Nothing was sent: this message needs an unsubscribe link, and one is not available here yet.", 409);
+  return url;
+}
 
 /** One message to one person. No cc, bcc, attachments, scheduling, templates or batches: the schema refuses unknown fields. */
 export const ResendSendMail = z.strictObject({
@@ -76,8 +84,7 @@ export const ResendSendMail = z.strictObject({
   subject: z.string().trim().min(1).max(200),
   text: z.string().min(1).max(RESEND_TEXT_MAX),
   html: z.string().max(RESEND_HTML_MAX).optional(),
-  replyTo: z.email().max(254).optional(),
-  unsubscribeUrl: UnsubscribeUrl.describe("the https link where this person can stop these emails; required, sent as List-Unsubscribe and added to the footer"),
+  replyTo: z.email().max(254).optional().describe("must also be on a verified domain of the account"),
 });
 export type ResendSendMailT = z.infer<typeof ResendSendMail>;
 
@@ -109,7 +116,7 @@ export const resendTools = [
     name: "send_mail",
     title: "Send an email",
     description:
-      "Send one email to one person from the founder's own Resend account and domain. Plain text (required), optionally with simple HTML (paragraphs, line breaks, bold, italics, lists, headings, links); no attachments, cc, bcc, scheduling or templates. An unsubscribe link (`unsubscribeUrl`, https) is required and is added to the headers and the footer. Refused when the `from` domain is not verified on the account or when the person is on the project's suppression list. Never claim to be a person.",
+      "Send one email to one person from the founder's own Resend account and domain. Plain text (required), optionally with simple HTML (paragraphs, line breaks, bold, italics, lists, headings, links); no attachments, cc, bcc, scheduling or templates. Foundmill adds this person's unsubscribe link to the headers and the footer; you do not supply one. Refused when the `from` or `replyTo` domain is not verified on the account or when the person is on the project's suppression list. Never claim to be a person.",
     input: ResendSendMail,
     output: ResendSendResult,
     hints: { contactsThirdParty: true, irreversible: true },
@@ -134,6 +141,15 @@ export function assertVerifiedFromDomain(fromEmail: string, domains: (ResendDoma
   }
 }
 
+/** A reply-to address is held to the same rule as the sender: on a verified domain of the account. */
+export function assertVerifiedReplyTo(replyTo: string | undefined, domains: (ResendDomainT & { sending?: boolean })[]): void {
+  if (replyTo === undefined) return;
+  const domain = domainOf(replyTo);
+  if (!domains.some((d) => d.name.toLowerCase() === domain && isVerifiedDomain(d))) {
+    throw new AppError(SENDER_DOMAIN_NOT_VERIFIED, `Nothing was sent: the reply-to address is on ${domain}, which is not a verified sending domain on this Resend account. Use a reply-to on a verified domain.`, 403, { domain });
+  }
+}
+
 export function assertContent(mail: Pick<ResendSendMailT, "subject" | "text" | "html">): void {
   const problem = platformMailContentProblem(mail);
   if (problem) throw new AppError(CONTENT_REFUSED, `Nothing was sent: ${problem}`, 422);
@@ -147,7 +163,7 @@ export const unsubscribeFooter = (url: string): { text: string; html: string } =
   html: `<hr><p><a href="${escapeHtml(url)}">Unsubscribe</a></p>`,
 });
 
-export const formatAddress = (a: { email: string; name?: string | undefined }): string => (a.name ? `${a.name} <${a.email}>` : a.email);
+export const formatAddress = (a: { email: string; name?: string | undefined }): string => (a.name ? `"${a.name}" <${a.email}>` : a.email);
 
 /**
  * A stable key for the same message: a retried call (a timeout, a repeated tool call) carries the same key, and Resend
@@ -156,8 +172,8 @@ export const formatAddress = (a: { email: string; name?: string | undefined }): 
 export const idempotencyKeyFor = (businessId: string, mail: Pick<ResendSendMailT, "to" | "subject" | "text">): string => `fm-${stableHash([businessId, mail.to.email.toLowerCase(), mail.subject, mail.text], 48)}`;
 
 /** The `POST /emails` body. Shared by the live side and the mock so both carry the same headers and footer. */
-export function buildSendBody(mail: ResendSendMailT): Record<string, unknown> {
-  const footer = unsubscribeFooter(mail.unsubscribeUrl);
+export function buildSendBody(mail: ResendSendMailT, unsubscribeUrl: string): Record<string, unknown> {
+  const footer = unsubscribeFooter(unsubscribeUrl);
   return {
     from: formatAddress(mail.from),
     to: [formatAddress(mail.to)],
@@ -165,7 +181,7 @@ export function buildSendBody(mail: ResendSendMailT): Record<string, unknown> {
     text: `${mail.text}${footer.text}`,
     ...(mail.html?.trim() ? { html: `${mail.html}${footer.html}` } : {}),
     ...(mail.replyTo ? { reply_to: mail.replyTo } : {}),
-    headers: { "List-Unsubscribe": `<${mail.unsubscribeUrl}>`, "List-Unsubscribe-Post": "List-Unsubscribe=One-Click" },
+    headers: { "List-Unsubscribe": `<${unsubscribeUrl}>`, "List-Unsubscribe-Post": "List-Unsubscribe=One-Click" },
   };
 }
 

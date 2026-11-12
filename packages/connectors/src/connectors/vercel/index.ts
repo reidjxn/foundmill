@@ -12,6 +12,7 @@ import { bearer, createHttp } from "../../http";
 import { resolveLiveOptions, type LiveConnectorOptions } from "../../platform";
 import { vercelMock } from "./mock";
 import {
+  assertRedeployKeepsTarget,
   mapCreated,
   mapDeployment,
   mapDeploymentDetail,
@@ -97,11 +98,14 @@ export function createVercelConnector(options: LiveConnectorOptions = {}): Conne
           if (!secret) throw missingToken();
           const teamId = teamOf(ctx.integration);
           // `name` is required by the schema: take it from the deployment being redeployed (same team, same token).
-          const name = (await getRaw(secret, teamId, deploymentId)).name;
+          const source = await getRaw(secret, teamId, deploymentId);
+          const name = source.name;
           if (typeof name !== "string" || !name) throw new VendorError(VERCEL_KEY, 502, `GET /v13/deployments/${deploymentId} answered without a project name`);
+          // A true redeploy only: the target must be the source's own. Refused before any POST.
+          assertRedeployKeepsTarget(source.target, target);
           // The docs list no "preview" value: leaving `target` out makes a preview. Nothing else is sent (no files, git source or env).
           const body = { name, deploymentId, ...(target === "production" ? { target: "production" } : {}) };
-          return mapCreated(await call<VcDeployment>(secret, "POST", "/v13/deployments", { query: { teamId }, body }));
+          return mapCreated(await call<VcDeployment>(secret, "POST", "/v13/deployments", { query: { teamId }, body }), source);
         },
       },
       connectFields: VERCEL_CONNECT_FIELDS,

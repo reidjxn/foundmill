@@ -56,8 +56,8 @@ describeConnectorContract("apollo (mock)", {
 describe("apollo mock", () => {
   it("declares spend only on the tools that use credits, and reads untrusted", () => {
     expect(apolloMock.policyHints.search_people).toEqual({});
-    expect(apolloMock.policyHints.search_organizations).toEqual({ spendsMoney: true });
-    expect(apolloMock.policyHints.enrich_person).toEqual({ spendsMoney: true });
+    expect(apolloMock.policyHints.search_organizations).toEqual({ spendsMoney: true, irreversible: true });
+    expect(apolloMock.policyHints.enrich_person).toEqual({ spendsMoney: true, irreversible: true });
     expect(apolloMock.auth).toEqual({ kind: "api_key" });
     expect(apolloMock.connectFields?.[0]).toMatchObject({ name: "apiKey", secret: true, required: true });
     expect(apolloMock.connectFields?.[0]?.hint).toMatch(/work email/);

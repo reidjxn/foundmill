@@ -92,6 +92,8 @@ export const PLATFORM_NOTIFY_DEFAULT_CEILING = 1_000;
 const OWN_SENDER_STATUSES = new Set(["connected", "degraded"]);
 /** The connectors that are a founder's own sender: when one is connected, the project's Foundmill address steps aside. */
 const OWN_SENDER_CONNECTORS = ["sendgrid", "resend"] as const;
+/** Resend counts only while it can send: a degraded one (no verified domain) must not leave the project with no sender at all. */
+const ownSenderCounts = (key: string, status: string): boolean => (key === "resend" ? status === "connected" : OWN_SENDER_STATUSES.has(status));
 
 export interface PreparedPlatformMail {
   envelope: PlatformMailEnvelope;
@@ -99,6 +101,21 @@ export interface PreparedPlatformMail {
   recipientHash: string;
   /** Gives both counts back (the send did not go out). Idempotent. */
   release(): Promise<void>;
+}
+
+/**
+ * The signed one-click unsubscribe link for a message a founder's own sender (Resend) is about to send: the same link
+ * the project's Foundmill address carries, so an opt-out lands in this project's suppression list through ingest. Null
+ * where that cannot work: platform mail is not switched on here (ingest answers 404 for the link), or, live or outside
+ * development and test, there is no signing secret or no https address for ingest. The caller then sends nothing.
+ */
+export function ownSenderUnsubscribeUrl(config: PlatformMailConfig | undefined, input: { businessId: string; email: string; mode: ConnectorMode; appEnv?: string }): string | null {
+  if (!config?.domain) return null;
+  const devStack = input.appEnv === undefined || input.appEnv === "development" || input.appEnv === "test";
+  const strict = input.mode === "live" || !devStack;
+  const secret = config.signingSecret && config.signingSecret.length >= PLATFORM_MAIL_SECRET_MIN_LENGTH ? config.signingSecret : strict ? null : DEV_PLATFORM_MAIL_SECRET;
+  if (!secret || (strict && !/^https:\/\//.test(config.unsubscribeBase))) return null;
+  return platformUnsubscribeUrl(config.unsubscribeBase, platformUnsubscribeToken(secret, input.businessId, suppressionHashOfEmail(input.email)));
 }
 
 export type PlatformMailDecision = { ok: true; prepared: PreparedPlatformMail } | PlatformMailRefusal;
@@ -128,7 +145,7 @@ export async function preparePlatformMail(deps: PlatformMailDeps, input: { busin
   // 2. The founder's own sender wins: their SendGrid or their Resend (founder-key connectors, 2026-11-12).
   for (const ownKey of OWN_SENDER_CONNECTORS) {
     const own = await repos.integrations.getByKey(deps.db, businessId, ownKey);
-    if (own && own.archivedAt === null && OWN_SENDER_STATUSES.has(own.status)) return refuse(PLATFORM_MAIL_POLICY.own_sender, PLATFORM_MAIL_REFUSALS.own_sender);
+    if (own && own.archivedAt === null && ownSenderCounts(ownKey, own.status)) return refuse(PLATFORM_MAIL_POLICY.own_sender, PLATFORM_MAIL_REFUSALS.own_sender);
   }
 
   // 3. One recipient, plain text and simple HTML, nothing attached.

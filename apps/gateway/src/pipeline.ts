@@ -53,7 +53,7 @@ import { checkRateLimit, type RateLimitStore } from "./rate-limit";
 import { candidatesFromArgs, candidatesFromContent, hashRecipient, type RecipientCandidate, type UntrustedRegister } from "./recipients";
 import { checkByokKey, SessionStateCache, stateDenial, type StateDenial } from "./state";
 import { sessionKey, toolAllowed, toolRef, type SessionToken } from "./tokens";
-import { preparePlatformMail, type PlatformMailConfig, type PreparedPlatformMail } from "./platform-mail";
+import { ownSenderUnsubscribeUrl, preparePlatformMail, type PlatformMailConfig, type PreparedPlatformMail } from "./platform-mail";
 import { SIMULATED_NOTICE, type AllowResponse, type AskResponse, type CallRequestParsed, type CallResponse, type DenyResponse, type RateLimitedResponse } from "./types";
 
 export interface GatewayLogger extends ToolLogger {
@@ -767,6 +767,14 @@ async function allow(deps: GatewayDeps, session: SessionToken, req: CallRequestP
     }
     platformMail = decision.prepared;
     ctx.platformMail = platformMail.envelope;
+  }
+
+  // A founder's own Resend: the unsubscribe link is Foundmill's signed one for this recipient, never the agent's, so an
+  // opt-out reaches this project's suppression list. Where no such link can be made, the connector sends nothing.
+  if (connector.key === "resend" && tool.name === "send_mail") {
+    const to = (guarded.args as { to?: { email?: unknown } } | null)?.to?.email;
+    const link = typeof to === "string" ? ownSenderUnsubscribeUrl(deps.platformMail, { businessId: session.businessId, email: to, mode, ...(deps.appEnv !== undefined ? { appEnv: deps.appEnv } : {}) }) : null;
+    if (link) ctx.unsubscribeUrl = link;
   }
 
   let result: ToolResult;

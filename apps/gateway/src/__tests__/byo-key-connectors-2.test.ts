@@ -72,20 +72,26 @@ afterEach(async () => {
 
 describe("live: outward or costly tools ask first in augmented and assisted mode, read-only ones run", () => {
   const asks: CallKey[] = ["vercel.create_deployment", "apollo.enrich_person", "apollo.search_organizations", "resend.send_mail"];
-  for (const businessMode of ["augmented", "assisted"] as const) {
-    it(`${businessMode}: ${asks.join(", ")} answer ask and make no vendor request`, async () => {
-      const vendor = recordingFetch();
-      const g = await setupGateway({ mode: "live", businessMode, connectors: liveConnectors(vendor.fetch) });
-      open = g;
-      for (const c of ["apollo", "vercel", "posthog", "resend"] as const) await connect(g, c);
-      const token = await g.token({ allowedTools: ["apollo:*", "vercel:*", "posthog:*", "resend:*"] });
-      for (const key of asks) {
-        const r = await g.client.call(token, CALLS[key]);
-        console.log("PROBE", businessMode, key, r.outcome, JSON.stringify((r as {policyIds?: string[]}).policyIds), JSON.stringify((r as {reasons?: string[]}).reasons));
-      }
-      expect(vendor.urls).toEqual([]);
-    });
+  /** The founder's rule (2026-11-12): these ask in both modes, and nothing reaches the vendor until the founder approves. */
+  async function expectAsks(businessMode: "augmented" | "assisted", keys: CallKey[]) {
+    const vendor = recordingFetch();
+    const g = await setupGateway({ mode: "live", businessMode, connectors: liveConnectors(vendor.fetch) });
+    open = g;
+    for (const c of ["apollo", "vercel", "posthog", "resend"] as const) await connect(g, c);
+    const token = await g.token({ allowedTools: ["apollo:*", "vercel:*", "posthog:*", "resend:*"] });
+    for (const key of keys) {
+      const r = await g.client.call(token, CALLS[key]);
+      expect(r.outcome, `${key} in ${businessMode}: ${JSON.stringify(r)}`).toBe("ask");
+      expect((r as AskResponse).approvalId, key).toBeTruthy();
+    }
+    expect(vendor.urls).toEqual([]);
   }
+
+  it(`augmented: ${asks.join(", ")} answer ask and make no vendor request`, () => expectAsks("augmented", asks));
+  it("assisted: vercel.create_deployment and resend.send_mail answer ask (irreversible) and make no vendor request", () => expectAsks("assisted", ["vercel.create_deployment", "resend.send_mail"]));
+
+  // A spent credit cannot be taken back: both paid Apollo calls are `irreversible`, so assisted mode asks too.
+  it("assisted: apollo.enrich_person and apollo.search_organizations answer ask and make no vendor request", () => expectAsks("assisted", ["apollo.enrich_person", "apollo.search_organizations"]));
 
   it("assisted: vercel.list_deployments, apollo.search_people, posthog.query_insights and resend.list_domains run", async () => {
     const vendor = recordingFetch(() => jsonResponse({ deployments: [], people: [], total_entries: 0, columns: ["1"], results: [[1]], hasMore: false, data: [] }));
@@ -130,16 +136,17 @@ describe("platform_mail steps aside for the founder's own Resend", () => {
   const config: PlatformMailConfig = { domain: "mail.foundmill.test", dailyCap: 50, ceiling: 2_000, signingSecret: null, unsubscribeBase: "http://localhost:4005" };
   const message = { connector: "platform_mail", tool: "send_mail", args: { to: { email: "anna@example.com", name: "Anna" }, subject: "Thanks for joining", text: "Hi Anna, thanks for joining the list." } };
 
-  it("is refused with the own-sender policy id while resend is connected or degraded, and goes through once it is archived or disconnected", async () => {
+  it("is refused with the own-sender policy id while resend is connected, and goes through when it is degraded, archived or disconnected", async () => {
     const g = await setupGateway({ businessMode: "automated", connectors: [createPlatformMailMock()] });
     open = g;
     g.deps.appEnv = "test";
     g.deps.platformMail = config;
     const token = await g.token({ allowedTools: ["platform_mail:*"] });
-    for (const status of ["connected", "degraded"] as const) {
-      await repos.integrations.upsert(g.db, g.businessId, { connectorKey: "resend", status, authKind: "api_key", accountLabel: "own" });
-      expect(asDeny(await g.client.call(token, message)).policyIds, status).toEqual([PLATFORM_MAIL_POLICY.own_sender]);
-    }
+    await repos.integrations.upsert(g.db, g.businessId, { connectorKey: "resend", status: "connected", authKind: "api_key", accountLabel: "own" });
+    expect(asDeny(await g.client.call(token, message)).policyIds).toEqual([PLATFORM_MAIL_POLICY.own_sender]);
+    // A degraded Resend (no verified domain) cannot send, so it must not leave the project with no sender at all.
+    await repos.integrations.upsert(g.db, g.businessId, { connectorKey: "resend", status: "degraded", authKind: "api_key", accountLabel: "own" });
+    expect(asAllow(await g.client.call(token, message)).result.ok).toBe(true);
     const row = await repos.integrations.upsert(g.db, g.businessId, { connectorKey: "resend", status: "disconnected", authKind: "api_key", accountLabel: "own" });
     expect(asAllow(await g.client.call(token, message)).result.ok).toBe(true);
     await repos.integrations.upsert(g.db, g.businessId, { connectorKey: "resend", status: "connected", authKind: "api_key", accountLabel: "own" });
@@ -161,11 +168,6 @@ describe("mock mode", () => {
     const untrusted = new Set(["apollo", "vercel", "posthog"]);
     for (const [key, call] of Object.entries(CALLS)) {
       const r = await g.client.call(token, call);
-      // Automated mode may still ask for an irreversible outward send; the mock never runs without it.
-      if (r.outcome === "ask") {
-        expect(call.connector, `${key} asked`).toBe("resend");
-        continue;
-      }
       const a = asAllow(r);
       expect(a.result, key).toMatchObject({ ok: true, simulated: true, notice: SIMULATED_NOTICE });
       if (untrusted.has(call.connector)) expect(a.result.untrusted, key).toBe(true);

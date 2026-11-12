@@ -49,11 +49,10 @@ describe("CHANNEL_ACTING_TOOLS", () => {
     const acting = CHANNEL_KEYS.filter((k) => CHANNEL_ACTING_TOOLS[k].length > 0);
     const empty = CHANNEL_KEYS.filter((k) => CHANNEL_ACTING_TOOLS[k].length === 0);
     expect(CHANNEL_ACTING_TOOLS.email_automation).toEqual(["sendgrid:send_mail", "platform_mail:send_mail", "resend:send_mail"]);
-    expect(CHANNEL_ACTING_TOOLS.lead_generation).toEqual(["apollo:search_people"]);
     expect(CHANNEL_ACTING_TOOLS.seo).toEqual(["github:commit_files"]);
     expect(CHANNEL_ACTING_TOOLS.geo).toEqual(["github:commit_files"]);
-    expect(acting).toEqual(["lead_generation", "email_automation", "seo", "geo"]);
-    expect(empty).toEqual(["content", "social", "paid_ads", "influencer", "affiliate", "direct_mail", "print", "broadcast", "outdoor", "pr", "events"]);
+    expect(acting).toEqual(["email_automation", "seo", "geo"]);
+    expect(empty).toEqual(["lead_generation", "content", "social", "paid_ads", "influencer", "affiliate", "direct_mail", "print", "broadcast", "outdoor", "pr", "events"]);
   });
 });
 
@@ -103,13 +102,8 @@ describe("channelAvailability", () => {
     expect(firstChannelToOpen(rows)).toBeNull();
   });
 
-  it("lead_generation needs Apollo live and connected, and names it until then", () => {
-    expect(channelAvailability("lead_generation", facts())).toEqual({ available: false, reason: "not_connected", connectorKey: "apollo", connectable: false });
-    expect(channelAvailability("lead_generation", facts({ liveConnectors: ["apollo"] }))).toEqual({ available: false, reason: "not_connected", connectorKey: "apollo", connectable: true });
-    // Connected but not live here: still not real.
-    expect(channelAvailability("lead_generation", facts({ connectedConnectors: ["apollo"] }))).toEqual({ available: false, reason: "not_connected", connectorKey: "apollo", connectable: false });
-    expect(channelAvailability("lead_generation", facts({ liveConnectors: ["apollo"], connectedConnectors: ["apollo"] }))).toEqual({ available: true, reason: "acts" });
-    expect(channelAvailability("lead_generation", facts({ liveConnectors: "all", connectedConnectors: ["sendgrid", "resend", "github"], platformMail: true })).available).toBe(false);
+  it("lead_generation has no publisher: finding people on Apollo is a read, and reaching them is the email channel's", () => {
+    expect(channelAvailability("lead_generation", facts({ liveConnectors: "all", connectedConnectors: ["apollo", "sendgrid", "resend", "github"], platformMail: true }))).toEqual({ available: false, reason: "no_publisher" });
   });
 
   it("the founder's own Resend opens email on its own; with nothing connected and platform mail off the reason still names SendGrid first", () => {

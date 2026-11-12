@@ -20,8 +20,9 @@ import { CHANNEL_KEYS, CHANNEL_META, channelAvailabilitySentence, channelNotAvai
  * pins which channels are empty, and that every ref names a tool a connector serves).
  */
 export const CHANNEL_ACTING_TOOLS: Readonly<Record<ChannelKey, readonly string[]>> = Object.freeze({
-  // Finding people who fit the customer, on the founder's own Apollo account.
-  lead_generation: ["apollo:search_people"],
+  // Empty on purpose: Apollo finds people, which is a read. The channel's outward action is reaching them, and that
+  // goes through the email channel's own tools and approvals (security review, Nov 12, 2026).
+  lead_generation: [],
   // The founder's own SendGrid when connected, else the project's Foundmill sending address (package 1.5).
   email_automation: ["sendgrid:send_mail", "platform_mail:send_mail", "resend:send_mail"],
   seo: ["github:commit_files"],
@@ -90,7 +91,7 @@ export function channelAvailabilities(facts: ChannelAvailabilityFacts): Record<C
  * The display names of the connectors `CHANNEL_ACTING_TOOLS` names, for the sentence a founder reads ("connect SendGrid
  * in Settings › Integrations"). The unit test holds each to its connector's own `displayName`.
  */
-export const ACTING_CONNECTOR_NAMES: Readonly<Record<string, string>> = Object.freeze({ sendgrid: "SendGrid", github: "GitHub", apollo: "Apollo", resend: "Resend", platform_mail: "Email from your project" });
+export const ACTING_CONNECTOR_NAMES: Readonly<Record<string, string>> = Object.freeze({ sendgrid: "SendGrid", github: "GitHub", resend: "Resend", platform_mail: "Email from your project" });
 
 /** A channel's availability with its founder sentence (null when available): what the api sends with each channel. */
 export function channelAvailabilityRow(channelKey: ChannelKey, facts: ChannelAvailabilityFacts): ChannelAvailabilityRow {

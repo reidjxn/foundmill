@@ -1,7 +1,7 @@
 import { buildMockConnector } from "../../define";
 import { MOCK_NOW, mockHealth, mockIntegrationRecord, perBusiness, stableHash } from "../../mock-utils";
 import { VC_DEPLOYMENTS } from "./fixtures/deployments";
-import { mapCreated, mapDeployment, mapDeploymentDetail, VERCEL_KEY, VERCEL_RATE_LIMITS, vercelTools, type VcDeployment } from "./tools";
+import { assertRedeployKeepsTarget, mapCreated, mapDeployment, mapDeploymentDetail, VERCEL_KEY, VERCEL_RATE_LIMITS, vercelTools, type VcDeployment } from "./tools";
 
 export const MOCK_NOTICE = "Simulated: these are fixture deployments, not your Vercel account. Nothing was read from or deployed to Vercel.";
 
@@ -44,6 +44,7 @@ export function createVercelMock() {
       create_deployment: async ({ deploymentId, target }, ctx) => {
         const deployments = world(ctx.businessId);
         const source = find(deployments, deploymentId);
+        assertRedeployKeepsTarget(source.target, target);
         const hash = stableHash([ctx.businessId, deploymentId, target], 22);
         const id = `dpl_${hash}`;
         const name = String(source.name);
@@ -61,7 +62,7 @@ export function createVercelMock() {
           meta: source.meta ?? null,
         };
         deployments.set(id, created);
-        return { ...mapCreated(created), simulated: true as const, notice: `${MOCK_NOTICE} No build was started.` };
+        return { ...mapCreated(created, source), simulated: true as const, notice: `${MOCK_NOTICE} No build was started.` };
       },
     },
     connect: async (businessId) => mockIntegrationRecord(VERCEL_KEY, businessId, { accountLabel: "Vercel (mock)" }),

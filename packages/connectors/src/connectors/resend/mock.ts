@@ -2,7 +2,7 @@ import { buildMockConnector } from "../../define";
 import { MOCK_NOW, mockHealth, mockIntegrationRecord, perBusiness, uuidFromSeed } from "../../mock-utils";
 import { assertNoneSuppressed } from "../sendgrid/tools";
 import { DOMAINS_OK, MOCK_SUPPRESSED } from "./fixtures/responses";
-import { assertContent, assertVerifiedFromDomain, buildSendBody, idempotencyKeyFor, mapDomain, publicDomain, RESEND_KEY, RESEND_RATE_LIMITS, resendTools, type ResendDomainT } from "./tools";
+import { assertContent, assertVerifiedFromDomain, assertVerifiedReplyTo, buildSendBody, idempotencyKeyFor, mapDomain, publicDomain, requireUnsubscribeUrl, RESEND_KEY, RESEND_RATE_LIMITS, resendTools, type ResendDomainT } from "./tools";
 
 export const MOCK_NOTICE = "Simulated: no email was sent. Nothing left the system.";
 
@@ -31,10 +31,12 @@ export function createResendMock() {
       list_domains: async () => ({ items: mockDomains().map(publicDomain), simulated: true as const, notice: MOCK_NOTICE }),
       send_mail: async (mail, ctx) => {
         const { suppressions, sent, byKey } = world(ctx.businessId);
+        const unsubscribeUrl = requireUnsubscribeUrl(ctx.unsubscribeUrl);
         assertContent(mail);
         assertVerifiedFromDomain(mail.from.email, mockDomains());
+        assertVerifiedReplyTo(mail.replyTo, mockDomains());
         await assertNoneSuppressed([mail.to.email.toLowerCase()], (e) => suppressions.has(e));
-        const body = buildSendBody(mail);
+        const body = buildSendBody(mail, unsubscribeUrl);
         const idempotencyKey = idempotencyKeyFor(ctx.businessId, mail);
         let id = byKey.get(idempotencyKey);
         if (!id) {

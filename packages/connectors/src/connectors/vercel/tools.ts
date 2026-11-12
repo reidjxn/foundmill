@@ -9,6 +9,7 @@
  * `GET /v2/teams/{teamId}`. Team scope is the `teamId` query parameter on the first three.
  */
 import { z } from "zod";
+import { AppError } from "@foundmill/shared";
 import type { ConnectField } from "../../contract";
 import { defineTool } from "../../define";
 
@@ -84,6 +85,9 @@ export const CreateOut = z.object({
   state: z.string(),
   target: z.string().nullable(),
   inspectorUrl: z.string().nullable(),
+  /** The source deployment's branch and commit: what went live. */
+  gitBranch: z.string().nullable(),
+  gitCommitSha: z.string().nullable(),
   ...SimNote,
 });
 export type CreateOutT = z.infer<typeof CreateOut>;
@@ -122,7 +126,7 @@ export const vercelTools = [
     name: "create_deployment",
     title: "Redeploy a deployment",
     description:
-      "Redeploy an existing deployment: Vercel builds it again from the same source and settings as a new deployment, to production or as a preview. It goes live (production) and uses build minutes on the founder's own Vercel plan, so the founder approves it first. It cannot upload files, change the source or change environment variables. Returns the new deployment's id, state (usually QUEUED), host name and inspector link.",
+      "Redeploy an existing deployment: Vercel builds it again from the same source and settings as a new deployment, with the same target. A redeploy keeps its target: `production` only for a deployment that is itself a production deployment, `preview` only for a preview; putting a preview live is the founder's own step in Vercel. A production redeploy goes live and uses build minutes on the founder's own Vercel plan, so the founder approves it first. It cannot upload files, change the source or change environment variables. Returns the new deployment's id, state (usually QUEUED), host name, inspector link, and the git branch and commit that were redeployed.",
     input: z.object({ deploymentId: DeploymentId, target: z.enum(["production", "preview"]) }),
     output: CreateOut,
     hints: { irreversible: true, spendsMoney: true },
@@ -132,6 +136,17 @@ export const vercelTools = [
     costMinor: () => VERCEL_REDEPLOY_COST_MINOR,
   }),
 ] as const;
+
+/** A redeploy keeps its source's target. This closes promoting a preview (an unmerged branch) to production. */
+export const NOT_A_REDEPLOY = "not_a_redeploy";
+export function assertRedeployKeepsTarget(sourceTarget: unknown, target: "production" | "preview"): void {
+  const sourceIsProduction = sourceTarget === "production";
+  // A preview is the absence of a production target (the docs list it as null); a custom environment is neither.
+  const sourceIsPreview = sourceTarget === null || sourceTarget === undefined || sourceTarget === "" || sourceTarget === "preview";
+  if (target === "production" ? !sourceIsProduction : !sourceIsPreview) {
+    throw new AppError(NOT_A_REDEPLOY, "Nothing was deployed: a redeploy keeps its target. Putting a preview live is the founder's own step in Vercel.", 409);
+  }
+}
 
 /* ---- Vendor shapes (subset; nothing else is ever read) ---- */
 export interface VcDeployment {
@@ -224,13 +239,16 @@ export function mapDeploymentDetail(d: VcDeployment): DeploymentDetailT {
   return { ...mapDeployment(d), readyAt: isoOf(d.ready), errorMessage: capText(d.errorMessage, TEXT_CAP.errorMessage), aliases };
 }
 
-export function mapCreated(d: VcDeployment): CreateOutT {
+export function mapCreated(d: VcDeployment, source: VcDeployment): CreateOutT {
   const inspector = str(d.inspectorUrl);
+  const from = mapDeployment(source);
   return {
     id: str(d.id) ?? str(d.uid) ?? "",
     url: hostOrNull(d.url),
     state: str(d.readyState) ?? str(d.state) ?? "QUEUED",
     target: str(d.target),
     inspectorUrl: inspector && /^https:\/\/vercel\.com\//.test(inspector) ? inspector.slice(0, 300) : null,
+    gitBranch: from.gitBranch,
+    gitCommitSha: from.gitCommitSha,
   };
 }

@@ -8,13 +8,12 @@ import { idempotencyKeyFor } from "./tools";
 
 const KEY = "re_test_secret_key_123456";
 const credential = { kind: "api_key" as const, secret: KEY };
-const UNSUB = "https://northwindskincare.com/u/abc123";
+const UNSUB = "https://ingest.foundmill.test/mail/unsubscribe?t=abc";
 const mail = {
   from: { email: "hello@northwindskincare.com", name: "Northwind Skincare" },
   to: { email: "anna.lind@example.com", name: "Anna" },
   subject: "Your order has shipped",
   text: "Hi Anna, your order is on its way.",
-  unsubscribeUrl: UNSUB,
 };
 
 describeConnectorContract("resend (mock)", {
@@ -22,21 +21,38 @@ describeConnectorContract("resend (mock)", {
   mode: "mock",
   calls: [
     { tool: "list_domains", args: {}, check: (r) => expect((r.data as { items: { status: string }[] }).items.map((d) => d.status)).toEqual(["verified", "not_started"]) },
-    { tool: "send_mail", args: mail, check: (r) => expect(r.data).toMatchObject({ to: "anna.lind@example.com", from: "hello@northwindskincare.com", simulated: true }) },
-    { tool: "send_mail", args: { ...mail, from: { email: "news@news.northwindskincare.com" } }, expectOk: false, check: (r) => expect(r.error?.code).toBe("sender_domain_not_verified") },
-    { tool: "send_mail", args: { ...mail, to: { email: "unsub@example.com" } }, expectOk: false, check: (r) => expect(r.error?.code).toBe("recipient_suppressed") },
-    { tool: "send_mail", args: { ...mail, unsubscribeUrl: undefined }, expectOk: false, check: (r) => expect(r.error?.code).toBe("invalid_args") },
-    { tool: "send_mail", args: { ...mail, unsubscribeUrl: "http://northwindskincare.com/u" }, expectOk: false, check: (r) => expect(r.error?.code).toBe("invalid_args") },
+    { tool: "send_mail", args: { ...mail, unsubscribeUrl: UNSUB }, expectOk: false, check: (r) => expect(r.error?.code).toBe("invalid_args") },
     { tool: "send_mail", args: { ...mail, cc: [{ email: "x@example.com" }] }, expectOk: false, check: (r) => expect(r.error?.code).toBe("invalid_args") },
-    { tool: "send_mail", args: { ...mail, html: "<script>alert(1)</script>" }, expectOk: false, check: (r) => expect(r.error?.code).toBe("content_refused") },
+    { tool: "send_mail", args: { ...mail, to: { email: "x@example.com", name: "Bob, eve@x.com" } }, expectOk: false, check: (r) => expect(r.error?.code).toBe("invalid_args") },
   ],
 });
 
+const withLink = { unsubscribeUrl: UNSUB };
+
 describe("resend mock", () => {
+  it("applies the same refusals as the live side, with the gateway's link in the context", async () => {
+    const mock = createResendMock();
+    const ctx = makeToolContext(mock, withLink);
+    expect((await mock.callTool("send_mail", mail, ctx)).data).toMatchObject({ to: "anna.lind@example.com", from: "hello@northwindskincare.com", simulated: true });
+    const code = async (args: unknown) => (await mock.callTool("send_mail", args, ctx)).error?.code;
+    expect(await code({ ...mail, from: { email: "news@news.northwindskincare.com" } })).toBe("sender_domain_not_verified");
+    expect(await code({ ...mail, replyTo: "help@news.northwindskincare.com" })).toBe("sender_domain_not_verified");
+    expect(await code({ ...mail, to: { email: "unsub@example.com" } })).toBe("recipient_suppressed");
+    expect(await code({ ...mail, html: "<script>alert(1)</script>" })).toBe("content_refused");
+  });
+  it("refuses without the gateway's link (missing or not https) and records nothing", async () => {
+    const mock = createResendMock();
+    for (const unsubscribeUrl of [undefined, "http://ingest.foundmill.test/u", "not a url"]) {
+      const r = await mock.callTool("send_mail", mail, makeToolContext(mock, unsubscribeUrl === undefined ? {} : { unsubscribeUrl }));
+      expect(r.error).toMatchObject({ code: "unsubscribe_unavailable", status: 409 });
+      expect(r.error?.message).toBe("Nothing was sent: this message needs an unsubscribe link, and one is not available here yet.");
+    }
+    expect(mock.sentFor(TEST_BUSINESS_ID)).toHaveLength(0);
+  });
   it("records sends per business, with the unsubscribe headers and footer, and sends a retry once", async () => {
     const mock = createResendMock();
-    const a = makeToolContext(mock, { businessId: "biz-a" });
-    const b = makeToolContext(mock, { businessId: "biz-b" });
+    const a = makeToolContext(mock, { businessId: "biz-a", ...withLink });
+    const b = makeToolContext(mock, { businessId: "biz-b", ...withLink });
     const first = await mock.callTool("send_mail", { ...mail, html: "<p>Hi</p>" }, a);
     const again = await mock.callTool("send_mail", { ...mail, html: "<p>Hi</p>" }, a);
     expect((first.data as { id: string }).id).toBe((again.data as { id: string }).id);
@@ -81,7 +97,8 @@ describe("resend live (canned)", () => {
         },
       }),
     });
-  const run = (c: ReturnType<typeof connectorWith>, args: unknown = mail, log?: ReturnType<typeof collectingLogger>) => c.callTool("send_mail", args, makeToolContext(c, { mode: "live", credential, ...(log ? { log } : {}) }));
+  const run = (c: ReturnType<typeof connectorWith>, args: unknown = mail, log?: ReturnType<typeof collectingLogger>, link: string | undefined = UNSUB) =>
+    c.callTool("send_mail", args, makeToolContext(c, { mode: "live", credential, ...(link ? { unsubscribeUrl: link } : {}), ...(log ? { log } : {}) }));
 
   it("lists domains with the founder's key", async () => {
     const seen: Seen[] = [];
@@ -101,7 +118,7 @@ describe("resend live (canned)", () => {
     const post = seen.find((s) => s.method === "POST")!;
     expect(post.authorization).toBe(`Bearer ${KEY}`);
     expect(post.idempotencyKey).toMatch(/^fm-[0-9a-f]{48}$/);
-    expect(post.body).toMatchObject({ from: "Northwind Skincare <hello@northwindskincare.com>", to: ["Anna <anna.lind@example.com>"], subject: "Your order has shipped", reply_to: "support@northwindskincare.com", headers: { "List-Unsubscribe": `<${UNSUB}>`, "List-Unsubscribe-Post": "List-Unsubscribe=One-Click" } });
+    expect(post.body).toMatchObject({ from: '"Northwind Skincare" <hello@northwindskincare.com>', to: ['"Anna" <anna.lind@example.com>'], subject: "Your order has shipped", reply_to: "support@northwindskincare.com", headers: { "List-Unsubscribe": `<${UNSUB}>`, "List-Unsubscribe-Post": "List-Unsubscribe=One-Click" } });
     expect(String(post.body!.text)).toContain(`To stop getting these emails: ${UNSUB}`);
     expect(String(post.body!.html)).toContain(`<a href="${UNSUB}">Unsubscribe</a>`);
     expect(post.body).not.toHaveProperty("cc");
@@ -129,12 +146,53 @@ describe("resend live (canned)", () => {
     expect(seen.filter((s) => s.method === "POST")).toHaveLength(0);
   });
 
-  it("refuses refused content and a missing unsubscribe link before any request", async () => {
+  it("refuses refused content before any send request", async () => {
     const seen: Seen[] = [];
     const c = connectorWith({}, seen);
     expect((await run(c, { ...mail, html: "<img src=x>" })).error?.code).toBe("content_refused");
-    expect((await run(c, { ...mail, unsubscribeUrl: undefined })).error?.code).toBe("invalid_args");
+    expect(seen.filter((s) => s.method === "POST")).toHaveLength(0);
+  });
+
+  it("refuses without the gateway's unsubscribe link (missing or not https) before any request, and refuses one passed as an argument", async () => {
+    const seen: Seen[] = [];
+    const c = connectorWith({}, seen);
+    for (const link of [undefined, "http://ingest.foundmill.test/u", "javascript:alert(1)"]) {
+      const r = await c.callTool("send_mail", mail, makeToolContext(c, { mode: "live", credential, ...(link ? { unsubscribeUrl: link } : {}) }));
+      expect(r.error).toMatchObject({ code: "unsubscribe_unavailable", status: 409 });
+    }
+    expect((await run(c, { ...mail, unsubscribeUrl: "https://evil.example/u" })).error?.code).toBe("invalid_args");
     expect(seen).toHaveLength(0);
+  });
+
+  it("carries exactly the context's link in the header and the footer", async () => {
+    const seen: Seen[] = [];
+    const c = connectorWith({}, seen);
+    await run(c, { ...mail, html: "<p>Hi</p>" }, undefined, "https://ingest.foundmill.test/mail/unsubscribe?t=zzz");
+    const post = seen.find((s) => s.method === "POST")!;
+    expect((post.body!.headers as Record<string, string>)["List-Unsubscribe"]).toBe("<https://ingest.foundmill.test/mail/unsubscribe?t=zzz>");
+    expect(String(post.body!.text)).toContain("To stop getting these emails: https://ingest.foundmill.test/mail/unsubscribe?t=zzz");
+    expect(String(post.body!.html)).toContain('<a href="https://ingest.foundmill.test/mail/unsubscribe?t=zzz">');
+    expect(JSON.stringify(post.body)).not.toContain(UNSUB);
+  });
+
+  it("refuses display names that smuggle a second recipient and quotes a normal name", async () => {
+    const seen: Seen[] = [];
+    const c = connectorWith({}, seen);
+    for (const name of ["Bob, eve@x.com", "a;b", "x:y", "a@b", "(Bob)", "[Bob]", "Bob\\"]) expect((await run(c, { ...mail, to: { email: "anna.lind@example.com", name } })).error?.code).toBe("invalid_args");
+    expect((await run(c, { ...mail, from: { email: "hello@northwindskincare.com", name: "Pay, pal@x.com" } })).error?.code).toBe("invalid_args");
+    expect(seen).toHaveLength(0);
+    await run(c);
+    expect(seen.find((s) => s.method === "POST")!.body).toMatchObject({ from: '"Northwind Skincare" <hello@northwindskincare.com>', to: ['"Anna" <anna.lind@example.com>'] });
+  });
+
+  it("refuses a replyTo outside the account's verified domains before any send request", async () => {
+    const seen: Seen[] = [];
+    const c = connectorWith({}, seen);
+    for (const replyTo of ["boss@elsewhere.example", "help@news.northwindskincare.com"]) {
+      const r = await run(c, { ...mail, replyTo });
+      expect(r.error).toMatchObject({ code: "sender_domain_not_verified" });
+    }
+    expect(seen.filter((s) => s.method === "POST")).toHaveLength(0);
   });
 
   it("derives a stable idempotency key: same for the same message, different for another", async () => {
