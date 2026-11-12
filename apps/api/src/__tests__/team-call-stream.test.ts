@@ -51,6 +51,14 @@ describe("teamCall.speech({ stream: true }) and GET /team-call-audio/:ticket", (
     expect([...new Uint8Array(await res.arrayBuffer())]).toEqual([0xff, 0xf3, 9, 9]);
     expect(asked.at(-1)).toMatchObject({ turnId: turn.id, speechAccent: view.speechAccent, text: view.spokenText.slice(0, 600) });
     expect((await app.request("/team-call-audio/not-a-ticket-at-all-really-not-one-xx")).status).toBe(404);
+    // The ticket never reaches the request log.
+    const logged: unknown[] = [];
+    const quiet = createApp({ ...hz.deps, log: { ...hz.deps.log, info: (...args: unknown[]) => void logged.push(args) } as typeof hz.deps.log });
+    const again = await owner.teamCall.speech({ businessId: hz.A.businessId, callId: call.id, turnId: turn.id, stream: true });
+    await quiet.request(again.streamUrl!);
+    const ticket = again.streamUrl!.split("/").pop()!;
+    expect(JSON.stringify(logged)).toContain("/team-call-audio/:ticket");
+    expect(JSON.stringify(logged)).not.toContain(ticket);
   });
 
   it("refuses a viewer, and never streams for someone outside the business", async () => {

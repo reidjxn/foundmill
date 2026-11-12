@@ -113,7 +113,8 @@ export function createApp(deps: ApiDeps) {
     c.set("requestId", requestId);
     c.header("x-request-id", requestId);
     const started = Date.now();
-    const path = c.req.path;
+    // A Team call audio ticket is the key to its turn's speech: never in a log line or a trace (the route's shape stays).
+    const path = c.req.path.startsWith("/team-call-audio/") ? "/team-call-audio/:ticket" : c.req.path;
     // One trace span per request (a tRPC batch names its procedures), the parent of every model call it makes (BUILD §15).
     const tracer = getTracer();
     if (!tracer.enabled || path === "/health") await next();
