@@ -7,6 +7,7 @@ export * from "./types";
 export * from "./harness";
 export { GOLDEN_TASKS, goldenTasksFor, GOLDEN_FIXTURE_IDS } from "./golden/tasks";
 export { INJECTION_CASES, injectionCasesOfKind } from "./injection/suite";
+export { TYPED_READ_INJECTION_CASES, TypedReadInjectionCase } from "./injection/typed-reads";
 export { LOGO_BRIEFS, checkLogoSet, forbiddenShapes, runLogoEval, runLogoMarksEval } from "./logo";
 export { MODERATION_CASES, runModerationCase, type ModerationCase, type ModerationCaseResult } from "./moderation";
 export { CONVERSATION_CASES, type ConversationCase } from "./conversation/cases";
