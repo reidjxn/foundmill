@@ -1,3 +1,5 @@
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { expect, test, type Locator, type Page } from "@playwright/test";
 import { LONG, commitThrowaway, dismissCoachmarks, settled, toast } from "./helpers";
 
@@ -9,6 +11,8 @@ import { LONG, commitThrowaway, dismissCoachmarks, settled, toast } from "./help
  * never followed: nothing here opens a real network. Changing the text changes every link. The Channel Board shows the
  * social channel as available with the sentence that says what that means. Stack and commands: e2e/README.md.
  */
+/** With `E2E_UX_AUDIT=1` the share panel is also saved as docs/ux-audit/53-share-panel.png. */
+const AUDIT_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../../docs/ux-audit");
 const PITCH = "Bike repairs at your door, booked in a minute";
 const ABOUT = "A van full of parts comes to the bike and fixes it where it stands.";
 const BY_TAP = "You post each one with one press: the text and link are filled in for you.";
@@ -130,6 +134,7 @@ test.describe("tap-to-post", () => {
     await expect(messages.getByRole("heading", { name: "Send to someone" })).toBeVisible();
     expect(new URL((await messages.locator('a[data-share-message="whatsapp"]').getAttribute("href"))!).host).toBe("wa.me");
     expect(new URL((await messages.locator('a[data-share-message="telegram"]').getAttribute("href"))!).host).toBe("t.me");
+    if (process.env.E2E_UX_AUDIT) await panel.screenshot({ path: path.join(AUDIT_DIR, "53-share-panel.png") });
     // How much of each limit is used, as words; honest at the foot; nothing says "posted".
     await expect(panel.locator('[data-share-count="x"]')).toHaveText(`${pageText.length + 25} of 280`);
     await expect(panel.locator("[data-share-honest]")).toHaveText("Foundmill posts nothing for you. Each button opens that network's own window, and you press Post there.");
