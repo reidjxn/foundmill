@@ -4,7 +4,7 @@
  * schemas, so a renamed key fails a test rather than turning a founder's instruction into a no-op reported as done.
  * `PLAN_ACTION_PARAMS` is the per-action param list the live compiler is given with its input.
  */
-import { MODEL_KEYS, ROADMAP_HORIZONS, type PlanActionType, type RoadmapHorizon } from "@foundmill/shared";
+import { CHANNEL_KEYS, CreatePlaybookParams, MODEL_KEYS, ROADMAP_HORIZONS, TASK_KINDS, type PlanActionType, type RoadmapHorizon } from "@foundmill/shared";
 import { z } from "zod";
 
 /** Every action's params, by name, as the plan compiler must write them. */
@@ -190,3 +190,82 @@ export const SetAgentModelParams = z
   .loose()
   .transform((p) => ({ model_key: p.model_key, agent_id: p.agent_id ?? null, apply_scope: p.apply_scope ?? p.scope ?? "agent" }));
 export type SetAgentModelParams = z.output<typeof SetAgentModelParams>;
+
+// --- every action type -----------------------------------------------------------------------------------------------
+
+const Text = z.string().trim().min(1);
+const AmountMinor = z.number().int().positive();
+const Currency = z.string().regex(/^[A-Za-z]{3}$/);
+const BUDGET_PERIODS = ["one_off", "daily", "weekly", "monthly", "quarterly", "yearly"] as const;
+
+/** `create_task`: a kind of work and a title the executor files (the goal defaults to the title). */
+export const CreateTaskParams = z
+  .object({
+    kind: z.enum(TASK_KINDS),
+    title: Text.max(200),
+    goal: optional(z.string()),
+    channel: optional(z.enum(CHANNEL_KEYS)),
+    budget_minor: optional(AmountMinor),
+    currency: optional(Currency),
+  })
+  .loose();
+
+/** `enable_channel` / `disable_channel`: a channel key of the shared vocabulary. */
+export const ChannelParams = z.object({ channel: z.enum(CHANNEL_KEYS), reason: optional(z.string()) }).loose();
+
+/**
+ * `set_budget`: a positive whole amount in minor units, on a channel, or on a department named by its name or slug
+ * (scope `department`), or on the business (scope `business`).
+ */
+export const SetBudgetParams = z
+  .object({
+    amount_minor: AmountMinor,
+    currency: optional(Currency),
+    channel: optional(z.enum(CHANNEL_KEYS)),
+    scope: optional(z.enum(["department", "business"])),
+    department: optional(z.string().trim().min(1)),
+    period: optional(z.enum(BUDGET_PERIODS)),
+  })
+  .loose()
+  .refine((p) => Boolean(p.channel) || (p.scope === "department" && Boolean(p.department)) || p.scope === "business", { message: "a budget names a channel, a department or the business" });
+
+/** `approve_spend`: a positive whole amount in minor units. */
+export const ApproveSpendParams = z.object({ amount_minor: AmountMinor, currency: optional(Currency), approval_id: optional(z.string()) }).loose();
+
+export const UpdateSpecParams = z.object({ change: Text, spec_block_id: optional(z.string()) }).loose();
+export const SendMessageParams = z.object({ recipient: Text, intent: Text }).loose();
+export const ScheduleMeetingParams = z.object({ with: optional(z.string()), topic: Text, timeframe: optional(z.string()) }).loose();
+export const HireAgentParams = z.object({ role: Text.max(120), brief: optional(z.string()) }).loose();
+export const TrainAgentParams = z.object({ agent_id: optional(z.string()), focus: optional(z.string()) }).loose();
+export const RequestHumanActionParams = z.object({ request: Text, instructions: optional(z.string()) }).loose();
+export const ReplyOnlyParams = z.object({ question: Text }).loose();
+
+/**
+ * Each action type's params schema: what the api and the orchestrator can carry out. A plan written by a model (the
+ * Team call wrap-up, packages/agents `finaliseTeamCallWrapUp`) is checked with these, and an action whose params do not
+ * parse is dropped rather than filed as work that would do nothing. `update_roadmap` must also name its item (an id
+ * from the roadmap, or `create` with a title); `parsePlanActionParams` checks the params alone.
+ */
+export const PLAN_ACTION_PARAM_SCHEMAS: Record<PlanActionType, z.ZodType> = {
+  create_task: CreateTaskParams,
+  enable_channel: ChannelParams,
+  disable_channel: ChannelParams,
+  set_budget: SetBudgetParams,
+  approve_spend: ApproveSpendParams,
+  update_spec: UpdateSpecParams,
+  update_roadmap: UpdateRoadmapParams,
+  send_message: SendMessageParams,
+  schedule_meeting: ScheduleMeetingParams,
+  hire_agent: HireAgentParams,
+  train_agent: TrainAgentParams,
+  set_agent_model: SetAgentModelParams,
+  create_playbook: CreatePlaybookParams,
+  request_human_action: RequestHumanActionParams,
+  reply_only: ReplyOnlyParams,
+};
+
+/** The params as their type's schema reads them, or null when they do not parse. */
+export function parsePlanActionParams(type: PlanActionType, params: unknown): Record<string, unknown> | null {
+  const parsed = PLAN_ACTION_PARAM_SCHEMAS[type].safeParse(params);
+  return parsed.success && parsed.data && typeof parsed.data === "object" ? (parsed.data as Record<string, unknown>) : null;
+}

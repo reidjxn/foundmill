@@ -31,6 +31,8 @@ describe("routing (BUILD §10.1)", () => {
       conversation: { model: "sonnet", effort: "low", maxTokens: 8_000 },
       goalProposal: { model: "sonnet", effort: "low", maxTokens: 8_000 },
       projectPage: { model: "sonnet", effort: "low", maxTokens: 8_000 },
+      teamCallTurn: { model: "sonnet", effort: "low", maxTokens: 8_000 },
+      teamCallWrapUp: { model: "opus", effort: "low", maxTokens: 8_000 },
     });
   });
 

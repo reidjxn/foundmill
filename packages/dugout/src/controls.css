@@ -190,6 +190,26 @@
   }
 }
 
+/* Continue with Google (the sign-in frame only): Google's light-theme button as their branding guidelines draw it, a
+   white fill with a 1 px gray stroke inside and near-black text, the standard four-color "G" on the white (a pill, which
+   the guidelines allow, to sit beside the glass pill). Its own tokens (--google-*), never the product's palette. */
+@utility btn-google {
+  color: var(--google-text);
+  background-color: var(--google-fill);
+  background-image: none;
+  box-shadow: inset 0 0 0 1px var(--google-stroke);
+  transition: box-shadow var(--dur-micro) var(--ease);
+  &:hover {
+    box-shadow:
+      inset 0 0 0 1px var(--google-stroke),
+      0 1px 3px color-mix(in oklab, var(--black) 45%, transparent);
+  }
+  &:disabled:not([aria-busy="true"]),
+  &[aria-disabled="true"]:not([aria-busy="true"]) {
+    opacity: 0.6;
+  }
+}
+
 /* An inline caps tag inside a button ("Approve · Recommended"). */
 @utility btn-tag {
   display: inline-flex;

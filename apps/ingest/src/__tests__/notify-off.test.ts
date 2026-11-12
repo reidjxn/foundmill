@@ -7,7 +7,7 @@
 import { notifyOffToken, platformUnsubscribeToken, suppressionHashOfEmail } from "@foundmill/connectors";
 import { MOCK_SENDGRID_PUBLIC_KEY } from "@foundmill/connectors/connectors/sendgrid/fixtures/sendgrid";
 import { repos } from "@foundmill/db";
-import { NOTIFY_OFF_PAGE } from "@foundmill/shared";
+import { NOTIFY_OFF_PAGE, notifyOffBody } from "@foundmill/shared";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createIngestHarness, type IngestHarness } from "./harness";
 
@@ -30,7 +30,7 @@ describe("/mail/notify/off", () => {
     const page = await at(token);
     expect(page.status).toBe(200);
     const html = await page.text();
-    expect(html).toContain(NOTIFY_OFF_PAGE.body);
+    expect(html).toContain(notifyOffBody("decision_waiting"));
     expect(html).toContain(`action="/mail/notify/off?t=`);
     expect(page.headers.get("cache-control")).toBe("no-store");
     expect(await emailOn(hz.A.ownerId)).toBe(true);

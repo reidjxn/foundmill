@@ -87,6 +87,9 @@ const AutopilotSettingsInput = z.object({
   /** USD cents of model spend per UTC day (an Estimate); null: the credits left. */
   spendCeilingMinor: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER).nullable().optional(),
   maxIdleCycles: z.number().int().min(AUTOPILOT_LIMITS.maxIdleCycles.min).max(AUTOPILOT_LIMITS.maxIdleCycles.max).optional(),
+  /** Autopilot's own limits (0084), apart from Continue's: cycles it starts itself per UTC day, their USD cents; null: none. */
+  ownMaxCyclesPerDay: z.number().int().min(AUTOPILOT_LIMITS.maxCyclesPerDay.min).max(AUTOPILOT_LIMITS.maxCyclesPerDay.max).nullable().optional(),
+  ownSpendCeilingMinor: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER).nullable().optional(),
 });
 
 /** The first-week checklist's flags (docs/UX_AUDIT_AND_PLAN.md §6.2 FirstWeekChecklist), one per item, all read-only. */

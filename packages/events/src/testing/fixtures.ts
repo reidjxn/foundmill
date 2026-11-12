@@ -3,8 +3,10 @@
  * (connector `simulate`, composer fixtures, apps/stream tests) through `@foundmill/events/testing/fixtures`.
  * Ids are deterministic so recorded fixtures stay stable.
  */
-import type { EventType } from "@foundmill/shared";
+import type { AccountEventType, BusinessEventType, EventType } from "@foundmill/shared";
+import type { AccountEvent } from "../account-event";
 import type { EventPayloadInput, PlatformEvent } from "../catalogue";
+import { buildAccountEvent, type WriteAccountEventInput } from "../outbox/account-writer";
 import { buildEvent, type WriteEventInput } from "../outbox/writer";
 
 /** Deterministic UUID-shaped id from a short label (not RFC-4122 random; valid for `Id`). */
@@ -539,6 +541,8 @@ export const EVENT_FIXTURES: { readonly [K in EventType]: EventPayloadInput<K> }
   "goal.achieved": { goalId: fixtureId("goal"), revision: 1, metricKind: "paying_customers", targetValue: 10, currency: null, dueOn: "2026-12-19", achievedValue: 10, inboxItemId: fixtureId("inbox-item") },
   "page.published": { pageId: fixtureId("page"), slug: "northwind-skincare", url: "https://foundmill.example/p/northwind-skincare" },
   "page.unpublished": { pageId: fixtureId("page"), slug: "northwind-skincare", url: "https://foundmill.example/p/northwind-skincare" },
+  "team_call.started": { callId: fixtureId("team_call"), kind: "team", agentIds: [fixtureId("agent")], topic: "Launch plan" },
+  "team_call.ended": { callId: fixtureId("team_call"), kind: "team", turnCount: 12, actionCount: 3, filedCount: 2, awaitingCount: 1, durationSeconds: 540 },
   "page.followed": { pageId: fixtureId("page"), entityId: fixtureId("entity"), consentId: fixtureId("consent") },
   "guidance.tour_completed": { tourId: "home", steps: 4 },
   "guidance.tour_skipped": { tourId: "inbox", atStep: 2, steps: 4 },
@@ -546,16 +550,20 @@ export const EVENT_FIXTURES: { readonly [K in EventType]: EventPayloadInput<K> }
   "guidance.term_opened": { termId: "runway", screenId: "home" },
   "guidance.turned_off": { from: "settings", toursDone: 2, explainersSeen: 5 },
   "mail.sent": { messageRef: fixtureId("mail"), messageId: "14c5d75ce93.dfd.64b469.filter0001.16648.5515E0B88.0", recipientHash: "a".repeat(64), fromLocalPart: "northwind-skincare", channelKey: "email_automation", agentId: fixtureId("agent"), sessionId: null, simulated: false },
-  "notify.email_sent": { kind: "decision_waiting", userId: fixtureId("user"), inboxItemId: fixtureId("inbox"), messageId: "14c5d75ce93.dfd.64b469.filter0001.16648.5515E0B88.1", simulated: false },
+  "notify.email_sent": { kind: "decision_waiting", userId: fixtureId("user"), inboxItemId: fixtureId("inbox"), messageId: "14c5d75ce93.dfd.64b469.filter0001.16648.5515E0B88.1", simulated: false, notificationId: fixtureId("notification"), offersAnswer: false },
+  "push.sent": { kind: "decision", sourceEventId: fixtureId("event-source"), sourceEventType: "inbox.item_created", recipients: 2, devices: 3, provider: "onesignal", mode: "mock", providerMessageIds: [fixtureId("push-1")] },
+  "founder.session_started": { via: "email", notificationId: fixtureId("notification"), minutesAway: 720, sessions: 3 },
   "milestone.shown": { milestoneId: fixtureId("milestone"), key: "page_live", slug: "northwind-skincare", url: `https://foundmill.example/m/${fixtureId("milestone")}` },
   "milestone.hidden": { milestoneId: fixtureId("milestone"), key: "page_live", slug: "northwind-skincare", url: `https://foundmill.example/m/${fixtureId("milestone")}` },
-  "push.sent": { kind: "decision", sourceEventId: fixtureId("event-source"), sourceEventType: "inbox.item_created", recipients: 2, devices: 3, provider: "onesignal", mode: "mock", providerMessageIds: [fixtureId("push-1")] },
   "signup.attributed": { userId: fixtureId("user-new"), sourceKind: "project_page", sourceRef: "northwind-skincare", sourceBusinessId: fixtureId("business-source"), referrerUserId: FIXTURE_USER_ID },
   "share.opened": { network: "x", kind: "milestone", refId: fixtureId("milestone"), target: "tap" },
+  // Account-scoped (a person's own): written with `accountFixtureInput`, never with `fixtureInput`.
+  "profile.published": { handle: "maya-okafor" },
+  "profile.unpublished": { handle: "maya-okafor" },
 };
 
-/** A valid `WriteEventInput` for the given type, with the fixture payload and envelope. */
-export function fixtureInput<T extends EventType>(
+/** A valid `WriteEventInput` for the given business-scoped type, with the fixture payload and envelope. */
+export function fixtureInput<T extends BusinessEventType>(
   type: T,
   overrides: Partial<WriteEventInput<T>> = {},
 ): WriteEventInput<T> {
@@ -572,9 +580,35 @@ export function fixtureInput<T extends EventType>(
 }
 
 /** A fully built, validated `PlatformEvent` fixture. */
-export function fixtureEvent<T extends EventType>(
+export function fixtureEvent<T extends BusinessEventType>(
   type: T,
   overrides: Partial<WriteEventInput<T>> = {},
 ): PlatformEvent<T> {
   return buildEvent(fixtureInput(type, overrides));
+}
+
+/** A valid `WriteAccountEventInput` for the given account-scoped type: the fixture person acting on their own account. */
+export function accountFixtureInput<T extends AccountEventType>(
+  type: T,
+  overrides: Partial<WriteAccountEventInput<T>> = {},
+): WriteAccountEventInput<T> {
+  const userId = overrides.userId ?? FIXTURE_USER_ID;
+  return {
+    userId,
+    type,
+    actor: { kind: "user", id: userId },
+    payload: EVENT_FIXTURES[type] as EventPayloadInput<T>,
+    occurredAt: T0,
+    id: fixtureId(`event:${type}`),
+    ...overrides,
+  };
+}
+
+/** A fully built, validated `AccountEvent` fixture (the envelope a consumer receives). */
+export function accountFixtureEvent<T extends AccountEventType>(
+  type: T,
+  overrides: Partial<WriteAccountEventInput<T>> = {},
+): AccountEvent<T> {
+  const { idempotencyKey: _key, ...event } = buildAccountEvent(accountFixtureInput(type, overrides));
+  return event as unknown as AccountEvent<T>;
 }

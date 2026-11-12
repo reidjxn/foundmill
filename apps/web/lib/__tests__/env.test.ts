@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { hasSupabase, isDevLike, parsePublicEnv, simulatePanelAvailable } from "../env";
+import { googleSignInEnabled, hasSupabase, isDevLike, parsePublicEnv, simulatePanelAvailable } from "../env";
 
 describe("public env", () => {
   it("applies defaults and trims trailing slashes", () => {
@@ -29,5 +29,14 @@ describe("public env", () => {
 
   it("detects a configured Supabase", () => {
     expect(hasSupabase(parsePublicEnv({ NEXT_PUBLIC_SUPABASE_URL: "https://x.supabase.co", NEXT_PUBLIC_SUPABASE_ANON_KEY: "anon" }))).toBe(true);
+  });
+
+  it("offers Continue with Google only when NEXT_PUBLIC_AUTH_GOOGLE is on (off by default, so it is never a dead end before setup)", () => {
+    expect(googleSignInEnabled(parsePublicEnv({}))).toBe(false);
+    expect(googleSignInEnabled(parsePublicEnv({ NEXT_PUBLIC_AUTH_GOOGLE: "" }))).toBe(false);
+    expect(googleSignInEnabled(parsePublicEnv({ NEXT_PUBLIC_AUTH_GOOGLE: "off" }))).toBe(false);
+    expect(googleSignInEnabled(parsePublicEnv({ NEXT_PUBLIC_AUTH_GOOGLE: "true" }))).toBe(false);
+    expect(googleSignInEnabled(parsePublicEnv({ NEXT_PUBLIC_AUTH_GOOGLE: "on" }))).toBe(true);
+    expect(googleSignInEnabled(parsePublicEnv({ NEXT_PUBLIC_AUTH_GOOGLE: " ON " }))).toBe(true);
   });
 });

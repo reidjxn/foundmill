@@ -243,11 +243,13 @@ test.describe("keyboard focus is visible (A11Y-02, A11Y-20)", () => {
   });
 });
 
-test.describe("a phone gets the larger-window page, not a slice of the desktop one (PAS-4)", () => {
+test.describe("a phone gets a page at its real width, not a slice of the desktop one (PAS-4)", () => {
   test.use({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true });
-  test("the sign-in page shows NeedsLargerWindow", async ({ page }) => {
+  test("the sign-in page, which works from 390 px, renders at the phone's real width (e2e/login.spec.ts checks it fits)", async ({ page }) => {
     await page.goto("/login");
-    await expect(page.getByTestId("needs-larger-window")).toBeVisible({ timeout: LONG });
+    await expect(page.getByTestId("brand-panel")).toBeVisible({ timeout: LONG });
+    await expect(page.getByTestId("needs-larger-window")).toHaveCount(0);
     await expect(page.locator('meta[name="viewport"]')).toHaveAttribute("content", /width=device-width/);
+    expect(await page.evaluate(() => window.innerWidth)).toBe(390);
   });
 });

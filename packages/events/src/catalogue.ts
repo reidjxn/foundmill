@@ -15,6 +15,8 @@
 import { z } from "zod";
 import {
   Actor,
+  TEAM_CALL_KINDS,
+  TEAM_CALL_LIMITS,
   AgentStatus,
   Archetype,
   AUTOPILOT_CADENCES,
@@ -28,6 +30,7 @@ import {
   DecisionType,
   EVENT_TYPES,
   EventType,
+  FOUNDER_RETURN_VIA,
   GameMode,
   GOAL_METRIC_KINDS,
   GOAL_PROPOSAL_REASONS,
@@ -48,9 +51,15 @@ import {
   TaskKind,
   TaskPhase,
   ValidationError,
+  isAccountEventType,
+  PersonHandle,
+  type AccountEventType,
+  type BusinessEventType,
+  type EventScope,
   type EventType as EventTypeT,
 } from "@foundmill/shared";
 import { VIA_KINDS } from "@foundmill/shared/via";
+import { assertAccountPayloadSchema } from "./account-payload";
 
 // ---------------------------------------------------------------------------------------------------
 // Building blocks
@@ -86,11 +95,21 @@ export type EventConsumer = (typeof EVENT_CONSUMERS)[number];
 // Declaration helper and registry
 // ---------------------------------------------------------------------------------------------------
 
+/** The scope an event type has in the shared vocabulary (`ACCOUNT_EVENT_TYPES`): what its declaration must state. */
+export type EventScopeOf<T extends EventTypeT> = T extends AccountEventType ? "account" : "business";
+
 export interface EventDeclaration<
   T extends EventTypeT = EventTypeT,
   S extends z.ZodType = z.ZodType,
+  Sc extends EventScope = EventScope,
 > {
   readonly type: T;
+  /**
+   * Where the event belongs: `business` (a fact about a project: `events`, `ev:{businessId}`, written with
+   * `writeEvent`) or `account` (a fact about one person: `account_events`, `ae:{userId}`, written with
+   * `writeAccountEvent`). Each writer refuses the other scope, at compile time and at run time.
+   */
+  readonly scope: Sc;
   readonly schema: S;
   /** One or two sentences: when it fires and what the payload carries. */
   readonly doc: string;
@@ -98,32 +117,83 @@ export interface EventDeclaration<
   readonly consumers: readonly EventConsumer[];
   /** Whether the Inbox Composer may narrate this event as an inbox item (false = internal / already narrated). */
   readonly narratable: boolean;
+  /** Account scope only: the payload keys allowed to hold a UUID (ids of records, never of accounts). */
+  readonly recordIds: readonly string[];
 }
 
 interface DeclareOptions {
+  /** Business is the scope of `declareEvent`; an account-scoped event is declared with `declareAccountEvent`. */
+  scope?: "business";
   doc: string;
   consumers: readonly EventConsumer[];
   narratable?: boolean;
 }
 
+interface DeclareAccountOptions {
+  doc: string;
+  consumers: readonly EventConsumer[];
+  /** Payload keys allowed to hold a UUID: ids of records (an ask, a thread), never of accounts. */
+  recordIds?: readonly string[];
+}
+
 /**
- * Declare one event type. The type must be a member of `EVENT_TYPES`; this is enforced both by the
- * TypeScript signature and at runtime (so a stale catalogue cannot register a type the vocabulary dropped).
+ * Declare one business-scoped event type (the scope of every event of a project; `scope: "business"` may be written
+ * out, and is what this helper states when it is not). The type must be a member of `EVENT_TYPES` and not one of
+ * `ACCOUNT_EVENT_TYPES`; both are enforced by the TypeScript signature and at runtime (so a stale catalog cannot
+ * register a type the vocabulary dropped, or move a person's fact into a project's events).
  */
-export function declareEvent<T extends EventTypeT, S extends z.ZodType>(
+export function declareEvent<T extends BusinessEventType, S extends z.ZodType>(
   type: T,
   schema: S,
   opts: DeclareOptions,
-): EventDeclaration<T, S> {
+): EventDeclaration<T, S, "business"> {
   if (!EventType.safeParse(type).success) {
     throw new Error(`declareEvent: "${type}" is not in EVENT_TYPES (packages/shared/src/types.ts)`);
   }
+  if (isAccountEventType(type) || (opts.scope ?? "business") !== "business") {
+    throw new Error(`declareEvent: "${type}" is account-scoped; declare it with declareAccountEvent`);
+  }
   return Object.freeze({
     type,
+    scope: "business" as const,
     schema,
     doc: opts.doc,
     consumers: Object.freeze([...opts.consumers]),
     narratable: opts.narratable ?? true,
+    recordIds: Object.freeze([]),
+  });
+}
+
+/**
+ * Declare one account-scoped event type: a fact about one person, stored in their own `account_events` rows and never
+ * in a project's events. The type must be one of `ACCOUNT_EVENT_TYPES`, and a new one also needs a migration that
+ * redefines `fm_account_event_types()` with it (the database lets only the listed types into `account_events` and
+ * keeps them out of `events`; packages/db `rls/account-events.test.ts` compares the two lists). The payload schema is checked against the
+ * account payload conventions as the catalog loads (./account-payload: a closed object, nobody named by an account id,
+ * an email address or a private field; another person only by something public about them, such as a handle). Never
+ * narrated: the Composer writes a project's Inbox, and this is not a project's fact.
+ */
+export function declareAccountEvent<T extends AccountEventType, S extends z.ZodType>(
+  type: T,
+  schema: S,
+  opts: DeclareAccountOptions,
+): EventDeclaration<T, S, "account"> {
+  if (!EventType.safeParse(type).success) {
+    throw new Error(`declareAccountEvent: "${type}" is not in EVENT_TYPES (packages/shared/src/types.ts)`);
+  }
+  if (!isAccountEventType(type)) {
+    throw new Error(`declareAccountEvent: "${type}" is not in ACCOUNT_EVENT_TYPES (packages/shared/src/constants.ts); declare it with declareEvent`);
+  }
+  const recordIds = Object.freeze([...(opts.recordIds ?? [])]);
+  assertAccountPayloadSchema(type, schema, recordIds);
+  return Object.freeze({
+    type,
+    scope: "account" as const,
+    schema,
+    doc: opts.doc,
+    consumers: Object.freeze([...opts.consumers]),
+    narratable: false,
+    recordIds,
   });
 }
 
@@ -1151,6 +1221,9 @@ const autopilotChanged = declareEvent(
     /** The day's spend ceiling in USD (an Estimate); null: the credits left. */
     spendCeiling: Money.nullable().default(null),
     maxIdleCycles: z.number().int().min(1).max(10),
+    /** Autopilot's own limits (0084): cycles it starts itself per day, and their spend ceiling in USD; null: none. */
+    ownMaxCyclesPerDay: z.number().int().min(1).max(24).nullable().default(null),
+    ownSpendCeiling: Money.nullable().default(null),
   }),
   {
     doc: "Autopilot was turned on or off, its settings changed, or a guard rail (Stop all agents, used-up credits, failed or empty cycles) paused it. Only an owner or admin turns it back on.",
@@ -1386,6 +1459,29 @@ const pushSent = declareEvent(
 );
 
 // ---------------------------------------------------------------------------------------------------
+// The return loop (retention plan, founder 2026-11-11): founders coming back, and what brought them
+// ---------------------------------------------------------------------------------------------------
+
+const founderSessionStarted = declareEvent(
+  "founder.session_started",
+  z.object({
+    /** How the session started: on their own, from a founder email, or from a browser notification. */
+    via: z.enum(FOUNDER_RETURN_VIA),
+    /** The notification whose link started it, when there was one. */
+    notificationId: Id.nullable().default(null),
+    /** Minutes since the end of the session before it; null on the founder's first session in this business. */
+    minutesAway: Count.nullable(),
+    /** The founder's sessions in this business so far, this one included. */
+    sessions: z.number().int().positive(),
+  }),
+  {
+    doc: "A founder opened the business after more than 30 minutes away (or for the first time). Written by founder.presence.ping (the envelope's actor is the founder); the retention report counts returns and returns from notifications from it. Metrics only, never narrated.",
+    consumers: ["metrics"],
+    narratable: false,
+  },
+);
+
+// ---------------------------------------------------------------------------------------------------
 // Founder ↔ agent conversations (audit-conversation §4)
 // ---------------------------------------------------------------------------------------------------
 
@@ -1612,6 +1708,42 @@ const PageFacts = z.object({
   url: z.string().url().max(2048),
 });
 
+// Team call (docs/TEAM_CALL.md §5): a spoken call between the founder and their team of agents, or one agent.
+const teamCallStarted = declareEvent(
+  "team_call.started",
+  z.object({
+    callId: Id,
+    kind: z.enum(TEAM_CALL_KINDS),
+    agentIds: z.array(Id).min(1).max(TEAM_CALL_LIMITS.maxAgentsInTeamCall),
+    topic: z.string().max(TEAM_CALL_LIMITS.maxTopicChars).nullable().default(null),
+  }),
+  {
+    doc: "A founder started a team call with their agents (`team`) or a call with one agent (`one_to_one`). The founder did it themselves, so it is never narrated; apps/stream pushes it so Team call's list follows.",
+    consumers: ["stream", "metrics"],
+    narratable: false,
+  },
+);
+
+const teamCallEnded = declareEvent(
+  "team_call.ended",
+  z.object({
+    callId: Id,
+    kind: z.enum(TEAM_CALL_KINDS),
+    turnCount: z.number().int().nonnegative(),
+    actionCount: z.number().int().nonnegative(),
+    /** Action items filed at once (a task in its department, an item on the roadmap). */
+    filedCount: z.number().int().nonnegative(),
+    /** Action items staged as a plan that waits for the founder's go-ahead. */
+    awaitingCount: z.number().int().nonnegative(),
+    durationSeconds: z.number().int().nonnegative(),
+  }),
+  {
+    doc: "A call ended and its action items were filed: the summary and the actions are on the call, and the Chief of Staff's note in the Inbox says what was agreed. Filing work inside the project is not an outside result, so the north star never counts it. Never narrated (the note is written by the api with the call).",
+    consumers: ["stream", "metrics"],
+    narratable: false,
+  },
+);
+
 const pagePublished = declareEvent("page.published", PageFacts, {
   doc: "A founder published the project's public page, or published changes to a page that is already live: from this moment anyone can open `url` signed out. A real outside result (the north star counts it). The founder did it themselves, so it is never narrated; apps/stream pushes it so Today and the Public page tab follow.",
   consumers: ["stream", "metrics"],
@@ -1685,15 +1817,19 @@ const notifyEmailSent = declareEvent(
     kind: z.enum(EMAIL_NOTIFICATION_KINDS),
     /** The person it went to, by account id only: never the address. */
     userId: Id,
-    /** The note it was about. */
-    inboxItemId: Id,
+    /** The note it was about (`decision_waiting`, `win`, `credits`, a milestone's note); null for the others. */
+    inboxItemId: Id.nullable(),
     /** SendGrid's `X-Message-Id` (live), or the mock's id (simulated). */
     messageId: z.string().min(1).max(200),
     /** True when the mock ran (SendGrid not live on the gateway): nothing left Foundmill. */
     simulated: z.boolean(),
+    /** The `founder_notifications` row that holds the email (readable only by its person); its id travels in the links. */
+    notificationId: Id,
+    /** The email offered a one-click answer. */
+    offersAnswer: z.boolean().default(false),
   }),
   {
-    doc: "Foundmill emailed one of the business's people about their own project (a note that waited a day for their answer and that they had not opened on any device), from its own address through the gateway, after the person's own switch, their section walls and the daily limits. The record of what reached a person's inbox and the per-day key of the api's notify pass; never the address, the subject or the body. Not an outcome of the project (the north star never counts it); never narrated.",
+    doc: "Foundmill emailed one of the business's people about their own project (a note waiting for their answer, a win, a milestone, a finished Autopilot run, used-up credits, the morning brief or the weekly review), from its own address through the gateway, after the person's own switch, their section walls and the daily limits. The record of what reached a person's inbox and the per-day key of the api's notify pass; the words stay on the founder_notifications row, readable only by that person; never the address. Not an outcome of the project (the north star never counts it); never narrated.",
     consumers: ["metrics"],
     narratable: false,
   },
@@ -1786,12 +1922,33 @@ const shareOpened = declareEvent(
 );
 
 // ---------------------------------------------------------------------------------------------------
+// Account events: a person's own public profile (0080; account-scoped, docs/ARCHITECTURE.md §5 "Account events")
+// ---------------------------------------------------------------------------------------------------
+
+/** The address of the person's own public profile (`/u/<handle>`), and nothing private. */
+const ProfileFacts = z.strictObject({
+  /** The person's own handle as it was when this happened (a later change of address is not written back). */
+  handle: PersonHandle,
+});
+
+const profilePublished = declareAccountEvent("profile.published", ProfileFacts, {
+  doc: "The person made their own public profile public: from this moment anyone can open /u/<handle> signed out. Written once per change from private to public, in the same transaction, to the person's own account events; a save while it is already public writes nothing. The payload is the handle and nothing else.",
+  consumers: ["stream"],
+});
+
+const profileUnpublished = declareAccountEvent("profile.unpublished", ProfileFacts, {
+  doc: "The person took their own public profile down: /u/<handle> answers not found from now on (everything they wrote is kept). Written once per change from public to private, in the same transaction, to the person's own account events. The payload is the handle and nothing else.",
+  consumers: ["stream"],
+});
+
+// ---------------------------------------------------------------------------------------------------
 // Registry
 // ---------------------------------------------------------------------------------------------------
 
 /**
  * Every declared event, keyed by type. `satisfies Record<EventType, ...>` makes the compiler fail if a
- * type is added to EVENT_TYPES without a declaration here, or declared twice.
+ * type is added to EVENT_TYPES without a declaration here, or declared twice, or declared with a scope other than
+ * the one the shared vocabulary gives it (`ACCOUNT_EVENT_TYPES`).
  */
 export const EVENTS = {
   "idea.committed": ideaCommitted,
@@ -1851,6 +2008,8 @@ export const EVENTS = {
   "goal.change_requested": goalChangeRequested,
   "goal.achieved": goalAchieved,
   "page.published": pagePublished,
+  "team_call.started": teamCallStarted,
+  "team_call.ended": teamCallEnded,
   "page.unpublished": pageUnpublished,
   "page.followed": pageFollowed,
   "guidance.tour_completed": guidanceTourCompleted,
@@ -1861,11 +2020,14 @@ export const EVENTS = {
   "push.sent": pushSent,
   "mail.sent": mailSent,
   "notify.email_sent": notifyEmailSent,
+  "founder.session_started": founderSessionStarted,
+  "profile.published": profilePublished,
+  "profile.unpublished": profileUnpublished,
   "signup.attributed": signupAttributed,
   "milestone.shown": milestoneShown,
   "milestone.hidden": milestoneHidden,
   "share.opened": shareOpened,
-} as const satisfies { readonly [K in EventTypeT]: EventDeclaration<K> };
+} as const satisfies { readonly [K in EventTypeT]: EventDeclaration<K, z.ZodType, EventScopeOf<K>> };
 
 export type EventsRegistry = typeof EVENTS;
 
@@ -1887,16 +2049,29 @@ export function isEventType(value: unknown): value is EventTypeT {
   return typeof value === "string" && Object.prototype.hasOwnProperty.call(EVENTS, value);
 }
 
+/** The scope the catalog declares for a type (`business` or `account`). Throws `ValidationError` for an unknown type. */
+export function eventScope(type: EventTypeT): EventScope {
+  return getEventDeclaration(type).scope;
+}
+
+type TypesOfScope<Sc extends EventScope> = Sc extends "account" ? AccountEventType : BusinessEventType;
+
+/** The declared types of one scope, in catalog order. */
+export function eventTypesOfScope<Sc extends EventScope>(scope: Sc): TypesOfScope<Sc>[] {
+  return DECLARED_EVENT_TYPES.filter((t) => EVENTS[t].scope === scope) as TypesOfScope<Sc>[];
+}
+
 // ---------------------------------------------------------------------------------------------------
 // PlatformEvent
 // ---------------------------------------------------------------------------------------------------
 
 /**
- * The envelope every event shares (BUILD §8.1). `occurredAt` is a `Date` in TypeScript and an ISO
- * string on the wire (docs/ARCHITECTURE.md §2); `JSON.stringify` does the right thing.
+ * The envelope every business-scoped event shares (BUILD §8.1). `occurredAt` is a `Date` in TypeScript and an ISO
+ * string on the wire (docs/ARCHITECTURE.md §2); `JSON.stringify` does the right thing. An account-scoped type is never
+ * a `PlatformEvent`: its envelope is `AccountEvent` (./account-event), keyed by a person instead of a business.
  */
-export type PlatformEvent<T extends EventTypeT = EventTypeT> = {
-  [K in EventTypeT]: {
+export type PlatformEvent<T extends BusinessEventType = BusinessEventType> = {
+  [K in BusinessEventType]: {
     id: string;
     businessId: string;
     type: K;
@@ -1909,7 +2084,7 @@ export type PlatformEvent<T extends EventTypeT = EventTypeT> = {
 }[T];
 
 /** Wire form: what goes into `events.payload`'s row JSON and the Redis `json` field. */
-export type PlatformEventWire<T extends EventTypeT = EventTypeT> = Omit<
+export type PlatformEventWire<T extends BusinessEventType = BusinessEventType> = Omit<
   PlatformEvent<T>,
   "occurredAt"
 > & { occurredAt: string };
@@ -1955,6 +2130,12 @@ export function safeParseEvent(raw: unknown): ParseEventSuccess | ParseEventFail
       error: new ValidationError(`Unknown event type "${env.data.type}"`, { type: env.data.type }),
     };
   }
+  if (decl.scope !== "business") {
+    return {
+      ok: false,
+      error: new ValidationError(`${env.data.type} is account-scoped and is never a business event`, { type: env.data.type }),
+    };
+  }
   const payload = decl.schema.safeParse(env.data.payload);
   if (!payload.success) {
     return {
@@ -1992,12 +2173,12 @@ export function serializeEvent(event: PlatformEvent): string {
   return JSON.stringify(toWire(event));
 }
 
-export function toWire<T extends EventTypeT>(event: PlatformEvent<T>): PlatformEventWire<T> {
+export function toWire<T extends BusinessEventType>(event: PlatformEvent<T>): PlatformEventWire<T> {
   return { ...event, occurredAt: event.occurredAt.toISOString() } as PlatformEventWire<T>;
 }
 
 /** Narrow a PlatformEvent to one type (type guard for consumers with a switch per type). */
-export function isEventOfType<T extends EventTypeT>(
+export function isEventOfType<T extends BusinessEventType>(
   event: PlatformEvent,
   type: T,
 ): event is PlatformEvent<T> {
@@ -2008,4 +2189,7 @@ export function isEventOfType<T extends EventTypeT>(
 for (const t of EVENT_TYPES) {
   if (!Object.prototype.hasOwnProperty.call(EVENTS, t))
     throw new Error(`packages/events catalog is missing a declaration for "${t}"`);
+  const declared = (EVENTS as Record<string, EventDeclaration>)[t]!.scope;
+  if (declared !== (isAccountEventType(t) ? "account" : "business"))
+    throw new Error(`packages/events catalog declares "${t}" as ${declared}-scoped, and the shared vocabulary says otherwise (ACCOUNT_EVENT_TYPES)`);
 }

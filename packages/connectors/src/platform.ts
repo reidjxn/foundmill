@@ -15,6 +15,9 @@ export interface PlatformSecrets {
   voyageApiKey?: string;
   /** Image generation for the faces of anthropomorphic agents (the `openai_images` connector). */
   openaiApiKey?: string;
+  /** Speech for Team call (the `elevenlabs` connector): the platform key and the optional JSON override of the accent ids. */
+  elevenlabsApiKey?: string;
+  elevenlabsSpeechAccentIds?: string;
   /** Push to the mobile app's phones (the `onesignal` connector): the OneSignal app id and its REST API key. */
   onesignalAppId?: string;
   onesignalApiKey?: string;
@@ -67,6 +70,8 @@ export function platformSecretsFromEnv(env: Env = loadEnv()): PlatformSecrets {
   set("anthropicApiKey", env.ANTHROPIC_API_KEY);
   set("voyageApiKey", env.VOYAGE_API_KEY);
   set("openaiApiKey", env.OPENAI_API_KEY);
+  set("elevenlabsApiKey", env.ELEVENLABS_API_KEY);
+  set("elevenlabsSpeechAccentIds", env.ELEVENLABS_SPEECH_ACCENT_IDS);
   set("onesignalAppId", env.ONESIGNAL_APP_ID);
   set("onesignalApiKey", env.ONESIGNAL_API_KEY);
   set("e2bApiKey", env.E2B_API_KEY);

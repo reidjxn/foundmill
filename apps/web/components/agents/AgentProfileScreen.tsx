@@ -1,13 +1,13 @@
 "use client";
 /**
  * Agent profile (BUILD §11.10, DESIGN §9 "Agent profile"): ProfileHeader (avatar, name, role, departments, line
- * manager, model chip, status, wage, current/potential stars; "Talk to <agent>" opens the agent's desk as a sheet,
+ * manager, model chip, status, wage, current/potential stars; "Chat with <agent>" opens the agent's desk as a sheet, "Call <agent>" starts a one-to-one team call,
  * where "Take a break" pauses its running task through `dev.tasks.pause`) above the six tabs overview | training | autonomy |
  * tools | history | logs. The model chip anywhere on the screen opens ModelChangeDialog → ApplyScopeDialog →
  * `agent.model.set`. Data comes from `agent.profile.get`, polled every 5 s while a training run is active.
  */
 import { useQuery } from "@tanstack/react-query";
-import { Dumbbell, MessageCircle, UserRoundCog } from "lucide-react";
+import { Dumbbell, MessageCircle, Phone, UserRoundCog } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
 import { Avatar, Button, EntityLink, HealthBadge, useAgentPersona, useBuilderView, IconButton, ModelChip, ProfileHeader, StatusPill, formatMoney, useDateFormat, type ProfileChip, type ProfileFact, type TabItem } from "@foundmill/dugout";
@@ -20,6 +20,7 @@ import { ErrorPanel } from "@/components/shell/ErrorPanel";
 import { NotFoundPanel, RefreshFailedNotice, isMissing, loadFailed, refreshFailed } from "@/components/shell/QueryStates";
 import { ScreenSkeleton } from "@/components/shell/ScreenSkeleton";
 import { useAgentDesk } from "@/components/conversation/DeskHost";
+import { useStartCall } from "@/components/calls/use-start-call";
 import { formatDate } from "@/lib/format";
 import { AutonomyTab } from "./AutonomyTab";
 import { HistoryTab } from "./HistoryTab";
@@ -49,13 +50,14 @@ export interface TabProps {
 
 export function AgentProfileScreen({ agentId, tab }: AgentProfileScreenProps) {
   const datePrefs = useDateFormat();
-  const { businessId, departments } = useBusiness();
+  const { businessId, departments, access } = useBusiness();
   const trpc = useTRPC();
   const router = useRouter();
   const [modelOpen, setModelOpen] = useState(false);
   const [managerOpen, setManagerOpen] = useState(false);
   const currency = useBusinessCurrency();
   const desk = useAgentDesk();
+  const call = useStartCall();
 
   const profileQ = useQuery(
     trpc.agent.profile.get.queryOptions(
@@ -176,7 +178,13 @@ export function AgentProfileScreen({ agentId, tab }: AgentProfileScreenProps) {
                   aria-haspopup="dialog"
                   data-testid="header-talk"
                 >
-                  Talk to {shownName}
+                  Chat with {shownName}
+                </Button>
+              ) : null}
+              {/* Call starts a one-to-one team call and opens it (docs/TEAM_CALL.md §6); Chat stays the desk. */}
+              {access.canWrite("team") ? (
+                <Button size="sm" icon={Phone} loading={call.pending} onClick={() => call.start({ kind: "one_to_one", agentIds: [agent.id] })} data-testid="header-call">
+                  Call {shownName}
                 </Button>
               ) : null}
             </>

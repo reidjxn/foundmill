@@ -27,6 +27,7 @@ import { createStripeConnector } from "./connectors/stripe";
 import { createTinkConnector } from "./connectors/tink";
 import { createVoyageConnector } from "./connectors/voyage";
 import { createOpenaiImagesConnector } from "./connectors/openai_images";
+import { createElevenlabsConnector } from "./connectors/elevenlabs";
 import { createOnesignalConnector } from "./connectors/onesignal";
 import { createPlatformNotifyConnector } from "./connectors/platform_notify";
 import { createPlatformConnector } from "./connectors/platform";
@@ -41,6 +42,8 @@ export const CONNECTOR_FACTORIES: Readonly<Record<string, ConnectorFactory>> = O
   anthropic: createAnthropicConnector,
   voyage: createVoyageConnector,
   openai_images: createOpenaiImagesConnector,
+  // Speech for Team call: service-only, on the platform's ELEVENLABS_API_KEY.
+  elevenlabs: createElevenlabsConnector,
   onesignal: createOnesignalConnector,
   // Foundmill's own email to its users (packages 1.5 and 5.1): service-only, on the platform's SendGrid key.
   platform_notify: createPlatformNotifyConnector,

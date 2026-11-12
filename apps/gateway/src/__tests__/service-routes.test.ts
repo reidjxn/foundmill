@@ -299,7 +299,7 @@ describe("POST /v1/integrations/connect and /health beyond App connectors", () =
   it("refuses the Anthropic key, the platform's own connectors and the built-ins", async () => {
     const app = appFor();
     expect((await post(app, "/v1/integrations/connect", { businessId, connector: "anthropic", input: { apiKey: KEY } })).body.error?.code).toBe("manage_in_keys");
-    for (const connector of ["openai_images", "onesignal"]) expect((await post(app, "/v1/integrations/connect", { businessId, connector, input: {} })).body.error?.code).toBe("service_only_connector");
+    for (const connector of ["openai_images", "onesignal", "elevenlabs"]) expect((await post(app, "/v1/integrations/connect", { businessId, connector, input: {} })).body.error?.code).toBe("service_only_connector");
   });
 
   it("health runs the connector's check on the stored row, audited", async () => {

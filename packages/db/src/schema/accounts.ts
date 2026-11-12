@@ -133,6 +133,17 @@ export const accountPreferences = pgTable("account_preferences", {
   /** 0075 — keep money amounts out of lock-screen notifications. */
   hideAmountsOnLockScreen: boolean("hide_amounts_on_lock_screen").notNull().default(false),
   builderView: boolean("builder_view").notNull().default(false),
+  /** 0082 — share this person's one-to-one calls with the project (default false: private to them). */
+  shareOneToOneCalls: boolean("share_one_to_one_calls").notNull().default(false),
+  /**
+   * 0083 — founder email (retention plan, 2026-11-11): the morning brief's hour and the time zone it is read in (null:
+   * the business's), opt-in browser notifications, and when every email was paused from an email's footer. The switch
+   * for each kind is `notifications.email` above (founder 2026-11-12: one sender, one preference).
+   */
+  briefHour: integer("brief_hour").notNull().default(8),
+  timeZone: text("time_zone"),
+  browserNotifications: boolean("browser_notifications").notNull().default(false),
+  emailsPausedAt: tstz("emails_paused_at"),
   ...timestamps(),
 });
 export type AccountPreferences = typeof accountPreferences.$inferSelect;
@@ -230,6 +241,13 @@ export const businesses = pgTable(
     autopilotPausedReason: text("autopilot_paused_reason", { enum: AUTOPILOT_PAUSE_REASONS }),
     autopilotChangedAt: tstz("autopilot_changed_at"),
     autopilotNextAt: tstz("autopilot_next_at"),
+    /**
+     * 0084 — Autopilot's own limits (founder, 2026-11-12): cycles it starts itself per UTC day, and what they may spend
+     * (USD cents, an Estimate; also each such cycle's budget). The shared limits above still bound Continue and
+     * Autopilot alike. Null: none of its own.
+     */
+    autopilotOwnMaxCyclesPerDay: integer("autopilot_own_max_cycles_per_day"),
+    autopilotOwnSpendCeilingMinor: minor("autopilot_own_spend_ceiling_minor"),
     /**
      * 0062 — when the founder started distribution (Distribution › Board › Start distribution, or the "Ready to start
      * selling?" note). Null until then: no channel engine starts, the cycle planner defers channel tasks and the Board

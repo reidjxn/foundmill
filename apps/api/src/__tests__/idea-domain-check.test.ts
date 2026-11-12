@@ -60,6 +60,12 @@ beforeAll(async () => {
     notifyEmail: async () => {
       throw new Error("unused");
     },
+    synthesizeSpeech: async () => {
+      throw new Error("unused");
+    },
+    transcribeSpeech: async () => {
+      throw new Error("unused");
+    },
   } satisfies ApiGatewayClient;
   // The gateway is asked only when `domains` runs live; in mock mode the api answers from the mock itself (last test).
   hz = await createApiHarness({ prefix: "domaincheck", gateway, env: { LIVE_CONNECTORS: "domains" } });

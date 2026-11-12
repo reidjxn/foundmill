@@ -22,8 +22,8 @@
  * the save that creates the profile (services/attribution.ts).
  */
 import { freeDisplayName, liveModeOpen } from "@foundmill/config";
-import { AccountPreferencesPatch, RegisterDeviceInput, UnregisterDeviceInput, repos, withRls, FounderProfileInput, FounderProfilePatch, SaveTableViewsInput, TableViewsScope, type AccountPreferencesView, type Db, type DbTx, type GuidancePrefs, type NotificationPreferences } from "@foundmill/db";
-import { GUIDANCE_OFF_SOURCES, PAGE_SLUG_MAX, PERSON_ABOUT_MAX, PERSON_HEADLINE_MAX, PERSON_LOOKING_FOR, PERSON_PLACE_MAX, PERSON_TAGS_MAX, PERSON_TAG_MAX } from "@foundmill/shared";
+import { AccountPreferencesPatch, EmailPrefsPatch, RegisterDeviceInput, UnregisterDeviceInput, repos, withRls, FounderProfileInput, FounderProfilePatch, SaveTableViewsInput, TableViewsScope, type AccountPreferencesView, type Db, type DbTx, type GuidancePrefs, type NotificationPreferences } from "@foundmill/db";
+import { FOUNDER_RETURN_VIA, GUIDANCE_OFF_SOURCES, PAGE_SLUG_MAX, PERSON_ABOUT_MAX, PERSON_HEADLINE_MAX, PERSON_LOOKING_FOR, PERSON_PLACE_MAX, PERSON_TAGS_MAX, PERSON_TAG_MAX } from "@foundmill/shared";
 import { VIA_MAX_LENGTH } from "@foundmill/shared/via";
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
@@ -100,9 +100,45 @@ export const FounderProfileUpdateInput = FounderProfilePatch.extend({ via: z.str
 export const publicPersonRouter = router({
   byHandle: publicProcedure.input(z.object({ handle: z.string().max(PAGE_SLUG_MAX * 2) })).query(({ ctx, input }) => publicPersonByHandle(ctx, input.handle)),
 });
+/**
+ * One presence ping from an open tab of a business (retention plan, 2026-11-11). `via` and `notificationId` come from a
+ * notification link's query string (`?via=email&n=<id>`) on the first ping after the founder followed it.
+ */
+export const PresencePingInput = z.object({
+  businessId: z.guid(),
+  via: z.enum(FOUNDER_RETURN_VIA).default("direct"),
+  notificationId: z.guid().nullable().default(null),
+});
+export type PresencePingInput = z.input<typeof PresencePingInput>;
 
 export const founderRouter = router({
   businesses: founderBusinessesRouter,
+  /**
+   * founder.presence.ping: the signed-in person is in this business now. Runs as them (RLS: their own row, a business
+   * they belong to). The first ping of a session (the first ever, or after 30 minutes away) writes
+   * `founder.session_started` through the outbox, and a notification link marks that notification opened. An example
+   * membership (a read-only walk around a demo) records nothing.
+   */
+  presence: router({
+    ping: protectedProcedure.input(PresencePingInput).mutation(async ({ ctx, input }) => {
+      const { membership, business } = await repos.memberships.access(ctx.db, input.businessId, ctx.userId);
+      if (!membership || !business) throw new TRPCError({ code: "FORBIDDEN", message: "You do not belong to this business" });
+      if (membership.source === "example") return { recorded: false as const };
+      const now = new Date();
+      // A return counts as from a notification only when that notification went to this founder (security review P3).
+      const sent = input.notificationId && input.via !== "direct" ? await repos.notifications.get(ctx.db, business.id, input.notificationId) : null;
+      const via = sent && sent.userId === ctx.userId ? input.via : "direct";
+      const ping = await asUser(ctx, (tx) => repos.presence.ping(tx, business.id, ctx.userId, { now, timeZone: business.timeZone, via }));
+      if (sent && via !== "direct") await repos.notifications.markOpened(ctx.db, business.id, ctx.userId, sent.id, now);
+      if (ping.newSession) {
+        const minutesAway = ping.previousSeenAt ? Math.max(0, Math.round((now.getTime() - Date.parse(ping.previousSeenAt)) / 60_000)) : null;
+        await writeEventRow(ctx.db, { businessId: business.id, type: "founder.session_started", actor: { kind: "user", id: ctx.userId }, payload: { via, notificationId: via === "direct" ? null : (sent?.id ?? null), minutesAway, sessions: ping.sessions } });
+      }
+      return { recorded: true as const, newSession: ping.newSession, previousSeenAt: ping.previousSeenAt, sessionStartedAt: ping.sessionStartedAt, sessions: ping.sessions };
+    }),
+    /** The person's presence in the business (null before their first ping). */
+    get: protectedProcedure.input(z.object({ businessId: z.guid() })).query(({ ctx, input }) => asUser(ctx, (tx) => repos.presence.get(tx, input.businessId, ctx.userId))),
+  }),
   profile: router({
     get: protectedProcedure.query(async ({ ctx }) => {
       // The profile, the memberships and the open businesses in one statement: one round trip on one pooled connection.
@@ -195,6 +231,17 @@ export const founderRouter = router({
     register: protectedProcedure.input(RegisterDeviceInput).mutation(({ ctx, input }) => repos.devices.register(ctx.db, ctx.userId, input)),
     /** Forgets this phone (sign-out). Someone else's token is not theirs to forget: `removed` is false. */
     unregister: protectedProcedure.input(UnregisterDeviceInput).mutation(({ ctx, input }) => asUser(ctx, (tx) => repos.devices.unregister(tx, ctx.userId, input.token))),
+  }),
+  /**
+   * founder.email.get/update: the person's founder emails (retention plan, 2026-11-11): which kinds are on, the
+   * morning brief's hour and zone, browser notifications, and the pause. Account-scoped like the other preferences, run
+   * as the person under RLS (push switches stay in founder.preferences.notifications, 0075). founder.email.recent: the latest emails sent (or skipped) to them in one business,
+   * without the HTML.
+   */
+  email: router({
+    get: protectedProcedure.query(({ ctx }) => asUser(ctx, (tx) => repos.emailPrefs.get(tx, ctx.userId))),
+    update: protectedProcedure.input(EmailPrefsPatch).mutation(({ ctx, input }) => asUser(ctx, (tx) => repos.emailPrefs.update(tx, ctx.userId, input))),
+    recent: protectedProcedure.input(z.object({ businessId: z.guid(), limit: z.number().int().min(1).max(50).default(10) })).query(({ ctx, input }) => asUser(ctx, (tx) => repos.notifications.listForUser(tx, input.businessId, ctx.userId, input.limit))),
   }),
   tableViews: router({
     /** The person's saved views and open view for one table; null until they change something there. */

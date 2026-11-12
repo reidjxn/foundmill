@@ -47,6 +47,7 @@ export const BARRELS = [
   "components/journey.ts",
   "components/agents.ts",
   "components/conversation.ts",
+  "components/call.ts",
   // The guided layer (UX plan §6): the definitions primitives and the first-run pieces.
   "components/guidance.ts",
   "components/firstrun.ts",
@@ -125,6 +126,8 @@ export const SERVER_SAFE_FILES = [
   "components/public/ProjectStory.tsx",
   "components/public/MilestoneCard.tsx",
   "components/public/PersonPage.tsx",
+  // The streak (retention plan, 2026-11-11): plain markup inside a Panel.
+  "components/today/StreakStrip.tsx",
 ];
 
 export function listSourceFiles(root = SRC): string[] {

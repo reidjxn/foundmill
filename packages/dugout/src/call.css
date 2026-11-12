@@ -1,0 +1,183 @@
+/*
+ * Team call (docs/TEAM_CALL.md §6, DESIGN §9 "Team call"): the call screen's tiles, level bars, stage and rail.
+ * Every tint reads --tone, set with `tone-dept-N` (the agent's own department) or `tone-kit-lift` for You. Every loop
+ * stops under prefers-reduced-motion and leaves a legible static frame: the ring, the glow and the words carry the state.
+ */
+
+@keyframes dugout-call-level {
+  0%,
+  100% {
+    transform: scaleY(0.3);
+  }
+  50% {
+    transform: scaleY(1);
+  }
+}
+
+/* A tile: 16:9 on a department-tinted surface. Speaking lights the whole edge in --tone with a glow. */
+@utility call-tile {
+  position: relative;
+  isolation: isolate;
+  display: block;
+  min-width: 0;
+  aspect-ratio: 16 / 9;
+  overflow: hidden;
+  border-radius: var(--r-md);
+  background:
+    radial-gradient(110% 90% at 50% 40%, color-mix(in oklab, var(--tone, var(--kit-lift)) 16%, var(--surface-2)), var(--surface-1) 78%);
+  box-shadow:
+    inset 0 0 0 1px var(--line),
+    var(--elev-0);
+  transition: box-shadow var(--dur-slide) var(--ease-out);
+  &[data-state="speaking"] {
+    box-shadow:
+      inset 0 0 0 2px var(--tone, var(--kit-lift)),
+      0 0 0 1px color-mix(in oklab, var(--tone, var(--kit-lift)) 40%, transparent),
+      0 0 28px -2px color-mix(in oklab, var(--tone, var(--kit-lift)) 55%, transparent);
+  }
+  &[data-state="idle"] [data-call-portrait] {
+    opacity: 0.82;
+  }
+  &[data-size="small"] {
+    border-radius: var(--r-sm);
+    box-shadow:
+      inset 0 0 0 1px var(--line-strong),
+      var(--elev-2);
+  }
+  @media (prefers-reduced-motion: reduce) {
+    transition: none;
+  }
+}
+
+/* The name plate: bottom left, a dark glass chip so the words hold on any portrait. */
+@utility call-plate {
+  position: absolute;
+  left: 8px;
+  bottom: 8px;
+  z-index: 1;
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  max-width: calc(100% - 16px);
+  min-width: 0;
+  padding: 3px 8px;
+  border-radius: var(--r-sm);
+  font-family: var(--font-body);
+  font-size: var(--fs-small);
+  line-height: var(--lh-small);
+  background: color-mix(in oklab, var(--ink) 66%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--white) 8%, transparent);
+  backdrop-filter: blur(8px);
+}
+
+/* Three level bars. With no --call-level they move on their own (a speaking agent: the level is not known); with a
+   level (the founder's mic) each bar's height follows it. Reduced motion: still, at a legible mid height. */
+@utility call-bars {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  height: 14px;
+  & > span {
+    width: 3px;
+    height: 100%;
+    border-radius: var(--r-pill);
+    background: var(--tone, var(--kit-lift));
+    box-shadow: 0 0 6px color-mix(in oklab, var(--tone, var(--kit-lift)) 70%, transparent);
+    transform-origin: center;
+    animation: dugout-call-level 900ms var(--ease-inout) infinite;
+  }
+  & > :nth-child(2) {
+    animation-delay: 150ms;
+    animation-duration: 760ms;
+  }
+  & > :nth-child(3) {
+    animation-delay: 300ms;
+    animation-duration: 1020ms;
+  }
+  &[data-level] > span {
+    animation: none;
+    transform: scaleY(var(--bar, 0.3));
+    transition: transform var(--dur-press) linear;
+  }
+  &[data-still] > span {
+    animation: none;
+    transform: scaleY(0.35);
+  }
+  @media (prefers-reduced-motion: reduce) {
+    & > span {
+      animation: none;
+      transform: scaleY(0.6);
+    }
+    &[data-level] > span {
+      transition: none;
+      transform: scaleY(var(--bar, 0.3));
+    }
+    &[data-still] > span {
+      transform: scaleY(0.35);
+    }
+  }
+}
+
+/* The stage: tiles in a stable grid (columns set from the count), or the agent large with You small on top. */
+@utility call-stage {
+  position: relative;
+  display: grid;
+  gap: 12px;
+  align-content: center;
+  justify-content: center;
+  width: 100%;
+  margin-inline: auto;
+  grid-template-columns: repeat(var(--call-cols, 1), minmax(0, 1fr));
+  max-width: calc(var(--call-cols, 1) * 480px + (var(--call-cols, 1) - 1) * 12px);
+  &[data-layout="one_to_one"] {
+    display: block;
+    max-width: 880px;
+  }
+  &[data-layout="one_to_one"] > [data-call-you] {
+    position: absolute;
+    right: 12px;
+    bottom: 12px;
+    z-index: 2;
+    width: 24%;
+    min-width: 160px;
+  }
+}
+
+/* Captions: a fixed line under the stage so the layout never jumps when it fills or empties. */
+@utility call-captions {
+  min-height: 3.2em;
+  max-width: var(--reading-measure);
+  margin-inline: auto;
+  text-align: center;
+  font-family: var(--font-body);
+  font-size: var(--fs-reading);
+  line-height: var(--lh-reading);
+  color: var(--text-1);
+}
+
+/* The controls bar: a glass slab across the foot of the call. */
+@utility call-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  padding: 8px 12px;
+  border-radius: var(--r-md);
+  background: color-mix(in oklab, var(--surface-2) 86%, transparent);
+  box-shadow:
+    inset 0 1px 0 color-mix(in oklab, var(--white) 6%, transparent),
+    inset 0 0 0 1px var(--line);
+  backdrop-filter: blur(16px);
+}
+
+/* A transcript turn that is being spoken now: a lit edge in the speaker's colour. */
+@utility call-turn {
+  position: relative;
+  display: flex;
+  gap: 8px;
+  padding: 8px 12px;
+  &[data-speaking] {
+    background: color-mix(in oklab, var(--tone, var(--kit-lift)) 8%, transparent);
+    box-shadow: inset 2px 0 0 var(--tone, var(--kit-lift));
+  }
+}

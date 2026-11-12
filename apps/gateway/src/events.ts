@@ -8,10 +8,10 @@
 import { repos, type Event } from "@foundmill/db";
 import { buildEvent, type WriteEventInput } from "@foundmill/events";
 import type { Executor } from "@foundmill/db/repos/_shared";
-import type { EventType } from "@foundmill/shared";
+import type { BusinessEventType } from "@foundmill/shared";
 
 /** `idempotencyKey`: an event that may repeat is written once per key within its business (the existing row comes back). */
-export async function writeGatewayEvent<T extends EventType>(tx: Executor, input: WriteEventInput<T>, idempotencyKey?: string): Promise<Event> {
+export async function writeGatewayEvent<T extends BusinessEventType>(tx: Executor, input: WriteEventInput<T>, idempotencyKey?: string): Promise<Event> {
   const event = buildEvent(input);
   return repos.events.write(tx, event.businessId, {
     id: event.id,

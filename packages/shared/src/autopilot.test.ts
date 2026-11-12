@@ -19,6 +19,9 @@ import {
   utcDayStart,
   type AutopilotCycleSummary,
   type AutopilotFacts,
+  overnightUtcHour,
+  autopilotCycleBudgetMinor,
+  OVERNIGHT_SHIFT,
 } from "./autopilot";
 
 const H = 60 * 60 * 1000;
@@ -299,5 +302,37 @@ describe("decideRun: Continue runs until done (Nov 7, 2026)", () => {
 
   it("the Off chip says Continue keeps the team working", () => {
     expect(autopilotView({ action: "off" }).detail).toBe("Continue keeps the team working until nothing is left. Turn Autopilot on to start work on a schedule.");
+  });
+});
+
+describe("overnightUtcHour", () => {
+  it("finds the UTC hour that is 2 AM in the founder's zone", () => {
+    const now = new Date("2026-11-11T15:00:00Z");
+    expect(overnightUtcHour("America/New_York", now)).toBe(7);
+    expect(overnightUtcHour("Europe/London", now)).toBe(2);
+    expect(overnightUtcHour("Asia/Tokyo", now)).toBe(17);
+    expect(overnightUtcHour(null, now)).toBe(2);
+    expect(overnightUtcHour("Not/AZone", now)).toBe(2);
+  });
+});
+
+describe("Autopilot's own limits (founder, 2026-11-12: split from Continue's)", () => {
+  const own = (ownMaxCyclesPerDay: number | null, ownSpendCeilingMinor: number | null) => ({ ...AUTOPILOT_DEFAULT_SETTINGS, cadence: "after_cycle" as const, ownMaxCyclesPerDay, ownSpendCeilingMinor });
+  it("waits once Autopilot's own cycles reach its own daily limit, whatever Continue did", () => {
+    expect(decideAutopilot(facts({ settings: own(1, null), ownCyclesToday: 1, cyclesToday: 1 }))).toMatchObject({ action: "wait", why: "daily_cycles" });
+    // Continue's cycles count toward the shared cap only: three presses today leave Autopilot's own night untouched.
+    expect(decideAutopilot(facts({ settings: own(1, null), ownCyclesToday: 0, cyclesToday: 3 })).action).toBe("start");
+  });
+  it("waits once its own spend is reached, and gives its cycle the rest as a budget", () => {
+    expect(decideAutopilot(facts({ settings: own(null, 15), ownSpentTodayMinor: 15 }))).toMatchObject({ action: "wait", why: "daily_spend" });
+    expect(autopilotCycleBudgetMinor({ settings: own(null, 15), ownSpentTodayMinor: 4 })).toBe(11);
+    expect(autopilotCycleBudgetMinor({ settings: own(null, null), ownSpentTodayMinor: 4 })).toBeNull();
+  });
+  it("leaves a Continue run to the shared limits only", () => {
+    const run = { id: "r", startedAt: NOW - H, rounds: 1, lastRound: productive };
+    expect(decideRun(facts({ settings: own(1, 1), ownCyclesToday: 1, ownSpentTodayMinor: 50, lastCycleStartedAt: NOW - H, run }))).toEqual({ action: "start" });
+  });
+  it("is the overnight shift's cap: one cycle a night with a budget of 15 cents", () => {
+    expect(OVERNIGHT_SHIFT).toMatchObject({ ownMaxCyclesPerDay: 1, ownSpendCeilingMinor: 15, cadence: "daily" });
   });
 });

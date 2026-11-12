@@ -18,7 +18,7 @@
 import { buildSystemPrompt, chiefOfStaff, getTemplateByAgentType } from "@foundmill/agents";
 import { APP_NAME, LIMITS } from "@foundmill/config";
 import { repos, type Agent, type Business, type Department, type Executor, type PlanAction as PlanActionRow, type PlanWithActions } from "@foundmill/db";
-import { compileOptionPlan as compileOptionPlanRules, compilePlanRuleBased, PLAN_ACTION_PARAMS, PlanOutput, SetAgentModelParams, type DecisionOption, type ModelClient, type OptionAgent, type PlanAction, type RoadmapItemRef } from "@foundmill/models";
+import { compileOptionPlan as compileOptionPlanRules, compilePlanRuleBased, PLAN_ACTION_PARAMS, PlanOutput, SetAgentModelParams, UpdateRoadmapParams, type DecisionOption, type ModelClient, type OptionAgent, type PlanAction, type RoadmapItemRef } from "@foundmill/models";
 import { agentAutonomy, agentPrincipal, evaluate, type EvaluateResult, type ToolCtxInput } from "@foundmill/policy";
 import { AppError, CHANNEL_KEYS, CHANNEL_META, CreatePlaybookParams, ForbiddenError, hasSectionAccess, MODEL_KEYS, planActionSection, planSectionWalls, TASK_KINDS, type ChannelKey, type ModelKey, type ModuleKey, type PlanActionType, type PolicyOutcome, type Section, type SectionMembership, type TaskKind } from "@foundmill/shared";
 import { changeAgentModels } from "./agent-model";
@@ -557,8 +557,16 @@ async function executeLocally(tx: Executor, businessId: string, action: PlanActi
       if (amount === null || typeof p.approval_id === "string") return null;
       return { approvedMinor: amount, currency: str(p.currency, opts.currency).toUpperCase(), what: str(p.what, "the decision"), approvedBy: opts.actorUserId, decidedOption: str(p.decided_option) || null };
     }
+    case "update_roadmap": {
+      // A new roadmap item (`create` with a title) is written here, so a call's agreed item exists at once even without
+      // the orchestrator (Team call, docs/TEAM_CALL.md §5); a change to an existing item stays the orchestrator's.
+      const parsed = UpdateRoadmapParams.safeParse(p);
+      if (!parsed.success || !parsed.data.create || !parsed.data.title) return null;
+      const params = parsed.data;
+      const created = await repos.product.upsertRoadmapItem(tx, businessId, { title: params.title!, descriptionMd: params.description ?? params.change ?? "", horizon: params.horizon ?? "next", targetStart: params.target_start ?? null, targetEnd: params.target_end ?? null, ...(params.confidence ? { confidence: params.confidence } : {}) });
+      return { roadmapItemId: created.id, created: true };
+    }
     case "update_spec":
-    case "update_roadmap":
     case "send_message":
     case "schedule_meeting":
     case "hire_agent":

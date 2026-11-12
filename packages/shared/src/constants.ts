@@ -237,7 +237,7 @@ export const PLAN_ACTION_TYPES = [
 ] as const;
 export type PlanActionType = (typeof PLAN_ACTION_TYPES)[number];
 
-export const PLAN_ORIGINS = ["option", "free_text", "playbook", "holiday"] as const;
+export const PLAN_ORIGINS = ["option", "free_text", "playbook", "holiday", "team_call"] as const;
 export type PlanOrigin = (typeof PLAN_ORIGINS)[number];
 
 export const PLAN_STATUSES = ["pending_confirmation", "executing", "done", "failed"] as const;
@@ -443,6 +443,9 @@ export const EVENT_TYPES = [
   "push.sent",
   "mail.sent",
   "notify.email_sent",
+  "team_call.started", "team_call.ended",
+  "founder.session_started",
+  "profile.published", "profile.unpublished",
   "signup.attributed",
   "milestone.shown", "milestone.hidden",
   "share.opened",
@@ -471,6 +474,30 @@ export type GuidanceOffSource = (typeof GUIDANCE_OFF_SOURCES)[number];
  */
 export const PERSON_ADDRESSED_EVENT_TYPES = ["connection.requested", "message.received"] as const satisfies readonly EventType[];
 export const isPersonAddressedEvent = (type: string | null | undefined): boolean => (PERSON_ADDRESSED_EVENT_TYPES as readonly string[]).includes(type ?? "");
+
+/**
+ * Where an event belongs (founder, 2026-11-12). A `business` event is a fact about a project: it is stored in `events`,
+ * read by the project's members under their section walls and published on `ev:{businessId}`. An `account` event is a
+ * fact about one person (their profile went public; later a follow, an ask, an answer): it is stored in
+ * `account_events`, keyed by the person's account, read by that person and nobody else, and published on
+ * `ae:{userId}`. A fact about a person never goes into a business's events, where every member could read it.
+ *
+ * The event catalog (packages/events `catalogue.ts`) states the scope of every declaration; this tuple is the same
+ * fact for the packages below it (packages/db refuses these types in `repos.events.write`, apps/stream never delivers
+ * them on a business stream), and the catalog fails to compile, and to load, when the two disagree. Append only.
+ *
+ * The database holds the same list (`fm_account_event_types()`, migration `account_events`): `account_events` takes only
+ * these types and `events` refuses them, whoever writes. A new account-scoped type therefore needs a migration that
+ * redefines that function; packages/db `rls/account-events.test.ts` fails until the two lists are the same.
+ */
+export const EVENT_SCOPES = ["business", "account"] as const;
+export type EventScope = (typeof EVENT_SCOPES)[number];
+export const ACCOUNT_EVENT_TYPES = ["profile.published", "profile.unpublished"] as const satisfies readonly EventType[];
+export type AccountEventType = (typeof ACCOUNT_EVENT_TYPES)[number];
+/** Every event type that belongs to a project: all of `EVENT_TYPES` but the account-scoped ones. */
+export type BusinessEventType = Exclude<EventType, AccountEventType>;
+export const isAccountEventType = (type: string | null | undefined): type is AccountEventType => (ACCOUNT_EVENT_TYPES as readonly string[]).includes(type ?? "");
+export const eventScopeOf = (type: EventType): EventScope => (isAccountEventType(type) ? "account" : "business");
 
 /** Entity mention markup written by agents: [[ent:<uuid>|Display]] */
 export const ENTITY_MARKUP_RE = /\[\[ent:([0-9a-f-]{36})\|([^\]]+)\]\]/g;
@@ -549,13 +576,17 @@ export type NotificationPrefs = Record<NotificationKind, boolean>;
 export const DEFAULT_NOTIFICATION_PREFS: Readonly<NotificationPrefs> = Object.freeze({ decision: true, approval: true, customer: true, agent_down: true, runway: true, run_finished: true, goal: true });
 /**
  * What Foundmill may email a person about (the `email` channel beside push in `account_preferences.notifications`,
- * docs/THESIS_REVIEW.md packages 1.5 and 5.1): a note that needs their answer and has waited a day without being opened
- * on any device. Every kind is on until the person turns it off (Settings › Preferences, or the link in the email).
+ * docs/THESIS_REVIEW.md packages 1.5 and 5.1; the retention plan's kinds joined it, founder 2026-11-12: one sender, one
+ * preference): a note that needs their answer, a customer won, a milestone, a run they started and left finishing,
+ * used-up credits, and the morning brief and the Monday weekly review. Every kind is on until the person turns it off
+ * (Settings › Preferences, or the link in the email).
  */
-export const EMAIL_NOTIFICATION_KINDS = ["decision_waiting"] as const;
+export const EMAIL_NOTIFICATION_KINDS = ["decision_waiting", "win", "milestone", "run_finished", "credits", "daily_brief", "weekly_review"] as const;
 export type EmailNotificationKind = (typeof EMAIL_NOTIFICATION_KINDS)[number];
 export type EmailNotificationPrefs = Record<EmailNotificationKind, boolean>;
-export const DEFAULT_EMAIL_NOTIFICATION_PREFS: Readonly<EmailNotificationPrefs> = Object.freeze({ decision_waiting: true });
+export const DEFAULT_EMAIL_NOTIFICATION_PREFS: Readonly<EmailNotificationPrefs> = Object.freeze({ decision_waiting: true, win: true, milestone: true, run_finished: true, credits: true, daily_brief: true, weekly_review: true });
+/** The kinds the daily limits count; the morning brief and the weekly review are on their own schedule (founder, 2026-11-12). */
+export const LIMITED_EMAIL_KINDS: readonly EmailNotificationKind[] = ["decision_waiting", "win", "milestone", "run_finished", "credits"];
 
 /** The account's type size (`account_preferences.text_size`, 0064): comfortable grows body and small text; the structure keeps its sizes. */
 export const TEXT_SIZES = ["standard", "comfortable"] as const;

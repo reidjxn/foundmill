@@ -10,7 +10,7 @@
  * (a drizzle `Db`, a drizzle transaction `tx`, or a test fake).
  */
 import { sql, type SQL } from "drizzle-orm";
-import { ValidationError, uuid, type Actor, type EventType } from "@foundmill/shared";
+import { ValidationError, uuid, type Actor, type BusinessEventType } from "@foundmill/shared";
 import {
   getEventDeclaration,
   parsePayload,
@@ -32,7 +32,7 @@ export interface TransactionalQueryable extends Queryable {
 export const EVENTS_TABLE = "events";
 export const OUTBOX_TABLE = "outbox";
 
-export interface WriteEventInput<T extends EventType = EventType> {
+export interface WriteEventInput<T extends BusinessEventType = BusinessEventType> {
   businessId: string;
   type: T;
   actor: Actor;
@@ -61,10 +61,15 @@ function toDate(value: Date | string | undefined): Date {
 
 /**
  * Validate an input and produce the full PlatformEvent (id, defaults applied) without writing anything.
- * Throws `ValidationError` for an unknown type, a malformed payload or a non-UUID id.
+ * Throws `ValidationError` for an unknown type, an account-scoped type (a person's fact is never written to a
+ * business: `writeAccountEvent` in ./account-writer is its writer), a malformed payload or a non-UUID id.
  */
-export function buildEvent<T extends EventType>(input: WriteEventInput<T>): PlatformEvent<T> {
+export function buildEvent<T extends BusinessEventType>(input: WriteEventInput<T>): PlatformEvent<T> {
   const decl = getEventDeclaration(input.type); // throws on unknown type
+  // The signature already refuses an account-scoped type; this holds an untyped caller (a cast, plain JavaScript) to it.
+  if ((decl as { scope: string }).scope !== "business") {
+    throw new ValidationError(`${input.type} is account-scoped and is never written to a business's events; write it with writeAccountEvent`, { type: input.type });
+  }
   const payload = parsePayload(decl.type, input.payload);
   assertUuid(input.businessId, "businessId");
   const id = input.id ?? uuid();
@@ -120,7 +125,7 @@ function entityIdsSql(ids: readonly string[]): SQL {
  * });
  * ```
  */
-export async function writeEvent<T extends EventType>(
+export async function writeEvent<T extends BusinessEventType>(
   tx: Queryable,
   input: WriteEventInput<T>,
 ): Promise<string> {

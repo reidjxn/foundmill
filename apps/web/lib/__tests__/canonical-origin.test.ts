@@ -3,7 +3,7 @@ import { getRedirectUrl, unstable_getResponseFromNextConfig } from "next/experim
 import type { NextConfig } from "next";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { APP_ORIGIN } from "@foundmill/config";
-import { canonicalHostRedirects, canonicalOrigin, magicLinkCallbackUrl, wwwAliasHost } from "../auth/canonical-origin";
+import { canonicalHostRedirects, canonicalOrigin, googleCallbackUrl, magicLinkCallbackUrl, wwwAliasHost } from "../auth/canonical-origin";
 
 /** The real next.config.ts, loaded fresh under the given NEXT_PUBLIC_APP_URL (it reads the env at import). */
 async function loadNextConfig(appUrl: string): Promise<NextConfig> {
@@ -93,5 +93,12 @@ describe("magic-link callback URL", () => {
   it("keeps the page's own origin for a local stack without NEXT_PUBLIC_APP_URL", () => {
     expect(magicLinkCallbackUrl({ appUrl: "", appEnv: "development", currentOrigin: "http://localhost:3000", next })).toBe("http://localhost:3000/auth/callback?next=%2Fb%2Fabc%2Finbox");
     expect(magicLinkCallbackUrl({ appUrl: "", appEnv: "test", currentOrigin: "http://localhost:3000", next: "/" })).toBe("http://localhost:3000/auth/callback?next=%2F");
+  });
+});
+
+describe("googleCallbackUrl", () => {
+  it("is the magic link's callback (same origin, same next) marked via=google", () => {
+    expect(googleCallbackUrl({ appUrl: "", appEnv: "production", currentOrigin: "https://www.foundmill.com", next: "/b/abc/inbox" })).toBe("https://foundmill.com/auth/callback?next=%2Fb%2Fabc%2Finbox&via=google");
+    expect(googleCallbackUrl({ appUrl: "", appEnv: "test", currentOrigin: "http://localhost:3000", next: "/" })).toBe("http://localhost:3000/auth/callback?next=%2F&via=google");
   });
 });

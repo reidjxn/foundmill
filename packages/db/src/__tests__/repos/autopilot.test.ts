@@ -204,7 +204,7 @@ describe("loadAutopilotFacts feeds the same decision the workflow makes", () => 
     expect(base).toMatchObject({ enabled: true, pausedReason: null, stopReason: null, vacation: false, archived: false });
     expect(base.blockingItems).toBe(await repos.inbox.countBlocking(r.db, A()));
     expect(base.since).toBe(new Date("2026-10-13T06:00:00.000Z").getTime());
-    expect(base.settings).toEqual({ cadence: "every_4h", dailyHour: 9, maxCyclesPerDay: 6, spendCeilingMinor: null, maxIdleCycles: 3 });
+    expect(base.settings).toEqual({ cadence: "every_4h", dailyHour: 9, maxCyclesPerDay: 6, spendCeilingMinor: null, maxIdleCycles: 3, ownMaxCyclesPerDay: null, ownSpendCeilingMinor: null });
 
     await repos.events.write(r.db, A(), { type: "cycle.started", actor: { kind: "system", id: "orchestrator" }, occurredAt: new Date("2026-10-13T10:00:00.000Z"), payload: { cycleId: "6f1d2c3b-4a5e-4f60-8a71-0b2c3d4e5f60", cycleNumber: 1, workflowId: `cycle:${A()}:1`, trigger: "autopilot", timeBoxAgentHours: 4, plannedTaskIds: [], budget: null } });
     const running = await loadAutopilotFacts(r.db, await row(A()), now);
