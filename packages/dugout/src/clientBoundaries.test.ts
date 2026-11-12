@@ -47,6 +47,7 @@ export const BARRELS = [
   "components/journey.ts",
   "components/agents.ts",
   "components/conversation.ts",
+  "components/call.ts",
   // The guided layer (UX plan §6): the definitions primitives and the first-run pieces.
   "components/guidance.ts",
   "components/firstrun.ts",

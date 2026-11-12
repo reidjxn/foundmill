@@ -23,8 +23,8 @@
  *   outside) waits as a plan to confirm; a hard gate is the founder's own step. Nothing in a call is ever reported as
  *   done before it is.
  */
-import type { AgentStyle, PersonaPresentation } from "./personas";
-import { characterFor, personaByKey } from "./personas";
+import type { PersonaPresentation } from "./personas";
+import { personaByKey } from "./personas";
 import type { PlanActionType } from "./constants";
 
 export const TEAM_CALL_KINDS = ["team", "one_to_one"] as const;
@@ -73,6 +73,11 @@ export const TEAM_CALL_LIMITS = {
   maxActionsPerCall: 20,
   /** One recording sent for transcription. */
   maxAudioBytes: 8 * 1024 * 1024,
+  /**
+   * Model rounds in one call (opening, replies, agent-only rounds; the wrap-up is one more): the call's spend ceiling,
+   * since agents talking to each other could otherwise run up cost. Past it the call asks to be wrapped up.
+   */
+  maxModelRoundsPerCall: 60,
   /** Characters spoken aloud per business per UTC day, across every call (the gateway's ceiling). */
   speechCharsPerBusinessPerDay: 60_000,
   /** How long the founder stays silent before "Let the team discuss" lets the agents carry on, in ms. */
@@ -89,13 +94,13 @@ export type TeamCallAudioMime = (typeof TEAM_CALL_AUDIO_MIMES)[number];
 
 /**
  * One accent an agent can speak with. The vendor's id for it is not here: the gateway maps an accent key to the speech
- * vendor's voice id (`packages/connectors` `elevenlabs/accents.ts`, overridable by `ELEVENLABS_ACCENT_IDS`), so the api
+ * vendor's voice id (`packages/connectors` `elevenlabs/speech-accents.ts`, overridable by `ELEVENLABS_SPEECH_ACCENT_IDS`), so the api
  * only ever names an accent. Keys are stable identifiers: never rename or reuse one; add accents at the end.
  *
  * `fallback` is how the browser's own speech is tuned for this accent when speech is simulated (mock mode), so agents
  * still sound different from each other in development.
  */
-export interface AccentSlot {
+export interface SpeechAccent {
   key: string;
   presentation: PersonaPresentation;
   /** A few words on how it sounds (for Settings and tests; never spoken). */
@@ -104,7 +109,7 @@ export interface AccentSlot {
 }
 
 /** ElevenLabs' permanent voices (their replacements for the default voices retired Dec 31, 2026), checked Nov 12, 2026. */
-export const ACCENT_SLOTS: readonly AccentSlot[] = [
+export const SPEECH_ACCENTS: readonly SpeechAccent[] = [
   { key: "talia", presentation: "woman", tone: "warm, soft", fallback: { pitch: 1.1, rate: 0.98 } },
   { key: "darian", presentation: "man", tone: "warm, grounded", fallback: { pitch: 0.85, rate: 0.96 } },
   { key: "elara", presentation: "woman", tone: "crisp, professional", fallback: { pitch: 1.0, rate: 1.04 } },
@@ -126,15 +131,15 @@ export const ACCENT_SLOTS: readonly AccentSlot[] = [
   { key: "kaelen", presentation: "man", tone: "bold, lively", fallback: { pitch: 1.0, rate: 1.1 } },
 ];
 
-export type AccentKey = string;
+export type SpeechAccentKey = string;
 
-const ACCENT_BY_KEY = new Map(ACCENT_SLOTS.map((s) => [s.key, s] as const));
+const SPEECH_ACCENT_BY_KEY = new Map(SPEECH_ACCENTS.map((s) => [s.key, s] as const));
 
-export function accentSlot(key: string | null | undefined): AccentSlot | null {
-  return key ? (ACCENT_BY_KEY.get(key) ?? null) : null;
+export function speechAccent(key: string | null | undefined): SpeechAccent | null {
+  return key ? (SPEECH_ACCENT_BY_KEY.get(key) ?? null) : null;
 }
 
-export const isAccentKey = (v: unknown): v is AccentKey => typeof v === "string" && ACCENT_BY_KEY.has(v);
+export const isSpeechAccentKey = (v: unknown): v is SpeechAccentKey => typeof v === "string" && SPEECH_ACCENT_BY_KEY.has(v);
 
 /** FNV-1a, so a key always prefers the same accent without a crypto dependency. */
 function hash32(s: string): number {
@@ -147,43 +152,44 @@ function hash32(s: string): number {
 }
 
 /** What accent assignment reads of an agent. Pass every agent the business ever hired, released ones too. */
-export interface AccentAgent {
+export interface SpeechAccentAgent {
   id: string;
   personaKey?: string | null;
-  /** Hire order: an earlier agent keeps its accent when a later one would want the same. */
+  /** Hire order: an earlier agent keeps its default accent when a later one would want the same. */
   createdAt: Date | string;
+  /** The founder's own choice for this agent (`agents.speech_accent`), which wins over the default. */
+  speechAccent?: string | null;
 }
 
 /**
- * The presentation an agent's accent follows: the character's in the founder's style (a fantasy elf woman, a 2D cartoon
- * man), else the persona's own (an animal character speaks with its persona's accent), else a stable pick from the id.
+ * The presentation an agent's accent matches: its persona's (`presentation` only; never `heritage`, which exists only to
+ * make the set of portraits diverse), else a stable pick from the id. Not the character style: the style changes the name
+ * and face on screen, while an agent's accent stays the same for its whole life (founder, Nov 12, 2026).
  */
-export function accentPresentation(agent: Pick<AccentAgent, "id" | "personaKey">, style: AgentStyle): PersonaPresentation {
-  const character = characterFor(agent.personaKey, style);
-  if (character?.presentation) return character.presentation;
+export function speechAccentPresentation(agent: Pick<SpeechAccentAgent, "id" | "personaKey">): PersonaPresentation {
   const persona = personaByKey(agent.personaKey);
   if (persona) return persona.presentation;
   return hash32(agent.id) % 2 === 0 ? "woman" : "man";
 }
 
 /**
- * Each agent's accent, by agent id. Deterministic: agents are taken in hire order (then id); each prefers the accent its
- * persona key (or id) hashes to among the accents of its presentation and takes the first one after it nobody has yet,
- * so accents are unique within a business while they last and an agent's accent never changes when a later agent is
- * hired. Past the accents of one presentation, they repeat. The style is the founder's (`agentStyle`): the accent
- * follows the character on screen, as the name and the face do, so the same agent sounds the same in every call.
+ * Each agent's default accent, by agent id. Deterministic: agents are taken in hire order (then id); each prefers the
+ * accent its persona key (or id) hashes to among the accents of its presentation and takes the first one after it nobody
+ * has yet, so a business gets a varied set (unique while accents last) and an agent's default never changes when a later
+ * agent is hired. Past the accents of one presentation, they repeat. The founder's own choices are not read here, so
+ * changing one agent's accent never moves another's.
  */
-export function assignAccents(agents: readonly AccentAgent[], style: AgentStyle): Map<string, AccentKey> {
+export function defaultSpeechAccents(agents: readonly SpeechAccentAgent[]): Map<string, SpeechAccentKey> {
   const ordered = [...agents].sort((a, b) => {
     const ta = new Date(a.createdAt).getTime();
     const tb = new Date(b.createdAt).getTime();
     return ta !== tb ? ta - tb : a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
   });
   const used = new Set<string>();
-  const out = new Map<string, AccentKey>();
+  const out = new Map<string, SpeechAccentKey>();
   for (const agent of ordered) {
-    const presentation = accentPresentation(agent, style);
-    const pool = ACCENT_SLOTS.filter((s) => s.presentation === presentation);
+    const presentation = speechAccentPresentation(agent);
+    const pool = SPEECH_ACCENTS.filter((s) => s.presentation === presentation);
     const start = hash32(agent.personaKey || agent.id) % pool.length;
     let chosen = pool[start]!;
     for (let i = 0; i < pool.length; i++) {
@@ -196,6 +202,16 @@ export function assignAccents(agents: readonly AccentAgent[], style: AgentStyle)
     used.add(chosen.key);
     out.set(agent.id, chosen.key);
   }
+  return out;
+}
+
+/**
+ * Each agent's accent, by agent id: the founder's choice where they made one (and it is still an accent we have), else the
+ * default. The only way any surface learns how an agent sounds, so it is the same in every call, team or one-to-one.
+ */
+export function assignSpeechAccents(agents: readonly SpeechAccentAgent[]): Map<string, SpeechAccentKey> {
+  const out = defaultSpeechAccents(agents);
+  for (const agent of agents) if (isSpeechAccentKey(agent.speechAccent)) out.set(agent.id, agent.speechAccent);
   return out;
 }
 
@@ -216,7 +232,7 @@ export interface TeamCallParticipantView {
   /** The first department's color token (the tile's ring); null outside a department. */
   colourToken: string | null;
   departmentId: string | null;
-  accent: AccentKey;
+  speechAccent: SpeechAccentKey;
   isChiefOfStaff: boolean;
 }
 
@@ -307,7 +323,7 @@ export interface TeamCallSpeechModes {
 
 export interface TeamCallSpeechView {
   turnId: string;
-  accent: AccentKey;
+  speechAccent: SpeechAccentKey;
   /** Live: the spoken turn. Simulated: a short silent WAV the call plays for timing (or the browser's speech speaks). */
   mime: "audio/mpeg" | "audio/wav";
   base64: string;
