@@ -3699,3 +3699,7 @@ Consequences taken here:
 
 Order into main: retention (0083, 0084), Google sign-in (no migration), then the person-level event store on its own branch `claude/account-events` (**0085_account_events**), then this network branch (**0086_attributions**, **0087_public_milestones**). Supersedes the numbers in the two entries above (attributions was first 0085, the event store first 0087). A number and its journal `when` are final only at the rebase just before a merge: the next free number after main's last migration, with a strictly later `when`, because the migrator skips an entry older than the last one applied. Whoever merges out of order renumbers and says so first.
 
+## 2026-11-12 — Build hours: text and presence first (founder, NETWORK §14 question 13)
+
+The founder: "text and presence first, voice and video later". Version one of build hours is who is there, a shared clock and text. Hearing and seeing each other comes later and needs a real-time calling vendor behind the gateway (not the speech connector Team call added, which is the founder talking with agents). With this every question of `docs/NETWORK.md` §14 is answered.
+

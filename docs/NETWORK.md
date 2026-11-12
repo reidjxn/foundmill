@@ -252,7 +252,7 @@ The Network item in the sidebar, and a tab in the native app. Tabs: **Latest**, 
 
 - Each says in one line what they will finish. A shared clock runs for 50 minutes. At the end each shows what they made.
 - Never called a "call" and never at `/calls`: those are the founder's calls with agents.
-- Version one is presence, the clock and text. Hearing and seeing each other (a small group call inside the build hour) would need a calling vendor behind the gateway; whether and when is question 13 of section 14.
+- Version one is presence, the clock and text. Hearing and seeing each other (a small group call inside the build hour) comes later (founder, Nov 12), through a calling vendor behind the gateway.
 - Scheduled for cohorts and communities, or opened by anyone for their connections.
 - (The name avoids "Live sessions", which already means the agents' sessions.)
 - **Why:** working next to someone is the strongest known habit-keeper for people who work alone, and an hour together is the first real evidence two people have of each other.
@@ -459,7 +459,7 @@ Four waves. Each feature also carries the standing definition of done from CLAUD
 17. F16 Find people: browse, then Five today and Say hi.
 18. F18 cofounders, the split, pooled credits. F19 Built with.
 
-**Later:** F11 starting points; the chapter recap; a group call in build hours, if the founder wants it.
+**Later:** F11 starting points; the chapter recap; voice and video in build hours.
 
 Reasons for the order:
 
@@ -470,7 +470,7 @@ Reasons for the order:
 
 ## 14. The founder's answers (Nov 12, 2026)
 
-All but one answered; the text above follows them. Also recorded in `docs/DECISIONS.md`.
+All answered; the text above follows them. Also recorded in `docs/DECISIONS.md`.
 
 | # | Question | Answer |
 | --- | --- | --- |
@@ -486,7 +486,7 @@ All but one answered; the text above follows them. Also recorded in `docs/DECISI
 | 10 | Built with | **Yes:** positive only, shown by consent, no ratings of people anywhere |
 | 11 | Sharing a real outcome | **The founder taps Share each time;** the post is already drafted |
 | 12 | News of others teaming up, in a solo founder's feed | **Shown like any other milestone,** never larger, no call to action beside it |
-| 13 | A group call (hearing and seeing each other) inside build hours | **Open.** The founder asked what it means; explained, and waiting. It is in a later wave and blocks nothing |
+| 13 | A group call (hearing and seeing each other) inside build hours | **Text and presence first; voice and video later** |
 | 14 | Proving who someone is | **Proven links now;** an identity check only if scams appear |
 | 15 | Names | **All fine** (without "Shipped this week") |
 | 16 | Where to start | **Wave 1** |
