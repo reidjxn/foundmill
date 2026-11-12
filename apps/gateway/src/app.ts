@@ -104,6 +104,7 @@ export function createGatewayApp(deps: GatewayDeps, options: GatewayAppOptions):
   app.use("/v1/personas/*", limit(MAX_SERVICE_BODY_BYTES));
   app.use("/v1/push/*", limit(MAX_SERVICE_BODY_BYTES));
   app.use(SPEECH_SYNTHESIZE_ROUTE, limit(MAX_SERVICE_BODY_BYTES));
+  app.use(SPEECH_STREAM_ROUTE, limit(MAX_SERVICE_BODY_BYTES));
   // A recording of up to 8 MiB travels as base64 in JSON.
   app.use(SPEECH_TRANSCRIBE_ROUTE, limit(MAX_TRANSCRIBE_BODY_BYTES));
   app.use(CONFIRM_FOLLOW_ROUTE, limit(MAX_SERVICE_BODY_BYTES));

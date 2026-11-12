@@ -4,8 +4,8 @@
  * few times at most, and nothing for an unknown, expired or used-up ticket. Simulated speech never streams.
  */
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { createApp } from "../app";
-import { createMemorySpeechTickets, SPEECH_TICKET_MAX_USES, SPEECH_TICKET_TTL_MS } from "../services/speech-tickets";
+import { createApp, loggedPath, withIdleTimeout } from "../app";
+import { createMemorySpeechTickets, SPEECH_TICKET_MAX_USES, SPEECH_TICKET_TTL_MS, speechTickets } from "../services/speech-tickets";
 import { createApiHarness, type ApiHarness } from "./harness";
 
 let hz: ApiHarness;
@@ -68,5 +68,70 @@ describe("teamCall.speech({ stream: true }) and GET /team-call-audio/:ticket", (
     await expect(viewer.teamCall.speech({ businessId: hz.A.businessId, callId: call.id, turnId: call.turns[0]!.id, stream: true })).rejects.toMatchObject({ code: "FORBIDDEN" });
     const outsider = hz.caller({ userId: hz.B.ownerId });
     await expect(outsider.teamCall.speech({ businessId: hz.B.businessId, callId: call.id, turnId: call.turns[0]!.id, stream: true })).rejects.toBeTruthy();
+  });
+});
+
+describe("hardening (security review, Nov 12, 2026)", () => {
+  it("masks the ticket wherever a path is logged", () => {
+    expect(loggedPath("/team-call-audio/abcdefghijklmnopqrstuvwxyz0123456789")).toBe("/team-call-audio/:ticket");
+    expect(loggedPath("/trpc/teamCall.get")).toBe("/trpc/teamCall.get");
+  });
+
+  it("cuts a stream that sends nothing for a while", async () => {
+    let cancelled = false;
+    const stalled = new ReadableStream<Uint8Array>({
+      start(c) {
+        c.enqueue(new Uint8Array([1]));
+      },
+      cancel() {
+        cancelled = true;
+      },
+    });
+    const out = new Uint8Array(await new Response(withIdleTimeout(stalled, 30)).arrayBuffer());
+    expect([...out]).toEqual([1]);
+    expect(cancelled).toBe(true);
+  });
+
+  it("keeps the Redis use counter's expiry from the start, allows two uses, and lets no Redis error carry the ticket or the words", async () => {
+    const data = new Map<string, { v: string; px?: number }>();
+    const redis = {
+      get: async (k: string) => data.get(k)?.v ?? null,
+      set: async (k: string, v: string, _px: "PX", ms: number) => void data.set(k, { v, px: ms }),
+      incr: async (k: string) => {
+        const n = Number(data.get(k)?.v ?? 0) + 1;
+        data.set(k, { v: String(n), px: data.get(k)?.px });
+        return n;
+      },
+    };
+    const store = speechTickets(redis);
+    const ticket = { businessId: "b", callId: "c", turnId: "t", userId: "u", speechAccent: "talia", text: "Secret words" };
+    const id = await store.issue(ticket);
+    expect([...data.keys()].find((k) => k.endsWith(":uses")) && data.get([...data.keys()].find((k) => k.endsWith(":uses"))!)?.px).toBe(SPEECH_TICKET_TTL_MS);
+    expect(await store.take(id)).toEqual(ticket);
+    expect(await store.take(id)).toEqual(ticket);
+    expect(await store.take(id)).toBeNull();
+    const broken = speechTickets({ get: async () => { throw Object.assign(new Error(`OOM command not allowed: SET speech-ticket:${id} Secret words`), { name: "ReplyError" }); }, set: async () => { throw new Error("down: Secret words"); }, incr: async () => 0 });
+    const err = await broken.issue(ticket).catch((e: Error) => e);
+    expect(String((err as Error).message)).not.toContain("Secret words");
+    const err2 = await broken.take(id).catch((e: Error) => e);
+    expect(String((err2 as Error).message)).not.toContain(id);
+  });
+
+  it("speaks the whole clip when the ticket store is down", async () => {
+    const owner = hz.caller({ userId: hz.A.ownerId });
+    const call = await owner.teamCall.start({ businessId: hz.A.businessId, kind: "team" });
+    const saved = hz.deps.redis;
+    (hz.deps as { redis: unknown }).redis = { get: async () => { throw new Error("down"); }, set: async () => { throw new Error("down"); }, incr: async () => { throw new Error("down"); } };
+    const synth = hz.deps.gateway.synthesizeSpeech;
+    hz.deps.gateway.synthesizeSpeech = async () => ({ mode: "live", mime: "audio/mpeg", base64: "SUQz", simulated: false, characters: 3, costMinor: 1 }) as never;
+    try {
+      const fresh = hz.caller({ userId: hz.A.ownerId });
+      const view = await fresh.teamCall.speech({ businessId: hz.A.businessId, callId: call.id, turnId: call.turns[0]!.id, stream: true });
+      expect(view.streamUrl).toBeUndefined();
+      expect(view.base64).toBe("SUQz");
+    } finally {
+      (hz.deps as { redis: unknown }).redis = saved;
+      hz.deps.gateway.synthesizeSpeech = synth;
+    }
   });
 });

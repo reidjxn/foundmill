@@ -435,8 +435,14 @@ export async function speakTurn(ctx: BusinessContext, input: { callId: string; t
   // within about a second (the buffered answer took 13 to 18 seconds on the first production call). The checks above
   // (Team section, RLS on the call and turn, credits) are made now; the gateway's own checks run when the audio is asked.
   if (input.stream && speechLive(ctx.env) && ctx.gateway.streamSpeech) {
-    const ticket = await speechTickets(ctx.redis).issue({ businessId: ctx.businessId, callId: input.callId, turnId: turn.id, userId: ctx.userId, speechAccent, text });
-    return { turnId: turn.id, speechAccent, mime: "audio/mpeg", base64: "", simulated: false, spokenText: words, streamUrl: `/team-call-audio/${ticket}` };
+    const ticket = await speechTickets(ctx.redis)
+      .issue({ businessId: ctx.businessId, callId: input.callId, turnId: turn.id, userId: ctx.userId, speechAccent, text })
+      .catch((e: unknown) => {
+        // The ticket store is down: the whole clip below still speaks the turn (the gateway's own checks decide).
+        ctx.log.warn({ code: e instanceof Error ? e.name : "unknown" }, "team call: no speech ticket, speaking the whole clip");
+        return null;
+      });
+    if (ticket) return { turnId: turn.id, speechAccent, mime: "audio/mpeg", base64: "", simulated: false, spokenText: words, streamUrl: `/team-call-audio/${ticket}` };
   }
   const spoken = await synthesizeCallSpeech({ env: ctx.env, gateway: ctx.gateway }, { businessId: ctx.businessId, callId: input.callId, turnId: turn.id, speechAccent, text });
   return { turnId: turn.id, speechAccent, mime: spoken.mime, base64: spoken.base64, simulated: spoken.simulated, spokenText: words };

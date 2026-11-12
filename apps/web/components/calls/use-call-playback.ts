@@ -102,6 +102,8 @@ export function useCallPlayback(fetchSpeech: (turnId: string, opts?: { stream?: 
     const finish = () => {
       if (finished || token.current !== my) return;
       finished = true;
+      // A stream that stalls or ends early is let go, so its connection to the api closes too.
+      if (audio.current && audio.current.src.includes("/team-call-audio/")) audio.current.removeAttribute("src");
       started.current = null;
       if (timer.current) clearTimeout(timer.current);
       timer.current = null;
