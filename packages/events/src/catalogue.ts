@@ -38,6 +38,9 @@ import {
   NOTIFICATION_KINDS,
   EMAIL_NOTIFICATION_KINDS,
   PUSH_PROVIDERS,
+  SHARE_DESTINATIONS,
+  SHARE_OPEN_TARGETS,
+  SHARE_SUBJECT_KINDS,
   SIGNOFF_KINDS,
   Severity,
   SkillGroup,
@@ -1756,6 +1759,33 @@ const milestoneHidden = declareEvent("milestone.hidden", ShownMilestoneFacts, {
 });
 
 // ---------------------------------------------------------------------------------------------------
+// Tap-to-post (docs/NETWORK.md F3; docs/DECISIONS.md 2026-11-12)
+// ---------------------------------------------------------------------------------------------------
+
+const shareOpened = declareEvent(
+  "share.opened",
+  z.object({
+    /** Where: a network or a messaging app. Null for the device's own share sheet and for a plain copy of the link or the text. */
+    network: z.enum(SHARE_DESTINATIONS).nullable(),
+    /** What was shared: a milestone's card, the project's page, or a drafted post. */
+    kind: z.enum(SHARE_SUBJECT_KINDS),
+    /** The milestone's id or the page's id; null for a drafted post. */
+    refId: Id.nullable(),
+    /** How: a network's window opened ready to post (`tap`) or with the link only, something copied, a message, or the device's sheet. */
+    target: z.enum(SHARE_OPEN_TARGETS),
+  }),
+  {
+    // North star (CLAUDE.md, founder 2026-11-11; DECISIONS 2026-11-12 "Honesty, unchanged"): pressing a share control
+    // opens a window in someone else's product. Whether the founder then pressed Post there is not known here, so this
+    // is not an outside result and the north star does not count it. A visit that comes back through the shared link
+    // (its `via` reference) is what would count, and that is a different event.
+    doc: "A member pressed a share control in the console: a network's own share window opened with the text and the link filled in, or with the link only, or the text or the link was copied, or a message app or the device's own share sheet opened. Recorded as a share that was opened and nothing more: whether anything was then posted is not known, so nothing calls this posted or published, it is not an outside result and the north star does not count it. Ids and names of controls only, never the words of the post. Metrics only; never narrated.",
+    consumers: ["metrics"],
+    narratable: false,
+  },
+);
+
+// ---------------------------------------------------------------------------------------------------
 // Registry
 // ---------------------------------------------------------------------------------------------------
 
@@ -1834,6 +1864,7 @@ export const EVENTS = {
   "signup.attributed": signupAttributed,
   "milestone.shown": milestoneShown,
   "milestone.hidden": milestoneHidden,
+  "share.opened": shareOpened,
 } as const satisfies { readonly [K in EventTypeT]: EventDeclaration<K> };
 
 export type EventsRegistry = typeof EVENTS;

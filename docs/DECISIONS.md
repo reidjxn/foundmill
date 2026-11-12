@@ -3724,7 +3724,7 @@ The founder, in this session: "the only by-hand part of the social post should b
 
 ## 2026-11-12 — Milestones in public: the calls made
 
-- **Only "Page live" and "First follower" can be shown for now.** This session's call, to confirm with the founder. The story says "Foundmill recorded each of these when it happened. None was typed in." That is true of a milestone recorded from one real outside event. It is not yet true of a customer milestone (counted from conversions, which on a deployment running mock integrations may not be real payments) or a revenue milestone (an Estimate: three months of revenue divided by three). Showing those as "Verified" would break the honesty rule and the rule that every non-real number is labeled. They become showable when each is tied to a real payment. Held in three places: the api, the console (no control is offered) and the table's guard trigger.
+- **Only "Page live" and "First follower" can be shown for now.** This session's call, confirmed by the founder on Nov 12 ("Yes confirm the milestone rule"). The story says "Foundmill recorded each of these when it happened. None was typed in." That is true of a milestone recorded from one real outside event. It is not yet true of a customer milestone (counted from conversions, which on a deployment running mock integrations may not be real payments) or a revenue milestone (an Estimate: three months of revenue divided by three). Showing those as "Verified" would break the honesty rule and the rule that every non-real number is labeled. They become showable when each is tied to a real payment. Held in three places: the api, the console (no control is offered) and the table's guard trigger.
 - **A guard trigger on `milestones`** (the build's call, kept): the table let any member write any row, which was harmless while nothing public read it. Now a client cannot insert or alter a platform-recorded milestone, and only an owner or an admin shows or hides one.
 - **Public words come from the key, never from a stored label**, so a label that ever carried a customer's name cannot leave.
 - **A shown milestone stays chosen while the page is down** and returns when the page is republished; the console says "Shown when your page is live". The stricter reading of "the founder taps each time" would reset it on take-down; say if that is wanted.
@@ -3738,6 +3738,15 @@ The founder: "Yes so let's go with Buffer." Tap-to-post stays the default way a 
 ## 2026-11-12 — The person-level event store is open as its own pull request
 
 [reidjxn/foundmill#86](https://github.com/reidjxn/foundmill/pull/86), branch `claude/account-events`, migration `0085_account_events`. Security-reviewed before it opened; three findings fixed (account-scoped types could be written into `events` at the database; a handle containing an id could block taking a profile down; the account-id check caught one spelling only). It adds one check constraint to `events`. It merges after retention, then this branch rebases onto it and `signup.attributed` is written through it.
+
+## 2026-11-12 — Tap-to-post: the calls made in building it
+
+- **"Available" and "the team runs it" are two different facts.** By the founder's test the social channel is available. An agent still cannot publish, so the channel engine never starts for it, nothing is scheduled or measured, and no result can be invented. The Board says which: "You post it".
+- **A network is classed down, never up.** LinkedIn has an undocumented address that fills in text "usually"; it is not used, so LinkedIn opens with the link only. Reddit fills a title and link but the founder must pick a community, so it is not one press and does not count. Three networks pass the founder's test today: X, Threads and Bluesky.
+- **Social starts off the board** on a real project: available, and the founder puts it on. To confirm with the founder.
+- **No drafts from the social agent on a real project yet.** Stopping the engine for a by-tap channel also stops its drafting. The share panel works from the deterministic drafts (a milestone, the live page). Agent-written drafts are the next piece, and they are what the founder described ("a post the social channel agent wrote").
+- **The evidence for each network is its documentation and its signed-out answer.** No account was signed in to see a composer filled in. One check by a person on each of the three counted networks is worth doing before this is relied on.
+- **A share is never an outcome.** `share.opened` is filed for measurement only; the test that pins this reads the catalogue's own words, because no code counts real outcomes yet.
 
 ## 2026-11-12 — A page's dates are the database's to record: the calls made
 

@@ -126,6 +126,9 @@ export const EVENT_WALLS = {
   // A milestone shown on the project's page or taken off it (0087): its id, key and public addresses.
   "milestone.shown": { sections: ["product"] },
   "milestone.hidden": { sections: ["product"] },
+  // A share control was pressed (tap-to-post): a product signal for metrics, never pushed for a screen. Filed with the
+  // metrics-only events so a stray one reaches no one but Settings' readers.
+  "share.opened": { sections: ["settings"] },
 } as const satisfies { readonly [K in EventType]: EventWall };
 
 /** What one reader may see of business events: their walls (sections they may not read at all). */

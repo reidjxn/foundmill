@@ -321,7 +321,7 @@ export const ideaRouter = router({
 
   /** What "Take charge" will seed for an archetype (Commit screen preview). */
   // The channels named are the starters a brand-new project can really run here (no integration is connected yet).
-  preview: protectedProcedure.input(z.object({ archetype: Archetype })).query(({ ctx, input }) => squadPreview(input.archetype, new Set(channelAnswer(channelAvailabilityFacts(ctx.env, { isDemo: false }, [])).available))),
+  preview: protectedProcedure.input(z.object({ archetype: Archetype })).query(({ ctx, input }) => squadPreview(input.archetype, new Set(channelAnswer(channelAvailabilityFacts(ctx.env, { isDemo: false }, [])).teamRuns))),
 
   /** Take charge (AC-11.1.6, AC-11.1.7: default business mode is Assisted). */
   commit: protectedProcedure

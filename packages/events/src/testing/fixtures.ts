@@ -551,6 +551,7 @@ export const EVENT_FIXTURES: { readonly [K in EventType]: EventPayloadInput<K> }
   "milestone.hidden": { milestoneId: fixtureId("milestone"), key: "page_live", slug: "northwind-skincare", url: `https://foundmill.example/m/${fixtureId("milestone")}` },
   "push.sent": { kind: "decision", sourceEventId: fixtureId("event-source"), sourceEventType: "inbox.item_created", recipients: 2, devices: 3, provider: "onesignal", mode: "mock", providerMessageIds: [fixtureId("push-1")] },
   "signup.attributed": { userId: fixtureId("user-new"), sourceKind: "project_page", sourceRef: "northwind-skincare", sourceBusinessId: fixtureId("business-source"), referrerUserId: FIXTURE_USER_ID },
+  "share.opened": { network: "x", kind: "milestone", refId: fixtureId("milestone"), target: "tap" },
 };
 
 /** A valid `WriteEventInput` for the given type, with the fixture payload and envelope. */

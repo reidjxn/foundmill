@@ -1678,6 +1678,27 @@ docs/NETWORK.md F2 (second half) and F3; THESIS_REVIEW package 5.3.
 - **Not done.** Nothing in the console links to the tall image, and there is no share control yet (tap-to-post is the next package). The card has no Follow button of its own; it links to the project page. On a business in the old "Live" mode, a shown milestone also gets the older Share button. Publishing a page now ends Today's "day one" view, because that view ends at the first milestone.
 - **Open, found by the build:** the "Page live" date follows `project_pages.published_at`, and migration 0077's guard checks who writes that column, not its value, so an owner could backdate it with a direct write. Filed as a suggested task ("Make a page's published date server-set"); not fixed here.
 
+## 2026-11-12 — Network, wave 1: tap-to-post sharing
+
+The founder's default way for a project to post (DECISIONS, two entries of this date): one button per network opens that network's own share window with the text and link filled in, and the founder presses Post there. Foundmill posts nothing.
+- **The share panel** (Dugout `SharePost`, DESIGN §9e) opens from Plan › Milestones ("Share" on a milestone that is on the page), Product › Public page ("Share your page") and Customers › Creative (on a post drafted for social). The text is drafted from facts already public and can be edited; it is refitted to each network as the founder types; every link carries `via`.
+- **Where each network landed**, checked on Nov 12, 2026 against the networks' own pages or their live answers (no signed-in account was used, so no composer was seen filled in):
+  - **Opens ready to post** (text and link): X, Threads, Bluesky.
+  - **Opens with your link** (the words are not carried): LinkedIn and Facebook take only a link; Reddit takes a title and link but the founder still picks a community.
+  - **Copy and post in the app:** Instagram, TikTok ("Copy text" and the image to download).
+  - **Send to someone:** WhatsApp, Telegram, Copy link.
+- **The social channel is available by tap** (reason `by_tap`, with no connector), from the three networks above. The team never runs it: no engine starts, a campaign on it cannot be scheduled, it is never a default start, and the Distribution Strategist is told the founder posts it. On the Board it reads "You post it".
+- **One draft shape** for tap-to-post and the optional Buffer connector (`packages/shared/src/post-draft.ts`, agreed with the connectors session): https links with no credentials, networks append-only.
+- **A press is recorded as a share** (`share.opened`), never as posted, at most 30 a minute per person, and nothing counts it as a real outcome.
+- **Verified.** The merge was a fast-forward, so the build's own runs are of this exact tree: workspace typecheck 25 of 25; vitest: shared 733, events 79, connectors 787 (113 skipped), stream 87, dugout 1186, modules 619, widgets 243, web 1279, api 1087 (3 skipped), orchestrator 667; eslint; the four script gates. Rerun here: typecheck 25 of 25, and shared, connectors, events, dugout, modules, web, stream with the same counts. **Playwright ran here:** `tap-to-post`, `public-page`, `milestones`, `project-story` (15 passed). Screenshot `docs/ux-audit/53-share-panel.png`.
+- **Seen once and not reproduced:** in the build's combined run, `first-days.spec.ts` (an element not found after 60 s) and `public-page.spec.ts` (a page crash) each failed once and passed on their own afterward. Not shown to predate this change.
+- **Not done.**
+  - **On a real project the social agent drafts nothing yet**, so the Share control on Creative has drafts only where simulated results are allowed. The panel's two other places work everywhere. Agent-written post drafts are the next piece of this.
+  - The Share control on a drafted post is covered by unit tests only (the browser test stack has no drafted post).
+  - Share buttons for visitors on the public story and card pages; counting a visit that comes back through a shared link.
+  - Storybook was not built (stories are typechecked).
+  - A milestone on a business in the old "Live" mode shows two controls both labeled "Share" (the older one copies a line of text).
+
 ## 2026-11-12 — A page's dates are recorded by the database (the open point above)
 
 The "Published Oct 7, 2026" line on a public page and the date of the milestone "Page live" are now facts the platform recorded. Built on the network branch (`claude/bold-johnson-hjxopx`), which is not merged yet.

@@ -1,6 +1,7 @@
 "use client";
 import { Eye, Globe, Link2, Lock, Share2, Trophy } from "lucide-react";
 import { MILESTONE_SHOW_WORDS } from "@foundmill/shared/project-story";
+import { SHARE_OPEN_WORDS } from "@foundmill/shared/share-drafts";
 import { cn } from "../../lib/cn";
 import { formatMoney } from "../../lib/format";
 import { Button } from "../foundation/Button";
@@ -23,6 +24,11 @@ export interface TrophyCabinetProps {
   onHideFromPage?: (key: string) => void;
   /** "Copy card link" beside it, while the milestone is on the page. */
   onCopyCardLink?: (key: string) => void;
+  /**
+   * "Share" beside "Copy card link", while the milestone is on the page: opens the share panel for its card (tap-to-post,
+   * docs/DESIGN.md §9e). Not the LIVE share card above (`onShare`), which copies a line of text.
+   */
+  onSharePost?: (key: string) => void;
   /** The milestone whose change is on its way: its controls wait. */
   pendingKey?: string | null;
   /** Columns. Default 4. */
@@ -33,7 +39,7 @@ export interface TrophyCabinetProps {
 const COLS = { 2: "grid-cols-2", 3: "grid-cols-3", 4: "grid-cols-4" } as const;
 
 /** Milestone cards with the gold treatment for reached milestones (DESIGN §5: gold is reserved for Customer Updates and milestones). */
-export function TrophyCabinet({ trophies, onOpen, onShare, onShowOnPage, onHideFromPage, onCopyCardLink, pendingKey = null, columns = 4, className }: TrophyCabinetProps) {
+export function TrophyCabinet({ trophies, onOpen, onShare, onShowOnPage, onHideFromPage, onCopyCardLink, onSharePost, pendingKey = null, columns = 4, className }: TrophyCabinetProps) {
   const { formatDate } = useFormatters();
   const won = trophies.filter((t) => t.achievedAt).length;
   return (
@@ -125,6 +131,11 @@ export function TrophyCabinet({ trophies, onOpen, onShare, onShowOnPage, onHideF
                   {t.page === "shown" && onCopyCardLink ? (
                     <Button size="sm" variant="ghost" icon={Link2} className="px-1.5" onClick={() => onCopyCardLink(t.key)} aria-label={`${MILESTONE_SHOW_WORDS.copy}: ${t.label}`} data-trophy-copy-link>
                       {MILESTONE_SHOW_WORDS.copy}
+                    </Button>
+                  ) : null}
+                  {t.page === "shown" && onSharePost ? (
+                    <Button size="sm" variant="ghost" icon={Share2} className="px-1.5" onClick={() => onSharePost(t.key)} aria-label={`${SHARE_OPEN_WORDS.share}: ${t.label}`} data-trophy-share-post>
+                      {SHARE_OPEN_WORDS.share}
                     </Button>
                   ) : null}
                 </div>

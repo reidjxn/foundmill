@@ -4,7 +4,7 @@ import { HOUSE_STYLE } from "@foundmill/agents";
 import { CAMPAIGN_STATUSES, CHANNEL_KEYS, CHANNEL_LINES, CHANNEL_META, CHANNEL_WINDOW_DAYS, ChannelKey, CurrencyCode, dayKeyIn, ValidationError, type ChannelLine } from "@foundmill/shared";
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
-import { assertChannelMayRun, channelRowsFor } from "../services/channel-availability";
+import { assertChannelMayLaunch, assertChannelMayRun, channelRowsFor, FOUNDER_POSTS_CHANNEL, runnableChannels } from "../services/channel-availability";
 import { DISTRIBUTION_NOT_STARTED } from "../services/engines";
 import { assertAgentsRunning } from "../services/stop-guard";
 import { WORKFLOWS, workflowIds } from "../services/temporal";
@@ -58,20 +58,22 @@ export const distributionRouter = router({
    * Only a channel that can really act is ever a starter (founder, 2026-11-11): the Strategist is told which are
    * available and `normaliseRecommendation` holds its answer to them. With no channel available it recommends none,
    * no model is called (nothing is spent on scoring channels that cannot run) and `note` says why in one sentence.
+   * "Available" here is what the team can run (`teamRuns`): a channel the founder posts by tap (founder, 2026-11-12) is
+   * never a starter, and the Strategist is told which those are so it never writes that the team posts there.
    */
   recommend: write.use(modelLimited("recommend")).mutation(async ({ ctx }) => {
     const [profile, enabled, availability] = await Promise.all([repos.founders.get(ctx.db, ctx.userId), repos.channels.list(ctx.db, ctx.businessId), channelRowsFor(ctx.db, ctx)]);
-    if (availability.available.length === 0) {
+    if (availability.teamRuns.length === 0) {
       return { channels: enabled.map((c) => ({ ...c, recommended: false })), recommendation: [] as ScoredChannel[], cpaLabel: "Estimate" as const, note: availability.noneSentence };
     }
     const result = await ctx.models.complete({
       route: "leadRecommendation",
       schema: Recommendation,
-      system: `You are the Distribution Strategist. Score all 15 channels 1-20 on fit and pick 3-6 starters with potential, a cost-per-customer range (minor units of the business currency, low at most high, Estimate), a three-sentence why, and kit_mode_required for channels that cannot be automated within their terms. Pick starters only from available_channels: the other channels cannot run for this business yet, so score them and never recommend them; with fewer than three available, pick from those only. ${HOUSE_STYLE}`,
-      messages: [{ role: "user", content: "```json\n" + JSON.stringify({ business: { name: ctx.business.name, archetype: ctx.business.archetype, business_mode: ctx.business.businessMode }, founder: profile ? { skills: profile.skills, budget_minor: profile.budgetMinor, target_markets: profile.targetMarkets } : null, channels: CHANNEL_KEYS, available_channels: availability.available, currently_enabled: enabled.filter((c) => c.enabled).map((c) => c.channelKey) }) + "\n```" }],
+      system: `You are the Distribution Strategist. Score all 15 channels 1-20 on fit and pick 3-6 starters with potential, a cost-per-customer range (minor units of the business currency, low at most high, Estimate), a three-sentence why, and kit_mode_required for channels that cannot be automated within their terms. Pick starters only from available_channels: the other channels cannot run for this business yet, so score them and never recommend them; with fewer than three available, pick from those only. A channel in founder_posts_channels is posted by the founder with one press on a draft that is ready for them: no agent publishes there, so never pick it as a starter, and when you write about it say the founder posts it, never the team. ${HOUSE_STYLE}`,
+      messages: [{ role: "user", content: "```json\n" + JSON.stringify({ business: { name: ctx.business.name, archetype: ctx.business.archetype, business_mode: ctx.business.businessMode }, founder: profile ? { skills: profile.skills, budget_minor: profile.budgetMinor, target_markets: profile.targetMarkets } : null, channels: CHANNEL_KEYS, available_channels: availability.teamRuns, founder_posts_channels: availability.available.filter((k) => !availability.teamRuns.includes(k)), currently_enabled: enabled.filter((c) => c.enabled).map((c) => c.channelKey) }) + "\n```" }],
       attribution: { businessId: ctx.businessId, kind: "distribution_strategist" },
     });
-    const scored = normaliseRecommendation(result.json, new Set(availability.available));
+    const scored = normaliseRecommendation(result.json, new Set(availability.teamRuns));
     const channels = await ctx.rls(async (tx) => {
       // Only the scores change: the founder's Board line, on/off state, budget and offline tracking stay (audit #339).
       const rows = await repos.channels.saveScores(
@@ -173,8 +175,9 @@ export const distributionRouter = router({
           const owner = await repos.channels.get(tx, ctx.businessId, before.channelId);
           if (!owner.enabled) throw new TRPCError({ code: "BAD_REQUEST", message: `Put ${CHANNEL_META[owner.channelKey].label} on the board before launching its campaigns.` });
           // Nothing is scheduled or marked live on a channel that cannot really act (founder, 2026-11-11), unless it is in
-          // offline tracking, where the founder submits the materials themselves.
-          await assertChannelMayRun(tx, ctx, owner);
+          // offline tracking, where the founder submits the materials themselves. A channel the founder posts by tap is
+          // refused too: no agent can publish there, so a campaign on it is never "live" (founder, 2026-11-12).
+          await assertChannelMayLaunch(tx, ctx, owner);
         }
         const campaign = await repos.campaigns.setStatus(tx, ctx.businessId, input.campaignId, input.status);
         if (launching) {
@@ -214,10 +217,14 @@ async function setEnabled(ctx: Ctx, channelKey: ChannelKey, enabled: boolean) {
   // The engine workflow follows the toggle (AC-11.7.2); the Board re-scores from the returned channel list. Before the
   // founder has started distribution (0062) the channel keeps its place on the board and its engine waits for the start.
   const workflowId = workflowIds.engine(channel.id);
+  // A channel the founder posts by tap goes on the board with no engine: no agent can publish there (founder, 2026-11-12).
+  const founderPosts = enabled && (await runnableChannels(ctx.db, ctx, [channel])).length === 0;
   const workflow = enabled
-    ? (await repos.businesses.distributionStarted(ctx.db, ctx.businessId))
-      ? await ctx.temporal.start(WORKFLOWS.channelEngine, { workflowId, args: [{ businessId: ctx.businessId, channelId: channel.id, channelKey }] })
-      : { queued: false, workflowId, reason: DISTRIBUTION_NOT_STARTED }
+    ? founderPosts
+      ? { queued: false, workflowId, reason: FOUNDER_POSTS_CHANNEL }
+      : (await repos.businesses.distributionStarted(ctx.db, ctx.businessId))
+        ? await ctx.temporal.start(WORKFLOWS.channelEngine, { workflowId, args: [{ businessId: ctx.businessId, channelId: channel.id, channelKey }] })
+        : { queued: false, workflowId, reason: DISTRIBUTION_NOT_STARTED }
     : await ctx.temporal.signal(workflowId, "stop", { reason: "channel_disabled", by: ctx.userId });
   if (workflow.queued) await repos.channels.setEngineWorkflow(ctx.db, ctx.businessId, channel.id, enabled ? workflowId : null);
   return { channel: { ...channel, engineWorkflowId: workflow.queued && enabled ? workflowId : channel.engineWorkflowId }, workflow };
