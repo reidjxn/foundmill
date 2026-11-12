@@ -197,6 +197,8 @@ test.describe("project story and milestone cards", () => {
       await expect(phone.page.locator('meta[name="robots"]')).toHaveAttribute("content", /index, follow/);
       await expect(phone.page.locator('link[rel="canonical"]')).toHaveAttribute("href", new RegExp(`/p/${slug}/story$`));
       await expect(phone.page.locator('meta[property="og:title"]')).toHaveAttribute("content", `How ${name} was built`);
+      // Shared as a link, the story previews with the project's own share image.
+      await expect(phone.page.locator('meta[property="og:image"]')).toHaveAttribute("content", new RegExp(`/p/${slug}/opengraph-image`));
 
       // The project's page: the mark is still the one link at the foot, and now it goes to the story.
       await phone.page.goto(`/p/${slug}`);

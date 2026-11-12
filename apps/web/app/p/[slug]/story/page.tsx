@@ -31,12 +31,14 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   if (!story) return { title: "Page not found", robots: { index: false, follow: false } };
   const title = storyTitle(story.name);
   const description = storyDescription(story.name, APP_NAME);
+  // A share image file belongs to its own segment only, so the story names the project page's (../opengraph-image.tsx).
+  const image = { url: `${story.pageUrl}/opengraph-image`, width: 1200, height: 630, alt: title };
   return {
     title: { absolute: title },
     description,
     alternates: { canonical: story.storyUrl },
-    openGraph: { title, description, url: story.storyUrl, siteName: APP_NAME, type: "website" },
-    twitter: { card: "summary_large_image", title, description },
+    openGraph: { title, description, url: story.storyUrl, siteName: APP_NAME, type: "website", images: [image] },
+    twitter: { card: "summary_large_image", title, description, images: [image] },
     robots: { index: true, follow: true },
   };
 }
