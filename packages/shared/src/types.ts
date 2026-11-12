@@ -78,6 +78,8 @@ import { PAGE_ABOUT_MAX, PAGE_FOR_WHOM_MAX, PAGE_PITCH_MAX, PAGE_STAGES, normali
 import type * as P from "./project-page";
 import { PERSON_ABOUT_MAX, PERSON_HEADLINE_MAX, PERSON_LOOKING_FOR, PERSON_PLACE_MAX, PERSON_TAGS_MAX, PERSON_TAG_MAX, normalizePersonProfile, personHandleProblem } from "./person-profile";
 import type * as PP from "./person-profile";
+import { POST_IMAGE_ALT_MAX, POST_NETWORKS, POST_TEXT_MAX, POST_TITLE_MAX, POST_URL_MAX, isPostUrl } from "./post-draft";
+import type * as PD from "./post-draft";
 
 // The zod-free half (tuples, unions, records): "@foundmill/shared/constants".
 export * from "./constants";
@@ -87,6 +89,11 @@ export * from "./project-page";
 export * from "./project-story";
 // A person's public profile, zod-free: "@foundmill/shared/person-profile". Its Zod schemas follow the page's.
 export * from "./person-profile";
+// A post draft, tap-to-post share targets and the drafts a project already has, zod-free: "@foundmill/shared/post-draft",
+// "@foundmill/shared/share-targets", "@foundmill/shared/share-drafts". The draft's Zod schemas are at the end of this file.
+export * from "./post-draft";
+export * from "./share-targets";
+export * from "./share-drafts";
 
 export const GameMode = z.enum(GAME_MODES);
 export type GameMode = C.GameMode;
@@ -324,3 +331,33 @@ export const PersonHandle = z
     const problem = personHandleProblem(v);
     if (problem) ctx.addIssue({ code: "custom", message: problem });
   });
+
+/**
+ * A post draft (./post-draft): the one shape a post has whether the founder shares it by tap or a publishing connector
+ * sends it. A link and a picture's address must be https with no credentials in them (`isPostUrl`): a connector hands
+ * them to a vendor that fetches them, so http, a `user:pass@` part, `javascript:`, `data:` and anything that is not a
+ * URL are refused at parse. The network list is `POST_NETWORKS`, which only ever grows at its end.
+ */
+export const PostNetwork = z.enum(POST_NETWORKS);
+export type PostNetwork = PD.PostNetwork;
+/** An https address with no user name or password in it, at most 2,048 characters. */
+export const PostUrl = z
+  .string()
+  .max(POST_URL_MAX)
+  .refine(isPostUrl, { message: "Use an https address with no user name or password in it" });
+export const PostDraftImage = z.object({ url: PostUrl, alt: z.string().max(POST_IMAGE_ALT_MAX) });
+export type PostDraftImage = PD.PostDraftImage;
+export const PostDraftVariant = z.object({
+  text: z.string().max(POST_TEXT_MAX),
+  title: z.string().min(1).max(POST_TITLE_MAX).optional(),
+  link: PostUrl.optional(),
+  image: PostDraftImage.optional(),
+});
+export type PostDraftVariant = PD.PostDraftVariant;
+export const PostDraft = z.object({
+  text: z.string().min(1).max(POST_TEXT_MAX),
+  link: PostUrl.optional(),
+  image: PostDraftImage.optional(),
+  variants: z.partialRecord(PostNetwork, PostDraftVariant).default({}),
+});
+export type PostDraft = PD.PostDraft;
