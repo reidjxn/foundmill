@@ -1646,3 +1646,11 @@ The founder answered the questions of `docs/NETWORK.md` §14 (DECISIONS, same da
 - **Verified.** Typecheck of the nine touched packages; eslint on the changed files; vitest: shared 682, config 19, dugout 1151, modules 601, web 1260, gateway 293, ingest 110, api `pages` and `page-follow` 29, db `rls/project-pages` 20; banned-terms, us-english, focus-visible, plain-language gate 2. **Playwright ran:** `public-page.spec.ts` (8 passed) against the PGlite stack: the visitor's link and its address at 390 and 1280 px, the line after a follow, the founder's own signed-in view (plain words, no link), the preview note. Screenshots 40 and 41 retaken.
 - **Not done.** The story page the mark will link to (it goes to the home page until then). The person page (`/u/<handle>`) still ends with "Made with Foundmill": a person has no plan, so whether it carries a mark at all is a question for the founder. The full api and db suites were not run, only the files named above.
 
+## 2026-11-12 — A person's page carries no mark; decisions recorded
+
+- **`/u/<handle>` has no footer and no mark** (founder, Nov 12: the mark is only on what a person builds). Dugout `PersonPage` loses the "Made with Foundmill" footer and its `homeHref` prop; the share image loses the words; DESIGN §9c, the story text, the component test and `person-page.spec.ts` follow (no footer, no "Built on" or "Made with", every link still a 44 px target).
+- **CLAUDE.md:** the mark is written in as the one exception to "plans differ by agent work only", scoped to the mark.
+- **Recorded:** the founder's answers relayed by the alignment session (the wording "Built on", the exception, this session owning invitations and the waitlist), migration numbers 0085 and up for this branch, `docs/mobile` left to its owner, and the decision to build a private person-level event store before wave 2.
+- **Verified.** Typecheck of dugout and web; vitest: dugout `public` 23, web 1260; eslint on the changed files; banned-terms and us-english. **Playwright ran:** `person-page.spec.ts` (8 passed); screenshots 42 and 43 retaken.
+- **In flight.** Sign-up attribution (0085) and early milestones with the story page and cards (0086), each on its own working copy; not merged yet.
+

@@ -3682,3 +3682,8 @@ Consequences taken here:
 - **Build hours never reuse "Call" or `/calls`,** which are the founder's calls with agents (Team call). A call between people would need a real-time vendor of its own (NETWORK §14, question 13, still open).
 - **Message requests from people you are not connected to (NETWORK F17) get their own security review before merge.**
 
+## 2026-11-12 — Two more answers from the founder (in this session)
+
+1. **A person's page carries no mark at all.** The founder: "Not on the person page it should not carry the mark at all, only on the product they build (unless they are a paid user of course)". Done: `/u/<handle>` loses its footer ("Made with Foundmill") and its share image loses the words; the mark stays on a project's page on the free plan only. The share image's alt text still says the profile is on Foundmill, which is a description for screen readers and not a mark.
+2. **A private, person-level event store is built before wave 2.** Events today belong to a project and are read by its members (`events.business_id` is required), so facts about a person (a sign-up brought by a page, a follow, a signal, an ask) have no place to be written without showing the person to a project's people. Until it exists, attribution is a row and its declared event writes nothing. It takes migration 0087 and is built once the attribution change has merged into this branch, because it changes the same files.
+

@@ -393,7 +393,6 @@ export function PublicProfileScreen({ viewer, lastBusiness }: PublicProfileScree
                 lookingFor={content.lookingFor}
                 place={content.place}
                 projects={projects}
-                homeHref="/"
               />
             </div>
           ) : null}

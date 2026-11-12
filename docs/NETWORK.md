@@ -148,6 +148,7 @@ Twenty-one features in six groups. Each has: what it is, why it matters for spre
 - A "Verified by Foundmill" mark, with the words, on every line that came from a real gateway action. Opening it says in one sentence what was verified.
 - **No counts in public** (founder, Nov 12): no follower count, no totals, no score, no level, no rank. The record is a list of dated things that happened, never a tally. No amounts unless the person chooses.
 - Optional: a picture, and links whose ownership is proven (a site by a tag, GitHub by sign-in).
+- **No mark on a person's page** (founder, Nov 12): "Built on Foundmill" belongs to what a person builds, never to the person.
 - **Why:** it is the trust layer for everything in group E, and it is the thing a member cannot take to another product.
 - **Solo guard:** a record with one name on every project reads as complete. "Built with" does not exist on the page until there is one.
 
@@ -391,6 +392,8 @@ Each feature ships with a test of the right-hand column. The north star is read 
 | `starting_points` | account | Published steps, screened |
 
 The record is a read over verified events. It is never a table a client can write.
+
+**Events about a person** (a sign-up that a page brought, a follow, a signal, an ask) go to a private, person-level event store that only the service reads, built before wave 2 (founder, Nov 12): the project event store is read by a project's members, so a person's facts never go there.
 
 **Events** (declared in `packages/events`, written through the outbox): `share.created`, `share.opened`, `visit.attributed`, `signup.attributed`, `referral.credited`, `feedback.requested`, `feedback.answered`, `feedback.acted_on`, `follow.created`, `signal.sent`, `post.shared`, `ask.posted`, `ask.answered`, `ask.thanked`, `cohort.joined`, `build_hour.completed`, `role.opened`, `join.requested`, `invitation.sent`, `invitation.accepted`, `trial.started`, `trial.ended`, `cofounder.joined`, `split.agreed`, `built_with.accepted`, `person.reported`.
 
