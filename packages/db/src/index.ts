@@ -21,4 +21,5 @@ export { DEFAULT_PGLITE_DIR, PGLITE_BOOTSTRAP_SQL, findWorkspaceRoot, isPgliteDb
 export type { LazyPgliteClient, PgliteTarget } from "./pglite";
 export { attachAddedSkills, resolveLibrarySkill, resolveSkillFile, skillLibraryEntries, type ResolvedSkill } from "./skill-attach";
 export { awardMilestonesForConversion, awardRevenueMilestones, awardPageLiveMilestone, awardFirstFollowerMilestone, catchUpMilestones, monthlyRevenueAt, MONTHLY_REVENUE_REF } from "./milestones";
+export { draftTeamPost, type TeamPostDraftDeps, type TeamPostDraftOptions, type TeamPostDraftResult, type TeamPostDraftSkip } from "./team-post-draft";
 export { achieveGoalIfReached, counterFor, goalCounters, goalProgress, type GoalCounters, type GoalProgress } from "./goals";

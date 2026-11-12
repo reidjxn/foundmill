@@ -44,6 +44,8 @@ import {
   SHARE_DESTINATIONS,
   SHARE_OPEN_TARGETS,
   SHARE_SUBJECT_KINDS,
+  TEAM_POST_SUBJECTS,
+  TEAM_POST_TRIGGERS,
   SIGNOFF_KINDS,
   Severity,
   SkillGroup,
@@ -1873,7 +1875,7 @@ const shareOpened = declareEvent(
     network: z.enum(SHARE_DESTINATIONS).nullable(),
     /** What was shared: a milestone's card, the project's page, or a drafted post. */
     kind: z.enum(SHARE_SUBJECT_KINDS),
-    /** The milestone's id or the page's id; null for a drafted post. */
+    /** The milestone's id, the page's id, or the asset's id of a post the team drafted to be shared; null for any other drafted post. */
     refId: Id.nullable(),
     /** How: a network's window opened ready to post (`tap`) or with the link only, something copied, a message, or the device's sheet. */
     target: z.enum(SHARE_OPEN_TARGETS),
@@ -1885,6 +1887,27 @@ const shareOpened = declareEvent(
     // (its `via` reference) is what would count, and that is a different event.
     doc: "A member pressed a share control in the console: a network's own share window opened with the text and the link filled in, or with the link only, or the text or the link was copied, or a message app or the device's own share sheet opened. Recorded as a share that was opened and nothing more: whether anything was then posted is not known, so nothing calls this posted or published, it is not an outside result and the north star does not count it. Ids and names of controls only, never the words of the post. Metrics only; never narrated.",
     consumers: ["metrics"],
+    narratable: false,
+  },
+);
+
+const postDrafted = declareEvent(
+  "post.drafted",
+  z.object({
+    /** The draft: an `assets` row (kind `post`, no campaign) on the Creative tab. */
+    assetId: Id,
+    /** What made the team write it (`TEAM_POST_TRIGGERS`). */
+    trigger: z.enum(TEAM_POST_TRIGGERS),
+    /** What it is about (`TEAM_POST_SUBJECTS`): the page going live, or the first follower. */
+    subject: z.enum(TEAM_POST_SUBJECTS),
+    /** The social channel's agent that wrote it; null when the channel has none. */
+    agentId: Id.nullable(),
+  }),
+  {
+    // North star (CLAUDE.md, founder 2026-11-11): words waiting in the console are not an outside action or result. A
+    // draft is an offer; whether it is ever shared is the founder's press (`share.opened`), and that is not counted either.
+    doc: "The social channel's agent drafted a post for the founder to share by tap, after a real thing happened to the project (its page went live, a founder showed a milestone on the page, its first follower confirmed): the draft waits on the Creative tab with its Share control, and Today shows one quiet line. Nothing was launched, scheduled, published or measured, so this is not an outside action or result. Ids and the kind of trigger only, never the words of the post. Never narrated: no note, no email and no push (an offer, never a chore); apps/stream pushes it so the Creative tab and Today follow.",
+    consumers: ["stream", "metrics"],
     narratable: false,
   },
 );
@@ -2039,6 +2062,7 @@ export const EVENTS = {
   "milestone.hidden": milestoneHidden,
   "share.opened": shareOpened,
   "referral.arrived": referralArrived,
+  "post.drafted": postDrafted,
 } as const satisfies { readonly [K in EventTypeT]: EventDeclaration<K, z.ZodType, EventScopeOf<K>> };
 
 export type EventsRegistry = typeof EVENTS;

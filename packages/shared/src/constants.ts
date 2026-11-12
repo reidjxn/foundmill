@@ -450,6 +450,7 @@ export const EVENT_TYPES = [
   "milestone.shown", "milestone.hidden",
   "share.opened",
   "referral.arrived",
+  "post.drafted",
 ] as const;
 export type EventType = (typeof EVENT_TYPES)[number];
 

@@ -136,6 +136,9 @@ export const EVENT_WALLS = {
   // A share control was pressed (tap-to-post): a product signal for metrics, never pushed for a screen. Filed with the
   // metrics-only events so a stray one reaches no one but Settings' readers.
   "share.opened": { sections: ["settings"] },
+  // The team drafted a post for the founder to share by tap: ids and the trigger's kind, never the words. The Creative
+  // tab and Today follow it.
+  "post.drafted": { sections: ["distribution"] },
 } as const satisfies { readonly [K in BusinessEventType]: EventWall };
 
 /** What one reader may see of business events: their walls (sections they may not read at all). */

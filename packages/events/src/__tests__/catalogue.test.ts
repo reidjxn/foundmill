@@ -13,7 +13,7 @@ import {
   serializeEvent,
   toWire,
 } from "../catalogue";
-import { EVENT_FIXTURES, FIXTURE_BUSINESS_ID, fixtureEvent, fixtureId } from "../testing/fixtures";
+import { EVENT_FIXTURES, FIXTURE_AGENT_ID, FIXTURE_BUSINESS_ID, fixtureEvent, fixtureId } from "../testing/fixtures";
 import { z } from "zod";
 
 describe("event catalogue", () => {
@@ -301,6 +301,8 @@ describe("event catalogue", () => {
       { network: null, kind: "draft", refId: null, target: "copy" },
       { network: "whatsapp", kind: "milestone", refId: fixtureId("milestone"), target: "message" },
       { network: null, kind: "draft", refId: null, target: "device" },
+      // A post the team wrote to be shared names itself (its asset's id), so it can stop waiting.
+      { network: "threads", kind: "draft", refId: fixtureId("asset-post"), target: "tap" },
     ] as const)
       expect(parsePayload("share.opened", payload)).toEqual(payload);
     const bad = (patch: Record<string, unknown>) => () => parsePayload("share.opened", { ...fixture, ...patch });
@@ -322,6 +324,36 @@ describe("event catalogue", () => {
     expect(doc).toMatch(/nothing calls this posted or published/);
     // Neither does any other event claim a share as its outcome.
     for (const t of real) expect(EVENTS[t].doc, t).not.toMatch(/share/i);
+  });
+
+  it("post.drafted: the team wrote a post for the founder to share; ids and the kind of trigger, never the words", () => {
+    const decl = EVENTS["post.drafted"];
+    expect(decl.scope).toBe("business");
+    expect(decl.narratable).toBe(false);
+    expect([...decl.consumers]).toEqual(["stream", "metrics"]);
+    expect(isPersonAddressedEvent("post.drafted")).toBe(false);
+    // Appended last: the list of types is only ever added to at its end.
+    expect(EVENT_TYPES[EVENT_TYPES.length - 1]).toBe("post.drafted");
+    expect(EVENT_TYPES[EVENT_TYPES.length - 2]).toBe("share.opened");
+    const fixture = EVENT_FIXTURES["post.drafted"];
+    expect(parsePayload("post.drafted", fixture)).toEqual(fixture);
+    // Nothing of the post fits in the payload: its words, its link and anything about a person are dropped.
+    expect(Object.keys(parsePayload("post.drafted", { ...fixture, text: "Maple Bakes has a page now.", body: "x", link: "https://foundmill.example/p/maple", followerEmail: "a@b.example" })).sort()).toEqual(["agentId", "assetId", "subject", "trigger"]);
+    for (const payload of [
+      { assetId: fixtureId("asset-post"), trigger: "milestone_shown", subject: "first_follower", agentId: null },
+      { assetId: fixtureId("asset-post"), trigger: "first_follower", subject: "first_follower", agentId: FIXTURE_AGENT_ID },
+    ] as const)
+      expect(parsePayload("post.drafted", payload)).toEqual(payload);
+    const bad = (patch: Record<string, unknown>) => () => parsePayload("post.drafted", { ...fixture, ...patch });
+    expect(bad({ trigger: "campaign_launched" })).toThrow(ValidationError);
+    expect(bad({ subject: "customer_1" })).toThrow(ValidationError);
+    expect(bad({ subject: "mrr_1k" })).toThrow(ValidationError);
+    expect(bad({ assetId: "not-an-id" })).toThrow(ValidationError);
+    expect(bad({ agentId: undefined })).toThrow(ValidationError);
+    // A draft is words waiting in the console: not an outside action or result, and it says so.
+    expect(decl.doc).toMatch(/Nothing was launched, scheduled, published or measured/);
+    expect(decl.doc).toMatch(/not an outside action or result/);
+    expect(decl.doc).not.toMatch(/the north star counts it/i);
   });
 
   it("entityIds default to [] and narrated to false on the envelope", () => {
