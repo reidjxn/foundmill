@@ -91,6 +91,8 @@ export const INVALIDATION_MAP: Record<string, readonly string[]> = {
   keys: ["keys", "integrations", "team"],
   billing: ["billing"],
   live: ["live"],
+  // A pressed share control is a product signal: no screen reads it back.
+  share: [],
 };
 
 export function routersToInvalidate(path: string): readonly string[] {

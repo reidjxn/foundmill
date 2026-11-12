@@ -3,18 +3,28 @@
  * Distribution › Creative (BUILD §11.7 Create → Approve): every asset the engines drafted, as a gallery grouped by
  * kind (email, post, ad, video, article, mailer, print, script) with its campaign, author and approval state.
  * Approve / Reject call `distribution.assets.approve/reject`. `?asset=<id>` highlights one.
+ *
+ * Tap-to-post (docs/NETWORK.md F3; docs/DESIGN.md §9e): a post drafted for a channel the founder posts by tap (social)
+ * carries "Share", which opens the share panel with the draft's own words and, while the project's page is published,
+ * the page's address with `via`. The founder's own press in the network's window is the only approval a post needs
+ * there, so Share is offered on any draft that was not rejected. A press is recorded as a share that was opened
+ * (`share.opened`), fire-and-forget; nothing here marks a draft as posted.
  */
 import { useCallback, useMemo, useState } from "react";
 import { Check, ExternalLink, FileText, Film, Image, Mail, Mailbox, Megaphone, Newspaper, ScrollText, Share2, X } from "lucide-react";
-import { Button, EntityLink, Icon, Panel, SegmentedControl, StatusPill, Term, cn, formatRelative, type IconComponent } from "@foundmill/dugout";
+import { APP_NAME } from "@foundmill/config";
+import { Button, EntityLink, Icon, Panel, SegmentedControl, SharePost, StatusPill, Term, cn, formatRelative, type IconComponent } from "@foundmill/dugout";
+import { CHANNELS_SHARED_BY_TAP } from "@foundmill/shared/channel-availability";
 import { APPROVAL_STATES, ASSET_KINDS, type ApprovalState, type AssetKind } from "@foundmill/shared/constants";
+import { SHARE_OPEN_WORDS, writtenPostDraft } from "@foundmill/shared/share-drafts";
+import type { ShareOpened } from "@foundmill/shared/share-targets";
 import { routes } from "@foundmill/widgets/shared/routes";
 import { moduleHref, useDepartments } from "@foundmill/widgets/shared/departments";
 import { useBusinessEvents, useWidgetData, useWidgetQuery } from "@foundmill/widgets/data";
 import type { ModuleScreenProps } from "../registry";
 import { APPROVAL_WORDS } from "./channel-data";
 import { InlineError, Screen, searchParam, useAction } from "./shared";
-import type { AgentRow, AssetRow, CampaignRow, Page } from "./types";
+import type { AgentRow, AssetRow, CampaignRow, ChannelsListResponse, Page } from "./types";
 
 export const ASSET_KIND_META: Record<AssetKind, { word: string; plural: string; icon: IconComponent }> = {
   email: { word: "Email", plural: "Emails", icon: Mail },
@@ -58,13 +68,52 @@ export function openPreview(ref: string | null): boolean {
 
 const ALL = "all";
 
+/** What the screen reads of `page.get` (the project's public page): enough to point a shared post at it. */
+interface PageForShare {
+  url: string;
+  slug: string;
+  live: boolean;
+  isSample?: boolean;
+  published: { pitch: string } | null;
+  preview: { name: string };
+}
+
+/**
+ * Whether a draft can be shared by tap: a post with words, not rejected, drafted for a channel the founder posts by tap
+ * (`CHANNELS_SHARED_BY_TAP`, today social). `tapChannelIds` are the ids of those channels for this business.
+ */
+export function assetSharedByTap(asset: Pick<AssetRow, "kind" | "body" | "approvalState" | "campaignId">, campaigns: readonly Pick<CampaignRow, "id" | "channelId">[], tapChannelIds: ReadonlySet<string>): boolean {
+  if (asset.kind !== "post" || asset.approvalState === "rejected" || !asset.body?.trim() || !asset.campaignId) return false;
+  const campaign = campaigns.find((c) => c.id === asset.campaignId);
+  return !!campaign && tapChannelIds.has(campaign.channelId);
+}
+
 export function CreativeScreen({ businessId }: ModuleScreenProps) {
-  const { navigate } = useWidgetData();
+  const { navigate, mutate } = useWidgetData();
   const departments = useDepartments();
   const campaignsHref = moduleHref(businessId, departments.data, "distribution", "campaigns");
   const assets = useWidgetQuery<AssetRow[]>("distribution.assets.list", {});
   const campaigns = useWidgetQuery<Page<CampaignRow>>("distribution.campaigns.list", { limit: 200 });
   const agents = useWidgetQuery<AgentRow[]>("team.agents.list", {});
+  // Tap-to-post: which channels the founder posts by tap, and the project's page to point a shared post at. A reader
+  // with no view of the page gets no link, never an error on this screen.
+  const channels = useWidgetQuery<ChannelsListResponse>("distribution.channels.list", {});
+  const page = useWidgetQuery<PageForShare>("page.get", {});
+  const tapChannelIds = useMemo(() => new Set((channels.data?.channels ?? []).filter((c) => CHANNELS_SHARED_BY_TAP.includes(c.channelKey)).map((c) => c.id)), [channels.data]);
+  const [sharing, setSharing] = useState<AssetRow | null>(null);
+  const shareDraft = useMemo(() => {
+    if (!sharing?.body) return null;
+    const p = page.data;
+    const live = p && p.live && !p.isSample && p.published ? { origin: new URL(p.url).origin, slug: p.slug, projectName: p.preview.name, pitch: p.published.pitch } : null;
+    return writtenPostDraft({ text: sharing.body, page: live });
+  }, [sharing, page.data]);
+  const recordShare = useCallback(
+    (opened: ShareOpened) => {
+      // Fire-and-forget: the share has already happened in the browser, and never fails because of this.
+      void mutate("share.opened", { kind: "draft", ...opened }).catch(() => undefined);
+    },
+    [mutate],
+  );
   const action = useAction();
   const [state, setState] = useState<ApprovalState | null>(null);
   const [highlight] = useState<string | null>(() => searchParam("asset"));
@@ -132,7 +181,7 @@ export function CreativeScreen({ businessId }: ModuleScreenProps) {
                 <ul className="grid grid-cols-3 gap-3 2xl:grid-cols-4">
                   {g.assets.map((a) => (
                     <li key={a.id}>
-                      <AssetCard asset={a} highlighted={a.id === highlight} campaign={campaignName(a.campaignId)} author={a.authoredByAgentId ? { id: a.authoredByAgentId, name: agentName(a.authoredByAgentId) } : null} businessId={businessId} pending={action.pending} onDecide={decide} />
+                      <AssetCard asset={a} highlighted={a.id === highlight} campaign={campaignName(a.campaignId)} author={a.authoredByAgentId ? { id: a.authoredByAgentId, name: agentName(a.authoredByAgentId) } : null} businessId={businessId} pending={action.pending} onDecide={decide} onShare={assetSharedByTap(a, campaigns.data?.items ?? [], tapChannelIds) ? setSharing : undefined} />
                     </li>
                   ))}
                 </ul>
@@ -141,6 +190,7 @@ export function CreativeScreen({ businessId }: ModuleScreenProps) {
           })}
         </div>
       </Panel>
+      {shareDraft ? <SharePost open onOpenChange={(o) => (o ? undefined : setSharing(null))} title={SHARE_OPEN_WORDS.draftTitle} description={SHARE_OPEN_WORDS.description} draft={shareDraft} appName={APP_NAME} onShare={recordShare} /> : null}
     </Screen>
   );
 }
@@ -154,7 +204,7 @@ function FilterLabel({ word, count }: { word: string; count: number }) {
   );
 }
 
-function AssetCard({ asset, highlighted, campaign, author, businessId, pending, onDecide }: { asset: AssetRow; highlighted: boolean; campaign: string | null; author: { id: string; name: string } | null; businessId: string; pending: string | null; onDecide: (a: AssetRow, d: "approve" | "reject") => void }) {
+function AssetCard({ asset, highlighted, campaign, author, businessId, pending, onDecide, onShare }: { asset: AssetRow; highlighted: boolean; campaign: string | null; author: { id: string; name: string } | null; businessId: string; pending: string | null; onDecide: (a: AssetRow, d: "approve" | "reject") => void; onShare?: (a: AssetRow) => void }) {
   const meta = ASSET_KIND_META[asset.kind];
   const decidable = asset.approvalState === "pending" || asset.approvalState === "draft";
   const title = asset.title || `${meta.word} draft`;
@@ -185,7 +235,7 @@ function AssetCard({ asset, highlighted, campaign, author, businessId, pending, 
           {asset.body}
         </p>
       ) : null}
-      <div className="mt-auto flex items-center gap-1.5 pt-1">
+      <div className="mt-auto flex flex-wrap items-center gap-1.5 pt-1">
         {isHttpRef(asset.contentRef) ? (
           <Button size="sm" variant="ghost" icon={ExternalLink} onClick={() => openPreview(asset.contentRef)} aria-label={`Preview ${title}`}>
             Preview
@@ -194,6 +244,12 @@ function AssetCard({ asset, highlighted, campaign, author, businessId, pending, 
           <span className="truncate font-mono text-mono text-secondary" title={asset.contentRef}>
             {asset.contentRef}
           </span>
+        ) : null}
+        {/* Tap-to-post: the founder posts this one themselves, with one press in the network's own window. */}
+        {onShare ? (
+          <Button size="sm" variant="ghost" icon={Share2} onClick={() => onShare(asset)} aria-label={`${SHARE_OPEN_WORDS.share}: ${title}`} data-asset-share="">
+            {SHARE_OPEN_WORDS.share}
+          </Button>
         ) : null}
         {decidable ? (
           <span className="ml-auto flex items-center gap-1.5">

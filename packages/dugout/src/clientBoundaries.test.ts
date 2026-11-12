@@ -52,6 +52,7 @@ export const BARRELS = [
   "components/firstrun.ts",
   "components/today.ts",
   "components/public.ts",
+  "components/share.ts",
   "brand.ts",
 ];
 

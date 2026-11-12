@@ -126,7 +126,8 @@ export function FormationBoard({ channels, onToggle, onOpenChannel, onPause, kit
   const slots = useMemo(() => homes.filter((h) => byKey.get(h.key)?.enabled), [homes, byKey]);
   const ghosts = useMemo(() => homes.filter((h) => !byKey.get(h.key)?.enabled), [homes, byKey]);
   const tray = useMemo(() => benchChannels(effective), [effective]);
-  const running = slots.length;
+  // A channel the founder posts themselves is on the board and is not running: no engine works on it.
+  const running = slots.filter((s) => !byKey.get(s.key)?.founderPosts).length;
   const totals = useMemo(() => {
     const t = new Map<ChannelLine, number>();
     for (const c of channels) t.set(channelLine(c.key), (t.get(channelLine(c.key)) ?? 0) + 1);
@@ -330,11 +331,12 @@ export function FormationBoard({ channels, onToggle, onOpenChannel, onPause, kit
               {/* Signal lines from the hub to every running channel. */}
               {slots.map((s) => {
                 const c = byKey.get(s.key);
-                const paused = !!c?.paused;
+                // Paused, or the founder's own to post: a still, dashed line. Only a running channel's line moves.
+                const paused = !!c?.paused || !!c?.founderPosts;
                 const lit = hot === s.key;
                 const d = signalPath(s);
                 return (
-                  <g key={s.key} data-signal={s.key} data-paused={paused || undefined}>
+                  <g key={s.key} data-signal={s.key} data-paused={paused || undefined} data-founder-posts={c?.founderPosts || undefined}>
                     <motion.path
                       d={d}
                       fill="none"
@@ -484,7 +486,7 @@ export function FormationBoard({ channels, onToggle, onOpenChannel, onPause, kit
 
           {/* The key under the board: the board's name and fit are the defined words; the four bands are the rating ramp's own words (ScaleLabel). */}
           <p className="text-small text-secondary" data-board-key="">
-            On the <Term id="channel_board">Channel Board</Term>, rings mark the <Term id="fit">fit</Term> bands: {FIT_RINGS.map((r) => `${r.band} ${r.range}`).join(", ")}. A moving line is a running channel; a dashed one is paused.
+            On the <Term id="channel_board">Channel Board</Term>, rings mark the <Term id="fit">fit</Term> bands: {FIT_RINGS.map((r) => `${r.band} ${r.range}`).join(", ")}. A moving line is a running channel; a dashed one is paused, or one you post yourself.
           </p>
         </section>
       </LayoutGroup>

@@ -8,14 +8,22 @@
  * and, once shown, a quiet "On your page" with "Hide" and "Copy card link". An owner's or an admin's press, one
  * milestone at a time; nothing becomes public on its own. These controls depend only on the page being published
  * (`page.get`), never on the old Personal and Live setting the share dialog below is tied to. Nothing is counted.
+ *
+ * Tap-to-post (docs/NETWORK.md F3; docs/DESIGN.md §9e): a milestone that is on the page also has "Share", beside "Copy
+ * card link". It opens the share panel with a plain draft (the project's name, the milestone's public words, the card's
+ * address with `via`). A press is recorded as a share that was opened (`share.opened`), fire-and-forget: the share
+ * never waits on it and never fails because of it.
  */
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Copy, Flag, Gem, Rocket, Trophy } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Button, Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, Field, Input, Panel, StatusPill, Term, Timeline, TrophyCabinet, useToast, useDateFormat, type TimelineEvent, type TrophyCard } from "@foundmill/dugout";
+import { Button, Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, Field, Input, Panel, SharePost, StatusPill, Term, Timeline, TrophyCabinet, useToast, useDateFormat, type TimelineEvent, type TrophyCard } from "@foundmill/dugout";
 import { routes } from "@foundmill/widgets/shared/routes";
+import { APP_NAME } from "@foundmill/config";
 import { MILESTONE_SHOW_WORDS, cardUrl } from "@foundmill/shared/project-story";
+import { SHARE_OPEN_WORDS, milestonePostDraft } from "@foundmill/shared/share-drafts";
+import type { ShareOpened } from "@foundmill/shared/share-targets";
 import { plainWords, plural } from "@/lib/format";
 import { errorMessage } from "@/lib/trpc";
 import { useTRPC } from "@/lib/trpc-react";
@@ -133,6 +141,26 @@ export function MilestonesScreen() {
     [milestones, currency, page, toast],
   );
 
+  // Tap-to-post: the share panel for a milestone that is on the page. The draft is built from what is public anyway.
+  const [postKey, setPostKey] = useState<string | null>(null);
+  const post = useMemo(() => {
+    if (!postKey || !page || !pageLive) return null;
+    const card = cards.find((c) => c.key === postKey && c.page === "shown");
+    const milestone = milestoneForTrophy(postKey, milestones, currency);
+    if (!card || !milestone) return null;
+    // The words come from the milestone's key (the card's label), never from a stored label.
+    return { milestoneId: milestone.id, label: card.label, draft: milestonePostDraft({ origin: new URL(page.url).origin, slug: page.slug, projectName: data.business.name, milestoneId: milestone.id, label: card.label }) };
+  }, [postKey, page, pageLive, cards, milestones, currency, data.business.name]);
+  const shareOpenedM = useMutation(trpc.share.opened.mutationOptions());
+  const recordShare = useCallback(
+    (opened: ShareOpened) => {
+      if (!post) return;
+      // Fire-and-forget: the share itself has already happened in the browser.
+      shareOpenedM.mutate({ businessId, kind: "milestone", refId: post.milestoneId, ...opened }, { onError: () => undefined });
+    },
+    [post, shareOpenedM, businessId],
+  );
+
   // The kind sits in a fixed column before the title, so the pills line up and the dates form one clean column.
   const events = useMemo<TimelineEvent[]>(
     () =>
@@ -191,6 +219,7 @@ export function MilestonesScreen() {
           onShowOnPage={canShow && pageLive ? (key) => setShown(key, true) : undefined}
           onHideFromPage={canShow ? (key) => setShown(key, false) : undefined}
           onCopyCardLink={pageLive ? (key) => void copyCardLink(key) : undefined}
+          onSharePost={pageLive ? setPostKey : undefined}
           pendingKey={pendingKey}
         />
       </Panel>
@@ -198,6 +227,9 @@ export function MilestonesScreen() {
         <Timeline events={events} absolute />
       </Panel>
       <ShareDialog card={shareCard} businessName={data.business.name} onClose={() => setShareKey(null)} />
+      {post ? (
+        <SharePost open onOpenChange={(o) => (o ? undefined : setPostKey(null))} title={SHARE_OPEN_WORDS.milestoneTitle(post.label)} description={SHARE_OPEN_WORDS.description} draft={post.draft} appName={APP_NAME} onShare={recordShare} />
+      ) : null}
     </div>
   );
 }

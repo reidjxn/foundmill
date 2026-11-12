@@ -79,7 +79,7 @@ export const ChannelToken = forwardRef<HTMLButtonElement, ChannelTokenProps>(fun
   const tone = ratingTone(fit);
   const label = channelLabel(channel.key);
   // plain-allow: the token's accessible name; it renders only on the Channel Board, whose key defines fit with a Term (FormationBoard.tsx).
-  const name = `${label}, ${scored ? `fit ${fit} of 20 (${ratingBandLabel(fit)})` : "not scored yet"}${channel.recommended ? ", recommended" : ""}, ${channel.enabled ? "on the board" : "off the board"}${channel.paused ? ", paused" : ""}`;
+  const name = `${label}, ${scored ? `fit ${fit} of 20 (${ratingBandLabel(fit)})` : "not scored yet"}${channel.recommended ? ", recommended" : ""}, ${channel.enabled ? "on the board" : "off the board"}${channel.paused ? ", paused" : ""}${channel.founderPosts && channel.enabled ? ", you post it" : ""}`;
   return (
     <span className={cn("flex w-18 flex-col items-center gap-1", className)} data-channel={channel.key} data-enabled={channel.enabled} data-recommended={channel.recommended || undefined}>
       <span className="relative inline-flex">
