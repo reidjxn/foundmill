@@ -8,10 +8,13 @@
  * What differs from the business writer:
  * - the row is keyed by a person (`userId`), not a business, and has no `entityIds` and no `narrated` flag;
  * - only an account-scoped type is accepted (the signature and a runtime check; `writeEvent` refuses these types);
- * - the two-person rule is checked before anything is written (../account-payload): the actor is the person themselves
- *   or the system, and the payload never carries the account id of anyone the fact is about, an email address, or a
- *   UUID outside the declaration's `recordIds`. A fact about two people is written with `writeAccountEvents`, one row
- *   per person, each payload shaped for its reader;
+ * - the two-person rule is checked before anything is written (../account-payload): the actor is exactly `{ kind, id }`,
+ *   the person themselves or the system by a word, and no value of the payload carries the account id of anyone the
+ *   fact is about (in any spelling: with or without hyphens, in capitals, with Unicode dashes, inside other text), an
+ *   email address, or anything shaped like an id outside the declaration's `recordIds`. A fact about two people is
+ *   written with `writeAccountEvents`, one row per person, each payload shaped for its reader. An id cut into pieces
+ *   across several values is what no check can see;
+ * - a refusal names the rule and the depth, never the key or the value (`AccountRuleError`, `AccountEventParseError`);
  * - `idempotencyKey` works on the real tables: a repeat for the same person returns the first event's id and writes
  *   nothing, without raising inside the caller's transaction (`on conflict do nothing`).
  *
@@ -20,8 +23,8 @@
 import { sql, type SQL } from "drizzle-orm";
 import { ValidationError, uuid, type AccountEventType, type Actor } from "@foundmill/shared";
 import { assertAccountActor, assertAccountPayloadValues } from "../account-payload";
-import type { AccountEvent, AccountEventPayloadInput } from "../account-event";
-import { getEventDeclaration, parsePayload } from "../catalogue";
+import { parseAccountPayload, type AccountEvent, type AccountEventPayloadInput } from "../account-event";
+import { getEventDeclaration } from "../catalogue";
 import type { Queryable } from "./writer";
 
 export const ACCOUNT_EVENTS_TABLE = "account_events";
@@ -84,7 +87,7 @@ export function buildAccountEvent<T extends AccountEventType>(input: WriteAccoun
   const others = [...(input.otherAccountIds ?? []), ...alsoAbout];
   for (const other of others) assertUuid(other, "otherAccountIds[]");
   assertAccountActor(decl.type, input.actor, input.userId);
-  const payload = parsePayload(decl.type, input.payload);
+  const payload = parseAccountPayload(decl.type as T, input.payload);
   assertAccountPayloadValues(decl.type, payload, { recordIds: decl.recordIds, accountIds: [input.userId, ...others] });
   const idempotencyKey = input.idempotencyKey ?? null;
   if (idempotencyKey !== null && (typeof idempotencyKey !== "string" || idempotencyKey.length === 0 || idempotencyKey.length > ACCOUNT_IDEMPOTENCY_KEY_MAX)) {

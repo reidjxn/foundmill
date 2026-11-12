@@ -162,7 +162,7 @@ describe("account events on the real tables", () => {
           { userId: dee, type: "profile.published", actor: { kind: "system", id: "platform" }, payload: { handle: cy } },
         ]),
       ),
-    ).rejects.toThrow(/handle carries an account id/);
+    ).rejects.toThrow(/a value at depth 1 carries an account id/);
     expect(await rows(sql`select id from account_events where user_id in (${cy}::uuid, ${dee}::uuid)`)).toEqual([]);
   });
 
@@ -245,12 +245,15 @@ describe("account relay: failure handling", () => {
     const maya = await person();
     const redis = new MemoryRedis();
     const errors: unknown[] = [];
-    // Written past the writer (the owner connection): a business-scoped type, and a payload the catalog refuses.
+    // Written past the writer (the owner connection). The database lets only an account-scoped type in at all:
     const insert = (type: string, payload: object, at: string) =>
       rows<{ id: string }>(sql`with e as (insert into account_events (user_id, type, occurred_at, actor, payload) values (${maya}::uuid, ${type}, ${at}::timestamptz, ${JSON.stringify({ kind: "user", id: maya })}::jsonb, ${JSON.stringify(payload)}::jsonb) returning id, user_id)
         insert into account_outbox (user_id, event_id) select user_id, id from e returning event_id as id`);
-    const [wrongScope] = await insert("payment.received", { note: "PRIVATE-PAYLOAD-TEXT" }, "2026-11-12T09:00:00.000Z");
-    const [badPayload] = await insert("profile.published", { handle: "Not A Handle", note: "PRIVATE-PAYLOAD-TEXT" }, "2026-11-12T09:00:01.000Z");
+    await expect(insert("payment.received", { note: "PRIVATE-PAYLOAD-TEXT" }, "2026-11-12T09:00:00.000Z")).rejects.toThrow();
+    expect(await rows(sql`select id from account_events where type = 'payment.received'`)).toEqual([]);
+    // What it cannot judge is the payload's shape: a key the catalog refuses (here an email address, as a key), a bad handle.
+    const [badKey] = await insert("profile.published", { handle: "maya-okafor", ["bo@example.com"]: "PRIVATE-PAYLOAD-TEXT" }, "2026-11-12T09:00:00.000Z");
+    const [badPayload] = await insert("profile.published", { handle: "PRIVATE Not A Handle", ["PRIVATE-key"]: { deep: "PRIVATE-PAYLOAD-TEXT" } }, "2026-11-12T09:00:01.000Z");
     const good = await publish(maya, "maya-okafor", { occurredAt: "2026-11-12T09:00:02.000Z" });
 
     expect(await createAccountOutboxRelay(db, redis, { onError: (err) => void errors.push(err) }).tick()).toBe(3);
@@ -258,16 +261,17 @@ describe("account relay: failure handling", () => {
     const state = await rows<{ event_id: string; published: boolean; attempts: number; last_error: string | null }>(sql`select event_id, published_at is not null as published, attempts, last_error from account_outbox where user_id = ${maya}::uuid`);
     const of = (id: string) => state.find((s) => s.event_id === id)!;
     expect(of(good)).toMatchObject({ published: true, attempts: 0, last_error: null });
-    expect(of(wrongScope!.id)).toMatchObject({ published: true, attempts: 1 });
-    expect(of(wrongScope!.id).last_error).toMatch(/payment.received is business-scoped and is never an account event/);
-    expect(of(badPayload!.id).last_error).toMatch(/Invalid payload for profile.published/);
+    // The reason is issue codes and depths: Zod's own text would have read `Unrecognized key: "bo@example.com"`.
+    expect(of(badKey!.id)).toEqual({ event_id: badKey!.id, published: true, attempts: 1, last_error: "AppError: Invalid payload for profile.published: unrecognized_keys at depth 0" });
+    expect(of(badPayload!.id).last_error).toMatch(/^AppError: Invalid payload for profile\.published: (invalid_format|custom|unrecognized_keys) at depth [01](; (invalid_format|custom|unrecognized_keys) at depth [01])*$/);
     const dead = await entries(redis, ACCOUNT_RELAY_DEAD_LETTER_KEY);
-    expect(dead.map((d) => [d.id, d.type]).sort()).toEqual([[wrongScope!.id, "payment.received"], [badPayload!.id, "profile.published"]].sort());
+    expect(dead.map((d) => [d.id, d.type]).sort()).toEqual([[badKey!.id, "profile.published"], [badPayload!.id, "profile.published"]].sort());
     for (const d of dead) expect(Object.keys(d).sort()).toEqual(["error", "id", "type"]);
-    // Nothing the person wrote left the database on the way: not on the dead-letter stream, not in the errors, not on the row.
-    expect(JSON.stringify([dead, errors.map((e) => (e as Error).message), state])).not.toContain("PRIVATE-PAYLOAD-TEXT");
+    // Nothing the person wrote left the database on the way, as a key or as a value: not on the dead-letter stream,
+    // not in the errors a log would print, not on the queue row.
+    const left = JSON.stringify([dead, errors.map((e) => [(e as Error).message, (e as { details?: unknown }).details, String(e)]), state]);
+    for (const word of ["PRIVATE", "bo@example.com", "example.com", "Not A Handle"]) expect(left, word).not.toContain(word);
     expect(errors).toHaveLength(2);
-    // A business-scoped type never reached a stream.
     expect([...redis.store.streams.keys()].sort()).toEqual([accountStreamKey(maya), ACCOUNT_RELAY_DEAD_LETTER_KEY].sort());
   });
 
@@ -341,36 +345,63 @@ describe("account consumers", () => {
     expect(await redis.xlen(deadLetterKey("network"))).toBe(0);
   });
 
-  it("an entry that is not the stream's own person's account event is poison, and its dead letter carries no payload", async () => {
+  it("an entry that is not the stream's own person's account event is poison; a dead letter keeps a reason code, the event id and type, and nothing else of it", async () => {
     const maya = await person();
     const bo = await person();
     const redis = new MemoryRedis();
     const eventId = await publish(bo, "bo-ode");
+    const ownId = await publish(maya, "maya-okafor");
     await createAccountOutboxRelay(db, redis).tick();
     const [bosEntry] = await entries(redis, accountStreamKey(bo));
-    // Bo's event planted on Maya's stream, a business event planted there, and something that is not JSON.
+    // On Maya's stream: her own event (the handler will fail on it), then Bo's event, a business event, text that is
+    // not JSON, an entry with no json at all, and an event with a key the catalog refuses.
     await redis.xadd(accountStreamKey(maya), "*", "id", eventId, "type", "profile.published", "json", bosEntry!.json!);
-    await redis.xadd(accountStreamKey(maya), "*", "id", "x", "type", "task.started", "json", JSON.stringify({ id: eventId, businessId, type: "task.started", occurredAt: "2026-11-12T09:00:00.000Z", actor: { kind: "system", id: "test" }, entityIds: [], payload: { note: "PRIVATE-PAYLOAD-TEXT" } }));
-    await redis.xadd(accountStreamKey(maya), "*", "id", "y", "type", "profile.published", "json", "{not json PRIVATE-PAYLOAD-TEXT");
+    await redis.xadd(accountStreamKey(maya), "*", "id", "PRIVATE-id-text", "type", "task.started", "json", JSON.stringify({ id: eventId, businessId, type: "task.started", occurredAt: "2026-11-12T09:00:00.000Z", actor: { kind: "system", id: "test" }, entityIds: [], payload: { note: "PRIVATE-PAYLOAD-TEXT" } }));
+    await redis.xadd(accountStreamKey(maya), "*", "id", "y", "type", "PRIVATE-type-text", "json", "{not json PRIVATE-PAYLOAD-TEXT");
+    await redis.xadd(accountStreamKey(maya), "*", "id", eventId, "type", "profile.published");
+    await redis.xadd(accountStreamKey(maya), "*", "id", eventId, "type", "profile.published", "json", JSON.stringify({ ...JSON.parse(bosEntry!.json!), userId: maya, actor: { kind: "user", id: maya }, payload: { handle: "maya-okafor", ["bo@example.com"]: "PRIVATE-PAYLOAD-TEXT" } }));
 
     const handled: AccountEvent[] = [];
     const errors: unknown[] = [];
-    const consumer = consumeAccountEvents(redis, { userId: maya, group: "network", consumer: "test-1", blockMs: 10, onError: (err) => void errors.push(err), handler: (event) => void handled.push(event) });
-    await waitFor(() => errors.length === 3);
+    const consumer = consumeAccountEvents(redis, {
+      userId: maya,
+      group: "network",
+      consumer: "test-1",
+      blockMs: 10,
+      maxRetries: 1,
+      onError: (err) => void errors.push(err),
+      handler: (event) => {
+        handled.push(event);
+        throw new Error("PRIVATE handler words about bo@example.com");
+      },
+    });
+    await waitFor(() => errors.length === 6);
     await consumer.stop();
-    expect(handled).toEqual([]);
+    expect(handled.map((e) => e.id)).toEqual([ownId]);
     const dead = await entries(redis, deadLetterKey("network"));
-    expect(dead).toHaveLength(3);
-    const reasons = dead.map((d) => d.error ?? "");
-    for (const reason of [/carries an account event of another account/, /has invalid JSON/, /Invalid account event envelope/]) expect(reasons.some((r) => reason.test(r)), String(reason)).toBe(true);
-    for (const d of dead) expect(Object.keys(d)).not.toContain("json");
-    expect(JSON.stringify([dead, errors.map((e) => (e as Error).message)])).not.toContain("PRIVATE-PAYLOAD-TEXT");
-    expect(JSON.stringify(dead)).not.toContain("bo-ode");
+    expect(dead).toHaveLength(6);
+    // Exactly these fields: no json, no stream name, no entry id, no error text.
+    for (const d of dead) expect(Object.keys(d).sort()).toEqual(["consumer", "deliveries", "failed_at", "group", "id", "reason", "type"]);
+    expect(dead.map((d) => d.reason).sort()).toEqual(["handler_failed", "invalid_envelope", "invalid_json", "invalid_payload", "no_json", "wrong_account"]);
+    // The event's id only when it is one, its type only when it is an account-scoped type.
+    expect(dead.find((d) => d.reason === "handler_failed")).toMatchObject({ id: ownId, type: "profile.published", group: "network", consumer: "test-1", deliveries: "1" });
+    expect(dead.find((d) => d.reason === "invalid_envelope")).toMatchObject({ id: "", type: "" });
+    expect(dead.find((d) => d.reason === "invalid_json")).toMatchObject({ id: "", type: "" });
+    expect(dead.find((d) => d.reason === "wrong_account")).toMatchObject({ id: eventId, type: "profile.published" });
+    // Nothing of a person is on the dead-letter stream: not their account id (the stream's name holds it), not a
+    // payload, not a handle, not a key, not a handler's own words.
+    const kept = JSON.stringify(dead);
+    for (const word of [maya, bo, "ae:", "PRIVATE", "bo@example.com", "example.com", "bo-ode", "maya-okafor"]) expect(kept, word).not.toContain(word);
+    // The decoder's and the parser's own errors say nothing of it either (the handler's error is the caller's own).
+    const said = JSON.stringify(errors.filter((e) => !(e as Error).message.startsWith("PRIVATE handler")).map((e) => [(e as Error).message, (e as { details?: unknown }).details]));
+    for (const word of [maya, bo, "ae:", "PRIVATE", "bo@example.com", "bo-ode"]) expect(said, word).not.toContain(word);
     // The business consumer keeps its own behavior: its dead letters carry the entry as before.
     await redis.xadd(businessStreamKey(businessId), "*", "id", "z", "type", "task.started", "json", "{not json");
     const business = consume(redis, { businessId, group: "composer", consumer: "test-1", blockMs: 10, onError: () => {}, handler: () => {} });
     await waitFor(() => redis.store.streams.has(deadLetterKey("composer")));
     await business.stop();
-    expect((await entries(redis, deadLetterKey("composer")))[0]).toMatchObject({ id: "z", json: "{not json" });
+    const [businessDead] = await entries(redis, deadLetterKey("composer"));
+    expect(businessDead).toMatchObject({ id: "z", json: "{not json", source_stream: businessStreamKey(businessId) });
+    expect(Object.keys(businessDead!).sort()).toEqual(["consumer", "deliveries", "error", "failed_at", "group", "id", "json", "source_id", "source_stream", "type"]);
   });
 });

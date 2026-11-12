@@ -6,7 +6,7 @@
 import { ACCOUNT_EVENT_TYPES, EVENT_SCOPES, EVENT_TYPES, eventScopeOf, isAccountEventType, ValidationError, type AccountEventType, type BusinessEventType } from "@foundmill/shared";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
-import { accountEventToWire, isAccountEventOfType, parseAccountEvent, safeParseAccountEvent, serializeAccountEvent, type AccountEvent } from "../account-event";
+import { AccountEventParseError, accountEventToWire, isAccountEventOfType, issueReason, parseAccountEvent, safeParseAccountEvent, serializeAccountEvent, type AccountEvent } from "../account-event";
 import { declareAccountEvent, declareEvent, EVENTS, eventScope, eventTypesOfScope, parseEvent, safeParseEvent, type EventPayload, type PlatformEvent } from "../catalogue";
 import { accountFixtureEvent, accountFixtureInput, EVENT_FIXTURES, FIXTURE_BUSINESS_ID, FIXTURE_USER_ID, fixtureEvent } from "../testing/fixtures";
 
@@ -89,9 +89,32 @@ describe("event scope", () => {
     expect(() => parseAccountEvent({ ...wire, payload: { handle: "maya-okafor", email: "PRIVATE@example.com" } })).toThrow(/Invalid payload/);
     expect(() => parseAccountEvent({ ...wire, type: "profile.vanished" })).toThrow(ValidationError);
     expect(() => parseAccountEvent(null)).toThrow(ValidationError);
-    // A refusal never quotes what the payload said.
-    const refused = safeParseAccountEvent({ ...wire, payload: { handle: "maya-okafor", email: "PRIVATE@example.com" } });
-    expect(JSON.stringify(refused)).not.toContain("PRIVATE@example.com");
+    // A refusal never repeats what the payload said, as a value or as a key (Zod's own text for a strict object
+    // names the key), nor a type the catalog does not know.
+    for (const bad of [
+      { ...wire, payload: { handle: "maya-okafor", email: "PRIVATE@example.com" } },
+      { ...wire, payload: { handle: "maya-okafor", ["PRIVATE@example.com"]: 1 } },
+      { ...wire, payload: { handle: "PRIVATE Not A Handle" } },
+      { ...wire, type: "PRIVATE.type@example.com" },
+      { ...wire, userId: "PRIVATE-user", actor: { kind: "PRIVATE-kind", id: 7 } },
+      { ...wire, ["PRIVATE-envelope-key"]: "x", id: "PRIVATE-id" },
+    ]) {
+      const refused = safeParseAccountEvent(bad);
+      expect(refused.ok).toBe(false);
+      if (!refused.ok) {
+        expect(refused.error).toBeInstanceOf(AccountEventParseError);
+        expect(JSON.stringify([refused.error.message, refused.error.details, String(refused.error)])).not.toMatch(/PRIVATE|example\.com/);
+      }
+    }
+    const strictKey = safeParseAccountEvent({ ...wire, payload: { handle: "maya-okafor", ["bo@example.com"]: 1 } });
+    if (!strictKey.ok) expect([strictKey.error.reason, strictKey.error.message]).toEqual(["invalid_payload", "Invalid payload for profile.published: unrecognized_keys at depth 0"]);
+    const envelope = safeParseAccountEvent({ ...wire, userId: "me", actor: { kind: "nobody", id: "x" } });
+    // The envelope's own field names may be said: the schema wrote them, not the input.
+    if (!envelope.ok) expect([envelope.error.reason, envelope.error.message]).toEqual(["invalid_envelope", "Invalid account event envelope: invalid_format at userId; invalid_value at actor.kind"]);
+    const unknown = safeParseAccountEvent({ ...wire, type: "profile.vanished" });
+    if (!unknown.ok) expect([unknown.error.reason, unknown.error.message]).toEqual(["invalid_envelope", "Invalid account event envelope: invalid_value at type"]);
+    expect(issueReason([{ code: "unrecognized_keys", path: [] }, { code: "invalid_type", path: ["bo@example.com", 0] }, { path: ["a"] }])).toBe("unrecognized_keys at depth 0; invalid_type at depth 2; invalid at depth 1");
+    expect(issueReason(Array.from({ length: 7 }, () => ({ code: "custom", path: ["x"] })))).toBe("custom at depth 1; custom at depth 1; custom at depth 1; custom at depth 1; custom at depth 1; and 2 more");
   });
 
   it("the account fixture input is the person acting on their own account", () => {

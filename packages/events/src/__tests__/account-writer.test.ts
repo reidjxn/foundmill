@@ -85,7 +85,15 @@ describe("writeAccountEvent", () => {
     const tx = new CapturingQueryable();
     await expect(writeAccountEvent(tx, accountFixtureInput("profile.published", { actor: { kind: "user", id: OTHER } }))).rejects.toThrow(/a user actor must be the person the row belongs to/);
     await expect(writeAccountEvent(tx, accountFixtureInput("profile.published", { actor: { kind: "agent", id: fixtureId("agent") } }))).rejects.toThrow(/the person themselves or the system/);
-    await expect(writeAccountEvent(tx, accountFixtureInput("profile.published", { actor: { kind: "system", id: OTHER } }))).rejects.toThrow(/named by a word/);
+    await expect(writeAccountEvent(tx, accountFixtureInput("profile.published", { actor: { kind: "system", id: OTHER } }))).rejects.toThrow(/named by a lowercase word/);
+    // An id in a system actor's name, however it is spelled, and anything beside `kind` and `id`.
+    const compact = OTHER.replace(/-/g, "");
+    for (const actor of [{ kind: "system", id: compact }, { kind: "system", id: `follow:${compact}` }, { kind: "system", id: `follow:${OTHER.replace(/-/g, ".")}` }, { kind: "system", id: OTHER.replace(/-/g, "\u2010") }]) {
+      await expect(writeAccountEvent(tx, accountFixtureInput("profile.published", { actor: actor as never })), JSON.stringify(actor)).rejects.toThrow(/named by a lowercase word/);
+    }
+    for (const actor of [{ kind: "system", id: "platform", other: OTHER }, { kind: "user", id: FIXTURE_USER_ID, onBehalfOf: compact }]) {
+      await expect(writeAccountEvent(tx, accountFixtureInput("profile.published", { actor: actor as never })), JSON.stringify(actor)).rejects.toThrow(/the actor must be exactly \{ kind, id \}/);
+    }
     expect(tx.statements).toHaveLength(0);
     await writeAccountEvent(inserting(), accountFixtureInput("profile.published", { actor: { kind: "system", id: "platform" } }));
   });
@@ -159,11 +167,46 @@ describe("the two-person rule at the writer", () => {
 
   it("buildAccountEvent holds a payload to everyone the fact is about: the row's person, the other rows, otherAccountIds", () => {
     // A handle may be shaped like an id (letters, digits and hyphens), so the schema lets these through: the value check refuses them.
-    expect(() => buildAccountEvent(accountFixtureInput("profile.published", { payload: { handle: OTHER }, otherAccountIds: [OTHER] }))).toThrow(/handle carries an account id/);
-    expect(() => buildAccountEvent(accountFixtureInput("profile.published", { payload: { handle: OTHER } }), [OTHER])).toThrow(/handle carries an account id/);
-    expect(() => buildAccountEvent(accountFixtureInput("profile.published", { payload: { handle: FIXTURE_USER_ID } }))).toThrow(/handle carries an account id/);
-    // An id-shaped handle that is nobody's account in this call is still refused: only a declared record id may be a UUID.
-    expect(() => buildAccountEvent(accountFixtureInput("profile.published", { payload: { handle: fixtureId("stranger") } }))).toThrow(/handle carries a UUID/);
+    const refused = /a value at depth 1 carries an account id/;
+    expect(() => buildAccountEvent(accountFixtureInput("profile.published", { payload: { handle: OTHER }, otherAccountIds: [OTHER] }))).toThrow(refused);
+    expect(() => buildAccountEvent(accountFixtureInput("profile.published", { payload: { handle: OTHER } }), [OTHER])).toThrow(refused);
+    expect(() => buildAccountEvent(accountFixtureInput("profile.published", { payload: { handle: FIXTURE_USER_ID } }))).toThrow(refused);
+    // In every spelling a handle can take: without hyphens, with hyphens elsewhere, behind other letters.
+    const compact = OTHER.replace(/-/g, "");
+    for (const handle of [compact, compact.replace(/(.{4})/g, "$1-").slice(0, -1), `x${compact}`, `id-${compact}-x`]) {
+      expect(() => buildAccountEvent(accountFixtureInput("profile.published", { payload: { handle }, otherAccountIds: [OTHER] })), handle).toThrow(refused);
+      expect(() => buildAccountEvent(accountFixtureInput("profile.published", { payload: { handle } }), [OTHER]), handle).toThrow(refused);
+      expect(() => buildAccountEvent(accountFixtureInput("profile.published", { userId: OTHER, payload: { handle } })), handle).toThrow(refused);
+      // The id of someone who is nobody in this call is still shaped like an id.
+      expect(() => buildAccountEvent(accountFixtureInput("profile.published", { payload: { handle } })), handle).toThrow(/carries something shaped like an id/);
+    }
+    expect(() => buildAccountEvent(accountFixtureInput("profile.published", { payload: { handle: fixtureId("stranger") } }))).toThrow(/a value at depth 1 carries something shaped like an id/);
+    expect(() => buildAccountEvent(accountFixtureInput("profile.published", { payload: { handle: `x${fixtureId("stranger")}` } }))).toThrow(/carries something shaped like an id/);
     expect(() => buildAccountEvent(accountFixtureInput("profile.published", { otherAccountIds: [OTHER] }), [fixtureId("third")])).not.toThrow();
+  });
+
+  it("a refused payload is described by rule, code and depth: no key and no value of it is repeated", () => {
+    // The declared schema is strict: Zod's own words for this are `Unrecognized key: "bo@example.com"`.
+    const attempts: Record<string, unknown>[] = [
+      { handle: "maya-okafor", ["bo@example.com"]: 1 },
+      { handle: "maya-okafor", ["PRIVATE-key-name"]: "PRIVATE-value" },
+      { handle: "PRIVATE Not A Handle bo@example.com" },
+      { handle: { nested: "PRIVATE-value" } },
+      { handle: OTHER },
+    ];
+    for (const payload of attempts) {
+      let caught: unknown;
+      try {
+        buildAccountEvent(accountFixtureInput("profile.published", { payload: payload as never }));
+      } catch (err) {
+        caught = err;
+      }
+      expect(caught, JSON.stringify(payload)).toBeInstanceOf(ValidationError);
+      const error = caught as ValidationError;
+      const said = JSON.stringify([error.message, error.details, String(error)]);
+      for (const word of ["bo@example.com", "example.com", "PRIVATE", "Not A Handle", OTHER]) expect(said, word).not.toContain(word);
+    }
+    expect(() => buildAccountEvent(accountFixtureInput("profile.published", { payload: { handle: "maya-okafor", ["bo@example.com"]: 1 } as never }))).toThrow(/^Invalid payload for profile\.published: unrecognized_keys at depth 0$/);
+    expect(() => buildAccountEvent(accountFixtureInput("profile.published", { payload: {} as never }))).toThrow(/^Invalid payload for profile\.published: invalid_type at depth 1$/);
   });
 });

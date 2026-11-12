@@ -17,7 +17,9 @@
  *   row stays in Postgres, where it is the person's own and goes with their account;
  * - when nothing in a batch could be published (Redis is away), the tick fails after recording that, and the loop backs
  *   off (1 s doubling to 30 s) like the business relay.
- * Error text is the error's name and message, cut to 300 characters: never the payload.
+ * Error text is cut to 300 characters and never holds the payload: a row that is not a valid account event is described
+ * by issue codes and depths (`issueReason` in ../account-event: no key and no value of the row), and a failed XADD by
+ * the Redis error's name and message.
  */
 import { sql, type SQL } from "drizzle-orm";
 import { safeParseAccountEvent, serializeAccountEvent, type AccountEvent } from "../account-event";
@@ -91,7 +93,10 @@ export function markAccountFailedSql(ids: readonly string[], error: string): SQL
   return sql`update ${sql.identifier(ACCOUNT_OUTBOX_TABLE)} set attempts = attempts + 1, last_error = ${error}, next_attempt_at = now() + interval '1 second' * least(300, power(2, least(attempts + 1, 9))) where event_id in (${idList(ids)}) and published_at is null`;
 }
 
-/** The error's name and message, cut short. Never a payload: the relay's errors come from Redis and from validation paths. */
+/**
+ * The error's name and message, cut short. The relay's errors are Redis errors and `AccountEventParseError`s, whose text
+ * is built from issue codes and depths, so neither repeats a key or a value of a person's event.
+ */
 export function relayErrorText(err: unknown): string {
   const text = err instanceof Error ? `${err.name}: ${err.message}` : String(err);
   return text.length > ACCOUNT_RELAY_ERROR_MAX ? `${text.slice(0, ACCOUNT_RELAY_ERROR_MAX - 1)}…` : text;

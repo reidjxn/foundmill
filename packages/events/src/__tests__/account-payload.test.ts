@@ -6,7 +6,7 @@
 import { ACCOUNT_EVENT_TYPES, ValidationError } from "@foundmill/shared";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
-import { accountPayloadKeyProblem, assertAccountActor, assertAccountPayloadSchema, assertAccountPayloadValues } from "../account-payload";
+import { accountIdText, accountPayloadKeyProblem, AccountRuleError, assertAccountActor, assertAccountPayloadSchema, assertAccountPayloadValues, looksLikeAnId, type AccountRule } from "../account-payload";
 import { EVENTS } from "../catalogue";
 import { EVENT_FIXTURES, fixtureId } from "../testing/fixtures";
 
@@ -88,6 +88,44 @@ describe("assertAccountPayloadSchema (when the catalog loads)", () => {
   });
 });
 
+/** The rule a payload breaks when it is written, or null. */
+const ruleOf = (run: () => void): AccountRule | null => {
+  try {
+    run();
+    return null;
+  } catch (err) {
+    if (err instanceof AccountRuleError) return err.rule;
+    throw err;
+  }
+};
+
+/** One id in every spelling the checks must see through. */
+const COMPACT = OTHER.replace(/-/g, "");
+const SPELLINGS: Record<string, string> = {
+  hyphenated: OTHER,
+  capitals: OTHER.toUpperCase(),
+  compact: COMPACT,
+  "compact, capitals": COMPACT.toUpperCase(),
+  "a hyphen every four": COMPACT.replace(/(.{4})/g, "$1-").slice(0, -1),
+  "one stray hyphen": `${COMPACT.slice(0, 5)}-${COMPACT.slice(5)}`,
+  "hyphen U+2010": OTHER.replace(/-/g, "‐"),
+  "non-breaking hyphen U+2011": OTHER.replace(/-/g, "‑"),
+  "figure dash U+2012": OTHER.replace(/-/g, "‒"),
+  "en dash U+2013": OTHER.replace(/-/g, "–"),
+  "em dash U+2014": OTHER.replace(/-/g, "—"),
+  "minus sign U+2212": OTHER.replace(/-/g, "−"),
+  "fullwidth hyphen U+FF0D": OTHER.replace(/-/g, "－"),
+  "fullwidth digits and letters": COMPACT.replace(/[0-9a-f]/g, (c) => String.fromCharCode(c.charCodeAt(0) + 0xfee0)),
+  braces: `{${OTHER}}`,
+  urn: `urn:uuid:${OTHER}`,
+  "spaces between the groups": OTHER.replace(/-/g, " "),
+  "dots between the groups": OTHER.replace(/-/g, "."),
+  "colons between pairs": COMPACT.replace(/(..)/g, "$1:").slice(0, -1),
+  "after other letters and digits": `ab12${COMPACT}`,
+  "inside a longer run": `abcdef0123456789${COMPACT}0123456789abcdef`,
+  "inside a sentence": `seen by ${COMPACT} today`,
+};
+
 describe("assertAccountPayloadValues (when an event is written)", () => {
   it("accepts a public handle and a listed record id", () => {
     expect(valuesOk({ handle: "maya-okafor", by: { handle: "bo-ode" }, tags: ["a", "b"], count: 2, open: true, none: null })).not.toThrow();
@@ -95,59 +133,138 @@ describe("assertAccountPayloadValues (when an event is written)", () => {
   });
 
   it("refuses the account id of anyone the fact is about, wherever it hides", () => {
-    const refused = /carries an account id/;
-    expect(valuesOk({ handle: "maya-okafor", by: OTHER })).toThrow(refused);
-    expect(valuesOk({ handle: "maya-okafor", self: ME })).toThrow(refused);
-    expect(valuesOk({ handle: "maya-okafor", list: [{ deep: [OTHER.toUpperCase()] }] })).toThrow(refused);
-    expect(valuesOk({ handle: "maya-okafor", note: `seen by ${OTHER} today` })).toThrow(refused);
-    expect(valuesOk({ handle: "maya-okafor", [OTHER]: true })).toThrow(refused);
+    const rule = (payload: unknown, recordIds: string[] = []) => ruleOf(valuesOk(payload, recordIds));
+    expect(rule({ handle: "maya-okafor", by: OTHER })).toBe("account_id");
+    expect(rule({ handle: "maya-okafor", self: ME })).toBe("account_id");
+    expect(rule({ handle: "maya-okafor", list: [{ deep: [OTHER.toUpperCase()] }] })).toBe("account_id");
+    expect(rule({ handle: "maya-okafor", note: `seen by ${OTHER} today` })).toBe("account_id");
+    expect(rule({ handle: "maya-okafor", [OTHER]: true })).toBe("account_id");
     // Not even in a field listed as a record id.
-    expect(valuesOk({ askId: OTHER }, ["askId"])).toThrow(refused);
-    // The error says where, never what: not the id as a value, and not the id as a key.
-    for (const payload of [{ handle: "maya-okafor", by: OTHER }, { handle: "maya-okafor", [OTHER]: true }, { handle: "maya-okafor", ["ana@example.com"]: true }]) {
+    expect(rule({ askId: OTHER }, ["askId"])).toBe("account_id");
+    expect(valuesOk({ handle: "maya-okafor", by: OTHER })).toThrow(/a value at depth 1 carries an account id/);
+    expect(valuesOk({ handle: "maya-okafor", by: { who: [OTHER] } })).toThrow(/a value at depth 2 carries an account id/);
+    expect(valuesOk({ handle: "maya-okafor", [OTHER]: true })).toThrow(/a key at depth 1 carries an account id/);
+  });
+
+  it("finds an account id in every common spelling, as a value, in a list, in a sentence and as a key", () => {
+    for (const [how, value] of Object.entries(SPELLINGS)) {
+      expect(ruleOf(valuesOk({ handle: "maya-okafor", n: value })), how).toBe("account_id");
+      expect(ruleOf(valuesOk({ handle: "maya-okafor", deep: [{ list: [`see ${value}.`] }] })), `${how}, nested in text`).toBe("account_id");
+      expect(ruleOf(valuesOk({ handle: "maya-okafor", [value]: true })), `${how}, as a key`).toBe("account_id");
+      // The handle itself, where the declared schema would let letters, digits and hyphens through.
+      expect(ruleOf(valuesOk({ handle: value })), `${how}, as the handle`).toBe("account_id");
+      // And the row's own person's id, in the same spelling.
+      expect(ruleOf(valuesOk({ handle: "maya-okafor", n: value.replace(/./g, (c) => c) }, [], [OTHER])), `${how}, own`).toBe("account_id");
+    }
+  });
+
+  it("refuses anything shaped like an id that is not a declared record id holding one plain UUID", () => {
+    const rule = (payload: unknown, recordIds: string[] = []) => ruleOf(valuesOk(payload, recordIds, [ME]));
+    // The same spellings of an id that is nobody's in this call: still id-shaped.
+    for (const [how, value] of Object.entries(SPELLINGS)) {
+      expect(rule({ handle: "maya-okafor", n: value }), how).toBe("id_shaped");
+      expect(rule({ handle: value }), `${how}, as the handle`).toBe("id_shaped");
+    }
+    expect(rule({ handle: "maya-okafor", ref: RECORD })).toBe("id_shaped");
+    expect(rule({ handle: `x${RECORD}` })).toBe("id_shaped");
+    // A declared record id holds one plain UUID and nothing around it, in no other spelling.
+    expect(rule({ askId: RECORD }, ["askId"])).toBeNull();
+    expect(rule({ askId: `ask ${RECORD}` }, ["askId"])).toBe("id_shaped");
+    expect(rule({ askId: RECORD.replace(/-/g, "") }, ["askId"])).toBe("id_shaped");
+    expect(rule({ askId: RECORD.replace(/-/g, "‐") }, ["askId"])).toBe("id_shaped");
+    expect(rule({ [RECORD]: "x" }, [RECORD])).toBe("id_shaped");
+    expect(valuesOk({ handle: "maya-okafor", ref: RECORD })).toThrow(/a value at depth 1 carries something shaped like an id/);
+    // Text that is not shaped like an id passes: short runs, words with hyphens, a date.
+    expect(rule({ handle: "dead-beef-cafe", note: "0a1b2c3d-0a1b-4a1b", at: "2026-11-12T09:00:00.000Z", between: "Nov 12, 2026 9:00 AM to Nov 13, 2026 10:30 AM", n: "1234567890123456789012345678901" })).toBeNull();
+    expect(looksLikeAnId("maya-okafor")).toBe(false);
+    expect(looksLikeAnId(`x${RECORD}`)).toBe(true);
+    expect(accountIdText("0A1B‐2C3D—x-Y－Z a.b:c_d")).toBe("0a1b2c3dxyzabcd");
+  });
+
+  it("refuses an email address, a key the schema would refuse, and a payload that is not an object", () => {
+    const rule = (payload: unknown) => ruleOf(valuesOk(payload));
+    expect(rule({ handle: "maya-okafor", note: "write to ana@example.com" })).toBe("email");
+    expect(rule({ handle: "maya-okafor", list: ["a", "b@c.io"] })).toBe("email");
+    expect(rule({ handle: "maya-okafor", ["ana@example.com"]: 1 })).toBe("email");
+    expect(rule({ handle: "maya-okafor", note: "ana＠example.com" })).toBe("email");
+    expect(rule({ handle: "maya-okafor", followerId: "x" })).toBe("account_key");
+    expect(rule({ handle: "maya-okafor", by: { email: "x" } })).toBe("private_key");
+    expect(rule("maya-okafor")).toBe("not_object");
+    expect(rule([{ handle: "maya-okafor" }])).toBe("not_object");
+    expect(rule(null)).toBe("not_object");
+  });
+
+  it("a refusal says which rule and how deep, and never repeats a key or a value", () => {
+    const secret = "PRIVATE-thing-nobody-should-log";
+    const payloads: unknown[] = [
+      { handle: "maya-okafor", by: OTHER },
+      { handle: "maya-okafor", [OTHER]: true },
+      { handle: "maya-okafor", [COMPACT]: true },
+      { handle: "maya-okafor", ["ana@example.com"]: true },
+      { handle: "maya-okafor", note: `${secret} ana@example.com` },
+      { handle: "maya-okafor", [secret]: { email: "x" } },
+      { handle: "maya-okafor", [secret]: { [`${secret}UserId`]: "x" } },
+      { handle: "maya-okafor", [secret]: [`${secret} ${RECORD}`] },
+      { handle: "maya-okafor", [`${secret}@example.com`]: 1 },
+    ];
+    for (const payload of payloads) {
       let caught: unknown;
       try {
         valuesOk(payload)();
       } catch (err) {
         caught = err;
       }
+      expect(caught).toBeInstanceOf(AccountRuleError);
       expect(caught).toBeInstanceOf(ValidationError);
-      const said = JSON.stringify([(caught as ValidationError).message, (caught as ValidationError).details]);
-      expect(said).not.toContain(OTHER);
-      expect(said).not.toContain("ana@example.com");
+      const error = caught as AccountRuleError;
+      const said = JSON.stringify([error.message, error.details, String(error)]);
+      for (const word of [OTHER, COMPACT, RECORD, "ana@example.com", "example.com", secret, "PRIVATE"]) expect(said, word).not.toContain(word);
+      expect(Object.keys(error.details as object).sort()).toEqual(["depth", "part", "rule", "type"]);
+      expect(error.message).toMatch(/^Account event profile\.published: a (key|value) at depth [1-3] /);
     }
-  });
-
-  it("refuses any UUID outside the declaration's record ids, an email address, and a key the schema would refuse", () => {
-    expect(valuesOk({ handle: "maya-okafor", ref: RECORD })).toThrow(/ref carries a UUID, and only the declaration's recordIds may/);
-    expect(valuesOk({ askId: `ask ${RECORD}` }, ["askId"])).toThrow(/carries a UUID/);
-    expect(valuesOk({ handle: "maya-okafor", note: "write to ana@example.com" })).toThrow(/note carries an email address/);
-    expect(valuesOk({ handle: "maya-okafor", list: ["a", "b@c.io"] })).toThrow(/list\[1\] carries an email address/);
-    expect(valuesOk({ handle: "maya-okafor", followerId: "x" })).toThrow(/names a person by an account/);
-    expect(valuesOk({ handle: "maya-okafor", by: { email: "x" } })).toThrow(/by\.email/);
-    expect(valuesOk("maya-okafor")).toThrow(/the payload must be an object/);
-    expect(valuesOk([{ handle: "maya-okafor" }])).toThrow(/the payload must be an object/);
-    expect(valuesOk(null)).toThrow(/the payload must be an object/);
   });
 });
 
 describe("assertAccountActor", () => {
   const actorOk = (actor: unknown) => () => assertAccountActor("profile.published", actor as never, ME);
+  const rule = (actor: unknown) => ruleOf(actorOk(actor));
 
-  it("accepts the person themselves and the system by a word", () => {
+  it("accepts the person themselves and the system by a lowercase word", () => {
     expect(actorOk({ kind: "user", id: ME })).not.toThrow();
     expect(actorOk({ kind: "user", id: ME.toUpperCase() })).not.toThrow();
     expect(actorOk({ kind: "system", id: "platform" })).not.toThrow();
+    expect(actorOk({ kind: "system", id: "public-page:follow_form.v2" })).not.toThrow();
   });
 
   it("refuses a second party: another person, an agent, a webhook, or a system name that hides an id or an address", () => {
+    expect(rule({ kind: "user", id: OTHER })).toBe("actor_other_person");
+    expect(rule({ kind: "user", id: ME.replace(/-/g, "") })).toBe("actor_other_person");
+    expect(rule({ kind: "agent", id: fixtureId("agent") })).toBe("actor_kind");
+    expect(rule({ kind: "webhook", id: "stripe" })).toBe("actor_kind");
+    for (const [how, value] of Object.entries(SPELLINGS)) {
+      expect(rule({ kind: "system", id: value }), how).toBe("actor_not_a_word");
+      expect(rule({ kind: "system", id: `follow:${value}` }), `${how}, behind a prefix`).toBe("actor_not_a_word");
+    }
+    for (const id of ["ana@example.com", "Platform", "platform team", "9lives", "x".repeat(64)]) expect(rule({ kind: "system", id }), id).toBe("actor_not_a_word");
     expect(actorOk({ kind: "user", id: OTHER })).toThrow(/a user actor must be the person the row belongs to/);
-    expect(actorOk({ kind: "agent", id: fixtureId("agent") })).toThrow(/the person themselves or the system, not "agent"/);
-    expect(actorOk({ kind: "webhook", id: "stripe" })).toThrow(/not "webhook"/);
-    expect(actorOk({ kind: "system", id: OTHER })).toThrow(/named by a word/);
-    expect(actorOk({ kind: "system", id: `follow:${OTHER}` })).toThrow(/named by a word/);
-    expect(actorOk({ kind: "system", id: "ana@example.com" })).toThrow(/named by a word/);
-    expect(actorOk({ kind: "system", id: "" })).toThrow(/actor must be/);
-    expect(actorOk(undefined)).toThrow(/actor must be/);
+    expect(actorOk({ kind: "agent", id: fixtureId("agent") })).toThrow(/the person themselves or the system$/);
+    expect(actorOk({ kind: "system", id: OTHER })).toThrow(/named by a lowercase word/);
+  });
+
+  it("is exactly { kind, id }: nothing else rides in the actor, and a refusal repeats nothing of it", () => {
+    for (const actor of [{ kind: "system", id: "" }, { kind: "system" }, { id: "platform" }, { kind: "system", id: 7 }, { kind: "system", id: "platform", other: OTHER }, { kind: "user", id: ME, onBehalfOf: OTHER }, "platform", null, undefined]) {
+      expect(rule(actor), JSON.stringify(actor)).toBe("actor_shape");
+    }
+    for (const actor of [{ kind: "system", id: `follow:${COMPACT}` }, { kind: "PRIVATE-kind", id: "x" }, { kind: "system", id: "platform", ["ana@example.com"]: OTHER }]) {
+      let caught: unknown;
+      try {
+        actorOk(actor)();
+      } catch (err) {
+        caught = err;
+      }
+      const error = caught as AccountRuleError;
+      const said = JSON.stringify([error.message, error.details]);
+      for (const word of [OTHER, COMPACT, "ana@example.com", "PRIVATE"]) expect(said, word).not.toContain(word);
+    }
   });
 });
