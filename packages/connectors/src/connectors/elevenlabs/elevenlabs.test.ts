@@ -116,7 +116,9 @@ describe("estimates", () => {
     expect(estimateSpeechCostMinor(600)).toBe(3);
     expect(estimateSpeechCostMinor(20_000)).toBe(100);
     expect(estimateTranscriptionCostMinor(160_000)).toBe(1);
-    expect(estimateTranscriptionCostMinor(TEAM_CALL_LIMITS.maxAudioBytes)).toBeGreaterThan(1);
+    // A recording is at most `maxAudioBytes` (1.4 MB, about a minute and a half): a cent at most. Longer audio costs more.
+    expect(estimateTranscriptionCostMinor(TEAM_CALL_LIMITS.maxAudioBytes)).toBeGreaterThanOrEqual(1);
+    expect(estimateTranscriptionCostMinor(50_000_000)).toBeGreaterThan(estimateTranscriptionCostMinor(TEAM_CALL_LIMITS.maxAudioBytes));
     expect(decodedBytes(Buffer.from("abcd").toString("base64"))).toBe(4);
     expect(decodedBytes(Buffer.from("abcde").toString("base64"))).toBe(5);
   });
