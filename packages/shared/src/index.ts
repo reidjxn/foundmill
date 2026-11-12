@@ -40,3 +40,4 @@ export * from "./today-words";
 export * from "./chief-answers";
 export * from "./team-can-do";
 export * from "./team-tiers";
+export * from "./team-call";

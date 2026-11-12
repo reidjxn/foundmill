@@ -15,6 +15,8 @@
 import { z } from "zod";
 import {
   Actor,
+  TEAM_CALL_KINDS,
+  TEAM_CALL_LIMITS,
   AgentStatus,
   Archetype,
   AUTOPILOT_CADENCES,
@@ -1608,6 +1610,42 @@ const PageFacts = z.object({
   url: z.string().url().max(2048),
 });
 
+// Team call (docs/TEAM_CALL.md §5): a spoken call between the founder and their team of agents, or one agent.
+const teamCallStarted = declareEvent(
+  "team_call.started",
+  z.object({
+    callId: Id,
+    kind: z.enum(TEAM_CALL_KINDS),
+    agentIds: z.array(Id).min(1).max(TEAM_CALL_LIMITS.maxAgentsInTeamCall),
+    topic: z.string().max(TEAM_CALL_LIMITS.maxTopicChars).nullable().default(null),
+  }),
+  {
+    doc: "A founder started a team call with their agents (`team`) or a call with one agent (`one_to_one`). The founder did it themselves, so it is never narrated; apps/stream pushes it so Team call's list follows.",
+    consumers: ["stream", "metrics"],
+    narratable: false,
+  },
+);
+
+const teamCallEnded = declareEvent(
+  "team_call.ended",
+  z.object({
+    callId: Id,
+    kind: z.enum(TEAM_CALL_KINDS),
+    turnCount: z.number().int().nonnegative(),
+    actionCount: z.number().int().nonnegative(),
+    /** Action items filed at once (a task in its department, an item on the roadmap). */
+    filedCount: z.number().int().nonnegative(),
+    /** Action items staged as a plan that waits for the founder's go-ahead. */
+    awaitingCount: z.number().int().nonnegative(),
+    durationSeconds: z.number().int().nonnegative(),
+  }),
+  {
+    doc: "A call ended and its action items were filed: the summary and the actions are on the call, and the Chief of Staff's note in the Inbox says what was agreed. Filing work inside the project is not an outside result, so the north star never counts it. Never narrated (the note is written by the api with the call).",
+    consumers: ["stream", "metrics"],
+    narratable: false,
+  },
+);
+
 const pagePublished = declareEvent("page.published", PageFacts, {
   doc: "A founder published the project's public page, or published changes to a page that is already live: from this moment anyone can open `url` signed out. A real outside result (the north star counts it). The founder did it themselves, so it is never narrated; apps/stream pushes it so Today and the Public page tab follow.",
   consumers: ["stream", "metrics"],
@@ -1761,6 +1799,8 @@ export const EVENTS = {
   "goal.change_requested": goalChangeRequested,
   "goal.achieved": goalAchieved,
   "page.published": pagePublished,
+  "team_call.started": teamCallStarted,
+  "team_call.ended": teamCallEnded,
   "page.unpublished": pageUnpublished,
   "page.followed": pageFollowed,
   "guidance.tour_completed": guidanceTourCompleted,
