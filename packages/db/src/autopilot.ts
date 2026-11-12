@@ -98,6 +98,28 @@ export function summarizeCycleEvents(newestFirst: readonly CycleEventLike[], opt
 }
 
 /**
+ * Autopilot's own cycles today (0084): the `autopilot.cycle_started` entries since `dayStart` that belong to no Continue
+ * run (no `runId`), and what the cycles they started cost (`cycle.completed` of the same numbers, USD). Pure.
+ */
+export function ownAutopilotToday(events: readonly CycleEventLike[], dayStart: number): { cycles: number; spentMinor: number } {
+  const numbers = new Set<number>();
+  for (const e of events) {
+    if (e.type !== "autopilot.cycle_started" || e.occurredAt.getTime() < dayStart) continue;
+    const p = rec(e.payload);
+    if (typeof p.runId === "string") continue;
+    if (typeof p.cycleNumber === "number") numbers.add(p.cycleNumber);
+  }
+  let spentMinor = 0;
+  for (const e of events) {
+    if (e.type !== "cycle.completed") continue;
+    const p = rec(e.payload);
+    const cost = rec(p.cost);
+    if (typeof p.cycleNumber === "number" && numbers.has(p.cycleNumber) && (cost.currency ?? "USD") === "USD") spentMinor += Number(cost.amountMinor ?? 0);
+  }
+  return { cycles: numbers.size, spentMinor };
+}
+
+/**
  * The facts for one business at `now`. `business` is the row as read just now (the orchestrator re-reads it each
  * round). A business on its own key has no credits to run out of (`creditsRemainingMinor` null).
  *
@@ -112,11 +134,12 @@ export async function loadAutopilotFacts(db: Executor, business: Business, now: 
   const [holiday, blockingItems, cycleEvents, spent, credits] = await Promise.all([
     repos.holidays.current(db, business.id, now),
     repos.inbox.countBlocking(db, business.id),
-    repos.events.list(db, business.id, { type: ["cycle.started", "cycle.completed", "cycle.run_started", "cycle.run_ended"], limit: 200 }),
+    repos.events.list(db, business.id, { type: ["cycle.started", "cycle.completed", "cycle.run_started", "cycle.run_ended", "autopilot.cycle_started"], limit: 200 }),
     repos.usage.totals(db, business.id, { from: new Date(dayStart) }),
     creditsState(db, business, periodOf(now)),
   ]);
   const cycles = summarizeCycleEvents(cycleEvents.items, { now: nowMs, since, dayStart });
+  const own = ownAutopilotToday(cycleEvents.items, dayStart);
   const open = extras.run === undefined ? openRunOf(cycleEvents.items, nowMs) : null;
   const held: { id: string; startedAt: number; unrecordedFailures?: number } | null = extras.run !== undefined ? extras.run : open ? { id: open.runId, startedAt: open.startedAt } : null;
   let run: ContinueRunFacts | null = null;
@@ -141,6 +164,8 @@ export async function loadAutopilotFacts(db: Executor, business: Business, now: 
     cyclesToday: cycles.cappedStartsToday,
     // USD model and platform cost (`totals` keeps third-party currencies apart, and those never touch credits).
     spentTodayMinor: spent.costMinor,
+    ownCyclesToday: own.cycles,
+    ownSpentTodayMinor: own.spentMinor,
     recentCycles: cycles.finished,
     unrecordedFailures: extras.unrecordedFailures ?? 0,
     run,
@@ -159,5 +184,7 @@ export function autopilotChangedPayload(b: Business, change: AutopilotChange, pa
     maxCyclesPerDay: b.autopilotMaxCyclesPerDay,
     spendCeiling: b.autopilotSpendCeilingMinor === null ? null : { amountMinor: Number(b.autopilotSpendCeilingMinor), currency: "USD" },
     maxIdleCycles: b.autopilotMaxIdleCycles,
+    ownMaxCyclesPerDay: b.autopilotOwnMaxCyclesPerDay ?? null,
+    ownSpendCeiling: b.autopilotOwnSpendCeilingMinor === null || b.autopilotOwnSpendCeilingMinor === undefined ? null : { amountMinor: Number(b.autopilotOwnSpendCeilingMinor), currency: "USD" },
   };
 }

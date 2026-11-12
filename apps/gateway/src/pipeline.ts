@@ -43,6 +43,7 @@ import {
   type ToolContext,
   type ToolLogger,
   type ToolResult,
+  type SpeechStreamer,
 } from "@foundmill/connectors";
 import { loadCredential, persistRefreshedCredential, toIntegrationRecord, type LoadedCredential } from "./credentials";
 import { writeGatewayEvent } from "./events";
@@ -83,6 +84,8 @@ export interface GatewayDeps {
    */
   reader?: UntrustedReader;
   log: GatewayLogger;
+  /** Team call's streamed speech (ElevenLabs' streaming endpoint on the platform key); unset, `/v1/speech/stream` answers 503. */
+  speechStreamer?: SpeechStreamer;
   now?: () => Date;
   policyEngine?: PolicyEngine;
   /** Per-session memo of the BYOK credential check (≤ 5 s). One is created per `deps` when omitted. */

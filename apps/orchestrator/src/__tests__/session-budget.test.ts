@@ -8,6 +8,10 @@ import { boundSpend, budgetSummary, LIMIT_WORDS, type BudgetLimit } from "../act
 const task = { taskBudgetMinor: 2_000, taskSpentMinor: 500 };
 
 describe("boundSpend", () => {
+  it("is the session's share of a capped cycle (Autopilot's own spend, 0077) when that is tighter", () => {
+    expect(boundSpend({ ...task, creditsLeftMinor: 9_000, cycleCapMinor: 7 })).toEqual({ remainingMinor: 7, limit: "cycle" });
+    expect(boundSpend({ ...task, creditsLeftMinor: 9_000, cycleCapMinor: null })).toEqual({ remainingMinor: 1_500, limit: "task" });
+  });
   it("is the task's remaining budget when nothing else is tighter, or set", () => {
     expect(boundSpend({ ...task, creditsLeftMinor: null })).toEqual({ remainingMinor: 1_500, limit: "task" });
     expect(boundSpend({ ...task, creditsLeftMinor: 9_000, wageLeftMinor: null, modelBudgetLeftMinor: null })).toEqual({ remainingMinor: 1_500, limit: "task" });

@@ -163,6 +163,11 @@ describe("proxy redirect rules", () => {
   it("classifies paths", () => {
     expect(isPublicPath("/auth")).toBe(true);
     expect(isPublicPath("/b/x")).toBe(false);
+    // Founder email links open without a session (retention plan, 2026-11-11); nothing else under /email is public.
+    expect(isPublicPath(`/a/${"x".repeat(43)}`)).toBe(true);
+    expect(isPublicPath("/email/pause")).toBe(true);
+    expect(isPublicPath("/email/unsubscribe")).toBe(true);
+    expect(isPublicPath("/email/other")).toBe(false);
     expect(isFounderPath("/new/ideate")).toBe(true);
     expect(isFounderPath("/businesses")).toBe(true);
     expect(isFounderPath("/login")).toBe(false);

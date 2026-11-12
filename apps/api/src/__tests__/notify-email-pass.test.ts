@@ -1,9 +1,11 @@
 /**
- * services/push/email-pass.ts: who Foundmill emails about a note that waited a day for their answer (packages 1.5 and
- * 5.1). A note that needs an answer, 24 hours to 7 days old, unopened by the person; a member who can read the Inbox,
+ * services/push/email-pass.ts: who Foundmill emails about a note that waits for their answer (packages 1.5 and 5.1). A
+ * note that needs an answer, 24 hours to 7 days old, or 30 minutes after the person left when it holds up the team's
+ * work (founder 2026-11-12), unopened by the person; a member who can read the Inbox,
  * not an example visitor, in a business that is not a sample; their switch on; never twice about one note, at most one a
- * day per business and three a day in all. The api sends ids only; a gateway that sends nothing right now ends the pass.
+ * day per business and three a day in all (the briefs not counted). The api sends ids only; a gateway that sends nothing right now ends the pass.
  */
+import { randomUUID } from "node:crypto";
 import { eq } from "drizzle-orm";
 import { businesses, inboxItems, memberships, notifyEmailDayKey, repos } from "@foundmill/db";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
@@ -19,7 +21,7 @@ let answer: (input: GatewayNotifyEmailRequest) => Promise<GatewayNotifyEmailResu
 
 /** What the real gateway records after a send: one event per person and UTC day within the business. */
 async function recordSent(input: GatewayNotifyEmailRequest, at = NOW): Promise<GatewayNotifyEmailResult> {
-  const event = await repos.events.write(hz.db, input.businessId, { type: "notify.email_sent", actor: { kind: "system", id: "notify-email" }, entityIds: [], occurredAt: at, payload: { kind: input.kind, userId: input.userId, inboxItemId: input.data.inboxItemId, messageId: "m", simulated: true }, idempotencyKey: notifyEmailDayKey(input.kind, input.userId, at) });
+  const event = await repos.events.write(hz.db, input.businessId, { type: "notify.email_sent", actor: { kind: "system", id: "notify-email" }, entityIds: [], occurredAt: at, payload: { kind: input.kind, userId: input.userId, inboxItemId: input.data.inboxItemId, messageId: "m", simulated: true, notificationId: randomUUID(), offersAnswer: false }, idempotencyKey: notifyEmailDayKey(input.kind, input.userId, at) });
   return { sent: true, simulated: true, eventId: event.id };
 }
 
@@ -116,6 +118,33 @@ describe("the notify email pass", () => {
     await pass();
     expect(asked.map((a) => a.userId)).not.toContain(person);
     expect(asked.map((a) => a.userId)).toContain(hz.B.ownerId);
+  });
+
+  it("a note that holds up the team's work, 30 minutes after the person left; never while they are here", async () => {
+    const held = await note(hz.B.businessId, { blocksContinue: true, createdAt: new Date(NOW.getTime() - 45 * 60_000), subject: "Approve the launch post?" });
+    await repos.presence.ping(hz.db, hz.B.businessId, hz.B.adminId, { now: new Date(NOW.getTime() - 10 * 60_000) });
+    await pass();
+    const about = asked.filter((a) => a.data.inboxItemId === held).map((a) => a.userId);
+    expect(about).toContain(hz.B.ownerId);
+    expect(about).not.toContain(hz.B.adminId);
+    // A note that holds nothing up waits the day.
+    asked = [];
+    await clearNotes();
+    await note(hz.B.businessId, { createdAt: new Date(NOW.getTime() - 45 * 60_000) });
+    await pass();
+    expect(asked).toEqual([]);
+  });
+
+  it("the morning brief and the weekly review count toward no limit", async () => {
+    const person = hz.B.ownerId;
+    for (const kind of ["daily_brief", "weekly_review", "daily_brief"] as const) {
+      const b = await repos.businesses.create(hz.db, { name: `Brief ${kind} ${randomUUID().slice(0, 4)}` });
+      await hz.db.insert(memberships).values({ businessId: b.id, userId: person, role: "owner" });
+      await recordSent({ userId: person, kind, businessId: b.id, data: {} as { inboxItemId: string } });
+    }
+    await note(hz.B.businessId, { createdAt: new Date(NOW.getTime() - 50 * HOURS) });
+    await pass();
+    expect(asked.map((a) => a.userId)).toContain(person);
   });
 
   it("stops when the gateway says nothing can go out now, and moves on after a per-person refusal", async () => {

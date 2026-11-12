@@ -3,8 +3,8 @@
  * NeedsYouList read them. Every sentence is the API's (packages/shared goals.ts, today-words.ts); this file only picks
  * the pill, the bar's words and the links.
  */
-import type { GoalPanelGoal, GoalPanelProposal, NeedsYouRow } from "@foundmill/dugout";
-import { goalOptions, goalPaceState, goalValueText, type GoalMetricKind, type GoalProposalReason } from "@foundmill/shared";
+import type { GoalPanelGoal, GoalPanelProposal, NeedsYouRow, SinceLastVisitLine } from "@foundmill/dugout";
+import { countOf, goalOptions, streakWords, goalPaceState, goalValueText, type GoalMetricKind, type GoalProposalReason } from "@foundmill/shared";
 import { routes } from "@foundmill/widgets/shared/routes";
 
 export interface GoalViewLike {
@@ -82,4 +82,47 @@ export function toNeedsYouRows(businessId: string, items: readonly NeedsYouItemL
     quickOption: i.quickOption,
     holdsContinue: i.blocksContinue,
   }));
+}
+
+/** What `today.sinceLastVisit` answers (apps/api services/today.ts `SinceLastVisit`). */
+export interface SinceLastVisitLike {
+  since: string;
+  rounds: number;
+  tasksDone: number;
+  wins: number;
+  newDecisions: number;
+  milestones: readonly string[];
+  spend: { amountMinor: number; currency: string } | null;
+}
+
+/**
+ * "Since you were last here" in plain lines (retention plan, 2026-11-11): the work, the wins, the new decisions with a
+ * link to answer them, the milestones, and spend marked Estimate. Lines with nothing to say are left out.
+ */
+export function sinceLastVisitLines(view: SinceLastVisitLike, businessId: string, money: (m: { amountMinor: number; currency: string }) => string): SinceLastVisitLine[] {
+  const lines: SinceLastVisitLine[] = [];
+  if (view.rounds > 0 || view.tasksDone > 0) lines.push({ id: "work", text: `${countOf(view.rounds, "round")} of work, ${countOf(view.tasksDone, "task")} done.` });
+  if (view.wins > 0) lines.push({ id: "wins", text: `${countOf(view.wins, "customer")} won.`, tone: "gold", link: { href: routes.inbox(businessId), label: "Open" } });
+  if (view.newDecisions > 0) lines.push({ id: "decisions", text: `${countOf(view.newDecisions, "new decision")} ${view.newDecisions === 1 ? "needs" : "need"} you.`, link: { href: needsYouHref(businessId), label: "Answer" } });
+  view.milestones.forEach((m, i) => lines.push({ id: `milestone-${i}`, text: `Milestone: ${m}.`, tone: "gold", link: { href: `/b/${businessId}/milestones`, label: "See" } }));
+  if (view.spend) lines.push({ id: "spend", text: `Team spend ${money(view.spend)} (Estimate).` });
+  return lines;
+}
+
+/** What `today.streak` answers (packages/shared streak.ts `Streak`). */
+export interface StreakLike {
+  current: number;
+  best: number;
+  visitedToday: boolean;
+  atRisk: boolean;
+  milestone: number | null;
+  week: readonly { day: string; state: "visited" | "vacation" | "missed" | "today" }[];
+}
+
+const WEEKDAY = new Intl.DateTimeFormat("en-US", { weekday: "short", timeZone: "UTC" });
+
+/** The StreakStrip's props: the shared words and a short weekday under each dot ("Mon"). */
+export function streakStripProps(s: StreakLike): { headline: string; line: string; atRisk: boolean; milestone: boolean; week: { day: string; label: string; state: StreakLike["week"][number]["state"] }[] } {
+  const words = streakWords(s);
+  return { ...words, atRisk: s.atRisk, milestone: s.milestone !== null, week: s.week.map((d) => ({ ...d, label: WEEKDAY.format(new Date(`${d.day}T12:00:00Z`)) })) };
 }

@@ -1,7 +1,7 @@
 /** founder_profiles — account-scoped (userId first), routers founder.profile.get/update. */
 import { BIDI_NAME_MESSAGE, RESERVED_NAME_MESSAGE, hasBidiControl, isReservedName } from "@foundmill/config";
 import { VISIBILITY, ValidationError } from "@foundmill/shared";
-import { and, asc, eq, isNull, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull, ne, sql } from "drizzle-orm";
 import { authUsers } from "drizzle-orm/supabase";
 import { z } from "zod";
 import { businesses, founderProfiles, memberships, type Business, type FounderProfile, type Membership } from "../schema";
@@ -52,6 +52,18 @@ export const foundersRepo = {
     const rows = await db.select({ id: authUsers.id }).from(authUsers).where(sql`lower(${authUsers.email}) = lower(${e})`).limit(2);
     // Two accounts on one address (case variants) are ambiguous: the account ID is needed instead.
     return rows.length === 1 ? rows[0]!.id : null;
+  },
+
+  /**
+   * Who the notifier asks the gateway to email about one business (retention plan, 2026-11-11): its owners and admins,
+   * by account id with their walls (never an example membership: a walk around a demo gets no mail). No address: the
+   * gateway reads that itself (`emailOf`).
+   */
+  async notifyRecipients(db: Executor, businessId: string): Promise<{ userId: string; role: Membership["role"]; sectionPermissions: Membership["sectionPermissions"] }[]> {
+    return db
+      .select({ userId: memberships.userId, role: memberships.role, sectionPermissions: memberships.sectionPermissions })
+      .from(memberships)
+      .where(and(eq(memberships.businessId, businessId), inArray(memberships.role, ["owner", "admin"]), ne(memberships.source, "example")));
   },
 
   /**

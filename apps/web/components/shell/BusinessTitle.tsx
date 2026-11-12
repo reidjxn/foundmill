@@ -14,7 +14,8 @@ import { skipToken, useQuery } from "@tanstack/react-query";
 import { usePathname } from "next/navigation";
 import { useLayoutEffect, useRef } from "react";
 import { APP_NAME } from "@foundmill/config";
-import { businessDocumentTitle, businessScreenTitle, entityIdOfPath } from "@/lib/page-titles";
+import { businessDocumentTitle, businessScreenTitle, entityIdOfPath, withNeedsYouCount } from "@/lib/page-titles";
+import { shellQueryInputs } from "@/lib/shell-queries";
 import { useTRPC } from "@/lib/trpc-react";
 import { useBusiness } from "./business-context";
 
@@ -29,5 +30,8 @@ export function BusinessTitle() {
   useLayoutEffect(() => {
     for (const copy of document.querySelectorAll("body > title")) if (copy !== ref.current) copy.remove();
   }, []);
-  return <title ref={ref}>{businessDocumentTitle(screen, data.business.name, APP_NAME)}</title>;
+  // The shell's own Inbox read (never fetched from here): the "Needs you" count goes in front of the title.
+  const inbox = useQuery({ ...trpc.inbox.list.queryOptions(shellQueryInputs(businessId).inbox), enabled: false });
+  const needsYou = inbox.data?.counts?.respond ?? 0;
+  return <title ref={ref}>{withNeedsYouCount(businessDocumentTitle(screen, data.business.name, APP_NAME), needsYou)}</title>;
 }

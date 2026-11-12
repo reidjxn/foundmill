@@ -27,6 +27,8 @@ import { agentsStoppedView } from "@/lib/agents-stopped";
 import { formatMoney as formatCredits } from "@/lib/format";
 import { SIDEBAR_COLLAPSED_PREFIX } from "@/lib/auth/constants";
 import { rememberLastBusiness } from "@/lib/auth/last-business";
+import { usePresencePing } from "@/lib/presence";
+import { showWinNotice, winNoticeFor } from "@/lib/browser-notifications";
 import { accountRoutes } from "@/lib/account-routes";
 import { readOnlyReason, sampleMarker, type Access, type SampleMarker } from "@/lib/access";
 import { CONTINUE_RUN_END_REASONS, RUN_UNTIL_DONE, continueRunEndedMessage, type ContinueRunEndReason } from "@foundmill/shared";
@@ -454,9 +456,17 @@ function ShellInner({ businessId, initialBusiness, initialDepartments, viewer, c
     claimZoneFor({ businessId, timeZone: zone });
   }, [businessId, business.timeZone, data.role, claimZoneFor]);
 
+  // Opt-in browser notifications for wins (Settings › Preferences › Email; retention plan, 2026-11-11).
+  const notifyPrefs = useQuery(trpc.founder.email.get.queryOptions(undefined, { staleTime: 5 * 60_000 }));
+  const browserNotices = notifyPrefs.data?.browserNotifications === true;
+
   useStreamSubscription(`ev:${businessId}`, (raw) => {
     const event: WidgetEvent | null = readWidgetEvent(raw);
     if (!event) return;
+    if (browserNotices) {
+      const notice = winNoticeFor(event, { id: businessId, name: business.name });
+      if (notice) showWinNotice(notice, (href) => router.push(href));
+    }
     if ((CYCLE_EVENT_TYPES as readonly string[]).includes(event.type)) dispatch({ type: "event", event, agentDepartment });
     // The orchestrator's own mark catches the strip up: its sentence takes over from the press's answer.
     if (event.type === "cycle.started") announce(null, null);
@@ -477,6 +487,9 @@ function ShellInner({ businessId, initialBusiness, initialDepartments, viewer, c
   useEffect(() => {
     rememberLastBusiness(businessId);
   }, [businessId]);
+
+  // --- presence: the founder is here (sessions, "Since you were last here", returns from notifications) ------------
+  usePresencePing(businessId);
 
   // --- sidebar -------------------------------------------------------------------------------------------------
   const [collapsed, setCollapsed] = useState(false);

@@ -49,7 +49,6 @@ import {
 import type { AgentStyle } from "@foundmill/shared/personas";
 import { personStateLine } from "@foundmill/shared/person-profile";
 import { TEAM_CALL_WORDS } from "@foundmill/shared/team-call";
-import { EMAIL_NOTIFICATION_LABELS, EMAIL_NOTIFICATIONS_HINT, emailNotificationSavedLine } from "@foundmill/shared/notify-email";
 import { ANTHROPOMORPHIC_EXPLAINER, anthropomorphicSavedLine } from "@/lib/anthropomorphic";
 import { useClientNow } from "@/lib/today";
 import { useDatePreferences } from "@/components/providers/DateFormatHost";
@@ -59,6 +58,7 @@ import { useTRPC } from "@/lib/trpc-react";
 import { accountRoutes } from "@/lib/account-routes";
 import { LinkButton } from "@/components/new/LinkButton";
 import { AccountId } from "./AccountId";
+import { EmailNotificationsSection } from "./EmailNotificationsSection";
 import { Hint, SettingsSection, useSettingsToast } from "./shared";
 
 /** The one field a choice changed, or null when it changed nothing. */
@@ -255,51 +255,6 @@ export function BuilderViewSection() {
           <Label htmlFor="builder-view-switch">Builder view</Label>
           <p id="builder-view-switch-hint" className="text-small text-secondary">
             {BUILDER_VIEW_HINT}
-          </p>
-        </div>
-      </div>
-    </SettingsSection>
-  );
-}
-
-/**
- * The Email section (packages 1.5 and 5.1): which emails Foundmill sends the person about their own projects. One switch
- * so far, on by default: an email when a note has waited a day for their answer without being opened on any device. It
- * saves at once (`founder.preferences.update` with `email`) with a toast; the link at the foot of every such email turns
- * the same switch off.
- */
-export function EmailNotificationsSection() {
-  const trpc = useTRPC();
-  const queryClient = useQueryClient();
-  const t = useSettingsToast();
-  const options = trpc.founder.preferences.notifications.queryOptions(undefined, { staleTime: 60_000 });
-  const stored = useQuery(options);
-  const update = useMutation(trpc.founder.preferences.update.mutationOptions());
-  const [optimistic, setOptimistic] = useState<boolean | null>(null);
-  const on = optimistic ?? stored.data?.email?.decision_waiting ?? true;
-  const change = (next: boolean) => {
-    setOptimistic(next);
-    update.mutateAsync({ email: { decision_waiting: next } }).then(
-      (saved) => {
-        queryClient.setQueryData(options.queryKey, { notifications: saved.notifications, hideAmountsOnLockScreen: saved.hideAmountsOnLockScreen, email: saved.email });
-        setOptimistic(null);
-        const line = emailNotificationSavedLine(saved.email.decision_waiting);
-        t.saved(line.title, line.description);
-      },
-      (err: unknown) => {
-        setOptimistic(null);
-        t.failed(err, "Preference not saved");
-      },
-    );
-  };
-  return (
-    <SettingsSection title="Email" data-testid="email-notifications-panel">
-      <div className="flex items-start gap-3" data-testid="email-decision-waiting-choice">
-        <Switch id="email-decision-waiting-switch" checked={on} disabled={stored.isPending} onCheckedChange={(next) => void change(next)} aria-describedby="email-decision-waiting-hint" data-testid="email-decision-waiting-switch" />
-        <div className="flex flex-col gap-1">
-          <Label htmlFor="email-decision-waiting-switch">{EMAIL_NOTIFICATION_LABELS.decision_waiting}</Label>
-          <p id="email-decision-waiting-hint" className="text-small text-secondary">
-            {EMAIL_NOTIFICATIONS_HINT}
           </p>
         </div>
       </div>

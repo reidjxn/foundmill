@@ -134,8 +134,9 @@ function LiveCall({ call }: { call: TeamCallView }) {
 
   const playback = useCallPlayback(
     useCallback(
-      (turnId: string) => {
-        return speechM.mutateAsync({ businessId, callId, turnId });
+      (turnId: string, opts?: { stream?: boolean }) => {
+        // Live speech streams (the turn starts within about a second); simulated speech never does.
+        return speechM.mutateAsync({ businessId, callId, turnId, stream: opts?.stream ?? true });
       },
       // eslint-disable-next-line react-hooks/exhaustive-deps -- mutateAsync is stable
       [businessId, callId],
