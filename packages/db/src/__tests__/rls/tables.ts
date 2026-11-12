@@ -182,6 +182,10 @@ export const NON_TENANT_TABLES = [
   "founder_devices",
   // 0080: handles a person left, kept for them for 90 days (user-owned, service role only); rls/person-profiles.test.ts.
   "person_handle_releases",
+  // 0085: a person's own events and their delivery queue (user-owned, no business_id; written by services only, the
+  // queue service role only); covered by rls/account-events.test.ts.
+  "account_events",
+  "account_outbox",
   "ideas",
   "idea_versions",
   "idea_comparisons",

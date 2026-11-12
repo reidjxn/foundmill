@@ -4,7 +4,9 @@
  * the voice-activity rules of `vad.ts` (an utterance starts above a threshold and ends after 1.2 s of silence, 60 s at
  * most). Live transcription records each utterance with MediaRecorder (opus webm where supported) and hands the
  * recording over; simulated transcription uses the browser's own recognizer. Starting to speak calls `onSpeechStart`
- * (barge-in: the page stops the agents). Nothing is sent anywhere from here.
+ * (the page holds the agents); every start is then followed by exactly one of `onUtterance` (something to send or
+ * transcribe) or `onSpeechDiscarded` (a click or a cough, nothing heard, or the mic switched off mid-word), so a hold
+ * is always released. Nothing is sent anywhere from here.
  */
 import { useCallback, useEffect, useRef, useState } from "react";
 import { audioMimeOf, pickRecorderMime, recognizerCtor, type RecognizerLike } from "./browser-speech";
@@ -20,6 +22,8 @@ export interface CallMicrophoneOptions {
   /** The founder began to speak. */
   onSpeechStart: () => void;
   onUtterance: (u: Utterance) => void;
+  /** What began with `onSpeechStart` came to nothing: no utterance follows it. */
+  onSpeechDiscarded: () => void;
 }
 
 export interface CallMicrophone {
@@ -148,6 +152,7 @@ export function useCallMicrophone(options: CallMicrophoneOptions): CallMicrophon
           const blob = await finishRecording();
           const mime = blob ? audioMimeOf(blob.type || recorderMime || "") : null;
           if (!discard && blob && mime) opts.current.onUtterance({ kind: "audio", blob, mime });
+          else opts.current.onSpeechDiscarded();
           return;
         }
         // The recognizer's last words arrive a moment after the voice stops.
@@ -156,6 +161,7 @@ export function useCallMicrophone(options: CallMicrophoneOptions): CallMicrophon
         collecting = false;
         heard = "";
         if (!discard && text) opts.current.onUtterance({ kind: "text", text });
+        else opts.current.onSpeechDiscarded();
       };
 
       let vad: VadState = VAD_IDLE;
@@ -185,6 +191,11 @@ export function useCallMicrophone(options: CallMicrophoneOptions): CallMicrophon
         stop: () => {
           alive = false;
           clearInterval(timer);
+          // Switched off mid-word: nothing will be sent for it.
+          if (vad.speaking) {
+            vad = VAD_IDLE;
+            opts.current.onSpeechDiscarded();
+          }
           if (recognizer) {
             recognizer.onend = null;
             try {

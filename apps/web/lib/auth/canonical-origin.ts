@@ -10,7 +10,7 @@
  */
 import { APP_ORIGIN } from "@foundmill/config";
 import { isDevLike, type PublicAppEnv } from "../env";
-import { NEXT_PARAM } from "./constants";
+import { NEXT_PARAM, SIGN_IN_VIA_PARAM } from "./constants";
 
 /** The canonical origin: NEXT_PUBLIC_APP_URL when it is an http(s) URL, otherwise the product's apex (APP_ORIGIN). */
 export function canonicalOrigin(appUrl: string | undefined): string {
@@ -76,5 +76,15 @@ export function magicLinkCallbackUrl(input: { appUrl: string | undefined; appEnv
   const base = hasAppUrl || !isDevLike({ appEnv: input.appEnv }) ? canonicalOrigin(input.appUrl) : input.currentOrigin;
   const callback = new URL("/auth/callback", base);
   callback.searchParams.set(NEXT_PARAM, input.next);
+  return callback.toString();
+}
+
+/**
+ * Where Continue with Google returns: the same /auth/callback on the same origin with the same `next` as the magic link
+ * (so both methods land the same way), marked `via=google` so a failure there is explained as a Google one.
+ */
+export function googleCallbackUrl(input: { appUrl: string | undefined; appEnv: PublicAppEnv; currentOrigin: string; next: string }): string {
+  const callback = new URL(magicLinkCallbackUrl(input));
+  callback.searchParams.set(SIGN_IN_VIA_PARAM, "google");
   return callback.toString();
 }

@@ -512,6 +512,13 @@
       "when": 1796128080000,
       "tag": "0084_autopilot_own_limits",
       "breakpoints": true
+    },
+    {
+      "idx": 73,
+      "version": "7",
+      "when": 1796128380000,
+      "tag": "0085_account_events",
+      "breakpoints": true
     }
   ]
 }

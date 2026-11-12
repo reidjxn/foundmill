@@ -10,8 +10,10 @@
  * sent a fresh token for the same account (`auth`).
  *
  * Client → server
- *   { "t": "sub",   "ch": "ev:<businessId>" | "as:<sessionId>" | "u:<userId>", "focus"?: boolean }
- *                                                          (`u:` is the signed-in person's own LIVE signals; nobody else's)
+ *   { "t": "sub",   "ch": "ev:<businessId>" | "as:<sessionId>" | "u:<userId>" | "ae:<userId>", "focus"?: boolean }
+ *                                                          (`u:` is the signed-in person's own LIVE signals; nobody else's.
+ *                                                           `ae:` is the signed-in person's own account events: facts
+ *                                                           about them and nobody else, never a business's)
  *   { "t": "unsub", "ch": ... }
  *   { "t": "ping" }
  *   { "t": "focus", "ch": ..., "focused": boolean }        (extension: lets the server prefer dropping unfocused tiles
@@ -88,20 +90,24 @@ export function tokenExpiry(token: string | null | undefined): number | null {
 export const BUSINESS_CHANNEL_PREFIX = "ev:";
 export const SESSION_CHANNEL_PREFIX = "as:";
 export const USER_CHANNEL_PREFIX = "u:";
+export const ACCOUNT_CHANNEL_PREFIX = "ae:";
 
-export type ChannelKind = "business" | "session" | "user";
+export type ChannelKind = "business" | "session" | "user" | "account";
 
 export interface ParsedChannel {
   kind: ChannelKind;
-  /** The business id (`ev:`), the agent session id (`as:`) or the person's user id (`u:`). */
+  /** The business id (`ev:`), the agent session id (`as:`) or the person's user id (`u:`, `ae:`). */
   id: string;
-  /** The Redis stream key, identical to the channel name by design (BUILD §8.2). */
+  /**
+   * The Redis stream key, identical to the channel name by design (BUILD §8.2). An `ae:` key is always lowercase (the
+   * account relay writes it so), whatever case the channel was asked in.
+   */
   streamKey: string;
 }
 
 const ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-/** Parse `ev:<uuid>` / `as:<uuid>` / `u:<uuid>`; null for anything else (unknown prefix, non-uuid id, stray whitespace). */
+/** Parse `ev:<uuid>` / `as:<uuid>` / `u:<uuid>` / `ae:<uuid>`; null for anything else (unknown prefix, non-uuid id, stray whitespace). */
 export function parseChannel(channel: unknown): ParsedChannel | null {
   if (typeof channel !== "string") return null;
   if (channel.startsWith(BUSINESS_CHANNEL_PREFIX)) {
@@ -116,12 +122,18 @@ export function parseChannel(channel: unknown): ParsedChannel | null {
     const id = channel.slice(USER_CHANNEL_PREFIX.length);
     return ID_RE.test(id) ? { kind: "user", id, streamKey: channel } : null;
   }
+  if (channel.startsWith(ACCOUNT_CHANNEL_PREFIX)) {
+    const id = channel.slice(ACCOUNT_CHANNEL_PREFIX.length);
+    return ID_RE.test(id) ? { kind: "account", id, streamKey: `${ACCOUNT_CHANNEL_PREFIX}${id.toLowerCase()}` } : null;
+  }
   return null;
 }
 
 export const businessChannel = (businessId: string): string => `${BUSINESS_CHANNEL_PREFIX}${businessId}`;
 export const sessionChannel = (sessionId: string): string => `${SESSION_CHANNEL_PREFIX}${sessionId}`;
 export const userChannel = (userId: string): string => `${USER_CHANNEL_PREFIX}${userId}`;
+/** The signed-in person's own account events (`profile.published`, …): open to that account only. */
+export const accountChannel = (userId: string): string => `${ACCOUNT_CHANNEL_PREFIX}${userId.toLowerCase()}`;
 
 export type ClientFrame =
   | { t: "sub"; ch: string; focus?: boolean }
