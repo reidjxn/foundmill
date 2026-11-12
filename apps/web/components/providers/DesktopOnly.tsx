@@ -16,7 +16,7 @@ import { NeedsLargerWindow, isViewportTooSmall, useViewportWidth } from "@foundm
  * gains small-screen routes (docs/THESIS_REVIEW.md package 2.1): a project's public page first, then a person's public
  * profile (package 2.3).
  */
-export const SMALL_SCREEN_PREFIXES: readonly string[] = ["/p/", "/u/"];
+export const SMALL_SCREEN_PREFIXES: readonly string[] = ["/p/", "/u/", "/m/"];
 
 /** Whether `pathname` renders at every width (one of `SMALL_SCREEN_PREFIXES`). */
 export function worksOnSmallScreens(pathname: string | null | undefined): boolean {

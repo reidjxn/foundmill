@@ -10,13 +10,16 @@
  * A project on the free plan carries the small "Built on Foundmill" mark (docs/NETWORK.md F2; founder, 2026-11-12),
  * drawn for whoever is looking: a signed-out visitor gets it as a quiet link and, after following, one more line; a
  * signed-in Foundmill member gets plain words and no link. Both links name this page as where the visitor came from
- * (`?via=p.<slug>`, @foundmill/shared/via). A paid plan shows none of it.
+ * (`?via=p.<slug>`, @foundmill/shared/via). A paid plan shows none of it. Once the founders show a milestone the
+ * project has a story (`./story`, `page.story`): the mark and the line after a follow then lead there instead of to the
+ * landing page, with the same `via`, and the line's link reads "See how it was made".
  */
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { APP_NAME } from "@foundmill/config";
 import { ProjectPage } from "@foundmill/dugout";
 import { builtOnWords, pageDescription, pageTitle } from "@foundmill/shared/project-page";
+import { storyPath } from "@foundmill/shared/project-story";
 import { withVia } from "@foundmill/shared/via";
 import { FollowProjectForm } from "@/components/public/FollowProjectForm";
 import { getServerAuth } from "@/lib/auth/server";
@@ -51,7 +54,8 @@ export default async function PublicProjectPageRoute({ params }: Props) {
   const member = page.mark ? (await getServerAuth().catch(() => null)) !== null : false;
   const mark = !page.mark ? "none" : member ? "member" : "visitor";
   const words = builtOnWords(APP_NAME);
-  const markHref = withVia("/", { kind: "project_page", ref: page.slug });
+  // The story is what turns a noticed mark into "I could do this" (docs/NETWORK.md F2); without one, the landing page.
+  const markHref = withVia(page.story ? storyPath(page.slug) : "/", { kind: "project_page", ref: page.slug });
   return (
     <ProjectPage
       name={page.name}
@@ -68,7 +72,7 @@ export default async function PublicProjectPageRoute({ params }: Props) {
       markHref={markHref}
       follow={
         page.followForm ? (
-          <FollowProjectForm name={page.name} slug={page.slug} builtOn={mark === "visitor" ? { line: words.afterFollow(page.name), linkLabel: words.afterFollowLink, href: markHref } : null} />
+          <FollowProjectForm name={page.name} slug={page.slug} builtOn={mark === "visitor" ? { line: words.afterFollow(page.name), linkLabel: page.story ? words.afterFollowStoryLink : words.afterFollowLink, href: markHref } : null} />
         ) : null
       }
     />
