@@ -50,6 +50,30 @@ describe("playback queue", () => {
     expect(run([{ type: "ready", id: "t3" }], s)).toBe(s);
   });
 
+  it("a hold (the founder began to speak) starts nothing new and keeps every turn; the release carries on in order", () => {
+    // The team's answer arrives while the founder makes a sound: it is fetched but not started.
+    let s = run([{ type: "hold" }, { type: "enqueue", turns: [turn(1), turn(2)] }]);
+    expect(toFetch(s)).toEqual(["t1", "t2"]);
+    s = run([{ type: "fetching", id: "t1" }, { type: "ready", id: "t1" }], s);
+    expect(toPlay(s)).toBeNull();
+    expect(queueIdle(s)).toBe(false);
+    // The sound came to nothing: the answer is spoken.
+    s = run([{ type: "release" }], s);
+    expect(toPlay(s)?.id).toBe("t1");
+    expect(statuses(s)).toEqual(["t1:ready", "t2:queued"]);
+  });
+
+  it("a stop while held drops the turns and the hold stays until released", () => {
+    let s = run([{ type: "enqueue", turns: [turn(1)] }, { type: "ready", id: "t1" }, { type: "playing", id: "t1" }, { type: "hold" }]);
+    expect(playingItem(s)?.id).toBe("t1");
+    s = run([{ type: "stop" }], s);
+    expect(statuses(s)).toEqual(["t1:skipped"]);
+    expect(s.held).toBe(true);
+    s = run([{ type: "release" }, { type: "enqueue", turns: [turn(2)] }, { type: "ready", id: "t2" }], s);
+    expect(toPlay(s)?.id).toBe("t2");
+    expect(run([{ type: "release" }], s)).toBe(s);
+  });
+
   it("is idle only when every turn has been said or dropped", () => {
     expect(queueIdle(EMPTY_QUEUE)).toBe(true);
     expect(queueIdle(run([{ type: "enqueue", turns: [turn(1)] }]))).toBe(false);
