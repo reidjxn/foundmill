@@ -71,6 +71,7 @@ import { audit, emit, type BusinessContext } from "../trpc";
 import { planContextFor } from "./decide";
 import { dispatchPlan, evaluatePlan, executePlanActions, ownAgentsOnly, redispatchPlans, stagedAction, type ActionEvaluation } from "./plans";
 import { speechLive, speechModes, synthesizeCallSpeech, transcribeCallSpeech } from "./speech";
+import { speechTickets } from "./speech-tickets";
 
 // ---------------------------------------------------------------------------------------------------------------------
 // Rules
@@ -416,7 +417,7 @@ async function runRound(ctx: BusinessContext, callId: string, mode: TeamCallTurn
 // Speech
 // ---------------------------------------------------------------------------------------------------------------------
 
-export async function speakTurn(ctx: BusinessContext, input: { callId: string; turnId: string }): Promise<TeamCallSpeechView> {
+export async function speakTurn(ctx: BusinessContext, input: { callId: string; turnId: string; stream?: boolean }): Promise<TeamCallSpeechView> {
   const { turn, roster } = await ctx.rls(async (tx) => {
     const [turns, roster] = await Promise.all([repos.teamCalls.turns(tx, ctx.businessId, input.callId), rosterOf(tx, ctx.businessId)]);
     return { turn: turns.find((t) => t.id === input.turnId) ?? null, roster };
@@ -429,7 +430,21 @@ export async function speakTurn(ctx: BusinessContext, input: { callId: string; t
   });
   const speechAccent = roster.accents.get(turn.agentId) ?? roster.accents.values().next().value!;
   await speechCredits(ctx);
-  const spoken = await synthesizeCallSpeech({ env: ctx.env, gateway: ctx.gateway }, { businessId: ctx.businessId, callId: input.callId, turnId: turn.id, speechAccent, text: words.slice(0, TEAM_CALL_LIMITS.maxTurnChars) || "…" });
+  const text = words.slice(0, TEAM_CALL_LIMITS.maxTurnChars) || "…";
+  // Live and asked to stream: a short-lived ticket the <audio> element plays from the api's own route, so the turn starts
+  // within about a second (the buffered answer took 13 to 18 seconds on the first production call). The checks above
+  // (Team section, RLS on the call and turn, credits) are made now; the gateway's own checks run when the audio is asked.
+  if (input.stream && speechLive(ctx.env) && ctx.gateway.streamSpeech) {
+    const ticket = await speechTickets(ctx.redis)
+      .issue({ businessId: ctx.businessId, callId: input.callId, turnId: turn.id, userId: ctx.userId, speechAccent, text })
+      .catch((e: unknown) => {
+        // The ticket store is down: the whole clip below still speaks the turn (the gateway's own checks decide).
+        ctx.log.warn({ code: e instanceof Error ? e.name : "unknown" }, "team call: no speech ticket, speaking the whole clip");
+        return null;
+      });
+    if (ticket) return { turnId: turn.id, speechAccent, mime: "audio/mpeg", base64: "", simulated: false, spokenText: words, streamUrl: `/team-call-audio/${ticket}` };
+  }
+  const spoken = await synthesizeCallSpeech({ env: ctx.env, gateway: ctx.gateway }, { businessId: ctx.businessId, callId: input.callId, turnId: turn.id, speechAccent, text });
   return { turnId: turn.id, speechAccent, mime: spoken.mime, base64: spoken.base64, simulated: spoken.simulated, spokenText: words };
 }
 

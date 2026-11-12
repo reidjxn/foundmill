@@ -23,7 +23,7 @@
  * A missing ELEVENLABS_API_KEY is 503 `speech_unconfigured`.
  */
 import { z } from "zod";
-import { isConfigError, decodedBytes, ELEVENLABS_KEY, mockIntegrationRecord, SynthesizeSpeechOutput, TranscribeSpeechOutput, type ToolContext, type ToolResult } from "@foundmill/connectors";
+import { isConfigError, decodedBytes, ELEVENLABS_KEY, estimateSpeechCostMinor, mockIntegrationRecord, SynthesizeSpeechOutput, TranscribeSpeechOutput, VendorError, type ToolContext, type ToolResult } from "@foundmill/connectors";
 import { bookUsage, repos } from "@foundmill/db";
 import { isSpeechAccentKey, TEAM_CALL_AUDIO_MIMES, TEAM_CALL_LIMITS } from "@foundmill/shared";
 import { GatewayError, modeFor, safeError, type GatewayDeps } from "./pipeline";
@@ -31,6 +31,8 @@ import { checkRateLimit, DAY_MS } from "./rate-limit";
 import { SIMULATED_NOTICE } from "./types";
 
 export const SPEECH_SYNTHESIZE_ROUTE = "/v1/speech/synthesize";
+/** Streamed speech: the same request as synthesize, answered with MP3 bytes as the vendor makes them (`streamSpeech`). */
+export const SPEECH_STREAM_ROUTE = "/v1/speech/stream";
 export const SPEECH_TRANSCRIBE_ROUTE = "/v1/speech/transcribe";
 
 /** A recording of at most 8 MiB is 11.2 MB of base64, plus the JSON around it. */
@@ -277,4 +279,67 @@ export async function transcribeSpeech(deps: GatewayDeps, input: TranscribeSpeec
   });
   const simulated = mode === "mock";
   return { mode, text: data.data.text, simulated, ...(simulated ? { notice: SIMULATED_NOTICE } : {}), durationSeconds: data.data.durationSeconds, costMinor };
+}
+
+/**
+ * `POST /v1/speech/stream`: one agent turn spoken in its accent, answered as `audio/mpeg` bytes while ElevenLabs makes
+ * them, so the call starts playing within about a second. The same checks in the same order as `synthesizeSpeech` (the
+ * accent, the words, the business's window, the day's spoken characters, a durable store when live), then the vendor's
+ * streaming endpoint (`deps.speechStreamer`, built from the platform key). A refusal before the first byte is the same
+ * JSON error as synthesize, with the day's characters given back when the vendor refused outright; once bytes flow the
+ * answer is the stream, and the audit row and the usage Estimate are written as it starts (the vendor bills the turn
+ * whether or not the listener stays). Live only: in mock mode the api answers simulated speech itself and never asks.
+ */
+export async function streamSpeech(deps: GatewayDeps, input: SynthesizeSpeechRequest, service: string, signal?: AbortSignal): Promise<Response> {
+  if (!isSpeechAccentKey(input.speechAccent)) throw new GatewayError("unknown_speech_accent", "That is not a speech accent", 400);
+  const text = input.text.trim();
+  if (text.length < 1 || text.length > TEAM_CALL_LIMITS.maxTurnChars) throw new GatewayError("validation", `Speak between 1 and ${TEAM_CALL_LIMITS.maxTurnChars} characters at a time`, 400);
+  const prepared = await prepare(deps, input.businessId);
+  if (prepared.mode !== "live") throw new GatewayError("speech_not_live", "Speech runs simulated here, so there is nothing to stream.", 409);
+  if (!deps.speechStreamer) throw new GatewayError("speech_unconfigured", "Speech is not set up on this server yet (ELEVENLABS_API_KEY is missing on the gateway)", 503);
+  const nowMs = prepared.now().getTime();
+  const dayKey = speechDayKey(input.businessId);
+  const characters = text.length;
+  const hit = await deps.rateLimits.hit(dayKey, DAY_MS, nowMs, characters);
+  let counted = true;
+  const giveBack = async () => {
+    if (!counted) return;
+    counted = false;
+    await deps.rateLimits.release?.(dayKey, DAY_MS, nowMs, characters);
+  };
+  if (!devStack(deps) && deps.rateLimits.durable !== true) {
+    await giveBack();
+    throw new GatewayError("speech_store_unavailable", "Speech is paused for a moment while the server's counters recover. Try again shortly.", 503);
+  }
+  const ceiling = TEAM_CALL_LIMITS.speechCharsPerBusinessPerDay;
+  if (hit.count > ceiling) {
+    await giveBack();
+    throw new GatewayError("speech_daily_limit", `Your team has spoken as much as one project can in a day (${ceiling.toLocaleString("en-US")} characters). Speaking starts again tomorrow; you can keep going by typing and reading.`, 429, {
+      retryAfterSeconds: Math.max(1, Math.ceil((hit.resetAt - nowMs) / 1000)),
+      limit: ceiling,
+    });
+  }
+  let stream;
+  try {
+    stream = await deps.speechStreamer.stream({ speechAccent: input.speechAccent, text }, signal);
+  } catch (e) {
+    if (isConfigError(e)) {
+      await giveBack();
+      throw new GatewayError("speech_unconfigured", "Speech is not set up on this server yet (ELEVENLABS_API_KEY is missing on the gateway)", 503);
+    }
+    const failure = speechFailure(e instanceof VendorError ? { code: "vendor_error", status: e.httpStatus, details: e.details } : undefined);
+    if (failure.nothingDone) await giveBack();
+    deps.log.warn({ businessId: input.businessId, callId: input.callId, speechAccent: input.speechAccent, status: e instanceof VendorError ? e.httpStatus : null, vendorCode: failure.details.vendorCode }, "streamed speech refused");
+    throw new GatewayError(failure.code, failure.message, failure.status, failure.details);
+  }
+  const costMinor = estimateSpeechCostMinor(characters);
+  await record(deps, prepared, {
+    action: "gateway.speech.streamed",
+    target: { kind: "team_call", id: input.callId },
+    details: { callId: input.callId, turnId: input.turnId, speechAccent: input.speechAccent, characters, mime: stream.mime },
+    tool: "synthesize_speech",
+    costMinor,
+    service,
+  });
+  return new Response(stream.body, { status: 200, headers: { "content-type": stream.mime, "cache-control": "no-store", "x-foundmill-speech-characters": String(characters) } });
 }

@@ -9,6 +9,7 @@ import { useCallback, useEffect, useReducer, useRef } from "react";
 import type { TeamCallSpeechView, TeamCallTurnView } from "@foundmill/shared/team-call";
 import { estimateSpeakMs, pickBrowserVoice, toDataUrl, utteranceTuning } from "./browser-speech";
 import { EMPTY_QUEUE, playingItem, queueIdle, queueReducer, toFetch, toPlay } from "./playback-queue";
+import { publicEnv } from "@/lib/env";
 
 export interface CallPlayback {
   /** Adds agent turns (each once) to the queue. */
@@ -21,7 +22,12 @@ export interface CallPlayback {
   idle: boolean;
 }
 
-export function useCallPlayback(fetchSpeech: (turnId: string) => Promise<TeamCallSpeechView>): CallPlayback {
+/** Where a streamed turn's audio is played from: the api's ticket path on the api's own origin. */
+export function streamSource(apiUrl: string, streamUrl: string): string {
+  return `${apiUrl.replace(/\/+$/, "")}${streamUrl}`;
+}
+
+export function useCallPlayback(fetchSpeech: (turnId: string, opts?: { stream?: boolean }) => Promise<TeamCallSpeechView>, apiUrl: string = publicEnv().apiUrl): CallPlayback {
   const [state, dispatch] = useReducer(queueReducer, EMPTY_QUEUE);
   const turns = useRef(new Map<string, TeamCallTurnView>());
   const speech = useRef(new Map<string, TeamCallSpeechView>());
@@ -96,6 +102,8 @@ export function useCallPlayback(fetchSpeech: (turnId: string) => Promise<TeamCal
     const finish = () => {
       if (finished || token.current !== my) return;
       finished = true;
+      // A stream that stalls or ends early is let go, so its connection to the api closes too.
+      if (audio.current && audio.current.src.includes("/team-call-audio/")) audio.current.removeAttribute("src");
       started.current = null;
       if (timer.current) clearTimeout(timer.current);
       timer.current = null;
@@ -130,7 +138,25 @@ export function useCallPlayback(fetchSpeech: (turnId: string) => Promise<TeamCal
     const el = (audio.current ??= new Audio());
     el.onended = finish;
     el.onerror = finish;
-    el.src = toDataUrl(view.mime, view.base64);
+    if (view.streamUrl) {
+      // Streamed: the audio plays as ElevenLabs makes it. A stream that cannot play (a ticket used up, the network) is
+      // asked for once more as a whole clip, so the line is still heard.
+      el.onerror = () => {
+        if (token.current !== my) return;
+        el.onerror = finish;
+        fetchRef
+          .current(id, { stream: false })
+          .then((whole) => {
+            if (token.current !== my || finished) return;
+            el.src = toDataUrl(whole.mime, whole.base64);
+            void el.play().catch(() => waitOut(estimateSpeakMs(whole.spokenText || text)));
+          })
+          .catch(finish);
+      };
+      el.src = streamSource(apiUrl, view.streamUrl);
+    } else {
+      el.src = toDataUrl(view.mime, view.base64);
+    }
     // A line that is spoken for real may run long; a silent clip is only its timing.
     waitOut(view.simulated ? estimateSpeakMs(view.spokenText || text) + 1_500 : 90_000);
     void el.play().catch(() => {

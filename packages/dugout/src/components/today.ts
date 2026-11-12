@@ -5,3 +5,5 @@ export * from "./today/NeedsYouList";
 export * from "./today/WeekPlan";
 export * from "./today/FirstWeekTimeline";
 export * from "./today/PublicPageNote";
+export * from "./today/SinceLastVisit";
+export * from "./today/StreakStrip";

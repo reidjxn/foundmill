@@ -42,6 +42,14 @@ export async function journeyMatviewRefresh(): Promise<{ refreshed: boolean; err
   return quick.refreshJourneyDaily();
 }
 
+/**
+ * Every five minutes: founder emails (retention plan, 2026-11-11). Waiting decisions, wins, milestones, finished runs,
+ * used-up credits and the morning brief / weekly review at each founder's hour (activities/notify.ts).
+ */
+export async function founderNotifications(input: ScheduleInput = {}): Promise<ScheduleResult> {
+  return acts.founderNotificationsSweep({ businessIds: await scheduledBusinesses(input), at: input.at });
+}
+
 export async function benchmarksRebuild(input: ScheduleInput = {}): Promise<ScheduleResult> {
   return acts.benchmarksRebuild({ businessIds: await scheduledBusinesses(input), at: input.at });
 }

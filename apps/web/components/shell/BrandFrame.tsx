@@ -7,8 +7,17 @@
  * header (title in sentence case, a rule that fades out), never a striped band.
  */
 import type { ReactNode } from "react";
+import { usePathname } from "next/navigation";
+import { worksOnSmallScreens } from "@/components/providers/DesktopOnly";
 import { APP_NAME, APP_TAGLINE } from "@foundmill/config";
-import { NeedsLargerWindow, Panel, ToastPlacement, Wordmark, isViewportTooSmall, useViewportWidth } from "@foundmill/dugout";
+import {
+  NeedsLargerWindow,
+  Panel,
+  ToastPlacement,
+  Wordmark,
+  isViewportTooSmall,
+  useViewportWidth,
+} from "@foundmill/dugout";
 
 export interface BrandFrameProps {
   /** The panel's title ("Sign in", "Not found"). */
@@ -24,10 +33,20 @@ export interface BrandFrameProps {
   smallScreen?: boolean;
 }
 
-export function BrandFrame({ title, meta, children, footer, smallScreen = false }: BrandFrameProps) {
-  // Desktop only unless `smallScreen`: below 1280 px the window is asked to grow, as on the landing page and in the business shell.
+export function BrandFrame({
+  title,
+  meta,
+  children,
+  footer,
+  smallScreen = false,
+}: BrandFrameProps) {
+  // Desktop only: below 1280 px the window is asked to grow, as on the landing page and in the business shell, except
+  // with `smallScreen` (the sign-in page) or on the small-screen routes (CLAUDE.md "Small screens": the pages an email
+  // opens use this frame).
   const width = useViewportWidth();
-  if (!smallScreen && isViewportTooSmall(width)) return <NeedsLargerWindow width={width} />;
+  const pathname = usePathname();
+  if (!smallScreen && !worksOnSmallScreens(pathname) && isViewportTooSmall(width))
+    return <NeedsLargerWindow width={width} />;
   return (
     <main className="relative isolate flex min-h-screen items-center justify-center overflow-hidden bg-canvas p-gutter text-primary">
       <div aria-hidden className="brand-backdrop -z-10" />

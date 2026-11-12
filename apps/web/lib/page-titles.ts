@@ -26,6 +26,14 @@ export function businessDocumentTitle(screen: string | null, businessName: strin
   return screen ? `${screen} · ${businessName} · ${appName}` : `${businessName} · ${appName}`;
 }
 
+/**
+ * The title with how many things need the founder in front ("(2) Today · Northwind · Foundmill"; retention plan,
+ * 2026-11-11), so a background tab says there is something waiting. Nothing in front when there is nothing.
+ */
+export function withNeedsYouCount(title: string, count: number): string {
+  return count > 0 ? `(${count > 99 ? "99+" : count}) ${title}` : title;
+}
+
 /** "Members · Settings"; the label is the list's (so the glossary slug reads "Your words · Settings"), "Settings" alone for an unknown tab. */
 export function settingsTitle(tab: string): string {
   const label = SETTINGS_TABS.find((t) => t.slug === tab)?.label;

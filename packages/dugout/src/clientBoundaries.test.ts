@@ -123,6 +123,8 @@ export const SERVER_SAFE_FILES = [
   // Public pages: the project page is rendered by the signed-out route as a Server Component.
   "components/public/ProjectPage.tsx",
   "components/public/PersonPage.tsx",
+  // The streak (retention plan, 2026-11-11): plain markup inside a Panel.
+  "components/today/StreakStrip.tsx",
 ];
 
 export function listSourceFiles(root = SRC): string[] {

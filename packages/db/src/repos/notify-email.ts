@@ -9,8 +9,8 @@
  * are scoped to one business like every other repo.
  */
 import { and, asc, eq, gte, inArray, isNotNull, isNull, lte, ne, or, sql } from "drizzle-orm";
-import type { EmailNotificationKind } from "@foundmill/shared";
-import { businesses, events, inboxItems, memberships, type Membership } from "../schema";
+import { LIMITED_EMAIL_KINDS, type EmailNotificationKind } from "@foundmill/shared";
+import { approvals, businesses, events, inboxItems, memberships, productSignoffs, type Membership } from "../schema";
 import { RESPOND_TYPES } from "./inbox";
 import type { Executor } from "./_shared";
 
@@ -80,6 +80,22 @@ export const notifyEmailRepo = {
     return rows[0] ?? null;
   },
 
+  /**
+   * Of `itemIds`, the notes that hold up the team's work (founder, 2026-11-12): one that holds Continue, an agent's gated
+   * call still waiting for its answer (its task waits too), or a sign-off of the specification or the roadmap still open
+   * (the team only does groundwork before it). These are emailed 30 minutes after the person left; the rest after a day.
+   */
+  async holdingUpWork(db: Executor, businessId: string, itemIds: readonly string[]): Promise<Set<string>> {
+    if (itemIds.length === 0) return new Set();
+    const ids = [...itemIds];
+    const [blocking, gated, signoffs] = await Promise.all([
+      db.select({ id: inboxItems.id }).from(inboxItems).where(and(eq(inboxItems.businessId, businessId), inArray(inboxItems.id, ids), eq(inboxItems.blocksContinue, true))),
+      db.select({ id: approvals.inboxItemId }).from(approvals).where(and(eq(approvals.businessId, businessId), inArray(approvals.inboxItemId, ids), isNull(approvals.resolvedAt))),
+      db.select({ id: productSignoffs.inboxItemId }).from(productSignoffs).where(and(eq(productSignoffs.businessId, businessId), inArray(productSignoffs.inboxItemId, ids), eq(productSignoffs.status, "pending"), inArray(productSignoffs.kind, ["spec", "roadmap"]))),
+    ]);
+    return new Set([...blocking, ...gated, ...signoffs].map((r) => r.id).filter((id): id is string => typeof id === "string"));
+  },
+
   /** The notes of `itemIds` this business already emailed the person about (any day), as a set of ids. */
   async emailedItems(db: Executor, businessId: string, userId: string, itemIds: readonly string[]): Promise<Set<string>> {
     if (itemIds.length === 0) return new Set();
@@ -90,13 +106,22 @@ export const notifyEmailRepo = {
     return new Set(rows.map((r) => r.itemId));
   },
 
-  /** How many emails went to the person since `since`, per business, among `businessIds` (the businesses they belong to). */
+  /** How many limited emails (`LIMITED_EMAIL_KINDS`: every kind but the briefs) went to the person since `since`, per business, among `businessIds` (the businesses they belong to). */
   async sentSince(db: Executor, userId: string, businessIds: readonly string[], since: Date): Promise<Map<string, number>> {
     if (businessIds.length === 0) return new Map();
     const rows = await db
       .select({ businessId: events.businessId, n: sql<number>`count(*)::int` })
       .from(events)
-      .where(and(inArray(events.businessId, [...businessIds]), eq(events.type, "notify.email_sent"), gte(events.occurredAt, since), sql`${events.payload} ->> 'userId' = ${userId}`))
+      .where(
+        and(
+          inArray(events.businessId, [...businessIds]),
+          eq(events.type, "notify.email_sent"),
+          gte(events.occurredAt, since),
+          sql`${events.payload} ->> 'userId' = ${userId}`,
+          // The morning brief and the weekly review count toward no limit (founder, 2026-11-12).
+          sql`${events.payload} ->> 'kind' in (${sql.join(LIMITED_EMAIL_KINDS.map((k) => sql`${k}`), sql`, `)})`,
+        ),
+      )
       .groupBy(events.businessId);
     return new Map(rows.map((r) => [r.businessId, Number(r.n)]));
   },

@@ -15,7 +15,7 @@ test.describe("settings › what the team can do", () => {
     await openBusiness(page, "settings/mode");
     const screen = settingsScreen(page);
     await expect(screen.getByTestId("team-can-do-mode")).toBeVisible({ timeout: LONG });
-    await expect(page).toHaveTitle(/^What the team can do · Settings · /);
+    await expect(page).toHaveTitle(/^(?:\(\d+\) )?What the team can do · Settings · /);
     await expect(screen.getByText(/Nothing on this page changes that\./)).toHaveCount(1);
     await expect(screen.getByTestId("team-can-do-always")).toContainText("Moving money, signing, filing in your name, accepting terms, deleting for good and changing security settings always come to you.");
     const answers = screen.getByRole("radiogroup", { name: "How much should the team do before checking with you?" });

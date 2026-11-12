@@ -16,7 +16,7 @@ let search = new URLSearchParams();
 /** Set to make the auth client's chunk fail to load (offline, a new deploy). */
 let clientLoadError: Error | null = null;
 
-vi.mock("next/navigation", () => ({ useSearchParams: () => search }));
+vi.mock("next/navigation", () => ({ useSearchParams: () => search, usePathname: () => "/login" }));
 vi.mock("@/lib/supabase/client", () => ({
   createClient: vi.fn(async () => {
     if (clientLoadError) throw clientLoadError;

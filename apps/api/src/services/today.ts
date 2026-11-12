@@ -22,7 +22,7 @@
  */
 import { APPROVAL_OPTIONS, approvalSection, repos, type DbTx, type InboxItem, type Task } from "@foundmill/db";
 import { CREDITS_CURRENCY } from "@foundmill/config";
-import { GOAL_OPTION_IDS, PAGE_READY_NOTE, WRITE_ROLES, addDaysToDay, dayKeyIn, firstWeekTimeline, firstWeekVisible, hasSectionAccess, isPageReadyDecision, weekPlanWords, type FirstWeekWords, type WeekFacts, type WeekPlanWords } from "@foundmill/shared";
+import { GOAL_OPTION_IDS, PAGE_READY_NOTE, WRITE_ROLES, addDaysToDay, dailyStreak, dayKeyIn, firstWeekTimeline, firstWeekVisible, hasSectionAccess, isPageReadyDecision, vacationDayKeys, weekPlanWords, type FirstWeekWords, type Streak, type WeekFacts, type WeekPlanWords } from "@foundmill/shared";
 import { channelRowsFor } from "./channel-availability";
 import type { BusinessContext } from "../trpc";
 import { autopilotStatus } from "./autopilot";
@@ -259,4 +259,63 @@ export async function todayView(ctx: BusinessContext, now: Date = new Date()): P
     ]);
     return { today: dayKeyIn(now, ctx.business.timeZone), needsYou, week: words, spend, chiefOfStaff: chief ? { id: chief.id, name: chief.name } : null, firstWeek, pageReady };
   });
+}
+
+/**
+ * "Since you were last here" (retention plan, 2026-11-11): what happened in the business between the end of the
+ * founder's previous session (founder_presence.previous_seen_at, kept by the presence ping) and now. Null on a first
+ * session, or when nothing happened. Each part follows the reader's section access: the work (development), wins
+ * (crm), decisions (inbox), milestones (inbox) and spend (finance, an Estimate).
+ */
+export interface SinceLastVisit {
+  since: string;
+  rounds: number;
+  tasksDone: number;
+  wins: number;
+  newDecisions: number;
+  milestones: string[];
+  /** Model cost of the rounds, an Estimate (null when the reader cannot read Finance). */
+  spend: { amountMinor: number; currency: string } | null;
+}
+
+export async function sinceLastVisitFor(ctx: BusinessContext, now: Date = new Date()): Promise<SinceLastVisit | null> {
+  const presence = await ctx.rls((tx) => repos.presence.get(tx, ctx.businessId, ctx.userId));
+  if (!presence?.previousSeenAt) return null;
+  const since = new Date(presence.previousSeenAt);
+  if (since.getTime() >= now.getTime()) return null;
+  const can = (s: Parameters<typeof hasSectionAccess>[1]) => hasSectionAccess(ctx.membership, s, "read");
+  const itemTypes = [...(can("crm") ? ["customer_won"] : []), ...(can("inbox") ? ["decision"] : [])];
+  const [events, items, milestones] = await Promise.all([
+    can("development") || can("finance") ? repos.notifyFacts.eventsSince(ctx.db, ctx.businessId, ["cycle.completed"], since) : Promise.resolve([]),
+    itemTypes.length ? repos.notifyFacts.itemsSince(ctx.db, ctx.businessId, itemTypes, since) : Promise.resolve([]),
+    can("inbox") ? repos.notifyFacts.milestonesSince(ctx.db, ctx.businessId, since) : Promise.resolve([]),
+  ]);
+  const num = (v: unknown) => (typeof v === "number" && Number.isFinite(v) ? v : 0);
+  const cost = events.reduce((n, e) => n + num((e.payload.cost as { amountMinor?: unknown } | undefined)?.amountMinor), 0);
+  const currency = (events.find((e) => (e.payload.cost as { currency?: unknown } | undefined)?.currency)?.payload.cost as { currency: string } | undefined)?.currency ?? "USD";
+  const view: SinceLastVisit = {
+    since: since.toISOString(),
+    rounds: can("development") ? events.length : 0,
+    tasksDone: can("development") ? events.reduce((n, e) => n + num(e.payload.tasksCompleted), 0) : 0,
+    wins: items.filter((i) => i.type === "customer_won").length,
+    newDecisions: items.filter((i) => i.type === "decision" && (i.state === "unread" || i.state === "read")).length,
+    milestones: milestones.map((m) => m.label).slice(0, 3),
+    spend: can("finance") && cost > 0 ? { amountMinor: cost, currency } : null,
+  };
+  const nothing = view.rounds === 0 && view.tasksDone === 0 && view.wins === 0 && view.newDecisions === 0 && view.milestones.length === 0;
+  return nothing ? null : view;
+}
+
+/**
+ * The founder's daily streak in this business (retention plan, 2026-11-11; packages/shared streak.ts): days in a row they
+ * opened it, vacation days frozen. Their own visit days only (RLS), in the business's calendar. Any member.
+ */
+export async function streakFor(ctx: BusinessContext, now: Date = new Date()): Promise<Streak> {
+  const zone = ctx.business.timeZone;
+  const today = dayKeyIn(now, zone);
+  const [visitDays, holidays] = await Promise.all([
+    ctx.rls((tx) => repos.presence.visitDays(tx, ctx.businessId, ctx.userId, { from: addDaysToDay(today, -400), to: today })),
+    repos.holidays.list(ctx.db, ctx.businessId, 50),
+  ]);
+  return dailyStreak({ today, visitDays, vacationDays: vacationDayKeys(holidays, now, (d) => dayKeyIn(d, zone)) });
 }

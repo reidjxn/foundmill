@@ -266,6 +266,12 @@ export interface ApiGatewayClient {
   synthesizeSpeech(input: GatewaySynthesizeSpeechRequest): Promise<GatewaySpeech>;
   /** One recording of the founder transcribed (Team call). Asked only when `elevenlabs` runs live. */
   transcribeSpeech(input: GatewayTranscribeSpeechRequest): Promise<GatewayTranscript>;
+  /**
+   * One agent turn spoken as a stream (`POST /v1/speech/stream`): the gateway's `audio/mpeg` answer as it arrives, for
+   * the api to pipe to the listener. Same checks as `synthesizeSpeech`; a refusal before the first byte is an AppError
+   * with the gateway's code and status. Optional so test doubles need not stream.
+   */
+  streamSpeech?(input: GatewaySynthesizeSpeechRequest, signal?: AbortSignal): Promise<Response>;
 }
 
 export interface CreateApiGatewayClientOptions {
@@ -308,7 +314,32 @@ export function createApiGatewayClient(opts: CreateApiGatewayClientOptions): Api
     return parsed;
   };
 
+  /** Like `post`, but answers the gateway's streamed body; the timeout covers only the wait for the first byte. */
+  const stream = async (path: string, body: unknown, signal?: AbortSignal): Promise<Response> => {
+    if (!opts.secret || opts.secret.length < 16) throw new AppError("config", "SESSION_TOKEN_SECRET is not set on the api, so it cannot call the gateway", 412);
+    const token = await signApiServiceToken(opts.secret);
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), Math.max(timeoutMs, SPEECH_CLIENT_TIMEOUT_MS));
+    const onAbort = () => controller.abort();
+    signal?.addEventListener("abort", onAbort, { once: true });
+    let res: Response;
+    try {
+      res = await fetchImpl(`${baseUrl}${path}`, { method: "POST", headers: { "content-type": "application/json", accept: "audio/mpeg, application/json", authorization: `Bearer ${token}` }, body: JSON.stringify(body), signal: controller.signal });
+    } catch (e) {
+      throw new AppError("gateway_unreachable", `The gateway did not answer: ${(e as Error).message}`, 503);
+    } finally {
+      clearTimeout(timer);
+    }
+    if (!res.ok || !res.body || !(res.headers.get("content-type") ?? "").startsWith("audio/")) {
+      const parsed = (await res.json().catch(() => null)) as { error?: { code?: string; message?: string } } | null;
+      const status = !res.ok && res.status >= 400 && res.status < 600 ? res.status : 502;
+      throw new AppError(parsed?.error?.code ?? "gateway_error", parsed?.error?.message ?? `The gateway answered ${res.status}`, status);
+    }
+    return res;
+  };
+
   return {
+    streamSpeech: (input, signal) => stream("/v1/speech/stream", input, signal),
     connect: (businessId, connector, input) => post<GatewayConnectResult>("/v1/integrations/connect", { businessId, connector, input }),
     health: async (businessId, connector) => (await post<{ health: GatewayHealth }>("/v1/integrations/health", { businessId, connector })).health,
     createCheckout: (input) => post<GatewayCheckout>("/v1/billing/checkout-sessions", input),

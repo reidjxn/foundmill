@@ -12,21 +12,34 @@ import { usePathname } from "next/navigation";
 import { NeedsLargerWindow, isViewportTooSmall, useViewportWidth } from "@foundmill/dugout";
 
 /**
- * Path prefixes that work from 390 px and never show NeedsLargerWindow. The one list to grow as the outer product
- * gains small-screen routes (docs/THESIS_REVIEW.md package 2.1): a project's public page first, then a person's public
- * profile (package 2.3), then the sign-in page (`/login`, its notices and Continue with Google).
+ * The routes that work from 390 px and never show NeedsLargerWindow. The one list to grow as the outer product gains
+ * small-screen routes (docs/THESIS_REVIEW.md package 2.1): a project's public page first, then a person's public
+ * profile (package 2.3), the sign-in page (`/login`, its notices and Continue with Google), then the two pages an email from Foundmill opens, read on a phone: the one-click answer
+ * (`/a/<token>`) and the pause page (`/email/pause`) (founder, 2026-11-12). An entry ending in "/" is a prefix; any
+ * other is that one path.
  */
-export const SMALL_SCREEN_PREFIXES: readonly string[] = ["/p/", "/u/", "/login"];
+export const SMALL_SCREEN_PREFIXES: readonly string[] = [
+  "/p/",
+  "/u/",
+  "/login",
+  "/a/",
+  "/email/pause",
+];
 
 /** Whether `pathname` renders at every width (one of `SMALL_SCREEN_PREFIXES`). */
 export function worksOnSmallScreens(pathname: string | null | undefined): boolean {
-  // A prefix without a trailing slash is a whole route: `/login` and `/login/...`, never `/loginx`.
-  return Boolean(pathname) && SMALL_SCREEN_PREFIXES.some((prefix) => (prefix.endsWith("/") ? pathname!.startsWith(prefix) : pathname === prefix || pathname!.startsWith(`${prefix}/`)));
+  if (!pathname) return false;
+  return SMALL_SCREEN_PREFIXES.some((entry) =>
+    entry.endsWith("/")
+      ? pathname.startsWith(entry) && pathname.length > entry.length
+      : pathname === entry || pathname === `${entry}/`,
+  );
 }
 
 export function DesktopOnly({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const width = useViewportWidth();
-  if (!worksOnSmallScreens(pathname) && isViewportTooSmall(width)) return <NeedsLargerWindow width={width} />;
+  if (!worksOnSmallScreens(pathname) && isViewportTooSmall(width))
+    return <NeedsLargerWindow width={width} />;
   return <>{children}</>;
 }
