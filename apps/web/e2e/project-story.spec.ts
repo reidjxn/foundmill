@@ -16,7 +16,8 @@ import { LONG, commitThrowaway, dismissCoachmarks, settled, toast } from "./help
  *
  * With `E2E_UX_AUDIT=1` the story and the card are also saved as docs/ux-audit/46-project-story-390.png,
  * 47-project-story-1280.png, 48-milestone-card-390.png and 49-milestone-card-1280.png (device scale 2), and the card's
- * two share images as 50-milestone-card-wide.png and 51-milestone-card-tall.png.
+ * two share images as 50-milestone-card-wide.png and 51-milestone-card-tall.png, and Plan › Milestones with one
+ * milestone on the page as 52-milestones-on-your-page.png.
  */
 const here = path.dirname(fileURLToPath(import.meta.url));
 const AUDIT_DIR = path.resolve(here, "../../../docs/ux-audit");
@@ -177,6 +178,7 @@ test.describe("project story and milestone cards", () => {
     }
     // No tally of what is shown anywhere on the screen.
     await expect(page.getByTestId("trophy-cabinet-panel")).not.toContainText(/\d+\s+(shown|on your page)/i);
+    await shot(page, "52-milestones-on-your-page.png");
 
     // Copy card link gives the card's address.
     await page.context().grantPermissions(["clipboard-read", "clipboard-write"], { origin: new URL(baseURL!).origin });
