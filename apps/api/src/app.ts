@@ -217,6 +217,7 @@ export function createApp(deps: ApiDeps) {
         // `wedged`: the pool stopped answering while the database answers outside it (the process is about to exit and
         // be restarted); `down`: the database answers nowhere (packages/db pool-watchdog.ts).
         pool: deps.poolWatchdog?.status() ?? null,
+        transactions: deps.txGate?.stats() ?? null,
         worker,
         vault: deps.vault !== null,
         modelBilling: billingRefusal ? { ok: false, ...billingRefusal } : { ok: true },
