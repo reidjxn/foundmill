@@ -4,6 +4,7 @@ export * from "./foundation/AgentPersona";
 export * from "./foundation/Spinner";
 export * from "./foundation/FitText";
 export * from "./foundation/Button";
+export * from "./foundation/GoogleSignInButton";
 export * from "./foundation/IconButton";
 export * from "./foundation/Label";
 export * from "./foundation/Input";

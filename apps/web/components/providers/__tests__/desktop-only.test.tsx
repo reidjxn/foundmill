@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { viewport } from "../../../app/layout";
 import { DesktopOnly, SMALL_SCREEN_PREFIXES, worksOnSmallScreens } from "../DesktopOnly";
 
-let pathname = "/login";
+let pathname = "/b/x/today";
 vi.mock("next/navigation", () => ({ usePathname: () => pathname }));
 
 function setWidth(width: number) {
@@ -18,14 +18,14 @@ describe("desktop only (audit PAS-4: a phone rendered a 390 px slice of a 1280 p
   const original = window.innerWidth;
   afterEach(() => {
     setWidth(original);
-    pathname = "/login";
+    pathname = "/b/x/today";
   });
 
   it("does not force a 1280 px layout viewport: the meta keeps Next's device-width, so a phone reports its real width", () => {
     expect((viewport as { width?: unknown }).width).toBeUndefined();
   });
 
-  it("shows only NeedsLargerWindow below 1280 px, the sign-in page's notices included", () => {
+  it("shows only NeedsLargerWindow below 1280 px on a desktop route", () => {
     setWidth(390);
     render(
       <DesktopOnly>
@@ -50,10 +50,10 @@ describe("desktop only (audit PAS-4: a phone rendered a 390 px slice of a 1280 p
   });
 
   it("a project's public page and a person's public profile work from 390 px: the one list of small-screen routes, nothing else changes", () => {
-    expect(SMALL_SCREEN_PREFIXES).toEqual(["/p/", "/u/"]);
+    expect(SMALL_SCREEN_PREFIXES).toEqual(["/p/", "/u/", "/login"]);
     expect(worksOnSmallScreens("/p/northwind-skincare")).toBe(true);
     expect(worksOnSmallScreens("/u/maya-okafor")).toBe(true);
-    for (const p of ["/", "/login", "/profiles", "/p", "/u", "/public-profile", "/b/x/today", null]) expect(worksOnSmallScreens(p), String(p)).toBe(false);
+    for (const p of ["/", "/loginx", "/profiles", "/p", "/u", "/public-profile", "/b/x/today", null]) expect(worksOnSmallScreens(p), String(p)).toBe(false);
     pathname = "/p/northwind-skincare";
     setWidth(390);
     render(
@@ -62,6 +62,20 @@ describe("desktop only (audit PAS-4: a phone rendered a 390 px slice of a 1280 p
       </DesktopOnly>,
     );
     expect(screen.getByText("Northwind")).toBeTruthy();
+    expect(screen.queryByTestId("needs-larger-window")).toBeNull();
+  });
+
+  it("the sign-in page works from 390 px: its form, notices and Continue with Google render at every width", () => {
+    expect(worksOnSmallScreens("/login")).toBe(true);
+    expect(worksOnSmallScreens("/login/")).toBe(true);
+    pathname = "/login";
+    setWidth(390);
+    render(
+      <DesktopOnly>
+        <p>Sign in</p>
+      </DesktopOnly>,
+    );
+    expect(screen.getByText("Sign in")).toBeTruthy();
     expect(screen.queryByTestId("needs-larger-window")).toBeNull();
   });
 });

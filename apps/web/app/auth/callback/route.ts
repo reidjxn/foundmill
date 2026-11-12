@@ -1,5 +1,6 @@
 /**
- * Supabase magic-link callback: exchanges the PKCE code for a session (cookies set by @supabase/ssr) and redirects to
+ * Supabase sign-in callback, for the magic link and Continue with Google alike (`via=google`, which only changes how a
+ * failure is worded): exchanges the PKCE code for a session (cookies set by @supabase/ssr) and redirects to
  * `next` (clamped to an in-app path). Without a `next`, a founder whose browser remembers their last business goes
  * straight to its Home, as `/` would send them (lib/auth/redirects.ts), one hop sooner. Failures land on /login with a
  * reason code (lib/auth/sign-in-errors.ts) and the same `next`, where the form says what happened and sends a new link,
@@ -10,9 +11,9 @@
  * and needs no email from Supabase's sender.
  */
 import { NextResponse, type NextRequest } from "next/server";
-import { LAST_BUSINESS_COOKIE, NEXT_PARAM } from "@/lib/auth/constants";
+import { LAST_BUSINESS_COOKIE, NEXT_PARAM, SIGN_IN_VIA_PARAM } from "@/lib/auth/constants";
 import { safeNextPath, signedInDestination } from "@/lib/auth/redirects";
-import { classifyCallbackParams, classifyExchangeError, SIGN_IN_ERROR_PARAM, type SignInErrorReason } from "@/lib/auth/sign-in-errors";
+import { classifyCallbackParams, classifyExchangeError, googleSignInReason, SIGN_IN_ERROR_PARAM, type SignInErrorReason } from "@/lib/auth/sign-in-errors";
 import { createClient } from "@/lib/supabase/server";
 import { SUPABASE_ACTION_TIMEOUT_MS } from "@/lib/supabase/timeouts";
 
@@ -39,11 +40,14 @@ export async function GET(request: NextRequest) {
   const tokenHash = url.searchParams.get("token_hash");
   const type = tokenHashType(url.searchParams.get("type"));
   const next = safeNextPath(url.searchParams.get(NEXT_PARAM));
+  // Continue with Google returns here too (the PKCE code, like the email link); its failures read as Google ones.
+  const viaGoogle = url.searchParams.get(SIGN_IN_VIA_PARAM) === "google";
+  const fail = (reason: SignInErrorReason) => toLogin(request, viaGoogle ? googleSignInReason(reason) : reason, next);
   const supabase = await createClient({ requestTimeoutMs: SUPABASE_ACTION_TIMEOUT_MS });
-  if (!supabase) return toLogin(request, "not_configured", next);
+  if (!supabase) return fail("not_configured");
   const signIn = code ? supabase.auth.exchangeCodeForSession(code) : tokenHash && type ? supabase.auth.verifyOtp({ type, token_hash: tokenHash }) : null;
-  if (!signIn) return toLogin(request, classifyCallbackParams(url.searchParams), next);
+  if (!signIn) return fail(classifyCallbackParams(url.searchParams));
   const { error } = await signIn;
-  if (error) return toLogin(request, classifyExchangeError(error), next);
+  if (error) return fail(classifyExchangeError(error));
   return NextResponse.redirect(new URL(signedInDestination(next, request.cookies.get(LAST_BUSINESS_COOKIE)?.value), request.url));
 }

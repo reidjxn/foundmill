@@ -17,12 +17,17 @@ export interface BrandFrameProps {
   meta?: ReactNode;
   children: ReactNode;
   footer?: ReactNode;
+  /**
+   * The page works from 390 px (the sign-in page: CLAUDE.md "Small screens"): the frame renders at every width instead
+   * of asking for a larger window. The column is already 480 px at most and 100 % of the gutter-padded width.
+   */
+  smallScreen?: boolean;
 }
 
-export function BrandFrame({ title, meta, children, footer }: BrandFrameProps) {
-  // Desktop only: below 1280 px the window is asked to grow, as on the landing page and in the business shell.
+export function BrandFrame({ title, meta, children, footer, smallScreen = false }: BrandFrameProps) {
+  // Desktop only unless `smallScreen`: below 1280 px the window is asked to grow, as on the landing page and in the business shell.
   const width = useViewportWidth();
-  if (isViewportTooSmall(width)) return <NeedsLargerWindow width={width} />;
+  if (!smallScreen && isViewportTooSmall(width)) return <NeedsLargerWindow width={width} />;
   return (
     <main className="relative isolate flex min-h-screen items-center justify-center overflow-hidden bg-canvas p-gutter text-primary">
       <div aria-hidden className="brand-backdrop -z-10" />

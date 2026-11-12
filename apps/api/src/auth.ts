@@ -132,17 +132,52 @@ export function authenticatedAtFromPayload(payload: JWTPayload): Date | null {
 const INBOX_PROVING_METHODS = new Set(["magiclink", "otp", "email/signup", "invite", "recovery", "email_change"]);
 
 /**
+ * The identity providers a Google-proven session may carry in `app_metadata.providers`: Google itself, and the email
+ * identity of an account that signed in by magic link before and was linked to Google by its verified address. Any
+ * other provider on the account (another social sign-in, a phone) makes an `oauth` entry in `amr` ambiguous, since
+ * Supabase does not say in `amr` which provider an `oauth` sign-in used; such a session is not trusted by this rule.
+ */
+const GOOGLE_SESSION_PROVIDERS = new Set(["google", "email"]);
+
+function amrMethods(payload: JWTPayload): string[] {
+  const amr = Array.isArray(payload.amr) ? (payload.amr as unknown[]) : [];
+  return amr.map((entry) => String((entry as { method?: unknown })?.method ?? ""));
+}
+
+/**
+ * A session proven by Google (Supabase's Google provider, web sign-in): `amr` has an `oauth` entry, the account's
+ * providers (`app_metadata.providers`, falling back to `app_metadata.provider`) include `google` and nothing but
+ * `google` and `email`, and the address is marked verified (`user_metadata.email_verified`).
+ *
+ * `amr` and `app_metadata` are written by Supabase Auth alone (a user cannot change their own `app_metadata`); they are
+ * what proves the sign-in. `user_metadata.email_verified` is copied there by Supabase from Google's own
+ * `email_verified` claim on every Google sign-in, but a user can rewrite their `user_metadata`, so it is only an
+ * extra condition here, never a proof by itself: it can only make the rule refuse (a Google account whose address
+ * Google has not verified), never accept. Supabase also refuses to finish a Google sign-in for an unverified address
+ * while "Confirm email" is on (docs/DEPLOY.md §4), so a real Google session always has it set.
+ */
+export function googleVerifiedFromPayload(payload: JWTPayload): boolean {
+  if (!amrMethods(payload).includes("oauth")) return false;
+  const app = payload.app_metadata && typeof payload.app_metadata === "object" ? (payload.app_metadata as { provider?: unknown; providers?: unknown }) : {};
+  const providers = Array.isArray(app.providers) ? app.providers.map(String) : typeof app.provider === "string" ? [app.provider] : [];
+  if (!providers.includes("google") || !providers.every((p) => GOOGLE_SESSION_PROVIDERS.has(p))) return false;
+  const meta = payload.user_metadata && typeof payload.user_metadata === "object" ? (payload.user_metadata as { email_verified?: unknown }) : {};
+  return meta.email_verified === true;
+}
+
+/**
  * Whether a Supabase access token shows its holder controls its `email` (SEC2 S11). Supabase access tokens carry no
  * `email_confirmed_at`; they carry `is_anonymous` and `amr`, how the session was authenticated. An anonymous sign-in
- * never counts; otherwise only an inbox-proving sign-in does. `user_metadata.email_verified` is deliberately not
- * trusted: a signed-in user can write their own `user_metadata`, so a client could set it for an address it cannot read.
- * `amr` is written by Supabase Auth alone. The web signs in by magic link only, so every real session carries a proof.
+ * never counts; otherwise an inbox-proving sign-in does, and so does a Google sign-in (`googleVerifiedFromPayload`):
+ * Google verified the address. `user_metadata.email_verified` alone is deliberately not trusted: a signed-in user can
+ * write their own `user_metadata`, so a client could set it for an address it cannot read. `amr` is written by Supabase
+ * Auth alone. The web signs in by magic link or with Google, so every real session carries a proof.
  */
 export function emailConfirmedFromPayload(payload: JWTPayload): boolean {
   if (payload.is_anonymous === true) return false;
   if (typeof payload.email !== "string" || !payload.email.trim()) return false;
-  const amr = Array.isArray(payload.amr) ? (payload.amr as unknown[]) : [];
-  return amr.some((entry) => INBOX_PROVING_METHODS.has(String((entry as { method?: unknown })?.method ?? "")));
+  if (amrMethods(payload).some((method) => INBOX_PROVING_METHODS.has(method))) return true;
+  return googleVerifiedFromPayload(payload);
 }
 
 function userFromPayload(payload: JWTPayload): AuthUser {

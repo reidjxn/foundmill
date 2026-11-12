@@ -65,12 +65,12 @@ test.describe("screens in plain words", () => {
     await expect(page.locator("[data-department]").filter({ hasText: "Continue plans the next cycle" })).toHaveCount(0);
   });
 
-  test("sign-in: the atmosphere frame, plain words, the desktop notice", async ({ page }) => {
+  test("sign-in: the atmosphere frame, plain words, the screen-size note", async ({ page }) => {
     await page.goto("/login");
     const panel = page.getByTestId("brand-panel");
     await expect(panel).toBeVisible({ timeout: LONG });
     await expect(page.getByRole("main")).not.toContainText(/switched off|seeded/);
-    await expect(page.getByText(/Desktop only/)).toBeVisible();
+    await expect(page.getByText(/Sign-in works on any screen\. The workspace itself is built for screens 1280 px wide or more\./)).toBeVisible();
     await expect(panel.getByRole("button", { name: "Send sign-in link" })).toBeVisible();
   });
 

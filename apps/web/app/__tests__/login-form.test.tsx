@@ -5,11 +5,13 @@
  * Supabase refuses to send reads as what happened in plain words, never Supabase's own message.
  */
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type * as EnvModule from "@/lib/env";
 
 type OtpError = { code?: string; status?: number; name?: string; message: string };
 const signInWithOtp = vi.fn(async (_args: { email: string; options: { emailRedirectTo: string } }): Promise<{ error: OtpError | null }> => ({ error: null }));
+type OAuthArgs = { provider: string; options: { redirectTo: string; skipBrowserRedirect?: boolean } };
+const signInWithOAuth = vi.fn(async (_args: OAuthArgs): Promise<{ data: { url: string | null }; error: { message: string } | null }> => ({ data: { url: "https://x.supabase.co/auth/v1/authorize?provider=google" }, error: null }));
 let search = new URLSearchParams();
 /** Set to make the auth client's chunk fail to load (offline, a new deploy). */
 let clientLoadError: Error | null = null;
@@ -18,7 +20,7 @@ vi.mock("next/navigation", () => ({ useSearchParams: () => search }));
 vi.mock("@/lib/supabase/client", () => ({
   createClient: vi.fn(async () => {
     if (clientLoadError) throw clientLoadError;
-    return { auth: { signInWithOtp } };
+    return { auth: { signInWithOtp, signInWithOAuth } };
   }),
 }));
 // Staging, as on foundmill.com: Supabase configured, no NEXT_PUBLIC_APP_URL, no developer bypass.
@@ -144,5 +146,107 @@ describe("LoginForm", () => {
     expect(alert.textContent).not.toContain("dynamically imported");
     expect(signInWithOtp).not.toHaveBeenCalled();
     expect(screen.getByRole("button", { name: "Send sign-in link" }).hasAttribute("disabled")).toBe(false);
+  });
+});
+
+describe("LoginForm: Continue with Google", () => {
+  let settings: { status: number; body: unknown } | Error = { status: 200, body: { external: { google: true, email: true } } };
+  const fetchMock = vi.fn(async (_url: string, _init?: RequestInit) => {
+    if (settings instanceof Error) throw settings;
+    return new Response(JSON.stringify(settings.body), { status: settings.status, headers: { "content-type": "application/json" } });
+  });
+  const assign = vi.fn();
+  const realLocation = window.location;
+  beforeEach(() => {
+    settings = { status: 200, body: { external: { google: true, email: true } } };
+    fetchMock.mockClear();
+    signInWithOAuth.mockClear();
+    assign.mockClear();
+    vi.stubGlobal("fetch", fetchMock);
+    Object.defineProperty(window, "location", { configurable: true, value: { ...realLocation, origin: "https://foundmill.com", assign } });
+  });
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    Object.defineProperty(window, "location", { configurable: true, value: realLocation });
+  });
+
+  const google = () => screen.queryByRole("button", { name: "Continue with Google" });
+
+  it("is hidden while the flag is off (the default) and sits above the email form when it is on", () => {
+    const off = render(<LoginForm />);
+    expect(google()).toBeNull();
+    expect(screen.queryByTestId("login-google")).toBeNull();
+    off.unmount();
+    render(<LoginForm google />);
+    const button = google()!;
+    expect(button).toBeTruthy();
+    // Above the email form, which is unchanged.
+    expect(button.compareDocumentPosition(screen.getByTestId("login-form")) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Send sign-in link" })).toBeTruthy();
+  });
+
+  it("goes to Google through the email link's own callback, with the same next, once Supabase says the provider is on", async () => {
+    render(<LoginForm google nextParam="/b/abc/inbox" />);
+    fireEvent.click(google()!);
+    await waitFor(() => expect(assign).toHaveBeenCalledWith("https://x.supabase.co/auth/v1/authorize?provider=google"));
+    expect(fetchMock.mock.calls[0]?.[0]).toBe("https://x.supabase.co/auth/v1/settings");
+    expect(signInWithOAuth).toHaveBeenCalledWith({ provider: "google", options: { redirectTo: "https://foundmill.com/auth/callback?next=%2Fb%2Fabc%2Finbox&via=google", skipBrowserRedirect: true } });
+    // An unsafe next never reaches the callback address.
+    assign.mockClear();
+    signInWithOAuth.mockClear();
+    const { unmount } = render(<LoginForm google nextParam="//evil.example" />);
+    fireEvent.click(screen.getAllByRole("button", { name: "Continue with Google" })[1]!);
+    await waitFor(() => expect(assign).toHaveBeenCalled());
+    expect(signInWithOAuth.mock.calls[0]?.[0].options.redirectTo).toBe("https://foundmill.com/auth/callback?next=%2F&via=google");
+    unmount();
+  });
+
+  it("when the provider is not on, Supabase cannot be reached, or the call fails: a plain line under the button, and the email link still works", async () => {
+    const cases: Array<() => void> = [
+      () => (settings = { status: 200, body: { external: { google: false, email: true } } }),
+      () => (settings = { status: 500, body: {} }),
+      () => (settings = new TypeError("Failed to fetch")),
+      () => signInWithOAuth.mockResolvedValueOnce({ data: { url: null }, error: { message: "Unsupported provider: provider is not enabled" } }),
+      () => signInWithOAuth.mockRejectedValueOnce(new TypeError("Failed to fetch")),
+    ];
+    for (const arrange of cases) {
+      arrange();
+      const view = render(<LoginForm google />);
+      fireEvent.click(google()!);
+      const error = await screen.findByTestId("login-google-error");
+      expect(error.textContent).toBe("Google sign-in isn't available right now. Use the email link below.");
+      expect(error.textContent).not.toMatch(/provider|Supabase/);
+      expect(assign).not.toHaveBeenCalled();
+      expect(google()!.getAttribute("aria-busy")).toBeNull();
+      // The email form is untouched and sends a link.
+      await sendLink();
+      view.unmount();
+      settings = { status: 200, body: { external: { google: true, email: true } } };
+    }
+  });
+
+  it("back from Google without signing in (the page restored as it was left), the button is ready again", async () => {
+    render(<LoginForm google />);
+    fireEvent.click(google()!);
+    await waitFor(() => expect(assign).toHaveBeenCalled());
+    expect(google()!.getAttribute("aria-busy")).toBe("true");
+    const restored = new Event("pageshow") as PageTransitionEvent;
+    Object.defineProperty(restored, "persisted", { value: true });
+    fireEvent(window, restored);
+    await waitFor(() => expect(google()!.getAttribute("aria-busy")).toBeNull());
+  });
+
+  it("a Google sign-in that came back refused says so above both ways in", () => {
+    for (const [reason, title] of [
+      ["signups_closed", "New sign-ups are closed"],
+      ["google_failed", "Google sign-in didn't finish"],
+      ["google_unverified", "Google address not verified"],
+    ] as const) {
+      const view = render(<LoginForm google errorParam={reason} />);
+      const notice = screen.getByTestId("login-link-problem");
+      expect(notice.textContent).toContain(title);
+      expect(notice.compareDocumentPosition(google()!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+      view.unmount();
+    }
   });
 });
