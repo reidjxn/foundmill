@@ -127,6 +127,26 @@ export const EVENT_FIXTURES: { readonly [K in EventType]: EventPayloadInput<K> }
     approvalId: fixtureId("approval"),
     occurrence: 1,
   },
+  "task.design_checked": {
+    taskId: fixtureId("task"),
+    kind: "code",
+    title: "Checkout: add travel-size variant",
+    assigneeAgentId: FIXTURE_AGENT_ID,
+    sessionId: fixtureId("session"),
+    result: {
+      status: "reviewed",
+      reason: null,
+      pages: ["/products/hydra-serum"],
+      fixes: [{ rank: 1, page: "/products/hydra-serum", viewport: "phone", element: "the size picker (main > fieldset)", problem: "The page is 520 px wide at 390 px, so it scrolls sideways on a phone.", fix: "Stack the three sizes in one column below 640 px.", principle: "responsive", severity: "high" }],
+      unreadable: [],
+      before: [
+        { id: "before-1-desktop", page: "/products/hydra-serum", viewport: "desktop", width: 1440, height: 900, cut: false, sha256: "a".repeat(64) },
+        { id: "before-1-phone", page: "/products/hydra-serum", viewport: "phone", width: 390, height: 1688, cut: false, sha256: "b".repeat(64) },
+      ],
+      after: [{ id: "after-1-phone", page: "/products/hydra-serum", viewport: "phone", width: 390, height: 1688, cut: false, sha256: "c".repeat(64) }],
+      fixesAsked: true,
+    },
+  },
   "pr.merged": {
     taskId: fixtureId("task"),
     repo: "northwind/shop",

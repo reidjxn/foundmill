@@ -5,7 +5,7 @@
  * its drafts the api loads). `empty` means the agent said nothing about what it would run: the note then asks the founder
  * to send it back for the details instead of asking for a yes.
  */
-import { CHANNEL_META, formatMoney, founderWords, type ChannelKey } from "@foundmill/shared";
+import { CHANNEL_META, designCheckRows, formatMoney, founderWords, type ChannelKey, type DesignCheckResult } from "@foundmill/shared";
 import type { Approval } from "./schema";
 
 export type ApprovalWhatKind = "code" | "release" | "campaign" | "message" | "spend" | "channel" | "other" | "none";
@@ -30,6 +30,8 @@ export interface ApprovalWhat {
 export interface ApprovalWhatContext {
   campaign?: { name: string; goal: string; budgetMinor: number | null; currency: string | null } | null;
   assets?: readonly { kind: string; title: string; body: string | null }[];
+  /** The task's latest design check (item 13), for a code change or its release: its outcome, fixes and screenshots. */
+  designCheck?: DesignCheckResult | null;
 }
 
 const CODE_TOOLS = new Set(["run_migration", "commit_files", "push", "push_branch", "open_pr", "open_pull_request", "create_pull_request", "create_branch", "write_file", "apply_patch", "delete_file", "deploy"]);
@@ -127,10 +129,12 @@ export function approvalWhatExactly(approval: Pick<Approval, "connectorKey" | "t
     if (additions || deletions) take("Lines", `${additions || "0"} added, ${deletions || "0"} removed`, ["additions", "deletions"]);
     take("Diff", str(args, "diff", "patch") ? clip(str(args, "diff", "patch"), 600) : "", ["diff", "patch"], true);
     used.add("pr").add("pull_request").add("number");
-    if (RELEASE_TOOLS.has(tool)) return finish("release", title ? `A finished change goes live: “${clip(title, 120)}”` : "A finished change goes live");
+    // The design check is attached to the change, never what makes a request decidable: an empty request stays empty.
+    const withDesign = (what: ApprovalWhat): ApprovalWhat => (context.designCheck && !what.empty ? { ...what, rows: [...what.rows, ...designCheckRows(context.designCheck)] } : what);
+    if (RELEASE_TOOLS.has(tool)) return withDesign(finish("release", title ? `A finished change goes live: “${clip(title, 120)}”` : "A finished change goes live"));
     // The tool's name alone is not content: a migration with no file and no summary is an empty request.
     if (tool === "run_migration") return finish("code", file || files[0] || summary ? `A change to how the business's data is stored${file || files[0] ? `: ${file || files[0]}` : ""}` : null);
-    return finish("code", title ? clip(title, 160) : files.length ? `${files.length} file${files.length === 1 ? "" : "s"} change` : null);
+    return withDesign(finish("code", title ? clip(title, 160) : files.length ? `${files.length} file${files.length === 1 ? "" : "s"} change` : null));
   }
 
   if (CAMPAIGN_TOOLS.has(tool)) {

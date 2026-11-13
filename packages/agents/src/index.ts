@@ -16,6 +16,7 @@ export * from "./product-research";
 export * from "./model-billing";
 export * from "./foundations-staged";
 export * from "./project-page";
+export * from "./design-check";
 export * from "./plan-import";
 export * from "./ideation";
 export * from "./registry";

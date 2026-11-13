@@ -27,6 +27,28 @@ describe("approvalWhatExactly", () => {
     ]);
   });
 
+  it("a code change and its release carry the task's design check; an empty request stays empty (item 13)", () => {
+    const designCheck = {
+      status: "reviewed" as const,
+      reason: null,
+      pages: ["/pricing"],
+      fixes: [{ rank: 1, page: "/pricing", viewport: "phone" as const, element: "the plan table", problem: "The page scrolls sideways at 390 px.", fix: "Stack the plans in one column.", principle: "responsive" as const, severity: "high" as const }],
+      unreadable: [],
+      before: [{ id: "before-1-phone", page: "/pricing", viewport: "phone" as const, width: 390, height: 844, cut: false, sha256: "a".repeat(64) }],
+      after: [{ id: "after-1-phone", page: "/pricing", viewport: "phone" as const, width: 390, height: 844, cut: false, sha256: "b".repeat(64) }],
+      fixesAsked: true,
+    };
+    const release = approvalWhatExactly(call("merge_pr", { title: "Pricing page", branch: "agent/t1" }, { connectorKey: "github" }), { designCheck });
+    expect(release.rows.map((r) => r.label)).toEqual(["Branch", "Change", "Design check", "Design fixes", "Screenshots"]);
+    expect(release.rows[2]!.value).toBe("A reviewer looked at screenshots of 1 page at desktop and 390 px and suggested 1 fix; the agent was asked to apply them once.");
+    expect(release.rows[3]!.value).toBe("1. /pricing at 390 px, the plan table: The page scrolls sideways at 390 px. Fix: Stack the plans in one column.");
+    expect(release.rows[4]!.value).toBe("1 screenshot before, 1 screenshot after the fixes, kept with the task's saved code.");
+    const notSeen = approvalWhatExactly(call("merge_pr", { title: "Pricing page" }, { connectorKey: "github" }), { designCheck: { ...designCheck, status: "not_seen", reason: "the sandbox has no browser", fixes: [], before: [], after: [], fixesAsked: false } });
+    expect(notSeen.rows.find((r) => r.label === "Design check")!.value).toBe("Design check not done: the pages could not be shown in the sandbox (the sandbox has no browser), so there are no screenshots and nothing was reviewed.");
+    expect(notSeen.rows.some((r) => r.label === "Screenshots")).toBe(false);
+    expect(approvalWhatExactly(call("open_pr", {}, { connectorKey: "github" }), { designCheck })).toMatchObject({ empty: true, rows: [] });
+  });
+
   it("a session's one-line summary is the headline when the arguments carry nothing else", () => {
     const w = approvalWhatExactly(call("run_migration", { summary: "0019_usage_events_customer_period_idx.sql: create index concurrently on usage_events" }, { connectorKey: "github" }));
     expect(w.headline).toBe("A change to how the business's data is stored");

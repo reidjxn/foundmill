@@ -17,7 +17,7 @@
  * named, and only when the agent makes it again; hard gates are never approvals of this kind.
  */
 import { APPROVAL_OPTIONS, ASK_FOR_DETAILS_NOTE, approvalAction, approvalArgsText, approvalSection, approvalTaskTitle, approvalWhatExactly, founderReasons, integrationConnected, isReleaseApproval, repos, type Approval, type ApprovalWhat, type ApprovalWhatContext, type DbTx, type InboxItem, type Task } from "@foundmill/db";
-import { ForbiddenError, agentMention, hasSectionAccess, ValidationError, type SectionMembership, type TaskStatus } from "@foundmill/shared";
+import { DesignCheckResult, ForbiddenError, agentMention, hasSectionAccess, ValidationError, type SectionMembership, type TaskStatus } from "@foundmill/shared";
 import type { BusinessContext } from "../trpc";
 import { audit, emit } from "../trpc";
 import { continueStateFor, cycleStatus } from "./cycle";
@@ -293,6 +293,15 @@ function handBackWords(why: string | undefined): string {
   }
 }
 
+/** The task's latest `task.design_checked` record, or null (none yet, or one this version cannot read). */
+export async function latestDesignCheck(tx: DbTx, businessId: string, taskId: string): Promise<DesignCheckResult | null> {
+  const checked = await repos.events.list(tx, businessId, { type: "task.design_checked", limit: 100 });
+  const event = checked.items.find((e) => (e.payload as { taskId?: unknown }).taskId === taskId);
+  if (!event) return null;
+  const parsed = DesignCheckResult.safeParse((event.payload as { result?: unknown }).result);
+  return parsed.success ? parsed.data : null;
+}
+
 /**
  * What exactly the call would run, with what the arguments only name loaded (a campaign and its drafts), for the reading
  * pane's "What exactly" block (first-time founder report, Nov 8, 2026). Walled from the section the call changes, the
@@ -311,6 +320,8 @@ async function approvalWhatFor(tx: DbTx, businessId: string, approval: Approval,
       context.assets = assets.filter((a) => a.approvalState !== "rejected").map((a) => ({ kind: a.kind, title: a.title, body: a.body }));
     }
   }
+  // A code change (or its release) carries the task's latest design check (item 13): what the reviewer saw and suggested.
+  if (approval.taskId && (approval.connectorKey === "github" || approval.connectorKey === "e2b")) context.designCheck = await latestDesignCheck(tx, businessId, approval.taskId);
   const what = approvalWhatExactly(approval, context);
   if (!walls.financeWalled) return what;
   return { ...what, headline: what.headline ? maskFinance(what.headline) : null, rows: what.rows.map((r) => ({ ...r, value: maskFinance(r.value) })) };
