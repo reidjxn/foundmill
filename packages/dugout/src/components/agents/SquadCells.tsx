@@ -161,6 +161,16 @@ export const TOOL_ICONS: Record<string, { icon: IconComponent; label: string }> 
   anthropic: { icon: Bot, label: "Anthropic" },
   voyage: { icon: Search, label: "Voyage" },
   dropbox_sign: { icon: PenLine, label: "Dropbox Sign" },
+  openai: { icon: Bot, label: "OpenAI" },
+  gemini: { icon: Bot, label: "Google Gemini" },
+  perplexity: { icon: Bot, label: "Perplexity" },
+  serpapi: { icon: Search, label: "SerpApi" },
+  firecrawl: { icon: FileText, label: "Firecrawl" },
+  indexnow: { icon: Search, label: "IndexNow" },
+  apollo: { icon: Search, label: "Apollo" },
+  vercel: { icon: Code2, label: "Vercel" },
+  posthog: { icon: Search, label: "PostHog" },
+  resend: { icon: Mail, label: "Resend" },
 };
 
 export interface ToolIconsProps {

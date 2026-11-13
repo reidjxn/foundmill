@@ -1,6 +1,6 @@
 /**
  * Posts the team writes for the founder to share by tap (docs/NETWORK.md F3 "Tap-to-post", F7 "Posting"; docs/DESIGN.md
- * §9e; founder, Nov 12, 2026: "a post the social channel agent wrote"). Drafting is separate from running a channel:
+ * §9g; founder, Nov 12, 2026: "a post the social channel agent wrote"). Drafting is separate from running a channel:
  * nothing here launches, schedules, publishes or measures anything. The social agent writes the words, the code
  * attaches the link and the picture, and the founder presses Post in the network's own window.
  *

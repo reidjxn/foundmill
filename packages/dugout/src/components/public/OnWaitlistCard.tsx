@@ -1,5 +1,5 @@
 /**
- * "You're on the list." (THESIS_REVIEW package 2.2; DESIGN §9f): what a signed-in person the admission did not let in
+ * "You're on the list." (THESIS_REVIEW package 2.2; DESIGN §9h): what a signed-in person the admission did not let in
  * today reads, wherever the api's `on_waitlist` refusal meets them (apps/web components/shell/ApiErrorPage.tsx), from
  * 390 px. The two lines, the address that signed in, and the caller's way on (Sign out, a link onward). Every control
  * at least 44 px tall (`min-h-tap`). Presentational and server-safe; it offers nothing to join (the retention team's

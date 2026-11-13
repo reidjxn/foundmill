@@ -10,7 +10,7 @@ const ORIGIN = "https://foundmill.example";
 const milestone = milestonePostDraft({ origin: ORIGIN, slug: "northwind-skincare", projectName: "Northwind Skincare", milestoneId: "0b9d1c1e-1111-4222-8333-444455556666", label: "Page live" });
 const page = pagePostDraft({ origin: ORIGIN, slug: "northwind-skincare", projectName: "Northwind Skincare", pitch: "Refillable skincare for sensitive skin" });
 
-/** The share panel beside a drafted post (docs/DESIGN.md §9e): one control per network, grouped by what a press really does. */
+/** The share panel beside a drafted post (docs/DESIGN.md §9g): one control per network, grouped by what a press really does. */
 const meta = {
   title: "Share/SharePost",
   component: SharePost,

@@ -1,6 +1,6 @@
 "use client";
 /**
- * `/i/<token>` (THESIS_REVIEW package 3.1; docs/NETWORK.md F5; DESIGN §9f): an invitation to a project, from 390 px.
+ * `/i/<token>` (THESIS_REVIEW package 3.1; docs/NETWORK.md F5; DESIGN §9h): an invitation to a project, from 390 px.
  * The design system's `InvitationCard` in the brand frame, with what the api's public `invitation.byToken` said (the
  * project, who invited them, the role in plain words; nothing else).
  *

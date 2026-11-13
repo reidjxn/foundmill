@@ -45,6 +45,75 @@ describe("AppShell", () => {
     expect(screen.queryByText("Content")).toBeNull();
   });
 
+  describe("phone mode (package 2.1)", () => {
+    it("with `phone` under 1280 px draws the phone layout: no larger-window ask, no sidebar, no floor, one @container", () => {
+      render(<AppShell {...shellProps({ viewportWidth: 390, phone: true, tabs: { tabs: [{ id: "today", label: "Today", href: "#t" }, { id: "details", label: "Details", href: "#d" }], activeId: "today" } })} />);
+      expect(screen.queryByTestId("needs-larger-window")).toBeNull();
+      const root = screen.getByTestId("app-shell");
+      expect(root.hasAttribute("data-phone")).toBe(true);
+      expect(root.className).toContain("@container");
+      expect(root.className).not.toContain("min-w-(--min-viewport)");
+      expect(screen.getByTestId("phone-bar")).toBeTruthy();
+      expect(screen.queryByTestId("kit-bar")).toBeNull();
+      expect(screen.queryByRole("navigation", { name: "Primary" })).toBeNull();
+      expect(screen.getByText("Content")).toBeTruthy();
+      expect(screen.getByRole("heading", { name: "Home" })).toBeTruthy();
+      expect(screen.getByRole("tab", { name: "Today" })).toBeTruthy();
+      // Continue and Stop all agents stay reachable, each a finger's size.
+      expect(screen.getByRole("button", { name: /Continue/ }).className).toContain("min-h-tap");
+      expect(screen.getByTestId("stop-all-trigger").className).toContain("min-h-tap");
+    });
+
+    it("leaves out the right rail on a phone", () => {
+      render(<AppShell {...shellProps({ viewportWidth: 390, phone: true, rightRail: { open: true, onOpenChange: vi.fn(), title: "Rail", children: <p>Rail body</p> } })} />);
+      expect(screen.queryByText("Rail body")).toBeNull();
+    });
+
+    it("the menu button opens the sidebar's items in a panel; choosing one navigates and closes it", async () => {
+      const onNavigate = vi.fn();
+      render(<AppShell {...shellProps({ viewportWidth: 390, phone: true, onNavigate })} />);
+      expect(screen.queryByTestId("phone-menu")).toBeNull();
+      await userEvent.click(screen.getByRole("button", { name: "Menu" }));
+      const menu = screen.getByTestId("phone-menu");
+      const names = [...menu.querySelectorAll("[data-sidebar-item]")].map((el) => el.getAttribute("data-sidebar-item"));
+      expect(names).toEqual(NORTHWIND_SIDEBAR.filter((it) => !it.disabled).map((it) => it.id));
+      for (const row of menu.querySelectorAll("[data-sidebar-item]")) expect(row.className).toContain("min-h-tap");
+      const first = NORTHWIND_SIDEBAR.find((it) => !it.disabled)!;
+      await userEvent.click(menu.querySelector(`[data-sidebar-item="${first.id}"]`)!);
+      expect(onNavigate).toHaveBeenCalledWith(expect.objectContaining({ id: first.id }));
+      expect(screen.queryByTestId("phone-menu")).toBeNull();
+    });
+
+    it("Esc closes the menu", async () => {
+      render(<AppShell {...shellProps({ viewportWidth: 390, phone: true })} />);
+      await userEvent.click(screen.getByRole("button", { name: "Menu" }));
+      expect(screen.getByTestId("phone-menu")).toBeTruthy();
+      await userEvent.keyboard("{Escape}");
+      expect(screen.queryByTestId("phone-menu")).toBeNull();
+    });
+
+    it("at 1280 px and over `phone` changes nothing: the sidebar, the kit bar and no menu button", () => {
+      render(<AppShell {...shellProps({ viewportWidth: 1280, phone: true })} />);
+      const root = screen.getByTestId("app-shell");
+      expect(root.hasAttribute("data-phone")).toBe(false);
+      expect(screen.getByRole("navigation", { name: "Primary" })).toBeTruthy();
+      expect(screen.getByTestId("kit-bar")).toBeTruthy();
+      expect(screen.queryByTestId("phone-bar")).toBeNull();
+      expect(screen.queryByRole("button", { name: "Menu" })).toBeNull();
+    });
+
+    it("without `phone` the 1280 px floor stays: NeedsLargerWindow below it, the floor class and an @container root above it", () => {
+      const { unmount } = render(<AppShell {...shellProps({ viewportWidth: 390 })} />);
+      expect(screen.getByTestId("needs-larger-window")).toBeTruthy();
+      expect(screen.queryByTestId("phone-bar")).toBeNull();
+      unmount();
+      render(<AppShell {...shellProps({ viewportWidth: 1440 })} />);
+      const root = screen.getByTestId("app-shell");
+      expect(root.className).toContain("min-w-(--min-viewport)");
+      expect(root.className).toContain("@container");
+    });
+  });
+
   it("passes the business's spend line and currency to the top bar's chip, which says the setting in words", () => {
     const onModeClick = vi.fn();
     render(<AppShell {...shellProps({ viewportWidth: 1440, spendLineMinor: 5_000, businessCurrency: "GBP", onModeClick })} />);

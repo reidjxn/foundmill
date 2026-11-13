@@ -4,7 +4,7 @@ import { expect, test, type Locator, type Page } from "@playwright/test";
 import { LONG, commitThrowaway, dismissCoachmarks, settled, toast } from "./helpers";
 
 /**
- * Tap-to-post (docs/NETWORK.md F3; docs/DESIGN.md §9e; founder, Nov 12, 2026): for a drafted post, one control per
+ * Tap-to-post (docs/NETWORK.md F3; docs/DESIGN.md §9g; founder, Nov 12, 2026): for a drafted post, one control per
  * network that opens that network's own share window with the text and the link filled in. A throwaway project
  * publishes its page; Product › Public page offers "Share your page" and Plan › Milestones offers "Share" on a
  * milestone that is on the page. The panel's links are checked as links (host, text, the address with `via`) and are

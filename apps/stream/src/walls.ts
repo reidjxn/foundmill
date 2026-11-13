@@ -130,7 +130,7 @@ export const EVENT_WALLS = {
   "notify.email_sent": { sections: ["settings"] },
   // The return loop: one founder's own sessions and the emails sent to them. Metrics only; Settings readers alone.
   "founder.session_started": { sections: ["settings"] },
-  // A milestone shown on the project's page or taken off it (0087): its id, key and public addresses.
+  // A milestone shown on the project's page or taken off it (0089): its id, key and public addresses.
   "milestone.shown": { sections: ["product"] },
   "milestone.hidden": { sections: ["product"] },
   // A share control was pressed (tap-to-post): a product signal for metrics, never pushed for a screen. Filed with the

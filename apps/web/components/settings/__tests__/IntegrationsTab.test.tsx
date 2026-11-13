@@ -182,7 +182,7 @@ describe("PlatformMailSection (Settings › Integrations › Email from your pro
     expect(screen.getByTestId("platform-mail-count").textContent).toBe("1,200 of 2,000 sent today");
     expect(screen.getByText("Sending is simulated here: no message leaves for real.")).toBeTruthy();
     expect(screen.getByText("Sending from this address is paused for now. Nothing is waiting on you.")).toBeTruthy();
-    expect(screen.getByText("Your own SendGrid account is connected, so the team sends from it instead.")).toBeTruthy();
+    expect(screen.getByText("Your own email account is connected, so the team sends from it instead.")).toBeTruthy();
   });
 
   it("renders no row at all when the feature is off", () => {

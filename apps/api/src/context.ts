@@ -30,7 +30,11 @@ import { createApiGatewayClient, type ApiGatewayClient } from "./services/gatewa
 import { createIngestClient, type IngestClient } from "./services/simulate";
 import { createTemporalService, type TemporalService } from "./services/temporal";
 import { createLog, type ApiLogger } from "./services/log";
+import { createTransactionGate, gateLimitsFor, type TransactionGate } from "./services/tx-gate";
 import type { BusinessAccess } from "./trpc";
+
+/** The api's pool size unless API_DB_POOL_MAX says otherwise. */
+export const API_DB_POOL_DEFAULT = 10;
 
 export interface ApiDeps {
   env: Env;
@@ -73,6 +77,12 @@ export interface ApiDeps {
   relay?: RelaySupervisor | null;
   /** The pool watchdog (index.ts); absent in tests and the in-process caller. /health reports its state. */
   poolWatchdog?: PoolWatchdog | null;
+  /**
+   * The limit on how many transactions requests hold at once (services/tx-gate.ts), so one batch can never take the
+   * whole pool. Every HTTP request's `ctx.db` is this gate's view of `db`; `db` here stays ungated for background work.
+   * Absent for the in-process caller.
+   */
+  txGate?: TransactionGate | null;
 }
 
 export interface Context extends ApiDeps {
@@ -128,9 +138,10 @@ export function createApiDeps(options: CreateApiDepsOptions = {}): ApiDeps {
   const env = options.env ?? loadEnv();
   const log = options.log ?? createLog(env);
 
+  const poolMax = env.API_DB_POOL_MAX ?? API_DB_POOL_DEFAULT;
   let db: Db;
   if (options.db) db = options.db;
-  else if (env.DATABASE_URL) db = createDb(env.DATABASE_URL, { max: 10 }) as unknown as Db;
+  else if (env.DATABASE_URL) db = createDb(env.DATABASE_URL, { max: poolMax }) as unknown as Db;
   else {
     log.error({}, "DATABASE_URL is not set; the API will answer /health but every tRPC call will fail");
     db = createDb("postgres://invalid@127.0.0.1:1/invalid", { max: 1 }) as unknown as Db;
@@ -202,7 +213,20 @@ export function createApiDeps(options: CreateApiDepsOptions = {}): ApiDeps {
     temporal: () => temporal.reachable(),
   };
 
-  return { env, db, redis, limits, temporal, models, composer, vault, connectors, auth, confirmEmail, log, recordings, ingest, gateway, health };
+  // Requests hold at most the pool less a reserve in transactions, and one request at most four (services/tx-gate.ts).
+  let lastGateWarning = 0;
+  const txGate = createTransactionGate({
+    ...gateLimitsFor(poolMax),
+    onTimeout: (which, waiting) => {
+      // At most one line a minute: a wait that ran out means permits are slow to come back, worth a look, never a flood.
+      const now = Date.now();
+      if (now - lastGateWarning < 60_000) return;
+      lastGateWarning = now;
+      log.warn({ which, waiting, gate: txGate.stats() }, "a transaction waited 15 s for a permit and started without one (the pool may be slow or a transaction is not finishing)");
+    },
+  });
+
+  return { env, db, redis, limits, temporal, models, composer, vault, connectors, auth, confirmEmail, log, recordings, ingest, gateway, health, txGate };
 }
 
 /** Per-request context factory for `trpcServer({ createContext })`. */
@@ -213,7 +237,10 @@ export function createContextFactory(deps: ApiDeps) {
     // Fail closed while Supabase auto-confirms addresses: no token then shows its holder read the inbox.
     const emailConfirmed = user?.emailConfirmed === true && (deps.confirmEmail?.confirmationTrusted() ?? true);
     const requestId = c?.get("requestId") ?? requestIdFrom(opts.req.headers.get("x-request-id"));
-    return { ...deps, userId: user?.userId ?? null, email: user?.email ?? null, authenticatedAt: user?.authenticatedAt ?? null, emailConfirmed, requestId, clientAddress: clientAddressOf(opts.req.headers, c), accessMemo: new Map(), admissionMemo: new Map() };
+    // The request's own view of the database: its transactions wait for the gate's permits, and it starts none once the
+    // client has closed the request.
+    const db = deps.txGate ? deps.txGate.forRequest(deps.db, opts.req.signal) : deps.db;
+    return { ...deps, db, userId: user?.userId ?? null, email: user?.email ?? null, authenticatedAt: user?.authenticatedAt ?? null, emailConfirmed, requestId, clientAddress: clientAddressOf(opts.req.headers, c), accessMemo: new Map(), admissionMemo: new Map() };
   };
 }
 

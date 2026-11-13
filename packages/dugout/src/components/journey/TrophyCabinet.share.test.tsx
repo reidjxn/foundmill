@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { fireEvent, render, within } from "@testing-library/react";
 import { TrophyCabinet } from "./TrophyCabinet";
 
-/** Tap-to-post (docs/DESIGN.md §9e): "Share" beside "Copy card link" on a milestone that is on the page, and nowhere else. */
+/** Tap-to-post (docs/DESIGN.md §9g): "Share" beside "Copy card link" on a milestone that is on the page, and nowhere else. */
 const early = [
   { key: "page_live", label: "Page live", description: "Your project's public page went live.", achievedAt: "2026-11-12T09:00:00.000Z", page: "shown" as const },
   { key: "first_follower", label: "First follower", description: "The first person confirmed that they follow your project.", achievedAt: "2026-11-14T08:00:00.000Z", page: "hidden" as const },

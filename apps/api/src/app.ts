@@ -14,6 +14,7 @@ import { compress } from "hono/compress";
 import { cors } from "hono/cors";
 import type { ApiDeps } from "./context";
 import { createContextFactory } from "./context";
+import { registerIdeaBoxRoutes } from "./idea-box-routes";
 import { requestIdFrom } from "./request-id";
 import { appRouter } from "./router";
 import { etagMatches, storedPortrait } from "./services/personas";
@@ -180,6 +181,9 @@ export function createApp(deps: ApiDeps) {
 
   app.get("/", (c) => c.json({ name: APP_NAME, service: "api", ok: true }));
 
+  // The landing page's idea box (docs/IDEA_BOX.md): a signed-out visitor's card, streamed; its cookie keeps it.
+  registerIdeaBoxRoutes(app, deps, origins);
+
   app.get("/health", async (c) => {
     const probe = async (fn: () => Promise<boolean>) => {
       try {
@@ -217,6 +221,7 @@ export function createApp(deps: ApiDeps) {
         // `wedged`: the pool stopped answering while the database answers outside it (the process is about to exit and
         // be restarted); `down`: the database answers nowhere (packages/db pool-watchdog.ts).
         pool: deps.poolWatchdog?.status() ?? null,
+        transactions: deps.txGate?.stats() ?? null,
         worker,
         vault: deps.vault !== null,
         modelBilling: billingRefusal ? { ok: false, ...billingRefusal } : { ok: true },

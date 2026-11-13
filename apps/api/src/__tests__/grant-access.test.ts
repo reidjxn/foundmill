@@ -3,7 +3,9 @@
  * sections could give another person, or a second account of their own, more than they hold themselves through
  * `team.humans.role` (Finance write with Finance none; an admin role with no walls) and through a collaborator
  * invitation whose role opens sections they are walled from. Each path refuses a widening past the grantor's own access
- * and a role above theirs, still lets them narrow and lower, and leaves an owner's standing unlimited.
+ * and a role above theirs, still lets them narrow and lower, and leaves an owner's standing unlimited. main's copy of
+ * this rule (#113) also guarded `team.humans.invite`, the silent add; that route is gone here (an invitation is the only
+ * way in), so its tests went with it.
  */
 import { repos, type SectionPermissions } from "@foundmill/db";
 import { COLLABORATOR_SECTIONS, type MembershipRole } from "@foundmill/shared";
@@ -48,7 +50,10 @@ describe("withinGrantorAccess", () => {
   it("measures access as the walls are enforced: the role's default where no entry is set, a collaborator's cap, write only for a writer", () => {
     expect(sectionAccessOf(m("admin"), "finance")).toBe("write");
     expect(sectionAccessOf(m("viewer"), "finance")).toBe("read");
+    expect(sectionAccessOf(m("member", { finance: "read" }), "finance")).toBe("read");
     expect(sectionAccessOf(m("viewer", { finance: "write" }), "finance")).toBe("read");
+    expect(sectionAccessOf(m("advisor", { product: "none" }), "product")).toBe("none");
+    expect(sectionAccessOf(m("owner", { finance: "none" }), "finance")).toBe("write");
     expect(sectionAccessOf(m("collaborator", { finance: "write" }), "finance")).toBe("none");
     expect(sectionAccessOf(m("collaborator", { product: "read" }), "product")).toBe("read");
     expect(sectionAccessOf(m("cofounder", { finance: "none" }), "finance")).toBe("write");
@@ -63,20 +68,26 @@ describe("withinGrantorAccess", () => {
     expect(withinGrantorAccess(grantor, m("member", { finance: "none", legal: "read" }))).toBe(true);
     // An admin with no walls, over a collaborator: everything the grantor holds is theirs to give, the rest is not.
     expect(grantOverreach(grantor, m("admin"), m("collaborator"))).toEqual({ role: false, sections: ["finance", "legal"] });
+    expect(grantOverreach(grantor, m("admin"), m("viewer"))).toEqual({ role: false, sections: ["finance", "legal"] });
   });
 
   it("refuses a role ranked above the grantor's own", () => {
     expect(ROLE_RANK.owner).toBe(ROLE_RANK.cofounder);
+    expect(ROLE_RANK.viewer).toBe(ROLE_RANK.advisor);
     expect(grantOverreach(m("admin"), m("cofounder"), m("member"))?.role).toBe(true);
+    expect(grantOverreach(m("admin"), m("owner"), m("member"))?.role).toBe(true);
     expect(grantOverreach(m("member"), m("admin"), m("viewer"))?.role).toBe(true);
     expect(grantOverreach(m("member"), m("member"), m("viewer"))).toBeNull();
     expect(grantOverreach(m("collaborator"), m("member"))?.role).toBe(true);
+    expect(grantOverreach(m("viewer"), m("member"))?.role).toBe(true);
+    expect(grantOverreach(m("admin"), m("admin"))).toBeNull();
   });
 
   it("a stored wider entry that a role change would turn on is a widening", () => {
     const grantor = m("admin", { finance: "none" });
     expect(withinGrantorAccess(grantor, m("member", { finance: "write" }), m("viewer", { finance: "write" }))).toBe(false);
     expect(withinGrantorAccess(grantor, m("member", { finance: "write" }), m("collaborator", { finance: "write" }))).toBe(false);
+    expect(withinGrantorAccess(grantor, m("member", { finance: "write" }), m("advisor", { finance: "write" }))).toBe(false);
   });
 
   it("narrowing and lowering stay free, even past what the grantor holds", () => {
@@ -86,6 +97,7 @@ describe("withinGrantorAccess", () => {
     expect(withinGrantorAccess(grantor, m("member", { finance: "read" }), current)).toBe(true);
     expect(withinGrantorAccess(grantor, m("viewer"), current)).toBe(true);
     expect(withinGrantorAccess(grantor, m("collaborator"), current)).toBe(true);
+    expect(withinGrantorAccess(grantor, m("advisor"), current)).toBe(true);
     // A new membership has nothing to keep: the same grant is judged against the grantor alone.
     expect(withinGrantorAccess(grantor, m("member", { product: "read" }))).toBe(false);
   });
@@ -114,6 +126,22 @@ describe("team.humans.role gives no more than the editor's own access", () => {
     expect(await rowOf(second)).toMatchObject({ role: "collaborator", sectionPermissions: {} });
     // With their own wall carried over, the same promotion is within their access.
     expect((await as(admin).team.humans.role({ businessId, userId: second, role: "admin", sectionPermissions: { finance: "none" } })).role).toBe("admin");
+    // The same for a second account in as a viewer; and the viewer kept behind the wall may become a member.
+    const third = await personIn("viewer");
+    expect(await refusal(as(admin).team.humans.role({ businessId, userId: third, role: "admin", sectionPermissions: {} }))).toEqual({ code: "FORBIDDEN", message: GRANT_BEYOND_OWN_ACCESS });
+    expect(await refusal(as(admin).team.humans.role({ businessId, userId: third, role: "admin" }))).toEqual({ code: "FORBIDDEN", message: GRANT_BEYOND_OWN_ACCESS });
+    expect(await refusal(as(admin).team.humans.role({ businessId, userId: third, role: "member" }))).toEqual({ code: "FORBIDDEN", message: GRANT_BEYOND_OWN_ACCESS });
+    expect(await rowOf(third)).toMatchObject({ role: "viewer", sectionPermissions: {} });
+    expect(await refusal(as(admin).team.humans.role({ businessId, userId: viewer, role: "member" }))).toBeNull();
+    expect(await rowOf(viewer)).toMatchObject({ role: "member", sectionPermissions: { finance: "none" } });
+  });
+
+  it("an admin walled to read cannot hand out write on that section", async () => {
+    const { businessId } = hz.A;
+    const admin = await personIn("admin", { finance: "read" });
+    const member = await personIn("member", { finance: "none" });
+    expect(await refusal(as(admin).team.humans.role({ businessId, userId: member, sectionPermissions: { finance: "write" } }))).toEqual({ code: "FORBIDDEN", message: GRANT_BEYOND_OWN_ACCESS });
+    expect((await as(admin).team.humans.role({ businessId, userId: member, sectionPermissions: { finance: "read" } })).sectionPermissions).toEqual({ finance: "read" });
   });
 
   // The rank check (`grantOverreach(...).role`) is not reachable through this router: only an admin or someone with an
@@ -152,6 +180,9 @@ describe("team.humans.role gives no more than the editor's own access", () => {
     // An end date only shortens a running collaborator's access.
     const collaborator = await personIn("collaborator");
     expect(await refusal(as(admin).team.humans.role({ businessId, userId: collaborator, expiresAt: new Date(Date.now() + 7 * 86_400_000) }))).toBeNull();
+    // Another admin behind the same wall, lowered to a member: nothing rises, nothing to refuse.
+    const other = await personIn("admin", { finance: "none" });
+    expect(await refusal(as(admin).team.humans.role({ businessId, userId: other, role: "member" }))).toBeNull();
   });
 
   it("a new date on an ended collaborator is a grant, judged against the editor's own access", async () => {

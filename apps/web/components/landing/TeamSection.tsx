@@ -57,7 +57,7 @@ export function TeamSection() {
       <Reveal>
         <div
           ref={ref}
-          className="flex flex-col gap-4"
+          className="flex flex-col gap-5"
           onPointerEnter={() => setHeld((h) => ({ ...h, pointer: true }))}
           onPointerLeave={() => setHeld((h) => ({ ...h, pointer: false }))}
           onFocus={() => setHeld((h) => ({ ...h, focus: true }))}
@@ -80,7 +80,7 @@ export function TeamSection() {
               ) : null}
             </span>
           </div>
-          <div role="tablist" aria-label="Departments" className="grid grid-cols-6 gap-2">
+          <div role="tablist" aria-label="Departments" className="grid grid-cols-6 gap-3">
             {tabs.map(({ department: d, lead: l }, i) => {
               const active = i === index;
               return (
@@ -133,7 +133,7 @@ function LeadProfile({ department, lead }: { department: ExampleDepartment; lead
   return (
     <Glass accent={accent} className="relative flex animate-fade-in flex-col overflow-hidden">
       <span aria-hidden className="pointer-events-none absolute -right-32 -top-40 size-112 rounded-full" style={{ background: `radial-gradient(closest-side, color-mix(in oklab, ${accent} 22%, transparent), transparent)` }} />
-      <header className="relative flex items-center gap-5 border-b border-subtle/70 px-6 py-5">
+      <header className="relative flex items-center gap-5 border-b border-subtle/70 px-8 py-6">
         <span className="rounded-full p-1.5" style={{ background: `radial-gradient(closest-side, color-mix(in oklab, ${accent} 50%, transparent), transparent)` }}>
           <Avatar size={64} name={lead.name} agent={{ seed: lead.seed, dept: department.dept }} status="healthy" />
         </span>
@@ -158,14 +158,14 @@ function LeadProfile({ department, lead }: { department: ExampleDepartment; lead
           <StarRating value={lead.stars.current} potential={lead.stars.potential} size={20} label="Ability" />
         </span>
       </header>
-      <div className="relative flex flex-col gap-3 px-6 pb-2 pt-5">
+      <div className="relative flex flex-col gap-4 px-8 pb-4 pt-6">
         <span className="t-label">Attribute ratings · 1 to 20 · change since the last training</span>
         {/* The marketing page shows the ratings out of 20 on purpose: Builder view is on for the demo card alone. */}
         <BuilderViewProvider on>
           <SkillGrid skills={lead.skills} showPotential />
         </BuilderViewProvider>
       </div>
-      <div className="relative grid grid-cols-3 gap-6 border-t border-subtle/70 px-6 py-5">
+      <div className="relative grid grid-cols-3 gap-10 border-t border-subtle/70 px-8 py-6">
         <span className="flex flex-col gap-2">
           <span className="t-label">Traits</span>
           <TraitChips traits={[...lead.traits]} />

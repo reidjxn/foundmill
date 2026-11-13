@@ -32,7 +32,7 @@ export interface InfoTipProps {
 }
 
 export const INFO_TIP_BUTTON_CLASS =
-  "inline-flex size-target shrink-0 items-center justify-center rounded-pill text-tertiary transition-colors duration-hover hover:bg-white/6 hover:text-primary focus-ring data-[state=open]:text-primary";
+  "in-data-[phone]:tap-reach inline-flex size-target shrink-0 items-center justify-center rounded-pill text-tertiary transition-colors duration-hover hover:bg-white/6 hover:text-primary focus-ring data-[state=open]:text-primary";
 
 export function InfoTip({ label, children, learn, kind = "tip", always, side = "top", align = "center", className }: InfoTipProps) {
   const guided = useGuided();

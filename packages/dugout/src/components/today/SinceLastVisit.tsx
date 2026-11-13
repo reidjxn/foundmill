@@ -37,12 +37,12 @@ export function SinceLastVisit({ meta, lines, span, className }: SinceLastVisitP
     <Panel title={SINCE_LAST_VISIT_WORDS.title} meta={meta} span={span} className={className} data-testid="since-last-visit">
       <ul className="m-0 flex list-none flex-col gap-1.5 p-0">
         {lines.map((l) => (
-          <li key={l.id} className="flex items-baseline justify-between gap-4" data-line={l.id}>
+          <li key={l.id} className="flex flex-col gap-1 @page-wide:flex-row @page-wide:items-baseline @page-wide:justify-between @page-wide:gap-4" data-line={l.id}>
             <span className={cn("t-body text-pretty", l.tone === "gold" ? "text-gold" : "text-primary")}>{l.text}</span>
             {l.link
               ? renderLink({
                   href: l.link.href,
-                  className: "t-small inline-flex shrink-0 items-center gap-1 text-secondary hover:text-primary",
+                  className: "t-small inline-flex min-h-tap shrink-0 items-center gap-1 text-secondary hover:text-primary @page-wide:min-h-0",
                   children: (
                     <>
                       {l.link.label}

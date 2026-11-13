@@ -71,7 +71,7 @@ export function Term({ id, children, fact, always, definition, side, align, clas
   return (
     <DefinitionCard word={def.word} short={def.short} long={def.long} learn={def.learn} fact={fact} side={side} align={align}>
       <TermTrigger
-        className={cn("term-link", className)}
+        className={cn("term-link in-data-[phone]:tap-reach", className)}
         data-term={id}
         onOpened={() => {
           onTermOpen?.(id);

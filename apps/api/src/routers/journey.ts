@@ -1,7 +1,7 @@
 /**
  * journey.get/list/markViewed + daily rows and milestones for the Ribbon (BUILD §11.2, §11.4), and
  * journey.showMilestone / journey.hideMilestone: an owner or an admin shows a reached milestone on the project's page
- * or takes it off (services/milestones.ts; migration 0087), audited, with `milestone.shown` / `milestone.hidden`
+ * or takes it off (services/milestones.ts; migration 0089), audited, with `milestone.shown` / `milestone.hidden`
  * through the outbox in the same transaction.
  */
 import { JourneyListFilter, NO_DEPARTMENT_ID, repos } from "@foundmill/db";

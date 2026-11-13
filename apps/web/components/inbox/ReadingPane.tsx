@@ -515,7 +515,7 @@ function ReadingPaneBody({ data, currency, departments, onArchived }: BodyProps)
           {item.blocksContinue && !isAnswered ? (
             <HoldsContinueChip />
           ) : null}
-          {item.state !== "archived" && (isAnswered || !options.length) ? <Button size="sm" variant="ghost" icon={Archive} onClick={() => archive.mutate({ businessId, itemId: item.id })} loading={archive.isPending} data-testid="archive-item">Archive</Button> : null}
+          {item.state !== "archived" && (isAnswered || !options.length) ? <Button size="sm" variant="ghost" icon={Archive} className="in-data-[phone]:min-h-tap" onClick={() => archive.mutate({ businessId, itemId: item.id })} loading={archive.isPending} data-testid="archive-item">Archive</Button> : null}
         </div>
       </header>
 
@@ -561,7 +561,7 @@ function ReadingPaneBody({ data, currency, departments, onArchived }: BodyProps)
         {approval ? <ApprovalPanel approval={approval} businessId={businessId} departments={departments} reason={reason} onReasonChange={setReason} answered={isAnswered || decide.isPending} /> : null}
         {signoff ? <SignoffPanel signoff={signoff} notes={reason} onNotesChange={(v) => { setReason(v); if (v.trim()) setNeedsNotes(false); }} answered={isAnswered || decide.isPending} needsNotes={needsNotes} chosenOption={answered?.optionId ?? null} /> : null}
 
-        {tiles.length ? <StatusStrip tiles={tiles} data-testid="status-strip" /> : null}
+        {tiles.length ? <StatusStrip wrap tiles={tiles} data-testid="status-strip" /> : null}
 
         {hasExhibit ? (
           <Folded folded={guided} show="Show the numbers" hide="Hide the numbers" testId="exhibit-fold">
@@ -718,7 +718,7 @@ export function Folded({ folded, show, hide, testId, children }: FoldedProps) {
   if (!foldable) return <div data-testid={testId}>{children}</div>;
   return (
     <div data-testid={testId} data-folded={!open || undefined}>
-      <Button size="sm" variant="ghost" icon={open ? ChevronDown : ChevronRight} aria-expanded={open} aria-controls={bodyId} onClick={() => setOpen((o) => !o)} data-testid={testId ? `${testId}-toggle` : undefined}>
+      <Button size="sm" variant="ghost" icon={open ? ChevronDown : ChevronRight} className="in-data-[phone]:min-h-tap" aria-expanded={open} aria-controls={bodyId} onClick={() => setOpen((o) => !o)} data-testid={testId ? `${testId}-toggle` : undefined}>
         {open ? hide : show}
       </Button>
       {open ? (

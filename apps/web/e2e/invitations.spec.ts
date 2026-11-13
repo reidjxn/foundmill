@@ -3,7 +3,7 @@ import { expect, test, type Page } from "@playwright/test";
 import { commitThrowaway, LONG, openSettings, signIn, signInAs } from "./helpers";
 
 /**
- * Invitations to a project and the way in (THESIS_REVIEW packages 2.2, 3.1 and 3.3; docs/DESIGN.md §9f). Stack and
+ * Invitations to a project and the way in (THESIS_REVIEW packages 2.2, 3.1 and 3.3; docs/DESIGN.md §9h). Stack and
  * commands: e2e/README.md.
  *
  *   - Settings › People: "Invite someone" as a cofounder needs their email (the field says so) and makes a link shown

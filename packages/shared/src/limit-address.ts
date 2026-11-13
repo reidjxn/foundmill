@@ -4,9 +4,7 @@
  * block; an IPv4-mapped IPv6 address as its IPv4; an IPv4 address as it is. Brackets and a zone id are dropped first.
  * Anything that is not an IP address comes back trimmed and lowercased, so a key is never empty and never fails.
  *
- * TODO(dedupe): reidjxn/foundmill#98 (the idea box, not on main as of Nov 13, 2026) has the same rule as
- * `limitAddress` in apps/api/src/services/idea-box.ts, with the same output ("2001:db8:1:2::/64"). Whichever merges
- * second should keep this one and delete the other.
+ * The one copy: the idea box (#98) had its own until the invitations branch merged main, and now uses this one.
  */
 export function limitAddress(address: string): string {
   const a = address.trim().toLowerCase().replace(/^\[|\]$/g, "").replace(/%.*$/, "");

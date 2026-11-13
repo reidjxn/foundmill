@@ -265,7 +265,7 @@ export type Business = typeof businesses.$inferSelect;
 export type NewBusiness = typeof businesses.$inferInsert;
 
 /**
- * 0086 — who or what brought a new person (docs/NETWORK.md §5, §11): the first `?via=` reference a visitor arrived
+ * 0088 — who or what brought a new person (docs/NETWORK.md §5, §11): the first `?via=` reference a visitor arrived
  * with, recorded once when their founder profile is first created (apps/api services/attribution.ts). One row per
  * account, ever. Account-scoped, no `business_id`: `sourceBusinessId` is the project whose page brought them (null for a
  * person's profile) and `referrerUserId` the person credited. Service role only: no client role reads or writes it,

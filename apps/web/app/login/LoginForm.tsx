@@ -23,6 +23,8 @@ import { classifySendLinkError, GOOGLE_UNAVAILABLE_MESSAGE, parseSignInError, se
 import { googleSignInEnabled, hasSupabase, isDevLike, publicEnv } from "@/lib/env";
 import { createClient } from "@/lib/supabase/client";
 import { BrandFrame } from "@/components/shell/BrandFrame";
+import { LEGAL_ROUTES } from "@/content/legal/facts";
+import { SignInCode } from "./SignInCode";
 
 type Phase = { kind: "idle" } | { kind: "sending" } | { kind: "sent"; email: string } | { kind: "error"; message: string };
 /** Continue with Google: at rest, on its way to Google, or unable to start. */
@@ -102,11 +104,12 @@ export function LoginForm({ nextParam = null, errorParam = null, google = google
               Link sent
             </StatusPill>
             <p className="text-body">
-              Check <span className="font-medium text-primary">{phase.email}</span> for a sign-in link and open it in this browser: it signs you in to {APP_NAME} here.
+              Check <span className="font-medium text-primary">{phase.email}</span> for a sign-in link and open it in this browser: it signs you in to {APP_NAME} here. Reading it on another device? Type the code from the email below.
             </p>
             <Button variant="ghost" size="sm" className="min-h-tap" onClick={() => setPhase({ kind: "idle" })}>
               Use a different address
             </Button>
+            <SignInCode email={phase.email} next={next} />
           </div>
         ) : (
           <div className="flex flex-col gap-4">
@@ -155,6 +158,18 @@ export function LoginForm({ nextParam = null, errorParam = null, google = google
                 </p>
               ) : null}
             </form>
+            {/* Google's sign-in review and the EU and US privacy laws ask for the two documents where an account starts. */}
+            <p className="text-small text-secondary" data-testid="login-legal">
+              By continuing, you confirm you are 18 or older and agree to the{" "}
+              <a href={LEGAL_ROUTES.terms} className="entity-link">
+                Terms
+              </a>
+              . See how we handle your data in the{" "}
+              <a href={LEGAL_ROUTES.privacy} className="entity-link">
+                Privacy Policy
+              </a>
+              .
+            </p>
           </div>
         )}
         {devBypass ? (

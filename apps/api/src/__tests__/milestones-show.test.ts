@@ -1,5 +1,5 @@
 /**
- * Milestones a founder chooses to show (services/milestones.ts; migration 0087; docs/NETWORK.md F2 and F3).
+ * Milestones a founder chooses to show (services/milestones.ts; migration 0089; docs/NETWORK.md F2 and F3).
  *
  * Publishing the page records "Page live" once, in the same transaction; an owner or an admin shows a reached milestone
  * and hides it again (events through the outbox, audited), a member, a viewer and another business's people cannot;
@@ -7,7 +7,7 @@
  * the date only (never a customer), and nothing for a private milestone, a page taken down, an archived business or a
  * sample business; `publicPage.bySlug` says whether there is a story; the reads are limited like the page read.
  *
- * The date of "Page live" is the page's, and the page's is the database's (0088): a signed-in owner who writes to the
+ * The date of "Page live" is the page's, and the page's is the database's (0090): a signed-in owner who writes to the
  * tables directly, around the api, moves neither, and cannot delete the milestone to have it recorded again.
  */
 import { repos } from "@foundmill/db";

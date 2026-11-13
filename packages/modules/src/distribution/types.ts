@@ -235,3 +235,9 @@ export interface AgentRow {
   departmentIds?: string[];
   departments?: { id: string; name: string; colourToken: DeptColourToken }[];
 }
+
+/** What `team.agents.list` answers: the agents under `agents` (never a bare array). */
+export interface AgentsListResponse {
+  agents: AgentRow[];
+  templates?: string[];
+}

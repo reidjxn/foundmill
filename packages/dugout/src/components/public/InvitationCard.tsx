@@ -1,6 +1,6 @@
 /**
  * An invitation to a project, as the person it is for sees it at `/i/<token>` (docs/NETWORK.md F5; THESIS_REVIEW
- * package 3.1; DESIGN §9f): who invited them, to what, as what (the role in one plain sentence), and the way on. One
+ * package 3.1; DESIGN §9h): who invited them, to what, as what (the role in one plain sentence), and the way on. One
  * column from 390 px, every control at least 44 px tall (`min-h-tap`).
  *
  * Presentational and server-safe: the caller passes the actions (Accept and Not now, or "Sign in to accept", as buttons

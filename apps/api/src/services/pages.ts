@@ -56,6 +56,7 @@ import {
   starterPageDraft,
   suggestPageSlug,
   type Env,
+  isIndexNowKey,
   type PageHoldReason,
   type ProjectPageContent as PageContent,
 } from "@foundmill/shared";
@@ -237,7 +238,7 @@ export async function publishPage(ctx: BusinessContext, input: { content: PageCo
     wentLive = !wasLive;
     const url = pageUrl(ctx.env.APP_URL, row.slug);
     await emit(tx, ctx, { type: "page.published", payload: { pageId: row.id, slug: row.slug, url } });
-    // The page is live: the project's first early milestone, recorded once at the moment it went live (0087). A page
+    // The page is live: the project's first early milestone, recorded once at the moment it went live (0089). A page
     // that was already live before this existed gets it here too, with its original date.
     if (row.publishedAt) await awardPageLiveMilestone(tx, ctx.businessId, { pageId: row.id, at: row.publishedAt });
     // The Product lead's "Your project's page is ready" note asked for exactly this: it stops waiting in Needs you.
@@ -299,7 +300,7 @@ export interface PublicPageView {
   followForm: boolean;
   /** Whether the page carries the small "Built on" mark (a project on the free plan; a paid plan removes it). */
   mark: boolean;
-  /** Whether the founders show at least one milestone: the project then has a story at `/p/<slug>/story` (0087). */
+  /** Whether the founders show at least one milestone: the project then has a story at `/p/<slug>/story` (0089). */
   story: boolean;
 }
 
@@ -326,6 +327,30 @@ export const publicPageLimitKeys = {
   all: "public-page:all",
   unknown: "public-page:unknown",
 } as const;
+
+/**
+ * `publicPage.indexNowKeyFile`: what `/p/<slug>/<key>.txt` serves (founder, 2026-11-12), the key itself when it is the one
+ * the project's founders connected IndexNow with for this public page, else null (an unknown address, a page that is not
+ * public, IndexNow not connected for the hosted page, or another key: all the same not-found). Under the same limits as
+ * a page view; a miss draws from the `unknown` ceiling, so guessing keys cannot use up what real pages read from. The
+ * key is public by protocol, so the comparison need not be constant-time.
+ */
+export async function publicIndexNowKeyFile(ctx: Pick<Context, "db" | "env" | "limits"> & { clientAddress?: string | null }, input: { slug: string; key: string }): Promise<{ key: string } | null> {
+  const clean = input.slug.trim().toLowerCase();
+  if (pageSlugProblem(clean) || !isIndexNowKey(input.key)) return null;
+  if (ctx.clientAddress) await takeOrThrow(ctx.limits, "Page view", [{ key: publicPageLimitKeys.caller(ctx.env, ctx.clientAddress), rule: PUBLIC_PAGE_LIMITS.perCaller }]);
+  const ticket = await takeOrThrow(ctx.limits, "Page view", [
+    { key: publicPageLimitKeys.slug(clean), rule: PUBLIC_PAGE_LIMITS.perSlug },
+    { key: publicPageLimitKeys.all, rule: PUBLIC_PAGE_LIMITS.all },
+  ]);
+  const key = await repos.pages.public.indexNowKeyBySlug(ctx.db, clean);
+  if (key === null || key !== input.key) {
+    await ctx.limits.refund(ticket);
+    await takeOrThrow(ctx.limits, "Page view", [{ key: publicPageLimitKeys.unknown, rule: PUBLIC_PAGE_LIMITS.unknown }]);
+    return null;
+  }
+  return { key };
+}
 
 /** `publicPage.bySlug`: the published page at `slug`, or null for an unknown address or a page that is not public. */
 export async function publicPageBySlug(ctx: Pick<Context, "db" | "env" | "limits"> & { clientAddress?: string | null }, slug: string): Promise<PublicPageView | null> {

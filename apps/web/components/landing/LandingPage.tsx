@@ -4,13 +4,14 @@
  * own parts on an example business the visitor picks above the hero's deck (Tutorlane, Glitchwick or Northwind
  * Skincare: the deck runs real cycles, the concept cards, the team's attribute ratings, live agent tiles, the Journey
  * Ribbon, a Customer Update, the Channel Board, an Inbox note with its DecisionBar), so what a visitor sees is the
- * product itself. The page wears the chosen business's brand colours. Desktop only, like the app: under 1280 px it
- * shows NeedsLargerWindow.
+ * product itself. The page wears the chosen business's brand colours. Under 1280 px a phone gets the hero and its idea
+ * box alone (founder, 2026-11-13; docs/IDEA_BOX.md), with a word that the rest is built for a larger window.
  */
 import Link from "next/link";
 import { ArrowRight } from "lucide-react";
 import { APP_NAME, APP_TAGLINE } from "@foundmill/config";
-import { Button, NeedsLargerWindow, Wordmark, isViewportTooSmall, kitStyle, useViewportWidth } from "@foundmill/dugout";
+import { Button, Wordmark, isViewportTooSmall, kitStyle, useViewportWidth } from "@foundmill/dugout";
+import { LEGAL_ROUTES } from "@/content/legal/facts";
 import { Channels, LiveSessions } from "./LiveSessions";
 import { FinalCall, YourCall } from "./Control";
 import { Hero, Ticker } from "./Hero";
@@ -55,7 +56,9 @@ function LandingContent({ terminalRenderer }: { terminalRenderer?: "plain" | "xt
   const width = useViewportWidth();
   const business = useExample();
   const id = business.identity.id;
-  if (isViewportTooSmall(width)) return <NeedsLargerWindow width={width} />;
+  // From 390 px the hero and its idea box work on their own (founder, 2026-11-13; docs/IDEA_BOX.md); the sections below
+  // are built for a large window, so a phone gets the hero and a kind word about the rest.
+  if (isViewportTooSmall(width)) return <PhoneLanding />;
   return (
     <div className="relative min-h-screen overflow-x-clip bg-base text-primary" style={kitStyle(business.identity.kit)} data-testid="landing" data-example={id}>
       <Backdrop />
@@ -77,6 +80,43 @@ function LandingContent({ terminalRenderer }: { terminalRenderer?: "plain" | "xt
   );
 }
 
+/** The landing page on a phone: the top bar's name and Sign in, the hero with the idea box, the legal links. */
+function PhoneLanding() {
+  const business = useExample();
+  return (
+    <div className="relative min-h-dvh overflow-x-clip bg-base text-primary" style={kitStyle(business.identity.kit)} data-testid="landing" data-layout="phone">
+      <Backdrop />
+      <header className="sticky top-0 z-40 border-b border-subtle/60 bg-base/70 backdrop-blur-md">
+        <div className="flex h-14 items-center gap-3 px-4">
+          <Link href="/" className="flex items-center text-primary hover:no-underline" aria-label={`${APP_NAME} home`}>
+            <Wordmark height={14} label={APP_NAME} />
+          </Link>
+          <span className="flex-1" />
+          <Button asChild variant="ghost" className="min-h-tap">
+            <Link href={SIGN_IN}>Sign in</Link>
+          </Button>
+        </div>
+      </header>
+      <main className="relative">
+        <Hero layout="phone" />
+        <p className="mx-4 rounded-md border border-line bg-surface-1 px-4 py-3 text-small text-secondary" data-testid="landing-phone-note">
+          The rest of {APP_NAME}, and the example business running, is built for screens 1280 px wide or more. Your card works here.
+        </p>
+      </main>
+      <footer className="mt-8 border-t border-subtle/60 px-4 py-4 text-small text-secondary">
+        <nav aria-label="Legal" className="flex items-center gap-4">
+          <Link href={LEGAL_ROUTES.terms} className="inline-flex min-h-tap items-center">
+            Terms
+          </Link>
+          <Link href={LEGAL_ROUTES.privacy} className="inline-flex min-h-tap items-center">
+            Privacy
+          </Link>
+        </nav>
+      </footer>
+    </div>
+  );
+}
+
 function Backdrop() {
   return (
     <div aria-hidden className="pointer-events-none absolute inset-x-0 top-0 h-300">
@@ -93,15 +133,10 @@ function Backdrop() {
   );
 }
 
-const NAV = [
-  { href: "#why", label: "Why now" },
-  { href: "#how", label: "How it works" },
-  { href: "#team", label: "Your team" },
-  { href: "#live", label: "Live sessions" },
-  { href: "#journey", label: "Journey" },
-  { href: "#control", label: "You decide" },
-];
-
+/**
+ * The wordmark, Sign in and Start your business, nothing else: the page reads top to bottom, and the Why now pillars
+ * link to the sections that prove them (founder, 2026-11-13: a quieter first screen).
+ */
 function TopBar() {
   return (
     <header className="sticky top-0 z-40 border-b border-subtle/60 bg-base/70 backdrop-blur-md">
@@ -109,13 +144,6 @@ function TopBar() {
         <Link href="/" className="flex items-center text-primary hover:no-underline" aria-label={`${APP_NAME} home`}>
           <Wordmark height={20} label={APP_NAME} />
         </Link>
-        <nav aria-label="Sections" className="flex items-center gap-5">
-          {NAV.map((n) => (
-            <a key={n.href} href={n.href} className="t-tab whitespace-nowrap text-secondary transition-colors duration-micro hover:text-primary hover:no-underline">
-              {n.label}
-            </a>
-          ))}
-        </nav>
         <span className="flex-1" />
         <Button asChild variant="ghost">
           <Link href={SIGN_IN}>Sign in</Link>
@@ -138,6 +166,14 @@ function Footer() {
         <span>{APP_TAGLINE}</span>
         <span className="flex-1" />
         <span>Desktop only · 1280 px and wider</span>
+        <nav aria-label="Legal" className="flex items-center gap-4">
+          <Link href={LEGAL_ROUTES.terms} className="transition-colors duration-hover hover:text-primary" data-testid="landing-terms">
+            Terms
+          </Link>
+          <Link href={LEGAL_ROUTES.privacy} className="transition-colors duration-hover hover:text-primary" data-testid="landing-privacy">
+            Privacy
+          </Link>
+        </nav>
         <span>
           © {year} {APP_NAME}
         </span>

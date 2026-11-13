@@ -14,7 +14,7 @@ export function PeopleSearchPanel({ className }: { className?: string }) {
   return (
     <Panel title={`Find on ${APP_NAME}`} className={className} footer="Searches live businesses and founders who made their name public." flush data-testid="people-search">
       <div className="p-panel-pad">
-        <Input icon={Search} aria-label={`Search ${APP_NAME} by name`} placeholder="A founder or a business" value={text} onChange={(e) => setText(e.target.value)} maxLength={120} data-testid="people-search-input" />
+        <Input wrapperClassName="min-h-tap @page-wide:min-h-0" icon={Search} aria-label={`Search ${APP_NAME} by name`} placeholder="A founder or a business" value={text} onChange={(e) => setText(e.target.value)} maxLength={120} data-testid="people-search-input" />
       </div>
       {q === null ? (
         <p className="px-panel-pad pb-3 text-small text-secondary">Type at least {PUBLIC_SEARCH_MIN} letters of a name.</p>

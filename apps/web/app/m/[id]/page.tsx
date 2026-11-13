@@ -1,5 +1,5 @@
 /**
- * A milestone's card (docs/NETWORK.md F3; docs/THESIS_REVIEW.md package 5.3; docs/DESIGN.md §9d): `/m/<id>`, one
+ * A milestone's card (docs/NETWORK.md F3; docs/THESIS_REVIEW.md package 5.3; docs/DESIGN.md §9f): `/m/<id>`, one
  * milestone a project's founders chose to show, with its share images (./opengraph-image.tsx, wide; ./story-image, tall).
  * Open to anyone signed out (lib/auth/redirects.ts `PUBLIC_PREFIXES`) and from 390 px (components/providers/
  * DesktopOnly.tsx `SMALL_SCREEN_PREFIXES`). Never indexed (`noindex, follow`): the project's page and its story are

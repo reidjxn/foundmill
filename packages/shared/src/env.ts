@@ -30,6 +30,12 @@ const Env = z.object({
   COMPOSER_URL: z.string().default("http://localhost:4002"),
   /** apps/api and apps/orchestrator: how long a composer call (refresh, narrate) may take; unset = LIMITS.composerClientTimeoutMs. Keep it above the composer's deadline. */
   COMPOSER_TIMEOUT_MS: z.coerce.number().int().min(1_000).max(600_000).optional().catch(undefined),
+  /**
+   * apps/api: the size of its database pool (default 10). Raise it only with room under Postgres's `max_connections`
+   * for every service's pool and Temporal's (docs/DEPLOY.md "Database connections"). The transaction gate
+   * (apps/api services/tx-gate.ts) follows it: requests hold at most this many transactions less a reserve of 4.
+   */
+  API_DB_POOL_MAX: z.coerce.number().int().min(5).max(100).optional().catch(undefined),
   INGEST_URL: z.string().default("http://localhost:4005"),
   SUPABASE_URL: z.string().optional(),
   SUPABASE_ANON_KEY: z.string().optional(),
@@ -52,6 +58,12 @@ const Env = z.object({
   /** apps/gateway: the OneSignal app id and REST API key behind the `onesignal` connector (push to the mobile app's phones, docs/mobile). */
   ONESIGNAL_APP_ID: z.string().optional(),
   ONESIGNAL_API_KEY: z.string().optional(),
+  /** apps/gateway: Cloudflare Turnstile's secret key for the idea box's bot check (docs/IDEA_BOX.md). Unset on staging or production, the idea box drafts nothing. */
+  TURNSTILE_SECRET_KEY: z.string().optional(),
+  /** apps/api: the Domain of the idea box's cookie (`fm_idea`), so the web app reads it too: `foundmill.com` in production. Unset: a host-only cookie (local stacks). */
+  IDEA_COOKIE_DOMAIN: z.string().regex(/^[a-z0-9.-]{3,253}$/).optional(),
+  /** apps/api: the idea box's daily ceiling on model spend across every visitor, in US cents (founder, 2026-11-13: $20). */
+  IDEA_BOX_DAILY_CEILING_CENTS: z.coerce.number().int().min(0).max(100_000).default(2_000),
   REDIS_URL: z.string().default("redis://localhost:6379"),
   TEMPORAL_ADDRESS: z.string().default("localhost:7233"),
   TEMPORAL_NAMESPACE: z.string().default("default"),

@@ -5,7 +5,7 @@ import { FormationBoard } from "./FormationBoard";
 import { mockChannels } from "./mock";
 
 /**
- * A channel the founder posts themselves (tap-to-post, docs/DESIGN.md §9e): on the board, and never shown as running.
+ * A channel the founder posts themselves (tap-to-post, docs/DESIGN.md §9g): on the board, and never shown as running.
  * The hub does not count it, its line to the hub is still, and its name and its profile say "you post it" in words.
  */
 const channels = mockChannels();
