@@ -21,7 +21,7 @@ import type { TurnstileConfig } from "./turnstile";
 import { AppError, mockResultsAllowed, NotFoundError } from "@foundmill/shared";
 import type { Vault } from "@foundmill/shared/crypto";
 import type { KeyValidation } from "@foundmill/models";
-import { bookUsage, codeRepositoryOf, openApprovalItem, repos, type Db, type Agent, type AppInstallation, type Business, type Integration } from "@foundmill/db";
+import { bookUsage, codeRepositoryOf, openApprovalItem, repos, type Db, type Agent, type AppInstallation, type Approval, type Business, type Integration } from "@foundmill/db";
 import { agentAutonomy, businessApprovalThreshold, evaluate, getPolicyEngine, type AgentCtxInput, type EvaluateInputInput, type EvaluateResult, type PolicyEngine, type ToolCtxInput } from "@foundmill/policy";
 import {
   ALWAYS_LIVE_CONNECTORS,
@@ -354,24 +354,32 @@ export async function executeToolCall(deps: GatewayDeps, session: SessionToken, 
     const granted = await repos.approvals.useGranted(deps.db, businessId, { sessionId: session.sessionId, agentId: session.agentId, connectorKey: connector.key, tool: tool.name, args: argsObject(args), amountMinor: req.context.amountMinor ?? 0, currency: req.context.currency ?? loaded.agent.currency });
     if (granted) {
       log.info({ approvalId: granted.id }, "tool call runs under the founder's approval");
-      // A call the vendor refused outright, or the gateway stopped before the vendor saw it, did nothing: the approval
-      // goes back, so the retry (or the next cycle) runs under it instead of asking the founder the same question again.
-      const giveBack = async (why: string) => {
-        if (await repos.approvals.releaseUse(deps.db, businessId, granted.id, session.sessionId).catch(() => false)) log.info({ approvalId: granted.id, why }, "the call did not run; the founder's approval is kept for the next try");
-      };
-      try {
-        const out = await allow(deps, session, req, loaded, { ...decision, reasons: [...decision.reasons, `Approved by the founder (approval ${granted.id})`] }, args, log, now, granted.id);
-        if (out.body.outcome === "deny") await giveBack("refused before the vendor call");
-        else if (out.body.outcome === "allow" && !out.body.result.ok && vendorRefusedOutright(out.body.result.error)) await giveBack(out.body.result.error?.code ?? "refused");
-        return out;
-      } catch (e) {
-        if (e instanceof GatewayError && NOT_RUN_ERRORS.has(e.code)) await giveBack(e.code);
-        throw e;
-      }
+      return runUnderApproval(deps, session, req, loaded, decision, args, log, now, granted);
     }
     return ask(deps, session, req, loaded, decision, args, log, now);
   }
   return allow(deps, session, req, loaded, decision, args, log, now);
+}
+
+/**
+ * Runs a gated call under the approval this session has just used (`useGranted`, or `useDecided` for one an agent
+ * decided). A call the vendor refused outright, or the gateway stopped before the vendor saw it, did nothing: the
+ * approval goes back, so the retry (or the next cycle) runs under it instead of asking the same question again.
+ */
+async function runUnderApproval(deps: GatewayDeps, session: SessionToken, req: CallRequestParsed, loaded: Loaded, decision: EvaluateResult, args: unknown, log: GatewayLogger, now: () => Date, approval: Pick<Approval, "id" | "byKind">): Promise<ToolCallResult> {
+  const by = approval.byKind === "agent" ? "the agent Team › Responsibilities names" : "the founder";
+  const giveBack = async (why: string) => {
+    if (await repos.approvals.releaseUse(deps.db, session.businessId, approval.id, session.sessionId).catch(() => false)) log.info({ approvalId: approval.id, why }, "the call did not run; the approval is kept for the next try");
+  };
+  try {
+    const out = await allow(deps, session, req, loaded, { ...decision, reasons: [...decision.reasons, `Approved by ${by} (approval ${approval.id})`] }, args, log, now, approval.id);
+    if (out.body.outcome === "deny") await giveBack("refused before the vendor call");
+    else if (out.body.outcome === "allow" && !out.body.result.ok && vendorRefusedOutright(out.body.result.error)) await giveBack(out.body.result.error?.code ?? "refused");
+    return out;
+  } catch (e) {
+    if (e instanceof GatewayError && NOT_RUN_ERRORS.has(e.code)) await giveBack(e.code);
+    throw e;
+  }
 }
 
 async function loadContext(deps: GatewayDeps, session: SessionToken, connector: Connector, tool: McpToolDefinition, now: () => Date): Promise<Loaded> {
@@ -695,8 +703,13 @@ async function ask(deps: GatewayDeps, session: SessionToken, req: CallRequestPar
   const queued = open ? { id: open.id, approvedByAgent: false } : await queueApproval(deps, session, req, loaded, decision, args, false);
   const approvalId = queued.id;
   if (queued.approvedByAgent) {
-    log.info({ approvalId }, "approval decided by the agent Team › Responsibilities names; the call goes ahead");
-    return allow(deps, session, req, loaded, decision, args, log, now);
+    // The agent's decision covers this call only: it is used now, so no later identical call runs under it (after the
+    // founder takes the delegation back, say).
+    const used = await repos.approvals.useDecided(deps.db, session.businessId, approvalId, session.sessionId);
+    if (used) {
+      log.info({ approvalId }, "approval decided by the agent Team › Responsibilities names; the call goes ahead");
+      return runUnderApproval(deps, session, req, loaded, decision, args, log, now, used);
+    }
   }
   const audit = await appendAudit(deps, session, req, { outcome: "ask", reasons: decision.reasons, policyIds: decision.policyIds, approvalId });
   log.info({ approvalId, reasons: decision.reasons }, "tool call needs approval");

@@ -131,6 +131,33 @@ describe("one approval per gated call", () => {
     expect(await repos.approvals.get(g.db, g.businessId, asked.approvalId)).toMatchObject({ usedBySessionId: s2 });
   });
 
+  it("an approval an agent decided through Team › Responsibilities runs its one call; the next one asks again", async () => {
+    const dept = await repos.departments.create(g.db, g.businessId, { name: "Delegated once" });
+    const reviewer = await repos.agents.create(g.db, g.businessId, { name: "Reviewer", agentType: "review_agent", departmentIds: [dept.id] });
+    await repos.agents.update(g.db, g.businessId, g.agentId, { departmentIds: [dept.id] });
+    await repos.departments.update(g.db, g.businessId, dept.id, { approvers: [{ decisionType: "message_customers", handler: { kind: "agent", id: reviewer.id } }] });
+    const args = { to: SAFE_EMAIL, body: "Delegated hello" };
+    try {
+      const token = await g.token();
+      const ran = asAllow(await g.client.call(token, { connector: "test", tool: "send_message", args }));
+      const approvalId = (await repos.approvals.list(g.db, g.businessId, { agentId: g.agentId, connectorKey: "test", limit: 1 })).items[0]!.id;
+      expect(await repos.approvals.get(g.db, g.businessId, approvalId)).toMatchObject({ outcome: "approved", byKind: "agent", byId: reviewer.id, usedBySessionId: g.sessionId });
+      // The audit row names the approval and who decided it: the agent, not the founder.
+      const audit = await repos.audit.get(g.db, g.businessId, ran.auditId);
+      expect(audit.details).toMatchObject({ outcome: "allow", approvalId });
+      expect(JSON.stringify((audit.details as { reasons: string[] }).reasons)).not.toContain("by the founder");
+
+      // The founder takes the decision back: the same call again is the founder's question, not a second run.
+      await repos.departments.update(g.db, g.businessId, dept.id, { approvers: [] });
+      const next = asAsk(await g.client.call(token, { connector: "test", tool: "send_message", args }));
+      expect(next.approvalId).not.toBe(approvalId);
+      expect(g.seen.map((s) => s.tool)).toEqual(["send_message"]);
+    } finally {
+      await repos.departments.update(g.db, g.businessId, dept.id, { approvers: [] });
+      await repos.agents.update(g.db, g.businessId, g.agentId, { departmentIds: [] });
+    }
+  });
+
   it("an open approval of an earlier session on the task is handed to the session asking now", async () => {
     const task = await repos.tasks.create(g.db, g.businessId, { kind: "ops", title: "Book the launch call", goalMd: "x", assigneeAgentId: g.agentId, status: "running" });
     const s1 = await sessionOnTask(task.id);

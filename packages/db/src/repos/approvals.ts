@@ -383,7 +383,21 @@ export const approvalsRepo = {
   },
 
   /**
-   * Gives back an approval `useGranted` took for a call that never ran: the vendor refused it outright (GitHub's 405
+   * Uses the approval an agent just decided for the call that opened it (Team › Responsibilities): marked used by
+   * `sessionId` at once, so the decision covers that one call and no later identical call can run under it once the
+   * delegation is withdrawn. Null when it is not an approved, unused approval.
+   */
+  async useDecided(db: Executor, businessId: string, approvalId: string, sessionId: string | null): Promise<Approval | null> {
+    const used = await db
+      .update(approvals)
+      .set({ usedAt: new Date(), usedBySessionId: sessionId, updatedAt: new Date() })
+      .where(and(scoped(businessId, approvalId), eq(approvals.outcome, "approved"), isNull(approvals.usedAt)))
+      .returning();
+    return used[0] ?? null;
+  },
+
+  /**
+   * Gives back an approval `useGranted` or `useDecided` took for a call that never ran: the vendor refused it outright (GitHub's 405
    * "not mergeable", a 409 or 422), or the gateway stopped it before the vendor saw it. Only the session that used it
    * can give it back, and only while it is still marked used by that session. Until Nov 6, 2026 a merge the founder
    * approved that GitHub refused for a moment spent the approval, and the retry put the same question in the Inbox again.
