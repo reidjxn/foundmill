@@ -11,20 +11,23 @@
  * committed reach the stream without waiting for the idle poll (about 220 ms on average until 2026-10-15). Writes made
  * by other services wait for the poll, which stays at 250 ms.
  *
- * Two relays run here, started together once Redis answers: the business relay (`outbox` → `ev:{businessId}`) and the
- * account relay (`account_outbox` → `ae:{userId}`, docs/ARCHITECTURE.md §5 "Account events"). Each has its own loop,
- * its own transactions and its own backoff, so an account outbox that is stuck never holds up a project's events, and
- * the reverse; `wake()` wakes both and `stop()` stops both. `status()` describes the supervisor: both start with it.
+ * One loop relays both outboxes (2026-11-13): the business outbox (`outbox` → `ev:{businessId}`) and the account
+ * outbox (`account_outbox` → `ae:{userId}`, docs/ARCHITECTURE.md §5 "Account events"). Each tick runs the business batch
+ * and then the account batch, one after the other, so the database pool carries one poller (one probe every 250 ms
+ * when both outboxes are empty), as it did before account events existed. A failed account batch is logged and never
+ * fails the tick, so a stuck account outbox cannot hold up a project's events; a failed business batch backs the loop
+ * off as before.
  *
- * THE ACCOUNT RELAY IS OFF (`ACCOUNT_RELAY_ENABLED`, 2026-11-12). From the deploy that first started it, production's
- * database pool lost a connection about every minute ("N of 8 warm-up queries did not answer"), the pool watchdog
- * restarted the api about every five minutes, and each shutdown waited its whole 45 s on a relay tick that never
- * answered. Nothing of the kind was logged in the days before, and nothing else that deploy added runs on a timer. It
- * was not reproduced on a local Postgres, so the cause is not known yet: until it is, the second poller does not run.
- * Account events are still written with their outbox rows and nothing is lost; they reach `ae:{userId}` when the relay
- * is turned back on. No client subscribes to that stream yet.
+ * Why one loop: from Nov 12 to 13 the account relay ran as a second loop beside the business one, and production's pool
+ * wedged (docs/DECISIONS.md 2026-11-12, and its correction). The root cause was single requests taking the whole pool
+ * (fixed by the request-transaction gate, #95, which also keeps a reserve of connections the relays can always use);
+ * the second poller made it worse. It was then off (`ACCOUNT_RELAY_ENABLED`, #91) and comes back here, folded in.
+ *
+ * Stopping never waits more than `RELAY_STOP_TIMEOUT_MS`: a tick blocked behind a starved pool held two shutdowns for
+ * their whole 45 s budget on Nov 12. Past the bound the supervisor logs it and moves on; the abandoned query returns
+ * its connection when it finishes or when the pool closes.
  */
-import { runAccountOutboxRelay, runOutboxRelay, type OutboxRelay, type PlatformEvent } from "@foundmill/events";
+import { createAccountOutboxRelay, createOutboxRelay, createRelayLoop, type OutboxRelay, type PlatformEvent } from "@foundmill/events";
 import type { ApiDeps } from "../context";
 import { redisReachable, type ApiRedis } from "./redis";
 
@@ -45,18 +48,52 @@ export interface RelaySupervisor {
   stop(): Promise<void>;
 }
 
-/** Whether the api starts the account relay beside the business one. Off: see the note at the top of this file. */
-export const ACCOUNT_RELAY_ENABLED = false;
+/** Whether the relay also publishes the account outbox (in the same loop as the business outbox). */
+export const ACCOUNT_RELAY_ENABLED = true;
+
+/** The longest `stop()` waits for the relay's loop to exit before moving on. */
+export const RELAY_STOP_TIMEOUT_MS = 5_000;
+
+/** Rows per batch and the idle wait of the one loop (the business relay's own defaults). */
+const RELAY_BATCH = 100;
+const RELAY_INTERVAL_MS = 250;
+const RELAY_ERROR_BACKOFF_MS = 1_000;
+
+/**
+ * One loop over two relays: `business` first, then `account` (when there is one), in the same tick. Neither is started
+ * on its own; only their `tick()` is used. A business failure fails the tick (the loop backs off, as the business relay
+ * always has); an account failure is reported to `onAccountError` and the tick goes on. The tick is "full" (the loop
+ * runs again at once) when either batch was.
+ */
+export function combineRelays(business: OutboxRelay, account: OutboxRelay | null, opts: { onError: (err: unknown) => void; onAccountError: (err: unknown) => void; batch?: number; intervalMs?: number; errorBackoffMs?: number }): OutboxRelay {
+  return createRelayLoop({
+    tickOnce: async () => {
+      const n = await business.tick();
+      if (!account) return n;
+      let m = 0;
+      try {
+        m = await account.tick();
+      } catch (err) {
+        opts.onAccountError(err);
+      }
+      return Math.max(n, m);
+    },
+    batch: opts.batch ?? RELAY_BATCH,
+    intervalMs: opts.intervalMs ?? RELAY_INTERVAL_MS,
+    errorBackoffMs: opts.errorBackoffMs ?? RELAY_ERROR_BACKOFF_MS,
+    onError: opts.onError,
+  });
+}
 
 export interface RelaySupervisorOptions {
   /** Probe Redis (default: PING with a 1.5 s timeout on `deps.redis`). */
   reachable?: () => Promise<boolean>;
-  /** Start the relay (default: `runOutboxRelay` on `deps.db` and `deps.redis`). */
+  /** Start the relay (default: one loop over the business and account outboxes on `deps.db` and `deps.redis`). */
   start?: () => OutboxRelay;
-  /** Start the account relay (default: `runAccountOutboxRelay` on `deps.db` and `deps.redis`). */
-  startAccount?: () => OutboxRelay;
-  /** Whether to start the account relay at all (default `ACCOUNT_RELAY_ENABLED`). */
+  /** Whether the default relay also publishes the account outbox (default `ACCOUNT_RELAY_ENABLED`). */
   accountRelay?: boolean;
+  /** The longest `stop()` waits (default `RELAY_STOP_TIMEOUT_MS`). */
+  stopTimeoutMs?: number;
   /** Wait before the next probe; `attempt` counts from 1 (default: 1 s doubling to 30 s). */
   backoffMs?: (attempt: number) => number;
   now?: () => Date;
@@ -72,37 +109,52 @@ export const relayBackoffMs = (attempt: number): number => Math.min(30_000, 1_00
 export function superviseOutboxRelay(deps: Pick<ApiDeps, "db" | "redis" | "log" | "env">, options: RelaySupervisorOptions = {}): RelaySupervisor {
   const redis = deps.redis as ApiRedis | null;
   const reachable = options.reachable ?? (() => redisReachable(redis));
-  const start =
-    options.start ??
-    (() =>
-      runOutboxRelay(deps.db as unknown as Parameters<typeof runOutboxRelay>[0], redis!, {
-        onError: (err) => deps.log.warn({ err: (err as Error).message }, "outbox relay tick failed"),
-        ...(options.onPublished
-          ? {
-              onPublished: (events: readonly PlatformEvent[]) => {
-                try {
-                  options.onPublished!(events);
-                } catch (err) {
-                  deps.log.warn({ err: (err as Error).message }, "outbox relay onPublished hook failed");
-                }
-              },
-            }
-          : {}),
-      }));
-  const startAccount =
-    options.startAccount ??
-    (() =>
-      runAccountOutboxRelay(deps.db as unknown as Parameters<typeof runAccountOutboxRelay>[0], redis!, {
-        // The relay's errors come from Redis and from validation paths: a message, never a person's event.
-        onError: (err) => deps.log.warn({ err: (err as Error).message }, "account outbox relay tick failed"),
-      }));
+  const withAccount = options.accountRelay ?? ACCOUNT_RELAY_ENABLED;
+  const defaultStart = (): OutboxRelay => {
+    const db = deps.db as unknown as Parameters<typeof createOutboxRelay>[0];
+    const business = createOutboxRelay(db, redis!, {
+      onError: (err) => deps.log.warn({ err: (err as Error).message }, "outbox relay tick failed"),
+      ...(options.onPublished
+        ? {
+            onPublished: (events: readonly PlatformEvent[]) => {
+              try {
+                options.onPublished!(events);
+              } catch (err) {
+                deps.log.warn({ err: (err as Error).message }, "outbox relay onPublished hook failed");
+              }
+            },
+          }
+        : {}),
+    });
+    let account: OutboxRelay | null = null;
+    if (withAccount) {
+      // Beside it, never in its way: a failure to build the account relay leaves the business relay running.
+      try {
+        account = createAccountOutboxRelay(db, redis!, {
+          // The relay's errors come from Redis and from validation paths: a message, never a person's event.
+          onError: (err) => deps.log.warn({ err: (err as Error).message }, "account outbox relay batch failed"),
+        });
+      } catch (err) {
+        deps.log.warn({ err: (err as Error).message }, "account outbox relay did not start (account events stay in their outbox until a restart)");
+      }
+    } else {
+      deps.log.info({}, "account outbox relay is off (account events wait in their outbox)");
+    }
+    const loop = combineRelays(business, account, {
+      onError: (err) => deps.log.warn({ err: (err as Error).message }, "outbox relay tick failed"),
+      onAccountError: (err) => deps.log.warn({ err: (err as Error).message }, "account outbox relay batch failed"),
+    });
+    loop.start();
+    return loop;
+  };
+  const start = options.start ?? defaultStart;
+  const stopTimeoutMs = options.stopTimeoutMs ?? RELAY_STOP_TIMEOUT_MS;
   const backoff = options.backoffMs ?? relayBackoffMs;
   const now = options.now ?? (() => new Date());
   let state: RelayState = "starting";
   let attempts = 0;
   let since: string | null = null;
   let relay: OutboxRelay | null = null;
-  let accountRelay: OutboxRelay | null = null;
   let timer: ReturnType<typeof setTimeout> | null = null;
   let stopped = false;
 
@@ -125,33 +177,27 @@ export function superviseOutboxRelay(deps: Pick<ApiDeps, "db" | "redis" | "log" 
     relay = start();
     state = "running";
     since = now().toISOString();
-    deps.log.info({ attempts }, "outbox relay started");
-    if (!(options.accountRelay ?? ACCOUNT_RELAY_ENABLED)) {
-      deps.log.info({}, "account outbox relay is off (account events wait in their outbox)");
-      return;
-    }
-    // Beside it, never in its way: a failure to start the account relay leaves the business relay running.
-    try {
-      accountRelay = startAccount();
-      deps.log.info({ attempts }, "account outbox relay started");
-    } catch (err) {
-      deps.log.warn({ err: (err as Error).message }, "account outbox relay did not start (account events stay in their outbox until a restart)");
-    }
+    deps.log.info({ attempts, account: withAccount }, "outbox relay started");
   };
   void attempt();
 
   return {
     status: () => ({ state, attempts, since }),
-    wake: () => {
-      relay?.wake();
-      accountRelay?.wake();
-    },
+    wake: () => relay?.wake(),
     async stop() {
       stopped = true;
       if (timer) clearTimeout(timer);
       timer = null;
       state = "stopped";
-      await Promise.all([relay?.stop(), accountRelay?.stop()]);
+      if (!relay) return;
+      let bound: ReturnType<typeof setTimeout> | null = null;
+      const late = new Promise<"late">((resolve) => {
+        bound = setTimeout(() => resolve("late"), stopTimeoutMs);
+        (bound as { unref?: () => void }).unref?.();
+      });
+      const outcome = await Promise.race([relay.stop().then(() => "stopped" as const), late]);
+      if (bound) clearTimeout(bound);
+      if (outcome === "late") deps.log.warn({ ms: stopTimeoutMs }, "outbox relay did not stop in time (a tick was still waiting); moving on");
     },
   };
 }

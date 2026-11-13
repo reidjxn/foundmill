@@ -3856,3 +3856,7 @@ The calls made building `openai`, `gemini`, `perplexity`, `serpapi`, `firecrawl`
 - **Grants.** GEO Engine: `openai`, `gemini`, `perplexity` `panel.query` (restored from PLANNED_GRANTS.md, whose three rows are deleted), and new: `serpapi` `serp.read`, `firecrawl` `pages.read`, `indexnow` `urls.submit`. SEO Engine: the same last three, new. `CHANNEL_ACTING_TOOLS` is unchanged: telling a search engine a page changed is not what makes the channel able to act, publishing the change is.
 - **Not verified against a live vendor.** Every live path is tested against canned responses shaped from the docs; no real key was available. Each connector has an env-gated live suite. Perplexity's free key check (`GET /v1/models`) was seen to refuse a bad key, not to accept a good one.
 - **Left out of this batch (founder, 2026-11-12):** `ayrshare` (posting to X now needs the founder's own X developer credentials).
+
+## 2026-11-13 — The account relay returns folded into the business relay
+
+Agreed with the alignment and retention sessions after the pool fix (#95). One loop, not two: the second poller made the Nov 12 pool starvation worse, and nothing needs the account outbox relayed faster than the business one. Business first in each tick because project events drive every live screen; an account batch that fails is logged and skipped so it can never hold them up. The stop is bounded at 5 s because both Nov 12 shutdowns spent their whole 45 s budget waiting on a tick behind a starved pool, which skipped closing Redis and the database.

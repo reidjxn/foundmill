@@ -9,6 +9,7 @@ export * from "./outbox/writer";
 export * from "./outbox/relay";
 export * from "./outbox/account-writer";
 export * from "./outbox/account-relay";
+export { createRelayLoop, type RelayLoopOptions } from "./outbox/relay-loop";
 export * from "./consume";
 export * from "./session-stream";
 export * from "./user-stream";
