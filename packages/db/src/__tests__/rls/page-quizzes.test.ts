@@ -206,3 +206,28 @@ describe("public_page_quizzes", () => {
     expect(await h.service().run((tx) => repos.pageQuizzes.public.bySlug(tx, "bravo-quiz"))).toBeNull();
   });
 });
+
+describe("public_page_quizzes: a quiz written past the api is never shown (security review, Nov 13, 2026)", () => {
+  it("an owner's direct write of a non-https link, approved and turned on with direct writes, never reaches a visitor", async () => {
+    const c = await createBusinessFixture(h, "quiz-direct");
+    await commit(c.businessId);
+    await h.service().run((tx) => repos.pages.publish(tx, c.businessId, { content: page(), slug: "direct-quiz", userId: c.ownerId, at: new Date("2026-10-05T09:00:00Z") }));
+    await h.service().run((tx) => repos.pageQuizzes.writeDraft(tx, c.businessId, { definition: quiz(), evidence, agentId: c.agentId }));
+    const bad = quiz();
+    for (const url of ["javascript:alert(document.cookie)", "http://pay.example.com/box", "https://user:pw@pay.example.com/box"]) {
+      const definition = { ...bad, offers: [{ ...bad.offers[0]!, action: { kind: "link" as const, url, label: "Order" } }, bad.offers[1]!] };
+      await h.asUser(c.ownerId).run((tx) => tx.update(s.pageQuizzes).set({ definition }).where(eq(s.pageQuizzes.businessId, c.businessId)));
+      await h.asUser(c.ownerId).run((tx) => tx.update(s.pageQuizzes).set({ status: "approved" }).where(eq(s.pageQuizzes.businessId, c.businessId)));
+      await h.asUser(c.ownerId).run((tx) => tx.update(s.pageQuizzes).set({ status: "live" }).where(eq(s.pageQuizzes.businessId, c.businessId)));
+      expect((await stored(c.businessId)).status, url).toBe("live");
+      expect(await h.service().run((tx) => repos.pageQuizzes.public.bySlug(tx, "direct-quiz")), url).toBeNull();
+      const version = (await stored(c.businessId)).version;
+      expect(await h.service().run((tx) => repos.pageQuizzes.public.recordResult(tx, { slug: "direct-quiz", version, typeKey: "t1" })), url).toBe(false);
+    }
+    // Put right, it shows.
+    await h.asUser(c.ownerId).run((tx) => tx.update(s.pageQuizzes).set({ definition: quiz() }).where(eq(s.pageQuizzes.businessId, c.businessId)));
+    await h.asUser(c.ownerId).run((tx) => tx.update(s.pageQuizzes).set({ status: "approved" }).where(eq(s.pageQuizzes.businessId, c.businessId)));
+    await h.asUser(c.ownerId).run((tx) => tx.update(s.pageQuizzes).set({ status: "live" }).where(eq(s.pageQuizzes.businessId, c.businessId)));
+    expect(await h.service().run((tx) => repos.pageQuizzes.public.bySlug(tx, "direct-quiz"))).not.toBeNull();
+  });
+});

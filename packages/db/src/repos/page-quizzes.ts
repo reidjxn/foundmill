@@ -15,7 +15,7 @@
  * - `public.*` (service connection): a live quiz by its page's address, through the view `public_page_quizzes` only, and
  *   one finished quiz counted for its result type.
  */
-import { PAGE_QUIZ_TYPE_KEYS, ProjectPageSlug, readPageQuiz, type PageQuizDefinition, type PageQuizEvidence, type PageQuizStatus } from "@foundmill/shared";
+import { PAGE_QUIZ_TYPE_KEYS, ProjectPageSlug, pageQuizProblems, readPageQuiz, type PageQuizDefinition, type PageQuizEvidence, type PageQuizStatus } from "@foundmill/shared";
 import { and, eq, inArray, sql } from "drizzle-orm";
 import { pageQuizCounts, pageQuizzes, projectPages, publicPageQuizzes, type PageQuiz } from "../schema";
 import { maybeOne, rowsOf, type Executor } from "./_shared";
@@ -183,13 +183,19 @@ export const pageQuizzesRepo = {
   },
 
   public: {
-    /** A live quiz by its page's address, as the view gives it; null for anything not public. Service connection only. */
+    /**
+     * A live quiz by its page's address, as the view gives it; null for anything not public. Service connection only.
+     * Checked again here, against the page as it is now (security review, Nov 13, 2026): a definition the api did not
+     * approve (a direct write: a link that is not https, a pressure word, a Follow offer on a page without the form) is
+     * never shown, whatever its status says.
+     */
     async bySlug(db: Executor, slug: string): Promise<{ slug: string; version: number; definition: PageQuizDefinition; followForm: boolean } | null> {
       if (!ProjectPageSlug.safeParse(slug).success) return null;
       const row = maybeOne(await db.select().from(publicPageQuizzes).where(eq(publicPageQuizzes.slug, slug)).limit(1));
       if (!row) return null;
       const definition = readPageQuiz(row.definition);
-      return definition ? { slug: row.slug, version: row.version, definition, followForm: row.followForm } : null;
+      if (!definition || pageQuizProblems(definition, { followForm: row.followForm }).length > 0) return null;
+      return { slug: row.slug, version: row.version, definition, followForm: row.followForm };
     },
 
     /**
@@ -198,6 +204,9 @@ export const pageQuizzesRepo = {
      */
     async recordResult(db: Executor, input: { slug: string; version: number; typeKey: string }): Promise<boolean> {
       if (!(PAGE_QUIZ_TYPE_KEYS as readonly string[]).includes(input.typeKey)) return false;
+      // Only a quiz a visitor can be shown is counted.
+      const shown = await pageQuizzesRepo.public.bySlug(db, input.slug);
+      if (!shown || shown.version !== input.version || !shown.definition.types.some((t) => t.key === input.typeKey)) return false;
       const target = maybeOne(
         await db
           .select({ quizId: pageQuizzes.id, businessId: pageQuizzes.businessId, version: pageQuizzes.version })
