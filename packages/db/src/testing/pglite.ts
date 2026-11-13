@@ -5,6 +5,9 @@
  * `@electric-sql/pglite-pgvector` is installed, the Supabase roles and the stub `auth` schema), applies every
  * migration in journal order and returns role-switching runners so RLS can be exercised exactly as apps/api
  * does it through withRls().
+ *
+ * With `RLS_TEST_DATABASE_URL` set it builds the same harness on a fresh database of that real Postgres instead
+ * (./postgres.ts): what PGlite, a superuser in one process, cannot show about roles and privileges.
  */
 import type { PGlite } from "@electric-sql/pglite";
 import { sql, type SQL } from "drizzle-orm";
@@ -13,6 +16,7 @@ import { withRls, type Db, type DbTx, type RlsRole } from "../client";
 import { readMigrations, type MigrationFile } from "../migrations";
 import { bootPglite, rewriteForMissingVector } from "../pglite";
 import * as schema from "../schema";
+import { createRealPostgresTestDb, realPostgresUrl } from "./postgres";
 
 export { PGLITE_BOOTSTRAP_SQL as BOOTSTRAP_SQL, rewriteForMissingVector } from "../pglite";
 
@@ -26,9 +30,17 @@ export interface Runner {
 }
 
 export interface TestHarness {
-  /** Superuser (postgres) connection — bypasses RLS. Use for fixtures and assertions about ground truth. */
+  /**
+   * Owner connection — bypasses RLS. Use for fixtures and assertions about ground truth. PGlite: the superuser. Real
+   * Postgres: the role of RLS_TEST_DATABASE_URL, which owns the database and everything the migrations create.
+   */
   db: TestDb;
+  /** PGlite itself; on real Postgres a stand-in that answers `query(text, params)` and `exec(text)` only. */
   pg: PGlite;
+  /** Which database the harness runs on: in-process PGlite, or a real Postgres (RLS_TEST_DATABASE_URL). */
+  driver: "pglite" | "postgres";
+  /** Real Postgres only: the name of the fresh database this harness created (dropped on close). */
+  database?: string;
   /** Runner acting as a signed-in user (role authenticated by default). */
   asUser(userId: string, role?: RlsRole): Runner;
   /** Runner acting as the service role (bypassrls). */
@@ -65,9 +77,13 @@ export interface CreateTestDbOptions {
   migrations?: MigrationFile[];
   /** Force the no-pgvector path even when the extension is installed. */
   disableVector?: boolean;
+  /** Run on PGlite even when RLS_TEST_DATABASE_URL is set (a suite that needs PGlite itself). */
+  pglite?: boolean;
 }
 
 export async function createTestDb(options: CreateTestDbOptions = {}): Promise<TestHarness> {
+  const realUrl = options.pglite ? undefined : realPostgresUrl();
+  if (realUrl) return createRealPostgresTestDb(realUrl, options, unwrapDbError);
   // Same roles / auth stub / extensions as createDb("pglite:…") (src/pglite.ts); in-memory, migrations applied
   // file by file here (not through migrateDb) so a suite can pass its own list and the no-pgvector rewrite applies.
   const booted = await bootPglite({ disableVector: options.disableVector });
@@ -100,6 +116,7 @@ export async function createTestDb(options: CreateTestDbOptions = {}): Promise<T
   return {
     db,
     pg,
+    driver: "pglite",
     hasVector: vector,
     appliedMigrations: applied,
     asUser: (userId, role = "authenticated") => makeRunner({ userId, role }),

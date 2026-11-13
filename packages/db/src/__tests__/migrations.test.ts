@@ -100,6 +100,7 @@ describe("journal", () => {
       "0084_autopilot_own_limits",
       "0085_account_events",
       "0086_idea_drafts",
+      "0087_client_grants",
       "0096_credit_lots",
     ]);
     // strictly increasing `when` so drizzle applies them in order
