@@ -22,7 +22,7 @@ export type PostOutcomeKind = (typeof POST_OUTCOME_KINDS)[number];
 
 /**
  * The section a reader must read to see an outcome of this kind: who follows and who replied are the CRM's, a payment
- * is Finance's (the same walls as the weekly "What worked", packages/shared `OUTCOME_SECTION` once it lands).
+ * is Finance's (the same walls as "What worked", ./morning-brief `OUTCOME_SECTION`).
  */
 export const POST_OUTCOME_SECTION: Readonly<Record<PostOutcomeKind, Section>> = {
   follow: "crm",
@@ -95,7 +95,7 @@ export function postQuote(text: string): string {
 }
 
 /**
- * The weekly "What worked" seam (item 8; `RealOutcome.viaPost` lands with PR #112, not on main yet): what an outcome's
+ * What "What worked" says of an outcome a shared post brought (item 8; ./morning-brief `RealOutcome.viaPost`): what an outcome's
  * line adds when a shared post brought it, "from your post on X, Nov 12" ("from a link to your post, Nov 12" for a
  * copied or sent link). The date is the day the founder opened the share for the post (else the day it was drafted).
  */

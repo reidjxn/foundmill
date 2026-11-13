@@ -400,7 +400,7 @@ export const postAttributionsRepo = {
   },
 
   /**
-   * The weekly "What worked" seam (`RealOutcome.viaPost`, PR #112): for each of `outcomeEventIds` credited to a post,
+   * What the morning brief's "What worked" reads (`loadBriefFacts`, then `RealOutcome.viaPost`): for each of `outcomeEventIds` credited to a post,
    * the network and the day the founder opened its share (else the day it was drafted), for `viaPostWords`. Ids in,
    * nothing about the person out.
    */

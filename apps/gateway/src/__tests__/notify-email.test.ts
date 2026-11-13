@@ -354,4 +354,31 @@ describe("email from Foundmill to a person (gateway)", () => {
     expect((await ask({ userId: off.userId, kind: "daily_brief", businessId: g.businessId, data: { day } })).body.reason).toBe("turned_off");
     expect(sentTo(off.email)).toHaveLength(0);
   });
+
+  it("a follow a shared post brought says which post in What worked; one it did not keeps its own cause; the CRM wall hides both", async () => {
+    const p = await person();
+    const walled = await person({ role: "member", sectionPermissions: { crm: "none" } });
+    const at = new Date(Date.now() - 2 * HOURS);
+    const followedBy = { kind: "system", id: "public-page" };
+    const [credited, plain] = await g.h.db
+      .insert(s.events)
+      .values([1, 2].map((i) => ({ businessId: g.businessId, type: "page.followed", occurredAt: at, actor: followedBy, payload: { pageId: null, entityId: crypto.randomUUID(), consentId: crypto.randomUUID(), i } })))
+      .returning({ id: s.events.id });
+    // The first follow was credited to a team post shared on X (item 8); the second came straight to the page.
+    const [asset] = await g.h.db.insert(s.assets).values({ businessId: g.businessId, kind: "post", title: "A post", body: "Gateway Test Club has a page now." }).returning();
+    const links = await repos.postLinks.mint(g.db, g.businessId, asset!.id);
+    const x = links.find((l) => l.network === "x")!;
+    await g.h.db.insert(s.postAttributions).values({ businessId: g.businessId, linkId: x.id, assetId: asset!.id, network: "x", outcomeKind: "follow", outcomeEventId: credited!.id, originId: crypto.randomUUID(), outcomeAt: at });
+    expect(plain).toBeTruthy();
+    const day = new Date().toISOString().slice(0, 10);
+    expect((await ask({ userId: p.userId, kind: "daily_brief", businessId: g.businessId, data: { day } })).body).toMatchObject({ sent: true });
+    const text = sentTo(p.email)[0]!.text;
+    const credit = text.split("\n").filter((l) => l.includes("A person chose to follow your project"));
+    expect(credit).toHaveLength(2);
+    expect(credit.filter((l) => /from your post on X, [A-Z][a-z]{2} \d{1,2}\b/.test(l))).toHaveLength(1);
+    expect(credit.filter((l) => l.includes("they signed up on your public page and confirmed by email"))).toHaveLength(1);
+    // A member walled from Customers sees neither follow, and so no post either.
+    await ask({ userId: walled.userId, kind: "daily_brief", businessId: g.businessId, data: { day } });
+    for (const m of sentTo(walled.email)) expect(m.text).not.toMatch(/chose to follow|from your post/);
+  });
 });

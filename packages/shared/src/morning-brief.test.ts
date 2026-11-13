@@ -83,6 +83,33 @@ describe("the brief's sections", () => {
     expect(b.lead).toBe("a payment came in");
   });
 
+  it("a follow, a reply and a payment a shared post brought say which post; the ones it did not keep their own cause", () => {
+    const credited = ev("page.followed", 6, { pageId: "p1", entityId: "x2", consentId: "y2" }, { kind: "system", id: "public-page" });
+    const plain = ev("page.followed", 6, { pageId: "p1", entityId: "x3", consentId: "y3" }, { kind: "system", id: "public-page" });
+    const reply = ev("lead.replied", 5, { channelKey: "email_automation", sentiment: "neutral", requestsMeeting: false }, { kind: "webhook", id: "platform_mail" });
+    const paid = ev("payment.received", 4, { conversionId: "c9", amount: { amountMinor: 2_500, currency: "USD" }, firstPayment: false });
+    const simulatedCredit = ev("page.followed", 6, { pageId: "p1", entityId: "x4", consentId: "y4" }, { kind: "system", id: "simulate" });
+    // 03:00 UTC on Nov 12 is still Nov 11 in New York: the business's own day.
+    const viaPosts = new Map([
+      [credited.id, { network: "x" as const, sharedAt: new Date("2026-11-12T15:00:00Z") }],
+      [reply.id, { network: "x" as const, sharedAt: new Date("2026-11-12T15:00:00Z") }],
+      [paid.id, { network: null, sharedAt: new Date("2026-11-12T03:00:00Z") }],
+      [simulatedCredit.id, { network: "threads" as const, sharedAt: new Date("2026-11-12T15:00:00Z") }],
+    ]);
+    const o = realOutcomes([credited, plain, reply, paid, simulatedCredit], ago(24), NOW, viaPosts);
+    expect(o.filter((x) => x.kind === "follower").map((x) => ("viaPost" in x && x.viaPost ? x.viaPost.network : null))).toEqual(["x", null]);
+    const lines = morningBrief(base({ outcomes: o })).worked.lines.map((l) => `${l.text}${l.cause ? ` (${l.cause})` : ""}`);
+    expect(lines).toEqual([
+      "A payment came in: $25.00 (from a link to your post, Nov 11)",
+      "A person replied to the team's outreach (from your post on X, Nov 12)",
+      "A person chose to follow your project (from your post on X, Nov 12)",
+      "A person chose to follow your project (they signed up on your public page and confirmed by email)",
+    ]);
+    // A simulated follow never appears, whatever it was credited to; without the map nothing names a post.
+    expect(lines.join(" ")).not.toContain("Threads");
+    expect(morningBrief(base({ outcomes: realOutcomes([credited, plain], ago(24), NOW) })).worked.lines.map((l) => l.cause)).toEqual(["they signed up on your public page and confirmed by email"]);
+  });
+
   it("hides amounts from a person walled from Money or Customers", () => {
     const b = morningBrief(base({ outcomes, hideAmounts: true }));
     expect(b.worked.lines[0]!.text).toBe("A new customer paid");

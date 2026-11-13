@@ -27,7 +27,7 @@ describe("what a post led to", () => {
     expect(Array.from(postQuote("a ".repeat(60))).length).toBeLessThanOrEqual(40);
   });
 
-  it("gives the weekly brief's outcome its source in US words (the seam for #112's viaPost)", () => {
+  it("gives the weekly brief's outcome its source in US words (RealOutcome.viaPost)", () => {
     expect(viaPostWords({ network: "x", sharedAt: new Date("2026-11-12T15:00:00Z") })).toBe("from your post on X, Nov 12");
     expect(viaPostWords({ network: null, sharedAt: new Date("2026-11-12T15:00:00Z") })).toBe("from a link to your post, Nov 12");
     // The business's own day: 03:00 UTC on Nov 13 is still Nov 12 in Los Angeles.
