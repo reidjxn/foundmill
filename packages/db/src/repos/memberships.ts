@@ -10,13 +10,24 @@
  * procedure checks), `hasRole` and `listForUser` leave it out, as the database's `is_member` and `has_role` do. The
  * lists of a business's people (`list`, `listNamed`) still show it, with its date, so the founders see it and can remove it.
  */
-import { ConflictError, DEFAULT_AGENT_STYLE, MEMBERSHIP_ROLES, OWNER_ROLES, ValidationError, isAgentStyle, isOwnerRole, type AgentStyle, type MembershipRole } from "@foundmill/shared";
+import { ConflictError, DEFAULT_AGENT_STYLE, MEMBERSHIP_ROLES, OWNER_ROLES, SECTIONS, ValidationError, isAgentStyle, isOwnerRole, type AgentStyle, type MembershipRole } from "@foundmill/shared";
 import { and, asc, eq, gt, inArray, isNull, ne, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import { accountPreferences, businesses, entities, memberships, MEMBERSHIP_SOURCES, type Business, type Membership } from "../schema";
 import { Id, maybeOne, one, parseInput, type Executor } from "./_shared";
 
-export const SectionPermissions = z.record(z.string(), z.enum(["read", "write", "none"]));
+/**
+ * A membership's own levels, by section: only the sections the walls know (`SECTIONS`), each "read", "write" or "none";
+ * a section left out takes the role's default. An unknown key is refused: stored, it would open that section the day a
+ * section of that name is added, without anyone having given it. 0094's CHECK says the same in the database.
+ */
+export const SectionPermissions = z.partialRecord(z.enum(SECTIONS), z.enum(["read", "write", "none"]), {
+  // zod reports the unknown keys as `unrecognized_keys`, an issue its types for this option leave out.
+  error: (issue) => {
+    const keys = (issue as { code: string; keys?: unknown }).code === "unrecognized_keys" ? (issue as { keys?: unknown }).keys : undefined;
+    return Array.isArray(keys) ? `No such section: ${keys.join(", ")}` : undefined;
+  },
+});
 export type SectionPermissions = z.infer<typeof SectionPermissions>;
 
 export const AddMembershipInput = z.object({
@@ -107,6 +118,28 @@ export const membershipsRepo = {
   async getActive(db: Executor, businessId: string, userId: string, options: { lock?: "share" } = {}): Promise<Membership | null> {
     const q = db.select().from(memberships).where(and(eq(memberships.businessId, businessId), eq(memberships.userId, userId), notEnded)).limit(1);
     return maybeOne(options.lock === "share" ? await q.for("share") : await q);
+  },
+
+  /**
+   * The signed-in user's own membership of the business, held `for share` until the transaction ends and read after the
+   * lock, so it is the latest committed row and stays so: a role change or a removal waits. For the RLS connection
+   * (`userId` is `auth.uid()`), where `getActive(…, { lock: "share" })` finds nothing: a locking read must also pass the
+   * update policy, which excludes one's own row (0026, 0090), so the lock is 0094's `lock_my_membership`. Null when the
+   * membership is gone or has ended. On the service connection use `getActive` with `lock: "share"`.
+   */
+  async getMineForShare(db: Executor, businessId: string, userId: string): Promise<Membership | null> {
+    const bid = parseInput(Id, businessId, "business id");
+    await db.execute(sql`select lock_my_membership(${bid}::uuid)`);
+    return membershipsRepo.getActive(db, bid, parseInput(Id, userId, "user id"));
+  },
+
+  /**
+   * Another person's membership row, held `for update` until the transaction ends (a change of it is judged on the row
+   * as it is, and nobody else changes it meanwhile). Under RLS only a row the caller may update comes back: null for
+   * their own row and for one the policy keeps from them (an admin and an owner's or a cofounder's row).
+   */
+  async getForUpdate(db: Executor, businessId: string, userId: string): Promise<Membership | null> {
+    return maybeOne(await db.select().from(memberships).where(and(eq(memberships.businessId, businessId), eq(memberships.userId, userId))).limit(1).for("update"));
   },
 
   /**
