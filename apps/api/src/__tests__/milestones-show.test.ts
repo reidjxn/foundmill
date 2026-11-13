@@ -6,6 +6,9 @@
  * showing needs a published page and is refused for a sample business; the signed-out story and card give the label and
  * the date only (never a customer), and nothing for a private milestone, a page taken down, an archived business or a
  * sample business; `publicPage.bySlug` says whether there is a story; the reads are limited like the page read.
+ *
+ * The date of "Page live" is the page's, and the page's is the database's (0088): a signed-in owner who writes to the
+ * tables directly, around the api, moves neither, and cannot delete the milestone to have it recorded again.
  */
 import { repos } from "@foundmill/db";
 import { MILESTONE_NEEDS_PAGE_MESSAGE, MILESTONE_NOT_FOUND_MESSAGE, MILESTONE_NOT_SHOWABLE_MESSAGE, MILESTONE_SAMPLE_MESSAGE, MILESTONE_SHOW_ROLE_MESSAGE, type ProjectPageContent } from "@foundmill/shared";
@@ -31,7 +34,7 @@ async function project(name: string, options: { demo?: boolean } = {}) {
   await repos.businesses.commit(hz.db, b.id, { archetype: "b2b_saas" });
   if (options.demo) await hz.db.execute(sql`update businesses set is_demo = true where id = ${b.id}`);
   for (const [userId, role] of [[ownerId, "owner"], [adminId, "admin"], [memberId, "member"], [viewerId, "viewer"]] as const) await repos.memberships.add(hz.db, b.id, { userId: userId!, role });
-  return { id: b.id, name: b.name, owner: hz.caller({ userId: ownerId! }), admin: hz.caller({ userId: adminId! }), member: hz.caller({ userId: memberId! }), viewer: hz.caller({ userId: viewerId! }) };
+  return { id: b.id, name: b.name, ownerId: ownerId!, owner: hz.caller({ userId: ownerId! }), admin: hz.caller({ userId: adminId! }), member: hz.caller({ userId: memberId! }), viewer: hz.caller({ userId: viewerId! }) };
 }
 type Project = Awaited<ReturnType<typeof project>>;
 
@@ -90,6 +93,34 @@ describe("publishing the page records \"Page live\"", () => {
     await b.owner.page.publish({ businessId: b.id, content: page() });
     const after = await milestones(b.id);
     expect(after.map((m) => [m.id, m.achievedAt.toISOString()])).toEqual([[reached[0]!.id, first.page.publishedAt!.toISOString()]]);
+  });
+
+  it("the date is the database's: an owner writing around the api cannot backdate the page or the milestone", async () => {
+    const b = await project("Honest Date");
+    const first = await b.owner.page.publish({ businessId: b.id, content: page() });
+    const wentLive = first.page.publishedAt!;
+    expect(Math.abs(wentLive.getTime() - Date.now())).toBeLessThan(60_000);
+    const milestone = (await byKey(b.id, "page_live"))!;
+    expect(milestone.achievedAt).toEqual(wentLive);
+
+    // The owner's own session, straight at the tables (as PostgREST would carry it).
+    const direct = hz.h.asUser(b.ownerId);
+    await direct.execute(sql`update project_pages set published_at = '2020-01-01T00:00:00Z' where business_id = ${b.id}`);
+    await expect(direct.execute(sql`update milestones set achieved_at = '2020-01-01T00:00:00Z' where id = ${milestone.id}`)).rejects.toThrow(/not changed by hand/);
+    await expect(direct.execute(sql`delete from milestones where id = ${milestone.id}`)).rejects.toThrow(/not deleted by hand/);
+    await expect(direct.execute(sql`insert into milestones (business_id, kind, label, achieved_at, ref) values (${b.id}, 'trophy', 'Page live', '2020-01-01T00:00:00Z', ${JSON.stringify({ trophyKey: "page_live", pageId: (await repos.pages.get(hz.db, b.id))!.id })}::jsonb)`)).rejects.toThrow();
+
+    // Shown, the story and the card carry the day the page really went live, and so does the page.
+    await b.owner.journey.showMilestone({ businessId: b.id, milestoneId: milestone.id });
+    const anon = hz.caller(null);
+    expect((await anon.publicPage.bySlug({ slug: first.page.slug }))!.publishedAt).toEqual(wentLive);
+    expect((await anon.publicPage.storyBySlug({ slug: first.page.slug }))!.milestones.map((m) => m.achievedAt)).toEqual([wentLive]);
+    expect((await anon.publicPage.cardById({ id: milestone.id }))!.milestone.achievedAt).toEqual(wentLive);
+
+    // Publishing changes through the api afterwards still works and still keeps the date.
+    const again = await b.owner.page.publish({ businessId: b.id, content: page({ stage: "live" }) });
+    expect(again.page.publishedAt).toEqual(wentLive);
+    expect((await byKey(b.id, "page_live"))!.achievedAt).toEqual(wentLive);
   });
 
   it("a held page and a sample business record nothing", async () => {
