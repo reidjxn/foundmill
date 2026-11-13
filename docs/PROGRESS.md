@@ -1709,6 +1709,15 @@ The review found no blocker; three fixes and four hardenings were made on the sa
 - Tests: `account-events.test.ts` passes `accountRelay: true` where it exercises both relays, and a new case holds the default (only the business relay starts, wakes and stops).
 - Not done: the cause; folding the account outbox into the business relay's tick; turning it back on.
 
+## 2026-11-12 — The api's pool: a gate on request transactions
+
+The api restarted every five minutes after #86 because one request of 8 to 10 reads took the whole pool (DECISIONS "The api's pool filled by one request").
+- **Gate.** apps/api `services/tx-gate.ts`: `createTransactionGate`, `forRequest(db, signal)`, `gateLimitsFor(poolMax)`; wired in `createApiDeps` (`deps.txGate`) and `createContextFactory` (each request's `ctx.db`); `/health` reports `transactions`. One request holds 4 transactions at a time, all requests the pool less 4; a closed request starts no more; a wait is capped at 15 s.
+- **Pool size.** `API_DB_POOL_MAX` (default 10, unchanged); DEPLOY.md "Database connections" has the arithmetic against `max_connections`.
+- **Today.** `today.visit` (one transaction for "Since you were last here" and the streak); the web's Today uses it.
+- **Tests.** api `tx-gate.test.ts`: a model pool of 10 where three batches of ten starve the watchdog's probe without the gate, and never do with it; early closes; nested transactions; the capped wait; and through the app, a batch of ten opening ten transactions at once without the gate, four with it, six for two batches, nothing left after closed requests. `streak.test.ts` covers `today.visit`.
+- **Not done.** The pool itself is not raised (Postgres's connection limit comes first). The postgres.js slot leak behind the stuck pool is not reproduced; it needs a real Postgres.
+
 ## 2026-11-12 — Connectors on the founder's own key, first part: how a project appears in AI assistants and search
 
 - **Founder rule.** A connector the founder connects with their own key runs on the founder's own vendor account, always; never a Foundmill platform key, no developer apps, no vendors' own MCP servers; anything outward or costly asks first. In CLAUDE.md ("Always") and docs/DECISIONS.md.
