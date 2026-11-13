@@ -23,8 +23,14 @@ import { maybeOne, rowsOf, type Executor } from "./_shared";
 /** At most this many customers are read for a draft: enough to see types, little enough for one short call. */
 export const PAGE_QUIZ_FACTS_MAX_CUSTOMERS = 60;
 const REPLIES_PER_CUSTOMER = 3;
-const REPLY_MAX_CHARS = 240;
-const OFFER_MAX_CHARS = 80;
+/**
+ * Bounds on what is read, generous on purpose: packages/agents redacts names, addresses and phone numbers first and
+ * only then cuts a reply to 240 characters and a title to 80 (second review, Nov 13, 2026). Cutting here first could
+ * leave a shortened address ("jo@example.c") that no longer reads as one. Anything near these bounds is far past the
+ * agents' own cut, so it never reaches the model.
+ */
+const REPLY_READ_MAX = 2000;
+const OFFER_READ_MAX = 1000;
 
 /** One customer as the team sees them: an opaque ref, the kind of contact, what they bought and what they wrote. */
 export interface PageQuizCustomerFact {
@@ -98,7 +104,7 @@ export const pageQuizzesRepo = {
     const offerBuyers = new Map<string, { title: string; buyers: Set<string> }>();
     for (const p of purchases) {
       const key = offerKey(p.description);
-      const entry = offerBuyers.get(key) ?? { title: p.description.replace(/\s+/g, " ").trim().slice(0, OFFER_MAX_CHARS), buyers: new Set<string>() };
+      const entry = offerBuyers.get(key) ?? { title: p.description.replace(/\s+/g, " ").trim().slice(0, OFFER_READ_MAX), buyers: new Set<string>() };
       entry.buyers.add(p.entity_id);
       offerBuyers.set(key, entry);
     }
@@ -111,7 +117,7 @@ export const pageQuizzesRepo = {
       ref: refOf.get(c.id)!,
       kind: c.kind === "organisation" ? "organization" : "person",
       bought: [...new Set(purchases.filter((p) => p.entity_id === c.id).map((p) => offerRef.get(offerKey(p.description))).filter((r): r is string => Boolean(r)))],
-      replies: replies.filter((r) => r.entity_id === c.id).map((r) => r.summary.replace(/\s+/g, " ").trim().slice(0, REPLY_MAX_CHARS)),
+      replies: replies.filter((r) => r.entity_id === c.id).map((r) => r.summary.replace(/\s+/g, " ").trim().slice(0, REPLY_READ_MAX)),
     }));
     return { customers: facts, offers, totals: { customers: customers.length, replies: replies.length, purchases: purchases.length } };
   },
@@ -121,22 +127,25 @@ export const pageQuizzesRepo = {
    * Nov 13, 2026): what packages/agents takes out of replies and payment descriptions before the model sees them, and
    * refuses in a draft. Never sent to the model, never returned to a client.
    */
-  async personalTerms(db: Executor, businessId: string): Promise<{ names: string[]; emails: string[] }> {
-    const rows = rowsOf<{ display_name: string; aliases: string[] | null; email: string | null }>(
+  async personalTerms(db: Executor, businessId: string): Promise<{ names: string[]; emails: string[]; organizations: string[] }> {
+    const rows = rowsOf<{ kind: string; display_name: string; aliases: string[] | null; email: string | null }>(
       await db.execute(sql`
-        select e.display_name, e.aliases, e.identifiers ->> 'email' as email
+        select e.kind, e.display_name, e.aliases, e.identifiers ->> 'email' as email
           from entities e
          where e.business_id = ${businessId} and e.kind in ('person', 'organisation') and e.merged_into_id is null
          order by e.created_at, e.id
          limit 5000`),
     );
+    // People by name and by every word of it; organizations by their whole name (packages/agents `namePatterns`).
     const names = new Set<string>();
+    const organizations = new Set<string>();
     const emails = new Set<string>();
     for (const r of rows) {
-      for (const n of [r.display_name, ...(r.aliases ?? [])]) if (n && n.trim()) names.add(n.trim());
+      const into = r.kind === "organisation" ? organizations : names;
+      for (const n of [r.display_name, ...(r.aliases ?? [])]) if (n && n.trim()) into.add(n.trim());
       if (r.email && r.email.includes("@")) emails.add(r.email.trim().toLowerCase());
     }
-    return { names: [...names], emails: [...emails] };
+    return { names: [...names], emails: [...emails], organizations: [...organizations] };
   },
 
   /**

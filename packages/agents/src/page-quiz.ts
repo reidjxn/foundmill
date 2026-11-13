@@ -35,7 +35,7 @@ import {
 import { buildSystemPrompt } from "./club-rules";
 import { inertJson, plainModelText, untrustedBlock } from "./foundations";
 import { pageQuizPrompt } from "./prompts/page-quiz";
-import { NO_PERSONAL_TERMS, namePatterns, personalDataIn, redactPersonal, type PersonalTerms } from "./page-quiz-personal";
+import { NO_PERSONAL_TERMS, namePatterns, personalHit, personalHitKind, personalHitLine, redactPersonal, type PersonalHit, type PersonalTerms } from "./page-quiz-personal";
 import { getTemplate } from "./registry";
 import type { RouteKey } from "./types";
 
@@ -142,25 +142,28 @@ export function pageQuizInventedFigures(texts: readonly string[], facts: Pick<Pa
   return [...new Set(numbersIn(texts.join("\n")))].filter((n) => !known.has(n));
 }
 
-/** The project's own words: a word they use is never taken for a person's name. */
-const ownWords = (facts: Pick<PageQuizFacts, "businessName" | "page">) => [facts.businessName, facts.page.pitch, facts.page.about, facts.page.forWhom].join("\n");
+/** How much of a reply the model reads, and the longest offer title: cut only after redaction. */
+export const PAGE_QUIZ_REPLY_MAX = 240;
+export const PAGE_QUIZ_OFFER_TITLE_MAX = 80;
+const clip = (text: string, max: number) => (text.length <= max ? text : text.slice(0, max).trimEnd());
 
 /**
- * The facts as the model may see them (security review, Nov 13, 2026): names, email addresses and phone numbers out of
- * every reply; a payment description that named anyone is not offered at all (its title would be public), and the
- * customers who bought it keep their other purchases. The counts stay the real ones.
+ * The facts as the model may see them (security reviews, Nov 13, 2026): names, email addresses and phone numbers out of
+ * every reply, then cut to `PAGE_QUIZ_REPLY_MAX`; a payment description that names anyone is not offered at all (its
+ * title would be public), and the customers who bought it keep their other purchases; the other titles are cut to
+ * `PAGE_QUIZ_OFFER_TITLE_MAX`. Redaction always comes before the cut, so a shortened address cannot slip past.
  */
 export function redactPageQuizFacts(facts: PageQuizFacts, terms: PersonalTerms = NO_PERSONAL_TERMS): PageQuizFacts {
-  const patterns = namePatterns(terms, ownWords(facts));
-  const dropped = new Set(facts.offers.filter((o) => redactPersonal(o.title, patterns, terms) !== o.title).map((o) => o.ref));
+  const patterns = namePatterns(terms, facts.businessName);
+  const dropped = new Set(facts.offers.filter((o) => personalHit(o.title, patterns, terms, facts.businessName) !== null).map((o) => o.ref));
   return {
     ...facts,
-    offers: facts.offers.filter((o) => !dropped.has(o.ref)),
-    customers: facts.customers.map((c) => ({ ...c, bought: c.bought.filter((r) => !dropped.has(r)), replies: c.replies.map((r) => redactPersonal(r, patterns, terms)) })),
+    offers: facts.offers.filter((o) => !dropped.has(o.ref)).map((o) => ({ ...o, title: clip(o.title, PAGE_QUIZ_OFFER_TITLE_MAX) })),
+    customers: facts.customers.map((c) => ({ ...c, bought: c.bought.filter((r) => !dropped.has(r)), replies: c.replies.map((r) => clip(redactPersonal(r, patterns, terms), PAGE_QUIZ_REPLY_MAX)) })),
   };
 }
 
-export type PageQuizFinal = { definition: PageQuizDefinition; evidence: PageQuizEvidence; reason: string } | { refused: PageQuizRefusal; detail: string };
+export type PageQuizFinal = { definition: PageQuizDefinition; evidence: PageQuizEvidence; reason: string } | { refused: PageQuizRefusal; detail: string; hit?: PersonalHit };
 
 /** The model's answer as a definition and what it rested on, or why it cannot be used (see the file's note). */
 export function finalisePageQuiz(json: unknown, facts: PageQuizFacts, terms: PersonalTerms = NO_PERSONAL_TERMS): PageQuizFinal {
@@ -172,12 +175,20 @@ export function finalisePageQuiz(json: unknown, facts: PageQuizFacts, terms: Per
   if (out.types.length < L.types.min) return { refused: "too_little_data", detail: out.reason || "fewer than two types" };
   if (out.types.length > L.types.max || out.questions.length < L.questions.min || out.questions.length > L.questions.max) return { refused: "limits", detail: "2 to 4 types and 2 to 4 questions" };
 
-  // Every text a visitor would read, the titles of the offers the types point to included.
+  // Every text a visitor would read, the titles of the offers the types point to included, with where it is (a retry's
+  // reason names the place, never the name it found).
   const offerTitles = out.types.map((t) => pageQuizOfferChoices(facts).find((o) => o.ref === t.offer_ref)?.title ?? "");
-  const texts = [...out.types.flatMap((t) => [t.name, t.summary]), ...out.questions.flatMap((q) => [q.text, ...q.answers.map((a) => a.text)]), ...offerTitles.filter(Boolean)];
-  const patterns = namePatterns(terms, ownWords(facts));
-  const personal = texts.map((s) => personalDataIn(s, patterns, terms)).find(Boolean);
-  if (personal) return { refused: "personal_data", detail: `nothing that identifies a person (${personal}): no names, email addresses or phone numbers` };
+  const placed: [string, string][] = [
+    ...out.types.flatMap((t, i): [string, string][] => [[`the name of type ${i + 1}`, t.name], [`the summary of type ${i + 1}`, t.summary]]),
+    ...out.questions.flatMap((q, i): [string, string][] => [[`question ${i + 1}`, q.text], ...q.answers.map((a, j): [string, string] => [`answer ${j + 1} of question ${i + 1}`, a.text])]),
+    ...offerTitles.map((title, i): [string, string] => [`the offer type ${i + 1} points to`, title]),
+  ];
+  const texts = placed.map(([, t]) => t).filter(Boolean);
+  const patterns = namePatterns(terms, facts.businessName);
+  for (const [where, text] of placed) {
+    const hit = text ? personalHit(text, patterns, terms, facts.businessName) : null;
+    if (hit) return { refused: "personal_data", detail: `${where} has ${personalHitKind(hit)}; reword it with no names, email addresses or phone numbers`, hit };
+  }
   if (texts.some((s) => plainModelText(s) !== s || /https?:|www\.|[<>*`#]|\[\[/.test(s))) return { refused: "markup", detail: "plain text only, no links or markup" };
   const pushed = texts.map((s) => pageQuizPressure(s) ?? (/!/.test(s) ? "!" : null)).find(Boolean);
   if (pushed) return { refused: "pressure", detail: `no pressure words ("${pushed}")` };
@@ -238,6 +249,8 @@ export function pageQuizRefusalMessage(reason: PageQuizRefusal | PageQuizNotRead
       return `You have ${have} on record. The team drafts a quiz from at least ${PAGE_QUIZ_MIN_CUSTOMERS} real customers, so nothing was drafted.`;
     case "no_offers":
       return "There is nothing to point a visitor to yet: no purchases on record and no Follow form on your page. Turn on the Follow form, or record a sale, then ask again.";
+    case "personal_data":
+      return personalHitLine(null);
     case "too_little_data":
       return `The team read your ${have} and could not tell real types apart yet, so it drafted nothing rather than guess. More purchases and replies on record will help.`;
     default:
@@ -265,6 +278,7 @@ export async function runPageQuizDraft(client: ModelClient, input: PageQuizFacts
   let costMinor = 0;
   let retry: string | undefined;
   let last: PageQuizRefusal = "limits";
+  let lastHit: PersonalHit | null = null;
   for (let call = 1; call <= PAGE_QUIZ_MAX_CALLS; call++) {
     const req = buildPageQuizRequest(facts, retry);
     const result: CompleteResult = await client.complete({ ...req, attribution });
@@ -272,8 +286,9 @@ export async function runPageQuizDraft(client: ModelClient, input: PageQuizFacts
     const fin = finalisePageQuiz(result.json, facts, terms);
     if ("definition" in fin) return { outcome: "drafted", definition: fin.definition, evidence: fin.evidence, costMinor, calls: call };
     last = fin.refused;
+    lastHit = fin.hit ?? null;
     if (fin.refused === "too_little_data") return { outcome: "refused", reason: "too_little_data", message: pageQuizRefusalMessage("too_little_data", facts), costMinor, calls: call };
     retry = fin.detail;
   }
-  return { outcome: "refused", reason: last, message: pageQuizRefusalMessage(last, facts), costMinor, calls: PAGE_QUIZ_MAX_CALLS };
+  return { outcome: "refused", reason: last, message: last === "personal_data" ? personalHitLine(lastHit) : pageQuizRefusalMessage(last, facts), costMinor, calls: PAGE_QUIZ_MAX_CALLS };
 }

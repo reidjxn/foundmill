@@ -7,7 +7,8 @@ import { createModelClient, type CompleteResult } from "@foundmill/models";
 import { PAGE_QUIZ_MIN_CUSTOMERS, pageQuizProblems } from "@foundmill/shared";
 import { describe, expect, it } from "vitest";
 import { hasClubRulesPrefix } from "../club-rules";
-import { PAGE_QUIZ_ROUTE, PAGE_QUIZ_USAGE_KIND, buildPageQuizRequest, finalisePageQuiz, pageQuizReadiness, pageQuizRefusalMessage, runPageQuizDraft, type PageQuizFacts } from "../page-quiz";
+import { PAGE_QUIZ_ROUTE, PAGE_QUIZ_USAGE_KIND, buildPageQuizRequest, finalisePageQuiz, pageQuizReadiness, pageQuizRefusalMessage, redactPageQuizFacts, runPageQuizDraft, type PageQuizFacts } from "../page-quiz";
+import { namePatterns, personalHit, redactPersonal } from "../page-quiz-personal";
 
 const customer = (n: number, kind: "person" | "organization", bought: string[], replies: string[] = []) => ({ ref: `c${n}`, kind, bought, replies });
 
@@ -228,5 +229,65 @@ describe("personal data never reaches the model or the page (security review, No
 
   it("a word of the project's own is not taken for a name, and a plain draft passes", async () => {
     expect(await runPageQuizDraft(capture([good]).client, facts(), attribution, { names: ["Ember Smith"], emails: [] })).toMatchObject({ outcome: "drafted" });
+  });
+});
+
+describe("personal data, second review (Nov 13, 2026): cut addresses, short names, accents, ordinary words", () => {
+  const terms = { names: ["Maya Lee", "Jo Wu", "Zoë Brook", "Hope Grant"], emails: ["maya.lee@example.com"], organizations: ["Office Fleet Ltd"] };
+  const attribution = { businessId: "b", kind: PAGE_QUIZ_USAGE_KIND };
+  const capture = (answers: unknown[]) => {
+    const seen: string[] = [];
+    const client = { complete: async (req: { messages: { content: string }[] }) => (seen.push(req.messages.map((m) => m.content).join("\n")), result(answers.shift())) } as never;
+    return { client, seen };
+  };
+  const page = { pitch: "Ember Coffee", about: "We hope you like it.", forWhom: "", followForm: true };
+  const long = "x".repeat(226);
+
+  it("an address is redacted before anything is cut: a reply cut at 240 and a title cut at 80 never carry part of one", async () => {
+    const f = facts({
+      page,
+      customers: [customer(1, "organization", ["p1"], [`${long} write to jo@example.com`]), ...facts().customers.slice(1)],
+      offers: [{ ref: "p1", title: `${"Weekly coffee box ".repeat(4)}for jo@example.com`, buyers: 4 }, facts().offers[1]!],
+    });
+    const h = capture([good]);
+    await runPageQuizDraft(h.client, f, attribution, terms);
+    expect(h.seen[0]).not.toMatch(/jo@|@example/);
+    expect(h.seen[0]).not.toContain('"ref":"p1"');
+    const replies = redactPageQuizFacts(f, terms).customers[0]!.replies;
+    expect(replies[0]!.length).toBeLessThanOrEqual(240);
+  });
+
+  it("anything with an @ in it counts as an address, cut or whole", () => {
+    const p = namePatterns(terms);
+    for (const s of ["Box for jo@example.c", "maya@example", "a+b@x.io", "Maya.Lee@Example.COM"]) {
+      expect(redactPersonal(s, p, terms), s).not.toContain("@");
+      expect(personalHit(s, p, terms), s).toMatchObject({ kind: "email" });
+    }
+  });
+
+  it("two-letter names, names without accents and names without spaces are caught", () => {
+    const p = namePatterns(terms, "Ember Coffee");
+    for (const s of ["Gift for Jo", "Zoe Brook", "zoë", "ZOE", "MayaLee", "MAYA lee", "maya-lee", "Maya's box", "Office Fleet Ltd"]) expect(personalHit(s, p, terms), s).toMatchObject({ kind: "name" });
+    for (const s of ["+44 161 555 0101", "+1 (415) 555-0101", "0161/555/0101", "+33 6 12 34 56 78"]) expect(personalHit(s, p, terms), s).toMatchObject({ kind: "phone" });
+    // An organization counts by its whole name; its ordinary words alone do not.
+    expect(personalHit("For the office", p, terms)).toBeNull();
+    expect(redactPersonal("Zoë Brook loved it", p, terms)).toBe("[name] loved it");
+  });
+
+  it("a contact's name that is also an ordinary word is refused with a reason the founder can read, never let through", async () => {
+    const hopeful = { ...good, questions: [{ ...good.questions[0]!, text: "What do you hope to get?" }, good.questions[1]!] };
+    const h = capture([hopeful, hopeful]);
+    const out = await runPageQuizDraft(h.client, facts({ page }), attribution, terms);
+    expect(out).toMatchObject({ outcome: "refused", reason: "personal_data" });
+    expect(out.outcome === "refused" && out.message).toMatch(/^The team's draft used “Hope”, which is also the name of one of your contacts, so nothing was saved/);
+    // The retry told the model where, never the name.
+    expect(h.seen[1]).toMatch(/question 1 has a word that is a person's name/);
+    expect(h.seen[1]).not.toMatch(/Hope Grant|“Hope”/);
+  });
+
+  it("the project's own name is never a person's, even when a contact shares a word of it", async () => {
+    const own = { names: ["Ember Smith"], emails: [] };
+    const toFollow = { ...good, types: [good.types[0]!, { ...good.types[1]!, offer_ref: "follow" }] };
+    expect(await runPageQuizDraft(capture([toFollow]).client, facts(), attribution, own)).toMatchObject({ outcome: "drafted" });
   });
 });

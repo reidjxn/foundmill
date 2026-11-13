@@ -248,3 +248,28 @@ describe("public_page_quizzes: a sample business never shows a quiz (the network
     expect(await h.service().run((tx) => repos.pageQuizzes.public.recordResult(tx, { slug: "sample-quiz", version, typeKey: "t1" }))).toBe(false);
   });
 });
+
+describe("page quiz facts: nothing is cut before it is redacted (second review, Nov 13, 2026)", () => {
+  it("keeps payment descriptions and replies whole for the redaction, and tells people from organizations", async () => {
+    const e = await createBusinessFixture(h, "quiz-facts");
+    const svc = h.service();
+    const person = await svc.run((tx) => repos.entities.create(tx, e.businessId, { kind: "person", displayName: "Jo Wu", identifiers: { email: "jo@example.com" }, source: "user" }));
+    const org = await svc.run((tx) => repos.entities.create(tx, e.businessId, { kind: "organisation", displayName: "Office Fleet Ltd", source: "user" }));
+    for (const id of [person.id, org.id]) await svc.run((tx) => repos.entities.addRole(tx, e.businessId, id, { role: "customer" }));
+    const long = `${"Weekly coffee box, ".repeat(5)}for jo@example.com`;
+    const account = await svc.run((tx) => repos.finance.upsertAccount(tx, e.businessId, { provider: "manual", externalId: "acc-facts", name: "Sales" }));
+    await svc.run((tx) => repos.finance.upsertTransactions(tx, e.businessId, [{ accountId: account.id, externalId: "t-facts", bookedAt: new Date("2026-11-01"), amountMinor: 2500, counterpartyEntityId: person.id, description: long }]));
+    const reply = `${"x".repeat(230)} write to jo@example.com`;
+    await svc.run((tx) => tx.insert(s.interactions).values({ businessId: e.businessId, kind: "email", direction: "inbound", entityIds: [person.id], summary: reply }));
+
+    const facts = await svc.run((tx) => repos.pageQuizzes.facts(tx, e.businessId));
+    expect(facts.offers[0]!.title).toBe(long.replace(/\s+/g, " ").trim());
+    expect(facts.customers.find((c) => c.replies.length)!.replies[0]).toBe(reply);
+
+    const terms = await svc.run((tx) => repos.pageQuizzes.personalTerms(tx, e.businessId));
+    expect(terms.names).toContain("Jo Wu");
+    expect(terms.names).not.toContain("Office Fleet Ltd");
+    expect(terms.organizations).toContain("Office Fleet Ltd");
+    expect(terms.emails).toContain("jo@example.com");
+  });
+});
