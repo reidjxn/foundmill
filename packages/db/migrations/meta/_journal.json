@@ -526,6 +526,13 @@
       "when": 1796128440000,
       "tag": "0086_idea_drafts",
       "breakpoints": true
+    },
+    {
+      "idx": 75,
+      "version": "7",
+      "when": 1796128500000,
+      "tag": "0096_credit_lots",
+      "breakpoints": true
     }
   ]
 }
