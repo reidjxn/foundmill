@@ -94,6 +94,8 @@ export const emailRouter = router({
   }),
   /** Pauses every founder email for the account the link was signed for. */
   pause: publicProcedure.input(Token).mutation(async ({ ctx, input }) => {
+    // Without SESSION_TOKEN_SECRET no pause link was ever signed: nothing to check.
+    if (!ctx.env.SESSION_TOKEN_SECRET) return { paused: false as const };
     const userId = verifyPauseToken(emailLinkSecret(ctx.env), input.token);
     if (!userId) return { paused: false as const };
     await repos.emailPrefs.pauseEmails(ctx.db, userId);

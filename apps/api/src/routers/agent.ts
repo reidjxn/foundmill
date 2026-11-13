@@ -5,8 +5,8 @@
  */
 import { AgentInstructions, CUSTOM_SKILL_TEST_COUNT, CustomSkillTestsOutput, HOUSE_STYLE, customSkillKey, detectClubRuleViolation, isCustomSkillKey, deriveTraits, getPrompt, getSkillDefinition, getSkillTests, getTemplateByAgentType, redactHeldOut, storedCustomTest } from "@foundmill/agents";
 import { CREDITS_CURRENCY, LIMITS } from "@foundmill/config";
-import { UpdateAgentInput, periodOf, repos, type Agent, type Executor } from "@foundmill/db";
-import { MODELS, meter, resolveModel } from "@foundmill/models";
+import { UpdateAgentInput, periodOf, repos, type Agent, type AgentVersion, type Executor } from "@foundmill/db";
+import { MODELS, meter, resolveModel, type RouteKey } from "@foundmill/models";
 import { ConflictError, ForbiddenError, isAdminRole as isAdminMembershipRole, MODEL_KEYS, ValidationError, type ModelKey } from "@foundmill/shared";
 import { z } from "zod";
 import { modelLimited } from "../services/model-limits";
@@ -63,6 +63,15 @@ export function widensGrants(live: unknown, next: unknown): boolean {
   return false;
 }
 
+/**
+ * The grants a version runs with, as the orchestrator reads them (`parseGrants`): a system-written version 1, or a
+ * version with no tools, follows its template.
+ */
+function runningGrants(version: Pick<AgentVersion, "version" | "createdByKind" | "tools"> | undefined, templateTools: unknown): unknown {
+  const followsTemplate = !version || (version.version === 1 && version.createdByKind === "system");
+  if (followsTemplate || !Array.isArray(version.tools) || version.tools.length === 0) return templateTools ?? [];
+  return version.tools;
+}
 
 /** Reference usage per test for the wage estimate: ~4k input / 1.2k output tokens plus an Opus grading pass. */
 const REFERENCE_TEST_USAGE = { inputTokens: 4_000, outputTokens: 1_200, cacheCreationInputTokens: 0, cacheReadInputTokens: 0 };
@@ -222,8 +231,14 @@ export const agentRouter = router({
         if (agent.archivedAt) throw new ValidationError(`${agent.name} has left the team; its profile is kept as a record`);
         const current = agent.currentVersionId ? await repos.agents.getVersion(tx, ctx.businessId, agent.currentVersionId) : null;
         const before = current ? AgentInstructions.safeParse(current.instructions) : null;
-        // New tool grants become the session token's allowedTools once promoted: only an owner or admin grants them.
-        if (input.tools && !isAdminRole(ctx) && widensGrants(current?.tools, input.tools)) throw new ForbiddenError("Only an owner or admin gives an agent new tools");
+        // New tool grants become the session token's allowedTools once promoted: only an owner or admin grants them. Both
+        // sides are read as sessions read them: an empty list (or a system-written version 1) means the template's tools.
+        if (input.tools && !isAdminRole(ctx)) {
+          const templateTools = getTemplateByAgentType(agent.agentType)?.tools;
+          // The draft is a user-written version after the live one, never a system-written version 1.
+          const draft = { version: (current?.version ?? 0) + 1, createdByKind: "user" as const, tools: input.tools };
+          if (widensGrants(runningGrants(current ?? undefined, templateTools), runningGrants(draft, templateTools))) throw new ForbiddenError("Only an owner or admin gives an agent new tools");
+        }
         const detection = detectClubRuleViolation(before?.success ? { before: before.data, after: input.instructions } : { before: input.instructions, after: input.instructions });
         const version = await repos.agents.createVersion(tx, ctx.businessId, agent.id, { instructions: input.instructions, tools: input.tools ?? (current?.tools as unknown[] | undefined) ?? [], modelKey: input.modelKey ?? agent.modelKey, state: "draft", createdByKind: "user", createdBy: ctx.userId });
         await audit(tx, ctx, { action: "agent.training.save_draft", target: { kind: "agent_version", id: version.id }, details: { agentId: agent.id, flagged: detection.flagged, violations: detection.violations.length, comment: input.comment ?? null } });
@@ -293,7 +308,8 @@ export const agentRouter = router({
           const pending = await repos.training.get(tx, ctx.businessId, input.runId);
           const agent = await repos.agents.get(tx, ctx.businessId, pending.agentId);
           const [to, live] = await Promise.all([pending.toVersionId ? repos.agents.getVersion(tx, ctx.businessId, pending.toVersionId) : null, agent.currentVersionId ? repos.agents.getVersion(tx, ctx.businessId, agent.currentVersionId) : null]);
-          if (to && widensGrants(live?.tools, to.tools)) throw new ForbiddenError("This version gives the agent new tools; an owner or admin promotes it");
+          const templateTools = getTemplateByAgentType(agent.agentType)?.tools;
+          if (to && widensGrants(runningGrants(live ?? undefined, templateTools), runningGrants(to, templateTools))) throw new ForbiddenError("This version gives the agent new tools; an owner or admin promotes it");
         }
         const watchUntil = new Date(Date.now() + LIMITS.rollbackWatchDays * 86_400_000);
         const run = await repos.training.decide(tx, ctx.businessId, input.runId, "promoted", { watchUntil });
@@ -340,6 +356,11 @@ export const agentRouter = router({
         const current = versions.find((v) => v.id === agent.currentVersionId);
         const previous = versions.filter((v) => v.id !== agent.currentVersionId && v.state === "retired" && (!current || v.version < current.version)).sort((a, b) => b.version - a.version)[0];
         if (!previous) throw new ValidationError("No previous live version to roll back to");
+        // Rolling back can bring back tools an owner or admin took away: that widens the live grants, so it is theirs.
+        if (!isAdminRole(ctx)) {
+          const templateTools = getTemplateByAgentType(agent.agentType)?.tools;
+          if (widensGrants(runningGrants(current, templateTools), runningGrants(previous, templateTools))) throw new ForbiddenError("The previous version gives the agent tools the live one does not; an owner or admin rolls it back");
+        }
         const rolled = await repos.agents.rollback(tx, ctx.businessId, agent.id, previous.id);
         const restored = agent.currentVersionId ? await repos.training.revertPromotion(tx, ctx.businessId, agent.id, agent.currentVersionId) : [];
         const closed = await repos.training.closeWatch(tx, ctx.businessId, agent.id);

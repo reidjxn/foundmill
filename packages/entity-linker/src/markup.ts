@@ -84,7 +84,7 @@ export function findMalformedMarkup(text: string): MalformedMarkup[] {
       const nextOpen = text.indexOf(MARKUP_OPEN, idx + MARKUP_OPEN.length);
       let end = close === -1 ? text.length : close + 2;
       if (nextOpen !== -1 && nextOpen < end) end = nextOpen;
-      out.push({ raw: text.slice(idx, Math.min(end, idx + 120)), index: idx });
+      out.push({ raw: text.slice(idx, Math.min(end, idx + 120)), index: idx, end });
     }
     from = idx + MARKUP_OPEN.length;
   }

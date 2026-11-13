@@ -10,7 +10,7 @@
  * session on the task when the first one had ended before the founder answered.
  */
 import { DECISION_TYPES, ValidationError, type DecisionType } from "@foundmill/shared";
-import { and, asc, desc, eq, inArray, isNull, isNotNull, max, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNull, isNotNull, max, ne, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import { agentSessions, agents, APPROVAL_BY_KINDS, APPROVAL_OUTCOMES, approvals, departments, memberships, tasks, type Approval, type APPROVAL_HANDLER_KINDS } from "../schema";
 import { Currency, DateRange, Id, JsonObject, MinorAmount, one, PageInput, parseInput, timeKeyset, timeRange, toPage, type Executor, type Page } from "./_shared";
@@ -347,7 +347,9 @@ export const approvalsRepo = {
    * Uses a granted approval for one call (0030): the approval the founder granted for this session's task (or this very
    * session), agent, connector, tool and arguments, covering at least the call's amount in the same currency, that no
    * call has used. Marked used by `sessionId` under a condition on `used_at`, so two calls can never both run under one
-   * approval. Null when there is none (the call asks as usual).
+   * approval. Null when there is none (the call asks as usual). An approval an agent decided (Team › Responsibilities)
+   * never counts: it covered the one call that opened it (`useDecided`), and a retry asks again under the routing as it
+   * is now, so a delegation the founder has withdrawn decides nothing more.
    */
   async useGranted(db: Executor, businessId: string, input: UseGrantedInput): Promise<Approval | null> {
     const v = parseInput(UseGrantedInput, input, "gated call");
@@ -361,6 +363,7 @@ export const approvalsRepo = {
         and(
           eq(approvals.businessId, businessId),
           eq(approvals.outcome, "approved"),
+          or(isNull(approvals.byKind), ne(approvals.byKind, "agent")),
           isNull(approvals.usedAt),
           eq(approvals.agentId, v.agentId),
           eq(approvals.connectorKey, v.connectorKey),
@@ -385,7 +388,21 @@ export const approvalsRepo = {
   },
 
   /**
-   * Gives back an approval `useGranted` took for a call that never ran: the vendor refused it outright (GitHub's 405
+   * Uses the approval an agent just decided for the call that opened it (Team › Responsibilities): marked used by
+   * `sessionId` at once, so the decision covers that one call and no later identical call can run under it once the
+   * delegation is withdrawn. Null when it is not an approved, unused approval.
+   */
+  async useDecided(db: Executor, businessId: string, approvalId: string, sessionId: string | null): Promise<Approval | null> {
+    const used = await db
+      .update(approvals)
+      .set({ usedAt: new Date(), usedBySessionId: sessionId, updatedAt: new Date() })
+      .where(and(scoped(businessId, approvalId), eq(approvals.outcome, "approved"), isNull(approvals.usedAt)))
+      .returning();
+    return used[0] ?? null;
+  },
+
+  /**
+   * Gives back an approval `useGranted` or `useDecided` took for a call that never ran: the vendor refused it outright (GitHub's 405
    * "not mergeable", a 409 or 422), or the gateway stopped it before the vendor saw it. Only the session that used it
    * can give it back, and only while it is still marked used by that session. Until Nov 6, 2026 a merge the founder
    * approved that GitHub refused for a moment spent the approval, and the retry put the same question in the Inbox again.

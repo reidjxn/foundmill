@@ -18,10 +18,13 @@ describe("pause tokens", () => {
     expect(verifyPauseToken("s", "nope", 0)).toBeNull();
     expect(verifyPauseToken("s", `${t}.x`, 0)).toBeNull();
   });
-  it("need SESSION_TOKEN_SECRET outside development and test", () => {
-    expect(() => emailLinkSecret({ APP_ENV: "production" })).toThrow();
-    expect(emailLinkSecret({ APP_ENV: "test" })).toBeTruthy();
+  it("need SESSION_TOKEN_SECRET in every environment: there is no built-in key anyone could read in the repository", () => {
+    expect(() => emailLinkSecret({ APP_ENV: "production" })).toThrow(/SESSION_TOKEN_SECRET/);
+    // The gateway signs the link and the api checks it, so a key of one process would not do; a deployed process
+    // (NODE_ENV=production) claiming APP_ENV=test gets nothing either.
+    for (const APP_ENV of ["development", "test"]) expect(() => emailLinkSecret({ APP_ENV })).toThrow(/SESSION_TOKEN_SECRET/);
     expect(emailLinkSecret({ APP_ENV: "production", SESSION_TOKEN_SECRET: "k" })).toBe("k");
+    expect(emailLinkSecret({ APP_ENV: "test", SESSION_TOKEN_SECRET: "k" })).toBe("k");
   });
 });
 

@@ -22,7 +22,7 @@
  *      they are: `present`), otherwise a day (`NOTIFY_WAIT_MS`); no older than the lookback, and never emailed to this
  *      person before (`notify.email_sent`, the Redis marker `pn:item:<user>:<item>`). The other kinds: a project that
  *      has started (`loadNotifyFacts`), the win, milestone, run or credits note named, within the day's lookback; a
- *      brief with news. Every kind once (`founder_notifications`' dedupe key `<kind>:<id or day>`);
+ *      brief with news (item 10: four sections, its What worked real outcomes only, `briefExtrasFor`). Every kind once (`founder_notifications`' dedupe key `<kind>:<id or day>`);
  *   6. their address, from `auth.users` (never from the request);
  *   7. the counts, in Redis shared by every replica: one email a day per person and project, three a day per person
  *      across every kind and project (the morning brief and weekly review count toward neither: `LIMITED_EMAIL_KINDS`),
@@ -44,11 +44,12 @@
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { APP_NAME } from "@foundmill/config";
-import { loadNotifyFacts, notifyEmailDayKey, repos } from "@foundmill/db";
+import { loadBriefFacts, loadNotifyFacts, notifyEmailDayKey, repos } from "@foundmill/db";
 import { inboxWalls, isWalled, noteAsSeenBy } from "@foundmill/db/inbox-redaction";
 import {
   addDaysToKey,
   agentLabel,
+  BOOKED_SECTION,
   briefIsEmpty,
   briefStats,
   CREDITS_SUBJECTS,
@@ -71,11 +72,14 @@ import {
   NOTIFY_PER_PROJECT_PER_DAY,
   NOTIFY_WAIT_MS,
   oneClickOption,
+  OUTCOME_SECTION,
   PLATFORM_MAIL_SECRET_MIN_LENGTH,
   platformMailAddress,
+  realOutcomes,
   retentionEmail,
   runTasksDone,
   vacationDayKeys,
+  type BriefExtras,
   type BusinessNotifyFacts,
   type EmailNotificationKind,
   type InvitationRole,
@@ -237,7 +241,15 @@ export async function sendNotifyEmail(deps: GatewayDeps, input: NotifyEmailReque
     const recent = (at: Date) => now.getTime() - at.getTime() <= FOUNDER_NOTIFICATION_LIMITS.lookbackMs;
     const plan = retentionPlanOf(kind as Exclude<EmailNotificationKind, "decision_waiting" | "invitation_accepted">, input.data, facts, userId, recent);
     if (!plan) return notSent("not_waiting");
-    if ((plan.kind === "daily_brief" || plan.kind === "weekly_review") && briefIsEmpty(plan.stats, plan.waiting)) return notSent("nothing_new");
+    if (plan.kind === "daily_brief" || plan.kind === "weekly_review") {
+      // Today's brief already went out: its window now starts at it, so say so before reading the window.
+      if (await repos.notifications.exists(deps.db, businessId, userId, `${kind}:${ref}`)) return notSent("already_sent");
+      // The four sections (item 10): real outcomes, what's booked and what's next, as this person may see them.
+      const brief = await briefExtrasFor(deps, { businessId, userId, membership, prefs, timeZone: extra.timeZone ?? business.timeZone, weekly: plan.kind === "weekly_review", now });
+      plan.stats = briefStats(facts, brief.since);
+      plan.extras = brief.extras;
+      if (briefIsEmpty(plan.stats, plan.waiting, plan.extras, now)) return notSent("nothing_new");
+    }
     const itemIds = plan.kind === "win" || plan.kind === "credits" ? [plan.item.id] : plan.kind === "milestone" ? (plan.itemId ? [plan.itemId] : []) : plan.waiting.slice(0, 5).map((i) => i.id);
     subject = { kind: "retention", plan, dedupeKey: `${kind}:${ref}`, inboxItemIds: itemIds, waiting: plan.kind === "run_finished" || plan.kind === "daily_brief" || plan.kind === "weekly_review" ? plan.waiting : [] };
   }
@@ -341,6 +353,7 @@ export async function sendNotifyEmail(deps: GatewayDeps, input: NotifyEmailReque
       pauseLink,
       hideSubjects,
       streak,
+      now,
       oneClick: answer && answerLink ? { itemId: answer.item.id, label: answer.option.label, consequence: answer.option.consequence, url: answerLink } : null,
     });
   }
@@ -436,6 +449,35 @@ function retentionPlanOf(kind: Exclude<EmailNotificationKind, "decision_waiting"
       return { kind, day: data.day!, stats: briefStats(facts, since), waiting: facts.openDecisions };
     }
   }
+}
+
+/**
+ * The brief's window and its extra sections for one person (item 10, Nov 13, 2026). The window starts at this person's
+ * last brief from this business (a day back when there is none, a week at most; a week for the weekly review). What
+ * worked is the real outcomes only (`realOutcomes`: nothing simulated), each kind behind the wall of the section it
+ * belongs to (`OUTCOME_SECTION`), booked facts behind theirs (`BOOKED_SECTION`), What's next only with Development read.
+ */
+async function briefExtrasFor(
+  deps: GatewayDeps,
+  q: { businessId: string; userId: string; membership: Parameters<typeof hasSectionAccess>[0]; prefs: { anthropomorphicAgents: boolean; agentStyle: Parameters<typeof agentLabel>[2] }; timeZone: string | null; weekly: boolean; now: Date },
+): Promise<{ since: Date; extras: BriefExtras }> {
+  const facts = await loadBriefFacts(deps.db, q.businessId, q.userId, q.now);
+  const week = q.now.getTime() - 7 * DAY_MS;
+  const since = new Date(q.weekly ? week : facts.lastBriefAt ? Math.max(facts.lastBriefAt.getTime(), week) : q.now.getTime() - DAY_MS);
+  const can = (section: Parameters<typeof hasSectionAccess>[1] | null) => section === null || hasSectionAccess(q.membership, section, "read");
+  const outcomes = realOutcomes(facts.events, since, q.now).filter((o) => can(OUTCOME_SECTION[o.kind]));
+  const agentNames = Object.fromEntries(facts.agents.map((a) => [a.id, agentLabel(a, q.prefs.anthropomorphicAgents, q.prefs.agentStyle)]));
+  return {
+    since,
+    extras: {
+      outcomes,
+      booked: facts.booked.filter((b) => can(BOOKED_SECTION[b.kind])),
+      next: can("development") ? { running: facts.running, queued: facts.queued, autopilotNextAt: facts.autopilotNextAt, stopped: facts.stopped } : null,
+      timeZone: q.timeZone,
+      agentNames,
+      recipientUserId: q.userId,
+    },
+  };
 }
 
 /** The first waiting note a one-click answer may answer (`oneClickOption`), for someone who may answer in the Inbox. */
