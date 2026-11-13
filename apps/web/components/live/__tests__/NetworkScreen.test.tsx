@@ -8,7 +8,10 @@ vi.mock("@/lib/trpc-react", async () => {
   const { fakeTrpc } = await import("./fake-trpc");
   return { useTRPC: () => fakeTrpc(api) };
 });
-vi.mock("@/components/shell/business-context", () => ({ useBusiness: () => ({ businessId: "b1", data: { business: { name: "Ledgerly", gameMode: "live", committedAt: new Date(0), archivedAt: null }, membership: { role: "owner" } } }) }));
+vi.mock("@/components/shell/business-context", () => {
+  const value = () => ({ businessId: "b1", data: { business: { name: "Ledgerly", gameMode: "live", committedAt: new Date(0), archivedAt: null }, membership: { role: "owner" } } });
+  return { useBusiness: value, useOptionalBusiness: value };
+});
 vi.mock("@/components/shell/chrome", () => ({ useShellChrome: () => undefined }));
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push: () => undefined }) }));
 

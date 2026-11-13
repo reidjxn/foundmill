@@ -11,7 +11,7 @@ import { routes } from "@foundmill/widgets/shared/routes";
 import { UNNAMED_PERSON } from "@/lib/live";
 import { useTRPC } from "@/lib/trpc-react";
 import { errorMessage, trpcPathPrefix, type RouterOutputs } from "@/lib/trpc";
-import { useBusiness } from "@/components/shell/business-context";
+import { useOptionalBusiness } from "@/components/shell/business-context";
 import { ShellLinkButton } from "./ShellLinkButton";
 
 export type PeopleLookup = RouterOutputs["live"]["people"]["lookup"];
@@ -54,7 +54,10 @@ export function BusinessLogo({ card, name, size = 20 }: { card?: BusinessCard; n
  * (connections, messages and communities belong to the person), but the business itself is off the network.
  */
 export function PersonalNotice({ className }: { className?: string }) {
-  const { businessId, data } = useBusiness();
+  const ctx = useOptionalBusiness();
+  // No project: nothing business-related to say.
+  if (!ctx) return null;
+  const { businessId, data } = ctx;
   if (data.business.gameMode === "live") return null;
   return (
     <div className={cn("surface-panel flex items-center gap-3 px-panel-pad py-2", className)} data-testid="personal-notice">
