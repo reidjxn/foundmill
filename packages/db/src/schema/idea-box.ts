@@ -34,19 +34,29 @@ export const ideaDrafts = pgTable(
     ideaId: uuid("idea_id").references(() => ideas.id, { onDelete: "set null" }),
     ...timestamps(),
   },
-  (t) => [index("idea_drafts_sweep_idx").on(t.expiresAt).where(sql`${t.claimedAt} is null`), index("idea_drafts_claimed_by_idx").on(t.claimedBy), index("idea_drafts_idea_id_idx").on(t.ideaId)],
+  (t) => [
+    index("idea_drafts_sweep_idx")
+      .on(t.expiresAt)
+      .where(sql`${t.claimedAt} is null`),
+    index("idea_drafts_claimed_by_idx").on(t.claimedBy),
+    index("idea_drafts_idea_id_idx").on(t.ideaId),
+  ],
 );
 export type IdeaDraftRow = typeof ideaDrafts.$inferSelect;
 
 export const waitlistEntries = pgTable(
   "waitlist_entries",
   {
-  id: id(),
-  userId: uuid("user_id").notNull().unique("waitlist_entries_user_id_key").references(() => authUsers.id, { onDelete: "cascade" }),
-  email: text("email").notNull(),
-  ideaDraftId: uuid("idea_draft_id").references(() => ideaDrafts.id, { onDelete: "set null" }),
-  admittedAt: tstz("admitted_at"),
-  ...timestamps(),
+    id: id(),
+    /** Null for a person with no account yet (added later by the network work). */
+    userId: uuid("user_id")
+      .unique("waitlist_entries_user_id_key")
+      .references(() => authUsers.id, { onDelete: "cascade" }),
+    /** Lower case; one row per address. */
+    email: text("email").notNull().unique("waitlist_entries_email_key"),
+    ideaDraftId: uuid("idea_draft_id").references(() => ideaDrafts.id, { onDelete: "set null" }),
+    admittedAt: tstz("admitted_at"),
+    ...timestamps(),
   },
   (t) => [index("waitlist_entries_idea_draft_id_idx").on(t.ideaDraftId)],
 );

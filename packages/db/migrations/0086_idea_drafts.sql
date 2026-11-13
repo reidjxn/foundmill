@@ -6,7 +6,8 @@
 -- stored. A draft nobody claims is deleted after `expires_at` (7 days), or after `held_until` when the waitlist holds it
 -- (90 days). Claiming it puts the card in the person's deck as an idea (`idea_id`) and records who claimed it.
 --
--- `waitlist_entries`: a signed-in person who is not on the invite list yet, with the draft they want to keep.
+-- `waitlist_entries`: a person who is not on the invite list yet (signed in, or later with no account), with the
+-- draft they want to keep.
 --
 -- Both are the api's alone: RLS on, no policy, no grant to a client role. Nothing a browser holds can read them except
 -- through the api, which answers only the holder of the token.
@@ -41,15 +42,18 @@ grant select, insert, update, delete on idea_drafts to service_role;
 --> statement-breakpoint
 select fm_track_updated_at('idea_drafts');
 --> statement-breakpoint
+-- One row per person, keyed by the address (lower case). `user_id` is null for a person who has no account yet (the
+-- network work adds those later: referrals and the sign-up ceiling's overflow); a row with an account is unique on it.
 create table waitlist_entries (
   id uuid primary key default gen_random_uuid(),
-  user_id uuid not null references auth.users(id) on delete cascade,
-  email text not null check (char_length(email) between 3 and 320),
+  user_id uuid references auth.users(id) on delete cascade,
+  email text not null check (char_length(email) between 3 and 320 and email = lower(email)),
   idea_draft_id uuid references idea_drafts(id) on delete set null,
   admitted_at timestamptz,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
-  constraint waitlist_entries_user_id_key unique (user_id)
+  constraint waitlist_entries_user_id_key unique (user_id),
+  constraint waitlist_entries_email_key unique (email)
 );
 --> statement-breakpoint
 alter table waitlist_entries enable row level security;
