@@ -1,8 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { PAGE_QUIZ_WORDS, pageQuizPressure, type PageQuizDefinition } from "@foundmill/shared/page-quiz";
+import { MilestoneCard } from "./MilestoneCard";
+import { ProjectFollowForm } from "./ProjectFollowForm";
 import { ProjectPage } from "./ProjectPage";
+import { ProjectStory } from "./ProjectStory";
 import { ProjectQuiz, QUIZ_FIELDS } from "./ProjectQuiz";
 
 const quiz: PageQuizDefinition & { slug: string; version: number } = {
@@ -88,5 +91,41 @@ describe("ProjectQuiz", () => {
     const text = html.replace(/<[^>]+>/g, " ");
     expect(pageQuizPressure(text)).toBeNull();
     expect(text).not.toMatch(/\d+ (people|visitors|customers)/);
+  });
+});
+
+describe("ProjectQuiz on the page: what the network session relies on", () => {
+  const followed = <ProjectFollowForm name="Ember Roasters" state={{ status: "done" }} builtOn={{ line: "Ember Roasters is built on Foundmill.", linkLabel: "See how it was made", href: "/p/ember-roasters/story?via=p.ember-roasters" }} />;
+  const onPage = (follow = followed) => (
+    <ProjectPage name="Ember Roasters" pitch="Coffee" about="Roasted weekly." stage="live" brandPrimary="#a0522d" brandSecondary="#f4efe6" markHref="/p/ember-roasters/story?via=p.ember-roasters" quiz={<ProjectQuiz quiz={quiz} followForm action="/quiz" state={{ status: "result", type: "t2", answers: { q1: "a2", q2: "a2" } }} />} follow={follow} />
+  );
+
+  it("the #follow anchor leaves the foot's mark and the line after a follow pointing exactly where they did", () => {
+    render(onPage());
+    expect(screen.getByRole("link", { name: "Built on Foundmill" }).getAttribute("href")).toBe("/p/ember-roasters/story?via=p.ember-roasters");
+    expect(screen.getByRole("link", { name: "See how it was made" }).getAttribute("href")).toBe("/p/ember-roasters/story?via=p.ember-roasters");
+    // Only the quiz's own Follow buttons point to the anchor.
+    for (const a of document.querySelectorAll('a[href*="#follow"]')) expect(a.closest("[data-project-quiz]")).not.toBeNull();
+    expect(document.querySelectorAll("#follow")).toHaveLength(1);
+  });
+
+  it("a result that offers Follow is a link to the form on the same page, never a submit", () => {
+    render(onPage(<ProjectFollowForm name="Ember Roasters" slug="ember-roasters" action="/follow" />));
+    const follow = within(screen.getByRole("status")).getByRole("link", { name: PAGE_QUIZ_WORDS.follow }) as HTMLAnchorElement;
+    expect(follow.getAttribute("href")).toBe("#follow");
+    expect(follow.closest("form")).toBeNull();
+    expect(follow.getAttribute("target")).toBeNull();
+    // The anchor holds the Follow form itself, so the link lands on it.
+    expect(document.getElementById("follow")!.querySelector("form[data-project-follow]")).not.toBeNull();
+  });
+
+  it("the story page and a milestone card have no quiz slot and draw none", () => {
+    const story = renderToStaticMarkup(<ProjectStory name="Ember Roasters" brandPrimary="#a0522d" brandSecondary="#f4efe6" pageHref="/p/ember-roasters" startHref="/?via=p.ember-roasters" milestones={[{ id: "m1", key: "page_live", label: "Page live", achievedAt: new Date(2026, 10, 12) }]} />);
+    const card = renderToStaticMarkup(<MilestoneCard name="Ember Roasters" label="Page live" achievedAt={new Date(2026, 10, 12)} brandPrimary="#a0522d" brandSecondary="#f4efe6" pageHref="/p/ember-roasters" />);
+    for (const html of [story, card]) {
+      expect(html).not.toContain("data-project-quiz");
+      expect(html).not.toContain(PAGE_QUIZ_WORDS.heading);
+      expect(html).not.toContain('id="follow"');
+    }
   });
 });

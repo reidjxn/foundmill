@@ -130,6 +130,24 @@ test.describe("page quiz", () => {
         await expect(quiz).not.toContainText(/\d+ (people|visitors|customers)/);
         const overflow = await phone.page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
         expect(overflow, "horizontal overflow at 390 px").toBeLessThanOrEqual(0);
+
+        // The network session's asks (Nov 13, 2026). The foot's mark still goes exactly where it did, quiz or not.
+        const slug = pagePath.replace("/p/", "");
+        await expect(phone.page.getByRole("link", { name: "Built on Foundmill" })).toHaveAttribute("href", `/?via=p.${slug}`);
+        // A result that offers Follow scrolls to the form on the same page and sends nothing.
+        const posts: string[] = [];
+        phone.page.on("request", (r) => {
+          if (r.method() !== "GET") posts.push(r.url());
+        });
+        await result.getByRole("link", { name: "Follow" }).click();
+        await expect(phone.page).toHaveURL(new RegExp(`${pagePath}#follow$`));
+        await expect(phone.page.locator("#follow form[data-project-follow]")).toBeInViewport({ timeout: LONG });
+        await expect(phone.page.locator("[data-project-follow='done']")).toHaveCount(0);
+        await phone.page.waitForTimeout(500);
+        expect(posts, "nothing is submitted by following the quiz's Follow link").toEqual([]);
+        // The story page has no quiz (it answers not found here: no milestone is shown yet).
+        await phone.page.goto(`${pagePath}/story`);
+        await expect(phone.page.locator("[data-project-quiz]")).toHaveCount(0);
       } finally {
         await phone.close();
       }
