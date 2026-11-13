@@ -61,6 +61,7 @@ import { SHARE_OPEN_WORDS, pagePostDraft } from "@foundmill/shared/share-drafts"
 import type { ShareOpened } from "@foundmill/shared/share-targets";
 import { useBusinessEvents, useWidgetData, useWidgetQuery } from "@foundmill/widgets";
 import type { ModuleScreenProps } from "../registry";
+import { PageQuizPanel } from "./PageQuizPanel";
 import { Screen, errorMessage } from "./shared";
 
 /** `page.get` as the screen reads it (apps/api services/pages.ts `PageView`). */
@@ -464,6 +465,9 @@ export function PublicPageScreen(_props: ModuleScreenProps) {
           </p>
         ) : null}
       </Panel>
+
+      {/* The optional "Which one is for you?" quiz on the page (0101): off until the founder turns it on. */}
+      {data && !data.isSample && data.saved ? <PageQuizPanel /> : null}
 
       {shareDraft ? <SharePost open={sharing} onOpenChange={setSharing} title={SHARE_OPEN_WORDS.pageTitle} description={SHARE_OPEN_WORDS.description} draft={shareDraft} appName={APP_NAME} onShare={recordShare} /> : null}
       <Dialog open={confirming} onOpenChange={setConfirming}>

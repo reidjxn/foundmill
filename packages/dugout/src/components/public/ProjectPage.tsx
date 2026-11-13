@@ -9,7 +9,8 @@
  * something to say. Every string is a text node: nothing here is ever read as markdown or HTML. The layout follows its
  * own width (a container query at `--container-page-wide`), not the window's, so the preview frame lays it out as a
  * phone does. The one form is the "Follow" form (`ProjectFollowForm`, package 1.6), passed in as `follow` when the
- * founders left it on; the page itself sends nothing.
+ * founders left it on; the page itself sends nothing. When the founders turned on their quiz (`ProjectQuiz`, 0101) it
+ * comes just before, as `quiz`.
  *
  * The foot carries the mark, "Built on Foundmill" (docs/NETWORK.md F2; founder, 2026-11-12): small, quiet, and made for
  * the project's visitors more than for Foundmill's own members. `mark` says who is looking:
@@ -57,6 +58,8 @@ export interface ProjectPageProps extends Omit<HTMLAttributes<HTMLElement>, "chi
   variant?: "page" | "preview";
   /** The "Follow" form (`ProjectFollowForm`), after everything the founders wrote; nothing when the page has none. */
   follow?: ReactNode;
+  /** The optional "Which one is for you?" quiz (`ProjectQuiz`, 0101), just before the Follow form; nothing when it is off. */
+  quiz?: ReactNode;
 }
 
 /** Who the foot's mark is drawn for; "none" leaves the foot out (a paid plan). */
@@ -70,7 +73,7 @@ export const PROJECT_PAGE_WORDS = {
   builtOn: builtOnWords(APP_NAME).mark,
 } as const;
 
-export function ProjectPage({ name, pitch, about, forWhom, stage, publishedAt, brandPrimary, brandSecondary, logo, founderNames, mark = "visitor", markHref = "/", variant = "page", follow, className, style, ...rest }: ProjectPageProps) {
+export function ProjectPage({ name, pitch, about, forWhom, stage, publishedAt, brandPrimary, brandSecondary, logo, founderNames, mark = "visitor", markHref = "/", variant = "page", follow, quiz, className, style, ...rest }: ProjectPageProps) {
   const paragraphs = pageParagraphs(about);
   const who = (forWhom ?? "").trim();
   const builtBy = builtByLine(founderNames);
@@ -133,7 +136,14 @@ export function ProjectPage({ name, pitch, about, forWhom, stage, publishedAt, b
           </p>
         ) : null}
 
-        {follow ?? null}
+        {quiz ?? null}
+
+        {/* The quiz's Follow buttons lead here (`#follow`). */}
+        {follow ? (
+          <div id="follow" className="min-w-0 scroll-mt-6">
+            {follow}
+          </div>
+        ) : null}
       </div>
       {mark === "none" ? null : (
         <footer className="border-t border-line-faint" data-project-mark={mark}>

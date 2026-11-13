@@ -40,6 +40,9 @@ export const EXPORT_TABLES: Readonly<Record<string, ExportTableSpec>> = {
   product_signoffs: t(s.productSignoffs, "product"),
   goals: t(s.goals, "product"),
   project_pages: t(s.projectPages, "product"),
+  // 0101: the page quiz and its anonymous counts per result (numbers only, nothing about any visitor).
+  page_quizzes: t(s.pageQuizzes, "product"),
+  page_quiz_counts: t(s.pageQuizCounts, "product"),
   change_proposals: t(s.changeProposals, "product"),
   proposal_hunks: t(s.proposalHunks, "product"),
   roadmap_items: t(s.roadmapItems, "product"),

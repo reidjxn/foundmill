@@ -19,7 +19,7 @@
  *   service connection, rate-limited like the page. An answer is scored here, against the live version, and only the
  *   result type's count goes up by one: no answers, no address, no time is kept.
  */
-import { pageQuizReadiness, pageQuizRefusalMessage, runPageQuizDraft, PAGE_QUIZ_USAGE_KIND, type PageQuizFacts } from "@foundmill/agents";
+import { pageQuizReadiness, runPageQuizDraft, PAGE_QUIZ_USAGE_KIND, type PageQuizFacts } from "@foundmill/agents";
 import { repos, type DbTx, type PageQuiz } from "@foundmill/db";
 import {
   ForbiddenError,
