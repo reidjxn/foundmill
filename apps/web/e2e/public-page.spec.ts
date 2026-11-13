@@ -1,7 +1,7 @@
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { expect, test, type Browser, type Page } from "@playwright/test";
-import { LONG, commitThrowaway, dismissCoachmarks, settled } from "./helpers";
+import { LONG, commitThrowaway, dismissCoachmarks, expectTapTarget, settled } from "./helpers";
 
 /**
  * A project's public page (docs/THESIS_REVIEW.md package 1.1): Product › Public page in the console (fields with
@@ -50,7 +50,7 @@ async function expectPublicPage(page: Page, pagePath: string, width: number, sho
   await expect(follow).toHaveCount(1);
   await expect(follow.getByRole("heading", { level: 2 })).toHaveText(/^Follow Doorstep Bikes/);
   for (const target of [follow.getByRole("button", { name: "Follow" }), follow.getByLabel("Your email"), follow.locator("label").filter({ has: page.getByRole("checkbox") })]) {
-    expect((await target.boundingBox())!.height, "follow form tap target").toBeGreaterThanOrEqual(44);
+    await expectTapTarget(target, "follow form tap target");
   }
   await expect(page.locator("textarea")).toHaveCount(0);
   // No horizontal scroll, at 390 px included.
@@ -61,7 +61,7 @@ async function expectPublicPage(page: Page, pagePath: string, width: number, sho
   await expect(article.locator("[data-project-mark]")).toHaveAttribute("data-project-mark", "visitor");
   const made = page.getByRole("link", { name: "Built on Foundmill" });
   await expect(made).toHaveAttribute("href", `/?via=p.${pagePath.replace("/p/", "")}`);
-  expect((await made.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+  await expectTapTarget(made, "Built on Foundmill is a 44 px target");
   expect(await made.evaluate((e) => parseFloat(getComputedStyle(e).fontSize))).toBeLessThanOrEqual(13);
   await expect(article.getByRole("link")).toHaveCount(1);
   const smallest = await article.evaluate((root) => Math.min(...[...root.querySelectorAll<HTMLElement>("p, h1, h2, span, a")].filter((e) => e.textContent?.trim()).map((e) => parseFloat(getComputedStyle(e).fontSize))));
@@ -132,6 +132,15 @@ test.describe("public page", () => {
     const pagePath = new URL(url).pathname;
     expect(pagePath).toMatch(/^\/p\/[a-z0-9-]{3,40}$/);
     await expect(editor.getByRole("link", { name: "Open" })).toHaveAttribute("href", url);
+
+    // The IndexNow key file route under a live page: a name that is not a key, and a key nobody connected, are the same quiet 404 as plain text.
+    for (const name of ["not-a-key.txt", "aaaaaaaa.txt"]) {
+      const res = await page.request.get(`${pagePath}/${name}`);
+      expect(res.status(), name).toBe(404);
+      expect(res.headers()["content-type"], name).toContain("text/plain");
+      expect(res.headers()["cache-control"], name).toBe("no-store");
+      expect(await res.text(), name).not.toContain("aaaaaaaa");
+    }
 
     // Signed out, on a phone and on a desktop.
     const phone = await visitor(browser, 390, 844);

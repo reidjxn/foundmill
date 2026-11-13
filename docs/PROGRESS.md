@@ -1709,6 +1709,73 @@ The review found no blocker; three fixes and four hardenings were made on the sa
 - Tests: `account-events.test.ts` passes `accountRelay: true` where it exercises both relays, and a new case holds the default (only the business relay starts, wakes and stops).
 - Not done: the cause; folding the account outbox into the business relay's tick; turning it back on.
 
+## 2026-11-12 — The api's pool: a gate on request transactions
+
+The api restarted every five minutes after #86 because one request of 8 to 10 reads took the whole pool (DECISIONS "The api's pool filled by one request").
+- **Gate.** apps/api `services/tx-gate.ts`: `createTransactionGate`, `forRequest(db, signal)`, `gateLimitsFor(poolMax)`; wired in `createApiDeps` (`deps.txGate`) and `createContextFactory` (each request's `ctx.db`); `/health` reports `transactions`. One request holds 4 transactions at a time, all requests the pool less 4; a closed request starts no more; a wait is capped at 15 s.
+- **Pool size.** `API_DB_POOL_MAX` (default 10, unchanged); DEPLOY.md "Database connections" has the arithmetic against `max_connections`.
+- **Today.** `today.visit` (one transaction for "Since you were last here" and the streak); the web's Today uses it.
+- **Tests.** api `tx-gate.test.ts`: a model pool of 10 where three batches of ten starve the watchdog's probe without the gate, and never do with it; early closes; nested transactions; the capped wait; and through the app, a batch of ten opening ten transactions at once without the gate, four with it, six for two batches, nothing left after closed requests. `streak.test.ts` covers `today.visit`.
+- **Not done.** The pool itself is not raised (Postgres's connection limit comes first). The postgres.js slot leak behind the stuck pool is not reproduced; it needs a real Postgres.
+
+## 2026-11-12 — Connectors on the founder's own key, first part: how a project appears in AI assistants and search
+
+- **Founder rule.** A connector the founder connects with their own key runs on the founder's own vendor account, always; never a Foundmill platform key, no developer apps, no vendors' own MCP servers; anything outward or costly asks first. In CLAUDE.md ("Always") and docs/DECISIONS.md.
+- **Six connectors,** each real and mock with contract tests, a health check on the founder's key, its own rate limits and a row in Settings › Integrations (from the catalog): `openai`, `gemini`, `perplexity` (`ask_panel`: one question, the answer and its sources), `serpapi` (`search_google`: Google's results and AI Overview), `firecrawl` (`scrape_page`: a page as a crawler reads it), `indexnow` (`submit_urls`: tell search engines an address changed; asks first). What comes back from the web or another assistant is untrusted content.
+- **IndexNow for a Foundmill-hosted page.** Connect with no site address and the project's public page gets its key file at `/p/<slug>/<key>.txt`; the key speaks for that page only.
+- **Agents.** GEO Engine: the three panels (restored from PLANNED_GRANTS.md), search results, page reads, IndexNow. SEO Engine: search results, page reads, IndexNow. Both say which assistants a figure comes from and report one that is not connected as not connected.
+- **Evals.** Golden task `channel_geo.connected_assistants`; injection case `web.assistant_panel_answer_override`. Not run against a live model in this change (the suites' structure tests pass).
+- **Security review** (docs/DECISIONS.md): no P1; four P2 fixed (the deployment's own host as a "site of your own", hosted submissions limited to the page, telling search engines asks first, daily limits cut).
+- **Verified.** Workspace typecheck (25 of 25); lint with no errors; connectors 970, gateway 327, api 1080, web 1322, dugout 1193, agents 439, orchestrator 665, shared 697, models 292, policy 224, evals 96; db `pages-indexnow` and `project-pages` 28; Playwright `public-page.spec.ts` 8 of 8 against the local stack; banned-terms and US English scans clean.
+- **Open.** No connector has called its vendor for real (no keys here; each has an env-gated live suite). Whether search engines accept a hosted page's own address with a key file under `/p/<slug>/` needs one check on a real deployment. No daily estimated-spend ceiling across calls, and no deployment-wide ceiling on hosted IndexNow submissions. GEO and SEO agents now read untrusted content as the quarantined reader's digest (they hold an outward tool), so a panel answer's sources do not reach them. The Settings › Integrations rows were not looked at in a browser. Second part: `apollo`, `vercel`, `posthog`, `resend`; `ayrshare` is dropped.
+
+## 2026-11-12 — A home for a person with no project (THESIS_REVIEW 2.4, first part)
+
+A signed-in person with a profile and no project lands on `/home`, a real screen, instead of being sent into the studio. Decisions: docs/DECISIONS.md "A home for a person with no project".
+
+- **Route** (apps/web `app/home/`): `/home` reads the viewer (`loadStudioViewer`, which now also carries `liveMode`), sends a person without a profile to /onboarding and a person with a project to it, and otherwise renders `PersonHome`. The signed-in index (`app/start/page.tsx`) sends a person with no project to `/home` instead of `/new`; `/home` joins `isFounderPath` (redirects.ts) and `SMALL_SCREEN_PREFIXES` (DesktopOnly.tsx).
+- **Screen** (`components/person-home/PersonHome.tsx`): "Welcome, <name>"; "Start something" (primary, to /new) with "Find a project or people" beside it as an offer that says the person can do all of it on their own; the find card links to /network when the people layer is open (`features.liveMode`) and says "Opening soon" otherwise. "Waiting for you" (requests to connect, unread messages, community invitations from `live.summary`) and "Pick up where you left off" (concepts in progress, `idea.list`, three) appear only when there is something. No suggestions of people anywhere on the screen.
+- **Small screens**: `StudioFrame` takes `smallScreen` (renders at every width, becomes a container, the viewer's email folds away below `page-wide`); the home is one column on a phone and two from `page-wide`, every link at least `tap-target` high.
+- **Verified** (Nov 12, 2026, on this branch):
+  - apps/web typecheck and eslint on the changed files: 0 errors.
+  - vitest: `components/person-home` (new, 8), `components/new`, `components/providers`, `app/__tests__`, `lib`: 582 tests, no failures.
+  - Playwright `e2e/person-home.spec.ts` (new) with the onboarding project: 8 of 8 (`/` lands on /home; two columns at 1280; at 390 px no larger-window ask, no sideways scroll, 44 px targets, one column; Start something opens the doors).
+  - `node scripts/banned-terms.mjs`, `node scripts/us-english.mjs`, `node scripts/plain-language.mjs`: pass, no new hits.
+- **Not done.** The `(live)` layout (/network, /communities, /profiles) still sends a person with no project to /new: those pages need a business shell today, and the change belongs with the network session (asked, Nov 12). Until it lands, "Find a project or people" on the home reaches /network only for a person who has a project. Onboarding still continues to /new after the profile is saved.
+
+## 2026-11-13 — e2e: 44 px tap targets tolerate sub-pixel rounding
+
+`login.spec.ts` failed on CI run 43385400232 (reidjxn/foundmill#87) with the "Send sign-in link" button measured at 43.999969482421875 px under the `google_failed` and `google_unverified` notices; a re-run passed. It was layout rounding in `boundingBox()`, not a shortfall.
+- **One helper.** apps/web `e2e/helpers.ts`: `TAP_TARGET_PX` (44) and `expectTapTarget(locatorOrBox, message)`, which allows 0.01 px of rounding and nothing more. The 44 px rule is unchanged.
+- **Every 44 px assertion uses it**, since each read `boundingBox().height` the same way: `login.spec.ts` (`expectFits`, message kept), `person-page.spec.ts` (Made with Foundmill), `public-page.spec.ts` (the Follow form's targets and Made with Foundmill).
+- **Verified.** `playwright test e2e/login.spec.ts --trace off` 13 of 13; `person-page.spec.ts` and `public-page.spec.ts` 4 of 4 (with the onboarding setup project); typecheck and lint clean on the touched files.
+
+## 2026-11-13 — The Terms of Service and the Privacy Policy
+
+Founder, Nov 13: both pages before sign-up opens and before Google's brand review (DECISIONS "The Terms and the Privacy Policy").
+- **Pages.** `/terms` and `/privacy`: public (`PUBLIC_PREFIXES`), from 390 px (`SMALL_SCREEN_PREFIXES`, exact), prerendered, indexable with their own title and canonical address. The text is structured data in `apps/web/content/legal/` (`terms.ts`, `privacy.ts`; the company's facts and the date in `facts.ts`).
+- **Design system.** `LegalPage` (`packages/dugout/src/components/public/LegalPage.tsx`, server-safe; stories "Public/LegalPage"): a bar with the product and the two documents, the title and date, "The short version", the contents as anchors, numbered sections; paragraphs, lists and term lists, every string a text node, links only to in-site paths, https and mailto.
+- **Links.** The landing page's footer (Terms, Privacy) and the sign-in page ("By continuing, you confirm you are 18 or older and agree to the Terms. See how we handle your data in the Privacy Policy.").
+- **Tests.** dugout `LegalPage.test.tsx`; web `content/legal/__tests__/legal-content.test.ts` (the company's name only in that directory, both documents name it, the cookie list matches the cookies the code sets, safe links, unique anchors, no placeholders), the route lists in `redirects.test.ts` and `desktop-only.test.tsx`; Playwright `legal.spec.ts` at 390 and 1280 px, the landing and sign-in links, and a signed-in founder.
+- **Open.** The registered postal address (the pages name the country until it is given) and whether `privacy@foundmill.com` is a mailbox someone reads; paid top-ups still expire at the end of the month and the Terms say so until that changes; account deletion and a full export are by email request (no flow yet); the 18+ confirmation is the sign-in line until the sign-up step lands. The founder's lawyer reviews both texts after launch.
+
+## Nov 13, 2026 - 2.4 second part: the people pages work without a project
+- `app/(live)/layout.tsx` no longer redirects a person with no project to /new; it renders the pages in `components/live/PersonLiveFrame.tsx` (StudioFrame with a Home link, Network and Communities, and the screen's own title via `ShellChromeProvider`). A person with a project gets the same BusinessShell as before.
+- `PersonalNotice`, `connect.tsx`, `CommunityScreen`, `ProfileScreen` use `useOptionalBusiness()`. With no project: no Personal notice, the Connect controls (community members, profile) are not drawn, no request dialog is mounted, community posts go out as the person. Reading, accepting or declining requests, messages, communities and search are unchanged. No people are suggested; "Find people" stays unbadged.
+- **Verified:** apps/web typecheck clean; eslint on changed files 0 errors; vitest `app/(live)` and `components/live`: 60 tests pass (new: layout picks the person frame, PersonLiveFrame, no-business community and profile paths); Playwright `e2e/person-home.spec.ts` 9 passed (new: Find a project or people lands on /network in the person frame, no connect control, Communities and Home reachable); `e2e/live.spec.ts` 13 passed (unchanged for a person with a project); banned-terms and us-english pass.
+- **Not done:** the person frame is desktop-only (1280 px and wider) for these pages; sending a connection request still needs a Live project (API unchanged).
+
+## 2026-11-13 — The landing page's idea box
+
+docs/IDEA_BOX.md; DECISIONS "The landing page's idea box".
+- **Data.** Migration 0086: `idea_drafts` (hashed tokens, the card, cost, expiry and hold, who claimed it) and `waitlist_entries`; RLS on, no client grant. `repos.ideaDrafts` (create, liveByToken, claim, rotateClaim, hold, releaseHold, spentSince, sweep) and `repos.waitlist`. An hourly sweep in the api.
+- **Api.** `POST /idea-box/draft` (NDJSON: started, partial, rating, card or error) and `GET /idea-box/mine`; checks in order: origin, shape and honeypot, one card per browser, Turnstile, per-address windows (3 an hour, 5 a day; IPv6 by /64), the $20 daily ceiling (reserved per card before the call, never given back). `ideaBox.preview`, `ideaBox.claim`, `waitlist.join`, `waitlist.status`. Agents: `buildIdeaBoxCardRequest` (the visitor's line as untrusted data). Gateway: `POST /v1/turnstile/verify` (live siteverify and the mock).
+- **Web.** The hero's idea box (the typing placeholder, Surprise me's interests, the card streaming in, the ways to keep it), the phone hero from 390 px, /start's branch to the keep step (`startDestination.keepCardPath`), `/new/card/keep` ("Keep this card" or "Not mine", both clearing the cookie), `/new/card/<ideaId>`, the typed six-digit code on the sign-in page, "Join the waitlist" on the not-invited page, Turnstile in the CSP. Design system: `IdeaCard` (stories "Public/IdeaCard") and idea-box.css.
+- **Privacy Policy.** The card before sign-up, its 7 days (90 on the waitlist), the `fm_idea` cookie, Cloudflare as a provider.
+- **Tests.** db `rls/idea-drafts.test.ts`; api `idea-box.test.ts` (12, through the HTTP app and the caller); gateway `turnstile.test.ts`; evals `idea-box` (offline checker; live in `pnpm evals`); dugout `IdeaCard.test.tsx`; web `IdeaBox.test.tsx`, `sign-in-code.test.tsx`, the routing and small-screen lists; Playwright `idea-box.spec.ts` (type, stream, keep, sign in, land on the card; the phone at 390 px with Surprise me).
+- **Security review (Nov 13, 2026).** One P1 and two P2 fixed (DECISIONS "The idea box: fixes from the security review"); P3s fixed or recorded.
+- **Not done.** The live eval has not run (no key here): the 2 s and 10 s bar is measured there. Sharing a card publicly is the network session's (`ideaShare.publish`); the card page leaves it out until it exists. The waitlist keeps the card only on the browser that made it (the claim token is not used to hold). /onboarding is still desktop only, so a phone that signs in lands on its card and then meets the larger-window note.
+
 ## 2026-11-12 — The network and community specification (document only, no product change)
 
 The founder asked for a whole specification of the network side, written around one question: how does Foundmill go viral. `docs/NETWORK.md` (new):
@@ -1770,7 +1837,7 @@ docs/NETWORK.md F2 (second half) and F3; THESIS_REVIEW package 5.3.
 ## 2026-11-12 — Network, wave 1: tap-to-post sharing
 
 The founder's default way for a project to post (DECISIONS, two entries of this date): one button per network opens that network's own share window with the text and link filled in, and the founder presses Post there. Foundmill posts nothing.
-- **The share panel** (Dugout `SharePost`, DESIGN §9e) opens from Plan › Milestones ("Share" on a milestone that is on the page), Product › Public page ("Share your page") and Customers › Creative (on a post drafted for social). The text is drafted from facts already public and can be edited; it is refitted to each network as the founder types; every link carries `via`.
+- **The share panel** (Dugout `SharePost`, DESIGN §9g) opens from Plan › Milestones ("Share" on a milestone that is on the page), Product › Public page ("Share your page") and Customers › Creative (on a post drafted for social). The text is drafted from facts already public and can be edited; it is refitted to each network as the founder types; every link carries `via`.
 - **Where each network landed**, checked on Nov 12, 2026 against the networks' own pages or their live answers (no signed-in account was used, so no composer was seen filled in):
   - **Opens ready to post** (text and link): X, Threads, Bluesky.
   - **Opens with your link** (the words are not carried): LinkedIn and Facebook take only a link; Reddit takes a title and link but the founder still picks a community.
@@ -1827,4 +1894,3 @@ The "Published Oct 7, 2026" line on a public page and the date of the milestone 
 - **Verified.** Typecheck of db and api; eslint on the changed files; vitest: db 2003 (13 skipped), api 1076 (3 skipped) (the full suites); banned-terms, us-english. **Playwright ran:** `project-story.spec.ts` and `public-page.spec.ts` (10 passed) against the PGlite stack. A security review of the two trigger functions found no route around them; its one point (the earlier rows above) is in the migration.
 - **Checked on a real Postgres** (16.15, a local cluster with the Supabase roles and the `auth` stub; not PGlite), after the pull request opened: every migration up to 0087 and then 0088 apply; 30 of 30 cases pass through `set local role authenticated` with JWT claims, as PostgREST connects. They cover the hole before 0088 and the repair of earlier rows, the dates on insert, update, upsert and take-down, "Page live" accepted only with the page's own date as the driver reads it back, the delete rule, another business's owner, and `fm_purge_business` as `service_role`. Not checked on the production database itself, where the migration role is `postgres` without superuser.
 - **Not done.** `published_by` is still what an owner or an admin writes (not public; the audit row names who published). The migration number and its journal `when` are final only when the network branch is rebased for its merge. No screen changed, so no story and no new Playwright spec.
-

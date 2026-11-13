@@ -186,6 +186,10 @@ export const NON_TENANT_TABLES = [
   // queue service role only); covered by rls/account-events.test.ts.
   "account_events",
   "account_outbox",
+  // 0086 the idea box (docs/IDEA_BOX.md): a signed-out visitor's card and the waitlist; the api's alone (no client
+  // role, RLS on, no policy); covered by rls/idea-drafts.test.ts.
+  "idea_drafts",
+  "waitlist_entries",
   "ideas",
   "idea_versions",
   "idea_comparisons",

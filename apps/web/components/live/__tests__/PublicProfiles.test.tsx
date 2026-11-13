@@ -10,12 +10,15 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { FakeApi } from "./fake-trpc";
 
 const api = vi.hoisted(() => ({ handlers: {}, calls: [] }) as FakeApi);
-const ctx = vi.hoisted(() => ({ gameMode: "live" as "live" | "personal", push: vi.fn() }));
+const ctx = vi.hoisted(() => ({ gameMode: "live" as "live" | "personal", noBusiness: false, push: vi.fn() }));
 vi.mock("@/lib/trpc-react", async () => {
   const { fakeTrpc } = await import("./fake-trpc");
   return { useTRPC: () => fakeTrpc(api) };
 });
-vi.mock("@/components/shell/business-context", () => ({ useBusiness: () => ({ businessId: "b1", data: { business: { name: "Ledgerly", gameMode: ctx.gameMode } } }) }));
+vi.mock("@/components/shell/business-context", () => {
+  const value = () => ({ businessId: "b1", data: { business: { name: "Ledgerly", gameMode: ctx.gameMode } } });
+  return { useBusiness: value, useOptionalBusiness: () => (ctx.noBusiness ? null : value()) };
+});
 vi.mock("@/components/shell/chrome", () => ({ useShellChrome: () => undefined }));
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push: ctx.push }) }));
 vi.mock("next/link", () => ({ default: ({ href, children, prefetch: _prefetch, ...rest }: { href: string; children: React.ReactNode; prefetch?: boolean }) => <a href={href} {...rest}>{children}</a> }));
@@ -35,6 +38,7 @@ const mount = (ui: ReactElement) => renderWithProviders(<LiveViewerProvider valu
 beforeEach(() => {
   api.handlers = {};
   api.calls = [];
+  ctx.noBusiness = false;
   ctx.gameMode = "live";
   ctx.push.mockClear();
 });
@@ -127,6 +131,16 @@ describe("/profiles/[kind]/[id]", () => {
     const connect = await screen.findByTestId("profile-connect");
     expect((connect as HTMLButtonElement).disabled).toBe(true);
     expect(screen.getByTestId("profile-connect-note").textContent).toMatch(/live business/);
+  });
+
+  it("with no project the Connect button and its note are not drawn, and no notice names a business", async () => {
+    ctx.noBusiness = true;
+    api.handlers["live.people.profile"] = () => founderProfile();
+    mount(<ProfileScreen kind="founder" id={ids.ana} />);
+    await screen.findByTestId("profile-screen");
+    expect(screen.queryByTestId("profile-connect")).toBeNull();
+    expect(screen.queryByTestId("profile-connect-note")).toBeNull();
+    expect(screen.queryByTestId("personal-notice")).toBeNull();
   });
 
   it("a business: its public founders, and a missing or private profile says so", async () => {

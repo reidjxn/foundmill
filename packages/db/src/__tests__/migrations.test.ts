@@ -99,6 +99,7 @@ describe("journal", () => {
       "0083_founder_return",
       "0084_autopilot_own_limits",
       "0085_account_events",
+      "0086_idea_drafts",
       "0086_attributions",
       "0087_public_milestones",
       "0088_page_dates_recorded",

@@ -62,6 +62,7 @@ import { notificationsRepo } from "./notifications";
 import { notifyFactsRepo } from "./notify-facts";
 import { attributionsRepo } from "./attributions";
 import { teamPostsRepo } from "./team-posts";
+import { ideaDraftsRepo, waitlistRepo } from "./idea-drafts";
 
 export const repos = {
   businesses: businessesRepo,
@@ -69,6 +70,8 @@ export const repos = {
   memberships: membershipsRepo,
   founders: foundersRepo,
   ideas: ideasRepo,
+  ideaDrafts: ideaDraftsRepo,
+  waitlist: waitlistRepo,
   product: productRepo,
   productSignoffs: productSignoffsRepo,
   goals: goalsRepo,
@@ -153,6 +156,7 @@ export * from "./mail";
 export * from "./notify-email";
 export * from "./holidays";
 export * from "./ideas";
+export * from "./idea-drafts";
 export * from "./inbox";
 export * from "./integrations";
 export * from "./journeys";

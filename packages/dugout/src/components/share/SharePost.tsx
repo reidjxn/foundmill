@@ -1,6 +1,6 @@
 "use client";
 /**
- * The share panel (docs/DESIGN.md §9e; docs/NETWORK.md F3 "Tap-to-post"): a drafted post, and one control per network
+ * The share panel (docs/DESIGN.md §9g; docs/NETWORK.md F3 "Tap-to-post"): a drafted post, and one control per network
  * that opens that network's own share window with the text and the link already in it. The founder presses Post
  * there; nothing is posted from here, and nothing here says anything was.
  *

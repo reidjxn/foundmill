@@ -1,5 +1,5 @@
 /**
- * A milestone's card (docs/NETWORK.md F3; docs/THESIS_REVIEW.md package 5.3; DESIGN §9d): what anyone sees at
+ * A milestone's card (docs/NETWORK.md F3; docs/THESIS_REVIEW.md package 5.3; DESIGN §9f): what anyone sees at
  * `/m/<id>`, signed out, from 390 px, for one milestone the project's founders chose to show. The project's logo and
  * name, the milestone's words as the headline, the day it was reached, and "Verified by Foundmill" (an icon and the
  * words) with one sentence saying what that means. Then the ways on: "See ‹name›" to the project's page and, when

@@ -15,7 +15,7 @@ import { plainWords } from "@/lib/format";
 import { publicProfileHref } from "@/lib/public-search";
 import { errorMessage, trpcErrorCode, trpcPathPrefix, type RouterOutputs } from "@/lib/trpc";
 import { useTRPC } from "@/lib/trpc-react";
-import { useBusiness } from "@/components/shell/business-context";
+import { useOptionalBusiness } from "@/components/shell/business-context";
 import { useShellChrome } from "@/components/shell/chrome";
 import { BusinessLogo, PersonalNotice } from "./shared";
 
@@ -35,7 +35,8 @@ export function ProfileScreen({ kind, id }: { kind: "business" | "founder"; id: 
   const router = useRouter();
   const { toast } = useToast();
   const { formatDate } = useFormatters();
-  const { businessId, data } = useBusiness();
+  const ctx = useOptionalBusiness();
+  const businessId = ctx?.businessId;
   const q = useQuery(trpc.live.people.profile.queryOptions({ kind, id }, { staleTime: 30_000, retry: false }));
   const profile = q.data?.profile;
   useShellChrome({ title: profile ? profile.name : "Profile", breadcrumbs: [{ label: "Network", href: "/network" }, { label: profile?.name ?? "Profile" }] }, [profile?.name]);
@@ -74,7 +75,8 @@ export function ProfileScreen({ kind, id }: { kind: "business" | "founder"; id: 
   if (profile.kind === "business" && profile.region) facts.push({ label: "Region", value: profile.region.toUpperCase() });
   if (profile.kind === "founder") facts.push({ label: "Businesses", value: businesses.length });
 
-  const canAsk = data.business.gameMode === "live";
+  const hasBusiness = ctx !== null;
+  const canAsk = ctx?.data.business.gameMode === "live";
   let action = null;
   if (profile.kind === "founder" && !isSelf) {
     if (connection?.status === "accepted") {
@@ -89,7 +91,7 @@ export function ProfileScreen({ kind, id }: { kind: "business" | "founder"; id: 
           {connection.direction === "incoming" ? "Asked to connect with you" : "Request sent"}
         </StatusPill>
       );
-    } else if (!connection && profile.userId) {
+    } else if (!connection && profile.userId && businessId) {
       const userId = profile.userId;
       action = (
         <Button size="sm" icon={UserRoundPlus} disabled={!canAsk} loading={request.isPending} onClick={() => request.mutate({ businessId, toUserId: userId })} data-testid="profile-connect">
@@ -105,7 +107,7 @@ export function ProfileScreen({ kind, id }: { kind: "business" | "founder"; id: 
       <div className="min-h-0 flex-1 overflow-y-auto">
         <div className="grid grid-cols-12 gap-gutter p-gutter">
           <PersonalNotice className="col-span-12" />
-          {profile.kind === "founder" && !isSelf && !connection && !canAsk ? (
+          {profile.kind === "founder" && !isSelf && !connection && hasBusiness && !canAsk ? (
             <p className="col-span-12 text-small text-secondary" data-testid="profile-connect-note">
               Switch to a live business to ask {profile.name} to connect: a Personal business is not on the network.
             </p>

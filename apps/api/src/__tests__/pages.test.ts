@@ -264,3 +264,67 @@ describe("publicPage.bySlug limits", () => {
     expect(PUBLIC_PAGE_LIMITS.perCaller.limit).toBeGreaterThanOrEqual(300);
   });
 });
+
+describe("publicPage.indexNowKeyFile", () => {
+  const KEY = "a1b2c3d4e5f6";
+  /** Connects IndexNow for the page the way the gateway stores it (hosted mode). */
+  async function connectHosted(businessId: string, slug: string, key = KEY) {
+    const settings = { config: { host: "localhost:3000", keyLocation: `http://localhost:3000/p/${slug}/${key}.txt`, key, hosted: true, slug } };
+    await hz.db.execute(sql`insert into integrations (business_id, connector_key, status, auth_kind, settings) values (${businessId}, 'indexnow', 'connected', 'api_key', ${JSON.stringify(settings)}::jsonb)`);
+  }
+
+  it("answers the key for the right key, signed out", async () => {
+    const b = await project("Key Page");
+    const live = (await b.owner.page.publish({ businessId: b.id, content: page() })).page;
+    await connectHosted(b.id, live.slug);
+    expect(await hz.caller(null).publicPage.indexNowKeyFile({ slug: live.slug, key: KEY })).toEqual({ key: KEY });
+    // The address is tidied like a page view's.
+    expect(await hz.caller(null).publicPage.indexNowKeyFile({ slug: ` ${live.slug.toUpperCase()} `, key: KEY })).toEqual({ key: KEY });
+    expect(await hits(publicPageLimitKeys.unknown)).toBe(0);
+    expect(await hits(publicPageLimitKeys.slug(live.slug))).toBe(2);
+  });
+
+  it("answers null for a wrong key, a malformed key, an unknown address and a page that is not public", async () => {
+    const b = await project("Wrong Key");
+    const live = (await b.owner.page.publish({ businessId: b.id, content: page() })).page;
+    await connectHosted(b.id, live.slug);
+    const anon = hz.caller(null);
+    expect(await anon.publicPage.indexNowKeyFile({ slug: live.slug, key: "zzzzzzzzzzzz" })).toBeNull();
+    expect(await anon.publicPage.indexNowKeyFile({ slug: live.slug, key: "short" })).toBeNull();
+    expect(await anon.publicPage.indexNowKeyFile({ slug: "no-such-page", key: KEY })).toBeNull();
+    expect(await anon.publicPage.indexNowKeyFile({ slug: "../etc", key: KEY })).toBeNull();
+
+    const draft = await project("Draft Key");
+    const drafted = await draft.member.page.saveDraft({ businessId: draft.id, draft: page() });
+    await connectHosted(draft.id, drafted.slug);
+    expect(await anon.publicPage.indexNowKeyFile({ slug: drafted.slug, key: KEY })).toBeNull();
+
+    // Taken down: the key is gone at once.
+    await b.owner.page.unpublish({ businessId: b.id });
+    expect(await anon.publicPage.indexNowKeyFile({ slug: live.slug, key: KEY })).toBeNull();
+  });
+
+  it("never serves one project's key at another project's address", async () => {
+    const a = await project("Key A");
+    const c = await project("Key C");
+    const liveA = (await a.owner.page.publish({ businessId: a.id, content: page() })).page;
+    const liveC = (await c.owner.page.publish({ businessId: c.id, content: page() })).page;
+    await connectHosted(a.id, liveA.slug);
+    expect(await hz.caller(null).publicPage.indexNowKeyFile({ slug: liveC.slug, key: KEY })).toBeNull();
+  });
+
+  it("a miss draws from the unknown limit and gives the per-address hit back", async () => {
+    const b = await project("Key Limits");
+    const live = (await b.owner.page.publish({ businessId: b.id, content: page() })).page;
+    await connectHosted(b.id, live.slug);
+    const anon = hz.caller(null);
+    for (let i = 0; i < 5; i++) expect(await anon.publicPage.indexNowKeyFile({ slug: live.slug, key: `wrongkey${i}x` })).toBeNull();
+    expect(await hits(publicPageLimitKeys.unknown)).toBe(5);
+    expect(await hits(publicPageLimitKeys.slug(live.slug))).toBe(0);
+    expect(await hits(publicPageLimitKeys.all)).toBe(0);
+    // With the unknown ceiling full, misses are refused and the real key file still reads.
+    await fill(publicPageLimitKeys.unknown, PUBLIC_PAGE_LIMITS.unknown);
+    expect(await code(anon.publicPage.indexNowKeyFile({ slug: live.slug, key: "wrongkeyyyyy" }))).toBe("TOO_MANY_REQUESTS");
+    expect(await anon.publicPage.indexNowKeyFile({ slug: live.slug, key: KEY })).toEqual({ key: KEY });
+  });
+});

@@ -6,3 +6,6 @@ export * from "./public/ProjectStory";
 export * from "./public/MilestoneCard";
 // A person's own public profile (package 2.3) at /u/<handle>.
 export * from "./public/PersonPage";
+export * from "./public/LegalPage";
+// The landing page's idea box card (docs/IDEA_BOX.md).
+export * from "./public/IdeaCard";

@@ -48,6 +48,14 @@ export const THIRD_PARTY_CONNECTOR_KEYS = [
   "tink",
   "plaid",
   "shopify",
+  // On the founder's own key at each vendor (founder, 2026-11-12): the other assistants' panels, Google's results and
+  // AI Overview, a page as a crawler reads it, and telling search engines a page changed.
+  "openai",
+  "gemini",
+  "perplexity",
+  "serpapi",
+  "firecrawl",
+  "indexnow",
 ] as const;
 
 export const CONNECTOR_KEYS = [...PLATFORM_CONNECTOR_KEYS, ...THIRD_PARTY_CONNECTOR_KEYS] as const;

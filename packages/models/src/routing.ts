@@ -53,6 +53,19 @@ export const SPEECH_MODELS = {
 export type SpeechModelKey = keyof typeof SPEECH_MODELS;
 
 /**
+ * Panel models: the other assistants a project's AI visibility is checked against (the `openai`, `gemini` and
+ * `perplexity` connectors' `ask_panel`). Each runs on the founder's own key at that vendor, with the vendor's web search
+ * on, so the answer is close to what a person asking that assistant reads. Verified against each vendor's docs on
+ * 2026-11-12. Called only by the gateway's connectors; never routed through the Claude client.
+ */
+export const PANEL_MODELS = {
+  openai: "gpt-6-astra",
+  gemini: "gemini-3.8-flash",
+  perplexity: "perplexity/sonar",
+} as const;
+export type PanelModelKey = keyof typeof PANEL_MODELS;
+
+/**
  * Older models a real Anthropic account still lists. Nothing routes to them; the mock `list_models` tool reports them
  * as not routed, so an agent reading the list sees what a live account shows.
  */

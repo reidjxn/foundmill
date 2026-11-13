@@ -37,8 +37,11 @@ class OnScreenObserver {
 const realObserver = globalThis.IntersectionObserver;
 beforeEach(() => {
   globalThis.IntersectionObserver = OnScreenObserver as unknown as typeof IntersectionObserver;
+  // The idea box asks the api for this browser's card on mount: none here.
+  vi.stubGlobal("fetch", vi.fn(async () => new Response(null, { status: 204 })));
 });
 afterEach(() => {
+  vi.unstubAllGlobals();
   globalThis.IntersectionObserver = realObserver;
   vi.useRealTimers();
   resetExampleCache();
@@ -58,17 +61,19 @@ describe("LandingPage (signed-out /)", () => {
     renderPage();
     expect(screen.getByRole("heading", { level: 1 }).textContent).toBe(APP_TAGLINE);
     const starts = screen.getAllByRole("link", { name: /Start your business/ });
-    expect(starts.length).toBeGreaterThanOrEqual(3);
+    expect(starts.length).toBeGreaterThanOrEqual(2);
     for (const a of [...starts, ...screen.getAllByRole("link", { name: "Sign in" })]) expect(a.getAttribute("href")).toBe("/login");
   });
 
-  it("assures a first-timer on the hero (included credits, no card) and keeps the key assurance for You decide (A13)", () => {
+  it("assures a first-timer at the idea box (a free card, no sign-up, private) and keeps the key assurance for You decide (A13)", () => {
     renderPage();
     const hero = screen.getByRole("heading", { level: 1 }).closest("section")!;
-    // The figure is the free plan's included credits, from packages/config, in credits' own currency.
+    // The figure is the free plan's included credits, from packages/config, in credits' own currency (said once the card lands).
     expect(INCLUDED_CREDITS_ASSURANCE).toBe("Starts with $5.00 of included credits · no card");
-    expect(within(hero).getByTestId("hero-credits").textContent).toBe(INCLUDED_CREDITS_ASSURANCE);
+    expect(within(hero).getByText("Your first card is free · no sign-up")).toBeTruthy();
+    expect(within(hero).getByText("Your idea stays private until you choose to share it")).toBeTruthy();
     expect(within(hero).getByText("Nothing moves money or signs in your name without you")).toBeTruthy();
+    expect(within(hero).getByRole("textbox", { name: "Your idea, in a sentence" })).toBeTruthy();
     expect(within(hero).queryByText(/Anthropic key/)).toBeNull();
     // The key assurance sits beside "Your key, sealed", and nowhere else.
     const control = document.getElementById("control")!;

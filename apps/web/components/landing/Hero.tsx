@@ -1,18 +1,19 @@
 "use client";
 /**
- * The hero: the tagline over the deck. The headline sits centred in display-hero; the deck below is one screen of
- * the product on the example business, and pressing its Continue button runs a cycle. Above the deck the visitor picks
- * which business it runs (Watch it run); the deck starts afresh on each.
+ * The hero: the tagline, one line about how it works, and the idea box (founder, 2026-11-13; docs/IDEA_BOX.md): a
+ * visitor types one line and gets a rated card before any sign-up. When the card lands the headline becomes "<name> is
+ * yours to keep." Below, on a desktop, the example business runs in the deck (Or watch an example run). On a phone
+ * (`layout="phone"`, from 390 px) the hero is the box alone.
  */
-import Link from "next/link";
-import { useState, type ReactNode } from "react";
-import { ArrowRight, Coins, Monitor, Pause, Play, ShieldCheck, type LucideIcon } from "lucide-react";
-import { APP_NAME, APP_TAGLINE, CREDITS_CURRENCY, includedCreditsMinor } from "@foundmill/config";
-import { Button, Icon, Term, formatMoney } from "@foundmill/dugout";
+import { useState } from "react";
+import { Pause, Play } from "lucide-react";
+import { APP_TAGLINE, CREDITS_CURRENCY, includedCreditsMinor } from "@foundmill/config";
+import { Icon, formatMoney } from "@foundmill/dugout";
 import { CycleDeck } from "./CycleDeck";
 import { ExamplePicker } from "./ExamplePicker";
 import { useExample } from "./examples/context";
-import { Container, SIGN_IN, goToSection } from "./parts";
+import { IdeaBox, type IdeaBoxLanded } from "./idea-box/IdeaBox";
+import { Container, goToSection } from "./parts";
 
 /** The words the headline lights; the h1's text stays exactly the tagline. */
 const LIT = "real business";
@@ -25,73 +26,63 @@ const LIT = "real business";
 const INCLUDED_CREDITS = formatMoney({ amountMinor: includedCreditsMinor("free"), currency: CREDITS_CURRENCY }, { locale: "en-US" });
 export const INCLUDED_CREDITS_ASSURANCE = `Starts with ${INCLUDED_CREDITS} of included credits · no card`;
 
-export function Hero() {
+export function Hero({ layout = "desktop" }: { layout?: "desktop" | "phone" }) {
   const business = useExample();
+  const [landed, setLanded] = useState<IdeaBoxLanded | null>(null);
+  const phone = layout === "phone";
   const at = APP_TAGLINE.indexOf(LIT);
-  const headline =
-    at < 0 ? (
-      APP_TAGLINE
-    ) : (
-      <>
-        {APP_TAGLINE.slice(0, at)}
-        <span className="landing-lit">{LIT}</span>
-        {APP_TAGLINE.slice(at + LIT.length)}
-      </>
-    );
+  const headline = landed ? (
+    <>
+      {landed.name} is <span className="landing-lit">yours to keep</span>.
+    </>
+  ) : at < 0 ? (
+    APP_TAGLINE
+  ) : (
+    <>
+      {APP_TAGLINE.slice(0, at)}
+      <span className="landing-lit">{LIT}</span>
+      {APP_TAGLINE.slice(at + LIT.length)}
+    </>
+  );
   return (
     <section aria-labelledby="hero-title" className="relative">
-      <Container className="flex flex-col items-center gap-14 pb-10 pt-14">
-        <div className="flex max-w-6xl animate-rise-in flex-col items-center gap-6 text-center">
-          <span className="inline-flex items-center gap-2 rounded-full border border-subtle bg-panel/70 py-1 pl-1 pr-3 text-small text-secondary backdrop-blur">
-            <span className="rounded-full bg-kit-primary px-2 py-0.5 t-label text-kit-on-primary">For founders</span>
-            First company or fifth, the team comes with it
-          </span>
-          <h1 id="hero-title" className="t-display-hero max-w-5xl text-balance text-primary">
+      <Container className={phone ? "flex flex-col items-center gap-10 px-4 pb-10 pt-7" : "flex flex-col items-center gap-10 pb-10 pt-11"}>
+        <div className="flex w-full max-w-6xl animate-rise-in flex-col items-center gap-5 text-center">
+          {!landed ? (
+            <span className="inline-flex items-center gap-2 rounded-full border border-subtle bg-panel/70 py-1 pl-1 pr-3 text-small text-secondary backdrop-blur">
+              <span className="rounded-full bg-kit-primary px-2 py-0.5 t-label text-kit-on-primary">For founders</span>
+              {phone ? "The team comes with it" : "First company or fifth, the team comes with it"}
+            </span>
+          ) : null}
+          <h1 id="hero-title" className={phone ? "t-display-lg max-w-full text-balance text-primary" : "t-display-hero max-w-5xl text-balance text-primary"}>
             {headline}
           </h1>
-          <p className="mx-auto max-w-3xl text-pretty text-reading text-secondary">
-            {APP_NAME} hires, trains and runs a team of AI agents across product, development, distribution, finance, legal and hiring. You set the direction and make the calls only a founder should make. They do the rest, every <Term id="cycle">cycle</Term>, in the open.
-          </p>
-          <div className="flex items-center gap-3">
-            <Button asChild variant="glass" size="lg" iconRight={ArrowRight}>
-              <Link href={SIGN_IN}>Start your business</Link>
-            </Button>
-            <Button asChild variant="ghost" size="lg">
-              <a href="#how">See how it works</a>
-            </Button>
+          {!landed ? (
+            <p className="mx-auto max-w-3xl text-pretty text-reading text-secondary" data-testid="hero-lede">
+              {phone
+                ? "Start with one line. Your team shapes it, builds it and runs it. You make the calls only a founder should make."
+                : "Start with one line. Your team of AI agents shapes it, builds it and runs it, in the open. You set the direction and make the calls only a founder should make."}
+            </p>
+          ) : null}
+          <div className="mt-3 w-full">
+            <IdeaBox layout={layout} onLanded={setLanded} />
           </div>
-          <ul className="flex flex-wrap justify-center gap-x-6 gap-y-2 text-small text-secondary">
-            <Assurance icon={ShieldCheck}>Nothing moves money or signs in your name without you</Assurance>
-            <Assurance icon={Coins}>
-              {/* INCLUDED_CREDITS_ASSURANCE, with "credits" defined where a visitor first meets the word. */}
-              <span data-testid="hero-credits">
-                Starts with {INCLUDED_CREDITS} of included <Term id="credits">credits</Term> · no card
-              </span>
-            </Assurance>
-            {/* Said where the button is, not only in the footer (first-time founder report, Nov 8, 2026: a 13-inch laptop at 125 % met the wall unannounced). */}
-            <Assurance icon={Monitor}>
-              <span data-testid="hero-desktop-only">Desktop only · 1280 px and wider</span>
-            </Assurance>
-          </ul>
         </div>
-        <div className="flex w-full flex-col gap-5">
-          <ExamplePicker />
-          <CycleDeck key={business.identity.id} onOpenJourney={() => goToSection("journey")} />
-          <p className="text-center text-small text-secondary">
-            {business.identity.name} is an example business. Press Continue, answer what comes back, and run another cycle.
-          </p>
-        </div>
+        {!phone ? (
+          <div className="flex w-full flex-col gap-5" data-testid="hero-example">
+            <span className="inline-flex items-center justify-center gap-2 font-medium text-secondary">
+              <span aria-hidden className="size-1.5 rounded-full bg-kit-lift shadow-[0_0_10px_var(--kit-lift)]" />
+              Or watch an example run
+            </span>
+            <ExamplePicker />
+            <CycleDeck key={business.identity.id} onOpenJourney={() => goToSection("journey")} />
+            <p className="text-center text-small text-secondary">
+              {business.identity.name} is an example business. Press Continue, answer what comes back, and run another cycle.
+            </p>
+          </div>
+        ) : null}
       </Container>
     </section>
-  );
-}
-
-function Assurance({ icon, children }: { icon: LucideIcon; children: ReactNode }) {
-  return (
-    <li className="inline-flex items-center gap-1.5">
-      <Icon icon={icon} size={14} className="text-status-good" />
-      {children}
-    </li>
   );
 }
 

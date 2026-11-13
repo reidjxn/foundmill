@@ -2,7 +2,7 @@ import { writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { expect, test, type Browser, type Page } from "@playwright/test";
-import { LONG, commitThrowaway, dismissCoachmarks, settled, toast } from "./helpers";
+import { LONG, commitThrowaway, dismissCoachmarks, expectTapTarget, settled, toast } from "./helpers";
 
 /**
  * A project's story and its milestone cards (docs/NETWORK.md F2 and F3; docs/THESIS_REVIEW.md package 5.3; migration
@@ -40,7 +40,7 @@ async function expectFitsSmallScreens(page: Page, root: string, width: number): 
   const links = page.locator(`${root} a`);
   const n = await links.count();
   expect(n).toBeGreaterThan(0);
-  for (let i = 0; i < n; i++) expect((await links.nth(i).boundingBox())!.height, `link ${i + 1} tap target at ${width} px`).toBeGreaterThanOrEqual(44);
+  for (let i = 0; i < n; i++) await expectTapTarget(links.nth(i), `link ${i + 1} tap target at ${width} px`);
   const smallest = await page.locator(root).evaluate((el) => Math.min(...[...el.querySelectorAll<HTMLElement>("p, h1, h2, span, a, time")].filter((e) => e.textContent?.trim()).map((e) => parseFloat(getComputedStyle(e).fontSize))));
   expect(smallest, `smallest text at ${width} px`).toBeGreaterThanOrEqual(11);
 }

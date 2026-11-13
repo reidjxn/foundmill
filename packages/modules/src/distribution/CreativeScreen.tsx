@@ -4,7 +4,7 @@
  * kind (email, post, ad, video, article, mailer, print, script) with its campaign, author and approval state.
  * Approve / Reject call `distribution.assets.approve/reject`. `?asset=<id>` highlights one.
  *
- * Tap-to-post (docs/NETWORK.md F3; docs/DESIGN.md §9e): a post drafted for a channel the founder posts by tap (social)
+ * Tap-to-post (docs/NETWORK.md F3; docs/DESIGN.md §9g): a post drafted for a channel the founder posts by tap (social)
  * carries "Share", which opens the share panel with the draft's own words and, while the project's page is published,
  * the page's address with `via`. The founder's own press in the network's window is the only approval a post needs
  * there, so Share is offered on any draft that was not rejected. A press is recorded as a share that was opened

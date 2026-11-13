@@ -54,6 +54,7 @@ import {
   starterPageDraft,
   suggestPageSlug,
   type Env,
+  isIndexNowKey,
   type PageHoldReason,
   type ProjectPageContent as PageContent,
 } from "@foundmill/shared";
@@ -324,6 +325,30 @@ export const publicPageLimitKeys = {
   all: "public-page:all",
   unknown: "public-page:unknown",
 } as const;
+
+/**
+ * `publicPage.indexNowKeyFile`: what `/p/<slug>/<key>.txt` serves (founder, 2026-11-12), the key itself when it is the one
+ * the project's founders connected IndexNow with for this public page, else null (an unknown address, a page that is not
+ * public, IndexNow not connected for the hosted page, or another key: all the same not-found). Under the same limits as
+ * a page view; a miss draws from the `unknown` ceiling, so guessing keys cannot use up what real pages read from. The
+ * key is public by protocol, so the comparison need not be constant-time.
+ */
+export async function publicIndexNowKeyFile(ctx: Pick<Context, "db" | "env" | "limits"> & { clientAddress?: string | null }, input: { slug: string; key: string }): Promise<{ key: string } | null> {
+  const clean = input.slug.trim().toLowerCase();
+  if (pageSlugProblem(clean) || !isIndexNowKey(input.key)) return null;
+  if (ctx.clientAddress) await takeOrThrow(ctx.limits, "Page view", [{ key: publicPageLimitKeys.caller(ctx.env, ctx.clientAddress), rule: PUBLIC_PAGE_LIMITS.perCaller }]);
+  const ticket = await takeOrThrow(ctx.limits, "Page view", [
+    { key: publicPageLimitKeys.slug(clean), rule: PUBLIC_PAGE_LIMITS.perSlug },
+    { key: publicPageLimitKeys.all, rule: PUBLIC_PAGE_LIMITS.all },
+  ]);
+  const key = await repos.pages.public.indexNowKeyBySlug(ctx.db, clean);
+  if (key === null || key !== input.key) {
+    await ctx.limits.refund(ticket);
+    await takeOrThrow(ctx.limits, "Page view", [{ key: publicPageLimitKeys.unknown, rule: PUBLIC_PAGE_LIMITS.unknown }]);
+    return null;
+  }
+  return { key };
+}
 
 /** `publicPage.bySlug`: the published page at `slug`, or null for an unknown address or a page that is not public. */
 export async function publicPageBySlug(ctx: Pick<Context, "db" | "env" | "limits"> & { clientAddress?: string | null }, slug: string): Promise<PublicPageView | null> {

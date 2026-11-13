@@ -2,7 +2,7 @@ import { expect, test, type Locator, type Page } from "@playwright/test";
 import { LONG, commitThrowaway, dismissCoachmarks, settled, toast } from "./helpers";
 
 /**
- * Posts the social agent drafts for the founder to share by tap (docs/NETWORK.md F3, F7; docs/DESIGN.md §9e; founder,
+ * Posts the social agent drafts for the founder to share by tap (docs/NETWORK.md F3, F7; docs/DESIGN.md §9g; founder,
  * Nov 12, 2026: "a post the social channel agent wrote"), on the mock model. A throwaway project publishes its page
  * with the social channel off the board: nothing is drafted. The founder puts social on the Channel Board, and a
  * drafted post appears on Customers › Creative, written by the team, with Share: every "opens ready to post" link

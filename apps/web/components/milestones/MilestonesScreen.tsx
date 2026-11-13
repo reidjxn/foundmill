@@ -9,7 +9,7 @@
  * milestone at a time; nothing becomes public on its own. These controls depend only on the page being published
  * (`page.get`), never on the old Personal and Live setting the share dialog below is tied to. Nothing is counted.
  *
- * Tap-to-post (docs/NETWORK.md F3; docs/DESIGN.md §9e): a milestone that is on the page also has "Share", beside "Copy
+ * Tap-to-post (docs/NETWORK.md F3; docs/DESIGN.md §9g): a milestone that is on the page also has "Share", beside "Copy
  * card link". It opens the share panel with a plain draft (the project's name, the milestone's public words, the card's
  * address with `via`). A press is recorded as a share that was opened (`share.opened`), fire-and-forget: the share
  * never waits on it and never fails because of it.

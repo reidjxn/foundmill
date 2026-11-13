@@ -26,7 +26,7 @@ export interface TrophyCabinetProps {
   onCopyCardLink?: (key: string) => void;
   /**
    * "Share" beside "Copy card link", while the milestone is on the page: opens the share panel for its card (tap-to-post,
-   * docs/DESIGN.md §9e). Not the LIVE share card above (`onShare`), which copies a line of text.
+   * docs/DESIGN.md §9g). Not the LIVE share card above (`onShare`), which copies a line of text.
    */
   onSharePost?: (key: string) => void;
   /** The milestone whose change is on its way: its controls wait. */

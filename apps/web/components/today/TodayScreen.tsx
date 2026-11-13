@@ -172,12 +172,12 @@ export function TodayScreen() {
   );
   useShellChrome({ title: TODAY_WORDS.title, tabs: { tabs, activeId: "today", onChange: (id) => router.push(id === "details" ? routes.home(businessId) : routes.today(businessId)), "aria-label": "Today and Details" } }, [tabs, businessId]);
 
-  // "Since you were last here" (retention plan, 2026-11-11): what happened between the previous visit and now.
+  // "Since you were last here" and the daily streak (retention plan, 2026-11-11): what happened between the previous
+  // visit and now, and the founder's own days in a row here. One read (`today.visit`), so one transaction on the api.
   const datePrefs = useDateFormat();
-  const sinceQ = useQuery(trpc.today.sinceLastVisit.queryOptions({ businessId }, { staleTime: 60_000 }));
-  const sinceLines = sinceQ.data ? sinceLastVisitLines(sinceQ.data, businessId, (m) => formatMoney(m)) : [];
-  // The daily streak (retention plan, 2026-11-11): the founder's own days in a row here; vacation days are frozen.
-  const streakQ = useQuery(trpc.today.streak.queryOptions({ businessId }, { staleTime: 5 * 60_000 }));
+  const visitQ = useQuery(trpc.today.visit.queryOptions({ businessId }, { staleTime: 60_000 }));
+  const since = visitQ.data?.sinceLastVisit ?? null;
+  const sinceLines = since ? sinceLastVisitLines(since, businessId, (m) => formatMoney(m)) : [];
 
   const week = todayQ.data?.week;
   // "Your first week": the API answers it only while the business is in its first days and not yet selling (packages/shared first-week.ts).
@@ -188,8 +188,8 @@ export function TodayScreen() {
       <GoalEnsure />
       <HomeFoundations />
       <PageGrid flush>
-        {sinceQ.data && sinceLines.length ? <SinceLastVisit span={12} meta={`Since ${formatDateTime(sinceQ.data.since, datePrefs)}`} lines={sinceLines} /> : null}
-        {streakQ.data ? <StreakStrip span={12} {...streakStripProps(streakQ.data)} /> : null}
+        {since && sinceLines.length ? <SinceLastVisit span={12} meta={`Since ${formatDateTime(since.since, datePrefs)}`} lines={sinceLines} /> : null}
+        {visitQ.data ? <StreakStrip span={12} {...streakStripProps(visitQ.data.streak)} /> : null}
         {firstWeek ? <FirstWeekTimeline span={12} steps={firstWeek.steps} paused={firstWeek.paused} /> : null}
         <GoalPanel
           span={6}

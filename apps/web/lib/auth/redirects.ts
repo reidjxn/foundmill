@@ -21,7 +21,7 @@ import { STALE_BUSINESS_PARAM, lastBusinessHome } from "./last-business";
  * (app/u/[handle]), both open to anyone signed out. `/a/<token>` (a one-click answer) and `/email/pause` are opened from
  * a founder email, often on a phone with no session; `/email/unsubscribe` takes a mail app's one-click unsubscribe.
  */
-const PUBLIC_PREFIXES = ["/login", "/auth/", "/_next/", "/brand/", "/favicon", "/icon", "/apple-icon", "/opengraph-image", "/robots.txt", "/sitemap.xml", "/health", "/examples/", "/p/", "/u/", "/m/", "/a/", "/email/pause", "/email/unsubscribe"];
+const PUBLIC_PREFIXES = ["/login", "/auth/", "/_next/", "/brand/", "/favicon", "/icon", "/apple-icon", "/opengraph-image", "/robots.txt", "/sitemap.xml", "/health", "/examples/", "/p/", "/u/", "/m/", "/a/", "/email/pause", "/email/unsubscribe", "/terms", "/privacy"];
 
 /** The signed-in index (app/start/page.tsx): a signed-in `/` the proxy cannot answer itself is rewritten here. */
 export const SIGNED_IN_INDEX = "/start";
@@ -35,7 +35,7 @@ export function isPublicPath(pathname: string): boolean {
 const LIVE_PREFIXES = ["/network", "/communities", "/profiles"];
 
 export function isFounderPath(pathname: string): boolean {
-  return pathname === "/" || pathname === "/onboarding" || pathname === "/businesses" || pathname === "/public-profile" || pathname.startsWith("/new") || pathname.startsWith("/b/") || LIVE_PREFIXES.some((p) => pathname === p || pathname.startsWith(`${p}/`));
+  return pathname === "/" || pathname === "/home" || pathname === "/onboarding" || pathname === "/businesses" || pathname === "/public-profile" || pathname.startsWith("/new") || pathname.startsWith("/b/") || LIVE_PREFIXES.some((p) => pathname === p || pathname.startsWith(`${p}/`));
 }
 
 /**

@@ -1,6 +1,6 @@
 "use client";
 /**
- * PostReadyNote (Today; docs/NETWORK.md F3 "Tap-to-post", F7 "Posting"; docs/DESIGN.md §9e): one quiet line while a
+ * PostReadyNote (Today; docs/NETWORK.md F3 "Tap-to-post", F7 "Posting"; docs/DESIGN.md §9g): one quiet line while a
  * post the team wrote waits for the founder to share it, pointing at the post on Customers › Creative. An offer, never
  * a chore: no badge, no color and no number beyond the plain words, the same weight as the public page line. The API
  * answers `today.get` › `postsReady` (never for a sample business); the host renders this only then, and it goes when
