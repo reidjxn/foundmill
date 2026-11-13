@@ -3958,3 +3958,13 @@ The founder: "Yes so let's go with Buffer." Tap-to-post stays the default way a 
 
 This session recorded (in the hotfix's commit and its first description) that no pool warning was logged before [reidjxn/foundmill#86](https://github.com/reidjxn/foundmill/pull/86). That was wrong: the search matched the log's message text, and the count is in an attribute. One warning was logged at 15:49 UTC on Nov 12, before #84 and #86, and a 10-procedure request hung for 45 s at 15:56. The retention session's reading of the logs stands: single requests that open 8 to 10 transactions saturate the pool of 10, client aborts under saturation lose connections in the driver (the 2026-10-19 pattern), and the account relay made it worse without being the root. What stays true: no watchdog exit and no slow shutdown before #86; continuous warnings and two exits after it. The relay stays off until the pool fix (the retention session's) is on main, then returns folded into the business relay's tick, with a bound on how long a stopping relay waits for a tick.
 
+## 2026-11-13 — The team's post drafts: the calls made
+
+- **Putting social on the board is the founder's "write posts for me".** Off the board, nothing is drafted and nothing is spent.
+- **A hard cap, counted against attempts.** Two a day and five a week per project, so a run of refused drafts cannot spend credits either.
+- **"A first of a real outcome" is the first follower only**, for the same reason only two milestones can be shown: a customer or revenue first is counted or estimated, and a post about it would not be honest yet.
+- **One stored text.** The share panel has one field, and a per-network copy would not follow the founder's edit; the model's shorter version is used only where the text is too long for a network that opens ready to post.
+- **No migration:** a draft is a row of the existing kind the Creative screen lists, with the trigger in its reference.
+- **Nothing polls.** After the pool problem of Nov 12 no new loop or timer was to be added on the api; drafting starts from the request that caused it.
+- **The eval exists and has not run.** Until it has run with a key, the claim is "the check refuses a bad draft", not "the agent writes a good one".
+
