@@ -86,7 +86,7 @@ export function platformMailConfig(
   };
 }
 
-/** The pause link's key: SESSION_TOKEN_SECRET, or the development one in development and test (`emailLinkSecret`). */
+/** The pause link's key: SESSION_TOKEN_SECRET (`emailLinkSecret`); without it, no pause link. */
 function pauseSecretOf(env: Partial<Pick<Env, "APP_ENV" | "SESSION_TOKEN_SECRET">>): string | null {
   try {
     return emailLinkSecret({ APP_ENV: env.APP_ENV ?? "development", SESSION_TOKEN_SECRET: env.SESSION_TOKEN_SECRET });

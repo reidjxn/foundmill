@@ -3,8 +3,8 @@
  * recent notes of a kind, recent events of a kind, the milestones reached and who started each Continue run. Nothing
  * here writes; the notifier decides from these facts with pure rules (apps/orchestrator/src/notify/rules.ts).
  */
-import { and, asc, desc, eq, gte, inArray, isNotNull, isNull, sql } from "drizzle-orm";
-import { events, inboxItems, milestones } from "../schema";
+import { and, asc, desc, eq, gte, inArray, isNotNull, isNull, lte, sql } from "drizzle-orm";
+import { campaigns, complianceEvents, events, filings, founderNotifications, inboxItems, milestones } from "../schema";
 import type { Executor } from "./_shared";
 
 export interface NotifyItem {
@@ -72,6 +72,45 @@ export const notifyFactsRepo = {
       .from(events)
       .where(and(eq(events.businessId, businessId), eq(events.type, "cycle.run_started"), inArray(sql<string>`${events.payload}->>'runId'`, [...runIds])));
     return new Map(rows.map((r) => [r.runId, { actor: r.actor, at: r.at }]));
+  },
+
+  /**
+   * The morning brief's calendar (item 10): campaigns scheduled to start in [now, until], and filings and compliance
+   * dates not yet done that fall in [from, until], soonest first.
+   */
+  async briefCalendar(db: Executor, businessId: string, window: { now: Date; from: Date; until: Date }): Promise<{ campaigns: { name: string; startsAt: Date | null }[]; filings: { kind: string; title: string; dueAt: Date | null }[]; compliance: { kind: string; title: string; dueAt: Date }[] }> {
+    const [scheduled, due, compliance] = await Promise.all([
+      db
+        .select({ name: campaigns.name, startsAt: campaigns.startsAt })
+        .from(campaigns)
+        .where(and(eq(campaigns.businessId, businessId), eq(campaigns.status, "scheduled"), isNull(campaigns.archivedAt), gte(campaigns.startsAt, window.now), lte(campaigns.startsAt, window.until)))
+        .orderBy(asc(campaigns.startsAt))
+        .limit(10),
+      db
+        .select({ kind: filings.kind, title: filings.title, dueAt: filings.dueAt })
+        .from(filings)
+        .where(and(eq(filings.businessId, businessId), inArray(filings.status, ["upcoming", "due"]), isNull(filings.archivedAt), gte(filings.dueAt, window.from), lte(filings.dueAt, window.until)))
+        .orderBy(asc(filings.dueAt))
+        .limit(10),
+      db
+        .select({ kind: complianceEvents.kind, title: complianceEvents.title, dueAt: complianceEvents.dueAt })
+        .from(complianceEvents)
+        .where(and(eq(complianceEvents.businessId, businessId), isNull(complianceEvents.completedAt), isNull(complianceEvents.archivedAt), gte(complianceEvents.dueAt, window.from), lte(complianceEvents.dueAt, window.until)))
+        .orderBy(asc(complianceEvents.dueAt))
+        .limit(10),
+    ]);
+    return { campaigns: scheduled, filings: due, compliance };
+  },
+
+  /** When this person's last morning brief or weekly review from this business went out; null for a first one. */
+  async lastBriefSentAt(db: Executor, businessId: string, userId: string): Promise<Date | null> {
+    const [row] = await db
+      .select({ sentAt: founderNotifications.sentAt })
+      .from(founderNotifications)
+      .where(and(eq(founderNotifications.businessId, businessId), eq(founderNotifications.userId, userId), inArray(founderNotifications.kind, ["daily_brief", "weekly_review"]), eq(founderNotifications.status, "sent"), isNotNull(founderNotifications.sentAt)))
+      .orderBy(desc(founderNotifications.sentAt))
+      .limit(1);
+    return row?.sentAt ?? null;
   },
 
   /** Milestones reached since `since`, newest first. */
