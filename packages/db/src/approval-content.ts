@@ -42,6 +42,13 @@ export interface ApprovalReview {
   findings: readonly { severity: string; file: string; line: number | null; title: string; suggestion: string | null }[];
   /** Practice mode: a sample review, not a real check. */
   simulated: boolean;
+  /** Part of the change was not read (past the limits, binary or unreadable files, a cut diff). */
+  truncated?: boolean;
+  /** How many changed files the reviewer read, of how many (null when not known). */
+  filesReviewed?: number | null;
+  filesTotal?: number | null;
+  /** The branch changed after the review: what would go live is not what was read. */
+  stale?: boolean;
 }
 
 const CODE_TOOLS = new Set(["run_migration", "commit_files", "push", "push_branch", "open_pr", "open_pull_request", "create_pull_request", "create_branch", "write_file", "apply_patch", "delete_file", "deploy"]);
@@ -73,9 +80,14 @@ const list = (args: Record<string, unknown>, ...keys: string[]): string[] => {
 
 /** The second read as rows: who read the change and what they think, then the findings, the most important first. */
 export function reviewRows(review: ApprovalReview): ApprovalWhatRow[] {
-  const verdict = review.verdict === "approve" ? "found nothing that should stop it" : review.verdict === "request_changes" ? "suggests changes first" : "has a few notes";
+  // The reassuring words only for a review of the whole change, as it is now.
+  const partial = review.truncated === true || review.stale === true;
+  const verdict = review.verdict === "approve" ? (partial ? "found nothing in what it read" : "found nothing that should stop it") : review.verdict === "request_changes" ? "suggests changes first" : "has a few notes";
   const practice = review.simulated ? " (practice mode: a sample review, not a real check)" : "";
-  const rows: ApprovalWhatRow[] = [{ label: "Second read", value: clip(`${review.reviewerName} read the change and ${verdict}${practice}. ${review.summary}`, 400) }];
+  const what = review.truncated && typeof review.filesReviewed === "number" && typeof review.filesTotal === "number" ? `read ${review.filesReviewed} of ${review.filesTotal} files of the change` : review.truncated ? "read part of the change" : "read the change";
+  const rows: ApprovalWhatRow[] = [{ label: "Second read", value: clip(`${review.reviewerName} ${what} and ${verdict}${practice}. ${review.summary}`, 400) }];
+  if (review.truncated) rows.push({ label: "Not read", value: "Some of the change was not read (too long, or files the reviewer cannot open), so the second read does not cover all of it." });
+  if (review.stale) rows.push({ label: "Changed since", value: "The branch changed since the review, so what goes live is not exactly what was read." });
   const severity: Record<string, string> = { critical: "Important", normal: "Worth fixing", low: "Small" };
   for (const f of review.findings.slice(0, 5)) rows.push({ label: severity[f.severity] ?? "Note", value: clip(`${f.file}${f.line ? `:${f.line}` : ""}: ${f.title}${f.suggestion ? `. Fix: ${f.suggestion}` : ""}`, 320) });
   if (review.findings.length > 5) rows.push({ label: "More", value: `${review.findings.length - 5} more notes from the second read.` });
@@ -151,6 +163,8 @@ export function approvalWhatExactly(approval: Pick<Approval, "connectorKey" | "t
     take("Diff", str(args, "diff", "patch") ? clip(str(args, "diff", "patch"), 600) : "", ["diff", "patch"], true);
     used.add("pr").add("pull_request").add("number");
     if (RELEASE_TOOLS.has(tool)) {
+      // The commit the second read reviewed, as a short reference (apps/orchestrator mergeArgs).
+      take("Reviewed version", str(args, "headSha").slice(0, 7), ["headSha"], true);
       const done = finish("release", title ? `A finished change goes live: “${clip(title, 120)}”` : "A finished change goes live");
       // The second read goes after the change's own rows: it is about the change, not part of what runs.
       return context.review ? { ...done, rows: [...done.rows, ...reviewRows(context.review)] } : done;

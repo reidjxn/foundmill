@@ -80,15 +80,18 @@ export async function mergeReview(input: MergeInput): Promise<MergeOutcome> {
   if (assessment.checks === "failure") return acts.handBack({ ...input, ...pr, approvalId: null, why: "checks_failed", detail: assessment.detail });
 
   // A different agent reviews the diff first; its findings are shown with the approval. It never blocks the decision.
+  // The commit it read goes into the merge's arguments, so the approval names the version that was reviewed.
+  let reviewedSha: string | null = null;
   if (patched(MERGE_SECOND_READ_PATCH)) {
     try {
-      await reviewActs.secondReadMerge({ ...input, ...pr });
+      const review = await reviewActs.secondReadMerge({ ...input, ...pr });
+      if (review.status === "reviewed") reviewedSha = review.headSha;
     } catch {
       // No review this time: the founder decides on the tests and GitHub's checks, as before.
     }
   }
 
-  const asked = await acts.askMerge({ ...input, ...pr });
+  const asked = await acts.askMerge({ ...input, ...pr, reviewedSha });
   if (asked.status !== "awaiting_approval") return asked;
   const decision = await executeChild(approvalWait, { workflowId: `approval:${asked.approvalId}`, args: [{ businessId: input.businessId, approvalId: asked.approvalId }] });
   if (decision.outcome !== "approved") return acts.recordMergeDecision({ ...input, ...pr, approvalId: asked.approvalId, outcome: decision.outcome });
@@ -106,10 +109,10 @@ export async function mergeReview(input: MergeInput): Promise<MergeOutcome> {
     return "timeout";
   };
   const merge = async () => {
-    let outcome = await acts.completeMerge({ ...input, ...pr, approvalId, decidedBy: decision.decidedBy });
+    let outcome = await acts.completeMerge({ ...input, ...pr, approvalId, decidedBy: decision.decidedBy, reviewedSha });
     for (let i = 0; i < MERGE_RETRIES && outcome.status === "held" && outcome.retryable; i++) {
       await sleep(MERGE_RETRY_WAIT_MS);
-      outcome = await acts.completeMerge({ ...input, ...pr, approvalId, decidedBy: decision.decidedBy });
+      outcome = await acts.completeMerge({ ...input, ...pr, approvalId, decidedBy: decision.decidedBy, reviewedSha });
     }
     return outcome;
   };

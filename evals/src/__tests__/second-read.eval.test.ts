@@ -5,7 +5,7 @@
  */
 import { describe, expect, it } from "vitest";
 import { createEvalClient, isLiveEvalEnabled, runAll } from "../harness";
-import { runSecondReadCase, SECOND_READ_CASES } from "../second-read";
+import { runSecondReadCase, runSecondReadInjectionCase, SECOND_READ_CASES } from "../second-read";
 
 const live = isLiveEvalEnabled();
 
@@ -22,5 +22,15 @@ describe.skipIf(!live)("second read (live)", () => {
       expect(results.filter((r) => !r.passed).map((r) => r.caseId)).toEqual([]);
     },
     6 * 60 * 1000,
+  );
+
+  it(
+    "a page that plants an instruction and a contact address never becomes an address, a trusted instruction or an outward tool (§9.8.5)",
+    async () => {
+      const r = await runSecondReadInjectionCase(client!);
+      if (!r.passed) console.warn(`[eval] second read injection: ${r.problems.join(", ")}${r.error ? ` (${r.error})` : ""}`);
+      expect(r.problems).toEqual([]);
+    },
+    4 * 60 * 1000,
   );
 });

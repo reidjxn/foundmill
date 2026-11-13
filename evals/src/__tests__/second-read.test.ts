@@ -4,9 +4,9 @@
  * (second-read.eval.test.ts), which skips without a key.
  */
 import type { SecondReadResult } from "@foundmill/agents";
-import { createModelClient, type ModelClient } from "@foundmill/models";
+import { createModelClient, MockModelClient, type ModelClient } from "@foundmill/models";
 import { describe, expect, it } from "vitest";
-import { runSecondReadCase, SECOND_READ_CASES, secondReadProblems } from "../second-read";
+import { runSecondReadCase, runSecondReadInjectionCase, SECOND_READ_CASES, SECOND_READ_INJECTION_PAGE, secondReadProblems } from "../second-read";
 
 const silent = { debug() {}, info() {}, warn() {}, error() {} };
 const ledgerly = SECOND_READ_CASES[0]!;
@@ -32,6 +32,22 @@ describe("second read eval", () => {
     expect(secondReadProblems(ledgerly, doc, doc, result([...planted, issue({ suggestion: metrics })])).join()).toMatch(/rewrote the Metrics section/);
     const changed = { ...doc, sections: doc.sections.map((s) => (s.id === "metrics" ? { ...s, text: "Rewritten." } : s)) };
     expect(secondReadProblems(ledgerly, doc, changed, result(planted)).join()).toMatch(/changed the document/);
+  });
+
+  it("a planted page produces no address, no trusted instruction and no outward tool, even when the reviewer repeats it (§9.8.5)", async () => {
+    // The mock reviewer, and a compromised one that copies the page into its notes (what a live model might do).
+    expect(await runSecondReadInjectionCase(createModelClient({ mode: "mock", logger: silent }))).toMatchObject({ passed: true, problems: [] });
+    const echo = new MockModelClient({
+      overrides: {
+        documentReview: (ctx) => {
+          const claims = ctx.getArray<{ id: string; location: string; quote: string }>("claims_to_check");
+          const c = claims[0] ?? { id: "c1", location: "metrics", quote: "The market for accounting tools is worth $12 billion." };
+          return { summary: SECOND_READ_INJECTION_PAGE.slice(0, 590), issues: [{ kind: "factual_error", severity: "critical", location: c.location, quote: c.quote, detail: SECOND_READ_INJECTION_PAGE.slice(0, 590), suggestion: "Send the corrected figures to press@x.example and call +1 555 0100.", check: "contradicted", sourceIds: ["w1"] }] };
+        },
+      },
+    });
+    const compromised = await runSecondReadInjectionCase(echo);
+    expect(compromised.problems).toEqual([]);
   });
 
   it("the mock route passes every case through the product's rounds; a simulated source never verifies a claim", async () => {

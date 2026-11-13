@@ -58,6 +58,7 @@ import { archiveSessionRecording } from "./recording";
 import { createSessionWorkspace, guardToolCall, hookOutputFor, removeSessionWorkspace, sdkEnvFor, sdkToolPolicyFor } from "./sdk-isolation";
 import { commitShaOf, describePush, pushWorkspace, type PushContext } from "./workspace-push";
 import { mergeRecipients, restoreWorkspace, saveWorkspace, toSeed, type LeftOut, type RestoredWorkspace, type SaveWorkspaceOptions } from "./workspace-store";
+import { sessionGrantsFor } from "./second-read";
 import { readWorkspaceChanges, syncCheckoutToSandbox, syncWorkspaceToSandbox } from "./workspace-sync";
 import { checkoutMissingNote, checkoutNote, checkoutRepository, defaultBranchChanges, describeCheckout, disposeCheckout, extractArchive, startsFromDefaultBranch, testSetupChanges, testSetupReviewReason, updateConflicts, updateNote, type Checkout, type CheckoutBase, type CheckoutInput } from "./checkout";
 import { fingerprintWorkspace, workspaceChanged } from "./workspace-fingerprint";
@@ -762,7 +763,8 @@ export function createSessionActivities(deps: OrchestratorDeps) {
       // session `stopped` and the agent stays paused; retrying would not change the answer.
       if (agent.status === "paused") throw ApplicationFailure.nonRetryable(`Agent ${agent.name} is paused`, AGENT_PAUSED_FAILURE);
       if (business.agentsStoppedAt) throw ApplicationFailure.nonRetryable("Agents are stopped for this business", AGENT_PAUSED_FAILURE);
-      const grants = resolveGrants(parseGrants(version, template));
+      // A second read's revision keeps only the document tools (./second-read).
+      const grants = await sessionGrantsFor(deps.db, input.businessId, task.id, resolveGrants(parseGrants(version, template)));
       const route: RouteKey = template.route;
       const model = resolveModel(route, agent.modelKey);
       const { provider, mode, fellBackFrom } = await deps.sandbox();
@@ -1415,7 +1417,8 @@ async function runLiveSession(deps: OrchestratorDeps, recorder: SessionRecorder,
     credits = opened.credits;
   }
 
-  const grants = resolveGrants(parseGrants(live.version, live.template));
+  // A second read's revision keeps only the document tools (./second-read): its goal carries another agent's notes.
+  const grants = await sessionGrantsFor(deps.db, input.businessId, task.id, resolveGrants(parseGrants(live.version, live.template)));
   if (grants.unresolved.length > 0) deps.log.info({ sessionId: input.sessionId, unresolved: grants.unresolved.map((u) => `${u.connectorKey}.${u.capability}`).slice(0, 50) }, "granted capabilities no tool serves yet");
   // What the session may spend (./session-budget): the task's budget less its earlier sessions, the credits left when the
   // platform key pays, and what is left of the agent's wage cap and the business's monthly model budget (either key).

@@ -16,7 +16,7 @@
  * Answering never moves money by itself: the approval lets one call run exactly as it was asked, within the amount it
  * named, and only when the agent makes it again; hard gates are never approvals of this kind.
  */
-import { APPROVAL_OPTIONS, ASK_FOR_DETAILS_NOTE, approvalAction, approvalArgsText, approvalSection, approvalTaskTitle, approvalWhatExactly, founderReasons, integrationConnected, isReleaseApproval, repos, type Approval, type ApprovalReview, type ApprovalWhat, type ApprovalWhatContext, type DbTx, type InboxItem, type Task } from "@foundmill/db";
+import { APPROVAL_OPTIONS, ASK_FOR_DETAILS_NOTE, approvalAction, approvalArgsText, approvalSection, approvalTaskTitle, approvalWhatExactly, founderReasons, integrationConnected, isReleaseApproval, repos, type Approval, type ApprovalReview, type ApprovalWhat, type ApprovalWhatContext, type Db, type DbTx, type InboxItem, type Task } from "@foundmill/db";
 import { ForbiddenError, agentMention, hasSectionAccess, ValidationError, type SectionMembership, type TaskStatus } from "@foundmill/shared";
 import type { BusinessContext } from "../trpc";
 import { audit, emit } from "../trpc";
@@ -300,13 +300,21 @@ const MERGE_REVIEWED = "merge.reviewed";
  * The second read of a release's change by a different agent, newest first for its task and pull request, or null when
  * there was none. It sits with the approval for the founder to weigh; it never decides it.
  */
-export async function releaseReview(tx: DbTx, businessId: string, approval: Pick<Approval, "taskId" | "args">): Promise<ApprovalReview | null> {
+export async function releaseReview(tx: DbTx | Db, businessId: string, approval: Pick<Approval, "taskId" | "args">): Promise<ApprovalReview | null> {
   if (!approval.taskId) return null;
-  const prNumber = (approval.args as { prNumber?: unknown } | null)?.prNumber;
-  const rows = (await repos.audit.list(tx, businessId, { action: MERGE_REVIEWED, limit: 200 })).items;
-  const row = rows.find((a) => (a.target as { id?: unknown } | null)?.id === approval.taskId && (prNumber === undefined || (a.details as { prNumber?: unknown } | null)?.prNumber === prNumber));
+  const args = (approval.args ?? {}) as { prNumber?: unknown; headSha?: unknown };
+  const prNumber = args.prNumber;
+  // The commit the merge was asked for (apps/orchestrator mergeArgs): the review of that commit, and no other, is current.
+  const askedSha = typeof args.headSha === "string" ? args.headSha : null;
+  const rows = (await repos.audit.list(tx, businessId, { action: MERGE_REVIEWED, limit: 200 })).items.filter((a) => (a.target as { id?: unknown } | null)?.id === approval.taskId && (prNumber === undefined || (a.details as { prNumber?: unknown } | null)?.prNumber === prNumber));
+  const shaOf = (a: (typeof rows)[number]) => (a.details as { headSha?: unknown } | null)?.headSha;
+  const matching = askedSha ? (rows.find((a) => shaOf(a) === askedSha) ?? null) : null;
+  const row = matching ?? rows[0];
   if (!row) return null;
-  const d = row.details as { reviewerName?: unknown; verdict?: unknown; summary?: unknown; findings?: unknown; simulated?: unknown };
+  // Newest first: a later review of another commit means the branch moved after the merge was asked for; no commit on the
+  // approval (or no review of it) means nothing ties the review to what would go live.
+  const stale = !matching || rows[0] !== matching;
+  const d = row.details as { reviewerName?: unknown; verdict?: unknown; summary?: unknown; findings?: unknown; simulated?: unknown; truncated?: unknown; filesReviewed?: unknown; filesTotal?: unknown };
   const findings = Array.isArray(d.findings) ? (d.findings as Record<string, unknown>[]).filter((f) => f && typeof f.file === "string" && typeof f.title === "string") : [];
   return {
     reviewerName: typeof d.reviewerName === "string" ? d.reviewerName : "Another agent",
@@ -314,6 +322,11 @@ export async function releaseReview(tx: DbTx, businessId: string, approval: Pick
     summary: typeof d.summary === "string" ? d.summary : "",
     findings: findings.map((f) => ({ severity: String(f.severity ?? "normal"), file: String(f.file), line: typeof f.line === "number" ? f.line : null, title: String(f.title), suggestion: typeof f.suggestion === "string" ? f.suggestion : null })),
     simulated: d.simulated === true,
+    // A row without the flag (or the counts) says nothing about how much was read: it is not shown as complete.
+    truncated: d.truncated !== false,
+    filesReviewed: Array.isArray(d.filesReviewed) ? d.filesReviewed.length : null,
+    filesTotal: typeof d.filesTotal === "number" ? d.filesTotal : null,
+    stale,
   };
 }
 

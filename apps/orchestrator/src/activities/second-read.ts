@@ -23,6 +23,7 @@ import {
   finaliseCodeSecondRead,
   getTemplateByAgentType,
   isLongDocument,
+  narrowToRevision,
   pickSecondReader,
   runSecondRead,
   SECOND_READ_LIMITS,
@@ -53,7 +54,8 @@ const CALL_TIMEOUT_MS = 60_000;
 const HISTORY = 200;
 
 export type MergeSecondRead =
-  | { status: "reviewed"; cached: boolean; verdict: string; findings: number; reviewerAgentId: string }
+  /** `headSha`: the commit the review read, which the merge names in its arguments (null when GitHub gave none). */
+  | { status: "reviewed"; cached: boolean; verdict: string; findings: number; reviewerAgentId: string; headSha: string | null }
   | { status: "skipped"; reason: string };
 
 export type DocumentSecondRead =
@@ -92,7 +94,8 @@ export function createSecondReadActivities(deps: OrchestratorDeps) {
         const reviewer = pickSecondReader(await roster(input.businessId), input.agentId);
         if (!reviewer) return { status: "skipped", reason: "no other agent on the team to read it" };
         const repo = { owner: target.owner, repo: target.repo };
-        const { token } = await deps.gateway.mintSessionToken({ businessId: input.businessId, agentId: input.agentId, sessionId: input.sessionId, allowedTools: DIFF_READ_TOOLS, ttlSeconds: TOKEN_TTL_SECONDS });
+        // In the reviewer's name, outside any session: the reads are the reviewer's, never on the author's session.
+        const { token } = await deps.gateway.mintSessionToken({ businessId: input.businessId, agentId: reviewer.id, sessionId: null, allowedTools: DIFF_READ_TOOLS, ttlSeconds: TOKEN_TTL_SECONDS });
         let simulated = false;
         const call = async <T>(tool: string, args: Record<string, unknown>) => {
           const res = await deps.gateway.call(token, { connector: "github", tool, args }, { timeoutMs: CALL_TIMEOUT_MS });
@@ -108,11 +111,13 @@ export function createSecondReadActivities(deps: OrchestratorDeps) {
         const earlier = (await repos.audit.list(db, input.businessId, { action: SECOND_READ_AUDIT.merge, limit: HISTORY })).items.find((a) => (a.target as { id?: unknown } | null)?.id === input.taskId && (a.details as { prNumber?: unknown; headSha?: unknown } | null)?.prNumber === input.prNumber && headSha !== null && (a.details as { headSha?: unknown }).headSha === headSha);
         if (earlier) {
           const d = earlier.details as { verdict?: string; findings?: unknown[]; reviewerAgentId?: string };
-          return { status: "reviewed", cached: true, verdict: d.verdict ?? "comment", findings: Array.isArray(d.findings) ? d.findings.length : 0, reviewerAgentId: d.reviewerAgentId ?? reviewer.id };
+          return { status: "reviewed", cached: true, verdict: d.verdict ?? "comment", findings: Array.isArray(d.findings) ? d.findings.length : 0, reviewerAgentId: d.reviewerAgentId ?? reviewer.id, headSha };
         }
 
-        // The changed files, before and after, within the limits (two reads per file at most).
-        const changed = (compared.data.files as { path?: unknown; status?: unknown }[]).filter((f) => typeof f?.path === "string").slice(0, SECOND_READ_LIMITS.maxDiffFiles);
+        // The changed files, before and after, within the limits (two reads per file at most). Every file left out (past
+        // the limit, binary, unreadable) counts: the approval says how much of the change was read.
+        const all = (compared.data.files as { path?: unknown; status?: unknown }[]).filter((f) => typeof f?.path === "string");
+        const changed = all.slice(0, SECOND_READ_LIMITS.maxDiffFiles);
         const read = async (path: string, ref: string): Promise<string | null> => {
           const r = await call<{ content?: unknown; encoding?: unknown }>("read_file", { ...repo, path, ref });
           return r.ok && typeof r.data.content === "string" && r.data.encoding !== "base64" ? r.data.content : null;
@@ -121,16 +126,17 @@ export function createSecondReadActivities(deps: OrchestratorDeps) {
         for (const f of changed) {
           const path = f.path as string;
           const status = String(f.status ?? "modified");
-          // Before: the commit the branch left from (the default branch when that commit cannot be read). After: the
-          // branch, which is what would go live.
+          // Before: the commit the branch left from (the default branch when that commit cannot be read). After: the head
+          // commit the compare saw, so the review is of one exact version (the merge names it).
           const before = status === "added" ? null : ((await read(path, baseSha)) ?? (baseSha !== "HEAD" ? await read(path, "HEAD") : null));
-          const after = status === "removed" ? null : await read(path, input.branch);
-          if (before === null && after === null) continue;
+          const after = status === "removed" ? null : await read(path, headSha ?? input.branch);
+          // A side that could not be read (binary, too large, gone) leaves the file out, and it counts as not read.
+          if ((status !== "removed" && after === null) || (status !== "added" && before === null)) continue;
           files.push({ path, status, before, after });
         }
         const bounded = boundedDiff(files);
         if (!bounded.diff) return { status: "skipped", reason: "the change has no text the reviewer can read" };
-        const truncated = bounded.truncated || (compared.data.files as unknown[]).length > changed.length;
+        const truncated = bounded.truncated || bounded.files.length < all.length;
 
         const [task, business] = await Promise.all([repos.tasks.get(db, input.businessId, input.taskId), repos.businesses.get(db, input.businessId)]);
         const req = buildCodeSecondReadRequest({
@@ -159,13 +165,14 @@ export function createSecondReadActivities(deps: OrchestratorDeps) {
             summary: review.summary,
             findings: review.findings,
             filesReviewed: bounded.files,
+            filesTotal: all.length,
             truncated,
             // A review in practice mode is sample output, and a diff read from the mock repository is sample data.
             simulated: simulated || res.mode === "mock",
             model: { route: res.route, mode: res.mode, costMinor: res.cost.costMinorInt, costLabel: "Estimate" },
           },
         });
-        return { status: "reviewed", cached: false, verdict: review.verdict, findings: review.findings.length, reviewerAgentId: reviewer.id };
+        return { status: "reviewed", cached: false, verdict: review.verdict, findings: review.findings.length, reviewerAgentId: reviewer.id, headSha };
       } catch (err) {
         deps.log.warn({ businessId: input.businessId, taskId: input.taskId, err: (err as Error).message }, "second read: the change could not be reviewed");
         return { status: "skipped", reason: "the review could not run this time" };
@@ -250,6 +257,21 @@ export function createSecondReadActivities(deps: OrchestratorDeps) {
 }
 
 export type SecondReadActivities = ReturnType<typeof createSecondReadActivities>;
+
+/** A second read's revision task: its id is on record in the read's `second_read.completed` row (append-only). */
+export async function isSecondReadRevision(db: OrchestratorDeps["db"], businessId: string, taskId: string): Promise<boolean> {
+  const rows = (await repos.audit.list(db, businessId, { action: SECOND_READ_AUDIT.document, limit: HISTORY })).items;
+  return rows.some((a) => (a.details as { revisionTaskId?: unknown } | null)?.revisionTaskId === taskId);
+}
+
+/**
+ * The grants a task's session runs with: a second read's revision keeps only the document tools
+ * (`SECOND_READ_REVISION_TOOLS`), whatever its author may do elsewhere, so the reviewer's notes can never become an
+ * outward action. Any other task keeps its agent's grants.
+ */
+export async function sessionGrantsFor<G extends { toolRefs: string[]; servers: string[]; mcpTools: string[]; builtinTools: string[] }>(db: OrchestratorDeps["db"], businessId: string, taskId: string, grants: G): Promise<G> {
+  return (await isSecondReadRevision(db, businessId, taskId)) ? narrowToRevision(grants) : grants;
+}
 
 /** The document as the agents drafted it: only what an agent wrote (the founder's own words and pinned blocks are theirs). */
 async function loadDocument(deps: OrchestratorDeps, input: DocumentSecondReadInput): Promise<SecondReadDocument | null> {
