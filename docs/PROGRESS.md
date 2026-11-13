@@ -1778,4 +1778,8 @@ docs/IDEA_BOX.md; DECISIONS "The landing page's idea box".
 
 ## 2026-11-13 — The legal pages: the registered address
 
-The founder's answers on the Terms and the Privacy Policy (DECISIONS "the founder's answers"): the registered postal address on both pages; privacy@foundmill.com and the 14-day refund rule confirmed. Bought credits lasting 12 months is the next change (code and Terms together).
+The founder's answers on the Terms and the Privacy Policy (DECISIONS "the founder's answers"): the registered postal address on both pages; privacy@foundmill.com and the 14-day refund rule confirmed. Bought credits last 12 months (next entry).
+
+## 2026-11-13 — Bought credits last 12 months
+
+DECISIONS "Bought credits last 12 months". Migration 0087 `credit_lots` (RLS: members read, services write); `repos.usage.addCreditLot`, `liveLotCredits`, `creditLots`, `expireCreditLots`, `creditLotExpiry`; `ensurePeriodCredits` carries live lots into a new month; `chargeCreditsMicro` expires lots, then spends included credits before lots; `settleCreditCheckout` records the lot. The Terms' sentence and Settings › Billing's hints. Tests: db `credit-lots.test.ts` (purchase, order of spending, carry-over, expiry, RLS), the cross-tenant suite with the new table, payments, the api's billing suites and ingest's webhook.

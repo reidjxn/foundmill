@@ -3903,4 +3903,14 @@ The design and the founder's thirteen answers are docs/IDEA_BOX.md. What was dec
 - **Contact:** privacy@foundmill.com (the founder sets it up as a mailbox or forwarding).
 - **Registered address:** Valhallavägen 38, 11422 Stockholm, Sweden, on both pages (`apps/web/content/legal/facts.ts`).
 - **Refunds:** as the Terms say: bought credits that are unused are refundable within 14 days of purchase; used and included credits are not.
-- **Bought credits last 12 months from purchase** (not to the end of the month). It changes how charges draw on balances, so it ships as its own change with the Terms' sentence; until it does, the Terms keep saying what the code does (no top-up takes a real payment yet: Stripe runs in mock on production).
+- **Bought credits last 12 months from purchase** (not to the end of the month): built in the same change, below.
+
+## 2026-11-13 — Bought credits last 12 months (founder)
+
+The founder: credits a person buys last 12 months from purchase, not to the end of the month. Built as lots beside the month's balance row (0087 `credit_lots`), so everything that reads the balance reads it as before:
+- A paid top-up is granted to the month's balance (as before) **and** recorded as a lot: amount, what is left, expiry 12 months after payment (the month's last day when the date does not exist). One lot per checkout.
+- A charge spends the month's included credits first, then the lots, the one that expires first first. The lots' total never exceeds the balance.
+- A new month's row starts with its included credits **plus every live lot** (bought credit carries over; unspent included credits still end with the month).
+- An expired lot leaves the balance with what is left of it, on the next charge (the charge path locks the month's row, expires lots, then charges).
+- Known edge, accepted: a month's row that holds only carried-over credit counts as a place in the owner's monthly pool of included credits (`includedCreditPlacesTaken`), as a top-up-only row already did; it errs toward granting less.
+- The Terms (Plans, credits and payment) and Settings › Billing say it.
