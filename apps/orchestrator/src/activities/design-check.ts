@@ -16,7 +16,7 @@ import { promises as fs } from "node:fs";
 import path from "node:path";
 import { buildDesignReviewRequest, designFixTurn, finaliseDesignReview, type ReviewShot } from "@foundmill/agents";
 import { DesignReviewOutput } from "@foundmill/models";
-import { MAX_CAPTURE_PAGES, STATIC_SERVER_PATH, type CapturedShot, type PageCaptureResult } from "@foundmill/sandbox";
+import { isPngBase64, MAX_CAPTURE_PAGES, STATIC_SERVER_PATH, type CapturedShot, type PageCaptureResult } from "@foundmill/sandbox";
 import { designCheckFixLines, designCheckHeadline, type DesignCheckResult, type DesignShotRef } from "@foundmill/shared";
 import type { CompleteRequest } from "@foundmill/models";
 
@@ -27,9 +27,30 @@ const NOT_UI = /(?:^|\/)(?:__tests__|__mocks__|e2e|tests?|stories|\.storybook|fi
 /** The port the project is served on inside the sandbox. */
 export const DESIGN_CHECK_PORT = 4317;
 
-/** The paths of a change that can affect a page. */
+/** A relative path is inside the workspace only when, normalized, it neither climbs out nor is absolute. */
+const insideRelative = (p: string) => !path.isAbsolute(p) && p !== ".." && !p.startsWith(`..${path.sep}`) && !p.startsWith("../");
+
+/**
+ * A path a tool call wrote, relative to the workspace with forward slashes, or null when it is not a string or leaves
+ * the workspace (`a/../../x`, an absolute path elsewhere). The agent's tool input is never trusted as a path.
+ */
+export function touchedPath(cwd: string, p: unknown): string | null {
+  if (typeof p !== "string" || !p || p.length > 500 || p.includes("\0")) return null;
+  const rel = path.normalize(path.isAbsolute(p) ? path.relative(path.resolve(cwd), path.resolve(p)) : p);
+  if (!rel || rel === "." || !insideRelative(rel)) return null;
+  return rel.split(path.sep).join("/");
+}
+
+/** A screenshot's bytes when it is a PNG (its signature checked), else null: nothing else is stored as a screenshot. */
+export function screenshotBytes(pngBase64: string): Uint8Array | null {
+  if (!isPngBase64(pngBase64)) return null;
+  const bytes = Buffer.from(pngBase64, "base64");
+  return bytes.length > 8 && bytes[0] === 0x89 && bytes.subarray(1, 4).toString("latin1") === "PNG" ? new Uint8Array(bytes) : null;
+}
+
+/** The paths of a change that can affect a page (only paths inside the workspace). */
 export function uiChanges(paths: readonly string[]): string[] {
-  return [...new Set(paths.map((p) => p.replace(/^\.\//, "")).filter((p) => UI_FILE.test(p) && !NOT_UI.test(p)))];
+  return [...new Set(paths.map((p) => path.posix.normalize(p.replace(/^\.\//, ""))).filter((p) => insideRelative(p) && UI_FILE.test(p) && !NOT_UI.test(p)))];
 }
 
 /**
@@ -94,7 +115,8 @@ export async function planDesignServe(cwd: string, touched: readonly string[]): 
   let appDir = "";
   type PackageJson = { name?: unknown; scripts?: Record<string, unknown> };
   let pkg = null as PackageJson | null;
-  for (let dir = path.dirname(path.resolve(root, ui[0]!)); dir.startsWith(root); dir = path.dirname(dir)) {
+  const inRoot = (dir: string) => dir === root || dir.startsWith(root + path.sep);
+  for (let dir = path.dirname(path.resolve(root, ui[0]!)); inRoot(dir); dir = path.dirname(dir)) {
     try {
       pkg = JSON.parse(await fs.readFile(path.join(dir, "package.json"), "utf8")) as PackageJson;
       appDir = path.relative(root, dir).split(path.sep).join("/");

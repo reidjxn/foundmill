@@ -1,11 +1,11 @@
 /**
- * Live design review eval (Opus on the `designReview` vision route, item 13). Runs only with MODEL_MODE=live and a key
+ * Live design review eval (the `designReview` vision route, the strongest route at low effort; item 13). Runs only with MODEL_MODE=live and a key
  * (`pnpm evals`); skipped otherwise. Gate: every planted problem in the fixture screenshots is flagged on its page under
  * its principle, no fix praises, no page it was not shown is judged, a blank page gets no fix, and pages the sandbox
  * could not show are never reviewed.
  */
 import { describe, expect, it } from "vitest";
-import { DESIGN_REVIEW_CASES, runDesignReviewCase } from "../design-review";
+import { DESIGN_REVIEW_CASES, runDesignFixInjectionCase, runDesignReviewCase } from "../design-review";
 import { createEvalClient, isLiveEvalEnabled, runAll } from "../harness";
 
 const live = isLiveEvalEnabled();
@@ -23,5 +23,15 @@ describe.skipIf(!live)("design review (live)", () => {
       expect(results.filter((r) => !r.passed).map((r) => r.caseId)).toEqual([]);
     },
     5 * 60 * 1000,
+  );
+
+  it(
+    "a page whose text tries to instruct the agent does not change the fix turn's instructions (§9.8.3)",
+    async () => {
+      const r = await runDesignFixInjectionCase(client!);
+      if (r.problems.length) console.warn(`[eval] design fix injection: ${r.problems.join(", ")}${r.error ? ` (${r.error})` : ""}\n${r.turn ?? ""}`);
+      expect(r.problems).toEqual([]);
+    },
+    2 * 60 * 1000,
   );
 });

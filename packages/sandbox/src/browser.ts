@@ -11,8 +11,8 @@
  *   design check reports it as simulated and never as a review of the page.
  * - **docker / e2b**: starts the project with `serve.command` in the background (its own process group, stopped after),
  *   waits for its port, then runs a small Playwright script (`CAPTURE_SCRIPT`) with Chromium headless. The Playwright
- *   library is looked up under `playwrightDir` (default `/opt/fm-browser`), then in the project's own dependencies, then
- *   in the global npm root; the browser under `PLAYWRIGHT_BROWSERS_PATH`. Without them the result is
+ *   library is looked up only in the image's own places, `playwrightDir` (default `/opt/fm-browser`) and its global
+ *   node_modules (`IMAGE_NODE_ROOTS`), never in the project's; the browser under `PLAYWRIGHT_BROWSERS_PATH`. Without them the result is
  *   `{ status: "unavailable" }` with the reason, and nothing claims screenshots exist.
  *
  * Production setup this needs (not done here: the E2B template is infrastructure this change cannot build or test):
@@ -22,6 +22,7 @@
  * `npx playwright install --with-deps chromium`. The capture runs after `closeEgress()`, so the page can only reach the
  * project's own server on 127.0.0.1.
  */
+import { randomUUID } from "node:crypto";
 import { DESIGN_VIEWPORTS, DESIGN_VIEWPORT_KEYS, PageDescription, type DesignViewport } from "@foundmill/shared";
 import { z } from "zod";
 import { shellQuote } from "./shell";
@@ -29,6 +30,22 @@ import type { Sandbox } from "./types";
 
 /** Where the image keeps Playwright (a `node_modules` lives under it). */
 export const DEFAULT_PLAYWRIGHT_DIR = "/opt/fm-browser";
+/**
+ * The image's global node_modules, the other places Playwright may come from (`npm install -g playwright`). Fixed paths:
+ * never the project's dependencies and never what `npm root -g` says, which a project's `.npmrc` can steer.
+ */
+export const IMAGE_NODE_ROOTS: readonly string[] = ["/usr/local/lib/node_modules", "/usr/lib/node_modules"];
+/** The largest capture output read back (4 pages × 2 widths of PNGs as base64, with room): anything bigger is refused unread. */
+export const MAX_CAPTURE_OUTPUT_BYTES = 48 * 1024 * 1024;
+/** Largest base64 of one screenshot: the model API's 5 MB image limit (packages/models `MAX_IMAGE_BASE64_CHARS`). */
+export const MAX_SHOT_BASE64_CHARS = Math.floor((5 * 1024 * 1024 * 4) / 3);
+/** Base64 of the PNG signature (89 50 4E 47 0D 0A 1A 0A): every screenshot must start with it. */
+export const PNG_BASE64_PREFIX = "iVBORw0KGgo";
+
+/** Whether a string is base64 of a PNG: the signature, then base64 only (checked on the head, as the API checks the rest). */
+export function isPngBase64(data: string): boolean {
+  return data.length > PNG_BASE64_PREFIX.length && data.length <= MAX_SHOT_BASE64_CHARS && data.startsWith(PNG_BASE64_PREFIX) && /^[A-Za-z0-9+/]+=*$/.test(data.slice(0, 4096));
+}
 /** Pages one capture opens at most (each at every width): enough for a change, bounded for the reviewer's cost. */
 export const MAX_CAPTURE_PAGES = 4;
 /** The tallest screenshot, as a multiple of the viewport height (a long page is cut, and the result says so). */
@@ -46,22 +63,38 @@ const SERVE_PID = "/tmp/fm-capture/serve.pid";
 /** A static file server every capture writes, for a project that is plain HTML: `node STATIC_SERVER_PATH <dir> <port>`. */
 export const STATIC_SERVER_PATH = "/tmp/fm-capture/static.mjs";
 
-/** Serves `<dir>` on 127.0.0.1:<port>; `/x` finds `x`, `x.html` or `x/index.html`, and never leaves `<dir>`. */
+/**
+ * Serves `<dir>` on 127.0.0.1:<port>; `/x` finds `x`, `x.html` or `x/index.html`. Never leaves `<dir>`: the request
+ * path and the file's real path (symlinks followed) must both be inside it. A bad request is a 400, never a crash.
+ */
 export const STATIC_SERVER_SCRIPT = String.raw`
 import { createServer } from "node:http";
-import { readFile, stat } from "node:fs/promises";
-import { extname, join, normalize, resolve } from "node:path";
-const root = resolve(process.argv[2] || ".");
+import { readFile, realpath, stat } from "node:fs/promises";
+import { extname, join, normalize, resolve, sep } from "node:path";
+const root = await realpath(resolve(process.argv[2] || "."));
 const port = Number(process.argv[3]);
 const types = { ".html": "text/html", ".css": "text/css", ".js": "text/javascript", ".mjs": "text/javascript", ".json": "application/json", ".svg": "image/svg+xml", ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".webp": "image/webp", ".ico": "image/x-icon", ".woff2": "font/woff2" };
-const find = async (p) => { for (const c of [p, p + ".html", join(p, "index.html")]) { try { if ((await stat(c)).isFile()) return c; } catch {} } return null; };
+const inside = (p) => p === root || p.startsWith(root + sep);
+const find = async (p) => {
+  for (const c of [p, p + ".html", join(p, "index.html")]) {
+    try { const real = await realpath(c); if (inside(real) && (await stat(real)).isFile()) return real; } catch {}
+  }
+  return null;
+};
 createServer(async (req, res) => {
-  const url = decodeURIComponent((req.url || "/").split("?")[0]);
-  const file = resolve(root, "." + normalize(url));
-  const hit = file.startsWith(root) ? await find(file) : null;
-  if (!hit) { res.writeHead(404); res.end("Not found"); return; }
-  res.writeHead(200, { "content-type": types[extname(hit)] || "application/octet-stream" });
-  res.end(await readFile(hit));
+  try {
+    let url;
+    try { url = decodeURIComponent((req.url || "/").split("?")[0]); } catch { res.writeHead(400); res.end("Bad request"); return; }
+    const file = resolve(root, "." + normalize("/" + url));
+    const hit = inside(file) ? await find(file) : null;
+    if (!hit) { res.writeHead(404); res.end("Not found"); return; }
+    const body = await readFile(hit);
+    res.writeHead(200, { "content-type": types[extname(hit)] || "application/octet-stream" });
+    res.end(body);
+  } catch {
+    if (!res.headersSent) res.writeHead(500);
+    res.end();
+  }
 }).listen(port, "127.0.0.1");
 `;
 
@@ -104,7 +137,7 @@ const ShotLine = z.object({
   width: z.number().int().positive().optional(),
   height: z.number().int().positive().optional(),
   cut: z.boolean().optional(),
-  png: z.string().optional(),
+  png: z.string().max(MAX_SHOT_BASE64_CHARS).optional(),
   description: z.unknown().optional(),
 });
 
@@ -118,15 +151,16 @@ export function safeRoute(route: string): string | null {
 
 /**
  * The script the sandbox runs with Node: launch Chromium, wait for the server, open each page at each width, write one
- * JSON line per shot to `<dir>/shots.jsonl`. Self-contained (Node built-ins and Playwright only).
+ * JSON line per shot to the output path the config names (fresh per capture). Self-contained (Node built-ins and
+ * Playwright from the image only).
  */
 export const CAPTURE_SCRIPT = String.raw`
 import { createRequire } from "node:module";
 import { readFileSync, appendFileSync } from "node:fs";
 const cfg = JSON.parse(readFileSync(process.argv[2], "utf8"));
-// Playwright from the image's own place, else the project's dependencies, else the global npm root.
+// Playwright from the image's own places only: never the project's dependencies, which its code could replace.
 let chromium;
-const roots = [cfg.playwrightDir + "/package.json", process.cwd() + "/package.json", process.env.FM_NPM_ROOT ? process.env.FM_NPM_ROOT + "/index.js" : null].filter(Boolean);
+const roots = [cfg.playwrightDir + "/package.json", ...cfg.imageNodeRoots.map((r) => r + "/index.js")];
 for (const root of roots) {
   for (const name of ["playwright", "@playwright/test", "playwright-core"]) {
     try { chromium = createRequire(root)(name).chromium; } catch {}
@@ -190,7 +224,7 @@ await browser.close();
 `;
 
 /** Open the changed pages at each width and return the shots, or why there are none. Never throws for a page or a missing browser. */
-export async function capturePages(sandbox: Sandbox, request: PageCaptureRequest): Promise<PageCaptureResult> {
+export async function capturePages(sandbox: Sandbox, request: PageCaptureRequest, options: { runId?: string } = {}): Promise<PageCaptureResult> {
   const viewports = (request.viewports?.length ? request.viewports : DESIGN_VIEWPORT_KEYS).filter((v, i, a) => a.indexOf(v) === i);
   const pages = request.pages.map(safeRoute).filter((p): p is string => p !== null).filter((p, i, a) => a.indexOf(p) === i).slice(0, MAX_CAPTURE_PAGES);
   if (sandbox.provider === "mock") return { status: "simulated", notice: SIMULATED_CAPTURE_NOTICE, pages: pages.flatMap((page) => viewports.map((viewport) => ({ page, viewport }))) };
@@ -199,9 +233,15 @@ export async function capturePages(sandbox: Sandbox, request: PageCaptureRequest
   if (pages.length === 0) return { status: "unavailable", reason: "no page to open: the change names no route the project serves", durationMs: elapsed() };
   if (!Number.isInteger(request.serve.port) || request.serve.port < 1024 || request.serve.port > 65535) return { status: "unavailable", reason: "the project's port is not a usable local port", durationMs: elapsed() };
 
-  const out = `${CAPTURE_DIR}/shots.jsonl`;
+  // A fresh directory and output name per capture, made after the project's server starts: the capture's script and its
+  // output are not at a path the project's code knows in advance.
+  const runId = options.runId ?? randomUUID();
+  if (!/^[0-9a-f-]{36}$/.test(runId)) throw new Error("capture run id must be a UUID");
+  const runDir = `/tmp/fm-run-${runId}`;
+  const out = `${runDir}/${randomUUID()}.jsonl`;
   const config = {
     playwrightDir: request.playwrightDir ?? DEFAULT_PLAYWRIGHT_DIR,
+    imageNodeRoots: IMAGE_NODE_ROOTS,
     port: request.serve.port,
     readyTimeoutMs: request.serve.readyTimeoutMs ?? 120_000,
     pageTimeoutMs: request.pageTimeoutMs ?? 30_000,
@@ -211,43 +251,63 @@ export async function capturePages(sandbox: Sandbox, request: PageCaptureRequest
     viewports: viewports.map((key) => ({ key, ...DESIGN_VIEWPORTS[key] })),
   };
   await sandbox.exec(`rm -rf ${CAPTURE_DIR} && mkdir -p ${CAPTURE_DIR}`, { timeoutMs: 30_000 });
-  await sandbox.writeFile(`${CAPTURE_DIR}/capture.mjs`, CAPTURE_SCRIPT);
   await sandbox.writeFile(STATIC_SERVER_PATH, STATIC_SERVER_SCRIPT);
-  await sandbox.writeFile(`${CAPTURE_DIR}/config.json`, JSON.stringify(config));
   const cwd = request.serve.cwd ?? sandbox.workdir;
   // In the background in its own process group (setsid), so this exec returns at once and the stop after the capture
   // ends the server and every process it started (pnpm runs the dev server as a child).
   const serve = await sandbox.exec(`cd ${shellQuote(cwd)} && (PORT=${config.port} setsid nohup sh -c ${shellQuote(request.serve.command)} > ${SERVE_LOG} 2>&1 < /dev/null & echo $! > ${SERVE_PID})`, { timeoutMs: 30_000 });
   if (serve.code !== 0) return { status: "unavailable", reason: `the project could not be started (exit ${serve.code}): ${(serve.stderr || serve.stdout).trim().slice(0, 300)}`, durationMs: elapsed() };
   try {
+    await sandbox.exec(`rm -rf ${runDir} && mkdir -m 700 ${runDir}`, { timeoutMs: 30_000 });
+    await sandbox.writeFile(`${runDir}/capture.mjs`, CAPTURE_SCRIPT);
+    await sandbox.writeFile(`${runDir}/config.json`, JSON.stringify(config));
     const browserDir = `${config.playwrightDir}/browsers`;
-    const run = await sandbox.exec(`cd ${shellQuote(cwd)} && FM_NPM_ROOT="$(npm root -g 2>/dev/null)" PLAYWRIGHT_BROWSERS_PATH="\${PLAYWRIGHT_BROWSERS_PATH:-${browserDir}}" node ${CAPTURE_DIR}/capture.mjs ${CAPTURE_DIR}/config.json`, { timeoutMs: config.readyTimeoutMs + pages.length * viewports.length * (config.pageTimeoutMs + 10_000) + 30_000 });
+    // Run from the capture's own directory, not the project's (no project file is on Node's lookup path).
+    const run = await sandbox.exec(`cd ${runDir} && PLAYWRIGHT_BROWSERS_PATH="\${PLAYWRIGHT_BROWSERS_PATH:-${browserDir}}" node ${runDir}/capture.mjs ${runDir}/config.json`, { timeoutMs: config.readyTimeoutMs + pages.length * viewports.length * (config.pageTimeoutMs + 10_000) + 30_000 });
     if (run.code === NO_BROWSER_EXIT) return { status: "unavailable", reason: `the sandbox has no browser (Playwright and Chromium are not installed under ${config.playwrightDir})`, durationMs: elapsed() };
     if (run.code === NOT_SERVING_EXIT) {
       const log = await sandbox.readFile(SERVE_LOG).catch(() => "");
       return { status: "unavailable", reason: `the project did not start on port ${config.port}${log.trim() ? `: ${log.trim().split("\n").slice(-3).join(" ").slice(0, 300)}` : ""}`, durationMs: elapsed() };
     }
-    const text = await sandbox.readFile(out).catch(() => "");
+    // The project's code runs alongside and could write a huge file: its size is checked before anything is read.
+    const size = await sandbox.exec(`stat -c %s ${out} 2>/dev/null || echo 0`, { timeoutMs: 10_000 });
+    const bytes = Number.parseInt(size.stdout.trim(), 10);
+    if (!Number.isFinite(bytes) || bytes > MAX_CAPTURE_OUTPUT_BYTES) return { status: "unavailable", reason: `the capture's output is ${Number.isFinite(bytes) ? `${Math.round(bytes / (1024 * 1024))} MB` : "of unknown size"}, over the ${MAX_CAPTURE_OUTPUT_BYTES / (1024 * 1024)} MB limit, so it was not read`, durationMs: elapsed() };
+    const text = bytes > 0 ? await sandbox.readFile(out).catch(() => "") : "";
     const shots: CapturedShot[] = [];
     const failed: { page: string; viewport: DesignViewport; reason: string }[] = [];
     for (const raw of text.split("\n")) {
       if (!raw.trim()) continue;
-      let parsed: z.infer<typeof ShotLine>;
+      let json: unknown;
       try {
-        parsed = ShotLine.parse(JSON.parse(raw));
+        json = JSON.parse(raw);
       } catch {
         continue;
       }
-      if (!parsed.ok || !parsed.png || !parsed.width || !parsed.height || !/^[A-Za-z0-9+/]+=*$/.test(parsed.png.slice(0, 2048))) {
+      const line = ShotLine.safeParse(json);
+      if (!line.success) {
+        // A line for a page this capture opened, but too large or malformed (a screenshot past the image limit).
+        const where = ShotLine.pick({ page: true, viewport: true }).safeParse(json);
+        if (where.success && pages.includes(where.data.page)) failed.push({ page: where.data.page, viewport: where.data.viewport, reason: "the screenshot could not be read (too large or malformed)" });
+        continue;
+      }
+      const parsed = line.data;
+      if (!parsed.ok || !parsed.png || !parsed.width || !parsed.height) {
         failed.push({ page: parsed.page, viewport: parsed.viewport, reason: parsed.reason ?? "no screenshot came back" });
         continue;
       }
+      if (!isPngBase64(parsed.png)) {
+        failed.push({ page: parsed.page, viewport: parsed.viewport, reason: "what came back is not a PNG screenshot" });
+        continue;
+      }
+      // Only pages this capture asked for.
+      if (!pages.includes(parsed.page) || !viewports.includes(parsed.viewport)) continue;
       const description = PageDescription.safeParse(parsed.description);
       shots.push({ id: `${request.label ?? "shot"}-${pages.indexOf(parsed.page) + 1}-${parsed.viewport}`, page: parsed.page, viewport: parsed.viewport, width: parsed.width, height: parsed.height, cut: parsed.cut === true, pngBase64: parsed.png, description: description.success ? description.data : null });
     }
     if (shots.length === 0 && failed.length === 0) return { status: "unavailable", reason: `the browser ran but wrote no screenshot (exit ${run.code}): ${run.stderr.trim().slice(0, 300)}`, durationMs: elapsed() };
     return { status: "captured", shots, failed, durationMs: elapsed() };
   } finally {
-    await sandbox.exec(`[ -f ${SERVE_PID} ] && { kill -- -$(cat ${SERVE_PID}) 2>/dev/null || kill $(cat ${SERVE_PID}) 2>/dev/null; }; true`, { timeoutMs: 10_000 }).catch(() => undefined);
+    await sandbox.exec(`[ -f ${SERVE_PID} ] && { kill -- -$(cat ${SERVE_PID}) 2>/dev/null || kill $(cat ${SERVE_PID}) 2>/dev/null; }; rm -rf ${runDir}; true`, { timeoutMs: 10_000 }).catch(() => undefined);
   }
 }

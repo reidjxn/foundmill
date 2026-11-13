@@ -61,7 +61,7 @@ import { mergeRecipients, restoreWorkspace, saveWorkspace, toSeed, type LeftOut,
 import { readWorkspaceChanges, syncCheckoutToSandbox, syncWorkspaceToSandbox } from "./workspace-sync";
 import { checkoutMissingNote, checkoutNote, checkoutRepository, defaultBranchChanges, describeCheckout, disposeCheckout, extractArchive, startsFromDefaultBranch, testSetupChanges, testSetupReviewReason, updateConflicts, updateNote, type Checkout, type CheckoutBase, type CheckoutInput } from "./checkout";
 import { fingerprintWorkspace, workspaceChanged } from "./workspace-fingerprint";
-import { DESIGN_CHECK_PORT, designCheckAfter, designCheckBefore, designCheckNotSeen, pagesForChanges, planDesignServe, uiChanges, type DesignCheckPorts, type DesignServePlan } from "./design-check";
+import { DESIGN_CHECK_PORT, designCheckAfter, designCheckBefore, designCheckNotSeen, pagesForChanges, planDesignServe, screenshotBytes, touchedPath, uiChanges, type DesignCheckPorts, type DesignServePlan } from "./design-check";
 import type { AgentSessionInput, MergeInput, SessionFinish, SessionLaunch, SessionParked, SessionResult, SessionRunOptions } from "./types";
 
 const ToolGrants = z.array(ToolGrant);
@@ -2653,8 +2653,12 @@ export function liveDesignCheck(deps: OrchestratorDeps, recorder: SessionRecorde
       return r.json;
     },
     store: async (shots) => {
-      const shas = await deps.db.transaction((tx) => repos.workspaces.putBlobs(tx, input.businessId, shots.map((s) => Buffer.from(s.pngBase64, "base64"))));
-      return shots.map((s, i): DesignShotRef => ({ id: s.id, page: s.page, viewport: s.viewport, width: s.width, height: s.height, cut: s.cut, sha256: shas[i] ?? null }));
+      // Only real PNGs are stored; anything else keeps its place in the record with no stored content.
+      const bytes = shots.map((s) => screenshotBytes(s.pngBase64));
+      const kept = bytes.filter((b): b is Uint8Array => b !== null);
+      const shas = kept.length ? await deps.db.transaction((tx) => repos.workspaces.putBlobs(tx, input.businessId, kept)) : [];
+      let next = 0;
+      return shots.map((s, i): DesignShotRef => ({ id: s.id, page: s.page, viewport: s.viewport, width: s.width, height: s.height, cut: s.cut, sha256: bytes[i] ? (shas[next++] ?? null) : null }));
     },
     note,
   };
@@ -2678,9 +2682,8 @@ export function liveDesignCheck(deps: OrchestratorDeps, recorder: SessionRecorde
       if (phase !== "idle" || !toolInput || typeof toolInput !== "object") return;
       const i = toolInput as { file_path?: unknown; notebook_path?: unknown; files?: unknown };
       const rel = (p: unknown) => {
-        if (typeof p !== "string" || !p) return;
-        const r = path.isAbsolute(p) ? path.relative(cwd, p) : p;
-        if (!r.startsWith("..") && !path.isAbsolute(r)) touched.add(r.split(path.sep).join("/"));
+        const r = touchedPath(cwd, p);
+        if (r) touched.add(r);
       };
       if (FILE_WRITE_TOOLS.has(toolName)) rel(i.file_path ?? i.notebook_path);
       // Through the GitHub connector (commit_files): the paths it commits.

