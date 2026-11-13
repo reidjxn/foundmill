@@ -1,5 +1,5 @@
 /**
- * Bought credits last 12 months (0087; founder, 2026-11-13): a paid top-up is a lot as well as a grant to the month's
+ * Bought credits last 12 months (0096; founder, 2026-11-13): a paid top-up is a lot as well as a grant to the month's
  * balance; a charge spends the month's included credits first, then the lots, the one expiring first first; a new
  * month starts with its included credits plus every live lot; an expired lot leaves the balance with what is left.
  */

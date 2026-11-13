@@ -196,7 +196,7 @@ export const creditBalances = pgTable(
 export type CreditBalance = typeof creditBalances.$inferSelect;
 
 /**
- * 0087 — a paid top-up as a lot (founder, 2026-11-13: bought credits last 12 months). The month's `credit_balances`
+ * 0096 — a paid top-up as a lot (founder, 2026-11-13: bought credits last 12 months). The month's `credit_balances`
  * row stays the balance; the lots say how much of it is bought credit, what is left of each purchase and when it
  * expires (`repos.usage`: charges spend included credits first, then lots by expiry; a new month carries live lots over).
  */

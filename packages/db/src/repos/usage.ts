@@ -329,7 +329,7 @@ export const usageRepo = {
   },
 
   /**
-   * Records a paid top-up as a lot (0087): `amountMinor` bought at `purchasedAt`, live for 12 months. The caller grants
+   * Records a paid top-up as a lot (0096): `amountMinor` bought at `purchasedAt`, live for 12 months. The caller grants
    * the same amount to the month's balance (`grantCredits`) in the same transaction; a checkout makes one lot only.
    */
   async addCreditLot(db: Executor, businessId: string, input: { amountMinor: number; purchasedAt: Date; checkoutId?: string | null }): Promise<CreditLot> {
@@ -380,12 +380,12 @@ export const usageRepo = {
   /**
    * The period's balance row, created with the tier's included credits (`includedCreditsMinor`, packages/config) when
    * the period has none yet: at commit, and on the first charge of every month, plus the bought credit still live from
-   * earlier months (0087: bought credits last 12 months). `created` is true only for the call that inserted it; an
+   * earlier months (0096: bought credits last 12 months). `created` is true only for the call that inserted it; an
    * existing row (a top-up came first) is returned untouched.
    */
   async ensurePeriodCredits(db: Executor, businessId: string, period: string, includedMinor: number, now = new Date()): Promise<{ balance: CreditBalance; created: boolean }> {
     const v = parseInput(z.object({ period: Period, includedMinor: MinorAmount.nonnegative() }), { period, includedMinor }, "included credits");
-    // Bought credit still live carries over into the new month on top of its included credits (0087).
+    // Bought credit still live carries over into the new month on top of its included credits (0096).
     const carried = await usageRepo.liveLotCredits(db, businessId, now);
     const opening = v.includedMinor + carried;
     const inserted = await db
@@ -454,7 +454,7 @@ export const usageRepo = {
         current = await lockRow();
       }
       if (!current) return null;
-      // Bought credit past its 12 months leaves the balance first (0087).
+      // Bought credit past its 12 months leaves the balance first (0096).
       const now = new Date();
       if (await usageRepo.expireCreditLots(tx, businessId, v.period, now)) current = (await lockRow())!;
       const carried = Number(current.carryMicroMinor ?? 0) + v.microMinor;

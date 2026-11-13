@@ -1,4 +1,4 @@
--- 0087 — bought credits last 12 months (founder, 2026-11-13). Until now a top-up was added to the month's balance row
+-- 0096 — bought credits last 12 months (founder, 2026-11-13). Until now a top-up was added to the month's balance row
 -- and went with it at the end of the month. Now every paid top-up is also a lot: what was bought, what is left of it,
 -- and when it expires (12 months after payment). The month's balance row keeps being the one balance everything
 -- reads; the lots say how much of it is bought credit:
