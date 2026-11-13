@@ -187,6 +187,24 @@ export function founderNoticeEmail(f: FounderNoticeFacts): NotifyEmailText {
  * window's share (`FOUNDER_NOTICE_LIMITS`). It names nobody and no change; it keeps the cancel when the notice it stands
  * for carried one.
  */
+/**
+ * The one folded email for the day once a person's essential founder notices reach their share (or the platform's
+ * circuit breaker trips), across every project: it says more changed and where to look, and carries the latest deletion
+ * this person may still cancel, when there is one (`cancel`, with that project's name).
+ */
+export function founderNoticeEssentialMoreEmail(f: { appName: string; recipientName: string | null; link: string | null; cancel?: { link: string; until: string; projectName: string } | null }): NotifyEmailText {
+  const hi = f.recipientName ? `Hi ${oneLine(f.recipientName, 60)},` : "Hi,";
+  return render(FOUNDER_NOTICE_MORE.all.subject, {
+    paragraphs: [hi, FOUNDER_NOTICE_MORE.all.lead, FOUNDER_NOTICE_MORE.all.body],
+    ...(f.cancel
+      ? { button: { label: FORMER_PROJECT_CARD.button, href: f.cancel.link }, after: [`${oneLine(f.cancel.projectName, 120)} is set to be deleted. You can cancel the deletion until ${f.cancel.until}.`, FORMER_PROJECT_CARD.note] }
+      : f.link
+        ? { button: { label: "Open your projects", href: f.link } }
+        : {}),
+    footer: `You get this because you are, or until recently were, a founder of a project on ${f.appName}. Emails about who runs a project and whether it is deleted always reach its founders, whatever your email settings say.`,
+  });
+}
+
 export function founderNoticeMoreEmail(f: { appName: string; recipientName: string | null; projectName: string; isFounder: boolean; link: string | null; cancel?: { link: string; until: string } | null }): NotifyEmailText {
   const project = oneLine(f.projectName, 120);
   const hi = f.recipientName ? `Hi ${oneLine(f.recipientName, 60)},` : "Hi,";

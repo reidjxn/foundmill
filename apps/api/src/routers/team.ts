@@ -5,7 +5,7 @@ import { SectionPermissions, membershipEnded, repos, type AgentRosterActivity } 
 import { ADMIN_ROLES, DECISION_TYPES, DEFAULT_AGENT_STYLE, ForbiddenError, hasSectionAccess, isOwnerRole, MEMBERSHIP_ROLES, NotFoundError, ValidationError, agentTier, characterFor, leadAgentIds } from "@foundmill/shared";
 import { z } from "zod";
 import { pendingApprovals, resolveApproval } from "../services/approvals";
-import { founderChangeNote, noticeNames, recentlyLowered, takeFounderChange, tellFoundersQuietly } from "../services/founder-notices";
+import { founderChangeNote, noticeNames, recentlyLowered, refundingOnFailure, takeFounderChange, tellFoundersQuietly, type FounderChangeRefund } from "../services/founder-notices";
 import { assertWithinGrantorAccess } from "../services/grants";
 import { modelLimited } from "../services/model-limits";
 import { ensurePortraits } from "../services/personas";
@@ -277,7 +277,9 @@ export const teamRouter = router({
       .input(z.object({ userId: Id, role: z.enum(MEMBERSHIP_ROLES).optional(), sectionPermissions: SectionPermissions.optional(), expiresAt: z.coerce.date().nullable().optional() }))
       .mutation(async ({ ctx, input }) => {
         const names = await noticeNames(ctx.db, ctx.userId, input.userId);
-        const changed = await ctx.rls(async (tx) => {
+        // The founder change taken below is given back when the transaction fails after it (final review, P3).
+        const refund: { current: FounderChangeRefund | null } = { current: null };
+        const changed = await refundingOnFailure(refund, () => ctx.rls(async (tx) => {
           if (input.userId === ctx.userId) throw new ValidationError("You cannot change your own role or section permissions; another owner or admin can");
           // Judged on fresh rows, not on the request's: the business's people changes take turns (the owner lock, as
           // `setRole` and `remove` take it), the editor's own row is re-read under a share lock and the person's under an
@@ -298,7 +300,7 @@ export const teamRouter = router({
           // access ended has none now, so a new date gives everything the row holds and is judged as a grant.
           assertWithinGrantorAccess(editor, { role: input.role ?? membership.role, sectionPermissions: input.sectionPermissions ?? membership.sectionPermissions }, membershipEnded(membership) ? null : membership);
           // One person lowers a founder's role at most so often a day in a project (second review, P1-1).
-          if (isOwnerRole(fromRole) && input.role && !isOwnerRole(input.role)) await takeFounderChange(ctx, "lower");
+          if (isOwnerRole(fromRole) && input.role && !isOwnerRole(input.role)) refund.current = await takeFounderChange(ctx, "lower");
           if (input.role) membership = await repos.memberships.setRole(tx, ctx.businessId, input.userId, input.role);
           if (input.sectionPermissions) membership = await repos.memberships.setSectionPermissions(tx, ctx.businessId, input.userId, input.sectionPermissions);
           if (input.expiresAt !== undefined) {
@@ -313,7 +315,7 @@ export const teamRouter = router({
           const lowered = isOwnerRole(fromRole) && !isOwnerRole(membership.role);
           if (lowered) await founderChangeNote(tx, { names, businessId: ctx.businessId, actorUserId: ctx.userId, subjectUserId: input.userId, notice: "role_changed", fromRole, toRole: membership.role, timeZone: ctx.business.timeZone });
           return { membership, auditId: entry.id, lowered };
-        });
+        }));
         // Every founder and the person themselves hear it by email, once the change has committed.
         if (changed.lowered) await tellFoundersQuietly(ctx, { businessId: ctx.businessId, auditId: changed.auditId, notice: "role_changed", actorUserId: ctx.userId, subjectUserId: input.userId });
         return changed.membership;

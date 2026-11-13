@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { isEssentialFounderNotice, cancelLinkWords, escapeMarkdown, formerFounderCanceledLine, founderChangeNote, founderNoticeOf, FORMER_PROJECT_CARD, HARD_SUPPRESSION_REASONS, noticeDay, noticeMoment, rolePhrase } from "./founder-notices";
-import { founderNoticeEmail, founderNoticeMoreEmail, type FounderNoticeFacts } from "./people-email";
+import { founderNoticeEmail, founderNoticeEssentialMoreEmail, founderNoticeMoreEmail, type FounderNoticeFacts } from "./people-email";
 import { usSpelling } from "./us-spelling";
 
 const base: FounderNoticeFacts = { appName: "Foundmill", notice: "role_changed", reader: "founder", recipientName: "Cara", actorName: "Ana Ruiz", subjectName: "Ben Ode", projectName: "Bread by Bike", when: "Nov 13, 2026 at 3:45 PM EST", fromRole: "cofounder", toRole: "member", link: "https://app.foundmill.test/b/x/settings/members" };
@@ -146,17 +146,33 @@ describe("the second review's words", () => {
 });
 
 describe("the third review", () => {
-  it("an essential notice: one that carries the cancel, the removal's email to the person removed, a deletion request's to a former founder", () => {
+  it("an essential notice (final review): the cancel, the removal's email to the person removed, a deletion request to a founder, the one who asked or a former founder in its window", () => {
     expect(isEssentialFounderNotice({ notice: "role_changed", reader: "founder", carriesCancel: true })).toBe(true);
+    expect(isEssentialFounderNotice({ notice: "deletion_canceled", reader: "former", carriesCancel: true })).toBe(true);
     expect(isEssentialFounderNotice({ notice: "removed", reader: "subject", carriesCancel: false })).toBe(true);
-    expect(isEssentialFounderNotice({ notice: "deletion_requested", reader: "former", carriesCancel: false })).toBe(true);
+    expect(isEssentialFounderNotice({ notice: "deletion_requested", reader: "founder", carriesCancel: false })).toBe(true);
+    expect(isEssentialFounderNotice({ notice: "deletion_requested", reader: "self", carriesCancel: false })).toBe(true);
+    expect(isEssentialFounderNotice({ notice: "deletion_requested", reader: "former", carriesCancel: false, inWindow: true })).toBe(true);
     for (const f of [
       { notice: "removed", reader: "founder" },
       { notice: "role_changed", reader: "subject" },
-      { notice: "deletion_requested", reader: "founder" },
-      { notice: "deletion_requested", reader: "self" },
+      // Someone taken out longer ago than the window: told, on the ordinary path.
+      { notice: "deletion_requested", reader: "former" },
       { notice: "deletion_canceled", reader: "former" },
+      { notice: "deletion_canceled", reader: "founder" },
     ] as const) expect(isEssentialFounderNotice({ ...f, carriesCancel: false }), `${f.notice}/${f.reader}`).toBe(false);
+    expect(isEssentialFounderNotice({ notice: "deletion_requested", reader: "former", carriesCancel: false, inWindow: false })).toBe(false);
+  });
+
+  it("the day's one folded email across projects: carries the latest cancel when there is one, else a way in", () => {
+    const withCancel = founderNoticeEssentialMoreEmail({ appName: "Foundmill", recipientName: "Ben", link: "https://app.foundmill.test/", cancel: { link: "https://app.foundmill.test/a/T", until: "Nov 20, 2026", projectName: "Bread by Bike" } });
+    expect(withCancel.subject).toBe("More changes to who runs your projects");
+    expect(withCancel.text).toContain("Cancel the deletion: https://app.foundmill.test/a/T");
+    expect(withCancel.text).toContain("Bread by Bike is set to be deleted. You can cancel the deletion until Nov 20, 2026.");
+    expect(withCancel.text).toContain("Your home shows every deletion you can still cancel.");
+    const without = founderNoticeEssentialMoreEmail({ appName: "Foundmill", recipientName: null, link: "https://app.foundmill.test/", cancel: null });
+    expect(without.text).not.toContain("/a/");
+    expect(without.text).toContain("Open your projects: https://app.foundmill.test/");
   });
 
   it("the removal's Inbox note: the subject line is plain text (no markdown escapes), the body escaped", () => {

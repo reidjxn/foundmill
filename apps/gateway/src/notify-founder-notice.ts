@@ -14,9 +14,10 @@
  *      day (`FOUNDER_NOTICE_LOOKBACK_MS`);
  *   4. the reader: never the person who did it (`own_action`), but for one receipt: the person who asked for a deletion
  *      (`self`, whatever the team's size); a founder of the project now (an owner or a cofounder, not through an example
- *      membership, not ended), or the person whose role changed or who was removed, or, for a deletion, anyone someone
- *      else ever demoted or removed from the project who has not got the standing back (`founder_departures`; the
- *      cancel stays with those taken out within 30 days before the request, or after it); anyone else is `not_founder`;
+ *      membership, not ended), or the person whose role changed or who was removed, or, for a deletion, one of the
+ *      `FOUNDER_NOTICE_LIMITS.formerPerRequest` (50) people someone else most recently demoted or removed from the
+ *      project who have not got the standing back (`founder_departures`; the cancel stays with those taken out within 30
+ *      days before the request, or after it: "in the window"); anyone else is `not_founder`;
  *   5. once per entry and person (`founder_notifications`' dedupe key `founder_notice:<audit id>`);
  *   6. their address, from `auth.users`, and no hard suppression of it (`isHardSuppressed`: a bounce or a spam report,
  *      platform-wide or for this project). Nothing else holds it back: no email switch, no pause, no daily limit, no
@@ -26,12 +27,19 @@
  *      removed or demoted, while a deletion waits): its SHA-256 must be this person's `founder_cancel_links` row in this
  *      project, unused, in date, for the deletion request that is still the latest and still waiting, and the person a
  *      former founder for it. A token that does not hold is left out (the email still goes, saying to ask a founder);
- *   8. the counts: their own enforced daily ceiling (`pn:safety:day`, PLATFORM_SAFETY_DAILY_CEILING, `safety_ceiling`),
- *      never the shared `pn:all:day`, and a cap per project under it (`project_ceiling`); and per person and project at
- *      most `FOUNDER_NOTICE_LIMITS.perRecipientHour` an hour and `perRecipientDay` a day. Past either, one "more
- *      changes" email for the window, and every further notice in it is recorded as `folded`, not sent. An essential
- *      notice (`isEssentialFounderNotice`: it carries the cancel, or it is the removal's email to the person removed, or
- *      a deletion request's to a former founder) skips all of these on a reserved path (`pn:safety:reserved:day`).
+ *   8. the counts. An ordinary notice: their own enforced daily ceiling (`pn:safety:day`, PLATFORM_SAFETY_DAILY_CEILING,
+ *      `safety_ceiling`), never the shared `pn:all:day`, and a cap per project under it (`project_ceiling`); and per
+ *      person and project at most `FOUNDER_NOTICE_LIMITS.perRecipientHour` an hour and `perRecipientDay` a day. Past
+ *      either, one "more changes" email for the window, and every further notice in it is recorded as `folded`, not
+ *      sent. An essential notice (`isEssentialFounderNotice`: it carries the cancel; the removal's email to the person
+ *      removed; a deletion request's to a founder now, to the one who asked and to a former founder in the window)
+ *      skips those and is bounded on its own (final review): `essentialPerRecipientDay` (10) a day per person across
+ *      every project (`pn:safety:essential:<user>:day`), and a circuit breaker over all of them
+ *      (`pn:safety:reserved:day`, PLATFORM_SAFETY_RESERVED_DAILY_CEILING, default 20,000; a warning at half, an error at
+ *      the ceiling). Past either, the person gets one folded email for the day ("More changes to who runs your
+ *      projects"), which carries the latest deletion they may still cancel (their own link from this request when it is
+ *      that one, else a link minted here), and every further essential notice that day is recorded as `folded` (or
+ *      `folded_reserved_ceiling`), never dropped silently.
  *
  * The words are `founderNoticeEmail` (packages/shared people-email.ts) over the gateway's own reads (the profile names of
  * the reader, the actor and the person it was about, the project's name, the reader's time zone), every one through
@@ -47,11 +55,13 @@ import { repos, type AuditEntry } from "@foundmill/db";
 import { writeAccountEvent } from "@foundmill/events";
 import {
   ACCOUNT_SAFETY_EMAIL_KINDS,
+  FORMER_FOUNDER_LOOKBACK_MS,
   FOUNDER_NOTICE_ACTIONS,
   FOUNDER_NOTICE_LOOKBACK_MS,
   FOUNDER_NOTICE_LIMITS,
   isEssentialFounderNotice,
   founderNoticeEmail,
+  founderNoticeEssentialMoreEmail,
   founderNoticeMoreEmail,
   founderNoticeOf,
   isOwnerRole,
@@ -65,6 +75,7 @@ import {
   type FounderNotice,
   type NotifyEmailNotSent,
 } from "@foundmill/shared";
+import { newActionToken } from "@foundmill/shared/email-links";
 import { DEV_PLATFORM_MAIL_SECRET, isConfigError, mockIntegrationRecord, PLATFORM_NOTIFY_KEY, suppressionHashOfEmail, type ToolContext } from "@foundmill/connectors";
 import { redactLinks, type NotifyEmailResponse } from "./notify-email";
 import { modeFor, safeError, vendorRefusedOutright, type GatewayDeps } from "./pipeline";
@@ -87,8 +98,15 @@ const HOUR_MS = 3_600_000;
 
 /** Every founder notice together in a UTC day: their own ceiling, never `pn:all:day`. */
 export const PLATFORM_SAFETY_CEILING_KEY = "pn:safety:day";
-/** The essential founder notices of a UTC day: counted on their own, never refused (`isEssentialFounderNotice`). */
+/**
+ * The essential founder notices of a UTC day (`isEssentialFounderNotice`), every person together: a circuit breaker
+ * (PLATFORM_SAFETY_RESERVED_DAILY_CEILING), past which each person gets one folded email for the day.
+ */
 export const PLATFORM_SAFETY_RESERVED_KEY = "pn:safety:reserved:day";
+/** The essential founder notices one person got today, across every project (`essentialPerRecipientDay`). */
+export const founderNoticeEssentialKey = (userId: string): string => `pn:safety:essential:${userId.toLowerCase()}:day`;
+/** The marker that the day's one folded essential email to this person went out. */
+export const founderNoticeEssentialMoreKey = (userId: string): string => `pn:safety-more:essential:${userId.toLowerCase()}:day`;
 /** Every founder notice about one project in a UTC day, under the platform's ceiling (`perProjectDay`). */
 export const founderNoticeProjectKey = (businessId: string): string => `pn:safety:project:${businessId.toLowerCase()}:day`;
 /** Founder notices one person got about one project, this hour and today. */
@@ -116,6 +134,27 @@ const scheduledOf = (entry: AuditEntry): Date | null => {
   const d = at ? new Date(at) : null;
   return d && !Number.isNaN(d.getTime()) ? d : null;
 };
+
+/** At most this many of a person's projects are looked through for the deletion they may still cancel. */
+const LATEST_CANCEL_PROJECTS = 50;
+
+/**
+ * The latest deletion this person may still cancel, in any project: a waiting request, before its day, that they are a
+ * former founder for (as the card on their home reads it). Null when there is none.
+ */
+async function latestCancelFor(deps: GatewayDeps, userId: string, now: Date): Promise<{ businessId: string; businessName: string; request: AuditEntry; until: Date } | null> {
+  const departures = await repos.founderDepartures.forUser(deps.db, userId, new Date(now.getTime() - FORMER_FOUNDER_LOOKBACK_MS - 14 * DAY_MS));
+  let best: { businessId: string; businessName: string; request: AuditEntry; until: Date } | null = null;
+  for (const d of departures.slice(0, LATEST_CANCEL_PROJECTS)) {
+    const waiting = await pendingDeletion(deps, d.businessId);
+    const until = waiting ? scheduledOf(waiting) : null;
+    if (!waiting || !until || until.getTime() <= now.getTime()) continue;
+    if (best && waiting.createdAt.getTime() <= best.request.createdAt.getTime()) continue;
+    if (!(await repos.founderDepartures.formerFounderFor(deps.db, d.businessId, userId, waiting.createdAt))) continue;
+    best = { businessId: d.businessId, businessName: d.businessName, request: waiting, until };
+  }
+  return best;
+}
 
 export async function sendFounderNotice(deps: GatewayDeps, input: FounderNoticeRequest, service: string): Promise<NotifyEmailResponse> {
   const now = deps.now?.() ?? new Date();
@@ -165,8 +204,12 @@ export async function sendFounderNotice(deps: GatewayDeps, input: FounderNoticeR
   else if (isFounder) reader = "founder";
   // Anyone someone else ever took out of the project hears about its deletion (third review); the cancel stays with the
   // former founders for the request (checked with the link below).
-  else if (request && (await repos.founderDepartures.formerFounderEver(deps.db, businessId, userId))) reader = "former";
+  // Of them, the most recent `formerPerRequest` (final review): a request's fan-out does not grow with every account
+  // ever taken out.
+  else if (request && (await repos.founderDepartures.formerFounderEver(deps.db, businessId, userId, { limit: FOUNDER_NOTICE_LIMITS.formerPerRequest }))) reader = "former";
   else return notSent("not_founder");
+  // A former founder for this request (in the window): their deletion email is essential, with or without its link.
+  const inWindow = reader === "former" && notice === "deletion_requested" && request ? (await repos.founderDepartures.formerFounderFor(deps.db, businessId, userId, request.createdAt)) !== null : false;
 
   // 5. Once per entry and person.
   const dedupeKey = `founder_notice:${entry.id}`;
@@ -195,18 +238,28 @@ export async function sendFounderNotice(deps: GatewayDeps, input: FounderNoticeR
     else deps.log.warn({ businessId, userId, kind }, "founder notice: the cancel token did not hold; sent without it");
   }
 
-  // 8. The counts (second and third reviews): founder notices have their own daily ceiling, enforced and apart from the
-  //    one every other email to people shares (`pn:all:day`), a cap per project under it, and one person hears about
-  //    one project at most `perRecipientHour` times an hour and `perRecipientDay` a day; past either, one email says that
-  //    more changed and the rest of the window's notices are folded into it (recorded as `folded`, never sent). An
-  //    essential notice (one that carries the cancel, the removal's email to the person removed, a deletion request's to
-  //    a former founder) takes a reserved path: counted, never refused at a ceiling and never folded, since the limits on
-  //    the steps that send it already bound it. A store that is not shared right now still counts on this replica: an
-  //    account-safety notice is not held back by a Redis outage.
-  const essential = isEssentialFounderNotice({ notice, reader, carriesCancel: cancel !== null });
+  // 8. The counts (second, third and final reviews). An ordinary notice: founder notices have their own daily ceiling,
+  //    enforced and apart from the one every other email to people shares (`pn:all:day`), a cap per project under it,
+  //    and one person hears about one project at most `perRecipientHour` times an hour and `perRecipientDay` a day; past
+  //    either, one email says that more changed and the rest of the window's notices are folded into it (recorded as
+  //    `folded`, never sent). An essential notice skips those and has bounds of its own: `essentialPerRecipientDay` a day
+  //    per person across every project, and the reserved circuit breaker over all of them; past either, one folded email
+  //    for the person's day, carrying the latest deletion they may still cancel, and the rest recorded as folded. A store
+  //    that is not shared right now still counts on this replica: an account-safety notice is not held back by a Redis
+  //    outage.
+  const essential = isEssentialFounderNotice({ notice, reader, carriesCancel: cancel !== null, inWindow });
   const ceiling = config.safetyCeiling ?? FOUNDER_NOTICE_LIMITS.safetyCeilingDefault;
+  const reservedCeiling = config.safetyReservedCeiling ?? FOUNDER_NOTICE_LIMITS.reservedCeilingDefault;
   const counted: [string, number][] = [];
   let marker: string | null = null;
+  // A cancel link minted here for the day's folded email: forgotten again when that email is not sent.
+  let minted: { id: string; token: string } | null = null;
+  const forgetMinted = async () => {
+    if (!minted) return;
+    const id = minted.id;
+    minted = null;
+    await repos.founderCancelLinks.remove(deps.db, id).catch(() => undefined);
+  };
   const giveBack = async () => {
     for (const [key, windowMs] of counted.splice(0)) {
       try {
@@ -234,9 +287,28 @@ export async function sendFounderNotice(deps: GatewayDeps, input: FounderNoticeR
     counted.push([key, windowMs]);
     return r.count;
   };
+  const claimFirst = async (key: string, windowMs: number): Promise<boolean> => (deps.rateLimits.claim ? await deps.rateLimits.claim(key, windowMs, now.getTime()) : false);
   let more = false;
+  let foldAll = false;
+  let breaker = false;
   if (essential) {
-    await hit(PLATFORM_SAFETY_RESERVED_KEY, DAY_MS);
+    const reserved = await hit(PLATFORM_SAFETY_RESERVED_KEY, DAY_MS);
+    if (reserved === Math.ceil(reservedCeiling / 2) && reserved < reservedCeiling) deps.log.warn({ count: reserved, ceiling: reservedCeiling }, "essential founder notices: half of the reserved daily ceiling is used");
+    if (reserved === reservedCeiling) deps.log.error({ count: reserved, ceiling: reservedCeiling }, "essential founder notices: the reserved daily ceiling is reached; past it each person gets one folded email for the day");
+    breaker = reserved > reservedCeiling;
+    const mine = await hit(founderNoticeEssentialKey(userId), DAY_MS);
+    if (breaker || mine > FOUNDER_NOTICE_LIMITS.essentialPerRecipientDay) {
+      const key = founderNoticeEssentialMoreKey(userId);
+      if (!(await claimFirst(key, DAY_MS))) {
+        await giveBack();
+        const reason = breaker ? "folded_reserved_ceiling" : "folded";
+        await repos.notifications.skip(deps.db, businessId, { userId, kind, dedupeKey, reason }).catch(() => undefined);
+        if (breaker) deps.log.warn({ businessId, userId, kind }, "essential founder notice folded: past the reserved daily ceiling");
+        return notSent("folded");
+      }
+      marker = key;
+      foldAll = true;
+    }
   } else {
     if ((await hit(PLATFORM_SAFETY_CEILING_KEY, DAY_MS)) > ceiling) {
       await giveBack();
@@ -251,8 +323,7 @@ export async function sendFounderNotice(deps: GatewayDeps, input: FounderNoticeR
     if (overHour || overDay) {
       const window = overDay ? "day" : "hour";
       const key = founderNoticeMoreKey(userId, businessId, window);
-      const first = deps.rateLimits.claim ? await deps.rateLimits.claim(key, window === "day" ? DAY_MS : HOUR_MS, now.getTime()) : false;
-      if (!first) {
+      if (!(await claimFirst(key, window === "day" ? DAY_MS : HOUR_MS))) {
         await giveBack();
         await repos.notifications.skip(deps.db, businessId, { userId, kind, dedupeKey, reason: "folded" }).catch(() => undefined);
         return notSent("folded");
@@ -261,6 +332,30 @@ export async function sendFounderNotice(deps: GatewayDeps, input: FounderNoticeR
       more = true;
     }
   }
+
+  // The day's folded email carries the latest deletion this person may still cancel: this request's own link when it is
+  // that one, else a link minted here for it (and this request's unused link is forgotten).
+  let foldCancel: { link: string; until: Date; projectName: string } | null = null;
+  if (foldAll) {
+    const latest = await latestCancelFor(deps, userId, now).catch(() => null);
+    if (latest && cancel && waiting && latest.request.id === waiting.id) {
+      foldCancel = { link: cancel.link, until: cancel.until, projectName: business.name };
+    } else if (latest) {
+      const fresh = newActionToken();
+      const row = await repos.founderCancelLinks.create(deps.db, { businessId: latest.businessId, userId, requestId: latest.request.id, tokenHash: fresh.hash, expiresAt: latest.until }).catch(() => null);
+      if (row) {
+        minted = { id: row.id, token: fresh.token };
+        foldCancel = { link: `${appUrl}/a/${fresh.token}`, until: latest.until, projectName: latest.businessName };
+      }
+      if (cancel && input.data.cancelToken) {
+        const unused = await repos.founderCancelLinks.byTokenHash(deps.db, sha256(input.data.cancelToken)).catch(() => null);
+        if (unused) await repos.founderCancelLinks.remove(deps.db, unused.id).catch(() => undefined);
+      }
+    } else if (cancel) {
+      foldCancel = { link: cancel.link, until: cancel.until, projectName: business.name };
+    }
+  }
+  const offersCancel = foldAll ? foldCancel !== null : cancel !== null;
 
   // 9. The words, from the gateway's own reads.
   const prefs = await repos.emailPrefs.get(deps.db, userId).catch(() => null);
@@ -279,7 +374,9 @@ export async function sendFounderNotice(deps: GatewayDeps, input: FounderNoticeR
         ? withVia(`${appUrl}/b/${businessId}/today`)
         : null;
   const cancelWords = cancel ? { link: cancel.link, until: noticeMoment(cancel.until, zone) } : null;
-  const words = more
+  const words = foldAll
+    ? founderNoticeEssentialMoreEmail({ appName: APP_NAME, recipientName, link: `${appUrl}/`, cancel: foldCancel ? { link: foldCancel.link, until: noticeMoment(foldCancel.until, zone), projectName: foldCancel.projectName } : null })
+    : more
     ? founderNoticeMoreEmail({ appName: APP_NAME, recipientName, projectName: business.name, isFounder: reader === "founder" || reader === "self", link: reader === "founder" || reader === "self" ? withVia(`${appUrl}/b/${businessId}/today`) : null, cancel: cancelWords })
     : founderNoticeEmail({
     appName: APP_NAME,
@@ -297,10 +394,11 @@ export async function sendFounderNotice(deps: GatewayDeps, input: FounderNoticeR
     cancel: cancelWords,
     link,
   });
-  const stored = redactLinks(words, [input.data.cancelToken]);
+  const stored = redactLinks(words, [input.data.cancelToken, ...(minted ? [minted.token] : [])]);
   const claimed = await repos.notifications.claim(deps.db, businessId, { id: notificationId, userId, kind, dedupeKey, subject: words.subject, bodyText: stored.text, bodyHtml: stored.html });
   if (!claimed) {
     await giveBack();
+    await forgetMinted();
     return notSent("already_sent");
   }
 
@@ -311,6 +409,7 @@ export async function sendFounderNotice(deps: GatewayDeps, input: FounderNoticeR
     result = await connector.callTool("send_notification", { from: { email: platformMailAddress(config.notifyLocalPart, config.domain), name: APP_NAME }, to: { email }, subject: words.subject, text: words.text, html: words.html, accountSafety: true }, ctx);
   } catch (e) {
     await giveBack();
+    // A send that threw may still have gone out: a link minted for it is kept (it works once, for its own request).
     await repos.notifications.markFailed(deps.db, businessId, notificationId, isConfigError(e) ? "unconfigured" : "error");
     if (isConfigError(e)) return notSent("unconfigured");
     throw e;
@@ -318,6 +417,7 @@ export async function sendFounderNotice(deps: GatewayDeps, input: FounderNoticeR
   if (!result.ok) {
     if (vendorRefusedOutright(result.error)) await giveBack();
     else await releaseMarker();
+    await forgetMinted();
     await repos.notifications.markFailed(deps.db, businessId, notificationId, "vendor");
     deps.log.warn({ businessId, userId, kind, code: result.error?.code, status: result.error?.status }, "founder notice refused by the provider");
     return notSent("vendor");
@@ -333,7 +433,7 @@ export async function sendFounderNotice(deps: GatewayDeps, input: FounderNoticeR
         userId,
         type: "founder_notice.sent",
         actor: { kind: "system", id: "notify" },
-        payload: { notice, businessId, notificationId, offersCancel: cancel !== null, simulated },
+        payload: { notice, businessId, notificationId, offersCancel, simulated },
         idempotencyKey: dedupeKey,
         otherAccountIds: [actorId, ...(subjectId ? [subjectId] : [])].filter((id) => id.toLowerCase() !== userId.toLowerCase()),
       }),
@@ -342,7 +442,7 @@ export async function sendFounderNotice(deps: GatewayDeps, input: FounderNoticeR
     deps.log.error({ businessId, userId, kind, err: safeError(e) }, "founder notice sent but founder_notice.sent could not be written");
   }
   await repos.audit
-    .append(deps.db, businessId, { actorKind: "system", action: "gateway.notify.founder_notice_sent", target: { kind: "audit_entry", id: entry.id }, details: { service, mode, simulated, notice, reader, userId, notificationId, offersCancel: cancel !== null, more } })
+    .append(deps.db, businessId, { actorKind: "system", action: "gateway.notify.founder_notice_sent", target: { kind: "audit_entry", id: entry.id }, details: { service, mode, simulated, notice, reader, userId, notificationId, offersCancel, more, essential, foldedAll: foldAll, breaker } })
     .catch((e: unknown) => deps.log.warn({ businessId, reason: e instanceof Error ? e.name : "unknown" }, "founder notice audit not written"));
   deps.log.info({ businessId, userId, kind, notice, mode }, "founder notice sent");
   return { sent: true, simulated, eventId };

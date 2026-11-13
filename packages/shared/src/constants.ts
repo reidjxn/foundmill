@@ -646,19 +646,23 @@ export type FounderNotice = (typeof FOUNDER_NOTICES)[number];
  */
 export const FORMER_FOUNDER_LOOKBACK_MS = 30 * 86_400_000;
 /**
- * The limits on founder notices and on the steps that send them (security review P2-3, second and third reviews):
- *   - `perRecipientHour` / `perRecipientDay`: founder notices one person gets about one project; above either, one
- *     "more changes" email for the window and nothing more until it ends (`folded` on the record). Never for an
- *     essential notice (`isEssentialFounderNotice`);
- *   - `perProjectDay`: every founder notice about one project in a UTC day (`pn:safety:project:<id>:day`), under the
- *     platform's ceiling;
- *   - `safetyCeilingDefault`: every founder notice together in a UTC day (`pn:safety:day`, PLATFORM_SAFETY_DAILY_CEILING),
- *     enforced, and apart from the ceiling of every other email to people (`pn:all:day`). An essential notice takes a
- *     reserved path past both (`pn:safety:reserved:day`, counted, never refused): it is bounded by the actors' limits;
+ * The limits on founder notices and on the steps that send them (security review P2-3, second, third and final reviews):
+ *   - `perRecipientHour` / `perRecipientDay`: ordinary founder notices one person gets about one project; above either,
+ *     one "more changes" email for the window and nothing more until it ends (`folded` on the record);
+ *   - `perProjectDay`: every ordinary founder notice about one project in a UTC day (`pn:safety:project:<id>:day`), under
+ *     the platform's ceiling;
+ *   - `safetyCeilingDefault`: every ordinary founder notice together in a UTC day (`pn:safety:day`,
+ *     PLATFORM_SAFETY_DAILY_CEILING), enforced, and apart from the ceiling of every other email to people (`pn:all:day`);
+ *   - essential notices (`isEssentialFounderNotice`) skip those three and are bounded on their own:
+ *     `essentialPerRecipientDay` a day per person across every project (`pn:safety:essential:<user>:day`), and every
+ *     essential notice together under `reservedCeilingDefault` a day (`pn:safety:reserved:day`,
+ *     PLATFORM_SAFETY_RESERVED_DAILY_CEILING), a circuit breaker; past either, one folded email per person for the day,
+ *     which carries the latest deletion that person may still cancel;
+ *   - `formerPerRequest`: the most recent former founders one deletion request (or its cancel) emails;
  *   - `actorPerDay`: how many times one person may lower a founder's role, or ask for a deletion, in one project in a
  *     day, and `actorPerDayAll`: both together, across every project, in a day.
  */
-export const FOUNDER_NOTICE_LIMITS = { perRecipientHour: 10, perRecipientDay: 30, perProjectDay: 500, safetyCeilingDefault: 5_000, actorPerDay: 5, actorPerDayAll: 10 } as const;
+export const FOUNDER_NOTICE_LIMITS = { perRecipientHour: 10, perRecipientDay: 30, perProjectDay: 500, safetyCeilingDefault: 5_000, essentialPerRecipientDay: 10, reservedCeilingDefault: 20_000, formerPerRequest: 50, actorPerDay: 5, actorPerDayAll: 10 } as const;
 /** How a founder's standing ended (`founder_departures.how`, 0097): by another founder's change, by removal, or by their own. */
 export const FOUNDER_DEPARTURE_KINDS = ["demoted", "removed", "left"] as const;
 export type FounderDepartureKind = (typeof FOUNDER_DEPARTURE_KINDS)[number];

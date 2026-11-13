@@ -51,7 +51,8 @@ async function formerSince(db: Executor, businessId: string, since: Date): Promi
     .from(memberships)
     .where(and(eq(memberships.businessId, bid), inArray(memberships.role, [...OWNER_ROLES]), membershipNotEnded, inArray(memberships.userId, others.map((r) => r.userId))));
   const still = new Set(founders.map((f) => f.userId));
-  return others.filter((r) => !still.has(r.userId));
+  // Most recent first, so a caller that takes only so many (`formerPerRequest`) keeps the latest.
+  return others.filter((r) => !still.has(r.userId)).sort((x, y) => y.departedAt.getTime() - x.departedAt.getTime() || (x.id < y.id ? 1 : -1));
 }
 
 export const founderDeparturesRepo = {
@@ -92,17 +93,22 @@ export const founderDeparturesRepo = {
 
   /**
    * Service role: everyone whose founder's standing someone else ever took away in this project and who does not have it
-   * back (the latest departure per person). They hear about every deletion request and its cancel (third review); the
-   * right to cancel stays with the former founders for the request (`formerFoundersFor`).
+   * back (the latest departure per person), most recent first. They hear about a deletion request and its cancel (third
+   * review), at most `limit` of them (final review: `FOUNDER_NOTICE_LIMITS.formerPerRequest`, the most recent); the right
+   * to cancel stays with the former founders for the request (`formerFoundersFor`).
    */
-  async formerFoundersEver(db: Executor, businessId: string): Promise<FounderDepartureView[]> {
-    return formerSince(db, businessId, new Date(0));
+  async formerFoundersEver(db: Executor, businessId: string, opts: { limit?: number } = {}): Promise<FounderDepartureView[]> {
+    const all = await formerSince(db, businessId, new Date(0));
+    return opts.limit === undefined ? all : all.slice(0, Math.max(0, opts.limit));
   },
 
-  /** Service role: this person's departure if they were ever a founder someone else took out of this project, else null. */
-  async formerFounderEver(db: Executor, businessId: string, userId: string): Promise<FounderDepartureView | null> {
+  /**
+   * Service role: this person's departure if they were ever a founder someone else took out of this project (and, with
+   * `limit`, one of the `limit` most recent such people), else null.
+   */
+  async formerFounderEver(db: Executor, businessId: string, userId: string, opts: { limit?: number } = {}): Promise<FounderDepartureView | null> {
     const uid = parseInput(Id, userId, "user id");
-    return (await formerSince(db, businessId, new Date(0))).find((r) => r.userId === uid) ?? null;
+    return (await founderDeparturesRepo.formerFoundersEver(db, businessId, opts)).find((r) => r.userId === uid) ?? null;
   },
   /** Service role: this person's departure if they are a former founder for a request made at `requestedAt`, else null. */
   async formerFounderFor(db: Executor, businessId: string, userId: string, requestedAt: Date): Promise<FounderDepartureView | null> {

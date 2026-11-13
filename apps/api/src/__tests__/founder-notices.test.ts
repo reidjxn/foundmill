@@ -11,7 +11,9 @@
  *     before is not; the cancel lasts until the request's own day (so the purge needs no delay);
  *   - lowering a founder's role and asking for a deletion are limited per person and project a day; a cancel never is;
  *   - an admin's removal of a just-lowered founder is announced; a second email's link never replaces the first;
- *   - an unreachable gateway changes nothing of the change.
+ *   - an unreachable gateway changes nothing of the change;
+ *   - a removal is announced once per demotion; a founder change whose transaction fails is given back; the notices of one
+ *     change are asked for `NOTICE_CONCURRENCY` at a time.
  */
 import { createPlatformNotifyMock, createRegistry } from "@foundmill/connectors";
 import { memberships, repos } from "@foundmill/db";
@@ -20,6 +22,7 @@ import { and, eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { GatewayDeps } from "../../../gateway/src/pipeline";
 import { createBusinessFixture } from "@foundmill/db/__tests__/rls/fixtures";
+import { tellFounders, NOTICE_CONCURRENCY } from "../services/founder-notices";
 import { inProcessGateway } from "./gateway-double";
 import { createApiHarness, type ApiHarness } from "./harness";
 
@@ -247,5 +250,54 @@ describe("founder notices and the former founder's cancel", () => {
     } finally {
       hz.deps.gateway.notifyEmail = original;
     }
+  });
+
+  it("a removal is a founder's removal once per demotion: re-invited and removed again, no second announcement", async () => {
+    // Jo was lowered and then removed by an admin above, and that removal was announced.
+    const joId = (await hz.h.pg.query<{ id: string }>("select id from auth.users where email = $1", ["jo-notices@example.com"])).rows[0]!.id;
+    const before = (await sentTo(joId)).length;
+    await hz.db.insert(memberships).values({ businessId: hz.A.businessId, userId: joId, role: "member" });
+    await hz.caller({ userId: ana }).team.humans.remove({ businessId: hz.A.businessId, userId: joId });
+    const entry = (await repos.audit.list(hz.db, hz.A.businessId, { action: "team.humans.remove", limit: 1 })).items[0]!;
+    expect(entry.details).toMatchObject({ userId: joId, role: "member" });
+    expect(entry.details).not.toHaveProperty("formerRole");
+    expect((await sentTo(joId)).length).toBe(before);
+  });
+
+  it("a founder change whose transaction fails is given back: the person still has their whole day", async () => {
+    const lia = await hz.h.createUser("lia-notices@example.com");
+    const C = await createBusinessFixture(hz.h, "notices-refund");
+    const others = await Promise.all(Array.from({ length: FOUNDER_NOTICE_LIMITS.actorPerDay + 1 }, (_, i) => hz.h.createUser(`refund-${i}-notices@example.com`)));
+    await hz.db.insert(memberships).values([{ businessId: C.businessId, userId: lia, role: "cofounder" }, ...others.map((userId) => ({ businessId: C.businessId, userId, role: "cofounder" as const }))]);
+    const lia$ = hz.caller({ userId: lia });
+    // Lowered to a collaborator with an end already past: refused after the change was counted, inside the transaction.
+    await expect(lia$.team.humans.role({ businessId: C.businessId, userId: others[0]!, role: "collaborator", expiresAt: new Date(Date.now() - 86_400_000) })).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    expect((await repos.memberships.get(hz.db, C.businessId, others[0]!))!.role).toBe("cofounder");
+    for (let i = 0; i < FOUNDER_NOTICE_LIMITS.actorPerDay; i++) expect((await lia$.team.humans.role({ businessId: C.businessId, userId: others[i]!, role: "member" })).role).toBe("member");
+  });
+
+  it("the notices of one change are asked for a few at a time", async () => {
+    const request = await repos.audit.append(hz.db, hz.A.businessId, { actorKind: "user", actorId: ana, action: "business.request_deletion", target: { kind: "business", id: hz.A.businessId }, details: { scheduledFor: new Date(Date.now() + 7 * 86_400_000).toISOString() } });
+    let inFlight = 0;
+    let most = 0;
+    const result = await tellFounders(
+      {
+        db: hz.db,
+        log: hz.deps.log,
+        gateway: {
+          notifyEmail: async () => {
+            inFlight++;
+            most = Math.max(most, inFlight);
+            await new Promise((r) => setTimeout(r, 5));
+            inFlight--;
+            return { sent: false, reason: "off", message: "" } as never;
+          },
+        },
+      },
+      { businessId: hz.A.businessId, auditId: request.id, notice: "deletion_requested", actorUserId: ana },
+    );
+    expect(result.asked.length).toBeGreaterThan(NOTICE_CONCURRENCY);
+    expect(most).toBe(NOTICE_CONCURRENCY);
+    await repos.audit.append(hz.db, hz.A.businessId, { actorKind: "user", actorId: ana, action: "business.cancel_deletion", target: { kind: "business", id: hz.A.businessId }, details: {} });
   });
 });

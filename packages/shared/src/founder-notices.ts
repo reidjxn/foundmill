@@ -55,14 +55,21 @@ export function rolePhrase(role: MembershipRole | string): string {
 }
 
 /**
- * A notice that is never folded into "More changes" and never refused at a ceiling (third review): one that carries
- * the one-click cancel, the email to the person removed, and the deletion request's email to a former founder. Each is
- * bounded already by the limits on the steps that send it (`actorPerDay`, `actorPerDayAll`).
+ * An essential notice (final review): it skips the ordinary notices' ceilings and the per-project fold, and is bounded on
+ * its own instead (`FOUNDER_NOTICE_LIMITS.essentialPerRecipientDay` per person a day across every project, and the
+ * reserved circuit breaker), past which the person gets one folded email for the day that still carries the latest
+ * deletion they may cancel. Essential:
+ *   - (a) an email that carries the one-click cancel;
+ *   - (b) the removal's email to the person removed;
+ *   - a deletion request's email to a founder now, to the person who asked (the receipt), and to a former founder for
+ *     that request (`inWindow`: someone else took their standing away within 30 days before it, or after it).
+ * Everything else is ordinary, the emails to someone taken out longer ago about a deletion and its cancel included.
  */
-export function isEssentialFounderNotice(f: { notice: FounderNotice; reader: "founder" | "subject" | "former" | "self"; carriesCancel: boolean }): boolean {
+export function isEssentialFounderNotice(f: { notice: FounderNotice; reader: "founder" | "subject" | "former" | "self"; carriesCancel: boolean; inWindow?: boolean }): boolean {
   if (f.carriesCancel) return true;
   if (f.notice === "removed" && f.reader === "subject") return true;
-  return f.notice === "deletion_requested" && (f.reader === "former" || f.reader === "subject");
+  if (f.notice !== "deletion_requested") return false;
+  return f.reader === "founder" || f.reader === "self" || (f.reader === "former" && f.inWindow === true);
 }
 
 /** Which notice an audit entry is, or null when it is not one (a role change that keeps a founder's standing, say). */
@@ -176,6 +183,12 @@ export const FOUNDER_NOTICE_MORE = {
   lead: (projectName: string) => `There were more changes to who runs ${clip(withoutLinks(projectName), 120)}, or to whether it is deleted, than we email about one by one. We won't email about each of them for a while.`,
   founder: "Open the project to see where things stand: Settings › People and Settings › Danger zone.",
   other: "If you are still one of its founders, open Settings › People and Settings › Danger zone to see where things stand. If a deletion waits that you can still cancel, your home shows it.",
+  /** The one folded email a person gets for the day once their essential notices reach their share, across every project. */
+  all: {
+    subject: "More changes to who runs your projects",
+    lead: "Today there were more changes to who runs projects you are, or were, a founder of, or to whether they are deleted, than we email about one by one. We won't email about each of them again until tomorrow.",
+    body: "Open each project to see where things stand: Settings › People and Settings › Danger zone. Your home shows every deletion you can still cancel.",
+  },
 } as const;
 
 /** The words of `/a/<token>` when the link cancels a deletion. */

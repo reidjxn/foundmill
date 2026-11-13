@@ -152,6 +152,22 @@ describe("the repo: former founders, counted from the request", () => {
   });
 });
 
+describe("the repo: at most so many former founders per request, the most recent (final review)", () => {
+  it("`limit` keeps the latest departures; an older one is no longer one of them", async () => {
+    const people = await Promise.all(["old", "mid", "new"].map((w) => h.createUser(`depart-limit-${w}@test.local`)));
+    await h.db.insert(s.memberships).values(people.map((userId) => ({ businessId: B.businessId, userId, role: "cofounder" as const })));
+    for (const userId of people) await h.db.delete(s.memberships).where(and(eq(s.memberships.businessId, B.businessId), eq(s.memberships.userId, userId)));
+    for (const [i, userId] of people.entries()) await h.db.execute(sql`update founder_departures set departed_at = now() - make_interval(days => ${300 - i * 100}) where business_id = ${B.businessId}::uuid and user_id = ${userId}::uuid`);
+    const [oldest, middle, newest] = people as [string, string, string];
+    // Anyone taken out of B earlier in this file left more recently than these three.
+    const before = (await repos.founderDepartures.formerFoundersEver(h.db, B.businessId)).filter((r) => !people.includes(r.userId)).length;
+    expect((await repos.founderDepartures.formerFoundersEver(h.db, B.businessId)).map((r) => r.userId).slice(before)).toEqual([newest, middle, oldest]);
+    expect((await repos.founderDepartures.formerFoundersEver(h.db, B.businessId, { limit: before + 2 })).map((r) => r.userId).slice(before)).toEqual([newest, middle]);
+    expect(await repos.founderDepartures.formerFounderEver(h.db, B.businessId, oldest, { limit: before + 2 })).toBeNull();
+    expect((await repos.founderDepartures.formerFounderEver(h.db, B.businessId, oldest))?.userId).toBe(oldest);
+  });
+});
+
 describe("founder_cancel_links", () => {
   it("one email's link: found by its hash, works once and before its end; a second link never replaces the first", async () => {
     const request = await repos.audit.append(h.db, A.businessId, { actorKind: "user", actorId: A.ownerId, action: "business.request_deletion", details: {} });

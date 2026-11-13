@@ -23,7 +23,7 @@ import { BUSINESS_DELETION_CANCEL_ACTION, BUSINESS_DELETION_DELAY_DAYS, BUSINESS
 import { AppError, ValidationError } from "@foundmill/shared";
 import type { BusinessContext } from "../trpc";
 import { audit, effectivePermission } from "../trpc";
-import { takeFounderChange, tellFoundersQuietly } from "./founder-notices";
+import { refundingOnFailure, takeFounderChange, tellFoundersQuietly } from "./founder-notices";
 import { stopAllAgents, type StopAllResult } from "./killswitch";
 
 export const EXPORT_FORMAT = "foundmill-export/2" as const;
@@ -305,10 +305,11 @@ export async function requestDeletion(ctx: BusinessContext, input: RequestDeleti
     return { deletion: existing, reauth: { required: true, satisfied, authenticatedAt: authenticatedAt?.toISOString() ?? null, windowMinutes: REAUTH_WINDOW_MS / 60_000 }, copy: deletionCopy(ctx.business, existing.scheduledFor!), inboxItem: null };
   }
   // One person asks for a deletion at most so often a day in a project (second review, P1-1); a cancel is never limited.
-  await takeFounderChange(ctx, "request");
+  const refund = { current: await takeFounderChange(ctx, "request") };
   const scheduledFor = new Date(now.getTime() + DELETION_DELAY_DAYS * DAY_MS).toISOString();
   const copy = deletionCopy(ctx.business, scheduledFor);
-  const { item: inboxItem, auditId } = await ctx.rls(async (tx) => {
+  // Given back when the request's transaction fails (final review, P3): a request that was not made costs nothing.
+  const { item: inboxItem, auditId } = await refundingOnFailure(refund, () => ctx.rls(async (tx) => {
     const chief = await repos.agents.chiefOfStaff(tx, ctx.businessId);
     // The warning is made first so the request on the audit chain can name it: cancelling settles exactly this item.
     const item = chief
@@ -321,7 +322,7 @@ export async function requestDeletion(ctx: BusinessContext, input: RequestDeleti
       : null;
     const entry = await audit(tx, ctx, { action: DELETION_REQUEST_ACTION, target: { kind: "business", id: ctx.businessId }, details: { requestedAt: now.toISOString(), scheduledFor, delayDays: DELETION_DELAY_DAYS, reauthenticatedAt: authenticatedAt!.toISOString(), inboxItemId: item?.id ?? null } });
     return { item, auditId: entry.id };
-  });
+  }));
   // Every other founder, and every former founder for this request (with the one-click cancel), hears
   // it by email (security review P2-3). The Inbox warning above is the project's note; a founder on their own gets no email.
   await tellFoundersQuietly(ctx, { businessId: ctx.businessId, auditId, notice: "deletion_requested", actorUserId: ctx.userId, now });
