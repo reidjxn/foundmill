@@ -39,6 +39,8 @@ import { createGeminiConnector } from "./connectors/gemini";
 import { createPerplexityConnector } from "./connectors/perplexity";
 import { createSerpapiConnector } from "./connectors/serpapi";
 import { createFirecrawlConnector } from "./connectors/firecrawl";
+import { createElevenlabsVoiceConnector } from "./connectors/elevenlabs_voice";
+import { createRunwayConnector } from "./connectors/runway";
 import { createIndexNowConnector } from "./connectors/indexnow";
 import { createApolloConnector } from "./connectors/apollo";
 import { createVercelConnector } from "./connectors/vercel";
@@ -88,6 +90,10 @@ export const CONNECTOR_FACTORIES: Readonly<Record<string, ConnectorFactory>> = O
   vercel: createVercelConnector,
   posthog: createPosthogConnector,
   resend: createResendConnector,
+  // Generated video and voiceover for ready-to-post kits, on the founder's own keys (founder, 2026-11-13). `elevenlabs_voice`
+  // is not the platform's `elevenlabs` (Team call speech): it never reads the platform key.
+  runway: createRunwayConnector,
+  elevenlabs_voice: createElevenlabsVoiceConnector,
 });
 
 export const CONNECTOR_KEYS = Object.freeze(Object.keys(CONNECTOR_FACTORIES));
