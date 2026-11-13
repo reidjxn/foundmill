@@ -7,6 +7,8 @@
  * only sees people who may be here.
  *
  * In order:
+ *  0. A card waiting from the landing page's idea box: `/new/card/keep`, where the person sees it and keeps it (founder,
+ *     2026-11-13: the person lands on their saved card; the profile questions come at the next step).
  *  1. No profile yet: /onboarding (AC-11.1.1).
  *  2. A project: its Today, the last one opened, else the newest of their own (never the example they walked around).
  *  3. Otherwise the person's home, /home (docs/THESIS_REVIEW.md 2.4).
@@ -21,9 +23,12 @@ export interface StartInput {
   businesses: readonly { id: string; isExample?: boolean }[];
   /** The last business the person opened (the fm_last_business cookie). */
   lastBusinessId: string | null | undefined;
+  /** Where the idea box's waiting card is kept (`/new/card/keep…`, app/start/page.tsx), or null. */
+  keepCardPath?: string | null;
 }
 
 export function startDestination(input: StartInput): string {
+  if (input.keepCardPath) return input.keepCardPath;
   if (!input.profileComplete) return "/onboarding";
   const current = pickCurrentBusiness(input.lastBusinessId, input.businesses);
   if (current) return routes.today(current.id);

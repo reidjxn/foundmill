@@ -27,6 +27,7 @@ import { createPushNotifier, type PushNotifier } from "./services/push/notifier"
 import { superviseOutboxRelay, type RelaySupervisor } from "./services/relay";
 import { monitorWorker, type WorkerMonitor } from "./services/worker-health";
 import { seedOnBoot } from "./services/seed-on-boot";
+import { startIdeaBoxSweep } from "./services/idea-box";
 import { DEMO_ROLL_BOOT_WAIT_MS, demoRollForwardEnabled, startDemoRollForward } from "./services/demo-roll-forward";
 import { notifyEmailEnabled, startNotifyEmail } from "./services/push/email-pass";
 import { backfillPersonasOnBoot } from "./services/persona-backfill";
@@ -133,6 +134,7 @@ export async function main(): Promise<void> {
   let pushNotifier: PushNotifier | null = null;
   let reconciler: { stop(): void } | null = null;
   let demoRoller: { stop(): void } | null = null;
+  let ideaSweep: { stop(): Promise<void> } | null = null;
   let notifyEmail: { stop(): Promise<void> } | null = null;
   let workerMonitor: WorkerMonitor | null = null;
   let warmer: PoolWarmer | null = null;
@@ -158,6 +160,7 @@ export async function main(): Promise<void> {
       },
       { name: "stop workflow reconciler", run: () => reconciler?.stop() },
       { name: "stop sample roll-forward", run: () => demoRoller?.stop() },
+      { name: "stop idea box sweep", run: async () => ideaSweep?.stop() },
       { name: "stop key refresh", run: () => keys?.stop() },
       { name: "stop confirm-email check", run: () => confirmEmail?.stop() },
       { name: "stop pool warmer", run: () => warmer?.stop() },
@@ -208,6 +211,8 @@ export async function main(): Promise<void> {
     demoRoller = roller;
     return Promise.race([roller.done, new Promise<void>((resolve) => setTimeout(resolve, DEMO_ROLL_BOOT_WAIT_MS).unref?.())]);
   });
+  // The idea box's unclaimed cards are deleted after 7 days (90 on the waitlist), at boot and every hour (docs/IDEA_BOX.md).
+  if (migrated) ideaSweep = startIdeaBoxSweep(deps);
   // Email from Foundmill to a person (packages 1.5 and 5.1): a note that waited a day for their answer, at boot and every
   // hour; only with PLATFORM_MAIL_DOMAIN set, and NOTIFY_EMAIL=off turns it off. The gateway sends and counts.
   if (migrated && notifyEmailEnabled(env)) notifyEmail = startNotifyEmail(deps);

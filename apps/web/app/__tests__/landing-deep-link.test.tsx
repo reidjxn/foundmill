@@ -1,6 +1,10 @@
 // @vitest-environment node
 import { isValidElement, type ReactElement } from "react";
-import { describe, expect, it, vi } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+
+// The idea box asks the api for this browser's card on mount: none here.
+beforeAll(() => vi.stubGlobal("fetch", vi.fn(async () => new Response(null, { status: 204 }))));
+afterAll(() => vi.unstubAllGlobals());
 import { exampleRoute } from "@/components/landing/examples";
 
 // The landing routes are prerendered: they must render without asking the api or reading a cookie.
@@ -55,6 +59,6 @@ describe("/?example= (the landing page's deep link)", () => {
 
 describe("/start (the signed-in index the proxy serves for `/`)", () => {
   it("shows the landing page, never a redirect that could loop, when the session did not hold up on the server", async () => {
-    landingProps(await StartPage());
+    landingProps(await StartPage({ searchParams: Promise.resolve({}) }));
   });
 });

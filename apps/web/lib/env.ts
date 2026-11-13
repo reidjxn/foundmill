@@ -21,6 +21,8 @@ export interface PublicEnv {
    * §4 "Signing in with Google"). Off unless exactly "on", so the button never appears before the provider is set up.
    */
   authGoogle: boolean;
+  /** NEXT_PUBLIC_TURNSTILE_SITE_KEY: Cloudflare Turnstile's site key for the idea box's bot check; empty uses the mock token (development stacks only). */
+  turnstileSiteKey: string;
 }
 
 const APP_ENVS: readonly PublicAppEnv[] = ["development", "test", "staging", "production"];
@@ -44,6 +46,7 @@ export function parsePublicEnv(raw: Record<string, string | undefined>): PublicE
     integrationsMode: raw.NEXT_PUBLIC_INTEGRATIONS_MODE === "live" ? "live" : "mock",
     appUrl: trimSlash(raw.NEXT_PUBLIC_APP_URL ?? ""),
     authGoogle: raw.NEXT_PUBLIC_AUTH_GOOGLE?.trim().toLowerCase() === "on",
+    turnstileSiteKey: raw.NEXT_PUBLIC_TURNSTILE_SITE_KEY?.trim() ?? "",
   };
 }
 
@@ -63,6 +66,7 @@ export function publicEnv(): PublicEnv {
     NEXT_PUBLIC_INTEGRATIONS_MODE: process.env.NEXT_PUBLIC_INTEGRATIONS_MODE,
     NEXT_PUBLIC_APP_URL: process.env.NEXT_PUBLIC_APP_URL,
     NEXT_PUBLIC_AUTH_GOOGLE: process.env.NEXT_PUBLIC_AUTH_GOOGLE,
+    NEXT_PUBLIC_TURNSTILE_SITE_KEY: process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY,
   });
   return cached;
 }
