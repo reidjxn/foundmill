@@ -424,6 +424,8 @@ async function recordPlatformMailSent(deps: GatewayDeps, session: SessionToken, 
 
 /** Gateway errors raised before the vendor is called: the call did nothing. */
 const NOT_RUN_ERRORS = new Set(["vault_unavailable", "integration_not_connected", "connector_unconfigured"]);
+/** The refusal when an agent's approval was taken by another call twice in a row (`ask`): nothing ran, try again. */
+const DELEGATED_APPROVAL_TAKEN_POLICY_ID = "delegated-approval-taken";
 
 /**
  * The vendor answered and refused (a 4xx other than a timeout: GitHub's 405 "not mergeable" or 409 "base branch was
@@ -716,6 +718,12 @@ async function ask(deps: GatewayDeps, session: SessionToken, req: CallRequestPar
       log.info({ approvalId }, "the agent's approval was used by another call; asking again");
       return ask(deps, session, req, loaded, decision, args, log, now, true);
     }
+    // Taken again: refuse this once rather than answer "ask" for an approval with no Inbox item. Nothing ran.
+    const reasons = ["Another call used this approval at the same moment, so nothing was run. Try again."];
+    const policyIds = [DELEGATED_APPROVAL_TAKEN_POLICY_ID];
+    const audit = await appendAudit(deps, session, req, { outcome: "deny", reasons, policyIds, approvalId });
+    log.warn({ approvalId }, "the agent's approval was used by another call twice; refused, try again");
+    return { status: 403, body: { outcome: "deny", reasons, policyIds, costMinor: 0, auditId: audit.id } };
   }
   const audit = await appendAudit(deps, session, req, { outcome: "ask", reasons: decision.reasons, policyIds: decision.policyIds, approvalId });
   log.info({ approvalId, reasons: decision.reasons }, "tool call needs approval");
