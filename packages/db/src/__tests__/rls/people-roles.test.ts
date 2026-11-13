@@ -232,6 +232,19 @@ describe("memberships 0090: the roles and the end date", () => {
     }
   });
 
+  it("0093: is_member_not_collaborator is for signed-in people and the service, never anon", async () => {
+    const may = async (role: string) => ((await h.db.execute(sql`select has_function_privilege(${role}::name, 'is_member_not_collaborator(uuid)', 'execute') as ok`)) as unknown as { rows: { ok: boolean }[] }).rows[0]?.ok;
+    expect(await may("anon")).toBe(false);
+    expect(await may("authenticated")).toBe(true);
+    expect(await may("service_role")).toBe(true);
+    expect(await failure(h.anon().run((tx) => tx.execute(sql`select is_member_not_collaborator(${A.businessId}::uuid)`)))).toMatch(/permission denied/);
+    // Signed in, it answers about the caller alone, as the row policies use it.
+    const answer = async (id: string) => ((await h.asUser(id).run((tx) => tx.execute(sql`select is_member_not_collaborator(${A.businessId}::uuid) as ok`))) as unknown as { rows: { ok: boolean }[] }).rows[0]?.ok;
+    expect(await answer(A.memberId)).toBe(true);
+    expect(await answer(collaborator)).toBe(false);
+    expect(await answer(B.ownerId)).toBe(false);
+  });
+
   it("0091: the cutover is stored for the service role only; a cofounder invitation names an address", async () => {
     const at = (await h.service().run((tx) => tx.execute(sql`select admission_existing_before() as at`))) as unknown as { rows: { at: Date | string }[] };
     expect(new Date(at.rows[0]!.at).getTime()).toBeLessThanOrEqual(Date.now());

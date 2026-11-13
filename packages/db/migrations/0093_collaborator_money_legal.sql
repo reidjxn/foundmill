@@ -46,3 +46,12 @@ end;
 $$;
 --> statement-breakpoint
 comment on function is_member_not_collaborator(uuid) is 'A membership of the business that has not ended and is not a collaborator''s: the select policy of the tables a collaborator never reads (0092, 0093), and half of the write policy of the Money and Legal tables members write (0093).';
+--> statement-breakpoint
+-- `is_member_not_collaborator(uuid)` (0092) is security definer and answers about the caller only; the row policies above
+-- and 0092's call it as `authenticated`. 0092 granted it to anon as well, and on Supabase postgres's default privileges
+-- grant it to anon directly: anon never needs it (no auth.uid(), so it is always false). Revoked from public and anon
+-- (docs/DECISIONS.md, 0087's rule on main: a security-definer function names who may call it); authenticated and the
+-- service keep it, granted here explicitly.
+revoke execute on function is_member_not_collaborator(uuid) from public, anon;
+--> statement-breakpoint
+grant execute on function is_member_not_collaborator(uuid) to authenticated, service_role;
