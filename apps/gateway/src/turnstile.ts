@@ -4,7 +4,8 @@
  *
  * Live: Cloudflare's siteverify with the platform's secret (`TURNSTILE_SECRET_KEY`, set on the gateway only), the
  * visitor's address and an idempotency key, within 5 s. Mock (no secret, on a development or test stack only): the
- * token `mock-fail` fails, any other non-empty token passes, and the answer says it was simulated. With no secret on
+ * token `mock-fail` fails, any other non-empty token passes, and the answer says it was simulated (never with live
+ * integrations). With no secret on
  * staging or production the answer is `unconfigured`: the api then refuses to draft (the bot check is not optional).
  *
  * The answer is `{ ok, reason, simulated }`, never Cloudflare's own words: `reason` is one of a fixed set. Nothing is
@@ -27,10 +28,12 @@ export const TurnstileVerifyRequest = z.strictObject({
   remoteIp: z.string().max(64).nullable().optional(),
   /** The hostname the widget must have run on (foundmill.com); unchecked when absent. */
   hostname: z.string().max(253).nullable().optional(),
+  /** The widget's action ("idea_box"); when given, Cloudflare must report the same. */
+  action: z.string().max(32).nullable().optional(),
 });
 export type TurnstileVerifyRequest = z.infer<typeof TurnstileVerifyRequest>;
 
-export type TurnstileReason = "ok" | "invalid" | "expired" | "hostname" | "unconfigured" | "unavailable";
+export type TurnstileReason = "ok" | "invalid" | "expired" | "hostname" | "action" | "unconfigured" | "unavailable";
 export interface TurnstileVerifyResponse {
   ok: boolean;
   reason: TurnstileReason;
@@ -44,14 +47,15 @@ export interface TurnstileConfig {
   fetch?: typeof fetch;
 }
 
-const SiteverifyAnswer = z.object({ success: z.boolean(), "error-codes": z.array(z.string()).default([]), hostname: z.string().optional() });
+const SiteverifyAnswer = z.object({ success: z.boolean(), "error-codes": z.array(z.string()).default([]), hostname: z.string().optional(), action: z.string().optional() });
 
 const devStack = (appEnv: string | undefined) => appEnv === undefined || appEnv === "development" || appEnv === "test";
 
-export async function verifyTurnstile(deps: Pick<GatewayDeps, "appEnv" | "log"> & { turnstile?: TurnstileConfig }, input: TurnstileVerifyRequest): Promise<TurnstileVerifyResponse> {
+export async function verifyTurnstile(deps: Pick<GatewayDeps, "appEnv" | "log"> & { mode?: GatewayDeps["mode"]; turnstile?: TurnstileConfig }, input: TurnstileVerifyRequest): Promise<TurnstileVerifyResponse> {
   const secret = deps.turnstile?.secret?.trim() || null;
   if (!secret) {
-    if (!devStack(deps.appEnv)) {
+    // The mock answers only on a development or test stack running mock integrations (security review P3-2).
+    if (!devStack(deps.appEnv) || deps.mode === "live") {
       deps.log.warn({}, "turnstile check refused: TURNSTILE_SECRET_KEY is not set on the gateway");
       return { ok: false, reason: "unconfigured", simulated: false };
     }
@@ -76,9 +80,14 @@ export async function verifyTurnstile(deps: Pick<GatewayDeps, "appEnv" | "log"> 
     if (codes.includes("missing-input-secret") || codes.includes("invalid-input-secret")) return { ok: false, reason: "unconfigured", simulated: false };
     return { ok: false, reason: codes.includes("timeout-or-duplicate") ? "expired" : "invalid", simulated: false };
   }
-  if (input.hostname && answer.hostname && answer.hostname !== input.hostname && answer.hostname !== `www.${input.hostname}`) {
-    deps.log.info({ hostname: answer.hostname }, "turnstile token from another hostname");
+  // The hostname the widget ran on must be the site's (a missing one is refused when one is expected).
+  if (input.hostname && answer.hostname !== input.hostname && answer.hostname !== `www.${input.hostname}`) {
+    deps.log.info({ hostname: answer.hostname ?? null }, "turnstile token from another hostname");
     return { ok: false, reason: "hostname", simulated: false };
+  }
+  if (input.action && answer.action !== input.action) {
+    deps.log.info({ action: answer.action ?? null }, "turnstile token for another action");
+    return { ok: false, reason: "action", simulated: false };
   }
   return { ok: true, reason: "ok", simulated: false };
 }

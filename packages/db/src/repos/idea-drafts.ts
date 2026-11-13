@@ -65,6 +65,17 @@ export const ideaDraftsRepo = {
     return row!;
   },
 
+  /** The live draft an email link's claim token points at, or null. */
+  async liveByClaim(db: Executor, claimHash: string, now = new Date()): Promise<IdeaDraftRow | null> {
+    if (!isHash(claimHash)) return null;
+    return maybeOne(await db.select().from(ideaDrafts).where(and(eq(ideaDrafts.claimHash, claimHash), live(now))).limit(1));
+  },
+
+  /** A live draft by id (the one a waitlist entry holds), or null. */
+  async liveById(db: Executor, id: string, now = new Date()): Promise<IdeaDraftRow | null> {
+    return maybeOne(await db.select().from(ideaDrafts).where(and(eq(ideaDrafts.id, id), live(now))).limit(1));
+  },
+
   /** The browser's live draft, or null (unknown, claimed, or past its time). */
   async liveByToken(
     db: Executor,
@@ -90,15 +101,15 @@ export const ideaDraftsRepo = {
     input: {
       userId: string;
       hash: string;
-      by: "token" | "claim";
+      by: "token" | "claim" | "id";
       toIdea: (row: IdeaDraftRow) => CreateIdeaInput;
       now?: Date;
     },
   ): Promise<ClaimIdeaDraftResult> {
-    if (!isHash(input.hash)) return { status: "none" };
+    if (input.by !== "id" && !isHash(input.hash)) return { status: "none" };
     const now = input.now ?? new Date();
     return db.transaction(async (tx) => {
-      const column = input.by === "token" ? ideaDrafts.tokenHash : ideaDrafts.claimHash;
+      const column = input.by === "token" ? ideaDrafts.tokenHash : input.by === "claim" ? ideaDrafts.claimHash : ideaDrafts.id;
       const row = maybeOne(
         await tx.select().from(ideaDrafts).where(eq(column, input.hash)).for("update").limit(1),
       );

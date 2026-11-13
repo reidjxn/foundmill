@@ -57,10 +57,11 @@ reads it too). Only the token's SHA-256 (lowercase hex) is stored.
 
 ### Keeping the card through sign-in
 
-- Same browser: `/start` (a Server Action on the page that runs after sign-in) reads `fm_idea`, calls
-  `ideaBox.claim({ token })` (signed in), deletes the cookie and goes to `/new/card/<ideaId>`.
-- Another device: the sign-in form sends `next=/start?claim=<claim token>`; the claim token is a second random token
-  stored hashed on the draft, used once. `/start` claims with it the same way.
+- After sign-in `/start` looks for a waiting card (`ideaBox.preview`): the browser's (`fm_idea`), the sign-in link's
+  claim token (`next=/start?claim=…`, another device; it counts only within 30 minutes of a sign-in), or the one the
+  person's waitlist entry holds. It sends the person to `/new/card/keep`, which shows the card and the words it was
+  drafted from. Only "Keep this card" (a Server Action) claims it (`ideaBox.claim`), then `/new/card/<ideaId>`; "Not
+  mine" leaves it. Both clear the cookie (security review 2026-11-13).
 - `claimIdeaDraft(tx, userId, tokenHash)`: in one transaction, the draft is unclaimed and live (not past `expires_at`
   unless `held_until` is later): create the idea in the person's deck (`repos.ideas.create`, `ideaFromCard` with the
   provenance `{ brief, idea_box: true }`), mark the draft claimed (`claimed_by`, `claimed_at`, `idea_id`). Claiming

@@ -229,12 +229,14 @@ export interface GatewayTurnstileRequest {
   token: string;
   remoteIp: string | null;
   hostname: string | null;
+  /** The widget's action; Cloudflare must report the same. */
+  action?: string | null;
 }
 
 /** Passed or not, why (a fixed word, never Cloudflare's), and whether the mock answered. */
 export interface GatewayTurnstileResult {
   ok: boolean;
-  reason: "ok" | "invalid" | "expired" | "hostname" | "unconfigured" | "unavailable";
+  reason: "ok" | "invalid" | "expired" | "hostname" | "action" | "unconfigured" | "unavailable";
   simulated: boolean;
 }
 

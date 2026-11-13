@@ -60,7 +60,7 @@ export function registerIdeaBoxRoutes<E extends Env>(app: Hono<E>, deps: ApiDeps
       const body = await c.req.json().catch(() => null);
       const plan = await planIdeaBoxDraft(
         { db: deps.db, models: deps.models, limits: deps.limits, env: deps.env, gateway: deps.gateway, log: deps.log },
-        { body, cookieToken: getCookie(c, IDEA_COOKIE) ?? null, address: clientAddressOf(c.req.raw.headers, c), hostname: deps.env.APP_ENV === "production" || deps.env.APP_ENV === "staging" ? hostnameOf(origin) : null },
+        { body, cookieToken: getCookie(c, IDEA_COOKIE) ?? null, address: clientAddressOf(c.req.raw.headers, c), hostname: deps.env.APP_ENV === "production" || deps.env.APP_ENV === "staging" ? hostnameOf(deps.env.APP_URL) : null },
         c.req.raw.signal,
       );
       const headers = new Headers(NDJSON_HEADERS);
@@ -77,7 +77,7 @@ export function registerIdeaBoxRoutes<E extends Env>(app: Hono<E>, deps: ApiDeps
   });
 }
 
-/** The site's hostname without "www." (Turnstile reports the hostname the widget ran on). */
+/** The site's hostname without "www." from APP_URL, never from the request (Turnstile reports where the widget ran). */
 function hostnameOf(origin: string | undefined): string | null {
   try {
     return origin ? new URL(origin).hostname.replace(/^www\./, "") : null;

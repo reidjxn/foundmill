@@ -10,7 +10,7 @@ import * as s from "@foundmill/db";
 import { IDEA_COOKIE, type IdeaBoxEvent } from "@foundmill/shared";
 import { createApp } from "../app";
 import type { GatewayTurnstileResult } from "../services/gateway";
-import { IDEA_BOX_LIMITS, ideaTokenHash } from "../services/idea-box";
+import { IDEA_BOX_CARD_RESERVE_MICRO, IDEA_BOX_LIMITS, ideaBoxDailyCards, ideaTokenHash, limitAddress, planIdeaBoxDraft } from "../services/idea-box";
 import { createApiHarness, type ApiHarness } from "./harness";
 
 const ORIGIN = "http://localhost:3000";
@@ -121,6 +121,50 @@ describe("POST /idea-box/draft", () => {
     const { app } = await setup({ IDEA_BOX_DAILY_CEILING_CENTS: "0" });
     expect((await draft(app, idea)).events[0]).toMatchObject({ type: "error", code: "resting" });
   });
+
+  it("reserves the ceiling card by card at the worst case, before any model call", async () => {
+    expect(IDEA_BOX_CARD_RESERVE_MICRO).toBeGreaterThan(0);
+    const oneCard = Math.ceil(IDEA_BOX_CARD_RESERVE_MICRO / 1_000_000);
+    expect(ideaBoxDailyCards(oneCard)).toBe(1);
+    expect(ideaBoxDailyCards(0)).toBe(0);
+    const { app } = await setup({ IDEA_BOX_DAILY_CEILING_CENTS: String(oneCard) });
+    expect(last((await draft(app, idea, { address: "203.0.113.20" })).events).type).toBe("card");
+    expect((await draft(app, idea, { address: "203.0.113.21" })).events[0]).toMatchObject({ type: "error", code: "resting" });
+  });
+
+  it("a visitor who closes the stream early still spends a card (security review P1-1): nothing is given back", async () => {
+    const { hz } = await setup();
+    const deps = { db: hz.deps.db, models: hz.deps.models, limits: hz.deps.limits, env: hz.deps.env, gateway: hz.deps.gateway, log: hz.deps.log };
+    for (let i = 0; i < IDEA_BOX_LIMITS.perAddressHour.limit; i++) {
+      const controller = new AbortController();
+      const plan = await planIdeaBoxDraft(deps, { body: idea, cookieToken: null, address: "203.0.113.30", hostname: null }, controller.signal);
+      const first = await plan.events.next();
+      expect(first.value).toEqual({ type: "started" });
+      controller.abort();
+      await plan.events.return(undefined);
+    }
+    const after = await planIdeaBoxDraft(deps, { body: idea, cookieToken: null, address: "203.0.113.30", hostname: null });
+    expect((await after.events.next()).value).toMatchObject({ type: "error", code: "limit" });
+    expect(await hz.db.select().from(s.ideaDrafts)).toHaveLength(0);
+  });
+});
+
+describe("limitAddress (security review P2-2)", () => {
+  it("counts an IPv6 address by its /64 and an IPv4-mapped one as IPv4", () => {
+    expect(limitAddress("203.0.113.7")).toBe("203.0.113.7");
+    expect(limitAddress("::ffff:203.0.113.7")).toBe("203.0.113.7");
+    expect(limitAddress("2001:db8:1:2:aaaa:bbbb:cccc:dddd")).toBe("2001:db8:1:2::/64");
+    expect(limitAddress("2001:db8:1:2::9")).toBe("2001:db8:1:2::/64");
+    expect(limitAddress("2001:DB8:0001:0002:ffff::1")).toBe("2001:db8:1:2::/64");
+    expect(limitAddress("2001:db8::1")).toBe("2001:db8:0:0::/64");
+    expect(limitAddress("[2001:db8:1:2::1]")).toBe("2001:db8:1:2::/64");
+  });
+
+  it("puts every address of one /64 in the same window", async () => {
+    const { app } = await setup();
+    for (let i = 0; i < IDEA_BOX_LIMITS.perAddressHour.limit; i++) expect(last((await draft(app, idea, { address: `2001:db8:5:6::${i + 1}` })).events).type).toBe("card");
+    expect((await draft(app, idea, { address: "2001:db8:5:6:ffff:1:2:3" })).events[0]).toMatchObject({ type: "error", code: "limit" });
+  });
 });
 
 describe("GET /idea-box/mine", () => {
@@ -142,6 +186,17 @@ describe("GET /idea-box/mine", () => {
 });
 
 describe("ideaBox.claim and the waitlist", () => {
+  it("previews the card without keeping it; keeping is a separate step", async () => {
+    const { hz, app } = await setup();
+    const first = await draft(app, idea);
+    const owner = hz.caller({ userId: hz.A.ownerId, email: "owner@test.local" });
+    expect(await owner.ideaBox.preview({ token: first.token })).toMatchObject({ prompt: idea.prompt, source: "browser", sample: true });
+    expect(await hz.db.select().from(s.ideas).where(eq(s.ideas.ownerUserId, hz.A.ownerId))).not.toContainEqual(expect.objectContaining({ title: expect.any(String), currentVersionId: expect.anything(), pitch: idea.prompt }));
+    const [row] = await hz.db.select().from(s.ideaDrafts);
+    expect(row!.claimedAt).toBeNull();
+    expect(await owner.ideaBox.preview({})).toBeNull();
+  });
+
   it("claims into the deck by the cookie's token; again gives the same idea; nobody else gets it", async () => {
     const { hz, app } = await setup();
     const first = await draft(app, idea);
@@ -172,6 +227,11 @@ describe("ideaBox.claim and the waitlist", () => {
     await expect(outsider.ideaBox.claim({ token: first.token })).rejects.toThrow();
     expect(await outsider.waitlist.join({ token: first.token })).toEqual({ joined: true, cardKept: true });
     expect(await outsider.waitlist.status()).toEqual({ joined: true, cardKept: true });
+    // Admitted later, on any browser (no cookie, no link): the waitlist's card is the one to keep.
+    hz.deps.env.SIGNUP_ALLOWLIST = "outsider@test.local";
+    expect(await outsider.ideaBox.preview({})).toMatchObject({ source: "waitlist", prompt: idea.prompt });
+    expect(await outsider.ideaBox.claim({})).toMatchObject({ again: false });
+    hz.deps.env.SIGNUP_ALLOWLIST = "someone-else@test.local";
     const [draftRow] = await hz.db.select().from(s.ideaDrafts);
     expect(draftRow!.heldUntil!.getTime() - Date.now()).toBeGreaterThan(80 * 24 * 60 * 60_000);
     await expect(hz.caller({ userId: hz.B.ownerId, email: "outsider@test.local", emailConfirmed: false }).waitlist.join({})).rejects.toThrow(/Confirm/);

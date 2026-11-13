@@ -28,20 +28,21 @@ export default async function StartPage({ searchParams }: { searchParams: Promis
   } catch (err) {
     return <ApiErrorPage error={err} email={server.auth.email} />;
   }
-  // The landing page's card first (docs/IDEA_BOX.md): this browser's (the `fm_idea` cookie) or the one the sign-in link
-  // carried (`?claim=`, another device). The person lands on it; the profile questions come after.
-  const claimedIdeaId = await claimIdeaBoxCard(server.api, (await cookies()).get(IDEA_COOKIE)?.value ?? null, (await searchParams)[IDEA_CLAIM_PARAM]);
+  // The landing page's card first (docs/IDEA_BOX.md): this browser's (the `fm_idea` cookie), the one the sign-in link
+  // carried (`?claim=`, another device), or the one the person's waitlist entry holds. Nothing is kept here: the person
+  // sees the card and presses "Keep this card" (/new/card/keep), so nobody's card lands in a deck unseen.
+  const claim = (await searchParams)[IDEA_CLAIM_PARAM];
+  const keepCardPath = await cardToKeep(server.api, (await cookies()).get(IDEA_COOKIE)?.value ?? null, typeof claim === "string" ? claim : null);
   // The one routing table for a person just signed in (lib/auth/start-destination.ts).
-  redirect(startDestination({ profileComplete: profile.complete, businesses: profile.businesses, lastBusinessId: await getLastBusinessId(), claimedIdeaId }));
+  redirect(startDestination({ profileComplete: profile.complete, businesses: profile.businesses, lastBusinessId: await getLastBusinessId(), keepCardPath }));
 }
 
-/** Claims the idea box's card, or null (nothing to claim, or the api said no: the person goes on as usual). */
-async function claimIdeaBoxCard(api: NonNullable<Awaited<ReturnType<typeof serverApi>>>["api"], token: string | null, claim: string | string[] | undefined): Promise<string | null> {
-  const claimToken = typeof claim === "string" ? claim : null;
-  if (!token && !claimToken) return null;
+/** Where to keep a waiting card (`/new/card/keep`, with the link's claim token), or null when there is none. */
+async function cardToKeep(api: NonNullable<Awaited<ReturnType<typeof serverApi>>>["api"], token: string | null, claim: string | null): Promise<string | null> {
   try {
-    const res = await api.ideaBox.claim.mutate({ token, claim: claimToken });
-    return res?.ideaId ?? null;
+    const card = await api.ideaBox.preview.query({ token, claim });
+    if (!card) return null;
+    return claim && card.source === "link" ? `/new/card/keep?${IDEA_CLAIM_PARAM}=${encodeURIComponent(claim)}` : "/new/card/keep";
   } catch {
     return null;
   }

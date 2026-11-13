@@ -31,12 +31,16 @@ describe("verifyTurnstile", () => {
     expect(await verifyTurnstile(deps({ success: false, "error-codes": ["invalid-input-secret"] }), { token: "t" })).toMatchObject({ ok: false, reason: "unconfigured" });
     expect(await verifyTurnstile(deps({ success: true, hostname: "evil.example" }), { token: "t", hostname: "foundmill.com" })).toMatchObject({ ok: false, reason: "hostname" });
     expect(await verifyTurnstile(deps({ success: true, hostname: "www.foundmill.com" }), { token: "t", hostname: "foundmill.com" })).toMatchObject({ ok: true });
+    expect(await verifyTurnstile(deps({ success: true }), { token: "t", hostname: "foundmill.com" })).toMatchObject({ ok: false, reason: "hostname" });
+    expect(await verifyTurnstile(deps({ success: true, hostname: "foundmill.com", action: "other" }), { token: "t", hostname: "foundmill.com", action: "idea_box" })).toMatchObject({ ok: false, reason: "action" });
+    expect(await verifyTurnstile(deps({ success: true, hostname: "foundmill.com", action: "idea_box" }), { token: "t", hostname: "foundmill.com", action: "idea_box" })).toMatchObject({ ok: true });
     expect(await verifyTurnstile(deps({}, 500), { token: "t" })).toMatchObject({ ok: false, reason: "unavailable" });
   });
 
   it("no secret: the mock on a development or test stack (simulated), refused on staging and production", async () => {
     expect(await verifyTurnstile({ appEnv: "development", log }, { token: "anything" })).toEqual({ ok: true, reason: "ok", simulated: true });
     expect(await verifyTurnstile({ appEnv: "test", log, turnstile: { secret: null } }, { token: TURNSTILE_MOCK_FAIL_TOKEN })).toEqual({ ok: false, reason: "invalid", simulated: true });
+    expect(await verifyTurnstile({ appEnv: "test", mode: "live", log }, { token: "anything" })).toMatchObject({ ok: false, reason: "unconfigured" });
     for (const appEnv of ["staging", "production"]) expect(await verifyTurnstile({ appEnv, log, turnstile: { secret: "  " } }, { token: "anything" })).toEqual({ ok: false, reason: "unconfigured", simulated: false });
   });
 });

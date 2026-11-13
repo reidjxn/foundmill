@@ -6,7 +6,7 @@ import { LONG } from "./helpers";
 /**
  * The landing page's idea box (founder, 2026-11-13; docs/IDEA_BOX.md) against the local stack (mock models, the mock
  * Turnstile token): a signed-out visitor types a line and gets a card streamed in, keeps it by signing in (the stack's
- * developer sign-in stands in for the email link), and lands on the card in their deck; on a phone at 390 px the hero
+ * developer sign-in stands in for the email link), keeps it with one press, and lands on the card in their deck; on a phone at 390 px the hero
  * works on its own, Surprise me drafts from an interest, and nothing scrolls sideways.
  *
  * With `E2E_UX_AUDIT=1` the pages are saved as docs/ux-audit/46-idea-box-landed-1440.png and 47-idea-box-phone-390.png.
@@ -51,6 +51,11 @@ test("a visitor types an idea, watches the card arrive, keeps it by signing in a
     await page.getByTestId("idea-keep-email").click();
     await expect(page).toHaveURL(/\/login\?next=%2Fstart%3Fclaim%3D/);
     await page.getByRole("button", { name: "Continue as developer" }).click();
+    // The keep step: the card and its words, kept only with a press (security review 2026-11-13).
+    await expect(page).toHaveURL(/\/new\/card\/keep/, { timeout: LONG });
+    await expect(page.getByRole("heading", { level: 1 })).toHaveText(`Keep ${name}?`);
+    await expect(page.getByTestId("card-keep-words")).toContainText("Restored film cameras for people buying their first one");
+    await page.getByTestId("card-keep").click();
     await expect(page).toHaveURL(/\/new\/card\/[0-9a-f-]{36}$/, { timeout: LONG });
     await expect(page.getByRole("heading", { level: 1 })).toHaveText(`${name} is yours`);
     await expect(page.getByTestId("card-kept-next")).toBeVisible();

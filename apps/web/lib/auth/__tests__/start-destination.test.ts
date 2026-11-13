@@ -6,10 +6,10 @@ const B = "22222222-2222-4222-8222-222222222222";
 const EXAMPLE = "33333333-3333-4333-8333-333333333333";
 
 describe("startDestination (the routing table for a person just signed in)", () => {
-  it("lands on the idea box's claimed card before anything else, profile or not (founder, 2026-11-13)", () => {
-    expect(startDestination({ profileComplete: false, businesses: [], lastBusinessId: null, claimedIdeaId: A })).toBe(`/new/card/${A}`);
-    expect(startDestination({ profileComplete: true, businesses: [{ id: B }], lastBusinessId: B, claimedIdeaId: A })).toBe(`/new/card/${A}`);
-    expect(startDestination({ profileComplete: true, businesses: [{ id: B }], lastBusinessId: B, claimedIdeaId: null })).toBe(`/b/${B}/today`);
+  it("lands on the idea box's waiting card before anything else, profile or not (founder, 2026-11-13)", () => {
+    expect(startDestination({ profileComplete: false, businesses: [], lastBusinessId: null, keepCardPath: "/new/card/keep" })).toBe("/new/card/keep");
+    expect(startDestination({ profileComplete: true, businesses: [{ id: B }], lastBusinessId: B, keepCardPath: "/new/card/keep?claim=x" })).toBe("/new/card/keep?claim=x");
+    expect(startDestination({ profileComplete: true, businesses: [{ id: B }], lastBusinessId: B, keepCardPath: null })).toBe(`/b/${B}/today`);
   });
 
   it("asks for the profile first", () => {

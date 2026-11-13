@@ -30,6 +30,7 @@ Project `foundmill` on the Hobby team `fm-2f083c2b` (`team_ekFhICxivRGPOQizeTB5l
 | `NEXT_PUBLIC_SUPABASE_URL` | the Supabase project URL |
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | the Supabase anon key |
 | `NEXT_PUBLIC_INTEGRATIONS_MODE` | `mock` until live keys exist |
+| `IDEA_COOKIE_DOMAIN` | `foundmill.com`, the same as the api's: the keep step clears the idea box's cookie with it (server-only, not `NEXT_PUBLIC_`) |
 | `NEXT_PUBLIC_TURNSTILE_SITE_KEY` | Cloudflare Turnstile's site key for the idea box (docs/IDEA_BOX.md; widget "Foundmill idea box", hosts foundmill.com and www.foundmill.com, mode Invisible). Public by design. Unset, the box sends the mock token, which only a development gateway accepts: on staging and production every draft is refused until it is set |
 | `NEXT_PUBLIC_APP_URL` | optional; leave unset. The canonical origin magic links return to and the www redirect points at; unset means `https://foundmill.com` (`APP_ORIGIN`). Set it only if the canonical address ever changes, and never to the www host |
 

@@ -13,7 +13,7 @@ import { TRPCError } from "@trpc/server";
 import { repos, IDEA_DRAFT_HOLD_MS } from "@foundmill/db";
 import { IdeaToken } from "@foundmill/shared";
 import { z } from "zod";
-import { claimIdeaBoxDraft, ideaTokenHash } from "../services/idea-box";
+import { claimIdeaBoxDraft, ideaTokenHash, previewIdeaBoxDraft } from "../services/idea-box";
 import { protectedProcedure, publicProcedure, router } from "../trpc";
 
 /** How soon after signing in the email link's claim token still claims. */
@@ -28,15 +28,21 @@ const confirmedProcedure = publicProcedure.use(({ ctx, next }) => {
   return next({ ctx: { ...ctx, userId: ctx.userId, email: ctx.email } });
 });
 
+/** The link's claim token counts only right after a sign-in. */
+const freshClaim = (ctx: { authenticatedAt: Date | null }, claim: string | null | undefined) => (!!ctx.authenticatedAt && Date.now() - ctx.authenticatedAt.getTime() <= CLAIM_FRESH_MS ? (claim ?? null) : null);
+
 export const ideaBoxRouter = router({
   /**
-   * The cookie's token claims at any time. The sign-in link's claim token claims only right after a sign-in
-   * (`CLAIM_FRESH_MS`): a link someone else sends to a person who is already signed in cannot drop a card into their deck.
+   * The card waiting to be kept, without keeping it: the cookie's, the sign-in link's (right after a sign-in only), or
+   * the one the person's waitlist entry holds. Null when there is none.
    */
-  claim: protectedProcedure.input(ClaimInput).mutation(async ({ ctx, input }) => {
-    const fresh = !!ctx.authenticatedAt && Date.now() - ctx.authenticatedAt.getTime() <= CLAIM_FRESH_MS;
-    return claimIdeaBoxDraft(ctx.db, ctx.userId, { token: input.token, claim: fresh ? input.claim : null });
-  }),
+  preview: protectedProcedure.input(ClaimInput).query(async ({ ctx, input }) => previewIdeaBoxDraft(ctx.db, ctx.userId, { token: input.token, claim: freshClaim(ctx, input.claim) })),
+  /**
+   * Keeps it ("Keep this card", a POST from /new/card/keep). The link's claim token counts only within `CLAIM_FRESH_MS`
+   * of a sign-in, so a link someone else sends to a person who is already signed in cannot reach their deck, and the
+   * press itself means nobody's card lands in a deck unseen.
+   */
+  claim: protectedProcedure.input(ClaimInput).mutation(async ({ ctx, input }) => claimIdeaBoxDraft(ctx.db, ctx.userId, { token: input.token, claim: freshClaim(ctx, input.claim) })),
 });
 
 export const waitlistRouter = router({
