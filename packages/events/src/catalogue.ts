@@ -2043,7 +2043,7 @@ const FounderNoticeFacts = z.strictObject({
 });
 
 const founderNoticeSent = declareAccountEvent("founder_notice.sent", FounderNoticeFacts, {
-  doc: "For the person emailed: Foundmill sent you a founder notice (a founder's role went below a founder's, a founder was removed, the project's deletion was asked for or canceled). Written by the gateway's `/v1/notify/email` after each such email, once per notice and person (idempotency key `founder_notice:<audit entry id>`), to the reader's own account events: a current founder's, the affected person's, or a founder's removed or demoted in the last 7 days. The payload is the notice, the project's and the record's ids, whether it offered the one-click cancel, and `simulated`; never who did it or whom it was about, never the address. Not an outcome of any project.",
+  doc: "For the person emailed: Foundmill sent you a founder notice (a founder's role went below a founder's, a founder was removed, the project's deletion was asked for or canceled). Written by the gateway's `/v1/notify/email` after each such email, once per notice and person (idempotency key `founder_notice:<audit entry id>`), to the reader's own account events: a current founder's, the affected person's, or a former founder's for a deletion request (someone else demoted or removed them within 30 days before it, or after it), or the receipt to the person who asked for a deletion. The payload is the notice, the project's and the record's ids, whether it offered the one-click cancel, and `simulated`; never who did it or whom it was about, never the address. Not an outcome of any project.",
   consumers: ["stream"],
   recordIds: ["businessId", "notificationId"],
 });

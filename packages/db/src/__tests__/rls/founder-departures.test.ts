@@ -6,15 +6,19 @@
  *     role that was not a founder's, never between owner and cofounder, never for an example membership, never while
  *     `fm_purge_business` removes the project or when the account goes;
  *   - the person reads their own rows, a founder of the project the project's, nobody else (another business's founders
- *     included), and no client role reads the cancel token's hash or writes the table;
- *   - the one-click cancel lasts at most 7 days from the departure and works once;
+ *     included), and no client role writes the table;
+ *   - a former founder for a deletion request: someone else's change within 30 days before it or after it, not back as a
+ *     founder; never a founder's own leaving;
+ *   - `founder_cancel_links`: service role only (no client role reads or writes it, in any business); a link works once,
+ *     before its end;
+ *   - a member cannot write, change or delete a suppression entry with a hard reason;
  *   - `fm_account_event_types()` lists `founder_notice.sent`, and `founder_notifications` takes `founder_notice`;
  *   - a founder notice stops only for a bounce or a spam report (`isHardSuppressed`).
  */
 import { createHash, randomBytes } from "node:crypto";
 import { and, eq, sql } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { FORMER_FOUNDER_CANCEL_WINDOW_MS, HARD_SUPPRESSION_REASONS } from "@foundmill/shared";
+import { FORMER_FOUNDER_LOOKBACK_MS, HARD_SUPPRESSION_REASONS } from "@foundmill/shared";
 import { repos } from "../../repos";
 import * as s from "../../schema";
 import { createTestDb, type TestHarness } from "../../testing/pglite";
@@ -46,7 +50,7 @@ describe("the trigger on memberships", () => {
   it("a founder lowered by another founder is `demoted`, with the new role and who did it", async () => {
     await h.asUser(A.ownerId).run((tx) => repos.memberships.setRole(tx, A.businessId, cofounder, "member"));
     const [row] = await departuresOf(A.businessId, cofounder);
-    expect(row).toMatchObject({ how: "demoted", priorRole: "cofounder", newRole: "member", byUserId: A.ownerId, cancelTokenHash: null });
+    expect(row).toMatchObject({ how: "demoted", priorRole: "cofounder", newRole: "member", byUserId: A.ownerId });
   });
 
   it("then removed: a second row, `removed`, with no role", async () => {
@@ -82,7 +86,7 @@ describe("the trigger on memberships", () => {
     await h.service().run((tx) => tx.delete(s.memberships).where(and(eq(s.memberships.businessId, B.businessId), eq(s.memberships.userId, other))));
     expect(await departuresOf(B.businessId, other)).toMatchObject([{ how: "removed", byUserId: null }]);
     // A founder's own leaving never carries the right to cancel a deletion.
-    expect((await repos.founderDepartures.formerFounders(h.db, B.businessId)).map((r) => r.userId)).toEqual([other]);
+    expect((await repos.founderDepartures.formerFoundersFor(h.db, B.businessId, new Date())).map((r) => r.userId)).toEqual([other]);
   });
 
   it("nothing while the project is purged, nor when the account goes", async () => {
@@ -108,48 +112,61 @@ describe("RLS: who reads a departure", () => {
     await expect(h.anon().run((tx) => tx.select(visible).from(s.founderDepartures))).rejects.toThrow(/permission denied/);
   });
 
-  it("no client role reads the token's hash, and no client role writes", async () => {
-    await expect(h.asUser(cofounder).run((tx) => tx.select({ hash: s.founderDepartures.cancelTokenHash }).from(s.founderDepartures))).rejects.toThrow(/permission denied/);
+  it("no client role writes", async () => {
     await expect(h.asUser(A.ownerId).run((tx) => tx.insert(s.founderDepartures).values({ businessId: A.businessId, userId: A.memberId, priorRole: "owner", how: "removed" }))).rejects.toThrow(RLS_DENIED);
-    await expect(h.asUser(A.ownerId).run((tx) => tx.update(s.founderDepartures).set({ cancelUsedAt: new Date() }).where(eq(s.founderDepartures.userId, cofounder)))).rejects.toThrow(RLS_DENIED);
+    await expect(h.asUser(A.ownerId).run((tx) => tx.update(s.founderDepartures).set({ how: "left" }).where(eq(s.founderDepartures.userId, cofounder)))).rejects.toThrow(RLS_DENIED);
     await expect(h.asUser(cofounder).run((tx) => tx.delete(s.founderDepartures).where(eq(s.founderDepartures.userId, cofounder)))).rejects.toThrow(RLS_DENIED);
     // Nor can a founder plant a departure through the trigger's function.
     await expect(h.asUser(A.ownerId).run((tx) => tx.execute(sql`select fm_memberships_record_founder_departure()`))).rejects.toThrow();
   });
 });
 
-describe("the repo: former founders and the one-click cancel", () => {
-  it("formerFounders: someone else's change in the window, not back as a founder; never a founder's own leaving", async () => {
-    const former = await repos.founderDepartures.formerFounders(h.db, A.businessId);
+describe("the repo: former founders, counted from the request", () => {
+  it("someone else's change within 30 days before a request or after it, not back as a founder", async () => {
+    const now = new Date();
+    const former = await repos.founderDepartures.formerFoundersFor(h.db, A.businessId, now);
     expect(former.map((r) => r.userId)).toEqual([cofounder]);
     expect(former[0]!.how).toBe("removed");
-    // Outside the window: nothing.
-    expect(await repos.founderDepartures.formerFounders(h.db, A.businessId, new Date(Date.now() + FORMER_FOUNDER_CANCEL_WINDOW_MS + 60_000))).toHaveLength(0);
+    // A request made more than 30 days after the departure: no longer one of its former founders.
+    expect(await repos.founderDepartures.formerFoundersFor(h.db, A.businessId, new Date(now.getTime() + FORMER_FOUNDER_LOOKBACK_MS + 60_000))).toHaveLength(0);
+    // A request made before the departure still counts it (the departure came after the request).
+    expect((await repos.founderDepartures.formerFoundersFor(h.db, A.businessId, new Date(now.getTime() - 90 * 86_400_000))).map((r) => r.userId)).toEqual([cofounder]);
     // Back as a founder: no longer a former one.
     await h.db.insert(s.memberships).values({ businessId: A.businessId, userId: cofounder, role: "cofounder" });
-    expect(await repos.founderDepartures.formerFounder(h.db, A.businessId, cofounder)).toBeNull();
+    expect(await repos.founderDepartures.formerFounderFor(h.db, A.businessId, cofounder, now)).toBeNull();
     await h.db.delete(s.memberships).where(and(eq(s.memberships.businessId, A.businessId), eq(s.memberships.userId, cofounder)));
     // That service delete is a new `removed` row; the person is a former founder again.
-    expect((await repos.founderDepartures.formerFounder(h.db, A.businessId, cofounder))?.how).toBe("removed");
+    expect((await repos.founderDepartures.formerFounderFor(h.db, A.businessId, cofounder, now))?.how).toBe("removed");
     // Their home reads it, with the project's name (on the service connection: they can no longer read the business row).
-    const mine = await repos.founderDepartures.forUser(h.db, cofounder, new Date(Date.now() - FORMER_FOUNDER_CANCEL_WINDOW_MS));
+    const mine = await repos.founderDepartures.forUser(h.db, cofounder, new Date(now.getTime() - FORMER_FOUNDER_LOOKBACK_MS));
     expect(mine.map((r) => [r.businessId, r.businessName])).toEqual([[A.businessId, (await repos.businesses.get(h.db, A.businessId)).name]]);
   });
+});
 
-  it("a cancel token: the expiry is cut to the window, it is found by its hash, and it works once", async () => {
-    const departure = (await repos.founderDepartures.formerFounder(h.db, A.businessId, cofounder))!;
-    const hash = hex();
+describe("founder_cancel_links", () => {
+  it("one email's link: found by its hash, works once and before its end; a second link never replaces the first", async () => {
     const request = await repos.audit.append(h.db, A.businessId, { actorKind: "user", actorId: A.ownerId, action: "business.request_deletion", details: {} });
-    expect(await repos.founderDepartures.setCancelToken(h.db, departure.id, { tokenHash: hash, requestId: request.id, expiresAt: new Date(Date.now() + 30 * 86_400_000) })).toBe(true);
-    const row = (await repos.founderDepartures.byCancelTokenHash(h.db, hash))!;
-    expect(row.id).toBe(departure.id);
-    expect(row.cancelExpiresAt!.getTime()).toBe(row.departedAt.getTime() + FORMER_FOUNDER_CANCEL_WINDOW_MS);
-    expect(row.cancelRequestId).toBe(request.id);
-    expect(await repos.founderDepartures.byCancelTokenHash(h.db, "not-a-hash")).toBeNull();
-    expect(await repos.founderDepartures.useCancelToken(h.db, departure.id)).toBe(true);
-    expect(await repos.founderDepartures.useCancelToken(h.db, departure.id)).toBe(false);
-    // The database holds the window too, whatever a writer sends.
-    await expect(h.db.update(s.founderDepartures).set({ cancelExpiresAt: new Date(row.departedAt.getTime() + 8 * 86_400_000) }).where(eq(s.founderDepartures.id, departure.id))).rejects.toThrow();
+    const [first, second] = [hex(), hex()];
+    const a = await repos.founderCancelLinks.create(h.db, { businessId: A.businessId, userId: cofounder, requestId: request.id, tokenHash: first, expiresAt: new Date(Date.now() + 7 * 86_400_000) });
+    const b = await repos.founderCancelLinks.create(h.db, { businessId: A.businessId, userId: cofounder, requestId: request.id, tokenHash: second, expiresAt: new Date(Date.now() + 7 * 86_400_000) });
+    expect((await repos.founderCancelLinks.byTokenHash(h.db, first))!.id).toBe(a.id);
+    expect((await repos.founderCancelLinks.byTokenHash(h.db, second))!.id).toBe(b.id);
+    expect(await repos.founderCancelLinks.byTokenHash(h.db, "not-a-hash")).toBeNull();
+    expect(await repos.founderCancelLinks.use(h.db, a.id)).toBe(true);
+    expect(await repos.founderCancelLinks.use(h.db, a.id)).toBe(false);
+    expect(await repos.founderCancelLinks.use(h.db, b.id, new Date(Date.now() + 8 * 86_400_000))).toBe(false);
+    await repos.founderCancelLinks.remove(h.db, b.id);
+    expect(await repos.founderCancelLinks.byTokenHash(h.db, second)).toBeNull();
+    // An end before the row's own start is refused by the database.
+    await expect(repos.founderCancelLinks.create(h.db, { businessId: A.businessId, userId: cofounder, requestId: request.id, tokenHash: hex(), expiresAt: new Date(Date.now() - 60_000) })).rejects.toThrow();
+  });
+
+  it("no client role reads or writes a link, in its own business or another's (cross-tenant)", async () => {
+    for (const who of [A.ownerId, cofounder, A.memberId, B.ownerId]) {
+      await expect(h.asUser(who).run((tx) => tx.select({ id: s.founderCancelLinks.id }).from(s.founderCancelLinks)), who).rejects.toThrow(/permission denied/);
+      await expect(h.asUser(who).run((tx) => tx.insert(s.founderCancelLinks).values({ businessId: A.businessId, userId: who, requestId: A.inboxItemId, tokenHash: hex(), expiresAt: new Date(Date.now() + 86_400_000) })), who).rejects.toThrow(/permission denied/);
+    }
+    await expect(h.anon().run((tx) => tx.select({ id: s.founderCancelLinks.id }).from(s.founderCancelLinks))).rejects.toThrow(/permission denied/);
   });
 });
 
@@ -171,5 +188,25 @@ describe("the vocabulary and the suppression rule", () => {
     expect(await repos.channels.isHardSuppressed(h.db, B.businessId, spam)).toBe(true);
     expect(await repos.channels.isHardSuppressed(h.db, A.businessId, unsubscribed)).toBe(false);
     expect(await repos.channels.isHardSuppressed(h.db, A.businessId, noInvites)).toBe(false);
+  });
+
+  it("a member cannot plant, change or remove a hard suppression; the policy names the same reasons as the code", async () => {
+    for (const reason of HARD_SUPPRESSION_REASONS) {
+      await expect(h.asUser(A.memberId).run((tx) => tx.insert(s.suppressionList).values({ businessId: A.businessId, emailHash: hex(), reason, scope: "business" }))).rejects.toThrow(RLS_DENIED);
+    }
+    // An ordinary entry still works for a member, and cannot be turned into a hard one.
+    const [row] = await h.asUser(A.memberId).run((tx) => tx.insert(s.suppressionList).values({ businessId: A.businessId, emailHash: hex(), reason: "unsubscribed", scope: "business" }).returning({ id: s.suppressionList.id }));
+    await expect(h.asUser(A.memberId).run((tx) => tx.update(s.suppressionList).set({ reason: HARD_SUPPRESSION_REASONS[0]! }).where(eq(s.suppressionList.id, row!.id)))).rejects.toThrow(RLS_DENIED);
+    // A bounce the mail service reported (the service role) stays, whatever a member tries.
+    const bounced = hex();
+    await repos.channels.addSuppression(h.db, A.businessId, { emailHash: bounced, reason: HARD_SUPPRESSION_REASONS[0]!, scope: "business" });
+    const gone = await h.asUser(A.ownerId).run((tx) => tx.delete(s.suppressionList).where(eq(s.suppressionList.emailHash, bounced)).returning({ id: s.suppressionList.id }));
+    expect(gone).toHaveLength(0);
+    expect(await repos.channels.isHardSuppressed(h.db, A.businessId, bounced)).toBe(true);
+    const [policy] = ((await h.db.execute(sql`select qual, with_check from pg_policies where tablename = 'suppression_list' and policyname = 'suppression_list_write'`)) as unknown as { rows: { qual: string; with_check: string }[] }).rows;
+    for (const reason of HARD_SUPPRESSION_REASONS) {
+      expect(policy!.qual).toContain(reason);
+      expect(policy!.with_check).toContain(reason);
+    }
   });
 });

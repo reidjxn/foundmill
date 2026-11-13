@@ -56,6 +56,22 @@ describe("platform_notify", () => {
     const [sent] = mock.sentFor(TEST_BUSINESS_ID);
     expect((sent!.body as { headers?: unknown }).headers).toBeUndefined();
     expect((sent!.body as { categories: string[] }).categories).toEqual(["foundmill-notify", "foundmill-account-safety"]);
+    // The global unsubscribe list is bypassed, never the bounce or spam lists (no bypass_list_management with it).
+    expect((sent!.body as { mailSettings: unknown }).mailSettings).toEqual({ bypassUnsubscribeManagement: { enable: true } });
+    // Live, the SDK writes it as SendGrid's own field.
+    const seen: Record<string, unknown>[] = [];
+    const live = createPlatformNotifyConnector({
+      secrets: { sendgridApiKey: "SG.platform-test-key" },
+      fetch: routedFetch({
+        "POST https://api.sendgrid.com/v3/mail/send": async (req) => {
+          seen.push((await req.json()) as Record<string, unknown>);
+          return new Response(null, { status: 202, headers: { "x-message-id": "sg-notice-1" } });
+        },
+      }),
+    });
+    expect((await live.callTool("send_notification", { ...notice, accountSafety: true }, makeToolContext(live, { mode: "live" }))).ok).toBe(true);
+    expect(seen[0]!.mail_settings).toEqual({ bypass_unsubscribe_management: { enable: true } });
+    expect(seen[0]!.headers).toBeUndefined();
     // Both, or a false flag, or neither: refused.
     for (const bad of [{ ...mail, accountSafety: true }, { ...notice, accountSafety: false }, notice]) expect((await mock.callTool("send_notification", bad, ctx)).ok, JSON.stringify(Object.keys(bad))).toBe(false);
   });

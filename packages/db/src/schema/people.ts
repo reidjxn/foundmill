@@ -7,11 +7,10 @@
  *   - `accountAdmissions`: account-scoped, one row per account the api admitted other than through SIGNUP_ALLOWLIST.
  *     Service role only.
  *   - `founderDepartures` (0094, security review P2-3): one row each time a membership lost a founder's standing, written
- *     by a trigger on `memberships`; the person reads their own, a founder of the project the project's, nobody the
- *     cancel token's hash. Service role writes the one-click cancel columns.
+ *     by a trigger on `memberships`; the person reads their own, a founder of the project the project's.
+ *   - `founderCancelLinks` (0094): one email's one-click cancel of a deletion request, service role only.
  */
 import { FOUNDER_DEPARTURE_KINDS, INVITATION_ROLES, INVITATION_STATES } from "@foundmill/shared";
-import { sql } from "drizzle-orm";
 import { index, pgTable, text, uniqueIndex, uuid } from "drizzle-orm/pg-core";
 import { authUsers } from "drizzle-orm/supabase";
 import { id, timestamps, tstz } from "./_common";
@@ -76,19 +75,29 @@ export const founderDepartures = pgTable(
     newRole: text("new_role"),
     byUserId: uuid("by_user_id").references(() => authUsers.id, { onDelete: "set null" }),
     departedAt: tstz("departed_at").notNull().defaultNow(),
-    /** SHA-256 of the one-click cancel token, lowercase hex. No client role reads it. */
-    cancelTokenHash: text("cancel_token_hash"),
-    /** The audit entry of the deletion request the link cancels. */
-    cancelRequestId: uuid("cancel_request_id"),
-    cancelExpiresAt: tstz("cancel_expires_at"),
-    cancelUsedAt: tstz("cancel_used_at"),
     ...timestamps(),
   },
-  (t) => [
-    uniqueIndex("founder_departures_cancel_token_key").on(t.cancelTokenHash).where(sql`cancel_token_hash is not null`),
-    index("founder_departures_user_idx").on(t.userId, t.departedAt.desc()),
-    index("founder_departures_business_idx").on(t.businessId, t.departedAt.desc()),
-    index("founder_departures_by_user_idx").on(t.byUserId),
-  ],
+  (t) => [index("founder_departures_user_idx").on(t.userId, t.departedAt.desc()), index("founder_departures_business_idx").on(t.businessId, t.departedAt.desc()), index("founder_departures_by_user_idx").on(t.byUserId)],
 );
 export type FounderDeparture = typeof founderDepartures.$inferSelect;
+
+/**
+ * One email's one-click cancel of a deletion request (0094): the token's SHA-256, the person, the request it cancels and
+ * its end (that request's scheduled day). Works once. Service role only.
+ */
+export const founderCancelLinks = pgTable(
+  "founder_cancel_links",
+  {
+    id: id(),
+    businessId: businessId(),
+    userId: uuid("user_id").notNull().references(() => authUsers.id, { onDelete: "cascade" }),
+    /** The `business.request_deletion` audit entry the link cancels. */
+    requestId: uuid("request_id").notNull(),
+    tokenHash: text("token_hash").notNull(),
+    expiresAt: tstz("expires_at").notNull(),
+    usedAt: tstz("used_at"),
+    ...timestamps(),
+  },
+  (t) => [uniqueIndex("founder_cancel_links_token_key").on(t.tokenHash), index("founder_cancel_links_business_idx").on(t.businessId, t.createdAt.desc()), index("founder_cancel_links_user_idx").on(t.userId)],
+);
+export type FounderCancelLink = typeof founderCancelLinks.$inferSelect;

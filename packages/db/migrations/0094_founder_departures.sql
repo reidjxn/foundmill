@@ -1,32 +1,36 @@
--- 0094 — founder departures and the founder notice (security review P2-3, Nov 13, 2026).
+-- 0094 — founder departures, the one-click cancel and the founder notice (security review P2-3, Nov 13, 2026; reworked
+-- after the second review the same day).
 --
 -- Someone with a founder's standing (an owner or a cofounder) could lower another founder's role, remove them, then ask
 -- for the project's deletion, and the deletion's warning reached only the Inbox of the people still in it. From here on
 -- every founder is emailed about each step (apps/gateway `notify-founder-notice.ts`), and a founder whose standing was
--- taken away by someone else can still cancel a pending deletion of that project for 7 days. This table is what lets
--- that be checked later, once the person is no longer a member and no membership row says they ever were.
+-- taken away by someone else within 30 days before a deletion request, or at any time after it, can cancel that request
+-- until its scheduled day. These two tables are what let that be checked once the person is no longer a member.
 --
 -- `founder_departures`: one row each time a membership loses a founder's standing, written by a trigger on
 -- `memberships` (so every path that lowers or deletes a row is covered, whatever wrote it):
 --   * `how`: `demoted` (someone else changed the role to one below a founder's; `new_role` says which), `removed`
 --     (someone else deleted the row), `left` (the person did it to their own row). A change made by a service, with no
 --     signed-in person, counts as someone else's: the founder did not choose it;
---   * `prior_role`: `owner` or `cofounder`; `by_user_id`: who did it (null for a service, or once that account is gone);
---   * the one-click cancel of a pending deletion (`cancel_*`): the api mints a random 256-bit token for a founder
---     demoted or removed in the last 7 days when a deletion waits, keeps only its SHA-256 here with the audit entry of
---     the request it cancels and the moment it stops working (at most 7 days after the departure), and spends it once
---     (`cancel_used_at`). A later request replaces it. The token travels only in that person's email.
+--   * `prior_role`: `owner` or `cofounder`; `by_user_id`: who did it (null for a service, or once that account is gone).
 -- Not written while `fm_purge_business` removes the project, nor when the business or the account is already gone (a
--- cascade), nor for an example membership.
+-- cascade), nor for an example membership. RLS: the person reads their own rows (they are no longer a member, so nothing
+-- else would let them), a founder of the project reads the project's (they see the same people in Settings › People).
+-- No client role writes it; the trigger is security definer.
 --
--- RLS: the person reads their own rows (they are no longer a member, so nothing else would let them), and a founder of
--- the project reads the project's (they see the same people in Settings › People). Never the token's hash: no client
--- role reads that column. No client role writes the table; the trigger is security definer, and the api writes the
--- cancel columns with the service role.
+-- `founder_cancel_links`: one row per email that carries a one-click cancel of a deletion request. The api mints a random
+-- 256-bit token for one email, keeps only its SHA-256 here with the person, the request it cancels (`request_id`, the
+-- `business.request_deletion` audit entry) and its end (`expires_at`: that request's scheduled day), and deletes the row
+-- when the email is not sent. A link works once (`used_at`), and only for that request while it still waits; a newer
+-- link never replaces an older one. Service role only: no client role reads or writes it.
 --
--- One existing function and one existing check change: `fm_account_event_types()` lists `founder_notice.sent` (the
--- email to each person, an account event because the reader may no longer belong to the project), and
--- `founder_notifications.kind` takes `founder_notice` (the record of that email, beside every other kind).
+-- Two existing things change:
+--   * `fm_account_event_types()` lists `founder_notice.sent` (the email to each person, an account event because the
+--     reader may no longer belong to the project), and `founder_notifications.kind` takes `founder_notice`;
+--   * `suppression_list`'s client write policy (0006) no longer lets a member write, change or delete an entry with a
+--     hard reason (`bounced`, `marked the message as spam`): those come from the mail service's delivery events through
+--     the service role, and they are what stops a founder notice (`HARD_SUPPRESSION_REASONS`), so a member must not be
+--     able to plant one against a founder's address.
 create table founder_departures (
   id uuid primary key default gen_random_uuid(),
   business_id uuid not null references businesses(id) on delete cascade,
@@ -39,20 +43,10 @@ create table founder_departures (
     constraint founder_departures_new_role check (new_role is null or (new_role in ('admin', 'member', 'viewer', 'advisor', 'collaborator'))),
   by_user_id uuid references auth.users(id) on delete set null,
   departed_at timestamptz not null default now(),
-  cancel_token_hash text
-    constraint founder_departures_cancel_token_hash check (cancel_token_hash is null or cancel_token_hash ~ '^[0-9a-f]{64}$'),
-  cancel_request_id uuid,
-  cancel_expires_at timestamptz,
-  cancel_used_at timestamptz,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
-  constraint founder_departures_removed_no_role check (how <> 'removed' or new_role is null),
-  constraint founder_departures_cancel_whole check ((cancel_token_hash is null) = (cancel_request_id is null) and (cancel_token_hash is null) = (cancel_expires_at is null)),
-  constraint founder_departures_cancel_window check (cancel_expires_at is null or cancel_expires_at <= departed_at + interval '7 days'),
-  constraint founder_departures_cancel_by_other check (cancel_token_hash is null or how in ('demoted', 'removed'))
+  constraint founder_departures_removed_no_role check (how <> 'removed' or new_role is null)
 );
---> statement-breakpoint
-create unique index founder_departures_cancel_token_key on founder_departures (cancel_token_hash) where cancel_token_hash is not null;
 --> statement-breakpoint
 create index founder_departures_user_idx on founder_departures (user_id, departed_at desc);
 --> statement-breakpoint
@@ -67,14 +61,42 @@ create policy founder_departures_select on founder_departures for select
 --> statement-breakpoint
 revoke all on founder_departures from public, anon, authenticated;
 --> statement-breakpoint
-grant select (id, business_id, user_id, prior_role, how, new_role, by_user_id, departed_at, cancel_request_id, cancel_expires_at, cancel_used_at, created_at, updated_at) on founder_departures to authenticated;
+grant select on founder_departures to authenticated;
 --> statement-breakpoint
 grant select, insert, update, delete on founder_departures to service_role;
 --> statement-breakpoint
 select fm_track_updated_at('founder_departures');
 --> statement-breakpoint
+create table founder_cancel_links (
+  id uuid primary key default gen_random_uuid(),
+  business_id uuid not null references businesses(id) on delete cascade,
+  user_id uuid not null references auth.users(id) on delete cascade,
+  request_id uuid not null,
+  token_hash text not null
+    constraint founder_cancel_links_token_hash check (token_hash ~ '^[0-9a-f]{64}$'),
+  expires_at timestamptz not null,
+  used_at timestamptz,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  constraint founder_cancel_links_expiry check (expires_at > created_at)
+);
+--> statement-breakpoint
+create unique index founder_cancel_links_token_key on founder_cancel_links (token_hash);
+--> statement-breakpoint
+create index founder_cancel_links_business_idx on founder_cancel_links (business_id, created_at desc);
+--> statement-breakpoint
+create index founder_cancel_links_user_idx on founder_cancel_links (user_id);
+--> statement-breakpoint
+alter table founder_cancel_links enable row level security;
+--> statement-breakpoint
+revoke all on founder_cancel_links from public, anon, authenticated;
+--> statement-breakpoint
+grant select, insert, update, delete on founder_cancel_links to service_role;
+--> statement-breakpoint
+select fm_track_updated_at('founder_cancel_links');
+--> statement-breakpoint
 create function fm_memberships_record_founder_departure() returns trigger
-language plpgsql security definer set search_path = public as $$
+language plpgsql security definer set search_path = pg_catalog, public, pg_temp as $$
 declare
   actor uuid := auth.uid();
 begin
@@ -88,14 +110,14 @@ begin
     return null;
   end if;
   if current_setting('fm.purge_business', true) = old.business_id::text
-    or not exists (select 1 from businesses b where b.id = old.business_id)
+    or not exists (select 1 from public.businesses b where b.id = old.business_id)
     or not exists (select 1 from auth.users u where u.id = old.user_id) then
     return null;
   end if;
   if actor is not null and not exists (select 1 from auth.users u where u.id = actor) then
     actor := null;
   end if;
-  insert into founder_departures (business_id, user_id, prior_role, how, new_role, by_user_id)
+  insert into public.founder_departures (business_id, user_id, prior_role, how, new_role, by_user_id)
   values (
     old.business_id,
     old.user_id,
@@ -128,3 +150,10 @@ delete from events where type = 'founder_notice.sent';
 alter table founder_notifications drop constraint founder_notifications_kind_check;
 --> statement-breakpoint
 alter table founder_notifications add constraint founder_notifications_kind_check check (kind in ('decision_waiting','win','milestone','run_finished','credits','daily_brief','weekly_review','invitation_accepted','founder_notice'));
+--> statement-breakpoint
+-- 0006's client policy, with the hard reasons left to the service role (which bypasses row security).
+drop policy suppression_list_write on suppression_list;
+--> statement-breakpoint
+create policy suppression_list_write on suppression_list for all
+  using (business_id is not null and has_role(business_id, array['owner','admin','member']) and reason not in ('bounced', 'marked the message as spam'))
+  with check (business_id is not null and has_role(business_id, array['owner','admin','member']) and reason not in ('bounced', 'marked the message as spam'));

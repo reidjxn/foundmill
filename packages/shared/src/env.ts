@@ -112,6 +112,8 @@ const Env = z.object({
    * room; and they wait while the projects' mail has used more than 75% of that ceiling.
    */
   PLATFORM_NOTIFY_DAILY_CEILING: z.coerce.number().int().min(1).max(1_000_000).default(1_000),
+  /** Every founder notice together in a UTC day (`pn:safety:day`; security review P2-3): enforced, apart from PLATFORM_NOTIFY_DAILY_CEILING. */
+  PLATFORM_SAFETY_DAILY_CEILING: z.coerce.number().int().min(1).max(1_000_000).default(5_000),
   /** gateway + ingest: signs the custom args on every send and the unsubscribe links, so a delivery event or an unsubscribe is bound to its project. 32+ random bytes. */
   PLATFORM_MAIL_SIGNING_SECRET: z.string().optional(),
   /** ingest: the token the platform's Inbound Parse URL carries as `?token=` (`/mail/inbound`). Never the businesses' SENDGRID_INBOUND_TOKEN. */

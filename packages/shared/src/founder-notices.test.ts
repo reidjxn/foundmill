@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { cancelLinkWords, founderChangeNote, founderNoticeOf, FORMER_PROJECT_CARD, HARD_SUPPRESSION_REASONS, noticeDay, noticeMoment, rolePhrase } from "./founder-notices";
-import { founderNoticeEmail, type FounderNoticeFacts } from "./people-email";
+import { cancelLinkWords, escapeMarkdown, formerFounderCanceledLine, founderChangeNote, founderNoticeOf, FORMER_PROJECT_CARD, HARD_SUPPRESSION_REASONS, noticeDay, noticeMoment, rolePhrase } from "./founder-notices";
+import { founderNoticeEmail, founderNoticeMoreEmail, type FounderNoticeFacts } from "./people-email";
 import { usSpelling } from "./us-spelling";
 
 const base: FounderNoticeFacts = { appName: "Foundmill", notice: "role_changed", reader: "founder", recipientName: "Cara", actorName: "Ana Ruiz", subjectName: "Ben Ode", projectName: "Bread by Bike", when: "Nov 13, 2026 at 3:45 PM EST", fromRole: "cofounder", toRole: "member", link: "https://app.foundmill.test/b/x/settings/members" };
@@ -105,8 +105,42 @@ describe("the other words", () => {
     });
     expect(founderChangeNote({ notice: "removed", actorName: null, subjectName: null, fromRole: "owner", when: "Nov 13, 2026" }).subject).toBe("One of the founders removed a founder");
     expect(FORMER_PROJECT_CARD.title("Bread by Bike")).toBe("Bread by Bike is set to be deleted");
-    expect(cancelLinkWords("expired").description).toMatch(/7 days/);
+    expect(cancelLinkWords("expired").description).toBe("A deletion can be canceled until the day it is set to happen.");
     expect(rolePhrase("admin")).toBe("an admin");
     expect(HARD_SUPPRESSION_REASONS).toEqual(["bounced", "marked the message as spam"]);
+  });
+});
+
+describe("the second review's words", () => {
+  it("the receipt to the person who asked for a deletion: what and when, what to do if it was not them, nobody else", () => {
+    const e = founderNoticeEmail({ ...base, notice: "deletion_requested", reader: "self", recipientName: "Ana", subjectName: null, scheduledFor: "Nov 20, 2026", link: "https://app.foundmill.test/b/x/settings/danger" });
+    expect(e.subject).toBe("You asked to delete Bread by Bike");
+    expect(e.text).toContain("You asked to delete Bread by Bike on Nov 13, 2026 at 3:45 PM EST. It will be deleted on Nov 20, 2026.");
+    expect(e.text).toContain("If this wasn't you, cancel in Settings › Danger zone and secure your account.");
+    expect(e.text).not.toContain("Ana Ruiz");
+    expect(e.text).not.toMatch(/\b(?:alone|on your own|other founders|cofounder)\b/i);
+  });
+
+  it("the one email for the rest of the window: no change and nobody named; it keeps the cancel when there was one", () => {
+    const founder = founderNoticeMoreEmail({ appName: "Foundmill", recipientName: "Cara", projectName: "Bread by Bike", isFounder: true, link: "https://app.foundmill.test/b/x/today" });
+    expect(founder.subject).toBe("More changes in Bread by Bike");
+    expect(founder.text).toContain("than we email about one by one");
+    expect(founder.text).toContain("Open Bread by Bike: https://app.foundmill.test/b/x/today");
+    const former = founderNoticeMoreEmail({ appName: "Foundmill", recipientName: null, projectName: "Bread by Bike", isFounder: false, link: null, cancel: { link: "https://app.foundmill.test/a/T", until: "Nov 20, 2026 at 3:45 PM EST" } });
+    expect(former.text).toContain("Cancel the deletion: https://app.foundmill.test/a/T");
+    expect(former.text).toContain("your home shows it");
+    expect(usSpelling(former.text)).toBe(former.text);
+  });
+
+  it("a name in an Inbox note never becomes a link or markup", () => {
+    const note = founderChangeNote({ notice: "removed", actorName: "[Ana](https://evil.example) *R*", subjectName: "Ben <img src=x> evil.example", fromRole: "cofounder", when: "Nov 13, 2026" });
+    expect(note.body).not.toContain("evil.example");
+    expect(note.body).not.toContain("](");
+    expect(note.body).toContain("\\[Ana\\]");
+    expect(note.body).toContain("\\*R\\*");
+    expect(note.body).toContain("\\<img src=x\\>");
+    expect(note.subject).not.toContain("evil.example");
+    expect(formerFounderCanceledLine("[x](javascript:alert(1))", "Nov 12, 2026")).not.toMatch(/\]\(|javascript/);
+    expect(escapeMarkdown("a_b `c` #d !e |f ~g")).toBe("a\\_b \\`c\\` \\#d \\!e \\|f \\~g");
   });
 });

@@ -69,7 +69,10 @@ export function buildNotificationData(mail: PlatformSendNotificationT): Record<s
     html: mail.html,
     ...(mail.unsubscribeUrl ? { headers: { "List-Unsubscribe": `<${mail.unsubscribeUrl}>`, "List-Unsubscribe-Post": "List-Unsubscribe=One-Click" } } : {}),
     categories: mail.accountSafety ? ["foundmill-notify", "foundmill-account-safety"] : ["foundmill-notify"],
-    mailSettings: { bypassListManagement: { enable: false } },
+    // An account-safety notice bypasses SendGrid's global unsubscribe list only (`bypass_unsubscribe_management`:
+    // "Bounce and spam report lists will still be checked", SendGrid's v3 Mail Send reference; it cannot be combined
+    // with `bypass_list_management`). Group unsubscribes are not bypassed; this email belongs to none.
+    mailSettings: mail.accountSafety ? { bypassUnsubscribeManagement: { enable: true } } : { bypassListManagement: { enable: false } },
     trackingSettings: { subscriptionTracking: { enable: false }, clickTracking: { enable: false, enableText: false }, openTracking: { enable: false } },
   };
 }

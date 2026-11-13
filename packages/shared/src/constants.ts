@@ -639,10 +639,21 @@ export type AccountSafetyEmailKind = (typeof ACCOUNT_SAFETY_EMAIL_KINDS)[number]
 export const FOUNDER_NOTICES = ["role_changed", "removed", "deletion_requested", "deletion_canceled"] as const;
 export type FounderNotice = (typeof FOUNDER_NOTICES)[number];
 /**
- * How long a founder whose standing was taken away (demoted or removed by another founder) may still cancel a pending
- * deletion of that project: from Foundmill's email or the card on their home (security review P2-3).
+ * A former founder (security review P2-3, second review): someone whose founder's standing someone else took away
+ * (demoted or removed) within this long before a deletion request, or at any time after it, hears about that request
+ * and may cancel it until its scheduled day, from Foundmill's email or the card on their home. Counted from the request,
+ * never from the departure alone, so waiting does not wear the right away.
  */
-export const FORMER_FOUNDER_CANCEL_WINDOW_MS = 7 * 86_400_000;
+export const FORMER_FOUNDER_LOOKBACK_MS = 30 * 86_400_000;
+/**
+ * The limits on founder notices and on the steps that send them (security review P2-3, second review):
+ *   - `perRecipientHour` / `perRecipientDay`: founder notices one person gets about one project; above either, one
+ *     "more changes" email for the window and nothing more until it ends (`folded` on the record);
+ *   - `safetyCeilingDefault`: every founder notice together in a UTC day (`pn:safety:day`, PLATFORM_SAFETY_DAILY_CEILING),
+ *     enforced, and apart from the ceiling of every other email to people (`pn:all:day`);
+ *   - `actorPerDay`: how many times one person may lower a founder's role, or ask for a deletion, in one project in a day.
+ */
+export const FOUNDER_NOTICE_LIMITS = { perRecipientHour: 10, perRecipientDay: 30, safetyCeilingDefault: 5_000, actorPerDay: 5 } as const;
 /** How a founder's standing ended (`founder_departures.how`, 0094): by another founder's change, by removal, or by their own. */
 export const FOUNDER_DEPARTURE_KINDS = ["demoted", "removed", "left"] as const;
 export type FounderDepartureKind = (typeof FOUNDER_DEPARTURE_KINDS)[number];

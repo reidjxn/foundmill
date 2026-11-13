@@ -10,6 +10,7 @@
  * None of them says or implies that working alone is a problem: they say who did what, when, and what the reader can do.
  */
 import { isOwnerRole, type FounderNotice, type MembershipRole } from "./constants";
+import { withoutLinks } from "./notify-email";
 
 /** The audit actions a notice is read from (the gateway reads the entry again; the api sends its id only). */
 export const FOUNDER_NOTICE_ACTIONS = {
@@ -106,17 +107,29 @@ const clip = (value: string, max: number): string => {
   return v.length <= max ? v : `${v.slice(0, max - 1).trimEnd()}…`;
 };
 
+/** Markdown's own characters, backslashed, so a name in a note's body stays the words it is (no link, no emphasis). */
+export const escapeMarkdown = (value: string): string => value.replace(/[\\`*_[\]()<>!#|~]/g, (c) => `\\${c}`);
+
+/** A person-written name for a note: one line, no link, no address (`withoutLinks`); `md` also escapes it for a body. */
+const nameIn = (value: string, max: number, md: boolean): string => {
+  const plain = clip(withoutLinks(value), max);
+  return md ? escapeMarkdown(plain) : plain;
+};
+
 /**
  * The Inbox note the business gets when a founder's role is lowered or a founder is removed (the Chief of Staff writes
  * it; every founder reads the project's Inbox). Written only when another founder than the one who made the change is
  * there to read it: nobody is told about what they just did themselves.
  */
 export function founderChangeNote(f: { notice: "role_changed" | "removed"; actorName: string | null; subjectName: string | null; fromRole: string; toRole?: string | null; when: string }): { subject: string; body: string } {
-  const actor = f.actorName ? clip(f.actorName, 60) : "One of the founders";
-  const subject = f.subjectName ? clip(f.subjectName, 60) : "a founder";
+  // The subject is plain text; the body is markdown, so the names in it are escaped as well.
+  const actorText = f.actorName ? nameIn(f.actorName, 60, false) : "One of the founders";
+  const subjectText = f.subjectName ? nameIn(f.subjectName, 60, false) : "a founder";
+  const actor = f.actorName ? nameIn(f.actorName, 60, true) : "One of the founders";
+  const subject = f.subjectName ? nameIn(f.subjectName, 60, true) : "a founder";
   if (f.notice === "role_changed") {
     return {
-      subject: clip(`${actor} changed ${subject}'s role`, 80),
+      subject: clip(`${actorText} changed ${subjectText}'s role`, 80),
       body: `${actor} changed ${subject}'s role from ${rolePhrase(f.fromRole)} to ${rolePhrase(f.toRole ?? "member")} on ${f.when}. If this wasn't agreed, a founder can change it back in Settings › People.`,
     };
   }
@@ -128,18 +141,30 @@ export function founderChangeNote(f: { notice: "role_changed" | "removed"; actor
 
 /** The line the "Deletion canceled" note adds when someone who was a founder until recently canceled it. */
 export function formerFounderCanceledLine(name: string | null, until: string): string {
-  return `${name ? clip(name, 60) : "Someone who was a founder"}, a founder of this project until ${until}, canceled it. Canceling gave them nothing else: they are still out of the project.`;
+  return `${name ? nameIn(name, 60, true) : "Someone who was a founder"}, a founder of this project until ${until}, canceled it. Canceling gave them nothing else: they are still out of the project.`;
 }
 
 /** The card on the home of a founder who was removed (or demoted) while a deletion of that project waits. */
 export const FORMER_PROJECT_CARD = {
   title: (projectName: string) => `${clip(projectName, 80)} is set to be deleted`,
-  body: (f: { scheduledFor: string; until: string }) => `It will be permanently deleted on ${f.scheduledFor}. You were one of its founders until recently, so you can still cancel the deletion until ${f.until}.`,
+  body: (f: { scheduledFor: string; until: string }) => `It will be permanently deleted on ${f.scheduledFor}. You were one of its founders until recently, so you can cancel the deletion until ${f.until}.`,
   note: "Canceling keeps the project as it is. It does not give you your place back: to rejoin, one of the founders sends you a new invitation.",
   button: "Cancel the deletion",
   confirm: "Yes, cancel the deletion",
   keep: "Not now",
   done: (projectName: string) => `The deletion of ${clip(projectName, 80)} is canceled, and every founder was told.`,
+} as const;
+
+/**
+ * The email that stands for every further founder notice about one project in the window, once a person has had the
+ * window's share (`FOUNDER_NOTICE_LIMITS`): it says there were more changes and where to look, and keeps the cancel
+ * when the notice it stands for carried one.
+ */
+export const FOUNDER_NOTICE_MORE = {
+  subject: (projectName: string) => `More changes in ${clip(withoutLinks(projectName), 120)}`,
+  lead: (projectName: string) => `There were more changes to who runs ${clip(withoutLinks(projectName), 120)}, or to whether it is deleted, than we email about one by one. We won't email about each of them for a while.`,
+  founder: "Open the project to see where things stand: Settings › People and Settings › Danger zone.",
+  other: "If you are still one of its founders, open Settings › People and Settings › Danger zone to see where things stand. If a deletion waits that you can still cancel, your home shows it.",
 } as const;
 
 /** The words of `/a/<token>` when the link cancels a deletion. */
@@ -152,7 +177,7 @@ export function cancelLinkWords(state: "ready" | "canceled" | "used" | "expired"
     case "used":
       return { title: "Already used", description: "This link has been used. Each link works once." };
     case "expired":
-      return { title: "This link has expired", description: "A former founder can cancel a deletion for 7 days after leaving the project." };
+      return { title: "This link has expired", description: "A deletion can be canceled until the day it is set to happen." };
     default:
       return { title: "This link no longer works", description: "The deletion was canceled or changed, or you can no longer cancel it." };
   }

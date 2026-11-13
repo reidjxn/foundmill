@@ -8,7 +8,7 @@
  * them says or implies anything about work or a job: they say what is yours and who is asking.
  */
 import { NOTIFY_NO_REPLY_LINE, withoutLinks, type NotifyEmailText } from "./notify-email";
-import { FORMER_PROJECT_CARD, rolePhrase } from "./founder-notices";
+import { FORMER_PROJECT_CARD, FOUNDER_NOTICE_MORE, rolePhrase } from "./founder-notices";
 import { INVITATION_ROLE_SENTENCE, invitationRolePhrase, type InvitationRole } from "./people";
 
 const oneLine = (value: string, max: number): string => {
@@ -83,14 +83,15 @@ export function invitationAcceptedEmail(f: { appName: string; recipientName: str
 /**
  * What a founder notice says (security review P2-3; `ACCOUNT_SAFETY_EMAIL_KINDS`). Built by the gateway from its own
  * reads of the audit entry, the people's profile names, the project's name and the recipient's zone. `reader` is who it
- * goes to: a current founder, the person it happened to (`subject`), or a founder removed or demoted in the last 7 days
- * (`former`), who may carry the one-click link that cancels the deletion. There is no off link: these emails reach the
+ * goes to: a current founder, the person it happened to (`subject`), a founder someone else removed or demoted within 30
+ * days before a deletion request or after it (`former`), who may carry the one-click link that cancels the deletion, or,
+ * for a deletion request only, the person who asked (`self`: the receipt, whatever the team's size). There is no off link: these emails reach the
  * founders whatever their email switches say, so the footer says why instead.
  */
 export interface FounderNoticeFacts {
   appName: string;
   notice: "role_changed" | "removed" | "deletion_requested" | "deletion_canceled";
-  reader: "founder" | "subject" | "former";
+  reader: "founder" | "subject" | "former" | "self";
   recipientName: string | null;
   /** Who did it, by their profile name (null: none yet). */
   actorName: string | null;
@@ -149,6 +150,15 @@ export function founderNoticeEmail(f: FounderNoticeFacts): NotifyEmailText {
       }
       break;
     case "deletion_requested": {
+      if (f.reader === "self") {
+        // The receipt: what was asked and when, and what to do if it was not them. Nobody else is named or counted.
+        title = `You asked to delete ${project}`;
+        piece = {
+          paragraphs: [hi, `You asked to delete ${project} on ${f.when}.${f.scheduledFor ? ` It will be deleted on ${f.scheduledFor}.` : ""}`, "If this wasn't you, cancel in Settings › Danger zone and secure your account."],
+          ...(f.link ? { button: { label: "Open the Danger zone", href: f.link } } : {}),
+        };
+        break;
+      }
       title = `${actor} asked to delete ${project}`;
       const lead = `${actor} asked for ${project} to be permanently deleted on ${f.when}. It will be deleted${f.scheduledFor ? ` on ${f.scheduledFor}` : ""} unless a founder cancels.`;
       if (f.reader === "founder") piece = { paragraphs: [hi, lead, "To keep it, cancel from Settings › Danger zone before then. Nothing is deleted until that day."], ...(f.link ? { button: { label: "Open the Danger zone", href: f.link } } : {}) };
@@ -170,4 +180,23 @@ export function founderNoticeEmail(f: FounderNoticeFacts): NotifyEmailText {
     }
   }
   return render(title, { ...piece, footer });
+}
+
+/**
+ * The one email that stands for every further founder notice about a project in the window, once the person has had the
+ * window's share (`FOUNDER_NOTICE_LIMITS`). It names nobody and no change; it keeps the cancel when the notice it stands
+ * for carried one.
+ */
+export function founderNoticeMoreEmail(f: { appName: string; recipientName: string | null; projectName: string; isFounder: boolean; link: string | null; cancel?: { link: string; until: string } | null }): NotifyEmailText {
+  const project = oneLine(f.projectName, 120);
+  const hi = f.recipientName ? `Hi ${oneLine(f.recipientName, 60)},` : "Hi,";
+  return render(FOUNDER_NOTICE_MORE.subject(f.projectName), {
+    paragraphs: [hi, FOUNDER_NOTICE_MORE.lead(f.projectName), f.isFounder ? FOUNDER_NOTICE_MORE.founder : FOUNDER_NOTICE_MORE.other],
+    ...(f.cancel
+      ? { button: { label: FORMER_PROJECT_CARD.button, href: f.cancel.link }, after: [`${project} is set to be deleted. You can cancel the deletion until ${f.cancel.until}.`, FORMER_PROJECT_CARD.note] }
+      : f.link
+        ? { button: { label: `Open ${project}`, href: f.link } }
+        : {}),
+    footer: `You get this because you are, or until recently were, a founder of ${project} on ${f.appName}. Emails about who runs a project and whether it is deleted always reach its founders, whatever your email settings say.`,
+  });
 }
