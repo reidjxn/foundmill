@@ -41,6 +41,9 @@ export interface ReaskOptions {
   outputNoun?: string;
 }
 
+/** Display text that cannot open Markdown's image or link syntax (`![…](…)`, `[…](…)`, `[…][…]`). */
+const inertDisplay = (display: string): string => display.replace(/\[/g, "(").replace(/\]/g, ")");
+
 /** True when the output is invalid and the composer has not yet used its single re-ask. */
 export function shouldReask(validation: ValidationResult, reasksSoFar: number): boolean {
   return !validation.valid && reasksSoFar < MAX_REASKS;
@@ -111,23 +114,40 @@ export function buildReask(validation: ValidationResult, manifest: Manifest, opt
 /**
  * Final fallback after the re-ask also failed: unknown-id mentions become their display text, invisible-entity mentions
  * are removed entirely (the founder must not see them), and malformed `[[ent:` openings are reduced to their display.
- * The result always validates against the manifest.
+ * The result always validates against the manifest. A recovered display keeps no square brackets (they become
+ * parentheses, as `formatEntityMarkup` does with `]`): it can be a name someone outside the business chose (a customer's
+ * name at checkout), and it must stay text in the note, never an image or a link.
  */
 export function stripInvalidMentions(text: string, manifest: Manifest): string {
   const segments = parseEntityMarkup(text).map((seg) => {
     if (seg.kind !== "entity") return seg;
     const entity = manifest.get(seg.id);
-    if (!entity) return { kind: "text" as const, text: seg.display };
+    if (!entity) return { kind: "text" as const, text: inertDisplay(seg.display) };
     if (!entity.visible) return { kind: "text" as const, text: "" };
     return seg;
   });
   let out = serializeSegments(segments);
-  // Malformed openings: keep whatever display text is recoverable, drop the rest. Valid markup is untouched.
-  for (const bad of findMalformedMarkup(out).sort((a, b) => b.index - a.index)) {
-    const pipe = bad.raw.indexOf("|");
-    const close = bad.raw.indexOf("]]");
-    const display = pipe !== -1 ? bad.raw.slice(pipe + 1, close === -1 ? undefined : close).trim() : "";
-    out = out.slice(0, bad.index) + display + out.slice(bad.index + bad.raw.length);
+  // Malformed openings: keep whatever display text is recoverable. Valid markup is untouched. Each span is read from the
+  // text as it was before any replacement (its whole length, not the 120 characters of `raw`), and spans never overlap
+  // (one ends where the next opening starts), so replacing from the last to the first keeps every earlier index right.
+  const before = out;
+  for (const bad of findMalformedMarkup(before).sort((a, b) => b.index - a.index)) {
+    const span = before.slice(bad.index, bad.end);
+    const id = /^\[\[ent:[^\s|\]]*/.exec(span)![0];
+    if (span[id.length] !== "|") {
+      // No display to recover (a `|` further on is the note's own: a table, "A | B"): only the `[[ent:…` token goes, with
+      // its `]]` when it closes at once, never the words after it.
+      const token = span.startsWith("]]", id.length) ? id.length + 2 : id.length;
+      out = out.slice(0, bad.index) + out.slice(bad.index + token);
+      continue;
+    }
+    // The display runs to the `]]`; with none, to the end of its line, and the lines after it stay as they are.
+    const close = span.indexOf("]]");
+    const lineEnd = span.indexOf("\n");
+    const stop = close !== -1 ? close : lineEnd !== -1 ? lineEnd : span.length;
+    const display = span.slice(id.length + 1, stop).trim();
+    const rest = close !== -1 ? bad.end : bad.index + stop;
+    out = out.slice(0, bad.index) + inertDisplay(display) + out.slice(rest);
   }
   return out.replace(/[ \t]{2,}/g, " ").replace(/ +([,.;:!?])/g, "$1");
 }
