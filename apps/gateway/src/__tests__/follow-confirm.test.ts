@@ -12,7 +12,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { createPlatformMailMock, followConfirmNonceHash, readFollowConfirmToken, suppressionHashOfEmail } from "@foundmill/connectors";
 import { repos, suppressionHash } from "@foundmill/db";
 import { APP_NAME } from "@foundmill/config";
-import { FOLLOW_CONFIRM_EMAIL } from "@foundmill/shared";
+import { builtOnWords, FOLLOW_CONFIRM_EMAIL } from "@foundmill/shared";
 import { DEV_PLATFORM_MAIL_SECRET, platformMailDayKey, PLATFORM_MAIL_CEILING_KEY, type PlatformMailConfig } from "../platform-mail";
 import { CONFIRM_FOLLOW_ROUTE } from "../follow-confirm";
 import { signServiceToken } from "../tokens";
@@ -68,6 +68,9 @@ describe("follow confirmation (gateway)", () => {
     const link = body.text.match(/http:\/\/localhost:4005\/mail\/confirm\?t=(\S+)/);
     expect(link).not.toBeNull();
     expect(body.text.startsWith(FOLLOW_CONFIRM_EMAIL.text("Gateway Test Club", APP_NAME, link![0]))).toBe(true);
+    // A project on the free plan: the mark as one sentence after the body, words only (the confirm link stays the only link of the body).
+    expect(body.text).toContain(`\n\nGateway Test Club is built on ${APP_NAME}.`);
+    expect(FOLLOW_CONFIRM_EMAIL.text("Gateway Test Club", APP_NAME, link![0], builtOnWords(APP_NAME).foot("Gateway Test Club")).match(/https?:\/\//g)).toHaveLength(1);
     // The unsubscribe footer and header are there like on every message from the address.
     expect(body.headers["List-Unsubscribe"]).toMatch(/\/mail\/unsubscribe\?t=/);
     const claims = readFollowConfirmToken(DEV_PLATFORM_MAIL_SECRET, decodeURIComponent(link![1]!), Date.now());
@@ -81,6 +84,19 @@ describe("follow confirmation (gateway)", () => {
     const audit = (await repos.audit.list(g.db, g.businessId, { action: "gateway.platform_mail.follow_confirmation" })).items;
     expect(audit.length).toBeGreaterThanOrEqual(1);
     expect(JSON.stringify(audit)).not.toContain("maya@");
+  });
+
+  it("a project on a paid plan sends the confirmation without the 'Built on' sentence", async () => {
+    await repos.businesses.update(g.db, g.businessId, { planTier: "pro" });
+    try {
+      const f = await pendingFollower("paid-plan@example.com");
+      const before = mock.sentFor(g.businessId).length;
+      expect((await ask({ businessId: g.businessId, consentId: f.consentId, email: "paid-plan@example.com", nonce: f.nonce })).status).toBe(200);
+      const text = (mock.sentFor(g.businessId).slice(before)[0]!.body as { text: string }).text;
+      expect(text).not.toContain("is built on");
+    } finally {
+      await repos.businesses.update(g.db, g.businessId, { planTier: "free" });
+    }
   });
 
   it("only for the pending record the api reserved, for exactly its address", async () => {

@@ -25,7 +25,7 @@ export function HowItWorks() {
     <Section id="how">
       <SectionHeading id="how" eyebrow="How it works" title="From an idea to a running business, one cycle at a time." lede="You do not manage prompts. You run a business: set the direction, approve what matters, and let the team carry the rest." />
       {/* Two by two: each step's product part keeps the width it has in the app (a concept card, the brand picker). */}
-      <ol className="grid grid-cols-2 gap-6">
+      <ol className="grid grid-cols-2 gap-10">
         <Step n="01" icon={Lightbulb} title="Shape the idea" text={
             <>
               Start from a sentence, or import what already exists: your <Term id="repository">repository</Term>, documents, trackers, revenue and company registry. Concepts are drafted around your skills, time and money, and rated for <Term id="fit">fit</Term>.
@@ -55,18 +55,16 @@ function Step({ n, icon, title, text, children, delay }: { n: string; icon: Luci
   return (
     <Reveal as="li" delay={delay}>
       <Glass className="flex h-full flex-col overflow-hidden">
-        <div className="relative h-88 overflow-hidden border-b border-subtle bg-ink/70">
-          {children}
-          <span className="absolute right-3 top-3 z-10">
-            <Chip tone="neutral">Example</Chip>
-          </span>
-        </div>
-        <div className="flex flex-col gap-3 p-6">
+        <div className="relative h-88 overflow-hidden border-b border-subtle bg-ink/70">{children}</div>
+        <div className="flex flex-col gap-3 p-8">
+          {/* The Example chip sits on the step's own line, so it never covers the product part above. */}
           <span className="flex items-center gap-3">
             <span className="grid size-9 place-items-center rounded-full border" style={{ borderColor: "color-mix(in oklab, var(--kit-primary) 70%, var(--white))", background: "radial-gradient(circle at 50% 35%, color-mix(in oklab, var(--kit-primary) 70%, var(--white)), color-mix(in oklab, var(--kit-primary) 55%, var(--bg-ink)) 75%)" }}>
               <Icon icon={icon} size={16} className="text-kit-on-primary" />
             </span>
             <span className="t-label tabular-nums">Step {n}</span>
+            <span className="flex-1" />
+            <Chip tone="neutral">Example</Chip>
           </span>
           <h3 className="t-display-md text-primary" data-testid="step-title">
             {title}

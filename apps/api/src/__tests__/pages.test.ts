@@ -90,6 +90,8 @@ describe("writing and publishing", () => {
     const live = first.page;
     expect(live).toMatchObject({ live: true, changed: false, published: page() });
     expect(live.publishedAt).toBeInstanceOf(Date);
+    // Dated by the database when it went live (0090), not by a client.
+    expect(Math.abs(live.publishedAt!.getTime() - Date.now())).toBeLessThan(60_000);
     const url = `http://localhost:3000/p/${live.slug}`;
     expect(await pageEvents(b.id)).toEqual([{ type: "page.published", payload: expect.objectContaining({ slug: live.slug, url }) }]);
     expect((await repos.audit.list(hz.db, b.id, { action: "page.published" })).items).toHaveLength(1);
@@ -97,7 +99,13 @@ describe("writing and publishing", () => {
     // Signed out: exactly what the page shows.
     const anon = hz.caller(null);
     const pub = await anon.publicPage.bySlug({ slug: live.slug });
-    expect(pub).toEqual({ slug: live.slug, url, name: b.name, pitch: page().pitch, about: page().about, forWhom: page().forWhom, stage: "building", publishedAt: live.publishedAt, brandPrimary: expect.any(String), brandSecondary: expect.any(String), logo: null, founderNames: [], followForm: true });
+    expect(pub).toEqual({ slug: live.slug, url, name: b.name, pitch: page().pitch, about: page().about, forWhom: page().forWhom, stage: "building", publishedAt: live.publishedAt, brandPrimary: expect.any(String), brandSecondary: expect.any(String), logo: null, founderNames: [], followForm: true, mark: true, story: false });
+    // The mark is the free plan's: a paid plan removes it, for the visitor and in the founders' own view (docs/NETWORK.md F2).
+    expect((await b.owner.page.get({ businessId: b.id })).mark).toBe(true);
+    await repos.businesses.update(hz.db, b.id, { planTier: "pro" });
+    expect((await anon.publicPage.bySlug({ slug: live.slug }))!.mark).toBe(false);
+    expect((await b.owner.page.get({ businessId: b.id })).mark).toBe(false);
+    await repos.businesses.update(hz.db, b.id, { planTier: "free" });
 
     // A draft edit shows "changes not yet published" and does not reach the public page.
     const edited = await b.member.page.saveDraft({ businessId: b.id, draft: page({ stage: "live" }) });
@@ -110,11 +118,36 @@ describe("writing and publishing", () => {
     const down = await b.owner.page.unpublish({ businessId: b.id });
     expect(down).toMatchObject({ live: false, published: null, draft: { stage: "live" } });
     expect(down.unpublishedAt).toBeInstanceOf(Date);
+    expect(Math.abs(down.unpublishedAt!.getTime() - Date.now())).toBeLessThan(60_000);
+    // Taken down, the day it went live is kept.
+    expect(down.publishedAt).toEqual(live.publishedAt);
     expect(await anon.publicPage.bySlug({ slug: live.slug })).toBeNull();
     expect((await pageEvents(b.id)).map((e) => e.type)).toEqual(["page.published", "page.published", "page.unpublished"]);
     // A second take-down changes nothing and writes nothing.
     await b.owner.page.unpublish({ businessId: b.id });
     expect((await pageEvents(b.id)).map((e) => e.type)).toEqual(["page.published", "page.published", "page.unpublished"]);
+  });
+
+  it("an owner's direct write cannot backdate or forward-date a live page, or mark when it was taken down", async () => {
+    const b = await project("Dated Page");
+    const { page: live } = await b.owner.page.publish({ businessId: b.id, content: page() });
+    const anon = hz.caller(null);
+    // The owner's own session, straight at the table (around the api).
+    const direct = hz.h.asUser(b.ownerId);
+    for (const typed of ["2020-01-01T00:00:00Z", "2031-01-01T00:00:00Z"]) {
+      await direct.execute(sql`update project_pages set published_at = ${typed}::timestamptz where business_id = ${b.id}`);
+      expect((await anon.publicPage.bySlug({ slug: live.slug }))!.publishedAt).toEqual(live.publishedAt);
+      expect((await b.member.page.get({ businessId: b.id })).publishedAt).toEqual(live.publishedAt);
+    }
+    // The api's own publish and take-down still work afterwards, with the dates the database recorded.
+    const again = await b.owner.page.publish({ businessId: b.id, content: page({ stage: "live" }) });
+    expect(again.outcome === "published" && again.page.publishedAt).toEqual(live.publishedAt);
+    const down = await b.owner.page.unpublish({ businessId: b.id });
+    const takenDown = down.unpublishedAt!;
+    await direct.execute(sql`update project_pages set unpublished_at = '2020-01-01T00:00:00Z', published_at = '2020-01-01T00:00:00Z' where business_id = ${b.id}`);
+    expect(await b.owner.page.get({ businessId: b.id })).toMatchObject({ live: false, publishedAt: live.publishedAt, unpublishedAt: takenDown });
+    // Today's first-week line reads the day the page really went live.
+    expect((await repos.pages.get(hz.db, b.id))!.publishedAt).toEqual(live.publishedAt);
   });
 
   it("names the owners only when the page says so", async () => {

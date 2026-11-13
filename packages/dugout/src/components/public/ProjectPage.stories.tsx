@@ -1,6 +1,10 @@
 import type { Decorator, Meta, StoryObj } from "@storybook/react-vite";
+import { APP_NAME } from "@foundmill/config";
+import { builtOnWords } from "@foundmill/shared/project-page";
 import { ProjectFollowForm } from "./ProjectFollowForm";
 import { ProjectPage } from "./ProjectPage";
+
+const BUILT_ON = builtOnWords(APP_NAME);
 
 /**
  * The public page at the two widths it is checked at: 390 px (a phone, the smallest the outer product supports) and
@@ -15,7 +19,7 @@ const meta = {
     docs: {
       description: {
         component:
-          "A project's public page at `/p/<slug>` (docs/THESIS_REVIEW.md package 1.1): the logo and name, the one-line pitch as the headline, about in the reading measure, who it is for, the stage, who built it when the founders chose to say, the publish date and “Made with Foundmill”. Brand colors are accents only. Plain text only, every string a text node. Server-safe.",
+          "A project's public page at `/p/<slug>` (docs/THESIS_REVIEW.md package 1.1): the logo and name, the one-line pitch as the headline, about in the reading measure, who it is for, the stage, who built it when the founders chose to say, the publish date and, at the foot, the small “Built on Foundmill” mark (a quiet link for a visitor, plain words for a signed-in member, nothing on a paid plan). Brand colors are accents only. Plain text only, every string a text node. Server-safe.",
       },
     },
   },
@@ -73,6 +77,24 @@ export const WithFollowDone390: Story = {
   args: { variant: "page", follow: <ProjectFollowForm name="Northwind Skincare" state={{ status: "done" }} /> },
 };
 /** The console's preview draws the form disabled. */
+export const MarkForMember390: Story = {
+  name: "390 px · the mark for a signed-in member (plain words, no link)",
+  decorators: [Phone],
+  args: { mark: "member" },
+};
+export const PaidPlanNoMark390: Story = {
+  name: "390 px · a paid plan (no mark, no foot)",
+  decorators: [Phone],
+  args: { mark: "none" },
+};
+export const WithFollowDoneBuiltOn390: Story = {
+  name: "390 px · after a visitor follows a free project",
+  decorators: [Phone],
+  args: {
+    variant: "page",
+    follow: <ProjectFollowForm name="Northwind Skincare" state={{ status: "done" }} builtOn={{ line: BUILT_ON.afterFollow("Northwind Skincare"), linkLabel: BUILT_ON.afterFollowLink, href: "#" }} />,
+  },
+};
 export const WithFollowPreview1280: Story = {
   name: "1280 px · the follow form in the preview",
   decorators: [Desktop],

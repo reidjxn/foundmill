@@ -205,16 +205,56 @@ describe("only a channel that can really act runs (founder, 2026-11-11)", () => 
   const stagingActs = (env: Partial<OrchestratorTestHarness["deps"]["env"]> = {}) => createChannelActivities({ ...t.deps, env: { ...t.deps.env, APP_ENV: "staging", LIVE_CONNECTORS: "", ...env } });
 
   it("a channel with no publisher stops at the first step on staging: nothing planned, no campaign, a clear note", async () => {
-    const channel = await channelFor("social");
+    const channel = await channelFor("content");
     const before = (await repos.campaigns.list(t.db, t.businessId, { channelId: channel.id, limit: 200 })).items.length;
-    const out = await steps(channel.id, "social", ["plan"], emptyChannelState(), 0, stagingActs());
+    const out = await steps(channel.id, "content", ["plan"], emptyChannelState(), 0, stagingActs());
     expect(out.stop).toBe(true);
-    expect(out.note).toBe(channelUnavailableNote("Social media", { available: false, reason: "no_publisher" }));
+    expect(out.note).toBe(channelUnavailableNote("Content marketing", { available: false, reason: "no_publisher" }));
     expect(out.note).toMatch(/not available yet \(no tool publishes to it yet\).*engine stopping/);
-    const created = await stagingActs().channelStep({ businessId: t.businessId, channelId: channel.id, channelKey: "social", step: "create", weekIndex: 0, state: emptyChannelState() });
+    const created = await stagingActs().channelStep({ businessId: t.businessId, channelId: channel.id, channelKey: "content", step: "create", weekIndex: 0, state: emptyChannelState() });
     expect(created.stop).toBe(true);
     expect(created.state.campaignId).toBeNull();
     expect((await repos.campaigns.list(t.db, t.businessId, { channelId: channel.id, limit: 200 })).items.length).toBe(before);
+  });
+
+  it("tap-to-post: social is available to the founder and never a channel an agent launches or measures; every step stops and says who posts", async () => {
+    const channel = await channelFor("social");
+    const before = (await repos.campaigns.list(t.db, t.businessId, { channelId: channel.id, limit: 200 })).items.length;
+    const metricsBefore = (await repos.channels.metricsSummary(t.db, t.businessId, {})).channels.find((c) => c.channelId === channel.id) ?? null;
+    const byTap = { available: true, reason: "by_tap", byTap: true } as const;
+    const note = channelUnavailableNote("Social media", byTap);
+    expect(note).toBe("Social media is posted by the founder, one press at a time (tap-to-post): no agent can publish there, so the engine is stopping; nothing planned, launched or measured");
+    // The agent-facing text says the founder posts it, and never that anything was posted or that it is "not available".
+    expect(note).not.toMatch(/not available|was posted|published it/);
+    for (const step of ["plan", "create", "approve", "launch", "measure", "learn", "report"] as const) {
+      const out = await stagingActs().channelStep({ businessId: t.businessId, channelId: channel.id, channelKey: "social", step, weekIndex: 0, state: emptyChannelState() });
+      expect(out.stop, step).toBe(true);
+      expect(out.note, step).toBe(note);
+      expect(out.state.campaignId, step).toBeNull();
+      expect(out.awaitingApprovalId, step).toBeNull();
+    }
+    // Nothing drafted, nothing launched, no number invented.
+    expect((await repos.campaigns.list(t.db, t.businessId, { channelId: channel.id, limit: 200 })).items.length).toBe(before);
+    expect((await repos.channels.metricsSummary(t.db, t.businessId, {})).channels.find((c) => c.channelId === channel.id) ?? null).toEqual(metricsBefore);
+
+    // A campaign the engine scheduled before (in test, where every channel runs) is ended at launch, never marked live.
+    const scheduled = await withMode("automated", () => steps(channel.id, "social", ["plan", "create", "approve"]));
+    expect((await repos.campaigns.get(t.db, t.businessId, scheduled.state.campaignId!)).status).toBe("scheduled");
+    const launched = await steps(channel.id, "social", ["launch"], scheduled.state, 0, stagingActs());
+    expect(launched.stop).toBe(true);
+    expect(launched.note).toBe(note);
+    expect((await repos.campaigns.get(t.db, t.businessId, scheduled.state.campaignId!)).status).toBe("ended");
+    const events = (await repos.events.list(t.db, t.businessId, { type: "campaign.launched", limit: 200 })).items.filter((e) => (e.payload as { campaignId: string }).campaignId === scheduled.state.campaignId);
+    expect(events).toHaveLength(0);
+    // Whatever else is connected changes nothing: no tool publishes to social.
+    await repos.integrations.upsert(t.db, t.businessId, { connectorKey: "github", status: "connected", authKind: "app" });
+    expect((await steps(channel.id, "social", ["plan"], emptyChannelState(), 0, stagingActs({ LIVE_CONNECTORS: "github,sendgrid" }))).note).toBe(note);
+    // In offline tracking (the founder's own choice) it runs like any offline channel: the agent prepares, the founder submits.
+    const offline = await channelFor("social", { kitMode: true });
+    const planned = await steps(offline.id, "social", ["plan"], emptyChannelState(), 0, stagingActs());
+    expect(planned.stop).toBe(false);
+    expect(planned.note).toMatch(/^Plan for Social media/);
+    await channelFor("social", { kitMode: false });
   });
 
   it("a campaign the engine had scheduled is never marked live: the launch step ends it and stops", async () => {

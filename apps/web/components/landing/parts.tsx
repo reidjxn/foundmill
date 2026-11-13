@@ -9,8 +9,12 @@ import { calendarDay } from "./examples/helpers";
 
 export const SIGN_IN = "/login";
 
+/**
+ * The page column: 92 rem (about 1,200 px at the app's 13 px root), so the product's own screens shown here (the deck,
+ * the lead's profile, the live tiles) get the room they have in the app; headings and ledes keep their own reading width.
+ */
 export function Container({ children, className }: { children: ReactNode; className?: string }) {
-  return <div className={cn("mx-auto w-full max-w-7xl px-10", className)}>{children}</div>;
+  return <div className={cn("mx-auto w-full max-w-[92rem] px-10", className)}>{children}</div>;
 }
 
 export function Eyebrow({ children, tone = "var(--accent-link)" }: { children: ReactNode; tone?: string }) {
@@ -25,7 +29,7 @@ export function Eyebrow({ children, tone = "var(--accent-link)" }: { children: R
 export function SectionHeading({ id, eyebrow, title, lede, align = "left", tone }: { id: string; eyebrow: string; title: ReactNode; lede?: ReactNode; align?: "left" | "center"; tone?: string }) {
   return (
     <Reveal>
-      <header className={cn("flex max-w-3xl flex-col gap-4", align === "center" && "mx-auto items-center text-center")}>
+      <header className={cn("flex max-w-3xl flex-col gap-5", align === "center" && "mx-auto items-center text-center")}>
         <Eyebrow tone={tone}>{eyebrow}</Eyebrow>
         <h2 id={`${id}-title`} tabIndex={-1} className="t-display-xl text-balance text-primary outline-none">
           {title}
@@ -38,8 +42,8 @@ export function SectionHeading({ id, eyebrow, title, lede, align = "left", tone 
 
 export function Section({ id, children, className, label }: { id: string; children: ReactNode; className?: string; label?: string }) {
   return (
-    <section id={id} aria-labelledby={label ? undefined : `${id}-title`} aria-label={label} className={cn("relative scroll-mt-16 py-24", className)}>
-      <Container className="flex flex-col gap-14">{children}</Container>
+    <section id={id} aria-labelledby={label ? undefined : `${id}-title`} aria-label={label} className={cn("relative scroll-mt-16 py-36", className)}>
+      <Container className="flex flex-col gap-20">{children}</Container>
     </section>
   );
 }

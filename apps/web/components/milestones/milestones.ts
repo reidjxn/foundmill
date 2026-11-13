@@ -1,10 +1,14 @@
 /**
- * Milestones (the product word for the trophy cabinet, CLAUDE.md vocabulary; BUILD §11.4 "Trophy cabinet"): the eight
- * trophies from `@foundmill/journey` matched to stored milestones, plus the timeline of every other milestone
- * (releases, decisions, incorporation, funding, launch). Pure and unit-tested; the screen feeds it `journey.ribbon`.
+ * Milestones (the product word for the trophy cabinet, CLAUDE.md vocabulary; BUILD §11.4 "Trophy cabinet"): the
+ * definitions from `@foundmill/journey` (the two early ones, "Page live" and "First follower", then the eight of
+ * customers and revenue) matched to stored milestones, plus the timeline of every other milestone (releases,
+ * decisions, incorporation, funding, launch). Pure and unit-tested; the screen feeds it `journey.ribbon`.
+ *
+ * A reached milestone can be shown on the project's public page (migration 0089; docs/NETWORK.md F2, F3): `pageStateOf`
+ * says where each one stands, from the row's `visibility` and whether the page is live.
  */
-import type { DateFormatPrefs, TrophyCard } from "@foundmill/dugout";
-import { TROPHIES, formatThreshold, thresholdFor, type TrophyDefinition } from "@foundmill/journey";
+import type { DateFormatPrefs, TrophyCard, TrophyPageState } from "@foundmill/dugout";
+import { TROPHIES, eventTrophyDescription, formatThreshold, isShowableTrophyKey, isTrophyKey, thresholdFor, type TrophyDefinition } from "@foundmill/journey";
 import { monthlyRevenueWords, type MilestoneKind } from "@foundmill/shared";
 import { formatDate, formatNumber } from "@/lib/format";
 
@@ -25,6 +29,7 @@ export interface MilestoneRowLike {
  * when the business's customers buy once (`recurring === false`).
  */
 export function describeTrophy(t: TrophyDefinition, currency: string, recurring?: boolean | null): string {
+  if (t.metric === "event") return eventTrophyDescription(t) ?? "";
   if (t.metric === "customers") return t.threshold === 1 ? "The first paying customer." : `${formatNumber(t.threshold)} paying customers.`;
   if (t.metric === "mrrMinor") return monthlyRevenueTrophyWords(t, currency, recurring);
   return "A signed contract above the enterprise threshold.";
@@ -53,8 +58,28 @@ export function trophyKeyOf(m: MilestoneRowLike): string | null {
 
 const SHAREABLE_VISIBILITY = new Set(["public", "connections", "community"]);
 
+/** What the screen knows of the project's public page: whether it is live now. Null when it cannot be shown on (a sample business, a reader with no view of the page). */
+export interface MilestonePageFacts {
+  live: boolean;
+}
+
+/**
+ * Where a reached milestone stands on the project's public page, or null when it cannot be shown: only a milestone the
+ * platform recorded under its key (`ref.trophyKey`) can. Shown and the page live: "shown". Shown before and the page
+ * not live: "waiting" (it can still be hidden). Not shown: "hidden" while the page is live (it can be shown), nothing
+ * otherwise, since showing depends only on the page being published.
+ */
+export function pageStateOf(m: MilestoneRowLike | undefined, page: MilestonePageFacts | null | undefined): TrophyPageState | null {
+  if (!m || !page) return null;
+  const key = typeof m.ref?.trophyKey === "string" ? m.ref.trophyKey : null;
+  if (!key || !isTrophyKey(key)) return null;
+  if (m.visibility === "public") return page.live ? "shown" : "waiting";
+  // Only a milestone recorded from one real outside event can be shown (a counted or estimated one cannot yet).
+  return page.live && isShowableTrophyKey(key) ? "hidden" : null;
+}
+
 /** One card per trophy definition; won ones carry the date, the amount and (with permission) the customer. */
-export function trophyCards(milestones: readonly MilestoneRowLike[] | undefined, currency: string, live: boolean, recurring?: boolean | null): TrophyCard[] {
+export function trophyCards(milestones: readonly MilestoneRowLike[] | undefined, currency: string, live: boolean, recurring?: boolean | null, page?: MilestonePageFacts | null): TrophyCard[] {
   return TROPHIES.map((t) => {
     const label = t.label(currency, recurring);
     const won = (milestones ?? []).find((m) => trophyKeyOf(m) === t.key || (m.kind === t.kind && (m.label === label || m.label === t.label(currency))));
@@ -70,6 +95,7 @@ export function trophyCards(milestones: readonly MilestoneRowLike[] | undefined,
       currency,
       shareable: live && !!won && SHAREABLE_VISIBILITY.has(won.visibility ?? "private"),
       estimate: !!won && ref.estimate === true,
+      page: pageStateOf(won, page),
     };
   });
 }

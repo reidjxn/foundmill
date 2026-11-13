@@ -41,7 +41,7 @@ import { LAWFUL_BASES, lawfulBasisLabel, suppressionOf } from "./channel-data";
 import { RelativeDateText } from "../dates";
 import { fitColumns, fitToGrow, type ColumnFit } from "../fit";
 import { InlineError, SIMPLE_VIEW_ID, Screen, fitTableHeight, plainWords, sourceLabel, useAction, useDefaultViewId } from "./shared";
-import type { AgentRow, LeadRow, Page } from "./types";
+import type { AgentRow, AgentsListResponse, LeadRow, Page } from "./types";
 
 export const LEAD_VIEWS: SavedView[] = [
   // Simple (UX plan §7.10): who the lead is, where they stand and whether we may contact them.
@@ -169,7 +169,7 @@ export function LeadsScreen({ businessId }: ModuleScreenProps) {
   const departments = useDepartments();
   const boardHref = moduleHref(businessId, departments.data, "distribution", "formation");
   const leads = useWidgetQuery<Page<LeadRow>>("crm.roles.byRole", { role: "lead", limit: 500 });
-  const agents = useWidgetQuery<AgentRow[]>("team.agents.list", {});
+  const agents = useWidgetQuery<AgentsListResponse>("team.agents.list", {});
   const action = useAction();
   // Saved per person, business and table (audit #204): they come back after a reload. Simple opens first while guidance is on.
   const defaultViewId = useDefaultViewId("all");
@@ -179,7 +179,7 @@ export function LeadsScreen({ businessId }: ModuleScreenProps) {
   useBusinessEvents(() => leads.refetch(), ["lead.created", "lead.replied"]);
 
   const rows = useMemo(() => leads.data?.items ?? [], [leads.data]);
-  const columns = useMemo(() => fitToGrow(leadColumns(businessId, agents.data), LEAD_FIT), [businessId, agents.data]);
+  const columns = useMemo(() => fitToGrow(leadColumns(businessId, agents.data?.agents), LEAD_FIT), [businessId, agents.data]);
   const openProfile = useCallback((r: LeadRow) => navigate(routes.crm(businessId, r.id)), [businessId, navigate]);
 
   const endRole = useCallback(

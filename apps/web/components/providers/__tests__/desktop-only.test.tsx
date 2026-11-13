@@ -50,7 +50,7 @@ describe("desktop only (audit PAS-4: a phone rendered a 390 px slice of a 1280 p
   });
 
   it("a project's public page and a person's public profile work from 390 px: the one list of small-screen routes, nothing else changes", () => {
-    expect(SMALL_SCREEN_PREFIXES).toEqual(["/p/", "/u/", "/login", "/home", "/a/", "/email/pause", "/terms", "/privacy", "/", "/new/card/", "/public-profile", "/network", "/communities", "/communities/", "/profiles/"]);
+    expect(SMALL_SCREEN_PREFIXES).toEqual(["/p/", "/u/", "/m/", "/login", "/home", "/a/", "/email/pause", "/terms", "/privacy", "/", "/new/card/", "/public-profile", "/network", "/communities", "/communities/", "/profiles/"]);
     expect(worksOnSmallScreens("/new/card/11111111-1111-4111-8111-111111111111")).toBe(true);
     // The landing page's hero (founder, 2026-11-13): exactly "/", never a prefix of every path.
     expect(worksOnSmallScreens("/")).toBe(true);
@@ -73,13 +73,20 @@ describe("desktop only (audit PAS-4: a phone rendered a 390 px slice of a 1280 p
       expect(worksOnSmallScreens(p), p).toBe(false);
     expect(worksOnSmallScreens("/p/northwind-skincare")).toBe(true);
     expect(worksOnSmallScreens("/u/maya-okafor")).toBe(true);
+    // A project's story hangs under its page; a milestone's card has its own prefix (docs/NETWORK.md F2, F3).
+    expect(worksOnSmallScreens("/p/northwind-skincare/story")).toBe(true);
+    expect(worksOnSmallScreens("/m/7a21e15f-87b0-4000-ac49-c98b9d627e98")).toBe(true);
     for (const p of [
       "/loginx",
       "/profiles",
       "/p",
       "/u",
+      "/m",
+      "/milestones",
+      "/messages",
       "/public-profile/x",
       "/b/x/today",
+      "/b/x/milestones",
       null,
     ])
       expect(worksOnSmallScreens(p), String(p)).toBe(false);

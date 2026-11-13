@@ -8,6 +8,7 @@ import {
   PAGE_SLUG_MAX,
   PAGE_STAGE_LABELS,
   builtByLine,
+  builtOnWords,
   clipText,
   firstSentence,
   isPageSlug,
@@ -256,3 +257,23 @@ describe("the page's words", () => {
     for (const reason of PAGE_HOLD_REASONS) expect(PAGE_HOLD_MESSAGES[reason].length).toBeGreaterThan(20);
   });
 });
+
+describe("the 'Built on' mark", () => {
+  it("is three short things: the mark, the line after a follow with its link, and the foot of the confirmation", () => {
+    const words = builtOnWords("Foundmill");
+    expect(words.mark).toBe("Built on Foundmill");
+    expect(words.afterFollow("Maple\nBakes")).toBe("Maple Bakes is built on Foundmill.");
+    expect(words.afterFollowLink).toBe("Start your own");
+    expect(words.afterFollowStoryLink).toBe("See how it was made");
+    expect(words.foot("Maple Bakes")).toBe("Maple Bakes is built on Foundmill.");
+    expect(words.previewNote).toBe("The small line at the foot is removed on a paid plan.");
+  });
+
+  it("the confirmation email carries the foot only when it is given one, on one line, after everything else", () => {
+    const link = "https://mail.example/mail/confirm?t=abc";
+    const plain = FOLLOW_CONFIRM_EMAIL.text("Maple Bakes", "Foundmill", link);
+    expect(FOLLOW_CONFIRM_EMAIL.text("Maple Bakes", "Foundmill", link, null)).toBe(plain);
+    expect(FOLLOW_CONFIRM_EMAIL.text("Maple Bakes", "Foundmill", link, "Maple Bakes is built on\nFoundmill.")).toBe(`${plain}\n\nMaple Bakes is built on Foundmill.`);
+  });
+});
+

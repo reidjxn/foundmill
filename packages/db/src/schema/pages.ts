@@ -9,6 +9,8 @@ import { businessId } from "./_refs";
  * `draft` is what the founder is writing; `published` is the copy the public page shows (null until published and
  * again after it is taken down). Members read; owner, admin and member write the draft; only an owner or an admin
  * changes `published`, the publish columns or a live page's slug (trigger `fm_project_pages_guard`), and only they delete.
+ * `published_at` and `unpublished_at` are the database's to write for a signed-in client (0090): its clock when the page
+ * goes live or is taken down, unchanged otherwise, whatever the client sent.
  */
 export const projectPages = pgTable(
   "project_pages",
@@ -19,7 +21,7 @@ export const projectPages = pgTable(
     slug: text("slug").notNull(),
     draft: jsonb("draft").$type<ProjectPageContent>().notNull(),
     published: jsonb("published").$type<ProjectPageContent>(),
-    /** When the page last went live (kept after it is taken down). */
+    /** When the page last went live (kept after it is taken down). Recorded by the database for a client role (0090). */
     publishedAt: tstz("published_at"),
     publishedBy: uuid("published_by").references(() => authUsers.id, { onDelete: "set null" }),
     /** When it was taken down; null while it is live or was never published. */
@@ -54,6 +56,24 @@ export const publicProjectPages = pgView("public_project_pages", {
   founderNames: text("founder_names").array().notNull(),
 }).existing();
 export type PublicProjectPage = typeof publicProjectPages.$inferSelect;
+
+/**
+ * The milestones a project's founders chose to show (0089): the rows of its story (`/p/<slug>/story`) and its cards
+ * (`/m/<id>`). The service connection's only, like the page view. Exactly these columns: the milestone's id, the page's
+ * address, the key, the public words (built from the key, so nothing of a customer travels) and the date. Rows exist
+ * only for a milestone that is shown and not archived, while its business has a row in `public_project_pages`.
+ */
+export const publicProjectMilestones = pgView("public_project_milestones", {
+  id: uuid("id").notNull(),
+  slug: text("slug").notNull(),
+  key: text("key").notNull(),
+  label: text("label").notNull(),
+  achievedAt: tstz("achieved_at").notNull(),
+}).existing();
+export type PublicProjectMilestone = typeof publicProjectMilestones.$inferSelect;
+
+/** The columns `public_project_milestones` exposes, in order (the view's test compares the catalog with this list). */
+export const PUBLIC_PROJECT_MILESTONE_COLUMNS = ["id", "slug", "key", "label", "achieved_at"] as const;
 
 /** The columns `public_project_pages` exposes, in order (the view's test compares the catalog with this list). */
 export const PUBLIC_PROJECT_PAGE_COLUMNS = ["slug", "published", "published_at", "name", "logo_version", "kit_primary", "kit_secondary", "founder_names"] as const;
