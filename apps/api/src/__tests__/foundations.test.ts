@@ -11,7 +11,9 @@ import { businessFoundations, repos } from "@foundmill/db";
 import { MockModelClient, ModelUnavailableError, PRICING_CURRENCY, type ModelClient, type StreamStructuredRequest } from "@foundmill/models";
 import { eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it, onTestFinished, vi } from "vitest";
+import { createApp } from "../app";
 import { encodeJobId, importJobKey } from "../services/import";
+import { createTransactionGate, gateLimitsFor } from "../services/tx-gate";
 import { FOUNDATIONS_LOCAL_CONCURRENCY, FOUNDATIONS_LOCAL_TIMEOUT_MS, FOUNDATIONS_STALE_MS, acquireFoundationsSlot, foundationsSlots, importJobIdOf, projectPageStore, runFoundationsLocally, settleFoundationRuns } from "../services/foundations";
 import { createApiHarness, fakeTemporalClient, type ApiHarness } from "./harness";
 
@@ -647,3 +649,49 @@ describe("product.foundations — the team drafts the project page first (packag
   });
 });
 
+
+describe("product.foundations — the in-process run outlives the request that started it", () => {
+  /**
+   * The api over HTTP with the transaction gate, as in production (createContextFactory): every request's `ctx.db` is a
+   * view tied to that request's abort signal. The browser closing the request (a navigation) once `ensure` has answered
+   * must not stop the drafting it started in the background (Nov 13, 2026: "The drafting did not finish" on Today, and
+   * no "Check it and publish" note in Needs you).
+   */
+  function gatedApp(userId: string) {
+    const user = { userId, email: null, authenticatedAt: new Date() };
+    const app = createApp({ ...hz.deps, txGate: createTransactionGate(gateLimitsFor(10)), auth: { ...hz.deps.auth, resolve: async () => user, verify: async () => user } });
+    return (procedure: string, input: unknown, signal: AbortSignal) => app.request(`/trpc/${procedure}`, { method: "POST", headers: { authorization: "Bearer x", "content-type": "application/json" }, body: JSON.stringify({ json: input }), signal });
+  }
+
+  it("the drafting finishes, the page is drafted and the page-ready note is posted after the client closes the request", async () => {
+    const a = await commitDoorA("closed-request@test.local");
+    const send = gatedApp(a.userId);
+    const request = new AbortController();
+    const res = await send("product.foundations.ensure", { businessId: a.businessId }, request.signal);
+    expect(res.status).toBe(200);
+    expect(((await res.json()) as { result: { data: { json: unknown } } }).result.data.json).toMatchObject({ status: "drafting", started: true });
+    // The browser navigates away: the request's signal aborts while the drafting is still running.
+    request.abort();
+    await settleFoundationRuns();
+    expect(await a.caller.product.foundations.get({ businessId: a.businessId })).toMatchObject({ status: "ready", error: null });
+    expect((await repos.pages.get(hz.db, a.businessId))?.draft).toBeTruthy();
+    const notes = (await repos.inbox.list(hz.db, a.businessId, { limit: 100 })).items.filter((i) => isPageReadyDecision(i.decision));
+    expect(notes).toHaveLength(1);
+  });
+
+  it("a failure after the client closed the request is still recorded, so Try again is offered", async () => {
+    const a = await commitDoorA("closed-request-fail@test.local");
+    const working = hz.deps.models;
+    hz.deps.models = new MockModelClient({ failWith: { foundations: new ModelUnavailableError("upstream 529 overloaded") } });
+    try {
+      const request = new AbortController();
+      const res = await gatedApp(a.userId)("product.foundations.ensure", { businessId: a.businessId }, request.signal);
+      expect(res.status).toBe(200);
+      request.abort();
+      await settleFoundationRuns();
+    } finally {
+      hz.deps.models = working;
+    }
+    expect(await a.caller.product.foundations.get({ businessId: a.businessId })).toMatchObject({ status: "failed", error: "The model service did not answer. Try again in a few minutes." });
+  });
+});

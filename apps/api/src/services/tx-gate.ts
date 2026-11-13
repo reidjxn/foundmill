@@ -23,6 +23,12 @@
  *     so a permit that is never returned slows requests down and is seen in the log, but never stops them for good;
  *   - a request the client has closed starts no further transactions (`signal`): its queued procedures fail at once
  *     instead of doing work nobody reads while the next attempt of the same batch waits behind them.
+ *
+ * Work a request starts but does not wait for (the in-process foundations and research drafting, portraits, a journey
+ * refresh) outlives the request, so it must not use the request's view: once the browser closes the request (a
+ * navigation is enough), every transaction it tries fails with `RequestClosedError`, its failure write included. It
+ * takes `detachFromRequest(ctx.db)`, the database the view was made from, and is background work like the relays
+ * (2026-11-13, the drafting that "did not finish" on a fresh PGlite stack).
  */
 import { AsyncLocalStorage } from "node:async_hooks";
 import { TRPCError } from "@trpc/server";
@@ -60,6 +66,18 @@ export class RequestClosedError extends TRPCError {
     super({ code: "CLIENT_CLOSED_REQUEST", message: "The request was closed before this part of it started" });
     this.name = "RequestClosedError";
   }
+}
+
+/** On a request's view: the database it was made from (`detachFromRequest`). */
+const UNGATED = Symbol("foundmill.txGate.ungated");
+
+/**
+ * The database for work that outlives the request: the ungated database a request's view (`forRequest`) was made from,
+ * or `db` itself when it is not a view (the in-process caller, tests). Its transactions wait for no permit and are not
+ * tied to the request's signal, so a client that closes the request never stops them.
+ */
+export function detachFromRequest<D extends object>(db: D): D {
+  return ((db as { [UNGATED]?: D })[UNGATED] ?? db) as D;
 }
 
 type Release = () => void;
@@ -200,7 +218,10 @@ export function createTransactionGate(options: TransactionGateOptions): Transact
         }
       };
       // The same database with one method replaced: every other property resolves through the prototype chain.
-      return Object.create(db, { transaction: { value: gated, enumerable: false, writable: false, configurable: true } }) as D;
+      return Object.create(db, {
+        transaction: { value: gated, enumerable: false, writable: false, configurable: true },
+        [UNGATED]: { value: detachFromRequest(db), enumerable: false, writable: false, configurable: false },
+      }) as D;
     },
     stats: () => ({ held: total.held, waiting: total.waiting, peak: total.peak, timeouts, total: total.limit, perRequest }),
   };

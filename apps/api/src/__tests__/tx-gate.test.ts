@@ -9,7 +9,7 @@
  */
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createApp } from "../app";
-import { createTransactionGate, gateLimitsFor, RequestClosedError, Semaphore } from "../services/tx-gate";
+import { createTransactionGate, detachFromRequest, gateLimitsFor, RequestClosedError, Semaphore } from "../services/tx-gate";
 import { createApiHarness, type ApiHarness } from "./harness";
 
 const tick = (ms = 0) => new Promise<void>((resolve) => setTimeout(resolve, ms));
@@ -128,6 +128,22 @@ describe("the transaction gate", () => {
     const late = await batch(gate.forRequest(pool, closed.signal), 3, 1);
     expect(late.every((r) => r.status === "rejected")).toBe(true);
     expect(pool.stats.started).toBe(14);
+  });
+
+  it("work that outlives the request takes the database the view was made from: a closed request never stops it", async () => {
+    const pool = fakePool(10);
+    const gate = createTransactionGate(gateLimitsFor(10));
+    const closed = new AbortController();
+    const view = gate.forRequest(pool, closed.signal);
+    expect(detachFromRequest(view)).toBe(pool);
+    // Not a view (the in-process caller, tests): the database itself.
+    expect(detachFromRequest(pool)).toBe(pool);
+    closed.abort();
+    await expect(view.transaction(() => tick(1))).rejects.toBeInstanceOf(RequestClosedError);
+    const background = await batch(detachFromRequest(view), 3, 1);
+    expect(background.every((r) => r.status === "fulfilled")).toBe(true);
+    // Ungated, like the relays: it takes no permit.
+    expect(gate.stats()).toMatchObject({ held: 0, peak: 0 });
   });
 
   it("many rounds of batches with early closes: the pool always recovers and the probe never waits long", async () => {

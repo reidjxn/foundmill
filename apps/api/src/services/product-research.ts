@@ -20,6 +20,7 @@ import { PRICING_CURRENCY, type ModelClient } from "@foundmill/models";
 import type { ResearchArtifactKind, ResearchArtifactStatus, ResearchStatus } from "@foundmill/shared";
 import { writeEventRow } from "./events";
 import type { ApiLogger } from "./log";
+import { detachFromRequest } from "./tx-gate";
 
 export interface ResearchDeps {
   db: Db;
@@ -199,7 +200,8 @@ export async function retryResearchPlan(deps: ResearchDeps, businessId: string, 
 }
 
 function startRun(deps: ResearchDeps, businessId: string, attempt: number): void {
-  const run = runResearchPlanLocally(deps, businessId, attempt).finally(() => inFlight.delete(run));
+  // The run outlives the request that started it: the ungated database, never the request's view (services/tx-gate.ts).
+  const run = runResearchPlanLocally({ ...deps, db: detachFromRequest(deps.db) }, businessId, attempt).finally(() => inFlight.delete(run));
   inFlight.add(run);
 }
 

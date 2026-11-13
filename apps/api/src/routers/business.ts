@@ -19,6 +19,7 @@ import { WORKFLOWS, workflowIds } from "../services/temporal";
 import { modelLimited } from "../services/model-limits";
 import { noteAsSeenBy } from "../services/inbox-redaction";
 import { signoffViews, startDistribution } from "../services/signoff";
+import { detachFromRequest } from "../services/tx-gate";
 import type { Context } from "../context";
 import { adminArchivedProcedure, adminProcedure, archivedBusinessProcedure, assertLiveOpen, audit, businessProcedure, emit, Id, ownerArchivedProcedure, ownerProcedure, protectedProcedure, router, writeProcedure } from "../trpc";
 import { businessLogoRouter } from "./logo";
@@ -143,8 +144,11 @@ const journeyRefreshes = new WeakMap<Db, { running: Promise<void> | null; again:
  * rebuild it joined has finished (tests wait on it; the router does not).
  */
 export function refreshJourneyDailySoon(ctx: Pick<Context, "db" | "log">): Promise<void> {
-  let state = journeyRefreshes.get(ctx.db);
-  if (!state) journeyRefreshes.set(ctx.db, (state = { running: null, again: false }));
+  // Not awaited by the request: the ungated database, never the request's view, which is also a new object per request
+  // and so would key a refresh of its own for each one.
+  const db = detachFromRequest(ctx.db);
+  let state = journeyRefreshes.get(db);
+  if (!state) journeyRefreshes.set(db, (state = { running: null, again: false }));
   const s = state;
   if (s.running) {
     s.again = true;
@@ -153,7 +157,7 @@ export function refreshJourneyDailySoon(ctx: Pick<Context, "db" | "log">): Promi
   const run = async () => {
     do {
       s.again = false;
-      await repos.journeys.refreshDaily(ctx.db).catch((err: unknown) => ctx.log.warn({ err: (err as Error)?.message }, "journey_daily refresh after a time zone change failed; the scheduled refresh retries"));
+      await repos.journeys.refreshDaily(db).catch((err: unknown) => ctx.log.warn({ err: (err as Error)?.message }, "journey_daily refresh after a time zone change failed; the scheduled refresh retries"));
     } while (s.again);
     s.running = null;
   };

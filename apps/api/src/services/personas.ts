@@ -33,6 +33,7 @@ import { repos, type Db } from "@foundmill/db";
 import { AppError, DEFAULT_AGENT_STYLE, characterFor, characterPortraitPrompt, connectorMode, personaByKey, type AgentStyle, type Env } from "@foundmill/shared";
 import type { ApiGatewayClient, GatewayPortrait } from "./gateway";
 import type { ApiLogger } from "./log";
+import { detachFromRequest } from "./tx-gate";
 
 /** Images made at the same time, whatever the number of businesses asking. */
 export const PORTRAIT_CONCURRENCY = 3;
@@ -288,7 +289,8 @@ export async function ensurePortraits(deps: PortraitDeps, keys: readonly (string
     if (state.inFlight.has(id) || state.permanent.has(id)) continue;
     if (backoff && now < backoff.nextTryAt) continue;
     state.inFlight.add(id);
-    state.queue.push({ key, style, deps, ...(options.businessId ? { businessId: options.businessId } : {}) });
+    // The image is made after the request has answered: the job keeps the ungated database, never the request's view.
+    state.queue.push({ key, style, deps: { ...deps, db: detachFromRequest(deps.db) }, ...(options.businessId ? { businessId: options.businessId } : {}) });
   }
   pump();
   return { ready, pending, failed };
