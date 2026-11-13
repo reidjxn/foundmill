@@ -1,5 +1,5 @@
 /**
- * A project's story (docs/NETWORK.md F2; docs/THESIS_REVIEW.md package 5.3; DESIGN §9d): what anyone sees at
+ * A project's story (docs/NETWORK.md F2; docs/THESIS_REVIEW.md package 5.3; DESIGN §9f): what anyone sees at
  * `/p/<slug>/story`, signed out, from 390 px. "How ‹name› was built": the milestones the founders chose to show, oldest
  * first, as a short timeline. Each is a date and the milestone's words, and each carries "Verified by Foundmill", an
  * icon and the words together (color is never the only signal). One sentence under the heading says what verified

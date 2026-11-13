@@ -225,7 +225,7 @@ describe("email from Foundmill to a person (gateway)", () => {
     for (const p of [off, opened, walled, visitor, fresh, stranger]) expect(sentTo(p.email)).toHaveLength(0);
   });
 
-  it("never to a collaborator whose access has ended (0090), though one whose date is ahead is told", async () => {
+  it("never to a collaborator whose access has ended (0092), though one whose date is ahead is told", async () => {
     const ended = await person({ role: "member" });
     await g.h.pg.query("update memberships set role = 'collaborator', expires_at = now() - interval '1 hour' where business_id = $1 and user_id = $2", [g.businessId, ended.userId]);
     expect((await ask(about(ended))).body.reason).toBe("not_member");

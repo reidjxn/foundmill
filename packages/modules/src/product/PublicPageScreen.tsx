@@ -8,7 +8,7 @@
  * Who may do what follows `page.get`: owners and admins edit and publish (`canPublish`); everyone else reads it, with
  * one sentence saying who can change it. A sample business has no public page.
  *
- * Tap-to-post (docs/NETWORK.md F3; docs/DESIGN.md §9e): once the page is live, "Share your page" beside "Copy link"
+ * Tap-to-post (docs/NETWORK.md F3; docs/DESIGN.md §9g): once the page is live, "Share your page" beside "Copy link"
  * opens the share panel with a plain draft (the project's name, the published one-line pitch, the page's address with
  * `via`). A press is recorded as a share that was opened (`share.opened`), fire-and-forget.
  */

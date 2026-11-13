@@ -41,19 +41,20 @@ function plannedGrants(): Map<string, string[]> {
 describe("the connector keys a template may name", () => {
   it("are the connectors that are built: none of a later phase, none the platform keeps to itself", () => {
     expect([...THIRD_PARTY_CONNECTOR_KEYS].sort()).toEqual(
-      ["anthropic", "bolagsverket", "cloudflare_dns", "companies_house", "domains", "dropbox_sign", "e2b", "ecb_rates", "github", "gmail", "google_calendar", "google_drive", "notion", "opencorporates", "plaid", "sendgrid", "shopify", "stripe", "tink", "voyage"],
+      ["anthropic", "apollo", "bolagsverket", "cloudflare_dns", "companies_house", "domains", "dropbox_sign", "e2b", "ecb_rates", "firecrawl", "gemini", "github", "gmail", "google_calendar", "google_drive", "indexnow", "notion", "openai", "opencorporates", "perplexity", "plaid", "posthog", "resend", "sendgrid", "serpapi", "shopify", "stripe", "tink", "vercel", "voyage"],
     );
-    for (const gone of ["instagram", "google_ads", "ga4", "figma", "vercel", "lob", "browserbase", "openai_images", "onesignal"]) expect(CONNECTOR_KEYS as readonly string[]).not.toContain(gone);
+    for (const gone of ["instagram", "google_ads", "ga4", "figma", "lob", "browserbase", "openai_images", "onesignal"]) expect(CONNECTOR_KEYS as readonly string[]).not.toContain(gone);
   });
 });
 
 describe("PLANNED_GRANTS.md (what was removed, kept as data)", () => {
   const planned = plannedGrants();
 
-  it("lists the 428 capabilities removed on Nov 11, 2026, under templates that exist", () => {
+  // 428 were removed on Nov 11, 2026. A row goes when its tool is built: the GEO Engine's three panels, then Apollo, Vercel and PostHog (Nov 12, 2026).
+  it("lists the capabilities removed on Nov 11, 2026 that are still waiting for a tool, under templates that exist", () => {
     const keys = new Set(ALL_TEMPLATES.map((t) => t.key));
     for (const key of planned.keys()) expect(keys.has(key), key).toBe(true);
-    expect([...planned.values()].reduce((n, rows) => n + rows.length, 0)).toBe(428);
+    expect([...planned.values()].reduce((n, rows) => n + rows.length, 0)).toBe(416);
     expect(planned.get("channel_social")).toContain("instagram.media.publish");
     expect(planned.get("product_lead")).toContain("platform.spec.publish");
   });

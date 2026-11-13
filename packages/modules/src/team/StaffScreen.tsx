@@ -53,11 +53,11 @@ export const STAFF_FIT: Record<string, ColumnFit> = {
 const ROW_PX = 28;
 
 const ROLE_ORDER: Record<MembershipRole, number> = { owner: 0, cofounder: 1, admin: 2, member: 3, collaborator: 4, advisor: 5, viewer: 6 };
-/** The roles someone without an owner's standing may give: never an owner's or a cofounder's (team.humans.role, 0090). */
+/** The roles someone without an owner's standing may give: never an owner's or a cofounder's (team.humans.role, 0092). */
 const INVITABLE_ROLES = MEMBERSHIP_ROLES.filter((r) => !isOwnerRole(r));
 
 /**
- * Why the viewer may not change this member's role and permissions (team.humans.role, 0026_membership_guards, 0090), or
+ * Why the viewer may not change this member's role and permissions (team.humans.role, 0026_membership_guards, 0092), or
  * null: nobody edits their own row, and only an owner or a cofounder changes an owner's or a cofounder's.
  */
 export function roleLockReason(row: Pick<StaffRow, "isMe" | "role">, viewerRole: MembershipRole | null): string | null {

@@ -1,6 +1,6 @@
 /**
- * 0089 — the way in (docs/NETWORK.md F5, §11; docs/THESIS_REVIEW.md packages 2.2 and 3.1). The SQL is the source of
- * truth and holds the rules (migrations/0089_invitations.sql); these mirror it.
+ * 0091 — the way in (docs/NETWORK.md F5, §11; docs/THESIS_REVIEW.md packages 2.2 and 3.1). The SQL is the source of
+ * truth and holds the rules (migrations/0091_invitations.sql); these mirror it.
  *
  *   - `invitations`: business-scoped, a link to join a project as a cofounder or a collaborator. Members read every
  *     column but `tokenHash` and `email`; an owner or an admin creates and revokes (an owner alone for a cofounder).

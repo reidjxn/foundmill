@@ -1,5 +1,5 @@
 /**
- * attributions (0086) — account-scoped (userId first): who or what brought a new person (docs/NETWORK.md §5, §11). One
+ * attributions (0088) — account-scoped (userId first): who or what brought a new person (docs/NETWORK.md §5, §11). One
  * row per account, ever, written by the api when the person's founder profile is first created
  * (`founder.profile.update`, apps/api services/attribution.ts). In the same transaction the api writes the row's two
  * account events, one per person (`signup.attributed` for the new person, `referral.arrived` for the person credited;
@@ -60,7 +60,7 @@ export const attributionsRepo = {
           .limit(1),
       );
       if (!page) return null;
-      // The longest-standing owner or cofounder, in the order the public page names its founders (0077, 0090).
+      // The longest-standing owner or cofounder, in the order the public page names its founders (0077, 0092).
       const owner = maybeOne(
         await db
           .select({ userId: memberships.userId })

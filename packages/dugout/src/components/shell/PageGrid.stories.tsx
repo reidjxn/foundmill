@@ -44,3 +44,29 @@ export const HomeLayout: Story = {
     </PageGrid>
   ),
 };
+
+/** `stack`: one column while the shell is narrower than `page-wide`, twelve columns from there (container queries). */
+export const StackedAt390: Story = {
+  name: "390 px · stack",
+  render: () => (
+    <div className="@container w-phone border-x border-line">
+      <PageGrid stack>
+        <Cell span={6} />
+        <Cell span={6} />
+        <Cell span={12} />
+      </PageGrid>
+    </div>
+  ),
+};
+export const StackedWide: Story = {
+  name: "Stack, wide container",
+  render: () => (
+    <div className="@container">
+      <PageGrid stack>
+        <Cell span={6} />
+        <Cell span={6} />
+        <Cell span={12} />
+      </PageGrid>
+    </div>
+  ),
+};

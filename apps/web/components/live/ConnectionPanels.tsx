@@ -8,6 +8,7 @@ import { Ban, Check, Clock, LogIn, MailOpen, MessageSquare, UserCheck, UserMinus
 import { useMemo, useState } from "react";
 import { Avatar, Button, DataTable, Panel, StatusPill, formatRelative, type DataTableColumn, type RowAction, type SavedView } from "@foundmill/dugout";
 import { useTableViews } from "@/lib/table-views";
+import { PeopleList, type PeopleListItem } from "./PeopleList";
 import type { People } from "./shared";
 
 export interface ConnectionRow {
@@ -39,7 +40,12 @@ interface CommonProps extends Partial<ConnectionHandlers> {
   busyId?: string | null;
   /** The one way on from an empty list (founders are met in communities). */
   onFind?: () => void;
+  /** The page is narrower than `page-wide`: Connections is a list, not a table. */
+  narrow?: boolean;
 }
+
+/** A control on these pages is a 44 px tap target on a small screen, and keeps its dense size from `page-wide` up. */
+const TAP = "min-h-tap @page-wide:min-h-0";
 
 const findAction = (onFind?: () => void) => (onFind ? { label: "Browse communities", icon: UsersRound, onClick: onFind } : undefined);
 
@@ -62,23 +68,25 @@ export function RequestsPanel({ rows, viewerId, people, loading, error, onRetry,
         {rows.map((row) => {
           const name = people.name(otherUser(row, viewerId));
           return (
-            <li key={row.id} className="flex items-center gap-3 border-b border-line-faint px-panel-pad py-2 last:border-b-0" data-testid="request-row">
+            <li key={row.id} className="flex flex-wrap items-center gap-x-3 gap-y-2 border-b border-line-faint px-panel-pad py-2 last:border-b-0" data-testid="request-row">
               <Avatar size={32} name={name} />
-              <div className="min-w-0 flex-1">
+              <div className="min-w-0 flex-1 basis-40">
                 <p className="t-body-strong truncate text-primary">{name}</p>
                 <p className="truncate text-small text-secondary" title={row.message ?? undefined}>
                   {row.message ? `“${row.message}”` : `Asked ${formatRelative(row.createdAt)}`}
                 </p>
               </div>
-              <Button size="sm" icon={Check} aria-label={`Accept ${name}`} disabled={busyId === row.id} onClick={() => onAccept?.(row)}>
+<div className="flex w-full flex-wrap gap-2 @page-wide:w-auto @page-wide:flex-nowrap">
+              <Button size="sm" className={TAP} icon={Check} aria-label={`Accept ${name}`} disabled={busyId === row.id} onClick={() => onAccept?.(row)}>
                 Accept
               </Button>
-              <Button size="sm" variant="ghost" icon={X} aria-label={`Ignore ${name}`} disabled={busyId === row.id} onClick={() => onRemove?.(row)}>
+              <Button size="sm" className={TAP} variant="ghost" icon={X} aria-label={`Ignore ${name}`} disabled={busyId === row.id} onClick={() => onRemove?.(row)}>
                 Ignore
               </Button>
-              <Button size="sm" variant="ghost" icon={Ban} aria-label={`Block ${name}`} disabled={busyId === row.id} onClick={() => onBlock?.(row)}>
+              <Button size="sm" className={TAP} variant="ghost" icon={Ban} aria-label={`Block ${name}`} disabled={busyId === row.id} onClick={() => onBlock?.(row)}>
                 Block
               </Button>
+            </div>
             </li>
           );
         })}
@@ -103,15 +111,17 @@ export function SentRequestsPanel({ rows, viewerId, people, loading, error, onRe
         {rows.map((row) => {
           const name = people.name(otherUser(row, viewerId));
           return (
-            <li key={row.id} className="flex items-center gap-3 border-b border-line-faint px-panel-pad py-2 last:border-b-0" data-testid="sent-request-row">
+            <li key={row.id} className="flex flex-wrap items-center gap-x-3 gap-y-2 border-b border-line-faint px-panel-pad py-2 last:border-b-0" data-testid="sent-request-row">
               <Avatar size={32} name={name} />
-              <div className="min-w-0 flex-1">
+              <div className="min-w-0 flex-1 basis-40">
                 <p className="t-body-strong truncate text-primary">{name}</p>
                 <p className="truncate text-small text-secondary">Sent {formatRelative(row.createdAt)}</p>
               </div>
-              <Button size="sm" variant="ghost" icon={UserMinus} aria-label={`Withdraw request to ${name}`} disabled={busyId === row.id} onClick={() => onRemove?.(row)}>
+<div className="flex w-full flex-wrap gap-2 @page-wide:w-auto @page-wide:flex-nowrap">
+              <Button size="sm" className={TAP} variant="ghost" icon={UserMinus} aria-label={`Withdraw request to ${name}`} disabled={busyId === row.id} onClick={() => onRemove?.(row)}>
                 Withdraw
               </Button>
+            </div>
             </li>
           );
         })}
@@ -145,21 +155,23 @@ export function InvitationsPanel({ rows, people, loading, error, onRetry, busyId
     >
       <ul>
         {rows.map((row) => (
-          <li key={row.community.id} className="flex items-center gap-3 border-b border-line-faint px-panel-pad py-2 last:border-b-0" data-testid="invitation-row">
+          <li key={row.community.id} className="flex flex-wrap items-center gap-x-3 gap-y-2 border-b border-line-faint px-panel-pad py-2 last:border-b-0" data-testid="invitation-row">
             <Avatar size={32} name={row.community.name} />
-            <div className="min-w-0 flex-1">
+            <div className="min-w-0 flex-1 basis-40">
               <p className="t-body-strong truncate text-primary">{row.community.name}</p>
               <p className="truncate text-small text-secondary">
                 {row.invitedBy ? `From ${people.name(row.invitedBy)}, ` : ""}
                 {formatRelative(row.invitedAt)}
               </p>
             </div>
-            <Button size="sm" icon={LogIn} aria-label={`Join ${row.community.name}`} disabled={busyId === row.community.id} onClick={() => onJoin(row)}>
+<div className="flex w-full flex-wrap gap-2 @page-wide:w-auto @page-wide:flex-nowrap">
+            <Button size="sm" className={TAP} icon={LogIn} aria-label={`Join ${row.community.name}`} disabled={busyId === row.community.id} onClick={() => onJoin(row)}>
               Join
             </Button>
-            <Button size="sm" variant="ghost" icon={X} aria-label={`Decline ${row.community.name}`} disabled={busyId === row.community.id} onClick={() => onDecline(row)}>
+            <Button size="sm" className={TAP} variant="ghost" icon={X} aria-label={`Decline ${row.community.name}`} disabled={busyId === row.community.id} onClick={() => onDecline(row)}>
               Decline
             </Button>
+            </div>
           </li>
         ))}
       </ul>
@@ -194,7 +206,7 @@ export const CONNECTION_VIEWS: SavedView[] = [
   { id: "blocked", name: "Blocked", builtIn: true, columns: COLUMNS, sort: [{ id: "name", desc: false }], filters: ONLY("f-blocked", "blocked") },
 ];
 
-export function ConnectionsPanel({ rows, viewerId, people, loading, error, onRetry, onBlock, onRemove, onMessage, onFind }: CommonProps) {
+export function ConnectionsPanel({ rows, viewerId, people, loading, error, onRetry, onBlock, onRemove, onMessage, onFind, narrow }: CommonProps) {
   // Saved per person across their businesses: the LIVE pages are the account's, not one business's (audit #204).
   const savedViews = useTableViews("live.network.connections", CONNECTION_VIEWS, { defaultViewId: "connected" });
   const data = useMemo<ConnectionTableRow[]>(
@@ -244,6 +256,28 @@ export function ConnectionsPanel({ rows, viewerId, people, loading, error, onRet
         ]
       : [{ id: "unblock", label: "Unblock", icon: UserCheck, onSelect: (r) => onRemove?.(r.source) }];
 
+  // Below `page-wide` the table is a list: the name and since when, Message as the main action, the rest in a menu.
+  // Saved views stay on the table; the list shows connected people first, then anyone blocked.
+  const listItems: PeopleListItem[] = [...data]
+    .sort((a, b) => Number(a.status === "blocked") - Number(b.status === "blocked") || a.name.localeCompare(b.name))
+    .map((r) => ({
+      id: r.id,
+      name: r.name,
+      fact: r.status === "accepted" ? `Connected ${formatRelative(r.since)}` : `Blocked ${formatRelative(r.since)}`,
+      onOpen: r.status === "accepted" ? () => onMessage?.(r.source) : undefined,
+      primary:
+        r.status === "accepted"
+          ? { label: "Message", icon: MessageSquare, onSelect: () => onMessage?.(r.source), ariaLabel: `Message ${r.name}` }
+          : { label: "Unblock", icon: UserCheck, ghost: true, onSelect: () => onRemove?.(r.source), ariaLabel: `Unblock ${r.name}` },
+      more:
+        r.status === "accepted"
+          ? [
+              { label: "Block", icon: Ban, onSelect: () => onBlock?.(r.source) },
+              { label: "Remove connection", icon: UserMinus, variant: "danger" as const, onSelect: () => onRemove?.(r.source) },
+            ]
+          : undefined,
+    }));
+
   return (
     <Panel
       title="Connections"
@@ -255,6 +289,9 @@ export function ConnectionsPanel({ rows, viewerId, people, loading, error, onRet
       empty={data.length === 0 ? { icon: Users, children: "No connections yet. Founders mostly meet in communities.", action: findAction(onFind) } : undefined}
       data-testid="connections-panel"
     >
+      {narrow ? (
+        <PeopleList label="Connections" data-testid="connections-list" items={listItems} />
+      ) : (
       <DataTable<ConnectionTableRow>
         aria-label="Connections"
         data={data}
@@ -268,6 +305,7 @@ export function ConnectionsPanel({ rows, viewerId, people, loading, error, onRet
         empty={{ icon: UserRound, children: "Nobody in this view." }}
         className="border-0"
       />
+      )}
     </Panel>
   );
 }

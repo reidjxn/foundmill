@@ -1,5 +1,5 @@
 /**
- * A project's story (docs/NETWORK.md F2; docs/THESIS_REVIEW.md package 5.3; docs/DESIGN.md §9d): `/p/<slug>/story`,
+ * A project's story (docs/NETWORK.md F2; docs/THESIS_REVIEW.md package 5.3; docs/DESIGN.md §9f): `/p/<slug>/story`,
  * "How ‹name› was built". The milestones the founders chose to show, oldest first, each one recorded by the platform
  * when it happened. Open to anyone signed out and from 390 px, like the project's page it hangs under (`/p/` is in
  * `PUBLIC_PREFIXES` and `SMALL_SCREEN_PREFIXES`), and indexable only while it exists: an unknown address, a page that

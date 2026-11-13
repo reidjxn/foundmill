@@ -2,7 +2,7 @@ import { expect, test, type Locator, type Page } from "@playwright/test";
 import { LONG, commitThrowaway, dismissCoachmarks, settled, toast } from "./helpers";
 
 /**
- * Posts the social agent drafts for the founder to share by tap (docs/NETWORK.md F3, F7; docs/DESIGN.md §9e; founder,
+ * Posts the social agent drafts for the founder to share by tap (docs/NETWORK.md F3, F7; docs/DESIGN.md §9g; founder,
  * Nov 12, 2026: "a post the social channel agent wrote"), on the mock model. A throwaway project publishes its page
  * with the social channel off the board: nothing is drafted. The founder puts social on the Channel Board, and a
  * drafted post appears on Customers › Creative, written by the team, with Share: every "opens ready to post" link
@@ -69,8 +69,13 @@ async function openBoard(page: Page, bid: string): Promise<Locator> {
   await dismissCoachmarks(page);
   // The panel's count is said only once the project's own channels have arrived: before that a token's place means nothing.
   await expect(screen.getByText(/\d+ of \d+ (?:running|on the board)/).first()).toBeVisible({ timeout: LONG });
-  const token = page.getByRole("region", { name: "Channel Board" }).getByRole("button", { name: /^Social media/ });
+  const board = page.getByRole("region", { name: "Channel Board" });
+  const token = board.getByRole("button", { name: /^Social media/ });
   await expect(token).toBeVisible({ timeout: LONG });
+  // The channels on the board walk on one by one, and the board is busy until they have: before that a channel on the
+  // board can still be drawn in the tray. A project whose starters include social (the first card in the deck decides
+  // the archetype) has it on the board from Take charge.
+  await expect(board).not.toHaveAttribute("aria-busy", "true", { timeout: LONG });
   return token;
 }
 

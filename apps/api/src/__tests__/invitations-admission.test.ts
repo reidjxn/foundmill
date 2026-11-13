@@ -1,11 +1,12 @@
 /**
- * The way in (THESIS_REVIEW packages 2.2, 3.1 and 3.3; docs/NETWORK.md F5; 0089, 0090, 0091): the admit decision in
+ * The way in (THESIS_REVIEW packages 2.2, 3.1 and 3.3; docs/NETWORK.md F5; 0091, 0092, 0093): the admit decision in
  * every mode (services/access.ts), invitations to a project (services/invitations.ts) with the attribution an accepted
  * invitation brings, and what the two roles an invitation offers may then do. The security review of 2026-11-13 added:
  * an invitation to an address is that address's only, a cofounder invitation always names one, an account an invitation
  * let in cannot let others in and an inviter lets in a few new accounts a day, open sign-up counts invitations, the
  * cutover for a person from before, the Team permission re-checked, an ended collaborator invited again, and the races
- * (marked "needs a real-Postgres run" where PGlite's one connection can only show the mechanism).
+ * (marked "needs a real-Postgres run" where PGlite's one connection can only show the mechanism; people-races.test.ts runs
+ * them with real connections when RLS_TEST_DATABASE_URL is set).
  */
 import { createHash, randomBytes } from "node:crypto";
 import { repos, routeApproval } from "@foundmill/db";
@@ -76,7 +77,7 @@ const person = async (tag: string) => {
 };
 const tokenOf = (link: string) => link.split("/i/")[1]!;
 const todayStart = () => new Date(new Date().toISOString().slice(0, 10) + "T00:00:00Z");
-/** A person whose founder profile was made long before 0091's cutover (a person from before open sign-up). */
+/** A person whose founder profile was made long before 0093's cutover (a person from before open sign-up). */
 const fromBeforeCutover = async (userId: string, name: string) => {
   await repos.founders.upsert(hz.db, userId, { displayName: name });
   await hz.db.update(founderProfiles).set({ createdAt: new Date("2026-01-05T00:00:00Z") }).where(eq(founderProfiles.userId, userId));
@@ -378,13 +379,13 @@ describe("invitations", () => {
     const owner = hz.caller({ userId: hz.A.ownerId });
     expect(await refusal(owner.invitation.create({ businessId, role: "cofounder" }))).toMatchObject({ code: "BAD_REQUEST", message: expect.stringMatching(/type their email address/) });
     expect((await owner.invitation.create({ businessId, role: "collaborator" })).invitation.role).toBe("collaborator");
-    // 0091's check: even the service connection cannot store one.
+    // 0093's check: even the service connection cannot store one.
     const stored = await repos.invitations.create(hz.db, businessId, { tokenHash: sha256(randomBytes(8).toString("hex")), role: "cofounder", invitedByUserId: hz.A.ownerId, email: null, expiresAt: new Date(Date.now() + 86_400_000) }).then(
       () => "stored",
       (err: unknown) => [err, (err as { cause?: unknown }).cause].map((e) => String((e as { message?: unknown } | undefined)?.message ?? "")).join(" | "),
     );
     expect(stored).toMatch(/invitations_cofounder_email/);
-    // A link-only cofounder invitation from before 0091 (written past the check) does not work.
+    // A link-only cofounder invitation from before 0093 (written past the check) does not work.
     const token = randomBytes(32).toString("base64url");
     await hz.db.execute(sql`alter table invitations drop constraint invitations_cofounder_email`);
     try {

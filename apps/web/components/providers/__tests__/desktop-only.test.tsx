@@ -52,7 +52,15 @@ describe("desktop only (audit PAS-4: a phone rendered a 390 px slice of a 1280 p
   });
 
   it("a project's public page and a person's public profile work from 390 px: the one list of small-screen routes, nothing else changes", () => {
-    expect(SMALL_SCREEN_PREFIXES).toEqual(["/p/", "/u/", "/m/", "/login", "/a/", "/email/pause", "/i/"]);
+    expect(SMALL_SCREEN_PREFIXES).toEqual(["/p/", "/u/", "/m/", "/login", "/home", "/a/", "/email/pause", "/terms", "/privacy", "/", "/new/card/", "/public-profile", "/network", "/communities", "/communities/", "/profiles/", "/i/"]);
+    expect(worksOnSmallScreens("/new/card/11111111-1111-4111-8111-111111111111")).toBe(true);
+    // The landing page's hero (founder, 2026-11-13): exactly "/", never a prefix of every path.
+    expect(worksOnSmallScreens("/")).toBe(true);
+    for (const p of ["/b/x/today", "/b/x", "/new/ideate", "/onboarding", "/start"]) expect(worksOnSmallScreens(p), p).toBe(false);
+    // The Terms and the Privacy Policy (founder, 2026-11-13): exactly those two paths.
+    expect(worksOnSmallScreens("/terms")).toBe(true);
+    expect(worksOnSmallScreens("/privacy")).toBe(true);
+    for (const p of ["/terms/x", "/privacy/x", "/termsx"]) expect(worksOnSmallScreens(p), p).toBe(false);
     // An invitation (THESIS_REVIEW 3.1) works from 390 px; nothing about waiting has a route of its own.
     expect(worksOnSmallScreens("/i/AbC_123-xyz")).toBe(true);
     expect(worksOnSmallScreens("/waitlist")).toBe(false);
@@ -73,7 +81,20 @@ describe("desktop only (audit PAS-4: a phone rendered a 390 px slice of a 1280 p
     // A project's story hangs under its page; a milestone's card has its own prefix (docs/NETWORK.md F2, F3).
     expect(worksOnSmallScreens("/p/northwind-skincare/story")).toBe(true);
     expect(worksOnSmallScreens("/m/7a21e15f-87b0-4000-ac49-c98b9d627e98")).toBe(true);
-    for (const p of ["/", "/loginx", "/profiles", "/p", "/u", "/m", "/milestones", "/messages", "/public-profile", "/b/x/today", "/b/x/milestones", null]) expect(worksOnSmallScreens(p), String(p)).toBe(false);
+    for (const p of [
+      "/loginx",
+      "/profiles",
+      "/p",
+      "/u",
+      "/m",
+      "/milestones",
+      "/messages",
+      "/public-profile/x",
+      "/b/x/today",
+      "/b/x/milestones",
+      null,
+    ])
+      expect(worksOnSmallScreens(p), String(p)).toBe(false);
     pathname = "/p/northwind-skincare";
     setWidth(390);
     render(
@@ -125,5 +146,11 @@ describe("desktop only (audit PAS-4: a phone rendered a 390 px slice of a 1280 p
     expect(container.querySelector('[data-testid="needs-larger-window"]')).not.toBeNull();
     act(() => root.unmount());
     container.remove();
+  });
+
+  it("package 2.1: a project's Today and Needs you, the person's profile and the people pages work from 390 px; the rest of a project does not", () => {
+    const B = "/b/6f1d2c3b-4a5e-4f60-8a71-0b2c3d4e5f60";
+    for (const p of [`${B}/today`, `${B}/today/`, `${B}/inbox`, `${B}/inbox/4c76f0d6-2afd-4bdd-adbf-2a82479eadf3`, "/public-profile", "/network", "/communities", "/communities/c1", "/profiles/founder/u1"]) expect(worksOnSmallScreens(p), p).toBe(true);
+    for (const p of [`${B}/crm`, `${B}/settings/business`, `${B}/today/details`, `${B}/inbox/a/b`, "/b/not-a-uuid/today", "/networkx", "/profiles", "/b/"]) expect(worksOnSmallScreens(p), p).toBe(false);
   });
 });

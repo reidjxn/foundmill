@@ -170,18 +170,18 @@ export const TENANT_TABLES: TenantTableSpec[] = [
 ];
 
 /**
- * 0092: the tables a collaborator does not read at all (their select policy is `is_member_not_collaborator`): the ones
+ * 0094: the tables a collaborator does not read at all (their select policy is `is_member_not_collaborator`): the ones
  * only owners and admins write, and the Money tables services write, outside what a collaborator's screens use. The
  * generic suite checks a collaborator reads none of their rows and everyone else reads them as before.
  */
 export const COLLABORATOR_CLOSED_TABLES: readonly string[] = ["accounts", "securities", "cap_table_entries", "usage_ledger", "credit_balances", "billing_checkouts", "legal_entities", "incorporations", "integrations", "webhooks", "policies", "app_installations"];
 /**
- * Admin- or service-written tables a collaborator still reads, each for a screen of theirs (0092's header gives the
+ * Admin- or service-written tables a collaborator still reads, each for a screen of theirs (0094's header gives the
  * reasons). Named so a change to the list is a decision.
  */
 export const COLLABORATOR_STILL_READS_ADMIN_TABLES: readonly string[] = ["departments", "department_members", "holiday_periods", "business_logos", "business_foundations", "product_research", "session_recordings", "contact_consents", "demo_sample_rows"];
 /**
- * 0093: the Money and Legal tables members write. A collaborator neither reads nor writes them (select
+ * 0095: the Money and Legal tables members write. A collaborator neither reads nor writes them (select
  * `is_member_not_collaborator`, write `has_role(owner/admin/member) and is_member_not_collaborator`), while an owner, a
  * cofounder, an admin and a member write them as before and a viewer reads them.
  */
@@ -204,6 +204,10 @@ export const NON_TENANT_TABLES = [
   // queue service role only); covered by rls/account-events.test.ts.
   "account_events",
   "account_outbox",
+  // 0086 the idea box (docs/IDEA_BOX.md): a signed-out visitor's card and the waitlist; the api's alone (no client
+  // role, RLS on, no policy); covered by rls/idea-drafts.test.ts.
+  "idea_drafts",
+  "waitlist_entries",
   "ideas",
   "idea_versions",
   "idea_comparisons",
@@ -235,9 +239,9 @@ export const NON_TENANT_TABLES = [
   "founder_presence",
   "founder_visit_days",
   "founder_notifications",
-  // 0086: who or what brought a new person (user-owned, service role only); rls/attributions.test.ts.
+  // 0088: who or what brought a new person (user-owned, service role only); rls/attributions.test.ts.
   "attributions",
-  // 0089: admissions (user-owned, service role only) and invitations (business-scoped, but its token hash and address
+  // 0091: admissions (user-owned, service role only) and invitations (business-scoped, but its token hash and address
   // are not readable by a client, so the generic suite cannot select them); both in rls/invitations.test.ts.
   "account_admissions",
   "invitations",

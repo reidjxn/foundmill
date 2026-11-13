@@ -161,7 +161,7 @@ export async function routeApproval(db: Executor, businessId: string, input: { a
   }
   if (handler.kind === "founder" || !handler.id) return none;
   if (handler.kind === "user") {
-    // A person whose membership has ended (0090) is no longer one of the project's people: the founder answers it.
+    // A person whose membership has ended (0092) is no longer one of the project's people: the founder answers it.
     const member = await db.select({ id: memberships.id }).from(memberships).where(and(eq(memberships.businessId, businessId), eq(memberships.userId, handler.id), membershipNotEnded)).limit(1);
     return member.length ? { ...none, handlerKind: "user", handlerId: handler.id } : none;
   }

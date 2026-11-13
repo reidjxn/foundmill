@@ -27,6 +27,7 @@ import { createPushNotifier, type PushNotifier } from "./services/push/notifier"
 import { superviseOutboxRelay, type RelaySupervisor } from "./services/relay";
 import { monitorWorker, type WorkerMonitor } from "./services/worker-health";
 import { seedOnBoot } from "./services/seed-on-boot";
+import { startIdeaBoxSweep } from "./services/idea-box";
 import { DEMO_ROLL_BOOT_WAIT_MS, demoRollForwardEnabled, startDemoRollForward } from "./services/demo-roll-forward";
 import { notifyEmailEnabled, startNotifyEmail } from "./services/push/email-pass";
 import { backfillPersonasOnBoot } from "./services/persona-backfill";
@@ -83,6 +84,9 @@ export async function migrateOnBoot(deps: ApiDeps, options: MigrateOnBootOptions
  */
 export const WARM_CONNECTIONS = 8;
 
+/** How long the persona backfill and the idea box sweep wait for the demo seed at boot before starting anyway. */
+export const BOOT_WORK_WAIT_MS = 60_000;
+
 /** Service addresses the api calls over the private network; each defaults to localhost, which is wrong once deployed. */
 const PRIVATE_URLS = ["INGEST_URL", "GATEWAY_URL", "COMPOSER_URL"] as const;
 
@@ -133,6 +137,7 @@ export async function main(): Promise<void> {
   let pushNotifier: PushNotifier | null = null;
   let reconciler: { stop(): void } | null = null;
   let demoRoller: { stop(): void } | null = null;
+  let ideaSweep: { stop(): Promise<void> } | null = null;
   let notifyEmail: { stop(): Promise<void> } | null = null;
   let workerMonitor: WorkerMonitor | null = null;
   let warmer: PoolWarmer | null = null;
@@ -158,6 +163,7 @@ export async function main(): Promise<void> {
       },
       { name: "stop workflow reconciler", run: () => reconciler?.stop() },
       { name: "stop sample roll-forward", run: () => demoRoller?.stop() },
+      { name: "stop idea box sweep", run: async () => ideaSweep?.stop() },
       { name: "stop key refresh", run: () => keys?.stop() },
       { name: "stop confirm-email check", run: () => confirmEmail?.stop() },
       { name: "stop pool warmer", run: () => warmer?.stop() },
@@ -194,10 +200,22 @@ export async function main(): Promise<void> {
   const port = servicePort(env, "API_PORT");
 
   server = await listen(app, port, deps);
-  // Agents hired before 0067 get their persona keys (idempotent; failures are logged and never block).
-  if (migrated) void backfillPersonasOnBoot(deps);
   // The demo seed may add a running vacation: the reconciler below runs after it.
   const seeded = migrated ? seedOnBoot(deps).catch(() => undefined) : Promise.resolve();
+  // Boot's one-off database work runs one after another, not all at once beside the pool warmer (Nov 13, 2026: with
+  // the idea box sweep added, every fresh boot's seed query hung for the life of the process, the pool saturated at
+  // boot). The seed goes first; the persona backfill and the idea box sweep wait for it, at most BOOT_WORK_WAIT_MS, so a
+  // seed that never answers is reported and never holds them back.
+  const seedSettled = Promise.race([
+    seeded.then(() => true),
+    new Promise<false>((resolve) => setTimeout(() => resolve(false), BOOT_WORK_WAIT_MS).unref?.()),
+  ]).then((settled) => {
+    if (!settled && migrated && !lifecycle.stopping) deps.log.warn({ waitedMs: BOOT_WORK_WAIT_MS }, "SEED_ON_BOOT: the seed has not finished; starting the rest of boot's database work anyway");
+  });
+  const bootWork = seedSettled
+    // Agents hired before 0067 get their persona keys (idempotent; failures are logged and never block).
+    .then(() => (migrated && !lifecycle.stopping ? backfillPersonasOnBoot(deps) : undefined))
+    .catch(() => undefined);
   // The sample businesses roll forward with the calendar (DECISIONS 2026-11-10), after the seed and every hour after;
   // DEMO_ROLL_FORWARD=off turns it off. The reconciler below waits for the boot roll at most DEMO_ROLL_BOOT_WAIT_MS (a
   // seeded vacation's workflow then starts from its moved dates), never longer: real founders' workflows never queue
@@ -207,6 +225,10 @@ export async function main(): Promise<void> {
     const roller = startDemoRollForward(deps);
     demoRoller = roller;
     return Promise.race([roller.done, new Promise<void>((resolve) => setTimeout(resolve, DEMO_ROLL_BOOT_WAIT_MS).unref?.())]);
+  });
+  // The idea box's unclaimed cards are deleted after 7 days (90 on the waitlist), at boot and every hour (docs/IDEA_BOX.md).
+  void bootWork.then(() => {
+    if (migrated && !lifecycle.stopping) ideaSweep = startIdeaBoxSweep(deps);
   });
   // Email from Foundmill to a person (packages 1.5 and 5.1): a note that waited a day for their answer, at boot and every
   // hour; only with PLATFORM_MAIL_DOMAIN set, and NOTIFY_EMAIL=off turns it off. The gateway sends and counts.

@@ -49,7 +49,7 @@ export function platformMailLocalPartOf(address: string, domain: string): string
 export const PLATFORM_MAIL_TITLE = "Email from your project";
 export const PLATFORM_MAIL_APPROVAL_LINE = "Messages to people outside the project wait for your OK unless you said otherwise in What the team can do.";
 export const PLATFORM_MAIL_REPLIES_LINE = "Replies come back to the project, and anyone can unsubscribe from a link in every message.";
-export const PLATFORM_MAIL_OWN_SENDER_LINE = "Your own SendGrid account is connected, so the team sends from it instead.";
+export const PLATFORM_MAIL_OWN_SENDER_LINE = "Your own email account is connected, so the team sends from it instead.";
 export const PLATFORM_MAIL_SIMULATED_LINE = "Sending is simulated here: no message leaves for real.";
 export const PLATFORM_MAIL_PAUSED_LINE = "Sending from this address is paused for now. Nothing is waiting on you.";
 
@@ -59,7 +59,7 @@ export const platformMailCountLine = (sentToday: number, cap: number): string =>
 /** Why the gateway refused a send from the project's address, in plain words (the refusal's reason; the agent reports it). */
 export const PLATFORM_MAIL_REFUSALS = {
   off: "Sending from the project's own address is not switched on here, so nothing was sent.",
-  own_sender: "This project sends from its own SendGrid account; use that instead. Nothing was sent.",
+  own_sender: "This project sends from its own email account; use that instead. Nothing was sent.",
   paused: "Sending from this project's address is paused for now, so nothing was sent.",
   daily_cap: (cap: number) => `This project has sent its ${cap.toLocaleString("en-US")} messages for today. Nothing was sent; sending opens again at midnight UTC.`,
   ceiling: "Every project together has reached today's sending limit. Nothing was sent; sending opens again at midnight UTC.",

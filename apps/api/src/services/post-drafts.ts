@@ -1,6 +1,6 @@
 /**
  * Posts the social agent drafts for the founder to share by tap (docs/NETWORK.md F3 "Tap-to-post", F7 "Posting";
- * docs/DESIGN.md §9e; founder, Nov 12, 2026: "a post the social channel agent wrote"). Drafting is separate from
+ * docs/DESIGN.md §9g; founder, Nov 12, 2026: "a post the social channel agent wrote"). Drafting is separate from
  * running the channel: nothing here launches, schedules, publishes or measures anything.
  *
  * - **When.** `requestPostDraft` is called after the transaction that wrote the event commits, by the service that

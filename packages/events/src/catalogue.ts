@@ -1840,7 +1840,7 @@ const notifyEmailSent = declareEvent(
 );
 
 // ---------------------------------------------------------------------------------------------------
-// Milestones a founder chooses to show (0087; docs/NETWORK.md F2 "the story", F3 "cards")
+// Milestones a founder chooses to show (0089; docs/NETWORK.md F2 "the story", F3 "cards")
 // ---------------------------------------------------------------------------------------------------
 
 /** What both events carry: the milestone, which one it is, and the addresses it is (or was) shown at. */
@@ -1915,7 +1915,7 @@ const postDrafted = declareEvent(
 );
 
 // ---------------------------------------------------------------------------------------------------
-// Invitations to a project (0089; docs/NETWORK.md F5, THESIS_REVIEW package 3.1)
+// Invitations to a project (0091; docs/NETWORK.md F5, THESIS_REVIEW package 3.1)
 // ---------------------------------------------------------------------------------------------------
 
 const InvitationRoleEnum = z.enum(INVITATION_ROLES);
@@ -1923,7 +1923,7 @@ const InvitationRoleEnum = z.enum(INVITATION_ROLES);
 const invitationSent = declareEvent(
   "invitation.sent",
   z.object({
-    /** The invitation (0089 `invitations`): never its token, and never the address it was sent to. */
+    /** The invitation (0091 `invitations`): never its token, and never the address it was sent to. */
     invitationId: Id,
     role: InvitationRoleEnum,
     /** Whether Foundmill emailed the link to an address the inviter typed (else the inviter shares the link themselves). */
@@ -1982,7 +1982,7 @@ const profileUnpublished = declareAccountEvent("profile.unpublished", ProfileFac
 });
 
 // ---------------------------------------------------------------------------------------------------
-// Account events: who or what brought a new person (0086 `attributions`; docs/NETWORK.md §5, §11; account-scoped)
+// Account events: who or what brought a new person (0088 `attributions`; docs/NETWORK.md §5, §11; account-scoped)
 // ---------------------------------------------------------------------------------------------------
 
 // One sign-up that a public address brought is a fact about two people, so it is two rows (the two-person rule,

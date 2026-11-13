@@ -1225,6 +1225,9 @@ importers:
       '@foundmill/config':
         specifier: workspace:*
         version: link:../packages/config
+      '@foundmill/connectors':
+        specifier: workspace:*
+        version: link:../packages/connectors
       '@foundmill/entity-linker':
         specifier: workspace:*
         version: link:../packages/entity-linker

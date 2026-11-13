@@ -8,7 +8,7 @@
  *   - the draft is a member's to write; publishing, taking down, changing a live page's address and deleting are an
  *     owner's or an admin's, whichever client wrote;
  *   - the address and the published copy are checked by the database itself;
- *   - when a page went live and when it was taken down are recorded by the database (0088): a signed-in client cannot
+ *   - when a page went live and when it was taken down are recorded by the database (0090): a signed-in client cannot
  *     set, backdate, forward-date or move either date, on its own page or anyone's; the service connection keeps the
  *     date it writes (seeds, backfills);
  *   - the public view: exactly its eight columns, and no row for a draft, a page taken down, an archived business, a
@@ -31,7 +31,7 @@ let h: TestHarness;
 let A: BusinessFixture;
 let B: BusinessFixture;
 let outsiderId: string;
-/** When B's page went live: written on the service connection, the only one whose date is kept (0088). */
+/** When B's page went live: written on the service connection, the only one whose date is kept (0090). */
 const bPublishedAt = new Date("2026-10-05T09:00:00Z");
 
 const content = (over: Partial<ProjectPageContent> = {}): ProjectPageContent => ({ pitch: "Candles that smell like a walk in the woods", about: "Small batches.\n\nPoured by hand.", forWhom: "People in small apartments", stage: "building", showFounders: false, followForm: true, ...over });
@@ -133,7 +133,7 @@ describe("project_pages: publishing is an owner's or an admin's", () => {
   });
 
   it("an admin publishes; publishing changes keeps the date; an owner takes it down and puts it back", async () => {
-    // The dates a signed-in client sends (`at`) are never the ones stored: the database records its own (0088).
+    // The dates a signed-in client sends (`at`) are never the ones stored: the database records its own (0090).
     const first = await h.asUser(A.adminId).run((tx) => repos.pages.publish(tx, A.businessId, { content: content(), slug: "unused", userId: A.adminId, at: new Date("2020-01-01T00:00:00Z") }));
     expect(first).toMatchObject({ wasLive: false, page: { slug: "alpha-candles", publishedBy: A.adminId, unpublishedAt: null } });
     expect(first.page.published).toEqual(content());
@@ -186,7 +186,7 @@ describe("project_pages: publishing is an owner's or an admin's", () => {
   });
 });
 
-describe("project_pages: when a page went live is the database's to record (0088)", () => {
+describe("project_pages: when a page went live is the database's to record (0090)", () => {
   const PAST = new Date("2020-01-01T00:00:00Z");
   const FUTURE = new Date("2031-01-01T00:00:00Z");
   const make = async (slug: string) => {
@@ -282,7 +282,7 @@ describe("project_pages: when a page went live is the database's to record (0088
 
   it("the migration puts right the dates that cannot be real on rows written before it, and leaves the rest", async () => {
     const all = readMigrations();
-    const before = await createTestDb({ migrations: all.filter((m) => m.tag !== "0088_page_dates_recorded") });
+    const before = await createTestDb({ migrations: all.filter((m) => m.tag !== "0090_page_dates_recorded") });
     try {
       const page = async (slug: string, set: Partial<typeof s.projectPages.$inferInsert>) => {
         const f = await createBusinessFixture(before, slug);
@@ -303,7 +303,7 @@ describe("project_pages: when a page went live is the database's to record (0088
       expect(await read(neverLive)).toEqual({ publishedAt: PAST.toISOString(), unpublishedAt: null });
       expect(await read(forward)).toEqual({ publishedAt: FUTURE.toISOString(), unpublishedAt: null });
 
-      await before.pg.exec(all.find((m) => m.tag === "0088_page_dates_recorded")!.sql);
+      await before.pg.exec(all.find((m) => m.tag === "0090_page_dates_recorded")!.sql);
 
       // Never live: no date, so the catch-up has nothing to record "Page live" from.
       expect(await read(neverLive)).toEqual({ publishedAt: null, unpublishedAt: null });

@@ -153,7 +153,7 @@ export interface AdmissionUser {
 }
 
 /**
- * The cutover for "a person from before open sign-up": SIGNUP_EXISTING_BEFORE when set, else the moment migration 0091
+ * The cutover for "a person from before open sign-up": SIGNUP_EXISTING_BEFORE when set, else the moment migration 0093
  * ran (`admission_existing_before()`, read once per database and kept: it never changes).
  */
 const storedCutover = new WeakMap<object, Promise<Date>>();

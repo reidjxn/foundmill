@@ -1,4 +1,4 @@
-import type { Meta, StoryObj } from "@storybook/react-vite";
+import type { Decorator, Meta, StoryObj } from "@storybook/react-vite";
 import { PageGrid } from "../shell/PageGrid";
 import { FirstWeekTimeline, type FirstWeekTimelineStep } from "./FirstWeekTimeline";
 
@@ -8,15 +8,24 @@ const steps = (states: [FirstWeekTimelineStep["state"], FirstWeekTimelineStep["s
   { id: "week1", label: "Week 1", state: states[2], when: "Oct 10 – 13 (Estimate)", team: "Your team starts approaching the first customers.", asks: "You are asked “Ready to start selling?” and about any spend over your limit." },
 ];
 
+/** A 390 px phone frame that is its own container, so the panel lays itself out from its width (package 2.1). */
+const Phone: Decorator = (Story) => (
+  <div className="@container w-phone border-x border-line">
+    <Story />
+  </div>
+);
+
 const meta = {
   title: "Today/FirstWeekTimeline",
   component: FirstWeekTimeline,
   parameters: { docs: { description: { component: "“Your first week” on Today: Day 1, Days 2–3 and Week 1, each with its state, its date (real when done, an Estimate otherwise), what the team does and what the founder will be asked. Words from packages/shared first-week.ts." } } },
   decorators: [
     (Story) => (
-      <PageGrid>
-        <Story />
-      </PageGrid>
+      <div className="@container">
+        <PageGrid>
+          <Story />
+        </PageGrid>
+      </div>
     ),
   ],
   args: { span: 12, steps: steps(["now", "next", "next"]) },
@@ -27,3 +36,4 @@ type Story = StoryObj<typeof meta>;
 export const DayOne: Story = {};
 export const MidWeek: Story = { args: { steps: steps(["done", "done", "now"]) } };
 export const Paused: Story = { args: { paused: "The team is stopped, so nothing moves on until you resume it." } };
+export const Phone390: Story = { name: "390 px", decorators: [Phone], args: {} };

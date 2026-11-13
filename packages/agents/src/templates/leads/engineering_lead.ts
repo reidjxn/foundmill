@@ -48,6 +48,8 @@ export const engineeringLead = defineTemplate({
   tools: [
     grant("platform", [...PLATFORM_LEAD_TOOLS, "sessions.list", "sessions.reassign", "sessions.shout", "merge_queue.read"]),
     grant("github", ["repos.read", "pulls.list", "pulls.read", "checks.read", "checks.run"]),
+    // The founder's own Vercel account when connected. A redeploy always asks the founder first.
+    grant("vercel", ["deployments.list", "deployments.read", "deployments.create"]),
   ],
   skills: withCoreSkills(["architecture", "code_review", "delivery_management", "security_awareness"]),
   autonomy: AUTONOMY_INHERIT,

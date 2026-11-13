@@ -18,7 +18,7 @@
  * service role so a token follows the latest sign-in on a phone (packages/db repos/devices.ts); the rest run as the user.
  * founder.publicProfile.get/update/publish/unpublish (0080, package 2.3): the person's own public profile at /u/<handle>,
  * and publicPerson.byHandle, its signed-out read (services/person-profile.ts).
- * founder.profile.update also takes `via` (0086, docs/NETWORK.md §5): who or what brought the person, recorded once on
+ * founder.profile.update also takes `via` (0088, docs/NETWORK.md §5): who or what brought the person, recorded once on
  * the save that creates the profile (services/attribution.ts), and `ideaDraftToken`, which no step reads yet. Both go
  * to `onPersonCreated` (services/person-created.ts), the one place that runs what happens once when a person's profile
  * is first created.

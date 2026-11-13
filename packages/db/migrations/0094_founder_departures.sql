@@ -143,7 +143,7 @@ language sql immutable parallel safe set search_path = '' as $$
   select array['profile.published', 'profile.unpublished', 'signup.attributed', 'referral.arrived', 'founder_notice.sent']::text[]
 $$;
 --> statement-breakpoint
--- As 0086 did for its types: no writer ever produced this type in `events`, but a member could have planted a row
+-- As 0088 did for its types: no writer ever produced this type in `events`, but a member could have planted a row
 -- under its name through RLS before now. Such a row goes, so every row of `events` satisfies the check as it now reads.
 delete from events where type = 'founder_notice.sent';
 --> statement-breakpoint

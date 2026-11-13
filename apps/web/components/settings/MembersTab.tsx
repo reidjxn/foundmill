@@ -66,7 +66,7 @@ export const mayInvite = (role: MembershipRole, invitationRole: InvitationRole):
 /**
  * Whether a person with `viewer`'s role may change `target`'s role here: nobody their own; an owner's row never from
  * this list (an owner steps down by making another person an owner first); a cofounder's and an admin's only by someone
- * with an owner's standing (the api and RLS say the same, 0026 and 0090).
+ * with an owner's standing (the api and RLS say the same, 0026 and 0092).
  */
 export function mayChangeRole(viewer: MembershipRole, target: MembershipRole, isSelf: boolean): boolean {
   if (isSelf || target === "owner") return false;

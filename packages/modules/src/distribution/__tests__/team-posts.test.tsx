@@ -1,5 +1,5 @@
 /**
- * Creative: a post the team wrote for the founder to share by tap (docs/NETWORK.md F3, F7; docs/DESIGN.md §9e). It is
+ * Creative: a post the team wrote for the founder to share by tap (docs/NETWORK.md F3, F7; docs/DESIGN.md §9g). It is
  * an offer, not a decision: it says who wrote it and that it is not shared yet, carries Share and "Not this one" in
  * place of Approve and Reject, opens the share panel with the link the api attached (with `via`), tells the api which
  * post a share was for, and is set aside by "Not this one". Nothing says it was posted.

@@ -1,5 +1,5 @@
 /**
- * 0087 — milestones a founder chooses to show: the guard on `milestones` and the view `public_project_milestones`.
+ * 0089 — milestones a founder chooses to show: the guard on `milestones` and the view `public_project_milestones`.
  *
  *   - a milestone the platform records (`ref.trophyKey`) is not written or changed by hand: a signed-in client can only
  *     award "Page live", and only when the business's page is published with that id and date (the api does it in the
@@ -11,12 +11,12 @@
  *     or a sample business;
  *   - the early milestones: awarded once, with ids only, and given by the catch-up to a project that already reached
  *     them (never to a sample business);
- *   - 0088: a recorded milestone is not deleted by hand, and a signed-in owner cannot backdate a page or its "Page
+ *   - 0090: a recorded milestone is not deleted by hand, and a signed-in owner cannot backdate a page or its "Page
  *     live" milestone by any route (the page's date, a re-insert, the nightly catch-up); deleting a business still
  *     removes its milestones.
  *
  * A fixture that needs a known date publishes its page on the service connection: for a signed-in client the database
- * records the date itself (0088).
+ * records the date itself (0090).
  */
 import { TROPHIES, TROPHY_KEYS, isShowableTrophyKey } from "@foundmill/journey";
 import type { ProjectPageContent } from "@foundmill/shared";
@@ -48,7 +48,7 @@ const listed = async (id: string) => (await publicRows()).some((r) => r.id === i
 /** The fixture's businesses have a payment, so the catch-up also awards "First customer": these tests read the early two. */
 const early = <T extends { ref: unknown }>(ms: T[]): T[] => ms.filter((m) => ["page_live", "first_follower"].includes(String((m.ref as { trophyKey?: string } | null)?.trophyKey)));
 
-/** A committed business with a live page at `slug`, dated `at` on the service connection (the only one that chooses a date, 0088). */
+/** A committed business with a live page at `slug`, dated `at` on the service connection (the only one that chooses a date, 0090). */
 async function withPage(slug: string, at = new Date("2026-11-12T09:00:00Z")) {
   const f = await createBusinessFixture(h, slug);
   await commit(f.businessId);
@@ -106,7 +106,7 @@ describe("milestones: what the platform records is not written by hand", () => {
     await expect(h.asUser(A.ownerId).run((tx) => awardPageLiveMilestone(tx, A.businessId, { pageId: A.businessId, at }))).rejects.toThrow(/not written by hand/);
     const draft = await h.asUser(A.ownerId).run((tx) => repos.pages.saveDraft(tx, A.businessId, { draft: content(), slug: "ms-alpha", userId: A.ownerId }));
     await expect(h.asUser(A.ownerId).run((tx) => awardPageLiveMilestone(tx, A.businessId, { pageId: draft.id, at }))).rejects.toThrow(/not written by hand/);
-    // The api's transaction: publish, then the award at the page's own date, which the database recorded (0088):
+    // The api's transaction: publish, then the award at the page's own date, which the database recorded (0090):
     // the date sent with the publish is not it.
     const { row, wentLive } = await h.asUser(A.adminId).run(async (tx) => {
       const { page } = await repos.pages.publish(tx, A.businessId, { content: content(), slug: "ms-alpha", userId: A.adminId, at });
@@ -158,8 +158,8 @@ describe("milestones: only one recorded from a real outside event can be shown",
     }
     // The journey package's rule and the trigger's list are the same two keys.
     expect(TROPHY_KEYS.filter(isShowableTrophyKey)).toEqual(["page_live", "first_follower"]);
-    // 0088 replaced the guard's function: both definitions carry the same list.
-    for (const tag of ["0087_public_milestones", "0088_page_dates_recorded"]) expect(readMigrations().find((m) => m.tag === tag)!.sql, tag).toContain("not in ('page_live', 'first_follower')");
+    // 0090 replaced the guard's function: both definitions carry the same list.
+    for (const tag of ["0089_public_milestones", "0090_page_dates_recorded"]) expect(readMigrations().find((m) => m.tag === tag)!.sql, tag).toContain("not in ('page_live', 'first_follower')");
     // One the service made public (an older row) can still be taken off the page by an owner.
     await repos.journeys.setMilestoneShown(db(), A.businessId, customer.id, true);
     expect(await h.asUser(A.ownerId).run((tx) => repos.journeys.setMilestoneShown(tx, A.businessId, customer.id, false))).not.toBeNull();
@@ -216,7 +216,7 @@ describe("milestones: showing and hiding are an owner's or an admin's", () => {
   });
 });
 
-describe("milestones: what the platform recorded stays recorded (0088)", () => {
+describe("milestones: what the platform recorded stays recorded (0090)", () => {
   const pageLive = async (businessId: string) => (await h.db.select().from(s.milestones).where(and(eq(s.milestones.businessId, businessId), sql`${s.milestones.ref} ->> 'trophyKey' = 'page_live'`)))[0];
   /** A project whose owner published the page through the api's own path: the database dated it, and "Page live" with it. */
   async function published(slug: string) {
@@ -369,7 +369,7 @@ describe("public_project_milestones: what anyone may read", () => {
   });
 
   it("the migration's keys and words are the journey package's", () => {
-    const migration = readMigrations().find((m) => m.tag === "0087_public_milestones")!.sql;
+    const migration = readMigrations().find((m) => m.tag === "0089_public_milestones")!.sql;
     const view = migration.slice(migration.indexOf("create view public_project_milestones"));
     const inList = /trophyKey' in \(([\s\S]*?)\);/.exec(view)?.[1] ?? "";
     expect([...inList.matchAll(/'([a-z0-9_]+)'/g)].map((m) => m[1]!).sort()).toEqual([...TROPHY_KEYS].sort());

@@ -5,6 +5,7 @@
  * returns typed data. Agents with outbound tools never see the raw text.
  */
 import { createHash } from "node:crypto";
+import { checkedFacts } from "./facts";
 
 export const UNTRUSTED_SOURCE_KINDS = ["email", "web", "document", "api", "webhook", "repo", "chat", "file", "other"] as const;
 export type UntrustedSourceKind = (typeof UNTRUSTED_SOURCE_KINDS)[number];
@@ -29,10 +30,17 @@ export interface Untrusted<T = unknown> {
   readonly byteLength: number;
   readonly receivedAt: string;
   readonly notice: typeof UNTRUSTED_NOTICE;
+  /**
+   * Checked values projected from `content` by the tool that produced it (src/facts.ts): what an agent that only gets the
+   * quarantined reader's digest may still work with. Already held to `factsProblem`'s limits. Absent for most tools.
+   */
+  readonly facts?: Readonly<Record<string, unknown>>;
 }
 
 export interface WrapOptions {
   now?: () => Date;
+  /** The tool's typed read of `content`; dropped unless it passes the generic facts guard. */
+  facts?: unknown;
 }
 
 /** Deterministic JSON (sorted keys) so hashes are stable across processes. */
@@ -80,6 +88,7 @@ function hashableJson(value: unknown): { json: string; binaryBytes: number } {
 export function wrapUntrusted<T>(content: T, source: UntrustedSource, opts: WrapOptions = {}): Untrusted<T> {
   if (isUntrusted(content)) return content as unknown as Untrusted<T>; // never double-wrap
   const { json, binaryBytes } = hashableJson(content);
+  const facts = opts.facts === undefined ? null : checkedFacts(opts.facts);
   return Object.freeze({
     untrusted: true as const,
     source: Object.freeze({ ...source }),
@@ -89,6 +98,7 @@ export function wrapUntrusted<T>(content: T, source: UntrustedSource, opts: Wrap
     byteLength: Buffer.byteLength(json, "utf8") + binaryBytes,
     receivedAt: (opts.now ?? (() => new Date()))().toISOString(),
     notice: UNTRUSTED_NOTICE,
+    ...(facts ? { facts: Object.freeze(facts) } : {}),
   });
 }
 
@@ -168,6 +178,7 @@ export function extractCandidateRecipients(content: unknown): CandidateRecipient
  * Flatten an untrusted wrapper into the `{ untrusted: true, content }` envelope the gateway returns to
  * agents (docs/ARCHITECTURE.md §9), keeping provenance.
  */
-export function toAgentEnvelope<T>(wrapped: Untrusted<T>): { untrusted: true; content: T; source: UntrustedSource; notice: string } {
-  return { untrusted: true, content: wrapped.content, source: wrapped.source, notice: wrapped.notice };
+export function toAgentEnvelope<T>(wrapped: Untrusted<T>): { untrusted: true; content: T; source: UntrustedSource; notice: string; facts?: Readonly<Record<string, unknown>> } {
+  const facts = wrapped.facts === undefined ? null : checkedFacts(wrapped.facts);
+  return { untrusted: true, content: wrapped.content, source: wrapped.source, notice: wrapped.notice, ...(facts ? { facts } : {}) };
 }

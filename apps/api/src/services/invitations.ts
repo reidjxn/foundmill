@@ -1,11 +1,12 @@
 /**
- * Invitations to a project (docs/NETWORK.md F5, L4; docs/THESIS_REVIEW.md package 3.1; 0089 `invitations`). The one way
+ * Invitations to a project (docs/NETWORK.md F5, L4; docs/THESIS_REVIEW.md package 3.1; 0091 `invitations`). The one way
  * a person is added to a project: the silent add by email or account id (`team.humans.invite`) is gone. Every
  * "invite" control makes this object, and it lives in Settings › People only (the solo guard: nothing prompts a
  * founder to invite anyone).
  *
- *   - `createInvitation` (Settings › People; an owner, a cofounder or an admin with Team write, `mayMakeInvitation`; a
- *     cofounder invitation only by an owner or a cofounder, and always to an address): a pending invitation for 14
+ *   - `createInvitation` (Settings › People; an owner, a cofounder or an admin with Team write, `mayMakeInvitation`,
+ *     whose own access covers the role's, services/grants.ts; a cofounder invitation only by an owner or a cofounder,
+ *     and always to an address): a pending invitation for 14
  *     days, its token returned once in the link and stored as SHA-256 only; when the founder typed an address, the
  *     gateway emails the link there (`invitation`, within its own limits, apps/gateway notify-address-email.ts).
  *     `invitation.sent`.
@@ -59,8 +60,12 @@ import type { Executor } from "@foundmill/db";
 import type { Context } from "../context";
 import { audit, emit, type BusinessContext } from "../trpc";
 import { admitThroughInvitation, rememberAdmitted } from "./access";
+import { assertWithinGrantorAccess, withinGrantorAccess } from "./grants";
 import { callerLimitKey } from "./pages";
 import { takeOrThrow, type RateLimitStore } from "./rate-limit";
+
+/** An admin whose own access is narrower than what the invitation's role opens (services/grants.ts). */
+export const INVITATION_BEYOND_OWN_ACCESS = "You can only give access you have yourself. A collaborator reads and writes Product and Customers and reads the plan and the Team, so inviting one needs that access of your own.";
 
 /** The token's hash as stored: SHA-256, lowercase hex. */
 export const invitationTokenHash = (token: string): string => createHash("sha256").update(token, "utf8").digest("hex");
@@ -150,6 +155,9 @@ export async function createInvitation(ctx: BusinessContext, raw: z.input<typeof
   const input = CreateInvitationInput.parse(raw);
   const role = input.role as InvitationRole;
   if (!mayMakeInvitation(ctx.membership, role)) throw new ForbiddenError(role === "cofounder" ? "Only an owner or a cofounder can invite a cofounder, because a cofounder has the same standing." : "Only an owner, a cofounder or an admin with Team access can invite someone.");
+  // The person joins with the role's own access (`invitationMembership`): an admin walled off from part of it cannot
+  // hand it on (services/grants.ts), and the inviter's access is checked again whenever the link is read or accepted.
+  assertWithinGrantorAccess(ctx.membership, invitationMembership(role), null, INVITATION_BEYOND_OWN_ACCESS);
   if (invitationNeedsEmail(role) && !input.email) throw new ValidationError("A cofounder invitation is for one person: type their email address. Only the account signed in with it can accept.");
   if (ctx.business.isDemo) throw new ConflictError("This is a sample business, so nobody can be invited to it. Start your own project to invite people.");
   const now = new Date();
@@ -212,19 +220,19 @@ type InviteeContext = Pick<Context, "db" | "env" | "limits" | "log"> & { clientA
 const otherAddress = () => new AppError(INVITATION_OTHER_ADDRESS_CODE, INVITATION_OTHER_ADDRESS_WORDS, 403);
 
 /**
- * Whether `inviterUserId` still holds the right to the invitation (`mayMakeInvitation`), on a membership that has not
- * ended. `lock` (inside the accept's transaction): the inviter's row is held `for share`, so a demotion or a removal
+ * Whether `inviterUserId` still holds the right to the invitation (`mayMakeInvitation`, and access of their own that
+ * covers the role's, `withinGrantorAccess`), on a membership that has not ended. `lock` (inside the accept's transaction): the inviter's row is held `for share`, so a demotion or a removal
  * that commits during the accept waits for it instead of slipping between the check and the new membership.
  */
 async function inviterStillMay(db: Executor, businessId: string, inviterUserId: string, role: InvitationRole, lock = false): Promise<boolean> {
   const membership = await repos.memberships.getActive(db, businessId, inviterUserId, lock ? { lock: "share" } : {});
-  return membership !== null && mayMakeInvitation(membership, role);
+  return membership !== null && mayMakeInvitation(membership, role) && withinGrantorAccess(membership, invitationMembership(role));
 }
 
 /**
  * The invitation a token names while it can be accepted: pending, in date, its project open and real, a cofounder's
- * naming an address (0091), and its inviter still one of the project's people with the right to make it
- * (`mayMakeInvitation`: the role and Team write). Else null.
+ * naming an address (0093), and its inviter still one of the project's people with the right to make it
+ * (`mayMakeInvitation`: the role and Team write; and their own access covering the role's, services/grants.ts). Else null.
  */
 async function workingInvitation(db: Context["db"], token: string) {
   if (!isPeopleTokenShape(token)) return null;

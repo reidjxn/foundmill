@@ -17,6 +17,7 @@
  */
 import { createHash } from "node:crypto";
 import { LIMITS } from "@foundmill/config";
+import type { TurnstileConfig } from "./turnstile";
 import { AppError, mockResultsAllowed, NotFoundError } from "@foundmill/shared";
 import type { Vault } from "@foundmill/shared/crypto";
 import type { KeyValidation } from "@foundmill/models";
@@ -54,7 +55,7 @@ import { checkRateLimit, type RateLimitStore } from "./rate-limit";
 import { candidatesFromArgs, candidatesFromContent, hashRecipient, type RecipientCandidate, type UntrustedRegister } from "./recipients";
 import { checkByokKey, SessionStateCache, stateDenial, type StateDenial } from "./state";
 import { sessionKey, toolAllowed, toolRef, type SessionToken } from "./tokens";
-import { preparePlatformMail, type PlatformMailConfig, type PreparedPlatformMail } from "./platform-mail";
+import { ownSenderUnsubscribeUrl, preparePlatformMail, type PlatformMailConfig, type PreparedPlatformMail } from "./platform-mail";
 import { SIMULATED_NOTICE, type AllowResponse, type AskResponse, type CallRequestParsed, type CallResponse, type DenyResponse, type RateLimitedResponse } from "./types";
 
 export interface GatewayLogger extends ToolLogger {
@@ -101,6 +102,8 @@ export interface GatewayDeps {
   validateModelKey?: (apiKey: string) => Promise<KeyValidation>;
   /** A project's Foundmill sending address (platform-mail.ts); absent or with no domain, `platform_mail` refuses every send. */
   platformMail?: PlatformMailConfig;
+  /** The idea box's bot check (turnstile.ts); no secret: mock on a development stack, refused elsewhere. */
+  turnstile?: TurnstileConfig;
 }
 
 const defaultStateCaches = new WeakMap<GatewayDeps, SessionStateCache>();
@@ -726,6 +729,15 @@ async function allow(deps: GatewayDeps, session: SessionToken, req: CallRequestP
     throw new GatewayError("integration_not_connected", `${connector.displayName} is not connected for this business, so nothing was done`, 409, { connector: connector.key });
   }
   const integration: IntegrationRecord = loaded.integrationRow ? toIntegrationRecord(loaded.integrationRow, credential) : mockIntegrationRecord(connector.key, session.businessId, mode === "mock" ? {} : { status: "connected" });
+  // IndexNow connected for the project's Foundmill-hosted page speaks for the page at the address it was connected
+  // with. Once the page is taken down or its address changes (the old address may be another project's by now), nothing
+  // is sent until the founder connects it again (security review, Nov 12, 2026).
+  if (mode === "live" && connector.key === "indexnow" && integration.config.hosted === true) {
+    const page = await repos.pages.get(deps.db, session.businessId);
+    if (!page || page.published === null || page.slug !== integration.config.slug) {
+      throw new GatewayError("integration_not_connected", "IndexNow was connected for a public page address that is no longer this project's live page, so nothing was sent. Connect IndexNow again in Settings › Integrations.", 409, { connector: connector.key });
+    }
+  }
 
   const vault = deps.vault;
   const loadedCredential = credential;
@@ -763,6 +775,14 @@ async function allow(deps: GatewayDeps, session: SessionToken, req: CallRequestP
     ctx.platformMail = platformMail.envelope;
   }
 
+  // A founder's own Resend: the unsubscribe link is Foundmill's signed one for this recipient, never the agent's, so an
+  // opt-out reaches this project's suppression list. Where no such link can be made, the connector sends nothing.
+  if (connector.key === "resend" && tool.name === "send_mail") {
+    const to = (guarded.args as { to?: { email?: unknown } } | null)?.to?.email;
+    const link = typeof to === "string" ? ownSenderUnsubscribeUrl(deps.platformMail, { businessId: session.businessId, email: to, mode, ...(deps.appEnv !== undefined ? { appEnv: deps.appEnv } : {}) }) : null;
+    if (link) ctx.unsubscribeUrl = link;
+  }
+
   let result: ToolResult;
   try {
     result = await connector.callTool(tool.name, guarded.args, ctx);
@@ -797,7 +817,9 @@ async function allow(deps: GatewayDeps, session: SessionToken, req: CallRequestP
     // Recipients first seen here still need the founder's approval, first-party or not. An archive is compressed bytes
     // with no text to scan; it reaches an agent only when it is the Code tab's (withheld below otherwise).
     if (!archive) {
-      const found = candidatesFromContent(content);
+      // The typed read's values too: an address there is written the way the agent will use it (an encoded quote, a
+      // normalized path), which the scan of the raw content can cut short (security review, Nov 12, 2026).
+      const found = [...candidatesFromContent(content), ...candidatesFromContent(toAgentEnvelope(result.data).facts ?? null)];
       const added = await deps.recipients.record(session.businessId, found);
       if (added > 0) log.debug({ added }, "recipients first seen in untrusted content recorded for this business");
     }
@@ -806,12 +828,14 @@ async function allow(deps: GatewayDeps, session: SessionToken, req: CallRequestP
       // Still the untrusted envelope with its notice (data, never instructions); only the digest step is skipped.
       data = { ...toAgentEnvelope(result.data), firstParty: true };
     } else if (archive) {
-      data = { ...toAgentEnvelope(result.data), content: null, quarantined: true, unavailable: ARCHIVE_WITHHELD };
+      const { facts: _withheld, ...withoutFacts } = toAgentEnvelope(result.data);
+      data = { ...withoutFacts, content: null, quarantined: true, unavailable: ARCHIVE_WITHHELD };
     } else if (deps.reader && grantsOutboundTools(deps.registry, session.allowedTools)) {
       // An agent that can contact people, spend or do something irreversible never reads third-party text raw: a model with no
       // tools reads it and the agent gets typed fields only (BUILD §9.8 step 2). If the reader fails, the agent gets nothing.
       try {
         const digest = await deps.reader.digest({ content, businessId: session.businessId, agentId: session.agentId, sessionId: session.sessionId });
+        // `toAgentEnvelope` carries the tool's typed read (`facts`, already held to the facts limits) beside the digest.
         data = { ...toAgentEnvelope(result.data), content: digest, quarantined: true };
       } catch (err) {
         log.warn({ err: (err as Error).message }, "quarantined reader failed; the content is withheld");

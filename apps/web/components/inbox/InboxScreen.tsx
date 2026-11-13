@@ -8,10 +8,10 @@
  * router integrates with `usePathname`, so J/K never re-renders the server page.
  */
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient, type InfiniteData } from "@tanstack/react-query";
-import { Inbox as InboxIcon, RefreshCw } from "lucide-react";
+import { ChevronLeft, Inbox as InboxIcon, RefreshCw } from "lucide-react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { Button, EmptyState, Kbd, useAgentPersona, useGuided, useToast } from "@foundmill/dugout";
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { Button, EmptyState, Kbd, MIN_VIEWPORT_WIDTH, cn, isViewportTooSmall, useAgentPersona, useGuided, useToast, useViewportWidth } from "@foundmill/dugout";
 import type { DeptColourToken } from "@foundmill/shared";
 import { humanSender } from "@foundmill/widgets/shared/note-tags";
 import { routes } from "@foundmill/widgets/shared/routes";
@@ -33,7 +33,10 @@ import { INBOX_TAB_LABELS, OLDER_PAGE_REUSE_MS, REFRESH_DEBOUNCE_MS, agentIndex,
 /** Fresh for minutes while the business's event channel keeps the inbox current, 10 s otherwise. */
 const INBOX_LIST_STALE = streamAwareStaleTime(10_000);
 
-/** DESIGN §9: the list is 380 px wide. */
+/**
+ * DESIGN §9: the list is 380 px wide. Below the `page-wide` container width (a phone, package 2.1) the screen shows one
+ * pane at a time: the list at full width, or the opened note with a Back control.
+ */
 export const INBOX_LIST_WIDTH = 380;
 const PAGE = 50;
 type InboxPage = RouterOutputs["inbox"]["list"];
@@ -74,9 +77,11 @@ export function InboxScreen({ itemId: routeItemId }: InboxScreenProps) {
   const selectedId = itemIdFromPath(pathname) ?? routeItemId ?? null;
   // The tour waits for a moment with the list in front and no note open, then stays (see `inboxTourStarts`).
   const [tourStarted, setTourStarted] = useState(false);
+  // On a phone only one pane shows at a time, so the tour's two-pane steps have nothing to point at: no tour there.
+  const onPhone = isViewportTooSmall(useViewportWidth(), MIN_VIEWPORT_WIDTH);
   useEffect(() => {
-    if (inboxTourStarts(selectedId, tourStarted)) setTourStarted(true);
-  }, [selectedId, tourStarted]);
+    if (!onPhone && inboxTourStarts(selectedId, tourStarted)) setTourStarted(true);
+  }, [selectedId, tourStarted, onPhone]);
 
   // --- list --------------------------------------------------------------------------------------------------------
   // The shell refetches the inbox on every event that adds or settles an item; polling every 30 s while the business's
@@ -227,11 +232,18 @@ export function InboxScreen({ itemId: routeItemId }: InboxScreenProps) {
 
   return (
     <div className="flex h-full min-h-0" data-testid="inbox-screen" data-tab={tab} data-selected={selectedId ?? undefined}>
-      <aside className="flex min-h-0 shrink-0 flex-col border-r border-subtle bg-panel" style={{ width: INBOX_LIST_WIDTH }} aria-label={`${INBOX_TAB_LABELS[tab]} notes`} data-testid="inbox-pane" data-coachmark="inbox-pane">
+      <aside className={cn("flex min-h-0 w-full min-w-0 flex-col bg-panel @page-wide:w-(--inbox-list-width) @page-wide:shrink-0 @page-wide:border-r @page-wide:border-subtle", selectedId && "@max-page-wide:hidden")} style={{ "--inbox-list-width": `${INBOX_LIST_WIDTH}px` } as CSSProperties} aria-label={`${INBOX_TAB_LABELS[tab]} notes`} data-testid="inbox-pane" data-coachmark="inbox-pane">
         {refreshFailed(listQ) ? <RefreshFailedNotice query={listQ} /> : null}
         <InboxList rows={rows} selectedId={selectedId} onSelect={select} onPrefetch={prefetchNote} loading={listQ.isLoading} hasMore={!!listQ.hasNextPage} loadingMore={listQ.isFetchingNextPage} onLoadMore={() => void listQ.fetchNextPage()} emptyText={emptyText} founderName={founderName} />
       </aside>
-      <section className="flex min-h-0 min-w-0 flex-1 flex-col" aria-label="Reading pane" data-testid="reading-pane" data-coachmark="reading-pane">
+      <section className={cn("flex min-h-0 min-w-0 flex-1 flex-col", !selectedId && "@max-page-wide:hidden")} aria-label="Reading pane" data-testid="reading-pane" data-coachmark="reading-pane">
+        {selectedId ? (
+          <div className="rule-under flex shrink-0 items-center px-2 @page-wide:hidden" data-testid="inbox-back-row">
+            <Button variant="ghost" icon={ChevronLeft} className="min-h-tap" onClick={() => select(null)} data-testid="inbox-back">
+              Back to the list
+            </Button>
+          </div>
+        ) : null}
         {selectedId ? (
           <ReadingPane key={selectedId} itemId={selectedId} onArchived={() => select(neighbourId(ids.filter((i) => i !== selectedId), null, "next"))} />
         ) : (

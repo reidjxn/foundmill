@@ -1,11 +1,12 @@
 /** team.agents.* / team.humans.* / team.responsibilities.* (BUILD §11.9; AC-11.9.2 responsibilities route approvals). */
 import { TEMPLATE_KEYS, getTemplate, hasTemplate, listTemplates } from "@foundmill/agents";
 import { CREDITS_CURRENCY } from "@foundmill/config";
-import { SectionPermissions, repos, type AgentRosterActivity } from "@foundmill/db";
-import { DECISION_TYPES, DEFAULT_AGENT_STYLE, ForbiddenError, isOwnerRole, MEMBERSHIP_ROLES, NotFoundError, ValidationError, agentTier, characterFor, leadAgentIds } from "@foundmill/shared";
+import { SectionPermissions, membershipEnded, repos, type AgentRosterActivity } from "@foundmill/db";
+import { ADMIN_ROLES, DECISION_TYPES, DEFAULT_AGENT_STYLE, ForbiddenError, hasSectionAccess, isOwnerRole, MEMBERSHIP_ROLES, NotFoundError, ValidationError, agentTier, characterFor, leadAgentIds } from "@foundmill/shared";
 import { z } from "zod";
 import { pendingApprovals, resolveApproval } from "../services/approvals";
 import { founderChangeNote, noticeNames, recentlyLowered, takeFounderChange, tellFoundersQuietly } from "../services/founder-notices";
+import { assertWithinGrantorAccess } from "../services/grants";
 import { modelLimited } from "../services/model-limits";
 import { ensurePortraits } from "../services/personas";
 import { archivePlaybook, compilePlaybookText, createPlaybook, setPlaybookEnabled, toPlaybookView, updatePlaybook } from "../services/playbooks";
@@ -268,7 +269,9 @@ export const teamRouter = router({
     /**
      * Role, section permissions and (a collaborator's only) the date access ends, of another member. Nobody edits their
      * own; only someone with an owner's standing (an owner or a cofounder, THESIS_REVIEW 3.3) changes such a row or
-     * grants that standing; the last owner or cofounder keeps it (the same rules hold in RLS, 0026 and 0090).
+     * grants that standing; the last owner or cofounder keeps it (the same rules hold in RLS, 0026 and 0092). Someone
+     * without that standing gives no more than their own access (`assertWithinGrantorAccess`; the api's rule alone, as
+     * the section walls are: no policy reads section permissions).
      */
     role: staffAdmin
       .input(z.object({ userId: Id, role: z.enum(MEMBERSHIP_ROLES).optional(), sectionPermissions: SectionPermissions.optional(), expiresAt: z.coerce.date().nullable().optional() }))
@@ -276,11 +279,24 @@ export const teamRouter = router({
         const names = await noticeNames(ctx.db, ctx.userId, input.userId);
         const changed = await ctx.rls(async (tx) => {
           if (input.userId === ctx.userId) throw new ValidationError("You cannot change your own role or section permissions; another owner or admin can");
-          let membership = await repos.memberships.get(tx, ctx.businessId, input.userId);
+          // Judged on fresh rows, not on the request's: the business's people changes take turns (the owner lock, as
+          // `setRole` and `remove` take it), the editor's own row is re-read under a share lock and the person's under an
+          // update lock, so an owner lowering this editor at the same moment is either seen here or waits for it.
+          await repos.memberships.lockOwners(tx, ctx.businessId);
+          const editor = await repos.memberships.getMineForShare(tx, ctx.businessId, ctx.userId);
+          if (!editor || !ADMIN_ROLES.includes(editor.role) || !hasSectionAccess(editor, "team", "write")) throw new ForbiddenError("You can no longer change people's access in this business");
+          const locked = await repos.memberships.getForUpdate(tx, ctx.businessId, input.userId);
+          let membership = locked ?? (await repos.memberships.get(tx, ctx.businessId, input.userId));
           if (!membership) throw new ValidationError("Not a member of this business");
           const fromRole = membership.role;
-          if (!isOwnerRole(ctx.role) && isOwnerRole(membership.role)) throw new ForbiddenError("Only an owner or a cofounder can change an owner's or a cofounder's role or permissions");
-          if (!isOwnerRole(ctx.role) && input.role && isOwnerRole(input.role)) throw new ForbiddenError("Only an owner or a cofounder can make someone an owner or a cofounder");
+          if (!isOwnerRole(editor.role) && isOwnerRole(membership.role)) throw new ForbiddenError("Only an owner or a cofounder can change an owner's or a cofounder's role or permissions");
+          if (!isOwnerRole(editor.role) && input.role && isOwnerRole(input.role)) throw new ForbiddenError("Only an owner or a cofounder can make someone an owner or a cofounder");
+          // RLS let the row be read but not locked: it is not this editor's to change.
+          if (!locked) throw new ForbiddenError("You cannot change this person's access");
+          // Nor past the editor's own access: no section above their own level on it and no role above theirs (an
+          // owner's standing is not limited); narrowing and lowering stay free (services/grants.ts). A collaborator whose
+          // access ended has none now, so a new date gives everything the row holds and is judged as a grant.
+          assertWithinGrantorAccess(editor, { role: input.role ?? membership.role, sectionPermissions: input.sectionPermissions ?? membership.sectionPermissions }, membershipEnded(membership) ? null : membership);
           // One person lowers a founder's role at most so often a day in a project (second review, P1-1).
           if (isOwnerRole(fromRole) && input.role && !isOwnerRole(input.role)) await takeFounderChange(ctx, "lower");
           if (input.role) membership = await repos.memberships.setRole(tx, ctx.businessId, input.userId, input.role);
@@ -360,7 +376,7 @@ export const teamRouter = router({
           const agent = await repos.agents.get(tx, ctx.businessId, input.handler.id);
           if (agent.archivedAt) throw new ValidationError(`${agent.name} has left the team`);
         }
-        // One of the project's people now: a collaborator whose access ended is not (0090).
+        // One of the project's people now: a collaborator whose access ended is not (0092).
         if (input.handler.kind === "user" && input.handler.id && !(await repos.memberships.getActive(tx, ctx.businessId, input.handler.id))) throw new ValidationError("Handler is not a member");
         const departments = await repos.departments.list(tx, ctx.businessId);
         const targets = input.departmentId ? departments.filter((d) => d.id === input.departmentId) : departments;

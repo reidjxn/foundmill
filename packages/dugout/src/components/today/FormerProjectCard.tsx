@@ -1,6 +1,6 @@
 "use client";
 /**
- * FormerProjectCard (security review P2-3; docs/DESIGN.md §9g): the small card on the home of a founder someone else
+ * FormerProjectCard (security review P2-3; docs/DESIGN.md §9i): the small card on the home of a founder someone else
  * demoted or removed within 30 days before a deletion request, or after it, while that deletion waits. It says when the project is deleted and
  * until when they can still stop it, and that stopping it gives them nothing else back. Cancel asks once more in place
  * ("Yes, cancel the deletion" / "Not now") before the host sends it, so one stray tap never decides. Calm: a plain

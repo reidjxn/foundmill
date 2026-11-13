@@ -1,5 +1,5 @@
 /**
- * Who or what brought a new person (docs/NETWORK.md §5 "Attribution is part of every loop", §11; migration 0086).
+ * Who or what brought a new person (docs/NETWORK.md §5 "Attribution is part of every loop", §11; migration 0088).
  * Every public address accepts `?via=<reference>` (@foundmill/shared/via: `p.<slug>` a project's public page,
  * `u.<handle>` a person's public profile); the web keeps the first one a visitor arrives with in a cookie and hands it
  * to `founder.profile.update` on the save that creates the person's profile, which runs this as the first step of

@@ -5,7 +5,7 @@ import { API_URL, commitThrowaway, LONG, NORTHWIND_BUSINESS_ID, signIn } from ".
 import { DEMO_OWNER_USER_ID } from "../../../packages/db/src/seed/constants";
 
 /**
- * Founder notices and the former founder's cancel (security review P2-3; docs/DESIGN.md §9g). Stack and commands:
+ * Founder notices and the former founder's cancel (security review P2-3; docs/DESIGN.md §9i). Stack and commands:
  * e2e/README.md.
  *
  *   - the dev founder starts a project and invites a second account as a cofounder, who accepts; the cofounder lowers

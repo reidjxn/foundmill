@@ -6,7 +6,7 @@
  * guard trigger refuses anyone else, whichever client wrote). `publish` and `unpublish` are conditional on the row's
  * state, so a second tab or a second member changes nothing twice.
  *
- * When a page went live and when it was taken down are the database's to record (0088): for a signed-in client the
+ * When a page went live and when it was taken down are the database's to record (0090): for a signed-in client the
  * guard writes `published_at` and `unpublished_at` from its own clock and ignores a date sent with the write, so the
  * date on the public page and on the milestone "Page live" is never one somebody typed in. `publish` and `unpublish`
  * return the row as stored: read the dates from it. Their `at` is the service connection's only (a seed, a backfill, a
@@ -16,11 +16,11 @@
  * gets only what the view `public_project_pages` lists (0077). An unknown address and a page that is not published
  * answer the same: null.
  */
-import { ConflictError, OWNER_ROLES, PAGE_READY_NOTE, PAGE_SLUG_TAKEN, ProjectPageContent, ProjectPageDraft, ProjectPageSlug, readPageContent, suffixPageSlug, suggestPageSlug, type ProjectPageContent as PageContent } from "@foundmill/shared";
+import { ConflictError, isIndexNowKey, OWNER_ROLES, PAGE_READY_NOTE, PAGE_SLUG_TAKEN, ProjectPageContent, ProjectPageDraft, ProjectPageSlug, readPageContent, suffixPageSlug, suggestPageSlug, type ProjectPageContent as PageContent } from "@foundmill/shared";
 import { toLogoDataUrl } from "@foundmill/shared/logo";
 import { and, desc, eq, inArray, isNotNull, isNull, ne, sql } from "drizzle-orm";
 import { z } from "zod";
-import { businessFoundations, businessLogos, businesses, founderProfiles, ideaVersions, ideas, inboxItems, memberships, projectPages, publicProjectMilestones, publicProjectPages, type InboxItem, type ProjectPage } from "../schema";
+import { businessFoundations, businessLogos, businesses, founderProfiles, ideaVersions, ideas, inboxItems, integrations, memberships, projectPages, publicProjectMilestones, publicProjectPages, type InboxItem, type ProjectPage } from "../schema";
 import { auditRepo } from "./audit";
 import { inboxRepo } from "./inbox";
 import { toBytes } from "./logos";
@@ -56,7 +56,7 @@ const SLUG_CONSTRAINT = "project_pages_slug_key";
 
 const SaveDraftInput = z.object({ draft: ProjectPageDraft, slug: ProjectPageSlug, userId: Id.nullable() });
 const SetSlugInput = z.object({ slug: ProjectPageSlug, draft: ProjectPageDraft, userId: Id.nullable() });
-/** `at`: the date to record, on the service connection only. For a signed-in client the database's clock is used instead (0088). */
+/** `at`: the date to record, on the service connection only. For a signed-in client the database's clock is used instead (0090). */
 const PublishInput = z.object({ content: ProjectPageContent, slug: ProjectPageSlug, userId: Id.nullable(), at: z.date().optional() });
 const UnpublishInput = z.object({ userId: Id.nullable(), at: z.date().optional() });
 
@@ -77,7 +77,7 @@ export interface PublicPage {
   founderNames: string[];
 }
 
-/** A milestone the founders chose to show, as anyone may read it (the view `public_project_milestones`, 0087). */
+/** A milestone the founders chose to show, as anyone may read it (the view `public_project_milestones`, 0089). */
 export interface PublicMilestone {
   /** The card's address: `/m/<id>`. */
   id: string;
@@ -183,7 +183,7 @@ export const pagesRepo = {
    * Publishes `content`: it becomes the draft and the published copy together. `wasLive` says whether the page was
    * already public (a publish of changes keeps `published_at`, so "Live since" does not move). The row is written at
    * `slug` when the business has none yet; an existing row keeps its address. The returned row carries the date as
-   * stored: for a signed-in client that is the database's clock, not `at` and not this process's (0088).
+   * stored: for a signed-in client that is the database's clock, not `at` and not this process's (0090).
    */
   async publish(db: Executor, businessId: string, input: PublishPageInput): Promise<{ page: ProjectPage; wasLive: boolean }> {
     const v = parseInput(PublishInput, input, "page");
@@ -206,7 +206,7 @@ export const pagesRepo = {
 
   /**
    * Takes the page down: the published copy is cleared, the draft stays. Null when it was not live. `unpublished_at`
-   * is the database's clock for a signed-in client, like `published_at` (0088).
+   * is the database's clock for a signed-in client, like `published_at` (0090).
    */
   async unpublish(db: Executor, businessId: string, input: z.input<typeof UnpublishInput>): Promise<ProjectPage | null> {
     const v = parseInput(UnpublishInput, input, "page");
@@ -313,7 +313,7 @@ export const pagesRepo = {
     return rows.length === 0;
   },
 
-  /** The display names the public page would show for this business's founders, its owners and cofounders (the view's own rule, 0090), for the preview. */
+  /** The display names the public page would show for this business's founders, its owners and cofounders (the view's own rule, 0092), for the preview. */
   async ownerNames(db: Executor, businessId: string): Promise<string[]> {
     const rows = await db
       .select({ name: founderProfiles.displayName })
@@ -336,7 +336,7 @@ export const pagesRepo = {
     },
 
     /**
-     * The project's story: the milestones its founders chose to show, oldest first (0087). Empty for an unknown
+     * The project's story: the milestones its founders chose to show, oldest first (0089). Empty for an unknown
      * address, a page that is not public and a page that shows none: the view lists a milestone only while its page is
      * in `public_project_pages`. Service connection only.
      */
@@ -392,6 +392,28 @@ export const pagesRepo = {
           .limit(1),
       );
       return row?.planTier ?? null;
+    },
+
+    /**
+     * The IndexNow key a public page's key file serves (`/p/<slug>/<key>.txt`; founder, 2026-11-12), or null. Only for a
+     * page the view lists (published, not a sample), whose business connected IndexNow for its hosted page (`hosted` in
+     * the integration's stored config, written at connect) and has not disconnected it. The key is public by protocol:
+     * anyone may read the file, which is how search engines check that a submission comes from the page's owner.
+     */
+    async indexNowKeyBySlug(db: Executor, slug: string): Promise<string | null> {
+      if (!ProjectPageSlug.safeParse(slug).success) return null;
+      const row = maybeOne(
+        await db
+          .select({ settings: integrations.settings })
+          .from(publicProjectPages)
+          .innerJoin(projectPages, eq(projectPages.slug, publicProjectPages.slug))
+          .innerJoin(integrations, eq(integrations.businessId, projectPages.businessId))
+          .where(and(eq(publicProjectPages.slug, slug), eq(integrations.connectorKey, "indexnow"), isNull(integrations.archivedAt), inArray(integrations.status, ["connected", "degraded"])))
+          .limit(1),
+      );
+      const config = (row?.settings as { config?: { hosted?: unknown; slug?: unknown; key?: unknown } } | undefined)?.config;
+      if (!config || config.hosted !== true || config.slug !== slug || !isIndexNowKey(config.key)) return null;
+      return config.key;
     },
   },
 };

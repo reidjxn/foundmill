@@ -118,6 +118,11 @@ export function FormationBoard({ channels, onToggle, onOpenChannel, onPause, kit
   }, [order, walkedOn]);
 
   const effective = useMemo(() => (walkedOn ? channels : channels.map((c) => (c.enabled && !entered.has(c.key) ? { ...c, enabled: false } : c))), [channels, walkedOn, entered]);
+  // The entrance is only a picture: what a press or a drag acts on is the channel's stored place, never the place it is
+  // drawn at while it walks on (a channel on the board that has not walked on yet is still on the board). The first
+  // focus or pointer on the board ends the entrance, so the founder never acts on a board that is still arriving.
+  const storedEnabled = useCallback((key: ChannelKey, fallback: boolean) => channels.find((c) => c.key === key)?.enabled ?? fallback, [channels]);
+  const finishEntrance = useCallback(() => setWalkedOn(true), []);
   const families = useMemo(() => pitchLines(effective), [effective]);
   // Every channel has a fixed home on the map (computed from all of them, so toggling never reshuffles the others).
   const homes = useMemo(() => boardLayout(channels), [channels]);
@@ -179,7 +184,7 @@ export function FormationBoard({ channels, onToggle, onOpenChannel, onPause, kit
 
   const startDrag = (e: ReactPointerEvent<HTMLButtonElement>, channel: ChannelTokenData) => {
     if (e.button !== 0) return;
-    const d: DragState = { key: channel.key, startX: e.clientX, startY: e.clientY, dx: 0, dy: 0, moved: false, from: channel.enabled ? "pitch" : "bench" };
+    const d: DragState = { key: channel.key, startX: e.clientX, startY: e.clientY, dx: 0, dy: 0, moved: false, from: storedEnabled(channel.key, channel.enabled) ? "pitch" : "bench" };
     dragRef.current = d;
     setDrag(d);
   };
@@ -187,7 +192,7 @@ export function FormationBoard({ channels, onToggle, onOpenChannel, onPause, kit
   const onTokenKey = (e: KeyboardEvent<HTMLButtonElement>, channel: ChannelTokenData) => {
     if (e.key === "Enter" || e.key === " ") {
       e.preventDefault();
-      toggle(channel.key, !channel.enabled);
+      toggle(channel.key, !storedEnabled(channel.key, channel.enabled));
     } else if ((e.key === "o" || e.key === "O") && onOpenChannel) {
       e.preventDefault();
       onOpenChannel(channel.key);
@@ -261,7 +266,16 @@ export function FormationBoard({ channels, onToggle, onOpenChannel, onPause, kit
   return (
     <MotionConfig reducedMotion="user">
       <LayoutGroup>
-        <section aria-label="Channel Board" className={cn("flex min-w-0 flex-col gap-3", className)} data-formation-board data-walked-on={walkedOn || undefined}>
+        {/* Busy while the channels walk on: until then a channel on the board may still be drawn in the tray, so its state is not yet what it is. */}
+        <section
+          aria-label="Channel Board"
+          aria-busy={walkedOn ? undefined : true}
+          className={cn("flex min-w-0 flex-col gap-3", className)}
+          data-formation-board
+          data-walked-on={walkedOn || undefined}
+          onFocusCapture={walkedOn ? undefined : finishEntrance}
+          onPointerDownCapture={walkedOn ? undefined : finishEntrance}
+        >
           <p id={hintId} className="sr-only">
             Drag a channel on or off the board, or focus it and press Enter to move it. Press O to open the channel.
           </p>

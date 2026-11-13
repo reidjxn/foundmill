@@ -263,7 +263,7 @@ describe("event catalogue", () => {
     expect(() => parseEvent(null)).toThrow(ValidationError);
   });
 
-  it("milestone.shown and milestone.hidden: a founder's own press, pushed to open tabs, never narrated (0087)", () => {
+  it("milestone.shown and milestone.hidden: a founder's own press, pushed to open tabs, never narrated (0089)", () => {
     for (const type of ["milestone.shown", "milestone.hidden"] as const) {
       const decl = EVENTS[type];
       expect(decl.narratable, type).toBe(false);

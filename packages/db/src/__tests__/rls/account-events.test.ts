@@ -6,7 +6,7 @@
  * never a row of a business's `events`, and only such a type is a row here; the rows go with the account.
  *
  * The list of account-scoped types is `fm_account_event_types()`: defined by 0085 and redefined by every migration
- * that adds a type (0086: `signup.attributed`, `referral.arrived`). It is held equal to `ACCOUNT_EVENT_TYPES` twice
+ * that adds a type (0088: `signup.attributed`, `referral.arrived`). It is held equal to `ACCOUNT_EVENT_TYPES` twice
  * here: as the migrated database answers it, and as the latest migration that defines it spells it.
  */
 import { ACCOUNT_EVENT_TYPES } from "@foundmill/shared";
