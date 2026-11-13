@@ -27,8 +27,8 @@
  * `assertPlatformCredits` refuses a call while the month's credits are used up (or stopped for it), and where calls are
  * live, credits granted by a simulated payment never count (`ALLOW_MOCK_PAYMENTS`, docs/DEPLOY.md §4).
  */
-import { APP_NAME, creditsAreLow, CREDITS_CURRENCY, includedCreditsMinor, lowCreditsThresholdMinor, tierIncludedCreditPlaces } from "@foundmill/config";
-import { CreditsExhaustedError } from "@foundmill/shared";
+import { APP_NAME, creditsAreLow, CREDITS_CURRENCY, includedCreditsMinor, lowCreditsThresholdMinor, ownPlanFunds, tierIncludedCreditPlaces } from "@foundmill/config";
+import { CreditsExhaustedError, type FundingSource } from "@foundmill/shared";
 import { stopBusinessAgents } from "./controls";
 import { repos } from "./repos";
 import type { Executor } from "./repos/_shared";
@@ -67,9 +67,44 @@ export interface BookUsageResult {
   replayed?: boolean;
 }
 
-/** Whether a ledger row is a platform cost charged to credits: billed to credits, not a tool call, in USD. */
-export function chargesCredits(entry: Pick<UsageEntry, "billedTo" | "kind" | "currency">): boolean {
-  return entry.billedTo === "credits" && entry.kind !== "tool" && entry.currency === CREDITS_CURRENCY;
+/**
+ * Whether a ledger row is a platform cost charged to credits: billed to credits, not a tool call, in USD, and not paid by
+ * the founder's own plan (`details.funding.source`, see `bookUsage`).
+ */
+export function chargesCredits(entry: Pick<UsageEntry, "billedTo" | "kind" | "currency"> & { details?: unknown }): boolean {
+  return entry.billedTo === "credits" && entry.kind !== "tool" && entry.currency === CREDITS_CURRENCY && fundingOfRow(entry) !== "own_plan";
+}
+
+/** Which source paid for a usage row, with the provider when it is the founder's own plan or own key. */
+export interface UsageFunding {
+  source: FundingSource;
+  provider?: string;
+}
+
+/** The funding recorded on a row (`details.funding.source`), else what its `billedTo` means. */
+export function fundingOfRow(entry: Pick<UsageEntry, "billedTo"> & { details?: unknown }): FundingSource {
+  const recorded = (entry.details as { funding?: { source?: unknown } } | null | undefined)?.funding?.source;
+  if (recorded === "foundmill_credits" || recorded === "own_api_key" || recorded === "own_plan") return recorded;
+  return entry.billedTo === "byok" ? "own_api_key" : "foundmill_credits";
+}
+
+/**
+ * What funds a business's agents' model calls now (0100): the founder's own plan only while `FLAGS.ownPlanFunding` is on
+ * and its provider is integrated (`ownPlanFunds`, packages/config; with the flag off, never); otherwise the founder's own
+ * key on `byok`, else the month's credits. `ownPlan` overrides the flag and the provider list (tests).
+ */
+export function agentWorkFunding(business: Pick<Business, "modelBilling" | "fundingSource" | "fundingPlanProvider">, ownPlan?: { enabled?: boolean; providers?: readonly string[] }): UsageFunding {
+  if (business.fundingSource === "own_plan" && ownPlanFunds(business.fundingPlanProvider, ownPlan)) return { source: "own_plan", provider: business.fundingPlanProvider! };
+  return business.modelBilling === "byok" ? { source: "own_api_key", provider: "anthropic" } : { source: "foundmill_credits" };
+}
+
+/** A booking, with the source that paid when the caller knows it (else it follows `billedTo`). */
+export type BookUsageInput = RecordUsageInput & { funding?: UsageFunding };
+
+/** The funding a booking records: the caller's, else what `billedTo` means (the platform's key or the founder's Anthropic key). */
+function fundingFor(input: BookUsageInput): UsageFunding {
+  if (input.funding) return input.funding;
+  return input.billedTo === "byok" ? { source: "own_api_key", provider: "anthropic" } : { source: "foundmill_credits" };
 }
 
 type CreditsBusiness = Pick<Business, "id" | "planTier" | "createdBy">;
@@ -97,9 +132,12 @@ export async function includedCreditsFor(db: Executor, business: CreditsBusiness
  * the charge never leaves an empty balance with the team still working (audit BILL-20). A booking with an
  * `idempotencyKey` that was already booked (a retried session end) returns that row and charges nothing.
  */
-export async function bookUsage(db: Executor, businessId: string, input: RecordUsageInput): Promise<BookUsageResult> {
+export async function bookUsage(db: Executor, businessId: string, input: BookUsageInput): Promise<BookUsageResult> {
+  const { funding: _funding, ...row } = input;
+  // Which source paid is recorded on the row (0100), so a row the founder's own plan paid is never charged to credits.
+  const recorded: RecordUsageInput = input.kind === "tool" ? row : { ...row, details: { ...(row.details ?? {}), funding: fundingFor(input) } };
   return db.transaction(async (tx) => {
-    const { entry, created } = await repos.usage.recordOnce(tx, businessId, input);
+    const { entry, created } = await repos.usage.recordOnce(tx, businessId, recorded);
     if (!created) return { entry, credits: null, replayed: true };
     if (!chargesCredits(entry)) return { entry, credits: null };
     const business = await repos.businesses.get(tx, businessId, { includeArchived: true });
@@ -197,6 +235,11 @@ export interface PlatformCreditsCheck {
    */
   low: boolean;
   modelBilling: Business["modelBilling"];
+  /**
+   * Who pays for a call on the platform key: the month's credits, unless the business's agent work is billed to the
+   * founder's own plan (`agentWorkFunding`), which skips Foundmill's credits. With `FLAGS.ownPlanFunding` off, never.
+   */
+  fundedBy: FundingSource;
 }
 
 /**
@@ -204,10 +247,15 @@ export interface PlatformCreditsCheck {
  * team was stopped for it this month), and, where calls are `live`, no when only credits granted by a simulated
  * payment are left: free credits never pay for real model spend. Reads only; see `assertPlatformCredits`.
  */
-export async function checkPlatformCredits(db: Executor, businessId: string, options: { live: boolean; now?: Date }): Promise<PlatformCreditsCheck> {
+export async function checkPlatformCredits(db: Executor, businessId: string, options: { live: boolean; now?: Date; ownPlan?: { enabled?: boolean; providers?: readonly string[] } }): Promise<PlatformCreditsCheck> {
   const business = await repos.businesses.get(db, businessId, { includeArchived: true });
   const period = periodOf(options.now ?? new Date());
   const row = await repos.usage.creditBalance(db, business.id, period);
+  // Work billed to the founder's own plan skips Foundmill's credits (0100); with the flag off nothing is.
+  if (agentWorkFunding(business, options.ownPlan).source === "own_plan") {
+    const balanceMinor = row ? Number(row.balanceMinor) : 0;
+    return { ok: true, reason: null, period, balanceMinor, spendableMinor: balanceMinor, low: false, modelBilling: business.modelBilling, fundedBy: "own_plan" };
+  }
   const included = row ? null : await includedCreditsFor(db, business, period);
   const balanceMinor = row ? Number(row.balanceMinor) : (included ?? 0);
   const mockMinor = options.live && balanceMinor > 0 ? await repos.checkouts.mockGrantedMinor(db, business.id, period) : 0;
@@ -216,7 +264,7 @@ export async function checkPlatformCredits(db: Executor, businessId: string, opt
   const stopped = business.agentsStoppedReason === "credits_exhausted" && business.agentsStoppedAt !== null && periodOf(business.agentsStoppedAt) === period;
   const reason = stopped || balanceMinor <= 0 ? "exhausted" : spendableMinor <= 0 ? "mock_only" : null;
   const low = reason === null && (await belowLowLine(db, business, period, spendableMinor, included));
-  return { ok: reason === null, reason, period, balanceMinor, spendableMinor, low, modelBilling: business.modelBilling };
+  return { ok: reason === null, reason, period, balanceMinor, spendableMinor, low, modelBilling: business.modelBilling, fundedBy: "foundmill_credits" };
 }
 
 /**
@@ -230,7 +278,7 @@ async function belowLowLine(db: Executor, business: CreditsBusiness, period: str
 }
 
 /** Throws `CreditsExhaustedError` (402, a sentence the founder can act on) when `checkPlatformCredits` says no. */
-export async function assertPlatformCredits(db: Executor, businessId: string, options: { live: boolean; now?: Date }): Promise<PlatformCreditsCheck> {
+export async function assertPlatformCredits(db: Executor, businessId: string, options: { live: boolean; now?: Date; ownPlan?: { enabled?: boolean; providers?: readonly string[] } }): Promise<PlatformCreditsCheck> {
   const check = await checkPlatformCredits(db, businessId, options);
   if (check.ok) return check;
   const next = shortDate(periodRange(check.period).to);

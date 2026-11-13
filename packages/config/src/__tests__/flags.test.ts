@@ -1,5 +1,19 @@
 import { describe, expect, it } from "vitest";
-import { FLAGS, SIMULATE_TOKEN_AUDIENCE, SIMULATE_TOKEN_MAX_TTL_SECONDS, isSimulateEnv, simulatePanelHonoured } from "../flags";
+import { FLAGS, OWN_PLAN_PROVIDERS, SIMULATE_TOKEN_AUDIENCE, SIMULATE_TOKEN_MAX_TTL_SECONDS, isSimulateEnv, ownPlanFunds, simulatePanelHonoured } from "../flags";
+
+describe("the founder's own AI plan (0100)", () => {
+  it("is off, with no provider integrated, so no work is billed to a plan", () => {
+    expect(FLAGS.ownPlanFunding).toBe(false);
+    expect(OWN_PLAN_PROVIDERS).toEqual([]);
+    expect(ownPlanFunds("openai")).toBe(false);
+  });
+  it("funds work only with the flag on and the provider integrated", () => {
+    expect(ownPlanFunds("openai", { enabled: true, providers: ["openai"] })).toBe(true);
+    expect(ownPlanFunds("openai", { enabled: false, providers: ["openai"] })).toBe(false);
+    expect(ownPlanFunds("anthropic", { enabled: true, providers: ["openai"] })).toBe(false);
+    expect(ownPlanFunds(null, { enabled: true, providers: ["openai"] })).toBe(false);
+  });
+});
 
 describe("Simulate panel gate (SEC-2)", () => {
   it("keeps the flag on by default but never honours it without a verified service token", () => {

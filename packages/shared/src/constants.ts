@@ -19,6 +19,14 @@ export type PlanTier = (typeof PLAN_TIERS)[number];
 export const MODEL_BILLING = ["byok", "credits"] as const;
 export type ModelBilling = (typeof MODEL_BILLING)[number];
 
+/**
+ * Who funds a business's agent work (0100, `businesses.funding_source`): the month's credits on the platform's key, the
+ * founder's own API key (`model_billing = byok`), or the founder's own AI plan at a provider (off: `FLAGS.ownPlanFunding`,
+ * packages/config, and no provider is integrated). The first two follow `model_billing`; only `own_plan` is set directly.
+ */
+export const FUNDING_SOURCES = ["foundmill_credits", "own_api_key", "own_plan"] as const;
+export type FundingSource = (typeof FUNDING_SOURCES)[number];
+
 export const DATA_REGIONS = ["eu", "us"] as const;
 export type DataRegion = (typeof DATA_REGIONS)[number];
 

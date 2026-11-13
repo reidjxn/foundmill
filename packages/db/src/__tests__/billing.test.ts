@@ -11,7 +11,7 @@ import { creditsAreLow, includedCreditsMinor, LOW_CREDITS_FLOOR_MINOR, LOW_CREDI
 import { CreditsExhaustedError } from "@foundmill/shared";
 import { buildAad, createVault, encryptJson, generateMasterKey } from "@foundmill/shared/crypto";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { assertPlatformCredits, bookUsage, chargesCredits, checkPlatformCredits, creditsState, CREDITS_EXHAUSTED_SUBJECT, CREDITS_LOW_AUDIT_ACTION, CREDITS_LOW_SUBJECT, includedCreditsFor, PLATFORM_CREDITS_EXHAUSTED_SUBJECT, platformCredits } from "../billing";
+import { agentWorkFunding, assertPlatformCredits, bookUsage, chargesCredits, fundingOfRow, checkPlatformCredits, creditsState, CREDITS_EXHAUSTED_SUBJECT, CREDITS_LOW_AUDIT_ACTION, CREDITS_LOW_SUBJECT, includedCreditsFor, PLATFORM_CREDITS_EXHAUSTED_SUBJECT, platformCredits } from "../billing";
 import { BYOK_CREDENTIAL_KIND, LEGACY_BYOK_CREDENTIAL_KIND, loadByokApiKey } from "../byok";
 import { resumeBusinessAgents, stopBusinessAgents } from "../controls";
 import { settleCreditCheckout } from "../payments";
@@ -356,6 +356,55 @@ describe("low credits (the credit saver)", () => {
     expect(note.bodyMd).toMatch(/Top up in Settings → Billing, or bring your own Anthropic key in Settings → Keys/);
     expect(note.bodyMd).toMatch(/Or wait for next month's credits on Jan 1, 2028, then press Resume agents/);
     await expect(assertPlatformCredits(r.db, business.id, { live: false, now: new Date(Date.UTC(2027, 11, 20)) })).rejects.toMatchObject({ code: "credits_exhausted" });
+  });
+});
+
+describe("who funds the work (0100)", () => {
+  const ON = { enabled: true, providers: ["openai"] } as const;
+  const sept = new Date(Date.UTC(2028, 8, 4, 12));
+  const row = (billedTo: "byok" | "credits") => ({ kind: "tokens" as const, modelKey: "sonnet" as const, quantity: 100, unit: "tokens", costMinor: 30, billedTo, occurredAt: sept, details: { label: "Estimate" } });
+
+  it("every model row records which source paid: the month's credits, or the founder's own Anthropic key", async () => {
+    const A = r.A.businessId;
+    const credits = await bookUsage(r.db, A, row("credits"));
+    expect(credits.entry.details).toMatchObject({ label: "Estimate", funding: { source: "foundmill_credits" } });
+    expect(credits.credits).not.toBeNull();
+    const own = await bookUsage(r.db, A, row("byok"));
+    expect(own.entry.details).toMatchObject({ funding: { source: "own_api_key", provider: "anthropic" } });
+    expect(fundingOfRow(own.entry)).toBe("own_api_key");
+    // A tool row is the vendor's bill to the founder's own account: no model funding is recorded on it.
+    const tool = await bookUsage(r.db, A, { kind: "tool", quantity: 1, unit: "calls", costMinor: 0, currency: "USD", billedTo: "credits", occurredAt: sept });
+    expect((tool.entry.details as { funding?: unknown }).funding).toBeUndefined();
+  });
+
+  it("a row the founder's own plan paid is recorded as such and never charged to credits", async () => {
+    const A = r.A.businessId;
+    const before = Number((await repos.usage.creditBalance(r.db, A, "2028-09"))?.balanceMinor);
+    const plan = await bookUsage(r.db, A, { ...row("credits"), funding: { source: "own_plan", provider: "openai" } });
+    expect(plan.entry.details).toMatchObject({ funding: { source: "own_plan", provider: "openai" } });
+    expect(chargesCredits(plan.entry)).toBe(false);
+    expect(plan.credits).toBeNull();
+    expect(Number((await repos.usage.creditBalance(r.db, A, "2028-09"))?.balanceMinor)).toBe(before);
+  });
+
+  it("with the flag off a business on its own plan is still gated by credits; with it on for an integrated provider the gate skips them", async () => {
+    const founder = await r.h.createUser("bill-own-plan@test.local");
+    const business = await repos.businesses.create(r.db, { name: "Own Plan", createdBy: founder });
+    await repos.memberships.add(r.db, business.id, { userId: founder, role: "owner" });
+    expect(agentWorkFunding(business)).toEqual({ source: "foundmill_credits" });
+    // Today nothing can put a business on its own plan.
+    await expect(repos.businesses.setOwnPlan(r.db, business.id, "openai")).rejects.toThrow(/cannot run on the founder's own plan/);
+    const onPlan = await repos.businesses.setOwnPlan(r.db, business.id, "openai", ON);
+    expect(onPlan).toMatchObject({ fundingSource: "own_plan", fundingPlanProvider: "openai" });
+    // The flag is off in the product: its work is still funded by credits, and an empty month refuses the call.
+    expect(agentWorkFunding(onPlan)).toEqual({ source: "foundmill_credits" });
+    await bookUsage(r.db, business.id, { ...row("credits"), costMinor: 10_000 });
+    expect(await checkPlatformCredits(r.db, business.id, { live: false, now: sept })).toMatchObject({ ok: false, reason: "exhausted", fundedBy: "foundmill_credits" });
+    // With the flag on and the provider integrated, work billed to the plan skips Foundmill's credits.
+    expect(agentWorkFunding(onPlan, ON)).toEqual({ source: "own_plan", provider: "openai" });
+    expect(await checkPlatformCredits(r.db, business.id, { live: false, now: sept, ownPlan: ON })).toMatchObject({ ok: true, reason: null, low: false, fundedBy: "own_plan" });
+    // A provider that is not integrated does not count, flag or no flag.
+    expect(agentWorkFunding(onPlan, { enabled: true, providers: [] })).toEqual({ source: "foundmill_credits" });
   });
 });
 
