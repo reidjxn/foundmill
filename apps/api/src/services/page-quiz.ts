@@ -235,12 +235,19 @@ export interface PublicPageQuizView extends PageQuizDefinition {
   followForm: boolean;
 }
 
-export type PublicQuizAnswer = { outcome: "result"; type: string } | { outcome: "unanswered" } | { outcome: "changed" };
+/**
+ * `busy`: over the answer ceilings, so the api read nothing and scored nothing. The web works the result out from the
+ * quiz it already rendered (apps/web lib/public-quiz.ts `localQuizResult`), so the visitor still gets it; it is not counted.
+ */
+export type PublicQuizAnswer = { outcome: "result"; type: string } | { outcome: "unanswered" } | { outcome: "changed" } | { outcome: "busy" };
 
 /**
  * Signed-out reads and answers, shared by every api replica (`ctx.limits`). The reads follow the page's own ceilings
  * with keys of their own. Every answer comes through the web's Server Action, from the web's own few addresses, so no
  * limit here is per caller (security reviews, Nov 13, 2026): it would be one bucket for every visitor at once.
+ *   - `answerPerSlug`, `answerAll`: the read path's per-page and overall ceilings, on keys of their own, taken without
+ *     throwing before the database is read. Over either, the answer is `busy` and the web scores it itself from the
+ *     quiz it rendered: the visitor still gets their result, and nothing here touched the database.
  *   - `countPerPageHour`, `countAll`: the counting, without throwing; over either the visitor still gets their result
  *     and nothing is counted. The counts are unverified, and the founder's panel says so; nobody else sees them.
  */
@@ -249,6 +256,8 @@ export const PUBLIC_QUIZ_LIMITS = {
   perSlug: { limit: 600, windowMs: 60_000 },
   all: { limit: 6000, windowMs: 60_000 },
   unknown: { limit: 600, windowMs: 60_000 },
+  answerPerSlug: { limit: 600, windowMs: 60_000 },
+  answerAll: { limit: 6000, windowMs: 60_000 },
   countPerPageHour: { limit: 600, windowMs: 60 * 60_000 },
   countAll: { limit: 3000, windowMs: 60_000 },
 } as const;
@@ -258,6 +267,8 @@ export const publicQuizLimitKeys = {
   slug: (slug: string) => `public-quiz:slug:${slug}`,
   all: "public-quiz:all",
   unknown: "public-quiz:unknown",
+  answerSlug: (slug: string) => `quiz-answer:slug:${slug}`,
+  answerAll: "quiz-answer:all",
   countPage: (slug: string) => `quiz-count:page:${slug}:hour`,
   countAll: "quiz-count:all",
 } as const;
@@ -292,6 +303,12 @@ export async function answerPublicQuiz(ctx: PublicContext, input: { slug: string
   const clean = input.slug.trim().toLowerCase();
   if (pageSlugProblem(clean)) return { outcome: "changed" };
   const L = PUBLIC_QUIZ_LIMITS;
+  // The database is protected first; a visitor over the ceilings still gets their result, from the web.
+  const ceiling = await ctx.limits.take([
+    { key: publicQuizLimitKeys.answerSlug(clean), rule: L.answerPerSlug },
+    { key: publicQuizLimitKeys.answerAll, rule: L.answerAll },
+  ]);
+  if (!ceiling.ok) return { outcome: "busy" };
   const quiz = await repos.pageQuizzes.public.bySlug(ctx.db, clean);
   if (!quiz || quiz.version !== input.version) return { outcome: "changed" };
   const type = scorePageQuiz(quiz.definition, input.answers);

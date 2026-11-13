@@ -212,6 +212,21 @@ describe("pageQuiz: security review fixes (Nov 13, 2026)", () => {
     expect((await b.owner.pageQuiz.get({ businessId: b.id })).counts).toEqual({ t1: 61, t2: 1 });
   });
 
+  it("over the answer ceilings nothing reaches the database, and the web is told to work the result out itself", async () => {
+    const b = await live("Ceiling");
+    const answers = { q1: "a1", q2: "a1" };
+    const untouchable = new Proxy({}, { get: () => { throw new Error("the database was read"); } }) as typeof hz.db;
+    const ctx = { db: untouchable, env: hz.deps.env, limits: hz.limits, clientAddress: "203.0.113.9" };
+    for (let i = 0; i < PUBLIC_QUIZ_LIMITS.answerPerSlug.limit; i++) await hz.limits.take([{ key: publicQuizLimitKeys.answerSlug(b.slug), rule: PUBLIC_QUIZ_LIMITS.answerPerSlug }]);
+    expect(await answerPublicQuiz(ctx, { slug: b.slug, version: b.version, answers })).toEqual({ outcome: "busy" });
+    hz.limits.reset();
+    for (let i = 0; i < PUBLIC_QUIZ_LIMITS.answerAll.limit; i++) await hz.limits.take([{ key: publicQuizLimitKeys.answerAll, rule: PUBLIC_QUIZ_LIMITS.answerAll }]);
+    expect(await answerPublicQuiz(ctx, { slug: b.slug, version: b.version, answers })).toEqual({ outcome: "busy" });
+    hz.limits.reset();
+    // Under them, the answer is scored and counted as before.
+    expect(await answerPublicQuiz({ ...ctx, db: hz.db }, { slug: b.slug, version: b.version, answers })).toEqual({ outcome: "result", type: "t1" });
+  });
+
   it("turning a quiz on checks it again: an offer pointing to a Follow form the page no longer has is refused", async () => {
     const b = await project("Recheck");
     await customers(b.id, 3, 3);
