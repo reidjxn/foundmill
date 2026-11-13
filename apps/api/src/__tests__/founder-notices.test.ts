@@ -152,6 +152,8 @@ describe("founder notices and the former founder's cancel", () => {
   });
 
   it("counted from the request: waiting does not wear the right away; 31 days before a request, told but no cancel", async () => {
+    // A new day for the project's own caps (3 deletion requests a day): the tests above asked for two already.
+    hz.limits.reset();
     // Ben left 20 days ago: a request now still tells him and he may cancel it.
     await hz.db.execute(`update founder_departures set departed_at = now() - interval '20 days' where user_id = '${ben}'` as never);
     await hz.caller({ userId: cara }).business.requestDeletion({ businessId: hz.A.businessId });
@@ -196,6 +198,7 @@ describe("founder notices and the former founder's cancel", () => {
   });
 
   it("one person may lower a founder's role, or ask for a deletion, so many times a day in a project; a cancel is never refused", async () => {
+    hz.limits.reset();
     const hal = await hz.h.createUser("hal-notices@example.com");
     await hz.db.insert(memberships).values({ businessId: hz.A.businessId, userId: hal, role: "cofounder" });
     const hal$ = hz.caller({ userId: hal });
@@ -206,14 +209,22 @@ describe("founder notices and the former founder's cancel", () => {
       if (i < FOUNDER_NOTICE_LIMITS.actorPerDay) await lower;
       else await expect(lower).rejects.toMatchObject({ code: "TOO_MANY_REQUESTS", message: expect.stringMatching(/^A founder's role can be lowered 5 times a day by one person in a project, and that is used up for now\. Try again in /) });
     }
-    for (let i = 0; i <= FOUNDER_NOTICE_LIMITS.actorPerDay; i++) {
+    // Asking for a deletion: the project's own cap (3 a day, whoever asks) comes before Hal's 5.
+    for (let i = 0; i <= FOUNDER_NOTICE_LIMITS.projectRequestsPerDay; i++) {
       const ask = hal$.business.requestDeletion({ businessId: hz.A.businessId });
-      if (i < FOUNDER_NOTICE_LIMITS.actorPerDay) {
+      if (i < FOUNDER_NOTICE_LIMITS.projectRequestsPerDay) {
         await ask;
         await hal$.business.cancelDeletion({ businessId: hz.A.businessId });
-      } else await expect(ask).rejects.toMatchObject({ code: "TOO_MANY_REQUESTS", message: expect.stringMatching(/^A deletion can be asked for 5 times a day/) });
+      } else await expect(ask).rejects.toMatchObject({ code: "TOO_MANY_REQUESTS", message: expect.stringMatching(/^This project has had as many deletion requests today as a day allows\. Try again in /) });
     }
     expect((await hal$.business.deletionStatus({ businessId: hz.A.businessId })).status).toBe("cancelled");
+    // Two more in another project of Hal's make his 10 founder changes of the day.
+    const E = await createBusinessFixture(hz.h, "notices-e");
+    await hz.db.insert(memberships).values({ businessId: E.businessId, userId: hal, role: "cofounder" });
+    for (let i = 0; i < 2; i++) {
+      await hal$.business.requestDeletion({ businessId: E.businessId });
+      await hal$.business.cancelDeletion({ businessId: E.businessId });
+    }
     // Hal has used his 10 a day across every project: in another project, where he has his own 5, he is refused too.
     const C = await createBusinessFixture(hz.h, "notices-c");
     const kim = await hz.h.createUser("kim-notices@example.com");
@@ -330,4 +341,31 @@ describe("founder notices and the former founder's cancel", () => {
     expect(result.asked.find((a) => a.userId === victim)).toMatchObject({ sent: true, offersCancel: false });
     expect(result.asked.find((a) => a.userId === later[0])).toMatchObject({ sent: true, offersCancel: true });
   });
+
+  it("many accounts in one project: the project's own caps hold, whoever asks (and a failed change gives its place back)", async () => {
+    const F = await createBusinessFixture(hz.h, "notices-crowd");
+    const n = FOUNDER_NOTICE_LIMITS.projectLowersPerDay + 1;
+    const actors = await Promise.all(Array.from({ length: n }, (_, i) => hz.h.createUser(`crowd-actor-${i}-notices@example.com`)));
+    const targets = await Promise.all(Array.from({ length: n + 1 }, (_, i) => hz.h.createUser(`crowd-target-${i}-notices@example.com`)));
+    await hz.db.insert(memberships).values([...actors, ...targets].map((userId) => ({ businessId: F.businessId, userId, role: "cofounder" as const })));
+    // A change refused inside its transaction costs the project nothing.
+    await expect(hz.caller({ userId: actors[0]! }).team.humans.role({ businessId: F.businessId, userId: targets[n]!, role: "collaborator", expiresAt: new Date(Date.now() - 86_400_000) })).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    // Every account lowers one founder: 10 a day in the project, then refused, whoever it is.
+    for (let i = 0; i < n; i++) {
+      const lower = hz.caller({ userId: actors[i]! }).team.humans.role({ businessId: F.businessId, userId: targets[i]!, role: "member" });
+      if (i < FOUNDER_NOTICE_LIMITS.projectLowersPerDay) expect((await lower).role, `account ${i + 1}`).toBe("member");
+      else await expect(lower).rejects.toMatchObject({ code: "TOO_MANY_REQUESTS", message: expect.stringMatching(/^This project has had as many founders' roles lowered today as a day allows\. Try again in /) });
+    }
+    expect((await repos.memberships.get(hz.db, F.businessId, targets[n - 1]!))!.role).toBe("cofounder");
+    // Every account asks for the deletion (each one canceled): 3 a day in the project, then refused.
+    for (let i = 0; i <= FOUNDER_NOTICE_LIMITS.projectRequestsPerDay; i++) {
+      const caller = hz.caller({ userId: actors[i]! });
+      const ask = caller.business.requestDeletion({ businessId: F.businessId });
+      if (i < FOUNDER_NOTICE_LIMITS.projectRequestsPerDay) {
+        await ask;
+        await caller.business.cancelDeletion({ businessId: F.businessId });
+      } else await expect(ask).rejects.toMatchObject({ code: "TOO_MANY_REQUESTS", message: expect.stringMatching(/^This project has had as many deletion requests today as a day allows\. Try again in /) });
+    }
+    expect((await hz.caller({ userId: actors[0]! }).business.deletionStatus({ businessId: F.businessId })).status).toBe("cancelled");
+  }, 120_000);
 });

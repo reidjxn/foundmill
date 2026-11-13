@@ -179,6 +179,24 @@ describe("the repo: at most so many former founders per request, the most recent
   });
 });
 
+describe("the repo: a person's projects, one row each, most recent first (verification of the final review)", () => {
+  it("`forUser` keeps one row per business, the latest, and its limit counts businesses, not rows", async () => {
+    const pat = await h.createUser("depart-foruser@test.local");
+    const join = (businessId: string) => h.db.insert(s.memberships).values({ businessId, userId: pat, role: "cofounder" });
+    const leave = (businessId: string) => h.db.delete(s.memberships).where(and(eq(s.memberships.businessId, businessId), eq(s.memberships.userId, pat)));
+    await join(B.businessId);
+    await leave(B.businessId);
+    await h.db.execute(sql`update founder_departures set departed_at = now() - interval '2 days' where user_id = ${pat}::uuid`);
+    for (let i = 0; i < 5; i++) {
+      await join(A.businessId);
+      await leave(A.businessId);
+    }
+    const since = new Date(Date.now() - 10 * 86_400_000);
+    expect((await repos.founderDepartures.forUser(h.db, pat, since, { limit: 2 })).map((r) => r.businessId)).toEqual([A.businessId, B.businessId]);
+    expect((await repos.founderDepartures.forUser(h.db, pat, since, { limit: 1 })).map((r) => r.businessId)).toEqual([A.businessId]);
+  });
+});
+
 describe("founder_cancel_links", () => {
   it("one email's link: found by its hash, works once and before its end; a second link never replaces the first", async () => {
     const request = await repos.audit.append(h.db, A.businessId, { actorKind: "user", actorId: A.ownerId, action: "business.request_deletion", details: {} });

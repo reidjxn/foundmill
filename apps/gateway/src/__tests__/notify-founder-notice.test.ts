@@ -9,7 +9,7 @@
  *   - the reader's own account event `founder_notice.sent`, never the address in a log, an event or the audit.
  */
 import { createHash, randomBytes } from "node:crypto";
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { createPlatformNotifyMock, suppressionHashOfEmail } from "@foundmill/connectors";
 import { repos } from "@foundmill/db";
 import * as s from "@foundmill/db";
@@ -20,6 +20,7 @@ import { PLATFORM_MAIL_CEILING_KEY, platformMailConfig } from "../platform-mail"
 import { founderNoticeDayKey, founderNoticeEssentialKey, founderNoticeEssentialMoreKey, founderNoticeHourKey, founderNoticeProjectKey, PLATFORM_SAFETY_CEILING_KEY, PLATFORM_SAFETY_RESERVED_KEY } from "../notify-founder-notice";
 import { NOTIFY_EMAIL_ROUTE, notifyPersonDayKey, notifyProjectDayKey, PLATFORM_NOTIFY_CEILING_KEY } from "../notify-email";
 import { signServiceToken } from "../tokens";
+import { createBusinessFixture } from "@foundmill/db/__tests__/rls/fixtures";
 import { setupGateway, silentLog, TEST_SECRET, type GatewayFixture } from "./harness";
 
 const DOMAIN = "mail.foundmill.test";
@@ -305,7 +306,7 @@ describe("founder notices (gateway)", () => {
     expect((await notice(kai, canceled.id)).body.reason).toBe("safety_ceiling");
   });
 
-  it("past the essential share, the attack of the final review fails: an earlier fold never uses up the real request's cancel email", async () => {
+  it("past the essential share, a deletion request still goes in full, to a founder and to someone taken out; an earlier fold never uses it up", async () => {
     const vee = await g.h.createUser(addr("vee"));
     await g.h.db.insert(s.memberships).values({ businessId: g.businessId, userId: vee, role: "cofounder", source: "invite" });
     const request = () => entry(ana, "business.request_deletion", { scheduledFor: new Date(Date.now() + 7 * DAY).toISOString() });
@@ -315,44 +316,71 @@ describe("founder notices (gateway)", () => {
       expect((await notice(vee, (await request()).id)).body, `request ${i + 1}`).toMatchObject({ sent: true });
       await entry(ana, "business.cancel_deletion", {});
     }
-    // Past it, with no deletion Vee may cancel: one folded email for that ("none"), then the rest are recorded.
-    expect((await notice(vee, (await request()).id)).body).toMatchObject({ sent: true });
+    // Past the share, an 11th request that waits: still in full, as a founder (verification of the final review, P2).
+    const eleventh = await request();
+    expect((await notice(vee, eleventh.id)).body).toMatchObject({ sent: true, offersCancel: false });
+    expect(last("vee").subject).toBe("Ana Ruiz asked to delete Gateway Test Club");
+    await entry(ana, "business.cancel_deletion", {});
+    // Something else essential with no deletion Vee may cancel (her own removal): one fold for none, then recorded.
+    await g.h.asUser(ana).run((tx) => repos.memberships.setRole(tx, g.businessId, vee, "member"));
+    await g.h.asUser(ana).run((tx) => repos.memberships.remove(tx, g.businessId, vee));
+    expect((await notice(vee, (await entry(ana, "team.humans.remove", { userId: vee, role: "member", formerRole: "cofounder" })).id)).body).toMatchObject({ sent: true, offersCancel: false });
     expect(last("vee").subject).toBe("More changes to who runs your projects");
     expect(last("vee").text).not.toContain("/a/");
-    await entry(ana, "business.cancel_deletion", {});
-    const folded = await request();
+    const folded = await entry(ana, "team.humans.remove", { userId: vee, role: "member", formerRole: "cofounder" });
     expect((await notice(vee, folded.id)).body.reason).toBe("folded");
     expect((await g.h.pg.query<{ skip_reason: string }>("select skip_reason from founder_notifications where user_id = $1 and dedupe_key = $2", [vee, `founder_notice:${folded.id}`])).rows).toEqual([{ skip_reason: "folded" }]);
-    await entry(ana, "business.cancel_deletion", {});
-    // Then Vee is taken out and the real request comes: its email, with its cancel, still goes, in full.
-    await g.h.asUser(ana).run((tx) => repos.memberships.setRole(tx, g.businessId, vee, "member"));
+    // Then the real request comes: its email, with its cancel, still goes, in full.
     const real = await request();
     const t = token();
     await repos.founderCancelLinks.create(g.db, { businessId: g.businessId, userId: vee, requestId: real.id, tokenHash: sha256(t), expiresAt: new Date(Date.now() + 7 * DAY) });
     expect((await notice(vee, real.id, t)).body).toMatchObject({ sent: true, offersCancel: true });
     expect(last("vee").subject).toBe("Ana Ruiz asked to delete Gateway Test Club");
     expect(last("vee").text).toContain(`Cancel the deletion: http://localhost:3000/a/${t}`);
-    expect(sentTo("vee").length - before).toBe(FOUNDER_NOTICE_LIMITS.essentialPerRecipientDay + 2);
+    expect(sentTo("vee").length - before).toBe(FOUNDER_NOTICE_LIMITS.essentialPerRecipientDay + 3);
     // The marker lasts until the end of the UTC day, and is keyed on the request.
     const day = Math.floor(Date.now() / DAY) * DAY;
-    expect((g.rateLimits as unknown as { marked(key: string, now: number): boolean }).marked(founderNoticeEssentialMoreKey(vee, real.id, Date.now()), day + DAY - 1)).toBe(true);
-    expect((g.rateLimits as unknown as { marked(key: string, now: number): boolean }).marked(founderNoticeEssentialMoreKey(vee, real.id, Date.now()), day + DAY)).toBe(false);
-    // A newer request Vee may cancel, asked without a link of its own: the folded email carries one minted for it.
-    await entry(ana, "business.cancel_deletion", {});
-    const newer = await request();
-    expect((await notice(vee, newer.id)).body).toMatchObject({ sent: true, offersCancel: true });
-    const fold = last("vee");
-    expect(fold.subject).toBe("More changes to who runs your projects");
-    expect(fold.text).toContain("Gateway Test Club is set to be deleted. You can cancel the deletion until ");
-    const minted = /\/a\/([A-Za-z0-9_-]{43})/.exec(fold.text)?.[1];
-    expect(await repos.founderCancelLinks.byTokenHash(g.db, sha256(minted!))).toMatchObject({ userId: vee, requestId: newer.id, usedAt: null });
-    const stored = (await g.h.pg.query<{ body_text: string }>("select body_text from founder_notifications where user_id = $1 and dedupe_key = $2", [vee, `founder_notice:${newer.id}`])).rows[0]!;
-    expect(stored.body_text).not.toContain(minted!);
-    expect(await g.rateLimits.count!(founderNoticeEssentialKey(vee), DAY, Date.now())).toBe(FOUNDER_NOTICE_LIMITS.essentialPerRecipientDay + 3);
+    const marked = (key: string, at: number) => (g.rateLimits as unknown as { marked(key: string, now: number): boolean }).marked(key, at);
+    expect(marked(founderNoticeEssentialMoreKey(vee, real.id, Date.now()), day + DAY - 1)).toBe(true);
+    expect(marked(founderNoticeEssentialMoreKey(vee, real.id, Date.now()), day + DAY)).toBe(false);
     await entry(ana, "business.cancel_deletion", {});
   });
 
-  it("the reserved circuit breaker: a warning at half, an error at the ceiling, past it each person's one folded email and the rest recorded", async () => {
+  it("past the share, a fold carries a link minted for the latest deletion they may cancel; when the link cannot be made, that deletion's own email still goes", async () => {
+    const X = await createBusinessFixture(g.h, "gw-fold-x");
+    const [wes, xia] = [await g.h.createUser(addr("wes")), await g.h.createUser(addr("xia"))];
+    await g.h.db.insert(s.memberships).values([wes, xia].flatMap((userId) => [
+      { businessId: g.businessId, userId, role: "cofounder" as const, source: "invite" as const },
+      { businessId: X.businessId, userId, role: "cofounder" as const, source: "invite" as const },
+    ]));
+    for (const who of [wes, xia]) {
+      for (let i = 0; i < FOUNDER_NOTICE_LIMITS.essentialPerRecipientDay; i++) await g.rateLimits.hit(founderNoticeEssentialKey(who), DAY, Date.now());
+      await g.h.asUser(ana).run((tx) => repos.memberships.remove(tx, g.businessId, who));
+    }
+    const waiting = await entry(ana, "business.request_deletion", { scheduledFor: new Date(Date.now() + 7 * DAY).toISOString() });
+    const removedFromX = (who: string) => repos.audit.append(g.db, X.businessId, { actorKind: "user", actorId: X.ownerId, action: "team.humans.remove", target: { kind: "business", id: X.businessId }, details: { userId: who, role: "member", formerRole: "cofounder" } });
+    const askX = async (who: string) => (await ask({ userId: who, kind: "founder_notice", businessId: X.businessId, data: { auditId: (await removedFromX(who)).id } })).body;
+    // Wes: the removal from X becomes the fold, with a link minted for the deletion that waits in the other project.
+    expect(await askX(wes)).toMatchObject({ sent: true, offersCancel: true });
+    const fold = mock.sentFor(X.businessId).filter((m) => m.to === addr("wes")).at(-1)!;
+    expect(fold.subject).toBe("More changes to who runs your projects");
+    const minted = /\/a\/([A-Za-z0-9_-]{43})/.exec(fold.text)?.[1];
+    expect(await repos.founderCancelLinks.byTokenHash(g.db, sha256(minted!))).toMatchObject({ userId: wes, requestId: waiting.id, businessId: g.businessId });
+    // Xia: the link cannot be made, so the fold stands for none, and the deletion's own email, with its link, goes.
+    const create = vi.spyOn(repos.founderCancelLinks, "create").mockRejectedValueOnce(new Error("down"));
+    try {
+      expect(await askX(xia)).toMatchObject({ sent: true, offersCancel: false });
+    } finally {
+      create.mockRestore();
+    }
+    const t = token();
+    await repos.founderCancelLinks.create(g.db, { businessId: g.businessId, userId: xia, requestId: waiting.id, tokenHash: sha256(t), expiresAt: new Date(Date.now() + 7 * DAY) });
+    expect((await notice(xia, waiting.id, t)).body).toMatchObject({ sent: true, offersCancel: true });
+    expect(last("xia").text).toContain(`/a/${t}`);
+    await entry(ana, "business.cancel_deletion", {});
+  });
+
+  it("the reserved circuit breaker: a warning at half, an error at the ceiling; past it 3 of a person's own a day, one fold, the rest recorded; a hard stop at twice it", async () => {
     const logged: { level: string; msg: string }[] = [];
     g.deps.log = { ...silentLog, warn: (_o: unknown, msg?: string) => void logged.push({ level: "warn", msg: msg ?? "" }), error: (_o: unknown, msg?: string) => void logged.push({ level: "error", msg: msg ?? "" }) } as typeof silentLog;
     try {
@@ -363,17 +391,30 @@ describe("founder notices (gateway)", () => {
       g.deps.platformMail = config({ safetyReservedCeiling: 2 * (used + 1) });
       expect((await notice(jun, (await request()).id)).body).toMatchObject({ sent: true });
       expect(logged).toEqual([{ level: "warn", msg: "essential founder notices: half of the reserved daily ceiling is used" }]);
-      g.deps.platformMail = config({ safetyReservedCeiling: used + 2 });
+      // A ceiling set so the next one reaches it, and the hard stop (twice it) far enough away.
+      const ceiling = used + 2;
+      g.deps.platformMail = config({ safetyReservedCeiling: ceiling });
       expect((await notice(jun, (await request()).id)).body).toMatchObject({ sent: true });
       expect(logged.at(-1)).toEqual({ level: "error", msg: "essential founder notices: the reserved daily ceiling is reached; past it each person gets one folded email for the day" });
-      // Past it: Jun's one folded email for the day (no deletion he may cancel: a way into his projects instead).
+      // Past it: 3 requests of Jun's own, in full; then one fold for the day; then recorded.
+      for (let i = 0; i < FOUNDER_NOTICE_LIMITS.perRequestPastBreakerDay; i++) {
+        expect((await notice(jun, (await request()).id)).body, `own ${i + 1}`).toMatchObject({ sent: true });
+        expect(last("jun").subject).toBe("Ana Ruiz asked to delete Gateway Test Club");
+      }
       expect((await notice(jun, (await request()).id)).body).toMatchObject({ sent: true });
       expect(last("jun").subject).toBe("More changes to who runs your projects");
       expect(last("jun").text).toContain("Open your projects: http://localhost:3000/");
-      const third = await request();
-      expect((await notice(jun, third.id)).body.reason).toBe("folded");
-      expect((await g.h.pg.query<{ skip_reason: string }>("select skip_reason from founder_notifications where user_id = $1 and dedupe_key = $2", [jun, `founder_notice:${third.id}`])).rows).toEqual([{ skip_reason: "folded_reserved_ceiling" }]);
+      const past = await request();
+      expect((await notice(jun, past.id)).body.reason).toBe("folded");
+      expect((await g.h.pg.query<{ skip_reason: string }>("select skip_reason from founder_notifications where user_id = $1 and dedupe_key = $2", [jun, `founder_notice:${past.id}`])).rows).toEqual([{ skip_reason: "folded_reserved_ceiling" }]);
       expect(logged.at(-1)).toEqual({ level: "warn", msg: "essential founder notice folded: past the reserved daily ceiling" });
+      // The hard stop: past twice the ceiling nothing more goes, whoever it is for; recorded and logged.
+      const now = await g.rateLimits.count!(PLATFORM_SAFETY_RESERVED_KEY, DAY, Date.now());
+      g.deps.platformMail = config({ safetyReservedCeiling: Math.floor(now / FOUNDER_NOTICE_LIMITS.reservedHardFactor) });
+      const stopped = await request();
+      expect((await notice(ana, stopped.id)).body.reason).toBe("reserved_hard_ceiling");
+      expect((await g.h.pg.query<{ skip_reason: string }>("select skip_reason from founder_notifications where user_id = $1 and dedupe_key = $2", [ana, `founder_notice:${stopped.id}`])).rows).toEqual([{ skip_reason: "reserved_hard_ceiling" }]);
+      expect(logged.at(-1)).toEqual({ level: "error", msg: "essential founder notice not sent: past the hard daily ceiling" });
       await entry(ana, "business.cancel_deletion", {});
     } finally {
       g.deps.log = silentLog;

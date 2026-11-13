@@ -244,5 +244,6 @@ export const NOTIFY_EMAIL_REFUSALS = {
   safety_ceiling: "Today's limit for founder notices has been reached, so nothing was sent.",
   project_ceiling: "Today's limit for founder notices about this project has been reached, so nothing was sent.",
   folded: "This person already had this window's founder notices about this project, and the email that says more changes happened, so nothing more was sent.",
+  reserved_hard_ceiling: "Today's hard limit for essential founder notices has been reached, so nothing was sent. A deletion this person may cancel still shows on their home.",
 } as const;
 export type NotifyEmailNotSent = keyof typeof NOTIFY_EMAIL_REFUSALS;

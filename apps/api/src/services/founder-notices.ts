@@ -24,7 +24,8 @@
  *     audit chain's lock. It cancels the deletion and restores nothing else: they stay out. Rejoining is a separate,
  *     ordinary invitation.
  *   - `takeFounderChange`: one person may lower a founder's role, or ask for a deletion, `FOUNDER_NOTICE_LIMITS.actorPerDay`
- *     times a day in one project and `actorPerDayAll` times a day across every project. A cancel is never limited: it
+ *     times a day in one project and `actorPerDayAll` times a day across every project, and a project has at most
+ *     `projectRequestsPerDay` (3) deletion requests and `projectLowersPerDay` (10) founders lowered a day, whoever asks. A cancel is never limited: it
  *     is the safe direction. It returns the refund, which the caller runs when the change's transaction fails.
  *   - `recentlyLowered` makes a removal a founder's removal once per demotion: not again when a removal of that person
  *     already followed the demotion (re-invited and removed again).
@@ -99,7 +100,7 @@ export const scheduledForOf = (request: AuditEntry): Date => {
 };
 
 export class FounderChangeLimitError extends AppError {
-  constructor(what: "lower" | "request", scope: "project" | "all", retryAfterMs: number) {
+  constructor(what: "lower" | "request", scope: "project" | "all" | "everyone", retryAfterMs: number) {
     const hours = Math.max(1, Math.ceil(retryAfterMs / 3_600_000));
     const when = hours === 1 ? "in an hour" : `in ${hours} hours`;
     const step = what === "lower" ? "A founder's role can be lowered" : "A deletion can be asked for";
@@ -107,7 +108,9 @@ export class FounderChangeLimitError extends AppError {
       "founder_change_limit",
       scope === "project"
         ? `${step} ${FOUNDER_NOTICE_LIMITS.actorPerDay} times a day by one person in a project, and that is used up for now. Try again ${when}.`
-        : `One person can lower founders' roles and ask for deletions ${FOUNDER_NOTICE_LIMITS.actorPerDayAll} times a day across every project, and that is used up for now. Try again ${when}.`,
+        : scope === "all"
+          ? `One person can lower founders' roles and ask for deletions ${FOUNDER_NOTICE_LIMITS.actorPerDayAll} times a day across every project, and that is used up for now. Try again ${when}.`
+          : `This project has had ${what === "lower" ? "as many founders' roles lowered" : "as many deletion requests"} today as a day allows. Try again ${when}.`,
       429,
       { retryAfterMs },
     );
@@ -119,9 +122,11 @@ export type FounderChangeRefund = () => Promise<void>;
 
 /**
  * Takes one of the person's founder changes: `actorPerDay` of this kind in this project, and `actorPerDayAll` of both
- * kinds across every project (third review: an actor with many projects must not fill the platform's notices).
- * Throws a plain refusal; a refused take records nothing. Returns the refund: the caller runs it when the change's
- * transaction fails after the take (final review, P3), so a change that did not happen costs nothing.
+ * kinds across every project (third review: an actor with many projects must not fill the platform's notices), and one
+ * of the project's own (`projectRequestsPerDay` deletion requests, `projectLowersPerDay` founders lowered), whoever asks
+ * (verification of the final review: each extra account no longer adds its own). Throws a plain refusal; a refused take
+ * records nothing. Returns the refund: the caller runs it when the change's transaction fails after the take (final
+ * review, P3), so a change that did not happen costs nothing.
  */
 export async function takeFounderChange(ctx: { limits: RateLimitStore; businessId: string; userId: string }, what: "lower" | "request"): Promise<FounderChangeRefund> {
   const actor = ctx.userId.toLowerCase();
@@ -132,8 +137,13 @@ export async function takeFounderChange(ctx: { limits: RateLimitStore; businessI
     await ctx.limits.refund(project.ticket);
     throw new FounderChangeLimitError(what, "all", all.retryAfterMs);
   }
+  const everyone = await ctx.limits.take([{ key: `founder-change:${what}:project:${ctx.businessId.toLowerCase()}`, rule: { limit: what === "request" ? FOUNDER_NOTICE_LIMITS.projectRequestsPerDay : FOUNDER_NOTICE_LIMITS.projectLowersPerDay, windowMs: DAY_MS } }]);
+  if (!everyone.ok) {
+    await Promise.all([ctx.limits.refund(project.ticket), ctx.limits.refund(all.ticket)]);
+    throw new FounderChangeLimitError(what, "everyone", everyone.retryAfterMs);
+  }
   return async () => {
-    await Promise.all([ctx.limits.refund(project.ticket), ctx.limits.refund(all.ticket)]).catch(() => undefined);
+    await Promise.all([ctx.limits.refund(project.ticket), ctx.limits.refund(all.ticket), ctx.limits.refund(everyone.ticket)]).catch(() => undefined);
   };
 }
 

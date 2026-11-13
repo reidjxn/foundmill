@@ -81,6 +81,9 @@ async function formerBefore(db: Executor, businessId: string, before: Date | nul
     .limit(Math.max(0, limit));
 }
 
+/** The most businesses `forUser` answers with (the most recent first). */
+export const FOR_USER_LIMIT = 50;
+
 export const founderDeparturesRepo = {
   /** The person's latest departure from this business, or null (any kind). */
   async latest(db: Executor, businessId: string, userId: string): Promise<FounderDepartureView | null> {
@@ -96,17 +99,25 @@ export const founderDeparturesRepo = {
 
   /**
    * Service role, for the signed-in person's own id: their latest departure per business since `since`, when someone else
-   * caused it, with the business's name (archived ones too: a deletion can wait on an archived business), most recent
-   * first (final review, P3). The card on their home and the gateway's folded email read it.
+   * caused it, with the business's name (archived ones too: a deletion can wait on an archived business): one row per
+   * business, most recent first, at most `limit` businesses, deduplicated, ordered and limited in the database
+   * (verification of the final review, P3: one project's many rows no longer crowd the others out). The card on their
+   * home and the gateway's folded email read it.
    */
-  async forUser(db: Executor, userId: string, since: Date): Promise<(FounderDepartureView & { businessName: string })[]> {
-    const rows = await db
-      .selectDistinctOn([founderDepartures.businessId], { ...visible, businessName: businesses.name })
+  async forUser(db: Executor, userId: string, since: Date, opts: { limit?: number } = {}): Promise<(FounderDepartureView & { businessName: string })[]> {
+    const latest = db
+      .selectDistinctOn([founderDepartures.businessId], visible)
       .from(founderDepartures)
-      .innerJoin(businesses, eq(businesses.id, founderDepartures.businessId))
       .where(and(eq(founderDepartures.userId, parseInput(Id, userId, "user id")), gte(founderDepartures.departedAt, since)))
-      .orderBy(founderDepartures.businessId, desc(founderDepartures.departedAt), desc(founderDepartures.id));
-    return rows.filter((r) => r.how === "demoted" || r.how === "removed").sort((x, y) => y.departedAt.getTime() - x.departedAt.getTime());
+      .orderBy(founderDepartures.businessId, desc(founderDepartures.departedAt), desc(founderDepartures.id))
+      .as("latest");
+    return db
+      .select({ id: latest.id, businessId: latest.businessId, userId: latest.userId, priorRole: latest.priorRole, how: latest.how, newRole: latest.newRole, byUserId: latest.byUserId, departedAt: latest.departedAt, businessName: businesses.name })
+      .from(latest)
+      .innerJoin(businesses, eq(businesses.id, latest.businessId))
+      .where(inArray(latest.how, ["demoted", "removed"]))
+      .orderBy(desc(latest.departedAt), desc(latest.id))
+      .limit(Math.max(0, opts.limit ?? FOR_USER_LIMIT));
   },
 
   /**
