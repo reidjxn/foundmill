@@ -103,6 +103,8 @@ export const EXPORT_TABLES: Readonly<Record<string, ExportTableSpec>> = {
   credit_balances: t(s.creditBalances, "billing"),
   // Credit top-ups: what was bought and when. The Stripe session and its payment page stay out (provider plumbing).
   billing_checkouts: t(s.billingCheckouts, "billing", { omit: ["externalId", "checkoutUrl", "paidEventId"] }),
+  // Bought credits by purchase: how much is left of each and when it expires (0096).
+  credit_lots: t(s.creditLots, "billing"),
   // legal
   legal_entities: t(s.legalEntities, "legal"),
   incorporations: t(s.incorporations, "legal"),
