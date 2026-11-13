@@ -10,14 +10,18 @@
  *   and a sample business record nothing: a sample shows nothing in public.
  * - What is stored: the control (network, target), what kind of thing was shared and its id. Never the words.
  * - The id is checked, never trusted: a milestone must be one of this business's, the page id is read here (the client
- *   does not send it), and a drafted post carries none.
+ *   does not send it), and a drafted post carries one only when it is a post the team wrote to be shared (a team post,
+ *   packages/shared `team-posts.ts`) of this business; any other drafted post carries none.
+ * - A team post that was waiting stops waiting once a share is opened for it (`approved`: the founder's own press is
+ *   the only approval a post needs), for a member who may write in Distribution. That is all a share changes: nothing
+ *   is marked posted, because whether anything was posted is not known.
  * - Limited per person (`SHARE_OPENED_LIMIT`), so a held-down key cannot flood the outbox. Over the limit, and for
  *   anything that is not recorded, the answer is `{ recorded: false }` and never an error: the web calls this after the
  *   share itself and does not wait on it.
  */
 import { repos } from "@foundmill/db";
-import { ForbiddenError, MESSAGE_APPS, POST_NETWORKS, ValidationError, hasSectionAccess, type Section, type ShareDestination, type ShareOpenTarget, type ShareSubjectKind } from "@foundmill/shared";
-import type { BusinessContext } from "../trpc";
+import { ForbiddenError, MESSAGE_APPS, POST_NETWORKS, ValidationError, WRITE_ROLES, hasSectionAccess, type Section, type ShareDestination, type ShareOpenTarget, type ShareSubjectKind } from "@foundmill/shared";
+import { audit, type BusinessContext } from "../trpc";
 import { writeEventRow } from "./events";
 import type { WindowLimit } from "./rate-limit";
 
@@ -31,7 +35,7 @@ export const shareOpenedLimitKey = (userId: string): string => `share-opened:use
 
 export interface ShareOpenedInput {
   kind: ShareSubjectKind;
-  /** The milestone's id for `milestone`; ignored for the others (the page's id is read here, a draft has none). */
+  /** The milestone's id for `milestone`; the asset's id for a `draft` the team wrote to be shared; ignored otherwise (the page's id is read here). */
   refId?: string | null;
   network: ShareDestination | null;
   target: ShareOpenTarget;
@@ -68,6 +72,19 @@ export async function recordShareOpened(ctx: BusinessContext, input: ShareOpened
     const page = await ctx.rls((tx) => repos.pages.get(tx, ctx.businessId));
     if (!page) return { recorded: false };
     refId = page.id;
+  } else if (input.refId) {
+    // A post the team wrote to be shared: its id is recorded, and a waiting one stops waiting. Any other draft has no id.
+    const post = await ctx.rls((tx) => repos.teamPosts.get(tx, ctx.businessId, input.refId!));
+    if (post) {
+      refId = post.id;
+      const mayAnswer = (WRITE_ROLES as readonly string[]).includes(ctx.role) && hasSectionAccess(ctx.membership, "distribution", "write");
+      if (mayAnswer && post.approvalState === "draft") {
+        await ctx.rls(async (tx) => {
+          const changed = await repos.teamPosts.markShared(tx, ctx.businessId, post.id);
+          if (changed) await audit(tx, ctx, { action: "post.share_opened", target: { kind: "asset", id: post.id }, details: { network: input.network, target: input.target } });
+        });
+      }
+    }
   }
   await writeEventRow(ctx.db, { businessId: ctx.businessId, type: "share.opened", actor: { kind: "user", id: ctx.userId }, payload: { network: input.network, kind: input.kind, refId, target: input.target } });
   return { recorded: true };

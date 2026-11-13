@@ -61,6 +61,7 @@ import { presenceRepo } from "./presence";
 import { notificationsRepo } from "./notifications";
 import { notifyFactsRepo } from "./notify-facts";
 import { attributionsRepo } from "./attributions";
+import { teamPostsRepo } from "./team-posts";
 
 export const repos = {
   businesses: businessesRepo,
@@ -121,6 +122,7 @@ export const repos = {
   notifyFacts: notifyFactsRepo,
   accountEvents: accountEventsRepo,
   attributions: attributionsRepo,
+  teamPosts: teamPostsRepo,
 } as const;
 export type Repos = typeof repos;
 export type RepoArea = keyof Repos;
@@ -184,3 +186,4 @@ export * from "./notifications";
 export * from "./notify-facts";
 export * from "./account-events";
 export * from "./attributions";
+export * from "./team-posts";

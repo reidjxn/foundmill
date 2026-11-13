@@ -22,6 +22,7 @@ export const WORKFLOWS = {
   importBusiness: "importBusiness",
   businessFoundations: "businessFoundations",
   sourceWatch: "sourceWatch",
+  postDraft: "postDraft",
 } as const;
 
 export const SIGNALS = {
@@ -58,6 +59,8 @@ export const workflowIds = {
   /** One Source Watcher read of one source (a re-read after it settled gets a new suffix). */
   sourceWatch: (sourceId: string, suffix = "added") => `source-watch:${sourceId}:${suffix}`,
   importBusiness: (businessId: string, at: Date) => `import:${businessId}:${at.getTime().toString(36)}`,
+  /** One draft of a post for the founder to share by tap, per business and trigger (a milestone's draft names the milestone). */
+  postDraft: (businessId: string, trigger: { kind: string; milestoneId?: string }) => `post-draft:${businessId}:${trigger.kind}${trigger.milestoneId ? `:${trigger.milestoneId}` : ""}`,
 } as const;
 
 export interface TemporalResult {

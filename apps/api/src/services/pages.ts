@@ -62,6 +62,7 @@ import { audit, emit, type BusinessContext } from "../trpc";
 import type { Context } from "../context";
 import { answerNote } from "./answer-note";
 import type { DecideItemResult } from "./decide";
+import { queuePostDraft } from "./post-drafts";
 import { takeOrThrow } from "./rate-limit";
 
 /** What the console's Public page tab reads (`page.get`) and every change answers. */
@@ -228,8 +229,10 @@ export async function publishPage(ctx: BusinessContext, input: { content: PageCo
     });
     return { outcome: "held", reason, message: PAGE_HOLD_MESSAGES[reason], page };
   }
+  let wentLive = false;
   const page = await ctx.rls(async (tx) => {
     const { page: row, wasLive } = await repos.pages.publish(tx, ctx.businessId, { content, slug, userId: ctx.userId });
+    wentLive = !wasLive;
     const url = pageUrl(ctx.env.APP_URL, row.slug);
     await emit(tx, ctx, { type: "page.published", payload: { pageId: row.id, slug: row.slug, url } });
     // The page is live: the project's first early milestone, recorded once at the moment it went live (0087). A page
@@ -240,6 +243,9 @@ export async function publishPage(ctx: BusinessContext, input: { content: PageCo
     await audit(tx, ctx, { action: "page.published", target: { kind: "project_page", id: row.id }, details: { slug: row.slug, url, changes: wasLive } });
     return viewOf(tx, ctx, row);
   });
+  // The page went live (not a change to a live page): the social agent may draft a post about it for the founder to
+  // share by tap, where the founder put the social channel on the board (services/post-drafts.ts). Never waited on.
+  if (wentLive) queuePostDraft(ctx, ctx.businessId, { kind: "page_published" });
   return { outcome: "published", page };
 }
 

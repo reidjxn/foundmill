@@ -291,6 +291,7 @@ export async function handleFollowConfirm(deps: Deps, req: Request): Promise<Uns
   // Asked not to be emailed since (an unsubscribe from the confirmation's own footer, a deletion request): nothing changes.
   if (await repos.channels.isSuppressed(deps.db, business.id, { emailHash: claims.emailHash })) return invalid(400);
   const at = deps.now();
+  let first = false;
   const outcome = await deps.db.transaction(async (tx) => {
     const result = await repos.followers.confirm(tx, { businessId: business.id, consentId: claims.consentId, emailHash: claims.emailHash, tokenHash: followConfirmNonceHash(claims.nonce), at });
     if (result.status !== "confirmed") return result.status;
@@ -307,10 +308,13 @@ export async function handleFollowConfirm(deps: Deps, req: Request): Promise<Uns
     await repos.audit.append(tx, business.id, { actorKind: "system", actorId: null, action: "page.followed", target: { kind: "entity", id: result.entityId }, details: { consentId: result.consentId, pageId: result.pageId, lawfulBasisSet: result.lawfulBasisSet } });
     // The project's first confirmed follower is a milestone (0087), recorded once, here, with the consent record's id
     // and nothing about the person. Every later follower awards nothing; a sample business has no real followers.
-    if (!business.isDemo) await awardFirstFollowerMilestone(tx, business.id, { consentId: result.consentId, at });
+    if (!business.isDemo && (await awardFirstFollowerMilestone(tx, business.id, { consentId: result.consentId, at }))) first = true;
     return "confirmed" as const;
   });
   if (outcome === "invalid") return invalid(400);
+  // The first follower, recorded just now: the social agent may draft a post about it for the founder to share by tap
+  // (followups.ts). After the commit, never waited on, and never for a later follower.
+  if (first) deps.followups.firstFollower(business.id);
   // The visitor has just said yes to the project: the one place on their path where the mark is a sentence (free plan only).
   return { status: 200, html: followConfirmPage(FOLLOW_CONFIRM_PAGE.done(name), undefined, tierShowsBuiltOnMark(business.planTier) ? builtOnWords(APP_NAME).foot(name) : null) };
 }

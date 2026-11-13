@@ -1703,6 +1703,12 @@ The review found no blocker; three fixes and four hardenings were made on the sa
   - `node scripts/banned-terms.mjs`, `node scripts/us-english.mjs`, `node scripts/plain-language.mjs --gate --summary`: pass.
 - **Not done.** The follow-ups recorded in DECISIONS (hashed idempotency keys, a caller for `deleteAccountStream`, an alert for a row that fails forever, ordering after a transient failure, the record-id oracle, one run on real Postgres or Supabase). The id rule for addresses is in the api only: `founder_profiles` has no check constraint for it. Not rerun: packages/connectors, apps/gateway, apps/composer, apps/orchestrator (their code did not change in these fixes; the forced typecheck covers them), apps/web's full suite, Playwright, Storybook, evals.
 
+## 2026-11-12 — Hotfix: the account relay is off
+
+- `ACCOUNT_RELAY_ENABLED = false`: the api starts the business relay only and logs "account outbox relay is off (account events wait in their outbox)". The supervisor's option `accountRelay` turns it on for tests. Why: DECISIONS, same date (production's pool lost connections from the deploy that started the second poller).
+- Tests: `account-events.test.ts` passes `accountRelay: true` where it exercises both relays, and a new case holds the default (only the business relay starts, wakes and stops).
+- Not done: the cause; folding the account outbox into the business relay's tick; turning it back on.
+
 ## 2026-11-12 — The network and community specification (document only, no product change)
 
 The founder asked for a whole specification of the network side, written around one question: how does Foundmill go viral. `docs/NETWORK.md` (new):
@@ -1793,6 +1799,20 @@ The founder's default way for a project to post (DECISIONS, two entries of this 
   - A person can read their own account events, so a person credited can see that someone arrived through their page and when, with no screen for it yet. The spec said the store was "one that only the service reads"; what #86 built lets a person read their own rows. For the founder to confirm.
   - Nothing has run on real Postgres. A database that already applied an earlier 0086 from this branch needs the function redefined by hand.
   - The account relay is off on main, so these events are written and not relayed.
+
+## 2026-11-13 — Network, wave 1: the social agent writes post drafts for tap-to-post
+
+The founder's ask after tap-to-post ("a post the social channel agent wrote"). Drafting is separate from running the channel: nothing here launches, schedules, publishes or measures.
+- **When a draft is written.** Only for a project whose social channel is available by tap and that the founder has put on the Channel Board, never a sample business, never while the team is stopped or out of credits. One draft per trigger: the page going live, a milestone shown on the page, the first follower. Putting social on the board with the page already live catches up the page's draft.
+- **How it starts.** The writer of the event starts a `postDraft` workflow after its commit (the api for the page, a shown milestone and the board; ingest for the first follower). Nothing polls, and the api adds no loop, timer or background query on its database pool.
+- **Caps.** At most 2 drafts in 24 hours and 5 in 7 days per project (`TEAM_POST_CAPS`), dropped attempts included; never a second waiting draft about the same thing.
+- **What the agent is given.** The project's name, its published page (inside an untrusted-content block), the one fact that happened with its date, and the length it may use. Never a follower's or customer's name or email, never a count, never revenue.
+- **The check on its answer** (`checkPostDraft`, pure code): refuses a link or bare domain, an email, an @mention, markup, a phone number, a figure or quantity not in the facts, a hashtag the page does not use, emoji, praise, a claim of customers or results, the phrases the product never writes, and a mention of AI or the product. One retry with the reason code, then the draft is dropped; only the code is logged. The code, not the model, attaches the link with `via` and the image, and fits the text to each network.
+- **Where it shows.** Customers › Creative, as a post the team wrote, with Share (the tap-to-post panel) and "Not this one"; one quiet line on Today, "A post is ready to share", until it is shared or set aside. No Inbox note, no email, no push. Event `post.drafted` (ids and the kind of trigger, never the words). No migration.
+- **Model and cost.** The `projectPage` route (Sonnet at low effort). Estimate: about 0.6 to 1.5 cents a call, up to about 3 cents a draft with the retry, at most about 15 cents per project per week at the cap; worked out from the built request and list prices, not measured.
+- **Verified on the merged branch:** workspace typecheck 25 of 25; vitest: shared 796, models 297, agents 465, events 130, db 2125 (13 skipped), stream 97, ingest 114, modules 625, orchestrator 686, dugout 1237, web 1370, evals 105 (16 skipped: the live suites). The build's own runs on its base: api 1165 (3 skipped), Playwright `post-drafts`, `tap-to-post`, `public-page`, `milestones`, `project-story`, `money-legal-distribution`, `first-days` (37 passed) and the golden path (17). The api suite and the Playwright specs are rerun on the merged branch after this entry.
+- **Not verified.** The eval was written and **not run**: there is no model key in this environment, so no real model has produced a draft yet. The social template's standing instructions pull against the post prompt in places ("specific numbers", "cite record ids"); the prompt overrides them, and only a live run shows whether that holds.
+- **Known gaps.** In production a trigger that fires while the workflow service is down is lost, with no retry. A figure the founder states on their own page can be repeated in a post (the check refuses only what the facts do not contain). `screens-plain.spec.ts:77` (Milestones) times out on this branch and on its base alike.
 
 ## 2026-11-12 — A page's dates are recorded by the database (the open point above)
 

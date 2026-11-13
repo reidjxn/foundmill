@@ -12,7 +12,7 @@ import { PERSON_HANDLE_RESERVED, type PersonProfileContent } from "@foundmill/sh
 import { sql } from "drizzle-orm";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { handleLooksLikeAnId, suggestedHandle, unpublishPublicProfile } from "../services/person-profile";
-import { superviseOutboxRelay } from "../services/relay";
+import { ACCOUNT_RELAY_ENABLED, superviseOutboxRelay } from "../services/relay";
 import { writeEventRow } from "../services/events";
 import { createApiHarness, type ApiHarness } from "./harness";
 
@@ -266,7 +266,7 @@ describe("the relay supervisor runs the account relay beside the business one", 
 
   it("publishes a profile event to the person's own stream and a business event to the business's, each through its own relay", async () => {
     const redis = new MemoryRedis();
-    const supervisor = superviseOutboxRelay({ db: hz.db, redis: redis as never, log: log() as never, env: hz.deps.env }, { reachable: async () => true });
+    const supervisor = superviseOutboxRelay({ db: hz.db, redis: redis as never, log: log() as never, env: hz.deps.env }, { reachable: async () => true, accountRelay: true });
     try {
       await until(async () => supervisor.status().state === "running", "relays started");
       const p = await person("Relay Reader");
@@ -297,7 +297,7 @@ describe("the relay supervisor runs the account relay beside the business one", 
     const fake = () => ({ wake: vi.fn(), stop: vi.fn(async () => undefined) }) as unknown as OutboxRelay & { wake: ReturnType<typeof vi.fn>; stop: ReturnType<typeof vi.fn> };
     const business = fake();
     const account = fake();
-    const supervisor = superviseOutboxRelay({ db: {} as never, redis: null, log: log() as never, env: hz.deps.env }, { reachable: async () => true, start: () => business, startAccount: () => account });
+    const supervisor = superviseOutboxRelay({ db: {} as never, redis: null, log: log() as never, env: hz.deps.env }, { reachable: async () => true, start: () => business, startAccount: () => account, accountRelay: true });
     await until(async () => supervisor.status().state === "running", "started");
     supervisor.wake();
     expect(business.wake).toHaveBeenCalledTimes(1);
@@ -313,6 +313,7 @@ describe("the relay supervisor runs the account relay beside the business one", 
       {
         reachable: async () => true,
         start: () => alone,
+        accountRelay: true,
         startAccount: () => {
           throw new Error("account relay could not be built");
         },
@@ -324,5 +325,21 @@ describe("the relay supervisor runs the account relay beside the business one", 
     expect(JSON.stringify(quiet.warn.mock.calls)).toContain("account outbox relay did not start");
     await second.stop();
     expect(alone.stop).toHaveBeenCalledTimes(1);
+  });
+
+  it("the account relay is off by default: only the business relay starts, wakes and stops, and the log says so", async () => {
+    expect(ACCOUNT_RELAY_ENABLED).toBe(false);
+    const fake = () => ({ wake: vi.fn(), stop: vi.fn(async () => undefined) }) as unknown as OutboxRelay & { wake: ReturnType<typeof vi.fn>; stop: ReturnType<typeof vi.fn> };
+    const business = fake();
+    const startAccount = vi.fn(() => fake());
+    const said = log();
+    const supervisor = superviseOutboxRelay({ db: {} as never, redis: null, log: said as never, env: hz.deps.env }, { reachable: async () => true, start: () => business, startAccount });
+    await until(async () => supervisor.status().state === "running", "started");
+    expect(startAccount).not.toHaveBeenCalled();
+    expect(JSON.stringify(said.info.mock.calls)).toContain("account outbox relay is off");
+    supervisor.wake();
+    expect(business.wake).toHaveBeenCalledTimes(1);
+    await supervisor.stop();
+    expect(business.stop).toHaveBeenCalledTimes(1);
   });
 });

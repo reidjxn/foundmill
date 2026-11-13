@@ -4,6 +4,7 @@
  * depends only on wave-1 packages; dates arrive as ISO strings on the wire and every field the API may omit is
  * optional-tolerant.
  */
+import type { PostDraft } from "@foundmill/shared/post-draft";
 import type { AgentStatus, ApprovalState, AssetKind, CampaignStatus, ChannelAvailabilityRow, ChannelKey, ChannelLine, ConversionKind, DeptColourToken, EntityKind, MatchdayLevel } from "@foundmill/shared";
 
 export type Iso = string;
@@ -151,6 +152,11 @@ export interface AssetRow {
   body?: string | null;
   approvalState: ApprovalState;
   authoredByAgentId: string | null;
+  /**
+   * A post the team wrote for the founder to share by tap (packages/shared `team-posts.ts`): the words with the link and
+   * the picture the api attached, ready for the share panel. Null or absent for every other asset.
+   */
+  sharePost?: PostDraft | null;
   createdAt?: Iso;
   updatedAt?: Iso;
 }

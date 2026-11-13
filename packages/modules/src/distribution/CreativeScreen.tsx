@@ -9,6 +9,12 @@
  * the page's address with `via`. The founder's own press in the network's window is the only approval a post needs
  * there, so Share is offered on any draft that was not rejected. A press is recorded as a share that was opened
  * (`share.opened`), fire-and-forget; nothing here marks a draft as posted.
+ *
+ * A post the team wrote to be shared (a team post: no campaign, `sharePost` from the api) is an offer, not a decision:
+ * it reads "Written by your team for you to share" where a campaign's name would be, its pill says where it stands
+ * ("Not shared yet", "Share opened", "Set aside"), and in place of Approve and Reject it carries Share and "Not this
+ * one", which sets it aside (`distribution.assets.reject`) so it is not offered again. Opening a share for it tells the
+ * api which post it was, and the post stops waiting. It never counts as awaiting approval.
  */
 import { useCallback, useMemo, useState } from "react";
 import { Check, ExternalLink, FileText, Film, Image, Mail, Mailbox, Megaphone, Newspaper, ScrollText, Share2, X } from "lucide-react";
@@ -17,6 +23,7 @@ import { Button, EntityLink, Icon, Panel, SegmentedControl, SharePost, StatusPil
 import { CHANNELS_SHARED_BY_TAP } from "@foundmill/shared/channel-availability";
 import { APPROVAL_STATES, ASSET_KINDS, type ApprovalState, type AssetKind } from "@foundmill/shared/constants";
 import { SHARE_OPEN_WORDS, writtenPostDraft } from "@foundmill/shared/share-drafts";
+import { TEAM_POST_WORDS, isTeamPost } from "@foundmill/shared/team-posts";
 import type { ShareOpened } from "@foundmill/shared/share-targets";
 import { routes } from "@foundmill/widgets/shared/routes";
 import { moduleHref, useDepartments } from "@foundmill/widgets/shared/departments";
@@ -78,12 +85,20 @@ interface PageForShare {
   preview: { name: string };
 }
 
+/** Whether an asset is a post the team wrote for the founder to share, with its share draft from the api. */
+export function teamPostOf(asset: Pick<Partial<AssetRow>, "kind" | "contentRef" | "sharePost">): boolean {
+  return !!asset.sharePost && isTeamPost({ kind: asset.kind, contentRef: asset.contentRef });
+}
+
 /**
  * Whether a draft can be shared by tap: a post with words, not rejected, drafted for a channel the founder posts by tap
  * (`CHANNELS_SHARED_BY_TAP`, today social). `tapChannelIds` are the ids of those channels for this business.
  */
-export function assetSharedByTap(asset: Pick<AssetRow, "kind" | "body" | "approvalState" | "campaignId">, campaigns: readonly Pick<CampaignRow, "id" | "channelId">[], tapChannelIds: ReadonlySet<string>): boolean {
-  if (asset.kind !== "post" || asset.approvalState === "rejected" || !asset.body?.trim() || !asset.campaignId) return false;
+export function assetSharedByTap(asset: Pick<AssetRow, "kind" | "body" | "approvalState" | "campaignId"> & Pick<Partial<AssetRow>, "contentRef" | "sharePost">, campaigns: readonly Pick<CampaignRow, "id" | "channelId">[], tapChannelIds: ReadonlySet<string>): boolean {
+  if (asset.kind !== "post" || asset.approvalState === "rejected" || !asset.body?.trim()) return false;
+  // A post the team wrote to be shared needs no campaign: sharing it is what it is for.
+  if (teamPostOf(asset)) return true;
+  if (!asset.campaignId) return false;
   const campaign = campaigns.find((c) => c.id === asset.campaignId);
   return !!campaign && tapChannelIds.has(campaign.channelId);
 }
@@ -103,6 +118,8 @@ export function CreativeScreen({ businessId }: ModuleScreenProps) {
   const [sharing, setSharing] = useState<AssetRow | null>(null);
   const shareDraft = useMemo(() => {
     if (!sharing?.body) return null;
+    // A team post arrives with its link and picture attached by the api (the card or the page, with `via`).
+    if (teamPostOf(sharing) && sharing.sharePost) return sharing.sharePost;
     const p = page.data;
     const live = p && p.live && !p.isSample && p.published ? { origin: new URL(p.url).origin, slug: p.slug, projectName: p.preview.name, pitch: p.published.pitch } : null;
     return writtenPostDraft({ text: sharing.body, page: live });
@@ -110,14 +127,18 @@ export function CreativeScreen({ businessId }: ModuleScreenProps) {
   const recordShare = useCallback(
     (opened: ShareOpened) => {
       // Fire-and-forget: the share has already happened in the browser, and never fails because of this.
-      void mutate("share.opened", { kind: "draft", ...opened }).catch(() => undefined);
+      // A team post names itself, so the api can stop it from waiting; any other draft has no id to give.
+      const team = sharing && teamPostOf(sharing) ? sharing : null;
+      void mutate("share.opened", { kind: "draft", ...(team ? { refId: team.id } : {}), ...opened })
+        .then(() => (team ? assets.refetch() : undefined))
+        .catch(() => undefined);
     },
-    [mutate],
+    [mutate, sharing, assets],
   );
   const action = useAction();
   const [state, setState] = useState<ApprovalState | null>(null);
   const [highlight] = useState<string | null>(() => searchParam("asset"));
-  useBusinessEvents(() => assets.refetch(), ["approval.resolved", "campaign.launched"]);
+  useBusinessEvents(() => assets.refetch(), ["approval.resolved", "campaign.launched", "post.drafted"]);
 
   const groups = useMemo(() => groupAssets(assets.data ?? [], state), [assets.data, state]);
   const counts = useMemo(() => {
@@ -206,10 +227,13 @@ function FilterLabel({ word, count }: { word: string; count: number }) {
 
 function AssetCard({ asset, highlighted, campaign, author, businessId, pending, onDecide, onShare }: { asset: AssetRow; highlighted: boolean; campaign: string | null; author: { id: string; name: string } | null; businessId: string; pending: string | null; onDecide: (a: AssetRow, d: "approve" | "reject") => void; onShare?: (a: AssetRow) => void }) {
   const meta = ASSET_KIND_META[asset.kind];
-  const decidable = asset.approvalState === "pending" || asset.approvalState === "draft";
+  // A post the team wrote to be shared is an offer: it is shared or set aside, never approved or rejected.
+  const team = teamPostOf(asset);
+  const decidable = !team && (asset.approvalState === "pending" || asset.approvalState === "draft");
   const title = asset.title || `${meta.word} draft`;
+  const state = team ? { word: TEAM_POST_WORDS.states[asset.approvalState], tone: asset.approvalState === "approved" ? ("good" as const) : ("neutral" as const) } : APPROVAL_WORDS[asset.approvalState];
   return (
-    <article aria-label={title} data-asset={asset.id} data-state={asset.approvalState} className={cn("surface-panel flex h-full flex-col gap-2 p-3", highlighted && "outline outline-2 outline-link")}>
+    <article aria-label={title} data-asset={asset.id} data-state={asset.approvalState} data-team-post={team ? "" : undefined} className={cn("surface-panel flex h-full flex-col gap-2 p-3", highlighted && "outline outline-2 outline-link")}>
       <div className="flex items-start gap-2">
         <span className="inline-flex size-8 shrink-0 items-center justify-center rounded-sm bg-panel-alt text-secondary">
           <Icon icon={meta.icon} size={16} />
@@ -218,12 +242,12 @@ function AssetCard({ asset, highlighted, campaign, author, businessId, pending, 
           <p className="line-clamp-2 text-body-strong text-primary" title={title}>
             {title}
           </p>
-          <p className="truncate text-small text-secondary" title={campaign ?? undefined}>
-            {campaign ?? "No campaign"}
+          <p className="truncate text-small text-secondary" title={team ? TEAM_POST_WORDS.source : (campaign ?? undefined)}>
+            {team ? TEAM_POST_WORDS.source : (campaign ?? "No campaign")}
           </p>
         </div>
-        <StatusPill tone={APPROVAL_WORDS[asset.approvalState].tone} className="shrink-0 whitespace-nowrap">
-          {APPROVAL_WORDS[asset.approvalState].word}
+        <StatusPill tone={state.tone} className="shrink-0 whitespace-nowrap">
+          {state.word}
         </StatusPill>
       </div>
       <div className="flex min-w-0 items-center gap-2 text-small text-secondary">
@@ -236,7 +260,7 @@ function AssetCard({ asset, highlighted, campaign, author, businessId, pending, 
         </p>
       ) : null}
       <div className="mt-auto flex flex-wrap items-center gap-1.5 pt-1">
-        {isHttpRef(asset.contentRef) ? (
+        {team ? null : isHttpRef(asset.contentRef) ? (
           <Button size="sm" variant="ghost" icon={ExternalLink} onClick={() => openPreview(asset.contentRef)} aria-label={`Preview ${title}`}>
             Preview
           </Button>
@@ -247,8 +271,14 @@ function AssetCard({ asset, highlighted, campaign, author, businessId, pending, 
         ) : null}
         {/* Tap-to-post: the founder posts this one themselves, with one press in the network's own window. */}
         {onShare ? (
-          <Button size="sm" variant="ghost" icon={Share2} onClick={() => onShare(asset)} aria-label={`${SHARE_OPEN_WORDS.share}: ${title}`} data-asset-share="">
+          <Button size="sm" variant={team ? "tinted" : "ghost"} icon={Share2} onClick={() => onShare(asset)} aria-label={`${SHARE_OPEN_WORDS.share}: ${title}`} data-asset-share="">
             {SHARE_OPEN_WORDS.share}
+          </Button>
+        ) : null}
+        {/* "Not this one": the draft is set aside and not offered again. Only while it waits. */}
+        {team && asset.approvalState === "draft" ? (
+          <Button size="sm" variant="ghost" icon={X} className="ml-auto" loading={pending === `reject:${asset.id}`} onClick={() => onDecide(asset, "reject")} aria-label={`${TEAM_POST_WORDS.dismiss}: ${title}`} data-asset-dismiss="">
+            {TEAM_POST_WORDS.dismiss}
           </Button>
         ) : null}
         {decidable ? (

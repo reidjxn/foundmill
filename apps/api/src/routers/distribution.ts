@@ -1,11 +1,12 @@
 /** distribution.recommend / channels.* / campaigns.* / assets.* (BUILD §11.7; AC-11.7.2 enable/disable re-scores). */
 import { CreateCampaignInput, UpdateCampaignInput, hasLaunched, repos } from "@foundmill/db";
-import { HOUSE_STYLE } from "@foundmill/agents";
-import { CAMPAIGN_STATUSES, CHANNEL_KEYS, CHANNEL_LINES, CHANNEL_META, CHANNEL_WINDOW_DAYS, ChannelKey, CurrencyCode, dayKeyIn, ValidationError, type ChannelLine } from "@foundmill/shared";
+import { HOUSE_STYLE, POST_DRAFT_CHANNEL } from "@foundmill/agents";
+import { CAMPAIGN_STATUSES, CHANNEL_KEYS, CHANNEL_LINES, CHANNEL_META, CHANNEL_WINDOW_DAYS, ChannelKey, CurrencyCode, dayKeyIn, isTeamPost, ValidationError, type ChannelLine } from "@foundmill/shared";
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import { assertChannelMayLaunch, assertChannelMayRun, channelRowsFor, FOUNDER_POSTS_CHANNEL, runnableChannels } from "../services/channel-availability";
 import { DISTRIBUTION_NOT_STARTED } from "../services/engines";
+import { queuePostDraft, teamPostShares } from "../services/post-drafts";
 import { assertAgentsRunning } from "../services/stop-guard";
 import { WORKFLOWS, workflowIds } from "../services/temporal";
 import { modelLimited } from "../services/model-limits";
@@ -194,7 +195,19 @@ export const distributionRouter = router({
   }),
 
   assets: router({
-    list: read.input(z.object({ campaignId: Id.optional(), approvalState: z.enum(["draft", "pending", "approved", "rejected"]).optional() })).query(({ ctx, input }) => ctx.rls((tx) => repos.campaigns.listAssets(tx, ctx.businessId, input ?? {}))),
+    /**
+     * Every asset on the Creative tab. A post the team wrote for the founder to share by tap (a team post, packages/shared
+     * `team-posts.ts`) also carries `sharePost`: the words with the link and the picture the code attaches, ready for
+     * the share panel. Null for every other asset. A team post the founder set aside ("Not this one") is not listed again:
+     * the row stays (with its audit trail), the offer does not.
+     */
+    list: read.input(z.object({ campaignId: Id.optional(), approvalState: z.enum(["draft", "pending", "approved", "rejected"]).optional() })).query(({ ctx, input }) =>
+      ctx.rls(async (tx) => {
+        const rows = (await repos.campaigns.listAssets(tx, ctx.businessId, input ?? {})).filter((row) => !(row.approvalState === "rejected" && isTeamPost(row)));
+        const shares = await teamPostShares(tx, { businessId: ctx.businessId, businessName: ctx.business.name, isDemo: ctx.business.isDemo, appUrl: ctx.env.APP_URL }, rows);
+        return rows.map((row) => ({ ...row, sharePost: shares.get(row.id) ?? null }));
+      }),
+    ),
     approve: write.input(z.object({ assetId: Id })).mutation(({ ctx, input }) => setAssetApproval(ctx, input.assetId, "approved")),
     reject: write.input(z.object({ assetId: Id })).mutation(({ ctx, input }) => setAssetApproval(ctx, input.assetId, "rejected")),
   }),
@@ -227,6 +240,10 @@ async function setEnabled(ctx: Ctx, channelKey: ChannelKey, enabled: boolean) {
         : { queued: false, workflowId, reason: DISTRIBUTION_NOT_STARTED }
     : await ctx.temporal.signal(workflowId, "stop", { reason: "channel_disabled", by: ctx.userId });
   if (workflow.queued) await repos.channels.setEngineWorkflow(ctx.db, ctx.businessId, channel.id, enabled ? workflowId : null);
+  // Putting the social channel on the board is the founder's "yes, write posts for me" (services/post-drafts.ts): where
+  // the page is already live and no post about it was drafted, the social agent drafts that one now. One draft at most,
+  // never waited on, and nothing is launched: this is words for the founder, whatever the channel's engine does.
+  if (enabled && channelKey === POST_DRAFT_CHANNEL) queuePostDraft(ctx, ctx.businessId, { kind: "page_published" });
   return { channel: { ...channel, engineWorkflowId: workflow.queued && enabled ? workflowId : channel.engineWorkflowId }, workflow };
 }
 
