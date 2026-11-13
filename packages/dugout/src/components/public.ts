@@ -3,3 +3,4 @@ export * from "./public/ProjectPage";
 export * from "./public/ProjectFollowForm";
 // A person's own public profile (package 2.3) at /u/<handle>.
 export * from "./public/PersonPage";
+export * from "./public/LegalPage";

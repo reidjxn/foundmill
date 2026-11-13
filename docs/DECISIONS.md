@@ -3857,6 +3857,23 @@ The calls made building `openai`, `gemini`, `perplexity`, `serpapi`, `firecrawl`
 - **Not verified against a live vendor.** Every live path is tested against canned responses shaped from the docs; no real key was available. Each connector has an env-gated live suite. Perplexity's free key check (`GET /v1/models`) was seen to refuse a bad key, not to accept a good one.
 - **Left out of this batch (founder, 2026-11-12):** `ayrshare` (posting to X now needs the founder's own X developer credentials).
 
+## A home for a person with no project (Nov 12, 2026; THESIS_REVIEW 2.4)
+
+- **Its own address, `/home`, not `/`.** A signed-out `/` is the landing page, which stays desktop until 2.1/2.7, and the small-screen rule is decided by path (`SMALL_SCREEN_PREFIXES`); one address for the person's home lets it work from 390 px without opening the landing page too. The signed-in index still answers `/` and sends a person with no project there.
+- **Start something leads; finding people is an offer beside it.** The card says the person can do all of it on their own (CLAUDE.md "Solo is complete"). No people are suggested anywhere on the home, for anyone: the find card is a way to go and look, not a list. Reading `lookingFor` to tailor it waits until there is something to tailor.
+- **Closed people layer.** Where LIVE is off (production today), the find card says "Opening soon" without a link, and the waiting counts are not read: nobody can have written to the person.
+- **Onboarding still continues to /new.** A person who has just finished the profile is mid-way through starting; the home is where they land on a later visit. Revisit with 2.3's three questions ("start something", "join something", "not sure yet").
+- **The `(live)` layout is left to the network session.** Its pages call `useBusiness()` (PersonalNotice, connect, community and profile screens), so working without a project is a change to those screens, which that session owns.
+
+## 2026-11-13 — The Terms and the Privacy Policy (founder)
+
+- **Who.** The documents name the company that runs Foundmill (`apps/web/content/legal/facts.ts`), a Swedish registered company, with its organization number. Founder: its name appears on the two legal pages and nowhere else on the site; `legal-content.test.ts` fails if it appears anywhere in `apps/` or `packages/` outside that directory. Everything else says APP_NAME.
+- **Law.** Swedish law and Swedish courts, with consumers keeping the mandatory protections and courts of the country they live in (founder). No arbitration clause, no class-action waiver: neither holds for EU consumers, and one text serves both audiences.
+- **Written by us, reviewed by the founder's lawyer right after launch** (founder). The text describes what the product does today, not what is planned: where the product is short of the ideal, the text says what is true (top-ups expire at the end of the month; closing an account and exporting everything are by email request).
+- **Refunds (default, not yet confirmed by the founder).** Bought credits that are unused are refundable within 14 days of purchase; used and included credits are not. It covers the EU right of withdrawal for a digital service that starts at once, without a separate flow.
+- **No cookie banner** (founder): the site sets only sign-in and preference cookies (listed in the policy, checked against the code), no analytics and no advertising cookies.
+- **Google sign-in.** The policy has its own section on the Google data received and the Limited Use statement, as Google's brand review asks; the home page and the sign-in page link both documents.
+
 ## 2026-11-12 — Connectors on the founder's own key, second part: Apollo, Vercel, PostHog, Resend
 
 Under the founder rule of the section above. The calls made (vendor docs read Nov 12, 2026):
