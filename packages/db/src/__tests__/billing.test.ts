@@ -377,14 +377,34 @@ describe("who funds the work (0100)", () => {
     expect((tool.entry.details as { funding?: unknown }).funding).toBeUndefined();
   });
 
-  it("a row the founder's own plan paid is recorded as such and never charged to credits", async () => {
+  it("a claim that the founder's own plan paid is checked against the business: with the flag off it is charged like any other row (finding 4)", async () => {
     const A = r.A.businessId;
     const before = Number((await repos.usage.creditBalance(r.db, A, "2028-09"))?.balanceMinor);
-    const plan = await bookUsage(r.db, A, { ...row("credits"), funding: { source: "own_plan", provider: "openai" } });
+    // Business A is not on its own plan, and the flag is off: the claim is not believed.
+    const claimed = await bookUsage(r.db, A, { ...row("credits"), funding: { source: "own_plan", provider: "openai" } });
+    expect(claimed.entry.details).toMatchObject({ funding: { source: "foundmill_credits" } });
+    expect(claimed.credits).not.toBeNull();
+    expect(Number((await repos.usage.creditBalance(r.db, A, "2028-09"))?.balanceMinor)).toBe(before - 30);
+    // A row that says own_plan in its details (written by anything) is still charged while the flag is off.
+    const forged = { billedTo: "credits" as const, kind: "tokens" as const, currency: "USD", details: { funding: { source: "own_plan", provider: "openai" } } };
+    expect(chargesCredits(forged)).toBe(true);
+    expect(chargesCredits(forged, { enabled: true, providers: ["openai"] })).toBe(false);
+    expect(chargesCredits({ ...forged, details: { funding: { source: "own_plan", provider: "other" } } }, { enabled: true, providers: ["openai"] })).toBe(true);
+  });
+
+  it("a business really on its plan, with the flag on, records the plan and is not charged; a different provider is", async () => {
+    const founder = await r.h.createUser("bill-own-plan-row@test.local");
+    const business = await repos.businesses.create(r.db, { name: "Own Plan Row", createdBy: founder });
+    await repos.memberships.add(r.db, business.id, { userId: founder, role: "owner" });
+    await repos.businesses.setOwnPlan(r.db, business.id, "openai", ON);
+    const plan = await bookUsage(r.db, business.id, { ...row("credits"), funding: { source: "own_plan", provider: "openai" } }, { ownPlan: ON });
     expect(plan.entry.details).toMatchObject({ funding: { source: "own_plan", provider: "openai" } });
-    expect(chargesCredits(plan.entry)).toBe(false);
     expect(plan.credits).toBeNull();
-    expect(Number((await repos.usage.creditBalance(r.db, A, "2028-09"))?.balanceMinor)).toBe(before);
+    const other = await bookUsage(r.db, business.id, { ...row("credits"), funding: { source: "own_plan", provider: "gemini" } }, { ownPlan: ON });
+    expect(other.entry.details).toMatchObject({ funding: { source: "foundmill_credits" } });
+    expect(other.credits).not.toBeNull();
+    // The same claim with the flag off is charged.
+    expect((await bookUsage(r.db, business.id, { ...row("credits"), funding: { source: "own_plan", provider: "openai" } })).credits).not.toBeNull();
   });
 
   it("with the flag off a business on its own plan is still gated by credits; with it on for an integrated provider the gate skips them", async () => {
@@ -400,11 +420,31 @@ describe("who funds the work (0100)", () => {
     expect(agentWorkFunding(onPlan)).toEqual({ source: "foundmill_credits" });
     await bookUsage(r.db, business.id, { ...row("credits"), costMinor: 10_000 });
     expect(await checkPlatformCredits(r.db, business.id, { live: false, now: sept })).toMatchObject({ ok: false, reason: "exhausted", fundedBy: "foundmill_credits" });
-    // With the flag on and the provider integrated, work billed to the plan skips Foundmill's credits.
+    // With the flag on and the provider integrated, a call routed to the plan skips Foundmill's credits.
     expect(agentWorkFunding(onPlan, ON)).toEqual({ source: "own_plan", provider: "openai" });
-    expect(await checkPlatformCredits(r.db, business.id, { live: false, now: sept, ownPlan: ON })).toMatchObject({ ok: true, reason: null, low: false, fundedBy: "own_plan" });
+    expect(await checkPlatformCredits(r.db, business.id, { live: false, now: sept, ownPlan: ON, routedTo: "openai" })).toMatchObject({ ok: true, reason: null, low: false, fundedBy: "own_plan" });
+    // A call on the platform key keeps the zero check even then (finding 3): the plan pays nothing on Foundmill's key.
+    expect(await checkPlatformCredits(r.db, business.id, { live: false, now: sept, ownPlan: ON })).toMatchObject({ ok: false, reason: "exhausted", fundedBy: "foundmill_credits" });
+    await expect(assertPlatformCredits(r.db, business.id, { live: false, now: sept, ownPlan: ON })).rejects.toMatchObject({ code: "credits_exhausted" });
+    // A call routed to another provider is not the plan's.
+    expect((await checkPlatformCredits(r.db, business.id, { live: false, now: sept, ownPlan: ON, routedTo: "anthropic" })).ok).toBe(false);
     // A provider that is not integrated does not count, flag or no flag.
     expect(agentWorkFunding(onPlan, { enabled: true, providers: [] })).toEqual({ source: "foundmill_credits" });
+  });
+
+  it("a business on its plan stopped for credits, with a balance left, still has its platform-key calls refused (finding 3)", async () => {
+    const founder = await r.h.createUser("bill-own-plan-stop@test.local");
+    const business = await repos.businesses.create(r.db, { name: "Own Plan Stop", createdBy: founder });
+    await repos.memberships.add(r.db, business.id, { userId: founder, role: "owner" });
+    await repos.businesses.setOwnPlan(r.db, business.id, "openai", ON);
+    const now = new Date();
+    await stopBusinessAgents(r.db, business.id, { reason: "credits_exhausted" });
+    try {
+      expect(await checkPlatformCredits(r.db, business.id, { live: false, now, ownPlan: ON })).toMatchObject({ ok: false, reason: "exhausted" });
+      expect((await checkPlatformCredits(r.db, business.id, { live: false, now, ownPlan: ON, routedTo: "openai" })).ok).toBe(true);
+    } finally {
+      await resumeBusinessAgents(r.db, business.id);
+    }
   });
 });
 

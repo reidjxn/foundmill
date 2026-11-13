@@ -15,6 +15,7 @@
  */
 import { grantsActOutside } from "@foundmill/connectors";
 import { bookUsage, checkPlatformCredits, repos } from "@foundmill/db";
+import { resolveModel, type RouteKey, type RouteResolution } from "@foundmill/models";
 import type { ModelKey, ModuleKey } from "@foundmill/shared";
 import type { OrchestratorDeps } from "../deps";
 
@@ -29,6 +30,21 @@ export const LOW_CREDITS_KEPT_MODULES: readonly ModuleKey[] = ["finance", "legal
  */
 export function sessionKeepsModelOnLowCredits(session: { module: ModuleKey | null; toolRefs: readonly string[] }): boolean {
   return (session.module !== null && LOW_CREDITS_KEPT_MODULES.includes(session.module)) || grantsActOutside(session.toolRefs);
+}
+
+const MODEL_RANK: Record<ModelKey, number> = { haiku: 0, sonnet: 1, opus: 2 };
+
+/**
+ * The model a run must use instead of its launch's, or null to keep the launch's. The keep rule is decided at
+ * `prepareSession`, but every run (a resume after an approval, a hand-off, a retry) re-reads the agent's current tools and
+ * mints its token from them. So each run checks again: when the tools it will hold now keep the session's model
+ * (`sessionKeepsModelOnLowCredits`) and the launch was moved below the route's usual model, the run goes back up to
+ * the usual model. A run is never moved down here (a launch on its usual model stays on it).
+ */
+export function keptModelForRun(launchModel: ModelKey, run: { route: RouteKey; agentModel: ModelKey; module: ModuleKey | null; toolRefs: readonly string[] }): RouteResolution | null {
+  if (!sessionKeepsModelOnLowCredits(run)) return null;
+  const usual = resolveModel(run.route, run.agentModel);
+  return MODEL_RANK[launchModel] < MODEL_RANK[usual.modelKey] ? usual : null;
 }
 
 /** How often a running session books its spend and re-reads the balance between turns. */

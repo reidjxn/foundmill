@@ -5,11 +5,11 @@
  * per-business client sends the call with `lowCredits`, so its routine routes move while its kept routes do not.
  */
 import { lowCreditsThresholdMinor, includedCreditsMinor } from "@foundmill/config";
-import { periodOf, repos } from "@foundmill/db";
+import { periodOf, repos, resumeBusinessAgents, stopBusinessAgents } from "@foundmill/db";
 import { MockModelClient, type UsageEvent } from "@foundmill/models";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { createSessionActivities } from "../activities/session";
-import { LOW_CREDITS_KEPT_MODULES, sessionKeepsModelOnLowCredits } from "../activities/session-credits";
+import { keptModelForRun, LOW_CREDITS_KEPT_MODULES, sessionKeepsModelOnLowCredits } from "../activities/session-credits";
 import { createBusinessModelClient } from "../models";
 import { openSessionRow, setupOrchestratorHarness, type OrchestratorTestHarness } from "./harness";
 
@@ -73,6 +73,58 @@ describe("prepareSession with low credits", () => {
     await setBalance(LINE - 1);
     await repos.businesses.update(t.db, B(), { modelBilling: "byok" });
     expect((await prepare()).modelKey).toBe("sonnet");
+  });
+});
+
+describe("every run checks the keep rule again (security review, finding 1)", () => {
+  it("a session launched low that resumes after the founder grants an outward tool runs on its usual model, and books on it", async () => {
+    await setBalance(LINE - 1);
+    const sessionId = await openSessionRow(t, t.workerId, t.codeTaskId);
+    const input = { businessId: B(), agentId: t.workerId, taskId: t.codeTaskId, sessionId };
+    const acts = createSessionActivities(t.deps);
+    const launch = await acts.prepareSession(input);
+    expect(launch.modelKey).toBe("haiku");
+    // While the session waits (an approval, a park), the founder gives the agent a tool that sends mail outside.
+    const agent = await repos.agents.get(t.db, B(), t.workerId);
+    const before = agent.currentVersionId!;
+    const current = await repos.agents.getVersion(t.db, B(), before);
+    const outward = await repos.agents.createVersion(t.db, B(), t.workerId, { instructions: current.instructions as never, tools: [...(current.tools as unknown[]), { connectorKey: "platform_mail", tools: ["mail.send"] }], state: "live" });
+    await repos.agents.promoteVersion(t.db, B(), t.workerId, outward.id, { keepAgentModel: true });
+    try {
+      // The run stops before it starts (the team is stopped), which is enough to see the model it would run and book on.
+      await stopBusinessAgents(t.db, B(), { reason: "kill_switch" });
+      const result = await acts.runAgentSession(input, launch, null, null);
+      expect(result.outcome).toBe("stopped");
+      expect(result.modelKey).toBe("sonnet");
+    } finally {
+      await resumeBusinessAgents(t.db, B());
+      await repos.agents.promoteVersion(t.db, B(), t.workerId, before, { keepAgentModel: true });
+    }
+  });
+
+  it("a run whose tools are still routine keeps the launch's lower-cost model", async () => {
+    await setBalance(LINE - 1);
+    const sessionId = await openSessionRow(t, t.workerId, t.codeTaskId);
+    const input = { businessId: B(), agentId: t.workerId, taskId: t.codeTaskId, sessionId };
+    const acts = createSessionActivities(t.deps);
+    const launch = await acts.prepareSession(input);
+    await stopBusinessAgents(t.db, B(), { reason: "kill_switch" });
+    try {
+      const result = await acts.runAgentSession(input, launch, null, null);
+      expect(result.modelKey).toBeUndefined();
+      expect(launch.modelKey).toBe("haiku");
+    } finally {
+      await resumeBusinessAgents(t.db, B());
+    }
+  });
+
+  it("keptModelForRun moves a run up only when its tools keep it, never down", () => {
+    const run = { route: "worker" as const, agentModel: "sonnet" as const, module: "development" as const };
+    expect(keptModelForRun("haiku", { ...run, toolRefs: ["platform_mail:send_mail"] })?.modelKey).toBe("sonnet");
+    expect(keptModelForRun("haiku", { ...run, toolRefs: ["github:merge_pr"] })?.modelKey).toBe("sonnet");
+    expect(keptModelForRun("haiku", { ...run, toolRefs: ["github:read_tree"] })).toBeNull();
+    expect(keptModelForRun("sonnet", { ...run, toolRefs: ["platform_mail:send_mail"] })).toBeNull();
+    expect(keptModelForRun("opus", { ...run, toolRefs: ["platform_mail:send_mail"] })).toBeNull();
   });
 });
 

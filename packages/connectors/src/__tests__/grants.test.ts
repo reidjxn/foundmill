@@ -179,7 +179,7 @@ describe("grantsActOutside (the credit saver keeps outward and money work on its
     expect(grantsActOutside(["platform_mail:*"])).toBe(true);
     const served = [...createAllConnectors({ secrets: {} }), ...createBuiltinConnectors({ secrets: {} })];
     for (const c of served) {
-      for (const [tool, hints] of Object.entries(c.policyHints)) expect(grantsActOutside([`${c.key}:${tool}`]), `${c.key}:${tool}`).toBe(Boolean(hints.contactsThirdParty || hints.spendsMoney));
+      for (const [tool, hints] of Object.entries(c.policyHints)) expect(grantsActOutside([`${c.key}:${tool}`]), `${c.key}:${tool}`).toBe(!hints.hardGate && Boolean(hints.contactsThirdParty || hints.spendsMoney || hints.irreversible));
     }
   });
 
@@ -192,7 +192,16 @@ describe("grantsActOutside (the credit saver keeps outward and money work on its
     expect(research.length).toBeGreaterThan(0);
     expect(grantsActOutside(research)).toBe(false);
     expect(grantsActOutside(["platform:request_human_action"])).toBe(false);
-    expect(grantsActOutside(["unknown:thing"])).toBe(false);
     expect(grantsActOutside([])).toBe(false);
+  });
+
+  it("counts a tool that cannot be undone (a merge to main, a DNS change), and fails closed on a connector or tool it does not know", () => {
+    expect(grantsActOutside(["github:merge_pr"])).toBe(true);
+    expect(grantsActOutside(resolveGrants([{ connectorKey: "github", tools: ["pulls.merge"] }]).toolRefs)).toBe(true);
+    expect(grantsActOutside(["cloudflare_dns:*"])).toBe(true);
+    // Reading the same repository is still routine.
+    expect(grantsActOutside(["github:read_tree", "github:read_file"])).toBe(false);
+    expect(grantsActOutside(["unknown_connector:thing"])).toBe(true);
+    expect(grantsActOutside(["github:no_such_tool"])).toBe(true);
   });
 });

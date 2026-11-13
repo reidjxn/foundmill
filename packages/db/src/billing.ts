@@ -67,12 +67,23 @@ export interface BookUsageResult {
   replayed?: boolean;
 }
 
+/** Overrides of `FLAGS.ownPlanFunding` and `OWN_PLAN_PROVIDERS` (tests); the product reads packages/config. */
+export interface OwnPlanOptions {
+  enabled?: boolean;
+  providers?: readonly string[];
+}
+
 /**
  * Whether a ledger row is a platform cost charged to credits: billed to credits, not a tool call, in USD, and not paid by
- * the founder's own plan (`details.funding.source`, see `bookUsage`).
+ * the founder's own plan. A row's own claim of the plan (`details.funding`) is believed only while the plan can fund work
+ * at all (`ownPlanFunds` for the provider it names: the flag on and the provider integrated); with the flag off, a row that
+ * says `own_plan` is charged like any other.
  */
-export function chargesCredits(entry: Pick<UsageEntry, "billedTo" | "kind" | "currency"> & { details?: unknown }): boolean {
-  return entry.billedTo === "credits" && entry.kind !== "tool" && entry.currency === CREDITS_CURRENCY && fundingOfRow(entry) !== "own_plan";
+export function chargesCredits(entry: Pick<UsageEntry, "billedTo" | "kind" | "currency"> & { details?: unknown }, ownPlan?: OwnPlanOptions): boolean {
+  if (entry.billedTo !== "credits" || entry.kind === "tool" || entry.currency !== CREDITS_CURRENCY) return false;
+  if (fundingOfRow(entry) !== "own_plan") return true;
+  const provider = (entry.details as { funding?: { provider?: unknown } } | null | undefined)?.funding?.provider;
+  return !ownPlanFunds(typeof provider === "string" ? provider : null, ownPlan);
 }
 
 /** Which source paid for a usage row, with the provider when it is the founder's own plan or own key. */
@@ -93,7 +104,7 @@ export function fundingOfRow(entry: Pick<UsageEntry, "billedTo"> & { details?: u
  * and its provider is integrated (`ownPlanFunds`, packages/config; with the flag off, never); otherwise the founder's own
  * key on `byok`, else the month's credits. `ownPlan` overrides the flag and the provider list (tests).
  */
-export function agentWorkFunding(business: Pick<Business, "modelBilling" | "fundingSource" | "fundingPlanProvider">, ownPlan?: { enabled?: boolean; providers?: readonly string[] }): UsageFunding {
+export function agentWorkFunding(business: Pick<Business, "modelBilling" | "fundingSource" | "fundingPlanProvider">, ownPlan?: OwnPlanOptions): UsageFunding {
   if (business.fundingSource === "own_plan" && ownPlanFunds(business.fundingPlanProvider, ownPlan)) return { source: "own_plan", provider: business.fundingPlanProvider! };
   return business.modelBilling === "byok" ? { source: "own_api_key", provider: "anthropic" } : { source: "foundmill_credits" };
 }
@@ -101,10 +112,22 @@ export function agentWorkFunding(business: Pick<Business, "modelBilling" | "fund
 /** A booking, with the source that paid when the caller knows it (else it follows `billedTo`). */
 export type BookUsageInput = RecordUsageInput & { funding?: UsageFunding };
 
-/** The funding a booking records: the caller's, else what `billedTo` means (the platform's key or the founder's Anthropic key). */
-function fundingFor(input: BookUsageInput): UsageFunding {
-  if (input.funding) return input.funding;
-  return input.billedTo === "byok" ? { source: "own_api_key", provider: "anthropic" } : { source: "foundmill_credits" };
+/** What `billedTo` means: the founder's own Anthropic key, or the platform's key paid from credits. */
+function fundingOfBilling(billedTo: RecordUsageInput["billedTo"]): UsageFunding {
+  return billedTo === "byok" ? { source: "own_api_key", provider: "anthropic" } : { source: "foundmill_credits" };
+}
+
+/**
+ * The funding a booking records. A caller's claim that the founder's own plan paid is checked against the business: it
+ * holds only when the business's agent work is funded by that plan now (`agentWorkFunding`: on `own_plan`, the flag on,
+ * the provider integrated) and names the same provider; otherwise the row records what its `billedTo` means and is charged
+ * as such. Any other claim is replaced by what `billedTo` means too, so the row and its billing never disagree.
+ */
+async function fundingFor(db: Executor, businessId: string, input: BookUsageInput, ownPlan?: OwnPlanOptions): Promise<UsageFunding> {
+  if (input.funding?.source !== "own_plan") return fundingOfBilling(input.billedTo);
+  const business = await repos.businesses.get(db, businessId, { includeArchived: true });
+  const plan = agentWorkFunding(business, ownPlan);
+  return plan.source === "own_plan" && plan.provider === input.funding.provider ? plan : fundingOfBilling(input.billedTo);
 }
 
 type CreditsBusiness = Pick<Business, "id" | "planTier" | "createdBy">;
@@ -132,14 +155,15 @@ export async function includedCreditsFor(db: Executor, business: CreditsBusiness
  * the charge never leaves an empty balance with the team still working (audit BILL-20). A booking with an
  * `idempotencyKey` that was already booked (a retried session end) returns that row and charges nothing.
  */
-export async function bookUsage(db: Executor, businessId: string, input: BookUsageInput): Promise<BookUsageResult> {
+export async function bookUsage(db: Executor, businessId: string, input: BookUsageInput, options: { ownPlan?: OwnPlanOptions } = {}): Promise<BookUsageResult> {
   const { funding: _funding, ...row } = input;
-  // Which source paid is recorded on the row (0100), so a row the founder's own plan paid is never charged to credits.
-  const recorded: RecordUsageInput = input.kind === "tool" ? row : { ...row, details: { ...(row.details ?? {}), funding: fundingFor(input) } };
   return db.transaction(async (tx) => {
+    // Which source paid is recorded on the row (0100), checked against the business, so only a row the founder's own
+    // plan really paid is left uncharged.
+    const recorded: RecordUsageInput = input.kind === "tool" ? row : { ...row, details: { ...(row.details ?? {}), funding: await fundingFor(tx, businessId, input, options.ownPlan) } };
     const { entry, created } = await repos.usage.recordOnce(tx, businessId, recorded);
     if (!created) return { entry, credits: null, replayed: true };
-    if (!chargesCredits(entry)) return { entry, credits: null };
+    if (!chargesCredits(entry, options.ownPlan)) return { entry, credits: null };
     const business = await repos.businesses.get(tx, businessId, { includeArchived: true });
     const period = periodOf(entry.occurredAt);
     // The exact cost (0039): a call under half a cent is carried until the period's charges complete a cent.
@@ -236,10 +260,22 @@ export interface PlatformCreditsCheck {
   low: boolean;
   modelBilling: Business["modelBilling"];
   /**
-   * Who pays for a call on the platform key: the month's credits, unless the business's agent work is billed to the
-   * founder's own plan (`agentWorkFunding`), which skips Foundmill's credits. With `FLAGS.ownPlanFunding` off, never.
+   * Who pays for the call: the month's credits, unless the call is routed to the founder's own plan at its provider
+   * (`routedTo`, `agentWorkFunding`), which skips Foundmill's credits. With `FLAGS.ownPlanFunding` off, never.
    */
   fundedBy: FundingSource;
+}
+
+export interface CreditsCheckOptions {
+  /** The call spends real money (simulated credits do not count). */
+  live: boolean;
+  now?: Date;
+  /**
+   * The provider whose plan the call is routed to, for a call that does not run on the platform key. Absent for every
+   * platform-key call (the api's, the composer's, the orchestrator's platform client), which never skips credits.
+   */
+  routedTo?: string;
+  ownPlan?: OwnPlanOptions;
 }
 
 /**
@@ -247,12 +283,14 @@ export interface PlatformCreditsCheck {
  * team was stopped for it this month), and, where calls are `live`, no when only credits granted by a simulated
  * payment are left: free credits never pay for real model spend. Reads only; see `assertPlatformCredits`.
  */
-export async function checkPlatformCredits(db: Executor, businessId: string, options: { live: boolean; now?: Date; ownPlan?: { enabled?: boolean; providers?: readonly string[] } }): Promise<PlatformCreditsCheck> {
+export async function checkPlatformCredits(db: Executor, businessId: string, options: CreditsCheckOptions): Promise<PlatformCreditsCheck> {
   const business = await repos.businesses.get(db, businessId, { includeArchived: true });
   const period = periodOf(options.now ?? new Date());
   const row = await repos.usage.creditBalance(db, business.id, period);
-  // Work billed to the founder's own plan skips Foundmill's credits (0100); with the flag off nothing is.
-  if (agentWorkFunding(business, options.ownPlan).source === "own_plan") {
+  // Only a call routed to the founder's own plan at its provider skips Foundmill's credits (0100); with the flag off none
+  // is. Every call on the platform key (no `routedTo`) keeps the stop and the zero check, whatever the business's funding.
+  const plan = agentWorkFunding(business, options.ownPlan);
+  if (options.routedTo !== undefined && plan.source === "own_plan" && plan.provider === options.routedTo) {
     const balanceMinor = row ? Number(row.balanceMinor) : 0;
     return { ok: true, reason: null, period, balanceMinor, spendableMinor: balanceMinor, low: false, modelBilling: business.modelBilling, fundedBy: "own_plan" };
   }
@@ -278,7 +316,7 @@ async function belowLowLine(db: Executor, business: CreditsBusiness, period: str
 }
 
 /** Throws `CreditsExhaustedError` (402, a sentence the founder can act on) when `checkPlatformCredits` says no. */
-export async function assertPlatformCredits(db: Executor, businessId: string, options: { live: boolean; now?: Date; ownPlan?: { enabled?: boolean; providers?: readonly string[] } }): Promise<PlatformCreditsCheck> {
+export async function assertPlatformCredits(db: Executor, businessId: string, options: CreditsCheckOptions): Promise<PlatformCreditsCheck> {
   const check = await checkPlatformCredits(db, businessId, options);
   if (check.ok) return check;
   const next = shortDate(periodRange(check.period).to);

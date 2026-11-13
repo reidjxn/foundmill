@@ -98,18 +98,30 @@ const GATEWAY_TOOLS: Readonly<Record<string, readonly { name: string; hints: Pol
 /** Every tool the gateway serves, by connector: the registry's connectors plus the built-ins (platform, web, quarantine). */
 export const GATEWAY_TOOL_NAMES: Readonly<Record<string, readonly string[]>> = Object.freeze(Object.fromEntries(Object.entries(GATEWAY_TOOLS).map(([key, tools]) => [key, names(tools)])));
 
+/** A tool the credit saver never moves to a lower-cost model: it reaches outside, spends money or cannot be undone. */
+function highStakesTool(hints: PolicyHint): boolean {
+  // A hard-gated tool never runs (it becomes a founder task, `request_human_action`), so it does not count.
+  if (hints.hardGate) return false;
+  return Boolean(hints.contactsThirdParty || hints.spendsMoney || hints.irreversible);
+}
+
 /**
- * Whether a session granted `toolRefs` (`connector:tool` or `connector:*`, `ResolvedGrants.toolRefs`) can reach someone
- * outside the business or spend money: a granted tool carries `contactsThirdParty` or `spendsMoney`, the hints the house
- * rules' policy asks the founder about. A hard-gated tool never runs (it becomes a founder task), so it does not count.
- * Low credits keep such a session on its usual model (the credit saver, apps/orchestrator `prepareSession`).
+ * Whether a session granted `toolRefs` (`connector:tool` or `connector:*`, `ResolvedGrants.toolRefs`) holds a high-stakes
+ * tool: one that reaches someone outside the business, spends money or cannot be undone (`contactsThirdParty`,
+ * `spendsMoney`, `irreversible`: the hints the house rules' policy asks the founder about). Low credits keep such a session
+ * on its usual model (the credit saver, apps/orchestrator `prepareSession` and every run). It fails closed: a connector or
+ * tool this map does not know counts as high-stakes, so a tool added without its hints here is never downgraded.
  */
 export function grantsActOutside(toolRefs: readonly string[]): boolean {
   return toolRefs.some((ref) => {
     const sep = ref.indexOf(":");
     const connector = sep < 0 ? ref : ref.slice(0, sep);
     const tool = sep < 0 ? "*" : ref.slice(sep + 1);
-    return (GATEWAY_TOOLS[connector] ?? []).some((t) => (tool === "*" || t.name === tool) && Boolean(t.hints.contactsThirdParty || t.hints.spendsMoney));
+    const tools = GATEWAY_TOOLS[connector];
+    if (!tools) return true;
+    const granted = tool === "*" ? tools : tools.filter((t) => t.name === tool);
+    if (granted.length === 0) return true;
+    return granted.some((t) => highStakesTool(t.hints));
   });
 }
 
