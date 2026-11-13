@@ -1,10 +1,11 @@
 /** team.agents.* / team.humans.* / team.responsibilities.* (BUILD §11.9; AC-11.9.2 responsibilities route approvals). */
 import { TEMPLATE_KEYS, getTemplate, hasTemplate, listTemplates } from "@foundmill/agents";
 import { CREDITS_CURRENCY } from "@foundmill/config";
-import { SectionPermissions, repos, type AgentRosterActivity } from "@foundmill/db";
+import { SectionPermissions, membershipEnded, repos, type AgentRosterActivity } from "@foundmill/db";
 import { DECISION_TYPES, DEFAULT_AGENT_STYLE, ForbiddenError, isOwnerRole, MEMBERSHIP_ROLES, NotFoundError, ValidationError, agentTier, characterFor, leadAgentIds } from "@foundmill/shared";
 import { z } from "zod";
 import { pendingApprovals, resolveApproval } from "../services/approvals";
+import { assertWithinGrantorAccess } from "../services/grants";
 import { modelLimited } from "../services/model-limits";
 import { ensurePortraits } from "../services/personas";
 import { archivePlaybook, compilePlaybookText, createPlaybook, setPlaybookEnabled, toPlaybookView, updatePlaybook } from "../services/playbooks";
@@ -267,7 +268,9 @@ export const teamRouter = router({
     /**
      * Role, section permissions and (a collaborator's only) the date access ends, of another member. Nobody edits their
      * own; only someone with an owner's standing (an owner or a cofounder, THESIS_REVIEW 3.3) changes such a row or
-     * grants that standing; the last owner or cofounder keeps it (the same rules hold in RLS, 0026 and 0090).
+     * grants that standing; the last owner or cofounder keeps it (the same rules hold in RLS, 0026 and 0090). Someone
+     * without that standing gives no more than their own access (`assertWithinGrantorAccess`; the api's rule alone, as
+     * the section walls are: no policy reads section permissions).
      */
     role: staffAdmin
       .input(z.object({ userId: Id, role: z.enum(MEMBERSHIP_ROLES).optional(), sectionPermissions: SectionPermissions.optional(), expiresAt: z.coerce.date().nullable().optional() }))
@@ -278,6 +281,10 @@ export const teamRouter = router({
           if (!membership) throw new ValidationError("Not a member of this business");
           if (!isOwnerRole(ctx.role) && isOwnerRole(membership.role)) throw new ForbiddenError("Only an owner or a cofounder can change an owner's or a cofounder's role or permissions");
           if (!isOwnerRole(ctx.role) && input.role && isOwnerRole(input.role)) throw new ForbiddenError("Only an owner or a cofounder can make someone an owner or a cofounder");
+          // Nor past the editor's own access: no section above their own level on it and no role above theirs (an
+          // owner's standing is not limited); narrowing and lowering stay free (services/grants.ts). A collaborator whose
+          // access ended has none now, so a new date gives everything the row holds and is judged as a grant.
+          assertWithinGrantorAccess(ctx.membership, { role: input.role ?? membership.role, sectionPermissions: input.sectionPermissions ?? membership.sectionPermissions }, membershipEnded(membership) ? null : membership);
           if (input.role) membership = await repos.memberships.setRole(tx, ctx.businessId, input.userId, input.role);
           if (input.sectionPermissions) membership = await repos.memberships.setSectionPermissions(tx, ctx.businessId, input.userId, input.sectionPermissions);
           if (input.expiresAt !== undefined) {
