@@ -610,13 +610,18 @@ export const EMAIL_NOTIFICATION_KINDS = ["decision_waiting", "win", "milestone",
 export type EmailNotificationKind = (typeof EMAIL_NOTIFICATION_KINDS)[number];
 export type EmailNotificationPrefs = Record<EmailNotificationKind, boolean>;
 export const DEFAULT_EMAIL_NOTIFICATION_PREFS: Readonly<EmailNotificationPrefs> = Object.freeze({ decision_waiting: true, win: true, milestone: true, run_finished: true, credits: true, daily_brief: true, weekly_review: true, invitation_accepted: true });
-/** The kinds the daily limits count; the morning brief and the weekly review are on their own schedule (founder, 2026-11-12). */
-export const LIMITED_EMAIL_KINDS: readonly EmailNotificationKind[] = ["decision_waiting", "win", "milestone", "run_finished", "credits", "invitation_accepted"];
 /**
- * What Foundmill may email to an address rather than to an account (`POST /v1/notify/email`, the same sender, the same
- * daily ceiling): an invitation to a project, sent to the address the inviter typed. Nobody holds a preference for it:
- * it is one message the inviter asked for. It counts toward three a day per address, and toward the person's own three
- * a day when the address is an account's (`LIMITED_EMAIL_KINDS`' limit).
+ * The kinds the daily limits count; the morning brief and the weekly review are on their own schedule (founder,
+ * 2026-11-12), and the note that someone a person invited joined is the answer to something they did, so it never uses up
+ * the three a day their own project's news has.
+ */
+export const LIMITED_EMAIL_KINDS: readonly EmailNotificationKind[] = ["decision_waiting", "win", "milestone", "run_finished", "credits"];
+/**
+ * What Foundmill may email to an address rather than to an account (`POST /v1/notify/email`, the same sender): an
+ * invitation to a project, sent to the address the inviter typed. Nobody holds a preference for it: it is one message
+ * the inviter asked for, with a "Don't send me invitations" link that stops every invitation to the address. It counts
+ * toward three a day per address, five emailed invitations a day per inviter (`INVITATION_EMAILS_PER_INVITER_PER_DAY`)
+ * and its own share of the daily ceiling (`ADDRESS_EMAIL_CEILING_SHARE`), never toward an account's own three a day.
  */
 export const ADDRESS_EMAIL_KINDS = ["invitation"] as const;
 export type AddressEmailKind = (typeof ADDRESS_EMAIL_KINDS)[number];

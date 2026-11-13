@@ -30,10 +30,11 @@ export const PlatformSendNotification = z.strictObject({
   text: z.string().min(1).max(10_000),
   html: z.string().min(1).max(40_000),
   /**
-   * The person's signed link that turns this kind off (one-click, RFC 8058). Absent only for the one-off messages to an
-   * address the person or their inviter asked for (`ADDRESS_EMAIL_KINDS`: no account holds a preference to turn off).
+   * The signed one-click link (RFC 8058) every message carries: the person's link that turns this kind off, or, for an
+   * email to an address (`ADDRESS_EMAIL_KINDS`: an invitation), the link that stops every invitation to that address
+   * (`invitationsOffUrl`).
    */
-  unsubscribeUrl: z.url().max(2_000).optional(),
+  unsubscribeUrl: z.url().max(2_000),
 });
 export type PlatformSendNotificationT = z.infer<typeof PlatformSendNotification>;
 
@@ -57,7 +58,7 @@ export function buildNotificationData(mail: PlatformSendNotificationT): Record<s
     subject: mail.subject,
     text: mail.text,
     html: mail.html,
-    ...(mail.unsubscribeUrl ? { headers: { "List-Unsubscribe": `<${mail.unsubscribeUrl}>`, "List-Unsubscribe-Post": "List-Unsubscribe=One-Click" } } : {}),
+    headers: { "List-Unsubscribe": `<${mail.unsubscribeUrl}>`, "List-Unsubscribe-Post": "List-Unsubscribe=One-Click" },
     categories: ["foundmill-notify"],
     mailSettings: { bypassListManagement: { enable: false } },
     trackingSettings: { subscriptionTracking: { enable: false }, clickTracking: { enable: false, enableText: false }, openTracking: { enable: false } },
@@ -93,3 +94,35 @@ export function readNotifyOffToken(secret: string, token: string): { userId: str
 }
 
 export const notifyOffUrl = (base: string, token: string): string => `${base.replace(/\/+$/, "")}${PLATFORM_NOTIFY_OFF_PATH}?t=${encodeURIComponent(token)}`;
+
+/* ---- The link that stops every invitation to an address ---- */
+
+const INVITATIONS_LABEL = "fm-invitations-off";
+const INVITATIONS_VERSION = "i1";
+const HASH_RE = /^[0-9a-f]{64}$/;
+
+export const PLATFORM_INVITATIONS_OFF_PATH = "/mail/invitations/off";
+
+const invitationsMac = (secret: string, parts: readonly string[]): string => createHmac("sha256", secret).update([INVITATIONS_LABEL, ...parts].join("\u0000"), "utf8").digest("base64url");
+
+/**
+ * `i1.<email hash>.<signature>`: the "Don't send me invitations" link in every invitation email, signed with
+ * PLATFORM_MAIL_SIGNING_SECRET under its own label (never valid as any other token, nor any other as it). It names the
+ * address only by the suppression list's hash of it (`suppressionHashOfEmail`), never the address, and does not expire.
+ * Ingest's `/mail/invitations/off` turns it into a platform-wide suppression of that hash, which the gateway checks
+ * before every invitation email (and every project's own mail honors too).
+ */
+export function invitationsOffToken(secret: string, emailHash: string): string {
+  const parts = [INVITATIONS_VERSION, emailHash.toLowerCase()];
+  return `${parts.join(".")}.${invitationsMac(secret, parts)}`;
+}
+
+export function readInvitationsOffToken(secret: string, token: string): { emailHash: string } | null {
+  const parts = token.split(".");
+  if (parts.length !== 3) return null;
+  const [v, h, sig] = parts as [string, string, string];
+  if (v !== INVITATIONS_VERSION || !HASH_RE.test(h)) return null;
+  return safeEqual(sig, invitationsMac(secret, [v, h])) ? { emailHash: h } : null;
+}
+
+export const invitationsOffUrl = (base: string, token: string): string => `${base.replace(/\/+$/, "")}${PLATFORM_INVITATIONS_OFF_PATH}?t=${encodeURIComponent(token)}`;

@@ -8,20 +8,27 @@
  *   1. platform mail switched on and configured for where it runs, as for the person's own kinds;
  *   2. the invitation the token names (its SHA-256 equal to the row's, so the api cannot be made to mail a link it did
  *      not mint for that row), with the id sent, pending and in date, on a real, open project;
- *   3. the address, from that row (never from the request), not on the project's or the platform's suppression list;
+ *   3. the address, from that row (never from the request), not on the project's or the platform's suppression list
+ *      (the platform's holds every address whose owner pressed "Don't send me invitations");
  *   4. once per invitation (a marker in Redis), then the counts shared by every replica: three a day per address (an
- *      HMAC of it), three a day per person when the address is an account's (the founder's limit of 2026-11-12,
- *      `NOTIFY_PER_PERSON_PER_DAY`), this email's own ceiling (`pn:all:day`) and the projects' room (`busy`).
- * No preference applies (nobody holds one: it is one message the inviter asked for) and so there is no off link; it says
- * why it came and what ignoring it does. No `notify.email_sent` (that is a person's event and there is no person yet);
- * the send is audited on the project without the address. The address never reaches a log line, the audit or an event.
+ *      HMAC of it), five emailed invitations a day per inviter (`INVITATION_EMAILS_PER_INVITER_PER_DAY`), their own
+ *      share of this email's daily ceiling (`ADDRESS_EMAIL_CEILING_SHARE` of PLATFORM_NOTIFY_DAILY_CEILING, `pn:addr:all:day`),
+ *      the ceiling itself (`pn:all:day`) and the projects' room (`busy`). Never the recipient account's own three a day
+ *      (`pn:person:…`): someone else's invitations cannot use up what a person's own projects tell them.
+ * No preference applies (nobody holds one: it is one message the inviter asked for). Its footer link and its
+ * List-Unsubscribe header are "Don't send me invitations" (`invitationsOffToken`, ingest `/mail/invitations/off`): a
+ * platform-wide suppression of the address. No `notify.email_sent` (that is a person's event and there is no person
+ * yet); the send is audited on the project without the address. The address never reaches a log line, the audit or an
+ * event.
  */
 import { createHash, createHmac } from "node:crypto";
 import { z } from "zod";
 import { APP_NAME } from "@foundmill/config";
 import { repos } from "@foundmill/db";
 import {
+  ADDRESS_EMAIL_CEILING_SHARE,
   ADDRESS_EMAIL_KINDS,
+  INVITATION_EMAILS_PER_INVITER_PER_DAY,
   INVITATION_ROLES,
   invitationEmail,
   mockResultsAllowed,
@@ -36,9 +43,9 @@ import {
   type NotifyEmailNotSent,
   type NotifyEmailText,
 } from "@foundmill/shared";
-import { DEV_PLATFORM_MAIL_SECRET, isConfigError, mockIntegrationRecord, PLATFORM_NOTIFY_KEY, suppressionHashOfEmail, type ToolContext } from "@foundmill/connectors";
+import { DEV_PLATFORM_MAIL_SECRET, invitationsOffToken, invitationsOffUrl, isConfigError, mockIntegrationRecord, PLATFORM_NOTIFY_KEY, suppressionHashOfEmail, type ToolContext } from "@foundmill/connectors";
 import type { NotifyEmailResponse } from "./notify-email";
-import { notifyPersonDayKey, PLATFORM_NOTIFY_CEILING_KEY } from "./notify-email";
+import { PLATFORM_NOTIFY_CEILING_KEY } from "./notify-email";
 import { modeFor, vendorRefusedOutright, type GatewayDeps } from "./pipeline";
 import { PLATFORM_MAIL_CEILING_KEY, PLATFORM_NOTIFY_DEFAULT_CEILING } from "./platform-mail";
 import { DAY_MS } from "./rate-limit";
@@ -54,6 +61,12 @@ export const isAddressEmailKind = (kind: unknown): kind is AddressEmailKind => t
 export const notifyAddressDayKey = (secret: string, email: string): string => `pn:addr:${createHmac("sha256", `fm-notify-address:${secret}`).update(email.trim().toLowerCase()).digest("base64url")}:day`;
 /** The marker that this kind of email went out for this row. */
 export const notifyAddressItemKey = (kind: AddressEmailKind, id: string): string => `pn:addr-item:${kind}:${id.toLowerCase()}`;
+/** The emails to addresses, all of them, in a UTC day: their own share of the ceiling (`ADDRESS_EMAIL_CEILING_SHARE`). */
+export const NOTIFY_ADDRESS_CEILING_KEY = "pn:addr:all:day";
+/** One inviter's emailed invitations in a UTC day. */
+export const notifyInviterDayKey = (userId: string): string => `pn:addr-inviter:${userId.toLowerCase()}:day`;
+/** The address emails' share of Foundmill's own daily ceiling: at least one. */
+export const addressEmailCeiling = (notifyCeiling: number): number => Math.max(1, Math.floor(notifyCeiling * ADDRESS_EMAIL_CEILING_SHARE));
 
 const NIL_ID = "00000000-0000-0000-0000-000000000000";
 const sha256 = (s: string) => createHash("sha256").update(s, "utf8").digest("hex");
@@ -63,7 +76,10 @@ interface Plan {
   rowId: string;
   /** The project the invitation is for (the audit and the suppression list). */
   businessId: string;
+  inviterUserId: string;
   words: NotifyEmailText;
+  /** "Don't send me invitations": the footer link and the List-Unsubscribe header. */
+  offUrl: string;
 }
 
 export async function sendAddressEmail(deps: GatewayDeps, input: AddressEmailRequest, service: string): Promise<NotifyEmailResponse> {
@@ -82,17 +98,27 @@ export async function sendAddressEmail(deps: GatewayDeps, input: AddressEmailReq
   const strict = mode === "live" || !devStack;
   const secret = config.signingSecret && config.signingSecret.length >= PLATFORM_MAIL_SECRET_MIN_LENGTH ? config.signingSecret : strict ? null : DEV_PLATFORM_MAIL_SECRET;
   const appUrl = config.appUrl ?? "";
-  if (!secret || !config.notifyLocalPart || !appUrl || (strict && !/^https:\/\//.test(appUrl))) return notSent("unconfigured");
+  if (!secret || !config.notifyLocalPart || !appUrl || (strict && (!/^https:\/\//.test(appUrl) || !/^https:\/\//.test(config.unsubscribeBase)))) return notSent("unconfigured");
 
   // 2 and 3. The invitation, its state, its token and its address.
   const found = await repos.invitations.byTokenHash(deps.db, sha256(input.data.token));
-  if (!found || found.id !== input.data.invitationId || found.state !== "pending" || found.expiresAt.getTime() <= now.getTime() || found.businessArchived || !found.email) return notSent("not_pending");
+  if (!found || found.id !== input.data.invitationId || found.state !== "pending" || found.expiresAt.getTime() <= now.getTime() || found.businessArchived || !found.email || !found.invitedByUserId) return notSent("not_pending");
   if (found.businessIsDemo) return notSent("sample");
   if (mode === "mock" && deps.appEnv !== undefined && !mockResultsAllowed(deps.appEnv, false)) return notSent("simulated");
-  if (await repos.channels.isSuppressed(deps.db, found.businessId, { emailHash: suppressionHashOfEmail(found.email) })) return notSent("not_pending");
+  const emailHash = suppressionHashOfEmail(found.email);
+  // The project's list, and the platform's: "Don't send me invitations" is honored before anything is counted.
+  if (await repos.channels.isSuppressed(deps.db, found.businessId, { emailHash })) return notSent("suppressed");
   const role = (INVITATION_ROLES as readonly string[]).includes(found.role) ? (found.role as InvitationRole) : null;
   if (!role) return notSent("not_pending");
-  const plan: Plan = { email: found.email, rowId: found.id, businessId: found.businessId, words: invitationEmail({ appName: APP_NAME, inviterName: found.inviterName, projectName: found.businessName, role, link: `${appUrl}/i/${input.data.token}`, expiresAt: found.expiresAt }) };
+  const offUrl = invitationsOffUrl(config.unsubscribeBase, invitationsOffToken(secret, emailHash));
+  const plan: Plan = {
+    email: found.email,
+    rowId: found.id,
+    businessId: found.businessId,
+    inviterUserId: found.invitedByUserId,
+    offUrl,
+    words: invitationEmail({ appName: APP_NAME, inviterName: found.inviterName, projectName: found.businessName, role, link: `${appUrl}/i/${input.data.token}`, expiresAt: found.expiresAt, offLink: offUrl }),
+  };
 
   // 4. Once, then the counts, shared by every replica.
   const shared = () => devStack || deps.rateLimits.durable === true;
@@ -121,11 +147,12 @@ export async function sendAddressEmail(deps: GatewayDeps, input: AddressEmailReq
       return notSent("busy");
     }
   }
-  const account = await repos.founders.userIdByEmail(deps.db, plan.email).catch(() => null);
+  const ceiling = config.notifyCeiling ?? PLATFORM_NOTIFY_DEFAULT_CEILING;
   const caps: [string, number, NotifyEmailNotSent][] = [
     [notifyAddressDayKey(secret, plan.email), NOTIFY_PER_PERSON_PER_DAY, "per_address"],
-    ...(account ? ([[notifyPersonDayKey(account), NOTIFY_PER_PERSON_PER_DAY, "per_person"]] as [string, number, NotifyEmailNotSent][]) : []),
-    [PLATFORM_NOTIFY_CEILING_KEY, config.notifyCeiling ?? PLATFORM_NOTIFY_DEFAULT_CEILING, "ceiling"],
+    [notifyInviterDayKey(plan.inviterUserId), INVITATION_EMAILS_PER_INVITER_PER_DAY, "per_inviter"],
+    [NOTIFY_ADDRESS_CEILING_KEY, addressEmailCeiling(ceiling), "address_ceiling"],
+    [PLATFORM_NOTIFY_CEILING_KEY, ceiling, "ceiling"],
   ];
   for (const [key, cap, reason] of caps) {
     const hit = await deps.rateLimits.hit(key, DAY_MS, now.getTime());
@@ -144,7 +171,7 @@ export async function sendAddressEmail(deps: GatewayDeps, input: AddressEmailReq
   const connector = deps.registry.get(PLATFORM_NOTIFY_KEY, mode);
   let result;
   try {
-    result = await connector.callTool("send_notification", { from: { email: platformMailAddress(config.notifyLocalPart, config.domain), name: APP_NAME }, to: { email: plan.email }, subject: plan.words.subject, text: plan.words.text, html: plan.words.html }, ctx);
+    result = await connector.callTool("send_notification", { from: { email: platformMailAddress(config.notifyLocalPart, config.domain), name: APP_NAME }, to: { email: plan.email }, subject: plan.words.subject, text: plan.words.text, html: plan.words.html, unsubscribeUrl: plan.offUrl }, ctx);
   } catch (e) {
     await release();
     if (isConfigError(e)) return notSent("unconfigured");

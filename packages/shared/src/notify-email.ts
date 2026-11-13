@@ -26,9 +26,25 @@ export const NOTIFY_PROJECT_MAIL_HEADROOM = 0.75;
 export const NOTIFY_PER_PROJECT_PER_DAY = 1;
 /**
  * At most this many emails a person gets in a UTC day, across every kind and every project (founder, 2026-11-12); the
- * morning brief and the weekly review do not count toward it (`LIMITED_EMAIL_KINDS`).
+ * morning brief, the weekly review and the note that someone they invited joined do not count toward it
+ * (`LIMITED_EMAIL_KINDS`).
  */
 export const NOTIFY_PER_PERSON_PER_DAY = 3;
+/**
+ * The share of Foundmill's own daily ceiling (PLATFORM_NOTIFY_DAILY_CEILING) the emails to an address
+ * (`ADDRESS_EMAIL_KINDS`: invitations) may use, so invitations never take the room people's own emails need.
+ */
+export const ADDRESS_EMAIL_CEILING_SHARE = 0.1;
+/** At most this many invitations one person's invitations are emailed in a UTC day (the link can still be copied). */
+export const INVITATION_EMAILS_PER_INVITER_PER_DAY = 5;
+/** The page behind "Don't send me invitations" (served by ingest at `/mail/invitations/off`): a button on GET, the change on POST. */
+export const INVITATIONS_OFF_PAGE = {
+  title: "Stop invitations",
+  body: "Stop every invitation to this address? We won't email it again: no invitations, and no email from the projects built here.",
+  button: "Stop them",
+  done: "Done. We won't email this address again.",
+  invalid: "This link is not valid, so nothing changed.",
+} as const;
 
 const oneLine = (value: string, max: number): string => {
   const v = value.replace(/[\r\n\t]+/g, " ").replace(/\s+/g, " ").trim();
@@ -214,5 +230,8 @@ export const NOTIFY_EMAIL_REFUSALS = {
   not_started: "This project has not started yet, so nothing was sent.",
   not_pending: "What this email was about has changed, so nothing was sent.",
   per_address: "This address already got today's emails, so nothing was sent.",
+  per_inviter: "This person's invitations were already emailed as many times as one day allows, so nothing was sent. The link can still be copied.",
+  address_ceiling: "Today's limit for invitation emails has been reached, so nothing was sent. The link can still be copied.",
+  suppressed: "This address asked not to get invitations, so nothing was sent.",
 } as const;
 export type NotifyEmailNotSent = keyof typeof NOTIFY_EMAIL_REFUSALS;

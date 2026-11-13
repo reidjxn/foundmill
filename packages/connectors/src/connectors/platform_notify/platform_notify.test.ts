@@ -8,7 +8,7 @@ import { routedFetch } from "../../http";
 import { makeToolContext, TEST_BUSINESS_ID } from "../../testing/contract-suite";
 import { uuidFromSeed } from "../../mock-utils";
 import { platformUnsubscribeToken, readPlatformUnsubscribeToken, suppressionHashOfEmail } from "../platform_mail";
-import { createPlatformNotifyConnector, createPlatformNotifyMock, notifyOffToken, notifyOffUrl, readNotifyOffToken } from "./index";
+import { createPlatformNotifyConnector, createPlatformNotifyMock, invitationsOffToken, invitationsOffUrl, notifyOffToken, notifyOffUrl, readInvitationsOffToken, readNotifyOffToken } from "./index";
 
 const SECRET = "test-platform-mail-signing-secret-0123456789";
 const USER = uuidFromSeed("test", "user", "maya");
@@ -53,7 +53,7 @@ describe("platform_notify", () => {
     await expect(keyless.callTool("send_notification", mail, makeToolContext(keyless, { mode: "live" }))).rejects.toMatchObject({ code: "connector_unconfigured" });
     const mock = createPlatformNotifyMock();
     const ctx = makeToolContext(mock);
-    for (const extra of [{ attachments: [{ filename: "a.pdf" }] }, { bcc: [{ email: "x@evil.example" }] }, { subject: "Two\nlines" }, { from: { email: "hello@mail.foundmill.test", name: "Foundmill\r\nBcc: x" } }]) {
+    for (const extra of [{ attachments: [{ filename: "a.pdf" }] }, { bcc: [{ email: "x@evil.example" }] }, { subject: "Two\nlines" }, { from: { email: "hello@mail.foundmill.test", name: "Foundmill\r\nBcc: x" } }, { unsubscribeUrl: undefined }]) {
       const r = await mock.callTool("send_notification", { ...mail, ...extra }, ctx);
       expect(r.ok, JSON.stringify(extra)).toBe(false);
     }
@@ -76,5 +76,21 @@ describe("platform_notify", () => {
     expect(readNotifyOffToken(SECRET, projectToken)).toBeNull();
     expect(readPlatformUnsubscribeToken(SECRET, token)).toBeNull();
     expect(offUrl).toMatch(/^https:\/\/ingest\.foundmill\.test\/mail\/notify\/off\?t=n1\./);
+  });
+
+  it("every message needs its one-click link; an invitation's names the address by its hash only, under its own label", () => {
+    const hash = suppressionHashOfEmail("Invited@Example.com");
+    const token = invitationsOffToken(SECRET, hash);
+    expect(readInvitationsOffToken(SECRET, token)).toEqual({ emailHash: hash });
+    expect(token).not.toContain("invited");
+    expect(readInvitationsOffToken("another-secret-0123456789abcdef-xyz", token)).toBeNull();
+    const [v, , sig] = token.split(".");
+    expect(readInvitationsOffToken(SECRET, [v, suppressionHashOfEmail("else@example.com"), sig].join("."))).toBeNull();
+    expect(readInvitationsOffToken(SECRET, `${token}x`)).toBeNull();
+    // Never valid as another token, nor another as it.
+    expect(readNotifyOffToken(SECRET, token)).toBeNull();
+    expect(readPlatformUnsubscribeToken(SECRET, token)).toBeNull();
+    expect(readInvitationsOffToken(SECRET, notifyOffToken(SECRET, USER, "decision_waiting"))).toBeNull();
+    expect(invitationsOffUrl("https://ingest.foundmill.test/", token)).toMatch(/^https:\/\/ingest\.foundmill\.test\/mail\/invitations\/off\?t=i1\./);
   });
 });

@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { isAdminRole, isOwnerRole, MEMBERSHIP_ROLES } from "./constants";
 import { hasSectionAccess, SECTIONS } from "./permissions";
-import { emailDate, invitationAcceptedEmail, invitationEmail } from "./people-email";
-import { COLLABORATOR_SECTIONS, INVITATION_ROLE_SENTENCE, invitationMembership, invitationRolePhrase, isPeopleTokenShape, maskedAddress, rolesThatMayInvite } from "./people";
+import { emailDate, INVITATIONS_OFF_LINK_LABEL, invitationAcceptedEmail, invitationEmail } from "./people-email";
+import { COLLABORATOR_SECTIONS, INVITATION_ROLE_SENTENCE, invitationMembership, invitationNeedsEmail, invitationRolePhrase, isPeopleTokenShape, maskedAddress, mayMakeInvitation, rolesThatMayInvite } from "./people";
 
 describe("what an invitation offers (THESIS_REVIEW 3.1, 3.3)", () => {
   it("a cofounder joins as a cofounder, with an owner's standing; a collaborator on Product and Customers, reading the plan, never Money or Settings", () => {
@@ -29,6 +29,15 @@ describe("what an invitation offers (THESIS_REVIEW 3.1, 3.3)", () => {
     expect(INVITATION_ROLE_SENTENCE.collaborator).not.toMatch(/staff|seat|squad|club/i);
   });
 
+  it("making an invitation needs the role and write on the Team section; a cofounder invitation always names an address", () => {
+    expect(mayMakeInvitation({ role: "admin", sectionPermissions: {} }, "collaborator")).toBe(true);
+    expect(mayMakeInvitation({ role: "admin", sectionPermissions: { team: "read" } }, "collaborator")).toBe(false);
+    expect(mayMakeInvitation({ role: "admin", sectionPermissions: {} }, "cofounder")).toBe(false);
+    expect(mayMakeInvitation({ role: "cofounder", sectionPermissions: { team: "none" } }, "cofounder")).toBe(true);
+    expect(mayMakeInvitation({ role: "collaborator", sectionPermissions: { team: "write" } }, "collaborator")).toBe(false);
+    expect([invitationNeedsEmail("cofounder"), invitationNeedsEmail("collaborator")]).toEqual([true, false]);
+  });
+
   it("every role that existed keeps its meaning", () => {
     expect(MEMBERSHIP_ROLES.slice(0, 5)).toEqual(["owner", "admin", "member", "viewer", "advisor"]);
     expect(hasSectionAccess({ role: "member", sectionPermissions: {} }, "finance", "write")).toBe(true);
@@ -50,7 +59,7 @@ describe("the emails about people", () => {
   it("use US dates and say nothing about work or a job", () => {
     expect(emailDate(at)).toBe("Nov 27, 2026");
     const all = [
-      invitationEmail({ appName: "Foundmill", inviterName: "Maya", projectName: "Bread by Bike", role: "cofounder", link: "https://foundmill.com/i/x", expiresAt: at }),
+      invitationEmail({ appName: "Foundmill", inviterName: "Maya", projectName: "Bread by Bike", role: "cofounder", link: "https://foundmill.com/i/x", expiresAt: at, offLink: "https://in.foundmill.com/mail/invitations/off?t=x" }),
       invitationAcceptedEmail({ appName: "Foundmill", recipientName: "Maya", personName: "Ida", projectName: "Bread by Bike", role: "collaborator", link: "https://foundmill.com/b/x", offLink: "https://x/off", pauseLink: "https://x/pause" }),
     ];
     for (const e of all) {
@@ -60,8 +69,16 @@ describe("the emails about people", () => {
     expect(all[0]!.text).toContain("until Nov 27, 2026");
   });
 
+  it("an invitation's footer is true: the address can be invited again, and its one link stops every invitation", () => {
+    const e = invitationEmail({ appName: "Foundmill", inviterName: "Maya", projectName: "Bread by Bike", role: "collaborator", link: "https://foundmill.com/i/x", expiresAt: at, offLink: "https://in.foundmill.com/mail/invitations/off?t=abc" });
+    expect(e.text).toContain("People on Foundmill can invite this address again; to stop every invitation to it, use the link below.");
+    expect(e.text).toContain(`${INVITATIONS_OFF_LINK_LABEL}: https://in.foundmill.com/mail/invitations/off?t=abc`);
+    expect(e.html).toContain('href="https://in.foundmill.com/mail/invitations/off?t=abc"');
+    expect(e.text).not.toMatch(/sends nothing else/);
+  });
+
   it("cut links and addresses out of the names people typed", () => {
-    const e = invitationEmail({ appName: "Foundmill", inviterName: "Visit evil.example now", projectName: "x@y.com <b>", role: "collaborator", link: "https://foundmill.com/i/x", expiresAt: at });
+    const e = invitationEmail({ appName: "Foundmill", inviterName: "Visit evil.example now", projectName: "x@y.com <b>", role: "collaborator", link: "https://foundmill.com/i/x", expiresAt: at, offLink: "https://in.foundmill.com/mail/invitations/off?t=x" });
     expect(e.text).not.toContain("evil.example");
     expect(e.text).not.toContain("x@y.com");
     expect(e.html).not.toContain("<b>");

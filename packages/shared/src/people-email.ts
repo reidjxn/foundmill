@@ -48,15 +48,19 @@ function render(subject: string, piece: Piece): NotifyEmailText {
   return { subject: subject.slice(0, 200), text: `${text}\n`, html: `<div style="font-family:-apple-system,Segoe UI,Helvetica,Arial,sans-serif;color:#111827;max-width:560px">${html}</div>` };
 }
 
-/** An invitation to a project, to the address the inviter typed. */
-export function invitationEmail(f: { appName: string; inviterName: string | null; projectName: string; role: InvitationRole; link: string; expiresAt: Date }): NotifyEmailText {
+/** The footer link of every invitation email: it stops every invitation to the address (ingest `/mail/invitations/off`). */
+export const INVITATIONS_OFF_LINK_LABEL = "Don't send me invitations";
+
+/** An invitation to a project, to the address the inviter typed, with the link that stops every invitation to it. */
+export function invitationEmail(f: { appName: string; inviterName: string | null; projectName: string; role: InvitationRole; link: string; expiresAt: Date; offLink: string }): NotifyEmailText {
   const inviter = f.inviterName ? oneLine(f.inviterName, 60) : "Someone";
   const project = oneLine(f.projectName, 120);
   return render(`${inviter} invited you to ${project} on ${f.appName}`, {
     paragraphs: ["Hi,", `${inviter} invited you to join ${project} as ${invitationRolePhrase(f.role)}.`, INVITATION_ROLE_SENTENCE[f.role]],
     button: { label: "See the invitation", href: f.link },
     after: [`It works until ${emailDate(f.expiresAt)}. If you don't know ${f.inviterName ? inviter : "who sent it"}, ignore this email: nothing happens unless you accept.`],
-    footer: `You get this because ${inviter} typed this address on ${f.appName}. ${f.appName} sends nothing else to it unless you sign up.`,
+    footer: `You get this because ${inviter} typed this address on ${f.appName}. People on ${f.appName} can invite this address again; to stop every invitation to it, use the link below.`,
+    footerLinks: [{ label: INVITATIONS_OFF_LINK_LABEL, href: f.offLink }],
   });
 }
 
