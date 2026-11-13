@@ -91,4 +91,45 @@ test.describe("the home of a person with no project (2.4)", () => {
     await page.getByTestId("person-live-home").click();
     await expect(page).toHaveURL(/\/home$/, { timeout: LONG });
   });
+
+  test("the people pages work from 390 px: Network, Communities and the public profile (2.1 part B)", async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await signInWithProfile(page);
+    await expect(page.getByTestId("person-home")).toBeVisible({ timeout: LONG });
+    await page.getByRole("link", { name: /Find a project or people/ }).click();
+    await expect(page).toHaveURL(/\/network$/, { timeout: LONG });
+    await expect(page.getByTestId("network-screen")).toBeVisible({ timeout: LONG });
+    await expect(page.getByTestId("needs-larger-window")).toHaveCount(0);
+    await expect(page.getByTestId("ask-to-connect")).toHaveCount(0);
+    const notice = page.getByTestId("adult-notice");
+    if (await notice.isVisible().catch(() => false)) {
+      await notice.getByRole("checkbox").click();
+      await page.getByTestId("adult-confirm").click();
+      await expect(notice).toHaveCount(0, { timeout: LONG });
+    }
+    expect(await horizontalOverflow(page)).toBeLessThanOrEqual(0);
+    // One column: messages (the main column) come before the side panels, and the frame's links are finger-sized.
+    const messages = await page.getByTestId("messages-panel").boundingBox();
+    const search = await page.getByTestId("people-search-input").boundingBox();
+    expect(messages!.y).toBeLessThan(search!.y);
+    expect(messages!.width).toBeGreaterThan(300);
+    for (const link of await page.getByTestId("person-live-nav").getByRole("link").all()) {
+      expect((await link.boundingBox())!.height).toBeGreaterThanOrEqual(43.5);
+    }
+
+    await page.getByTestId("person-live-nav").getByRole("link", { name: "Communities" }).click();
+    await expect(page).toHaveURL(/\/communities$/, { timeout: LONG });
+    await expect(page.getByTestId("communities-screen")).toBeVisible({ timeout: LONG });
+    await expect(page.getByTestId("needs-larger-window")).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "Start a community" })).toBeVisible();
+    expect(await horizontalOverflow(page)).toBeLessThanOrEqual(0);
+
+    await page.goto("/public-profile");
+    await expect(page.getByTestId("public-profile-screen")).toBeVisible({ timeout: LONG });
+    await expect(page.getByTestId("needs-larger-window")).toHaveCount(0);
+    expect(await horizontalOverflow(page)).toBeLessThanOrEqual(0);
+    const editor = await page.getByTestId("public-profile-editor").boundingBox();
+    const preview = await page.getByTestId("public-profile-preview").boundingBox();
+    expect(preview!.y).toBeGreaterThan(editor!.y + editor!.height - 1);
+  });
 });
