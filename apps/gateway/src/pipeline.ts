@@ -17,6 +17,7 @@
  */
 import { createHash } from "node:crypto";
 import { LIMITS } from "@foundmill/config";
+import type { TurnstileConfig } from "./turnstile";
 import { AppError, mockResultsAllowed, NotFoundError } from "@foundmill/shared";
 import type { Vault } from "@foundmill/shared/crypto";
 import type { KeyValidation } from "@foundmill/models";
@@ -101,6 +102,8 @@ export interface GatewayDeps {
   validateModelKey?: (apiKey: string) => Promise<KeyValidation>;
   /** A project's Foundmill sending address (platform-mail.ts); absent or with no domain, `platform_mail` refuses every send. */
   platformMail?: PlatformMailConfig;
+  /** The idea box's bot check (turnstile.ts); no secret: mock on a development stack, refused elsewhere. */
+  turnstile?: TurnstileConfig;
 }
 
 const defaultStateCaches = new WeakMap<GatewayDeps, SessionStateCache>();

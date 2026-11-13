@@ -42,8 +42,12 @@ function bothSchemes(origin: string): string[] {
   return [origin];
 }
 
+/** Where Cloudflare Turnstile's script, frame and calls come from. */
+export const TURNSTILE_ORIGIN = "https://challenges.cloudflare.com";
+
 export function contentSecurityPolicy(env: SecurityHeaderEnv, options: { dev?: boolean } = {}): string {
-  const connect = new Set<string>(["'self'"]);
+  // Cloudflare Turnstile, the idea box's bot check (docs/IDEA_BOX.md): its script, its widget's frame and its calls.
+  const connect = new Set<string>(["'self'", TURNSTILE_ORIGIN]);
   for (const url of [env.NEXT_PUBLIC_API_URL, env.NEXT_PUBLIC_STREAM_URL, env.NEXT_PUBLIC_COLLAB_URL, env.NEXT_PUBLIC_INGEST_URL, env.NEXT_PUBLIC_SUPABASE_URL]) {
     const origin = originOf(url);
     if (origin) for (const o of bothSchemes(origin)) connect.add(o);
@@ -53,7 +57,7 @@ export function contentSecurityPolicy(env: SecurityHeaderEnv, options: { dev?: b
   const apiOrigin = originOf(env.NEXT_PUBLIC_API_URL);
   const directives: [string, string[]][] = [
     ["default-src", ["'self'"]],
-    ["script-src", ["'self'", "'unsafe-inline'", ...(options.dev ? ["'unsafe-eval'"] : [])]],
+    ["script-src", ["'self'", "'unsafe-inline'", TURNSTILE_ORIGIN, ...(options.dev ? ["'unsafe-eval'"] : [])]],
     ["style-src", ["'self'", "'unsafe-inline'"]],
     // Agent avatars and logos are data: SVGs; a business's own logo and previews may be https images. The AI-generated
     // faces of anthropomorphic agents load from the API's public /personas/<style>/<key> route: its origin is named, since a

@@ -26,6 +26,8 @@
 @import "./conversation.css";
 /* Team call: tiles, level bars, stage, captions, controls, transcript turns (components/call). */
 @import "./call.css";
+/* The landing page's idea box (docs/IDEA_BOX.md). */
+@import "./idea-box.css";
 
 /* Components in this package and in the packages built on top of it. Paths are relative to this file. */
 @source "./components";
