@@ -64,7 +64,15 @@ async function expectPublicPage(page: Page, pagePath: string, width: number, sho
   await expect(made).toHaveAttribute("href", `/?via=p.${pagePath.replace("/p/", "")}`);
   await expectTapTarget(made, "Built on Foundmill is a 44 px target");
   expect(await made.evaluate((e) => parseFloat(getComputedStyle(e).fontSize))).toBeLessThanOrEqual(13);
-  await expect(article.getByRole("link")).toHaveCount(1);
+  // The only other link: the bot check's disclosure under the Follow button, on every plan, in a new tab.
+  const disclosure = follow.locator("[data-follow-bot-check]");
+  await expect(disclosure).toHaveText("Protected by Cloudflare Turnstile (privacy)");
+  const privacy = disclosure.getByRole("link", { name: "Cloudflare Turnstile privacy policy (opens in a new tab)" });
+  await expect(privacy).toHaveAttribute("href", "https://www.cloudflare.com/turnstile-privacy-policy/");
+  await expect(privacy).toHaveAttribute("target", "_blank");
+  await expect(privacy).toHaveAttribute("rel", "noopener noreferrer");
+  await expectTapTarget(privacy, "the Turnstile privacy link is a 44 px target");
+  await expect(article.getByRole("link")).toHaveCount(2);
   const smallest = await article.evaluate((root) => Math.min(...[...root.querySelectorAll<HTMLElement>("p, h1, h2, span, a")].filter((e) => e.textContent?.trim()).map((e) => parseFloat(getComputedStyle(e).fontSize))));
   expect(smallest).toBeGreaterThanOrEqual(11);
   if (process.env.E2E_UX_AUDIT) {
@@ -238,7 +246,9 @@ test.describe("public page", () => {
     const own = page.locator("[data-project-mark]");
     await expect(own).toHaveAttribute("data-project-mark", "member", { timeout: LONG });
     await expect(own).toHaveText("Built on Foundmill");
-    await expect(page.locator("[data-project-page]").getByRole("link")).toHaveCount(0);
+    // No link but the bot check's disclosure, which every viewer of the Follow form gets.
+    await expect(page.locator("[data-project-page]").getByRole("link")).toHaveCount(1);
+    await expect(page.locator("[data-project-page] [data-follow-bot-check]").getByRole("link")).toHaveCount(1);
     await page.goto(`/b/${bid}/crm`);
     const grid = page.getByRole("grid", { name: "CRM records" });
     await expect(grid).toBeVisible({ timeout: LONG });

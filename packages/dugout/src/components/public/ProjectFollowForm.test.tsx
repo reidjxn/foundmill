@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { render, screen } from "@testing-library/react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { FOLLOW_ERRORS, followWords } from "@foundmill/shared/project-page";
+import { FOLLOW_ERRORS, followWords, TURNSTILE_PRIVACY_URL } from "@foundmill/shared/project-page";
 import { FOLLOW_FIELDS, ProjectFollowForm } from "./ProjectFollowForm";
 
 const words = followWords("Northwind Skincare");
@@ -47,6 +47,35 @@ describe("ProjectFollowForm", () => {
     screen.getByRole("button", { name: "Follow" }).click();
     expect(seen).toEqual(["focus", "submit"]);
     expect(FOLLOW_FIELDS.turnstile).toBe("turnstile");
+  });
+
+  it("says under the button, in small muted text, that Cloudflare Turnstile checks the form, with its privacy link in a new tab", () => {
+    render(<ProjectFollowForm name="Northwind Skincare" action="/follow" />);
+    const line = document.querySelector("[data-follow-bot-check]") as HTMLParagraphElement;
+    expect(line.textContent).toBe("Protected by Cloudflare Turnstile (privacy)");
+    expect(line.className).toContain("t-small");
+    expect(line.className).toContain("text-secondary");
+    expect(line.closest("form")).toBeTruthy();
+    // Right after the button.
+    expect(screen.getByRole("button", { name: "Follow" }).nextElementSibling).toBe(line);
+    const link = screen.getByRole("link", { name: words.botCheckLinkLabel });
+    expect(link.textContent).toBe("privacy");
+    expect(link.getAttribute("href")).toBe(TURNSTILE_PRIVACY_URL);
+    expect(link.getAttribute("target")).toBe("_blank");
+    expect(link.getAttribute("rel")).toBe("noopener noreferrer");
+    expect(link.className).toContain("min-h-tap");
+    expect(line.querySelector("svg, img")).toBeNull();
+  });
+
+  it("shows the bot check's line whatever the plan (with or without the Built on line), and not once the visitor has followed", () => {
+    const builtOn = { line: "Northwind Skincare is built on Foundmill.", linkLabel: "Start your own", href: "/" };
+    for (const props of [{}, { builtOn }, { builtOn: null }]) {
+      const { unmount } = render(<ProjectFollowForm name="Northwind Skincare" action="/follow" {...props} />);
+      expect(document.querySelectorAll("[data-follow-bot-check]")).toHaveLength(1);
+      unmount();
+    }
+    render(<ProjectFollowForm name="Northwind Skincare" state={{ status: "done" }} builtOn={builtOn} />);
+    expect(document.querySelector("[data-follow-bot-check]")).toBeNull();
   });
 
   it("draws no bot-check box when the caller has none", () => {

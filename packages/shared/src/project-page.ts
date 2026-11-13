@@ -336,8 +336,18 @@ export function followWords(name: string) {
     done: `Check your email to confirm. ${n} will only write to you after you do.`,
     /** The label of the hidden field people never see (programs that fill in every field fill it in). */
     trap: "Leave this empty",
+    /**
+     * The bot check's disclosure under the button, on every plan (a legal disclosure, not the "Built on" mark): the
+     * line, then "(privacy)" linking Cloudflare's Turnstile Privacy Addendum (`TURNSTILE_PRIVACY_URL`).
+     */
+    botCheck: "Protected by Cloudflare Turnstile",
+    botCheckLink: "privacy",
+    botCheckLinkLabel: "Cloudflare Turnstile privacy policy (opens in a new tab)",
   } as const;
 }
+
+/** Cloudflare's Turnstile Privacy Addendum, which a site using Turnstile in Invisible mode must link. */
+export const TURNSTILE_PRIVACY_URL = "https://www.cloudflare.com/turnstile-privacy-policy/";
 
 /** Why a signup did not go through, in the visitor's words. */
 export const FOLLOW_ERRORS = {

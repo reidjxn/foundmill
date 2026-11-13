@@ -16,11 +16,13 @@
  *
  * The bot check (security audit 2026-11-13, finding 10) is the caller's: `onSubmit` gets a token before the action
  * runs, `onFocus` may warm its script, and `widgetRef` is the box its widget draws in, inside the form, at most the
- * column's width, and taking no room while it has nothing to show.
+ * column's width, and taking no room while it has nothing to show. Under the button, in the form's own small muted
+ * text, the check's disclosure on every plan: "Protected by Cloudflare Turnstile (privacy)", the link to Cloudflare's
+ * Turnstile Privacy Addendum in a new tab (a legal disclosure, never gated like the "Built on" mark).
  */
 import { useId, type FocusEventHandler, type FormEventHandler, type Ref } from "react";
 import { Check } from "lucide-react";
-import { FOLLOW_EMAIL_MAX, followWords } from "@foundmill/shared/project-page";
+import { FOLLOW_EMAIL_MAX, followWords, TURNSTILE_PRIVACY_URL } from "@foundmill/shared/project-page";
 import { cn } from "../../lib/cn";
 import { Button } from "../foundation/Button";
 import { Icon } from "../foundation/Icon";
@@ -134,6 +136,21 @@ export function ProjectFollowForm({ name, slug, action, state = { status: "idle"
       <Button type="submit" variant="tinted" size="lg" className="min-h-tap self-stretch @page-wide:self-start" disabled={preview} loading={pending}>
         {words.button}
       </Button>
+      {/* The bot check's disclosure, on every plan: a legal line, not the "Built on" mark. */}
+      <p className="t-small min-w-0 break-words text-secondary" data-follow-bot-check="">
+        {words.botCheck}{" "}
+        (
+        <a
+          href={TURNSTILE_PRIVACY_URL}
+          target="_blank"
+          rel="noopener noreferrer"
+          aria-label={words.botCheckLinkLabel}
+          className="inline-flex min-h-tap items-center rounded-sm underline decoration-line-strong underline-offset-4 transition-colors duration-hover hover:decoration-current focus-ring"
+        >
+          {words.botCheckLink}
+        </a>
+        )
+      </p>
       {widgetRef ? <div ref={widgetRef} className="min-w-0 max-w-full overflow-hidden empty:hidden" data-follow-widget="" /> : null}
     </>
   );
