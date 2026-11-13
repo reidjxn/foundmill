@@ -51,6 +51,13 @@ describe("InboxNote", () => {
     expect(note.querySelectorAll("li")).toHaveLength(2);
   });
 
+  it("never loads an image: a note can quote names other people chose, so an image shows as its text", () => {
+    render(<InboxNote bodyMd={"A payment from Ana ![pixel](https://tracker.example/p.png) arrived."} />);
+    const note = screen.getByTestId("inbox-note");
+    expect(note.querySelector("img")).toBeNull();
+    expect(note.textContent).toContain("pixel");
+  });
+
   it("gives the first mention of each defined term its definition while guidance is on, and none when it is off", () => {
     const body = "Runway is 7 months at today's net burn, an estimate until the bank is connected. The runway page has the detail; MRR is £4,200.";
     const on = render(

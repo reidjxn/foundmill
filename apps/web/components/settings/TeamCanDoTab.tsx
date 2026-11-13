@@ -9,7 +9,9 @@
  * 3. Who answers when the team asks about publishing and messaging customers: you or the Chief of Staff, written to
  *    every department's approvers (`team.responsibilities.set`); read-only when departments disagree.
  * 4. Putting changes live and adding agents or changing models: what happens today, said as statements, not choices.
- * 5. Autopilot (`AutopilotSection`) and the vacation (HolidayDialog → business.startHoliday / endHoliday).
+ * 5. When the team stops (read-only, item 10): the situations in which the loop of work stops and asks, or stops on
+ *    its own, for the answer in force (`loopStops`).
+ * 6. Autopilot (`AutopilotSection`) and the vacation (HolidayDialog → business.startHoliday / endHoliday).
  *
  * What always comes to the founder is said once, at the top. The words are @foundmill/shared `team-can-do.ts`, held to
  * the Cedar policies by packages/policy's `team-can-do.test.ts`. Personal or live moved to Settings › Business. BUILD
@@ -21,6 +23,7 @@ import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { Button, Chip, ConsequenceLine, Field, HolidayDialog, Icon, KeyValueList, MoneyInput, RadioCard, RadioGroup, RadioOption, ShellLink, Skeleton, StatusPill, Term, useFormatters, type HolidaySettings } from "@foundmill/dugout";
 import type { BusinessMode, DecisionType } from "@foundmill/shared/constants";
 import { vacationUntilLabel } from "@foundmill/shared";
+import { LOOP_STOPS_INTRO, LOOP_STOPS_TITLE, loopStops } from "@foundmill/shared/loop-stops";
 import {
   TEAM_CAN_DO_AGENTS_STATEMENT, TEAM_CAN_DO_ALWAYS_YOURS, TEAM_CAN_DO_OPTIONS, TEAM_CAN_DO_QUESTION, agentsWithOwnSettingLine, eachAgentLimitLabel, recommendedSpendLineMinor, spendAmountWords, spendLineSoonerNote,
   teamCanDoOptionDescription,
@@ -160,6 +163,40 @@ function WhoAnswers({ businessId, mode, responsibilitiesHref }: { businessId: st
   );
 }
 
+/**
+ * When the team stops (item 10, Nov 13, 2026): read-only, the situations in which the loop of work stops for this
+ * project, for the answer in force (on vacation, the third answer's) and its spend line (@foundmill/shared
+ * `loopStops`, held to Cedar by packages/policy `loop-stops.test.ts`). No controls: each line is changed where it lives.
+ */
+function WhenTheTeamStops({ businessId, mode, line, holiday }: { businessId: string; mode: BusinessMode; line: { lineMinor: number | null; currency: string; agentLimitMinor: number }; holiday: boolean }) {
+  const trpc = useTRPC();
+  const autopilotQ = useQuery(trpc.business.autopilot.get.queryOptions({ businessId }, { staleTime: 10_000 }));
+  const a = autopilotQ.data;
+  const list = loopStops({ ...line, mode, holiday, autopilot: a ? { enabled: a.enabled, maxIdleCycles: a.settings.maxIdleCycles } : null });
+  return (
+    <SettingsSection title={LOOP_STOPS_TITLE} data-testid="team-can-do-stops">
+      <p className="text-body text-secondary">{LOOP_STOPS_INTRO}</p>
+      <div className="flex flex-col gap-3" data-testid="stops-asks">
+        <span className="text-body-strong">It stops and asks you first</span>
+        {list.asks.map((s) => (
+          <AnswerRow key={s.id} label={s.when} testId={`stop-${s.id}`}>
+            <p className="text-body">{s.then}</p>
+          </AnswerRow>
+        ))}
+      </div>
+      <div className="flex flex-col gap-3" data-testid="stops-own">
+        <span className="text-body-strong">It stops on its own, without asking</span>
+        {list.stops.map((s) => (
+          <AnswerRow key={s.id} label={s.when} testId={`stop-${s.id}`}>
+            <p className="text-body">{s.then}</p>
+          </AnswerRow>
+        ))}
+      </div>
+      {holiday ? <Hint>On vacation the team works as with your third answer, so this list is that answer&apos;s. Your own answer comes back with you.</Hint> : null}
+    </SettingsSection>
+  );
+}
+
 function Answer({ decisionType, label, rows, chiefId, pending, onChange, responsibilitiesHref }: { decisionType: DecisionType; label: string; rows: Parameters<typeof answerState>[0]; chiefId: string | null; pending: boolean; onChange: (v: AnswerValue) => void; responsibilitiesHref: string }) {
   const state = answerState(rows, decisionType, chiefId);
   if (state.kind === "elsewhere") {
@@ -255,6 +292,8 @@ export function TeamCanDoTab() {
       </SettingsSection>
 
       <WhoAnswers businessId={businessId} mode={b.businessMode} responsibilitiesHref={responsibilitiesHref} />
+
+      <WhenTheTeamStops businessId={businessId} mode={b.businessMode} line={line} holiday={!!holiday} />
 
       <AutopilotSection />
 

@@ -520,8 +520,16 @@ test.describe("seeded business (Northwind Skincare)", () => {
     await expect(page.getByTestId("needs-larger-window")).toHaveCount(0);
     await page.goto(`/b/${NORTHWIND_BUSINESS_ID}/crm`);
     await expect(page.getByTestId("needs-larger-window")).toBeVisible({ timeout: LONG });
+    // The note replaces the shell: no shell is left in the document. For a moment after hydration one still can be, hidden:
+    // DesktopOnly drops the business layout's Suspense boundary (app/b/loading.tsx) before React has revealed it, and
+    // React's streaming runtime keeps the completed segment, a server-rendered shell in a hidden `div#S:0`, until its
+    // batched reveal runs (up to 300 ms later) and removes it. Widening inside that window showed two shells, one of them
+    // hidden. A shell that stayed past the reveal would be a real double mount, and this count would catch it.
+    await expect(page.getByTestId("app-shell")).toHaveCount(0);
     await page.setViewportSize({ width: 1440, height: 900 });
+    await expect(page.getByTestId("app-shell")).toHaveCount(1);
     await expect(page.getByTestId("app-shell")).toBeVisible();
+    await expect(page.getByTestId("needs-larger-window")).toHaveCount(0);
     // Regression guard: apps/web/components/shell/chrome.tsx once re-ran its effect after its own setChrome.
     expect(loops).toEqual([]);
   });

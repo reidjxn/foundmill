@@ -5,7 +5,8 @@
  * - `exportBusiness` reads every exported business-scoped table (packages/db `EXPORT_TABLES`, page by page until each
  *   is exhausted) through the portability repository and returns the archive to the browser, which saves it as a
  *   file; nothing is stored on the server. Credentials are never read; integrations appear as status rows only;
- *   sections the member is walled off are left out. The founder gets an Inbox note with the counts and the file name.
+ *   it needs read access to every exported section but billing (a billing wall leaves the billing tables out). The
+ *   founder gets an Inbox note with the counts and the file name.
  * - `archiveBusiness` pulls the kill switch, then archives the row (hidden from lists and from every procedure but
  *   export, restore and deletion). `restoreBusiness` (owner) brings it back; its agents stay stopped until resumed.
  * - `requestDeletion` / `cancelDeletion` record the request on the audit chain (append-only, hash-chained) with the
@@ -16,7 +17,7 @@
  */
 import { APP_NAME } from "@foundmill/config";
 import { BUSINESS_DELETION_CANCEL_ACTION, BUSINESS_DELETION_DELAY_DAYS, BUSINESS_DELETION_REQUEST_ACTION, EXPORT_EXCLUDED_TABLES, EXPORT_SECTIONS, EXPORT_TABLES, portableValue, repos, type Business, type Executor, type ExportSection, type InboxItem, type PortableRow } from "@foundmill/db";
-import { AppError, ValidationError } from "@foundmill/shared";
+import { AppError, ForbiddenError, ValidationError } from "@foundmill/shared";
 import type { BusinessContext } from "../trpc";
 import { audit, effectivePermission } from "../trpc";
 import { stopAllAgents, type StopAllResult } from "./killswitch";
@@ -81,10 +82,23 @@ export function exportFileName(business: Pick<Business, "slug" | "name">, genera
   return `${base}-export-${generatedAt.slice(0, 10)}.json`;
 }
 
-/** The sections this member may not read: their tables stay out of the archive (BUILD §11.9 staff permissions). */
+/** The sections this member may not read (BUILD §11.9 staff permissions). */
 function walledSections(membership: BusinessContext["membership"]): ExportSection[] {
   return EXPORT_SECTIONS.filter((section) => effectivePermission(membership, section) === "none");
 }
+
+/**
+ * The sections whose wall refuses the export outright (DECISIONS 2026-10-13, W15): every section but billing. Their
+ * content is quoted in tables filed under other sections (Inbox notes and approvals quote money and customer names,
+ * journeys carry conversion amounts), so leaving out whole tables would not keep the wall. A billing wall only leaves
+ * out the billing tables.
+ *
+ * The permission section `live` is not an export section on purpose: no exported table holds LIVE data (network
+ * posts, memberships, connections and messages belong to the network and are never in the archive, see
+ * `EXPORT_EXCLUDED_TABLES`), so a Live wall has nothing to keep out. A table filed under Live later must add `live`
+ * to `EXPORT_SECTIONS` (packages/db), and its wall then refuses the export like the others.
+ */
+const EXPORT_REQUIRES_READ: readonly ExportSection[] = EXPORT_SECTIONS.filter((section) => section !== "billing");
 
 /**
  * Export everything (admin; also on an archived business): every exported business-scoped table, page by page until
@@ -95,6 +109,10 @@ function walledSections(membership: BusinessContext["membership"]): ExportSectio
 export async function exportBusiness(ctx: BusinessContext): Promise<ExportResult> {
   const generatedAt = new Date().toISOString();
   const walled = walledSections(ctx.membership);
+  const blocking = walled.filter((section) => EXPORT_REQUIRES_READ.includes(section));
+  if (blocking.length > 0) {
+    throw new ForbiddenError(`Export everything needs read access to every section, and your role has none to ${blocking.join(", ")}. An owner can export the business.`);
+  }
   const { tables, truncated } = await ctx.rls(async (tx) => {
     const out: Record<string, PortableRow[]> = {};
     const cut: { table: string; rows: number }[] = [];
