@@ -1703,6 +1703,12 @@ The review found no blocker; three fixes and four hardenings were made on the sa
   - `node scripts/banned-terms.mjs`, `node scripts/us-english.mjs`, `node scripts/plain-language.mjs --gate --summary`: pass.
 - **Not done.** The follow-ups recorded in DECISIONS (hashed idempotency keys, a caller for `deleteAccountStream`, an alert for a row that fails forever, ordering after a transient failure, the record-id oracle, one run on real Postgres or Supabase). The id rule for addresses is in the api only: `founder_profiles` has no check constraint for it. Not rerun: packages/connectors, apps/gateway, apps/composer, apps/orchestrator (their code did not change in these fixes; the forced typecheck covers them), apps/web's full suite, Playwright, Storybook, evals.
 
+## 2026-11-12 — Hotfix: the account relay is off
+
+- `ACCOUNT_RELAY_ENABLED = false`: the api starts the business relay only and logs "account outbox relay is off (account events wait in their outbox)". The supervisor's option `accountRelay` turns it on for tests. Why: DECISIONS, same date (production's pool lost connections from the deploy that started the second poller).
+- Tests: `account-events.test.ts` passes `accountRelay: true` where it exercises both relays, and a new case holds the default (only the business relay starts, wakes and stops).
+- Not done: the cause; folding the account outbox into the business relay's tick; turning it back on.
+
 ## 2026-11-12 — Connectors on the founder's own key, first part: how a project appears in AI assistants and search
 
 - **Founder rule.** A connector the founder connects with their own key runs on the founder's own vendor account, always; never a Foundmill platform key, no developer apps, no vendors' own MCP servers; anything outward or costly asks first. In CLAUDE.md ("Always") and docs/DECISIONS.md.
