@@ -72,6 +72,15 @@ export const auditRepo = {
     });
   },
 
+  /**
+   * Holds the business's audit-chain lock until the transaction ends (the lock `append` and the chain trigger take;
+   * re-entrant): a read of the latest entries made after it cannot be overtaken by another writer's append before this
+   * transaction's own (the former founder's cancel reads the waiting deletion request under it).
+   */
+  async lockChain(db: Executor, businessId: string): Promise<void> {
+    await db.execute(sql`select pg_advisory_xact_lock(hashtext('audit_log'), hashtext(${parseInput(Id, businessId, "business id")}::text))`);
+  },
+
   /** Several entries in one transaction, in order (one tool call → several audit lines). */
   async appendMany(db: Executor, businessId: string, inputs: AppendAuditInput[]): Promise<AuditEntry[]> {
     const parsed = inputs.map((i) => parseInput(AppendAuditInput, i, "audit entry"));

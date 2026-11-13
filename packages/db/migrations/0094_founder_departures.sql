@@ -58,6 +58,8 @@ create index founder_departures_user_idx on founder_departures (user_id, departe
 --> statement-breakpoint
 create index founder_departures_business_idx on founder_departures (business_id, departed_at desc);
 --> statement-breakpoint
+create index founder_departures_by_user_idx on founder_departures (by_user_id);
+--> statement-breakpoint
 alter table founder_departures enable row level security;
 --> statement-breakpoint
 create policy founder_departures_select on founder_departures for select

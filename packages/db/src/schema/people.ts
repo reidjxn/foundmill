@@ -88,6 +88,7 @@ export const founderDepartures = pgTable(
     uniqueIndex("founder_departures_cancel_token_key").on(t.cancelTokenHash).where(sql`cancel_token_hash is not null`),
     index("founder_departures_user_idx").on(t.userId, t.departedAt.desc()),
     index("founder_departures_business_idx").on(t.businessId, t.departedAt.desc()),
+    index("founder_departures_by_user_idx").on(t.byUserId),
   ],
 );
 export type FounderDeparture = typeof founderDepartures.$inferSelect;

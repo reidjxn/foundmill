@@ -40,7 +40,8 @@ describe("founder notices (gateway)", () => {
   beforeAll(async () => {
     g = await setupGateway({ connectors: [mock] });
     g.deps.appEnv = "test";
-    [ana, ben, cara, dan, outsider] = await Promise.all(["ana", "ben", "cara", "dan", "outsider"].map((w) => g.h.createUser(addr(w))));
+    const ids = await Promise.all(["ana", "ben", "cara", "dan", "outsider"].map((w) => g.h.createUser(addr(w))));
+    [ana, ben, cara, dan, outsider] = [ids[0]!, ids[1]!, ids[2]!, ids[3]!, ids[4]!];
     await repos.founders.upsert(g.db, ana, { displayName: "Ana Ruiz" });
     await repos.founders.upsert(g.db, ben, { displayName: "Ben <b>Ode</b> https://evil.example" });
     await g.h.db.insert(s.memberships).values([

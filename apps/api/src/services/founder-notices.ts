@@ -23,7 +23,6 @@
 import { BUSINESS_DELETION_CANCEL_ACTION, BUSINESS_DELETION_REQUEST_ACTION, cancelWindowEnd, repos, type AuditEntry, type Db, type DbTx, type Executor, type FounderDepartureView } from "@foundmill/db";
 import { AppError, founderChangeNote as noteWords, formerFounderCanceledLine, noticeDay, noticeMoment, OWNER_ROLES, type FounderNotice } from "@foundmill/shared";
 import { newActionToken } from "@foundmill/shared/email-links";
-import { sql } from "drizzle-orm";
 import type { ApiGatewayClient } from "./gateway";
 import type { ApiLogger } from "./log";
 
@@ -171,7 +170,7 @@ export async function cancelDeletionAsFormerFounder(deps: NoticeDeps, input: { b
   const { request, entry } = await deps.db.transaction(async (tx) => {
     // The audit chain's own lock (audit.append takes it again): a cancel and a request at once are judged one after the
     // other, so the cancel is written only over a request that is still the latest.
-    await tx.execute(sql`select pg_advisory_xact_lock(hashtext('audit_log'), hashtext(${input.businessId}::text))`);
+    await repos.audit.lockChain(tx, input.businessId);
     const waiting = await pendingDeletionRequest(tx, input.businessId);
     if (!waiting) return { request: null, entry: null };
     const scheduledFor = scheduledForOf(waiting).toISOString();
