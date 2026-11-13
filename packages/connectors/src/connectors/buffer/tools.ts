@@ -1,7 +1,7 @@
 /**
  * Buffer: the social channel agent queues the project's drafted posts in the founder's own Buffer account, which then
  * publishes them on the founder's connected networks. The founder's own key only (publish.buffer.com/settings/api);
- * Buffer bills the founder. Queuing a post is publishing in public later: it asks the founder first, in every mode.
+ * Buffer bills the founder. Queuing a post is publishing in public later: it asks the founder first in augmented and assisted mode; in automated mode (also while the founder is on vacation) it runs within the caps.
  *
  * Docs read Nov 13, 2026 (developers.buffer.com): /llms-full.txt (the whole reference, in pieces), the guides "your first
  * post" and "posts and scheduling", the rate-limit and error-handling guides, and the type pages PostInputMetaData and
@@ -16,7 +16,7 @@ import { z } from "zod";
 import { APP_NAME } from "@foundmill/config";
 import { AppError, PostDraft } from "@foundmill/shared";
 import { fitPostText, isPostUrl, postDraftFor, postNetworkLimit, postTextLength, postTextWithLink, POST_NETWORKS, type PostNetwork } from "@foundmill/shared/post-draft";
-import type { ConnectField } from "../../contract";
+import { VendorError, type ConnectField } from "../../contract";
 import { defineTool } from "../../define";
 import { fact } from "../../facts";
 import { stableHash } from "../../mock-utils";
@@ -71,6 +71,7 @@ export const CODES = {
   needsVideo: "network_needs_video",
   imageRequired: "image_required",
   imageNotLasting: "image_not_lasting",
+  linkNotPublic: "link_not_public",
   dueTimeInvalid: "due_time_invalid",
   channelDisconnected: "channel_disconnected",
   queuePaused: "queue_paused",
@@ -187,12 +188,12 @@ export const bufferTools = [
     name: "queue_post",
     title: "Queue a post in Buffer",
     description:
-      `Queue one drafted post on one of the founder's Buffer channels, for the next free slot or for a time you give. The draft's variant for the channel's network is used, its text shortened to fit the network, with the link after it and the picture attached. Instagram needs a picture; TikTok needs a video, which a draft does not have, so it is refused; services ${APP_NAME} does not draft for are refused. A picture must be at a lasting https address: Buffer fetches it when the post goes out, hours or days later, so a signed or expiring link is refused. This publishes in public and cannot be recalled by us (the founder can remove a queued post in Buffer), so the founder is always asked first. A result means the post is QUEUED, not published: never say it was posted until get_post says it was sent. There is no share-now. At most ${BUFFER_QUEUE_POST_PER_DAY} posts a day per project (our own cap).`,
+      `Queue one drafted post on one of the founder's Buffer channels, for the next free slot or for a time you give. The draft's variant for the channel's network is used, its text shortened to fit the network, with the link after it and the picture attached. Instagram needs a picture; TikTok needs a video, which a draft does not have, so it is refused; services ${APP_NAME} does not draft for are refused. A picture must be at a lasting https address: Buffer fetches it when the post goes out, hours or days later, so a signed or expiring link is refused. This publishes in public and cannot be recalled by us (the founder can remove a queued post in Buffer), so the founder is asked first in augmented and assisted mode (in automated mode, also while the founder is on vacation, it runs within the caps). A result means the post is QUEUED, not published: never say it was posted until get_post says it was sent. There is no share-now. There is a daily cap per project, kept by the gateway process (it resets on restart and is not shared across replicas).`,
     input: QueuePostInput,
     output: QueuePostOutput,
     // Publishing in public: it reaches an audience (contactsThirdParty, so a link or picture address first seen in
-    // untrusted content is held for the founder, like an address in an email) and cannot be called back (irreversible),
-    // so it asks in augmented and in assisted mode alike. Buffer bills the founder's plan, not per post: no cost estimate.
+    // untrusted content is refused, like an address in an email) and cannot be called back (irreversible), so it asks in
+    // augmented and in assisted mode alike; automated mode (and vacation) runs it within the caps. Buffer bills the founder's plan, not per post: no cost estimate.
     hints: { contactsThirdParty: true, irreversible: true },
   }),
   defineTool({
@@ -233,7 +234,7 @@ const clip = (s: string, max: number): string => (s.length <= max ? s : `${s.sli
 const oneLine = (s: string): string => s.replace(/[\u0000-\u001f\u007f\u2028\u2029]+/g, " ").replace(/\s+/g, " ").trim();
 const text = (v: unknown, max: number): string | null => (typeof v === "string" && oneLine(v) ? clip(oneLine(v), max) : null);
 const idOf = (v: unknown): string | null => (typeof v === "string" && /^[A-Za-z0-9_-]{1,100}$/.test(v) ? v : null);
-const dateOf = (v: unknown): string | null => (typeof v === "string" && v.length <= 40 && !Number.isNaN(Date.parse(v)) ? v : null);
+const dateOf = (v: unknown): string | null => fact.date(v);
 const statusOf = (v: unknown): (typeof BUFFER_POST_STATUSES)[number] | "unknown" => (typeof v === "string" && (BUFFER_POST_STATUSES as readonly string[]).includes(v) ? (v as (typeof BUFFER_POST_STATUSES)[number]) : "unknown");
 
 export function mapChannel(c: BfChannel): BufferChannelT | null {
@@ -288,12 +289,37 @@ export function signedUrlParam(url: string): string | null {
   return null;
 }
 
+/** A host a stranger can reach by name: a public DNS name, not an IP literal, `localhost` or a single label. */
+export function isPublicHost(hostname: string): boolean {
+  const h = hostname.toLowerCase().replace(/\.$/, "");
+  if (h.startsWith("[") || /^[0-9.]+$/.test(h) || /^0x[0-9a-f]+$/i.test(h) || h === "localhost" || h.endsWith(".localhost")) return false;
+  return h.includes(".") && fact.host(h) !== null;
+}
+const hostOf = (url: string): string => {
+  try {
+    return new URL(url).hostname;
+  } catch {
+    return "";
+  }
+};
+
+/** Every link in the draft must be a public address with no token or signature in it. Refused before any vendor call. */
+export function assertPublicLinks(draft: z.output<typeof PostDraft>): void {
+  const links = [draft.link, ...Object.values(draft.variants).map((v) => v?.link)];
+  for (const link of links) {
+    if (!link) continue;
+    if (!isPostUrl(link) || !isPublicHost(hostOf(link))) throw new AppError(CODES.linkNotPublic, `${NOTHING}: a link in the draft is not a public web address (it needs an https address on a real domain name).`, 422);
+    const param = signedUrlParam(link);
+    if (param) throw new AppError(CODES.linkNotPublic, `${NOTHING}: a link in the draft carries a token or signature ("${param}"). Do not publish an address like that: use the plain public address of the page.`, 422, { param });
+  }
+}
+
 /** Every picture address in the draft must be https and lasting. Refused before any vendor call. */
 export function assertLastingImages(draft: z.output<typeof PostDraft>): void {
   const images = [draft.image, ...Object.values(draft.variants).map((v) => v?.image)];
   for (const image of images) {
     if (!image) continue;
-    if (!isPostUrl(image.url)) throw new AppError(CODES.imageNotLasting, `${NOTHING}: a picture's address in the draft is not a plain https address.`, 422);
+    if (!isPostUrl(image.url) || !isPublicHost(hostOf(image.url))) throw new AppError(CODES.imageNotLasting, `${NOTHING}: a picture's address in the draft is not a plain https address on a public domain name.`, 422);
     const param = signedUrlParam(image.url);
     if (param) {
       throw new AppError(
@@ -395,24 +421,40 @@ export function createPostLedger(now: () => Date, perDay = BUFFER_QUEUE_POST_PER
     return list;
   };
   return {
-    assertCap(businessId: string): void {
-      if (fresh(businessId, now().getTime()).length >= perDay) throw new AppError(CODES.postCap, `${NOTHING}: this project has reached its limit of ${perDay} queued posts in 24 hours (${APP_NAME}'s own cap, not Buffer's). Try again later.`, 429);
-    },
-    assertNotDuplicate(businessId: string, key: string): void {
-      const t = now().getTime();
-      if (fresh(businessId, t).some((e) => e.key === key && e.at > t - DUPLICATE_WINDOW_MS)) throw new AppError(CODES.duplicate, `${NOTHING}: this exact post was just queued on this channel. Check Buffer (get_post) before queuing it again.`, 409);
-    },
-    record(businessId: string, key: string): void {
+    /**
+     * Takes the daily slot and the double-post key BEFORE the post is created, so a call that timed out (the post may
+     * exist) still counts and a retry of it is refused. Returns what `release` needs.
+     */
+    reserve(businessId: string, key: string): { businessId: string; entry: { at: number; key: string } } {
       const t = now().getTime();
       const list = fresh(businessId, t);
-      list.push({ at: t, key });
+      if (list.length >= perDay) throw new AppError(CODES.postCap, `${NOTHING}: this project has reached its daily limit of queued posts (a cap kept by ${APP_NAME}, not Buffer's). Try again later.`, 429);
+      if (list.some((e) => e.key === key && e.at > t - DUPLICATE_WINDOW_MS)) throw new AppError(CODES.duplicate, `${NOTHING}: this exact post was just queued (or tried) on this channel. Check Buffer (get_post) before queuing it again.`, 409);
+      const entry = { at: t, key };
+      list.push(entry);
       if (byBusiness.size > LEDGER_BUSINESSES) byBusiness.delete(byBusiness.keys().next().value as string);
+      return { businessId, entry };
+    },
+    /** Frees a reservation: only for a clear refusal, when no post can exist. */
+    release(r: { businessId: string; entry: { at: number; key: string } }): void {
+      const list = byBusiness.get(r.businessId);
+      if (list) byBusiness.set(r.businessId, list.filter((e) => e !== r.entry));
+    },
+    /** The cap alone, checked before any vendor call so a full day refuses without a lookup. */
+    assertCap(businessId: string): void {
+      if (fresh(businessId, now().getTime()).length >= perDay) throw new AppError(CODES.postCap, `${NOTHING}: this project has reached its daily limit of queued posts (a cap kept by ${APP_NAME}, not Buffer's). Try again later.`, 429);
     },
   };
 }
 export type PostLedger = ReturnType<typeof createPostLedger>;
 
 export const duplicateKey = (channelId: string, post: PreparedPost): string => stableHash([channelId, post.text, post.mode, post.dueAt, post.image?.url ?? null], 32);
+
+const CLEAR_REFUSALS: ReadonlySet<string> = new Set([CODES.queueFull, CODES.channelNotFound, CODES.postRejected, CODES.insufficientScope]);
+export function isClearRefusal(e: unknown): boolean {
+  if (e instanceof VendorError) return e.httpStatus >= 400 && e.httpStatus < 500 && e.httpStatus !== 408 && e.httpStatus !== 429;
+  return e instanceof AppError && CLEAR_REFUSALS.has(e.code);
+}
 
 /* ---- The queue_post flow, shared by the live side and the mock ---- */
 
@@ -431,16 +473,22 @@ export interface QueuePostDeps {
  */
 export async function queuePostFlow(args: QueuePostInputT, deps: QueuePostDeps): Promise<QueuePostOutputT> {
   assertLastingImages(args.draft);
+  assertPublicLinks(args.draft);
   const dueAt = checkDueTime(args.when, deps.now());
   deps.ledger.assertCap(deps.businessId);
   const channel = await deps.lookupChannel(args.channelId);
   if (!channel) throw new AppError(CODES.channelNotFound, `${NOTHING}: this Buffer account has no channel with that id. Use an id from list_channels.`, 404);
   const prepared = preparePost(args, channel, dueAt);
   const key = duplicateKey(args.channelId, prepared);
-  deps.ledger.assertNotDuplicate(deps.businessId, key);
-  const out = mapCreateResult(await deps.createPost(createPostInput(args.channelId, prepared)), { channelId: args.channelId, prepared });
-  deps.ledger.record(deps.businessId, key);
-  return out;
+  const reservation = deps.ledger.reserve(deps.businessId, key);
+  try {
+    return mapCreateResult(await deps.createPost(createPostInput(args.channelId, prepared)), { channelId: args.channelId, prepared });
+  } catch (e) {
+    // Freed only when no post can exist: Buffer's own typed refusal, or an HTTP 4xx that is not 408 or 429. A timeout, 408,
+    // 429, any 5xx, an answer with no post id or anything unknown keeps the slot: the post may exist, and a retry is refused.
+    if (isClearRefusal(e)) deps.ledger.release(reservation);
+    throw e;
+  }
 }
 
 /** The organization id a stored setting must be. */

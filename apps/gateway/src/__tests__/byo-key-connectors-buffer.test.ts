@@ -5,7 +5,8 @@
  * - mock results are simulated and say so, and never report a post as sent;
  * - the typed read of list_channels rides beside the reader's digest for an agent that holds queue_post;
  * - a picture at a signed link is refused before any vendor call; over-limit text is fitted before it is sent;
- * - a link first seen in untrusted content cannot be queued until the founder approves it.
+ * - a link first seen in untrusted content is refused (a plain deny, no approval);
+ * - automated mode allows queue_post within the caps, augmented and assisted ask.
  */
 import { afterEach, describe, expect, it } from "vitest";
 import { createBufferConnector, createDefaultRegistry, factsProblem, jsonResponse, type Connector } from "@foundmill/connectors";
@@ -107,6 +108,25 @@ describe("live: queue_post asks first in augmented and assisted mode; the reads 
   });
 });
 
+describe("queue_post by business mode: augmented and assisted ask, automated runs within the caps", () => {
+  it("pins the contract: augmented ask, assisted ask, automated allow", async () => {
+    const vendor = bufferFetch();
+    const g = await setupGateway({ mode: "live", businessMode: "augmented", connectors: live(vendor.fetch) });
+    open = g;
+    await connect(g);
+    const token = await g.token({ allowedTools: ["buffer:*"] });
+    for (const mode of ["augmented", "assisted"] as const) {
+      await repos.businesses.setBusinessMode(g.db, g.businessId, mode);
+      expect((await g.client.call(token, CALLS.queue_post)).outcome, mode).toBe("ask");
+    }
+    expect(vendor.requests).toEqual([]);
+    await repos.businesses.setBusinessMode(g.db, g.businessId, "automated");
+    const r = asAllow(await g.client.call(token, CALLS.queue_post));
+    expect(r.result.ok, JSON.stringify(r.result)).toBe(true);
+    expect(vendor.requests.map((q) => q.op)).toEqual(["Channel", "CreatePost"]);
+  });
+});
+
 describe("live: no stored credential", () => {
   it("every tool is 409 integration_not_connected with no vendor request, with platform secrets set", async () => {
     const vendor = bufferFetch();
@@ -204,7 +224,7 @@ describe("queue_post pre-checks run in the connector, before the vendor", () => 
   });
 });
 
-describe("a link first seen in untrusted content is held for the founder", () => {
+describe("a link first seen in untrusted content is refused", () => {
   it("queue_post with such a link in the draft is denied by the recipient rule and reaches no vendor", async () => {
     const vendor = bufferFetch();
     const g = await setupGateway({ mode: "live", businessMode: "automated", connectors: live(vendor.fetch) });
