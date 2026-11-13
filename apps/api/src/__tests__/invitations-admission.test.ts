@@ -21,6 +21,7 @@ import {
   existingBefore,
   forgetAdmittedMemo,
   INVITATION_ADMISSIONS_LIMIT_MESSAGE,
+  INVITATION_ADMISSIONS_PAST_CEILING_PER_DAY,
   INVITATION_ADMISSIONS_PER_INVITER_PER_DAY,
   INVITATION_CANNOT_ADMIT_MESSAGE,
   ON_WAITLIST_MESSAGE,
@@ -81,6 +82,14 @@ const fromBeforeCutover = async (userId: string, name: string) => {
   await hz.db.update(founderProfiles).set({ createdAt: new Date("2026-01-05T00:00:00Z") }).where(eq(founderProfiles.userId, userId));
 };
 const membershipOf = (businessId: string, userId: string) => repos.memberships.get(hz.db, businessId, userId);
+/** A new admin of A (so their invitations have a daily number of their own), admitted as `how` when given. */
+const freshInviter = async (tag: string, how?: "open" | "existing") => {
+  const p = await person(tag);
+  await repos.memberships.add(hz.db, hz.A.businessId, { userId: p.userId, role: "admin" });
+  if (how) await repos.admissions.record(hz.db, { userId: p.userId, how });
+  return p;
+};
+const collaboratorLink = async (inviterId: string) => tokenOf((await hz.caller({ userId: inviterId }).invitation.create({ businessId: hz.A.businessId, role: "collaborator" })).link);
 
 describe("decideAdmission: admit now or wait, every mode", () => {
   const base: AdmissionFacts = { mode: "invite_only", devUser: false, listed: false, emailConfirmed: true, admitted: false, existingPerson: false, admittedToday: 0, ceiling: 200 };
@@ -254,6 +263,79 @@ describe("admitOrWait: open sign-up with a daily ceiling", () => {
     const b = await person("open-plain-b");
     expect(await refusal(callerIn(OPEN, b).invitation.accept({ token: tokenOf(second.link) }))).toMatchObject({ appCode: "on_waitlist" });
     expect(await membershipOf(hz.A.businessId, b.userId)).toBeNull();
+  });
+
+  it("an inviter open sign-up let in: their invitation admits while the ceiling has room, and waits at it like any sign-up", async () => {
+    const inviter = await freshInviter("open-inviter", "open");
+    const [under, at] = [await collaboratorLink(inviter.userId), await collaboratorLink(inviter.userId)];
+    const before = await repos.admissions.openSince(hz.db, todayStart());
+    const OPEN = { SIGNUP_OPEN: "1", SIGNUP_DAILY_CEILING: before + 1 };
+    const a = await person("open-inviter-a");
+    expect(await callerIn(OPEN, a).invitation.accept({ token: under })).toEqual({ businessId: hz.A.businessId, already: false });
+    expect(await repos.admissions.forUser(hz.db, a.userId)).toMatchObject({ how: "invitation" });
+    // The ceiling is reached: the next invitee of the same inviter waits, with the words a sign-up meets, and nothing changes.
+    const b = await person("open-inviter-b");
+    expect(await refusal(callerIn(OPEN, b).invitation.accept({ token: at }))).toEqual({ code: "FORBIDDEN", appCode: "on_waitlist", reason: "ceiling", message: ON_WAITLIST_MESSAGE });
+    expect(await repos.admissions.has(hz.db, b.userId)).toBe(false);
+    expect(await membershipOf(hz.A.businessId, b.userId)).toBeNull();
+    expect(await hz.caller(null).invitation.byToken({ token: at })).toMatchObject({ state: "pending" });
+    expect(await repos.admissions.openSince(hz.db, todayStart())).toBe(before + 1);
+    // With room again (tomorrow's ceiling), the same link works.
+    expect(await callerIn({ ...OPEN, SIGNUP_DAILY_CEILING: before + 2 }, b).invitation.accept({ token: at })).toMatchObject({ already: false });
+  });
+
+  it("an inviter the list or the time before let in goes past the ceiling, within their own number", async () => {
+    const listed = await freshInviter("listed-past");
+    const existing = await freshInviter("existing-past", "existing");
+    const before = await repos.admissions.openSince(hz.db, todayStart());
+    const FULL = { SIGNUP_OPEN: "1", SIGNUP_DAILY_CEILING: before, SIGNUP_ALLOWLIST: listed.email };
+    // A sign-up waits; the listed inviter's and the person from before's invitees get in, as invitation admissions.
+    expect(await refusal(callerIn(FULL, await person("past-signup")).founder.preferences.get())).toMatchObject({ appCode: "on_waitlist" });
+    for (const inviter of [listed, existing]) {
+      const p = await person("past-invitee");
+      expect(await callerIn(FULL, p).invitation.accept({ token: await collaboratorLink(inviter.userId) })).toMatchObject({ already: false });
+      expect(await repos.admissions.forUser(hz.db, p.userId)).toMatchObject({ how: "invitation" });
+    }
+    expect(await repos.admissions.openSince(hz.db, todayStart())).toBe(before + 2);
+    // Past their own number of the day, the ceiling decides for them too.
+    for (let i = 1; i < INVITATION_ADMISSIONS_PER_INVITER_PER_DAY; i++) await callerIn(FULL, await person("past-more")).invitation.accept({ token: await collaboratorLink(listed.userId) });
+    expect(await repos.admissions.admittedByInviterSince(hz.db, listed.userId, todayStart())).toBe(INVITATION_ADMISSIONS_PER_INVITER_PER_DAY);
+    const over = await person("past-over");
+    expect(await refusal(callerIn(FULL, over).invitation.accept({ token: await collaboratorLink(listed.userId) }))).toMatchObject({ appCode: "on_waitlist", reason: "ceiling" });
+    expect(await repos.admissions.has(hz.db, over.userId)).toBe(false);
+  });
+
+  it(`at most ${INVITATION_ADMISSIONS_PAST_CEILING_PER_DAY} invitation admissions a day past the ceiling, for every inviter together`, async () => {
+    expect(INVITATION_ADMISSIONS_PAST_CEILING_PER_DAY).toBe(50);
+    const listed = await freshInviter("past-cap");
+    const ceiling = 10;
+    const OPEN = { SIGNUP_OPEN: "1", SIGNUP_DAILY_CEILING: ceiling, SIGNUP_ALLOWLIST: listed.email };
+    // The day's count as the lock-holder reads it: one place left past the ceiling, then none.
+    const spy = vi.spyOn(repos.admissions, "openSince").mockResolvedValue(ceiling + INVITATION_ADMISSIONS_PAST_CEILING_PER_DAY - 1);
+    const last = await person("past-cap-last");
+    expect(await callerIn(OPEN, last).invitation.accept({ token: await collaboratorLink(listed.userId) })).toMatchObject({ already: false });
+    expect(await repos.admissions.forUser(hz.db, last.userId)).toMatchObject({ how: "invitation" });
+    spy.mockResolvedValue(ceiling + INVITATION_ADMISSIONS_PAST_CEILING_PER_DAY);
+    const token = await collaboratorLink(listed.userId);
+    const after = await person("past-cap-after");
+    expect(await refusal(callerIn(OPEN, after).invitation.accept({ token }))).toMatchObject({ appCode: "on_waitlist", reason: "ceiling", message: ON_WAITLIST_MESSAGE });
+    expect(await repos.admissions.has(hz.db, after.userId)).toBe(false);
+    expect(await hz.caller(null).invitation.byToken({ token })).toMatchObject({ state: "pending" });
+  });
+
+  it("under open sign-up the advisory lock is taken before both counts (the mechanism; the race itself needs a real-Postgres run)", async () => {
+    const inviter = await freshInviter("open-lock", "open");
+    const token = await collaboratorLink(inviter.userId);
+    const order: string[] = [];
+    const lock = repos.admissions.lockOpenCount.bind(repos.admissions);
+    const perInviter = repos.admissions.admittedByInviterSince.bind(repos.admissions);
+    const day = repos.admissions.openSince.bind(repos.admissions);
+    vi.spyOn(repos.admissions, "lockOpenCount").mockImplementation(async (tx) => (order.push("lock"), lock(tx)));
+    vi.spyOn(repos.admissions, "admittedByInviterSince").mockImplementation(async (db, id, since) => (order.push("inviter"), perInviter(db, id, since)));
+    vi.spyOn(repos.admissions, "openSince").mockImplementation(async (db, since) => (order.push("day"), day(db, since)));
+    const before = await day(hz.db, todayStart());
+    await callerIn({ SIGNUP_OPEN: "1", SIGNUP_DAILY_CEILING: before + 1 }, await person("open-lock-invitee")).invitation.accept({ token });
+    expect(order.slice(order.indexOf("lock"))).toEqual(["lock", "inviter", "day"]);
   });
 
   it("two sign-ins at the last place cannot both take it", async () => {

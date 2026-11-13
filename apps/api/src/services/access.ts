@@ -18,8 +18,11 @@
  * An invitation admits a new account (`admitThroughInvitation`, inside `invitation.accept`'s transaction) only when its
  * inviter was let in by the list, by open sign-up or as a person from before (never by an invitation: an account an
  * invitation let in cannot let others in), and at most `INVITATION_ADMISSIONS_PER_INVITER_PER_DAY` a UTC day per
- * inviter, counted under the same advisory lock. An accepter who is already in needs none of that: the invitation then
- * only adds the membership.
+ * inviter, counted under the same advisory lock. Under open sign-up an invitation's admission counts toward the day's
+ * ceiling, and only an inviter the list or the time before let in may go past it, within
+ * `INVITATION_ADMISSIONS_PAST_CEILING_PER_DAY` for everyone together; an inviter open sign-up let in waits at the
+ * ceiling like any sign-up. An accepter who is already in needs none of that: the invitation then only adds the
+ * membership.
  *
  * `decideAdmission` is the decision, pure and tested for every mode; `admitOrWait` gathers its facts, applies it (an
  * admission recorded once) and throws the refusal. An address counts only once confirmed: Supabase's "Confirm email"
@@ -248,6 +251,11 @@ export async function isAdmittedNow(ctx: Pick<AdmissionContext, "env" | "db">, u
 
 /** How many new accounts one inviter's invitations may let in per UTC day (an accepter who is already in never counts). */
 export const INVITATION_ADMISSIONS_PER_INVITER_PER_DAY = 3;
+/**
+ * Open sign-up only: how many new accounts invitations may let in past the day's SIGNUP_DAILY_CEILING, across every
+ * inviter, per UTC day. Only an inviter the list or the time before let in may use them (`inviterStanding` "trusted").
+ */
+export const INVITATION_ADMISSIONS_PAST_CEILING_PER_DAY = 50;
 
 export const INVITATION_CANNOT_ADMIT_CODE = "invitation_cannot_admit";
 export const INVITATION_CANNOT_ADMIT_MESSAGE = `This invitation can't let a new account into ${APP_NAME} by itself. Once your account is in, the same link works.`;
@@ -255,29 +263,45 @@ export const INVITATION_ADMISSIONS_LIMIT_CODE = "invitation_admissions_limit";
 export const INVITATION_ADMISSIONS_LIMIT_MESSAGE = "The person who invited you has let in as many new people as one day allows. Try the same link again tomorrow.";
 
 /**
- * Whether `inviterUserId` may let a new account in through an invitation: an account the list names (its address in
- * `auth.users`), the development bypass user, or one admitted by open sign-up or as a person from before. An account
- * that an invitation let in may not: it adds people to its projects only when they are already in.
+ * On what standing `inviterUserId` lets a new account in through an invitation:
+ *   - `trusted`: an account the list names (its address in `auth.users`), the development bypass user, or one admitted
+ *     as a person from before (`existing`). Under open sign-up its invitations may go past the day's ceiling, within
+ *     `INVITATION_ADMISSIONS_PAST_CEILING_PER_DAY` for everyone together;
+ *   - `open`: admitted by open sign-up. It lets people in, but under open sign-up only while the day's ceiling has room,
+ *     like any sign-up (every such account is an inviter, so past the ceiling it would grow the day's cap without end);
+ *   - `none`: let in by an invitation, or never admitted. It adds people to its projects only when they are already in.
  */
-export async function inviterMayAdmit(ctx: Pick<AdmissionContext, "env">, db: Executor, inviterUserId: string): Promise<boolean> {
-  if (ctx.env.DEV_AUTH_USER_ID && inviterUserId.toLowerCase() === ctx.env.DEV_AUTH_USER_ID.toLowerCase()) return true;
+export type InviterStanding = "trusted" | "open" | "none";
+export async function inviterStanding(ctx: Pick<AdmissionContext, "env">, db: Executor, inviterUserId: string): Promise<InviterStanding> {
+  if (ctx.env.DEV_AUTH_USER_ID && inviterUserId.toLowerCase() === ctx.env.DEV_AUTH_USER_ID.toLowerCase()) return "trusted";
   const list = listFor(ctx.env.SIGNUP_ALLOWLIST);
-  if (list && allowlisted(list, await repos.founders.emailOf(db, inviterUserId))) return true;
+  if (list && allowlisted(list, await repos.founders.emailOf(db, inviterUserId))) return "trusted";
   const admission = await repos.admissions.forUser(db, inviterUserId);
-  return admission !== null && (admission.how === "open" || admission.how === "existing");
+  if (admission?.how === "existing") return "trusted";
+  return admission?.how === "open" ? "open" : "none";
+}
+
+/** Whether `inviterUserId` may let a new account in through an invitation at all (`inviterStanding` is not `none`). */
+export async function inviterMayAdmit(ctx: Pick<AdmissionContext, "env">, db: Executor, inviterUserId: string): Promise<boolean> {
+  return (await inviterStanding(ctx, db, inviterUserId)) !== "none";
 }
 
 export type InvitationAdmission = "already_in" | "admitted";
 
 /**
  * The admission half of `invitation.accept`, inside its transaction (`tx`), so a refused or failed accept admits
- * nobody (see the file comment):
- *   1. an accepter who is already in: nothing to write (`already_in`);
- *   2. an inviter who may let people in, under their daily number: the admission (`how = 'invitation'`);
- *   3. under open sign-up, otherwise: the day's ceiling, as at sign-in (`how = 'open'`, or `on_waitlist`);
- *   4. otherwise a refusal (`invitation_cannot_admit`, or `invitation_admissions_limit` for an inviter past their number).
- * Steps 2 and 3 count under the advisory lock open sign-up's count is taken under, taken before either count, so two
- * accepts at an inviter's last place (or the day's last place) cannot both take it.
+ * nobody (see the file comment). An accepter who is already in: nothing to write (`already_in`). Otherwise, under the
+ * advisory lock open sign-up's count is taken under, taken before any count, so two accepts at an inviter's last place
+ * (or the day's last place) cannot both take it:
+ *   - open sign-up, the day's ceiling not reached: the invitation's admission (`how = 'invitation'`) when the inviter may
+ *     let people in and is under their daily number, else open sign-up's own (`how = 'open'`), as at sign-in;
+ *   - open sign-up, the ceiling reached: only a `trusted` inviter under their daily number goes past it, while the day's
+ *     admissions past the ceiling are under `INVITATION_ADMISSIONS_PAST_CEILING_PER_DAY`; anyone else waits
+ *     (`on_waitlist`, the same words as at sign-in) and the invitation stays pending;
+ *   - invite-only: the invitation's admission when the inviter may let people in and is under their daily number, else a
+ *     refusal (`invitation_cannot_admit`, or `invitation_admissions_limit` for an inviter past their number).
+ * Past the ceiling only invitations admit, so the day's admissions past it are the day's count less the ceiling: no
+ * column or second count is needed.
  */
 export async function admitThroughInvitation(
   ctx: Pick<AdmissionContext, "env" | "db">,
@@ -288,20 +312,28 @@ export async function admitThroughInvitation(
 ): Promise<InvitationAdmission> {
   if (await isAdmittedNow(ctx, accepter, tx)) return "already_in";
   const mode = signupMode(ctx.env);
-  const eligible = await inviterMayAdmit(ctx, tx, invitation.invitedByUserId);
+  const standing = await inviterStanding(ctx, tx, invitation.invitedByUserId);
   const since = utcDayStart(now);
   await repos.admissions.lockOpenCount(tx);
-  if (eligible && (await repos.admissions.admittedByInviterSince(tx, invitation.invitedByUserId, since)) < INVITATION_ADMISSIONS_PER_INVITER_PER_DAY) {
+  const underInviterNumber = standing !== "none" && (await repos.admissions.admittedByInviterSince(tx, invitation.invitedByUserId, since)) < INVITATION_ADMISSIONS_PER_INVITER_PER_DAY;
+  const byInvitation = async (): Promise<InvitationAdmission> => {
     await repos.admissions.record(tx, { userId: accepter.userId, how: "invitation", invitationId: invitation.id });
     return "admitted";
-  }
+  };
   if (mode === "open" && accepter.emailConfirmed === true) {
-    const decision = decideAdmission({ mode, devUser: false, listed: false, emailConfirmed: true, admitted: false, existingPerson: false, admittedToday: await repos.admissions.openSince(tx, since), ceiling: ctx.env.SIGNUP_DAILY_CEILING ?? 200 });
-    if (decision.outcome !== "admit") throw refusalFor(decision);
-    await repos.admissions.record(tx, { userId: accepter.userId, how: "open" });
-    return "admitted";
+    const ceiling = ctx.env.SIGNUP_DAILY_CEILING ?? 200;
+    const admittedToday = await repos.admissions.openSince(tx, since);
+    const decision = decideAdmission({ mode, devUser: false, listed: false, emailConfirmed: true, admitted: false, existingPerson: false, admittedToday, ceiling });
+    if (decision.outcome === "admit") {
+      if (underInviterNumber) return byInvitation();
+      await repos.admissions.record(tx, { userId: accepter.userId, how: "open" });
+      return "admitted";
+    }
+    if (standing === "trusted" && underInviterNumber && admittedToday - ceiling < INVITATION_ADMISSIONS_PAST_CEILING_PER_DAY) return byInvitation();
+    throw refusalFor(decision);
   }
-  throw eligible ? new AppError(INVITATION_ADMISSIONS_LIMIT_CODE, INVITATION_ADMISSIONS_LIMIT_MESSAGE, 429) : new AppError(INVITATION_CANNOT_ADMIT_CODE, INVITATION_CANNOT_ADMIT_MESSAGE, 403);
+  if (underInviterNumber) return byInvitation();
+  throw standing !== "none" ? new AppError(INVITATION_ADMISSIONS_LIMIT_CODE, INVITATION_ADMISSIONS_LIMIT_MESSAGE, 429) : new AppError(INVITATION_CANNOT_ADMIT_CODE, INVITATION_CANNOT_ADMIT_MESSAGE, 403);
 }
 
 /**
