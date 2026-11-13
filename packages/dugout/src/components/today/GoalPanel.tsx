@@ -167,10 +167,10 @@ function Proposal({ proposal, canDecide, approving, onApprove, onChange, lead }:
       {proposal.because ? <p className="t-body text-secondary">{proposal.because}</p> : null}
       {canDecide ? (
         <div className="flex flex-wrap items-center gap-2 pt-1">
-          <Button variant="primary" size="sm" icon={Check} loading={approving} onClick={() => onApprove?.(proposal.id)} data-testid="goal-approve">
+          <Button variant="primary" size="sm" icon={Check} className="min-h-tap @page-wide:min-h-0" loading={approving} onClick={() => onApprove?.(proposal.id)} data-testid="goal-approve">
             {GOAL_PANEL_WORDS.approve}
           </Button>
-          <Button variant="ghost" size="sm" icon={PenLine} onClick={onChange} data-testid="goal-change">
+          <Button variant="ghost" size="sm" icon={PenLine} className="min-h-tap @page-wide:min-h-0" onClick={onChange} data-testid="goal-change">
             {GOAL_PANEL_WORDS.change}
           </Button>
         </div>

@@ -515,7 +515,7 @@ function ReadingPaneBody({ data, currency, departments, onArchived }: BodyProps)
           {item.blocksContinue && !isAnswered ? (
             <HoldsContinueChip />
           ) : null}
-          {item.state !== "archived" && (isAnswered || !options.length) ? <Button size="sm" variant="ghost" icon={Archive} onClick={() => archive.mutate({ businessId, itemId: item.id })} loading={archive.isPending} data-testid="archive-item">Archive</Button> : null}
+          {item.state !== "archived" && (isAnswered || !options.length) ? <Button size="sm" variant="ghost" icon={Archive} className="in-data-[phone]:min-h-tap" onClick={() => archive.mutate({ businessId, itemId: item.id })} loading={archive.isPending} data-testid="archive-item">Archive</Button> : null}
         </div>
       </header>
 

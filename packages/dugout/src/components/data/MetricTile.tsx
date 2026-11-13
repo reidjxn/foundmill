@@ -1,5 +1,5 @@
 "use client";
-import { forwardRef, useId, type HTMLAttributes, type ReactNode } from "react";
+import { forwardRef, useId, type CSSProperties, type HTMLAttributes, type ReactNode } from "react";
 import { area as d3Area, curveMonotoneX, line as d3Line } from "d3-shape";
 import { Info, Minus, TrendingDown, TrendingUp } from "lucide-react";
 import { cn } from "../../lib/cn";
@@ -267,7 +267,7 @@ export const MetricTile = forwardRef<HTMLDivElement, MetricTileProps>(function M
             {/* A 24 px target (WCAG 2.5.8) above the tile's own button; the negative margins keep the label row's height. */}
             <button
               type="button"
-              className="relative z-10 -my-1 -mr-1.5 inline-flex size-target shrink-0 items-center justify-center rounded-pill text-tertiary transition-colors duration-hover hover:bg-white/6 hover:text-primary focus-ring"
+              className="in-data-[phone]:tap-reach relative z-10 -my-1 -mr-1.5 inline-flex size-target shrink-0 items-center justify-center rounded-pill text-tertiary transition-colors duration-hover hover:bg-white/6 hover:text-primary focus-ring"
               aria-label={`Where this number comes from: ${provenance.source}`}
             >
               <Icon icon={Info} size={13} />
@@ -311,24 +311,36 @@ export interface StatusStripProps extends HTMLAttributes<HTMLDivElement> {
   tiles: readonly MetricTileProps[];
   /** Grow to fill a flex parent (a widget body) so the sparklines sit on the strip's floor. */
   fill?: boolean;
+  /**
+   * Wrap two tiles to a row while the strip's container (the shell) is narrower than `page-wide` (a phone), keeping one
+   * row at every wider width. Opt in: strips inside widget tiles keep their single row (Today, package 2.1).
+   */
+  wrap?: boolean;
 }
 
 /**
  * A row of ≤ 6 MetricTiles on one plate, separated by hairlines that fade at both ends (Home status strip, Inbox
  * reading pane). Inside a panel pass `rounded-none border-0`.
  */
-export function StatusStrip({ tiles, fill, className, ...rest }: StatusStripProps) {
+export function StatusStrip({ tiles, fill, wrap, className, style, ...rest }: StatusStripProps) {
   const shown = tiles.slice(0, STATUS_STRIP_MAX);
+  const columns = `repeat(${Math.max(1, shown.length)}, minmax(0, 1fr))`;
   return (
     <div
       role="list"
-      className={cn("grid overflow-hidden rounded-md border border-line bg-surface-1", fill && "min-h-0 flex-1", className)}
-      style={{ gridTemplateColumns: `repeat(${Math.max(1, shown.length)}, minmax(0, 1fr))` }}
+      className={cn("grid overflow-hidden rounded-md border border-line bg-surface-1", fill && "min-h-0 flex-1", wrap && "grid-cols-2 @page-wide:[grid-template-columns:var(--strip-columns)]", className)}
+      style={wrap ? ({ "--strip-columns": columns, ...style } as CSSProperties) : { gridTemplateColumns: columns, ...style }}
+      data-wrap={wrap || undefined}
       data-status-strip
       {...rest}
     >
       {shown.map((t, i) => (
-        <MetricTile key={i} role="listitem" {...t} className={cn("bg-transparent", i > 0 && "strip-divider", t.className)} />
+        <MetricTile
+          key={i}
+          role="listitem"
+          {...t}
+          className={cn("bg-transparent", i > 0 && "strip-divider", wrap && i % 2 === 0 && "@max-page-wide:before:hidden", wrap && i >= 2 && "@max-page-wide:border-t @max-page-wide:border-line", wrap && i === shown.length - 1 && shown.length % 2 === 1 && "@max-page-wide:col-span-2", t.className)}
+        />
       ))}
     </div>
   );
