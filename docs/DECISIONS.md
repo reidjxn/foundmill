@@ -3856,3 +3856,11 @@ The calls made building `openai`, `gemini`, `perplexity`, `serpapi`, `firecrawl`
 - **Grants.** GEO Engine: `openai`, `gemini`, `perplexity` `panel.query` (restored from PLANNED_GRANTS.md, whose three rows are deleted), and new: `serpapi` `serp.read`, `firecrawl` `pages.read`, `indexnow` `urls.submit`. SEO Engine: the same last three, new. `CHANNEL_ACTING_TOOLS` is unchanged: telling a search engine a page changed is not what makes the channel able to act, publishing the change is.
 - **Not verified against a live vendor.** Every live path is tested against canned responses shaped from the docs; no real key was available. Each connector has an env-gated live suite. Perplexity's free key check (`GET /v1/models`) was seen to refuse a bad key, not to accept a good one.
 - **Left out of this batch (founder, 2026-11-12):** `ayrshare` (posting to X now needs the founder's own X developer credentials).
+
+## A home for a person with no project (Nov 12, 2026; THESIS_REVIEW 2.4)
+
+- **Its own address, `/home`, not `/`.** A signed-out `/` is the landing page, which stays desktop until 2.1/2.7, and the small-screen rule is decided by path (`SMALL_SCREEN_PREFIXES`); one address for the person's home lets it work from 390 px without opening the landing page too. The signed-in index still answers `/` and sends a person with no project there.
+- **Start something leads; finding people is an offer beside it.** The card says the person can do all of it on their own (CLAUDE.md "Solo is complete"). No people are suggested anywhere on the home, for anyone: the find card is a way to go and look, not a list. Reading `lookingFor` to tailor it waits until there is something to tailor.
+- **Closed people layer.** Where LIVE is off (production today), the find card says "Opening soon" without a link, and the waiting counts are not read: nobody can have written to the person.
+- **Onboarding still continues to /new.** A person who has just finished the profile is mid-way through starting; the home is where they land on a later visit. Revisit with 2.3's three questions ("start something", "join something", "not sure yet").
+- **The `(live)` layout is left to the network session.** Its pages call `useBusiness()` (PersonalNotice, connect, community and profile screens), so working without a project is a change to those screens, which that session owns.

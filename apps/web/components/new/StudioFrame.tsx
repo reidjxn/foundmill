@@ -53,16 +53,23 @@ export interface StudioFrameProps {
   viewer?: { email: string | null };
   /** Content width: "wide" (1440) or "measure" (960, forms). */
   width?: "wide" | "measure";
+  /**
+   * Renders at every width instead of asking for a larger window (CLAUDE.md "Small screens": the person's home works
+   * from 390 px). The frame is then a container (DESIGN §6 "Small screens"): the viewer's email folds away below
+   * `page-wide` (640 px), so the top bar never overflows.
+   */
+  smallScreen?: boolean;
   children: ReactNode;
 }
 
-export function StudioFrame({ step, steps = STUDIO_STEPS, title, lede, actions, viewer, width = "wide", children }: StudioFrameProps) {
-  // Desktop only (BUILD §5.3): under 1280 px the window is asked to grow instead of drawing a top bar that overflows.
+export function StudioFrame({ step, steps = STUDIO_STEPS, title, lede, actions, viewer, width = "wide", smallScreen = false, children }: StudioFrameProps) {
+  // Desktop only (BUILD §5.3) unless `smallScreen`: under 1280 px the window is asked to grow instead of drawing a top
+  // bar that overflows.
   const viewportWidth = useViewportWidth();
-  if (isViewportTooSmall(viewportWidth)) return <NeedsLargerWindow width={viewportWidth} />;
+  if (!smallScreen && isViewportTooSmall(viewportWidth)) return <NeedsLargerWindow width={viewportWidth} />;
   const activeIndex = steps.findIndex((s) => s.id === step);
   return (
-    <div className="relative isolate flex min-h-screen flex-col bg-canvas text-primary" data-testid="studio-frame" data-step={step || undefined}>
+    <div className={cn("relative isolate flex min-h-screen flex-col bg-canvas text-primary", smallScreen && "@container")} data-testid="studio-frame" data-step={step || undefined} data-small-screen={smallScreen || undefined}>
       {/* The landing page's light in Foundmill steel: there is no business yet, so no brand colour of its own. */}
       <div aria-hidden className="brand-backdrop -z-10" />
       {/* No sidebar here: toasts go bottom right, never onto the first column of cards. */}
@@ -108,7 +115,7 @@ export function StudioFrame({ step, steps = STUDIO_STEPS, title, lede, actions, 
           </nav>
         ) : null}
         <div className="ml-auto flex shrink-0 items-center gap-3">
-          {viewer?.email ? <span className="font-mono text-mono text-tertiary">{viewer.email}</span> : null}
+          {viewer?.email ? <span className={cn("font-mono text-mono text-tertiary", smallScreen && "hidden @page-wide:inline")}>{viewer.email}</span> : null}
           <SignOutButton icon={LogOut} />
         </div>
       </header>

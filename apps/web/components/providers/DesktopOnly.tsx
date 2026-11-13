@@ -14,7 +14,8 @@ import { NeedsLargerWindow, isViewportTooSmall, useViewportWidth } from "@foundm
 /**
  * The routes that work from 390 px and never show NeedsLargerWindow. The one list to grow as the outer product gains
  * small-screen routes (docs/THESIS_REVIEW.md package 2.1): a project's public page first, then a person's public
- * profile (package 2.3), the sign-in page (`/login`, its notices and Continue with Google), then the two pages an email from Foundmill opens, read on a phone: the one-click answer
+ * profile (package 2.3), the sign-in page (`/login`, its notices and Continue with Google), the home of a person with no project yet (`/home`,
+ * package 2.4), then the two pages an email from Foundmill opens, read on a phone: the one-click answer
  * (`/a/<token>`) and the pause page (`/email/pause`) (founder, 2026-11-12). An entry ending in "/" is a prefix; any
  * other is that one path.
  */
@@ -22,6 +23,7 @@ export const SMALL_SCREEN_PREFIXES: readonly string[] = [
   "/p/",
   "/u/",
   "/login",
+  "/home",
   "/a/",
   "/email/pause",
 ];

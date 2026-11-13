@@ -29,7 +29,7 @@ export async function signIn(page: Page): Promise<void> {
   const dev = page.getByRole("button", { name: "Continue as developer" });
   await Promise.race([dev.waitFor({ state: "visible", timeout: LONG }), page.waitForURL((u) => !u.pathname.startsWith("/login"), { timeout: LONG })]).catch(() => undefined);
   if (await dev.isVisible().catch(() => false)) await dev.click();
-  await page.waitForURL(/\/b\/[0-9a-f-]+\/|\/onboarding|\/new/, { timeout: LONG });
+  await page.waitForURL(/\/b\/[0-9a-f-]+\/|\/onboarding|\/new|\/home/, { timeout: LONG });
   if (/\/onboarding/.test(page.url())) await completeProfile(page);
 }
 
