@@ -216,9 +216,6 @@ Generated from the templates as they were before the removal; one table per temp
 | `platform` | `attribution.codes.create` | no tool serves this capability |
 | `platform` | `crm.entities.create` | no tool serves this capability |
 | `platform` | `crm.interactions.append` | no tool serves this capability |
-| `openai` | `panel.query` | connector not built |
-| `gemini` | `panel.query` | connector not built |
-| `perplexity` | `panel.query` | connector not built |
 
 ## `channel_content`
 

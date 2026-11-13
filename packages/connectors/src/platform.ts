@@ -121,6 +121,11 @@ export interface LiveConnectorOptions {
   isSuppressed?: (businessId: string, address: string) => Promise<boolean>;
   /** The platform's own data behind the `platform` connector (task board, messages, reads); the gateway provides it. */
   platform?: PlatformHost;
+  /**
+   * The origin of this deployment's public project pages (`APP_URL`), for `indexnow` connected for a Foundmill-hosted page
+   * (founder, 2026-11-12): the gateway provides it, and names the page's own slug as `hostedSlug` in the connect input.
+   */
+  hostedPagesOrigin?: string;
   /** The quarantined reader behind `quarantine.read_untrusted` (BUILD §9.8 step 2); the gateway provides it. */
   quarantinedReader?: QuarantinedReader;
 }
