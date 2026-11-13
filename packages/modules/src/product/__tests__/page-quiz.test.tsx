@@ -92,4 +92,15 @@ describe("PageQuizPanel", () => {
     expect(screen.queryByRole("button", { name: W.approve })).toBeNull();
     expect(screen.getByRole("button", { name: W.save })).toBeTruthy();
   });
+
+  it("says the counts are unverified wherever they are shown (security review, Nov 13, 2026)", async () => {
+    render(withQuiz({ status: "live" }, { counts: { t1: 12, t2: 3 } }));
+    expect((await screen.findByTestId("quiz-results")).textContent).toContain("12 visitors got this result");
+    expect(screen.getByTestId("quiz-unverified").textContent).toMatch(/^These counts are unverified: one person can finish the quiz more than once/);
+  });
+
+  it("says so as soon as the quiz is live, before anyone answered", async () => {
+    render(withQuiz({ status: "live" }));
+    expect((await screen.findByTestId("quiz-unverified")).textContent).toMatch(/unverified/);
+  });
 });

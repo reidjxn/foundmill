@@ -110,7 +110,8 @@ export const PAGE_QUIZ_PANEL_WORDS = {
   answerType: "Points to",
   before: "Before you approve",
   results: "Results so far",
-  resultsNote: "Visitors who finished this version, counted without names or answers. Not checked: one person can finish it more than once.",
+  resultsNote: "Visitors who finished this version, counted without names or answers.",
+  unverified: "These counts are unverified: one person can finish the quiz more than once, and nobody checks who did. Read them as a rough sign, never as a number of people.",
   preview: "Preview",
   previewNote: "As it looks on a phone.",
   redraftTitle: "Draft the quiz again?",
@@ -332,17 +333,22 @@ export function PageQuizPanel() {
                   ))}
                 </section>
 
-                {hasCounts ? (
+                {hasCounts || status === "live" ? (
                   <section aria-labelledby={`${id}-results`} className="flex flex-col gap-2" data-testid="quiz-results">
                     <h3 id={`${id}-results`} className="t-label text-secondary">{W.results}</h3>
-                    <ul className="flex flex-col gap-1">
-                      {def.types.map((t) => (
-                        <li key={t.key} className="t-body text-primary">
-                          {t.name}: {pageQuizCountLine(data.counts[t.key] ?? 0)}
-                        </li>
-                      ))}
-                    </ul>
+                    {hasCounts ? (
+                      <ul className="flex flex-col gap-1">
+                        {def.types.map((t) => (
+                          <li key={t.key} className="t-body text-primary">
+                            {t.name}: {pageQuizCountLine(data.counts[t.key] ?? 0)}
+                          </li>
+                        ))}
+                      </ul>
+                    ) : null}
                     <p className="t-small text-secondary">{W.resultsNote}</p>
+                    <p className="t-small text-status-warn" data-testid="quiz-unverified">
+                      {W.unverified}
+                    </p>
                   </section>
                 ) : null}
 

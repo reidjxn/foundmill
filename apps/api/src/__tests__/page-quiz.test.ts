@@ -9,6 +9,7 @@
 import { interactions, repos } from "@foundmill/db";
 import { PAGE_QUIZ_MIN_CUSTOMERS, type PageQuizDefinition, type ProjectPageContent } from "@foundmill/shared";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { answerPublicQuiz, PUBLIC_QUIZ_LIMITS } from "../services/page-quiz";
 import { createApiHarness, type ApiHarness } from "./harness";
 
 let hz: ApiHarness;
@@ -41,6 +42,17 @@ async function customers(businessId: string, people: number, orgs: number) {
       await repos.entities.addRole(hz.db, businessId, e.id, { role: "customer" });
     }
   }
+}
+
+/** A project whose quiz is drafted, approved and on its live page. */
+async function live(name: string) {
+  const b = await project(name);
+  await customers(b.id, 4, 3);
+  const drafted = await b.owner.pageQuiz.draft({ businessId: b.id });
+  if (drafted.outcome !== "drafted") throw new Error(drafted.message);
+  await b.owner.pageQuiz.approve({ businessId: b.id, definition: drafted.view.quiz!.definition as never });
+  const on = await b.owner.pageQuiz.setLive({ businessId: b.id, on: true });
+  return { ...b, version: on.quiz!.version };
 }
 
 const anon = () => hz.caller(null);
@@ -171,4 +183,19 @@ describe("pageQuiz: security review fixes (Nov 13, 2026)", () => {
     }
   });
 
+  it("a flood of answers never stops a visitor getting their result; only the counting stops, per caller and page", async () => {
+    const b = await live("Flood");
+    const ctx = { db: hz.db, env: hz.deps.env, limits: hz.limits, clientAddress: "203.0.113.9" };
+    const answers = { q1: "a1", q2: "a1" };
+    const results: string[] = [];
+    for (let i = 0; i < 150; i++) results.push((await answerPublicQuiz(ctx, { slug: b.slug, version: b.version, answers })).outcome);
+    expect(new Set(results)).toEqual(new Set(["result"]));
+    const counted = (await b.owner.pageQuiz.get({ businessId: b.id })).counts.t1 ?? 0;
+    expect(counted).toBeGreaterThan(0);
+    expect(counted).toBeLessThanOrEqual(PUBLIC_QUIZ_LIMITS.countPerCallerPage.limit);
+    // Another page answered from the same address still counts: one page's flood leaves the others alone.
+    const other = await live("Other page");
+    expect(await answerPublicQuiz(ctx, { slug: other.slug, version: other.version, answers })).toEqual({ outcome: "result", type: "t1" });
+    expect((await other.owner.pageQuiz.get({ businessId: other.id })).counts).toEqual({ t1: 1 });
+  });
 });
