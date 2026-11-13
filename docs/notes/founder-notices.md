@@ -56,17 +56,18 @@ Someone with founder standing (an owner or a cofounder) could lower another foun
 - **"/home"** is not one route here: the signed-in front door is Today, the dashboards are Home, and someone with no project left lands on /new. The card is on all three (it renders nothing while there is no project to keep).
 - **The base branch moves**: `team.ts` changes are kept to a few lines (the limit, the names and the demotion read before the transactions). At the merge of #120 its locked re-reads and the grant rule were taken as they are; the actor's limit on lowering a founder now sits after every access check (the editor's fresh row, the lock on the person's row, `assertWithinGrantorAccess`), so a change refused for access never spends one.
 
-## Tests (verbatim totals, Nov 13, 2026, after #120 was merged in and the migration became 0097)
+## Tests (verbatim totals, Nov 13, 2026, after the final review's fixes and #120's 211a60ca merged in)
 
 - `pnpm -w turbo typecheck` (run alone): Tasks: 25 successful, 25 total
 - eslint on the files changed against #120: no errors, no warnings
-- packages/db: Test Files 99 passed | 1 skipped (100); Tests 2456 passed | 18 skipped (2474)
-- apps/api: Test Files 143 passed (143); Tests 1317 passed | 9 skipped (1326)
-- apps/gateway: Test Files 36 passed (36); Tests 370 passed (370)
-- packages/shared: Test Files 60 passed (60); Tests 835 passed (835)
+- packages/db: Test Files 99 passed | 1 skipped (100); Tests 2457 passed | 18 skipped (2475)
+- apps/api: Test Files 143 passed (143); Tests 1320 passed | 9 skipped (1329)
+- apps/gateway (after the merge of 211a60ca): Test Files 36 passed (36); Tests 376 passed (376)
+- packages/shared: Test Files 60 passed (60); Tests 836 passed (836)
 - apps/web: Test Files 179 passed (179); Tests 1429 passed (1429)
 - packages/dugout: Test Files 123 passed (123); Tests 1265 passed (1265)
 - packages/connectors: Test Files 54 passed | 1 skipped (55); Tests 1178 passed | 189 skipped (1367)
+- `node --test scripts/env-example.test.mjs`: tests 3, pass 3, fail 0
 - `rls/client-grants.test.ts` (from main, #101): Test Files 1 passed (1); Tests 32 passed (32). The migration adds one security-definer function, the trigger's (`fm_memberships_record_founder_departure`, revoked from public, anon and authenticated; a trigger function, which the allowlist leaves out); `fm_account_event_types()` is not security definer. `rls/founder-departures.test.ts` now also checks both tables explicitly: authenticated holds SELECT on `founder_departures` and nothing else, anon nothing, no client role anything on `founder_cancel_links` (so no TRUNCATE, TRIGGER or REFERENCES), and no client role EXECUTE on the trigger's function.
 - Playwright `founder-notices.spec.ts` and `invitations.spec.ts` on a fresh PGlite stack (api :4330, web :3330, `APP_URL=http://localhost:3330`, gateway recorder :4331, `--trace off`): 15 passed, 1 skipped (the onboarding project runs first as their dependency; the skipped one is the sign-up ceiling test, which needs its own stack with `SIGNUP_OPEN=1 SIGNUP_DAILY_CEILING=0`). The stack's `.pglite` directory was deleted afterwards.
 - `node scripts/banned-terms.mjs` and `node scripts/us-english.mjs`: clean
