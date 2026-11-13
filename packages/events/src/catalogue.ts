@@ -1779,6 +1779,37 @@ const pageFollowed = declareEvent(
 );
 
 // ---------------------------------------------------------------------------------------------------
+// The optional "which one is for you" quiz on a project's public page (0101)
+// ---------------------------------------------------------------------------------------------------
+
+const QuizFacts = z.object({
+  quizId: Id,
+  /** The definition's version (it goes up with every change); counts are read per version. */
+  version: z.number().int().positive(),
+  /** How many customer types and questions it has: shape only, never the words. */
+  typeCount: z.number().int().min(2).max(4),
+  questionCount: z.number().int().min(2).max(4),
+});
+
+const quizApproved = declareEvent("quiz.approved", QuizFacts, {
+  doc: "A founder (an owner or an admin) approved every word of the project's page quiz, which the team drafted from the project's real customers. Approving puts nothing on the page: it stays off until they turn it on (`quiz.published`). Never narrated; apps/stream pushes it so the Public page tab follows.",
+  consumers: ["stream", "metrics"],
+  narratable: false,
+});
+
+const quizPublished = declareEvent("quiz.published", QuizFacts.extend({ slug: z.string().min(3).max(40) }), {
+  doc: "A founder turned the approved quiz on: from now on it shows on the project's public page while the page is live. Not a real outcome on its own (nothing outside happened yet). Never narrated; pushed for the Public page tab.",
+  consumers: ["stream", "metrics"],
+  narratable: false,
+});
+
+const quizUnpublished = declareEvent("quiz.unpublished", QuizFacts.extend({ slug: z.string().min(3).max(40) }), {
+  doc: "A founder turned the quiz off: it leaves the public page at once (the approved quiz is kept). Never narrated; pushed for the Public page tab.",
+  consumers: ["stream", "metrics"],
+  narratable: false,
+});
+
+// ---------------------------------------------------------------------------------------------------
 // A message sent from the project's Foundmill address (0078, package 1.5)
 // ---------------------------------------------------------------------------------------------------
 
@@ -2063,6 +2094,9 @@ export const EVENTS = {
   "share.opened": shareOpened,
   "referral.arrived": referralArrived,
   "post.drafted": postDrafted,
+  "quiz.approved": quizApproved,
+  "quiz.published": quizPublished,
+  "quiz.unpublished": quizUnpublished,
 } as const satisfies { readonly [K in EventTypeT]: EventDeclaration<K, z.ZodType, EventScopeOf<K>> };
 
 export type EventsRegistry = typeof EVENTS;

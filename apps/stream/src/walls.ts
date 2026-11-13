@@ -139,6 +139,10 @@ export const EVENT_WALLS = {
   // The team drafted a post for the founder to share by tap: ids and the trigger's kind, never the words. The Creative
   // tab and Today follow it.
   "post.drafted": { sections: ["distribution"] },
+  // The page quiz approved, turned on or off (0101): ids and its shape, never the words. The Public page tab follows.
+  "quiz.approved": { sections: ["product"] },
+  "quiz.published": { sections: ["product"] },
+  "quiz.unpublished": { sections: ["product"] },
 } as const satisfies { readonly [K in BusinessEventType]: EventWall };
 
 /** What one reader may see of business events: their walls (sections they may not read at all). */

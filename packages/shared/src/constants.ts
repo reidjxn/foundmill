@@ -451,6 +451,7 @@ export const EVENT_TYPES = [
   "share.opened",
   "referral.arrived",
   "post.drafted",
+  "quiz.approved", "quiz.published", "quiz.unpublished",
 ] as const;
 export type EventType = (typeof EVENT_TYPES)[number];
 

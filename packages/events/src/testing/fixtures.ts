@@ -557,6 +557,9 @@ export const EVENT_FIXTURES: { readonly [K in EventType]: EventPayloadInput<K> }
   "milestone.hidden": { milestoneId: fixtureId("milestone"), key: "page_live", slug: "northwind-skincare", url: `https://foundmill.example/m/${fixtureId("milestone")}` },
   "share.opened": { network: "x", kind: "milestone", refId: fixtureId("milestone"), target: "tap" },
   "post.drafted": { assetId: fixtureId("asset-post"), trigger: "page_published", subject: "page_live", agentId: FIXTURE_AGENT_ID },
+  "quiz.approved": { quizId: fixtureId("page-quiz"), version: 2, typeCount: 3, questionCount: 3 },
+  "quiz.published": { quizId: fixtureId("page-quiz"), version: 2, typeCount: 3, questionCount: 3, slug: "northwind-skincare" },
+  "quiz.unpublished": { quizId: fixtureId("page-quiz"), version: 2, typeCount: 3, questionCount: 3, slug: "northwind-skincare" },
   // Account-scoped (a person's own): written with `accountFixtureInput`, never with `fixtureInput`.
   "profile.published": { handle: "maya-okafor" },
   "profile.unpublished": { handle: "maya-okafor" },

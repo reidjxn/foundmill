@@ -439,6 +439,44 @@ export const PostDraftOutput = z.object({
 });
 export type PostDraftOutput = z.infer<typeof PostDraftOutput>;
 
+// ---------------------------------------------------------------------------------------------------------------------
+// The optional "which one is for you" quiz on a project's public page (migration 0101; packages/agents `page-quiz.ts`):
+// the team sorts the project's real customers into 2 to 4 types, each resting on customers it names by their opaque
+// ref, or says there is too little data. Every word is checked by packages/agents `finalisePageQuiz` before it is
+// stored, and the founder approves it before anything is public.
+// ---------------------------------------------------------------------------------------------------------------------
+
+export const PageQuizOutput = z.object({
+  /** `draft` when the customers split into types the records show; `too_little_data` when they do not. */
+  outcome: z.enum(["draft", "too_little_data"]),
+  /** One plain sentence: why there is too little data, or what the types were drawn from. */
+  reason: z.string().max(300).default(""),
+  types: z
+    .array(
+      z.object({
+        name: z.string().min(1).max(60),
+        summary: z.string().max(200).default(""),
+        /** The customers this type was drawn from (`c1`, `c2`, ...): at least two, all from the input. */
+        customer_refs: z.array(z.string().max(8)).max(60),
+        /** The offer that fits them: `follow`, or a purchase's ref (`p1`, ...) from the input. */
+        offer_ref: z.string().max(8),
+      }),
+    )
+    .max(4)
+    .default([]),
+  questions: z
+    .array(
+      z.object({
+        text: z.string().min(1).max(120),
+        /** Each answer points to one type by its position in `types` (0-based). */
+        answers: z.array(z.object({ text: z.string().min(1).max(80), type_index: z.number().int().min(0).max(3) })).min(2).max(4),
+      }),
+    )
+    .max(4)
+    .default([]),
+});
+export type PageQuizOutput = z.infer<typeof PageQuizOutput>;
+
 export const CHART_OF_ACCOUNTS = [
   "revenue",
   "refunds",

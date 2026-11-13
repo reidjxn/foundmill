@@ -23,6 +23,7 @@ import { foundationsRepo } from "./foundations";
 import { foundersRepo } from "./founders";
 import { goalsRepo } from "./goals";
 import { pagesRepo } from "./pages";
+import { pageQuizzesRepo } from "./page-quizzes";
 import { personProfilesRepo } from "./person-profiles";
 import { mailRepo } from "./mail";
 import { followersRepo } from "./followers";
@@ -76,6 +77,7 @@ export const repos = {
   productSignoffs: productSignoffsRepo,
   goals: goalsRepo,
   pages: pagesRepo,
+  pageQuizzes: pageQuizzesRepo,
   personProfiles: personProfilesRepo,
   projectMail: mailRepo,
   followers: followersRepo,
@@ -151,6 +153,7 @@ export * from "./foundations";
 export * from "./founders";
 export * from "./goals";
 export * from "./pages";
+export * from "./page-quizzes";
 export * from "./person-profiles";
 export * from "./mail";
 export * from "./notify-email";

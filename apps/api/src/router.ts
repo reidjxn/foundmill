@@ -23,6 +23,7 @@ import { journeyRouter } from "./routers/journey";
 import { legalRouter } from "./routers/legal";
 import { liveRouter } from "./routers/live";
 import { pageRouter, publicPageRouter } from "./routers/page";
+import { pageQuizRouter, publicQuizRouter } from "./routers/page-quiz";
 import { productRouter } from "./routers/product";
 import { shareRouter } from "./routers/share";
 import { teamRouter } from "./routers/team";
@@ -50,6 +51,9 @@ export const appRouter = router({
   goal: goalRouter,
   page: pageRouter,
   publicPage: publicPageRouter,
+  // The optional quiz on a public page (0101): the console's review, approve and on/off, and the signed-out read and count.
+  pageQuiz: pageQuizRouter,
+  publicQuiz: publicQuizRouter,
   // Tap-to-post: a pressed share control, recorded as a share that was opened (services/shares.ts).
   share: shareRouter,
   publicPerson: publicPersonRouter,
