@@ -136,7 +136,7 @@ export const TENANT_TABLES: TenantTableSpec[] = [
   spec("cap_table_entries", s.capTableEntries, "admin", (f) => ({ holderEntityId: f.entityId, securityId: f.securityId, quantity: "1000" })),
   spec("usage_ledger", s.usageLedger, "service", (f) => ({ agentId: f.agentId, sessionId: f.sessionId, kind: "tokens", quantity: 500, costMinor: 3 })),
   spec("credit_balances", s.creditBalances, "service", () => ({ period: uniq("2026-02"), balanceMinor: 10000 })),
-  // 0096 bought credits as lots, 12 months each (written by the api and the ingest webhook with the service role)
+  // 0098 bought credits as lots, 12 months each (written by the api and the ingest webhook with the service role)
   spec("credit_lots", s.creditLots, "service", () => ({ amountMinor: 2500, remainingMinor: 2500, purchasedAt: new Date("2026-11-13T00:00:00Z"), expiresAt: new Date("2027-11-13T00:00:00Z") })),
   // 0033 credit top-ups through Stripe Checkout (written by the api and the ingest webhook with the service role)
   spec("billing_checkouts", s.billingCheckouts, "service", () => ({ mode: "mock", amountMinor: 5000, currency: "USD" })),
@@ -223,5 +223,7 @@ export const NON_TENANT_TABLES = [
   "founder_presence",
   "founder_visit_days",
   "founder_notifications",
+  // 0088: who or what brought a new person (user-owned, service role only); rls/attributions.test.ts.
+  "attributions",
 ] as const;
 

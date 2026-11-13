@@ -216,6 +216,22 @@ export const followersRepo = {
     return rows.length;
   },
 
+  /**
+   * The first confirmation the business's page ever got: the consent record's id and the moment, or null while nobody
+   * confirmed. A person who unsubscribed later still was the first follower that day. Ids only, never an address.
+   */
+  async firstConfirmed(db: Executor, businessId: string): Promise<{ consentId: string; confirmedAt: Date } | null> {
+    const row = maybeOne(
+      await db
+        .select({ consentId: contactConsents.id, confirmedAt: contactConsents.confirmedAt })
+        .from(contactConsents)
+        .where(and(pageConsent(businessId), isNotNull(contactConsents.confirmedAt)))
+        .orderBy(contactConsents.confirmedAt, contactConsents.id)
+        .limit(1),
+    );
+    return row?.confirmedAt ? { consentId: row.consentId, confirmedAt: row.confirmedAt } : null;
+  },
+
   /** How many people follow the business's page now: confirmed, not withdrawn, on a contact the founder still works with. */
   async count(db: Executor, businessId: string): Promise<number> {
     const rows = await db

@@ -7,9 +7,14 @@
  *
  * Who may do what follows `page.get`: owners and admins edit and publish (`canPublish`); everyone else reads it, with
  * one sentence saying who can change it. A sample business has no public page.
+ *
+ * Tap-to-post (docs/NETWORK.md F3; docs/DESIGN.md §9g): once the page is live, "Share your page" beside "Copy link"
+ * opens the share panel with a plain draft (the project's name, the published one-line pitch, the page's address with
+ * `via`). A press is recorded as a share that was opened (`share.opened`), fire-and-forget.
  */
 import { useEffect, useId, useMemo, useState, type ReactNode } from "react";
-import { Copy, ExternalLink, Globe, Pencil, Rocket, Undo2 } from "lucide-react";
+import { Copy, ExternalLink, Globe, Pencil, Rocket, Share2, Undo2 } from "lucide-react";
+import { APP_NAME } from "@foundmill/config";
 import {
   Button,
   Dialog,
@@ -27,6 +32,7 @@ import {
   ProjectFollowForm,
   ProjectPage,
   SegmentedControl,
+  SharePost,
   StatusPill,
   Switch,
   Textarea,
@@ -40,6 +46,7 @@ import {
   PAGE_SLUG_RULE,
   PAGE_STAGES,
   PAGE_STAGE_LABELS,
+  builtOnWords,
   followerCountLine,
   pageContentProblems,
   pageSlugProblem,
@@ -50,6 +57,8 @@ import {
   type PageStage,
   type ProjectPageContent,
 } from "@foundmill/shared/project-page";
+import { SHARE_OPEN_WORDS, pagePostDraft } from "@foundmill/shared/share-drafts";
+import type { ShareOpened } from "@foundmill/shared/share-targets";
 import { useBusinessEvents, useWidgetData, useWidgetQuery } from "@foundmill/widgets";
 import type { ModuleScreenProps } from "../registry";
 import { Screen, errorMessage } from "./shared";
@@ -71,6 +80,8 @@ export interface PageViewResponse {
   preview: { name: string; brandPrimary: string; brandSecondary: string; founderNames: string[] };
   /** How many people follow the page (package 1.6); absent from an older api. */
   followers?: number;
+  /** Whether visitors see the small "Built on" mark (the free plan; docs/NETWORK.md F2); absent from an older api. */
+  mark?: boolean;
 }
 
 type PublishResponse = { outcome: "published"; page: PageViewResponse } | { outcome: "held"; reason: PageHoldReason; message: string; page: PageViewResponse };
@@ -111,6 +122,7 @@ export const PUBLIC_PAGE_WORDS = {
   cancel: "Cancel",
   copyLink: "Copy link",
   copied: "Link copied",
+  share: SHARE_OPEN_WORDS.sharePage,
   open: "Open",
   readOnly: "An owner or an admin of this project can edit and publish this page.",
   sample: "This is a sample business, so it has no public page. Start your own project to publish one.",
@@ -184,6 +196,7 @@ export function PublicPageScreen(_props: ModuleScreenProps) {
   const [slug, setSlug] = useState("");
   const [slugError, setSlugError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const [sharing, setSharing] = useState(false);
 
   const content = draft ?? data?.draft ?? null;
   const problems: PageFieldErrors = useMemo(() => (content ? pageContentProblems(content) : {}), [content]);
@@ -253,6 +266,16 @@ export function PublicPageScreen(_props: ModuleScreenProps) {
     } catch {
       setError("The link could not be copied. Select the address and copy it instead.");
     }
+  };
+
+  // Tap-to-post: the draft says what the live page says (its published pitch), never what is still being written.
+  const shareDraft = useMemo(
+    () => (data?.live && data.published ? pagePostDraft({ origin: new URL(data.url).origin, slug: data.slug, projectName: data.preview.name, pitch: data.published.pitch }) : null),
+    [data?.live, data?.published, data?.url, data?.slug, data?.preview.name],
+  );
+  const recordShare = (opened: ShareOpened) => {
+    // Fire-and-forget: the share has already happened in the browser, and never fails because of this.
+    void mutate("share.opened", { kind: "page", ...opened }).catch(() => undefined);
   };
 
   const stateLine = data
@@ -367,6 +390,11 @@ export function PublicPageScreen(_props: ModuleScreenProps) {
                           {PUBLIC_PAGE_WORDS.open}
                         </a>
                       </Button>
+                      {shareDraft ? (
+                        <Button size="sm" icon={Share2} onClick={() => setSharing(true)} data-testid="page-share">
+                          {PUBLIC_PAGE_WORDS.share}
+                        </Button>
+                      ) : null}
                     </>
                   ) : null}
                 </div>
@@ -425,13 +453,19 @@ export function PublicPageScreen(_props: ModuleScreenProps) {
               brandPrimary={data.preview.brandPrimary}
               brandSecondary={data.preview.brandSecondary}
               founderNames={founderNames}
-              homeHref="/"
+              mark={data.mark ? "visitor" : "none"}
               follow={content.followForm ? <ProjectFollowForm name={data.preview.name} preview /> : null}
             />
           </div>
         ) : null}
+        {data?.mark && content ? (
+          <p className="t-small mx-auto mt-3 w-phone max-w-full text-secondary" data-testid="page-mark-note">
+            {builtOnWords(APP_NAME).previewNote}
+          </p>
+        ) : null}
       </Panel>
 
+      {shareDraft ? <SharePost open={sharing} onOpenChange={setSharing} title={SHARE_OPEN_WORDS.pageTitle} description={SHARE_OPEN_WORDS.description} draft={shareDraft} appName={APP_NAME} onShare={recordShare} /> : null}
       <Dialog open={confirming} onOpenChange={setConfirming}>
         <DialogContent size="sm" aria-describedby={`${id}-confirm`}>
           <DialogHeader>

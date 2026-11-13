@@ -72,7 +72,7 @@ export function JourneySection() {
           </ProductWindow>
         </div>
       </Reveal>
-      <div className="grid grid-cols-12 gap-6">
+      <div className="grid grid-cols-12 gap-10">
         <Reveal className="col-span-7">
           <CustomerUpdate today={today} />
         </Reveal>

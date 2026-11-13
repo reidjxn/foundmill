@@ -553,9 +553,16 @@ export const EVENT_FIXTURES: { readonly [K in EventType]: EventPayloadInput<K> }
   "notify.email_sent": { kind: "decision_waiting", userId: fixtureId("user"), inboxItemId: fixtureId("inbox"), messageId: "14c5d75ce93.dfd.64b469.filter0001.16648.5515E0B88.1", simulated: false, notificationId: fixtureId("notification"), offersAnswer: false },
   "push.sent": { kind: "decision", sourceEventId: fixtureId("event-source"), sourceEventType: "inbox.item_created", recipients: 2, devices: 3, provider: "onesignal", mode: "mock", providerMessageIds: [fixtureId("push-1")] },
   "founder.session_started": { via: "email", notificationId: fixtureId("notification"), minutesAway: 720, sessions: 3 },
+  "milestone.shown": { milestoneId: fixtureId("milestone"), key: "page_live", slug: "northwind-skincare", url: `https://foundmill.example/m/${fixtureId("milestone")}` },
+  "milestone.hidden": { milestoneId: fixtureId("milestone"), key: "page_live", slug: "northwind-skincare", url: `https://foundmill.example/m/${fixtureId("milestone")}` },
+  "share.opened": { network: "x", kind: "milestone", refId: fixtureId("milestone"), target: "tap" },
+  "post.drafted": { assetId: fixtureId("asset-post"), trigger: "page_published", subject: "page_live", agentId: FIXTURE_AGENT_ID },
   // Account-scoped (a person's own): written with `accountFixtureInput`, never with `fixtureInput`.
   "profile.published": { handle: "maya-okafor" },
   "profile.unpublished": { handle: "maya-okafor" },
+  // One sign-up, two people, two rows: the new person's and the credited person's. A public address and nothing else.
+  "signup.attributed": { sourceKind: "project_page", sourceRef: "northwind-skincare" },
+  "referral.arrived": { sourceKind: "person_profile", sourceRef: "maya-okafor" },
 };
 
 /** A valid `WriteEventInput` for the given business-scoped type, with the fixture payload and envelope. */

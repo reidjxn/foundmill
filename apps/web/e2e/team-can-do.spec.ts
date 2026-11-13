@@ -59,6 +59,28 @@ test.describe("settings › what the team can do", () => {
     }
   });
 
+  test("When the team stops lists, read-only, what asks first for the answer in force and what stops on its own", async ({ page }) => {
+    await openBusiness(page, "settings/mode");
+    const stops = settingsScreen(page).getByTestId("team-can-do-stops");
+    await expect(stops).toBeVisible({ timeout: LONG });
+    await expect(stops.getByRole("heading", { name: "When the team stops" })).toBeVisible();
+    // Northwind is on the second answer: a step that can't be undone and a contract ask; outside contact alone does not.
+    const asks = stops.getByTestId("stops-asks");
+    await expect(asks.getByTestId("stop-always_yours")).toContainText("Always comes to you. The team prepares it and never does it itself.");
+    await expect(asks.getByTestId("stop-spend")).toContainText("A purchase over the agent's own limit (£250 unless you set one)");
+    await expect(asks.getByTestId("stop-permanent")).toContainText("A step that can't be undone (sending an email counts)");
+    await expect(asks.getByTestId("stop-contract")).toBeVisible();
+    await expect(asks.getByTestId("stop-outside")).toHaveCount(0);
+    await expect(asks.getByTestId("stop-release")).toContainText("Putting changes live in your product");
+    await expect(asks.getByTestId("stop-credits")).toContainText("The credits run out");
+    const own = stops.getByTestId("stops-own");
+    await expect(own.getByTestId("stop-unsubscribed")).toContainText("The project never emails them again.");
+    await expect(own.getByTestId("stop-daily_email")).toContainText("Sending waits until midnight UTC.");
+    // Read-only: no control of its own.
+    await expect(stops.locator("button, input, [role='radio'], [role='switch']")).toHaveCount(0);
+    await expect(stops).not.toContainText(/\b(hard gates?|policy|policies|caps?)\b/i);
+  });
+
   test("handing publishing to the Chief of Staff shows up in Team › Responsibilities", async ({ page }) => {
     await openBusiness(page, "settings/mode");
     const row = settingsScreen(page).getByTestId("answer-publish_content");
@@ -94,7 +116,7 @@ test.describe("settings › what the team can do", () => {
     const chip = page.getByRole("button", { name: /^What the team can do: / });
     expect(await chip.evaluate((el) => el.scrollWidth <= el.clientWidth + 1)).toBe(true);
     // Every answer card and row keeps its words inside its box.
-    for (const card of await screen.locator(".radio-card, [data-testid^='answer-']").all()) {
+    for (const card of await screen.locator(".radio-card, [data-testid^='answer-'], [data-testid^='stop-']").all()) {
       expect(await card.evaluate((el) => el.scrollWidth <= el.clientWidth + 1)).toBe(true);
     }
   });

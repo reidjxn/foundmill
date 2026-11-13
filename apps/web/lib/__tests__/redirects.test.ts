@@ -36,6 +36,19 @@ describe("proxy redirect rules", () => {
     expect(isFounderPath("/p/northwind-skincare")).toBe(false);
   });
 
+  it("serves a project's story and a milestone's card to anyone, signed in or out, and only under /p/ and /m/", () => {
+    const id = "7a21e15f-87b0-4000-ac49-c98b9d627e98";
+    for (const p of ["/p/northwind-skincare/story", `/m/${id}`, `/m/${id}/opengraph-image`, `/m/${id}/story-image`]) {
+      expect(isPublicPath(p), p).toBe(true);
+      expect(decideRedirect({ pathname: p, authenticated: false }).kind).toBe("next");
+      expect(decideRedirect({ pathname: p, authenticated: true }).kind).toBe("next");
+      expect(isFounderPath(p), p).toBe(false);
+    }
+    // Not a prefix match on the letter: the console's Milestones screen and everything else stay signed-in only.
+    for (const p of ["/m", "/milestones", "/messages", "/b/x/milestones"]) expect(isPublicPath(p), p).toBe(false);
+    expect(decideRedirect({ pathname: "/b/x/milestones", authenticated: false }).kind).toBe("redirect");
+  });
+
   it("serves a person's public profile to anyone, signed in or out, and only under /u/", () => {
     for (const p of ["/u/maya-okafor", "/u/maya-okafor/opengraph-image"]) {
       expect(isPublicPath(p), p).toBe(true);

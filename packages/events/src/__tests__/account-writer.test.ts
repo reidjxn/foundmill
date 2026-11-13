@@ -155,6 +155,48 @@ describe("the two-person rule at the writer", () => {
     ]);
   });
 
+  it("a sign-up a public address brought: the new person's row and the credited person's, and neither says who the other is", async () => {
+    const NEWCOMER = fixtureId("newcomer");
+    const facts = { sourceKind: "project_page", sourceRef: "bread-by-bike" } as const;
+    const system = { kind: "system", id: "attribution" } as const;
+    const tx = inserting();
+    const ids = await writeAccountEvents(tx, [
+      { userId: NEWCOMER, type: "signup.attributed", actor: system, payload: facts, occurredAt: "2026-11-12T09:00:00.000Z", idempotencyKey: "attribution:1:signup" },
+      { userId: FIXTURE_USER_ID, type: "referral.arrived", actor: system, payload: facts, occurredAt: "2026-11-12T09:00:00.000Z", idempotencyKey: "attribution:1:referral" },
+    ]);
+    expect(new Set(ids).size).toBe(2);
+    const events = tx.statements.filter((s) => s.sql.startsWith('insert into "account_events"'));
+    expect(events.map((s) => s.params.slice(1))).toEqual([
+      [NEWCOMER, "signup.attributed", "2026-11-12T09:00:00.000Z", JSON.stringify(system), JSON.stringify(facts), "attribution:1:signup"],
+      [FIXTURE_USER_ID, "referral.arrived", "2026-11-12T09:00:00.000Z", JSON.stringify(system), JSON.stringify(facts), "attribution:1:referral"],
+    ]);
+    // The credited person's statement holds nothing of the new person, and the reverse; nor do the queue rows.
+    const referral = tx.statements.filter((s) => s.params.includes(FIXTURE_USER_ID));
+    const signup = tx.statements.filter((s) => s.params.includes(NEWCOMER));
+    expect(referral).toHaveLength(2);
+    expect(signup).toHaveLength(2);
+    expect(JSON.stringify(referral.map((s) => s.params))).not.toContain(NEWCOMER);
+    expect(JSON.stringify(signup.map((s) => s.params))).not.toContain(FIXTURE_USER_ID);
+    expect(tx.statements.some((s) => /"events"|"outbox"/.test(s.sql))).toBe(false);
+
+    // Refused whole, before the first insert: a payload that names the new person, however it is spelled; the new
+    // person as the actor of the credited person's row; a field the schema does not have.
+    const refused = new CapturingQueryable();
+    const pair = (referralOver: Record<string, unknown>): WriteAccountEventInput[] => [
+      { userId: NEWCOMER, type: "signup.attributed", actor: system, payload: facts },
+      { userId: FIXTURE_USER_ID, type: "referral.arrived", actor: system, payload: facts, ...referralOver } as WriteAccountEventInput,
+    ];
+    await expect(writeAccountEvents(refused, pair({ payload: { ...facts, sourceRef: NEWCOMER.replace(/-/g, "") } }))).rejects.toThrow(/carries an account id/);
+    await expect(writeAccountEvents(refused, pair({ payload: { ...facts, userId: NEWCOMER } }))).rejects.toThrow(/Invalid payload for referral\.arrived/);
+    await expect(writeAccountEvents(refused, pair({ payload: { ...facts, handle: "the-newcomer" } }))).rejects.toThrow(/Invalid payload for referral\.arrived: unrecognized_keys at depth 0/);
+    await expect(writeAccountEvents(refused, pair({ actor: { kind: "user", id: NEWCOMER } }))).rejects.toThrow(/a user actor must be the person the row belongs to/);
+    // The business writer takes neither type.
+    for (const type of ["signup.attributed", "referral.arrived"] as const) {
+      await expect(writeEvent(refused, { businessId: FIXTURE_BUSINESS_ID, type, actor: system, payload: facts } as unknown as WriteEventInput), type).rejects.toThrow(/is account-scoped and is never written to a business's events/);
+    }
+    expect(refused.statements).toHaveLength(0);
+  });
+
   it("refuses the whole fact, before the first insert, when a row would name the other person by their account", async () => {
     const tx = new CapturingQueryable();
     // The fixture schema is strict, so the only place an id could ride is the handle: it is refused there too.

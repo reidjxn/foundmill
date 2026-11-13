@@ -16,7 +16,7 @@ import { Context } from "@temporalio/activity";
 import { buildMarkovModel, conversionPathsFromTouches } from "@foundmill/journey";
 import { catchUpMilestones, repos, stopBusinessAgents } from "@foundmill/db";
 import { channelAvailability, channelAvailabilityFacts, everyChannelAvailable } from "@foundmill/connectors";
-import { channelMayRun, type ChannelKey } from "@foundmill/shared";
+import { channelEngineMayRun, type ChannelKey } from "@foundmill/shared";
 import type { OrchestratorDeps } from "../deps";
 import { emitEvent, systemActor } from "../events";
 import type { DueBusinessDeletion, EngineToEnsure, ScheduleBatch, ScheduleResult } from "./types";
@@ -316,7 +316,8 @@ export function createScheduleActivities(deps: OrchestratorDeps) {
      * Every channel the Board shows as running, of a business whose team may work (the engine reconciler's input).
      * A channel that cannot really act and is not in offline tracking is left out (founder, 2026-11-11): its engine
      * would stop at its first step, and the reconciler would start it again every 15 minutes. Where simulated results
-     * are allowed for every business (development, test) nothing is read and nothing is left out.
+     * are allowed for every business (development, test) nothing is read and nothing is left out. A channel the
+     * founder posts by tap is left out the same way: it is on the board with no engine (founder, 2026-11-12).
      */
     async listEnginesToEnsure(): Promise<{ channels: EngineToEnsure[] }> {
       const rows = await repos.channels.listForEngines(deps.db);
@@ -328,7 +329,7 @@ export function createScheduleActivities(deps: OrchestratorDeps) {
           known = (async () => {
             const [business, channels, integrations] = await Promise.all([repos.businesses.get(deps.db, businessId), repos.channels.list(deps.db, businessId, { enabled: true }), repos.integrations.list(deps.db, businessId)]);
             const facts = channelAvailabilityFacts(deps.env, business, integrations);
-            return new Set(channels.filter((c) => channelMayRun(channelAvailability(c.channelKey as ChannelKey, facts), c.kitMode)).map((c) => c.id));
+            return new Set(channels.filter((c) => channelEngineMayRun(channelAvailability(c.channelKey as ChannelKey, facts), c.kitMode)).map((c) => c.id));
           })();
           byBusiness.set(businessId, known);
         }
