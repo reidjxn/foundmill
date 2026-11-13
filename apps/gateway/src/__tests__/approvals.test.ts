@@ -158,6 +158,30 @@ describe("one approval per gated call", () => {
     }
   });
 
+  it("an agent's approval given back after a call that did not run never runs a retry once the delegation is withdrawn", async () => {
+    const dept = await repos.departments.create(g.db, g.businessId, { name: "Delegated, refused" });
+    const reviewer = await repos.agents.create(g.db, g.businessId, { name: "Reviewer", agentType: "review_agent", departmentIds: [dept.id] });
+    await repos.agents.update(g.db, g.businessId, g.agentId, { departmentIds: [dept.id] });
+    await repos.departments.update(g.db, g.businessId, dept.id, { approvers: [{ decisionType: "message_customers", handler: { kind: "agent", id: reviewer.id } }] });
+    const args = { to: SAFE_EMAIL, body: "Delegated, then refused" };
+    try {
+      const token = await g.token();
+      sendRefusals.push(405);
+      const refused = asAllow(await g.client.call(token, { connector: "test", tool: "send_message", args }));
+      expect(refused.result.ok).toBe(false);
+      const approvalId = (await repos.approvals.list(g.db, g.businessId, { agentId: g.agentId, connectorKey: "test", limit: 1 })).items[0]!.id;
+      expect(await repos.approvals.get(g.db, g.businessId, approvalId)).toMatchObject({ byKind: "agent", usedAt: null });
+      await repos.departments.update(g.db, g.businessId, dept.id, { approvers: [] });
+      const retry = asAsk(await g.client.call(token, { connector: "test", tool: "send_message", args }));
+      expect(retry.approvalId).not.toBe(approvalId);
+      expect(g.seen).toHaveLength(0);
+    } finally {
+      sendRefusals.length = 0;
+      await repos.departments.update(g.db, g.businessId, dept.id, { approvers: [] });
+      await repos.agents.update(g.db, g.businessId, g.agentId, { departmentIds: [] });
+    }
+  });
+
   it("an open approval of an earlier session on the task is handed to the session asking now", async () => {
     const task = await repos.tasks.create(g.db, g.businessId, { kind: "ops", title: "Book the launch call", goalMd: "x", assigneeAgentId: g.agentId, status: "running" });
     const s1 = await sessionOnTask(task.id);

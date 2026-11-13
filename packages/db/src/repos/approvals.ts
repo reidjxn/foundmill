@@ -10,7 +10,7 @@
  * session on the task when the first one had ended before the founder answered.
  */
 import { DECISION_TYPES, ValidationError, type DecisionType } from "@foundmill/shared";
-import { and, asc, desc, eq, inArray, isNull, isNotNull, max, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNull, isNotNull, max, ne, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import { agentSessions, agents, APPROVAL_BY_KINDS, APPROVAL_OUTCOMES, approvals, departments, memberships, tasks, type Approval, type APPROVAL_HANDLER_KINDS } from "../schema";
 import { Currency, DateRange, Id, JsonObject, MinorAmount, one, PageInput, parseInput, timeKeyset, timeRange, toPage, type Executor, type Page } from "./_shared";
@@ -345,7 +345,9 @@ export const approvalsRepo = {
    * Uses a granted approval for one call (0030): the approval the founder granted for this session's task (or this very
    * session), agent, connector, tool and arguments, covering at least the call's amount in the same currency, that no
    * call has used. Marked used by `sessionId` under a condition on `used_at`, so two calls can never both run under one
-   * approval. Null when there is none (the call asks as usual).
+   * approval. Null when there is none (the call asks as usual). An approval an agent decided (Team › Responsibilities)
+   * never counts: it covered the one call that opened it (`useDecided`), and a retry asks again under the routing as it
+   * is now, so a delegation the founder has withdrawn decides nothing more.
    */
   async useGranted(db: Executor, businessId: string, input: UseGrantedInput): Promise<Approval | null> {
     const v = parseInput(UseGrantedInput, input, "gated call");
@@ -359,6 +361,7 @@ export const approvalsRepo = {
         and(
           eq(approvals.businessId, businessId),
           eq(approvals.outcome, "approved"),
+          or(isNull(approvals.byKind), ne(approvals.byKind, "agent")),
           isNull(approvals.usedAt),
           eq(approvals.agentId, v.agentId),
           eq(approvals.connectorKey, v.connectorKey),
