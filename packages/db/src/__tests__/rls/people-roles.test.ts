@@ -9,8 +9,10 @@
  *   - another business's people reach none of it (the generic suite, cross-tenant.test.ts, runs both roles over every
  *     business table);
  *   - 0092: a collaborator reads nothing of the admin-written and Money tables (`COLLABORATOR_CLOSED_TABLES`) nor the
- *     project's invitations; the tables it still reads are named, with the gap that remains (the Money and Legal tables
- *     members write);
+ *     project's invitations, through any SELECT or ALL policy; the tables it still reads are named;
+ *   - 0093: a collaborator reads and writes nothing of the Money and Legal tables members write
+ *     (`COLLABORATOR_CLOSED_MONEY_LEGAL`), through any policy; the generic suite runs read, insert, update and delete
+ *     per table;
  *   - 0091: the cutover for a person from before open sign-up is stored, for the service role only; a cofounder
  *     invitation names an address.
  */
@@ -21,7 +23,7 @@ import { repos } from "../../repos";
 import * as s from "../../schema";
 import { createTestDb, type TestHarness } from "../../testing/pglite";
 import { createBusinessFixture, RLS_DENIED, type BusinessFixture } from "./fixtures";
-import { COLLABORATOR_CLOSED_TABLES, COLLABORATOR_MEMBER_WRITES_MONEY_LEGAL, COLLABORATOR_STILL_READS_ADMIN_TABLES, TENANT_TABLES } from "./tables";
+import { COLLABORATOR_CLOSED_MONEY_LEGAL, COLLABORATOR_CLOSED_TABLES, COLLABORATOR_STILL_READS_ADMIN_TABLES, TENANT_TABLES } from "./tables";
 
 let h: TestHarness;
 let A: BusinessFixture;
@@ -34,6 +36,22 @@ const row = (businessId: string, userId: string) => and(eq(s.memberships.busines
 const roleOf = async (businessId: string, userId: string) => (await h.db.select({ role: s.memberships.role }).from(s.memberships).where(row(businessId, userId)))[0]?.role ?? null;
 const hex = () => createHash("sha256").update(randomBytes(16)).digest("hex");
 const inDays = (d: number) => new Date(Date.now() + d * 86_400_000);
+type PolicyRow = { tablename: string; policyname: string; cmd: string; qual: string | null; with_check: string | null };
+const policiesOn = async (tables: readonly string[]): Promise<PolicyRow[]> =>
+  ((await h.db.execute(sql`select tablename, policyname, cmd, qual, with_check from pg_policies where schemaname = 'public' and tablename = any(${sql.raw(`array[${tables.map((t) => `'${t}'`).join(",")}]`)}::text[]) order by tablename, policyname`)) as unknown as { rows: PolicyRow[] }).rows;
+/**
+ * Whether a policy expression could hold for a collaborator: anything over `is_member`, or a `has_role` whose roles
+ * include 'member' (a collaborator holds it), unless the expression also requires `is_member_not_collaborator`. An
+ * expression this does not recognize counts as admitting one, so a new kind of policy fails the test until it is read.
+ */
+const admitsCollaborator = (expr: string | null): boolean => {
+  if (expr === null) return false;
+  if (/is_member_not_collaborator\(business_id\)/.test(expr) && !/\bor\b/i.test(expr)) return false;
+  if (/(^|[^_])is_member\(/.test(expr.replace(/is_member_not_collaborator\(/g, ""))) return true;
+  const roleLists = [...expr.matchAll(/has_role\(business_id, (?:'\{([^}]*)\}'::text\[\]|ARRAY\[([^\]]*)\])/g)].map((m) => (m[1] ?? m[2] ?? "").replace(/'|::text/g, "").split(",").map((r) => r.trim()));
+  if (roleLists.length === 0) return true;
+  return roleLists.some((roles) => roles.includes("member") || roles.includes("collaborator"));
+};
 const failure = async (p: Promise<unknown>): Promise<string> => {
   try {
     await p;
@@ -161,18 +179,46 @@ describe("memberships 0090: the roles and the end date", () => {
     const qual = new Map(res.rows.map((r) => [r.tablename, r.qual]));
     for (const t of [...COLLABORATOR_CLOSED_TABLES, "invitations"]) expect(qual.get(t), t).toMatch(/is_member_not_collaborator\(business_id\)/);
     for (const t of COLLABORATOR_STILL_READS_ADMIN_TABLES) expect(qual.get(t), t).toMatch(/^is_member\(business_id\)$/);
+    // No other SELECT or ALL policy on these tables lets a collaborator read (a FOR ALL policy answers SELECT too).
+    const closed = [...COLLABORATOR_CLOSED_TABLES, "invitations"];
+    const policies = await policiesOn(closed);
+    expect(new Set(policies.map((p) => p.tablename))).toEqual(new Set(closed));
+    for (const p of policies.filter((x) => x.cmd === "SELECT" || x.cmd === "ALL")) expect(admitsCollaborator(p.qual), `${p.tablename}.${p.policyname}: ${p.qual}`).toBe(false);
+    // The check itself tells the two apart.
+    expect(admitsCollaborator("is_member(business_id)")).toBe(true);
+    expect(admitsCollaborator("has_role(business_id, '{owner,admin,member}'::text[])")).toBe(true);
+    expect(admitsCollaborator("has_role(business_id, ARRAY['owner'::text, 'admin'::text])")).toBe(false);
+    expect(admitsCollaborator("(has_role(business_id, '{owner,admin,member}'::text[]) AND is_member_not_collaborator(business_id))")).toBe(false);
+    expect(admitsCollaborator("(is_member_not_collaborator(business_id) OR is_member(business_id))")).toBe(true);
     // The lists are tenant tables and do not overlap.
     const names = new Set(TENANT_TABLES.map((t) => t.name));
-    for (const t of [...COLLABORATOR_CLOSED_TABLES, ...COLLABORATOR_STILL_READS_ADMIN_TABLES, ...COLLABORATOR_MEMBER_WRITES_MONEY_LEGAL]) expect(names.has(t), t).toBe(true);
-    expect(COLLABORATOR_CLOSED_TABLES.filter((t) => COLLABORATOR_STILL_READS_ADMIN_TABLES.includes(t) || COLLABORATOR_MEMBER_WRITES_MONEY_LEGAL.includes(t))).toEqual([]);
+    for (const t of [...COLLABORATOR_CLOSED_TABLES, ...COLLABORATOR_STILL_READS_ADMIN_TABLES, ...COLLABORATOR_CLOSED_MONEY_LEGAL]) expect(names.has(t), t).toBe(true);
+    expect(COLLABORATOR_CLOSED_TABLES.filter((t) => COLLABORATOR_STILL_READS_ADMIN_TABLES.includes(t) || COLLABORATOR_CLOSED_MONEY_LEGAL.includes(t))).toEqual([]);
+    expect(COLLABORATOR_STILL_READS_ADMIN_TABLES.filter((t) => COLLABORATOR_CLOSED_MONEY_LEGAL.includes(t))).toEqual([]);
   });
 
-  it("the gap 0092 leaves, named: a collaborator still reads and writes the Money and Legal tables members write (only the api's walls keep them out)", async () => {
-    const as = h.asUser(collaborator);
-    expect(await as.run((tx) => tx.insert(s.ledgerSnapshots).values({ businessId: A.businessId, period: `gap-${Date.now()}`, basis: "cash" }).returning({ id: s.ledgerSnapshots.id }))).toHaveLength(1);
-    expect((await as.run((tx) => tx.select({ id: s.ledgerSnapshots.id }).from(s.ledgerSnapshots).where(eq(s.ledgerSnapshots.businessId, A.businessId)))).length).toBeGreaterThan(0);
-    const res = (await h.db.execute(sql`select tablename, qual from pg_policies where schemaname = 'public' and policyname = tablename || '_select'`)) as unknown as { rows: { tablename: string; qual: string }[] };
-    for (const t of COLLABORATOR_MEMBER_WRITES_MONEY_LEGAL) expect(res.rows.find((r) => r.tablename === t)?.qual, t).toMatch(/^is_member\(business_id\)$/);
+  it("0093: a collaborator reads and writes nothing of the Money and Legal tables members write; the founders, admins and members as before", async () => {
+    const period = () => `0093-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const snapshot = (id: string) => h.asUser(id).run((tx) => tx.insert(s.ledgerSnapshots).values({ businessId: A.businessId, period: period(), basis: "cash" }).returning({ id: s.ledgerSnapshots.id }));
+    const [kept] = await h.service().run((tx) => tx.insert(s.ledgerSnapshots).values({ businessId: A.businessId, period: period(), basis: "cash" }).returning({ id: s.ledgerSnapshots.id }));
+    for (const id of [collaborator, ended]) {
+      await expect(snapshot(id)).rejects.toThrow(RLS_DENIED);
+      expect(await h.asUser(id).run((tx) => tx.select({ id: s.ledgerSnapshots.id }).from(s.ledgerSnapshots).where(eq(s.ledgerSnapshots.businessId, A.businessId)))).toHaveLength(0);
+      expect(await h.asUser(id).run((tx) => tx.update(s.ledgerSnapshots).set({ updatedAt: new Date() }).where(eq(s.ledgerSnapshots.id, kept!.id)).returning({ id: s.ledgerSnapshots.id }))).toHaveLength(0);
+      expect(await h.asUser(id).run((tx) => tx.delete(s.ledgerSnapshots).where(eq(s.ledgerSnapshots.id, kept!.id)).returning({ id: s.ledgerSnapshots.id }))).toHaveLength(0);
+    }
+    for (const id of [A.ownerId, cofounder, A.adminId, A.memberId]) expect(await snapshot(id), id).toHaveLength(1);
+    await expect(snapshot(A.viewerId)).rejects.toThrow(RLS_DENIED);
+    expect((await h.asUser(A.viewerId).run((tx) => tx.select({ id: s.ledgerSnapshots.id }).from(s.ledgerSnapshots).where(eq(s.ledgerSnapshots.businessId, A.businessId)))).length).toBeGreaterThan(0);
+    // Every policy on the seven tables is one of the two 0093 wrote, and none admits a collaborator, for reads or writes.
+    const policies = await policiesOn(COLLABORATOR_CLOSED_MONEY_LEGAL);
+    expect(policies.map((p) => `${p.tablename}.${p.policyname}:${p.cmd}`).sort()).toEqual(COLLABORATOR_CLOSED_MONEY_LEGAL.flatMap((t) => [`${t}.${t}_select:SELECT`, `${t}.${t}_write:ALL`]).sort());
+    for (const p of policies) {
+      expect(admitsCollaborator(p.qual), `${p.tablename}.${p.policyname} using: ${p.qual}`).toBe(false);
+      expect(admitsCollaborator(p.with_check), `${p.tablename}.${p.policyname} with check: ${p.with_check}`).toBe(false);
+      // The writers are the same as before: an owner (and so a cofounder), an admin, a member.
+      if (p.cmd === "ALL") expect(p.qual, p.tablename).toBe("(has_role(business_id, ARRAY['owner'::text, 'admin'::text, 'member'::text]) AND is_member_not_collaborator(business_id))");
+    }
   });
 
   it("0091: the cutover is stored for the service role only; a cofounder invitation names an address", async () => {

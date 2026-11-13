@@ -18,7 +18,8 @@
 --   * the Money and Legal tables members write (`transactions`, `ledger_snapshots`, `forecasts`, `filings`,
 --     `contracts`, `compliance_events`, `regulatory_gates`): a collaborator still reads and writes them in the database
 --     as a member does, and only the api's section walls keep them out. Closing those needs the write policies changed
---     as well and is not part of this migration (docs/ARCHITECTURE.md, the collaborator's walls).
+--     as well and is not part of this migration: 0093 closes them, reads and writes (docs/ARCHITECTURE.md, the
+--     collaborator's walls).
 
 create function is_member_not_collaborator(bid uuid) returns boolean
 language sql stable security definer set search_path = public as $$
