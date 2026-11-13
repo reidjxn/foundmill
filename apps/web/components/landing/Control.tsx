@@ -35,11 +35,11 @@ export function YourCall() {
   return (
     <Section id="control">
       <SectionHeading id="control" eyebrow="You decide" title="Your team does the work. You make the calls." lede="House rules sit above every agent's instructions and cannot be edited away. When work needs one of these, the team prepares everything and asks you, with a recommendation and what each choice costs." />
-      <div className="grid grid-cols-12 gap-6">
+      <div className="grid grid-cols-12 gap-10">
         <Reveal className="col-span-7">
           <InboxNote />
         </Reveal>
-        <Reveal className="col-span-5 flex flex-col gap-6" delay={90}>
+        <Reveal className="col-span-5 flex flex-col gap-8" delay={90}>
           <Glass className="flex flex-col gap-3 p-5" accent="var(--status-good)">
             <span className="t-label inline-flex items-center gap-1.5">
               <Icon icon={ShieldCheck} size={14} className="text-status-good" /> House rules
