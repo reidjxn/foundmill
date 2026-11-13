@@ -100,20 +100,17 @@ describe("IndexNow for the Foundmill-hosted page", () => {
 });
 
 describe("IndexNow asks first, and a hosted connection stops with its page", () => {
-  it("submit_urls goes to an approval in augmented and assisted mode, and sends nothing until then", async () => {
-    for (const businessMode of ["augmented", "assisted"] as const) {
-      const vendor = recordingFetch(() => new Response(null, { status: 200 }));
-      const g = await setupGateway({ mode: "live", businessMode, connectors: [createIndexNowConnector({ secrets: {}, fetch: vendor.fetch, hostedPagesOrigin: ORIGIN })] });
-      open = g;
-      await repos.pages.publish(g.db, g.businessId, { content: content(), slug: "northwind-hosted", userId: null });
-      await connectIntegration(g.deps, { businessId: g.businessId, connector: "indexnow", input: { key: KEY } }, "api");
-      const token = await g.token({ allowedTools: ["indexnow:*"] });
-      const r = await g.client.call(token, { connector: "indexnow", tool: "submit_urls", args: { urls: [`${ORIGIN}/p/northwind-hosted`] } });
-      expect(r.outcome, businessMode).toBe("ask");
-      expect(vendor.urls, businessMode).toEqual([]);
-      await g.close();
-      open = null;
-    }
+  // One case per mode: each builds its own gateway (a fresh database), and two in one case ran past the 30 s timeout on CI.
+  it.each(["augmented", "assisted"] as const)("submit_urls goes to an approval in %s mode, and sends nothing until then", async (businessMode) => {
+    const vendor = recordingFetch(() => new Response(null, { status: 200 }));
+    const g = await setupGateway({ mode: "live", businessMode, connectors: [createIndexNowConnector({ secrets: {}, fetch: vendor.fetch, hostedPagesOrigin: ORIGIN })] });
+    open = g;
+    await repos.pages.publish(g.db, g.businessId, { content: content(), slug: "northwind-hosted", userId: null });
+    await connectIntegration(g.deps, { businessId: g.businessId, connector: "indexnow", input: { key: KEY } }, "api");
+    const token = await g.token({ allowedTools: ["indexnow:*"] });
+    const r = await g.client.call(token, { connector: "indexnow", tool: "submit_urls", args: { urls: [`${ORIGIN}/p/northwind-hosted`] } });
+    expect(r.outcome).toBe("ask");
+    expect(vendor.urls).toEqual([]);
   });
 
   it("once the page is taken down, a hosted connection sends nothing", async () => {
