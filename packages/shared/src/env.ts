@@ -182,6 +182,16 @@ const Env = z.object({
    */
   SIGNUP_ALLOWLIST: z.string().optional(),
   /**
+   * apps/api, apps/stream, apps/collab: open sign-up (THESIS_REVIEW package 2.2, founder 2026-11-12). "1"/"true"/"on":
+   * anyone who signs in with a confirmed address is admitted until the day's new accounts reach
+   * SIGNUP_DAILY_CEILING (UTC day), after which a new person is refused with `on_waitlist`; the addresses SIGNUP_ALLOWLIST names are
+   * admitted without counting. Off (the default): invite-only while SIGNUP_ALLOWLIST is set, and everyone is admitted
+   * while it is not (`signupMode`, @foundmill/shared allowlist.ts).
+   */
+  SIGNUP_OPEN: z.string().optional(),
+  /** apps/api: with SIGNUP_OPEN, how many new accounts are admitted per UTC day before the rest are refused with `on_waitlist`. */
+  SIGNUP_DAILY_CEILING: z.coerce.number().int().min(0).max(1_000_000).default(200),
+  /**
    * apps/api: whether a credit top-up may be paid by simulation (the Billing tab's mock checkout, no money moves) when
    * Stripe is not live. "1"/"true" or "0"/"false"; unset allows it only when APP_ENV is development or test
    * (`allowMockPayments`). Simulated credits never pay for live model calls whatever this says (docs/DEPLOY.md §4).

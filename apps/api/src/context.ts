@@ -101,6 +101,8 @@ export interface Context extends ApiDeps {
    * up on every call.
    */
   accessMemo?: Map<string, Promise<BusinessAccess>>;
+  /** The admission answer (services/access.ts `admitOrWait`) per person for this HTTP request: a batch asks once. */
+  admissionMemo?: Map<string, Promise<void>>;
 }
 
 /** A signed-in user for the in-process caller and tests. */
@@ -211,7 +213,7 @@ export function createContextFactory(deps: ApiDeps) {
     // Fail closed while Supabase auto-confirms addresses: no token then shows its holder read the inbox.
     const emailConfirmed = user?.emailConfirmed === true && (deps.confirmEmail?.confirmationTrusted() ?? true);
     const requestId = c?.get("requestId") ?? requestIdFrom(opts.req.headers.get("x-request-id"));
-    return { ...deps, userId: user?.userId ?? null, email: user?.email ?? null, authenticatedAt: user?.authenticatedAt ?? null, emailConfirmed, requestId, clientAddress: clientAddressOf(opts.req.headers, c), accessMemo: new Map() };
+    return { ...deps, userId: user?.userId ?? null, email: user?.email ?? null, authenticatedAt: user?.authenticatedAt ?? null, emailConfirmed, requestId, clientAddress: clientAddressOf(opts.req.headers, c), accessMemo: new Map(), admissionMemo: new Map() };
   };
 }
 

@@ -219,5 +219,9 @@ export const NON_TENANT_TABLES = [
   "founder_notifications",
   // 0086: who or what brought a new person (user-owned, service role only); rls/attributions.test.ts.
   "attributions",
+  // 0089: admissions (user-owned, service role only) and invitations (business-scoped, but its token hash and address
+  // are not readable by a client, so the generic suite cannot select them); both in rls/invitations.test.ts.
+  "account_admissions",
+  "invitations",
 ] as const;
 

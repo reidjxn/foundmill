@@ -11,7 +11,7 @@ import { liveModeOpen } from "@foundmill/config";
 import { repos, SLUG_TAKEN, uniqueViolation, withRls, type Business, type DbTx, type Executor, type Membership } from "@foundmill/db";
 import type { EventPayloadInput } from "@foundmill/events";
 import { isModelBillingError } from "@foundmill/models";
-import { assertAllowlisted } from "./services/access";
+import { admitOrWait, assertConfirmedSignIn } from "./services/access";
 import { modelBillingAppError } from "./services/model-errors";
 import { writeEventRow } from "./services/events";
 import { AppError, ConflictError, DEFAULT_AGENT_STYLE, NotFoundError, WRITE_ROLES, effectivePermission, isAgentStyle, type Actor, type AgentStyle, type BusinessEventType, type MembershipRole, type PermissionLevel, type Section } from "@foundmill/shared";
@@ -277,10 +277,20 @@ const wakeRelay = t.middleware(async ({ ctx, type, next }) => {
 
 export const publicProcedure = t.procedure.use(mapErrors).use(wakeRelay);
 
-export const protectedProcedure = publicProcedure.use(({ ctx, next }) => {
+export const protectedProcedure = publicProcedure.use(async ({ ctx, next }) => {
   if (!ctx.userId) throw new TRPCError({ code: "UNAUTHORIZED", message: "Sign in to continue" });
-  // A deployment that is not open to everyone admits only the accounts SIGNUP_ALLOWLIST names (services/access.ts).
-  assertAllowlisted(ctx.env, { userId: ctx.userId, email: ctx.email, emailConfirmed: ctx.emailConfirmed });
+  // Admit now or wait (services/access.ts): the list, an admission, or open sign-up's ceiling; else a typed refusal.
+  await admitOrWait(ctx, { userId: ctx.userId, email: ctx.email, emailConfirmed: ctx.emailConfirmed });
+  return next({ ctx: { ...ctx, userId: ctx.userId } });
+});
+
+/**
+ * Signed in with a confirmed address, admitted or not: only for the procedure that is how a person gets in
+ * (`invitation.accept`). Everything else is `protectedProcedure`.
+ */
+export const signedInProcedure = publicProcedure.use(({ ctx, next }) => {
+  if (!ctx.userId) throw new TRPCError({ code: "UNAUTHORIZED", message: "Sign in to continue" });
+  assertConfirmedSignIn({ userId: ctx.userId, email: ctx.email, emailConfirmed: ctx.emailConfirmed });
   return next({ ctx: { ...ctx, userId: ctx.userId } });
 });
 

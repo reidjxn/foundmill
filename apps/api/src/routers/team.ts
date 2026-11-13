@@ -1,8 +1,8 @@
 /** team.agents.* / team.humans.* / team.responsibilities.* (BUILD §11.9; AC-11.9.2 responsibilities route approvals). */
 import { TEMPLATE_KEYS, getTemplate, hasTemplate, listTemplates } from "@foundmill/agents";
 import { CREDITS_CURRENCY } from "@foundmill/config";
-import { SectionPermissions, assertSeatAvailable, repos, type AgentRosterActivity } from "@foundmill/db";
-import { ConflictError, DECISION_TYPES, DEFAULT_AGENT_STYLE, ForbiddenError, MEMBERSHIP_ROLES, NotFoundError, ValidationError, agentTier, characterFor, leadAgentIds } from "@foundmill/shared";
+import { SectionPermissions, repos, type AgentRosterActivity } from "@foundmill/db";
+import { DECISION_TYPES, DEFAULT_AGENT_STYLE, ForbiddenError, MEMBERSHIP_ROLES, NotFoundError, ValidationError, agentTier, characterFor, leadAgentIds } from "@foundmill/shared";
 import { z } from "zod";
 import { pendingApprovals, resolveApproval } from "../services/approvals";
 import { modelLimited } from "../services/model-limits";
@@ -262,30 +262,8 @@ export const teamRouter = router({
         return members.map((m) => (m.displayName === null && m.userId === ctx.userId && me?.displayName ? { ...m, displayName: me.displayName } : m));
       }),
     ),
-    /**
-     * Add someone who already has an account, by their account ID (shown on their founder profile and in Settings ›
-     * Preferences) or by the email they sign in with, resolved here to their account. No email is sent: invitation
-     * emails do not exist yet. Adds a new member only: an existing member (the owner included) is never overwritten
-     * (409; use `role`).
-     */
-    invite: staffAdmin
-      .input(z.object({ userId: Id.optional(), role: z.enum(MEMBERSHIP_ROLES).default("member"), sectionPermissions: SectionPermissions.default({}), email: z.string().trim().email().max(320).optional() }).refine((v) => v.userId || v.email, "Give the person's account ID or the email they sign in with"))
-      .mutation(async ({ ctx, input }) => {
-        if (input.role === "owner") throw new ValidationError("Ownership is granted by an owner from Role and permissions, not by invitation");
-        // auth.users holds no business's rows: the email is looked up on the service connection.
-        const userId = input.userId ?? (await repos.founders.userIdByEmail(ctx.db, input.email!));
-        if (!userId) throw new ValidationError("No account signs in with that email yet. Ask them to sign in once, then add them by email or by the account ID on their profile.");
-        return ctx.rls(async (tx) => {
-          if (await repos.memberships.get(tx, ctx.businessId, userId)) throw new ConflictError("That person is already a member of this business; change their role instead", { userId });
-          // People are free on every plan (no limit today); the check stays for a limit that might return.
-          await assertSeatAvailable(tx, ctx.business);
-          const membership = await repos.memberships.add(tx, ctx.businessId, { userId, role: input.role, sectionPermissions: input.sectionPermissions });
-          await audit(tx, ctx, { action: "team.humans.invite", target: { kind: "membership", id: membership.id }, details: { userId, role: input.role, by: input.userId ? "account_id" : "email" } });
-          // Open tabs refetch the staff list; apps/stream re-checks this person's subscriptions.
-          await emit(tx, ctx, { type: "membership.changed", payload: { userId, change: "added" } });
-          return membership;
-        });
-      }),
+    // Adding someone is an invitation they accept (`invitation.create` / `accept`, routers/people.ts; THESIS_REVIEW
+    // package 3.1): the silent add by email or account id (`team.humans.invite`) was removed with it.
     /**
      * Role and section permissions of another member. Nobody edits their own; only an owner changes an owner's row or
      * grants ownership; the last owner keeps the role (the same rules hold in RLS, 0026_membership_guards).

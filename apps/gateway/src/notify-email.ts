@@ -59,6 +59,7 @@ import {
   ENTITY_MARKUP_RE,
   FOUNDER_NOTIFICATION_LIMITS,
   hasSectionAccess,
+  invitationAcceptedEmail,
   LIMITED_EMAIL_KINDS,
   mockResultsAllowed,
   NOTIFY_EMAIL_REFUSALS,
@@ -77,6 +78,7 @@ import {
   vacationDayKeys,
   type BusinessNotifyFacts,
   type EmailNotificationKind,
+  type InvitationRole,
   type NotifyEmailNotSent,
   type NotifyEmailText,
   type NotifyItemLike,
@@ -105,6 +107,7 @@ export const NotifyEmailRequest = z
       milestoneId: z.guid().optional(),
       runId: z.guid().optional(),
       day: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+      invitationId: z.guid().optional(),
     }),
   })
   .refine(
@@ -121,6 +124,8 @@ export const NotifyEmailRequest = z
         case "daily_brief":
         case "weekly_review":
           return !!data.day;
+        case "invitation_accepted":
+          return !!data.invitationId;
       }
     },
     { message: "the ids this kind needs are missing" },
@@ -142,7 +147,8 @@ const NIL_ID = "00000000-0000-0000-0000-000000000000";
 /** What one kind's own checks found: the words' inputs, the record's dedupe key and the notes it is about. */
 type Subject =
   | { kind: "decision_waiting"; item: { id: string; subject: string; fromAgentId: string | null; blocksContinue: boolean; createdAt: Date }; dedupeKey: string; inboxItemIds: string[]; waiting: NotifyItemLike[] }
-  | { kind: "retention"; plan: RetentionEmailPlan; dedupeKey: string; inboxItemIds: string[]; waiting: NotifyItemLike[] };
+  | { kind: "retention"; plan: RetentionEmailPlan; dedupeKey: string; inboxItemIds: string[]; waiting: NotifyItemLike[] }
+  | { kind: "invitation_accepted"; role: InvitationRole; personName: string | null; dedupeKey: string; inboxItemIds: string[]; waiting: NotifyItemLike[] };
 
 /** The email with each token replaced by a placeholder, for the stored copy (founder_notifications keeps no live link). */
 export function redactLinks(email: { text: string; html: string }, tokens: readonly (string | null | undefined)[]): { text: string; html: string } {
@@ -161,7 +167,7 @@ export async function sendNotifyEmail(deps: GatewayDeps, input: NotifyEmailReque
   const now = deps.now?.() ?? new Date();
   const config = deps.platformMail;
   const { userId, businessId, kind } = input;
-  const ref = input.data.inboxItemId ?? input.data.milestoneId ?? input.data.runId ?? input.data.day ?? "";
+  const ref = input.data.inboxItemId ?? input.data.milestoneId ?? input.data.runId ?? input.data.day ?? input.data.invitationId ?? "";
   const notSent = (reason: NotifyEmailNotSent): NotifyEmailResponse => {
     deps.log.info({ businessId, userId, kind, reason }, "notify email not sent");
     return { sent: false, reason, message: NOTIFY_EMAIL_REFUSALS[reason] };
@@ -193,9 +199,16 @@ export async function sendNotifyEmail(deps: GatewayDeps, input: NotifyEmailReque
   if (extra.emailsPausedAt) return notSent("paused");
 
   // 5. What the email is about, read again here, by kind.
-  const facts: BusinessNotifyFacts | null = kind === "decision_waiting" ? null : await loadNotifyFacts(deps.db, businessId, now);
+  const facts: BusinessNotifyFacts | null = kind === "decision_waiting" || kind === "invitation_accepted" ? null : await loadNotifyFacts(deps.db, businessId, now);
   let subject: Subject;
-  if (kind === "decision_waiting") {
+  if (kind === "invitation_accepted") {
+    // The invitation this person made, in this business, accepted within the day's lookback; the person who joined by
+    // the name on their profile, if they have one yet. A project need not have started (people join before).
+    const invitation = await repos.invitations.get(deps.db, businessId, input.data.invitationId!);
+    if (!invitation || invitation.state !== "accepted" || invitation.invitedByUserId !== userId || !invitation.acceptedAt || now.getTime() - invitation.acceptedAt.getTime() > FOUNDER_NOTIFICATION_LIMITS.lookbackMs) return notSent("not_waiting");
+    const joined = invitation.acceptedByUserId ? await repos.founders.get(deps.db, invitation.acceptedByUserId).catch(() => null) : null;
+    subject = { kind: "invitation_accepted", role: invitation.role, personName: joined?.displayName?.trim() || null, dedupeKey: `invitation_accepted:${invitation.id}`, inboxItemIds: [], waiting: [] };
+  } else if (kind === "decision_waiting") {
     const inboxItemId = input.data.inboxItemId!;
     const item = await repos.notifyEmail.stillWaiting(deps.db, businessId, inboxItemId, userId);
     if (!item) return notSent("not_waiting");
@@ -222,7 +235,7 @@ export async function sendNotifyEmail(deps: GatewayDeps, input: NotifyEmailReque
     // A project that has not started (no commit yet) gets no brief, win or milestone email; a waiting note still does.
     if (!facts) return notSent("not_started");
     const recent = (at: Date) => now.getTime() - at.getTime() <= FOUNDER_NOTIFICATION_LIMITS.lookbackMs;
-    const plan = retentionPlanOf(kind, input.data, facts, userId, recent);
+    const plan = retentionPlanOf(kind as Exclude<EmailNotificationKind, "decision_waiting" | "invitation_accepted">, input.data, facts, userId, recent);
     if (!plan) return notSent("not_waiting");
     if ((plan.kind === "daily_brief" || plan.kind === "weekly_review") && briefIsEmpty(plan.stats, plan.waiting)) return notSent("nothing_new");
     const itemIds = plan.kind === "win" || plan.kind === "credits" ? [plan.item.id] : plan.kind === "milestone" ? (plan.itemId ? [plan.itemId] : []) : plan.waiting.slice(0, 5).map((i) => i.id);
@@ -295,7 +308,9 @@ export async function sendNotifyEmail(deps: GatewayDeps, input: NotifyEmailReque
   const profile = await repos.founders.get(deps.db, userId).catch(() => null);
   const withVia = (url: string) => `${url}${url.includes("?") ? "&" : "?"}via=email&n=${notificationId}`;
   let words: NotifyEmailText;
-  if (subject.kind === "decision_waiting") {
+  if (subject.kind === "invitation_accepted") {
+    words = invitationAcceptedEmail({ appName: APP_NAME, recipientName: profile?.displayName ?? null, personName: subject.personName, projectName: business.name, role: subject.role, link: withVia(`${appUrl}/b/${businessId}/settings/members`), offLink: offUrl, pauseLink });
+  } else if (subject.kind === "decision_waiting") {
     const item = subject.item;
     const agent = item.fromAgentId ? await repos.agents.get(deps.db, businessId, item.fromAgentId).catch(() => null) : null;
     const agentName = agent ? agentLabel({ name: agent.name, role: agent.role, personaKey: agent.personaKey, agentType: agent.agentType, layer: agent.layer }, prefs.anthropomorphicAgents, prefs.agentStyle) : null;
@@ -370,7 +385,7 @@ export async function sendNotifyEmail(deps: GatewayDeps, input: NotifyEmailReque
   await repos.notifications.markSent(deps.db, businessId, notificationId, { mode, providerMessageId: messageId, at: now });
   // The note the email was about, when it was about one (never the waiting notes a brief lists: those can still get
   // their own email).
-  const aboutItemId = subject.kind === "decision_waiting" ? subject.item.id : subject.plan.kind === "win" || subject.plan.kind === "credits" ? subject.plan.item.id : subject.plan.kind === "milestone" ? subject.plan.itemId : null;
+  const aboutItemId = subject.kind === "invitation_accepted" ? null : subject.kind === "decision_waiting" ? subject.item.id : subject.plan.kind === "win" || subject.plan.kind === "credits" ? subject.plan.item.id : subject.plan.kind === "milestone" ? subject.plan.itemId : null;
   let eventId: string | null = null;
   try {
     const event = await deps.db.transaction((tx) =>
@@ -392,7 +407,7 @@ export async function sendNotifyEmail(deps: GatewayDeps, input: NotifyEmailReque
 }
 
 /** The retention kind's plan from the facts the gateway read itself; null when what the ids name is not there (or too old). */
-function retentionPlanOf(kind: Exclude<EmailNotificationKind, "decision_waiting">, data: NotifyEmailRequest["data"], facts: BusinessNotifyFacts, userId: string, recent: (at: Date) => boolean): RetentionEmailPlan | null {
+function retentionPlanOf(kind: Exclude<EmailNotificationKind, "decision_waiting" | "invitation_accepted">, data: NotifyEmailRequest["data"], facts: BusinessNotifyFacts, userId: string, recent: (at: Date) => boolean): RetentionEmailPlan | null {
   switch (kind) {
     case "win": {
       const item = facts.recentItems.find((i) => i.id === data.inboxItemId && i.type === "customer_won");

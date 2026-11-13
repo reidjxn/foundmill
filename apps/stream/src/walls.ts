@@ -139,6 +139,10 @@ export const EVENT_WALLS = {
   // The team drafted a post for the founder to share by tap: ids and the trigger's kind, never the words. The Creative
   // tab and Today follow it.
   "post.drafted": { sections: ["distribution"] },
+  // Invitations to the project: the People tab (Settings, under the Team section).
+  "invitation.sent": { sections: ["team"] },
+  "invitation.accepted": { sections: ["team"] },
+  "invitation.declined": { sections: ["team"] },
 } as const satisfies { readonly [K in BusinessEventType]: EventWall };
 
 /** What one reader may see of business events: their walls (sections they may not read at all). */

@@ -29,8 +29,11 @@ export const PlatformSendNotification = z.strictObject({
   subject: z.string().trim().min(1).max(200).regex(/^[^\r\n]*$/),
   text: z.string().min(1).max(10_000),
   html: z.string().min(1).max(40_000),
-  /** The person's signed link that turns this kind off (one-click, RFC 8058). */
-  unsubscribeUrl: z.url().max(2_000),
+  /**
+   * The person's signed link that turns this kind off (one-click, RFC 8058). Absent only for the one-off messages to an
+   * address the person or their inviter asked for (`ADDRESS_EMAIL_KINDS`: no account holds a preference to turn off).
+   */
+  unsubscribeUrl: z.url().max(2_000).optional(),
 });
 export type PlatformSendNotificationT = z.infer<typeof PlatformSendNotification>;
 
@@ -54,7 +57,7 @@ export function buildNotificationData(mail: PlatformSendNotificationT): Record<s
     subject: mail.subject,
     text: mail.text,
     html: mail.html,
-    headers: { "List-Unsubscribe": `<${mail.unsubscribeUrl}>`, "List-Unsubscribe-Post": "List-Unsubscribe=One-Click" },
+    ...(mail.unsubscribeUrl ? { headers: { "List-Unsubscribe": `<${mail.unsubscribeUrl}>`, "List-Unsubscribe-Post": "List-Unsubscribe=One-Click" } } : {}),
     categories: ["foundmill-notify"],
     mailSettings: { bypassListManagement: { enable: false } },
     trackingSettings: { subscriptionTracking: { enable: false }, clickTracking: { enable: false, enableText: false }, openTracking: { enable: false } },

@@ -41,6 +41,7 @@ import { sendPush, SendPushRequest } from "./push";
 import { MAX_TRANSCRIBE_BODY_BYTES, SPEECH_STREAM_ROUTE, SPEECH_SYNTHESIZE_ROUTE, SPEECH_TRANSCRIBE_ROUTE, streamSpeech, SynthesizeSpeechRequest, synthesizeSpeech, TranscribeSpeechRequest, transcribeSpeech } from "./speech";
 import { CONFIRM_FOLLOW_ROUTE, ConfirmFollowRequest, sendFollowConfirmation } from "./follow-confirm";
 import { NOTIFY_EMAIL_ROUTE, NotifyEmailRequest, sendNotifyEmail } from "./notify-email";
+import { AddressEmailRequest, isAddressEmailKind, sendAddressEmail } from "./notify-address-email";
 import { handleMcpRequest } from "./mcp";
 import { ARCHIVE_ROUTE, ArchiveRequest, routeOnlyCall, serveArchive } from "./archive";
 import { checkRepository, REPOSITORY_CHECK_ROUTE, RepositoryCheckRequest } from "./code-repository";
@@ -241,7 +242,15 @@ export function createGatewayApp(deps: GatewayDeps, options: GatewayAppOptions):
     await next();
   });
   app.post(NOTIFY_EMAIL_ROUTE, async (c) => {
-    const parsed = NotifyEmailRequest.safeParse(await c.req.json().catch(() => null));
+    const body: unknown = await c.req.json().catch(() => null);
+    // The same sender to an address rather than an account (an invitation): the api's only.
+    if (isAddressEmailKind((body as { kind?: unknown } | null)?.kind)) {
+      if (c.var.service.svc !== "api") throw new GatewayError("forbidden_service", "Only the api asks for an email to an address", 403);
+      const parsed = AddressEmailRequest.safeParse(body);
+      if (!parsed.success) throw new GatewayError("validation", "Send a kind of email and the ids (and the token) that kind needs", 400);
+      return c.json(await sendAddressEmail(deps, parsed.data, c.var.service.svc));
+    }
+    const parsed = NotifyEmailRequest.safeParse(body);
     if (!parsed.success) throw new GatewayError("validation", "Send a user id, a kind of email, a business id and the ids that kind needs", 400);
     return c.json(await sendNotifyEmail(deps, parsed.data, c.var.service.svc));
   });

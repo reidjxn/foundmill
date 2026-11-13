@@ -159,6 +159,7 @@ export const EMAIL_NOTIFICATION_LABELS: Readonly<Record<EmailNotificationKind, s
   credits: "Credits ran out",
   daily_brief: "Morning brief",
   weekly_review: "Weekly review",
+  invitation_accepted: "Someone accepted my invitation",
 });
 /** One line under each switch. */
 export const EMAIL_NOTIFICATION_HINTS: Readonly<Record<EmailNotificationKind, string>> = Object.freeze({
@@ -169,6 +170,7 @@ export const EMAIL_NOTIFICATION_HINTS: Readonly<Record<EmailNotificationKind, st
   credits: "When the team stops because the credits are used up.",
   daily_brief: "What the team did since yesterday and the one thing that needs you, at your hour.",
   weekly_review: "Monday morning, instead of the brief: the week in numbers and what comes next.",
+  invitation_accepted: "When a person you invited joins your project.",
 });
 export const EMAIL_NOTIFICATIONS_HINT = "To the address you sign in with, never while you are in the app: at most three a day in all and one a day for each project. The morning brief and the weekly review don't count.";
 export function emailNotificationSavedLine(kind: EmailNotificationKind, on: boolean): { title: string; description: string } {
@@ -210,5 +212,7 @@ export const NOTIFY_EMAIL_REFUSALS = {
   present: "This person is in the app right now and sees it there, so nothing was sent.",
   nothing_new: "Nothing happened and nothing waits, so the brief had no news and was not sent.",
   not_started: "This project has not started yet, so nothing was sent.",
+  not_pending: "What this email was about has changed, so nothing was sent.",
+  per_address: "This address already got today's emails, so nothing was sent.",
 } as const;
 export type NotifyEmailNotSent = keyof typeof NOTIFY_EMAIL_REFUSALS;

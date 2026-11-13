@@ -451,6 +451,7 @@ export const EVENT_TYPES = [
   "share.opened",
   "referral.arrived",
   "post.drafted",
+  "invitation.sent", "invitation.accepted", "invitation.declined",
 ] as const;
 export type EventType = (typeof EVENT_TYPES)[number];
 
@@ -585,12 +586,20 @@ export const DEFAULT_NOTIFICATION_PREFS: Readonly<NotificationPrefs> = Object.fr
  * used-up credits, and the morning brief and the Monday weekly review. Every kind is on until the person turns it off
  * (Settings › Preferences, or the link in the email).
  */
-export const EMAIL_NOTIFICATION_KINDS = ["decision_waiting", "win", "milestone", "run_finished", "credits", "daily_brief", "weekly_review"] as const;
+export const EMAIL_NOTIFICATION_KINDS = ["decision_waiting", "win", "milestone", "run_finished", "credits", "daily_brief", "weekly_review", "invitation_accepted"] as const;
 export type EmailNotificationKind = (typeof EMAIL_NOTIFICATION_KINDS)[number];
 export type EmailNotificationPrefs = Record<EmailNotificationKind, boolean>;
-export const DEFAULT_EMAIL_NOTIFICATION_PREFS: Readonly<EmailNotificationPrefs> = Object.freeze({ decision_waiting: true, win: true, milestone: true, run_finished: true, credits: true, daily_brief: true, weekly_review: true });
+export const DEFAULT_EMAIL_NOTIFICATION_PREFS: Readonly<EmailNotificationPrefs> = Object.freeze({ decision_waiting: true, win: true, milestone: true, run_finished: true, credits: true, daily_brief: true, weekly_review: true, invitation_accepted: true });
 /** The kinds the daily limits count; the morning brief and the weekly review are on their own schedule (founder, 2026-11-12). */
-export const LIMITED_EMAIL_KINDS: readonly EmailNotificationKind[] = ["decision_waiting", "win", "milestone", "run_finished", "credits"];
+export const LIMITED_EMAIL_KINDS: readonly EmailNotificationKind[] = ["decision_waiting", "win", "milestone", "run_finished", "credits", "invitation_accepted"];
+/**
+ * What Foundmill may email to an address rather than to an account (`POST /v1/notify/email`, the same sender, the same
+ * daily ceiling): an invitation to a project, sent to the address the inviter typed. Nobody holds a preference for it:
+ * it is one message the inviter asked for. It counts toward three a day per address, and toward the person's own three
+ * a day when the address is an account's (`LIMITED_EMAIL_KINDS`' limit).
+ */
+export const ADDRESS_EMAIL_KINDS = ["invitation"] as const;
+export type AddressEmailKind = (typeof ADDRESS_EMAIL_KINDS)[number];
 
 /** The account's type size (`account_preferences.text_size`, 0064): comfortable grows body and small text; the structure keeps its sizes. */
 export const TEXT_SIZES = ["standard", "comfortable"] as const;
