@@ -60,6 +60,21 @@ describe("stripInvalidMentions (final fallback)", () => {
     expect(validateMarkup(out, m).valid).toBe(true);
     expect(out).not.toContain("Hidden Investor");
   });
+
+  it("keeps a recovered display as text that cannot become an image or a link (a name a customer chose)", () => {
+    const text = `Thanks to [[ent:${ghost}|Ana ![](https://tracker.example/p.png) [offer](https://phish.example)]] for the order.`;
+    const out = stripInvalidMentions(text, m);
+    expect(out).toContain("Ana");
+    expect(out).not.toMatch(/\]\(/);
+    expect(out).not.toContain("![");
+    expect(validateMarkup(out, m).valid).toBe(true);
+    // A long name runs past the 120 characters the malformed opening is reported with: all of it stays inert.
+    const long = `Paid by [[ent:${ghost}|Ana Maria ${"de la Cruz ".repeat(8)}![](https://tracker.example/p.png)]] today.`;
+    const longOut = stripInvalidMentions(long, m);
+    expect(longOut).not.toMatch(/\]\(/);
+    expect(longOut).not.toContain("![");
+    expect(longOut).toMatch(/today\.$/);
+  });
 });
 
 describe("checkComposerText", () => {

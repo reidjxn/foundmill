@@ -42,6 +42,9 @@ export interface ReaskOptions {
 }
 
 /** True when the output is invalid and the composer has not yet used its single re-ask. */
+/** Display text that cannot open Markdown's image or link syntax (`![…](…)`, `[…](…)`, `[…][…]`). */
+const inertDisplay = (display: string): string => display.replace(/\[/g, "(").replace(/\]/g, ")");
+
 export function shouldReask(validation: ValidationResult, reasksSoFar: number): boolean {
   return !validation.valid && reasksSoFar < MAX_REASKS;
 }
@@ -111,23 +114,31 @@ export function buildReask(validation: ValidationResult, manifest: Manifest, opt
 /**
  * Final fallback after the re-ask also failed: unknown-id mentions become their display text, invisible-entity mentions
  * are removed entirely (the founder must not see them), and malformed `[[ent:` openings are reduced to their display.
- * The result always validates against the manifest.
+ * The result always validates against the manifest. A recovered display keeps no square brackets (they become
+ * parentheses, as `formatEntityMarkup` does with `]`): it can be a name someone outside the business chose (a customer's
+ * name at checkout), and it must stay text in the note, never an image or a link.
  */
 export function stripInvalidMentions(text: string, manifest: Manifest): string {
   const segments = parseEntityMarkup(text).map((seg) => {
     if (seg.kind !== "entity") return seg;
     const entity = manifest.get(seg.id);
-    if (!entity) return { kind: "text" as const, text: seg.display };
+    if (!entity) return { kind: "text" as const, text: inertDisplay(seg.display) };
     if (!entity.visible) return { kind: "text" as const, text: "" };
     return seg;
   });
   let out = serializeSegments(segments);
   // Malformed openings: keep whatever display text is recoverable, drop the rest. Valid markup is untouched.
   for (const bad of findMalformedMarkup(out).sort((a, b) => b.index - a.index)) {
-    const pipe = bad.raw.indexOf("|");
-    const close = bad.raw.indexOf("]]");
-    const display = pipe !== -1 ? bad.raw.slice(pipe + 1, close === -1 ? undefined : close).trim() : "";
-    out = out.slice(0, bad.index) + display + out.slice(bad.index + bad.raw.length);
+    // `raw` stops at 120 characters; the opening runs on to its `]]` (or the next opening), as findMalformedMarkup reads it.
+    const closeAt = out.indexOf("]]", bad.index);
+    const nextOpen = out.indexOf("[[ent:", bad.index + 1);
+    let end = closeAt === -1 ? out.length : closeAt + 2;
+    if (nextOpen !== -1 && nextOpen < end) end = nextOpen;
+    const raw = out.slice(bad.index, Math.max(end, bad.index + bad.raw.length));
+    const pipe = raw.indexOf("|");
+    const close = raw.indexOf("]]");
+    const display = pipe !== -1 ? raw.slice(pipe + 1, close === -1 ? undefined : close).trim() : "";
+    out = out.slice(0, bad.index) + inertDisplay(display) + out.slice(bad.index + raw.length);
   }
   return out.replace(/[ \t]{2,}/g, " ").replace(/ +([,.;:!?])/g, "$1");
 }
