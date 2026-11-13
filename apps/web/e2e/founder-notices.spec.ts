@@ -29,7 +29,9 @@ type Asked = { userId?: string; kind?: string; businessId?: string; data?: { aud
 const devAddress = (id: string) => `dev-${id.toLowerCase()}@foundmill.local`;
 
 async function call<T>(api: APIRequestContext, path: string, input: unknown, method: "post" | "get" = "post"): Promise<T> {
-  const res = method === "post" ? await api.post(`/trpc/${path}`, { data: { json: input } }) : await api.get(`/trpc/${path}?input=${encodeURIComponent(JSON.stringify({ json: input }))}`);
+  const send = () => (method === "post" ? api.post(`/trpc/${path}`, { data: { json: input } }) : api.get(`/trpc/${path}?input=${encodeURIComponent(JSON.stringify({ json: input }))}`));
+  // A kept-alive socket the api closed while the browser steps ran (Node's keep-alive timeout) resets once: ask again.
+  const res = await send().catch((e: unknown) => (/ECONNRESET|socket hang up/.test(String(e)) ? send() : Promise.reject(e)));
   expect(res.ok(), `${path} answered ${res.status()}: ${await res.text()}`).toBe(true);
   return ((await res.json()) as { result: { data: { json: T } } }).result.data.json;
 }
@@ -126,7 +128,7 @@ test.describe("founder notices and the former founder's cancel", () => {
     const card = page.getByTestId("former-project-card").filter({ hasText: name });
     await expect(card).toBeVisible({ timeout: LONG });
     await expect(card.getByRole("heading")).toHaveText(`${name} is set to be deleted`);
-    await expect(card).toContainText("you can still cancel the deletion until");
+    await expect(card).toContainText("so you can cancel the deletion until");
     await card.getByTestId("former-project-cancel").click();
     await expect(card).toHaveAttribute("data-state", "confirming");
     expect((await call<{ status: string }>(other, "business.deletionStatus", { businessId: bid }, "get")).status).toBe("scheduled");
