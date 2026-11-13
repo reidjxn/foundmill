@@ -150,6 +150,8 @@ describe("ideaBox.claim and the waitlist", () => {
     const { hz, app } = await setup();
     const first = await draft(app, idea);
     const claim = (last(first.events) as { claim: string }).claim;
+    // Signed in long ago: a link cannot drop a card into the deck.
+    expect(await hz.caller({ userId: hz.B.ownerId, email: "b@test.local", authenticatedAt: new Date(Date.now() - 2 * 60 * 60_000) }).ideaBox.claim({ claim })).toBeNull();
     const other = hz.caller({ userId: hz.B.ownerId, email: "b@test.local" });
     expect(await other.ideaBox.claim({ claim })).toMatchObject({ again: false });
     expect(await hz.caller({ userId: hz.A.ownerId, email: "a@test.local" }).ideaBox.claim({ claim })).toBeNull();

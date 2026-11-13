@@ -16,6 +16,9 @@ import { z } from "zod";
 import { claimIdeaBoxDraft, ideaTokenHash } from "../services/idea-box";
 import { protectedProcedure, publicProcedure, router } from "../trpc";
 
+/** How soon after signing in the email link's claim token still claims. */
+export const CLAIM_FRESH_MS = 30 * 60_000;
+
 const ClaimInput = z.strictObject({ token: IdeaToken.nullish(), claim: IdeaToken.nullish() });
 
 /** Signed in with a confirmed address; the invite list is not checked (the waitlist is for people not on it). */
@@ -26,7 +29,14 @@ const confirmedProcedure = publicProcedure.use(({ ctx, next }) => {
 });
 
 export const ideaBoxRouter = router({
-  claim: protectedProcedure.input(ClaimInput).mutation(async ({ ctx, input }) => claimIdeaBoxDraft(ctx.db, ctx.userId, input)),
+  /**
+   * The cookie's token claims at any time. The sign-in link's claim token claims only right after a sign-in
+   * (`CLAIM_FRESH_MS`): a link someone else sends to a person who is already signed in cannot drop a card into their deck.
+   */
+  claim: protectedProcedure.input(ClaimInput).mutation(async ({ ctx, input }) => {
+    const fresh = !!ctx.authenticatedAt && Date.now() - ctx.authenticatedAt.getTime() <= CLAIM_FRESH_MS;
+    return claimIdeaBoxDraft(ctx.db, ctx.userId, { token: input.token, claim: fresh ? input.claim : null });
+  }),
 });
 
 export const waitlistRouter = router({
