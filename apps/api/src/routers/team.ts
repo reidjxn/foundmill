@@ -5,7 +5,7 @@ import { SectionPermissions, repos, type AgentRosterActivity } from "@foundmill/
 import { DECISION_TYPES, DEFAULT_AGENT_STYLE, ForbiddenError, isOwnerRole, MEMBERSHIP_ROLES, NotFoundError, ValidationError, agentTier, characterFor, leadAgentIds } from "@foundmill/shared";
 import { z } from "zod";
 import { pendingApprovals, resolveApproval } from "../services/approvals";
-import { founderChangeNote, noticeNames, recentlyLowered, tellFoundersQuietly } from "../services/founder-notices";
+import { founderChangeNote, noticeNames, recentlyLowered, takeFounderChange, tellFoundersQuietly } from "../services/founder-notices";
 import { modelLimited } from "../services/model-limits";
 import { ensurePortraits } from "../services/personas";
 import { archivePlaybook, compilePlaybookText, createPlaybook, setPlaybookEnabled, toPlaybookView, updatePlaybook } from "../services/playbooks";
@@ -281,6 +281,8 @@ export const teamRouter = router({
           const fromRole = membership.role;
           if (!isOwnerRole(ctx.role) && isOwnerRole(membership.role)) throw new ForbiddenError("Only an owner or a cofounder can change an owner's or a cofounder's role or permissions");
           if (!isOwnerRole(ctx.role) && input.role && isOwnerRole(input.role)) throw new ForbiddenError("Only an owner or a cofounder can make someone an owner or a cofounder");
+          // One person lowers a founder's role at most so often a day in a project (second review, P1-1).
+          if (isOwnerRole(fromRole) && input.role && !isOwnerRole(input.role)) await takeFounderChange(ctx, "lower");
           if (input.role) membership = await repos.memberships.setRole(tx, ctx.businessId, input.userId, input.role);
           if (input.sectionPermissions) membership = await repos.memberships.setSectionPermissions(tx, ctx.businessId, input.userId, input.sectionPermissions);
           if (input.expiresAt !== undefined) {
@@ -302,18 +304,18 @@ export const teamRouter = router({
       }),
     /**
      * Removes a member. A founder is stepped down first (their role changed), then removed; a person whose founder's
-     * standing someone else took away in the last 7 days counts as a founder removed (security review P2-3): the entry
+     * standing someone else took away in the last 30 days counts as a founder removed (security review P2-3): the entry
      * names the role they had (`formerRole`), the other founders get an Inbox note, and every founder and the person
      * removed are emailed.
      */
     remove: staffAdmin.input(z.object({ userId: Id })).mutation(async ({ ctx, input }) => {
-      const names = await noticeNames(ctx.db, ctx.userId, input.userId);
+      const [names, lowered] = await Promise.all([noticeNames(ctx.db, ctx.userId, input.userId), recentlyLowered(ctx.db, ctx.businessId, input.userId)]);
       const removed = await ctx.rls(async (tx) => {
         if (input.userId === ctx.userId) throw new ValidationError("Leave the business from Settings instead of removing yourself");
         const target = await repos.memberships.get(tx, ctx.businessId, input.userId);
         // An owner's standing is stepped down first (an owner or a cofounder changes the role), then removed.
         if (target && isOwnerRole(target.role)) throw new ValidationError(target.role === "cofounder" ? "A cofounder cannot be removed; another founder changes their role first" : "The owner cannot be removed");
-        const lately = target ? await recentlyLowered(tx, ctx.businessId, input.userId) : null;
+        const lately = target ? lowered : null;
         await repos.memberships.remove(tx, ctx.businessId, input.userId);
         // `userId`, the role and the founder's role they had lately let the gateway read a founder notice from this entry.
         const entry = await audit(tx, ctx, { action: "team.humans.remove", target: { kind: "membership", id: input.userId }, details: { userId: input.userId, role: target?.role ?? null, ...(lately ? { formerRole: lately } : {}) } });

@@ -9,8 +9,9 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 const BUSINESS = "6f1d2c3b-4a5e-4f60-8a71-0b2c3d4e5f60";
-let cards: { businessId: string; businessName: string; scheduledFor: string; until: string }[] = [];
-const cancel = vi.fn(async (input: { businessId: string }) => {
+const REQUEST = "7a1d2c3b-4a5e-4f60-8a71-0b2c3d4e5f61";
+let cards: { businessId: string; businessName: string; requestId: string; scheduledFor: string; until: string }[] = [];
+const cancel = vi.fn(async (input: { businessId: string; requestId: string }) => {
   cards = cards.filter((c) => c.businessId !== input.businessId);
   return { canceled: true, businessName: "Bread by Bike", scheduledFor: null };
 });
@@ -20,7 +21,7 @@ vi.mock("@/lib/trpc-react", () => ({
     founder: {
       formerProjects: {
         list: { queryOptions: () => ({ queryKey: [["founder", "formerProjects", "list"]], queryFn: async () => cards }), queryKey: () => [["founder", "formerProjects", "list"]] },
-        cancel: { mutationOptions: (opts: Record<string, unknown>) => ({ mutationKey: [["founder", "formerProjects", "cancel"]], mutationFn: (input: { businessId: string }) => cancel(input), ...opts }) },
+        cancel: { mutationOptions: (opts: Record<string, unknown>) => ({ mutationKey: [["founder", "formerProjects", "cancel"]], mutationFn: (input: { businessId: string; requestId: string }) => cancel(input), ...opts }) },
       },
     },
   }),
@@ -44,7 +45,7 @@ describe("FormerProjects", () => {
   });
 
   it("one card per project while its deletion waits; Cancel asks once more, then cancels and says so", async () => {
-    cards = [{ businessId: BUSINESS, businessName: "Bread by Bike", scheduledFor: "2026-11-20T15:45:00.000Z", until: "2026-11-19T15:45:00.000Z" }];
+    cards = [{ businessId: BUSINESS, businessName: "Bread by Bike", requestId: REQUEST, scheduledFor: "2026-11-20T15:45:00.000Z", until: "2026-11-20T15:45:00.000Z" }];
     renderIt();
     await waitFor(() => expect(screen.getByTestId("former-project-card")).toBeTruthy());
     expect(screen.getByRole("heading").textContent).toBe("Bread by Bike is set to be deleted");
@@ -53,7 +54,7 @@ describe("FormerProjects", () => {
     expect(cancel).not.toHaveBeenCalled();
     fireEvent.click(screen.getByTestId("former-project-confirm"));
     await waitFor(() => expect(screen.getByTestId("former-project-card").getAttribute("data-state")).toBe("done"));
-    expect(cancel).toHaveBeenCalledWith({ businessId: BUSINESS });
+    expect(cancel).toHaveBeenCalledWith({ businessId: BUSINESS, requestId: REQUEST });
     expect(screen.getByRole("heading").textContent).toBe("The deletion of Bread by Bike is canceled, and every founder was told.");
   });
 });

@@ -1,30 +1,37 @@
 /**
- * Founder notices (security review P2-3, Nov 13, 2026). Someone with a founder's standing could lower another founder's
- * role, remove them, then ask for the project's deletion, and the warning reached only the Inbox of the people still in
- * it. Now each of those steps, and a canceled deletion, tells the founders:
+ * Founder notices (security review P2-3, Nov 13, 2026; reworked after the second review the same day). Someone with a
+ * founder's standing could lower another founder's role, remove them, then ask for the project's deletion, and the
+ * warning reached only the Inbox of the people still in it. Now each of those steps, and a canceled deletion, tells the
+ * founders:
  *
  *   - `tellFounders` asks the gateway's one sender (`/v1/notify/email`, kind `founder_notice`) for one email per person:
  *     every founder now (an owner or a cofounder), the person whose role changed or who was removed, and, for a deletion,
- *     every founder someone else demoted or removed in the last 7 days (`founder_departures`, 0094). Never the person who
- *     did it, so a founder on their own gets nothing from their own steps. Ids only: the gateway reads the audit entry
- *     and everyone again. Asked after the change committed; a refusal or an unreachable gateway changes nothing here.
- *   - While a deletion waits, a founder demoted or removed lately gets a one-click cancel in their email: a random 256-bit
- *     token minted here, its SHA-256 kept on their departure with the request it cancels and its end (the 7 days from
- *     the departure), the token itself sent to the gateway for that email only (`setCancelToken`).
+ *     every former founder for that request (someone else demoted or removed them within 30 days before it, or after it:
+ *     `founder_departures`, 0094). Never the person who did it, but for one receipt: the person who asked for a
+ *     deletion, whatever the team's size. Ids only: the gateway reads the audit entry and everyone again, and holds the
+ *     counts (its own daily ceiling, so many an hour and a day per person and project, then one "more changes" email).
+ *     Asked after the change committed; a refusal or an unreachable gateway changes nothing here.
+ *   - While a deletion waits, a former founder's email carries a one-click cancel: a random 256-bit token minted here for
+ *     that one email, its SHA-256 kept in `founder_cancel_links` with the request it cancels and its end (that request's
+ *     scheduled day). A link never replaces another, and the row goes again when its email is not sent.
  *   - `founderChangeNote` is the Inbox note for a lowered role or a removal, from the Chief of Staff, written in the
  *     change's own transaction and only when another founder than the one who made it is there to read it.
  *   - `cancelDeletionAsFormerFounder` is the cancel for someone who is out: from `/a/<token>` (email.ts) or the card on
- *     their home (`founder.formerProjects.cancel`). It cancels the deletion and restores nothing else: they stay out.
- *     Rejoining is a separate, ordinary invitation.
+ *     their home (`founder.formerProjects.cancel`), for the one request the link or the card named, checked under the
+ *     audit chain's lock. It cancels the deletion and restores nothing else: they stay out. Rejoining is a separate,
+ *     ordinary invitation.
+ *   - `takeFounderChange`: one person may lower a founder's role, or ask for a deletion, `FOUNDER_NOTICE_LIMITS.actorPerDay`
+ *     times a day in one project. A cancel is never limited: it is the safe direction.
  *
- * The purge needs no change (task 3 of the review): the grace is `BUSINESS_DELETION_DELAY_DAYS` (7) from the request, so
- * a deletion asked for within 7 days of a founder's removal is never due before that founder's own 7 days have run.
+ * The purge needs no change: the cancel right lasts until the request's own scheduled day, which is the day the sweep
+ * purges on.
  */
-import { BUSINESS_DELETION_CANCEL_ACTION, BUSINESS_DELETION_REQUEST_ACTION, cancelWindowEnd, repos, type AuditEntry, type Db, type DbTx, type Executor, type FounderDepartureView } from "@foundmill/db";
-import { AppError, founderChangeNote as noteWords, formerFounderCanceledLine, noticeDay, noticeMoment, OWNER_ROLES, type FounderNotice } from "@foundmill/shared";
+import { BUSINESS_DELETION_CANCEL_ACTION, BUSINESS_DELETION_REQUEST_ACTION, repos, type AuditEntry, type Db, type DbTx, type Executor } from "@foundmill/db";
+import { AppError, FORMER_FOUNDER_LOOKBACK_MS, FOUNDER_NOTICE_LIMITS, founderChangeNote as noteWords, formerFounderCanceledLine, noticeDay, noticeMoment, OWNER_ROLES, type FounderNotice } from "@foundmill/shared";
 import { newActionToken } from "@foundmill/shared/email-links";
 import type { ApiGatewayClient } from "./gateway";
 import type { ApiLogger } from "./log";
+import type { RateLimitStore } from "./rate-limit";
 
 export interface NoticeDeps {
   db: Db;
@@ -48,53 +55,93 @@ export interface TellFoundersResult {
   asked: { userId: string; sent: boolean; reason: string | null; offersCancel: boolean }[];
 }
 
+const DAY_MS = 86_400_000;
+
 /** The deletion that waits now (the latest request, not canceled after it), or null. */
 export async function pendingDeletionRequest(db: Executor, businessId: string): Promise<AuditEntry | null> {
   const latest = (await repos.audit.list(db, businessId, { action: [BUSINESS_DELETION_REQUEST_ACTION, BUSINESS_DELETION_CANCEL_ACTION], limit: 1 })).items[0];
   return latest && latest.action === BUSINESS_DELETION_REQUEST_ACTION ? latest : null;
 }
 
+/** The request a cancel entry canceled: the latest request written before it on the chain. */
+async function canceledRequest(db: Executor, businessId: string, cancelEntry: AuditEntry): Promise<AuditEntry | null> {
+  const requests = (await repos.audit.list(db, businessId, { action: BUSINESS_DELETION_REQUEST_ACTION, limit: 20 })).items;
+  return requests.find((r) => Number(r.seq) < Number(cancelEntry.seq)) ?? null;
+}
+
 /** The day a waiting request is due. */
 export const scheduledForOf = (request: AuditEntry): Date => {
   const at = (request.details as { scheduledFor?: unknown }).scheduledFor;
   const d = typeof at === "string" ? new Date(at) : null;
-  return d && !Number.isNaN(d.getTime()) ? d : new Date(request.createdAt.getTime() + 7 * 86_400_000);
+  return d && !Number.isNaN(d.getTime()) ? d : new Date(request.createdAt.getTime() + 7 * DAY_MS);
 };
 
-/** Mints the one-click cancel for this departure and this request; the token, or null when the departure carries none. */
-async function cancelTokenFor(db: Db, departure: FounderDepartureView, request: AuditEntry): Promise<string | null> {
-  const minted = newActionToken();
-  const ok = await repos.founderDepartures.setCancelToken(db, departure.id, { tokenHash: minted.hash, requestId: request.id, expiresAt: scheduledForOf(request) });
-  return ok ? minted.token : null;
+export class FounderChangeLimitError extends AppError {
+  constructor(what: "lower" | "request", retryAfterMs: number) {
+    const hours = Math.max(1, Math.ceil(retryAfterMs / 3_600_000));
+    const when = hours === 1 ? "in an hour" : `in ${hours} hours`;
+    super(
+      "founder_change_limit",
+      what === "lower"
+        ? `A founder's role can be lowered ${FOUNDER_NOTICE_LIMITS.actorPerDay} times a day by one person in a project, and that is used up for now. Try again ${when}.`
+        : `A deletion can be asked for ${FOUNDER_NOTICE_LIMITS.actorPerDay} times a day by one person in a project, and that is used up for now. Try again ${when}.`,
+      429,
+      { retryAfterMs },
+    );
+  }
+}
+
+/** Takes one of the person's `actorPerDay` founder changes of this kind in this project, or throws a plain refusal. */
+export async function takeFounderChange(ctx: { limits: RateLimitStore; businessId: string; userId: string }, what: "lower" | "request"): Promise<void> {
+  const r = await ctx.limits.take([{ key: `founder-change:${what}:${ctx.businessId}:${ctx.userId.toLowerCase()}`, rule: { limit: FOUNDER_NOTICE_LIMITS.actorPerDay, windowMs: DAY_MS } }]);
+  if (!r.ok) throw new FounderChangeLimitError(what, r.retryAfterMs);
 }
 
 export async function tellFounders(deps: NoticeDeps, input: TellFoundersInput): Promise<TellFoundersResult> {
-  const now = input.now ?? new Date();
   const actor = input.actorUserId.toLowerCase();
   const subject = input.subjectUserId?.toLowerCase() ?? null;
-  const [founders, former, waiting] = await Promise.all([
+  const [founders, entry, waiting] = await Promise.all([
     repos.memberships.list(deps.db, input.businessId, { roles: OWNER_ROLES, activeOnly: true }),
-    repos.founderDepartures.formerFounders(deps.db, input.businessId, now),
+    repos.audit.get(deps.db, input.businessId, input.auditId).catch(() => null),
     pendingDeletionRequest(deps.db, input.businessId),
   ]);
-  const recipients = new Map<string, { departure: FounderDepartureView | null }>();
-  for (const m of founders) recipients.set(m.userId.toLowerCase(), { departure: null });
-  const departureOf = (userId: string) => former.find((d) => d.userId.toLowerCase() === userId) ?? null;
-  if (subject) recipients.set(subject, { departure: departureOf(subject) });
-  if (input.notice === "deletion_requested" || input.notice === "deletion_canceled") for (const d of former) recipients.set(d.userId.toLowerCase(), { departure: d });
-  recipients.delete(actor);
+  // The request this notice is about, for a deletion: the former founders are counted from it.
+  const request = input.notice === "deletion_requested" ? entry : input.notice === "deletion_canceled" && entry ? await canceledRequest(deps.db, input.businessId, entry) : null;
+  const former = request ? await repos.founderDepartures.formerFoundersFor(deps.db, input.businessId, request.createdAt) : [];
+  // Who may still cancel the deletion that waits now (for a role change or a removal made while one waits).
+  const formerForWaiting = waiting ? (request?.id === waiting.id ? former : await repos.founderDepartures.formerFoundersFor(deps.db, input.businessId, waiting.createdAt)) : [];
+  const recipients = new Set<string>(founders.map((m) => m.userId.toLowerCase()));
+  if (subject) recipients.add(subject);
+  for (const d of former) recipients.add(d.userId.toLowerCase());
+  // Nobody hears about their own step, but for the receipt of a deletion request (second review, P2-2).
+  if (input.notice !== "deletion_requested") recipients.delete(actor);
+  else recipients.add(actor);
 
   const asked = await Promise.all(
-    [...recipients.entries()].map(async ([userId, { departure }]) => {
-      // A deletion waits and this person can no longer cancel it in the app: their email carries the one-click cancel.
-      const cancelToken = waiting && departure && input.notice !== "deletion_canceled" ? await cancelTokenFor(deps.db, departure, waiting).catch(() => null) : null;
+    [...recipients].map(async (userId) => {
+      // A deletion waits and this person can no longer cancel it in the app: this email carries its own one-click cancel.
+      const mayCancel = waiting && input.notice !== "deletion_canceled" && userId !== actor && formerForWaiting.some((d) => d.userId.toLowerCase() === userId);
+      let link: { id: string; token: string } | null = null;
+      if (mayCancel) {
+        const minted = newActionToken();
+        const row = await repos.founderCancelLinks.create(deps.db, { businessId: input.businessId, userId, requestId: waiting.id, tokenHash: minted.hash, expiresAt: scheduledForOf(waiting) }).catch(() => null);
+        link = row ? { id: row.id, token: minted.token } : null;
+      }
+      // A link whose email did not go out is forgotten: nobody holds its token, and an older link keeps working.
+      const forget = async () => {
+        if (link) await repos.founderCancelLinks.remove(deps.db, link.id).catch(() => undefined);
+      };
       try {
-        const answer = await deps.gateway.notifyEmail({ userId, kind: "founder_notice", businessId: input.businessId, data: { auditId: input.auditId, ...(cancelToken ? { cancelToken } : {}) } });
-        if (!answer.sent) deps.log.info({ businessId: input.businessId, userId, notice: input.notice, reason: answer.reason }, "founder notice not sent");
-        return { userId, sent: answer.sent, reason: answer.sent ? null : answer.reason, offersCancel: cancelToken !== null };
+        const answer = await deps.gateway.notifyEmail({ userId, kind: "founder_notice", businessId: input.businessId, data: { auditId: input.auditId, ...(link ? { cancelToken: link.token } : {}) } });
+        if (!answer.sent) {
+          await forget();
+          deps.log.info({ businessId: input.businessId, userId, notice: input.notice, reason: answer.reason }, "founder notice not sent");
+        }
+        return { userId, sent: answer.sent, reason: answer.sent ? null : answer.reason, offersCancel: answer.sent && link !== null };
       } catch (e) {
+        await forget();
         deps.log.warn({ businessId: input.businessId, userId, notice: input.notice, code: e instanceof AppError ? e.code : "unknown" }, "founder notice not sent: the gateway did not answer");
-        return { userId, sent: false, reason: "unreachable", offersCancel: cancelToken !== null };
+        return { userId, sent: false, reason: "unreachable", offersCancel: false };
       }
     }),
   );
@@ -102,13 +149,14 @@ export async function tellFounders(deps: NoticeDeps, input: TellFoundersInput): 
 }
 
 /**
- * The founder's role a member had until someone else lowered it in the last 7 days (`owner` or `cofounder`), or null.
- * A founder is always stepped down before they can be removed, so this is what makes a removal a founder's removal.
- * Read in the removal's own transaction (the actor's RLS connection: a founder reads the project's departures).
+ * The founder's role a member had until someone else lowered it within `FORMER_FOUNDER_LOOKBACK_MS` (30 days), or
+ * null. A founder is always stepped down before they can be removed, so this is what makes a removal a founder's
+ * removal. On the service connection (an admin who removes someone cannot read the project's departures under RLS),
+ * read before the removal's transaction opens.
  */
-export async function recentlyLowered(tx: DbTx | Executor, businessId: string, userId: string, now: Date = new Date()): Promise<"owner" | "cofounder" | null> {
-  const latest = await repos.founderDepartures.latest(tx, businessId, userId);
-  if (!latest || latest.how !== "demoted" || cancelWindowEnd(latest.departedAt).getTime() <= now.getTime()) return null;
+export async function recentlyLowered(db: Executor, businessId: string, userId: string, now: Date = new Date()): Promise<"owner" | "cofounder" | null> {
+  const latest = await repos.founderDepartures.latest(db, businessId, userId);
+  if (!latest || latest.how !== "demoted" || now.getTime() - latest.departedAt.getTime() > FORMER_FOUNDER_LOOKBACK_MS) return null;
   return latest.priorRole;
 }
 
@@ -158,29 +206,33 @@ export interface FormerCancelResult {
 }
 
 /**
- * A founder someone else demoted or removed in the last 7 days cancels a waiting deletion of that project, as
- * themselves (the audit entry is theirs, marked `formerFounder`). Nothing else changes: they stay out. The warning the
- * request left is settled, the Chief of Staff says who canceled, and every founder hears it (`tellFounders`).
+ * A former founder for the waiting request (someone else demoted or removed them within 30 days before it, or after it)
+ * cancels that request, as themselves (the audit entry is theirs, marked `formerFounder`). `requestId` is the request
+ * the link or the card named: under the audit chain's lock it must still be the one waiting. Nothing else changes: they
+ * stay out. The warning the request left is settled, the Chief of Staff says who canceled, and every founder hears it.
  */
-export async function cancelDeletionAsFormerFounder(deps: NoticeDeps, input: { businessId: string; userId: string; via: "email" | "home"; now?: Date }): Promise<FormerCancelResult> {
+export async function cancelDeletionAsFormerFounder(deps: NoticeDeps, input: { businessId: string; userId: string; requestId: string; via: "email" | "home"; now?: Date }): Promise<FormerCancelResult> {
   const now = input.now ?? new Date();
-  const departure = await repos.founderDepartures.formerFounder(deps.db, input.businessId, input.userId, now);
   const business = await repos.businesses.get(deps.db, input.businessId, { includeArchived: true }).catch(() => null);
-  if (!departure || !business) throw new CancelNotAllowedError();
+  if (!business) throw new CancelNotAllowedError();
   const { request, entry } = await deps.db.transaction(async (tx) => {
     // The audit chain's own lock (audit.append takes it again): a cancel and a request at once are judged one after the
-    // other, so the cancel is written only over a request that is still the latest.
+    // other, so the cancel is written only over the request it named, still the latest.
     await repos.audit.lockChain(tx, input.businessId);
     const waiting = await pendingDeletionRequest(tx, input.businessId);
     if (!waiting) return { request: null, entry: null };
-    const scheduledFor = scheduledForOf(waiting).toISOString();
-    const written = await repos.audit.append(tx, input.businessId, { actorKind: "user", actorId: input.userId, action: BUSINESS_DELETION_CANCEL_ACTION, target: { kind: "business", id: input.businessId }, details: { cancelledAt: now.toISOString(), hadBeenScheduledFor: scheduledFor, formerFounder: true, departedAt: departure.departedAt.toISOString(), via: input.via } });
+    if (waiting.id !== input.requestId) throw new CancelNotAllowedError();
+    const departure = await repos.founderDepartures.formerFounderFor(tx, input.businessId, input.userId, waiting.createdAt);
+    if (!departure) throw new CancelNotAllowedError();
+    const scheduledFor = scheduledForOf(waiting);
+    if (scheduledFor.getTime() <= now.getTime()) throw new CancelNotAllowedError();
+    const written = await repos.audit.append(tx, input.businessId, { actorKind: "user", actorId: input.userId, action: BUSINESS_DELETION_CANCEL_ACTION, target: { kind: "business", id: input.businessId }, details: { cancelledAt: now.toISOString(), hadBeenScheduledFor: scheduledFor.toISOString(), requestId: waiting.id, formerFounder: true, departedAt: departure.departedAt.toISOString(), via: input.via } });
     const warningId = (waiting.details as { inboxItemId?: string | null }).inboxItemId ?? null;
     if (warningId) await repos.inbox.archive(tx, input.businessId, warningId).catch(() => undefined);
     const chief = await repos.agents.chiefOfStaff(tx, input.businessId);
     if (chief) {
       const name = (await repos.founders.get(tx, input.userId).catch(() => null))?.displayName ?? null;
-      const day = noticeDay(scheduledForOf(waiting), business.timeZone);
+      const day = noticeDay(scheduledFor, business.timeZone);
       await repos.inbox.createItem(
         tx,
         input.businessId,
@@ -210,21 +262,24 @@ export async function cancelDeletionAsFormerFounder(deps: NoticeDeps, input: { b
 export interface FormerProjectCard {
   businessId: string;
   businessName: string;
+  /** The waiting request the card cancels. */
+  requestId: string;
   scheduledFor: string;
-  /** The last moment they may cancel (7 days from their departure, or the deletion's day if sooner). */
+  /** The last moment they may cancel: the request's own scheduled day. */
   until: string;
 }
 
 export async function formerProjectCards(db: Db, userId: string, now: Date = new Date()): Promise<FormerProjectCard[]> {
-  const departures = await repos.founderDepartures.forUser(db, userId, new Date(now.getTime() - 7 * 86_400_000));
+  // A waiting request is at most a week or so old; its former founders left at most 30 days before it, or after it.
+  const departures = await repos.founderDepartures.forUser(db, userId, new Date(now.getTime() - FORMER_FOUNDER_LOOKBACK_MS - 14 * DAY_MS));
   const cards: FormerProjectCard[] = [];
   for (const d of departures) {
-    if (!(await repos.founderDepartures.formerFounder(db, d.businessId, userId, now))) continue;
     const waiting = await pendingDeletionRequest(db, d.businessId);
     if (!waiting) continue;
     const scheduledFor = scheduledForOf(waiting);
-    const end = cancelWindowEnd(d.departedAt);
-    cards.push({ businessId: d.businessId, businessName: d.businessName, scheduledFor: scheduledFor.toISOString(), until: new Date(Math.min(end.getTime(), scheduledFor.getTime())).toISOString() });
+    if (scheduledFor.getTime() <= now.getTime()) continue;
+    if (!(await repos.founderDepartures.formerFounderFor(db, d.businessId, userId, waiting.createdAt))) continue;
+    cards.push({ businessId: d.businessId, businessName: d.businessName, requestId: waiting.id, scheduledFor: scheduledFor.toISOString(), until: scheduledFor.toISOString() });
   }
   return cards;
 }

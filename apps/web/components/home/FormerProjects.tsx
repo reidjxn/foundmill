@@ -1,7 +1,7 @@
 "use client";
 /**
  * The card on a person's home for each project they were a founder of until someone else demoted or removed them in
- * the last 7 days, while a deletion of it waits (security review P2-3; docs/DESIGN.md §9g). It reads
+ * the 30 days before a deletion request, or after it, while that deletion waits (security review P2-3; docs/DESIGN.md §9g). It reads
  * `founder.formerProjects.list` (nothing while there is none: the card is never there for nothing) and cancels through
  * `founder.formerProjects.cancel`, which restores nothing else. Shown on Today (the front door), on Home and on /new
  * (where a person with no project left lands); the same works from the one-click link in their email (`/a/<token>`).
@@ -50,7 +50,7 @@ export function FormerProjects({ span = 12, className }: { span?: GridSpan; clas
           error={error[card.businessId] || null}
           onCancel={() => {
             setError((e) => ({ ...e, [card.businessId]: "" }));
-            cancel.mutate({ businessId: card.businessId });
+            cancel.mutate({ businessId: card.businessId, requestId: card.requestId });
           }}
         />
       ))}

@@ -5,7 +5,7 @@
  * button sends `email.action.answer`, which checks everything again and answers as the founder the email went to.
  *
  * The same page serves the one-click cancel of a deletion (security review P2-3; `kind: "cancel_deletion"`): the link in
- * the founder notice a founder someone else demoted or removed in the last 7 days gets while a deletion of that project
+ * the founder notice a former founder gets (someone else demoted or removed them within 30 days before the request, or after it) while a deletion of that project
  * waits. It says which project, when it is deleted and until when they can stop it, and that stopping it gives them
  * nothing else back; the button (a POST) cancels once, as them. Works from 390 px, signed in or not.
  */

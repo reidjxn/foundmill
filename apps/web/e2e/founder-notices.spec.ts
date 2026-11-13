@@ -87,8 +87,8 @@ test.describe("founder notices and the former founder's cancel", () => {
     expect(toOwner).toHaveLength(3);
     const token = toOwner.at(-1)!.data!.cancelToken!;
     expect(token).toMatch(/^[A-Za-z0-9_-]{43}$/);
-    // The cofounder who did it is never emailed about it.
-    expect(asked.filter((a) => a.kind === "founder_notice" && a.userId === cofounder)).toHaveLength(0);
+    // The cofounder who did it hears only the receipt of their own deletion request, never their role change or removal.
+    expect(asked.filter((a) => a.kind === "founder_notice" && a.userId === cofounder)).toHaveLength(1);
 
     const context = await browser.newContext({ viewport: PHONE });
     const phone = await context.newPage();
@@ -113,8 +113,8 @@ test.describe("founder notices and the former founder's cancel", () => {
     await phone.reload();
     await expect(card).toHaveAttribute("data-state", "used", { timeout: LONG });
     await context.close();
-    // The founders hear who canceled.
-    expect(asked.filter((a) => a.kind === "founder_notice" && a.businessId === bid && a.userId === cofounder)).toHaveLength(1);
+    // The founders hear who canceled (the cofounder: the receipt of the request, then who canceled it).
+    expect(asked.filter((a) => a.kind === "founder_notice" && a.businessId === bid && a.userId === cofounder)).toHaveLength(2);
   });
 
   test("the card on the dev founder's home: listed while the deletion waits, asks once more, cancels and says so", async ({ page }) => {

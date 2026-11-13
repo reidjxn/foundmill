@@ -9,7 +9,7 @@ const meta = {
     docs: {
       description: {
         component:
-          "On the home of a founder someone else demoted or removed in the last 7 days, while a deletion of that project waits: when it is deleted, until when they can stop it, and that stopping it gives them nothing else back. Cancel asks once more in place. No color, no badge, no count.",
+          "On the home of a founder someone else demoted or removed within 30 days before a deletion request, or after it, while a deletion of that project waits: when it is deleted, until when they can stop it, and that stopping it gives them nothing else back. Cancel asks once more in place. No color, no badge, no count.",
       },
     },
   },

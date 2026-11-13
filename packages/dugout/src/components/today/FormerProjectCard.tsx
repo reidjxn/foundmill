@@ -1,7 +1,7 @@
 "use client";
 /**
  * FormerProjectCard (security review P2-3; docs/DESIGN.md §9g): the small card on the home of a founder someone else
- * demoted or removed in the last 7 days, while a deletion of that project waits. It says when the project is deleted and
+ * demoted or removed within 30 days before a deletion request, or after it, while that deletion waits. It says when the project is deleted and
  * until when they can still stop it, and that stopping it gives them nothing else back. Cancel asks once more in place
  * ("Yes, cancel the deletion" / "Not now") before the host sends it, so one stray tap never decides. Calm: a plain
  * surface, no color, no badge, no count. The words are @foundmill/shared `FORMER_PROJECT_CARD`; the host formats the

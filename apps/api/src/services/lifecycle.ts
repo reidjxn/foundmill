@@ -14,16 +14,16 @@
  *   (`repos.businesses.deletionsDue`, 0028 `fm_purge_business`). The request needs a fresh authentication
  *   (`authenticatedAt` from the token's `amr`).
  * - Both tell the founders by email once they commit (services/founder-notices.ts, security review P2-3): every other
- *   founder, and a founder someone else demoted or removed in the last 7 days, who may cancel the deletion as a former
+ *   founder, and a former founder for the request (someone else demoted or removed them within 30 days before it, or after it), who may cancel it as a former
  *   founder from the email's link or the card on their home (`cancelDeletionAsFormerFounder`). The 7-day grace from the
- *   request already outlasts the 7 days such a founder has to cancel, so the purge waits for nothing more.
+ *   request is also the last day such a founder may cancel it, so the purge waits for nothing more. The person who asked gets a receipt.
  */
 import { APP_NAME } from "@foundmill/config";
 import { BUSINESS_DELETION_CANCEL_ACTION, BUSINESS_DELETION_DELAY_DAYS, BUSINESS_DELETION_REQUEST_ACTION, EXPORT_EXCLUDED_TABLES, EXPORT_SECTIONS, EXPORT_TABLES, portableValue, repos, type Business, type Executor, type ExportSection, type InboxItem, type PortableRow } from "@foundmill/db";
 import { AppError, ValidationError } from "@foundmill/shared";
 import type { BusinessContext } from "../trpc";
 import { audit, effectivePermission } from "../trpc";
-import { tellFoundersQuietly } from "./founder-notices";
+import { takeFounderChange, tellFoundersQuietly } from "./founder-notices";
 import { stopAllAgents, type StopAllResult } from "./killswitch";
 
 export const EXPORT_FORMAT = "foundmill-export/2" as const;
@@ -304,6 +304,8 @@ export async function requestDeletion(ctx: BusinessContext, input: RequestDeleti
   if (existing.status === "scheduled") {
     return { deletion: existing, reauth: { required: true, satisfied, authenticatedAt: authenticatedAt?.toISOString() ?? null, windowMinutes: REAUTH_WINDOW_MS / 60_000 }, copy: deletionCopy(ctx.business, existing.scheduledFor!), inboxItem: null };
   }
+  // One person asks for a deletion at most so often a day in a project (second review, P1-1); a cancel is never limited.
+  await takeFounderChange(ctx, "request");
   const scheduledFor = new Date(now.getTime() + DELETION_DELAY_DAYS * DAY_MS).toISOString();
   const copy = deletionCopy(ctx.business, scheduledFor);
   const { item: inboxItem, auditId } = await ctx.rls(async (tx) => {
@@ -320,7 +322,7 @@ export async function requestDeletion(ctx: BusinessContext, input: RequestDeleti
     const entry = await audit(tx, ctx, { action: DELETION_REQUEST_ACTION, target: { kind: "business", id: ctx.businessId }, details: { requestedAt: now.toISOString(), scheduledFor, delayDays: DELETION_DELAY_DAYS, reauthenticatedAt: authenticatedAt!.toISOString(), inboxItemId: item?.id ?? null } });
     return { item, auditId: entry.id };
   });
-  // Every other founder, and every founder someone else took out in the last 7 days (with the one-click cancel), hears
+  // Every other founder, and every former founder for this request (with the one-click cancel), hears
   // it by email (security review P2-3). The Inbox warning above is the project's note; a founder on their own gets no email.
   await tellFoundersQuietly(ctx, { businessId: ctx.businessId, auditId, notice: "deletion_requested", actorUserId: ctx.userId, now });
   return { deletion: await deletionState(ctx), reauth: { required: true, satisfied, authenticatedAt: authenticatedAt!.toISOString(), windowMinutes: REAUTH_WINDOW_MS / 60_000 }, copy, inboxItem };

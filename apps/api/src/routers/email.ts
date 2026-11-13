@@ -12,8 +12,8 @@
  * before the decision, so it works at most once even under a race.
  *
  * The same two procedures serve the one-click cancel of a deletion (security review P2-3): the token a founder notice
- * carries to a founder someone else demoted or removed in the last 7 days, while a deletion of that project waits.
- * 256 random bits minted by the api, only its SHA-256 kept on their `founder_departures` row with the request it
+ * carries to a former founder for the deletion that waits (someone else demoted or removed them within 30 days before the request, or after it).
+ * 256 random bits minted by the api for that one email, only its SHA-256 kept in `founder_cancel_links` with the request it
  * cancels and its end. `get` changes nothing; `answer` (the page's button, a POST) checks everything again (unused, in
  * date, still a former founder in the window and not back as a founder, the same request still the one waiting, a
  * deployment that still admits them), spends the token first, then cancels as that person
@@ -88,29 +88,31 @@ const view = (r: Resolved) => {
 
 interface ResolvedCancel {
   state: EmailActionState;
-  departure: Awaited<ReturnType<typeof repos.founderDepartures.byCancelTokenHash>>;
+  link: Awaited<ReturnType<typeof repos.founderCancelLinks.byTokenHash>>;
   businessName: string | null;
   scheduledFor: string | null;
   until: string | null;
 }
 
 async function resolveCancel(ctx: Context, hash: string, now: Date): Promise<ResolvedCancel | null> {
-  const d = await repos.founderDepartures.byCancelTokenHash(ctx.db, hash);
-  if (!d || !d.cancelRequestId || !d.cancelExpiresAt) return null;
-  const none: ResolvedCancel = { state: "unavailable", departure: d, businessName: null, scheduledFor: null, until: null };
-  if (d.cancelUsedAt) return { ...none, state: "used" };
-  if (d.cancelExpiresAt.getTime() <= now.getTime()) return { ...none, state: "expired" };
-  if (!(await repos.founderDepartures.formerFounder(ctx.db, d.businessId, d.userId, now))) return none;
-  const email = await repos.founders.emailOf(ctx.db, d.userId);
-  if (!(await isAdmittedNow(ctx, { userId: d.userId, email, emailConfirmed: email !== null }))) return none;
-  const waiting = await pendingDeletionRequest(ctx.db, d.businessId);
+  const link = await repos.founderCancelLinks.byTokenHash(ctx.db, hash);
+  if (!link) return null;
+  const none: ResolvedCancel = { state: "unavailable", link, businessName: null, scheduledFor: null, until: null };
+  if (link.usedAt) return { ...none, state: "used" };
+  if (link.expiresAt.getTime() <= now.getTime()) return { ...none, state: "expired" };
+  const waiting = await pendingDeletionRequest(ctx.db, link.businessId);
   // Canceled already (by a founder, or by them in the app): nothing to do, and nothing about the project is shown.
   if (!waiting) return { ...none, state: "canceled" };
-  // A newer request was made since: its own email carries the link that works.
-  if (waiting.id !== d.cancelRequestId) return none;
-  const business = await repos.businesses.get(ctx.db, d.businessId, { includeArchived: true }).catch(() => null);
+  // A newer request was made since: the card on their home, or that request's own email, cancels it.
+  if (waiting.id !== link.requestId) return none;
+  // Still a former founder for this request (someone else took their standing away within 30 days before it, or after).
+  if (!(await repos.founderDepartures.formerFounderFor(ctx.db, link.businessId, link.userId, waiting.createdAt))) return none;
+  const email = await repos.founders.emailOf(ctx.db, link.userId);
+  if (!(await isAdmittedNow(ctx, { userId: link.userId, email, emailConfirmed: email !== null }))) return none;
+  const business = await repos.businesses.get(ctx.db, link.businessId, { includeArchived: true }).catch(() => null);
   if (!business) return none;
-  return { state: "ready", departure: d, businessName: business.name, scheduledFor: scheduledForOf(waiting).toISOString(), until: d.cancelExpiresAt.toISOString() };
+  const scheduledFor = scheduledForOf(waiting).toISOString();
+  return { state: "ready", link, businessName: business.name, scheduledFor, until: link.expiresAt.toISOString() };
 }
 
 const cancelView = (r: ResolvedCancel, justCanceled = false) => {
@@ -131,12 +133,13 @@ export const emailRouter = router({
       const now = new Date();
       const cancel = isActionTokenShape(input.token) ? await resolveCancel(ctx, hashActionToken(input.token), now) : null;
       if (cancel) {
-        const d = cancel.departure!;
+        const link = cancel.link!;
         if (cancel.state !== "ready") return { ...cancelView(cancel), requiresConfirmation: false };
         // Spend the token first: a second click, or a second tab, gets "used".
-        if (!(await repos.founderDepartures.useCancelToken(ctx.db, d.id, now))) return { ...cancelView({ ...cancel, state: "used" }), requiresConfirmation: false };
+        if (!(await repos.founderCancelLinks.use(ctx.db, link.id, now))) return { ...cancelView({ ...cancel, state: "used" }), requiresConfirmation: false };
         try {
-          const done = await cancelDeletionAsFormerFounder(ctx, { businessId: d.businessId, userId: d.userId, via: "email", now });
+          // The request the link was made for; under the lock it must still be the one waiting.
+          const done = await cancelDeletionAsFormerFounder(ctx, { businessId: link.businessId, userId: link.userId, requestId: link.requestId, via: "email", now });
           return { ...cancelView({ ...cancel, state: "canceled" }, done.canceled), requiresConfirmation: false };
         } catch (e) {
           if (e instanceof CancelNotAllowedError) return { ...cancelView({ ...cancel, state: "unavailable" }), requiresConfirmation: false };
