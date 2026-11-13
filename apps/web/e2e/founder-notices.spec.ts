@@ -104,7 +104,7 @@ test.describe("founder notices and the former founder's cancel", () => {
     // Opening it changed nothing.
     expect((await call<{ status: string }>(other, "business.deletionStatus", { businessId: bid }, "get")).status).toBe("scheduled");
     const button = phone.getByRole("button", { name: "Cancel the deletion" });
-    expect((await button.boundingBox())!.height).toBeGreaterThanOrEqual(32);
+    expect((await button.boundingBox())!.height).toBeGreaterThanOrEqual(44);
     await button.click();
     await expect(card).toHaveAttribute("data-state", "canceled", { timeout: LONG });
     await expect(phone.getByText("Deletion canceled")).toBeVisible();
@@ -122,7 +122,8 @@ test.describe("founder notices and the former founder's cancel", () => {
     await call(other, "business.requestDeletion", { businessId: bid });
     await signIn(page);
     await page.goto(`/b/${NORTHWIND_BUSINESS_ID}/home`);
-    const card = page.getByTestId("former-project-card");
+    // Only this run's project: another former project of the dev founder may wait on a reused stack.
+    const card = page.getByTestId("former-project-card").filter({ hasText: name });
     await expect(card).toBeVisible({ timeout: LONG });
     await expect(card.getByRole("heading")).toHaveText(`${name} is set to be deleted`);
     await expect(card).toContainText("you can still cancel the deletion until");
@@ -139,6 +140,6 @@ test.describe("founder notices and the former founder's cancel", () => {
     // And with nothing left to keep, the card is gone after a reload.
     await page.reload();
     await expect(page.getByTestId("app-shell")).toBeVisible({ timeout: LONG });
-    await expect(page.getByTestId("former-project-card")).toHaveCount(0);
+    await expect(page.getByTestId("former-project-card").filter({ hasText: name })).toHaveCount(0);
   });
 });

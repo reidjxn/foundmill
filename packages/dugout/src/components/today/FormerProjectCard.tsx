@@ -55,15 +55,15 @@ export function FormerProjectCard({ projectName, scheduledFor, until, onCancel, 
           <div className="flex flex-wrap gap-2">
             {confirming ? (
               <>
-                <Button size="sm" variant="primary" loading={pending} onClick={onCancel} data-testid="former-project-confirm">
+                <Button size="md" className="min-h-tap" variant="primary" loading={pending} onClick={onCancel} data-testid="former-project-confirm">
                   {FORMER_PROJECT_CARD.confirm}
                 </Button>
-                <Button size="sm" variant="secondary" disabled={pending} onClick={() => setConfirming(false)}>
+                <Button size="md" className="min-h-tap" variant="secondary" disabled={pending} onClick={() => setConfirming(false)}>
                   {FORMER_PROJECT_CARD.keep}
                 </Button>
               </>
             ) : (
-              <Button size="sm" variant="secondary" onClick={() => setConfirming(true)} data-testid="former-project-cancel">
+              <Button size="md" className="min-h-tap" variant="secondary" onClick={() => setConfirming(true)} data-testid="former-project-cancel">
                 {FORMER_PROJECT_CARD.button}
               </Button>
             )}

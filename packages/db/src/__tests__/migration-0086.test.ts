@@ -8,7 +8,6 @@
  *
  * The migration's number may change when branches merge: `TAG` below is the one place this file names it.
  */
-import { ACCOUNT_EVENT_TYPES } from "@foundmill/shared";
 import { sql } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { readMigrations } from "../migrations";

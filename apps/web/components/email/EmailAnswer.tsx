@@ -56,11 +56,11 @@ export function EmailAnswer({ token }: { token: string }) {
             title={words.title}
             actions={
               cancelState === "ready" ? (
-                <Button size="sm" variant="primary" icon={Check} loading={answer.isPending} onClick={() => answer.mutate({ token })}>
+                <Button size="lg" className="min-h-tap" variant="primary" icon={Check} loading={answer.isPending} onClick={() => answer.mutate({ token })}>
                   {FORMER_PROJECT_CARD.button}
                 </Button>
               ) : (
-                <Button asChild size="sm" variant="secondary" iconRight={ArrowRight}>
+                <Button asChild size="lg" className="min-h-tap" variant="secondary" iconRight={ArrowRight}>
                   <a href="/">{`Go to ${APP_NAME}`}</a>
                 </Button>
               )
