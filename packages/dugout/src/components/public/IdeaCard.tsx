@@ -114,7 +114,7 @@ export function IdeaCard({ card, drafting = false, justIn = false, sample = fals
           </div>
           {isArchetype(card.archetype) ? <span className="t-small text-secondary">{ARCHETYPE_LABELS[card.archetype]}</span> : <Skeleton className="h-3 w-24" />}
           {card.stars_current !== undefined ? (
-            <StarRating value={card.stars_current} potential={card.stars_potential} size={13} showValue label="Stars" />
+            <StarRating value={card.stars_current} potential={card.stars_potential} size={13} showValue label="Stars" className="flex-wrap gap-y-1 [&_svg]:shrink-0" />
           ) : (
             <Skeleton className="h-3 w-32" />
           )}
@@ -167,7 +167,7 @@ export function IdeaCard({ card, drafting = false, justIn = false, sample = fals
           </p>
         ) : null}
         {sample ? (
-          <p className="t-small text-warn" data-idea-sample="">
+          <p className="t-small text-status-warn" data-idea-sample="">
             {IDEA_CARD_WORDS.sample}
           </p>
         ) : null}

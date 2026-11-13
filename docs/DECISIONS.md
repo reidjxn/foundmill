@@ -3873,3 +3873,17 @@ The calls made building `openai`, `gemini`, `perplexity`, `serpapi`, `firecrawl`
 - **Refunds (default, not yet confirmed by the founder).** Bought credits that are unused are refundable within 14 days of purchase; used and included credits are not. It covers the EU right of withdrawal for a digital service that starts at once, without a separate flow.
 - **No cookie banner** (founder): the site sets only sign-in and preference cookies (listed in the policy, checked against the code), no analytics and no advertising cookies.
 - **Google sign-in.** The policy has its own section on the Google data received and the Limited Use statement, as Google's brand review asks; the home page and the sign-in page link both documents.
+
+## 2026-11-13 — The landing page's idea box (founder)
+
+The design and the founder's thirteen answers are docs/IDEA_BOX.md. What was decided in building it:
+- **Plain api routes, not tRPC** (`/idea-box/draft`, `/idea-box/mine`): they set and read a cookie and answer an NDJSON stream. The browser calls the api's own address with credentials, so per-address limits see the visitor's address (through the web's same-origin rewrite they would see Vercel's).
+- **The cookie** `fm_idea` holds an opaque 32-byte token; the database stores only its SHA-256. It is httpOnly, SameSite=Lax, 7 days, with `Domain=foundmill.com` in production (`IDEA_COOKIE_DOMAIN`) so /start on the web reads it. A second token, the claim token, rides in the sign-in link (`/start?claim=`) for another device; it is stored hashed, used once, replaced each time the card is shown again, and claims only within 30 minutes of a sign-in, so a link someone else sends to a person who is already signed in cannot drop a card into their deck.
+- **Spend ceiling from the drafts table.** The day's $20 is the sum of today's stored drafts' metered cost (Estimate), not a separate counter: one source of truth, and the sweep keeps 7 days of rows. In-flight drafts can overshoot it by a few cards.
+- **Turnstile on the gateway** (it holds the secret, as for every vendor). Fails closed on staging and production without a secret. On a development or test stack without a gateway, the mock token passes.
+- **The visitor's line is untrusted**: it goes to the model inside an <untrusted_content> block (`buildIdeaBoxCardRequest`), and the eval checks that an instruction in it is not followed.
+- **Founder fit is shown unmeasured ("–")** on a card drafted before sign-up and left out of the overall: nothing is known about the visitor yet. It is measured after the three profile questions.
+- **The honest line** is the lowest measured rating with its own evidence ("What would raise it most"), computed from the card, not a second model call.
+- **A minimal waitlist** (`waitlist_entries`, `waitlist.join`) because sign-up stays invite-only until spend ceilings and reporting land (founder: "Ship the box now with the waitlist"). Admitting is still adding the address to SIGNUP_ALLOWLIST; the held card (90 days) is then claimed at /start. The network session was told and owns nothing here.
+- **Design override (founder, 2026-11-13):** the landing Generate is dark with a white 1 px outline, not the light slab DESIGN reserves for generate controls, so the field leads and the button does not shout (`idea-gen`, packages/dugout idea-box.css).
+- **Phone:** "/" is on the small-screen list as an exact path (`worksOnSmallScreens` treats "/" as itself, never a prefix of every path); a phone gets the hero and the box, and a line that the rest is built for a larger window.

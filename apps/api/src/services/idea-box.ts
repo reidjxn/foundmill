@@ -21,6 +21,8 @@ import type { ApiGatewayClient } from "./gateway";
 import type { LimitEntry, LimitTicket, RateLimitStore, WindowLimit } from "./rate-limit";
 
 const HOUR = 60 * 60_000;
+/** The token the web sends without a Turnstile site key (development stacks); the gateway's mock passes it. */
+export const MOCK_TURNSTILE_TOKEN = "mock-ok";
 const DAY = 24 * HOUR;
 
 /** Per connection: about five cards a day (founder, 2026-11-13), three in any hour; and a backstop across all of them. */
@@ -111,6 +113,8 @@ export async function planIdeaBoxDraft(deps: IdeaBoxDeps, input: IdeaBoxDraftInp
   // The bot check, through the gateway (it holds the secret).
   if (deps.gateway.verifyTurnstile) {
     const check = await deps.gateway.verifyTurnstile({ token: req.turnstile, remoteIp: input.address, hostname: input.hostname }).catch((err: unknown) => {
+      // A development or test stack may run without the gateway: the mock token passes there, as the gateway's mock would.
+      if (devStack(deps.env.APP_ENV) && req.turnstile === MOCK_TURNSTILE_TOKEN) return { ok: true, reason: "ok" as const, simulated: true };
       deps.log.warn({ err: err instanceof Error ? err.message : String(err) }, "idea box: turnstile check failed");
       return { ok: false, reason: "unavailable" as const, simulated: false };
     });

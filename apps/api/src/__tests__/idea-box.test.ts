@@ -91,6 +91,14 @@ describe("POST /idea-box/draft", () => {
     expect((await draft(app, idea)).events[0]).toMatchObject({ type: "error", code: "bot" });
   });
 
+  it("on a test stack without a gateway, the mock token passes and any other fails as not open", async () => {
+    const { app } = await setup({}, async () => {
+      throw new Error("gateway unreachable");
+    });
+    expect(last((await draft(app, { ...idea, turnstile: "mock-ok" })).events).type).toBe("card");
+    expect((await draft(app, idea, { address: "198.51.100.99" })).events[0]).toMatchObject({ type: "error", code: "unavailable" });
+  });
+
   it("Turnstile unconfigured or down reads as not open right now", async () => {
     const { app } = await setup({}, async () => ({ ok: false, reason: "unconfigured", simulated: false }));
     expect((await draft(app, idea)).events[0]).toMatchObject({ type: "error", code: "unavailable" });

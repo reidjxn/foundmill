@@ -228,16 +228,16 @@ export function IdeaBox({ layout = "desktop", onLanded }: IdeaBoxProps) {
           <div ref={widget} className="absolute" aria-hidden />
         </form>
       ) : (
-        <div className={cn("idea-field idea-field-quiet", phone ? "w-full idea-field-stack" : "max-w-[47.5rem]")} aria-label="Your idea">
-          <span className="idea-input truncate py-3" data-testid="idea-landed-words">
-            {landed?.prompt || landed?.interest || ""}
+        <div className={cn("idea-field idea-field-quiet", phone ? "w-full min-h-0 py-2 pl-3" : "max-w-[47.5rem]")} aria-label="Your idea">
+          <span className={cn("idea-input py-3", phone ? "px-2" : "truncate")} data-testid="idea-landed-words">
+            {landed?.prompt || `${IDEA_BOX_WORDS.surprise}: ${landed?.interest ?? ""}`}
           </span>
-          <span className="t-small mr-3 inline-flex items-center gap-1.5 rounded-xs px-2 py-1 text-accent">{landed?.prompt ? IDEA_BOX_WORDS.yourWords : landed?.interest}</span>
+          {landed?.prompt && !phone ? <span className="t-small mr-3 inline-flex shrink-0 items-center gap-1.5 rounded-xs px-2 py-1 text-accent">{IDEA_BOX_WORDS.yourWords}</span> : null}
         </div>
       )}
 
       {error ? (
-        <p id={errorId} role="alert" className="t-body text-warn" data-testid="idea-error">
+        <p id={errorId} role="alert" className="t-body text-status-warn" data-testid="idea-error">
           {error}
         </p>
       ) : null}
@@ -319,7 +319,7 @@ export function IdeaBox({ layout = "desktop", onLanded }: IdeaBoxProps) {
 function Assure({ icon, children }: { icon: typeof Medal; children: ReactNode }) {
   return (
     <li className="inline-flex items-center gap-1.5">
-      <Icon icon={icon} size="inline" className="text-good" />
+      <Icon icon={icon} size="inline" className="text-status-good" />
       {children}
     </li>
   );
