@@ -194,26 +194,4 @@ export const creditBalances = pgTable(
   (t) => [uniqueIndex("credit_balances_business_id_period_key").on(t.businessId, t.period), index("credit_balances_business_id_idx").on(t.businessId, t.period)],
 );
 export type CreditBalance = typeof creditBalances.$inferSelect;
-
-/**
- * 0096 — a paid top-up as a lot (founder, 2026-11-13: bought credits last 12 months). The month's `credit_balances`
- * row stays the balance; the lots say how much of it is bought credit, what is left of each purchase and when it
- * expires (`repos.usage`: charges spend included credits first, then lots by expiry; a new month carries live lots over).
- */
-export const creditLots = pgTable(
-  "credit_lots",
-  {
-    id: id(),
-    businessId: businessId(),
-    checkoutId: uuid("checkout_id"),
-    amountMinor: minor("amount_minor").notNull(),
-    remainingMinor: minor("remaining_minor").notNull(),
-    currency: usdCurrency(),
-    purchasedAt: tstz("purchased_at").notNull(),
-    expiresAt: tstz("expires_at").notNull(),
-    ...timestamps(),
-  },
-  (t) => [index("credit_lots_business_id_idx").on(t.businessId, t.expiresAt).where(sql`remaining_minor > 0`), uniqueIndex("credit_lots_checkout_id_key").on(t.checkoutId).where(sql`checkout_id is not null`)],
-);
-export type CreditLot = typeof creditLots.$inferSelect;
 export type NewCreditBalance = typeof creditBalances.$inferInsert;
