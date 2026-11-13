@@ -133,15 +133,10 @@ function Backdrop() {
   );
 }
 
-const NAV = [
-  { href: "#why", label: "Why now" },
-  { href: "#how", label: "How it works" },
-  { href: "#team", label: "Your team" },
-  { href: "#live", label: "Live sessions" },
-  { href: "#journey", label: "Journey" },
-  { href: "#control", label: "You decide" },
-];
-
+/**
+ * The wordmark, Sign in and Start your business, nothing else: the page reads top to bottom, and the Why now pillars
+ * link to the sections that prove them (founder, 2026-11-13: a quieter first screen).
+ */
 function TopBar() {
   return (
     <header className="sticky top-0 z-40 border-b border-subtle/60 bg-base/70 backdrop-blur-md">
@@ -149,13 +144,6 @@ function TopBar() {
         <Link href="/" className="flex items-center text-primary hover:no-underline" aria-label={`${APP_NAME} home`}>
           <Wordmark height={20} label={APP_NAME} />
         </Link>
-        <nav aria-label="Sections" className="flex items-center gap-5">
-          {NAV.map((n) => (
-            <a key={n.href} href={n.href} className="t-tab whitespace-nowrap text-secondary transition-colors duration-micro hover:text-primary hover:no-underline">
-              {n.label}
-            </a>
-          ))}
-        </nav>
         <span className="flex-1" />
         <Button asChild variant="ghost">
           <Link href={SIGN_IN}>Sign in</Link>

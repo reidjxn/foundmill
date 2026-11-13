@@ -46,7 +46,11 @@ export function Hero({ layout = "desktop" }: { layout?: "desktop" | "phone" }) {
   );
   return (
     <section aria-labelledby="hero-title" className="relative">
-      <Container className={phone ? "flex flex-col items-center gap-10 px-4 pb-10 pt-7" : "flex flex-col items-center gap-10 pb-10 pt-11"}>
+      {/*
+        On a desktop the idea box stands apart from the example run below it. The deck's Continue stays high enough at
+        1440 × 900 for its callout to open under it, not over the picker.
+      */}
+      <Container className={phone ? "flex flex-col items-center gap-10 px-4 pb-10 pt-7" : "flex flex-col items-center gap-20 pb-16 pt-14"}>
         <div className="flex w-full max-w-6xl animate-rise-in flex-col items-center gap-5 text-center">
           {!landed ? (
             <span className="inline-flex items-center gap-2 rounded-full border border-subtle bg-panel/70 py-1 pl-1 pr-3 text-small text-secondary backdrop-blur">
@@ -69,7 +73,7 @@ export function Hero({ layout = "desktop" }: { layout?: "desktop" | "phone" }) {
           </div>
         </div>
         {!phone ? (
-          <div className="flex w-full flex-col gap-5" data-testid="hero-example">
+          <div className="flex w-full flex-col gap-6" data-testid="hero-example">
             <span className="inline-flex items-center justify-center gap-2 font-medium text-secondary">
               <span aria-hidden className="size-1.5 rounded-full bg-kit-lift shadow-[0_0_10px_var(--kit-lift)]" />
               Or watch an example run

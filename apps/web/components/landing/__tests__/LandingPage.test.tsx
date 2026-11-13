@@ -124,12 +124,14 @@ describe("LandingPage (signed-out /)", () => {
     expect(container.querySelector("svg[data-variant]")).toBeNull();
   });
 
-  it("has every section, reachable from the section nav", () => {
+  it("has every section, the top bar carries no section nav, and the Why now pillars link to the rest", () => {
     renderPage();
-    const nav = screen.getByRole("navigation", { name: "Sections" });
-    for (const id of ["why", "how", "team", "live", "journey", "control"]) {
-      expect(within(nav).getByRole("link", { name: (_, el) => el.getAttribute("href") === `#${id}` })).toBeTruthy();
-      expect(document.getElementById(id)).toBeTruthy();
+    // A quieter first screen (founder, 2026-11-13): the wordmark, Sign in and Start your business, nothing else.
+    expect(screen.queryByRole("navigation", { name: "Sections" })).toBeNull();
+    const why = document.getElementById("why")!;
+    for (const id of ["why", "how", "team", "live", "journey", "control"]) expect(document.getElementById(id)).toBeTruthy();
+    for (const id of ["team", "live", "journey", "control"]) {
+      expect(within(why).getByRole("link", { name: (_, el) => el.getAttribute("href") === `#${id}` })).toBeTruthy();
     }
     expect(document.getElementById("channels")).toBeTruthy();
     // One team orbit is announced (the hero's); the closing one is decoration.
