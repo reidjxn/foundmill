@@ -133,16 +133,21 @@ export function stripInvalidMentions(text: string, manifest: Manifest): string {
   const before = out;
   for (const bad of findMalformedMarkup(before).sort((a, b) => b.index - a.index)) {
     const span = before.slice(bad.index, bad.end);
-    const pipe = span.indexOf("|");
-    if (pipe === -1) {
-      // No display to recover: only the `[[ent:…` token goes (and its `]]` when it closes at once), not the words after it.
-      const token = /^\[\[ent:[^\s|\]]*(?:\]\])?/.exec(span)![0];
-      out = out.slice(0, bad.index) + out.slice(bad.index + token.length);
+    const id = /^\[\[ent:[^\s|\]]*/.exec(span)![0];
+    if (span[id.length] !== "|") {
+      // No display to recover (a `|` further on is the note's own: a table, "A | B"): only the `[[ent:…` token goes, with
+      // its `]]` when it closes at once, never the words after it.
+      const token = span.startsWith("]]", id.length) ? id.length + 2 : id.length;
+      out = out.slice(0, bad.index) + out.slice(bad.index + token);
       continue;
     }
+    // The display runs to the `]]`; with none, to the end of its line, and the lines after it stay as they are.
     const close = span.indexOf("]]");
-    const display = span.slice(pipe + 1, close === -1 ? undefined : close).trim();
-    out = out.slice(0, bad.index) + inertDisplay(display) + out.slice(bad.end);
+    const lineEnd = span.indexOf("\n");
+    const stop = close !== -1 ? close : lineEnd !== -1 ? lineEnd : span.length;
+    const display = span.slice(id.length + 1, stop).trim();
+    const rest = close !== -1 ? bad.end : bad.index + stop;
+    out = out.slice(0, bad.index) + inertDisplay(display) + out.slice(rest);
   }
   return out.replace(/[ \t]{2,}/g, " ").replace(/ +([,.;:!?])/g, "$1");
 }

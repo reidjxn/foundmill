@@ -82,6 +82,14 @@ describe("stripInvalidMentions (final fallback)", () => {
     expect(stripInvalidMentions("Thanks [[ent:abc and see you Monday.", m)).toBe("Thanks and see you Monday.");
     expect(stripInvalidMentions("[[ent:bad]] Done.", m)).toBe(" Done.");
   });
+
+  it("reads a display only from a `|` right after the id: a later table or 'A | B' is the note's own text", () => {
+    const table = "Thanks [[ent:abc and see you Monday.\n\n| Item | Cost |\n| --- | --- |\n| Labels | $40 |";
+    expect(stripInvalidMentions(table, m)).toBe("Thanks and see you Monday.\n\n| Item | Cost |\n| --- | --- |\n| Labels | $40 |");
+    expect(stripInvalidMentions("See [[ent:abc for the detail, then pick A | B. Done.", m)).toBe("See for the detail, then pick A | B. Done.");
+    // A display that does follow the id is still recovered.
+    expect(stripInvalidMentions("Ask [[ent:abc|Ana about it", m)).toBe("Ask Ana about it");
+  });
 });
 
 describe("checkComposerText", () => {
