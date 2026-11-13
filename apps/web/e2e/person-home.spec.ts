@@ -66,4 +66,29 @@ test.describe("the home of a person with no project (2.4)", () => {
     const findCard = await page.getByTestId("home-find").boundingBox();
     expect(findCard!.y).toBeGreaterThanOrEqual(startCard!.y + startCard!.height);
   });
+  test("Find a project or people opens the Network in the person frame, with no connect control (2.4)", async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await signInWithProfile(page);
+    await expect(page.getByTestId("person-home")).toBeVisible({ timeout: LONG });
+    await page.getByRole("link", { name: /Find a project or people/ }).click();
+    await expect(page).toHaveURL(/\/network$/, { timeout: LONG });
+    await expect(page.getByTestId("network-screen")).toBeVisible({ timeout: LONG });
+    await expect(page.getByTestId("person-live-frame")).toBeVisible();
+    // No business shell, no business notice, nothing that asks to connect.
+    await expect(page.getByTestId("personal-notice")).toHaveCount(0);
+    await expect(page.getByTestId("ask-to-connect")).toHaveCount(0);
+    await expect(page.getByTestId("profile-connect")).toHaveCount(0);
+    // The adult confirmation is the same as for anyone: confirm it when the screen asks, then Communities is one click away.
+    const notice = page.getByTestId("adult-notice");
+    if (await notice.isVisible().catch(() => false)) {
+      await notice.getByRole("checkbox").click();
+      await page.getByTestId("adult-confirm").click();
+      await expect(notice).toHaveCount(0, { timeout: LONG });
+    }
+    await page.getByTestId("person-live-nav").getByRole("link", { name: "Communities" }).click();
+    await expect(page).toHaveURL(/\/communities$/, { timeout: LONG });
+    await expect(page.getByTestId("person-live-frame")).toBeVisible({ timeout: LONG });
+    await page.getByTestId("person-live-home").click();
+    await expect(page).toHaveURL(/\/home$/, { timeout: LONG });
+  });
 });

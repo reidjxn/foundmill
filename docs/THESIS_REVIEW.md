@@ -412,7 +412,7 @@ Goal: R5 and the first half of R4. In the first session a project has a live pag
 
 ### Phase 2: Reach and the person
 
-Status, Nov 12, 2026: 2.3 first part done (a person's own public profile at `/u/<handle>`); 2.2's Google half done (Continue with Google on the web, off until set up). **Ownership (founder, Nov 12):** the waitlist half of 2.2 and invitations (3.1) belong to the network session (`docs/NETWORK.md`), not this roadmap. 2.4 first part done (`/home`, a person with no project lands on a real screen; the `(live)` layout without a project is with the network session). Next here: 2.1 (small screens for the outer product).
+Status, Nov 12, 2026: 2.3 first part done (a person's own public profile at `/u/<handle>`); 2.2's Google half done (Continue with Google on the web, off until set up). **Ownership (founder, Nov 12):** the waitlist half of 2.2 and invitations (3.1) belong to the network session (`docs/NETWORK.md`), not this roadmap. 2.4 done: `/home`, a person with no project lands on a real screen, and the people pages (`/network`, `/communities`, `/profiles`) now work without a project, in a person frame (Nov 13). Next here: 2.1 (small screens for the outer product).
 
 Goal: R1 and R6. A person on a phone can arrive, exist and be found before any project exists.
 

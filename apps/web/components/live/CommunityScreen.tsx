@@ -44,7 +44,7 @@ import {
 import { canSpeakAsBusiness, leaveBlocker, postStatusLabel, reportReasonLabel } from "@/lib/live";
 import { errorMessage, trpcErrorCode, trpcPathPrefix, type RouterOutputs } from "@/lib/trpc";
 import { useTRPC } from "@/lib/trpc-react";
-import { useBusiness } from "@/components/shell/business-context";
+import { useOptionalBusiness } from "@/components/shell/business-context";
 import { useShellChrome } from "@/components/shell/chrome";
 import { COMMUNITY_ROLE_WORD, COMMUNITY_VISIBILITY, useCommunityMembership } from "./communities";
 import { EditPostDialog, InviteDialog, ReportDialog } from "./community-dialogs";
@@ -137,14 +137,15 @@ function PostMenu({ post, handlers, authorName }: { post: PostRow; handlers: Pos
 
 export function CommunityScreen({ communityId }: { communityId: string }) {
   const { formatDate } = useFormatters();
-  const { businessId, data } = useBusiness();
+  const ctx = useOptionalBusiness();
+  const businessId = ctx?.businessId ?? null;
   const viewer = useLiveViewer();
   const trpc = useTRPC();
   const qc = useQueryClient();
   const router = useRouter();
   const { toast } = useToast();
   const membership = useCommunityMembership();
-  const mayPostAsBusiness = canSpeakAsBusiness({ business: data.business, membership: data.membership });
+  const mayPostAsBusiness = ctx !== null && canSpeakAsBusiness({ business: ctx.data.business, membership: ctx.data.membership });
   const [asBusiness, setAsBusiness] = useState(false);
   const connect = useAskToConnect();
   const connectStates = useConnectStates();
@@ -196,7 +197,7 @@ export function CommunityScreen({ communityId }: { communityId: string }) {
   );
   const write = (body: string, parentPostId?: string) => post.mutateAsync({ communityId, bodyMd: body, parentPostId: parentPostId ?? null, businessId: mayPostAsBusiness && asBusiness ? businessId : null });
   // Posts and replies go out under the same choice, so both boxes say who they post as.
-  const postingAs = mayPostAsBusiness && asBusiness ? data.business.name : "yourself";
+  const postingAs = mayPostAsBusiness && asBusiness ? ctx!.data.business.name : "yourself";
 
   // --- post and member moderation --------------------------------------------------------------------------------------
   const [reporting, setReporting] = useState<PostRow | null>(null);
@@ -322,7 +323,7 @@ export function CommunityScreen({ communityId }: { communityId: string }) {
                 <div className="mt-2 flex items-center gap-2">
                   <Switch id="post-as-business" size="sm" checked={asBusiness} onCheckedChange={setAsBusiness} />
                   <Label htmlFor="post-as-business" className="normal-case tracking-normal text-body text-secondary">
-                    Post as {data.business.name}
+                    Post as {ctx?.data.business.name}
                   </Label>
                 </div>
               ) : null}
