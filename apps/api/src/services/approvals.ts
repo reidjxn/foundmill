@@ -16,7 +16,7 @@
  * Answering never moves money by itself: the approval lets one call run exactly as it was asked, within the amount it
  * named, and only when the agent makes it again; hard gates are never approvals of this kind.
  */
-import { APPROVAL_OPTIONS, ASK_FOR_DETAILS_NOTE, approvalAction, approvalArgsText, approvalSection, approvalTaskTitle, approvalWhatExactly, founderReasons, integrationConnected, isReleaseApproval, repos, type Approval, type ApprovalWhat, type ApprovalWhatContext, type DbTx, type InboxItem, type Task } from "@foundmill/db";
+import { APPROVAL_OPTIONS, ASK_FOR_DETAILS_NOTE, approvalAction, approvalArgsText, approvalSection, approvalTaskTitle, approvalWhatExactly, founderReasons, integrationConnected, isReleaseApproval, repos, type Approval, type ApprovalReview, type ApprovalWhat, type ApprovalWhatContext, type DbTx, type InboxItem, type Task } from "@foundmill/db";
 import { ForbiddenError, agentMention, hasSectionAccess, ValidationError, type SectionMembership, type TaskStatus } from "@foundmill/shared";
 import type { BusinessContext } from "../trpc";
 import { audit, emit } from "../trpc";
@@ -293,6 +293,30 @@ function handBackWords(why: string | undefined): string {
   }
 }
 
+/** The audit row a release's second read leaves (apps/orchestrator/src/activities/second-read.ts). */
+const MERGE_REVIEWED = "merge.reviewed";
+
+/**
+ * The second read of a release's change by a different agent, newest first for its task and pull request, or null when
+ * there was none. It sits with the approval for the founder to weigh; it never decides it.
+ */
+export async function releaseReview(tx: DbTx, businessId: string, approval: Pick<Approval, "taskId" | "args">): Promise<ApprovalReview | null> {
+  if (!approval.taskId) return null;
+  const prNumber = (approval.args as { prNumber?: unknown } | null)?.prNumber;
+  const rows = (await repos.audit.list(tx, businessId, { action: MERGE_REVIEWED, limit: 200 })).items;
+  const row = rows.find((a) => (a.target as { id?: unknown } | null)?.id === approval.taskId && (prNumber === undefined || (a.details as { prNumber?: unknown } | null)?.prNumber === prNumber));
+  if (!row) return null;
+  const d = row.details as { reviewerName?: unknown; verdict?: unknown; summary?: unknown; findings?: unknown; simulated?: unknown };
+  const findings = Array.isArray(d.findings) ? (d.findings as Record<string, unknown>[]).filter((f) => f && typeof f.file === "string" && typeof f.title === "string") : [];
+  return {
+    reviewerName: typeof d.reviewerName === "string" ? d.reviewerName : "Another agent",
+    verdict: typeof d.verdict === "string" ? d.verdict : "comment",
+    summary: typeof d.summary === "string" ? d.summary : "",
+    findings: findings.map((f) => ({ severity: String(f.severity ?? "normal"), file: String(f.file), line: typeof f.line === "number" ? f.line : null, title: String(f.title), suggestion: typeof f.suggestion === "string" ? f.suggestion : null })),
+    simulated: d.simulated === true,
+  };
+}
+
 /**
  * What exactly the call would run, with what the arguments only name loaded (a campaign and its drafts), for the reading
  * pane's "What exactly" block (first-time founder report, Nov 8, 2026). Walled from the section the call changes, the
@@ -311,6 +335,7 @@ async function approvalWhatFor(tx: DbTx, businessId: string, approval: Approval,
       context.assets = assets.filter((a) => a.approvalState !== "rejected").map((a) => ({ kind: a.kind, title: a.title, body: a.body }));
     }
   }
+  if (isReleaseApproval(approval)) context.review = await releaseReview(tx, businessId, approval);
   const what = approvalWhatExactly(approval, context);
   if (!walls.financeWalled) return what;
   return { ...what, headline: what.headline ? maskFinance(what.headline) : null, rows: what.rows.map((r) => ({ ...r, value: maskFinance(r.value) })) };

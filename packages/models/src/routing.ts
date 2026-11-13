@@ -122,6 +122,11 @@ export const ROUTES = {
   leadRecommendation: { model: "opus", effort: "low", maxTokens: THINKING_MAX_TOKENS },
   planner: { model: "opus", effort: "low", maxTokens: THINKING_MAX_TOKENS },
   codeReview: { model: "opus", maxTokens: THINKING_MAX_TOKENS },
+  // The second read of a long document an agent drafted (the specification, the roadmap, policies, a pitch): a different
+  // agent checks it for inconsistencies, unsupported claims, unlabeled figures and claims that need a source. Nobody
+  // waits on it, so Opus at the default effort; the cost is bounded by the caller (packages/agents second-read.ts: two
+  // rounds at most, the document cut to a fixed size, a few claims fact-checked), never by this budget.
+  documentReview: { model: "opus", maxTokens: THINKING_MAX_TOKENS },
   // Concept cards, compare and the card Q&A (Ideation Studio): first drafts the founder waits on.
   ideation: { model: "opus", effort: "low", speed: "fast", maxTokens: LOW_EFFORT_MAX_TOKENS },
   // A short slate of names and angles drafted before the cards are written in parallel (audit P2).

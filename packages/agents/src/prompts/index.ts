@@ -15,6 +15,7 @@ import { distributionStrategistPrompt } from "./distribution-strategist";
 import { jurisdictionRecommenderPrompt } from "./jurisdiction-recommender";
 import { plannerPrompt } from "./planner";
 import { reviewAgentPrompt } from "./review-agent";
+import { secondReadPrompt } from "./second-read";
 import { sourceRelevancePrompt, sourceWatcherPrompt } from "./source-watcher";
 import { entitySweepPrompt } from "./entity-sweep";
 import { chapterTitlePrompt } from "./chapter-title";
@@ -45,6 +46,7 @@ export * from "./distribution-strategist";
 export * from "./jurisdiction-recommender";
 export * from "./planner";
 export * from "./review-agent";
+export * from "./second-read";
 export * from "./source-watcher";
 export * from "./entity-sweep";
 export * from "./chapter-title";
@@ -76,6 +78,7 @@ export const PROMPT_LIST = [
   jurisdictionRecommenderPrompt,
   plannerPrompt,
   reviewAgentPrompt,
+  secondReadPrompt,
   sourceRelevancePrompt,
   sourceWatcherPrompt,
   entitySweepPrompt,

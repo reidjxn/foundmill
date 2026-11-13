@@ -20,6 +20,7 @@ import { createNotifyActivities } from "./notify";
 import { createPlanActivities } from "./plan";
 import { createRoadmapPlanActivities } from "./roadmap-plan";
 import { createScheduleActivities } from "./schedules";
+import { createSecondReadActivities } from "./second-read";
 import { createSessionActivities } from "./session";
 import { createSourceWatcherActivities } from "./source-watcher";
 import { createTrainingActivities } from "./training";
@@ -35,6 +36,7 @@ export function createActivities(deps: OrchestratorDeps) {
     ...createRoadmapPlanActivities(deps),
     ...createSessionActivities(deps),
     ...createMergeActivities(deps),
+    ...createSecondReadActivities(deps),
     ...createPlanActivities(deps),
     ...createApprovalActivities(deps),
     ...createTrainingActivities(deps),
@@ -55,4 +57,5 @@ export function createActivities(deps: OrchestratorDeps) {
 export type Activities = ReturnType<typeof createActivities>;
 export * from "./types";
 export type { AutopilotEvaluation } from "./autopilot";
+export type { DocumentSecondRead, DocumentSecondReadInput, MergeSecondRead } from "./second-read";
 export type { SourceWatchInput, SourceWatchReason, SourceWatchResult, SourceWatchSweepInput, SourceWatchWorkflowInput, SourceWatchWorkflowResult } from "./source-watcher";

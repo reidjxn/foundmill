@@ -76,10 +76,10 @@ interface PullRequestSummary {
   changedFiles: number;
 }
 
-type CallResult<T> = { ok: true; data: T } | { ok: false; code: string; message: string };
+export type CallResult<T> = { ok: true; data: T } | { ok: false; code: string; message: string };
 
 /** The data of a gateway tool call, unwrapped from the quarantine envelope, or the error it answered. */
-function resultOf<T>(res: { outcome: string; result?: unknown; reasons?: string[] }): CallResult<T> {
+export function resultOf<T>(res: { outcome: string; result?: unknown; reasons?: string[] }): CallResult<T> {
   if (res.outcome !== "allow") return { ok: false, code: res.outcome, message: res.reasons?.join("; ") || res.outcome };
   const r = res.result as { ok?: boolean; data?: unknown; error?: { code?: string; message?: string } } | undefined;
   if (!r?.ok || r.data === undefined) return { ok: false, code: r?.error?.code ?? "tool_failed", message: r?.error?.message ?? "GitHub gave no result" };

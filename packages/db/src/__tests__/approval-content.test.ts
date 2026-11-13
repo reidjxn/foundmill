@@ -27,6 +27,21 @@ describe("approvalWhatExactly", () => {
     ]);
   });
 
+  it("a release shows the second read of its change after the change's own rows, and says when it was practice mode", () => {
+    const merge = call("merge_pr", { owner: "acme", repo: "shop", prNumber: 7, mergeMethod: "squash", commitTitle: "Deploy contract (#7)" }, { connectorKey: "github" });
+    const plain = approvalWhatExactly(merge);
+    const review = { reviewerName: "Review Agent", verdict: "request_changes", summary: "One secret is logged.", simulated: true, findings: [{ severity: "critical", file: "api.ts", line: 4, title: "Secret may be logged", suggestion: "Log the key's name only" }] };
+    const w = approvalWhatExactly(merge, { review });
+    expect(w.kind).toBe("release");
+    expect(w.headline).toBe(plain.headline);
+    expect(w.rows.slice(0, plain.rows.length)).toEqual(plain.rows);
+    expect(w.rows.slice(plain.rows.length)).toEqual([
+      { label: "Second read", value: "Review Agent read the change and suggests changes first (practice mode: a sample review, not a real check). One secret is logged." },
+      { label: "Important", value: "api.ts:4: Secret may be logged. Fix: Log the key's name only" },
+    ]);
+    expect(approvalWhatExactly(merge, { review: { ...review, verdict: "approve", simulated: false, findings: [] } }).rows.at(-1)).toEqual({ label: "Second read", value: "Review Agent read the change and found nothing that should stop it. One secret is logged." });
+  });
+
   it("a session's one-line summary is the headline when the arguments carry nothing else", () => {
     const w = approvalWhatExactly(call("run_migration", { summary: "0019_usage_events_customer_period_idx.sql: create index concurrently on usage_events" }, { connectorKey: "github" }));
     expect(w.headline).toBe("A change to how the business's data is stored");

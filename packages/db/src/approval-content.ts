@@ -30,6 +30,18 @@ export interface ApprovalWhat {
 export interface ApprovalWhatContext {
   campaign?: { name: string; goal: string; budgetMinor: number | null; currency: string | null } | null;
   assets?: readonly { kind: string; title: string; body: string | null }[];
+  /** A release: the second read of its diff by a different agent (apps/orchestrator `merge.reviewed`), when there was one. */
+  review?: ApprovalReview | null;
+}
+
+/** The second read of a change, as the approval shows it. It informs the founder's decision and never makes it. */
+export interface ApprovalReview {
+  reviewerName: string;
+  verdict: string;
+  summary: string;
+  findings: readonly { severity: string; file: string; line: number | null; title: string; suggestion: string | null }[];
+  /** Practice mode: a sample review, not a real check. */
+  simulated: boolean;
 }
 
 const CODE_TOOLS = new Set(["run_migration", "commit_files", "push", "push_branch", "open_pr", "open_pull_request", "create_pull_request", "create_branch", "write_file", "apply_patch", "delete_file", "deploy"]);
@@ -58,6 +70,17 @@ const list = (args: Record<string, unknown>, ...keys: string[]): string[] => {
   }
   return [];
 };
+
+/** The second read as rows: who read the change and what they think, then the findings, the most important first. */
+export function reviewRows(review: ApprovalReview): ApprovalWhatRow[] {
+  const verdict = review.verdict === "approve" ? "found nothing that should stop it" : review.verdict === "request_changes" ? "suggests changes first" : "has a few notes";
+  const practice = review.simulated ? " (practice mode: a sample review, not a real check)" : "";
+  const rows: ApprovalWhatRow[] = [{ label: "Second read", value: clip(`${review.reviewerName} read the change and ${verdict}${practice}. ${review.summary}`, 400) }];
+  const severity: Record<string, string> = { critical: "Important", normal: "Worth fixing", low: "Small" };
+  for (const f of review.findings.slice(0, 5)) rows.push({ label: severity[f.severity] ?? "Note", value: clip(`${f.file}${f.line ? `:${f.line}` : ""}: ${f.title}${f.suggestion ? `. Fix: ${f.suggestion}` : ""}`, 320) });
+  if (review.findings.length > 5) rows.push({ label: "More", value: `${review.findings.length - 5} more notes from the second read.` });
+  return rows;
+}
 
 /** "channel_key" → "Channel key", "campaignId" → "Campaign id": an argument's key as a label. */
 export function argLabel(key: string): string {
@@ -127,7 +150,11 @@ export function approvalWhatExactly(approval: Pick<Approval, "connectorKey" | "t
     if (additions || deletions) take("Lines", `${additions || "0"} added, ${deletions || "0"} removed`, ["additions", "deletions"]);
     take("Diff", str(args, "diff", "patch") ? clip(str(args, "diff", "patch"), 600) : "", ["diff", "patch"], true);
     used.add("pr").add("pull_request").add("number");
-    if (RELEASE_TOOLS.has(tool)) return finish("release", title ? `A finished change goes live: “${clip(title, 120)}”` : "A finished change goes live");
+    if (RELEASE_TOOLS.has(tool)) {
+      const done = finish("release", title ? `A finished change goes live: “${clip(title, 120)}”` : "A finished change goes live");
+      // The second read goes after the change's own rows: it is about the change, not part of what runs.
+      return context.review ? { ...done, rows: [...done.rows, ...reviewRows(context.review)] } : done;
+    }
     // The tool's name alone is not content: a migration with no file and no summary is an empty request.
     if (tool === "run_migration") return finish("code", file || files[0] || summary ? `A change to how the business's data is stored${file || files[0] ? `: ${file || files[0]}` : ""}` : null);
     return finish("code", title ? clip(title, 160) : files.length ? `${files.length} file${files.length === 1 ? "" : "s"} change` : null);

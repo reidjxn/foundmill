@@ -39,6 +39,8 @@ interface Script {
   /** Answers to `updateBranch`, in order; the last repeats. */
   update?: Awaited<ReturnType<Activities["updateBranch"]>>[];
   approvalId?: string;
+  /** The second read of the diff fails (the merge is asked for all the same). */
+  reviewFails?: boolean;
 }
 
 function mockActivities(script: Script) {
@@ -49,7 +51,15 @@ function mockActivities(script: Script) {
   let checked = 0;
   let completed = 0;
   let updates = 0;
+  /** The second reads, apart from `calls` (the merge's own steps); `askedAfter` is how many had run when the merge was asked for. */
+  const reviews: number[] = [];
+  let askedAfter: number | null = null;
   const acts: Partial<Activities> = {
+    async secondReadMerge(given) {
+      reviews.push(given.prNumber);
+      if (script.reviewFails) throw new Error("the model is down");
+      return { status: "reviewed", cached: false, verdict: "comment", findings: 1, reviewerAgentId: "33333333-3333-4333-8333-333333333333" };
+    },
     async updateBranch() {
       calls.push("updateBranch");
       return next(script.update, updates++, { updated: true, reason: null, checksStarted: true });
@@ -64,6 +74,7 @@ function mockActivities(script: Script) {
     },
     async askMerge(given) {
       calls.push("askMerge");
+      askedAfter ??= reviews.length;
       return { status: "awaiting_approval", approvalId, prNumber: given.prNumber, prUrl: given.prUrl };
     },
     async loadApproval() {
@@ -95,7 +106,7 @@ function mockActivities(script: Script) {
       return { status: "not_merged", prNumber: given.prNumber, prUrl: given.prUrl, reason: given.outcome };
     },
   };
-  return { acts, calls, approvalId };
+  return { acts, calls, approvalId, reviews, askedAfter: () => askedAfter };
 }
 
 /**
@@ -130,6 +141,22 @@ describe("mergeReview workflow", () => {
     expect(skipped.calls).toEqual(["prepareMerge"]);
     const held = mockActivities({ prepared: { status: "held", reason: "the pull request could not be opened: no", prNumber: null, prUrl: null } });
     expect(await rig.run(held.acts, (client, taskQueue) => client.workflow.execute(mergeReview, { workflowId: wfId("merge"), taskQueue, args: [input] }))).toMatchObject({ status: "held" });
+  });
+
+  it("a different agent reads the diff before the merge is asked for; a failed read never stops the founder being asked", async () => {
+    const m = mockActivities({});
+    expect(await reviewDecided(m, "approved")).toMatchObject({ status: "merged" });
+    expect(m.reviews).toEqual([7]);
+    expect(m.askedAfter()).toBe(1);
+    const failing = mockActivities({ reviewFails: true });
+    expect(await reviewDecided(failing, "approved")).toMatchObject({ status: "merged" });
+    // Tried once (no retries), then the merge is asked for as before.
+    expect(failing.reviews).toEqual([7]);
+    expect(failing.calls).toContain("askMerge");
+    // A branch handed back before anyone is asked gets no second read.
+    const conflicts = mockActivities({ assess: [{ mergeable: "conflicts", checks: "pending", detail: null }] });
+    await rig.run(conflicts.acts, (client, taskQueue) => client.workflow.execute(mergeReview, { workflowId: wfId("merge"), taskQueue, args: [input] }));
+    expect(conflicts.reviews).toEqual([]);
   });
 
   it("a conflicting branch goes back to its agent before anyone is asked; GitHub is given time to compute the state", async () => {
