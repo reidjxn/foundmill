@@ -6,8 +6,8 @@
  *
  *   - `tellFounders` asks the gateway's one sender (`/v1/notify/email`, kind `founder_notice`) for one email per person:
  *     every founder now (an owner or a cofounder), the person whose role changed or who was removed, and, for a deletion,
- *     every former founder for that request (someone else demoted or removed them within 30 days before it, or after it:
- *     `founder_departures`, 0094). Never the person who did it, but for one receipt: the person who asked for a
+ *     everyone someone else ever demoted or removed from the project who is not a founder now (`founder_departures`,
+ *     0094; the one-click cancel is for those taken out within 30 days before the request, or after it). Never the person who did it, but for one receipt: the person who asked for a
  *     deletion, whatever the team's size. Ids only: the gateway reads the audit entry and everyone again, and holds the
  *     counts (its own daily ceiling, so many an hour and a day per person and project, then one "more changes" email).
  *     Asked after the change committed; a refusal or an unreachable gateway changes nothing here.
@@ -21,7 +21,8 @@
  *     audit chain's lock. It cancels the deletion and restores nothing else: they stay out. Rejoining is a separate,
  *     ordinary invitation.
  *   - `takeFounderChange`: one person may lower a founder's role, or ask for a deletion, `FOUNDER_NOTICE_LIMITS.actorPerDay`
- *     times a day in one project. A cancel is never limited: it is the safe direction.
+ *     times a day in one project and `actorPerDayAll` times a day across every project. A cancel is never limited: it
+ *     is the safe direction.
  *
  * The purge needs no change: the cancel right lasts until the request's own scheduled day, which is the day the sweep
  * purges on.
@@ -77,24 +78,35 @@ export const scheduledForOf = (request: AuditEntry): Date => {
 };
 
 export class FounderChangeLimitError extends AppError {
-  constructor(what: "lower" | "request", retryAfterMs: number) {
+  constructor(what: "lower" | "request", scope: "project" | "all", retryAfterMs: number) {
     const hours = Math.max(1, Math.ceil(retryAfterMs / 3_600_000));
     const when = hours === 1 ? "in an hour" : `in ${hours} hours`;
+    const step = what === "lower" ? "A founder's role can be lowered" : "A deletion can be asked for";
     super(
       "founder_change_limit",
-      what === "lower"
-        ? `A founder's role can be lowered ${FOUNDER_NOTICE_LIMITS.actorPerDay} times a day by one person in a project, and that is used up for now. Try again ${when}.`
-        : `A deletion can be asked for ${FOUNDER_NOTICE_LIMITS.actorPerDay} times a day by one person in a project, and that is used up for now. Try again ${when}.`,
+      scope === "project"
+        ? `${step} ${FOUNDER_NOTICE_LIMITS.actorPerDay} times a day by one person in a project, and that is used up for now. Try again ${when}.`
+        : `One person can lower founders' roles and ask for deletions ${FOUNDER_NOTICE_LIMITS.actorPerDayAll} times a day across every project, and that is used up for now. Try again ${when}.`,
       429,
       { retryAfterMs },
     );
   }
 }
 
-/** Takes one of the person's `actorPerDay` founder changes of this kind in this project, or throws a plain refusal. */
+/**
+ * Takes one of the person's founder changes: `actorPerDay` of this kind in this project, and `actorPerDayAll` of both
+ * kinds across every project (third review: an actor with many projects must not fill the platform's notices).
+ * Throws a plain refusal; a refused take records nothing.
+ */
 export async function takeFounderChange(ctx: { limits: RateLimitStore; businessId: string; userId: string }, what: "lower" | "request"): Promise<void> {
-  const r = await ctx.limits.take([{ key: `founder-change:${what}:${ctx.businessId}:${ctx.userId.toLowerCase()}`, rule: { limit: FOUNDER_NOTICE_LIMITS.actorPerDay, windowMs: DAY_MS } }]);
-  if (!r.ok) throw new FounderChangeLimitError(what, r.retryAfterMs);
+  const actor = ctx.userId.toLowerCase();
+  const project = await ctx.limits.take([{ key: `founder-change:${what}:${ctx.businessId}:${actor}`, rule: { limit: FOUNDER_NOTICE_LIMITS.actorPerDay, windowMs: DAY_MS } }]);
+  if (!project.ok) throw new FounderChangeLimitError(what, "project", project.retryAfterMs);
+  const all = await ctx.limits.take([{ key: `founder-change:all:${actor}`, rule: { limit: FOUNDER_NOTICE_LIMITS.actorPerDayAll, windowMs: DAY_MS } }]);
+  if (!all.ok) {
+    await ctx.limits.refund(project.ticket);
+    throw new FounderChangeLimitError(what, "all", all.retryAfterMs);
+  }
 }
 
 export async function tellFounders(deps: NoticeDeps, input: TellFoundersInput): Promise<TellFoundersResult> {
@@ -107,9 +119,11 @@ export async function tellFounders(deps: NoticeDeps, input: TellFoundersInput): 
   ]);
   // The request this notice is about, for a deletion: the former founders are counted from it.
   const request = input.notice === "deletion_requested" ? entry : input.notice === "deletion_canceled" && entry ? await canceledRequest(deps.db, input.businessId, entry) : null;
-  const former = request ? await repos.founderDepartures.formerFoundersFor(deps.db, input.businessId, request.createdAt) : [];
+  // Everyone someone else ever took out of the project hears about its deletion and its cancel (third review); the
+  // one-click cancel stays with the former founders for the request (within 30 days before it, or after it).
+  const former = request ? await repos.founderDepartures.formerFoundersEver(deps.db, input.businessId) : [];
   // Who may still cancel the deletion that waits now (for a role change or a removal made while one waits).
-  const formerForWaiting = waiting ? (request?.id === waiting.id ? former : await repos.founderDepartures.formerFoundersFor(deps.db, input.businessId, waiting.createdAt)) : [];
+  const formerForWaiting = waiting ? await repos.founderDepartures.formerFoundersFor(deps.db, input.businessId, waiting.createdAt) : [];
   const recipients = new Set<string>(founders.map((m) => m.userId.toLowerCase()));
   if (subject) recipients.add(subject);
   for (const d of former) recipients.add(d.userId.toLowerCase());
@@ -127,7 +141,7 @@ export async function tellFounders(deps: NoticeDeps, input: TellFoundersInput): 
         const row = await repos.founderCancelLinks.create(deps.db, { businessId: input.businessId, userId, requestId: waiting.id, tokenHash: minted.hash, expiresAt: scheduledForOf(waiting) }).catch(() => null);
         link = row ? { id: row.id, token: minted.token } : null;
       }
-      // A link whose email did not go out is forgotten: nobody holds its token, and an older link keeps working.
+      // A link whose email the gateway refused is forgotten: nobody holds its token, and an older link keeps working.
       const forget = async () => {
         if (link) await repos.founderCancelLinks.remove(deps.db, link.id).catch(() => undefined);
       };
@@ -139,8 +153,9 @@ export async function tellFounders(deps: NoticeDeps, input: TellFoundersInput): 
         }
         return { userId, sent: answer.sent, reason: answer.sent ? null : answer.reason, offersCancel: answer.sent && link !== null };
       } catch (e) {
-        await forget();
-        deps.log.warn({ businessId: input.businessId, userId, notice: input.notice, code: e instanceof AppError ? e.code : "unknown" }, "founder notice not sent: the gateway did not answer");
+        // No answer is not "not sent": the gateway may have sent it, so the link stays (third review). It works only for
+        // its own request, once, until that request's day.
+        deps.log.warn({ businessId: input.businessId, userId, notice: input.notice, code: e instanceof AppError ? e.code : "unknown", keptLink: link !== null }, "founder notice: the gateway did not answer; any cancel link is kept");
         return { userId, sent: false, reason: "unreachable", offersCancel: false };
       }
     }),

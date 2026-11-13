@@ -19,6 +19,7 @@ import { FOUNDER_NOTICE_LIMITS } from "@foundmill/shared";
 import { and, eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { GatewayDeps } from "../../../gateway/src/pipeline";
+import { createBusinessFixture } from "@foundmill/db/__tests__/rls/fixtures";
 import { inProcessGateway } from "./gateway-double";
 import { createApiHarness, type ApiHarness } from "./harness";
 
@@ -147,7 +148,7 @@ describe("founder notices and the former founder's cancel", () => {
     expect((await repos.audit.list(hz.db, hz.A.businessId, { action: "business.cancel_deletion", limit: 1 })).items[0]!.details).toMatchObject({ formerFounder: true, via: "home" });
   });
 
-  it("counted from the request: waiting does not wear the right away; 31 days before a request is too long", async () => {
+  it("counted from the request: waiting does not wear the right away; 31 days before a request, told but no cancel", async () => {
     // Ben left 20 days ago: a request now still tells him and he may cancel it.
     await hz.db.execute(`update founder_departures set departed_at = now() - interval '20 days' where user_id = '${ben}'` as never);
     await hz.caller({ userId: cara }).business.requestDeletion({ businessId: hz.A.businessId });
@@ -155,11 +156,13 @@ describe("founder notices and the former founder's cancel", () => {
     expect(card).toMatchObject({ businessId: hz.A.businessId });
     expect((await sentTo(ben)).at(-1)!.text).toMatch(/\/a\/[A-Za-z0-9_-]{43}/);
     await hz.caller({ userId: cara }).business.cancelDeletion({ businessId: hz.A.businessId });
-    // 31 days before the request: no email, no card, no cancel.
+    // 31 days before the request: still told (third review), but with no link, no card and no cancel.
     await hz.db.execute(`update founder_departures set departed_at = now() - interval '31 days' where user_id = '${ben}'` as never);
     const before = (await sentTo(ben)).length;
     await hz.caller({ userId: cara }).business.requestDeletion({ businessId: hz.A.businessId });
-    expect((await sentTo(ben)).length).toBe(before);
+    expect((await sentTo(ben)).length).toBe(before + 1);
+    expect((await sentTo(ben)).at(-1)!.text).toContain("If you want it kept, ask one of the founders to cancel it.");
+    expect((await sentTo(ben)).at(-1)!.text).not.toMatch(/\/a\/[A-Za-z0-9_-]{43}/);
     expect(await hz.caller({ userId: ben }).founder.formerProjects.list()).toEqual([]);
     const waiting = (await repos.audit.list(hz.db, hz.A.businessId, { action: "business.request_deletion", limit: 1 })).items[0]!;
     await expect(hz.caller({ userId: ben }).founder.formerProjects.cancel({ businessId: hz.A.businessId, requestId: waiting.id })).rejects.toMatchObject({ code: "FORBIDDEN" });
@@ -208,6 +211,17 @@ describe("founder notices and the former founder's cancel", () => {
       } else await expect(ask).rejects.toMatchObject({ code: "TOO_MANY_REQUESTS", message: expect.stringMatching(/^A deletion can be asked for 5 times a day/) });
     }
     expect((await hal$.business.deletionStatus({ businessId: hz.A.businessId })).status).toBe("cancelled");
+    // Hal has used his 10 a day across every project: in another project, where he has his own 5, he is refused too.
+    const C = await createBusinessFixture(hz.h, "notices-c");
+    const kim = await hz.h.createUser("kim-notices@example.com");
+    await hz.db.insert(memberships).values([
+      { businessId: C.businessId, userId: hal, role: "cofounder" },
+      { businessId: C.businessId, userId: kim, role: "cofounder" },
+    ]);
+    await expect(hal$.team.humans.role({ businessId: C.businessId, userId: kim, role: "member" })).rejects.toMatchObject({ code: "TOO_MANY_REQUESTS", message: expect.stringMatching(/^One person can lower founders' roles and ask for deletions 10 times a day across every project/) });
+    expect((await repos.memberships.get(hz.db, C.businessId, kim))!.role).toBe("cofounder");
+    // Someone else in that project is not held back by Hal's day.
+    expect((await hz.caller({ userId: kim }).team.humans.role({ businessId: C.businessId, userId: hal, role: "member" })).role).toBe("member");
   });
 
   it("a founder on their own gets the receipt of their own deletion request and nothing else; an unreachable gateway changes nothing", async () => {
