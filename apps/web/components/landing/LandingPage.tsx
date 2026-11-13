@@ -11,6 +11,7 @@ import Link from "next/link";
 import { ArrowRight } from "lucide-react";
 import { APP_NAME, APP_TAGLINE } from "@foundmill/config";
 import { Button, NeedsLargerWindow, Wordmark, isViewportTooSmall, kitStyle, useViewportWidth } from "@foundmill/dugout";
+import { LEGAL_ROUTES } from "@/content/legal/facts";
 import { Channels, LiveSessions } from "./LiveSessions";
 import { FinalCall, YourCall } from "./Control";
 import { Hero, Ticker } from "./Hero";
@@ -138,6 +139,14 @@ function Footer() {
         <span>{APP_TAGLINE}</span>
         <span className="flex-1" />
         <span>Desktop only · 1280 px and wider</span>
+        <nav aria-label="Legal" className="flex items-center gap-4">
+          <Link href={LEGAL_ROUTES.terms} className="transition-colors duration-hover hover:text-primary" data-testid="landing-terms">
+            Terms
+          </Link>
+          <Link href={LEGAL_ROUTES.privacy} className="transition-colors duration-hover hover:text-primary" data-testid="landing-privacy">
+            Privacy
+          </Link>
+        </nav>
         <span>
           © {year} {APP_NAME}
         </span>
