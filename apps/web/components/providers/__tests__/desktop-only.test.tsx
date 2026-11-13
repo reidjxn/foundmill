@@ -50,7 +50,7 @@ describe("desktop only (audit PAS-4: a phone rendered a 390 px slice of a 1280 p
   });
 
   it("a project's public page and a person's public profile work from 390 px: the one list of small-screen routes, nothing else changes", () => {
-    expect(SMALL_SCREEN_PREFIXES).toEqual(["/p/", "/u/", "/login", "/home", "/a/", "/email/pause", "/terms", "/privacy"]);
+    expect(SMALL_SCREEN_PREFIXES).toEqual(["/p/", "/u/", "/login", "/home", "/a/", "/email/pause", "/terms", "/privacy", "/public-profile", "/network", "/communities", "/communities/", "/profiles/"]);
     // The Terms and the Privacy Policy (founder, 2026-11-13): exactly those two paths.
     expect(worksOnSmallScreens("/terms")).toBe(true);
     expect(worksOnSmallScreens("/privacy")).toBe(true);
@@ -75,7 +75,7 @@ describe("desktop only (audit PAS-4: a phone rendered a 390 px slice of a 1280 p
       "/profiles",
       "/p",
       "/u",
-      "/public-profile",
+      "/public-profile/x",
       "/b/x/today",
       null,
     ])
@@ -103,5 +103,11 @@ describe("desktop only (audit PAS-4: a phone rendered a 390 px slice of a 1280 p
     );
     expect(screen.getByText("Sign in")).toBeTruthy();
     expect(screen.queryByTestId("needs-larger-window")).toBeNull();
+  });
+
+  it("package 2.1: a project's Today and Needs you, the person's profile and the people pages work from 390 px; the rest of a project does not", () => {
+    const B = "/b/6f1d2c3b-4a5e-4f60-8a71-0b2c3d4e5f60";
+    for (const p of [`${B}/today`, `${B}/today/`, `${B}/inbox`, `${B}/inbox/4c76f0d6-2afd-4bdd-adbf-2a82479eadf3`, "/public-profile", "/network", "/communities", "/communities/c1", "/profiles/founder/u1"]) expect(worksOnSmallScreens(p), p).toBe(true);
+    for (const p of [`${B}/crm`, `${B}/settings/business`, `${B}/today/details`, `${B}/inbox/a/b`, "/b/not-a-uuid/today", "/networkx", "/profiles", "/b/"]) expect(worksOnSmallScreens(p), p).toBe(false);
   });
 });
