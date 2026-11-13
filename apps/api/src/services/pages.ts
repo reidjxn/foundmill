@@ -48,6 +48,7 @@ import {
   hasSectionAccess,
   pageContentProblems,
   isAdminRole,
+  limitAddress,
   pageSlugProblem,
   pageUrl,
   readPageContent,
@@ -403,9 +404,13 @@ export function followAddressKey(env: Pick<Env, "SESSION_TOKEN_SECRET">, kind: "
   return createHmac("sha256", secret).update(`${FOLLOW_KEY_LABEL}\n${kind}\n${value.trim().toLowerCase()}`).digest("base64url");
 }
 
-/** A per-caller rate-limit key for `scope` (`public-page`, `public-person`, `page-follow`): the caller's address, keyed. */
+/**
+ * A per-caller rate-limit key for `scope` (`public-page`, `public-person`, `page-follow`, the milestone cards,
+ * `invite-read`, `invite-decline`): the caller's address, keyed. An IPv6 caller counts by their /64 (`limitAddress`,
+ * second security review P2-2), so the addresses of one subscriber's block share one window.
+ */
 export function callerLimitKey(env: Pick<Env, "SESSION_TOKEN_SECRET">, scope: string, address: string): string {
-  return `${scope}:caller:${followAddressKey(env, "caller", address)}`;
+  return `${scope}:caller:${followAddressKey(env, "caller", limitAddress(address))}`;
 }
 
 export const followLimitKeys = {

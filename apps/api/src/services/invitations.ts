@@ -63,8 +63,10 @@ export const invitationTokenHash = (token: string): string => createHash("sha256
 /**
  * The limits, shared by every replica (`ctx.limits`):
  *   - making invitations: 20 a day per project and 40 a day per person, and at most 50 waiting at once per project;
- *   - reading one by its token (`invitationByToken`): per caller, then a ceiling for all, with a lookup that finds nothing
- *     given back and drawn from its own `unknown` ceiling, so guesses cannot use up what real links read from;
+ *   - reading one by its token (`invitationByToken`): per caller (an IPv6 caller by their /64, `callerLimitKey`), then
+ *     per token (by its hash, so one link opened from many places cannot use up the ceiling for all) and a ceiling for
+ *     all, taken together; a lookup that finds nothing gives both back and draws from its own `unknown` ceiling, so
+ *     guesses cannot use up what real links read from;
  *   - accepting: 20 an hour per account; declining: per caller.
  */
 export const INVITATION_LIMITS = {
@@ -72,6 +74,7 @@ export const INVITATION_LIMITS = {
   perPersonDay: { limit: 40, windowMs: 24 * 60 * 60_000 },
   pendingAtOnce: 50,
   readPerCaller: { limit: 120, windowMs: 60_000 },
+  readPerToken: { limit: 60, windowMs: 60_000 },
   readAll: { limit: 1_200, windowMs: 60_000 },
   readUnknown: { limit: 300, windowMs: 60_000 },
   acceptPerAccount: { limit: 20, windowMs: 60 * 60_000 },
@@ -82,6 +85,7 @@ export const invitationLimitKeys = {
   project: (businessId: string) => `invite:project:${businessId}`,
   person: (userId: string) => `invite:person:${userId.toLowerCase()}`,
   readCaller: (env: Context["env"], address: string) => callerLimitKey(env, "invite-read", address),
+  readToken: (tokenHash: string) => `invite-read:token:${tokenHash}`,
   readAll: "invite-read:all",
   readUnknown: "invite-read:unknown",
   accept: (userId: string) => `invite-accept:${userId.toLowerCase()}`,
@@ -225,7 +229,9 @@ const sameAddress = (named: string, signedIn: string | null): boolean => signedI
 /** `invitation.byToken` (public). */
 export async function invitationByToken(ctx: InviteeContext, token: string): Promise<InvitationPreview> {
   if (ctx.clientAddress) await takeOrThrow(ctx.limits as RateLimitStore, "Invitations", [{ key: invitationLimitKeys.readCaller(ctx.env, ctx.clientAddress), rule: INVITATION_LIMITS.readPerCaller }]);
-  const ticket = await takeOrThrow(ctx.limits, "Invitations", [{ key: invitationLimitKeys.readAll, rule: INVITATION_LIMITS.readAll }]);
+  // A token of the wrong shape is never looked up, so it gets no window of its own.
+  const perToken = isPeopleTokenShape(token) ? [{ key: invitationLimitKeys.readToken(invitationTokenHash(token)), rule: INVITATION_LIMITS.readPerToken }] : [];
+  const ticket = await takeOrThrow(ctx.limits, "Invitations", [...perToken, { key: invitationLimitKeys.readAll, rule: INVITATION_LIMITS.readAll }]);
   const row = await workingInvitation(ctx.db, token);
   if (!row) {
     await ctx.limits.refund(ticket);

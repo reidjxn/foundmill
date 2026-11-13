@@ -27,7 +27,7 @@ import {
   ON_WAITLIST_MESSAGE,
   type AdmissionFacts,
 } from "../services/access";
-import { INVITATION_UNAVAILABLE_MESSAGE } from "../services/invitations";
+import { INVITATION_LIMITS, INVITATION_UNAVAILABLE_MESSAGE, invitationByToken } from "../services/invitations";
 import type { GatewayAddressEmailRequest, GatewayNotifyEmailRequest } from "../services/gateway";
 import { createApiHarness, type ApiHarness } from "./harness";
 
@@ -443,6 +443,33 @@ describe("invitations", () => {
     expect(await anon.invitation.decline({ token: tokenOf(third.link) })).toEqual({ ok: true });
     expect(await anon.invitation.byToken({ token: tokenOf(third.link) })).toEqual({ state: "unavailable" });
     expect(await anon.invitation.decline({ token: "B".repeat(43) })).toEqual({ ok: true });
+  });
+
+  it("the read limit counts an IPv6 caller by their /64 (second review P2-2)", async () => {
+    const owner = hz.caller({ userId: hz.A.ownerId });
+    const links: string[] = [];
+    for (let i = 0; i < 3; i++) links.push(tokenOf((await owner.invitation.create({ businessId: hz.A.businessId, role: "collaborator" })).link));
+    const read = (clientAddress: string, token = links[0]!) => invitationByToken({ ...hz.deps, clientAddress }, token);
+    // Every address of one /64 draws from one window (three links, so no token's own window runs out first).
+    for (let i = 0; i < INVITATION_LIMITS.readPerCaller.limit; i++) expect(await read(`2001:db8:7:8::${(i + 1).toString(16)}`, links[i % 3])).toMatchObject({ state: "pending" });
+    await expect(read("2001:db8:7:8:ffff:1:2:3")).rejects.toMatchObject({ code: "rate_limited" });
+    await expect(read("[2001:0db8:0007:0008::abcd]")).rejects.toMatchObject({ code: "rate_limited" });
+    // Another /64, and an IPv4 caller, have their own.
+    expect(await read("2001:db8:7:9::1")).toMatchObject({ state: "pending" });
+    expect(await read("203.0.113.9")).toMatchObject({ state: "pending" });
+  });
+
+  it("one token is read at most so many times a minute, from anywhere; other tokens and dead ones are not held up", async () => {
+    const owner = hz.caller({ userId: hz.A.ownerId });
+    const [hot, other] = [await owner.invitation.create({ businessId: hz.A.businessId, role: "collaborator" }), await owner.invitation.create({ businessId: hz.A.businessId, role: "collaborator" })];
+    const read = (i: number, token: string) => invitationByToken({ ...hz.deps, clientAddress: `198.51.100.${i % 250}` }, token);
+    expect(INVITATION_LIMITS.readPerToken.limit).toBe(60);
+    for (let i = 0; i < INVITATION_LIMITS.readPerToken.limit; i++) expect(await read(i, tokenOf(hot.link))).toMatchObject({ state: "pending" });
+    await expect(read(200, tokenOf(hot.link))).rejects.toMatchObject({ code: "rate_limited" });
+    expect(await read(201, tokenOf(other.link))).toMatchObject({ state: "pending" });
+    // A token that names nothing gives its window back each time: it is limited by the callers' and the unknown ceilings only.
+    const dead = "C".repeat(43);
+    for (let i = 0; i < INVITATION_LIMITS.readPerToken.limit + 5; i++) expect(await read(i, dead)).toEqual({ state: "unavailable" });
   });
 
   it("accept: one membership, once, audited, with invitation.accepted and membership.changed; the inviter is emailed", async () => {
