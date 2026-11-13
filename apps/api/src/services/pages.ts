@@ -34,6 +34,7 @@ import { awardPageLiveMilestone, repos, type DbTx, type InboxItem, type ProjectP
 import {
   AppError,
   FOLLOW_ERRORS,
+  FOLLOW_TURNSTILE_ACTION,
   followConsentText,
   followEmailProblem,
   ForbiddenError,
@@ -389,7 +390,8 @@ export async function publicPageBySlug(ctx: Pick<Context, "db" | "env" | "limits
 
 /**
  * Signed-out follows (`publicPage.follow`, package 1.6), shared by every api replica (`ctx.limits`), in the order
- * `followPage` takes them:
+ * `followPage` takes them (the bot check, Turnstile, comes after `perCaller` and before the rest, so a script never
+ * spends a real person's allowance):
  *   - `perCaller`: by the address the api itself sees (`ctx.clientAddress`). A follow comes through the web's server
  *     action, so every visitor of the web shares the web's egress address here: the limit is generous, and the per-visitor
  *     limit is the Vercel Firewall rule on POST `/p/*` (docs/DEPLOY.md). No address forwarded by the web is trusted.
@@ -451,14 +453,58 @@ export interface FollowInput {
   consent: boolean;
   /** The hidden field: a person never fills it in. */
   website?: string | null;
+  /** The page's Turnstile token (the widget's `page_follow` action); without a valid one nothing is recorded or sent. */
+  turnstile?: string | null;
 }
 
-const followRefusal = (code: "follow_email" | "follow_consent" | "follow_closed") =>
+/** The token the web sends without a Turnstile site key (development stacks); the gateway's mock passes it. */
+export const FOLLOW_MOCK_TURNSTILE_TOKEN = "mock-ok";
+
+const followRefusal = (code: "follow_email" | "follow_consent" | "follow_closed" | "follow_unverified" | "follow_unavailable") =>
   code === "follow_email"
     ? new AppError(code, FOLLOW_ERRORS.email, 400, { field: "email" })
     : code === "follow_consent"
       ? new AppError(code, FOLLOW_ERRORS.consent, 400, { field: "consent" })
-      : new AppError(code, FOLLOW_ERRORS.closed, 404);
+      : code === "follow_unverified"
+        ? new AppError(code, FOLLOW_ERRORS.unverified, 403)
+        : code === "follow_unavailable"
+          ? new AppError(code, FOLLOW_ERRORS.unavailable, 503)
+          : new AppError(code, FOLLOW_ERRORS.closed, 404);
+
+const devStack = (appEnv: string) => appEnv === "development" || appEnv === "test";
+
+/** The site's hostname without "www." from APP_URL (never the request) on staging and production; null elsewhere. */
+function followTurnstileHostname(env: Pick<Env, "APP_ENV" | "APP_URL">): string | null {
+  if (env.APP_ENV !== "production" && env.APP_ENV !== "staging") return null;
+  try {
+    return env.APP_URL ? new URL(env.APP_URL).hostname.replace(/^www\./, "") : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The page's bot check (security audit 2026-11-13, finding 10), through the gateway's `POST /v1/turnstile/verify`, the
+ * idea box's verifier. Fails closed: no token, a refused one, or a check that cannot run is a refusal, and nothing is
+ * recorded or sent. The visitor's address is not sent: through the web's Server Action the api sees the web's address,
+ * not the visitor's. A development or test stack on mock integrations without the gateway passes the mock token only.
+ */
+async function checkFollowTurnstile(ctx: Pick<Context, "gateway" | "env" | "log">, token: string | null | undefined): Promise<void> {
+  const t = typeof token === "string" ? token.trim() : "";
+  if (!t || t.length > 2048) throw followRefusal("follow_unverified");
+  const mockPasses = devStack(ctx.env.APP_ENV) && ctx.env.INTEGRATIONS_MODE === "mock" && t === FOLLOW_MOCK_TURNSTILE_TOKEN;
+  if (!ctx.gateway.verifyTurnstile) {
+    if (mockPasses) return;
+    throw followRefusal("follow_unavailable");
+  }
+  const check = await ctx.gateway.verifyTurnstile({ token: t, remoteIp: null, hostname: followTurnstileHostname(ctx.env), action: FOLLOW_TURNSTILE_ACTION }).catch((err: unknown) => {
+    if (mockPasses) return { ok: true, reason: "ok" as const, simulated: true };
+    ctx.log.warn({ err: err instanceof Error ? err.message : String(err) }, "follow: turnstile check failed");
+    return { ok: false, reason: "unavailable" as const, simulated: false };
+  });
+  if (check.ok) return;
+  throw followRefusal(check.reason === "unavailable" || check.reason === "unconfigured" ? "follow_unavailable" : "follow_unverified");
+}
 
 const EmailShape = z.email();
 
@@ -469,7 +515,8 @@ type FollowContext = Pick<Context, "db" | "limits" | "env" | "gateway" | "log"> 
  *   1. the hidden field filled in: the same answer, nothing written, no limit spent;
  *   2. the address (trimmed, lowercased, at most 200 characters, the shared check and Zod's) and the box ticked, else a
  *      plain refusal;
- *   3. the per-caller limit (TOO_MANY_REQUESTS);
+ *   3. the per-caller limit (TOO_MANY_REQUESTS), then the bot check (`checkFollowTurnstile`: `follow_unverified`, or
+ *      `follow_unavailable` when it cannot run; nothing written, sent or spent but the caller's window);
  *   4. the per-address allowance (one a day per page address and email) and, taken separately, the day's three confirmations
  *      email for this address across every project: over either, the same answer and nothing written, before the page
  *      is even looked up;
@@ -496,6 +543,8 @@ export async function followPage(ctx: FollowContext, input: FollowInput): Promis
   const slug = input.slug.trim().toLowerCase();
   if (pageSlugProblem(slug)) throw followRefusal("follow_closed");
   if (ctx.clientAddress) await takeOrThrow(ctx.limits, "Follow", [{ key: followLimitKeys.caller(ctx.env, ctx.clientAddress), rule: PAGE_FOLLOW_LIMITS.perCaller }]);
+  // Before anything a real person's address or the page's budget could lose.
+  await checkFollowTurnstile(ctx, input.turnstile);
 
   // Repeats are dropped before anything else is spent or read.
   if (!(await ctx.limits.take([{ key: followLimitKeys.perAddress(ctx.env, slug, email), rule: PAGE_FOLLOW_LIMITS.perAddress }])).ok) return ok;

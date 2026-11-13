@@ -10,7 +10,8 @@ import { LONG, commitThrowaway, dismissCoachmarks, expectTapTarget, settled } fr
  * note is answered and nothing is live, and `/p/<slug>` signed out at 390 px and 1280 px (indexable, its own title and share
  * card, no horizontal scroll, 44 px tap targets), gone once it is taken down. Package 1.6 (double opt-in): a stranger
  * signs up at 390 px signed out (the box is required, one line asking them to check their email, the same answer for the
- * same address again), and the founder sees no follower counted yet and one contact in Customers, "Follower (fo***@…)",
+ * same address again; the bot check passes on the stack's mock Turnstile token, as on the idea box, and a post without
+ * JavaScript, which cannot run it, is refused in plain words and records nothing), and the founder sees no follower counted yet and one contact in Customers, "Follower (fo***@…)",
  * with "Public page" and "Not confirmed yet". This stack runs no gateway and no ingest (one PGlite database is one
  * process), so no confirmation email goes out and the signup stays pending, which is the honest state; the email, the
  * signed link and the confirm page are covered by apps/gateway `follow-confirm.test.ts` and apps/ingest
@@ -173,6 +174,11 @@ test.describe("public page", () => {
       const form = fan.page.locator("form[data-project-follow]");
       await expect(form).toBeVisible({ timeout: LONG });
       await expect(form).toContainText(/Leave your email and Doorstep Bikes [a-z0-9]+ will let you know when there is news\./);
+      // The bot check's box sits in the form and takes no room while it has nothing to show (the local stack passes the
+      // mock Turnstile token, as for the idea box; e2e/idea-box.spec.ts).
+      const widgetBox = form.locator("[data-follow-widget]");
+      await expect(widgetBox).toHaveCount(1);
+      await expect(widgetBox).toBeHidden();
       await form.getByLabel("Your email").fill(follower);
       // The box is required: without it nothing is sent and the form says why in plain words.
       await form.getByRole("button", { name: "Follow" }).click();
@@ -201,7 +207,9 @@ test.describe("public page", () => {
     } finally {
       await fan.close();
     }
-    // Without JavaScript the form still posts and answers (a Server Action, a native checkbox).
+    // Without JavaScript the form still posts and answers (a Server Action, a native checkbox), but the bot check
+    // (Turnstile) cannot run without it: the plain sentence, the address kept, and nothing recorded (the founder's
+    // Customers below hold only the one follower).
     const plain = await browser.newContext({ storageState: { cookies: [], origins: [] }, viewport: { width: 390, height: 844 }, javaScriptEnabled: false });
     try {
       const p = await plain.newPage();
@@ -210,7 +218,10 @@ test.describe("public page", () => {
       await form.getByLabel("Your email").fill(follower.replace("follower-", "plain-"));
       await form.getByRole("checkbox").check();
       await form.getByRole("button", { name: "Follow" }).click();
-      await expect(p.locator("[data-project-follow='done']").getByRole("status")).toHaveText(/^Check your email to confirm\. Doorstep Bikes [a-z0-9]+ will only write to you after you do\.$/, { timeout: LONG });
+      const refused = p.locator("form[data-project-follow]");
+      await expect(refused.getByRole("alert")).toHaveText("We could not check this browser, so you are not following yet. Reload the page and try again.", { timeout: LONG });
+      await expect(refused.getByLabel("Your email")).toHaveValue(follower.replace("follower-", "plain-"));
+      await expect(p.locator("[data-project-follow='done']")).toHaveCount(0);
     } finally {
       await plain.close();
     }

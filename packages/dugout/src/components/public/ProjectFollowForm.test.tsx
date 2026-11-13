@@ -34,6 +34,26 @@ describe("ProjectFollowForm", () => {
     expect(screen.queryByRole("textbox", { name: words.trap })).toBeNull();
   });
 
+  it("gives the caller's bot check a submit handler and a box inside the form that takes no room while empty", () => {
+    const seen: string[] = [];
+    const box = { current: null as HTMLDivElement | null };
+    render(<ProjectFollowForm name="Northwind Skincare" action="/follow" onSubmit={(e) => (e.preventDefault(), seen.push("submit"))} onFocus={() => seen.push("focus")} widgetRef={box} />);
+    const widget = document.querySelector("[data-follow-widget]") as HTMLDivElement;
+    expect(box.current).toBe(widget);
+    expect(widget.closest("form")).toBeTruthy();
+    expect(widget.className).toContain("empty:hidden");
+    expect(widget.className).toContain("max-w-full");
+    (screen.getByLabelText(words.emailLabel) as HTMLInputElement).focus();
+    screen.getByRole("button", { name: "Follow" }).click();
+    expect(seen).toEqual(["focus", "submit"]);
+    expect(FOLLOW_FIELDS.turnstile).toBe("turnstile");
+  });
+
+  it("draws no bot-check box when the caller has none", () => {
+    render(<ProjectFollowForm name="Northwind Skincare" action="/follow" />);
+    expect(document.querySelector("[data-follow-widget]")).toBeNull();
+  });
+
   it("works as a plain form before JavaScript: a native checkbox and a form that posts to the action", () => {
     const html = renderToStaticMarkup(<ProjectFollowForm name="Northwind Skincare" slug="northwind-skincare" action="/follow" />);
     expect(html).toContain('<form');

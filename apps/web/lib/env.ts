@@ -21,7 +21,7 @@ export interface PublicEnv {
    * §4 "Signing in with Google"). Off unless exactly "on", so the button never appears before the provider is set up.
    */
   authGoogle: boolean;
-  /** NEXT_PUBLIC_TURNSTILE_SITE_KEY: Cloudflare Turnstile's site key for the idea box's bot check; empty uses the mock token (development stacks only). */
+  /** NEXT_PUBLIC_TURNSTILE_SITE_KEY: Cloudflare Turnstile's site key for the bot check of the idea box and the Follow form on public pages; empty uses the mock token (development stacks only). */
   turnstileSiteKey: string;
 }
 

@@ -346,7 +346,13 @@ export const FOLLOW_ERRORS = {
   busy: "A lot of people are signing up right now. Try again in a few minutes.",
   closed: "This project is not taking new followers right now.",
   failed: "That did not go through, so you are not following yet. Try again in a moment.",
+  /** The bot check (Turnstile) did not pass, or could not run in this browser (no JavaScript). */
+  unverified: "We could not check this browser, so you are not following yet. Reload the page and try again.",
+  /** The bot check could not be reached: nothing is recorded or sent until it can be. */
+  unavailable: "Following is paused for a moment, so you are not following yet. Try again in a few minutes.",
 } as const;
+/** The action the page's Turnstile widget runs with; the gateway checks Cloudflare reports the same. */
+export const FOLLOW_TURNSTILE_ACTION = "page_follow";
 export type FollowErrorKind = keyof typeof FOLLOW_ERRORS;
 
 const EMAIL_SHAPE = /^[^\s@<>()[\]\\,;:"]+@[^\s@<>()[\]\\,;:"]+\.[^\s@<>()[\]\\,;:"]{2,}$/;
