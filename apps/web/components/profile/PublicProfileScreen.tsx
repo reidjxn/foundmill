@@ -243,21 +243,22 @@ export function PublicProfileScreen({ viewer, lastBusiness }: PublicProfileScree
 
   return (
     <StudioFrame
+      smallScreen
       title={PUBLIC_PROFILE_WORDS.title}
       lede={PUBLIC_PROFILE_WORDS.lede}
       viewer={viewer}
       actions={
         lastBusiness ? (
-          <LinkButton variant="ghost" icon={ArrowLeft} href={routes.today(lastBusiness.id)} data-testid="public-profile-back">
+          <LinkButton variant="ghost" className="min-h-tap @page-wide:min-h-0" icon={ArrowLeft} href={routes.today(lastBusiness.id)} data-testid="public-profile-back">
             {PUBLIC_PROFILE_WORDS.back(lastBusiness.name)}
           </LinkButton>
         ) : null
       }
     >
-      <div className="grid grid-cols-12 items-start gap-gutter" data-testid="public-profile-screen">
+      <div className="@container"><div className="grid grid-cols-1 items-start gap-gutter @page-wide:grid-cols-12 [&_button]:min-h-tap @page-wide:[&_button]:min-h-0 [&_input]:min-h-tap @page-wide:[&_input]:min-h-0" data-testid="public-profile-screen">
         <Panel
           title={PUBLIC_PROFILE_WORDS.yourProfile}
-          className="col-span-7"
+          className="@page-wide:col-span-7"
           loading={viewQ.isLoading}
           error={viewQ.error ? errorMessage(viewQ.error) : undefined}
           onRetry={() => void viewQ.refetch()}
@@ -276,7 +277,7 @@ export function PublicProfileScreen({ viewer, lastBusiness }: PublicProfileScree
                 <span className="t-label text-secondary">{PUBLIC_PROFILE_WORDS.name}</span>
                 <p className="t-body text-primary" data-testid="public-profile-name">
                   {PUBLIC_PROFILE_WORDS.nameLine(data.displayName)}{" "}
-                  <Link href={accountRoutes.profile} className="text-secondary underline-offset-2 hover:text-primary">
+                  <Link href={accountRoutes.profile} className="inline-flex min-h-tap items-center text-secondary underline-offset-2 hover:text-primary @page-wide:min-h-0">
                     {PUBLIC_PROFILE_WORDS.changeName}
                   </Link>
                 </p>
@@ -333,7 +334,7 @@ export function PublicProfileScreen({ viewer, lastBusiness }: PublicProfileScree
                         <Button size="sm" icon={Copy} onClick={() => void copy()}>
                           {copied ? PUBLIC_PROFILE_WORDS.copied : PUBLIC_PROFILE_WORDS.copyLink}
                         </Button>
-                        <Button size="sm" icon={ExternalLink} asChild>
+                        <Button size="sm" icon={ExternalLink} asChild className="min-h-tap @page-wide:min-h-0">
                           <a href={data.url} target="_blank" rel="noopener noreferrer">
                             {PUBLIC_PROFILE_WORDS.open}
                           </a>
@@ -380,7 +381,7 @@ export function PublicProfileScreen({ viewer, lastBusiness }: PublicProfileScree
           ) : null}
         </Panel>
 
-        <Panel title={PUBLIC_PROFILE_WORDS.preview} className="col-span-5" meta={<span className="t-small text-secondary">{PUBLIC_PROFILE_WORDS.previewNote}</span>} loading={viewQ.isLoading} data-testid="public-profile-preview">
+        <Panel title={PUBLIC_PROFILE_WORDS.preview} className="@page-wide:col-span-5" meta={<span className="t-small text-secondary">{PUBLIC_PROFILE_WORDS.previewNote}</span>} loading={viewQ.isLoading} data-testid="public-profile-preview">
           {data && content ? (
             <div className="mx-auto w-phone max-w-full overflow-hidden rounded-md border border-line-strong">
               <PersonPage
@@ -398,6 +399,7 @@ export function PublicProfileScreen({ viewer, lastBusiness }: PublicProfileScree
             </div>
           ) : null}
         </Panel>
+      </div>
       </div>
 
       <Dialog open={confirming} onOpenChange={setConfirming}>

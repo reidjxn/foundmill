@@ -253,27 +253,27 @@ export function CommunityScreen({ communityId }: { communityId: string }) {
   const joining = membership.pending && membership.pendingId === community.id;
   const stays = leaveBlocker({ role, visibility: community.visibility });
   const memberActions = isMember ? (
-    <span className="flex items-center gap-2">
+    <span className="flex flex-wrap items-center gap-2">
       {canModerate ? (
-        <Button size="sm" icon={UserPlus} onClick={() => setInviting(true)} data-testid="community-invite">
+        <Button size="sm" className="min-h-tap @page-wide:min-h-0" icon={UserPlus} onClick={() => setInviting(true)} data-testid="community-invite">
           Invite
         </Button>
       ) : null}
-      <Button size="sm" variant="ghost" icon={LogOut} loading={joining} disabled={!!stays} title={stays ?? undefined} onClick={() => membership.leave(community.id, community.name)} data-testid="community-leave">
+      <Button size="sm" className="min-h-tap @page-wide:min-h-0" variant="ghost" icon={LogOut} loading={joining} disabled={!!stays} title={stays ?? undefined} onClick={() => membership.leave(community.id, community.name)} data-testid="community-leave">
         Leave
       </Button>
     </span>
   ) : invited ? (
-    <span className="flex items-center gap-2">
-      <Button size="sm" icon={LogIn} loading={joining} onClick={() => membership.join(community.id, community.name)} data-testid="community-join">
+    <span className="flex flex-wrap items-center gap-2">
+      <Button size="sm" className="min-h-tap @page-wide:min-h-0" icon={LogIn} loading={joining} onClick={() => membership.join(community.id, community.name)} data-testid="community-join">
         Accept invitation
       </Button>
-      <Button size="sm" variant="ghost" icon={X} loading={decline.isPending} onClick={() => decline.mutate({ communityId }, { onSuccess: () => router.push("/communities") })} data-testid="community-decline">
+      <Button size="sm" className="min-h-tap @page-wide:min-h-0" variant="ghost" icon={X} loading={decline.isPending} onClick={() => decline.mutate({ communityId }, { onSuccess: () => router.push("/communities") })} data-testid="community-decline">
         Decline
       </Button>
     </span>
   ) : (
-    <Button size="sm" icon={LogIn} loading={joining} onClick={() => membership.join(community.id, community.name)} data-testid="community-join">
+    <Button size="sm" className="min-h-tap @page-wide:min-h-0" icon={LogIn} loading={joining} onClick={() => membership.join(community.id, community.name)} data-testid="community-join">
       Join
     </Button>
   );
@@ -290,15 +290,15 @@ export function CommunityScreen({ communityId }: { communityId: string }) {
   );
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col" data-testid="community-screen" data-community-id={community.id} data-member={isMember}>
+    <div className="@container flex min-h-0 flex-1 flex-col" data-testid="community-screen" data-community-id={community.id} data-member={isMember}>
       <ProfileHeader avatar={<Avatar size={64} name={community.name} />} name={community.name} chips={chips} status={status} facts={facts} actions={memberActions} />
       <div className="min-h-0 flex-1 overflow-y-auto">
-        <div className="grid grid-cols-12 gap-gutter p-gutter">
-          <PersonalNotice className="col-span-12" />
-          <AdultNotice className="col-span-12" />
+        <div className="grid grid-cols-1 gap-gutter p-gutter @page-wide:grid-cols-12 [&_button]:min-h-tap @page-wide:[&_button]:min-h-0">
+          <PersonalNotice className="@page-wide:col-span-12" />
+          <AdultNotice className="@page-wide:col-span-12" />
           <Panel
             title="Feed"
-            span={8}
+            className="@page-wide:col-span-8"
             flush
             loading={isMember && postsQ.isLoading}
             // A feed error belongs to a member's view only: a visitor (or someone who just left) sees the join prompt.
@@ -346,7 +346,7 @@ export function CommunityScreen({ communityId }: { communityId: string }) {
               ))}
             </div>
           </Panel>
-          <div className="col-span-4 flex min-w-0 flex-col gap-gutter">
+          <div className="flex min-w-0 flex-col gap-gutter @page-wide:col-span-4">
             {canModerate ? <ModerationPanel queue={queue} restricted={restricted} loading={queueQ.isLoading} error={queueQ.error ? errorMessage(queueQ.error) : undefined} onRetry={() => void queueQ.refetch()} people={people} onModerate={postHandlers.onModerate} onRestore={(userId) => memberAction(userId, "restore")} /> : null}
             <Panel title="About" data-testid="community-about">
               {community.descriptionMd.trim() ? (

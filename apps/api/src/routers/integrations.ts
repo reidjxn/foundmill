@@ -59,14 +59,15 @@ export const integrationsRouter = router({
     const row = await repos.projectMail.ensure(ctx.db, ctx.businessId);
     const now = new Date();
     const since = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
-    const { counts, own } = await ctx.rls(async (tx) => ({ counts: await repos.events.countByType(tx, ctx.businessId, { from: since }), own: await repos.integrations.getByKey(tx, ctx.businessId, "sendgrid") }));
+    const { counts, owns } = await ctx.rls(async (tx) => ({ counts: await repos.events.countByType(tx, ctx.businessId, { from: since }), owns: [await repos.integrations.getByKey(tx, ctx.businessId, "sendgrid"), await repos.integrations.getByKey(tx, ctx.businessId, "resend")] }));
     return {
       address: platformMailAddress(row.localPart, domain),
       sentToday: counts["mail.sent"] ?? 0,
       cap: row.dailyCap ?? ctx.env.PLATFORM_MAIL_DAILY_CAP,
       paused: row.status !== "active",
       live: platformMailLive(ctx.env),
-      ownSender: own !== null && own.archivedAt === null && (own.status === "connected" || own.status === "degraded"),
+      // The founder's own sender, SendGrid or Resend: the gateway sends from it and the project's address steps aside.
+      ownSender: owns.some((own) => own !== null && own.archivedAt === null && (own.status === "connected" || (own.status === "degraded" && own.connectorKey !== "resend"))),
     };
   }),
 

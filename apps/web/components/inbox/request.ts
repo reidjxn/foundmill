@@ -35,6 +35,7 @@ const BRANDS: Record<string, string> = {
   gemini: "Google Gemini",
   serpapi: "SerpApi",
   indexnow: "IndexNow",
+  posthog: "PostHog",
   dropbox_sign: "Dropbox Sign",
   google_drive: "Google Drive",
   google_calendar: "Google Calendar",

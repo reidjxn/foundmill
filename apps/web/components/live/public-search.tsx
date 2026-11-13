@@ -23,7 +23,7 @@ export function PublicHitList({ hits, "data-testid": testId }: { hits: readonly 
     <ul data-testid={testId}>
       {hits.map((h) => (
         <li key={`${h.kind}:${h.kind === "founder" ? h.userId : h.businessId}`}>
-          <button type="button" className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-body text-primary hover:bg-white/4" onClick={() => router.push(publicProfileHref(h))} data-public-kind={h.kind}>
+          <button type="button" className="flex min-h-tap w-full items-center gap-2 px-3 py-1.5 text-left @page-wide:min-h-0 text-body text-primary hover:bg-white/4" onClick={() => router.push(publicProfileHref(h))} data-public-kind={h.kind}>
             <Icon icon={h.kind === "founder" ? User : Building2} size={16} className="text-secondary" />
             <span className="min-w-0 flex-1 truncate">{h.name}</span>
             <span className="text-small text-secondary">{publicHitDescription(h)}</span>

@@ -16,6 +16,7 @@ import { KeyboardHelp } from "./KeyboardHelp";
 import type { ConnectionChipProps } from "./ConnectionChip";
 import { KitBar, kitStyle, type KitBarBusinessMenu, type KitBarNav } from "./KitBar";
 import { NeedsLargerWindow } from "./NeedsLargerWindow";
+import { PhoneBar, PhoneMenu } from "./PhoneBar";
 import { ProcessingStrip, processingStatusText } from "./ProcessingStrip";
 import { RightRail } from "./RightRail";
 import type { RunwayWords } from "./RunwayChip";
@@ -184,6 +185,13 @@ export interface AppShellProps extends Omit<HTMLAttributes<HTMLDivElement>, "tit
   viewportWidth?: number;
   /** Minimum width (default 1280). */
   minViewportWidth?: number;
+  /**
+   * This screen works on a phone (CLAUDE.md "Small screens"). Under the minimum width the shell draws its phone layout
+   * instead of NeedsLargerWindow: a compact top bar with a menu button, no sidebar and no right rail, the page's tabs
+   * scrolling sideways, the content at full width with the 16 px gutter and the shell as an `@container` (so a page can
+   * use `@page-wide:`). At or over the minimum width, and without this prop, nothing changes.
+   */
+  phone?: boolean;
   children?: ReactNode;
 }
 
@@ -297,6 +305,7 @@ export const AppShell = forwardRef<HTMLDivElement, AppShellProps>(function AppSh
     keyboard,
     viewportWidth,
     minViewportWidth = MIN_VIEWPORT_WIDTH,
+    phone = false,
     className,
     style,
     children,
@@ -307,6 +316,8 @@ export const AppShell = forwardRef<HTMLDivElement, AppShellProps>(function AppSh
   const measured = useViewportWidth();
   const width = viewportWidth ?? measured;
   const tooSmall = isViewportTooSmall(width, minViewportWidth);
+  const phoneLayout = phone && tooSmall;
+  const [menuOpen, setMenuOpen] = useState(false);
 
   const items = useMemo(() => withSidebarKeys(sidebar.items), [sidebar.items]);
   const departments = useMemo(() => departmentsForKeys(items), [items]);
@@ -381,12 +392,89 @@ export const AppShell = forwardRef<HTMLDivElement, AppShellProps>(function AppSh
   // Toasts stack bottom left beside the sidebar, at its real width (collapsed or not), while the shell is mounted.
   useToastPlacement({ position: "bottom-left", sidebar: sidebar.collapsed ? "collapsed" : "expanded" });
 
-  if (tooSmall) return <NeedsLargerWindow width={width} minWidth={minViewportWidth} />;
+  if (tooSmall && !phone) return <NeedsLargerWindow width={width} minWidth={minViewportWidth} />;
 
   const homeItem = items.find((it) => it.fixed === "home");
   const rootStyle: CSSProperties = { ...kitStyle(kit), ...style };
   // A first-time callout (Coachmark, next wave) never starts while a cycle runs or an overlay is open.
   const coachmarkPause = state.kind === "processing" || searchOpen || helpOpen || stopAll.open === true;
+
+  if (phoneLayout) {
+    const tabsLeading = tabs ? { ...tabs, trailing: undefined } : null;
+    return (
+      <TooltipProvider delayDuration={400} skipDelayDuration={300}>
+        <PageExplainProvider>
+          <div
+            ref={ref}
+            data-testid="app-shell"
+            data-phone=""
+            data-game-mode={mode}
+            data-chord-pending={chordPending || undefined}
+            data-coachmark-pause={coachmarkPause || undefined}
+            className={cn("@container flex h-dvh w-full min-w-0 flex-col overflow-hidden canvas-lit text-primary", className)}
+            style={rootStyle}
+            {...rest}
+          >
+            <a href="#main" className="sr-only focus:not-sr-only focus:absolute focus:left-2 focus:top-2 focus:z-50 focus:rounded-panel focus:bg-panel-alt focus:px-2 focus:py-1">
+              Skip to content
+            </a>
+            <PhoneBar
+              kit={kit}
+              logoSrc={logoSrc}
+              logo={logo}
+              businessName={businessName}
+              continueButton={{ state, cycleNumber, pulseKey, disabled: continueDisabled, pending: continuePending, caveat: continueCaveat, hint: continueHint, ...continueHandlers }}
+              continueSlot={continueSlot}
+              stopAll={stopAll}
+              menuOpen={menuOpen}
+              onMenuOpenChange={setMenuOpen}
+            />
+            <ProcessingStrip segments={processing.segments} active={processing.active} cycleNumber={processing.cycleNumber} label={processingText} data-notice={notice ? "" : undefined} />
+            <div className="rule-under flex min-h-tap shrink-0 items-center gap-2 px-gutter" data-testid="phone-title-row">
+              <h1 className="t-display-md min-w-0 flex-1 truncate" data-testid="phone-screen-title">
+                {screenTitle}
+              </h1>
+              {pageActions ? <div className="flex shrink-0 items-center [&_a]:min-h-tap [&_button]:min-h-tap">{pageActions}</div> : null}
+            </div>
+            {tabsLeading ? (
+              <div className="flex shrink-0 items-stretch" data-testid="phone-tabs">
+                <div className="min-w-0 flex-1 overflow-x-auto" data-testid="phone-tabs-scroll">
+                  <TabBar {...tabsLeading} className={cn("min-h-tap min-w-max [&_.shell-tab]:min-h-tap", tabsLeading.className)} />
+                </div>
+                {tabs?.trailing ? <div className="rule-under flex shrink-0 items-center gap-2 pr-gutter [&_a]:min-h-tap [&_button]:min-h-tap">{tabs.trailing}</div> : null}
+              </div>
+            ) : null}
+            <main id="main" tabIndex={-1} className="min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto outline-none" data-testid="shell-content">
+              {children}
+            </main>
+            <PhoneMenu
+              open={menuOpen}
+              onOpenChange={setMenuOpen}
+              items={items}
+              activeId={sidebar.activeId}
+              businessName={businessName}
+              onSelect={(item) => {
+                cancelChord();
+                onNavigate?.(item);
+              }}
+              onSearch={search || onSearch ? openSearch : undefined}
+            />
+            {search ? (
+              <CommandPalette
+                {...search}
+                business={search.business ?? { name: businessName, href: homeItem?.href, logo: logoSrc !== undefined || !logo ? <BusinessLogo src={logoSrc} name={businessName} primary={kit.primary} size={20} /> : undefined }}
+                helpItems={helpItems}
+                onSelect={onPaletteSelect}
+                open={searchOpen}
+                onOpenChange={setSearchOpen}
+              />
+            ) : null}
+            <KeyboardHelp open={helpOpen} onOpenChange={setHelpOpen} departments={departments} areas={areas} />
+          </div>
+        </PageExplainProvider>
+      </TooltipProvider>
+    );
+  }
 
   return (
     <TooltipProvider delayDuration={400} skipDelayDuration={300}>
@@ -397,7 +485,7 @@ export const AppShell = forwardRef<HTMLDivElement, AppShellProps>(function AppSh
         data-game-mode={mode}
         data-chord-pending={chordPending || undefined}
         data-coachmark-pause={coachmarkPause || undefined}
-        className={cn("flex h-screen w-full min-w-(--min-viewport) overflow-hidden canvas-lit text-primary", className)}
+        className={cn("@container flex h-screen w-full overflow-hidden canvas-lit text-primary", !phone && "min-w-(--min-viewport)", className)}
         style={rootStyle}
         {...rest}
       >

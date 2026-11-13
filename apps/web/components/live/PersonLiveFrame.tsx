@@ -31,18 +31,19 @@ function FrameWithTitle({ viewer, children }: { viewer?: { email: string | null 
   const pathname = usePathname() ?? "";
   return (
     <StudioFrame
+      smallScreen
       title={chrome.title ?? "People"}
       viewer={viewer}
       actions={
-        <nav aria-label="People" className="flex items-center gap-1" data-testid="person-live-nav">
-          <Link href="/home" className="inline-flex h-control-md items-center gap-1.5 rounded-sm px-2 t-action text-secondary hover:text-primary hover:no-underline focus-visible:shadow-ring" data-testid="person-live-home">
+        <nav aria-label="People" className="flex flex-wrap items-center gap-1" data-testid="person-live-nav">
+          <Link href="/home" className="inline-flex min-h-tap items-center @page-wide:min-h-0 @page-wide:h-control-md gap-1.5 rounded-sm px-2 t-action text-secondary hover:text-primary hover:no-underline focus-visible:shadow-ring" data-testid="person-live-home">
             <ArrowLeft aria-hidden className="size-icon-inline" />
             Home
           </Link>
           {LINKS.map((l) => {
             const active = pathname === l.href || pathname.startsWith(`${l.href}/`);
             return (
-              <Link key={l.href} href={l.href} aria-current={active ? "page" : undefined} className={cn("inline-flex h-control-md items-center rounded-sm px-2 t-action hover:no-underline focus-visible:shadow-ring", active ? "text-primary" : "text-secondary hover:text-primary")}>
+              <Link key={l.href} href={l.href} aria-current={active ? "page" : undefined} className={cn("inline-flex min-h-tap items-center @page-wide:min-h-0 @page-wide:h-control-md rounded-sm px-2 t-action hover:no-underline focus-visible:shadow-ring", active ? "text-primary" : "text-secondary hover:text-primary")}>
                 {l.label}
               </Link>
             );

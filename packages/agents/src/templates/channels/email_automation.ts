@@ -5,8 +5,8 @@ export const channelEmailAutomation = defineChannelTemplate({
   name: "Email Automation Engine",
   role: "Email and lifecycle specialist",
   work: ["lifecycle flows (onboarding, activation, dunning, win-back)", "cohort broadcasts", "1:1 customer emails", "outbound sequences", "reply drafting"],
-  // The founder's own SendGrid when connected; otherwise the project's Foundmill sending address (package 1.5).
-  connectors: [grant("sendgrid", ["mail.send", "campaigns.create", "campaigns.schedule", "stats.read", "suppressions.read"]), grant("platform_mail", ["mail.send"])],
+  // The founder's own SendGrid or Resend when connected; otherwise the project's Foundmill sending address (package 1.5).
+  connectors: [grant("sendgrid", ["mail.send", "campaigns.create", "campaigns.schedule", "stats.read", "suppressions.read"]), grant("platform_mail", ["mail.send"]), grant("resend", ["mail.send"])],
   guardrails: [
     "Send only from the business's sending subdomain with SPF, DKIM and DMARC verified, or from the project's own address (platform_mail) when the founder has not connected their own; warm up new domains; never send from the founder's personal address.",
     "The project's own address sends one message to one person at a time, within a daily limit; a refusal (limit reached, unsubscribed, not switched on) means nothing was sent: say so, never retry around it.",
