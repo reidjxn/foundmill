@@ -177,6 +177,11 @@ export const EMAIL_NOTIFICATION_LABELS: Readonly<Record<EmailNotificationKind, s
   weekly_review: "Weekly review",
   invitation_accepted: "Someone accepted my invitation",
 });
+/**
+ * A record's kind as Settings › Preferences › Email lists the latest emails: the switches' labels, and the founder
+ * notice (security review P2-3), which has no switch.
+ */
+export const FOUNDER_NOTIFICATION_LABELS: Readonly<Record<EmailNotificationKind | "founder_notice", string>> = Object.freeze({ ...EMAIL_NOTIFICATION_LABELS, founder_notice: "Who runs a project, or its deletion" });
 /** One line under each switch. */
 export const EMAIL_NOTIFICATION_HINTS: Readonly<Record<EmailNotificationKind, string>> = Object.freeze({
   decision_waiting: "30 minutes after you leave when it holds up the team's work; otherwise after a day.",

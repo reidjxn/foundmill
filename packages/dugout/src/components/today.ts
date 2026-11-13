@@ -8,3 +8,4 @@ export * from "./today/PublicPageNote";
 export * from "./today/PostReadyNote";
 export * from "./today/SinceLastVisit";
 export * from "./today/StreakStrip";
+export * from "./today/FormerProjectCard";

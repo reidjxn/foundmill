@@ -13,7 +13,7 @@ import { APP_NAME } from "@foundmill/config";
 import { BellRing, Mail } from "lucide-react";
 import { Button, Chip, Field, Label, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Skeleton, Switch, formatDateTime, useDateFormat } from "@foundmill/dugout";
 import { EMAIL_NOTIFICATION_KINDS, type EmailNotificationKind } from "@foundmill/shared/constants";
-import { EMAIL_NOTIFICATION_HINTS, EMAIL_NOTIFICATION_LABELS, EMAIL_NOTIFICATIONS_HINT, emailNotificationSavedLine } from "@foundmill/shared/notify-email";
+import { EMAIL_NOTIFICATION_HINTS, EMAIL_NOTIFICATION_LABELS, EMAIL_NOTIFICATIONS_HINT, emailNotificationSavedLine, FOUNDER_NOTIFICATION_LABELS } from "@foundmill/shared/notify-email";
 import { HOUR_OPTIONS } from "@/lib/autopilot";
 import { browserTimeZone } from "@/lib/today";
 import { useTRPC } from "@/lib/trpc-react";
@@ -174,7 +174,7 @@ export function EmailNotificationsSection() {
             <ul className="flex flex-col gap-1">
               {recent.data.map((n) => (
                 <li key={n.id} className="flex items-baseline justify-between gap-4 text-small">
-                  <span className="truncate text-primary">{n.subject || EMAIL_NOTIFICATION_LABELS[n.kind]}</span>
+                  <span className="truncate text-primary">{n.subject || FOUNDER_NOTIFICATION_LABELS[n.kind]}</span>
                   <span className="shrink-0 font-mono text-secondary">
                     {recentStatusWord(n.status, n.skipReason)} · {formatDateTime(n.sentAt ?? n.createdAt, datePrefs)}
                   </span>
