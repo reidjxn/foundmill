@@ -39,6 +39,26 @@ describe("integrations.platformMail", () => {
     expect(again).toMatchObject({ address: first!.address, sentToday: 1, cap: 120, live: true });
   });
 
+  it("ownSender is true while the founder's own Resend is connected, and false when it is degraded, disconnected or archived", async () => {
+    const owner = callerWith(ON, { userId: hz.A.ownerId });
+    const ownSender = async () => (await owner.integrations.platformMail({ businessId: hz.A.businessId }))!.ownSender;
+    expect(await ownSender()).toBe(false);
+    await repos.integrations.upsert(hz.db, hz.A.businessId, { connectorKey: "resend", status: "connected", authKind: "api_key", accountLabel: "own" });
+    expect(await ownSender(), "connected").toBe(true);
+    // A degraded Resend cannot send; the project's own address stays its sender.
+    await repos.integrations.upsert(hz.db, hz.A.businessId, { connectorKey: "resend", status: "degraded", authKind: "api_key", accountLabel: "own" });
+    expect(await ownSender(), "degraded").toBe(false);
+    const row = await repos.integrations.upsert(hz.db, hz.A.businessId, { connectorKey: "resend", status: "disconnected", authKind: "api_key", accountLabel: "own" });
+    expect(await ownSender(), "disconnected").toBe(false);
+    await repos.integrations.upsert(hz.db, hz.A.businessId, { connectorKey: "resend", status: "connected", authKind: "api_key", accountLabel: "own" });
+    expect(await ownSender()).toBe(true);
+    await repos.integrations.archive(hz.db, hz.A.businessId, row.id);
+    expect(await ownSender(), "archived").toBe(false);
+    // Another business's Resend never counts here.
+    await repos.integrations.upsert(hz.db, hz.B.businessId, { connectorKey: "resend", status: "connected", authKind: "api_key", accountLabel: "other" });
+    expect(await ownSender(), "another business").toBe(false);
+  });
+
   it("another business's members never see it", async () => {
     await expect(callerWith(ON, { userId: hz.B.ownerId }).integrations.platformMail({ businessId: hz.A.businessId })).rejects.toThrow();
   });

@@ -167,6 +167,10 @@ export const TOOL_ICONS: Record<string, { icon: IconComponent; label: string }> 
   serpapi: { icon: Search, label: "SerpApi" },
   firecrawl: { icon: FileText, label: "Firecrawl" },
   indexnow: { icon: Search, label: "IndexNow" },
+  apollo: { icon: Search, label: "Apollo" },
+  vercel: { icon: Code2, label: "Vercel" },
+  posthog: { icon: Search, label: "PostHog" },
+  resend: { icon: Mail, label: "Resend" },
 };
 
 export interface ToolIconsProps {

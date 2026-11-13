@@ -56,6 +56,10 @@ export const THIRD_PARTY_CONNECTOR_KEYS = [
   "serpapi",
   "firecrawl",
   "indexnow",
+  "apollo",
+  "vercel",
+  "posthog",
+  "resend",
 ] as const;
 
 export const CONNECTOR_KEYS = [...PLATFORM_CONNECTOR_KEYS, ...THIRD_PARTY_CONNECTOR_KEYS] as const;
