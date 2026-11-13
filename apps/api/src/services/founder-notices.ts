@@ -7,7 +7,7 @@
  *   - `tellFounders` asks the gateway's one sender (`/v1/notify/email`, kind `founder_notice`) for one email per person:
  *     every founder now (an owner or a cofounder), the person whose role changed or who was removed, and, for a deletion,
  *     everyone someone else ever demoted or removed from the project who is not a founder now (`founder_departures`,
- *     0094; the one-click cancel is for those taken out within 30 days before the request, or after it). Never the person who did it, but for one receipt: the person who asked for a
+ *     0097; the one-click cancel is for those taken out within 30 days before the request, or after it). Never the person who did it, but for one receipt: the person who asked for a
  *     deletion, whatever the team's size. Ids only: the gateway reads the audit entry and everyone again, and holds the
  *     counts (its own daily ceiling, so many an hour and a day per person and project, then one "more changes" email).
  *     Asked after the change committed; a refusal or an unreachable gateway changes nothing here.

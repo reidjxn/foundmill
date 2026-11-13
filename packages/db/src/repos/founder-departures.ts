@@ -1,5 +1,5 @@
 /**
- * 0094 — founder departures and the one-click cancel links (security review P2-3, reworked after the second review).
+ * 0097 — founder departures and the one-click cancel links (security review P2-3, reworked after the second review).
  *
  * A former founder, for a deletion request: someone whose founder's standing someone else took away (`demoted` or
  * `removed`) within `FORMER_FOUNDER_LOOKBACK_MS` (30 days) before the request, or at any time after it, and who does not

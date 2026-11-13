@@ -659,7 +659,7 @@ export const FORMER_FOUNDER_LOOKBACK_MS = 30 * 86_400_000;
  *     day, and `actorPerDayAll`: both together, across every project, in a day.
  */
 export const FOUNDER_NOTICE_LIMITS = { perRecipientHour: 10, perRecipientDay: 30, perProjectDay: 500, safetyCeilingDefault: 5_000, actorPerDay: 5, actorPerDayAll: 10 } as const;
-/** How a founder's standing ended (`founder_departures.how`, 0094): by another founder's change, by removal, or by their own. */
+/** How a founder's standing ended (`founder_departures.how`, 0097): by another founder's change, by removal, or by their own. */
 export const FOUNDER_DEPARTURE_KINDS = ["demoted", "removed", "left"] as const;
 export type FounderDepartureKind = (typeof FOUNDER_DEPARTURE_KINDS)[number];
 

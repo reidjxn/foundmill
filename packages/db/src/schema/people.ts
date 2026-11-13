@@ -6,9 +6,9 @@
  *     column but `tokenHash` and `email`; an owner or an admin creates and revokes (an owner alone for a cofounder).
  *   - `accountAdmissions`: account-scoped, one row per account the api admitted other than through SIGNUP_ALLOWLIST.
  *     Service role only.
- *   - `founderDepartures` (0094, security review P2-3): one row each time a membership lost a founder's standing, written
+ *   - `founderDepartures` (0097, security review P2-3): one row each time a membership lost a founder's standing, written
  *     by a trigger on `memberships`; the person reads their own, a founder of the project the project's.
- *   - `founderCancelLinks` (0094): one email's one-click cancel of a deletion request, service role only.
+ *   - `founderCancelLinks` (0097): one email's one-click cancel of a deletion request, service role only.
  */
 import { FOUNDER_DEPARTURE_KINDS, INVITATION_ROLES, INVITATION_STATES } from "@foundmill/shared";
 import { index, pgTable, text, uniqueIndex, uuid } from "drizzle-orm/pg-core";
@@ -63,7 +63,7 @@ export const accountAdmissions = pgTable(
 );
 export type AccountAdmission = typeof accountAdmissions.$inferSelect;
 
-/** A founder's standing ended (0094): demoted or removed by someone else, or left. The trigger writes it; see the migration. */
+/** A founder's standing ended (0097): demoted or removed by someone else, or left. The trigger writes it; see the migration. */
 export const founderDepartures = pgTable(
   "founder_departures",
   {
@@ -82,7 +82,7 @@ export const founderDepartures = pgTable(
 export type FounderDeparture = typeof founderDepartures.$inferSelect;
 
 /**
- * One email's one-click cancel of a deletion request (0094): the token's SHA-256, the person, the request it cancels and
+ * One email's one-click cancel of a deletion request (0097): the token's SHA-256, the person, the request it cancels and
  * its end (that request's scheduled day). Works once. Service role only.
  */
 export const founderCancelLinks = pgTable(

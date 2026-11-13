@@ -82,7 +82,7 @@ describe(`${TAG} applied over the account event store`, () => {
     for (const refusal of refusedBefore) expect(refusal).toMatch(/account_events_type_account_scoped/);
   });
 
-  it("the list is 0088's four (0094 adds founder_notice.sent), and the function is the same one: owner, attributes and callers unchanged", async () => {
+  it("the list is 0088's four (0097 adds founder_notice.sent), and the function is the same one: owner, attributes and callers unchanged", async () => {
     expect((await rows<{ types: string[] }>(sql`select fm_account_event_types() as types`))[0]!.types).toEqual(["profile.published", "profile.unpublished", "signup.attributed", "referral.arrived"]);
     const now = await describeEventTables();
     // Replaced in place (the same oid, so both checks still point at it), with nothing about it changed but its body.

@@ -1,5 +1,5 @@
 /**
- * 0094 — founder departures (security review P2-3). The migration's header states the rules:
+ * 0097 — founder departures (security review P2-3). The migration's header states the rules:
  *
  *   - the trigger on `memberships` writes one row each time a membership loses a founder's standing: `demoted` (someone
  *     else lowered the role), `removed` (someone else deleted the row), `left` (the person's own change); never for a
@@ -11,6 +11,8 @@
  *     founder; never a founder's own leaving;
  *   - `founder_cancel_links`: service role only (no client role reads or writes it, in any business); a link works once,
  *     before its end;
+ *   - no client role holds TRUNCATE, TRIGGER or REFERENCES on either table (as 0087 holds for every table), nor
+ *     EXECUTE on the trigger's function;
  *   - a member cannot write, change or delete a suppression entry with a hard reason;
  *   - `fm_account_event_types()` lists `founder_notice.sent`, and `founder_notifications` takes `founder_notice`;
  *   - a founder notice stops only for a bounce or a spam report (`isHardSuppressed`).
@@ -214,6 +216,30 @@ describe("the vocabulary and the suppression rule", () => {
     for (const reason of HARD_SUPPRESSION_REASONS) {
       expect(policy!.qual).toContain(reason);
       expect(policy!.with_check).toContain(reason);
+    }
+  });
+});
+
+describe("client grants on the two tables and the trigger (as 0087 holds for every table)", () => {
+  const priv = async (role: string, table: string, p: string) => ((await h.db.execute(sql`select has_table_privilege(${role}::name, ${`public.${table}`}::text, ${p}::text) as ok`)) as unknown as { rows: { ok: boolean }[] }).rows[0]!.ok;
+  const ALL = ["select", "insert", "update", "delete", "truncate", "trigger", "references"] as const;
+
+  it("authenticated reads founder_departures and holds nothing else on it; anon holds nothing", async () => {
+    const held = { anon: [] as string[], authenticated: [] as string[] };
+    for (const role of ["anon", "authenticated"] as const) for (const p of ALL) if (await priv(role, "founder_departures", p)) held[role].push(p);
+    expect(held).toEqual({ anon: [], authenticated: ["select"] });
+  });
+
+  it("no client role holds anything on founder_cancel_links", async () => {
+    const held: string[] = [];
+    for (const role of ["anon", "authenticated"]) for (const p of ALL) if (await priv(role, "founder_cancel_links", p)) held.push(`${role} ${p}`);
+    expect(held).toEqual([]);
+  });
+
+  it("no client role can call the departure trigger's function", async () => {
+    for (const role of ["anon", "authenticated"]) {
+      const ok = ((await h.db.execute(sql`select has_function_privilege(${role}::name, 'fm_memberships_record_founder_departure()'::text, 'execute') as ok`)) as unknown as { rows: { ok: boolean }[] }).rows[0]!.ok;
+      expect(ok, role).toBe(false);
     }
   });
 });

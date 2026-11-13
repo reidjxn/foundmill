@@ -1,4 +1,4 @@
--- 0094 — founder departures, the one-click cancel and the founder notice (security review P2-3, Nov 13, 2026; reworked
+-- 0097 — founder departures, the one-click cancel and the founder notice (security review P2-3, Nov 13, 2026; reworked
 -- after the second review the same day).
 --
 -- Someone with a founder's standing (an owner or a cofounder) could lower another founder's role, remove them, then ask

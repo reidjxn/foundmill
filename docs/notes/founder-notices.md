@@ -1,6 +1,6 @@
 # Founder notices and the former founder's cancel (security review P2-3)
 
-Branch `claude/founder-notices`, on `claude/waitlist-invitations` (migrations 0089–0093 there). One migration here, **0094**, to be renumbered at the final rebase. Reworked in place after the second security review (same day): 0094 has not been merged anywhere.
+Branch `claude/founder-notices`, on `claude/waitlist-invitations` (migrations 0091–0096 there, after main's 0090). One migration here, **0097** (written as 0094, renumbered on Nov 13, 2026 when #120 took 0091–0096). Reworked in place after the second and third security reviews (same day): it has not been merged anywhere.
 
 ## The problem
 
@@ -17,7 +17,7 @@ Someone with founder standing (an owner or a cofounder) could lower another foun
    The api sends ids only (`POST /v1/notify/email`, kind `founder_notice`, the audit entry's id); the gateway's one sender reads the entry, the people and the project again, and sends through `platform_notify`. The Inbox gets a Chief of Staff note for a lowered role or a removal (the deletion request and the cancel already had theirs; a cancel by a former founder now says who).
 2. **A former founder for the request (someone else demoted or removed them within 30 days before it, or after it) can cancel it until its scheduled day**: from the one-click link in their email (`/a/<token>`, a POST to confirm) or from a card on their home (Today, Home and /new). It cancels that request only, restores nothing else (they stay out; rejoining is a normal invitation), writes their own audit entry (`formerFounder: true`, `requestId`, `via`), and every founder is told.
 3. **The purge**: no change. The cancel right lasts until the request's own scheduled day, the day the sweep purges on, so nothing has to wait for it.
-4. **Events**: one new account-scoped event, `founder_notice.sent`, on the reader's own account events (the reader may no longer belong to the project). `fm_account_event_types()` lists it (0094), the catalog declares it, a fixture and a stream-wall test cover it.
+4. **Events**: one new account-scoped event, `founder_notice.sent`, on the reader's own account events (the reader may no longer belong to the project). `fm_account_event_types()` lists it (0097), the catalog declares it, a fixture and a stream-wall test cover it.
 5. **Limits** (second and third reviews): founder notices have their own enforced daily ceiling (`pn:safety:day`, `PLATFORM_SAFETY_DAILY_CEILING`, default 5,000), no longer counted in `pn:all:day`, and a cap of 500 a day per project under it; one person hears about one project at most 10 times an hour and 30 a day, past which one "More changes in {project}" email stands for the rest of the window and the rest are recorded as `folded`. **Essential** notices (one that carries the cancel, the removal's email to the person removed, a deletion request's email to a former founder) take a reserved path: never refused at a ceiling, never folded. In the api, one person may lower a founder's role, or ask for a deletion, 5 times a day in a project, and 10 times a day in all across every project (plain 429 refusals).
 
 ## Judgement calls
@@ -28,7 +28,7 @@ Someone with founder standing (an owner or a cofounder) could lower another foun
 - **A reserved path past the ceilings** (third review A). With per-project actor limits only, about ten accounts across seventeen projects could fill the platform's 5,000 a day and silence every later founder notice. Now the actor's founder changes are also limited across every project (10 a day in all), each project has its own cap (500 a day) under the platform's, and an essential notice skips both on a reserved, counted path (`pn:safety:reserved:day`): what reaches it is bounded by the actors' limits, so the notices a person needs most cannot be crowded out.
 - **Limits on the actor in the api** (P1-1): lowering a founder's role and asking for a deletion, 5 a day per person and project, refused in plain words ("A deletion can be asked for 5 times a day by one person in a project, and that is used up for now. Try again in N hours."). A cancel is never limited: refusing it could let a deletion through, and each cancel needs a waiting request, which is limited.
 - **Correction to the first version's notes**: they said each deletion request "needs a fresh sign-in". That was wrong: a request needs a sign-in within the last 10 minutes (`REAUTH_WINDOW_MS`), so one sign-in allows many requests. The 5-a-day limit above is what bounds them now.
-- **Counted from the request, not the departure** (P2-1). The right to cancel belongs to someone whose standing someone else took away within 30 days before the request, or at any time after it, and who does not have it back, until that request's scheduled day. The 0094 check that capped a token at 7 days after the departure is gone with the columns it sat on. A removal is announced as a founder's removal when the demotion was in the last 30 days.
+- **Counted from the request, not the departure** (P2-1). The right to cancel belongs to someone whose standing someone else took away within 30 days before the request, or at any time after it, and who does not have it back, until that request's scheduled day. The first version's check that capped a token at 7 days after the departure is gone with the columns it sat on. A removal is announced as a founder's removal when the demotion was in the last 30 days.
 - **Correction**: the second version of these notes said that "a founder cannot wait out a window before asking". That was wrong: someone who demotes or removes a founder and waits 31 days before asking for the deletion still keeps that founder from canceling it. What changes now (third review) is that they can no longer keep the removed founder from hearing about it: everyone someone else ever took out of the project gets every deletion request's email and its cancel's (without a link past the 30 days: "If you want it kept, ask one of the founders to cancel it."). The 30-day limit on the cancel right itself is kept as the review asked.
 - **A receipt to whoever asks for a deletion** (P2-2), whatever the team's size: "You asked to delete {project} on {when}. It will be deleted on {day}. If this wasn't you, cancel in Settings › Danger zone and secure your account." It names nobody else and nothing about who else was told. No self-notice for a role change, a removal or a cancel.
 - **Only a hard suppression stops it**: a bounce or a spam report (`HARD_SUPPRESSION_REASONS`, the words `suppressionReasonOf` writes, now shared constants), platform-wide or for that project. An unsubscribe from a project's mail or a "stop" reply does not. SendGrid's own bounce and spam lists still apply underneath. A member can no longer plant, change or delete a hard entry (P3-6): `suppression_list_write` now excludes those reasons for client roles (the service role, which writes them from delivery events, bypasses row security); a test checks the policy names the same reasons as the code. The flip side: a member can no longer remove a project's bounce entry from the app; only the service can.
@@ -42,20 +42,22 @@ Someone with founder standing (an owner or a cofounder) could lower another foun
 - **The removal's email carries the cancel too** when a deletion was already waiting (also a lowered role): the person is a former founder for that request whenever they left after it.
 - **The Inbox has no per-person audience**, so the note is the project's: whoever reads the Inbox sees it, as they see roles in Settings › People.
 - **"/home"** is not one route here: the signed-in front door is Today, the dashboards are Home, and someone with no project left lands on /new. The card is on all three (it renders nothing while there is no project to keep).
-- **The base branch moves**: `team.ts` changes are kept to a few lines (the limit, the names and the demotion read before the transactions), for the coming rebase onto the role-grant rule.
+- **The base branch moves**: `team.ts` changes are kept to a few lines (the limit, the names and the demotion read before the transactions). At the merge of #120 its locked re-reads and the grant rule were taken as they are; the actor's limit on lowering a founder now sits after every access check (the editor's fresh row, the lock on the person's row, `assertWithinGrantorAccess`), so a change refused for access never spends one.
 
-## Tests (verbatim totals, this branch, after the third review)
+## Tests (verbatim totals, Nov 13, 2026, after #120 was merged in and the migration became 0097)
 
 - `pnpm -w turbo typecheck` (run alone): Tasks: 25 successful, 25 total
-- eslint on the changed files: no errors, no warnings
-- packages/db: Test Files 94 passed | 1 skipped (95); Tests 2394 passed | 13 skipped (2407)
-- apps/api: Test Files 139 passed (139); Tests 1258 passed | 3 skipped (1261)
-- apps/gateway: Test Files 33 passed (33); Tests 341 passed (341)
-- packages/shared: Test Files 59 passed (59); Tests 822 passed (822)
-- apps/web: Test Files 168 passed (168); Tests 1382 passed (1382)
-- Playwright `founder-notices.spec.ts` on a fresh PGlite stack (api :4310, web :3310, gateway recorder :4311, `--trace off`): 3 passed. The stack's `.pglite` directory was deleted afterwards.
+- eslint on the files changed against #120: no errors, no warnings
+- packages/db: Test Files 99 passed | 1 skipped (100); Tests 2456 passed | 18 skipped (2474)
+- apps/api: Test Files 143 passed (143); Tests 1317 passed | 9 skipped (1326)
+- apps/gateway: Test Files 36 passed (36); Tests 370 passed (370)
+- packages/shared: Test Files 60 passed (60); Tests 835 passed (835)
+- apps/web: Test Files 179 passed (179); Tests 1429 passed (1429)
+- packages/dugout: Test Files 123 passed (123); Tests 1265 passed (1265)
+- packages/connectors: Test Files 54 passed | 1 skipped (55); Tests 1178 passed | 189 skipped (1367)
+- `rls/client-grants.test.ts` (from main, #101): Test Files 1 passed (1); Tests 32 passed (32). The migration adds one security-definer function, the trigger's (`fm_memberships_record_founder_departure`, revoked from public, anon and authenticated; a trigger function, which the allowlist leaves out); `fm_account_event_types()` is not security definer. `rls/founder-departures.test.ts` now also checks both tables explicitly: authenticated holds SELECT on `founder_departures` and nothing else, anon nothing, no client role anything on `founder_cancel_links` (so no TRUNCATE, TRIGGER or REFERENCES), and no client role EXECUTE on the trigger's function.
+- Playwright `founder-notices.spec.ts` and `invitations.spec.ts` on a fresh PGlite stack (api :4330, web :3330, `APP_URL=http://localhost:3330`, gateway recorder :4331, `--trace off`): 15 passed, 1 skipped (the onboarding project runs first as their dependency; the skipped one is the sign-up ceiling test, which needs its own stack with `SIGNUP_OPEN=1 SIGNUP_DAILY_CEILING=0`). The stack's `.pglite` directory was deleted afterwards.
 - `node scripts/banned-terms.mjs` and `node scripts/us-english.mjs`: clean
-- Not run here: #101's `client-grants.test.ts`, which is not on this base yet (the coordinator runs it at the rebase).
 
 ## Left out
 
