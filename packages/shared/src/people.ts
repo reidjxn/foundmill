@@ -9,7 +9,7 @@
  * an optional end date on the membership).
  */
 import { ADMIN_ROLES, OWNER_ROLES, type MembershipRole } from "./constants";
-import { COLLABORATOR_SECTIONS } from "./permissions";
+import { COLLABORATOR_SECTIONS, effectivePermission, type SectionMembership } from "./permissions";
 
 export { COLLABORATOR_SECTIONS };
 
@@ -47,6 +47,18 @@ export function invitationMembership(role: InvitationRole): { role: MembershipRo
 export function rolesThatMayInvite(role: InvitationRole): readonly MembershipRole[] {
   return role === "cofounder" ? OWNER_ROLES : ADMIN_ROLES;
 }
+
+/**
+ * Whether a membership may make (and keep alive) an invitation in `role`: one of `rolesThatMayInvite(role)`, holding
+ * write on the Team section (`effectivePermission`), as Settings › People's own procedures require. The api checks it when
+ * the invitation is made and again whenever it is read or accepted, so narrowing a person's Team access stops their links.
+ */
+export function mayMakeInvitation(membership: SectionMembership, role: InvitationRole): boolean {
+  return rolesThatMayInvite(role).includes(membership.role) && effectivePermission(membership, "team") === "write";
+}
+
+/** Whether an invitation in `role` must name the address it is for: a cofounder's always (equal standing goes to one person). */
+export const invitationNeedsEmail = (role: InvitationRole): boolean => role === "cofounder";
 
 /** Invitation tokens: 32 random bytes as base64url (43 characters). Anything else is not looked up. */
 export const isPeopleTokenShape = (token: unknown): token is string => typeof token === "string" && /^[A-Za-z0-9_-]{43}$/.test(token);

@@ -8,7 +8,7 @@
  *   `returning` names its columns). Everything about a token or an address (`byTokenHash`, `accept`, `decline`,
  *   `addressesOf`) is the service connection's.
  */
-import { and, asc, count, desc, eq, gt, gte, inArray, isNotNull, isNull, sql } from "drizzle-orm";
+import { and, asc, count, desc, eq, gt, gte, inArray, isNotNull, isNull, lt, sql } from "drizzle-orm";
 import { z } from "zod";
 import { INVITATION_ROLES, type InvitationRole, type InvitationState } from "@foundmill/shared";
 import { businesses, founderProfiles } from "../schema";
@@ -51,15 +51,44 @@ export const admissionsRepo = {
     await tx.execute(OPEN_COUNT_LOCK);
   },
 
-  /** Accounts admitted under open sign-up's ceiling since `since` (the start of the UTC day). */
+  /**
+   * New accounts admitted since `since` (the start of the UTC day) that open sign-up's ceiling counts: those admitted
+   * under it (`open`) and those an invitation let in (`invitation`), so invitations cannot add a second ceiling's worth.
+   */
   async openSince(db: Executor, since: Date): Promise<number> {
-    const [row] = await db.select({ n: count() }).from(accountAdmissions).where(and(eq(accountAdmissions.how, "open"), gte(accountAdmissions.createdAt, since)));
+    const [row] = await db.select({ n: count() }).from(accountAdmissions).where(and(inArray(accountAdmissions.how, ["open", "invitation"]), gte(accountAdmissions.createdAt, since)));
     return Number(row?.n ?? 0);
   },
 
-  /** Whether the account existed as a person before open sign-up (it has a founder profile): admitted without counting. */
-  async hasProfile(db: Executor, userId: string): Promise<boolean> {
-    const rows = await db.select({ id: founderProfiles.id }).from(founderProfiles).where(eq(founderProfiles.userId, parseInput(Id, userId, "user id"))).limit(1);
+  /** New accounts that invitations made by `inviterUserId` let in since `since` (services/access.ts, per inviter per day). */
+  async admittedByInviterSince(db: Executor, inviterUserId: string, since: Date): Promise<number> {
+    const [row] = await db
+      .select({ n: count() })
+      .from(accountAdmissions)
+      .innerJoin(invitations, eq(invitations.id, accountAdmissions.invitationId))
+      .where(and(eq(accountAdmissions.how, "invitation"), eq(invitations.invitedByUserId, parseInput(Id, inviterUserId, "user id")), gte(accountAdmissions.createdAt, since)));
+    return Number(row?.n ?? 0);
+  },
+
+  /** 0091's cutover: the moment the migration ran (`admission_existing_before()`). */
+  async existingBefore(db: Executor): Promise<Date> {
+    const res = (await db.execute(sql`select admission_existing_before() as at`)) as unknown as { rows?: { at: Date | string }[] } | { at: Date | string }[];
+    const rows = Array.isArray(res) ? res : (res.rows ?? []);
+    const at = rows[0]?.at;
+    if (at === undefined || at === null) throw new Error("admission_existing_before() returned nothing");
+    return at instanceof Date ? at : new Date(at);
+  },
+
+  /**
+   * Whether the account was a person here before open sign-up: a founder profile created before `before` (0091's
+   * cutover, or SIGNUP_EXISTING_BEFORE). Admitted without counting. A profile made since does not count.
+   */
+  async hasProfile(db: Executor, userId: string, before: Date): Promise<boolean> {
+    const rows = await db
+      .select({ id: founderProfiles.id })
+      .from(founderProfiles)
+      .where(and(eq(founderProfiles.userId, parseInput(Id, userId, "user id")), lt(founderProfiles.createdAt, parseInput(z.date(), before, "cutover"))))
+      .limit(1);
     return rows.length > 0;
   },
 };

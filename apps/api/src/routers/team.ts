@@ -336,7 +336,8 @@ export const teamRouter = router({
           const agent = await repos.agents.get(tx, ctx.businessId, input.handler.id);
           if (agent.archivedAt) throw new ValidationError(`${agent.name} has left the team`);
         }
-        if (input.handler.kind === "user" && input.handler.id && !(await repos.memberships.get(tx, ctx.businessId, input.handler.id))) throw new ValidationError("Handler is not a member");
+        // One of the project's people now: a collaborator whose access ended is not (0090).
+        if (input.handler.kind === "user" && input.handler.id && !(await repos.memberships.getActive(tx, ctx.businessId, input.handler.id))) throw new ValidationError("Handler is not a member");
         const departments = await repos.departments.list(tx, ctx.businessId);
         const targets = input.departmentId ? departments.filter((d) => d.id === input.departmentId) : departments;
         // A department outside the business, archived or hidden since the page loaded: say so, never "saved" for nothing.

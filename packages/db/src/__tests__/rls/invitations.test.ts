@@ -29,7 +29,8 @@ const inDays = (d: number) => new Date(Date.now() + d * 86_400_000);
 const rows = async <T>(q: ReturnType<typeof sql>): Promise<T[]> => ((await h.db.execute(q)) as unknown as { rows: T[] }).rows;
 /** A client's insert of an invitation, the columns the api writes. */
 const clientInsert = (runner: ReturnType<TestHarness["asUser"]>, f: BusinessFixture, by: string, role: "cofounder" | "collaborator", over: Record<string, unknown> = {}) =>
-  runner.run((tx) => repos.invitations.create(tx, f.businessId, { tokenHash: hex(), role, invitedByUserId: by, email: null, expiresAt: inDays(14), ...over }));
+  // A cofounder invitation always names an address (0091).
+  runner.run((tx) => repos.invitations.create(tx, f.businessId, { tokenHash: hex(), role, invitedByUserId: by, email: role === "cofounder" ? "partner@example.com" : null, expiresAt: inDays(14), ...over }));
 
 beforeAll(async () => {
   h = await createTestDb();
@@ -142,7 +143,7 @@ describe("invitations 0089: business-scoped, the token and the address never rea
   it("the service reads an invitation by its token, accepts it once while in date, and declines one", async () => {
     const svc = h.service();
     const tokenHash = hex();
-    const inv = await svc.run((tx) => repos.invitations.create(tx, A.businessId, { tokenHash, role: "cofounder", invitedByUserId: A.ownerId, email: null, expiresAt: inDays(14) }));
+    const inv = await svc.run((tx) => repos.invitations.create(tx, A.businessId, { tokenHash, role: "cofounder", invitedByUserId: A.ownerId, email: "partner@example.com", expiresAt: inDays(14) }));
     expect(await svc.run((tx) => repos.invitations.byTokenHash(tx, tokenHash))).toMatchObject({ id: inv.id, role: "cofounder", businessName: expect.any(String), businessArchived: false, businessIsDemo: false });
     expect(await svc.run((tx) => repos.invitations.byTokenHash(tx, hex()))).toBeNull();
     expect(await svc.run((tx) => repos.invitations.accept(tx, inv.id, newcomer))).toMatchObject({ state: "accepted", acceptedByUserId: newcomer });

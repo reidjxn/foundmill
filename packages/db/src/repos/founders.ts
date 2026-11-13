@@ -6,6 +6,7 @@ import { authUsers } from "drizzle-orm/supabase";
 import { z } from "zod";
 import { businesses, founderProfiles, memberships, type Business, type FounderProfile, type Membership } from "../schema";
 import { Currency, changes, Id, maybeOne, MinorAmount, one, parseInput, type Executor, patchSchema } from "./_shared";
+import { membershipNotEnded } from "./memberships";
 
 const SkillRatings = z.record(z.string(), z.number().int().min(1).max(20));
 
@@ -122,7 +123,8 @@ export const foundersRepo = {
       .select({ profile: founderProfiles, membership: memberships, business: businesses, businessOrder: sql<number>`row_number() over (order by ${businesses.createdAt} desc nulls last)`.mapWith(Number) })
       .from(sql`(select ${id}::uuid as user_id) as "me"`)
       .leftJoin(founderProfiles, and(sql`${founderProfiles.userId} = "me"."user_id"`, isNull(founderProfiles.archivedAt)))
-      .leftJoin(memberships, sql`${memberships.userId} = "me"."user_id"`)
+      // A membership that has ended (0090) is not one of the person's: `memberships.listForUser` leaves it out too.
+      .leftJoin(memberships, and(sql`${memberships.userId} = "me"."user_id"`, membershipNotEnded))
       .leftJoin(businesses, and(eq(businesses.id, memberships.businessId), isNull(businesses.archivedAt)))
       .orderBy(asc(memberships.createdAt));
     const held = rows.filter((r): r is typeof r & { membership: Membership } => r.membership !== null);

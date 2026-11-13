@@ -137,6 +137,26 @@ describe("the push notifier", () => {
     expect(sent[0]).toMatchObject({ title: "New customer", body: `${entity.displayName} just became a paying customer · £96.00`, data: { kind: "journey", journeyId }, collapseKey: `journey:${journeyId}` });
   });
 
+  it("a collaborator whose access has ended (0090) gets nothing on their phone; one whose date is ahead does", async () => {
+    sent = [];
+    const [ended, current] = [await hz.h.createUser("push-ended@test.local"), await hz.h.createUser("push-current@test.local")];
+    await hz.db.insert(memberships).values([
+      { businessId: hz.A.businessId, userId: ended, role: "collaborator", expiresAt: new Date(Date.now() - 60_000) },
+      { businessId: hz.A.businessId, userId: current, role: "collaborator", expiresAt: new Date(Date.now() + 7 * 86_400_000) },
+    ]);
+    await repos.devices.register(hz.db, ended, { platform: "ios", token: token("ended") });
+    await repos.devices.register(hz.db, current, { platform: "ios", token: token("current") });
+    try {
+      expect((await notifier.handle(decision("Who hears this?"))).status).toBe("sent");
+      const tokens = sent.flatMap((x) => x.subscriptionIds);
+      expect(tokens).toContain(token("current"));
+      expect(tokens).not.toContain(token("ended"));
+    } finally {
+      await hz.db.delete(memberships).where(eq(memberships.userId, ended));
+      await hz.db.delete(memberships).where(eq(memberships.userId, current));
+    }
+  });
+
   it("a gateway failure is dropped: no record, the next event still goes", async () => {
     sent = [];
     failNext = new Error("The gateway did not answer");

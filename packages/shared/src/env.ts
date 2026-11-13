@@ -192,6 +192,12 @@ const Env = z.object({
   /** apps/api: with SIGNUP_OPEN, how many new accounts are admitted per UTC day before the rest are refused with `on_waitlist`. */
   SIGNUP_DAILY_CEILING: z.coerce.number().int().min(0).max(1_000_000).default(200),
   /**
+   * apps/api: with SIGNUP_OPEN, the cutover for "a person from before open sign-up" (an ISO timestamp): only an account
+   * whose founder profile was created before it is admitted without counting toward SIGNUP_DAILY_CEILING. Unset: the
+   * moment migration 0091 ran, which the database stores (`admission_existing_before()`).
+   */
+  SIGNUP_EXISTING_BEFORE: z.iso.datetime({ offset: true }).optional(),
+  /**
    * apps/api: whether a credit top-up may be paid by simulation (the Billing tab's mock checkout, no money moves) when
    * Stripe is not live. "1"/"true" or "0"/"false"; unset allows it only when APP_ENV is development or test
    * (`allowMockPayments`). Simulated credits never pay for live model calls whatever this says (docs/DEPLOY.md §4).

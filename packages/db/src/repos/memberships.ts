@@ -33,8 +33,12 @@ export const ALREADY_A_MEMBER_OF_EXAMPLE = "You are already a member of this bus
 
 /** An example membership (0065): a read-only walk around a seeded demo business, never staff and never a seat. */
 const notExample = ne(memberships.source, "example");
-/** A membership that has not ended (0090: a collaborator's `expires_at`, if any, is still ahead). */
-const notEnded = or(isNull(memberships.expiresAt), gt(memberships.expiresAt, sql`now()`));
+/**
+ * A membership that has not ended (0090: a collaborator's `expires_at`, if any, is still ahead). Every read that hands
+ * a person something of a business (its email, its push, the switcher, an approval to decide) uses it, as `is_member` does.
+ */
+export const membershipNotEnded = or(isNull(memberships.expiresAt), gt(memberships.expiresAt, sql`now()`));
+const notEnded = membershipNotEnded;
 
 /** Whether a membership row has ended (a collaborator's `expires_at` has passed). */
 export const membershipEnded = (m: Pick<Membership, "expiresAt">, now = new Date()): boolean => m.expiresAt !== null && m.expiresAt !== undefined && m.expiresAt.getTime() <= now.getTime();
@@ -44,11 +48,11 @@ export const membershipsRepo = {
    * The business's staff: every membership but the example viewers (0065), who are not staff, hold no seat and are
    * never listed to the owner. `includeExample` lists them too (counts, the cross-tenant suite).
    */
-  async list(db: Executor, businessId: string, filter: { role?: MembershipRole; roles?: readonly MembershipRole[]; includeExample?: boolean } = {}): Promise<Membership[]> {
+  async list(db: Executor, businessId: string, filter: { role?: MembershipRole; roles?: readonly MembershipRole[]; includeExample?: boolean; activeOnly?: boolean } = {}): Promise<Membership[]> {
     return db
       .select()
       .from(memberships)
-      .where(and(eq(memberships.businessId, businessId), filter.role ? eq(memberships.role, filter.role) : undefined, filter.roles ? inArray(memberships.role, [...filter.roles]) : undefined, filter.includeExample ? undefined : notExample))
+      .where(and(eq(memberships.businessId, businessId), filter.role ? eq(memberships.role, filter.role) : undefined, filter.roles ? inArray(memberships.role, [...filter.roles]) : undefined, filter.includeExample ? undefined : notExample, filter.activeOnly ? notEnded : undefined))
       .orderBy(asc(memberships.createdAt));
   },
 
@@ -93,6 +97,11 @@ export const membershipsRepo = {
 
   async get(db: Executor, businessId: string, userId: string): Promise<Membership | null> {
     return maybeOne(await db.select().from(memberships).where(and(eq(memberships.businessId, businessId), eq(memberships.userId, userId))).limit(1));
+  },
+
+  /** The user's membership of the business while it has not ended (an ended collaborator's row reads as none). */
+  async getActive(db: Executor, businessId: string, userId: string): Promise<Membership | null> {
+    return maybeOne(await db.select().from(memberships).where(and(eq(memberships.businessId, businessId), eq(memberships.userId, userId), notEnded)).limit(1));
   },
 
   /**
@@ -147,6 +156,22 @@ export const membershipsRepo = {
       .returning();
     if (rows.length === 0) throw new ConflictError("That person is already a member of this business; change their role instead", { userId: v.userId });
     return one(rows, "membership");
+  },
+
+  /**
+   * Gives an ended membership (a collaborator whose access date passed) a new start: the role and section rules of the
+   * invitation the person accepted, no end date, `source: "invite"`. Only a row that has ended changes: the row, or null
+   * when there was none to renew (the person still belongs, or never did). Service connection (an invitation's accept).
+   */
+  async renewEnded(db: Executor, businessId: string, userId: string, input: { role: MembershipRole; sectionPermissions: SectionPermissions }): Promise<Membership | null> {
+    const role = parseInput(z.enum(MEMBERSHIP_ROLES), input.role, "role");
+    const sectionPermissions = parseInput(SectionPermissions, input.sectionPermissions, "section permissions");
+    const rows = await db
+      .update(memberships)
+      .set({ role, sectionPermissions, expiresAt: null, source: "invite" })
+      .where(and(eq(memberships.businessId, parseInput(Id, businessId, "business id")), eq(memberships.userId, parseInput(Id, userId, "user id")), sql`${memberships.expiresAt} is not null and ${memberships.expiresAt} <= now()`))
+      .returning();
+    return rows[0] ?? null;
   },
 
   /**

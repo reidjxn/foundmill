@@ -4,6 +4,7 @@ import { and, asc, desc, eq, inArray, isNotNull, isNull, sql } from "drizzle-orm
 import { z } from "zod";
 import { auditLog, businessLogos, businesses, memberships, type Business } from "../schema";
 import { Currency, changes, Id, IsoDateInput, maybeOne, MinorAmount, one, parseInput, rowsOf, uniqueViolation, type Executor } from "./_shared";
+import { membershipNotEnded } from "./memberships";
 
 const HexColour = z.string().regex(/^#[0-9a-fA-F]{6}$/, "brand colors are #RRGGBB");
 /** ISO 4217: three letters (0025 holds the column to the same shape). */
@@ -105,14 +106,15 @@ export const businessesRepo = {
 
   /**
    * Account-scoped: every business the user is a member of, newest first. `isExample` marks an example membership
-   * (0065): a demo the person is walking around, never "their" business (pickers prefer a real one).
+   * (0065): a demo the person is walking around, never "their" business (pickers prefer a real one). A membership that
+   * has ended (0090: a collaborator's date passed) offers nothing, so its business is not listed.
    */
   async listForUser(db: Executor, userId: string): Promise<(Business & { role: string; isExample: boolean })[]> {
     const rows = await db
       .select({ business: businesses, role: memberships.role, source: memberships.source })
       .from(memberships)
       .innerJoin(businesses, eq(businesses.id, memberships.businessId))
-      .where(and(eq(memberships.userId, userId), notArchived))
+      .where(and(eq(memberships.userId, userId), notArchived, membershipNotEnded))
       .orderBy(desc(businesses.createdAt));
     return rows.map((r) => ({ ...r.business, role: r.role, isExample: r.source === "example" }));
   },

@@ -13,7 +13,7 @@
  *      and test: the signing secret, an https INGEST_PUBLIC_URL and an https APP_URL); a mock send only where simulated
  *      results are allowed (`mockResultsAllowed`), never for a person's project on staging or production;
  *   2. the business: live and not a sample (`is_demo`): nobody is emailed about a sample;
- *   3. the person: a member of it, not through an example membership, who can read the Inbox;
+ *   3. the person: a member of it now (not through an example membership, not one that has ended), who can read the Inbox;
  *   4. their own switch for this kind (`account_preferences.notifications.email`, the one preference), on, and their
  *      emails not paused (`emails_paused_at`, the pause link);
  *   5. what it is about, by kind. A waiting decision: this business's, still needing an answer, unopened by the person
@@ -188,8 +188,8 @@ export async function sendNotifyEmail(deps: GatewayDeps, input: NotifyEmailReque
   if (business.isDemo) return notSent("sample");
   if (mode === "mock" && deps.appEnv !== undefined && !mockResultsAllowed(deps.appEnv, business.isDemo)) return notSent("simulated");
 
-  // 3. A member (not an example visitor) who can read the Inbox.
-  const membership = await repos.memberships.get(deps.db, businessId, userId).catch(() => null);
+  // 3. A member (not an example visitor, not a collaborator whose access ended) who can read the Inbox.
+  const membership = await repos.memberships.getActive(deps.db, businessId, userId).catch(() => null);
   if (!membership || membership.source === "example" || !hasSectionAccess(membership, "inbox", "read")) return notSent("not_member");
 
   // 4. Their own switch for this kind, and every email not paused (one preference: `notifications.email`).

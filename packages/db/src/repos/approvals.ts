@@ -14,6 +14,7 @@ import { and, asc, desc, eq, inArray, isNull, isNotNull, max, or, sql } from "dr
 import { z } from "zod";
 import { agentSessions, agents, APPROVAL_BY_KINDS, APPROVAL_OUTCOMES, approvals, departments, memberships, tasks, type Approval, type APPROVAL_HANDLER_KINDS } from "../schema";
 import { Currency, DateRange, Id, JsonObject, MinorAmount, one, PageInput, parseInput, timeKeyset, timeRange, toPage, type Executor, type Page } from "./_shared";
+import { membershipNotEnded } from "./memberships";
 
 export const CreateApprovalInput = z.object({
   planActionId: Id.nullable().optional(),
@@ -160,7 +161,8 @@ export async function routeApproval(db: Executor, businessId: string, input: { a
   }
   if (handler.kind === "founder" || !handler.id) return none;
   if (handler.kind === "user") {
-    const member = await db.select({ id: memberships.id }).from(memberships).where(and(eq(memberships.businessId, businessId), eq(memberships.userId, handler.id))).limit(1);
+    // A person whose membership has ended (0090) is no longer one of the project's people: the founder answers it.
+    const member = await db.select({ id: memberships.id }).from(memberships).where(and(eq(memberships.businessId, businessId), eq(memberships.userId, handler.id), membershipNotEnded)).limit(1);
     return member.length ? { ...none, handlerKind: "user", handlerId: handler.id } : none;
   }
   const agent = (await db.select({ id: agents.id, status: agents.status, archivedAt: agents.archivedAt }).from(agents).where(and(eq(agents.businessId, businessId), eq(agents.id, handler.id))).limit(1))[0];

@@ -4,26 +4,33 @@
  * "invite" control makes this object, and it lives in Settings › People only (the solo guard: nothing prompts a
  * founder to invite anyone).
  *
- *   - `createInvitation` (Settings › People; an owner, a cofounder or an admin with Team write; a cofounder invitation
- *     only by an owner or a cofounder): a
- *     pending invitation for 14 days, its token returned once in the link and stored as SHA-256 only; when the founder
- *     typed an address, the gateway emails the link there (`invitation`, three a day per address). `invitation.sent`.
+ *   - `createInvitation` (Settings › People; an owner, a cofounder or an admin with Team write, `mayMakeInvitation`; a
+ *     cofounder invitation only by an owner or a cofounder, and always to an address): a pending invitation for 14
+ *     days, its token returned once in the link and stored as SHA-256 only; when the founder typed an address, the
+ *     gateway emails the link there (`invitation`, within its own limits, apps/gateway notify-address-email.ts).
+ *     `invitation.sent`.
  *   - `listInvitations` / `revokeInvitation` (the same people): the project's invitations (addresses masked) and
  *     revoking a pending one.
- *   - `invitationByToken` (public, `/i/<token>`): what it is (the project's name, the inviter's display name, the role in
- *     plain words) and nothing else. An unknown, expired, revoked, used or declined token reads the same, and so does an
- *     invitation whose inviter no longer holds the right to make it.
- *   - `acceptInvitation` (signed in with a confirmed address, admitted or not: a valid invitation is an admission): the
- *     membership in the role of the same name (`invitationMembership`: a cofounder or a collaborator, THESIS_REVIEW
- *     3.3), once; the admission; an audit row; `invitation.accepted` and
- *     `membership.changed`; then the inviter is emailed (`invitation_accepted`, within their limits).
+ *   - `invitationByToken` (public, `/i/<token>`; the browser asks, so the per-caller limit is the visitor's own): what
+ *     it is (the project's name, the inviter's display name, the role in plain words) and nothing else. An unknown,
+ *     expired, revoked, used or declined token reads the same, and so does an invitation whose inviter no longer holds
+ *     the right to make it.
+ *   - `acceptInvitation` (signed in with a confirmed address, admitted or not): an invitation that names an address is
+ *     accepted only by the account signed in with that confirmed address (else the same `invitation_unavailable` as a
+ *     dead link: the link is not a bearer credential); the membership in the role of the same name
+ *     (`invitationMembership`: a cofounder or a collaborator, THESIS_REVIEW 3.3), once, or a new start for a
+ *     collaborator whose access had ended; the admission when the person was not in yet (services/access.ts
+ *     `admitThroughInvitation`: only an inviter the list, open sign-up or the time before let in, a few a day); an
+ *     audit row; `invitation.accepted` and `membership.changed`; then the inviter is emailed (`invitation_accepted`).
+ *     Two accepts of one token, or an accept and a revoke, are decided by the conditional UPDATE in
+ *     `repos.invitations.accept` (only a pending row changes): one wins, the other reads as unavailable.
  *   - `declineInvitation` (public, the token is the credential): the link stops working; `invitation.declined`.
  *
  * Who brought a new person: an accepted invitation is the strongest reference there is, so the step that records
  * attribution for a new person looks for it first (./person-created `invitation_attribution`).
  */
 import { createHash, randomBytes } from "node:crypto";
-import { repos, assertSeatAvailable, type InvitationRow } from "@foundmill/db";
+import { repos, assertSeatAvailable, membershipEnded, type InvitationRow } from "@foundmill/db";
 import {
   AppError,
   ConflictError,
@@ -35,15 +42,18 @@ import {
   invitationPath,
   isPeopleTokenShape,
   maskedAddress,
+  invitationNeedsEmail,
+  mayMakeInvitation,
   NotFoundError,
-  rolesThatMayInvite,
+  ValidationError,
   type InvitationRole,
   type InvitationState,
 } from "@foundmill/shared";
 import { z } from "zod";
+import type { Executor } from "@foundmill/db";
 import type { Context } from "../context";
 import { audit, emit, type BusinessContext } from "../trpc";
-import { rememberAdmitted } from "./access";
+import { admitThroughInvitation, rememberAdmitted } from "./access";
 import { callerLimitKey } from "./pages";
 import { takeOrThrow, type RateLimitStore } from "./rate-limit";
 
@@ -130,7 +140,8 @@ export interface CreatedInvitation {
 export async function createInvitation(ctx: BusinessContext, raw: z.input<typeof CreateInvitationInput>): Promise<CreatedInvitation> {
   const input = CreateInvitationInput.parse(raw);
   const role = input.role as InvitationRole;
-  if (!rolesThatMayInvite(role).includes(ctx.role)) throw new ForbiddenError(role === "cofounder" ? "Only an owner or a cofounder can invite a cofounder, because a cofounder has the same standing." : "Only an owner, a cofounder or an admin can invite someone.");
+  if (!mayMakeInvitation(ctx.membership, role)) throw new ForbiddenError(role === "cofounder" ? "Only an owner or a cofounder can invite a cofounder, because a cofounder has the same standing." : "Only an owner, a cofounder or an admin with Team access can invite someone.");
+  if (invitationNeedsEmail(role) && !input.email) throw new ValidationError("A cofounder invitation is for one person: type their email address. Only the account signed in with it can accept.");
   if (ctx.business.isDemo) throw new ConflictError("This is a sample business, so nobody can be invited to it. Start your own project to invite people.");
   const now = new Date();
   await takeOrThrow(ctx.limits, "Invitations", [
@@ -188,17 +199,28 @@ export const INVITATION_UNAVAILABLE_MESSAGE = "This invitation no longer works. 
 
 type InviteeContext = Pick<Context, "db" | "env" | "limits" | "log"> & { clientAddress?: string | null };
 
+/** Whether `inviterUserId` still holds the right to the invitation (`mayMakeInvitation`), on a membership that has not ended. */
+async function inviterStillMay(db: Executor, businessId: string, inviterUserId: string, role: InvitationRole): Promise<boolean> {
+  const membership = await repos.memberships.getActive(db, businessId, inviterUserId);
+  return membership !== null && mayMakeInvitation(membership, role);
+}
+
 /**
- * The invitation a token names while it can be accepted: pending, in date, its project open and real, and its inviter
- * still one of the project's people with the right to make it (`rolesThatMayInvite`). Else null.
+ * The invitation a token names while it can be accepted: pending, in date, its project open and real, a cofounder's
+ * naming an address (0091), and its inviter still one of the project's people with the right to make it
+ * (`mayMakeInvitation`: the role and Team write). Else null.
  */
 async function workingInvitation(db: Context["db"], token: string) {
   if (!isPeopleTokenShape(token)) return null;
   const row = await repos.invitations.byTokenHash(db, invitationTokenHash(token));
   if (!row || row.state !== "pending" || row.expiresAt.getTime() <= Date.now() || row.businessArchived || row.businessIsDemo || !row.invitedByUserId) return null;
-  if (!(await repos.memberships.hasRole(db, row.businessId, row.invitedByUserId, rolesThatMayInvite(row.role)))) return null;
+  if (invitationNeedsEmail(row.role) && !row.email) return null;
+  if (!(await inviterStillMay(db, row.businessId, row.invitedByUserId, row.role))) return null;
   return row;
 }
+
+/** The address an invitation names and the one the account signed in with, compared as the gateway stores them. */
+const sameAddress = (named: string, signedIn: string | null): boolean => signedIn !== null && named.trim().toLowerCase() === signedIn.trim().toLowerCase();
 
 /** `invitation.byToken` (public). */
 export async function invitationByToken(ctx: InviteeContext, token: string): Promise<InvitationPreview> {
@@ -219,28 +241,44 @@ export interface AcceptedInvitation {
   already: boolean;
 }
 
+/** Who accepts: the signed-in account, and the address it signed in with (the token's, confirmed: `signedInProcedure`). */
+export interface Accepter {
+  userId: string;
+  email: string | null;
+  emailConfirmed: boolean;
+}
+
 /** `invitation.accept` (see the file comment). */
-export async function acceptInvitation(ctx: Pick<Context, "db" | "env" | "limits" | "log" | "gateway">, userId: string, token: string): Promise<AcceptedInvitation> {
+export async function acceptInvitation(ctx: Pick<Context, "db" | "env" | "limits" | "log" | "gateway">, accepter: Accepter, token: string): Promise<AcceptedInvitation> {
+  const userId = accepter.userId;
   await takeOrThrow(ctx.limits, "Accepting invitations", [{ key: invitationLimitKeys.accept(userId), rule: INVITATION_LIMITS.acceptPerAccount }]);
   const unavailable = () => new AppError("invitation_unavailable", INVITATION_UNAVAILABLE_MESSAGE, 404);
+  if (accepter.emailConfirmed !== true) throw unavailable();
   const working = await workingInvitation(ctx.db, token);
   if (!working) throw unavailable();
+  // An invitation to an address is that address's: any other account reads it as a dead link, and learns nothing more.
+  if (working.email !== null && !sameAddress(working.email, accepter.email)) throw unavailable();
   const businessId = working.businessId;
   const result = await ctx.db.transaction(async (tx) => {
-    if (await repos.memberships.get(tx, businessId, userId)) return { already: true as const, row: null };
+    const existing = await repos.memberships.get(tx, businessId, userId);
+    if (existing && !membershipEnded(existing)) return { already: true as const, row: null };
+    // The conditional UPDATE decides: only a row still pending (not used, declined, revoked or expired) changes.
     const accepted = await repos.invitations.accept(tx, working.id, userId);
     if (!accepted) throw unavailable();
     // The inviter's right, again inside the transaction that uses the invitation (a demotion in between wins).
-    if (!accepted.invitedByUserId || !(await repos.memberships.hasRole(tx, businessId, accepted.invitedByUserId, rolesThatMayInvite(accepted.role)))) throw unavailable();
+    if (!accepted.invitedByUserId || !(await inviterStillMay(tx, businessId, accepted.invitedByUserId, accepted.role))) throw unavailable();
     const business = await repos.businesses.get(tx, businessId);
     if (!business) throw unavailable();
+    // The person is let in by this invitation only on the inviter's standing (services/access.ts); a refusal undoes it all.
+    await admitThroughInvitation(ctx, tx, accepter, { id: accepted.id, invitedByUserId: accepted.invitedByUserId });
     // People are free on every plan (no limit today); the check stays for a limit that might return.
     await assertSeatAvailable(tx, business);
     const { role, sectionPermissions } = invitationMembership(accepted.role);
-    const membership = await repos.memberships.add(tx, businessId, { userId, role, sectionPermissions, source: "invite" });
-    await repos.admissions.record(tx, { userId, how: "invitation", invitationId: accepted.id });
+    // A collaborator whose access ended may be invited again: the ended row gets a new start instead of a second row.
+    const membership = existing ? await repos.memberships.renewEnded(tx, businessId, userId, { role, sectionPermissions }) : await repos.memberships.add(tx, businessId, { userId, role, sectionPermissions, source: "invite" });
+    if (!membership) throw unavailable();
     const actor = { businessId, userId };
-    await audit(tx, actor, { action: "invitation.accepted", target: { kind: "invitation", id: accepted.id }, details: { role: accepted.role, membershipId: membership.id } });
+    await audit(tx, actor, { action: "invitation.accepted", target: { kind: "invitation", id: accepted.id }, details: { role: accepted.role, membershipId: membership.id, renewed: existing !== null } });
     await emit(tx, actor, { type: "invitation.accepted", payload: { invitationId: accepted.id, role: accepted.role, userId } });
     // Open tabs refetch the People list; apps/stream re-checks this person's subscriptions.
     await emit(tx, actor, { type: "membership.changed", payload: { userId, change: "added" } });
