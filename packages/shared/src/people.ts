@@ -60,6 +60,13 @@ export function mayMakeInvitation(membership: SectionMembership, role: Invitatio
 /** Whether an invitation in `role` must name the address it is for: a cofounder's always (equal standing goes to one person). */
 export const invitationNeedsEmail = (role: InvitationRole): boolean => role === "cofounder";
 
+/**
+ * An invitation that names an address, met by an account signed in with another one (or by nobody signed in, for
+ * Decline): the api's `appCode` and the words the page shows. A dead link keeps `invitation_unavailable`.
+ */
+export const INVITATION_OTHER_ADDRESS_CODE = "invitation_other_address";
+export const INVITATION_OTHER_ADDRESS_WORDS = "Sign in with the address this invitation was sent to.";
+
 /** Invitation tokens: 32 random bytes as base64url (43 characters). Anything else is not looked up. */
 export const isPeopleTokenShape = (token: unknown): token is string => typeof token === "string" && /^[A-Za-z0-9_-]{43}$/.test(token);
 

@@ -99,9 +99,14 @@ export const membershipsRepo = {
     return maybeOne(await db.select().from(memberships).where(and(eq(memberships.businessId, businessId), eq(memberships.userId, userId))).limit(1));
   },
 
-  /** The user's membership of the business while it has not ended (an ended collaborator's row reads as none). */
-  async getActive(db: Executor, businessId: string, userId: string): Promise<Membership | null> {
-    return maybeOne(await db.select().from(memberships).where(and(eq(memberships.businessId, businessId), eq(memberships.userId, userId), notEnded)).limit(1));
+  /**
+   * The user's membership of the business while it has not ended (an ended collaborator's row reads as none). With
+   * `lock: "share"` (inside a transaction) the row is held `for share` until the transaction ends, so a role change or a
+   * removal waits for it: an invitation's accept re-checks its inviter this way.
+   */
+  async getActive(db: Executor, businessId: string, userId: string, options: { lock?: "share" } = {}): Promise<Membership | null> {
+    const q = db.select().from(memberships).where(and(eq(memberships.businessId, businessId), eq(memberships.userId, userId), notEnded)).limit(1);
+    return maybeOne(options.lock === "share" ? await q.for("share") : await q);
   },
 
   /**

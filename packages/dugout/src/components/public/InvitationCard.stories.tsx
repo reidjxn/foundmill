@@ -1,5 +1,5 @@
 import type { Decorator, Meta, StoryObj } from "@storybook/react-vite";
-import { INVITATION_ROLE_SENTENCE } from "@foundmill/shared/people";
+import { INVITATION_OTHER_ADDRESS_WORDS, INVITATION_ROLE_SENTENCE } from "@foundmill/shared/people";
 import { Button } from "../foundation/Button";
 import { InvitationCard } from "./InvitationCard";
 
@@ -12,7 +12,7 @@ const meta = {
     docs: {
       description: {
         component:
-          "Who invited you, to what, as what (one plain sentence for the role), and the way on: Accept and Not now, or Sign in to accept. Every invitation that no longer works reads the same and names nobody. While the page asks it reads Opening; when too many people opened links at once it says to try again in a minute, never that the invitation is dead. Server-safe; the caller passes the actions. Every control is at least 44 px tall.",
+          "Who invited you, to what, as what (one plain sentence for the role), and the way on: Accept and Not now, or Sign in to accept. Every invitation that no longer works reads the same and names nobody; an invitation to an address, met by another account, keeps its card and says under the actions to sign in with the address it was sent to. While the page asks it reads Opening; when too many people opened links at once it says to try again in a minute, never that the invitation is dead. Server-safe; the caller passes the actions. Every control is at least 44 px tall.",
       },
     },
   },
@@ -48,6 +48,21 @@ export const SignedOut390: Story = {
         <a href="#login">Sign in to accept</a>
       </Button>
     ),
+  },
+};
+export const OtherAddress390: Story = {
+  name: "390 px · signed in with another address",
+  decorators: [Phone],
+  args: {
+    actions: (
+      <>
+        {actions}
+        <Button variant="ghost" size="lg" className="min-h-tap text-secondary">
+          Decline
+        </Button>
+      </>
+    ),
+    note: INVITATION_OTHER_ADDRESS_WORDS,
   },
 };
 export const NoInviterName390: Story = { name: "390 px · the inviter has no name yet", decorators: [Phone], args: { inviterName: null, actions } };

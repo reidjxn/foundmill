@@ -16,15 +16,18 @@
  *     expired, revoked, used or declined token reads the same, and so does an invitation whose inviter no longer holds
  *     the right to make it.
  *   - `acceptInvitation` (signed in with a confirmed address, admitted or not): an invitation that names an address is
- *     accepted only by the account signed in with that confirmed address (else the same `invitation_unavailable` as a
- *     dead link: the link is not a bearer credential); the membership in the role of the same name
+ *     accepted only by the account signed in with that confirmed address (else `invitation_other_address`, "Sign in
+ *     with the address this invitation was sent to.", never which address: the link is not a bearer credential; a
+ *     dead link stays `invitation_unavailable`); the membership in the role of the same name
  *     (`invitationMembership`: a cofounder or a collaborator, THESIS_REVIEW 3.3), once, or a new start for a
  *     collaborator whose access had ended; the admission when the person was not in yet (services/access.ts
  *     `admitThroughInvitation`: only an inviter the list, open sign-up or the time before let in, a few a day); an
  *     audit row; `invitation.accepted` and `membership.changed`; then the inviter is emailed (`invitation_accepted`).
  *     Two accepts of one token, or an accept and a revoke, are decided by the conditional UPDATE in
  *     `repos.invitations.accept` (only a pending row changes): one wins, the other reads as unavailable.
- *   - `declineInvitation` (public, the token is the credential): the link stops working; `invitation.declined`.
+ *   - `declineInvitation` (public): the link stops working; `invitation.declined`. A link-only invitation is declined by
+ *     whoever holds the token; one that names an address only by the account signed in with that confirmed address,
+ *     as for accept (else `invitation_other_address`), so a forwarded link cannot be thrown away by someone else.
  *
  * Who brought a new person: an accepted invitation is the strongest reference there is, so the step that records
  * attribution for a new person looks for it first (./person-created `invitation_attribution`).
@@ -35,6 +38,8 @@ import {
   AppError,
   ConflictError,
   ForbiddenError,
+  INVITATION_OTHER_ADDRESS_CODE,
+  INVITATION_OTHER_ADDRESS_WORDS,
   INVITATION_ROLE_SENTENCE,
   INVITATION_ROLE_WORD,
   INVITATION_TTL_MS,
@@ -203,9 +208,16 @@ export const INVITATION_UNAVAILABLE_MESSAGE = "This invitation no longer works. 
 
 type InviteeContext = Pick<Context, "db" | "env" | "limits" | "log"> & { clientAddress?: string | null };
 
-/** Whether `inviterUserId` still holds the right to the invitation (`mayMakeInvitation`), on a membership that has not ended. */
-async function inviterStillMay(db: Executor, businessId: string, inviterUserId: string, role: InvitationRole): Promise<boolean> {
-  const membership = await repos.memberships.getActive(db, businessId, inviterUserId);
+/** The refusal of an invitation that names an address, to an account signed in with another one (or none). */
+const otherAddress = () => new AppError(INVITATION_OTHER_ADDRESS_CODE, INVITATION_OTHER_ADDRESS_WORDS, 403);
+
+/**
+ * Whether `inviterUserId` still holds the right to the invitation (`mayMakeInvitation`), on a membership that has not
+ * ended. `lock` (inside the accept's transaction): the inviter's row is held `for share`, so a demotion or a removal
+ * that commits during the accept waits for it instead of slipping between the check and the new membership.
+ */
+async function inviterStillMay(db: Executor, businessId: string, inviterUserId: string, role: InvitationRole, lock = false): Promise<boolean> {
+  const membership = await repos.memberships.getActive(db, businessId, inviterUserId, lock ? { lock: "share" } : {});
   return membership !== null && mayMakeInvitation(membership, role);
 }
 
@@ -262,8 +274,9 @@ export async function acceptInvitation(ctx: Pick<Context, "db" | "env" | "limits
   if (accepter.emailConfirmed !== true) throw unavailable();
   const working = await workingInvitation(ctx.db, token);
   if (!working) throw unavailable();
-  // An invitation to an address is that address's: any other account reads it as a dead link, and learns nothing more.
-  if (working.email !== null && !sameAddress(working.email, accepter.email)) throw unavailable();
+  // An invitation to an address is that address's: any other account is told to sign in with the address it was sent
+  // to, and learns nothing more (not the address, not the project beyond what the page already shows).
+  if (working.email !== null && !sameAddress(working.email, accepter.email)) throw otherAddress();
   const businessId = working.businessId;
   const result = await ctx.db.transaction(async (tx) => {
     const existing = await repos.memberships.get(tx, businessId, userId);
@@ -271,8 +284,9 @@ export async function acceptInvitation(ctx: Pick<Context, "db" | "env" | "limits
     // The conditional UPDATE decides: only a row still pending (not used, declined, revoked or expired) changes.
     const accepted = await repos.invitations.accept(tx, working.id, userId);
     if (!accepted) throw unavailable();
-    // The inviter's right, again inside the transaction that uses the invitation (a demotion in between wins).
-    if (!accepted.invitedByUserId || !(await inviterStillMay(tx, businessId, accepted.invitedByUserId, accepted.role))) throw unavailable();
+    // The inviter's right, again inside the transaction that uses the invitation, their row locked for share: a demotion
+    // that committed first wins, and one that comes later waits for this accept.
+    if (!accepted.invitedByUserId || !(await inviterStillMay(tx, businessId, accepted.invitedByUserId, accepted.role, true))) throw unavailable();
     const business = await repos.businesses.get(tx, businessId);
     if (!business) throw unavailable();
     // The person is let in by this invitation only on the inviter's standing (services/access.ts); a refusal undoes it all.
@@ -304,11 +318,15 @@ export async function acceptInvitation(ctx: Pick<Context, "db" | "env" | "limits
   return { businessId, already: false };
 }
 
-/** `invitation.decline` (public): `{ ok: true }` whatever the token named. */
-export async function declineInvitation(ctx: InviteeContext, token: string): Promise<{ ok: true }> {
+/**
+ * `invitation.decline` (public): `{ ok: true }` whatever a dead token named. An invitation that names an address needs
+ * `decliner`, signed in with that confirmed address (the router passes the signed-in account, or null).
+ */
+export async function declineInvitation(ctx: InviteeContext, token: string, decliner: Accepter | null = null): Promise<{ ok: true }> {
   if (ctx.clientAddress) await takeOrThrow(ctx.limits, "Invitations", [{ key: invitationLimitKeys.declineCaller(ctx.env, ctx.clientAddress), rule: INVITATION_LIMITS.declinePerCaller }]);
   const working = await workingInvitation(ctx.db, token);
   if (!working) return { ok: true };
+  if (working.email !== null && (decliner?.emailConfirmed !== true || !sameAddress(working.email, decliner.email))) throw otherAddress();
   await ctx.db.transaction(async (tx) => {
     const declined = await repos.invitations.decline(tx, working.id);
     if (!declined) return;

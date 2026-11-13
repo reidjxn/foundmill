@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { render, screen } from "@testing-library/react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { ON_WAITLIST_EMAIL_PROMISE, ON_WAITLIST_WORDS } from "@foundmill/shared/allowlist";
-import { INVITATION_ROLE_SENTENCE } from "@foundmill/shared/people";
+import { INVITATION_OTHER_ADDRESS_WORDS, INVITATION_ROLE_SENTENCE } from "@foundmill/shared/people";
 import { InvitationCard, invitationCardWords } from "./InvitationCard";
 import { OnWaitlistCard } from "./OnWaitlistCard";
 
@@ -33,6 +33,13 @@ describe("InvitationCard", () => {
     const checking = renderToStaticMarkup(<InvitationCard state="checking" />);
     expect(checking).toContain("Opening the invitation…");
     expect(checking).toContain('aria-busy="true"');
+  });
+
+  it("an invitation to an address, met by another account, keeps its card and says which address to sign in with, never the dead-link words", () => {
+    render(<InvitationCard state="pending" projectName="Bread by Bike" inviterName="Maya Lee" roleWord="Cofounder" actions={<button type="button">Accept</button>} note={INVITATION_OTHER_ADDRESS_WORDS} />);
+    expect(screen.getByRole("status").textContent).toBe("Sign in with the address this invitation was sent to.");
+    expect(screen.getByRole("heading", { level: 1, name: "Maya Lee invited you to Bread by Bike" })).toBeTruthy();
+    expect(screen.queryByText(/no longer works/)).toBeNull();
   });
 
   it("prints every string as text", () => {

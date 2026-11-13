@@ -20,6 +20,7 @@ import { createHash, randomBytes } from "node:crypto";
 import { and, eq, sql } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { repos } from "../../repos";
+import { assertOwnerRef } from "../../repos/_refs";
 import * as s from "../../schema";
 import { createTestDb, type TestHarness } from "../../testing/pglite";
 import { createBusinessFixture, RLS_DENIED, type BusinessFixture } from "./fixtures";
@@ -150,6 +151,16 @@ describe("memberships 0090: the roles and the end date", () => {
     expect((await repos.memberships.list(h.db, A.businessId)).find((m) => m.userId === ended)?.expiresAt).toBeInstanceOf(Date);
     // A date still ahead opens the business.
     expect((await repos.memberships.access(h.db, A.businessId, collaborator)).membership?.role).toBe("collaborator");
+  });
+
+  it("an ended collaborator gets no project card and cannot be made a record's owner; a running one can", async () => {
+    // The card of a business the viewer belongs to (A is not listed, so only a membership shows it).
+    const cards = async (viewer: string) => (await repos.social.lookupPeople(h.db, viewer, { businessIds: [A.businessId] })).businesses.map((b) => b.businessId);
+    expect(await cards(collaborator)).toEqual([A.businessId]);
+    expect(await cards(ended)).toEqual([]);
+    await expect(assertOwnerRef(h.db, A.businessId, { kind: "user", id: collaborator })).resolves.toBeUndefined();
+    await expect(assertOwnerRef(h.db, A.businessId, { kind: "user", id: ended })).rejects.toThrow(/ownerRef/);
+    await expect(assertOwnerRef(h.db, A.businessId, { kind: "user", id: B.ownerId })).rejects.toThrow(/ownerRef/);
   });
 
   it("the founders' names on a public page are the owners' and the cofounders'", async () => {

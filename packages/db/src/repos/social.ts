@@ -19,6 +19,7 @@ import {
   type POST_REPORT_RESOLUTIONS, type PostReport, type PostScreening, type PublicProfile,
 } from "../schema";
 import { Id, JsonObject, one, PageInput, parseInput, rowsOf, sqlState, timeKeyset, toPage, type Executor, type Page } from "./_shared";
+import { membershipNotEnded } from "./memberships";
 
 export const CreateCommunityInput = z.object({
   name: z.string().trim().min(1).max(120),
@@ -713,8 +714,8 @@ export const socialRepo = {
         .select({ businessId: businesses.id, name: businesses.name, slug: businesses.slug, kitPrimary: businesses.kitPrimary, kitSecondary: businesses.kitSecondary, archetype: businesses.archetype, gameMode: businesses.gameMode })
         .from(businesses)
         .innerJoin(memberships, eq(memberships.businessId, businesses.id))
-        // An example membership is a walk-through, not the viewer's business (0065).
-        .where(and(eq(memberships.userId, viewerId), ne(memberships.source, "example"), inArray(businesses.id, businessIds), isNull(businesses.archivedAt)));
+        // An example membership is a walk-through, not the viewer's business (0065); an ended one is not theirs any more.
+        .where(and(eq(memberships.userId, viewerId), ne(memberships.source, "example"), membershipNotEnded, inArray(businesses.id, businessIds), isNull(businesses.archivedAt)));
       for (const b of own) cards.set(b.businessId, { businessId: b.businessId, name: b.name, slug: b.slug, kitPrimary: b.kitPrimary, kitSecondary: b.kitSecondary, archetype: b.archetype, live: b.gameMode === "live" });
     }
     return { users, businesses: [...cards.values()] };

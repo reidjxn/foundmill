@@ -9,7 +9,7 @@
  */
 import { createHash, randomBytes } from "node:crypto";
 import { repos, routeApproval } from "@foundmill/db";
-import { ON_WAITLIST_WORDS, type ProjectPageContent } from "@foundmill/shared";
+import { INVITATION_OTHER_ADDRESS_WORDS, ON_WAITLIST_WORDS, type ProjectPageContent } from "@foundmill/shared";
 import { TRPCError } from "@trpc/server";
 import { and, eq, sql } from "drizzle-orm";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
@@ -492,26 +492,72 @@ describe("invitations", () => {
     expect((await owner.invitation.list({ businessId })).find((i) => i.id === invitation.id)).toMatchObject({ state: "accepted", acceptedByUserId: p.userId });
   });
 
-  it("an invitation to an address is accepted only by the account signed in with it; anyone else meets a dead link, and a link-only collaborator invitation works for anyone", async () => {
+  it("an invitation to an address is accepted only by the account signed in with it; anyone else is told which address to sign in with, never what it is, and a link-only collaborator invitation works for anyone", async () => {
     const { businessId } = hz.A;
     const owner = hz.caller({ userId: hz.A.ownerId });
     const [alice, bob, carol, dave, erin] = [await person("alice"), await person("bob"), await person("carol"), await person("dave"), await person("erin")];
     const forAlice = await owner.invitation.create({ businessId, role: "cofounder", email: alice.email });
-    // Bob holds the link (a forwarded email): refused like any dead link, and nothing changes.
-    expect(await refusal(hz.caller(bob).invitation.accept({ token: tokenOf(forAlice.link) }))).toMatchObject({ code: "NOT_FOUND", appCode: "invitation_unavailable", message: INVITATION_UNAVAILABLE_MESSAGE });
-    expect(await refusal(hz.caller({ userId: bob.userId, email: null }).invitation.accept({ token: tokenOf(forAlice.link) }))).toMatchObject({ appCode: "invitation_unavailable" });
+    // Bob holds the link (a forwarded email): told to sign in with the address it was sent to, and nothing changes.
+    const other = await refusal(hz.caller(bob).invitation.accept({ token: tokenOf(forAlice.link) }));
+    expect(other).toMatchObject({ code: "FORBIDDEN", appCode: "invitation_other_address", message: INVITATION_OTHER_ADDRESS_WORDS });
+    expect(INVITATION_OTHER_ADDRESS_WORDS).toBe("Sign in with the address this invitation was sent to.");
+    expect(JSON.stringify(other)).not.toContain(alice.email);
+    expect(await refusal(hz.caller({ userId: bob.userId, email: null }).invitation.accept({ token: tokenOf(forAlice.link) }))).toMatchObject({ appCode: "invitation_other_address" });
     expect(await membershipOf(businessId, bob.userId)).toBeNull();
+    // A dead link still reads as one, whoever opens it.
+    expect(await refusal(hz.caller(bob).invitation.accept({ token: "D".repeat(43) }))).toMatchObject({ code: "NOT_FOUND", appCode: "invitation_unavailable", message: INVITATION_UNAVAILABLE_MESSAGE });
     expect(await hz.caller(null).invitation.byToken({ token: tokenOf(forAlice.link) })).toMatchObject({ state: "pending" });
     expect(await hz.caller(alice).invitation.accept({ token: tokenOf(forAlice.link) })).toEqual({ businessId, already: false });
     expect(await membershipOf(businessId, alice.userId)).toMatchObject({ role: "cofounder" });
     // A collaborator invitation that names an address is that address's too.
     const forCarol = await owner.invitation.create({ businessId, role: "collaborator", email: carol.email });
-    expect((await refusal(hz.caller(dave).invitation.accept({ token: tokenOf(forCarol.link) })))?.code).toBe("NOT_FOUND");
+    expect(await refusal(hz.caller(dave).invitation.accept({ token: tokenOf(forCarol.link) }))).toMatchObject({ code: "FORBIDDEN", appCode: "invitation_other_address" });
     expect(await hz.caller(carol).invitation.accept({ token: tokenOf(forCarol.link) })).toMatchObject({ already: false });
     // Link-only: whoever opens it.
     const linkOnly = await owner.invitation.create({ businessId, role: "collaborator" });
     expect(await hz.caller(erin).invitation.accept({ token: tokenOf(linkOnly.link) })).toMatchObject({ already: false });
     expect(await membershipOf(businessId, erin.userId)).toMatchObject({ role: "collaborator" });
+  });
+
+  it("declining an invitation to an address needs the account signed in with it; a link-only one is declined with the token alone", async () => {
+    const { businessId } = hz.A;
+    const owner = hz.caller({ userId: hz.A.ownerId });
+    const [frank, gina] = [await person("frank"), await person("gina")];
+    const forFrank = await owner.invitation.create({ businessId, role: "collaborator", email: frank.email });
+    for (const caller of [hz.caller(null), hz.caller(gina), hz.caller({ ...frank, emailConfirmed: false }), hz.caller({ userId: frank.userId, email: null })]) {
+      expect(await refusal(caller.invitation.decline({ token: tokenOf(forFrank.link) }))).toMatchObject({ code: "FORBIDDEN", appCode: "invitation_other_address", message: INVITATION_OTHER_ADDRESS_WORDS });
+    }
+    expect(await hz.caller(null).invitation.byToken({ token: tokenOf(forFrank.link) })).toMatchObject({ state: "pending" });
+    expect(await hz.caller({ ...frank, email: frank.email.toUpperCase() }).invitation.decline({ token: tokenOf(forFrank.link) })).toEqual({ ok: true });
+    expect(await hz.caller(null).invitation.byToken({ token: tokenOf(forFrank.link) })).toEqual({ state: "unavailable" });
+    const [row] = await hz.db.select({ state: invitationsTable.state }).from(invitationsTable).where(eq(invitationsTable.id, forFrank.invitation.id));
+    expect(row!.state).toBe("declined");
+    // A dead link answers ok to anyone, as before; a link-only invitation is the token holder's to decline.
+    expect(await hz.caller(null).invitation.decline({ token: tokenOf(forFrank.link) })).toEqual({ ok: true });
+    const linkOnly = await owner.invitation.create({ businessId, role: "collaborator" });
+    expect(await hz.caller(null).invitation.decline({ token: tokenOf(linkOnly.link) })).toEqual({ ok: true });
+    expect(await hz.caller(null).invitation.byToken({ token: tokenOf(linkOnly.link) })).toEqual({ state: "unavailable" });
+  });
+
+  it("accept re-checks the inviter's membership locked for share (the mechanism; a demotion racing it needs a real-Postgres run)", async () => {
+    const { businessId } = hz.A;
+    const { link } = await hz.caller({ userId: hz.A.adminId }).invitation.create({ businessId, role: "collaborator" });
+    const getActive = repos.memberships.getActive.bind(repos.memberships);
+    const calls: { userId: string; lock: string | undefined }[] = [];
+    vi.spyOn(repos.memberships, "getActive").mockImplementation(async (db, bid, userId, options = {}) => (calls.push({ userId, lock: options.lock }), getActive(db, bid, userId, options)));
+    const p = await person("share-lock");
+    await hz.caller(p).invitation.accept({ token: tokenOf(link) });
+    const inviterChecks = calls.filter((c) => c.userId === hz.A.adminId);
+    // Once before the transaction (no lock), once inside it, for share.
+    expect(inviterChecks.map((c) => c.lock ?? null)).toEqual([null, "share"]);
+    // The query itself takes the lock: SELECT … FOR SHARE holds a RowShareLock on memberships until the transaction ends.
+    const rowShare = (tx: Parameters<Parameters<typeof hz.db.transaction>[0]>[0]) =>
+      tx.execute(sql`select count(*)::int as n from pg_locks where locktype = 'relation' and relation = 'memberships'::regclass and mode = 'RowShareLock' and pid = pg_backend_pid()`).then((r) => ((r as unknown as { rows: { n: number }[] }).rows[0]?.n ?? 0));
+    const [plain, locked] = [
+      await hz.db.transaction(async (tx) => (await repos.memberships.getActive(tx, businessId, hz.A.adminId), rowShare(tx))),
+      await hz.db.transaction(async (tx) => (await repos.memberships.getActive(tx, businessId, hz.A.adminId, { lock: "share" }), rowShare(tx))),
+    ];
+    expect([plain, locked]).toEqual([0, 1]);
   });
 
   it("two accepts of one token: one wins, the other meets a dead link (the conditional UPDATE decides; true concurrency needs a real-Postgres run)", async () => {

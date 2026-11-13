@@ -12,7 +12,8 @@ import { commitThrowaway, LONG, openSettings, signIn, signInAs } from "./helpers
  *     horizontal scroll, every control at least 44 px tall, never indexed; the browser reads it from the api itself (not
  *     the web's server, nor its same-origin path), and when the api's limit refuses the read the page says "Too many
  *     people opened links just now. Try again in a minute.", never that the invitation no longer works;
- *   - the cofounder invitation names the second account's address: another account that opens it meets a dead link;
+ *   - the cofounder invitation names the second account's address: another account that presses Accept or Decline
+ *     reads "Sign in with the address this invitation was sent to." (never "no longer works") and nothing changes;
  *     the second account (the dev sign-in's `as`, whose stub address is `dev-<id>@foundmill.local`) signs in, accepts
  *     and is taken into the project as a cofounder, and the owner's People list shows them as one;
  *   - with open sign-up at a ceiling of 0 (`E2E_SIGNUP_CEILING=0`, the api started with `SIGNUP_OPEN=1
@@ -125,15 +126,24 @@ test.describe("invitations", () => {
     await context.close();
   });
 
-  test("another account that holds the cofounder link meets a dead link; it works for nobody but the address it names", async ({ browser }) => {
+  test("another account that holds the cofounder link is told to sign in with the address it was sent to; it works for nobody else", async ({ browser }) => {
     test.skip(!path, "needs the invitation made above");
-    const context = await browser.newContext();
+    const context = await browser.newContext({ viewport: PHONE });
     const page = await context.newPage();
     await signInAs(page, randomUUID(), path);
     await expect(page.getByTestId("invitation")).toHaveAttribute("data-state", "pending", { timeout: LONG });
+    const note = page.locator("[data-invitation-note]");
     await page.getByTestId("invitation-accept").click();
-    await expect(page.locator("[data-invitation-note]")).toHaveText(/This invitation no longer works/, { timeout: LONG });
+    await expect(note).toHaveText("Sign in with the address this invitation was sent to.", { timeout: LONG });
+    await expect(page.getByText(/no longer works/)).toHaveCount(0);
     await expect(page).toHaveURL(new RegExp(`${path}$`));
+    // Decline is refused the same way, and the invitation still waits for its address.
+    await page.reload();
+    await expect(page.getByTestId("invitation")).toHaveAttribute("data-state", "pending", { timeout: LONG });
+    await page.getByTestId("invitation-decline").click();
+    await expect(note).toHaveText("Sign in with the address this invitation was sent to.", { timeout: LONG });
+    await expect(page.getByTestId("invitation")).toHaveAttribute("data-state", "pending");
+    await noHorizontalScroll(page);
     await context.close();
   });
 
