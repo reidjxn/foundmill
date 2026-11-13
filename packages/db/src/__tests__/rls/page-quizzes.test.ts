@@ -231,3 +231,20 @@ describe("public_page_quizzes: a quiz written past the api is never shown (secur
     expect(await h.service().run((tx) => repos.pageQuizzes.public.bySlug(tx, "direct-quiz"))).not.toBeNull();
   });
 });
+
+describe("public_page_quizzes: a sample business never shows a quiz (the network session, Nov 13, 2026)", () => {
+  it("a live quiz is gone from the public read the moment its business is a sample, and is not counted", async () => {
+    const d = await createBusinessFixture(h, "quiz-sample");
+    await commit(d.businessId);
+    await h.service().run((tx) => repos.pages.publish(tx, d.businessId, { content: page(), slug: "sample-quiz", userId: d.ownerId, at: new Date("2026-10-05T09:00:00Z") }));
+    await h.service().run((tx) => repos.pageQuizzes.writeDraft(tx, d.businessId, { definition: quiz(), evidence, agentId: d.agentId }));
+    await h.asUser(d.ownerId).run((tx) => repos.pageQuizzes.setStatus(tx, d.businessId, { from: ["draft"], to: "approved", userId: d.ownerId }));
+    await h.asUser(d.ownerId).run((tx) => repos.pageQuizzes.setStatus(tx, d.businessId, { from: ["approved"], to: "live", userId: d.ownerId }));
+    expect(await h.service().run((tx) => repos.pageQuizzes.public.bySlug(tx, "sample-quiz"))).not.toBeNull();
+    await h.db.update(s.businesses).set({ isDemo: true }).where(eq(s.businesses.id, d.businessId));
+    expect(await h.service().run((tx) => repos.pageQuizzes.public.bySlug(tx, "sample-quiz"))).toBeNull();
+    expect(await publicSlugs()).not.toContain("sample-quiz");
+    const version = (await stored(d.businessId)).version;
+    expect(await h.service().run((tx) => repos.pageQuizzes.public.recordResult(tx, { slug: "sample-quiz", version, typeKey: "t1" }))).toBe(false);
+  });
+});
