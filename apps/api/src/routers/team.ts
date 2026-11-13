@@ -2,7 +2,7 @@
 import { TEMPLATE_KEYS, getTemplate, hasTemplate, listTemplates } from "@foundmill/agents";
 import { CREDITS_CURRENCY } from "@foundmill/config";
 import { SectionPermissions, membershipEnded, repos, type AgentRosterActivity } from "@foundmill/db";
-import { DECISION_TYPES, DEFAULT_AGENT_STYLE, ForbiddenError, isOwnerRole, MEMBERSHIP_ROLES, NotFoundError, ValidationError, agentTier, characterFor, leadAgentIds } from "@foundmill/shared";
+import { ADMIN_ROLES, DECISION_TYPES, DEFAULT_AGENT_STYLE, ForbiddenError, hasSectionAccess, isOwnerRole, MEMBERSHIP_ROLES, NotFoundError, ValidationError, agentTier, characterFor, leadAgentIds } from "@foundmill/shared";
 import { z } from "zod";
 import { pendingApprovals, resolveApproval } from "../services/approvals";
 import { assertWithinGrantorAccess } from "../services/grants";
@@ -277,14 +277,23 @@ export const teamRouter = router({
       .mutation(({ ctx, input }) =>
         ctx.rls(async (tx) => {
           if (input.userId === ctx.userId) throw new ValidationError("You cannot change your own role or section permissions; another owner or admin can");
-          let membership = await repos.memberships.get(tx, ctx.businessId, input.userId);
+          // Judged on fresh rows, not on the request's: the business's people changes take turns (the owner lock, as
+          // `setRole` and `remove` take it), the editor's own row is re-read under a share lock and the person's under an
+          // update lock, so an owner lowering this editor at the same moment is either seen here or waits for it.
+          await repos.memberships.lockOwners(tx, ctx.businessId);
+          const editor = await repos.memberships.getMineForShare(tx, ctx.businessId, ctx.userId);
+          if (!editor || !ADMIN_ROLES.includes(editor.role) || !hasSectionAccess(editor, "team", "write")) throw new ForbiddenError("You can no longer change people's access in this business");
+          const locked = await repos.memberships.getForUpdate(tx, ctx.businessId, input.userId);
+          let membership = locked ?? (await repos.memberships.get(tx, ctx.businessId, input.userId));
           if (!membership) throw new ValidationError("Not a member of this business");
-          if (!isOwnerRole(ctx.role) && isOwnerRole(membership.role)) throw new ForbiddenError("Only an owner or a cofounder can change an owner's or a cofounder's role or permissions");
-          if (!isOwnerRole(ctx.role) && input.role && isOwnerRole(input.role)) throw new ForbiddenError("Only an owner or a cofounder can make someone an owner or a cofounder");
+          if (!isOwnerRole(editor.role) && isOwnerRole(membership.role)) throw new ForbiddenError("Only an owner or a cofounder can change an owner's or a cofounder's role or permissions");
+          if (!isOwnerRole(editor.role) && input.role && isOwnerRole(input.role)) throw new ForbiddenError("Only an owner or a cofounder can make someone an owner or a cofounder");
+          // RLS let the row be read but not locked: it is not this editor's to change.
+          if (!locked) throw new ForbiddenError("You cannot change this person's access");
           // Nor past the editor's own access: no section above their own level on it and no role above theirs (an
           // owner's standing is not limited); narrowing and lowering stay free (services/grants.ts). A collaborator whose
           // access ended has none now, so a new date gives everything the row holds and is judged as a grant.
-          assertWithinGrantorAccess(ctx.membership, { role: input.role ?? membership.role, sectionPermissions: input.sectionPermissions ?? membership.sectionPermissions }, membershipEnded(membership) ? null : membership);
+          assertWithinGrantorAccess(editor, { role: input.role ?? membership.role, sectionPermissions: input.sectionPermissions ?? membership.sectionPermissions }, membershipEnded(membership) ? null : membership);
           if (input.role) membership = await repos.memberships.setRole(tx, ctx.businessId, input.userId, input.role);
           if (input.sectionPermissions) membership = await repos.memberships.setSectionPermissions(tx, ctx.businessId, input.userId, input.sectionPermissions);
           if (input.expiresAt !== undefined) {

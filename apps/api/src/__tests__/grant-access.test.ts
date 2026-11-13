@@ -8,7 +8,7 @@
 import { repos, type SectionPermissions } from "@foundmill/db";
 import { COLLABORATOR_SECTIONS, type MembershipRole } from "@foundmill/shared";
 import { TRPCError } from "@trpc/server";
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { GRANT_BEYOND_OWN_ACCESS, grantOverreach, ROLE_RANK, sectionAccessOf, withinGrantorAccess } from "../services/grants";
 import { INVITATION_BEYOND_OWN_ACCESS } from "../services/invitations";
 import { createApiHarness, type ApiHarness } from "./harness";
@@ -19,6 +19,7 @@ beforeAll(async () => {
 }, 120_000);
 afterAll(() => hz?.close());
 beforeEach(() => hz.limits.reset());
+afterEach(() => vi.restoreAllMocks());
 
 const refusal = async (p: Promise<unknown>) => {
   try {
@@ -115,12 +116,29 @@ describe("team.humans.role gives no more than the editor's own access", () => {
     expect((await as(admin).team.humans.role({ businessId, userId: second, role: "admin", sectionPermissions: { finance: "none" } })).role).toBe("admin");
   });
 
-  it("a higher role is refused: an owner's standing is an owner's or a cofounder's to give", async () => {
+  // The rank check (`grantOverreach(...).role`) is not reachable through this router: only an admin or someone with an
+  // owner's standing may call it (`sectionAdmin`), an owner's standing is not limited, and the only roles ranked above an
+  // admin are an owner's and a cofounder's, which the older owner check refuses first. Its cases are the helper's tests
+  // above ("refuses a role ranked above the grantor's own"); these pin down why the router never gets that far.
+  it("a higher role is refused: an owner's standing is an owner's or a cofounder's to give (the owner check answers first)", async () => {
     const { businessId } = hz.A;
     const admin = await personIn("admin");
     const member = await personIn("member");
-    for (const role of ["owner", "cofounder"] as const) expect((await refusal(as(admin).team.humans.role({ businessId, userId: member, role })))?.code).toBe("FORBIDDEN");
+    for (const role of ["owner", "cofounder"] as const) expect(await refusal(as(admin).team.humans.role({ businessId, userId: member, role }))).toEqual({ code: "FORBIDDEN", message: "Only an owner or a cofounder can make someone an owner or a cofounder" });
     expect((await rowOf(member))?.role).toBe("member");
+  });
+
+  it("nobody ranked below an admin edits roles at all, so the rank check has no other case to meet here", async () => {
+    const { businessId } = hz.A;
+    const viewer = await personIn("viewer");
+    for (const role of ["member", "collaborator", "viewer", "advisor"] as const) {
+      const editor = await personIn(role);
+      expect((await refusal(as(editor).team.humans.role({ businessId, userId: viewer, role: "admin" })))?.code, role).toBe("FORBIDDEN");
+    }
+    expect((await rowOf(viewer))?.role).toBe("viewer");
+    // An admin's grants, by role: only an owner's standing is ranked above theirs.
+    const above = (["owner", "cofounder", "admin", "member", "collaborator", "viewer", "advisor"] as const).filter((role) => ROLE_RANK[role] > ROLE_RANK.admin);
+    expect(above).toEqual(["owner", "cofounder"]);
   });
 
   it("a walled admin may still narrow and lower someone who holds more than they do", async () => {
@@ -153,6 +171,66 @@ describe("team.humans.role gives no more than the editor's own access", () => {
       expect((await as(editor).team.humans.role({ businessId, userId: someone, role: "admin", sectionPermissions: {} })).role).toBe("admin");
       expect((await as(editor).team.humans.role({ businessId, userId: someone, role: "cofounder" })).role).toBe("cofounder");
     }
+  });
+});
+
+describe("team.humans.role judges the rows as they are inside its transaction", () => {
+  /** The request reads the editor's access as it was; `change` then commits before the procedure's transaction starts. */
+  const staleRequest = (editor: string, change: () => Promise<unknown>) => {
+    const access = repos.memberships.access.bind(repos.memberships);
+    vi.spyOn(repos.memberships, "access").mockImplementation(async (db, businessId, userId, options) => {
+      const seen = await access(db, businessId, userId, options);
+      if (userId === editor) await change();
+      return seen;
+    });
+  };
+
+  it("an editor walled after the request read their access is judged on their row as it is now", async () => {
+    const { businessId } = hz.A;
+    const admin = await personIn("admin");
+    const viewer = await personIn("viewer", { finance: "none" });
+    staleRequest(admin, () => repos.memberships.setSectionPermissions(hz.db, businessId, admin, { finance: "none" }));
+    expect(await refusal(as(admin).team.humans.role({ businessId, userId: viewer, sectionPermissions: { finance: "read" } }))).toEqual({ code: "FORBIDDEN", message: GRANT_BEYOND_OWN_ACCESS });
+    expect(await rowOf(viewer)).toMatchObject({ sectionPermissions: { finance: "none" } });
+  });
+
+  it("an editor lowered from admin, or removed, after the request read their access changes nothing", async () => {
+    const { businessId } = hz.A;
+    for (const change of ["lowered", "walled from Team", "removed"] as const) {
+      const admin = await personIn("admin");
+      const viewer = await personIn("viewer");
+      staleRequest(admin, () =>
+        change === "lowered" ? repos.memberships.setRole(hz.db, businessId, admin, "member") : change === "removed" ? repos.memberships.remove(hz.db, businessId, admin) : repos.memberships.setSectionPermissions(hz.db, businessId, admin, { team: "read" }),
+      );
+      expect(await refusal(as(admin).team.humans.role({ businessId, userId: viewer, role: "member" })), change).toEqual({ code: "FORBIDDEN", message: "You can no longer change people's access in this business" });
+      expect((await rowOf(viewer))?.role, change).toBe("viewer");
+      vi.restoreAllMocks();
+    }
+  });
+
+  it("takes the owner lock, then the editor's row for share and the person's for update, before it changes anything", async () => {
+    const { businessId } = hz.A;
+    const admin = await personIn("admin");
+    const member = await personIn("member");
+    const order: string[] = [];
+    const m = repos.memberships;
+    const lockOwners = m.lockOwners.bind(m);
+    const mine = m.getMineForShare.bind(m);
+    const forUpdate = m.getForUpdate.bind(m);
+    const setSections = m.setSectionPermissions.bind(m);
+    vi.spyOn(m, "lockOwners").mockImplementation(async (db, bid) => (order.push("owner lock"), lockOwners(db, bid)));
+    vi.spyOn(m, "getMineForShare").mockImplementation(async (db, bid, uid) => (order.push(`share ${uid === admin ? "editor" : uid}`), mine(db, bid, uid)));
+    vi.spyOn(m, "getForUpdate").mockImplementation(async (db, bid, uid) => (order.push(`update ${uid === member ? "person" : uid}`), forUpdate(db, bid, uid)));
+    vi.spyOn(m, "setSectionPermissions").mockImplementation(async (db, bid, uid, p) => (order.push("change"), setSections(db, bid, uid, p)));
+    await as(admin).team.humans.role({ businessId, userId: member, sectionPermissions: { product: "read" } });
+    expect(order).toEqual(["owner lock", "share editor", "update person", "change"]);
+  });
+
+  it("an unknown section is refused in plain words, and nothing is stored", async () => {
+    const { businessId } = hz.A;
+    const member = await personIn("member");
+    expect(await refusal(as(hz.A.ownerId).team.humans.role({ businessId, userId: member, sectionPermissions: { money: "write" } as never }))).toEqual({ code: "BAD_REQUEST", message: expect.stringContaining("No such section: money") });
+    expect(await rowOf(member)).toMatchObject({ sectionPermissions: {} });
   });
 });
 
