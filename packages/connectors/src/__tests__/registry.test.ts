@@ -6,7 +6,7 @@ import { createRegistry } from "../registry";
 import { makeToolContext, TEST_BUSINESS_ID } from "../testing/contract-suite";
 import { z } from "zod";
 
-const EXPECTED_KEYS = ["anthropic", "voyage", "openai_images", "elevenlabs", "onesignal", "platform_notify", "github", "google_drive", "gmail", "google_calendar", "notion", "cloudflare_dns", "opencorporates", "bolagsverket", "companies_house", "e2b", "dropbox_sign", "ecb_rates", "domains", "stripe", "sendgrid", "shopify", "tink", "plaid"];
+const EXPECTED_KEYS = ["anthropic", "voyage", "openai_images", "elevenlabs", "onesignal", "platform_notify", "github", "google_drive", "gmail", "google_calendar", "notion", "cloudflare_dns", "opencorporates", "bolagsverket", "companies_house", "e2b", "dropbox_sign", "ecb_rates", "domains", "stripe", "sendgrid", "shopify", "tink", "plaid", "openai", "gemini", "perplexity", "serpapi", "firecrawl", "indexnow"];
 
 describe("registry: mode switching", () => {
   const registry = createDefaultRegistry({ secrets: {} });
@@ -32,6 +32,7 @@ describe("registry: mode switching", () => {
     expect(registry.list("live").some(isMockConnector)).toBe(false);
     expect(registry.getByPhase(1, "mock").map((c) => c.key).sort()).toEqual(["anthropic", "bolagsverket", "cloudflare_dns", "companies_house", "domains", "dropbox_sign", "e2b", "ecb_rates", "github", "gmail", "google_calendar", "google_drive", "notion", "onesignal", "openai_images", "opencorporates", "platform_notify", "voyage"]);
     expect(registry.getByPhase(2, "mock").map((c) => c.key).sort()).toEqual(["plaid", "sendgrid", "shopify", "stripe", "tink"]);
+    expect(registry.getByPhase(3, "mock").map((c) => c.key).sort()).toEqual(["elevenlabs", "firecrawl", "gemini", "indexnow", "openai", "perplexity", "serpapi"]);
     const entry = registry.catalogue("mock").find((c) => c.key === "stripe")!;
     expect(entry.webhookPaths).toEqual(["/webhooks/stripe/:businessId"]);
     expect(entry.simulations).toContain("payment.received");

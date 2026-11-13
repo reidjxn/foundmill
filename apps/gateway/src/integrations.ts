@@ -110,7 +110,20 @@ export async function connectIntegration(deps: GatewayDeps, input: ConnectInput,
       throw new GatewayError("account_mismatch", "This bank link does not belong to this business: start it again from Settings › Integrations", 403, { connector: connector.key });
     }
   }
-  const record = await connector.connect(input.businessId, input.input).catch((e: unknown) => vendorFailure(e, connector.key));
+  // IndexNow with no site address is for the project's Foundmill-hosted page (founder, 2026-11-12). The page's slug is
+  // read here, from this business's own published page, and never taken from the request: a key then speaks only for
+  // `/p/<that slug>`, and the web serves its key file only for the business that connected it.
+  let connectInput: unknown = input.input;
+  if (connector.key === "indexnow" && mode === "live") {
+    const { hostedSlug: _never, ...given } = (input.input && typeof input.input === "object" ? input.input : {}) as Record<string, unknown>;
+    connectInput = given;
+    if (typeof given.host !== "string" || given.host.trim() === "") {
+      const page = await repos.pages.get(deps.db, input.businessId);
+      if (!page || page.published === null) throw new GatewayError("page_not_published", "Publish your public page first, or enter your own site's address", 400, { connector: connector.key });
+      connectInput = { key: given.key, hostedSlug: page.slug };
+    }
+  }
+  const record = await connector.connect(input.businessId, connectInput).catch((e: unknown) => vendorFailure(e, connector.key));
   const safe = stripSecret(record);
 
   if (connector.auth.kind === "app") {

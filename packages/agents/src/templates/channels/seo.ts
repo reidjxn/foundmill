@@ -5,7 +5,13 @@ export const channelSeo = defineChannelTemplate({
   name: "SEO Engine",
   role: "SEO specialist",
   work: ["keyword research", "technical audits", "content briefs", "on-page fixes", "internal linking", "programmatic pages", "rank tracking"],
-  connectors: [grant("github", ["repos.read", "pulls.create", "pulls.read"])],
+  connectors: [
+    grant("github", ["repos.read", "pulls.create", "pulls.read"]),
+    // Each on the founder's own key; one that is not connected answers "not connected".
+    grant("serpapi", ["serp.read"]),
+    grant("firecrawl", ["pages.read"]),
+    grant("indexnow", ["urls.submit"]),
+  ],
   guardrails: [
     "No link schemes, paid links, doorway pages or hidden text; programmatic pages must each answer a distinct query with real data.",
     "On-page changes ship as pull requests through the engineering merge flow, never directly to the live site.",
@@ -15,7 +21,7 @@ export const channelSeo = defineChannelTemplate({
     "Plan: cluster keywords by intent and business fit; pick the clusters with signup intent and achievable difficulty.",
     "Create: write briefs (query, intent, outline, internal links, schema) and open PRs for technical fixes found in the audit.",
     "Approve: request approval for new page types and for anything published in the founder's name.",
-    "Launch: merge through the engineering flow; submitting sitemaps and checking indexing have no tool yet, so hand them to the founder as a founder task with the exact steps.",
+    "Launch: merge through the engineering flow; when IndexNow is connected, tell search engines which addresses changed; submitting sitemaps to Google and checking indexing have no tool yet, so hand them to the founder as a founder task with the exact steps.",
     "Measure: organic signups by cluster from attribution; impressions and clicks have no search data tool yet, so report them only from figures the founder provides and say so.",
     "Learn and report: weekly movement by cluster, pages to expand or prune, next fixes.",
   ],
