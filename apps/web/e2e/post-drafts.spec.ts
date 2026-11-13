@@ -69,8 +69,13 @@ async function openBoard(page: Page, bid: string): Promise<Locator> {
   await dismissCoachmarks(page);
   // The panel's count is said only once the project's own channels have arrived: before that a token's place means nothing.
   await expect(screen.getByText(/\d+ of \d+ (?:running|on the board)/).first()).toBeVisible({ timeout: LONG });
-  const token = page.getByRole("region", { name: "Channel Board" }).getByRole("button", { name: /^Social media/ });
+  const board = page.getByRole("region", { name: "Channel Board" });
+  const token = board.getByRole("button", { name: /^Social media/ });
   await expect(token).toBeVisible({ timeout: LONG });
+  // The channels on the board walk on one by one, and the board is busy until they have: before that a channel on the
+  // board can still be drawn in the tray. A project whose starters include social (the first card in the deck decides
+  // the archetype) has it on the board from Take charge.
+  await expect(board).not.toHaveAttribute("aria-busy", "true", { timeout: LONG });
   return token;
 }
 

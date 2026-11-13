@@ -32,7 +32,7 @@ import { buildChannelViews, channelStatus, postedByTap, resumeStatus, splitByAva
 import { NotAvailableChannels } from "./NotAvailableChannels";
 import { InlineError, Screen, searchParam, useAction } from "./shared";
 import { localScores, RESCORE_DEBOUNCE_MS, useDebouncedRun } from "./rescore";
-import type { AgentRow, CampaignRow, ChannelMetricRow, ChannelsListResponse, Page, RecommendResponse, RecommendationRow } from "./types";
+import type { AgentsListResponse, CampaignRow, ChannelMetricRow, ChannelsListResponse, Page, RecommendResponse, RecommendationRow } from "./types";
 
 export interface FormationScreenProps extends ModuleScreenProps {
   /** Recommended tokens walk onto the Board after mount (default true; tests pass false). */
@@ -73,7 +73,7 @@ export function FormationScreen({ businessId, departmentId, animateEntrance = tr
   const channels = useWidgetQuery<ChannelsListResponse>("distribution.channels.list", {});
   const campaigns = useWidgetQuery<Page<CampaignRow>>("distribution.campaigns.list", { limit: 200 });
   const metrics = useWidgetQuery<ChannelMetricRow[]>("distribution.channels.metrics", { from: addDays(today, -(METRICS_WINDOW_DAYS - 1)) });
-  const agents = useWidgetQuery<AgentRow[]>("team.agents.list", {});
+  const agents = useWidgetQuery<AgentsListResponse>("team.agents.list", {});
   const departments = useDepartments();
   const action = useAction();
   const [recommendation, setRecommendation] = useState<RecommendationRow[] | null>(null);
@@ -123,7 +123,7 @@ export function FormationScreen({ businessId, departmentId, animateEntrance = tr
   }, [all, provisional]);
 
   const budget = useMemo(() => totalBudget(views), [views]);
-  const tokens = useMemo(() => views.map((v) => toChannelToken(v, { agents: agents.data, totalBudgetMinor: budget, departmentId })), [views, agents.data, budget, departmentId]);
+  const tokens = useMemo(() => views.map((v) => toChannelToken(v, { agents: agents.data?.agents, totalBudgetMinor: budget, departmentId })), [views, agents.data, budget, departmentId]);
   const selectedView = selected ? (views.find((v) => v.channelKey === selected) ?? null) : null;
   const selectedToken = selected ? (tokens.find((t) => t.key === selected) ?? null) : null;
   const scored = views.filter((v) => v.scored).length;

@@ -31,7 +31,7 @@ import { useBusinessEvents, useWidgetData, useWidgetQuery } from "@foundmill/wid
 import type { ModuleScreenProps } from "../registry";
 import { APPROVAL_WORDS } from "./channel-data";
 import { InlineError, Screen, searchParam, useAction } from "./shared";
-import type { AgentRow, AssetRow, CampaignRow, ChannelsListResponse, Page } from "./types";
+import type { AgentsListResponse, AssetRow, CampaignRow, ChannelsListResponse, Page } from "./types";
 
 export const ASSET_KIND_META: Record<AssetKind, { word: string; plural: string; icon: IconComponent }> = {
   email: { word: "Email", plural: "Emails", icon: Mail },
@@ -109,7 +109,7 @@ export function CreativeScreen({ businessId }: ModuleScreenProps) {
   const campaignsHref = moduleHref(businessId, departments.data, "distribution", "campaigns");
   const assets = useWidgetQuery<AssetRow[]>("distribution.assets.list", {});
   const campaigns = useWidgetQuery<Page<CampaignRow>>("distribution.campaigns.list", { limit: 200 });
-  const agents = useWidgetQuery<AgentRow[]>("team.agents.list", {});
+  const agents = useWidgetQuery<AgentsListResponse>("team.agents.list", {});
   // Tap-to-post: which channels the founder posts by tap, and the project's page to point a shared post at. A reader
   // with no view of the page gets no link, never an error on this screen.
   const channels = useWidgetQuery<ChannelsListResponse>("distribution.channels.list", {});
@@ -147,7 +147,7 @@ export function CreativeScreen({ businessId }: ModuleScreenProps) {
     return c;
   }, [assets.data]);
   const campaignName = useCallback((id: string | null) => (id ? (campaigns.data?.items.find((c) => c.id === id)?.name ?? "Campaign") : null), [campaigns.data]);
-  const agentName = useCallback((id: string) => agents.data?.find((a) => a.id === id)?.name ?? "Agent", [agents.data]);
+  const agentName = useCallback((id: string) => agents.data?.agents.find((a) => a.id === id)?.name ?? "Agent", [agents.data]);
 
   const decide = useCallback(
     async (asset: AssetRow, decision: "approve" | "reject") => {
