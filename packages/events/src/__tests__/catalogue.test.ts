@@ -333,8 +333,8 @@ describe("event catalogue", () => {
     expect([...decl.consumers]).toEqual(["stream", "metrics"]);
     expect(isPersonAddressedEvent("post.drafted")).toBe(false);
     // Appended last: the list of types is only ever added to at its end.
-    expect(EVENT_TYPES[EVENT_TYPES.length - 1]).toBe("post.drafted");
-    expect(EVENT_TYPES[EVENT_TYPES.length - 2]).toBe("share.opened");
+    // Added after the types that were there before it; not pinned to the last place, which the next type added takes.
+    expect(EVENT_TYPES.indexOf("post.drafted")).toBeGreaterThan(EVENT_TYPES.indexOf("share.opened"));
     const fixture = EVENT_FIXTURES["post.drafted"];
     expect(parsePayload("post.drafted", fixture)).toEqual(fixture);
     // Nothing of the post fits in the payload: its words, its link and anything about a person are dropped.
