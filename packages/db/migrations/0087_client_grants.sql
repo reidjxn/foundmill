@@ -30,3 +30,7 @@ revoke truncate, references, trigger on all tables in schema public from anon, a
 alter default privileges in schema public revoke truncate, references, trigger on tables from anon, authenticated;
 --> statement-breakpoint
 revoke insert, update, delete, truncate, references, trigger on public_person_profiles, public_project_pages from service_role;
+--> statement-breakpoint
+-- `audit_log_verify(uuid)` (0011) is security definer and hashes a whole audit chain for the business it is given; it is
+-- for members (granted to authenticated) and the service, never for anon, who reached it through PUBLIC.
+revoke execute on function audit_log_verify(uuid) from public, anon;

@@ -12,7 +12,10 @@ import { realPostgresUrl, withDatabase } from "../testing/postgres";
 
 describe("RLS_TEST_DATABASE_URL", () => {
   it("is read from the environment, blank meaning unset", () => {
-    expect(realPostgresUrl({ RLS_TEST_DATABASE_URL: "postgres://u@h:5432/db" })).toBe("postgres://u@h:5432/db");
+    expect(realPostgresUrl({ RLS_TEST_DATABASE_URL: "postgres://u@127.0.0.1:5432/db" })).toBe("postgres://u@127.0.0.1:5432/db");
+    expect(realPostgresUrl({ RLS_TEST_DATABASE_URL: "postgres://u@localhost/db" })).toBe("postgres://u@localhost/db");
+    expect(() => realPostgresUrl({ RLS_TEST_DATABASE_URL: "postgres://u@db.example.supabase.co:5432/postgres" })).toThrow(/not this machine/);
+    expect(realPostgresUrl({ RLS_TEST_DATABASE_URL: "postgres://u@h:5432/db", RLS_TEST_ALLOW_REMOTE: "1" })).toBe("postgres://u@h:5432/db");
     expect(realPostgresUrl({ RLS_TEST_DATABASE_URL: "  " })).toBeUndefined();
     expect(realPostgresUrl({})).toBeUndefined();
   });

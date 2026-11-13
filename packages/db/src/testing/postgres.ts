@@ -35,10 +35,26 @@ import type { CreateTestDbOptions, Runner, TestDb, TestHarness } from "./pglite"
 /** The variable that sends the harness to a real Postgres. */
 export const RLS_TEST_DATABASE_URL = "RLS_TEST_DATABASE_URL";
 
+/** Set to 1 to let the harness use a Postgres that is not on this machine (never a production cluster). */
+export const RLS_TEST_ALLOW_REMOTE = "RLS_TEST_ALLOW_REMOTE";
+
+const LOOPBACK_HOSTS = new Set(["localhost", "127.0.0.1", "::1", "[::1]"]);
+
 /** The URL from the environment, or undefined (then the harness boots PGlite). */
 export function realPostgresUrl(env: NodeJS.ProcessEnv = process.env): string | undefined {
   const url = env[RLS_TEST_DATABASE_URL]?.trim();
-  return url ? url : undefined;
+  if (!url) return undefined;
+  if (!isLoopback(url) && env[RLS_TEST_ALLOW_REMOTE] !== "1") {
+    throw new Error(`${RLS_TEST_DATABASE_URL} points at a host that is not this machine; the harness creates and drops databases there. Set ${RLS_TEST_ALLOW_REMOTE}=1 to allow it.`);
+  }
+  return url;
+}
+
+/** True when the URL's host is this machine (a socket directory counts). */
+export function isLoopback(url: string): boolean {
+  const parsed = new URL(url);
+  const host = parsed.hostname || parsed.searchParams.get("host") || "localhost";
+  return LOOPBACK_HOSTS.has(host) || host.startsWith("/") || /^127\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(host);
 }
 
 /** `url` with its database name replaced. */

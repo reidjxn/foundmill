@@ -129,3 +129,35 @@ describe("the public views are read-only for the service role too (0080, 0081)",
     });
   }
 });
+
+describe("structural: what the client roles may call and create", () => {
+  // Every security-definer function in `public` that is not a trigger function and that a client role can EXECUTE.
+  // A new one must be added here on purpose (and reviewed); a service-only one revokes from public, anon and
+  // authenticated (docs/DECISIONS.md, 0087).
+  const MAY_CALL: Record<(typeof CLIENT_ROLES)[number], readonly string[]> = {
+    // The RLS helpers: each answers about the caller (auth.uid()) or a public flag, never another person's data.
+    anon: ["business_has_members(uuid)", "has_role(uuid,text[])", "is_community_member(uuid)", "is_community_moderator(uuid)", "is_member(uuid)", "is_public(uuid)", "is_thread_participant(uuid)"],
+    authenticated: [
+      "business_has_members(uuid)", "has_role(uuid,text[])", "is_community_member(uuid)", "is_community_moderator(uuid)", "is_member(uuid)", "is_public(uuid)", "is_thread_participant(uuid)",
+      "audit_log_verify(uuid)",
+      "connection_is_blocked(uuid,uuid)",
+      "fm_set_share_one_to_one_calls(boolean)",
+      "is_community_invitee(uuid)",
+    ],
+  };
+
+  for (const role of CLIENT_ROLES) {
+    it(`${role} can EXECUTE only the listed security-definer functions`, async () => {
+      const callable = await rows<{ fn: string }>(sql`
+        select p.oid::regprocedure::text as fn
+          from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+         where n.nspname = 'public' and p.prosecdef and p.prorettype <> 'trigger'::regtype
+           and has_function_privilege(${role}::name, p.oid, 'execute')
+         order by 1`);
+      expect(callable.map((r) => r.fn)).toEqual([...MAY_CALL[role]].sort());
+    });
+    it(`${role} cannot CREATE in schema public`, async () => {
+      expect(await one(sql`select has_schema_privilege(${role}::name, 'public', 'create') as ok`)).toBe(false);
+    });
+  }
+});
