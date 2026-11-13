@@ -16,7 +16,7 @@ export interface TrophyCabinetProps {
   /** LIVE: shareable milestone cards (BUILD §11.4). Hidden when absent. */
   onShare?: (key: string) => void;
   /**
-   * The project's public page (0087): "Show on your page" under a reached milestone whose `page` is "hidden". Left out
+   * The project's public page (0089): "Show on your page" under a reached milestone whose `page` is "hidden". Left out
    * for a reader who cannot publish, and while the page is not live.
    */
   onShowOnPage?: (key: string) => void;

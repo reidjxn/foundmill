@@ -236,7 +236,7 @@ export async function publishPage(ctx: BusinessContext, input: { content: PageCo
     wentLive = !wasLive;
     const url = pageUrl(ctx.env.APP_URL, row.slug);
     await emit(tx, ctx, { type: "page.published", payload: { pageId: row.id, slug: row.slug, url } });
-    // The page is live: the project's first early milestone, recorded once at the moment it went live (0087). A page
+    // The page is live: the project's first early milestone, recorded once at the moment it went live (0089). A page
     // that was already live before this existed gets it here too, with its original date.
     if (row.publishedAt) await awardPageLiveMilestone(tx, ctx.businessId, { pageId: row.id, at: row.publishedAt });
     // The Product lead's "Your project's page is ready" note asked for exactly this: it stops waiting in Needs you.
@@ -298,7 +298,7 @@ export interface PublicPageView {
   followForm: boolean;
   /** Whether the page carries the small "Built on" mark (a project on the free plan; a paid plan removes it). */
   mark: boolean;
-  /** Whether the founders show at least one milestone: the project then has a story at `/p/<slug>/story` (0087). */
+  /** Whether the founders show at least one milestone: the project then has a story at `/p/<slug>/story` (0089). */
   story: boolean;
 }
 

@@ -6,7 +6,7 @@ import { LONG, commitThrowaway, dismissCoachmarks, expectTapTarget, settled, toa
 
 /**
  * A project's story and its milestone cards (docs/NETWORK.md F2 and F3; docs/THESIS_REVIEW.md package 5.3; migration
- * 0087). A throwaway project publishes its page, which records the milestone "Page live"; Plan › Milestones lists it
+ * 0089). A throwaway project publishes its page, which records the milestone "Page live"; Plan › Milestones lists it
  * reached, first; its founder shows it on the page with one press ("On your page", Hide, Copy card link). Signed out,
  * at 390 px and 1280 px: `/p/<slug>/story` ("How ‹name› was built": the date, the words, "Verified by Foundmill", no
  * horizontal scroll, 44 px link targets, no text under 11 px, indexable with its own title) and the card at `/m/<id>`

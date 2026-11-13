@@ -15,7 +15,7 @@ import { readMigrations } from "../migrations";
 import { createTestDb, unwrapDbError, type TestHarness } from "../testing/pglite";
 import { createBusinessFixture, type BusinessFixture } from "./rls/fixtures";
 
-const TAG = "0086_attributions";
+const TAG = "0088_attributions";
 const NEW_TYPES = ["signup.attributed", "referral.arrived"] as const;
 const EVENT_TABLES = sql`('events', 'outbox', 'account_events', 'account_outbox')`;
 

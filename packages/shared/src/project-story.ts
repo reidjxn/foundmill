@@ -1,6 +1,6 @@
 /**
  * A project's story and its milestone cards (docs/NETWORK.md F2 "the story", F3 "cards"; docs/THESIS_REVIEW.md package
- * 5.3; migration 0087): the addresses, the words and the titles, shared by the api, the web and the design system so
+ * 5.3; migration 0089): the addresses, the words and the titles, shared by the api, the web and the design system so
  * each is written once.
  *
  * A milestone is something the platform recorded when it happened (the page went live, a person confirmed that they

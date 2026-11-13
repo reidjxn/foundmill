@@ -1,6 +1,6 @@
 /**
  * Milestones a founder chooses to show (docs/NETWORK.md F2 "the story", F3 "cards"; docs/THESIS_REVIEW.md package 5.3;
- * migration 0087).
+ * migration 0089).
  *
  * - **Showing and hiding** (`journey.showMilestone`, `journey.hideMilestone`): an owner or an admin with Product write,
  *   by their own press, one milestone at a time (founder, Nov 12, 2026: nothing becomes public on its own; no agent

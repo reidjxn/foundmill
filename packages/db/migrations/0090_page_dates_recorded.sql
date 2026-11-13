@@ -1,6 +1,6 @@
--- 0088 — when a page went live is a fact the platform records (docs/NETWORK.md "only real outcomes", "none was typed
+-- 0090 — when a page went live is a fact the platform records (docs/NETWORK.md "only real outcomes", "none was typed
 -- in"; CLAUDE.md north star). The public page says "Published Oct 7, 2026" from `project_pages.published_at`, and the
--- milestone "Page live" (0087) takes its date from the same column and is shown as "Verified by Foundmill".
+-- milestone "Page live" (0089) takes its date from the same column and is shown as "Verified by Foundmill".
 --
 -- What was wrong: the guard of 0077 checked who may change a page's publish columns (an owner or an admin) and never the
 -- value of its dates. An owner or an admin with an ordinary session could write `published_at = '2020-01-01'` straight
@@ -21,7 +21,7 @@
 -- the client sent, exactly as before: a member who sends a date is still refused.
 --
 -- The clock is `now()` (the transaction's start) kept to the millisecond, the precision the api's clients carry, so the
--- date a client reads back is exactly the date stored: 0087 accepts a signed-in client's "Page live" only when its
+-- date a client reads back is exactly the date stored: 0089 accepts a signed-in client's "Page live" only when its
 -- date equals the page's.
 create or replace function fm_project_pages_guard() returns trigger
 language plpgsql set search_path = public as $$
@@ -68,7 +68,7 @@ begin
 end;
 $$;
 --> statement-breakpoint
--- The milestone guard of 0087, with one more rule for the client roles: a milestone the platform recorded
+-- The milestone guard of 0089, with one more rule for the client roles: a milestone the platform recorded
 -- (`ref.trophyKey`) is not deleted by hand, shown or not, whoever asks. Until now only a shown one was protected (an
 -- owner's or an admin's to delete). A deleted row is recorded again, and not always as it was: "Page live" would come
 -- back with the date the page last went live, so deleting it, taking the page down and putting it back up moved a real
@@ -81,7 +81,7 @@ $$;
 -- delete policy); the scheduled deletion runs `fm_purge_business` (0028), which is security definer, so the cascade
 -- reaches this trigger as the function's owner, not as a client role. The service connection is not limited.
 --
--- Everything else is 0087's, unchanged.
+-- Everything else is 0089's, unchanged.
 create or replace function fm_milestones_guard() returns trigger
 language plpgsql set search_path = public as $$
 declare

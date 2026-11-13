@@ -1,4 +1,4 @@
--- 0087 — milestones a founder chooses to show (docs/NETWORK.md F2 "the story", F3 "cards"; docs/THESIS_REVIEW.md
+-- 0089 — milestones a founder chooses to show (docs/NETWORK.md F2 "the story", F3 "cards"; docs/THESIS_REVIEW.md
 -- package 5.3). A project's real outcomes are milestones the platform recorded itself (`ref.trophyKey`: the page went
 -- live, the first follower confirmed, the first customer, ...). An owner or an admin may show a reached one: its
 -- `visibility` becomes 'public' (the column exists since 0007 and defaults to 'private'). Shown milestones make up the

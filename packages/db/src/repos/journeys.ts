@@ -725,7 +725,7 @@ export const journeysRepo = {
   },
 
   /**
-   * Shows a reached milestone on the project's page (`public`) or takes it off (`private`): 0087. Only a milestone the
+   * Shows a reached milestone on the project's page (`public`) or takes it off (`private`): 0089. Only a milestone the
    * platform recorded (`ref.trophyKey`) can be shown. Conditional on the row's state, so a second tab changes nothing
    * twice: the row when it changed, null when it already read that way (or is not there). Showing and hiding are an
    * owner's or an admin's, whichever client wrote (the table's guard trigger).

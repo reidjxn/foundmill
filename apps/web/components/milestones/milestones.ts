@@ -4,7 +4,7 @@
  * customers and revenue) matched to stored milestones, plus the timeline of every other milestone (releases,
  * decisions, incorporation, funding, launch). Pure and unit-tested; the screen feeds it `journey.ribbon`.
  *
- * A reached milestone can be shown on the project's public page (migration 0087; docs/NETWORK.md F2, F3): `pageStateOf`
+ * A reached milestone can be shown on the project's public page (migration 0089; docs/NETWORK.md F2, F3): `pageStateOf`
  * says where each one stands, from the row's `visibility` and whether the page is live.
  */
 import type { DateFormatPrefs, TrophyCard, TrophyPageState } from "@foundmill/dugout";

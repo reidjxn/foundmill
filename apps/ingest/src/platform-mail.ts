@@ -306,7 +306,7 @@ export async function handleFollowConfirm(deps: Deps, req: Request): Promise<Uns
       idempotencyKey: `page.followed:${result.consentId}`,
     });
     await repos.audit.append(tx, business.id, { actorKind: "system", actorId: null, action: "page.followed", target: { kind: "entity", id: result.entityId }, details: { consentId: result.consentId, pageId: result.pageId, lawfulBasisSet: result.lawfulBasisSet } });
-    // The project's first confirmed follower is a milestone (0087), recorded once, here, with the consent record's id
+    // The project's first confirmed follower is a milestone (0089), recorded once, here, with the consent record's id
     // and nothing about the person. Every later follower awards nothing; a sample business has no real followers.
     if (!business.isDemo && (await awardFirstFollowerMilestone(tx, business.id, { consentId: result.consentId, at }))) first = true;
     return "confirmed" as const;

@@ -90,7 +90,7 @@ describe("writing and publishing", () => {
     const live = first.page;
     expect(live).toMatchObject({ live: true, changed: false, published: page() });
     expect(live.publishedAt).toBeInstanceOf(Date);
-    // Dated by the database when it went live (0088), not by a client.
+    // Dated by the database when it went live (0090), not by a client.
     expect(Math.abs(live.publishedAt!.getTime() - Date.now())).toBeLessThan(60_000);
     const url = `http://localhost:3000/p/${live.slug}`;
     expect(await pageEvents(b.id)).toEqual([{ type: "page.published", payload: expect.objectContaining({ slug: live.slug, url }) }]);

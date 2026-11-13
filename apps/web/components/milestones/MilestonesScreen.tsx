@@ -4,7 +4,7 @@
  * TrophyCabinet from `journey.ribbon`'s milestones, the timeline of every other milestone, and on LIVE shareable
  * milestone cards with the customer anonymised unless permission is recorded.
  *
- * The project's public page (migration 0087; docs/NETWORK.md F2, F3): under each reached milestone, "Show on your page"
+ * The project's public page (migration 0089; docs/NETWORK.md F2, F3): under each reached milestone, "Show on your page"
  * and, once shown, a quiet "On your page" with "Hide" and "Copy card link". An owner's or an admin's press, one
  * milestone at a time; nothing becomes public on its own. These controls depend only on the page being published
  * (`page.get`), never on the old Personal and Live setting the share dialog below is tied to. Nothing is counted.

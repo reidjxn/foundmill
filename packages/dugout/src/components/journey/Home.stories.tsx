@@ -115,7 +115,7 @@ const milestonesOnPageView = () => (
   </div>
 );
 
-/** The project's public page (0087): "Show on your page", the quiet "On your page" state with Hide and Copy card link, and a milestone shown before whose page is not live. */
+/** The project's public page (0089): "Show on your page", the quiet "On your page" state with Hide and Copy card link, and a milestone shown before whose page is not live. */
 export const MilestonesOnThePage: Story = {
   name: "Milestones · shown on the public page",
   render: milestonesOnPageView,

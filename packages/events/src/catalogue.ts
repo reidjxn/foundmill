@@ -1838,7 +1838,7 @@ const notifyEmailSent = declareEvent(
 );
 
 // ---------------------------------------------------------------------------------------------------
-// Milestones a founder chooses to show (0087; docs/NETWORK.md F2 "the story", F3 "cards")
+// Milestones a founder chooses to show (0089; docs/NETWORK.md F2 "the story", F3 "cards")
 // ---------------------------------------------------------------------------------------------------
 
 /** What both events carry: the milestone, which one it is, and the addresses it is (or was) shown at. */
@@ -1933,7 +1933,7 @@ const profileUnpublished = declareAccountEvent("profile.unpublished", ProfileFac
 });
 
 // ---------------------------------------------------------------------------------------------------
-// Account events: who or what brought a new person (0086 `attributions`; docs/NETWORK.md §5, §11; account-scoped)
+// Account events: who or what brought a new person (0088 `attributions`; docs/NETWORK.md §5, §11; account-scoped)
 // ---------------------------------------------------------------------------------------------------
 
 // One sign-up that a public address brought is a fact about two people, so it is two rows (the two-person rule,
