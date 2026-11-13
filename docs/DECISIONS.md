@@ -3874,6 +3874,8 @@ The calls made building `openai`, `gemini`, `perplexity`, `serpapi`, `firecrawl`
 - **No cookie banner** (founder): the site sets only sign-in and preference cookies (listed in the policy, checked against the code), no analytics and no advertising cookies.
 - **Google sign-in.** The policy has its own section on the Google data received and the Limited Use statement, as Google's brand review asks; the home page and the sign-in page link both documents.
 
+- **People pages without a project (Nov 13, 2026, 2.4).** The `(live)` layout keeps its routes and renders a person with no project in `PersonLiveFrame` (StudioFrame) instead of redirecting to /new. Screens use `useOptionalBusiness()` and hide, rather than disable, anything that needs a project: the Connect controls (the API still requires a Live business to send a request). `useAskToConnectBlocker` returns a "needs a project" reason with no business so lists such as the message pane offer nothing. The existing `useShellChrome` already no-ops without a shell; the frame wraps pages in `ShellChromeProvider` to show the title. Desktop-only for now.
+
 ## 2026-11-13 — The landing page's idea box (founder)
 
 The design and the founder's thirteen answers are docs/IDEA_BOX.md. What was decided in building it:

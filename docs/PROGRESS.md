@@ -1752,6 +1752,12 @@ Founder, Nov 13: both pages before sign-up opens and before Google's brand revie
 - **Tests.** dugout `LegalPage.test.tsx`; web `content/legal/__tests__/legal-content.test.ts` (the company's name only in that directory, both documents name it, the cookie list matches the cookies the code sets, safe links, unique anchors, no placeholders), the route lists in `redirects.test.ts` and `desktop-only.test.tsx`; Playwright `legal.spec.ts` at 390 and 1280 px, the landing and sign-in links, and a signed-in founder.
 - **Open.** The registered postal address (the pages name the country until it is given) and whether `privacy@foundmill.com` is a mailbox someone reads; paid top-ups still expire at the end of the month and the Terms say so until that changes; account deletion and a full export are by email request (no flow yet); the 18+ confirmation is the sign-in line until the sign-up step lands. The founder's lawyer reviews both texts after launch.
 
+## Nov 13, 2026 - 2.4 second part: the people pages work without a project
+- `app/(live)/layout.tsx` no longer redirects a person with no project to /new; it renders the pages in `components/live/PersonLiveFrame.tsx` (StudioFrame with a Home link, Network and Communities, and the screen's own title via `ShellChromeProvider`). A person with a project gets the same BusinessShell as before.
+- `PersonalNotice`, `connect.tsx`, `CommunityScreen`, `ProfileScreen` use `useOptionalBusiness()`. With no project: no Personal notice, the Connect controls (community members, profile) are not drawn, no request dialog is mounted, community posts go out as the person. Reading, accepting or declining requests, messages, communities and search are unchanged. No people are suggested; "Find people" stays unbadged.
+- **Verified:** apps/web typecheck clean; eslint on changed files 0 errors; vitest `app/(live)` and `components/live`: 60 tests pass (new: layout picks the person frame, PersonLiveFrame, no-business community and profile paths); Playwright `e2e/person-home.spec.ts` 9 passed (new: Find a project or people lands on /network in the person frame, no connect control, Communities and Home reachable); `e2e/live.spec.ts` 13 passed (unchanged for a person with a project); banned-terms and us-english pass.
+- **Not done:** the person frame is desktop-only (1280 px and wider) for these pages; sending a connection request still needs a Live project (API unchanged).
+
 ## 2026-11-13 — The landing page's idea box
 
 docs/IDEA_BOX.md; DECISIONS "The landing page's idea box".
