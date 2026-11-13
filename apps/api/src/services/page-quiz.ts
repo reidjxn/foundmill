@@ -239,18 +239,16 @@ export type PublicQuizAnswer = { outcome: "result"; type: string } | { outcome: 
 
 /**
  * Signed-out reads and answers, shared by every api replica (`ctx.limits`). The reads follow the page's own ceilings
- * with keys of their own. An answer is never refused (security review, Nov 13, 2026): every answer comes through the
- * web's Server Action, so a per-caller limit on answers would be one bucket for every visitor of every quiz, and one
- * script could make them all wait. Only the counting is limited, without throwing: per caller and page
- * (`countPerCallerPage`), per page per hour and across all pages. Over any of them the visitor still gets their result
- * and nothing is counted. The counts stay unverified, and the founder's panel says so; they are never shown to anyone else.
+ * with keys of their own. Every answer comes through the web's Server Action, from the web's own few addresses, so no
+ * limit here is per caller (security reviews, Nov 13, 2026): it would be one bucket for every visitor at once.
+ *   - `countPerPageHour`, `countAll`: the counting, without throwing; over either the visitor still gets their result
+ *     and nothing is counted. The counts are unverified, and the founder's panel says so; nobody else sees them.
  */
 export const PUBLIC_QUIZ_LIMITS = {
   perCaller: { limit: 300, windowMs: 60_000 },
   perSlug: { limit: 600, windowMs: 60_000 },
   all: { limit: 6000, windowMs: 60_000 },
   unknown: { limit: 600, windowMs: 60_000 },
-  countPerCallerPage: { limit: 60, windowMs: 60 * 60_000 },
   countPerPageHour: { limit: 600, windowMs: 60 * 60_000 },
   countAll: { limit: 3000, windowMs: 60_000 },
 } as const;
@@ -260,7 +258,6 @@ export const publicQuizLimitKeys = {
   slug: (slug: string) => `public-quiz:slug:${slug}`,
   all: "public-quiz:all",
   unknown: "public-quiz:unknown",
-  countCallerPage: (env: Pick<Env, "SESSION_TOKEN_SECRET">, address: string | null, slug: string) => `${callerLimitKey(env, "quiz-count", address ?? "unknown")}:${slug}`,
   countPage: (slug: string) => `quiz-count:page:${slug}:hour`,
   countAll: "quiz-count:all",
 } as const;
@@ -300,7 +297,6 @@ export async function answerPublicQuiz(ctx: PublicContext, input: { slug: string
   const type = scorePageQuiz(quiz.definition, input.answers);
   if (!type) return { outcome: "unanswered" };
   const room = await ctx.limits.take([
-    { key: publicQuizLimitKeys.countCallerPage(ctx.env, ctx.clientAddress ?? null, clean), rule: L.countPerCallerPage },
     { key: publicQuizLimitKeys.countPage(clean), rule: L.countPerPageHour },
     { key: publicQuizLimitKeys.countAll, rule: L.countAll },
   ]);

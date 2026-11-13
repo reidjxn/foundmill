@@ -9,7 +9,7 @@
 import { interactions, repos } from "@foundmill/db";
 import { PAGE_QUIZ_MIN_CUSTOMERS, type PageQuizDefinition, type ProjectPageContent } from "@foundmill/shared";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
-import { answerPublicQuiz, PUBLIC_QUIZ_LIMITS } from "../services/page-quiz";
+import { answerPublicQuiz, PUBLIC_QUIZ_LIMITS, publicQuizLimitKeys } from "../services/page-quiz";
 import { createApiHarness, type ApiHarness } from "./harness";
 
 let hz: ApiHarness;
@@ -183,20 +183,33 @@ describe("pageQuiz: security review fixes (Nov 13, 2026)", () => {
     }
   });
 
-  it("a flood of answers never stops a visitor getting their result; only the counting stops, per caller and page", async () => {
+  it("a flood of answers never stops a visitor getting their result; only the counting stops, per page", async () => {
     const b = await live("Flood");
     const ctx = { db: hz.db, env: hz.deps.env, limits: hz.limits, clientAddress: "203.0.113.9" };
     const answers = { q1: "a1", q2: "a1" };
     const results: string[] = [];
     for (let i = 0; i < 150; i++) results.push((await answerPublicQuiz(ctx, { slug: b.slug, version: b.version, answers })).outcome);
     expect(new Set(results)).toEqual(new Set(["result"]));
-    const counted = (await b.owner.pageQuiz.get({ businessId: b.id })).counts.t1 ?? 0;
-    expect(counted).toBeGreaterThan(0);
-    expect(counted).toBeLessThanOrEqual(PUBLIC_QUIZ_LIMITS.countPerCallerPage.limit);
-    // Another page answered from the same address still counts: one page's flood leaves the others alone.
+    // Every answer comes from the web server's one address: a per-caller bucket would have stopped counting at 60.
+    expect((await b.owner.pageQuiz.get({ businessId: b.id })).counts.t1).toBe(150);
+    // Over the page's hourly ceiling the visitor still gets their result; it is just not counted.
+    for (let i = 150; i < PUBLIC_QUIZ_LIMITS.countPerPageHour.limit; i++) await hz.limits.take([{ key: publicQuizLimitKeys.countPage(b.slug), rule: PUBLIC_QUIZ_LIMITS.countPerPageHour }]);
+    expect(await answerPublicQuiz(ctx, { slug: b.slug, version: b.version, answers })).toEqual({ outcome: "result", type: "t1" });
+    expect((await b.owner.pageQuiz.get({ businessId: b.id })).counts.t1).toBe(150);
+    // Another page still counts: one page's flood leaves the others alone.
     const other = await live("Other page");
     expect(await answerPublicQuiz(ctx, { slug: other.slug, version: other.version, answers })).toEqual({ outcome: "result", type: "t1" });
     expect((await other.owner.pageQuiz.get({ businessId: other.id })).counts).toEqual({ t1: 1 });
+  });
+
+  it("a script sending one answer a minute never stops real visitors being counted (second review, Nov 13, 2026)", async () => {
+    const b = await live("Steady");
+    const answers = { q1: "a1", q2: "a1" };
+    const web = { db: hz.db, env: hz.deps.env, limits: hz.limits, clientAddress: "198.51.100.1" };
+    for (let i = 0; i < 61; i++) await answerPublicQuiz(web, { slug: b.slug, version: b.version, answers });
+    // The next real visitor arrives through the same web server.
+    await answerPublicQuiz(web, { slug: b.slug, version: b.version, answers: { q1: "a2", q2: "a2" } });
+    expect((await b.owner.pageQuiz.get({ businessId: b.id })).counts).toEqual({ t1: 61, t2: 1 });
   });
 
   it("turning a quiz on checks it again: an offer pointing to a Follow form the page no longer has is refused", async () => {
