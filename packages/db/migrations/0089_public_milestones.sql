@@ -109,6 +109,8 @@ create view public_project_milestones with (security_barrier) as
                                    'mrr_1k', 'mrr_10k', 'mrr_100k', 'first_enterprise_contract');
 --> statement-breakpoint
 -- The api's to read on the service connection, one address at a time and rate-limited, like the page view (0081).
-revoke all on public_project_milestones from public, anon, authenticated;
+-- service_role is named in the revoke too: on Supabase the migration role's default privileges grant it every
+-- privilege on a new view, and it is to hold SELECT only, as 0087 left the two public views.
+revoke all on public_project_milestones from public, anon, authenticated, service_role;
 --> statement-breakpoint
 grant select on public_project_milestones to service_role;
