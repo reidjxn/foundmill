@@ -36,6 +36,7 @@ const BRANDS: Record<string, string> = {
   serpapi: "SerpApi",
   indexnow: "IndexNow",
   posthog: "PostHog",
+  buffer: "Buffer",
   dropbox_sign: "Dropbox Sign",
   google_drive: "Google Drive",
   google_calendar: "Google Calendar",

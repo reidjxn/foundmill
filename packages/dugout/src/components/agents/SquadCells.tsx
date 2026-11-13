@@ -171,6 +171,7 @@ export const TOOL_ICONS: Record<string, { icon: IconComponent; label: string }> 
   vercel: { icon: Code2, label: "Vercel" },
   posthog: { icon: Search, label: "PostHog" },
   resend: { icon: Mail, label: "Resend" },
+  buffer: { icon: PenLine, label: "Buffer" },
 };
 
 export interface ToolIconsProps {

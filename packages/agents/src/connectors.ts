@@ -60,6 +60,7 @@ export const THIRD_PARTY_CONNECTOR_KEYS = [
   "vercel",
   "posthog",
   "resend",
+  "buffer",
 ] as const;
 
 export const CONNECTOR_KEYS = [...PLATFORM_CONNECTOR_KEYS, ...THIRD_PARTY_CONNECTOR_KEYS] as const;
