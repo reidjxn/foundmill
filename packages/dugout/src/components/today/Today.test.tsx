@@ -117,6 +117,17 @@ describe("NeedsYouList", () => {
     expect(screen.getByRole("link", { name: NEEDS_YOU_WORDS.seeAll }).getAttribute("href")).toBe("/inbox?tab=respond");
   });
 
+  it("lays a row out from its container (stacked under page-wide) and keeps every control a finger's size", () => {
+    render(<NeedsYouList items={rows} total={7} seeAllHref="/inbox?tab=respond" onQuickAnswer={() => {}} />);
+    const first = screen.getAllByRole("listitem")[0]!;
+    expect(first.className).toContain("flex-col");
+    expect(first.className).toContain("@page-wide:flex-row");
+    for (const el of [...within(first).getAllByRole("button"), ...within(first).getAllByRole("link"), screen.getByRole("link", { name: NEEDS_YOU_WORDS.seeAll })]) {
+      expect(el.className).toContain("min-h-tap");
+      expect(el.className).toContain("@page-wide:min-h-0");
+    }
+  });
+
   it("offers one tap only where the row has a quick option, and Open on every row", async () => {
     const onQuickAnswer = vi.fn();
     render(<NeedsYouList items={rows} total={7} seeAllHref="/inbox?tab=respond" onQuickAnswer={onQuickAnswer} />);

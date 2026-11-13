@@ -1,6 +1,13 @@
-import type { Meta, StoryObj } from "@storybook/react-vite";
+import type { Decorator, Meta, StoryObj } from "@storybook/react-vite";
 import { PageGrid } from "../shell/PageGrid";
 import { WeekPlan } from "./WeekPlan";
+
+/** A 390 px phone frame that is its own container, so the panel lays itself out from its width (package 2.1). */
+const Phone: Decorator = (Story) => (
+  <div className="@container w-phone border-x border-line">
+    <Story />
+  </div>
+);
 
 const meta = {
   title: "Today/WeekPlan",
@@ -14,9 +21,11 @@ const meta = {
   },
   decorators: [
     (Story) => (
-      <PageGrid>
-        <Story />
-      </PageGrid>
+      <div className="@container">
+        <PageGrid>
+          <Story />
+        </PageGrid>
+      </div>
     ),
   ],
   args: {
@@ -33,3 +42,4 @@ export const FirstDay: Story = { args: { done: ["Nothing is finished yet: the fi
 export const Autopilot: Story = { args: { done: ["This week the team finished 3 pieces of work."], next: ["Now: Write the booking page.", "Autopilot starts the next round tomorrow (Estimate)."] } };
 export const NoAccess: Story = { args: { done: [], next: [], empty: "Members who can read Development see the week here." } };
 export const Loading: Story = { args: { loading: true } };
+export const Phone390: Story = { name: "390 px", decorators: [Phone], args: {} };

@@ -63,7 +63,8 @@ test.describe("Today and Needs you on a phone", () => {
     await page.getByTestId("phone-menu-button").click();
     const menu = page.getByTestId("phone-menu");
     await expect(menu).toBeVisible();
-    expect(await shortTargets(page), "the menu's rows are at least 44 px high").toEqual([]);
+    // (The panel eases in; the rows settle at their full height.)
+    await expect.poll(() => shortTargets(page), { message: "the menu's rows are at least 44 px high" }).toEqual([]);
     await menu.getByRole("link", { name: /^Needs you/ }).click();
     await expect(page).toHaveURL(new RegExp(`/b/${bid}/inbox`), { timeout: LONG });
     await expect(menu).toHaveCount(0);
@@ -105,6 +106,19 @@ test.describe("Today and Needs you on a phone", () => {
     await expect(page.getByTestId("reading-pane")).toBeVisible({ timeout: LONG });
     await expect(page.getByTestId("inbox-pane")).toBeHidden();
     expect(await shortTargets(page), "every link and button on a note is at least 44 px high").toEqual([]);
+  });
+
+  test("a note that asks for an answer at 390 px: the options and every control are finger-sized, nothing scrolls sideways", async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await openBusiness(page, "inbox?tab=respond");
+    await expect(page.getByTestId("inbox-list")).toBeVisible({ timeout: LONG });
+    await expect(page.getByTestId("phone-bar")).toBeVisible({ timeout: LONG });
+    await dismissCoachmarks(page);
+    await page.getByTestId("inbox-list").getByRole("option").first().click();
+    await expect(page.getByTestId("reading-pane")).toBeVisible();
+    await expect(page.getByTestId("decision-bar")).toBeVisible({ timeout: LONG });
+    await expect.poll(() => overflow(page), { timeout: LONG }).toBeLessThanOrEqual(0);
+    expect(await shortTargets(page), "every link and button on a decision is at least 44 px high").toEqual([]);
   });
 
   test("another project route at 390 px still asks for a larger window", async ({ page }) => {
