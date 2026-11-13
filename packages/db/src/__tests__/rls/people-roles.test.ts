@@ -7,7 +7,12 @@
  *   - a collaborator writes where a member writes, never an admin-only table, never the memberships; its end date
  *     (`expires_at`) is a collaborator's only, and once it has passed the row opens nothing, in either business;
  *   - another business's people reach none of it (the generic suite, cross-tenant.test.ts, runs both roles over every
- *     business table).
+ *     business table);
+ *   - 0092: a collaborator reads nothing of the admin-written and Money tables (`COLLABORATOR_CLOSED_TABLES`) nor the
+ *     project's invitations; the tables it still reads are named, with the gap that remains (the Money and Legal tables
+ *     members write);
+ *   - 0091: the cutover for a person from before open sign-up is stored, for the service role only; a cofounder
+ *     invitation names an address.
  */
 import { createHash, randomBytes } from "node:crypto";
 import { and, eq, sql } from "drizzle-orm";
@@ -16,6 +21,7 @@ import { repos } from "../../repos";
 import * as s from "../../schema";
 import { createTestDb, type TestHarness } from "../../testing/pglite";
 import { createBusinessFixture, RLS_DENIED, type BusinessFixture } from "./fixtures";
+import { COLLABORATOR_CLOSED_TABLES, COLLABORATOR_MEMBER_WRITES_MONEY_LEGAL, COLLABORATOR_STILL_READS_ADMIN_TABLES, TENANT_TABLES } from "./tables";
 
 let h: TestHarness;
 let A: BusinessFixture;
@@ -81,7 +87,7 @@ describe("memberships 0090: the roles and the end date", () => {
     // An admin-only table (0009's `accounts`).
     expect(await h.asUser(cofounder).run((tx) => tx.insert(s.accounts).values({ businessId: A.businessId, provider: "mock_bank", externalId: `cofounder-${Date.now()}`, name: "Cofounder's account" }).returning())).toHaveLength(1);
     // 0089: a cofounder invitation is an owner's to make, so a cofounder's too.
-    expect(await h.asUser(cofounder).run((tx) => repos.invitations.create(tx, A.businessId, { tokenHash: hex(), role: "cofounder", invitedByUserId: cofounder, email: null, expiresAt: inDays(14) }))).toMatchObject({ role: "cofounder" });
+    expect(await h.asUser(cofounder).run((tx) => repos.invitations.create(tx, A.businessId, { tokenHash: hex(), role: "cofounder", invitedByUserId: cofounder, email: "partner@example.com", expiresAt: inDays(14) }))).toMatchObject({ role: "cofounder" });
     // Nothing of B.
     expect(await h.asUser(cofounder).run((tx) => tx.select({ id: s.memberships.id }).from(s.memberships).where(eq(s.memberships.businessId, B.businessId)))).toHaveLength(0);
     await expect(h.asUser(cofounder).run((tx) => tx.insert(s.memberships).values({ businessId: B.businessId, userId: newcomer, role: "member" }))).rejects.toThrow(RLS_DENIED);
@@ -137,5 +143,45 @@ describe("memberships 0090: the roles and the end date", () => {
     expect(await repos.pages.ownerNames(h.db, A.businessId)).toEqual(["Maya Owner", "Ida Cofounder"]);
     const view = (await h.db.execute(sql`select pg_get_viewdef('public_project_pages'::regclass) as d`)) as unknown as { rows: { d: string }[] };
     expect(view.rows[0]!.d).toMatch(/'owner'::text, 'cofounder'::text/);
+  });
+
+  it("0092: a collaborator reads none of the admin-written and Money tables, nor the invitations; everyone else as before", async () => {
+    // A row in each closed table and an invitation, written by the service.
+    await h.service().run(async (tx) => {
+      await tx.insert(s.accounts).values({ businessId: A.businessId, provider: "mock_bank", externalId: `closed-${Date.now()}`, name: "Ops" });
+      await tx.insert(s.integrations).values({ businessId: A.businessId, connectorKey: `closed-${Date.now()}` });
+    });
+    await repos.invitations.create(h.db, A.businessId, { tokenHash: hex(), role: "collaborator", invitedByUserId: A.ownerId, email: null, expiresAt: inDays(14) });
+    for (const [name, table] of [["accounts", s.accounts], ["integrations", s.integrations], ["invitations", s.invitations]] as const) {
+      expect(await h.asUser(collaborator).run((tx) => tx.select({ id: table.id }).from(table).where(eq(table.businessId, A.businessId))), name).toHaveLength(0);
+      for (const id of [A.ownerId, cofounder, A.adminId, A.memberId, A.viewerId]) expect((await h.asUser(id).run((tx) => tx.select({ id: table.id }).from(table).where(eq(table.businessId, A.businessId)))).length, `${name} ${id}`).toBeGreaterThan(0);
+    }
+    // Every closed table's select policy is the one 0092 wrote.
+    const res = (await h.db.execute(sql`select tablename, qual from pg_policies where schemaname = 'public' and policyname = tablename || '_select'`)) as unknown as { rows: { tablename: string; qual: string }[] };
+    const qual = new Map(res.rows.map((r) => [r.tablename, r.qual]));
+    for (const t of [...COLLABORATOR_CLOSED_TABLES, "invitations"]) expect(qual.get(t), t).toMatch(/is_member_not_collaborator\(business_id\)/);
+    for (const t of COLLABORATOR_STILL_READS_ADMIN_TABLES) expect(qual.get(t), t).toMatch(/^is_member\(business_id\)$/);
+    // The lists are tenant tables and do not overlap.
+    const names = new Set(TENANT_TABLES.map((t) => t.name));
+    for (const t of [...COLLABORATOR_CLOSED_TABLES, ...COLLABORATOR_STILL_READS_ADMIN_TABLES, ...COLLABORATOR_MEMBER_WRITES_MONEY_LEGAL]) expect(names.has(t), t).toBe(true);
+    expect(COLLABORATOR_CLOSED_TABLES.filter((t) => COLLABORATOR_STILL_READS_ADMIN_TABLES.includes(t) || COLLABORATOR_MEMBER_WRITES_MONEY_LEGAL.includes(t))).toEqual([]);
+  });
+
+  it("the gap 0092 leaves, named: a collaborator still reads and writes the Money and Legal tables members write (only the api's walls keep them out)", async () => {
+    const as = h.asUser(collaborator);
+    expect(await as.run((tx) => tx.insert(s.ledgerSnapshots).values({ businessId: A.businessId, period: `gap-${Date.now()}`, basis: "cash" }).returning({ id: s.ledgerSnapshots.id }))).toHaveLength(1);
+    expect((await as.run((tx) => tx.select({ id: s.ledgerSnapshots.id }).from(s.ledgerSnapshots).where(eq(s.ledgerSnapshots.businessId, A.businessId)))).length).toBeGreaterThan(0);
+    const res = (await h.db.execute(sql`select tablename, qual from pg_policies where schemaname = 'public' and policyname = tablename || '_select'`)) as unknown as { rows: { tablename: string; qual: string }[] };
+    for (const t of COLLABORATOR_MEMBER_WRITES_MONEY_LEGAL) expect(res.rows.find((r) => r.tablename === t)?.qual, t).toMatch(/^is_member\(business_id\)$/);
+  });
+
+  it("0091: the cutover is stored for the service role only; a cofounder invitation names an address", async () => {
+    const at = (await h.service().run((tx) => tx.execute(sql`select admission_existing_before() as at`))) as unknown as { rows: { at: Date | string }[] };
+    expect(new Date(at.rows[0]!.at).getTime()).toBeLessThanOrEqual(Date.now());
+    expect(await repos.admissions.existingBefore(h.db)).toBeInstanceOf(Date);
+    expect(await failure(h.asUser(A.ownerId).run((tx) => tx.execute(sql`select admission_existing_before()`)))).toMatch(/permission denied/);
+    expect(await failure(h.anon().run((tx) => tx.execute(sql`select admission_existing_before()`)))).toMatch(/permission denied/);
+    expect(await failure(repos.invitations.create(h.db, A.businessId, { tokenHash: hex(), role: "cofounder", invitedByUserId: A.ownerId, email: null, expiresAt: inDays(14) }))).toMatch(/invitations_cofounder_email/);
+    expect(await repos.invitations.create(h.db, A.businessId, { tokenHash: hex(), role: "collaborator", invitedByUserId: A.ownerId, email: null, expiresAt: inDays(14) })).toMatchObject({ role: "collaborator" });
   });
 });

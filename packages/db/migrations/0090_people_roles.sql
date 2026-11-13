@@ -11,8 +11,10 @@
 --     member writes (`has_role` is true for a collaborator whenever `roles` holds 'member'): the walls between sections
 --     (read and write Product and Customers, read the plan, nothing of Money or Settings) are the api's, as they are for
 --     every member today (@foundmill/shared `COLLABORATOR_SECTIONS`; no policy here reads section permissions). A
---     collaborator never matches 'owner' or 'admin', so the admin-only tables (accounts, cap table, legal entities,
---     integrations, policies, billing, departments, logos...) stay closed to them in the database as well.
+--     collaborator never matches 'owner' or 'admin', so they cannot WRITE the admin-only tables (accounts, cap table,
+--     legal entities, integrations, policies, billing, departments, logos...). Reads are another matter: every table's
+--     select policy is `is_member`, so here a collaborator still READS those tables. 0092 closes the reads of the
+--     admin-written and Money tables to a collaborator (`is_member_not_collaborator`) and names what it leaves open.
 --   * `memberships.expires_at`: when a collaborator's access ends (null: no end). Only a collaborator's row may carry
 --     one. From that moment the row opens nothing: `is_member` and `has_role` leave it out, as the api does.
 --

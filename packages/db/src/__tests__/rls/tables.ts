@@ -169,6 +169,20 @@ export const TENANT_TABLES: TenantTableSpec[] = [
   spec("team_call_actions", s.teamCallActions, "append", (f) => ({ callId: f.teamCallId, position: 1000 + counter(), actionType: "create_task", title: uniq("Draft the launch email"), status: "not_filed", reason: "Example" }), { title: "tampered" }),
 ];
 
+/**
+ * 0092: the tables a collaborator does not read at all (their select policy is `is_member_not_collaborator`): the ones
+ * only owners and admins write, and the Money tables services write, outside what a collaborator's screens use. The
+ * generic suite checks a collaborator reads none of their rows and everyone else reads them as before.
+ */
+export const COLLABORATOR_CLOSED_TABLES: readonly string[] = ["accounts", "securities", "cap_table_entries", "usage_ledger", "credit_balances", "billing_checkouts", "legal_entities", "incorporations", "integrations", "webhooks", "policies", "app_installations"];
+/**
+ * Admin- or service-written tables a collaborator still reads, each for a screen of theirs (0092's header gives the
+ * reasons), and the Money and Legal tables members write, which a collaborator still reads and writes in the database
+ * as a member does (the api's section walls alone keep them out). Named so a change to either list is a decision.
+ */
+export const COLLABORATOR_STILL_READS_ADMIN_TABLES: readonly string[] = ["departments", "department_members", "holiday_periods", "business_logos", "business_foundations", "product_research", "session_recordings", "contact_consents", "demo_sample_rows"];
+export const COLLABORATOR_MEMBER_WRITES_MONEY_LEGAL: readonly string[] = ["transactions", "ledger_snapshots", "forecasts", "filings", "contracts", "compliance_events", "regulatory_gates"];
+
 /** Keeps the catalogue honest: every spec must name the table its Drizzle object points at. */
 export const expectedTableNames = () => TENANT_TABLES.map((t) => t.name);
 

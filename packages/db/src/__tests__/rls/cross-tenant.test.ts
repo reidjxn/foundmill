@@ -6,7 +6,9 @@
  *   - the intended writer (member / admin / service) can write and others cannot,
  *   - 0090's roles: a cofounder of A writes where an owner writes and reaches nothing of B; a collaborator of A writes
  *     where a member writes (never an admin-only table) and reaches nothing of B; a collaborator whose access has ended
- *     reaches nothing at all (`has_role` and `is_member` changed for every table at once, so every table is checked).
+ *     reaches nothing at all (`has_role` and `is_member` changed for every table at once, so every table is checked);
+ *   - 0092: a collaborator reads none of the rows of the admin-written and Money tables (`COLLABORATOR_CLOSED_TABLES`),
+ *     while the owner, a cofounder, an admin, a member and a viewer read them as before.
  * Test names carry the table name so a failure says which table regressed.
  */
 import { and, eq, getTableName, sql } from "drizzle-orm";
@@ -15,7 +17,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { DbTx } from "../../client";
 import { createTestDb, type Runner, type TestHarness } from "../../testing/pglite";
 import { createBusinessFixture, RLS_DENIED, type BusinessFixture } from "./fixtures";
-import { TENANT_TABLES, type TenantTable, type TenantTableSpec } from "./tables";
+import { COLLABORATOR_CLOSED_TABLES, TENANT_TABLES, type TenantTable, type TenantTableSpec } from "./tables";
 
 let h: TestHarness;
 let A: BusinessFixture;
@@ -144,9 +146,15 @@ describe.each(TENANT_TABLES.map((t) => [t.name, t] as const))("%s", (_name, t) =
     await expectNoEffect(h.anon().run((tx) => selectAll(tx, table)));
   });
 
-  it(`${t.name}: cofounder and collaborator of A read A's rows, never B's, and cannot write into B`, async () => {
+  const closedToCollaborator = COLLABORATOR_CLOSED_TABLES.includes(t.name);
+  it(`${t.name}: cofounder and collaborator of A read A's rows${closedToCollaborator ? " (a collaborator none: 0092)" : ""}, never B's, and cannot write into B`, async () => {
+    expect(await countAs(h.asUser(cofounderId), table, A.businessId)).toBeGreaterThanOrEqual(1);
+    if (closedToCollaborator) {
+      expect(await countAs(h.asUser(collaboratorId), table, A.businessId)).toBe(0);
+      expect(await h.asUser(collaboratorId).run((tx) => selectAll(tx, table))).toHaveLength(0);
+      for (const id of [A.ownerId, A.adminId, A.memberId, A.viewerId]) expect(await countAs(h.asUser(id), table, A.businessId), id).toBeGreaterThanOrEqual(1);
+    } else expect(await countAs(h.asUser(collaboratorId), table, A.businessId)).toBeGreaterThanOrEqual(1);
     for (const id of [cofounderId, collaboratorId]) {
-      expect(await countAs(h.asUser(id), table, A.businessId)).toBeGreaterThanOrEqual(1);
       expect(await countAs(h.asUser(id), table, B.businessId)).toBe(0);
       await expect(h.asUser(id).run((tx) => insertRow(tx, table, { ...t.sample(B), businessId: B.businessId }))).rejects.toThrow(RLS_DENIED);
       await expectNoEffect(h.asUser(id).run((tx) => updateRows(tx, table, B.businessId, patchFor(t))));
