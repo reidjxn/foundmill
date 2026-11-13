@@ -848,6 +848,10 @@ async function allow(deps: GatewayDeps, session: SessionToken, req: CallRequestP
       // tools reads it and the agent gets typed fields only (BUILD §9.8 step 2). If the reader fails, the agent gets nothing.
       try {
         const digest = await deps.reader.digest({ content, businessId: session.businessId, agentId: session.agentId, sessionId: session.sessionId });
+        // The digest is third-party content too: an address the reader wrote out (one the raw scan missed or cut short)
+        // reaches the agent as an ordinary address, so it is remembered like the raw text's. If that fails, nothing is passed on.
+        const fromDigest = await deps.recipients.record(session.businessId, candidatesFromContent(digest));
+        if (fromDigest > 0) log.debug({ added: fromDigest }, "recipients first seen in the quarantined reader's digest recorded for this business");
         // `toAgentEnvelope` carries the tool's typed read (`facts`, already held to the facts limits) beside the digest.
         data = { ...toAgentEnvelope(result.data), content: digest, quarantined: true };
       } catch (err) {
