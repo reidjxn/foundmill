@@ -5,7 +5,8 @@
  * an invitation to an address is that address's only, a cofounder invitation always names one, an account an invitation
  * let in cannot let others in and an inviter lets in a few new accounts a day, open sign-up counts invitations, the
  * cutover for a person from before, the Team permission re-checked, an ended collaborator invited again, and the races
- * (marked "needs a real-Postgres run" where PGlite's one connection can only show the mechanism).
+ * (marked "needs a real-Postgres run" where PGlite's one connection can only show the mechanism; people-races.test.ts runs
+ * them with real connections when RLS_TEST_DATABASE_URL is set).
  */
 import { createHash, randomBytes } from "node:crypto";
 import { repos, routeApproval } from "@foundmill/db";

@@ -44,7 +44,7 @@ So a viewer's stored Finance "write" counts as read. A role change that would sw
 2. The editor's own row, held `for share` and read after the lock (`repos.memberships.getMineForShare`). Under RLS a locking read must also pass the update policy, and that policy never lets anyone change their own row (0026, 0092). So `select … for share` on one's own row finds nothing (checked on PGlite), and the lock is taken by 0096's `lock_my_membership(bid)`: security definer, about `auth.uid()` only, executable by authenticated and service_role, not anon. Then the plain read sees the latest commit and keeps seeing it.
 3. The person's row, held `for update` (`repos.memberships.getForUpdate`). Under RLS it comes back only when the editor may change it. When it does not, a plain read still tells "not a member" apart from "an owner's row", so the words stay as they were.
 
-The editor's fresh row is then checked again for an admin's role and Team write ("You can no longer change people's access in this business"). The owner checks and `assertWithinGrantorAccess` read that row, not the request. Tests (`grant-access.test.ts`, "judges the rows as they are inside its transaction") change the editor's row between the request's read and the transaction: walled, lowered to member, Team narrowed, removed. A last test fixes the lock order. A real two-connection race needs a Postgres run; PGlite has one connection.
+The editor's fresh row is then checked again for an admin's role and Team write ("You can no longer change people's access in this business"). The owner checks and `assertWithinGrantorAccess` read that row, not the request. Tests (`grant-access.test.ts`, "judges the rows as they are inside its transaction") change the editor's row between the request's read and the transaction: walled, lowered to member, Team narrowed, removed. A last test fixes the lock order. PGlite has one connection, so the real two-connection races are in `people-races.test.ts`, which runs only on a real Postgres (below).
 
 **The invitation's accept already did this.** Inside its transaction it re-reads the inviter with `getActive(…, { lock: "share" })` and re-checks `mayMakeInvitation` and `withinGrantorAccess` on that row. That runs on the service connection, where the lock works (invitations-admission.test.ts checks the lock is taken). Nothing changed there. The accepter's own row is read without a lock, which is safe: `renewEnded` is a conditional update, re-checked under the row lock, and `add` is `on conflict do nothing`.
 
@@ -88,9 +88,19 @@ Invitations are the same: an admin may invite only a collaborator (rank 1), and 
 
 ## `is_member_not_collaborator(uuid)` grants (0095)
 
-0094 granted this security-definer helper to anon. On Supabase, postgres's default privileges also grant it to anon directly. anon never needs it: with no `auth.uid()` it is always false. 0095 now revokes it from public and anon and grants it explicitly to authenticated (the row policies call it as authenticated) and service_role. This matches main's structural client-grants test (#101). That test is not on this branch yet; the helper joins its authenticated list at the merge.
+0094 granted this security-definer helper to anon. On Supabase, postgres's default privileges also grant it to anon directly. anon never needs it: with no `auth.uid()` it is always false. 0095 now revokes it from public and anon and grants it explicitly to authenticated (the row policies call it as authenticated) and service_role. This matches main's structural client-grants test (#101): since the merge of main the helper is on its authenticated list, and the test checks that anon cannot call it.
 
 The other functions 0091–0095 add or replace were checked:
 - `is_member` and `has_role` are replaced, which keeps their grants; both are already on that test's lists.
 - `fm_memberships_keep_owner`, `fm_founder_profiles_public_guard` and `fm_invitations_guard` are trigger functions, which the test leaves out.
 - `admission_existing_before()` is not security definer and is service-only already (0093).
+
+## The races, on a real Postgres (Nov 13, 2026, after the merge of main)
+
+`apps/api/src/__tests__/people-races.test.ts` runs the races PGlite's one connection could only show the mechanism of, with real connections, and is skipped unless the harness runs on Postgres (`RLS_TEST_DATABASE_URL`, docs/DEPLOY.md §4). Each makes the two transactions overlap for certain: the first is held at the point that matters (the open count's advisory lock held by a third transaction, or a demotion paused after its UPDATE through a spy on `setRole`) until the other is seen waiting in `pg_locks` or `pg_stat_activity`, then let go.
+- **Two accepts for the last place.** Past the open-mode ceiling (a trusted inviter, the day's count one short of the ceiling plus 50) and under an inviter's own three a day (invite-only): exactly one is admitted; the other reads `on_waitlist` or `invitation_admissions_limit`, and its invitation stays pending.
+- **A change racing a demotion.** An accept whose inviter is demoted while it runs is refused (`invitation_unavailable`) and leaves nothing behind; a `team.humans.role` change by an admin whose own demotion commits first is refused ("You can no longer change people's access in this business"); in the other order the change stands and the demotion waits for it.
+
+Checked against the code by breaking it on purpose: with the counts read before the advisory lock, both accepts win; without the lock, the share lock or the editor's fresh row, the tests fail.
+
+`client-grants.test.ts` (#101) lists `is_member_not_collaborator(uuid)` and `lock_my_membership(uuid)` for authenticated, and checks that anon cannot execute either and service_role can.
