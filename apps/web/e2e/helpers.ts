@@ -22,6 +22,21 @@ export const UUID = "[0-9a-f-]{36}";
 /** Long waits: the api answers tRPC against PGlite and next dev compiles each route on first visit. */
 export const LONG = 60_000;
 
+/** The small-screen tap target (CLAUDE.md "Small screens"): every control and link is at least 44 px tall. */
+export const TAP_TARGET_PX = 44;
+/**
+ * Layout rounding slack for `boundingBox()`: a 44 px box can measure 43.99997 px (CI run 43385400232). A hundredth
+ * of a pixel absorbs that and still fails any real shortfall.
+ */
+const SUBPIXEL_PX = 0.01;
+
+/** Asserts a box (or the element behind a locator) is a 44 px tap target, tolerating sub-pixel rounding only. */
+export async function expectTapTarget(target: Locator | { height: number }, message?: string): Promise<void> {
+  const box = "boundingBox" in target ? await target.boundingBox() : target;
+  expect(box, message ?? "tap target is rendered").not.toBeNull();
+  expect(box!.height, message ?? `${TAP_TARGET_PX} px tap target`).toBeGreaterThanOrEqual(TAP_TARGET_PX - SUBPIXEL_PX);
+}
+
 /** Signs in through the dev bypass; makes sure the founder profile exists; lands on /new or a business Home. */
 export async function signIn(page: Page): Promise<void> {
   await page.goto("/login");
