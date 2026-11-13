@@ -6,7 +6,9 @@
  * project with one person shows that person and the control, nothing about who is missing.
  *
  * "Invite someone" makes an invitation: a role (cofounder or collaborator, each with one plain sentence), and an
- * address only if Foundmill should email the link. The link is shown once, to copy; it works once, for 14 days. The
+ * address: always for a cofounder (only the account signed in with it can accept, so the link is never a key to the
+ * project for whoever holds it), and for a collaborator only if Foundmill should email the link (an invitation that
+ * names an address is that address's only). The link is shown once, to copy; it works once, for 14 days. The
  * invitations still waiting are listed with Revoke, and only when there are some. The silent add by email or account id
  * is gone (the api's `team.humans.invite` with it).
  */
@@ -15,7 +17,7 @@ import { Copy, Link2, UserX } from "lucide-react";
 import { useState } from "react";
 import { Avatar, Button, Chip, Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, Field, IconButton, Input, RadioGroup, RadioOption, SimpleSelect, useDateFormat, useToast } from "@foundmill/dugout";
 import { isAdminRole, isOwnerRole, type MembershipRole } from "@foundmill/shared/constants";
-import { INVITATION_ROLE_SENTENCE, INVITATION_ROLE_WORD, rolesThatMayInvite, type InvitationRole } from "@foundmill/shared/people";
+import { INVITATION_ROLE_SENTENCE, INVITATION_ROLE_WORD, invitationNeedsEmail, rolesThatMayInvite, type InvitationRole } from "@foundmill/shared/people";
 import { formatDate, plural } from "@/lib/format";
 import { errorMessage } from "@/lib/trpc";
 import { useTRPC } from "@/lib/trpc-react";
@@ -79,10 +81,22 @@ export function memberMeta(m: { role: MembershipRole; createdAt: Date | string; 
   return parts.join(" · ");
 }
 
-/** The optional address: empty is fine (copy the link yourself), else it must look like one. */
-export function inviteEmailProblem(value: string): string | null {
+/**
+ * The address: a cofounder invitation needs one (only the account signed in with it can accept); for a collaborator
+ * empty is fine (copy the link yourself). Either way what is typed must look like one. `touched`: say nothing about an
+ * empty required field until the person has typed or pressed Create.
+ */
+export function inviteEmailProblem(value: string, required = false, touched = true): string | null {
   const v = value.trim();
-  return v === "" || EMAIL_RE.test(v) ? null : "That doesn't look like an email address.";
+  if (v === "") return required && touched ? "Type the email address of the person you're inviting as a cofounder." : null;
+  return EMAIL_RE.test(v) ? null : "That doesn't look like an email address.";
+}
+
+/** The address field's words for the chosen role. */
+export function inviteEmailField(role: InvitationRole): { label: string; hint: string } {
+  return invitationNeedsEmail(role)
+    ? { label: "Their email", hint: "Only the person signed in with this address can accept. We email them the link, and you can copy it too." }
+    : { label: "Email it to (optional)", hint: "Leave it empty to copy the link and send it yourself. With an address, only the person signed in with it can accept." };
 }
 
 export function MembersTab() {
@@ -99,12 +113,14 @@ export function MembersTab() {
   const myRole = data.membership.role as MembershipRole;
   const [inviteRole, setInviteRole] = useState<InvitationRole>(mayInvite(myRole, "cofounder") ? "cofounder" : "collaborator");
   const [inviteEmail, setInviteEmail] = useState("");
+  const [inviteTried, setInviteTried] = useState(false);
   const [created, setCreated] = useState<{ link: string; emailed: boolean | null; role: InvitationRole } | null>(null);
   const create = useMutation(
     trpc.invitation.create.mutationOptions({
       onSuccess: (r) => {
         setCreated({ link: r.link, emailed: r.emailed, role: r.invitation.role });
         setInviteEmail("");
+        setInviteTried(false);
         void invalidate(["invitation"]);
       },
       onError: (e) => t.failed(e),
@@ -116,7 +132,9 @@ export function MembersTab() {
   // The founder's own name, as the team calls them (the founder profile); the "You" chip only beside a real name.
   const founder = useQuery(trpc.founder.profile.get.queryOptions(undefined, { staleTime: 5 * 60_000 }));
   const viewerName = founder.data?.profile?.displayName?.trim() || null;
-  const emailProblem = inviteEmailProblem(inviteEmail);
+  const emailRequired = invitationNeedsEmail(inviteRole);
+  const emailProblem = inviteEmailProblem(inviteEmail, emailRequired, inviteTried || inviteEmail !== "");
+  const emailField = inviteEmailField(inviteRole);
   const pending = (invitations.data ?? []).filter((i) => i.state === "pending");
   const nameOf = (userId: string | null) => (members.data ?? []).find((m) => m.userId === userId)?.displayName?.trim() || null;
 
@@ -191,8 +209,8 @@ export function MembersTab() {
               />
             ))}
           </RadioGroup>
-          <Field htmlFor="invite-email" label="Email it to (optional)" hint="Leave it empty to copy the link and send it yourself." error={emailProblem ?? undefined}>
-            <Input id="invite-email" type="email" value={inviteEmail} onChange={(e) => setInviteEmail(e.target.value)} placeholder="name@example.com" invalid={!!emailProblem} />
+          <Field htmlFor="invite-email" label={emailField.label} hint={emailField.hint} error={emailProblem ?? undefined}>
+            <Input id="invite-email" type="email" required={emailRequired} aria-required={emailRequired} value={inviteEmail} onChange={(e) => setInviteEmail(e.target.value)} placeholder="name@example.com" invalid={!!emailProblem} />
           </Field>
           <div className="flex justify-end">
             <Button
@@ -200,7 +218,11 @@ export function MembersTab() {
               icon={Link2}
               loading={create.isPending}
               disabled={!!emailProblem || !mayInvite(myRole, inviteRole)}
-              onClick={() => create.mutate({ businessId, role: inviteRole, ...(inviteEmail.trim() ? { email: inviteEmail.trim() } : {}) })}
+              onClick={() => {
+                setInviteTried(true);
+                if (inviteEmailProblem(inviteEmail, emailRequired)) return;
+                create.mutate({ businessId, role: inviteRole, ...(inviteEmail.trim() ? { email: inviteEmail.trim() } : {}) });
+              }}
               data-testid="invite-create"
             >
               Create invitation
@@ -209,7 +231,11 @@ export function MembersTab() {
           {created ? (
             <div className="flex flex-col gap-2 rounded-sm border border-line bg-panel-alt p-3" data-testid="invite-link">
               <p className="text-body text-primary">
-                {created.emailed === true ? `Emailed. You can also copy the link: it invites someone as a ${INVITATION_ROLE_WORD[created.role].toLowerCase()}.` : created.emailed === false ? "The email could not be sent right now. Copy the link and send it yourself." : `Copy the link and send it to the person you're inviting as a ${INVITATION_ROLE_WORD[created.role].toLowerCase()}.`}
+                {created.emailed === true
+                  ? `Emailed. You can also copy the link: it invites them as a ${INVITATION_ROLE_WORD[created.role].toLowerCase()}, and only they can accept it.`
+                  : created.emailed === false
+                    ? "The email could not be sent right now. Copy the link and send it yourself: only the person signed in with that address can accept it."
+                    : `Copy the link and send it to the person you're inviting as a ${INVITATION_ROLE_WORD[created.role].toLowerCase()}.`}
               </p>
               <div className="flex items-center gap-2">
                 <code className="min-w-0 flex-1 select-all break-all rounded-sm bg-surface-2 px-2 py-1 font-mono text-mono text-primary" data-testid="invite-link-value">

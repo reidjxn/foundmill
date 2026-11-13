@@ -11,7 +11,7 @@ const meta = {
     docs: {
       description: {
         component:
-          "Shown wherever the api refuses a signed-in person with `on_waitlist`: “You're on the list. We'll email you when you're in.”, the address that signed in, and the way on (Sign out, a link onward). Every control is at least 44 px tall.",
+          "Shown wherever the api refuses a signed-in person with `on_waitlist`: “You're on the list. We'll let you in as soon as there is room. Come back tomorrow to check.” (no email is promised while nothing records who waits), the address that signed in, and the way on (Sign out, a link onward). Every control is at least 44 px tall.",
       },
     },
   },

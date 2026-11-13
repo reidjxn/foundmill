@@ -3,7 +3,9 @@
  * account ID or sign-in email is gone. A cofounder invitation is an owner's or a cofounder's to make (3.3).
  */
 import { describe, expect, it } from "vitest";
-import { inviteEmailProblem, mayChangeRole, mayInvite, memberLabel, memberMeta, ROLE_ORDER, shortId } from "../MembersTab";
+import { TRPCClientError } from "@trpc/client";
+import { invitationReadFailure } from "@/lib/people";
+import { inviteEmailField, inviteEmailProblem, mayChangeRole, mayInvite, memberLabel, memberMeta, ROLE_ORDER, shortId } from "../MembersTab";
 
 const ID = "5a1e0000-0000-4000-8000-00000000fe01";
 
@@ -15,11 +17,25 @@ describe("inviting someone", () => {
     expect(mayInvite("admin", "collaborator")).toBe(true);
     for (const r of ["member", "collaborator", "viewer", "advisor"] as const) expect([mayInvite(r, "cofounder"), mayInvite(r, "collaborator")]).toEqual([false, false]);
   });
-  it("the address is optional, and checked only when typed", () => {
+  it("the address is optional for a collaborator and checked only when typed; a cofounder invitation needs one", () => {
     expect(inviteEmailProblem("")).toBeNull();
     expect(inviteEmailProblem("  ")).toBeNull();
     expect(inviteEmailProblem("ada@northwind.example")).toBeNull();
     expect(inviteEmailProblem("ada@")).toMatch(/doesn't look like an email/);
+    expect(inviteEmailProblem("", true)).toMatch(/Type the email address/);
+    expect(inviteEmailProblem("", true, false)).toBeNull();
+    expect(inviteEmailProblem("ada@northwind.example", true)).toBeNull();
+    expect(inviteEmailField("cofounder").label).toBe("Their email");
+    expect(inviteEmailField("collaborator").label).toBe("Email it to (optional)");
+    expect(inviteEmailField("cofounder").hint).toMatch(/Only the person signed in with this address can accept/);
+  });
+
+  it("an invitation read the api's limit refused says busy; anything else is the dead-link answer", () => {
+    const err = (code: string, appCode?: string) => new TRPCClientError("x", { result: { error: { message: "x", code: -32000, data: { code, appCode } } } } as never);
+    expect(invitationReadFailure(err("TOO_MANY_REQUESTS", "rate_limited"))).toBe("busy");
+    expect(invitationReadFailure(err("TOO_MANY_REQUESTS"))).toBe("busy");
+    expect(invitationReadFailure(err("INTERNAL_SERVER_ERROR"))).toBe("unavailable");
+    expect(invitationReadFailure(new Error("network"))).toBe("unavailable");
   });
   it("shortens a long id for one line", () => {
     expect(shortId(ID)).toBe("5a1e0000…fe01");

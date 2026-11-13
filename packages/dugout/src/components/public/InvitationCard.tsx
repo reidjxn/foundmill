@@ -5,14 +5,16 @@
  *
  * Presentational and server-safe: the caller passes the actions (Accept and Not now, or "Sign in to accept", as buttons
  * or links) and owns what they do. `unavailable` is the one answer for every invitation that no longer works (unknown,
- * expired, revoked, used, declined): it says so and how to get a new one, and names nobody.
+ * expired, revoked, used, declined): it says so and how to get a new one, and names nobody. `checking` is the moment
+ * the page is still asking (the browser reads the invitation itself), and `busy` the answer when too many people
+ * opened links at once: it says to try again in a minute, never that the invitation is dead.
  */
 import type { ReactNode } from "react";
-import { MailCheck, MailX } from "lucide-react";
+import { Hourglass, MailCheck, MailX } from "lucide-react";
 import { cn } from "../../lib/cn";
 import { Icon } from "../foundation/Icon";
 
-export type InvitationCardState = "pending" | "unavailable" | "accepted" | "declined";
+export type InvitationCardState = "pending" | "unavailable" | "accepted" | "declined" | "checking" | "busy";
 
 export interface InvitationCardProps {
   state: InvitationCardState;
@@ -41,6 +43,10 @@ export function invitationCardWords(p: Pick<InvitationCardProps, "state" | "proj
       return { title: `You're in ${project}`, lead: null };
     case "declined":
       return { title: "Invitation declined", lead: "Nothing else happens, and nobody is told who you are." };
+    case "checking":
+      return { title: "Opening the invitation…", lead: null };
+    case "busy":
+      return { title: "Too many people opened links just now.", lead: "Try again in a minute." };
     default:
       return { title: "This invitation no longer works", lead: "It may have expired or been used already. Ask the person who invited you for a new link." };
   }
@@ -49,11 +55,12 @@ export function invitationCardWords(p: Pick<InvitationCardProps, "state" | "proj
 export function InvitationCard({ state, projectName, inviterName, roleWord, roleSentence, actions, note, className }: InvitationCardProps) {
   const words = invitationCardWords({ state, projectName, inviterName, roleWord });
   const ok = state === "pending" || state === "accepted";
+  const waiting = state === "checking" || state === "busy";
   return (
-    <section data-invitation-card={state} aria-labelledby="invitation-title" className={cn("flex min-w-0 flex-col gap-4 rounded-md border border-line bg-panel p-4 @page-wide:p-5", className)}>
+    <section data-invitation-card={state} aria-labelledby="invitation-title" aria-busy={state === "checking" || undefined} className={cn("flex min-w-0 flex-col gap-4 rounded-md border border-line bg-panel p-4 @page-wide:p-5", className)}>
       <div className="flex min-w-0 items-start gap-3">
         <span className={cn("mt-0.5 inline-grid size-8 shrink-0 place-items-center rounded-sm", ok ? "bg-panel-alt text-kit" : "bg-panel-alt text-secondary")}>
-          <Icon icon={ok ? MailCheck : MailX} size={16} />
+          <Icon icon={ok ? MailCheck : waiting ? Hourglass : MailX} size={16} />
         </span>
         <div className="flex min-w-0 flex-col gap-1">
           <h1 id="invitation-title" className="t-title min-w-0 break-words text-primary">

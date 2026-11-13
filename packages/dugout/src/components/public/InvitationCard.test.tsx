@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { render, screen } from "@testing-library/react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { ON_WAITLIST_WORDS } from "@foundmill/shared/allowlist";
+import { ON_WAITLIST_EMAIL_PROMISE, ON_WAITLIST_WORDS } from "@foundmill/shared/allowlist";
 import { INVITATION_ROLE_SENTENCE } from "@foundmill/shared/people";
 import { InvitationCard, invitationCardWords } from "./InvitationCard";
 import { OnWaitlistCard } from "./OnWaitlistCard";
@@ -23,6 +23,18 @@ describe("InvitationCard", () => {
     expect(html).not.toContain("Maya");
   });
 
+  it("while asking it says it is opening; when too many people opened links at once it says to try again, never that the invitation is dead", () => {
+    const busy = renderToStaticMarkup(<InvitationCard state="busy" projectName="Secret Project" inviterName="Maya" />);
+    expect(busy).toContain("Too many people opened links just now.");
+    expect(busy).toContain("Try again in a minute.");
+    expect(busy).not.toContain("no longer works");
+    expect(busy).not.toContain("Secret Project");
+    expect(invitationCardWords({ state: "busy" })).toEqual({ title: "Too many people opened links just now.", lead: "Try again in a minute." });
+    const checking = renderToStaticMarkup(<InvitationCard state="checking" />);
+    expect(checking).toContain("Opening the invitation…");
+    expect(checking).toContain('aria-busy="true"');
+  });
+
   it("prints every string as text", () => {
     const html = renderToStaticMarkup(<InvitationCard state="pending" projectName={"<img src=x onerror=alert(1)>"} inviterName="<script>x</script>" roleWord="Cofounder" />);
     expect(html).not.toContain("<script>");
@@ -31,11 +43,13 @@ describe("InvitationCard", () => {
 });
 
 describe("OnWaitlistCard", () => {
-  it("says the person is on the list and will hear by email, names the address and shows the caller's way on, with nothing to join", () => {
+  it("says the person is on the list and what is true now (no email is promised while nothing records who waits), names the address and shows the caller's way on, with nothing to join", () => {
     render(<OnWaitlistCard email="maya@example.com" actions={<a href="/examples/x">Look around an example</a>} />);
     expect(screen.getByRole("heading", { level: 1, name: "You're on the list." })).toBeTruthy();
     expect(screen.getByRole("status").textContent).toBe(ON_WAITLIST_WORDS.body);
-    expect(ON_WAITLIST_WORDS.body).toBe("We'll email you when you're in.");
+    expect(ON_WAITLIST_WORDS.body).toBe("We'll let you in as soon as there is room. Come back tomorrow to check.");
+    expect(document.body.textContent).not.toContain(ON_WAITLIST_EMAIL_PROMISE);
+    expect(document.body.textContent).not.toMatch(/email you/i);
     expect(screen.getByText("maya@example.com")).toBeTruthy();
     expect(screen.getByRole("link", { name: "Look around an example" })).toBeTruthy();
     expect(document.querySelector("form")).toBeNull();

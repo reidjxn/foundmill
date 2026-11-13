@@ -12,7 +12,7 @@ const meta = {
     docs: {
       description: {
         component:
-          "Who invited you, to what, as what (one plain sentence for the role), and the way on: Accept and Not now, or Sign in to accept. Every invitation that no longer works reads the same and names nobody. Server-safe; the caller passes the actions. Every control is at least 44 px tall.",
+          "Who invited you, to what, as what (one plain sentence for the role), and the way on: Accept and Not now, or Sign in to accept. Every invitation that no longer works reads the same and names nobody. While the page asks it reads Opening; when too many people opened links at once it says to try again in a minute, never that the invitation is dead. Server-safe; the caller passes the actions. Every control is at least 44 px tall.",
       },
     },
   },
@@ -53,4 +53,19 @@ export const SignedOut390: Story = {
 export const NoInviterName390: Story = { name: "390 px · the inviter has no name yet", decorators: [Phone], args: { inviterName: null, actions } };
 export const Unavailable390: Story = { name: "390 px · no longer works", decorators: [Phone], args: { state: "unavailable", projectName: null, inviterName: null } };
 export const Declined390: Story = { name: "390 px · declined", decorators: [Phone], args: { state: "declined" } };
+export const Checking390: Story = { name: "390 px · opening", decorators: [Phone], args: { state: "checking", projectName: null, inviterName: null } };
+export const Busy390: Story = {
+  name: "390 px · too many people at once",
+  decorators: [Phone],
+  args: {
+    state: "busy",
+    projectName: null,
+    inviterName: null,
+    actions: (
+      <Button variant="secondary" size="lg" className="min-h-tap">
+        Try again
+      </Button>
+    ),
+  },
+};
 export const Desktop: Story = { name: "1280 px", decorators: [(Story) => <div className="@container w-[480px] bg-canvas p-6"><Story /></div>], args: { actions } };

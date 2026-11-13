@@ -3,6 +3,7 @@
  * list" panel send a person. No imports of server code: client pages use it too.
  */
 import { NEXT_PARAM } from "@/lib/auth/constants";
+import { appErrorCode, trpcErrorCode } from "@/lib/trpc";
 import { DEFAULT_EXAMPLE_ID, examplePath } from "@/components/landing/examples/ids";
 import { EXAMPLE_IDS } from "@/components/landing/examples/types";
 
@@ -15,3 +16,11 @@ export const ON_WAITLIST_ONWARD_HREF = examplePath(EXAMPLE_IDS.find((id) => id !
 
 /** The sign-in page, coming back to `path` (an invitation or an admission link) once the person is signed in. */
 export const signInThenBackTo = (path: string): string => `/login?${NEXT_PARAM}=${encodeURIComponent(path)}`;
+
+/**
+ * What `/i/<token>` shows when reading the invitation failed: `busy` when the api's limit refused it (too many people
+ * opened links at once: try again in a minute), else `unavailable` (the one answer for a link that does not work).
+ */
+export function invitationReadFailure(err: unknown): "busy" | "unavailable" {
+  return appErrorCode(err) === "rate_limited" || trpcErrorCode(err) === "TOO_MANY_REQUESTS" ? "busy" : "unavailable";
+}

@@ -29,6 +29,11 @@ test.describe("settings, plain words", () => {
     // Someone joins through an invitation they accept (THESIS 3.1): no "Add member" by account ID or sign-in email.
     await expect(screen.getByTestId("add-member")).toHaveCount(0);
     await expect(screen.getByTestId("invite-create")).toBeVisible();
+    // A cofounder invitation (the owner's default) names the person's address; a collaborator's may be a bare link.
+    const invite = screen.getByTestId("invite-someone");
+    await expect(invite.getByText("Their email")).toBeVisible();
+    await invite.getByLabel("Collaborator").check();
+    await expect(invite.getByText("Email it to (optional)")).toBeVisible();
   });
 
   test("People: removing someone asks first (MLSL-40)", async ({ page }) => {

@@ -4,21 +4,23 @@
  * cached: the token is the credential. What it says comes from the api's public `invitation.byToken` (rate-limited; an
  * unknown, expired, revoked or used token reads the same).
  *
+ * The browser asks the api itself (components/people/InvitationScreen.tsx), never this server render: the api's
+ * per-caller limit then counts each visitor's own address, so nobody can use up every visitor's reads by opening links
+ * through the web (which would give the api one address for everyone). Too many opens at once read "Too many people
+ * opened links just now. Try again in a minute.", never "no longer works".
+ *
  * The invitation survives sign-up without any change to sign-in: "Sign in to accept" goes to /login with `next` back
  * here, the sign-in callback returns here, and the signed-in page offers Accept.
  */
 import type { Metadata } from "next";
-import { InvitationScreen, type InvitationPreview } from "@/components/people/InvitationScreen";
+import { InvitationScreen } from "@/components/people/InvitationScreen";
 import { getServerAuth } from "@/lib/auth/server";
-import { createApiClient, SERVER_LIMITS } from "@/lib/trpc";
 
 export const metadata: Metadata = { title: "An invitation", robots: { index: false, follow: false }, referrer: "no-referrer" };
 export const dynamic = "force-dynamic";
 
 export default async function InvitationPage({ params }: { params: Promise<{ token: string }> }) {
   const { token } = await params;
-  const api = createApiClient({ getToken: () => null, fetch: (url, init) => fetch(url, { ...init, cache: "no-store" }), limits: SERVER_LIMITS });
-  const preview: InvitationPreview = await api.invitation.byToken.query({ token: token.slice(0, 100) }).catch(() => ({ state: "unavailable" as const }));
   const auth = await getServerAuth();
-  return <InvitationScreen token={token} preview={preview} signedIn={auth !== null} />;
+  return <InvitationScreen token={token.slice(0, 100)} signedIn={auth !== null} />;
 }

@@ -2,8 +2,9 @@
 /**
  * The api's `on_waitlist` refusal (services/access.ts: the admission did not let the signed-in person in today), shown
  * by `ApiErrorPage` in place of whatever page they opened, from 390 px (CLAUDE.md "Small screens": sign-in and what it
- * leads to). The design system's `OnWaitlistCard` in the brand frame: "You're on the list. We'll email you when you're
- * in.", the address that signed in, Sign out, and a link onward (an example project to look around).
+ * leads to). The design system's `OnWaitlistCard` in the brand frame: "You're on the list." and what is true now
+ * (`ON_WAITLIST_WORDS`: no email is promised until the waitlist records who waits), the address that signed in, Sign
+ * out, and a link onward (an example project to look around).
  *
  * `WorksOnSmallScreens` keeps the root's `DesktopOnly` from asking for a larger window on whatever route this is.
  * Self-contained: the retention team's not-invited page and its "Join the waitlist" are a separate refusal
