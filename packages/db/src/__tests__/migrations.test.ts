@@ -104,6 +104,7 @@ describe("journal", () => {
       "0088_attributions",
       "0089_public_milestones",
       "0090_page_dates_recorded",
+      "0103_post_media",
     ]);
     // strictly increasing `when` so drizzle applies them in order
     const whens = ours.map((m) => m.when);

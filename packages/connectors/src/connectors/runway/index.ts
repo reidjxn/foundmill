@@ -11,10 +11,52 @@ import { buildLiveConnector, healthResult } from "../../define";
 import { bearer, createHttp } from "../../http";
 import { resolveLiveOptions, type LiveConnectorOptions } from "../../platform";
 import { runwayMock } from "./mock";
-import { assertImageUrl, mapStart, mapTask, RUNWAY_API_VERSION, RUNWAY_BASE_URL, RUNWAY_CONNECT_FIELDS, RUNWAY_KEY, RUNWAY_RATE_LIMITS, runwayTools, type RunwayOrganizationResponse, type RunwayStartResponse, type RunwayTaskResponse } from "./tools";
+import { assertClipUrl, assertImageUrl, mapStart, mapTask, RUNWAY_API_VERSION, RUNWAY_BASE_URL, RUNWAY_CONNECT_FIELDS, RUNWAY_KEY, RUNWAY_RATE_LIMITS, runwayTools, VIDEO_DOWNLOAD_MAX_BYTES, type RunwayOrganizationResponse, type RunwayStartResponse, type RunwayTaskResponse } from "./tools";
 
 /** Starting a task answers at once; a slow answer is a failure, not a wait. */
 const CALL_TIMEOUT_MS = 30_000;
+/** Fetching a finished clip of a few MB from Runway's storage. */
+const DOWNLOAD_TIMEOUT_MS = 90_000;
+
+/**
+ * The clip at `address`, read whole but never past `max` bytes (a Content-Length over it is refused before the body is
+ * read; a body that grows past it is cut off). No key is sent: the address is a signed link to Runway's storage.
+ */
+export async function fetchClip(fetchImpl: typeof fetch, address: string, max: number = VIDEO_DOWNLOAD_MAX_BYTES): Promise<Uint8Array> {
+  const url = assertClipUrl(address);
+  const res = await fetchImpl(url.toString(), { method: "GET", redirect: "follow", signal: AbortSignal.timeout(DOWNLOAD_TIMEOUT_MS) });
+  if (!res.ok) throw new VendorError(RUNWAY_KEY, res.status, `GET clip → ${res.status}`);
+  if (res.url && !res.url.startsWith("https://")) throw new VendorError(RUNWAY_KEY, 502, "GET clip was sent to an address that is not https");
+  const type = (res.headers.get("content-type") ?? "").split(";")[0]!.trim().toLowerCase();
+  if (type && type !== "video/mp4" && type !== "application/octet-stream" && type !== "binary/octet-stream") throw new VendorError(RUNWAY_KEY, 502, `GET clip answered ${type.slice(0, 40)}, not a video`);
+  const declared = Number(res.headers.get("content-length") ?? "");
+  if (Number.isFinite(declared) && declared > max) throw new VendorError(RUNWAY_KEY, 413, `GET clip is larger than ${Math.round(max / (1024 * 1024))} MB`);
+  const reader = res.body?.getReader();
+  if (!reader) {
+    const whole = new Uint8Array(await res.arrayBuffer());
+    if (whole.byteLength > max) throw new VendorError(RUNWAY_KEY, 413, `GET clip is larger than ${Math.round(max / (1024 * 1024))} MB`);
+    return whole;
+  }
+  const parts: Uint8Array[] = [];
+  let total = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.byteLength;
+    if (total > max) {
+      await reader.cancel().catch(() => undefined);
+      throw new VendorError(RUNWAY_KEY, 413, `GET clip is larger than ${Math.round(max / (1024 * 1024))} MB`);
+    }
+    parts.push(value);
+  }
+  const out = new Uint8Array(total);
+  let at = 0;
+  for (const p of parts) {
+    out.set(p, at);
+    at += p.byteLength;
+  }
+  return out;
+}
 
 /** Runway keys start `key_`. Anything key-shaped, and the key in hand, is masked out of vendor text. */
 export const redactKeys = (text: string, secret?: string): string => {
@@ -75,6 +117,18 @@ export function createRunwayConnector(options: LiveConnectorOptions = {}): Conne
           const task = mapTask(res, now());
           if (!task) throw new VendorError(RUNWAY_KEY, 502, "GET /v1/tasks/{id} answered without a task");
           return task;
+        },
+        download_video: async ({ taskId }, ctx) => {
+          const secret = ctx.credential?.secret;
+          if (!secret) throw missingKey();
+          // A fresh lookup: the address it answers with is good for a day at least.
+          const task = mapTask(await call<RunwayTaskResponse>(secret, "GET", `/v1/tasks/${taskId}`), now());
+          if (!task) throw new VendorError(RUNWAY_KEY, 502, "GET /v1/tasks/{id} answered without a task");
+          const address = task.outputUrls[0];
+          if (task.status !== "SUCCEEDED" || !address) return { taskId: task.taskId, status: task.status, ready: false, mime: null, base64: null, bytes: 0 };
+          const clip = await fetchClip(fetch, address);
+          if (clip.byteLength === 0) throw new VendorError(RUNWAY_KEY, 502, "GET clip answered with no bytes");
+          return { taskId: task.taskId, status: task.status, ready: true, mime: "video/mp4" as const, base64: Buffer.from(clip.buffer, clip.byteOffset, clip.byteLength).toString("base64"), bytes: clip.byteLength };
         },
       },
       connectFields: RUNWAY_CONNECT_FIELDS,

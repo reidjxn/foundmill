@@ -223,5 +223,8 @@ export const NON_TENANT_TABLES = [
   "founder_notifications",
   // 0088: who or what brought a new person (user-owned, service role only); rls/attributions.test.ts.
   "attributions",
+  // 0103: a post draft's media, one row per draft and kind, written by services only (the generated suite cannot make a
+  // draft per insert); covered by rls/post-media.test.ts.
+  "post_media",
 ] as const;
 

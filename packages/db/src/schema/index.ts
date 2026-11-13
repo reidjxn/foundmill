@@ -30,3 +30,4 @@ export * from "./demo";
 export * from "./team-calls";
 export * from "./founder-return";
 export * from "./idea-box";
+export * from "./post-media";

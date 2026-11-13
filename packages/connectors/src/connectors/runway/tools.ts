@@ -120,6 +120,40 @@ export const TaskOut = z.object({
 });
 export type TaskOutT = z.infer<typeof TaskOut>;
 
+/**
+ * `download_video`: the platform's own copy of a finished clip into the project's storage (a post draft's media,
+ * packages/db `post_media`), so it stays reachable after Runway's address expires. Route-only (packages/connectors
+ * `ROUTE_ONLY_TOOLS`): no grant puts it in an agent's token, and only a platform token outside any session may run it.
+ * It looks the task up again (a fresh address), then fetches the clip from that address with no key sent, https only,
+ * at most `VIDEO_DOWNLOAD_MAX_BYTES`. Spends nothing at Runway. The answer is bytes and checked values, no vendor text.
+ */
+export const DOWNLOAD_VIDEO_TOOL = "download_video";
+export const RUNWAY_ROUTE_ONLY_TOOLS: readonly string[] = [DOWNLOAD_VIDEO_TOOL];
+/** The most a stored clip may be (packages/shared `POST_MEDIA_LIMITS.videoMaxBytes`). */
+export const VIDEO_DOWNLOAD_MAX_BYTES = 32 * 1024 * 1024;
+
+export const DownloadVideoOut = z.object({
+  taskId: z.string(),
+  status: z.string(),
+  /** True when the clip's bytes are here. False while the task is not finished, or when nothing was made (simulated). */
+  ready: z.boolean(),
+  mime: z.literal("video/mp4").nullable(),
+  /** The clip itself, as base64. Never shown to an agent. */
+  base64: z.string().nullable(),
+  bytes: z.number().int().min(0).max(VIDEO_DOWNLOAD_MAX_BYTES),
+  ...SimNote,
+});
+export type DownloadVideoOutT = z.infer<typeof DownloadVideoOut>;
+
+/** A clip's address as Runway gave it: https, a public name, no credentials (the rule for a picture's address). */
+export function assertClipUrl(raw: string): URL {
+  try {
+    return assertImageUrl(raw);
+  } catch {
+    throw new AppError("invalid_url", "Runway answered with a clip address that is not a public https address", 502);
+  }
+}
+
 /* ---- Typed reads (src/facts.ts): checked values only, never Runway's failure text or the full signed address ---- */
 const TASK_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 export const factTaskId = (v: unknown): string | null => (typeof v === "string" && TASK_ID_RE.test(v) ? v.toLowerCase() : null);
@@ -182,6 +216,15 @@ export const runwayTools = [
       creditsUsed: fact.number(data.creditsUsed, 0, 100_000),
       failureCode: fact.id(data.failureCode, 60),
     }),
+  }),
+  defineTool({
+    name: DOWNLOAD_VIDEO_TOOL,
+    title: "Copy a finished video into the project's storage",
+    description: "The platform's own step, never an agent's: look a finished video task up again and fetch its clip, so the project keeps a copy after Runway's address expires. Spends nothing.",
+    input: z.object({ taskId: z.string().trim().regex(TASK_ID_RE, "A task id from generate_video_from_text or generate_video_from_image") }),
+    output: DownloadVideoOut,
+    hints: {},
+    annotations: { readOnlyHint: true },
   }),
 ] as const;
 

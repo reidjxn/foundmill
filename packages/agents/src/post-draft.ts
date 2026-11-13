@@ -154,7 +154,7 @@ export function postDraftFacts(input: PostDraftFactsInput): PostDraftFacts {
 }
 
 /** Why an answer was not used. A code for the log and for the retry; the words of the draft are never kept. */
-export const POST_DRAFT_REFUSALS = ["limits", "too_long", "url", "email", "mention", "phone", "markup", "invented_figure", "hashtag", "emoji", "hype", "claim", "banned_phrase", "platform_mention"] as const;
+export const POST_DRAFT_REFUSALS = ["limits", "too_long", "url", "email", "mention", "phone", "markup", "invented_figure", "hashtag", "emoji", "hype", "claim", "banned_phrase", "platform_mention", "media_claim"] as const;
 export type PostDraftRefusal = (typeof POST_DRAFT_REFUSALS)[number];
 
 /** What the retry says about the answer that was refused: the rule it broke, never the answer itself. */
@@ -173,6 +173,7 @@ export const POST_DRAFT_RETRY_NOTES: Readonly<Record<PostDraftRefusal, string>> 
   claim: "Your last draft was not used: it claimed customers, reviews or results that are not in the inputs. Say only what the fact and the page say.",
   banned_phrase: "Your last draft was not used: it used a phrase this product never uses. Say what the project is and what happened, in plain words, and nothing about why its founders started it.",
   platform_mention: `Your last draft was not used: it mentioned AI or ${APP_NAME}, which the page is not about. Leave both out.`,
+  media_claim: "Your last draft was not used: it mentioned a video, a clip, a voiceover or something to watch or listen to. The post is words and a link; write nothing about any video.",
 };
 
 export interface PostDraftRequest {
@@ -263,6 +264,14 @@ export const POST_VOCAB_PATTERNS: readonly RegExp[] = [
   /\bleague\s+(?:tables?|positions?)\b|\b(?:starting\s+)?line[\s-]?ups?\b|\bscouting\s+reports?\b|\bform\s+guides?\b|\btraining\s+ground\b/gi,
 ];
 
+/**
+ * A video, a clip or a voiceover, or something to watch or hear. The words are drafted before any media exists, and a
+ * video may never be made (not connected, refused, simulated), so a post never says it has one: the share panel says
+ * that, from what was really stored (packages/shared `postDraftHasRealVideo`). Allowed only where the page's own words
+ * use the word (a project that is about video).
+ */
+const MEDIA_CLAIM_RE = /\b(?:videos?|clips?|reels?|voice-?overs?|footage|watch(?:ing)?|listen(?:ing)?)\b/gi;
+
 /** The platform's own name, and AI: a post is about the project, not about what it was built with. */
 const PLATFORM_PATTERNS: readonly RegExp[] = [new RegExp(`\\b${APP_NAME.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "gi"), /\bA\.?I\b/g, /\bartificial intelligence\b/gi];
 
@@ -283,7 +292,8 @@ function notIn(text: string, re: RegExp, allowed: string): string[] {
  * Why a draft cannot be used, or null when it can. Pure. In order: it must be a few plain words; carry no link (the
  * code attaches the only one), address, @mention, markup or phone number; no figure and no quantity the facts do not
  * give; no hashtag the page does not use; no emoji; no praise, no claim of customers or results the page does not
- * make; none of the phrases the product never writes; and no mention of AI or the platform unless the page has one.
+ * make; none of the phrases the product never writes; no mention of AI or the platform unless the page has one; and no
+ * mention of a video, a clip or a voiceover unless the page has one.
  */
 export function checkPostDraft(text: string, facts: PostDraftFacts): PostDraftRefusal | null {
   const all = factsText(facts);
@@ -306,6 +316,7 @@ export function checkPostDraft(text: string, facts: PostDraftFacts): PostDraftRe
   if (POST_SUBTEXT_PATTERNS.some((re) => (text.match(re) ?? []).length > 0)) return "banned_phrase";
   if (POST_VOCAB_PATTERNS.some((re) => notIn(text, re, own).length > 0)) return "banned_phrase";
   if (PLATFORM_PATTERNS.some((re) => notIn(text, re, own).length > 0)) return "platform_mention";
+  if (notIn(text, MEDIA_CLAIM_RE, own).length > 0) return "media_claim";
   return null;
 }
 

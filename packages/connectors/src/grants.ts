@@ -17,7 +17,7 @@ import { posthogTools } from "./connectors/posthog/tools";
 import { resendTools } from "./connectors/resend/tools";
 import { vercelTools } from "./connectors/vercel/tools";
 import { firecrawlTools } from "./connectors/firecrawl/tools";
-import { runwayTools } from "./connectors/runway/tools";
+import { RUNWAY_ROUTE_ONLY_TOOLS, runwayTools } from "./connectors/runway/tools";
 import { elevenlabsVoiceTools } from "./connectors/elevenlabs_voice/tools";
 import { geminiTools } from "./connectors/gemini/tools";
 import { indexNowTools } from "./connectors/indexnow/tools";
@@ -277,8 +277,22 @@ export function isServiceOnlyConnector(connectorKey: string): boolean {
  * Code-tab repository). No grant resolves to one, so no agent session token carries one (the orchestrator mints its
  * checkout token with `github:download_archive` explicitly); the gateway also never lists one on `/mcp/:connector` and
  * refuses one on `/v1/call` for an agent session, whatever a token says (a `github:*` wildcard included).
+ * `runway:download_video` is the platform's copy of a finished clip into a post draft's media (orchestrator
+ * `post-media.ts`), on `/v1/call` with a token outside any session.
  */
-export const ROUTE_ONLY_TOOLS: ReadonlySet<string> = new Set(GITHUB_ROUTE_ONLY_TOOLS.map((t) => `github:${t}`));
+export const ROUTE_ONLY_TOOLS: ReadonlySet<string> = new Set([...GITHUB_ROUTE_ONLY_TOOLS.map((t) => `github:${t}`), ...RUNWAY_ROUTE_ONLY_TOOLS.map((t) => `runway:${t}`)]);
+
+/**
+ * Tools whose answer is a media file the platform stores (a post draft's media, packages/db `post_media`), when a
+ * platform token outside any session calls them: the gateway hands that caller the file as it came (still inside the
+ * untrusted envelope with its notice), never a reader's digest, because code stores it and no agent reads it. An agent
+ * session calling the same tool is unchanged: it gets the reader's digest and the typed facts, never the bytes.
+ */
+export const SERVICE_MEDIA_TOOLS: ReadonlySet<string> = new Set(["elevenlabs_voice:generate_voiceover", "runway:download_video"]);
+
+export function isServiceMediaTool(connectorKey: string, tool: string): boolean {
+  return SERVICE_MEDIA_TOOLS.has(`${connectorKey}:${tool}`);
+}
 
 const hasRouteOnlyTools = (connectorKey: string): boolean => [...ROUTE_ONLY_TOOLS].some((ref) => ref.startsWith(`${connectorKey}:`));
 

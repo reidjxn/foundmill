@@ -204,7 +204,7 @@ export const distributionRouter = router({
     list: read.input(z.object({ campaignId: Id.optional(), approvalState: z.enum(["draft", "pending", "approved", "rejected"]).optional() })).query(({ ctx, input }) =>
       ctx.rls(async (tx) => {
         const rows = (await repos.campaigns.listAssets(tx, ctx.businessId, input ?? {})).filter((row) => !(row.approvalState === "rejected" && isTeamPost(row)));
-        const shares = await teamPostShares(tx, { businessId: ctx.businessId, businessName: ctx.business.name, isDemo: ctx.business.isDemo, appUrl: ctx.env.APP_URL }, rows);
+        const shares = await teamPostShares(tx, { businessId: ctx.businessId, businessName: ctx.business.name, isDemo: ctx.business.isDemo, appUrl: ctx.env.APP_URL, env: ctx.env }, rows);
         return rows.map((row) => ({ ...row, sharePost: shares.get(row.id) ?? null }));
       }),
     ),
