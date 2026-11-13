@@ -168,6 +168,11 @@ describe("proxy redirect rules", () => {
     expect(isPublicPath("/email/pause")).toBe(true);
     expect(isPublicPath("/email/unsubscribe")).toBe(true);
     expect(isPublicPath("/email/other")).toBe(false);
+    // The Terms and the Privacy Policy are read signed out (founder, 2026-11-13), and stay open to a signed-in founder.
+    expect(isPublicPath("/terms")).toBe(true);
+    expect(isPublicPath("/privacy")).toBe(true);
+    expect(decideRedirect({ pathname: "/privacy", authenticated: false })).toEqual({ kind: "next" });
+    expect(decideRedirect({ pathname: "/terms", authenticated: true, lastBusinessId: "b1" })).toEqual({ kind: "next" });
     expect(isFounderPath("/new/ideate")).toBe(true);
     expect(isFounderPath("/businesses")).toBe(true);
     expect(isFounderPath("/login")).toBe(false);
