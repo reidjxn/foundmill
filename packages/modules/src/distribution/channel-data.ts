@@ -5,7 +5,7 @@
  */
 import { LIMITS } from "@foundmill/config";
 import { formatMoney, type ChannelTokenData, type FormCell } from "@foundmill/dugout";
-import type { ChannelAvailabilityRow } from "@foundmill/shared/channel-availability";
+import { CHANNEL_BY_TAP_SENTENCE, type ChannelAvailabilityRow } from "@foundmill/shared/channel-availability";
 import { CHANNEL_KEYS, CHANNEL_META, CHANNEL_WINDOW_DAYS, type ApprovalState, type CampaignStatus, type ChannelKey, type ChannelLine } from "@foundmill/shared/constants";
 import { weekKey } from "@foundmill/widgets/shared/time";
 import type { AgentRow, AssetRow, BlendedSummary, CampaignRow, ChannelMetricRow, ChannelRow, ChannelSummaryRow, RecommendationRow } from "./types";
@@ -213,6 +213,8 @@ export function toChannelToken(view: ChannelView, opts: TokenOptions = {}): Chan
     paused: view.paused,
     // The channel's own setting, as the Channels table shows it (not the channel's default).
     kitMode: !!view.kitMode,
+    // Tap-to-post: on the board, and never counted as running.
+    founderPosts: postedByTap(view),
     results,
   };
 }
@@ -237,10 +239,18 @@ export function totalBudget(views: readonly Pick<ChannelView, "enabled" | "budge
 
 /* ---------- Status ---------- */
 
-export type ChannelStatusWord = "Running" | "Starting" | "Waiting for the product" | "Paused" | "Off the board" | "Not scored";
+export type ChannelStatusWord = "Running" | "You post it" | "Starting" | "Waiting for the product" | "Paused" | "Off the board" | "Not scored";
 
 /** Every status word, in the order the Channels table's filter offers them. */
-export const CHANNEL_STATUS_WORDS: readonly ChannelStatusWord[] = ["Running", "Starting", "Waiting for the product", "Paused", "Off the board", "Not scored"];
+export const CHANNEL_STATUS_WORDS: readonly ChannelStatusWord[] = ["Running", "You post it", "Starting", "Waiting for the product", "Paused", "Off the board", "Not scored"];
+
+/**
+ * A channel the founder posts by tap (founder, 2026-11-12; the API's `reason: "by_tap"`): available with no connector,
+ * and never run by the team. On the board it reads "You post it": it has no engine, so it is never "Running" or "Starting".
+ */
+export function postedByTap(view: { availability?: Pick<ChannelAvailabilityRow, "reason"> | null }): boolean {
+  return view.availability?.reason === "by_tap";
+}
 
 /** Why a channel on the board reads "Starting": its engine has not started (yet). */
 export const ENGINE_STARTING_HINT = "On the board, but its engine has not started yet. It starts within 15 minutes; until then nothing is drafted or launched.";
@@ -249,15 +259,18 @@ export const ENGINE_WAITING_HINT = "On the board. Its engine starts when you sta
 
 /** The hint behind a status word, for the pill's title. */
 export function statusHint(word: ChannelStatusWord): string | undefined {
-  return word === "Starting" ? ENGINE_STARTING_HINT : word === "Waiting for the product" ? ENGINE_WAITING_HINT : undefined;
+  return word === "Starting" ? ENGINE_STARTING_HINT : word === "Waiting for the product" ? ENGINE_WAITING_HINT : word === "You post it" ? CHANNEL_BY_TAP_SENTENCE : undefined;
 }
 
 /**
  * A channel on the board is "Running" only when its engine is recorded (`engineWorkflowId`); one without an engine reads
  * "Starting" (audit GTM-01), or "Waiting for the product" while the founder has not started distribution (founder,
  * 2026-10-18; `distributionStarted: false`). A row from before the field existed (undefined) is taken as running.
+ * A channel the founder posts by tap reads "You post it" whenever it is on the board: no engine runs for it, before or
+ * after distribution starts, and the founder can post from the first day.
  */
-export function channelStatus(view: Pick<ChannelView, "enabled" | "paused" | "scored"> & { persisted?: boolean; engineWorkflowId?: string | null }, options: { distributionStarted?: boolean | null } = {}): { tone: "good" | "warn" | "neutral"; word: ChannelStatusWord } {
+export function channelStatus(view: Pick<ChannelView, "enabled" | "paused" | "scored"> & { persisted?: boolean; engineWorkflowId?: string | null; availability?: Pick<ChannelAvailabilityRow, "reason"> | null }, options: { distributionStarted?: boolean | null } = {}): { tone: "good" | "warn" | "neutral"; word: ChannelStatusWord } {
+  if (view.enabled && postedByTap(view)) return { tone: "neutral", word: "You post it" };
   if (view.enabled && view.paused) return { tone: "warn", word: "Paused" };
   if (view.enabled && options.distributionStarted === false) return { tone: "neutral", word: "Waiting for the product" };
   if (view.enabled && view.persisted !== false && view.engineWorkflowId === null) return { tone: "warn", word: "Starting" };

@@ -425,6 +425,20 @@ export const ProjectPageOutput = z.object({
 });
 export type ProjectPageOutput = z.infer<typeof ProjectPageOutput>;
 
+// ---------------------------------------------------------------------------------------------------------------------
+// A post the social agent drafts for the founder to share by tap (docs/NETWORK.md F3, F7; packages/agents
+// `post-draft.ts`). Words only: the link and the picture are attached by code, never by the model. packages/agents
+// checks the answer (`finalisePostDraft`) before anything is stored.
+// ---------------------------------------------------------------------------------------------------------------------
+
+export const PostDraftOutput = z.object({
+  /** The post: one or two short sentences of plain text. */
+  text: z.string().min(1).max(600),
+  /** A shorter way to say the same, or an empty string. Used only when `text` is too long for a network. */
+  short: z.string().max(300).default(""),
+});
+export type PostDraftOutput = z.infer<typeof PostDraftOutput>;
+
 export const CHART_OF_ACCOUNTS = [
   "revenue",
   "refunds",

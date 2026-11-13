@@ -21,9 +21,9 @@
  * consent id and a prefix of the address hash, never the address.
  */
 import { z } from "zod";
-import { APP_NAME } from "@foundmill/config";
+import { APP_NAME, tierShowsBuiltOnMark } from "@foundmill/config";
 import { repos } from "@foundmill/db";
-import { FOLLOW_CONFIRM_EMAIL, FOLLOW_CONFIRM_TTL_MS, mockResultsAllowed, PLATFORM_MAIL_SECRET_MIN_LENGTH, platformMailAddress } from "@foundmill/shared";
+import { builtOnWords, FOLLOW_CONFIRM_EMAIL, FOLLOW_CONFIRM_TTL_MS, mockResultsAllowed, PLATFORM_MAIL_SECRET_MIN_LENGTH, platformMailAddress } from "@foundmill/shared";
 import {
   DEV_PLATFORM_MAIL_SECRET,
   followConfirmNonceHash,
@@ -122,7 +122,7 @@ export async function sendFollowConfirmation(deps: GatewayDeps, input: ConfirmFo
   const connector = deps.registry.get(PLATFORM_MAIL_KEY, mode);
   let result;
   try {
-    result = await connector.callTool("send_mail", { to: { email }, subject: FOLLOW_CONFIRM_EMAIL.subject(projectName), text: FOLLOW_CONFIRM_EMAIL.text(projectName, APP_NAME, link) }, ctx);
+    result = await connector.callTool("send_mail", { to: { email }, subject: FOLLOW_CONFIRM_EMAIL.subject(projectName), text: FOLLOW_CONFIRM_EMAIL.text(projectName, APP_NAME, link, tierShowsBuiltOnMark(business.planTier) ? builtOnWords(APP_NAME).foot(projectName) : null) }, ctx);
   } catch (e) {
     if (isConfigError(e)) {
       await counted.release();

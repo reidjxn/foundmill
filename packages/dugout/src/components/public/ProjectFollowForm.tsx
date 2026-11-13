@@ -9,7 +9,9 @@
  * form element at all, for the console's phone preview.
  *
  * After a signup the form gives way to one line, "Check your email to confirm. {name} will only write to you after you
- * do." (double opt-in), and nothing else: never whether the address was already on the list. A hidden field ("Leave this empty", `website`) is out of sight and out of the tab
+ * do." (double opt-in): never whether the address was already on the list. For a visitor to a project on the free plan
+ * one small line follows it, `builtOn` ("{name} is built on Foundmill. Start your own"; docs/NETWORK.md F2): the
+ * moment a visitor is most glad of the project, and one its founders never meet on their own page. A hidden field ("Leave this empty", `website`) is out of sight and out of the tab
  * order; a person never fills it in, and a filled one is answered the same and written nowhere.
  */
 import { useId } from "react";
@@ -35,13 +37,15 @@ export interface ProjectFollowFormProps {
   pending?: boolean;
   /** The console's preview: drawn as it looks, nothing can be typed or sent. */
   preview?: boolean;
+  /** The line under the "check your email" answer: a sentence and one link. Nothing when left out. */
+  builtOn?: { line: string; linkLabel: string; href: string } | null;
   className?: string;
 }
 
 /** The form's field names (the Server Action reads them). */
 export const FOLLOW_FIELDS = { slug: "slug", email: "email", consent: "consent", trap: "website" } as const;
 
-export function ProjectFollowForm({ name, slug, action, state = { status: "idle" }, pending = false, preview = false, className }: ProjectFollowFormProps) {
+export function ProjectFollowForm({ name, slug, action, state = { status: "idle" }, pending = false, preview = false, builtOn = null, className }: ProjectFollowFormProps) {
   const id = useId();
   const words = followWords(name);
   const headingId = `${id}-heading`;
@@ -53,9 +57,19 @@ export function ProjectFollowForm({ name, slug, action, state = { status: "idle"
   const disabled = preview;
 
   const body = done ? (
-    <p role="status" className="t-body text-primary" data-follow-done="">
-      {words.done}
-    </p>
+    <>
+      <p role="status" className="t-body text-primary" data-follow-done="">
+        {words.done}
+      </p>
+      {builtOn ? (
+        <p className="t-small flex min-w-0 flex-wrap items-center gap-x-1.5 break-words text-secondary" data-follow-built-on="">
+          <span>{builtOn.line}</span>
+          <a href={builtOn.href} className="inline-flex min-h-tap items-center rounded-sm text-primary underline decoration-line-strong underline-offset-4 transition-colors duration-hover hover:decoration-current focus-ring">
+            {builtOn.linkLabel}
+          </a>
+        </p>
+      ) : null}
+    </>
   ) : (
     <>
       <p className="t-body text-secondary">{words.line}</p>

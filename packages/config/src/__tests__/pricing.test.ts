@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { CREDITS_CURRENCY, higherTier, includedCreditsMinor, initialModelBilling, sandboxCostMicroMinor, SANDBOX_MICRO_MINOR_PER_SECOND, TIER_ORDER, TIERS, tierBusinessLimit, tierSeatLimit, tierIncludedCreditPlaces } from "../pricing";
+import { CREDITS_CURRENCY, higherTier, includedCreditsMinor, initialModelBilling, sandboxCostMicroMinor, SANDBOX_MICRO_MINOR_PER_SECOND, TIER_ORDER, TIERS, tierBusinessLimit, tierShowsBuiltOnMark, tierSeatLimit, tierIncludedCreditPlaces } from "../pricing";
 
 describe("pricing tiers (BUILD §10.5)", () => {
   it("keeps credits in US dollars and includes a bounded platform credit on every tier", () => {
@@ -53,5 +53,10 @@ describe("sandbox time (audit BILL-11, O-32)", () => {
     expect(sandboxCostMicroMinor("docker", 3_600_000)).toBe(0);
     expect(sandboxCostMicroMinor("mock", 3_600_000)).toBe(0);
     expect(sandboxCostMicroMinor("e2b", -5)).toBe(0);
+  });
+
+  it("only the free plan carries the 'Built on' mark; every paid plan removes it", () => {
+    expect(tierShowsBuiltOnMark("free")).toBe(true);
+    expect(TIER_ORDER.filter((t) => t !== "free").map(tierShowsBuiltOnMark)).toEqual([false, false]);
   });
 });

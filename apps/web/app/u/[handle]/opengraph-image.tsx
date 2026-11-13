@@ -28,9 +28,8 @@ export default async function Image({ params }: { params: Promise<{ handle: stri
           <div style={{ display: "flex", fontSize: 72, fontWeight: 700, lineHeight: 1.1 }}>{clipText(person.displayName, 50)}</div>
           {person.headline ? <div style={{ display: "flex", fontSize: 40, opacity: 0.8 }}>{clipText(person.headline, 90)}</div> : null}
         </div>
-        <div style={{ display: "flex", justifyContent: "space-between", fontSize: 28, opacity: 0.7 }}>
+        <div style={{ display: "flex", fontSize: 28, opacity: 0.7 }}>
           <span>{person.place ? clipText(person.place, 40) : ""}</span>
-          <span>{`Made with ${APP_NAME}`}</span>
         </div>
       </div>
     ),

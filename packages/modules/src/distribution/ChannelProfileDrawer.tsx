@@ -67,6 +67,12 @@ export function ChannelProfileDrawer({ view, token, action, onClose, onToggle, o
           <ChannelProfileCard channel={token} onToggle={onToggle} onPause={onPause} />
           {/* The card above carries the Offline tracking chip (the channel's own setting); this says what it means. */}
           {view.kitMode ? <p className="text-small text-secondary">Offline tracking: bookings become a founder task with every material attached; nothing is booked by an agent.</p> : null}
+          {/* Tap-to-post: no agent publishes here. Said in the founder's words wherever the channel is opened. */}
+          {view.availability.available && view.availability.byTap && view.availability.sentence ? (
+            <p className="text-small text-secondary" data-testid="channel-by-tap">
+              {view.availability.sentence}
+            </p>
+          ) : null}
 
           <section aria-labelledby={`${budgetId}-h`} className="flex flex-col gap-2 border-t border-subtle pt-3">
             <h3 id={`${budgetId}-h`} className="t-title text-primary">
@@ -105,7 +111,7 @@ export function ChannelProfileDrawer({ view, token, action, onClose, onToggle, o
           <section aria-label="Campaigns" className="flex flex-col gap-1 border-t border-subtle pt-3">
             <h3 className="t-title text-primary">Campaigns</h3>
             {view.campaigns.length === 0 ? (
-              <p className="text-small text-secondary">No campaigns yet. The engine plans the first one once the channel is running.</p>
+              <p className="text-small text-secondary">{view.availability.reason === "by_tap" ? "No campaigns here: you post each draft yourself, so nothing is launched for you." : "No campaigns yet. The engine plans the first one once the channel is running."}</p>
             ) : (
               <ul className="flex flex-col gap-1">
                 {view.campaigns.map((c) => (

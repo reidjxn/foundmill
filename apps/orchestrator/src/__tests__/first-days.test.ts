@@ -228,15 +228,17 @@ describe("Ready to start selling?", () => {
       const task = await repos.tasks.create(t.db, w.id, { kind: "code", title: "Build it", roadmapItemId: item.id, status: "done" });
       return { w, task };
     };
-    // Social is on the board from before and cannot run; nothing is promised to be waiting.
+    // Social is on the board and is the founder's own to post (tap-to-post, founder 2026-11-12): no engine waits for
+    // the product, so it is never named as waiting; it is named as what is ready.
     const none = await shipped("Nothing Runs Co");
     await repos.channels.upsert(t.db, none.w.id, { channelKey: "social", line: CHANNEL_META.social.line, enabled: true, kitMode: false });
     const offered = await offerReadyToSellAfterTask(staging, none.w.id, none.task);
     const body = (await repos.inbox.get(t.db, none.w.id, offered!.inboxItemId)).bodyMd;
     expect(body).toContain("No channel can run on its own yet. Email opens first, as soon as sending is switched on for your project. Nothing is wrong, and nothing is waiting on you.");
     expect(body).toContain("Start distribution now so a channel starts the day it opens, or keep building first.");
-    expect(body).not.toContain("Social media");
+    expect(body).toContain("Social media is ready now: you post each one with one press.");
     expect(body).not.toContain("are waiting for the product");
+    expect(body).not.toMatch(/\bposted\b/);
 
     // Print in offline tracking is honest by design, so it is named.
     const offline = await shipped("Print Runs Co");
@@ -267,5 +269,28 @@ describe("a plan never turns on a channel that cannot run (founder, 2026-11-11)"
     const offline = await plans.executePlanAction({ businessId: w.id, planId: plan.id, actionId: plan.actions[1]!.id, workflowId: `plan:${plan.id}` });
     expect(offline.result).toMatchObject({ enabled: true });
     expect(await repos.channels.getByKey(t.db, w.id, "print")).toMatchObject({ enabled: true, kitMode: true });
+  });
+
+  it("tap-to-post: on staging a plan may put social on the board, and no engine is recorded or started for it; a budget never puts it there", async () => {
+    const plans = createPlanActivities({ ...t.deps, env: { ...t.deps.env, APP_ENV: "staging", LIVE_CONNECTORS: "" } });
+    const w = await waitingBusiness("Plan Tap Co");
+    await repos.businesses.startDistribution(t.db, w.id);
+    const plan = await repos.plans.create(t.db, w.id, {
+      origin: "option",
+      actions: [
+        { type: "set_budget", params: { channel: "social", amount_minor: 5_000 }, policyOutcome: "allow" },
+        { type: "enable_channel", params: { channel: "social" }, policyOutcome: "allow" },
+      ],
+    });
+    // A budget creates the row and leaves it off the board: there is nothing for the team to spend it on there.
+    const budget = await plans.executePlanAction({ businessId: w.id, planId: plan.id, actionId: plan.actions[0]!.id, workflowId: `plan:${plan.id}` });
+    expect(budget.status).not.toBe("failed");
+    expect((await repos.channels.getByKey(t.db, w.id, "social"))?.enabled).toBe(false);
+    // Turning it on puts it on the board. No engine: the result says who posts, and nothing is spawned or recorded.
+    const enabled = await plans.executePlanAction({ businessId: w.id, planId: plan.id, actionId: plan.actions[1]!.id, workflowId: `plan:${plan.id}` });
+    expect(enabled.status).not.toBe("failed");
+    expect(enabled.result).toMatchObject({ enabled: true, deferred: "the founder posts this channel with one press on each draft; no engine runs for it" });
+    expect(enabled.spawn).toEqual([]);
+    expect(await repos.channels.getByKey(t.db, w.id, "social")).toMatchObject({ enabled: true, kitMode: false, engineWorkflowId: null });
   });
 });
