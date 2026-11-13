@@ -15,6 +15,7 @@
  *   POST /v1/speech/synthesize     service JWT (api) → one agent turn spoken in a speech accent, for Team call (speech.ts)
  *   POST /v1/speech/transcribe     service JWT (api) → one recording of the founder transcribed, for Team call (speech.ts)
  *   POST /v1/push/send             service JWT (api) → one push notification to registered phones of the mobile app (push.ts)
+ *   POST /v1/turnstile/verify              service JWT (api) → the idea box's bot check (turnstile.ts)
  *   POST /v1/platform-mail/confirm-follow  service JWT (api) → the one email asking a page signup to confirm (follow-confirm.ts)
  *   POST /v1/notify/email          service JWT (api, orchestrator) → one email from Foundmill to one of its users about their own project (notify-email.ts)
  *   POST /v1/call                  session JWT → the pipeline (allow / ask / deny / rate_limited)
@@ -40,6 +41,7 @@ import { generatePortrait, PortraitRequest } from "./portraits";
 import { sendPush, SendPushRequest } from "./push";
 import { MAX_TRANSCRIBE_BODY_BYTES, SPEECH_STREAM_ROUTE, SPEECH_SYNTHESIZE_ROUTE, SPEECH_TRANSCRIBE_ROUTE, streamSpeech, SynthesizeSpeechRequest, synthesizeSpeech, TranscribeSpeechRequest, transcribeSpeech } from "./speech";
 import { CONFIRM_FOLLOW_ROUTE, ConfirmFollowRequest, sendFollowConfirmation } from "./follow-confirm";
+import { TURNSTILE_ROUTE, TurnstileVerifyRequest, verifyTurnstile } from "./turnstile";
 import { NOTIFY_EMAIL_ROUTE, NotifyEmailRequest, sendNotifyEmail } from "./notify-email";
 import { handleMcpRequest } from "./mcp";
 import { ARCHIVE_ROUTE, ArchiveRequest, routeOnlyCall, serveArchive } from "./archive";
@@ -219,6 +221,18 @@ export function createGatewayApp(deps: GatewayDeps, options: GatewayAppOptions):
     await next();
   });
   app.post("/v1/push/send", async (c) => c.json(await sendPush(deps, SendPushRequest.parse(await c.req.json()), c.var.service.svc)));
+
+  // The idea box's bot check (docs/IDEA_BOX.md): only the api asks, before it drafts a card for a signed-out visitor.
+  app.use(TURNSTILE_ROUTE, requireService);
+  app.use(TURNSTILE_ROUTE, async (c, next) => {
+    if (c.var.service.svc !== "api") throw new GatewayError("forbidden_service", "Only the api checks a Turnstile token", 403);
+    await next();
+  });
+  app.post(TURNSTILE_ROUTE, async (c) => {
+    const parsed = TurnstileVerifyRequest.safeParse(await c.req.json().catch(() => null));
+    if (!parsed.success) throw new GatewayError("validation", "Send a Turnstile token", 400);
+    return c.json(await verifyTurnstile(deps, parsed.data));
+  });
 
   // A follow confirmation (package 1.6): only the api asks, right after a signup on a public page (follow-confirm.ts).
   app.use(CONFIRM_FOLLOW_ROUTE, requireService);

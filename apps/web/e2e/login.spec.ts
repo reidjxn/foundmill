@@ -1,5 +1,5 @@
 import { expect, test, type Browser, type Page } from "@playwright/test";
-import { LONG, NORTHWIND_BUSINESS_ID } from "./helpers";
+import { LONG, NORTHWIND_BUSINESS_ID, expectTapTarget } from "./helpers";
 
 /**
  * The sign-in page at 1280 and 390 px (CLAUDE.md "Small screens": sign-in works from 390 px): the frame renders at both
@@ -32,7 +32,7 @@ async function expectFits(page: Page, width: number, what: string): Promise<void
   for (let i = 0; i < count; i++) {
     const box = (await controls.nth(i).boundingBox())!;
     const name = (await controls.nth(i).getAttribute("aria-label")) ?? (await controls.nth(i).textContent()) ?? (await controls.nth(i).getAttribute("name"));
-    expect(box.height, `${what}: ${name} is a 44 px target at ${width} px`).toBeGreaterThanOrEqual(44);
+    await expectTapTarget(box, `${what}: ${name} is a 44 px target at ${width} px`);
     expect(box.x + box.width, `${what}: ${name} inside ${width} px`).toBeLessThanOrEqual(width);
   }
 }

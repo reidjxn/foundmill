@@ -56,7 +56,7 @@ test.describe("the return loop", () => {
     await context.close();
   });
 
-  test("on a phone, the email pages render (founder, 2026-11-12), while the app still asks for a larger window", async ({ browser }) => {
+  test("on a phone, the email pages and the landing page's idea box render (founder, 2026-11-12 and 2026-11-13)", async ({ browser }) => {
     const context = await browser.newContext({ viewport: { width: 390, height: 844 } });
     const page = await context.newPage();
     await page.goto(`/a/${"x".repeat(43)}`);
@@ -66,9 +66,12 @@ test.describe("the return loop", () => {
     expect(box && box.x >= 0 && box.x + box.width <= 390).toBe(true);
     await page.goto("/email/pause?t=forged.token");
     await expect(page.getByTestId("email-pause")).toBeVisible({ timeout: LONG });
-    // The landing page stays desktop only (the sign-in page works from 390 px since the Google sign-in change).
+    // The landing page's hero and idea box work from 390 px too (founder, 2026-11-13; docs/IDEA_BOX.md); the app itself
+    // still asks for a larger window (gate0-screens.spec.ts).
     await page.goto("/");
-    await expect(page.getByTestId("needs-larger-window")).toBeVisible({ timeout: LONG });
+    await expect(page.locator('[data-testid="landing"][data-layout="phone"]')).toBeVisible({ timeout: LONG });
+    await expect(page.getByTestId("idea-input")).toBeVisible();
+    await expect(page.getByTestId("needs-larger-window")).toHaveCount(0);
     await context.close();
   });
 

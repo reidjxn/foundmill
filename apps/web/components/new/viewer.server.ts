@@ -20,6 +20,8 @@ export interface StudioViewer {
   profile: FounderProfileGet["profile"];
   complete: boolean;
   businesses: FounderProfileGet["businesses"];
+  /** Whether the people layer (LIVE: finding people, requests, messages) is open on this deployment. */
+  liveMode: boolean;
 }
 
 export type StudioViewerResult = { kind: "signed_out" } | { kind: "unreachable"; message: string; error: unknown; email: string | null } | { kind: "ok"; viewer: StudioViewer };
@@ -31,7 +33,7 @@ export async function loadStudioViewer(): Promise<StudioViewerResult> {
     const data = await server.api.founder.profile.get.query();
     return {
       kind: "ok",
-      viewer: { userId: data.userId ?? null, email: data.email ?? server.auth.email, profile: data.profile, complete: data.complete, businesses: data.businesses },
+      viewer: { userId: data.userId ?? null, email: data.email ?? server.auth.email, profile: data.profile, complete: data.complete, businesses: data.businesses, liveMode: data.features?.liveMode ?? false },
     };
   } catch (err) {
     return { kind: "unreachable", message: errorMessage(err, "The API did not answer."), error: err, email: server.auth.email };
