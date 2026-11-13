@@ -145,6 +145,15 @@ export const DownloadVideoOut = z.object({
 });
 export type DownloadVideoOutT = z.infer<typeof DownloadVideoOut>;
 
+/**
+ * Where Runway keeps finished clips: the output addresses its task lookup answers with are on this CloudFront host (the
+ * documented examples and every recorded answer, docs.dev.runwayml.com, Nov 13, 2026). The clip copy fetches from these
+ * hosts and no other; a new host Runway starts using is added here after it is seen in a real answer.
+ */
+export const RUNWAY_OUTPUT_HOSTS: readonly string[] = ["dnznrvs05pmza.cloudfront.net"];
+
+export const isRunwayOutputHost = (hostname: string): boolean => RUNWAY_OUTPUT_HOSTS.includes(hostname.toLowerCase().replace(/\.$/, ""));
+
 /** A clip's address as Runway gave it: https, a public name, no credentials (the rule for a picture's address). */
 export function assertClipUrl(raw: string): URL {
   try {
