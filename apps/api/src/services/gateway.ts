@@ -214,13 +214,22 @@ export interface GatewayConfirmFollowRequest {
 export type GatewayConfirmFollowResult = { sent: true; simulated: boolean } | { sent: false; reason: string };
 
 /** One email from Foundmill to one of its users (apps/gateway notify-email.ts `NotifyEmailRequest`): ids only. */
-export interface GatewayNotifyEmailRequest {
-  userId: string;
-  kind: EmailNotificationKind;
-  businessId: string;
-  /** A note for every kind the api asks for but `invitation_accepted`, which names the invitation that was accepted. */
-  data: { inboxItemId: string; invitationId?: undefined } | { invitationId: string; inboxItemId?: undefined };
-}
+export type GatewayNotifyEmailRequest =
+  | {
+      userId: string;
+      kind: EmailNotificationKind;
+      businessId: string;
+      /** A note for every kind the api asks for but `invitation_accepted`, which names the invitation that was accepted. */
+      data: { inboxItemId: string; invitationId?: undefined; auditId?: undefined } | { invitationId: string; inboxItemId?: undefined; auditId?: undefined };
+    }
+  | {
+      userId: string;
+      /** An account-safety notice (security review P2-3; apps/gateway notify-founder-notice.ts): the audit entry it is about. */
+      kind: "founder_notice";
+      businessId: string;
+      /** The one-click cancel this person's email carries, minted by the api (only its hash is stored). */
+      data: { auditId: string; cancelToken?: string; inboxItemId?: undefined; invitationId?: undefined };
+    };
 
 /**
  * The same sender's email to an address rather than an account (`ADDRESS_EMAIL_KINDS`: an invitation): the gateway

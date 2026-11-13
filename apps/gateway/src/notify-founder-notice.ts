@@ -204,7 +204,7 @@ export async function sendFounderNotice(deps: GatewayDeps, input: FounderNoticeR
     subjectName,
     projectName: business.name,
     when: noticeMoment(entry.createdAt, zone),
-    fromRole: str(details.fromRole) ?? str(details.role),
+    fromRole: str(details.fromRole) ?? str(details.formerRole) ?? str(details.role),
     toRole: notice === "role_changed" ? str(details.role) : null,
     scheduledFor: scheduled ? noticeDay(scheduled, zone) : null,
     actorFormerUntil: actorFormer ? noticeDay(actorFormer.departedAt, zone) : null,

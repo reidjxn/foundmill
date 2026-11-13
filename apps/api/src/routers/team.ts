@@ -5,6 +5,7 @@ import { SectionPermissions, repos, type AgentRosterActivity } from "@foundmill/
 import { DECISION_TYPES, DEFAULT_AGENT_STYLE, ForbiddenError, isOwnerRole, MEMBERSHIP_ROLES, NotFoundError, ValidationError, agentTier, characterFor, leadAgentIds } from "@foundmill/shared";
 import { z } from "zod";
 import { pendingApprovals, resolveApproval } from "../services/approvals";
+import { founderChangeNote, noticeNames, recentlyLowered, tellFoundersQuietly } from "../services/founder-notices";
 import { modelLimited } from "../services/model-limits";
 import { ensurePortraits } from "../services/personas";
 import { archivePlaybook, compilePlaybookText, createPlaybook, setPlaybookEnabled, toPlaybookView, updatePlaybook } from "../services/playbooks";
@@ -271,11 +272,13 @@ export const teamRouter = router({
      */
     role: staffAdmin
       .input(z.object({ userId: Id, role: z.enum(MEMBERSHIP_ROLES).optional(), sectionPermissions: SectionPermissions.optional(), expiresAt: z.coerce.date().nullable().optional() }))
-      .mutation(({ ctx, input }) =>
-        ctx.rls(async (tx) => {
+      .mutation(async ({ ctx, input }) => {
+        const names = await noticeNames(ctx.db, ctx.userId, input.userId);
+        const changed = await ctx.rls(async (tx) => {
           if (input.userId === ctx.userId) throw new ValidationError("You cannot change your own role or section permissions; another owner or admin can");
           let membership = await repos.memberships.get(tx, ctx.businessId, input.userId);
           if (!membership) throw new ValidationError("Not a member of this business");
+          const fromRole = membership.role;
           if (!isOwnerRole(ctx.role) && isOwnerRole(membership.role)) throw new ForbiddenError("Only an owner or a cofounder can change an owner's or a cofounder's role or permissions");
           if (!isOwnerRole(ctx.role) && input.role && isOwnerRole(input.role)) throw new ForbiddenError("Only an owner or a cofounder can make someone an owner or a cofounder");
           if (input.role) membership = await repos.memberships.setRole(tx, ctx.businessId, input.userId, input.role);
@@ -284,25 +287,44 @@ export const teamRouter = router({
             if (input.expiresAt && input.expiresAt.getTime() <= Date.now()) throw new ValidationError("Choose a date after today, or remove the person instead");
             membership = await repos.memberships.setExpiry(tx, ctx.businessId, input.userId, input.expiresAt);
           }
-          await audit(tx, ctx, { action: "team.humans.role", target: { kind: "membership", id: membership.id }, details: { role: input.role ?? null, sections: input.sectionPermissions ? Object.keys(input.sectionPermissions) : [], ...(input.expiresAt !== undefined ? { expiresAt: input.expiresAt?.toISOString() ?? null } : {}) } });
+          // `userId` and `fromRole` let the gateway read a founder notice from this entry (security review P2-3).
+          const entry = await audit(tx, ctx, { action: "team.humans.role", target: { kind: "membership", id: membership.id }, details: { userId: input.userId, fromRole, role: input.role ?? null, sections: input.sectionPermissions ? Object.keys(input.sectionPermissions) : [], ...(input.expiresAt !== undefined ? { expiresAt: input.expiresAt?.toISOString() ?? null } : {}) } });
           // apps/stream re-checks the member's open subscriptions at once, under the new walls.
           await emit(tx, ctx, { type: "membership.changed", payload: { userId: input.userId, change: "updated" } });
-          return membership;
-        }),
-      ),
-    remove: staffAdmin.input(z.object({ userId: Id })).mutation(({ ctx, input }) =>
-      ctx.rls(async (tx) => {
+          // A founder's standing taken away: the Inbox tells the other founders (never only the one who did it).
+          const lowered = isOwnerRole(fromRole) && !isOwnerRole(membership.role);
+          if (lowered) await founderChangeNote(tx, { names, businessId: ctx.businessId, actorUserId: ctx.userId, subjectUserId: input.userId, notice: "role_changed", fromRole, toRole: membership.role, timeZone: ctx.business.timeZone });
+          return { membership, auditId: entry.id, lowered };
+        });
+        // Every founder and the person themselves hear it by email, once the change has committed.
+        if (changed.lowered) await tellFoundersQuietly(ctx, { businessId: ctx.businessId, auditId: changed.auditId, notice: "role_changed", actorUserId: ctx.userId, subjectUserId: input.userId });
+        return changed.membership;
+      }),
+    /**
+     * Removes a member. A founder is stepped down first (their role changed), then removed; a person whose founder's
+     * standing someone else took away in the last 7 days counts as a founder removed (security review P2-3): the entry
+     * names the role they had (`formerRole`), the other founders get an Inbox note, and every founder and the person
+     * removed are emailed.
+     */
+    remove: staffAdmin.input(z.object({ userId: Id })).mutation(async ({ ctx, input }) => {
+      const names = await noticeNames(ctx.db, ctx.userId, input.userId);
+      const removed = await ctx.rls(async (tx) => {
         if (input.userId === ctx.userId) throw new ValidationError("Leave the business from Settings instead of removing yourself");
         const target = await repos.memberships.get(tx, ctx.businessId, input.userId);
         // An owner's standing is stepped down first (an owner or a cofounder changes the role), then removed.
         if (target && isOwnerRole(target.role)) throw new ValidationError(target.role === "cofounder" ? "A cofounder cannot be removed; another founder changes their role first" : "The owner cannot be removed");
+        const lately = target ? await recentlyLowered(tx, ctx.businessId, input.userId) : null;
         await repos.memberships.remove(tx, ctx.businessId, input.userId);
-        await audit(tx, ctx, { action: "team.humans.remove", target: { kind: "membership", id: input.userId } });
+        // `userId`, the role and the founder's role they had lately let the gateway read a founder notice from this entry.
+        const entry = await audit(tx, ctx, { action: "team.humans.remove", target: { kind: "membership", id: input.userId }, details: { userId: input.userId, role: target?.role ?? null, ...(lately ? { formerRole: lately } : {}) } });
         // apps/stream closes the removed person's open subscriptions to this business at once.
         if (target) await emit(tx, ctx, { type: "membership.changed", payload: { userId: input.userId, change: "removed" } });
-        return { removed: true };
-      }),
-    ),
+        if (lately) await founderChangeNote(tx, { names, businessId: ctx.businessId, actorUserId: ctx.userId, subjectUserId: input.userId, notice: "removed", fromRole: lately, timeZone: ctx.business.timeZone });
+        return { auditId: entry.id, wasFounder: lately !== null };
+      });
+      if (removed.wasFounder) await tellFoundersQuietly(ctx, { businessId: ctx.businessId, auditId: removed.auditId, notice: "removed", actorUserId: ctx.userId, subjectUserId: input.userId });
+      return { removed: true };
+    }),
   }),
 
   responsibilities: router({

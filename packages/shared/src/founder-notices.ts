@@ -60,7 +60,8 @@ export function founderNoticeOf(entry: { action: string; details: Record<string,
     case FOUNDER_NOTICE_ACTIONS.role:
       return isOwnerRole(typeof d.fromRole === "string" ? d.fromRole : null) && typeof d.role === "string" && !isOwnerRole(d.role) ? "role_changed" : null;
     case FOUNDER_NOTICE_ACTIONS.remove:
-      return isOwnerRole(typeof d.role === "string" ? d.role : null) ? "removed" : null;
+      // A founder is stepped down before they can be removed: `formerRole` is the founder's role they had until lately.
+      return isOwnerRole(typeof d.role === "string" ? d.role : null) || isOwnerRole(typeof d.formerRole === "string" ? d.formerRole : null) ? "removed" : null;
     case FOUNDER_NOTICE_ACTIONS.requestDeletion:
       return "deletion_requested";
     case FOUNDER_NOTICE_ACTIONS.cancelDeletion:
@@ -116,12 +117,12 @@ export function founderChangeNote(f: { notice: "role_changed" | "removed"; actor
   if (f.notice === "role_changed") {
     return {
       subject: clip(`${actor} changed ${subject}'s role`, 80),
-      body: `${actor} changed ${subject}'s role from ${rolePhrase(f.fromRole)} to ${rolePhrase(f.toRole ?? "member")} on ${f.when}. Every founder and ${subject} were emailed. If this wasn't agreed, a founder can change it back in Settings › People.`,
+      body: `${actor} changed ${subject}'s role from ${rolePhrase(f.fromRole)} to ${rolePhrase(f.toRole ?? "member")} on ${f.when}. If this wasn't agreed, a founder can change it back in Settings › People.`,
     };
   }
   return {
     subject: clip(`${actor} removed ${subject}`, 80),
-    body: `${actor} removed ${subject}, who was ${rolePhrase(f.fromRole)}, from the project on ${f.when}. Every founder and ${subject} were emailed. If this wasn't agreed, a founder can invite them back from Settings › People.`,
+    body: `${actor} removed ${subject}, who was ${rolePhrase(f.fromRole)}, from the project on ${f.when}. If this wasn't agreed, a founder can invite them back from Settings › People.`,
   };
 }
 

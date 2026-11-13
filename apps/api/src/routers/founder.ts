@@ -34,6 +34,7 @@ import { writeEventRow } from "../services/events";
 import { getPublicProfile, publicPersonByHandle, publishPublicProfile, unpublishPublicProfile, updateFounderProfile, updatePublicProfile } from "../services/person-profile";
 import { protectedProcedure, publicProcedure, router } from "../trpc";
 import { founderBusinessesRouter } from "./founder-businesses";
+import { cancelDeletionAsFormerFounder, formerProjectCards } from "../services/founder-notices";
 
 /** Runs fn as the signed-in user, so Postgres RLS holds every row it touches to that user. */
 function asUser<T>(ctx: { db: Db; userId: string; email?: string | null }, fn: (tx: DbTx) => Promise<T>): Promise<T> {
@@ -119,6 +120,17 @@ export type PresencePingInput = z.input<typeof PresencePingInput>;
 
 export const founderRouter = router({
   businesses: founderBusinessesRouter,
+  /**
+   * founder.formerProjects.list/cancel (security review P2-3): the card on the home of a founder someone else demoted or
+   * removed in the last 7 days, while a deletion of that project waits. `list` names each such project with the day it is
+   * due and the last moment they may cancel; `cancel` cancels the deletion as them (an audit entry of theirs, every
+   * founder told) and restores nothing else. Both on the service connection for the signed-in person's own id: they can
+   * no longer read the project's rows themselves.
+   */
+  formerProjects: router({
+    list: protectedProcedure.query(({ ctx }) => formerProjectCards(ctx.db, ctx.userId)),
+    cancel: protectedProcedure.input(z.object({ businessId: z.guid() })).mutation(({ ctx, input }) => cancelDeletionAsFormerFounder(ctx, { businessId: input.businessId, userId: ctx.userId, via: "home" })),
+  }),
   /**
    * founder.presence.ping: the signed-in person is in this business now. Runs as them (RLS: their own row, a business
    * they belong to). The first ping of a session (the first ever, or after 30 minutes away) writes

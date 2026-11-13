@@ -119,12 +119,15 @@ describe("founder notices (gateway)", () => {
   });
 
   it("a removal, then a deletion: the removed founder gets the one-click cancel, kept out of the stored copy", async () => {
+    // As the api does it: a founder is stepped down first, then removed; the entry names the founder's role they had.
+    await g.h.asUser(ana).run((tx) => repos.memberships.setRole(tx, g.businessId, dan, "member"));
     await g.h.asUser(ana).run((tx) => repos.memberships.remove(tx, g.businessId, dan));
-    const removed = await entry(ana, "team.humans.remove", { userId: dan, role: "cofounder" });
+    const removed = await entry(ana, "team.humans.remove", { userId: dan, role: "member", formerRole: "cofounder" });
     expect((await notice(dan, removed.id)).body).toMatchObject({ sent: true });
     const out = last("dan");
     expect(out.subject).toBe("You were removed from Gateway Test Club");
     expect(out.text).toContain("Ana Ruiz removed you from Gateway Test Club on ");
+    expect(out.text).toContain("You were a cofounder.");
     expect(out.text).toContain("To come back, one of the founders can send you a new invitation.");
     expect(out.text).not.toContain("/a/");
 
