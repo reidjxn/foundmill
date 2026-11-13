@@ -18,9 +18,9 @@ describe("event scope", () => {
     expect(new Set(EVENT_TYPES).size).toBe(EVENT_TYPES.length);
   });
 
-  it("the account-scoped types are the two profile events, appended at the end of the one list", () => {
+  it("the account-scoped types are the two profile events, each in the one list", () => {
     expect([...ACCOUNT_EVENT_TYPES]).toEqual(["profile.published", "profile.unpublished"]);
-    expect(EVENT_TYPES.slice(-ACCOUNT_EVENT_TYPES.length)).toEqual([...ACCOUNT_EVENT_TYPES]);
+    // Where they sit in the list is not pinned: every team appends its types at the end, of either scope.
     for (const type of ACCOUNT_EVENT_TYPES) expect(EVENT_TYPES as readonly string[]).toContain(type);
   });
 

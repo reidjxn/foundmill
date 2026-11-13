@@ -1709,6 +1709,26 @@ The review found no blocker; three fixes and four hardenings were made on the sa
 - Tests: `account-events.test.ts` passes `accountRelay: true` where it exercises both relays, and a new case holds the default (only the business relay starts, wakes and stops).
 - Not done: the cause; folding the account outbox into the business relay's tick; turning it back on.
 
+## 2026-11-12 — The api's pool: a gate on request transactions
+
+The api restarted every five minutes after #86 because one request of 8 to 10 reads took the whole pool (DECISIONS "The api's pool filled by one request").
+- **Gate.** apps/api `services/tx-gate.ts`: `createTransactionGate`, `forRequest(db, signal)`, `gateLimitsFor(poolMax)`; wired in `createApiDeps` (`deps.txGate`) and `createContextFactory` (each request's `ctx.db`); `/health` reports `transactions`. One request holds 4 transactions at a time, all requests the pool less 4; a closed request starts no more; a wait is capped at 15 s.
+- **Pool size.** `API_DB_POOL_MAX` (default 10, unchanged); DEPLOY.md "Database connections" has the arithmetic against `max_connections`.
+- **Today.** `today.visit` (one transaction for "Since you were last here" and the streak); the web's Today uses it.
+- **Tests.** api `tx-gate.test.ts`: a model pool of 10 where three batches of ten starve the watchdog's probe without the gate, and never do with it; early closes; nested transactions; the capped wait; and through the app, a batch of ten opening ten transactions at once without the gate, four with it, six for two batches, nothing left after closed requests. `streak.test.ts` covers `today.visit`.
+- **Not done.** The pool itself is not raised (Postgres's connection limit comes first). The postgres.js slot leak behind the stuck pool is not reproduced; it needs a real Postgres.
+
+## 2026-11-12 — Connectors on the founder's own key, first part: how a project appears in AI assistants and search
+
+- **Founder rule.** A connector the founder connects with their own key runs on the founder's own vendor account, always; never a Foundmill platform key, no developer apps, no vendors' own MCP servers; anything outward or costly asks first. In CLAUDE.md ("Always") and docs/DECISIONS.md.
+- **Six connectors,** each real and mock with contract tests, a health check on the founder's key, its own rate limits and a row in Settings › Integrations (from the catalog): `openai`, `gemini`, `perplexity` (`ask_panel`: one question, the answer and its sources), `serpapi` (`search_google`: Google's results and AI Overview), `firecrawl` (`scrape_page`: a page as a crawler reads it), `indexnow` (`submit_urls`: tell search engines an address changed; asks first). What comes back from the web or another assistant is untrusted content.
+- **IndexNow for a Foundmill-hosted page.** Connect with no site address and the project's public page gets its key file at `/p/<slug>/<key>.txt`; the key speaks for that page only.
+- **Agents.** GEO Engine: the three panels (restored from PLANNED_GRANTS.md), search results, page reads, IndexNow. SEO Engine: search results, page reads, IndexNow. Both say which assistants a figure comes from and report one that is not connected as not connected.
+- **Evals.** Golden task `channel_geo.connected_assistants`; injection case `web.assistant_panel_answer_override`. Not run against a live model in this change (the suites' structure tests pass).
+- **Security review** (docs/DECISIONS.md): no P1; four P2 fixed (the deployment's own host as a "site of your own", hosted submissions limited to the page, telling search engines asks first, daily limits cut).
+- **Verified.** Workspace typecheck (25 of 25); lint with no errors; connectors 970, gateway 327, api 1080, web 1322, dugout 1193, agents 439, orchestrator 665, shared 697, models 292, policy 224, evals 96; db `pages-indexnow` and `project-pages` 28; Playwright `public-page.spec.ts` 8 of 8 against the local stack; banned-terms and US English scans clean.
+- **Open.** No connector has called its vendor for real (no keys here; each has an env-gated live suite). Whether search engines accept a hosted page's own address with a key file under `/p/<slug>/` needs one check on a real deployment. No daily estimated-spend ceiling across calls, and no deployment-wide ceiling on hosted IndexNow submissions. GEO and SEO agents now read untrusted content as the quarantined reader's digest (they hold an outward tool), so a panel answer's sources do not reach them. The Settings › Integrations rows were not looked at in a browser. Second part: `apollo`, `vercel`, `posthog`, `resend`; `ayrshare` is dropped.
+
 ## 2026-11-12 — A home for a person with no project (THESIS_REVIEW 2.4, first part)
 
 A signed-in person with a profile and no project lands on `/home`, a real screen, instead of being sent into the studio. Decisions: docs/DECISIONS.md "A home for a person with no project".

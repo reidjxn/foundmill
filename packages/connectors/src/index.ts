@@ -35,6 +35,12 @@ export { createSendgridConnector, sendgridMock, SENDGRID_KEY, normaliseSendgridE
 export { createShopifyConnector, shopifyMock, SHOPIFY_KEY, normaliseShopifyEvent, shopifyHmac, signedShopifyRequest } from "./connectors/shopify";
 export { createTinkConnector, tinkMock, TINK_KEY } from "./connectors/tink";
 export { createPlaidConnector, plaidMock, PLAID_KEY } from "./connectors/plaid";
+export { createOpenaiConnector, openaiMock, OPENAI_KEY } from "./connectors/openai";
+export { createGeminiConnector, geminiMock, GEMINI_KEY } from "./connectors/gemini";
+export { createPerplexityConnector, perplexityMock, PERPLEXITY_KEY } from "./connectors/perplexity";
+export { createSerpapiConnector, serpapiMock, SERPAPI_KEY } from "./connectors/serpapi";
+export { createFirecrawlConnector, firecrawlMock, FIRECRAWL_KEY } from "./connectors/firecrawl";
+export { createIndexNowConnector, indexNowMock, INDEXNOW_KEY } from "./connectors/indexnow";
 export * from "./grants";
 export * from "./channel-availability";
 export { createPlatformConnector, platformMock, createPlatformMock, createMemoryPlatformHost, PLATFORM_KEY, PlatformToolError, MESSAGE_TYPES, type PlatformHost, type PlatformCaller, type PlatformArgs, type PlatformResult, type TaskSummaryT, type TaskDetailT, type AgentMessageT } from "./connectors/platform";

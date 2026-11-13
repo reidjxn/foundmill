@@ -279,7 +279,11 @@ export interface SinceLastVisit {
 }
 
 export async function sinceLastVisitFor(ctx: BusinessContext, now: Date = new Date()): Promise<SinceLastVisit | null> {
-  const presence = await ctx.rls((tx) => repos.presence.get(tx, ctx.businessId, ctx.userId));
+  return sinceVisit(ctx, await ctx.rls((tx) => repos.presence.get(tx, ctx.businessId, ctx.userId)), now);
+}
+
+/** "Since you were last here" from the reader's presence row, already read. */
+async function sinceVisit(ctx: BusinessContext, presence: { previousSeenAt: string | null } | null, now: Date): Promise<SinceLastVisit | null> {
   if (!presence?.previousSeenAt) return null;
   const since = new Date(presence.previousSeenAt);
   if (since.getTime() >= now.getTime()) return null;
@@ -310,6 +314,27 @@ export async function sinceLastVisitFor(ctx: BusinessContext, now: Date = new Da
  * The founder's daily streak in this business (retention plan, 2026-11-11; packages/shared streak.ts): days in a row they
  * opened it, vacation days frozen. Their own visit days only (RLS), in the business's calendar. Any member.
  */
+export interface TodayVisit {
+  sinceLastVisit: SinceLastVisit | null;
+  streak: Streak;
+}
+
+/**
+ * `today.visit`: "Since you were last here" and the daily streak in one read (2026-11-12). Both are the reader's own
+ * rows, so they are read in one RLS transaction, where `today.sinceLastVisit` and `today.streak` together open two: the
+ * web's Today asks for this one, so its first batch holds one connection less (the api's pool wedge, DECISIONS).
+ */
+export async function visitFor(ctx: BusinessContext, now: Date = new Date()): Promise<TodayVisit> {
+  const zone = ctx.business.timeZone;
+  const today = dayKeyIn(now, zone);
+  const own = await ctx.rls(async (tx) => ({
+    presence: await repos.presence.get(tx, ctx.businessId, ctx.userId),
+    visitDays: await repos.presence.visitDays(tx, ctx.businessId, ctx.userId, { from: addDaysToDay(today, -400), to: today }),
+  }));
+  const [sinceLastVisit, holidays] = await Promise.all([sinceVisit(ctx, own.presence, now), repos.holidays.list(ctx.db, ctx.businessId, 50)]);
+  return { sinceLastVisit, streak: dailyStreak({ today, visitDays: own.visitDays, vacationDays: vacationDayKeys(holidays, now, (d) => dayKeyIn(d, zone)) }) };
+}
+
 export async function streakFor(ctx: BusinessContext, now: Date = new Date()): Promise<Streak> {
   const zone = ctx.business.timeZone;
   const today = dayKeyIn(now, zone);

@@ -12,6 +12,12 @@
  * them no tool, and `servedGrants` is what a screen shows.
  */
 import { anthropicTools } from "./connectors/anthropic/tools";
+import { firecrawlTools } from "./connectors/firecrawl/tools";
+import { geminiTools } from "./connectors/gemini/tools";
+import { indexNowTools } from "./connectors/indexnow/tools";
+import { openaiTools } from "./connectors/openai/tools";
+import { perplexityTools } from "./connectors/perplexity/tools";
+import { serpapiTools } from "./connectors/serpapi/tools";
 import { bolagsverketTools } from "./connectors/bolagsverket/tools";
 import { cloudflareTools } from "./connectors/cloudflare_dns/tools";
 import { companiesHouseTools } from "./connectors/companies_house/tools";
@@ -68,6 +74,12 @@ export const GATEWAY_TOOL_NAMES: Readonly<Record<string, readonly string[]>> = O
   shopify: names(shopifyTools),
   tink: names(tinkTools),
   plaid: names(plaidTools),
+  openai: names(openaiTools),
+  gemini: names(geminiTools),
+  perplexity: names(perplexityTools),
+  serpapi: names(serpapiTools),
+  firecrawl: names(firecrawlTools),
+  indexnow: names(indexNowTools),
   platform: names(platformTools),
   web: names(webTools),
   quarantine: names(quarantineTools),
@@ -79,6 +91,14 @@ const bankingCapabilities = { "accounts.list": ["list_accounts", "get_consent_st
 /** Capability → tools, per connector served through the gateway. */
 export const CAPABILITY_TOOLS: Readonly<Record<string, Readonly<Record<string, readonly string[]>>>> = {
   anthropic: { "panel.query": ["ask_panel"] },
+  // The other assistants' panels, Google's results and AI Overview, a page as a crawler reads it, and telling search
+  // engines a page changed: each on the founder's own key at that vendor (founder, 2026-11-12).
+  openai: { "panel.query": ["ask_panel"] },
+  gemini: { "panel.query": ["ask_panel"] },
+  perplexity: { "panel.query": ["ask_panel"] },
+  serpapi: { "serp.read": ["search_google"] },
+  firecrawl: { "pages.read": ["scrape_page"] },
+  indexnow: { "urls.submit": ["submit_urls"] },
   github: {
     // download_archive is the platform's own checkout (the gateway's archive route, ROUTE_ONLY_TOOLS): never an agent's tool.
     "repos.read": ["list_repos", "read_tree", "read_file", "compare_refs"],

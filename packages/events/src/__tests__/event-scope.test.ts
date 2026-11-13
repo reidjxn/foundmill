@@ -33,9 +33,10 @@ describe("event scope", () => {
     expect(eventTypesOfScope("business").length + eventTypesOfScope("account").length).toBe(EVENT_TYPES.length);
   });
 
-  it("the account-scoped types are the two profile events, appended at the end of the vocabulary", () => {
+  it("the account-scoped types are the two profile events, each in the vocabulary", () => {
     expect([...ACCOUNT_EVENT_TYPES]).toEqual(["profile.published", "profile.unpublished"]);
-    expect(EVENT_TYPES.slice(-2)).toEqual(["profile.published", "profile.unpublished"]);
+    // Where they sit in the vocabulary is not pinned: every team appends its types at the end, of either scope.
+    for (const type of ACCOUNT_EVENT_TYPES) expect(EVENT_TYPES as readonly string[]).toContain(type);
     for (const type of ACCOUNT_EVENT_TYPES) {
       const decl = EVENTS[type];
       expect(decl.scope).toBe("account");
