@@ -94,7 +94,9 @@ describe("proxy attribution: the first `via` a visitor arrives with", () => {
     const first = await proxy(new NextRequest("http://localhost:3000/p/maple-bakes?via=s.k3m7qa2xpw"));
     expect(first.cookies.get(VIA_COOKIE)?.value).toBe("s.k3m7qa2xpw");
     expect(first.cookies.get(VIA_POST_COOKIE)).toMatchObject({ name: VIA_POST_COOKIE, value: "k3m7qa2xpw", httpOnly: true, sameSite: "lax", path: "/", maxAge: VIA_POST_MAX_AGE_SECONDS });
-    expect(VIA_POST_MAX_AGE_SECONDS).toBe(7 * 24 * 60 * 60);
+    // Exactly 7 days, in seconds, on the cookie itself (the Privacy Policy says "7 days" from the same constant).
+    expect(first.cookies.get(VIA_POST_COOKIE)?.maxAge).toBe(604_800);
+    expect(VIA_POST_MAX_AGE_SECONDS).toBe(604_800);
     // A visitor who already carries both: fm_via stays, fm_post takes the newer code.
     const later = new NextRequest("http://localhost:3000/p/maple-bakes?via=s.abcdefgh22", { headers: { cookie: `${VIA_COOKIE}=p.maple-bakes; ${VIA_POST_COOKIE}=k3m7qa2xpw` } });
     const res = await proxy(later);
