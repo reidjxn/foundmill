@@ -21,6 +21,7 @@ let matrix = [
   { decisionType: "message_customers", handler: { kind: "founder", id: null }, uniform: false },
 ];
 let chiefOfStaffId: string | null = CHIEF;
+let autopilot = { enabled: false, settings: { maxIdleCycles: 3 } };
 let agents = [
   { id: CHIEF, name: "Juno", archivedAt: null, autonomy: { mode: "inherit", approvalThresholdMinor: 25_000 } },
   { id: OTHER, name: "Pike", archivedAt: null, autonomy: { mode: "higher", approvalThresholdMinor: 25_000 } },
@@ -42,6 +43,8 @@ vi.mock("@/lib/trpc-react", () => ({
       setSpendCap: mutation("setSpendCap", setSpendCap as never),
       startHoliday: mutation("startHoliday", noop as never),
       endHoliday: mutation("endHoliday", noop as never),
+      // When the team stops reads Autopilot's settings (the same query AutopilotSection reads).
+      autopilot: { get: { queryOptions: () => ({ queryKey: [["business", "autopilot", "get"]], queryFn: async () => autopilot }) } },
     },
     team: {
       responsibilities: {
@@ -78,6 +81,7 @@ afterEach(() => {
     { decisionType: "message_customers", handler: { kind: "founder", id: null }, uniform: false },
   ];
   chiefOfStaffId = CHIEF;
+  autopilot = { enabled: false, settings: { maxIdleCycles: 3 } };
   agents = [
     { id: CHIEF, name: "Juno", archivedAt: null, autonomy: { mode: "inherit", approvalThresholdMinor: 25_000 } },
     { id: OTHER, name: "Pike", archivedAt: null, autonomy: { mode: "higher", approvalThresholdMinor: 25_000 } },
@@ -154,6 +158,24 @@ describe("What the team can do", () => {
     const own = await screen.findByTestId("agents-own-setting");
     expect(own.textContent).toContain("1 agent has its own setting for how much it does before asking.");
     expect(within(own).getByRole("link", { name: "Pike" }).getAttribute("href")).toBe(`/b/${BUSINESS}/agents/${OTHER}/autonomy`);
+  });
+
+  it("lists, read-only, when the team stops for the answer in force, with Autopilot's own pause only while it is on", async () => {
+    const view = renderTab();
+    const stops = await screen.findByTestId("team-can-do-stops");
+    // The second answer: a permanent step and a contract ask; outside contact alone does not.
+    expect(within(stops).getByTestId("stop-permanent")).toBeTruthy();
+    expect(within(stops).getByTestId("stop-contract")).toBeTruthy();
+    expect(within(stops).queryByTestId("stop-outside")).toBeNull();
+    expect(within(stops).getByTestId("stop-spend").textContent).toContain("A purchase over the agent's own limit (£250 unless you set one)");
+    expect(within(stops).getByTestId("stop-unsubscribed").textContent).toContain("The project never emails them again.");
+    expect(within(stops).queryByTestId("stop-autopilot_idle")).toBeNull();
+    expect(within(stops).queryAllByRole("radio")).toHaveLength(0);
+    expect(within(stops).queryAllByRole("button")).toHaveLength(0);
+    view.unmount();
+    autopilot = { enabled: true, settings: { maxIdleCycles: 3 } };
+    renderTab();
+    expect((await screen.findByTestId("stop-autopilot_idle")).textContent).toContain("3 cycles in a row fail or get nothing done");
   });
 
   it("offers the Chief of Staff only once there is one", async () => {
