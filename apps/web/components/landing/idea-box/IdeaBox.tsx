@@ -172,10 +172,12 @@ export function IdeaBox({ layout = "desktop", onLanded }: IdeaBoxProps) {
   return (
     <div className={cn("flex w-full flex-col items-center", phone ? "gap-3.5" : "gap-3.5")} data-idea-box="" data-phase={phase}>
       {showField ? (
-        <form onSubmit={submit} className={cn("idea-field", phone && "idea-field-stack", phone ? "w-full" : "max-w-[47.5rem]")} aria-label="Your idea" noValidate>
+        <form onSubmit={submit} className={cn("relative flex w-full", phone ? "flex-col gap-2.5" : "max-w-[60rem] items-center gap-3")} aria-label="Your idea" noValidate>
           <label htmlFor={inputId} className="sr-only">
             {IDEA_BOX_WORDS.label}
           </label>
+          {/* The field holds only the line; Generate sits beside it (founder, 2026-11-13: it must never cover the field). */}
+          <div className={cn("idea-field min-w-0 flex-1", phone && "pl-3")} data-testid="idea-field">
           <div className="relative flex min-w-0 flex-1 items-center">
             <textarea
               ref={inputRef}
@@ -212,6 +214,7 @@ export function IdeaBox({ layout = "desktop", onLanded }: IdeaBoxProps) {
                 <span className="idea-caret" />
               </span>
             ) : null}
+          </div>
           </div>
           <button type="submit" className={cn("idea-gen", phone && "w-full")} disabled={drafting} data-testid="idea-generate">
             <span className="idea-gen-core">
