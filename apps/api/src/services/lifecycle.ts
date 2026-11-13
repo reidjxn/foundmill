@@ -92,6 +92,11 @@ function walledSections(membership: BusinessContext["membership"]): ExportSectio
  * content is quoted in tables filed under other sections (Inbox notes and approvals quote money and customer names,
  * journeys carry conversion amounts), so leaving out whole tables would not keep the wall. A billing wall only leaves
  * out the billing tables.
+ *
+ * The permission section `live` is not an export section on purpose: no exported table holds LIVE data (network
+ * posts, memberships, connections and messages belong to the network and are never in the archive, see
+ * `EXPORT_EXCLUDED_TABLES`), so a Live wall has nothing to keep out. A table filed under Live later must add `live`
+ * to `EXPORT_SECTIONS` (packages/db), and its wall then refuses the export like the others.
  */
 const EXPORT_REQUIRES_READ: readonly ExportSection[] = EXPORT_SECTIONS.filter((section) => section !== "billing");
 

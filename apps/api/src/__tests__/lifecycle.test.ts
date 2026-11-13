@@ -1,4 +1,5 @@
-import { EXPORT_TABLES, repos, transactions } from "@foundmill/db";
+import { EXPORT_SECTIONS, EXPORT_TABLES, repos, transactions } from "@foundmill/db";
+import { SECTIONS } from "@foundmill/shared";
 import { sql } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { DELETION_DELAY_DAYS, EXPORT_FORMAT, REAUTH_WINDOW_MS, exportFileName } from "../services/lifecycle";
@@ -88,6 +89,18 @@ describe("Settings › Danger zone (BUILD §11.15): export, deletion request, ar
     expect(result.archive.excluded.map((e) => e.what)).toContain("The billing section");
     expect(result.inboxItem?.bodyMd).toContain("Left out because your role has no access: billing");
     await repos.memberships.setSectionPermissions(hz.db, businessId, adminId, {});
+  });
+
+  it("every permission section is weighed by the export; Live holds no exported table, so a Live wall refuses nothing", async () => {
+    expect(SECTIONS.filter((s) => !(EXPORT_SECTIONS as readonly string[]).includes(s))).toEqual(["live"]);
+    expect(Object.values(EXPORT_TABLES).some((spec) => (spec.section as string) === "live")).toBe(false);
+    const { businessId, adminId } = hz.A;
+    await repos.memberships.setSectionPermissions(hz.db, businessId, adminId, { live: "none" });
+    try {
+      expect((await hz.caller({ userId: adminId }).business.export({ businessId })).archive.excluded.map((e) => e.what)).not.toContain("The live section");
+    } finally {
+      await repos.memberships.setSectionPermissions(hz.db, businessId, adminId, {});
+    }
   });
 
   it("exportFileName is the slug and the UTC day", () => {
