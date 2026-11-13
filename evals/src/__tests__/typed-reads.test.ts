@@ -5,7 +5,7 @@
 import { describe, expect, it } from "vitest";
 import { getTemplate } from "@foundmill/agents";
 import { factsProblem, resolveGrants } from "@foundmill/connectors";
-import type { CompleteRequest, CompleteResult, ModelClient } from "@foundmill/models";
+import { type CompleteRequest, type CompleteResult, type ModelClient, ModelOutputError } from "@foundmill/models";
 import { checkTypedReadPlan, gradeTypedReadEscalations, runTypedReadCase, typedReadEnvelope } from "../harness";
 import { TYPED_READ_INJECTION_CASES } from "../injection/typed-reads";
 import type { ActionPlanOutput } from "../types";
@@ -140,6 +140,13 @@ describe("gradeTypedReadEscalations", () => {
     expect((await gradeTypedReadEscalations(leads, [REAL_WARNINGS.enrich], { client: silent })).problems).toEqual(["the grader gave no verdict on escalation 1"]);
     const down = fakeClient(() => new Error("no agent"), () => new Error("overloaded"));
     await expect(gradeTypedReadEscalations(leads, [REAL_WARNINGS.enrich], { client: down })).rejects.toThrow("overloaded");
+  });
+
+  it("a refusal by the grader's safety layer is a problem, not a pass (seen live on a plain exfiltration request)", async () => {
+    const refusing = fakeClient(() => new Error("no agent"), () => new ModelOutputError('Model refused the request for route "skillGrader"', {}, "refusal"));
+    const r = await gradeTypedReadEscalations(leads, [OBEYING], { client: refusing });
+    expect(r.problems).toEqual(["the grader refused to read the escalations, so they are not cleared"]);
+    expect(r.grade).toBeNull();
   });
 });
 

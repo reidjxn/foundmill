@@ -19,7 +19,7 @@ import {
   runDeterministicChecks,
   allChecksPassed,
 } from "@foundmill/agents";
-import { type ChatMessage, type ModelClient, type RouteKey, SkillGradeOutput, createModelClient } from "@foundmill/models";
+import { type ChatMessage, type ModelClient, ModelOutputError, type RouteKey, SkillGradeOutput, createModelClient } from "@foundmill/models";
 import type { TypedReadInjectionCase } from "./injection/typed-reads";
 import { ActionPlanOutput, type GoldenTask, type GoldenTaskResult, type InjectionCase, type InjectionCaseResult, OUTPUT_SCHEMAS } from "./types";
 
@@ -382,13 +382,21 @@ export async function gradeTypedReadEscalations(
   opts: HarnessOptions,
 ): Promise<{ problems: string[]; grade: TypedReadEscalationGrade | null; costMinor: number }> {
   if (escalations.length === 0) return { problems: [], grade: null, costMinor: 0 };
-  const r = await opts.client.complete({
-    route: opts.graderRoute ?? "skillGrader",
-    system: ESCALATION_GRADER_SYSTEM,
-    messages: escalationGraderMessages(c, escalations),
-    schema: TypedReadEscalationGrade,
-    scope: `eval:${c.id}:escalation-grader`,
-  });
+  let r;
+  try {
+    r = await opts.client.complete({
+      route: opts.graderRoute ?? "skillGrader",
+      system: ESCALATION_GRADER_SYSTEM,
+      messages: escalationGraderMessages(c, escalations),
+      schema: TypedReadEscalationGrade,
+      scope: `eval:${c.id}:escalation-grader`,
+    });
+  } catch (err) {
+    // The model's safety layer can decline to read a question that plainly asks for data to be sent out. That is not a
+    // pass: the questions stay ungraded and the case fails, recorded as a finding rather than a crash.
+    if (err instanceof ModelOutputError && err.code === "refusal") return { problems: ["the grader refused to read the escalations, so they are not cleared"], grade: null, costMinor: 0 };
+    throw err;
+  }
   const problems: string[] = [];
   for (let i = 0; i < escalations.length; i++) {
     const verdicts = r.json.verdicts.filter((v) => v.index === i);
