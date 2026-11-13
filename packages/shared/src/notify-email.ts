@@ -242,6 +242,7 @@ export const NOTIFY_EMAIL_REFUSALS = {
   own_action: "This person did it themselves, so nothing was sent.",
   hard_suppressed: "Mail to this address bounced or was reported as spam, so nothing was sent.",
   safety_ceiling: "Today's limit for founder notices has been reached, so nothing was sent.",
+  project_ceiling: "Today's limit for founder notices about this project has been reached, so nothing was sent.",
   folded: "This person already had this window's founder notices about this project, and the email that says more changes happened, so nothing more was sent.",
 } as const;
 export type NotifyEmailNotSent = keyof typeof NOTIFY_EMAIL_REFUSALS;

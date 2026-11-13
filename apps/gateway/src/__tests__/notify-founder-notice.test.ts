@@ -17,7 +17,7 @@ import { APP_NAME } from "@foundmill/config";
 import { EMAIL_NOTIFICATION_KINDS, FOUNDER_NOTICE_LIMITS, NOTIFY_PER_PERSON_PER_DAY, NOTIFY_PER_PROJECT_PER_DAY, SUPPRESSION_REASON_BOUNCED } from "@foundmill/shared";
 import type { PlatformMailConfig } from "../platform-mail";
 import { PLATFORM_MAIL_CEILING_KEY } from "../platform-mail";
-import { founderNoticeDayKey, founderNoticeHourKey, PLATFORM_SAFETY_CEILING_KEY } from "../notify-founder-notice";
+import { founderNoticeDayKey, founderNoticeHourKey, founderNoticeProjectKey, PLATFORM_SAFETY_CEILING_KEY, PLATFORM_SAFETY_RESERVED_KEY } from "../notify-founder-notice";
 import { NOTIFY_EMAIL_ROUTE, notifyPersonDayKey, notifyProjectDayKey, PLATFORM_NOTIFY_CEILING_KEY } from "../notify-email";
 import { signServiceToken } from "../tokens";
 import { setupGateway, TEST_SECRET, type GatewayFixture } from "./harness";
@@ -172,7 +172,7 @@ describe("founder notices (gateway)", () => {
     expect(receipt.text).not.toMatch(/\b(?:Ben|Cara|Dan)\b|founders? (?:were|was) told|\balone\b|on your own/);
   });
 
-  it("counted from the request: a founder taken out 20 days before it is told, one taken out 31 days before is not; an old entry is not sent", async () => {
+  it("anyone ever taken out hears about the deletion: 20 days before it with nothing lost, 31 days before too; an old entry is not sent", async () => {
     const [eve, fay] = [await g.h.createUser(addr("eve")), await g.h.createUser(addr("fay"))];
     await g.h.db.insert(s.memberships).values([
       { businessId: g.businessId, userId: eve, role: "cofounder", source: "invite" },
@@ -183,7 +183,9 @@ describe("founder notices (gateway)", () => {
     await g.h.pg.query("update founder_departures set departed_at = now() - interval '31 days' where user_id = $1", [eve]);
     await g.h.pg.query("update founder_departures set departed_at = now() - interval '20 days' where user_id = $1", [fay]);
     const request = await entry(cara, "business.request_deletion", { scheduledFor: new Date(Date.now() + 7 * DAY).toISOString() });
-    expect((await notice(eve, request.id)).body.reason).toBe("not_founder");
+    // Taken out 31 days before the request: still told (third review), without the cancel (that stays at 30 days).
+    expect((await notice(eve, request.id)).body).toMatchObject({ sent: true });
+    expect(last("eve").text).toContain("If you want it kept, ask one of the founders to cancel it.");
     expect((await notice(fay, request.id)).body).toMatchObject({ sent: true });
     const old = await entry(ana, "business.cancel_deletion", {});
     g.deps.now = () => new Date(Date.now() + 2 * DAY);
@@ -234,6 +236,34 @@ describe("founder notices (gateway)", () => {
     g.deps.platformMail = config({ safetyCeiling: 1 });
     await g.rateLimits.hit(PLATFORM_SAFETY_CEILING_KEY, DAY, Date.now());
     expect((await notice(ben, e.id)).body.reason).toBe("safety_ceiling");
+  });
+
+  it("a cap per project under the platform's ceiling; an essential notice is never refused at either and never folded", async () => {
+    // Gus is past the hour's share and has had the More changes email (above). Fill the project's cap.
+    for (let i = 0; i < FOUNDER_NOTICE_LIMITS.perProjectDay; i++) await g.rateLimits.hit(founderNoticeProjectKey(g.businessId), DAY, Date.now());
+    const harmless = await entry(ana, "team.humans.role", { userId: ben, fromRole: "cofounder", role: "member", sections: [] });
+    const gus = (await g.h.pg.query<{ id: string }>("select id from auth.users where email = $1", [addr("gus")])).rows[0]!.id;
+    expect((await notice(gus, harmless.id)).body.reason).toBe("project_ceiling");
+    // And the platform's ceiling full as well.
+    g.deps.platformMail = config({ safetyCeiling: 1 });
+    expect((await notice(gus, harmless.id)).body.reason).toBe("safety_ceiling");
+    // Gus is lowered, then removed: his removal's email goes, in full, past every ceiling and the hour's share.
+    await g.h.asUser(ana).run((tx) => repos.memberships.setRole(tx, g.businessId, gus, "member"));
+    await g.h.asUser(ana).run((tx) => repos.memberships.remove(tx, g.businessId, gus));
+    const removed = await entry(ana, "team.humans.remove", { userId: gus, role: "member", formerRole: "cofounder" });
+    const reserved = await g.rateLimits.count!(PLATFORM_SAFETY_RESERVED_KEY, DAY, Date.now());
+    expect((await notice(gus, removed.id)).body).toMatchObject({ sent: true });
+    expect(last("gus").subject).toBe("You were removed from Gateway Test Club");
+    // Then the deletion request, with the cancel: in full as well.
+    const request = await entry(ana, "business.request_deletion", { scheduledFor: new Date(Date.now() + 7 * DAY).toISOString() });
+    const t = token();
+    await repos.founderCancelLinks.create(g.db, { businessId: g.businessId, userId: gus, requestId: request.id, tokenHash: sha256(t), expiresAt: new Date(Date.now() + 7 * DAY) });
+    expect((await notice(gus, request.id, t)).body).toMatchObject({ sent: true });
+    expect(last("gus").subject).toBe("Ana Ruiz asked to delete Gateway Test Club");
+    expect(last("gus").text).toContain(`/a/${t}`);
+    // Counted on their reserved path, not on the ceilings.
+    expect(await g.rateLimits.count!(PLATFORM_SAFETY_RESERVED_KEY, DAY, Date.now())).toBe(reserved + 2);
+    await entry(ana, "business.cancel_deletion", {});
   });
 
   it("the api only, ids only; a sample project is never emailed; never simulated on staging", async () => {

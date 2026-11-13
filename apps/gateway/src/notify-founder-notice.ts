@@ -14,9 +14,9 @@
  *      day (`FOUNDER_NOTICE_LOOKBACK_MS`);
  *   4. the reader: never the person who did it (`own_action`), but for one receipt: the person who asked for a deletion
  *      (`self`, whatever the team's size); a founder of the project now (an owner or a cofounder, not through an example
- *      membership, not ended), or the person whose role changed or who was removed, or, for a deletion, a former
- *      founder for that request: someone else demoted or removed them within 30 days before it, or after it, and they
- *      have not got the standing back (`founder_departures`); anyone else is `not_founder`;
+ *      membership, not ended), or the person whose role changed or who was removed, or, for a deletion, anyone someone
+ *      else ever demoted or removed from the project who has not got the standing back (`founder_departures`; the
+ *      cancel stays with those taken out within 30 days before the request, or after it); anyone else is `not_founder`;
  *   5. once per entry and person (`founder_notifications`' dedupe key `founder_notice:<audit id>`);
  *   6. their address, from `auth.users`, and no hard suppression of it (`isHardSuppressed`: a bounce or a spam report,
  *      platform-wide or for this project). Nothing else holds it back: no email switch, no pause, no daily limit, no
@@ -27,9 +27,11 @@
  *      project, unused, in date, for the deletion request that is still the latest and still waiting, and the person a
  *      former founder for it. A token that does not hold is left out (the email still goes, saying to ask a founder);
  *   8. the counts: their own enforced daily ceiling (`pn:safety:day`, PLATFORM_SAFETY_DAILY_CEILING, `safety_ceiling`),
- *      never the shared `pn:all:day`; and per person and project at most `FOUNDER_NOTICE_LIMITS.perRecipientHour` an
- *      hour and `perRecipientDay` a day. Past either, one "more changes" email for the window (with the cancel when
- *      this notice had one), and every further notice in it is recorded as `folded`, not sent.
+ *      never the shared `pn:all:day`, and a cap per project under it (`project_ceiling`); and per person and project at
+ *      most `FOUNDER_NOTICE_LIMITS.perRecipientHour` an hour and `perRecipientDay` a day. Past either, one "more
+ *      changes" email for the window, and every further notice in it is recorded as `folded`, not sent. An essential
+ *      notice (`isEssentialFounderNotice`: it carries the cancel, or it is the removal's email to the person removed, or
+ *      a deletion request's to a former founder) skips all of these on a reserved path (`pn:safety:reserved:day`).
  *
  * The words are `founderNoticeEmail` (packages/shared people-email.ts) over the gateway's own reads (the profile names of
  * the reader, the actor and the person it was about, the project's name, the reader's time zone), every one through
@@ -48,6 +50,7 @@ import {
   FOUNDER_NOTICE_ACTIONS,
   FOUNDER_NOTICE_LOOKBACK_MS,
   FOUNDER_NOTICE_LIMITS,
+  isEssentialFounderNotice,
   founderNoticeEmail,
   founderNoticeMoreEmail,
   founderNoticeOf,
@@ -84,6 +87,10 @@ const HOUR_MS = 3_600_000;
 
 /** Every founder notice together in a UTC day: their own ceiling, never `pn:all:day`. */
 export const PLATFORM_SAFETY_CEILING_KEY = "pn:safety:day";
+/** The essential founder notices of a UTC day: counted on their own, never refused (`isEssentialFounderNotice`). */
+export const PLATFORM_SAFETY_RESERVED_KEY = "pn:safety:reserved:day";
+/** Every founder notice about one project in a UTC day, under the platform's ceiling (`perProjectDay`). */
+export const founderNoticeProjectKey = (businessId: string): string => `pn:safety:project:${businessId.toLowerCase()}:day`;
 /** Founder notices one person got about one project, this hour and today. */
 export const founderNoticeHourKey = (userId: string, businessId: string): string => `pn:safety:${userId.toLowerCase()}:${businessId.toLowerCase()}:hour`;
 export const founderNoticeDayKey = (userId: string, businessId: string): string => `pn:safety:${userId.toLowerCase()}:${businessId.toLowerCase()}:day`;
@@ -156,7 +163,9 @@ export async function sendFounderNotice(deps: GatewayDeps, input: FounderNoticeR
   if (isActor) reader = "self";
   else if (subjectId && subjectId.toLowerCase() === userId.toLowerCase()) reader = "subject";
   else if (isFounder) reader = "founder";
-  else if (request && (await repos.founderDepartures.formerFounderFor(deps.db, businessId, userId, request.createdAt))) reader = "former";
+  // Anyone someone else ever took out of the project hears about its deletion (third review); the cancel stays with the
+  // former founders for the request (checked with the link below).
+  else if (request && (await repos.founderDepartures.formerFounderEver(deps.db, businessId, userId))) reader = "former";
   else return notSent("not_founder");
 
   // 5. Once per entry and person.
@@ -186,13 +195,18 @@ export async function sendFounderNotice(deps: GatewayDeps, input: FounderNoticeR
     else deps.log.warn({ businessId, userId, kind }, "founder notice: the cancel token did not hold; sent without it");
   }
 
-  // 8. The counts (second review, P1-1): founder notices have their own daily ceiling, enforced and apart from the one
-  //    every other email to people shares (`pn:all:day`), and one person hears about one project at most
-  //    `perRecipientHour` times an hour and `perRecipientDay` a day; past either, one email says that more changed and
-  //    the rest of the window's notices are folded into it (recorded as `folded`, never sent). A store that is not
-  //    shared right now still counts on this replica: an account-safety notice is not held back by a Redis outage.
+  // 8. The counts (second and third reviews): founder notices have their own daily ceiling, enforced and apart from the
+  //    one every other email to people shares (`pn:all:day`), a cap per project under it, and one person hears about
+  //    one project at most `perRecipientHour` times an hour and `perRecipientDay` a day; past either, one email says that
+  //    more changed and the rest of the window's notices are folded into it (recorded as `folded`, never sent). An
+  //    essential notice (one that carries the cancel, the removal's email to the person removed, a deletion request's to
+  //    a former founder) takes a reserved path: counted, never refused at a ceiling and never folded, since the limits on
+  //    the steps that send it already bound it. A store that is not shared right now still counts on this replica: an
+  //    account-safety notice is not held back by a Redis outage.
+  const essential = isEssentialFounderNotice({ notice, reader, carriesCancel: cancel !== null });
   const ceiling = config.safetyCeiling ?? FOUNDER_NOTICE_LIMITS.safetyCeilingDefault;
   const counted: [string, number][] = [];
+  let marker: string | null = null;
   const giveBack = async () => {
     for (const [key, windowMs] of counted.splice(0)) {
       try {
@@ -201,28 +215,51 @@ export async function sendFounderNotice(deps: GatewayDeps, input: FounderNoticeR
         // Best effort.
       }
     }
+    await releaseMarker();
   };
+  // The "More changes" email did not go out (its send failed, or another call recorded this notice first): the next
+  // notice of the window may send it.
+  async function releaseMarker(): Promise<void> {
+    if (!marker) return;
+    const key = marker;
+    marker = null;
+    try {
+      await deps.rateLimits.unclaim?.(key);
+    } catch {
+      // Best effort.
+    }
+  }
   const hit = async (key: string, windowMs: number): Promise<number> => {
     const r = await deps.rateLimits.hit(key, windowMs, now.getTime());
     counted.push([key, windowMs]);
     return r.count;
   };
-  if ((await hit(PLATFORM_SAFETY_CEILING_KEY, DAY_MS)) > ceiling) {
-    await giveBack();
-    return notSent("safety_ceiling");
-  }
-  const overHour = (await hit(founderNoticeHourKey(userId, businessId), HOUR_MS)) > FOUNDER_NOTICE_LIMITS.perRecipientHour;
-  const overDay = (await hit(founderNoticeDayKey(userId, businessId), DAY_MS)) > FOUNDER_NOTICE_LIMITS.perRecipientDay;
   let more = false;
-  if (overHour || overDay) {
-    const window = overDay ? "day" : "hour";
-    const first = deps.rateLimits.claim ? await deps.rateLimits.claim(founderNoticeMoreKey(userId, businessId, window), window === "day" ? DAY_MS : HOUR_MS, now.getTime()) : false;
-    if (!first) {
+  if (essential) {
+    await hit(PLATFORM_SAFETY_RESERVED_KEY, DAY_MS);
+  } else {
+    if ((await hit(PLATFORM_SAFETY_CEILING_KEY, DAY_MS)) > ceiling) {
       await giveBack();
-      await repos.notifications.skip(deps.db, businessId, { userId, kind, dedupeKey, reason: "folded" }).catch(() => undefined);
-      return notSent("folded");
+      return notSent("safety_ceiling");
     }
-    more = true;
+    if ((await hit(founderNoticeProjectKey(businessId), DAY_MS)) > FOUNDER_NOTICE_LIMITS.perProjectDay) {
+      await giveBack();
+      return notSent("project_ceiling");
+    }
+    const overHour = (await hit(founderNoticeHourKey(userId, businessId), HOUR_MS)) > FOUNDER_NOTICE_LIMITS.perRecipientHour;
+    const overDay = (await hit(founderNoticeDayKey(userId, businessId), DAY_MS)) > FOUNDER_NOTICE_LIMITS.perRecipientDay;
+    if (overHour || overDay) {
+      const window = overDay ? "day" : "hour";
+      const key = founderNoticeMoreKey(userId, businessId, window);
+      const first = deps.rateLimits.claim ? await deps.rateLimits.claim(key, window === "day" ? DAY_MS : HOUR_MS, now.getTime()) : false;
+      if (!first) {
+        await giveBack();
+        await repos.notifications.skip(deps.db, businessId, { userId, kind, dedupeKey, reason: "folded" }).catch(() => undefined);
+        return notSent("folded");
+      }
+      marker = key;
+      more = true;
+    }
   }
 
   // 9. The words, from the gateway's own reads.
@@ -280,6 +317,7 @@ export async function sendFounderNotice(deps: GatewayDeps, input: FounderNoticeR
   }
   if (!result.ok) {
     if (vendorRefusedOutright(result.error)) await giveBack();
+    else await releaseMarker();
     await repos.notifications.markFailed(deps.db, businessId, notificationId, "vendor");
     deps.log.warn({ businessId, userId, kind, code: result.error?.code, status: result.error?.status }, "founder notice refused by the provider");
     return notSent("vendor");

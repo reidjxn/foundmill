@@ -54,6 +54,17 @@ export function rolePhrase(role: MembershipRole | string): string {
   }
 }
 
+/**
+ * A notice that is never folded into "More changes" and never refused at a ceiling (third review): one that carries
+ * the one-click cancel, the email to the person removed, and the deletion request's email to a former founder. Each is
+ * bounded already by the limits on the steps that send it (`actorPerDay`, `actorPerDayAll`).
+ */
+export function isEssentialFounderNotice(f: { notice: FounderNotice; reader: "founder" | "subject" | "former" | "self"; carriesCancel: boolean }): boolean {
+  if (f.carriesCancel) return true;
+  if (f.notice === "removed" && f.reader === "subject") return true;
+  return f.notice === "deletion_requested" && (f.reader === "former" || f.reader === "subject");
+}
+
 /** Which notice an audit entry is, or null when it is not one (a role change that keeps a founder's standing, say). */
 export function founderNoticeOf(entry: { action: string; details: Record<string, unknown> }): FounderNotice | null {
   const d = entry.details;
@@ -134,7 +145,7 @@ export function founderChangeNote(f: { notice: "role_changed" | "removed"; actor
     };
   }
   return {
-    subject: clip(`${actor} removed ${subject}`, 80),
+    subject: clip(`${actorText} removed ${subjectText}`, 80),
     body: `${actor} removed ${subject}, who was ${rolePhrase(f.fromRole)}, from the project on ${f.when}. If this wasn't agreed, a founder can invite them back from Settings › People.`,
   };
 }

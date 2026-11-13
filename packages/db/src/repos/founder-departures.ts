@@ -36,6 +36,24 @@ const visible = {
 /** The earliest departure that still counts for a request made at `requestedAt`. */
 export const formerFounderSince = (requestedAt: Date): Date => new Date(requestedAt.getTime() - FORMER_FOUNDER_LOOKBACK_MS);
 
+/** The latest departure per person since `since`, when someone else caused it and the person is not a founder now. */
+async function formerSince(db: Executor, businessId: string, since: Date): Promise<FounderDepartureView[]> {
+  const bid = parseInput(Id, businessId, "business id");
+  const rows = await db
+    .selectDistinctOn([founderDepartures.userId], visible)
+    .from(founderDepartures)
+    .where(and(eq(founderDepartures.businessId, bid), gte(founderDepartures.departedAt, since)))
+    .orderBy(founderDepartures.userId, desc(founderDepartures.departedAt), desc(founderDepartures.id));
+  const others = rows.filter((r) => r.how === "demoted" || r.how === "removed");
+  if (others.length === 0) return [];
+  const founders = await db
+    .select({ userId: memberships.userId })
+    .from(memberships)
+    .where(and(eq(memberships.businessId, bid), inArray(memberships.role, [...OWNER_ROLES]), membershipNotEnded, inArray(memberships.userId, others.map((r) => r.userId))));
+  const still = new Set(founders.map((f) => f.userId));
+  return others.filter((r) => !still.has(r.userId));
+}
+
 export const founderDeparturesRepo = {
   /** The person's latest departure from this business, or null (any kind). */
   async latest(db: Executor, businessId: string, userId: string): Promise<FounderDepartureView | null> {
@@ -69,22 +87,23 @@ export const founderDeparturesRepo = {
    * 30 days before it (or after it), when someone else caused it and the person does not have a founder's standing now.
    */
   async formerFoundersFor(db: Executor, businessId: string, requestedAt: Date): Promise<FounderDepartureView[]> {
-    const bid = parseInput(Id, businessId, "business id");
-    const rows = await db
-      .selectDistinctOn([founderDepartures.userId], visible)
-      .from(founderDepartures)
-      .where(and(eq(founderDepartures.businessId, bid), gte(founderDepartures.departedAt, formerFounderSince(requestedAt))))
-      .orderBy(founderDepartures.userId, desc(founderDepartures.departedAt), desc(founderDepartures.id));
-    const others = rows.filter((r) => r.how === "demoted" || r.how === "removed");
-    if (others.length === 0) return [];
-    const founders = await db
-      .select({ userId: memberships.userId })
-      .from(memberships)
-      .where(and(eq(memberships.businessId, bid), inArray(memberships.role, [...OWNER_ROLES]), membershipNotEnded, inArray(memberships.userId, others.map((r) => r.userId))));
-    const still = new Set(founders.map((f) => f.userId));
-    return others.filter((r) => !still.has(r.userId));
+    return formerSince(db, businessId, formerFounderSince(requestedAt));
   },
 
+  /**
+   * Service role: everyone whose founder's standing someone else ever took away in this project and who does not have it
+   * back (the latest departure per person). They hear about every deletion request and its cancel (third review); the
+   * right to cancel stays with the former founders for the request (`formerFoundersFor`).
+   */
+  async formerFoundersEver(db: Executor, businessId: string): Promise<FounderDepartureView[]> {
+    return formerSince(db, businessId, new Date(0));
+  },
+
+  /** Service role: this person's departure if they were ever a founder someone else took out of this project, else null. */
+  async formerFounderEver(db: Executor, businessId: string, userId: string): Promise<FounderDepartureView | null> {
+    const uid = parseInput(Id, userId, "user id");
+    return (await formerSince(db, businessId, new Date(0))).find((r) => r.userId === uid) ?? null;
+  },
   /** Service role: this person's departure if they are a former founder for a request made at `requestedAt`, else null. */
   async formerFounderFor(db: Executor, businessId: string, userId: string, requestedAt: Date): Promise<FounderDepartureView | null> {
     const uid = parseInput(Id, userId, "user id");

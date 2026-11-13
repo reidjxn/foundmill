@@ -646,14 +646,19 @@ export type FounderNotice = (typeof FOUNDER_NOTICES)[number];
  */
 export const FORMER_FOUNDER_LOOKBACK_MS = 30 * 86_400_000;
 /**
- * The limits on founder notices and on the steps that send them (security review P2-3, second review):
+ * The limits on founder notices and on the steps that send them (security review P2-3, second and third reviews):
  *   - `perRecipientHour` / `perRecipientDay`: founder notices one person gets about one project; above either, one
- *     "more changes" email for the window and nothing more until it ends (`folded` on the record);
+ *     "more changes" email for the window and nothing more until it ends (`folded` on the record). Never for an
+ *     essential notice (`isEssentialFounderNotice`);
+ *   - `perProjectDay`: every founder notice about one project in a UTC day (`pn:safety:project:<id>:day`), under the
+ *     platform's ceiling;
  *   - `safetyCeilingDefault`: every founder notice together in a UTC day (`pn:safety:day`, PLATFORM_SAFETY_DAILY_CEILING),
- *     enforced, and apart from the ceiling of every other email to people (`pn:all:day`);
- *   - `actorPerDay`: how many times one person may lower a founder's role, or ask for a deletion, in one project in a day.
+ *     enforced, and apart from the ceiling of every other email to people (`pn:all:day`). An essential notice takes a
+ *     reserved path past both (`pn:safety:reserved:day`, counted, never refused): it is bounded by the actors' limits;
+ *   - `actorPerDay`: how many times one person may lower a founder's role, or ask for a deletion, in one project in a
+ *     day, and `actorPerDayAll`: both together, across every project, in a day.
  */
-export const FOUNDER_NOTICE_LIMITS = { perRecipientHour: 10, perRecipientDay: 30, safetyCeilingDefault: 5_000, actorPerDay: 5 } as const;
+export const FOUNDER_NOTICE_LIMITS = { perRecipientHour: 10, perRecipientDay: 30, perProjectDay: 500, safetyCeilingDefault: 5_000, actorPerDay: 5, actorPerDayAll: 10 } as const;
 /** How a founder's standing ended (`founder_departures.how`, 0094): by another founder's change, by removal, or by their own. */
 export const FOUNDER_DEPARTURE_KINDS = ["demoted", "removed", "left"] as const;
 export type FounderDepartureKind = (typeof FOUNDER_DEPARTURE_KINDS)[number];

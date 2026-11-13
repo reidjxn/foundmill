@@ -137,6 +137,13 @@ describe("the repo: former founders, counted from the request", () => {
     await h.db.delete(s.memberships).where(and(eq(s.memberships.businessId, A.businessId), eq(s.memberships.userId, cofounder)));
     // That service delete is a new `removed` row; the person is a former founder again.
     expect((await repos.founderDepartures.formerFounderFor(h.db, A.businessId, cofounder, now))?.how).toBe("removed");
+    // Ever: a departure long before any request still counts there (third review: they hear about every deletion).
+    await h.db.execute(sql`update founder_departures set departed_at = now() - interval '400 days' where business_id = ${A.businessId}::uuid and user_id = ${cofounder}::uuid`);
+    expect(await repos.founderDepartures.formerFounderFor(h.db, A.businessId, cofounder, now)).toBeNull();
+    expect((await repos.founderDepartures.formerFounderEver(h.db, A.businessId, cofounder))?.userId).toBe(cofounder);
+    expect((await repos.founderDepartures.formerFoundersEver(h.db, A.businessId)).map((r) => r.userId)).toEqual([cofounder]);
+    expect(await repos.founderDepartures.formerFounderEver(h.db, A.businessId, A.memberId)).toBeNull();
+    await h.db.execute(sql`update founder_departures set departed_at = now() where business_id = ${A.businessId}::uuid and user_id = ${cofounder}::uuid`);
     // Their home reads it, with the project's name (on the service connection: they can no longer read the business row).
     const mine = await repos.founderDepartures.forUser(h.db, cofounder, new Date(now.getTime() - FORMER_FOUNDER_LOOKBACK_MS));
     expect(mine.map((r) => [r.businessId, r.businessName])).toEqual([[A.businessId, (await repos.businesses.get(h.db, A.businessId)).name]]);

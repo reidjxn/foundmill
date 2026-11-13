@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { cancelLinkWords, escapeMarkdown, formerFounderCanceledLine, founderChangeNote, founderNoticeOf, FORMER_PROJECT_CARD, HARD_SUPPRESSION_REASONS, noticeDay, noticeMoment, rolePhrase } from "./founder-notices";
+import { isEssentialFounderNotice, cancelLinkWords, escapeMarkdown, formerFounderCanceledLine, founderChangeNote, founderNoticeOf, FORMER_PROJECT_CARD, HARD_SUPPRESSION_REASONS, noticeDay, noticeMoment, rolePhrase } from "./founder-notices";
 import { founderNoticeEmail, founderNoticeMoreEmail, type FounderNoticeFacts } from "./people-email";
 import { usSpelling } from "./us-spelling";
 
@@ -142,5 +142,26 @@ describe("the second review's words", () => {
     expect(note.subject).not.toContain("evil.example");
     expect(formerFounderCanceledLine("[x](javascript:alert(1))", "Nov 12, 2026")).not.toMatch(/\]\(|javascript/);
     expect(escapeMarkdown("a_b `c` #d !e |f ~g")).toBe("a\\_b \\`c\\` \\#d \\!e \\|f \\~g");
+  });
+});
+
+describe("the third review", () => {
+  it("an essential notice: one that carries the cancel, the removal's email to the person removed, a deletion request's to a former founder", () => {
+    expect(isEssentialFounderNotice({ notice: "role_changed", reader: "founder", carriesCancel: true })).toBe(true);
+    expect(isEssentialFounderNotice({ notice: "removed", reader: "subject", carriesCancel: false })).toBe(true);
+    expect(isEssentialFounderNotice({ notice: "deletion_requested", reader: "former", carriesCancel: false })).toBe(true);
+    for (const f of [
+      { notice: "removed", reader: "founder" },
+      { notice: "role_changed", reader: "subject" },
+      { notice: "deletion_requested", reader: "founder" },
+      { notice: "deletion_requested", reader: "self" },
+      { notice: "deletion_canceled", reader: "former" },
+    ] as const) expect(isEssentialFounderNotice({ ...f, carriesCancel: false }), `${f.notice}/${f.reader}`).toBe(false);
+  });
+
+  it("the removal's Inbox note: the subject line is plain text (no markdown escapes), the body escaped", () => {
+    const note = founderChangeNote({ notice: "removed", actorName: "Ana_R", subjectName: "Ben (O)", fromRole: "cofounder", when: "Nov 13, 2026" });
+    expect(note.subject).toBe("Ana_R removed Ben (O)");
+    expect(note.body.startsWith("Ana\\_R removed Ben \\(O\\)")).toBe(true);
   });
 });
