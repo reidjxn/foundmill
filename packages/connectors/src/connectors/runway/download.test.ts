@@ -91,6 +91,15 @@ describe("runway download_video", () => {
     await expect(fetchClip(async () => new Response(bytes), "https://127.0.0.1/clip.mp4")).rejects.toMatchObject({ code: "invalid_url" });
   });
 
+  it("copies only an MP4 by its content: an answer labeled video/mp4 that is not one is refused", async () => {
+    for (const body of [new TextEncoder().encode("<html><body>not a video</body></html>"), new Uint8Array([82, 73, 70, 70, 0, 0, 0, 0, 87, 65, 86, 69]), new Uint8Array([1, 2, 3])]) {
+      const c = connector({ clip: () => new Response(body, { headers: { "content-type": "video/mp4", "content-length": String(body.byteLength) } }) });
+      const r = await c.callTool(DOWNLOAD_VIDEO_TOOL, { taskId: TASK_ID }, live(c));
+      expect(r.error).toMatchObject({ code: "clip_not_video", status: 415 });
+    }
+    expect(await fetchClip(async () => new Response(bytes, { headers: { "content-type": "application/octet-stream" } }), OUTPUT_URL)).toEqual(bytes);
+  });
+
   it("fetches only from Runway's own storage: an address off the allow-list is refused before any request", async () => {
     expect(RUNWAY_OUTPUT_HOSTS).toContain(new URL(OUTPUT_URL).hostname);
     const asked: string[] = [];

@@ -38,7 +38,12 @@ async function expectNoEffect(p: Promise<unknown>) {
 const draft = async (businessId: string) =>
   (await h.service().run((tx) => tx.insert(s.assets).values({ businessId, kind: "post", title: "A post about your page going live", body: "Our page is live.", approvalState: "draft", contentRef: `post-draft:page_published:page_live:${crypto.randomUUID()}` }).returning({ id: s.assets.id })))[0]!.id;
 
-const clip = (n: number, fill = 7) => new Uint8Array(n).fill(fill);
+/** An MP4's first bytes (its `ftyp` box), padded to `n` bytes. */
+const clip = (n: number, fill = 7) => {
+  const out = new Uint8Array(Math.max(n, 12)).fill(fill);
+  out.set([0, 0, 0, 24, 102, 116, 121, 112, 109, 112, 52, 50]);
+  return out;
+};
 
 beforeAll(async () => {
   h = await createTestDb();
@@ -114,9 +119,18 @@ describe("post_media: what only this table has", () => {
     expect(new Uint8Array(read!.content)).toEqual(audio);
 
     const tooBig = await h.service().run((tx) => repos.postMedia.open(tx, B.businessId, { assetId: d, kind: "video", connectorKey: "runway" }));
-    const over = await h.service().run((tx) => repos.postMedia.store(tx, B.businessId, tooBig.row.id, { content: new Uint8Array(POST_MEDIA_LIMITS.voiceoverMaxBytes + 1), mime: "video/mp4" }, { perProjectBytes: 64 }));
+    const over = await h.service().run((tx) => repos.postMedia.store(tx, B.businessId, tooBig.row.id, { content: clip(POST_MEDIA_LIMITS.voiceoverMaxBytes + 1), mime: "video/mp4" }, { perProjectBytes: 64 }));
     expect(over).toEqual({ stored: false, reason: "storage_full" });
     expect((await repos.postMedia.get(h.db as never, B.businessId, tooBig.row.id))).toMatchObject({ state: "failed", errorCode: "storage_full" });
+
+    const d3 = await draft(B.businessId);
+    const wrong = await h.service().run((tx) => repos.postMedia.open(tx, B.businessId, { assetId: d3, kind: "voiceover", connectorKey: "elevenlabs_voice" }));
+    // A file is stored only when its first bytes are its type: an HTML page labeled audio, or an MP4 labeled MP3, is not.
+    expect(await h.service().run((tx) => repos.postMedia.store(tx, B.businessId, wrong.row.id, { content: new TextEncoder().encode("<html>hi</html>"), mime: "audio/mpeg" }))).toEqual({ stored: false, reason: "not_media" });
+    const v3 = await h.service().run((tx) => repos.postMedia.open(tx, B.businessId, { assetId: d3, kind: "video", connectorKey: "runway" }));
+    expect(await h.service().run((tx) => repos.postMedia.store(tx, B.businessId, v3.row.id, { content: audio, mime: "video/mp4" }))).toEqual({ stored: false, reason: "not_media" });
+    expect(await repos.postMedia.get(h.db as never, B.businessId, wrong.row.id)).toMatchObject({ state: "failed", errorCode: "not_media" });
+    expect(await repos.postMedia.content(h.db as never, B.businessId, wrong.row.id)).toBeNull();
 
     const d2 = await draft(B.businessId);
     const voice2 = await h.service().run((tx) => repos.postMedia.open(tx, B.businessId, { assetId: d2, kind: "voiceover", connectorKey: "elevenlabs_voice" }));

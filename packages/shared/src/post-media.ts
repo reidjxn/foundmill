@@ -79,6 +79,19 @@ export const isPostMediaKind = (v: unknown): v is PostMediaKind => typeof v === 
 export const isPostMediaState = (v: unknown): v is PostMediaState => typeof v === "string" && (POST_MEDIA_STATES as readonly string[]).includes(v);
 export const isPostMediaMime = (v: unknown): v is PostMediaMime => typeof v === "string" && (POST_MEDIA_MIMES as readonly string[]).includes(v);
 
+const ascii = (bytes: Uint8Array, from: number, text: string): boolean => bytes.length >= from + text.length && [...text].every((ch, i) => bytes[from + i] === ch.charCodeAt(0));
+
+/**
+ * Whether a file's first bytes are what its type says, read from the content and never from a header: an MP4 has its
+ * `ftyp` box at bytes 4 to 8; a WAV is `RIFF` … `WAVE`; an MP3 starts with an `ID3` tag or an MPEG audio frame sync
+ * (eleven set bits). Anything else is refused before it is stored.
+ */
+export function postMediaSignatureMatches(mime: PostMediaMime, bytes: Uint8Array): boolean {
+  if (mime === "video/mp4") return ascii(bytes, 4, "ftyp");
+  if (mime === "audio/wav") return ascii(bytes, 0, "RIFF") && ascii(bytes, 8, "WAVE");
+  return ascii(bytes, 0, "ID3") || (bytes.length >= 2 && bytes[0] === 0xff && (bytes[1]! & 0xe0) === 0xe0);
+}
+
 /** The most bytes one item of `kind` may have. */
 export const postMediaMaxBytes = (kind: PostMediaKind): number => (kind === "video" ? POST_MEDIA_LIMITS.videoMaxBytes : POST_MEDIA_LIMITS.voiceoverMaxBytes);
 

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { fitPostDraft, withPostText, type PostDraft } from "./post-draft";
-import { POST_MEDIA_WORDS, postDraftHasRealVideo, postMediaCardLabel, postMediaFileName, postMediaLine, postMediaPostable, type PostDraftMedia, type PostDraftMediaItem } from "./post-media";
+import { POST_MEDIA_WORDS, postDraftHasRealVideo, postMediaCardLabel, postMediaFileName, postMediaLine, postMediaPostable, postMediaSignatureMatches, type PostDraftMedia, type PostDraftMediaItem } from "./post-media";
 import { PostDraft as PostDraftSchema } from "./types";
 
 const id = "6f1d2c3b-4a5e-4f60-8a7b-9c0d1e2f3a4b";
@@ -57,6 +57,20 @@ describe("a draft's media", () => {
     expect(postMediaCardLabel({ ...connected, video: { ...ready, state: "failed" } })).toBeNull();
     expect(postMediaCardLabel(undefined)).toBeNull();
     for (const words of [POST_MEDIA_WORDS.notConnected, POST_MEDIA_WORDS.twoFiles, POST_MEDIA_WORDS.saveNote]) expect(words).not.toMatch(/\b(?:job|career|employ)/i);
+  });
+
+  it("checks a file's type from its first bytes, never from what it says it is", () => {
+    const bytes = (...parts: (number[] | string)[]) => new Uint8Array(parts.flatMap((p) => (typeof p === "string" ? [...p].map((c) => c.charCodeAt(0)) : p)));
+    expect(postMediaSignatureMatches("video/mp4", bytes([0, 0, 0, 24], "ftypmp42"))).toBe(true);
+    expect(postMediaSignatureMatches("video/mp4", bytes("<html><body>"))).toBe(false);
+    expect(postMediaSignatureMatches("video/mp4", bytes("ftyp"))).toBe(false);
+    expect(postMediaSignatureMatches("audio/wav", bytes("RIFF", [0, 0, 0, 0], "WAVEfmt "))).toBe(true);
+    expect(postMediaSignatureMatches("audio/wav", bytes("RIFF", [0, 0, 0, 0], "AVI LIST"))).toBe(false);
+    expect(postMediaSignatureMatches("audio/mpeg", bytes("ID3", [4, 0, 0]))).toBe(true);
+    expect(postMediaSignatureMatches("audio/mpeg", bytes([0xff, 0xfb, 0x90, 0x64]))).toBe(true);
+    expect(postMediaSignatureMatches("audio/mpeg", bytes([0xff, 0x0b]))).toBe(false);
+    expect(postMediaSignatureMatches("audio/mpeg", bytes([0, 0, 0, 24], "ftypmp42"))).toBe(false);
+    expect(postMediaSignatureMatches("audio/mpeg", new Uint8Array())).toBe(false);
   });
 
   it("names a saved file after the project", () => {

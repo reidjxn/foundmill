@@ -5,7 +5,7 @@
  * error. NO WEBHOOKS: Runway reports a task only by polling `GET /v1/tasks/{id}`, so there is nothing to verify or
  * normalise; the agent looks the task up with `get_video_task`.
  */
-import { AppError, uuid } from "@foundmill/shared";
+import { AppError, postMediaSignatureMatches, uuid } from "@foundmill/shared";
 import { ConfigError, ConnectInputError, connectInputValue, VendorError, type Connector, type DecryptedCredential } from "../../contract";
 import { buildLiveConnector, healthResult } from "../../define";
 import { bearer, createHttp, type FetchLike } from "../../http";
@@ -69,7 +69,7 @@ export async function fetchClip(fetchImpl: FetchLike, address: string, max: numb
   if (!reader) {
     const whole = new Uint8Array(await res.arrayBuffer());
     if (whole.byteLength > max) tooLarge();
-    return whole;
+    return mp4Only(whole);
   }
   const parts: Uint8Array[] = [];
   let total = 0;
@@ -89,7 +89,13 @@ export async function fetchClip(fetchImpl: FetchLike, address: string, max: numb
     out.set(p, at);
     at += p.byteLength;
   }
-  return out;
+  return mp4Only(out);
+}
+
+/** The clip, when its bytes are an MP4 (the `ftyp` box at bytes 4 to 8); refused otherwise, whatever its header said. */
+function mp4Only(bytes: Uint8Array): Uint8Array {
+  if (!postMediaSignatureMatches("video/mp4", bytes)) clipRefused("clip_not_video", "its content is not an MP4 video", 415);
+  return bytes;
 }
 
 /** Runway keys start `key_`. Anything key-shaped, and the key in hand, is masked out of vendor text. */

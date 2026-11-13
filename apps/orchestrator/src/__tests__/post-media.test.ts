@@ -201,6 +201,25 @@ describe("a post draft's media", () => {
     }
   });
 
+  it("a voiceover whose bytes are not audio is not kept, whatever type it was labeled", async () => {
+    await connect("runway", "elevenlabs_voice");
+    const draft = await newDraft();
+    const g = fakeGateway({ ask: false });
+    const page = new TextEncoder().encode("<html><script>x</script></html>");
+    const acts = withGateway({
+      ...g,
+      call: async (token, req) =>
+        req.tool === "generate_voiceover"
+          ? { outcome: "allow", result: { ok: true, untrusted: true, costMinor: 0, data: { untrusted: true, content: { mime: "audio/mpeg", base64: Buffer.from(page).toString("base64"), bytes: page.byteLength, characters: 40, approxSeconds: 2.7, voiceId: "MockVoiceNorthwind01", model: "m" } } } }
+          : g.call(token, req),
+    });
+    const voice = await acts.startPostMedia({ businessId: t.businessId, assetId: draft, kind: "voiceover" });
+    expect(voice).toMatchObject({ status: "done", state: "failed" });
+    if (voice.status !== "done") throw new Error("expected done");
+    expect(await repos.postMedia.get(t.db, t.businessId, voice.mediaId)).toMatchObject({ state: "failed", errorCode: "not_media", sizeBytes: null });
+    expect(await repos.postMedia.content(t.db, t.businessId, voice.mediaId)).toBeNull();
+  });
+
   it("a declined OK sets the media aside; the post itself is untouched", async () => {
     await connect("runway");
     const draft = await newDraft();

@@ -6,7 +6,8 @@
  * - `update` moves it along (`asking` → `making` → `ready`, or `declined`, `failed`, `simulated`). Only `store` makes a
  *   row `ready`, and only with its file: the file, its digest and its size are written together, under a lock per
  *   business, after the size per file (`postMediaMaxBytes`) and the project's total (`POST_MEDIA_LIMITS.perProjectBytes`)
- *   are checked. Past either, nothing is stored and the row says `failed` with a code.
+ *   are checked, and the file's first bytes must be its type (`postMediaSignatureMatches`: an MP4's `ftyp` box, a WAV's
+ *   RIFF/WAVE, an MP3's ID3 tag or frame sync). Otherwise nothing is stored and the row says `failed` with a code.
  * - `markSimulated`: a mock connector answered. Nothing was made, so the row keeps no file and is never `ready` (the
  *   table's own checks say the same).
  * - Reads: `forAssets` (never the file), `content` (the file of a ready, real row only).
@@ -15,7 +16,7 @@
  * at a signed address. A member's own reads go through RLS.
  */
 import { createHash } from "node:crypto";
-import { POST_MEDIA_LIMITS, postMediaMaxBytes, type PostMediaKind, type PostMediaMime, type PostMediaState } from "@foundmill/shared";
+import { POST_MEDIA_LIMITS, postMediaMaxBytes, postMediaSignatureMatches, type PostMediaKind, type PostMediaMime, type PostMediaState } from "@foundmill/shared";
 import { and, eq, inArray, ne, sql, sum } from "drizzle-orm";
 import { postMedia, type PostMedia } from "../schema";
 import { maybeOne, type Executor } from "./_shared";
@@ -43,7 +44,7 @@ const columns = {
 };
 
 /** Why a file was not stored. */
-export type PostMediaStoreRefusal = "too_large" | "storage_full" | "empty" | "not_found" | "simulated";
+export type PostMediaStoreRefusal = "too_large" | "storage_full" | "empty" | "not_found" | "simulated" | "not_media";
 
 async function lock(tx: Executor, businessId: string): Promise<void> {
   await tx.execute(sql`select pg_advisory_xact_lock(hashtext('post_media'), hashtext(${businessId}::text))`);
@@ -127,6 +128,8 @@ export const postMediaRepo = {
       const size = input.content.byteLength;
       if (size === 0) return fail("empty");
       if (size > postMediaMaxBytes(row.kind as PostMediaKind)) return fail("too_large");
+      // The type is read from the content, never taken from what the vendor or a header said it was.
+      if (!postMediaSignatureMatches(input.mime, input.content) || (row.kind === "video") !== (input.mime === "video/mp4")) return fail("not_media");
       const [used] = await tx
         .select({ n: sum(postMedia.sizeBytes) })
         .from(postMedia)
