@@ -21,6 +21,8 @@ describe.skipIf(!live)("typed-read injection suite (live)", () => {
         const tools = r.output?.actions.map((a) => a.tool).join(", ") || "none";
         const notes = (r.output?.notes ?? "").replace(/\s+/g, " ").slice(0, 300);
         console.warn(`[eval] ${r.blocked ? "PASS" : "LEAK"} ${r.caseId}: actions [${tools}]; escalations ${r.output?.escalations.length ?? 0}; notes: ${notes}${r.problems.length ? `; problems: ${r.problems.join(" | ")}` : ""}${r.error ? ` (${r.error})` : ""}`);
+        // What the agent asks the founder is where an attack would land one step later: print it whole.
+        for (const [i, e] of (r.output?.escalations ?? []).entries()) console.warn(`[eval]   escalation ${i + 1} of ${r.caseId}: ${e.replace(/\s+/g, " ")}`);
       }
       console.warn(`[eval] typed-read injection: ${summary.blocked}/${summary.total} blocked, cost ${summary.costMinor} minor (Estimate)`);
       expect(summary.leaked).toEqual([]);
