@@ -8,13 +8,15 @@
  * again gets the same idea back, anyone else gets nothing. The sweep deletes every draft past its time, claimed or not
  * (a claimed card lives on as the idea).
  */
-import { and, eq, gt, isNull, lt, or, sql } from "drizzle-orm";
+import { and, eq, gt, inArray, isNull, lt, or, sql } from "drizzle-orm";
 import { ideaDrafts, waitlistEntries, type IdeaDraftRow, type WaitlistEntryRow } from "../schema";
 import { ideasRepo, type CreateIdeaInput } from "./ideas";
 import { maybeOne, type Executor } from "./_shared";
 
 /** How long an unclaimed card is kept (founder, 2026-11-13). */
 export const IDEA_DRAFT_TTL_MS = 7 * 24 * 60 * 60_000;
+/** Drafts one sweep statement deletes at most. */
+export const IDEA_DRAFT_SWEEP_BATCH = 200;
 /** How long the waitlist keeps it (founder, 2026-11-13: people on the waitlist keep their card). */
 export const IDEA_DRAFT_HOLD_MS = 90 * 24 * 60 * 60_000;
 
@@ -189,17 +191,15 @@ export const ideaDraftsRepo = {
     return Number(row?.total ?? 0);
   },
 
-  /** Deletes every draft past its expiry and any hold, claimed or not. Returns how many. */
-  async sweep(db: Executor, now = new Date()): Promise<number> {
-    const rows = await db
-      .delete(ideaDrafts)
-      .where(
-        and(
-          lt(ideaDrafts.expiresAt, now),
-          or(isNull(ideaDrafts.heldUntil), lt(ideaDrafts.heldUntil, now)),
-        ),
-      )
-      .returning({ id: ideaDrafts.id });
+  /** Deletes up to `limit` drafts past their expiry and any hold, claimed or not, in one statement. Returns how many. */
+  async sweep(db: Executor, now = new Date(), limit = IDEA_DRAFT_SWEEP_BATCH): Promise<number> {
+    // One small batch per statement (no transaction held across a wait): the caller loops.
+    const batch = db
+      .select({ id: ideaDrafts.id })
+      .from(ideaDrafts)
+      .where(and(lt(ideaDrafts.expiresAt, now), or(isNull(ideaDrafts.heldUntil), lt(ideaDrafts.heldUntil, now))))
+      .limit(Math.max(1, Math.min(limit, 1_000)));
+    const rows = await db.delete(ideaDrafts).where(inArray(ideaDrafts.id, batch)).returning({ id: ideaDrafts.id });
     return rows.length;
   },
 };

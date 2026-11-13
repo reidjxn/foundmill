@@ -134,7 +134,7 @@ export async function main(): Promise<void> {
   let pushNotifier: PushNotifier | null = null;
   let reconciler: { stop(): void } | null = null;
   let demoRoller: { stop(): void } | null = null;
-  let ideaSweep: { stop(): void } | null = null;
+  let ideaSweep: { stop(): Promise<void> } | null = null;
   let notifyEmail: { stop(): Promise<void> } | null = null;
   let workerMonitor: WorkerMonitor | null = null;
   let warmer: PoolWarmer | null = null;
@@ -160,7 +160,7 @@ export async function main(): Promise<void> {
       },
       { name: "stop workflow reconciler", run: () => reconciler?.stop() },
       { name: "stop sample roll-forward", run: () => demoRoller?.stop() },
-      { name: "stop idea box sweep", run: () => ideaSweep?.stop() },
+      { name: "stop idea box sweep", run: async () => ideaSweep?.stop() },
       { name: "stop key refresh", run: () => keys?.stop() },
       { name: "stop confirm-email check", run: () => confirmEmail?.stop() },
       { name: "stop pool warmer", run: () => warmer?.stop() },

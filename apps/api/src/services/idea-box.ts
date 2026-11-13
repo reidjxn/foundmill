@@ -11,7 +11,7 @@
  */
 import { createHash, randomBytes } from "node:crypto";
 import { buildIdeaBoxCardRequest, IDEATION_CARD_MAX_TOKENS, IDEATION_CARD_ROUTE } from "@foundmill/agents";
-import { repos, type IdeaDraftRow } from "@foundmill/db";
+import { IDEA_DRAFT_SWEEP_BATCH, repos, type IdeaDraftRow } from "@foundmill/db";
 import { IdeaAttribute, isModelBillingError, meter, ModelOutputError, resolveModel, streamStructured, type ConceptCard, type ModelClient } from "@foundmill/models";
 import { IDEA_BOX_ERRORS, IdeaBoxDraftRequest, IdeaToken, type IdeaBoxCard, type IdeaBoxErrorCode, type IdeaBoxEvent, type IdeaBoxPartialCard } from "@foundmill/shared";
 import type { Env } from "@foundmill/shared";
@@ -347,27 +347,45 @@ export async function claimIdeaBoxDraft(db: IdeaBoxDeps["db"], userId: string, i
   return res.status === "claimed" ? { ideaId: res.ideaId, again: res.again } : null;
 }
 
-/** The sweep runs at boot and every hour: drafts past their expiry and any hold are deleted (7 days, 90 when held). */
+/**
+ * The sweep runs at boot and every hour: drafts past their expiry and any hold are deleted (7 days, 90 when held). It
+ * runs on the api's own connection (`deps.db`, never a request's gated view), in batches of `IDEA_DRAFT_SWEEP_BATCH`
+ * (one statement each, no transaction held across a wait), at most `IDEA_BOX_SWEEP_MAX_BATCHES` a run, and `stop()`
+ * ends it before the next batch and waits for the one in flight.
+ */
 export const IDEA_BOX_SWEEP_MS = HOUR;
+export const IDEA_BOX_SWEEP_MAX_BATCHES = 25;
 
-export function startIdeaBoxSweep(deps: Pick<IdeaBoxDeps, "db" | "log">, everyMs = IDEA_BOX_SWEEP_MS): { stop(): void } {
+export function startIdeaBoxSweep(deps: Pick<IdeaBoxDeps, "db" | "log">, everyMs = IDEA_BOX_SWEEP_MS): { stop(): Promise<void> } {
   let stopped = false;
+  let running: Promise<void> | null = null;
   const run = async () => {
-    if (stopped) return;
+    let deleted = 0;
     try {
-      const deleted = await repos.ideaDrafts.sweep(deps.db);
+      for (let i = 0; i < IDEA_BOX_SWEEP_MAX_BATCHES && !stopped; i++) {
+        const n = await repos.ideaDrafts.sweep(deps.db);
+        deleted += n;
+        if (n < IDEA_DRAFT_SWEEP_BATCH) break;
+      }
       if (deleted > 0) deps.log.info({ deleted }, "idea box: expired cards deleted");
     } catch (err) {
-      deps.log.warn({ err: err instanceof Error ? err.message : String(err) }, "idea box: sweep failed (tried again next hour)");
+      deps.log.warn({ err: err instanceof Error ? err.message : String(err), deleted }, "idea box: sweep failed (tried again next hour)");
     }
   };
-  void run();
-  const timer = setInterval(() => void run(), everyMs);
+  const tick = () => {
+    if (stopped || running) return;
+    running = run().finally(() => {
+      running = null;
+    });
+  };
+  tick();
+  const timer = setInterval(tick, everyMs);
   timer.unref?.();
   return {
-    stop() {
+    async stop() {
       stopped = true;
       clearInterval(timer);
+      await running;
     },
   };
 }

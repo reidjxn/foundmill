@@ -125,6 +125,18 @@ A custom Start Command in a service's Railway settings replaces the image's ENTR
 
 Without Temporal the api still answers every procedure (Continue runs one in-process cycle step and says so); without Redis the stream has no fan-out and the api logs one line and keeps serving; the api's outbox relay retries Redis with a backoff (1 s doubling to 30 s) until it answers, so live updates resume by themselves.
 
+### The landing page's idea box: setup (docs/IDEA_BOX.md)
+
+1. **Cloudflare Turnstile.** Cloudflare dashboard → Turnstile → Add widget: name "Foundmill idea box", hostnames `foundmill.com` and `www.foundmill.com`, mode **Invisible**, pre-clearance off. Cloudflare shows a site key and a secret key; paste each straight into the place below, never into a chat.
+2. **Vercel** (Production and Preview): `NEXT_PUBLIC_TURNSTILE_SITE_KEY` = the site key; `IDEA_COOKIE_DOMAIN` = `foundmill.com`.
+3. **Railway, gateway only:** `TURNSTILE_SECRET_KEY` = the secret key. Never on any other service.
+4. **Railway, api:** `IDEA_COOKIE_DOMAIN` = `foundmill.com`. Optional: `IDEA_BOX_DAILY_CEILING_CENTS` (default `2000`, $20 a day).
+
+What happens while any of these is missing (it fails closed, never with a broken page):
+- No secret on the gateway, or no site key on Vercel: every draft is refused before any model call, and the box says "The idea box is not open right now. Try again in a minute." The rest of the landing page works.
+- No `IDEA_COOKIE_DOMAIN` on the api: the cookie stays on api.foundmill.com, so `/start` cannot read it; the card is still kept through the sign-in link's claim token (every "Keep" link carries it), within 30 minutes of signing in.
+- No `IDEA_COOKIE_DOMAIN` on Vercel: "Keep this card" and "Not mine" cannot clear a foundmill.com cookie; the card is still claimed once, and the cookie then points at nothing.
+
 ## 4. Supabase
 
 - Auth → URL configuration: site URL `https://foundmill.com`, redirect URLs `https://foundmill.com/auth/callback` and `https://www.foundmill.com/auth/callback`. **Recommended for production (security review, Nov 12, 2026): narrow the list to the callback** instead of whole hosts: `https://foundmill.com/auth/callback**`, `https://www.foundmill.com/auth/callback**` and `foundmill://auth/callback` (the mobile app, below), and nothing else. Supabase matches the whole redirect address, query string included, as a glob whose `*` stops at `.` and `/` (Supabase's "Redirect URLs" guide), and the callback's `next` keeps any `.` of its path, so use `**` after `callback`, not `*`. Keep `http://localhost:3000/**` and the Vercel preview pattern only in a development Supabase project, never in production's. `supabase/config.toml` still declares the wider list (`https://foundmill.com/**`, previews, localhost) and `supabase config push` sends it: ⬜ narrow the file in the same change as the dashboard, or the next push widens it again. Since 2026-10-10 every new magic link points at `https://foundmill.com/auth/callback`; keep the www entry anyway, because a link emailed earlier from www carries the www address and Supabase checks it when the link is opened (the app then redirects it to the apex, where it shows "Link opened on a different address" and offers a new link). **Since 2026-11-08 also `foundmill://auth/callback`**, the mobile companion app's own scheme (docs/mobile): a link tapped on the phone opens the app.
