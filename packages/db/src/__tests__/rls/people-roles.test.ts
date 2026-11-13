@@ -1,19 +1,19 @@
 /**
- * 0090 — the cofounder and collaborator roles (THESIS_REVIEW package 3.3). The migration's header states the rules:
+ * 0092 — the cofounder and collaborator roles (THESIS_REVIEW package 3.3). The migration's header states the rules:
  *
  *   - a cofounder is an owner wherever the database checks for one: `has_role(…, ['owner'])`, the membership guards
  *     (only someone with an owner's standing manages or grants it), the keep-an-owner trigger, an invitation of a
- *     cofounder (0089), the founders' names on a public page;
+ *     cofounder (0091), the founders' names on a public page;
  *   - a collaborator writes where a member writes, never an admin-only table, never the memberships; its end date
  *     (`expires_at`) is a collaborator's only, and once it has passed the row opens nothing, in either business;
  *   - another business's people reach none of it (the generic suite, cross-tenant.test.ts, runs both roles over every
  *     business table);
- *   - 0092: a collaborator reads nothing of the admin-written and Money tables (`COLLABORATOR_CLOSED_TABLES`) nor the
+ *   - 0094: a collaborator reads nothing of the admin-written and Money tables (`COLLABORATOR_CLOSED_TABLES`) nor the
  *     project's invitations, through any SELECT or ALL policy; the tables it still reads are named;
- *   - 0093: a collaborator reads and writes nothing of the Money and Legal tables members write
+ *   - 0095: a collaborator reads and writes nothing of the Money and Legal tables members write
  *     (`COLLABORATOR_CLOSED_MONEY_LEGAL`), through any policy; the generic suite runs read, insert, update and delete
  *     per table;
- *   - 0091: the cutover for a person from before open sign-up is stored, for the service role only; a cofounder
+ *   - 0093: the cutover for a person from before open sign-up is stored, for the service role only; a cofounder
  *     invitation names an address.
  */
 import { createHash, randomBytes } from "node:crypto";
@@ -77,7 +77,7 @@ beforeAll(async () => {
 }, 120_000);
 afterAll(() => h?.close());
 
-describe("memberships 0090: the roles and the end date", () => {
+describe("memberships 0092: the roles and the end date", () => {
   it("takes the two new roles, and an end date on a collaborator's row only", async () => {
     expect(await failure(h.db.execute(sql`insert into memberships (business_id, user_id, role) values (${B.businessId}, ${cofounder}, 'founder')`))).toMatch(/role_check/);
     expect(await failure(h.db.update(s.memberships).set({ expiresAt: inDays(3) }).where(row(A.businessId, cofounder)))).toMatch(/expires_only_collaborator/);
@@ -105,7 +105,7 @@ describe("memberships 0090: the roles and the end date", () => {
     expect(await h.asUser(cofounder).run((tx) => tx.delete(s.memberships).where(row(A.businessId, newcomer)).returning())).toHaveLength(1);
     // An admin-only table (0009's `accounts`).
     expect(await h.asUser(cofounder).run((tx) => tx.insert(s.accounts).values({ businessId: A.businessId, provider: "mock_bank", externalId: `cofounder-${Date.now()}`, name: "Cofounder's account" }).returning())).toHaveLength(1);
-    // 0089: a cofounder invitation is an owner's to make, so a cofounder's too.
+    // 0091: a cofounder invitation is an owner's to make, so a cofounder's too.
     expect(await h.asUser(cofounder).run((tx) => repos.invitations.create(tx, A.businessId, { tokenHash: hex(), role: "cofounder", invitedByUserId: cofounder, email: "partner@example.com", expiresAt: inDays(14) }))).toMatchObject({ role: "cofounder" });
     // Nothing of B.
     expect(await h.asUser(cofounder).run((tx) => tx.select({ id: s.memberships.id }).from(s.memberships).where(eq(s.memberships.businessId, B.businessId)))).toHaveLength(0);
@@ -174,7 +174,7 @@ describe("memberships 0090: the roles and the end date", () => {
     expect(view.rows[0]!.d).toMatch(/'owner'::text, 'cofounder'::text/);
   });
 
-  it("0092: a collaborator reads none of the admin-written and Money tables, nor the invitations; everyone else as before", async () => {
+  it("0094: a collaborator reads none of the admin-written and Money tables, nor the invitations; everyone else as before", async () => {
     // A row in each closed table and an invitation, written by the service.
     await h.service().run(async (tx) => {
       await tx.insert(s.accounts).values({ businessId: A.businessId, provider: "mock_bank", externalId: `closed-${Date.now()}`, name: "Ops" });
@@ -185,7 +185,7 @@ describe("memberships 0090: the roles and the end date", () => {
       expect(await h.asUser(collaborator).run((tx) => tx.select({ id: table.id }).from(table).where(eq(table.businessId, A.businessId))), name).toHaveLength(0);
       for (const id of [A.ownerId, cofounder, A.adminId, A.memberId, A.viewerId]) expect((await h.asUser(id).run((tx) => tx.select({ id: table.id }).from(table).where(eq(table.businessId, A.businessId)))).length, `${name} ${id}`).toBeGreaterThan(0);
     }
-    // Every closed table's select policy is the one 0092 wrote.
+    // Every closed table's select policy is the one 0094 wrote.
     const res = (await h.db.execute(sql`select tablename, qual from pg_policies where schemaname = 'public' and policyname = tablename || '_select'`)) as unknown as { rows: { tablename: string; qual: string }[] };
     const qual = new Map(res.rows.map((r) => [r.tablename, r.qual]));
     for (const t of [...COLLABORATOR_CLOSED_TABLES, "invitations"]) expect(qual.get(t), t).toMatch(/is_member_not_collaborator\(business_id\)/);
@@ -208,8 +208,8 @@ describe("memberships 0090: the roles and the end date", () => {
     expect(COLLABORATOR_STILL_READS_ADMIN_TABLES.filter((t) => COLLABORATOR_CLOSED_MONEY_LEGAL.includes(t))).toEqual([]);
   });
 
-  it("0093: a collaborator reads and writes nothing of the Money and Legal tables members write; the founders, admins and members as before", async () => {
-    const period = () => `0093-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  it("0095: a collaborator reads and writes nothing of the Money and Legal tables members write; the founders, admins and members as before", async () => {
+    const period = () => `0095-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     const snapshot = (id: string) => h.asUser(id).run((tx) => tx.insert(s.ledgerSnapshots).values({ businessId: A.businessId, period: period(), basis: "cash" }).returning({ id: s.ledgerSnapshots.id }));
     const [kept] = await h.service().run((tx) => tx.insert(s.ledgerSnapshots).values({ businessId: A.businessId, period: period(), basis: "cash" }).returning({ id: s.ledgerSnapshots.id }));
     for (const id of [collaborator, ended]) {
@@ -221,7 +221,7 @@ describe("memberships 0090: the roles and the end date", () => {
     for (const id of [A.ownerId, cofounder, A.adminId, A.memberId]) expect(await snapshot(id), id).toHaveLength(1);
     await expect(snapshot(A.viewerId)).rejects.toThrow(RLS_DENIED);
     expect((await h.asUser(A.viewerId).run((tx) => tx.select({ id: s.ledgerSnapshots.id }).from(s.ledgerSnapshots).where(eq(s.ledgerSnapshots.businessId, A.businessId)))).length).toBeGreaterThan(0);
-    // Every policy on the seven tables is one of the two 0093 wrote, and none admits a collaborator, for reads or writes.
+    // Every policy on the seven tables is one of the two 0095 wrote, and none admits a collaborator, for reads or writes.
     const policies = await policiesOn(COLLABORATOR_CLOSED_MONEY_LEGAL);
     expect(policies.map((p) => `${p.tablename}.${p.policyname}:${p.cmd}`).sort()).toEqual(COLLABORATOR_CLOSED_MONEY_LEGAL.flatMap((t) => [`${t}.${t}_select:SELECT`, `${t}.${t}_write:ALL`]).sort());
     for (const p of policies) {
@@ -232,7 +232,7 @@ describe("memberships 0090: the roles and the end date", () => {
     }
   });
 
-  it("0093: is_member_not_collaborator is for signed-in people and the service, never anon", async () => {
+  it("0095: is_member_not_collaborator is for signed-in people and the service, never anon", async () => {
     const may = async (role: string) => ((await h.db.execute(sql`select has_function_privilege(${role}::name, 'is_member_not_collaborator(uuid)', 'execute') as ok`)) as unknown as { rows: { ok: boolean }[] }).rows[0]?.ok;
     expect(await may("anon")).toBe(false);
     expect(await may("authenticated")).toBe(true);
@@ -245,7 +245,7 @@ describe("memberships 0090: the roles and the end date", () => {
     expect(await answer(B.ownerId)).toBe(false);
   });
 
-  it("0091: the cutover is stored for the service role only; a cofounder invitation names an address", async () => {
+  it("0093: the cutover is stored for the service role only; a cofounder invitation names an address", async () => {
     const at = (await h.service().run((tx) => tx.execute(sql`select admission_existing_before() as at`))) as unknown as { rows: { at: Date | string }[] };
     expect(new Date(at.rows[0]!.at).getTime()).toBeLessThanOrEqual(Date.now());
     expect(await repos.admissions.existingBefore(h.db)).toBeInstanceOf(Date);

@@ -1,5 +1,5 @@
 /**
- * 0089 — the way in: `account_admissions` (account-scoped) and `invitations` (business-scoped). docs/NETWORK.md F5,
+ * 0091 — the way in: `account_admissions` (account-scoped) and `invitations` (business-scoped). docs/NETWORK.md F5,
  * §11; the migration's header states the rules.
  *
  *   - the admissions are the service role's only: no client role reads or writes a row, not another account, not the
@@ -29,7 +29,7 @@ const inDays = (d: number) => new Date(Date.now() + d * 86_400_000);
 const rows = async <T>(q: ReturnType<typeof sql>): Promise<T[]> => ((await h.db.execute(q)) as unknown as { rows: T[] }).rows;
 /** A client's insert of an invitation, the columns the api writes. */
 const clientInsert = (runner: ReturnType<TestHarness["asUser"]>, f: BusinessFixture, by: string, role: "cofounder" | "collaborator", over: Record<string, unknown> = {}) =>
-  // A cofounder invitation always names an address (0091).
+  // A cofounder invitation always names an address (0093).
   runner.run((tx) => repos.invitations.create(tx, f.businessId, { tokenHash: hex(), role, invitedByUserId: by, email: role === "cofounder" ? "partner@example.com" : null, expiresAt: inDays(14), ...over }));
 
 beforeAll(async () => {
@@ -41,7 +41,7 @@ beforeAll(async () => {
 }, 120_000);
 afterAll(() => h?.close());
 
-describe("account_admissions 0089: the service role's only", () => {
+describe("account_admissions 0091: the service role's only", () => {
   it("one admission per account, the first stays; the open count reads today's", async () => {
     const svc = h.service();
     const who = await h.createUser("people-admitted@test.local");
@@ -69,7 +69,7 @@ describe("account_admissions 0089: the service role's only", () => {
   });
 });
 
-describe("invitations 0089: business-scoped, the token and the address never readable by a client", () => {
+describe("invitations 0091: business-scoped, the token and the address never readable by a client", () => {
   it("an owner creates either role; an admin a collaborator only; a member, a viewer, another business and anon none", async () => {
     expect(await clientInsert(h.asUser(A.ownerId), A, A.ownerId, "cofounder")).toMatchObject({ businessId: A.businessId, role: "cofounder", state: "pending", invitedByUserId: A.ownerId });
     expect(await clientInsert(h.asUser(A.adminId), A, A.adminId, "collaborator")).toMatchObject({ role: "collaborator" });

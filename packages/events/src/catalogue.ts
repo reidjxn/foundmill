@@ -1914,7 +1914,7 @@ const postDrafted = declareEvent(
 );
 
 // ---------------------------------------------------------------------------------------------------
-// Invitations to a project (0089; docs/NETWORK.md F5, THESIS_REVIEW package 3.1)
+// Invitations to a project (0091; docs/NETWORK.md F5, THESIS_REVIEW package 3.1)
 // ---------------------------------------------------------------------------------------------------
 
 const InvitationRoleEnum = z.enum(INVITATION_ROLES);
@@ -1922,7 +1922,7 @@ const InvitationRoleEnum = z.enum(INVITATION_ROLES);
 const invitationSent = declareEvent(
   "invitation.sent",
   z.object({
-    /** The invitation (0089 `invitations`): never its token, and never the address it was sent to. */
+    /** The invitation (0091 `invitations`): never its token, and never the address it was sent to. */
     invitationId: Id,
     role: InvitationRoleEnum,
     /** Whether Foundmill emailed the link to an address the inviter typed (else the inviter shares the link themselves). */

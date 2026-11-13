@@ -268,7 +268,7 @@ export const teamRouter = router({
     /**
      * Role, section permissions and (a collaborator's only) the date access ends, of another member. Nobody edits their
      * own; only someone with an owner's standing (an owner or a cofounder, THESIS_REVIEW 3.3) changes such a row or
-     * grants that standing; the last owner or cofounder keeps it (the same rules hold in RLS, 0026 and 0090). Someone
+     * grants that standing; the last owner or cofounder keeps it (the same rules hold in RLS, 0026 and 0092). Someone
      * without that standing gives no more than their own access (`assertWithinGrantorAccess`; the api's rule alone, as
      * the section walls are: no policy reads section permissions).
      */
@@ -352,7 +352,7 @@ export const teamRouter = router({
           const agent = await repos.agents.get(tx, ctx.businessId, input.handler.id);
           if (agent.archivedAt) throw new ValidationError(`${agent.name} has left the team`);
         }
-        // One of the project's people now: a collaborator whose access ended is not (0090).
+        // One of the project's people now: a collaborator whose access ended is not (0092).
         if (input.handler.kind === "user" && input.handler.id && !(await repos.memberships.getActive(tx, ctx.businessId, input.handler.id))) throw new ValidationError("Handler is not a member");
         const departments = await repos.departments.list(tx, ctx.businessId);
         const targets = input.departmentId ? departments.filter((d) => d.id === input.departmentId) : departments;

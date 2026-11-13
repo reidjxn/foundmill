@@ -60,7 +60,7 @@ export const attributionsRepo = {
           .limit(1),
       );
       if (!page) return null;
-      // The longest-standing owner or cofounder, in the order the public page names its founders (0077, 0090).
+      // The longest-standing owner or cofounder, in the order the public page names its founders (0077, 0092).
       const owner = maybeOne(
         await db
           .select({ userId: memberships.userId })

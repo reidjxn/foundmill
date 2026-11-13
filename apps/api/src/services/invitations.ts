@@ -1,5 +1,5 @@
 /**
- * Invitations to a project (docs/NETWORK.md F5, L4; docs/THESIS_REVIEW.md package 3.1; 0089 `invitations`). The one way
+ * Invitations to a project (docs/NETWORK.md F5, L4; docs/THESIS_REVIEW.md package 3.1; 0091 `invitations`). The one way
  * a person is added to a project: the silent add by email or account id (`team.humans.invite`) is gone. Every
  * "invite" control makes this object, and it lives in Settings › People only (the solo guard: nothing prompts a
  * founder to invite anyone).
@@ -231,7 +231,7 @@ async function inviterStillMay(db: Executor, businessId: string, inviterUserId: 
 
 /**
  * The invitation a token names while it can be accepted: pending, in date, its project open and real, a cofounder's
- * naming an address (0091), and its inviter still one of the project's people with the right to make it
+ * naming an address (0093), and its inviter still one of the project's people with the right to make it
  * (`mayMakeInvitation`: the role and Team write; and their own access covering the role's, services/grants.ts). Else null.
  */
 async function workingInvitation(db: Context["db"], token: string) {

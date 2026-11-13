@@ -4,13 +4,13 @@
  *   - a viewer can read but not write,
  *   - a non-member and anon see nothing,
  *   - the intended writer (member / admin / service) can write and others cannot,
- *   - 0090's roles: a cofounder of A writes where an owner writes and reaches nothing of B; a collaborator of A writes
- *     where a member writes (never an admin-only table, nor the Money and Legal tables since 0093) and reaches nothing
+ *   - 0092's roles: a cofounder of A writes where an owner writes and reaches nothing of B; a collaborator of A writes
+ *     where a member writes (never an admin-only table, nor the Money and Legal tables since 0095) and reaches nothing
  *     of B; a collaborator whose access has ended reaches nothing at all (`has_role` and `is_member` changed for every
  *     table at once, so every table is checked);
- *   - 0092: a collaborator reads none of the rows of the admin-written and Money tables (`COLLABORATOR_CLOSED_TABLES`),
+ *   - 0094: a collaborator reads none of the rows of the admin-written and Money tables (`COLLABORATOR_CLOSED_TABLES`),
  *     while the owner, a cofounder, an admin, a member and a viewer read them as before;
- *   - 0093: a collaborator reads, inserts, updates and deletes nothing of the Money and Legal tables members write
+ *   - 0095: a collaborator reads, inserts, updates and deletes nothing of the Money and Legal tables members write
  *     (`COLLABORATOR_CLOSED_MONEY_LEGAL`), while the owner, a cofounder, an admin and a member write them as before.
  * Test names carry the table name so a failure says which table regressed.
  */
@@ -26,7 +26,7 @@ let h: TestHarness;
 let A: BusinessFixture;
 let B: BusinessFixture;
 let outsiderId: string;
-/** 0090: A's cofounder, A's collaborator, and a collaborator of A whose access ended yesterday. */
+/** 0092: A's cofounder, A's collaborator, and a collaborator of A whose access ended yesterday. */
 let cofounderId: string;
 let collaboratorId: string;
 let endedId: string;
@@ -151,7 +151,7 @@ describe.each(TENANT_TABLES.map((t) => [t.name, t] as const))("%s", (_name, t) =
 
   const moneyLegal = COLLABORATOR_CLOSED_MONEY_LEGAL.includes(t.name);
   const closedToCollaborator = COLLABORATOR_CLOSED_TABLES.includes(t.name) || moneyLegal;
-  it(`${t.name}: cofounder and collaborator of A read A's rows${closedToCollaborator ? ` (a collaborator none: ${moneyLegal ? "0093" : "0092"})` : ""}, never B's, and cannot write into B`, async () => {
+  it(`${t.name}: cofounder and collaborator of A read A's rows${closedToCollaborator ? ` (a collaborator none: ${moneyLegal ? "0095" : "0094"})` : ""}, never B's, and cannot write into B`, async () => {
     expect(await countAs(h.asUser(cofounderId), table, A.businessId)).toBeGreaterThanOrEqual(1);
     if (closedToCollaborator) {
       expect(await countAs(h.asUser(collaboratorId), table, A.businessId)).toBe(0);
@@ -190,7 +190,7 @@ describe.each(TENANT_TABLES.map((t) => [t.name, t] as const))("%s", (_name, t) =
   }
 
   if (moneyLegal) {
-    it(`${t.name}: a collaborator of A reads, inserts, updates and deletes nothing of it, running or ended (0093)`, async () => {
+    it(`${t.name}: a collaborator of A reads, inserts, updates and deletes nothing of it, running or ended (0095)`, async () => {
       const seededA = seeded.get(t.name)!.a;
       for (const id of [collaboratorId, endedId]) {
         expect(await countAs(h.asUser(id), table, A.businessId), id).toBe(0);
@@ -201,7 +201,7 @@ describe.each(TENANT_TABLES.map((t) => [t.name, t] as const))("%s", (_name, t) =
       expect(await countAs(h.service(), table, A.businessId)).toBeGreaterThanOrEqual(1);
     });
 
-    it(`${t.name}: the owner, a cofounder, an admin and a member of A still read, insert, update and delete it; a viewer reads (0093)`, async () => {
+    it(`${t.name}: the owner, a cofounder, an admin and a member of A still read, insert, update and delete it; a viewer reads (0095)`, async () => {
       for (const id of [A.ownerId, cofounderId, A.adminId, A.memberId]) {
         const [row] = await h.asUser(id).run((tx) => insertRow(tx, table, { ...t.sample(A), businessId: A.businessId }));
         expect(row, id).toBeDefined();

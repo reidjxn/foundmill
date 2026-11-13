@@ -1,12 +1,12 @@
 /**
  * memberships — the people of a business (BUILD §7.1; routers team.humans.*).
  *
- * Ownership is guarded here, in apps/api and in the database (0026_membership_guards, 0090): `add` never overwrites an
+ * Ownership is guarded here, in apps/api and in the database (0026_membership_guards, 0092): `add` never overwrites an
  * existing member, and neither `setRole` nor `remove` may leave a business without someone with an owner's standing
  * (an owner or a cofounder, `OWNER_ROLES`). Both run under the business's owner lock (`lockOwners`, the same lock 0035's
  * trigger takes), so concurrent changes cannot each count the other as the remaining owner.
  *
- * A collaborator's membership may end (`expires_at`, 0090). An ended membership opens nothing: `access` (what every
+ * A collaborator's membership may end (`expires_at`, 0092). An ended membership opens nothing: `access` (what every
  * procedure checks), `hasRole` and `listForUser` leave it out, as the database's `is_member` and `has_role` do. The
  * lists of a business's people (`list`, `listNamed`) still show it, with its date, so the founders see it and can remove it.
  */
@@ -19,7 +19,7 @@ import { Id, maybeOne, one, parseInput, type Executor } from "./_shared";
 /**
  * A membership's own levels, by section: only the sections the walls know (`SECTIONS`), each "read", "write" or "none";
  * a section left out takes the role's default. An unknown key is refused: stored, it would open that section the day a
- * section of that name is added, without anyone having given it. 0094's CHECK says the same in the database.
+ * section of that name is added, without anyone having given it. 0096's CHECK says the same in the database.
  */
 export const SectionPermissions = z.partialRecord(z.enum(SECTIONS), z.enum(["read", "write", "none"]), {
   // zod reports the unknown keys as `unrecognized_keys`, an issue its types for this option leave out.
@@ -45,7 +45,7 @@ export const ALREADY_A_MEMBER_OF_EXAMPLE = "You are already a member of this bus
 /** An example membership (0065): a read-only walk around a seeded demo business, never staff and never a seat. */
 const notExample = ne(memberships.source, "example");
 /**
- * A membership that has not ended (0090: a collaborator's `expires_at`, if any, is still ahead). Every read that hands
+ * A membership that has not ended (0092: a collaborator's `expires_at`, if any, is still ahead). Every read that hands
  * a person something of a business (its email, its push, the switcher, an approval to decide) uses it, as `is_member` does.
  */
 export const membershipNotEnded = or(isNull(memberships.expiresAt), gt(memberships.expiresAt, sql`now()`));
@@ -124,7 +124,7 @@ export const membershipsRepo = {
    * The signed-in user's own membership of the business, held `for share` until the transaction ends and read after the
    * lock, so it is the latest committed row and stays so: a role change or a removal waits. For the RLS connection
    * (`userId` is `auth.uid()`), where `getActive(…, { lock: "share" })` finds nothing: a locking read must also pass the
-   * update policy, which excludes one's own row (0026, 0090), so the lock is 0094's `lock_my_membership`. Null when the
+   * update policy, which excludes one's own row (0026, 0092), so the lock is 0096's `lock_my_membership`. Null when the
    * membership is gone or has ended. On the service connection use `getActive` with `lock: "share"`.
    */
   async getMineForShare(db: Executor, businessId: string, userId: string): Promise<Membership | null> {
@@ -262,7 +262,7 @@ export const membershipsRepo = {
 
   /**
    * Changes a member's role. The last person with an owner's standing cannot lose it: a business always keeps at least
-   * one owner or cofounder. An end date stays only on a collaborator (0090): another role clears it.
+   * one owner or cofounder. An end date stays only on a collaborator (0092): another role clears it.
    */
   async setRole(db: Executor, businessId: string, userId: string, role: MembershipRole): Promise<Membership> {
     const r = parseInput(z.enum(MEMBERSHIP_ROLES), role, "role");
@@ -278,7 +278,7 @@ export const membershipsRepo = {
     });
   },
 
-  /** When a collaborator's access ends (null: no end). Only a collaborator's row takes a date (0090's check says the same). */
+  /** When a collaborator's access ends (null: no end). Only a collaborator's row takes a date (0092's check says the same). */
   async setExpiry(db: Executor, businessId: string, userId: string, expiresAt: Date | null): Promise<Membership> {
     const at = parseInput(z.date().nullable(), expiresAt, "end date");
     const target = await membershipsRepo.get(db, businessId, userId);

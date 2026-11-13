@@ -1,5 +1,5 @@
 /**
- * 0089 — the way in: admissions (account-scoped) and invitations (business-scoped). docs/NETWORK.md F5; docs/THESIS_REVIEW.md
+ * 0091 — the way in: admissions (account-scoped) and invitations (business-scoped). docs/NETWORK.md F5; docs/THESIS_REVIEW.md
  * packages 2.2 and 3.1; apps/api services/access.ts and invitations.ts are the callers and hold the rules a person meets.
  *
  * - `admissions`: service connection only, every function (no client role reads or writes the table).
@@ -70,7 +70,7 @@ export const admissionsRepo = {
     return Number(row?.n ?? 0);
   },
 
-  /** 0091's cutover: the moment the migration ran (`admission_existing_before()`). */
+  /** 0093's cutover: the moment the migration ran (`admission_existing_before()`). */
   async existingBefore(db: Executor): Promise<Date> {
     const res = (await db.execute(sql`select admission_existing_before() as at`)) as unknown as { rows?: { at: Date | string }[] } | { at: Date | string }[];
     const rows = Array.isArray(res) ? res : (res.rows ?? []);
@@ -80,7 +80,7 @@ export const admissionsRepo = {
   },
 
   /**
-   * Whether the account was a person here before open sign-up: a founder profile created before `before` (0091's
+   * Whether the account was a person here before open sign-up: a founder profile created before `before` (0093's
    * cutover, or SIGNUP_EXISTING_BEFORE). Admitted without counting. A profile made since does not count.
    */
   async hasProfile(db: Executor, userId: string, before: Date): Promise<boolean> {
@@ -141,7 +141,7 @@ export interface InvitationByToken extends InvitationRow {
 }
 
 export const invitationsRepo = {
-  /** A pending invitation; under RLS the policies and the guard decide who may (see 0089). */
+  /** A pending invitation; under RLS the policies and the guard decide who may (see 0091). */
   async create(db: Executor, businessId: string, input: z.input<typeof CreateInvitation>): Promise<InvitationRow> {
     const bid = parseInput(Id, businessId, "business id");
     const v = parseInput(CreateInvitation, input, "invitation");

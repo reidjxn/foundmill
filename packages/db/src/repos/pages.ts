@@ -313,7 +313,7 @@ export const pagesRepo = {
     return rows.length === 0;
   },
 
-  /** The display names the public page would show for this business's founders, its owners and cofounders (the view's own rule, 0090), for the preview. */
+  /** The display names the public page would show for this business's founders, its owners and cofounders (the view's own rule, 0092), for the preview. */
   async ownerNames(db: Executor, businessId: string): Promise<string[]> {
     const rows = await db
       .select({ name: founderProfiles.displayName })

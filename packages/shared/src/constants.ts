@@ -169,7 +169,7 @@ export function firstVisibleTab<T extends { slug: string; title?: string; positi
  * `cofounder` and `collaborator` are appended, so every stored role keeps its meaning:
  *   - `owner`: the founder who started the project (Commit writes it), with every right;
  *   - `cofounder`: equal standing, any number. Owner-equivalent wherever an owner is meant (`isOwnerRole`, and the
- *     database's `has_role`, 0090), never told apart from an owner in what they may do;
+ *     database's `has_role`, 0092), never told apart from an owner in what they may do;
  *   - `collaborator`: someone trying out or helping, with limited access: read and write Product and Customers, read the
  *     plan, nothing of Money or Settings (`COLLABORATOR_SECTIONS`, permissions.ts), and an optional end date
  *     (`memberships.expires_at`) after which the membership opens nothing;

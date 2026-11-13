@@ -1,14 +1,14 @@
--- 0093 — a collaborator reads and writes nothing of the Money and Legal tables members write (the coordinating session's
--- line, 2026-11-13). It follows 0092, which closed a collaborator's reads of the admin-written and Money tables and left
+-- 0095 — a collaborator reads and writes nothing of the Money and Legal tables members write (the coordinating session's
+-- line, 2026-11-13). It follows 0094, which closed a collaborator's reads of the admin-written and Money tables and left
 -- these seven open.
 --
 -- `transactions`, `ledger_snapshots`, `forecasts` (Money) and `filings`, `contracts`, `compliance_events`,
 -- `regulatory_gates` (Legal) were made by `fm_tenant_table` with the default writers (0009, 0010): `T_select` over
--- `is_member` and `T_write`, FOR ALL, over `has_role(business_id, array['owner','admin','member'])`. Since 0090 a
+-- `is_member` and `T_write`, FOR ALL, over `has_role(business_id, array['owner','admin','member'])`. Since 0092 a
 -- collaborator holds 'member' in every `has_role` check, so a collaborator's own RLS connection read and wrote all seven,
 -- and a FOR ALL policy also answers SELECT: closing `T_select` alone would have left the rows readable through `T_write`.
--- From 0093 both policies leave a collaborator out, whether their access is running or has ended:
---   * `T_select`: `is_member_not_collaborator(business_id)` (0092). Owners, cofounders, admins, members, viewers,
+-- From 0095 both policies leave a collaborator out, whether their access is running or has ended:
+--   * `T_select`: `is_member_not_collaborator(business_id)` (0094). Owners, cofounders, admins, members, viewers,
 --     advisors and example viewers read as before;
 --   * `T_write`: the same writers as before (`has_role(…, owner/admin/member)`: an owner, a cofounder, an admin, a member)
 --     and not a collaborator. A person holds one membership row per business, so the conjunction is exactly "that row's
@@ -31,7 +31,7 @@ begin
      and tablename in ('transactions', 'ledger_snapshots', 'forecasts', 'filings', 'contracts', 'compliance_events', 'regulatory_gates')
      and policyname <> tablename || '_select' and policyname <> tablename || '_write';
   if stray is not null then
-    raise exception '0093: unexpected policies on the Money and Legal tables: %', stray;
+    raise exception '0095: unexpected policies on the Money and Legal tables: %', stray;
   end if;
   foreach t in array array['transactions', 'ledger_snapshots', 'forecasts', 'filings', 'contracts', 'compliance_events', 'regulatory_gates'] loop
     execute format('drop policy %I on %I', t || '_select', t);
@@ -45,10 +45,10 @@ begin
 end;
 $$;
 --> statement-breakpoint
-comment on function is_member_not_collaborator(uuid) is 'A membership of the business that has not ended and is not a collaborator''s: the select policy of the tables a collaborator never reads (0092, 0093), and half of the write policy of the Money and Legal tables members write (0093).';
+comment on function is_member_not_collaborator(uuid) is 'A membership of the business that has not ended and is not a collaborator''s: the select policy of the tables a collaborator never reads (0094, 0095), and half of the write policy of the Money and Legal tables members write (0095).';
 --> statement-breakpoint
--- `is_member_not_collaborator(uuid)` (0092) is security definer and answers about the caller only; the row policies above
--- and 0092's call it as `authenticated`. 0092 granted it to anon as well, and on Supabase postgres's default privileges
+-- `is_member_not_collaborator(uuid)` (0094) is security definer and answers about the caller only; the row policies above
+-- and 0094's call it as `authenticated`. 0094 granted it to anon as well, and on Supabase postgres's default privileges
 -- grant it to anon directly: anon never needs it (no auth.uid(), so it is always false). Revoked from public and anon
 -- (docs/DECISIONS.md, 0087's rule on main: a security-definer function names who may call it); authenticated and the
 -- service keep it, granted here explicitly.

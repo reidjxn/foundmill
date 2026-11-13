@@ -76,8 +76,8 @@ export async function createBusinessFixture(h: TestHarness, slug: string): Promi
   );
   const businessId = business.id;
 
-  // Named columns, not the schema's insert: the migration-point suites (migration-0085.test.ts, -0086) build this
-  // fixture on a database from before 0090, whose memberships have no `expires_at` yet.
+  // Named columns, not the schema's insert: the migration-point suites (migration-0085.test.ts, -0088) build this
+  // fixture on a database from before 0092, whose memberships have no `expires_at` yet.
   await db.execute(sql`insert into memberships (business_id, user_id, role) values
     (${businessId}, ${ownerId}, 'owner'), (${businessId}, ${adminId}, 'admin'), (${businessId}, ${memberId}, 'member'), (${businessId}, ${viewerId}, 'viewer')`);
 

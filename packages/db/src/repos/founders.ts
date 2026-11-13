@@ -123,7 +123,7 @@ export const foundersRepo = {
       .select({ profile: founderProfiles, membership: memberships, business: businesses, businessOrder: sql<number>`row_number() over (order by ${businesses.createdAt} desc nulls last)`.mapWith(Number) })
       .from(sql`(select ${id}::uuid as user_id) as "me"`)
       .leftJoin(founderProfiles, and(sql`${founderProfiles.userId} = "me"."user_id"`, isNull(founderProfiles.archivedAt)))
-      // A membership that has ended (0090) is not one of the person's: `memberships.listForUser` leaves it out too.
+      // A membership that has ended (0092) is not one of the person's: `memberships.listForUser` leaves it out too.
       .leftJoin(memberships, and(sql`${memberships.userId} = "me"."user_id"`, membershipNotEnded))
       .leftJoin(businesses, and(eq(businesses.id, memberships.businessId), isNull(businesses.archivedAt)))
       .orderBy(asc(memberships.createdAt));

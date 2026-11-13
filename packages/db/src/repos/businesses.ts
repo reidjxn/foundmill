@@ -107,7 +107,7 @@ export const businessesRepo = {
   /**
    * Account-scoped: every business the user is a member of, newest first. `isExample` marks an example membership
    * (0065): a demo the person is walking around, never "their" business (pickers prefer a real one). A membership that
-   * has ended (0090: a collaborator's date passed) offers nothing, so its business is not listed.
+   * has ended (0092: a collaborator's date passed) offers nothing, so its business is not listed.
    */
   async listForUser(db: Executor, userId: string): Promise<(Business & { role: string; isExample: boolean })[]> {
     const rows = await db

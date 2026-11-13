@@ -137,7 +137,7 @@ describe("the push notifier", () => {
     expect(sent[0]).toMatchObject({ title: "New customer", body: `${entity.displayName} just became a paying customer · £96.00`, data: { kind: "journey", journeyId }, collapseKey: `journey:${journeyId}` });
   });
 
-  it("a collaborator whose access has ended (0090) gets nothing on their phone; one whose date is ahead does", async () => {
+  it("a collaborator whose access has ended (0092) gets nothing on their phone; one whose date is ahead does", async () => {
     sent = [];
     const [ended, current] = [await hz.h.createUser("push-ended@test.local"), await hz.h.createUser("push-current@test.local")];
     await hz.db.insert(memberships).values([

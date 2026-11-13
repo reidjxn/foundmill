@@ -1,5 +1,5 @@
 /**
- * 0094 over a database that already has people (review of the grant rule, PR #113's follow-ups):
+ * 0096 over a database that already has people (review of the grant rule, PR #113's follow-ups):
  *
  *   - `memberships.section_permissions` names only `SECTIONS` (@foundmill/shared), each "read", "write" or "none": the
  *     CHECK's list is the same as the walls' list, every known section and level is stored, anything else is refused,
@@ -20,7 +20,7 @@ import * as s from "../schema";
 import { createTestDb, unwrapDbError, type TestHarness } from "../testing/pglite";
 import { createBusinessFixture, type BusinessFixture } from "./rls/fixtures";
 
-const TAG = "0094_membership_grant_guards";
+const TAG = "0096_membership_grant_guards";
 const CHECK = "memberships_section_permissions_known";
 
 let h: TestHarness;
@@ -66,7 +66,7 @@ afterAll(() => h?.close());
 
 describe(`${TAG}: what a membership's section permissions may name`, () => {
   it("a level other than read, write or none stopped the migration before it changed anything", async () => {
-    expect(refusedFirst).toMatch(/0094: 1 memberships hold section permissions that are not an object of read, write or none/);
+    expect(refusedFirst).toMatch(/0096: 1 memberships hold section permissions that are not an object of read, write or none/);
   });
 
   it("rows from before keep their known keys and lose the unknown ones; other rows are untouched", async () => {

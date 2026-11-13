@@ -206,7 +206,7 @@ const Env = z.object({
   /**
    * apps/api: with SIGNUP_OPEN, the cutover for "a person from before open sign-up" (an ISO timestamp): only an account
    * whose founder profile was created before it is admitted without counting toward SIGNUP_DAILY_CEILING. Unset: the
-   * moment migration 0091 ran, which the database stores (`admission_existing_before()`).
+   * moment migration 0093 ran, which the database stores (`admission_existing_before()`).
    */
   SIGNUP_EXISTING_BEFORE: z.iso.datetime({ offset: true }).optional(),
   /**

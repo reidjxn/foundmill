@@ -1,6 +1,6 @@
--- 0089 — invitations to a project, and the admissions the api records (docs/NETWORK.md F5, §11; docs/THESIS_REVIEW.md
--- package 3.1, and the admission half of 2.2). It follows 0088 (page dates recorded by the database);
--- the journal orders by `when`, which is later than 0088's. Nothing here stores a person who is waiting or an address
+-- 0091 — invitations to a project, and the admissions the api records (docs/NETWORK.md F5, §11; docs/THESIS_REVIEW.md
+-- package 3.1, and the admission half of 2.2). It follows 0090 (page dates recorded by the database);
+-- the journal orders by `when`, which is later than 0090's. Nothing here stores a person who is waiting or an address
 -- that has no account: the waitlist is the retention team's own change.
 --
 -- `invitations` — business-scoped: a link a project's people make for someone to join as a cofounder or a
@@ -12,7 +12,7 @@
 --            (not sample), open business; a cofounder invitation only by an owner (equal standing is an owner's to give)
 --   update   an owner or an admin revokes a pending invitation, and changes nothing else (guard trigger)
 --   delete   nobody (a revoked or used invitation stays as the record)
--- 0090 (the cofounder and collaborator roles) makes a cofounder an owner in every `has_role` check, these included.
+-- 0092 (the cofounder and collaborator roles) makes a cofounder an owner in every `has_role` check, these included.
 --
 -- `account_admissions` — account-scoped: one row per account the api admitted other than through SIGNUP_ALLOWLIST
 -- (`how`: through an invitation it accepted, under open sign-up's daily ceiling, or an account that was a person here
@@ -77,7 +77,7 @@ create policy invitations_update on invitations for update
 --> statement-breakpoint
 -- What a client role may write, beyond the policies: a new invitation is pending, made now (its own clock, never the
 -- client's) and works for at most 30 days; a pending invitation becomes revoked, by the person revoking it, and nothing
--- else moves. Not security definer: `current_user` must be the caller's role (as 0087's milestones guard).
+-- else moves. Not security definer: `current_user` must be the caller's role (as 0089's milestones guard).
 create function fm_invitations_guard() returns trigger
 language plpgsql set search_path = public as $$
 begin

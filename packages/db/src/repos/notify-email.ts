@@ -49,7 +49,7 @@ export const notifyEmailRepo = {
       .select({ businessId: inboxItems.businessId, inboxItemId: inboxItems.id, createdAt: inboxItems.createdAt, userId: memberships.userId, role: memberships.role, sectionPermissions: memberships.sectionPermissions })
       .from(inboxItems)
       .innerJoin(businesses, and(eq(businesses.id, inboxItems.businessId), eq(businesses.isDemo, false), isNull(businesses.archivedAt)))
-      // A membership that has ended (0090: a collaborator's date passed) is told nothing.
+      // A membership that has ended (0092: a collaborator's date passed) is told nothing.
       .innerJoin(memberships, and(eq(memberships.businessId, inboxItems.businessId), ne(memberships.source, "example"), membershipNotEnded))
       .where(
         and(

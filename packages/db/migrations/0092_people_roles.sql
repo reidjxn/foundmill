@@ -1,9 +1,9 @@
--- 0090 — the cofounder and collaborator roles (docs/THESIS_REVIEW.md package 3.3; CLAUDE.md "the words for people",
+-- 0092 — the cofounder and collaborator roles (docs/THESIS_REVIEW.md package 3.3; CLAUDE.md "the words for people",
 -- founder 2026-11-11). Appended to the roles a membership can hold; every role that exists keeps its meaning.
 --
 --   * `cofounder`: equal standing, any number. Owner-equivalent wherever an owner is meant: `has_role(bid, roles)` is
 --     true for a cofounder whenever `roles` holds 'owner', so every policy written over `has_role` (0001's tenant
---     tables, 0026's membership guards, 0089's invitations) treats a cofounder as an owner without being rewritten. The
+--     tables, 0026's membership guards, 0091's invitations) treats a cofounder as an owner without being rewritten. The
 --     places that read `memberships.role = 'owner'` themselves are redefined here: the membership guards, the
 --     keep-an-owner trigger (an owner or a cofounder keeps the business), the public profiles, the founders' names on a
 --     project's public page and on a person's page, and the founder profile's public guard.
@@ -13,7 +13,7 @@
 --     every member today (@foundmill/shared `COLLABORATOR_SECTIONS`; no policy here reads section permissions). A
 --     collaborator never matches 'owner' or 'admin', so they cannot WRITE the admin-only tables (accounts, cap table,
 --     legal entities, integrations, policies, billing, departments, logos...). Reads are another matter: every table's
---     select policy is `is_member`, so here a collaborator still READS those tables. 0092 closes the reads of the
+--     select policy is `is_member`, so here a collaborator still READS those tables. 0094 closes the reads of the
 --     admin-written and Money tables to a collaborator (`is_member_not_collaborator`) and names what it leaves open.
 --   * `memberships.expires_at`: when a collaborator's access ends (null: no end). Only a collaborator's row may carry
 --     one. From that moment the row opens nothing: `is_member` and `has_role` leave it out, as the api does.
@@ -92,7 +92,7 @@ begin
 end;
 $$;
 --> statement-breakpoint
-comment on function fm_memberships_keep_owner() is 'Keeps at least one owner or cofounder per business; serialized per business by pg_advisory_xact_lock(hashtext(''memberships_owner''), hashtext(business_id::text)) (0035, 0090).';
+comment on function fm_memberships_keep_owner() is 'Keeps at least one owner or cofounder per business; serialized per business by pg_advisory_xact_lock(hashtext(''memberships_owner''), hashtext(business_id::text)) (0035, 0092).';
 --> statement-breakpoint
 -- 0044's view, with the founders' names of cofounders too.
 create or replace view public_profiles with (security_barrier) as
