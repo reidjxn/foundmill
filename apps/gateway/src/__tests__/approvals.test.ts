@@ -3,7 +3,7 @@
  * call asked again waits on the same approval, and once the founder approves the same call runs once under it (in the
  * session still waiting or the next session on the task), never for more than the amount that was asked for.
  */
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { APPROVAL_OPTIONS, repos } from "@foundmill/db";
 import { SAFE_EMAIL, sendRefusals, setupGateway, type GatewayFixture } from "./harness";
 import type { AllowResponse, AskResponse, CallResponse } from "../types";
@@ -177,6 +177,25 @@ describe("one approval per gated call", () => {
       expect(g.seen).toHaveLength(0);
     } finally {
       sendRefusals.length = 0;
+      await repos.departments.update(g.db, g.businessId, dept.id, { approvers: [] });
+      await repos.agents.update(g.db, g.businessId, g.agentId, { departmentIds: [] });
+    }
+  });
+
+  it("an agent's approval another call took first opens a fresh one instead of waiting on it", async () => {
+    const dept = await repos.departments.create(g.db, g.businessId, { name: "Delegated, raced" });
+    const reviewer = await repos.agents.create(g.db, g.businessId, { name: "Reviewer", agentType: "review_agent", departmentIds: [dept.id] });
+    await repos.agents.update(g.db, g.businessId, g.agentId, { departmentIds: [dept.id] });
+    await repos.departments.update(g.db, g.businessId, dept.id, { approvers: [{ decisionType: "message_customers", handler: { kind: "agent", id: reviewer.id } }] });
+    // The first approval the agent decides is taken before this call can use it.
+    const taken = vi.spyOn(repos.approvals, "useDecided").mockResolvedValueOnce(null);
+    try {
+      const ran = asAllow(await g.client.call(await g.token(), { connector: "test", tool: "send_message", args: { to: SAFE_EMAIL, body: "Raced" } }));
+      expect(ran.result.ok).toBe(true);
+      expect(taken).toHaveBeenCalledTimes(2);
+      expect(g.seen.map((s) => s.tool)).toEqual(["send_message"]);
+    } finally {
+      taken.mockRestore();
       await repos.departments.update(g.db, g.businessId, dept.id, { approvers: [] });
       await repos.agents.update(g.db, g.businessId, g.agentId, { departmentIds: [] });
     }

@@ -696,7 +696,7 @@ function decisionTypeFor(loaded: Loaded, req: CallRequestParsed, decision: Evalu
   return null;
 }
 
-async function ask(deps: GatewayDeps, session: SessionToken, req: CallRequestParsed, loaded: Loaded, decision: EvaluateResult, args: unknown, log: GatewayLogger, now: () => Date): Promise<ToolCallResult> {
+async function ask(deps: GatewayDeps, session: SessionToken, req: CallRequestParsed, loaded: Loaded, decision: EvaluateResult, args: unknown, log: GatewayLogger, now: () => Date, retried = false): Promise<ToolCallResult> {
   // One gated call has one approval (audit O-26): asked again while its approval is open (a retry, or the next session
   // on the task), the call waits on that one instead of queueing a second request and a second Inbox item.
   const open = await repos.approvals.claimOpen(deps.db, session.businessId, { sessionId: session.sessionId, agentId: session.agentId, connectorKey: loaded.connector.key, tool: loaded.tool.name, args: argsObject(args), amountMinor: req.context.amountMinor ?? 0, currency: req.context.currency ?? loaded.agent.currency });
@@ -709,6 +709,12 @@ async function ask(deps: GatewayDeps, session: SessionToken, req: CallRequestPar
     if (used) {
       log.info({ approvalId }, "approval decided by the agent Team › Responsibilities names; the call goes ahead");
       return runUnderApproval(deps, session, req, loaded, decision, args, log, now, used);
+    }
+    // Another call used it first: that approval has no Inbox item, so waiting on it would wait for nothing. Ask again
+    // (once), which opens a fresh approval under the routing as it is now.
+    if (!retried) {
+      log.info({ approvalId }, "the agent's approval was used by another call; asking again");
+      return ask(deps, session, req, loaded, decision, args, log, now, true);
     }
   }
   const audit = await appendAudit(deps, session, req, { outcome: "ask", reasons: decision.reasons, policyIds: decision.policyIds, approvalId });
