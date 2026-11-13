@@ -41,10 +41,10 @@ export interface ReaskOptions {
   outputNoun?: string;
 }
 
-/** True when the output is invalid and the composer has not yet used its single re-ask. */
 /** Display text that cannot open Markdown's image or link syntax (`![…](…)`, `[…](…)`, `[…][…]`). */
 const inertDisplay = (display: string): string => display.replace(/\[/g, "(").replace(/\]/g, ")");
 
+/** True when the output is invalid and the composer has not yet used its single re-ask. */
 export function shouldReask(validation: ValidationResult, reasksSoFar: number): boolean {
   return !validation.valid && reasksSoFar < MAX_REASKS;
 }
@@ -127,18 +127,22 @@ export function stripInvalidMentions(text: string, manifest: Manifest): string {
     return seg;
   });
   let out = serializeSegments(segments);
-  // Malformed openings: keep whatever display text is recoverable, drop the rest. Valid markup is untouched.
-  for (const bad of findMalformedMarkup(out).sort((a, b) => b.index - a.index)) {
-    // `raw` stops at 120 characters; the opening runs on to its `]]` (or the next opening), as findMalformedMarkup reads it.
-    const closeAt = out.indexOf("]]", bad.index);
-    const nextOpen = out.indexOf("[[ent:", bad.index + 1);
-    let end = closeAt === -1 ? out.length : closeAt + 2;
-    if (nextOpen !== -1 && nextOpen < end) end = nextOpen;
-    const raw = out.slice(bad.index, Math.max(end, bad.index + bad.raw.length));
-    const pipe = raw.indexOf("|");
-    const close = raw.indexOf("]]");
-    const display = pipe !== -1 ? raw.slice(pipe + 1, close === -1 ? undefined : close).trim() : "";
-    out = out.slice(0, bad.index) + inertDisplay(display) + out.slice(bad.index + raw.length);
+  // Malformed openings: keep whatever display text is recoverable. Valid markup is untouched. Each span is read from the
+  // text as it was before any replacement (its whole length, not the 120 characters of `raw`), and spans never overlap
+  // (one ends where the next opening starts), so replacing from the last to the first keeps every earlier index right.
+  const before = out;
+  for (const bad of findMalformedMarkup(before).sort((a, b) => b.index - a.index)) {
+    const span = before.slice(bad.index, bad.end);
+    const pipe = span.indexOf("|");
+    if (pipe === -1) {
+      // No display to recover: only the `[[ent:…` token goes (and its `]]` when it closes at once), not the words after it.
+      const token = /^\[\[ent:[^\s|\]]*(?:\]\])?/.exec(span)![0];
+      out = out.slice(0, bad.index) + out.slice(bad.index + token.length);
+      continue;
+    }
+    const close = span.indexOf("]]");
+    const display = span.slice(pipe + 1, close === -1 ? undefined : close).trim();
+    out = out.slice(0, bad.index) + inertDisplay(display) + out.slice(bad.end);
   }
   return out.replace(/[ \t]{2,}/g, " ").replace(/ +([,.;:!?])/g, "$1");
 }

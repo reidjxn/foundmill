@@ -75,6 +75,13 @@ describe("stripInvalidMentions (final fallback)", () => {
     expect(longOut).not.toContain("![");
     expect(longOut).toMatch(/today\.$/);
   });
+
+  it("removes only a broken opening that has no display, and never the note after it", () => {
+    const text = "See [[ent:abc for the detail. … Pay the VAT bill [[ent:zz|Ana]] by Friday.";
+    expect(stripInvalidMentions(text, m)).toBe("See for the detail. … Pay the VAT bill Ana by Friday.");
+    expect(stripInvalidMentions("Thanks [[ent:abc and see you Monday.", m)).toBe("Thanks and see you Monday.");
+    expect(stripInvalidMentions("[[ent:bad]] Done.", m)).toBe(" Done.");
+  });
 });
 
 describe("checkComposerText", () => {
