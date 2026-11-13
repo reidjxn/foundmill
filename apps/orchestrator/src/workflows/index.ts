@@ -7,7 +7,7 @@ export { businessCycle, fileScopesOverlap, DEFAULT_TASK_RESERVE_MINOR } from "./
 export { agentSession } from "./agentSession";
 export type { AgentSessionOutcome, AgentSessionWorkflowInput } from "./agentSession";
 export { approvalWait } from "./approvalWait";
-export { mergeReview } from "./mergeReview";
+export { MERGE_SECOND_READ_PATCH, mergeReview } from "./mergeReview";
 export type { ApprovalWaitInput, ApprovalWaitResult } from "./approvalWait";
 export { planExecution } from "./planExecution";
 export type { PlanExecutionInput, PlanExecutionResult } from "./planExecution";
@@ -28,7 +28,7 @@ export { journeyBuild } from "./journeyBuild";
 export { postDraft } from "./postDraft";
 export { importBusiness } from "./importBusiness";
 export type { ImportBusinessResult } from "./importBusiness";
-export { businessFoundations, FOUNDATIONS_DRAFT_FAILED, FOUNDATIONS_PAGE_PATCH, FOUNDATIONS_SAVE_FAILED, FOUNDATIONS_STAGED_PATCH } from "./businessFoundations";
+export { businessFoundations, FOUNDATIONS_DRAFT_FAILED, FOUNDATIONS_PAGE_PATCH, FOUNDATIONS_SAVE_FAILED, FOUNDATIONS_SECOND_READ_PATCH, FOUNDATIONS_STAGED_PATCH } from "./businessFoundations";
 export {
   journeyDailyRefresh,
   journeyMatviewRefresh,

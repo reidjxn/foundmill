@@ -12,6 +12,7 @@ describe("routing (BUILD §10.1)", () => {
       leadRecommendation: { model: "opus", effort: "low", maxTokens: 16_000 },
       planner: { model: "opus", effort: "low", maxTokens: 16_000 },
       codeReview: { model: "opus", maxTokens: 16_000 },
+      documentReview: { model: "opus", maxTokens: 16_000 },
       ideation: { model: "opus", effort: "low", speed: "fast", maxTokens: 8_000 },
       ideationSlate: { model: "opus", effort: "low", speed: "fast", maxTokens: 8_000 },
       logoDesigner: { model: "opus", effort: "low", speed: "fast", maxTokens: 8_000 },

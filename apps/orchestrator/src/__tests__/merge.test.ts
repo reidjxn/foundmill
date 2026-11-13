@@ -242,6 +242,24 @@ describe("assessMerge and handBack", () => {
 });
 
 describe("askMerge, awaitChecks and completeMerge", () => {
+  it("names the commit the second read reviewed in the merge's arguments, on the ask and on the approved merge (M4)", async () => {
+    expect(mergeArgs(REPO, 7, "Fix")).not.toHaveProperty("headSha");
+    expect(mergeArgs(REPO, 7, "Fix", "b".repeat(40))).toMatchObject({ prNumber: 7, headSha: "b".repeat(40) });
+    await connectRepo();
+    const { github, offline, ctx, acts } = githubGateway(undefined, asksForMerge);
+    const { task, input } = await reviewTask("Reviewed head");
+    await commitOn(github, ctx, input.branch, "src/reviewed.ts");
+    const prepared = await acts.prepareMerge(input);
+    if (prepared.status !== "ready") throw new Error("expected a pull request");
+    const pr = { prNumber: prepared.prNumber, prUrl: prepared.prUrl };
+    await acts.askMerge({ ...input, ...pr, reviewedSha: "c".repeat(40) });
+    expect(offline.calls.at(-1)).toMatchObject({ tool: "merge_pr", args: { ...mergeArgs(REPO, pr.prNumber, task.title), headSha: "c".repeat(40) } });
+    // GitHub's merge takes no commit to pin (the connector drops the field): the merge still runs under the approval.
+    const approved = githubGateway(github);
+    expect(await approved.acts.completeMerge({ ...input, ...pr, approvalId: APPROVAL, decidedBy: t.fixture.ownerId, reviewedSha: "c".repeat(40) })).toMatchObject({ status: "merged" });
+    expect(approved.offline.calls.at(-1)).toMatchObject({ tool: "merge_pr", args: { headSha: "c".repeat(40) } });
+  });
+
   it("asks the founder, records the wait for the checks, and merges under the approval in the founder's name", async () => {
     await connectRepo();
     const { github, offline, ctx, acts } = githubGateway(undefined, asksForMerge);
