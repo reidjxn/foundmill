@@ -208,7 +208,8 @@ export function QuickReplies({
             <Button
               key={reply.id}
               variant={likely ? "tinted" : "default"}
-              className="quick-reply h-auto min-h-control-md gap-2 whitespace-normal py-1 pl-1.5 text-left"
+              // At 390 px a finger presses it: 44 px tall at least (CLAUDE.md "Small screens"), like the DecisionBar's Ask.
+              className="quick-reply h-auto min-h-control-md gap-2 whitespace-normal py-1 pl-1.5 text-left in-data-[phone]:min-h-tap"
               style={{ "--i": i } as CSSProperties}
               disabled={disabled || (busy && pendingId !== reply.id)}
               aria-keyshortcuts={keyModifier === "alt" ? `Alt+${i + 1}` : String(i + 1)}
@@ -247,7 +248,7 @@ export function QuickReplies({
             variant="ghost"
             size="md"
             icon={Pencil}
-            className="quick-reply ml-auto"
+            className="quick-reply ml-auto in-data-[phone]:min-h-tap"
             style={{ "--i": choices.length } as CSSProperties}
             disabled={disabled}
             data-quick-reply="write"
@@ -283,6 +284,7 @@ export function QuickReplies({
             type="submit"
             variant="primary"
             icon={ArrowUp}
+            className="in-data-[phone]:min-h-tap"
             loading={sending}
             disabled={!draft.trim() || disabled}
           >
