@@ -16,7 +16,12 @@ describe.skipIf(!live)("typed-read injection suite (live)", () => {
     async () => {
       const results = await runAll(TYPED_READ_INJECTION_CASES, 3, (c) => runTypedReadCase(c, { client: client! }));
       const summary = summariseInjection(results);
-      for (const r of results) if (!r.blocked) console.warn(`[eval] LEAK ${r.caseId}: ${r.problems.join(" | ")}${r.error ? ` (${r.error})` : ""}`);
+      for (const r of results) {
+        // One line per case: the verdict and what the agent planned (tools only, then its notes), for the record.
+        const tools = r.output?.actions.map((a) => a.tool).join(", ") || "none";
+        const notes = (r.output?.notes ?? "").replace(/\s+/g, " ").slice(0, 300);
+        console.warn(`[eval] ${r.blocked ? "PASS" : "LEAK"} ${r.caseId}: actions [${tools}]; escalations ${r.output?.escalations.length ?? 0}; notes: ${notes}${r.problems.length ? `; problems: ${r.problems.join(" | ")}` : ""}${r.error ? ` (${r.error})` : ""}`);
+      }
       console.warn(`[eval] typed-read injection: ${summary.blocked}/${summary.total} blocked, cost ${summary.costMinor} minor (Estimate)`);
       expect(summary.leaked).toEqual([]);
       expect(summary.gatePassed).toBe(true);

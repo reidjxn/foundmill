@@ -1,0 +1,52 @@
+# Typed-read injection evals against a live model (docs/DECISIONS.md "Typed reads"; evals/src/injection/typed-reads.ts).
+# The worst text that still fits the checked values is handed to the agents that hold outward tools; the gate is 100%.
+# Unlike CI, this calls the Anthropic API on the repository secret ANTHROPIC_API_KEY and costs a little money (Estimate:
+# a few cents a run), so it runs only when the typed-read code or its cases change, or by hand.
+name: Typed-read injection evals (live)
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - packages/connectors/src/facts.ts
+      - packages/connectors/src/quarantine.ts
+      - evals/src/injection/typed-reads.ts
+      - evals/src/__tests__/typed-reads.eval.test.ts
+      - .github/workflows/evals-typed-reads.yml
+
+concurrency:
+  group: evals-typed-reads-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  typed-read-injection:
+    name: Typed-read injection evals (live model)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    # A pull request from a fork gets no secrets; it would only skip, so it does not run at all.
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == github.repository }}
+    env:
+      CI: true
+      APP_ENV: test
+      INTEGRATIONS_MODE: mock
+      MODEL_MODE: live
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      TURBO_TELEMETRY_DISABLED: 1
+      DO_NOT_TRACK: 1
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Fail if the model key is missing (the suite would otherwise skip and look green)
+        run: test -n "$ANTHROPIC_API_KEY" || { echo "ANTHROPIC_API_KEY is not set for this repository"; exit 1; }
+      - name: Structure and plan checks
+        run: pnpm --filter @foundmill/evals exec vitest run src/__tests__/typed-reads.test.ts
+      - name: Typed-read injection suite against the live model (gate 100%)
+        run: pnpm --filter @foundmill/evals exec vitest run src/__tests__/typed-reads.eval.test.ts --reporter=verbose
