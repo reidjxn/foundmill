@@ -1,7 +1,7 @@
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { expect, test, type Browser, type Page } from "@playwright/test";
-import { LONG, commitThrowaway, dismissCoachmarks, settled } from "./helpers";
+import { LONG, commitThrowaway, dismissCoachmarks, expectTapTarget, settled } from "./helpers";
 
 /**
  * A project's public page (docs/THESIS_REVIEW.md package 1.1): Product › Public page in the console (fields with
@@ -50,7 +50,7 @@ async function expectPublicPage(page: Page, pagePath: string, width: number, sho
   await expect(follow).toHaveCount(1);
   await expect(follow.getByRole("heading", { level: 2 })).toHaveText(/^Follow Doorstep Bikes/);
   for (const target of [follow.getByRole("button", { name: "Follow" }), follow.getByLabel("Your email"), follow.locator("label").filter({ has: page.getByRole("checkbox") })]) {
-    expect((await target.boundingBox())!.height, "follow form tap target").toBeGreaterThanOrEqual(44);
+    await expectTapTarget(target, "follow form tap target");
   }
   await expect(page.locator("textarea")).toHaveCount(0);
   // No horizontal scroll, at 390 px included.
@@ -59,7 +59,7 @@ async function expectPublicPage(page: Page, pagePath: string, width: number, sho
   // Every link is a 44 px target; no text under the design system's 11 px floor.
   const made = page.getByRole("link", { name: "Made with Foundmill" });
   await expect(made).toHaveAttribute("href", "/");
-  expect((await made.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+  await expectTapTarget(made, "Made with Foundmill is a 44 px target");
   const smallest = await article.evaluate((root) => Math.min(...[...root.querySelectorAll<HTMLElement>("p, h1, h2, span, a")].filter((e) => e.textContent?.trim()).map((e) => parseFloat(getComputedStyle(e).fontSize))));
   expect(smallest).toBeGreaterThanOrEqual(11);
   if (process.env.E2E_UX_AUDIT) {

@@ -1743,6 +1743,13 @@ A signed-in person with a profile and no project lands on `/home`, a real screen
   - `node scripts/banned-terms.mjs`, `node scripts/us-english.mjs`, `node scripts/plain-language.mjs`: pass, no new hits.
 - **Not done.** The `(live)` layout (/network, /communities, /profiles) still sends a person with no project to /new: those pages need a business shell today, and the change belongs with the network session (asked, Nov 12). Until it lands, "Find a project or people" on the home reaches /network only for a person who has a project. Onboarding still continues to /new after the profile is saved.
 
+## 2026-11-13 — e2e: 44 px tap targets tolerate sub-pixel rounding
+
+`login.spec.ts` failed on CI run 43385400232 (reidjxn/foundmill#87) with the "Send sign-in link" button measured at 43.999969482421875 px under the `google_failed` and `google_unverified` notices; a re-run passed. It was layout rounding in `boundingBox()`, not a shortfall.
+- **One helper.** apps/web `e2e/helpers.ts`: `TAP_TARGET_PX` (44) and `expectTapTarget(locatorOrBox, message)`, which allows 0.01 px of rounding and nothing more. The 44 px rule is unchanged.
+- **Every 44 px assertion uses it**, since each read `boundingBox().height` the same way: `login.spec.ts` (`expectFits`, message kept), `person-page.spec.ts` (Made with Foundmill), `public-page.spec.ts` (the Follow form's targets and Made with Foundmill).
+- **Verified.** `playwright test e2e/login.spec.ts --trace off` 13 of 13; `person-page.spec.ts` and `public-page.spec.ts` 4 of 4 (with the onboarding setup project); typecheck and lint clean on the touched files.
+
 ## 2026-11-13 — The Terms of Service and the Privacy Policy
 
 Founder, Nov 13: both pages before sign-up opens and before Google's brand review (DECISIONS "The Terms and the Privacy Policy").
