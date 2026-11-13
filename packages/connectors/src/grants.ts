@@ -11,6 +11,7 @@
  * holds every template to this. Agent versions stored before that date may still hold such grants: `resolveGrants` gives
  * them no tool, and `servedGrants` is what a screen shows.
  */
+import type { PolicyHint } from "./contract";
 import { anthropicTools } from "./connectors/anthropic/tools";
 import { apolloTools } from "./connectors/apollo/tools";
 import { posthogTools } from "./connectors/posthog/tools";
@@ -52,47 +53,65 @@ import { platformMailTools } from "./connectors/platform_mail/tools";
 
 const names = (tools: readonly { name: string }[]) => Object.freeze(tools.map((t) => t.name));
 
+/** Every tool the gateway serves, by connector, with its policy hints: the registry's connectors plus the built-ins. */
+const GATEWAY_TOOLS: Readonly<Record<string, readonly { name: string; hints: PolicyHint }[]>> = {
+  anthropic: anthropicTools,
+  voyage: voyageTools,
+  openai_images: openaiImagesTools,
+  elevenlabs: elevenlabsTools,
+  onesignal: onesignalTools,
+  platform_notify: platformNotifyTools,
+  github: githubTools,
+  google_drive: googleDriveTools,
+  gmail: gmailTools,
+  google_calendar: googleCalendarTools,
+  notion: notionTools,
+  cloudflare_dns: cloudflareTools,
+  opencorporates: opencorporatesTools,
+  bolagsverket: bolagsverketTools,
+  domains: domainsTools,
+  companies_house: companiesHouseTools,
+  e2b: e2bTools,
+  dropbox_sign: dropboxSignTools,
+  ecb_rates: ecbTools,
+  stripe: stripeTools,
+  sendgrid: sendgridTools,
+  shopify: shopifyTools,
+  tink: tinkTools,
+  plaid: plaidTools,
+  openai: openaiTools,
+  gemini: geminiTools,
+  perplexity: perplexityTools,
+  serpapi: serpapiTools,
+  firecrawl: firecrawlTools,
+  indexnow: indexNowTools,
+  apollo: apolloTools,
+  vercel: vercelTools,
+  posthog: posthogTools,
+  resend: resendTools,
+  platform: platformTools,
+  web: webTools,
+  quarantine: quarantineTools,
+  platform_mail: platformMailTools,
+};
+
 /** Every tool the gateway serves, by connector: the registry's connectors plus the built-ins (platform, web, quarantine). */
-export const GATEWAY_TOOL_NAMES: Readonly<Record<string, readonly string[]>> = Object.freeze({
-  anthropic: names(anthropicTools),
-  voyage: names(voyageTools),
-  openai_images: names(openaiImagesTools),
-  elevenlabs: names(elevenlabsTools),
-  onesignal: names(onesignalTools),
-  platform_notify: names(platformNotifyTools),
-  github: names(githubTools),
-  google_drive: names(googleDriveTools),
-  gmail: names(gmailTools),
-  google_calendar: names(googleCalendarTools),
-  notion: names(notionTools),
-  cloudflare_dns: names(cloudflareTools),
-  opencorporates: names(opencorporatesTools),
-  bolagsverket: names(bolagsverketTools),
-  domains: names(domainsTools),
-  companies_house: names(companiesHouseTools),
-  e2b: names(e2bTools),
-  dropbox_sign: names(dropboxSignTools),
-  ecb_rates: names(ecbTools),
-  stripe: names(stripeTools),
-  sendgrid: names(sendgridTools),
-  shopify: names(shopifyTools),
-  tink: names(tinkTools),
-  plaid: names(plaidTools),
-  openai: names(openaiTools),
-  gemini: names(geminiTools),
-  perplexity: names(perplexityTools),
-  serpapi: names(serpapiTools),
-  firecrawl: names(firecrawlTools),
-  indexnow: names(indexNowTools),
-  apollo: names(apolloTools),
-  vercel: names(vercelTools),
-  posthog: names(posthogTools),
-  resend: names(resendTools),
-  platform: names(platformTools),
-  web: names(webTools),
-  quarantine: names(quarantineTools),
-  platform_mail: names(platformMailTools),
-});
+export const GATEWAY_TOOL_NAMES: Readonly<Record<string, readonly string[]>> = Object.freeze(Object.fromEntries(Object.entries(GATEWAY_TOOLS).map(([key, tools]) => [key, names(tools)])));
+
+/**
+ * Whether a session granted `toolRefs` (`connector:tool` or `connector:*`, `ResolvedGrants.toolRefs`) can reach someone
+ * outside the business or spend money: a granted tool carries `contactsThirdParty` or `spendsMoney`, the hints the house
+ * rules' policy asks the founder about. A hard-gated tool never runs (it becomes a founder task), so it does not count.
+ * Low credits keep such a session on its usual model (the credit saver, apps/orchestrator `prepareSession`).
+ */
+export function grantsActOutside(toolRefs: readonly string[]): boolean {
+  return toolRefs.some((ref) => {
+    const sep = ref.indexOf(":");
+    const connector = sep < 0 ? ref : ref.slice(0, sep);
+    const tool = sep < 0 ? "*" : ref.slice(sep + 1);
+    return (GATEWAY_TOOLS[connector] ?? []).some((t) => (tool === "*" || t.name === tool) && Boolean(t.hints.contactsThirdParty || t.hints.spendsMoney));
+  });
+}
 
 const bankingCapabilities = { "accounts.list": ["list_accounts", "get_consent_status"], "transactions.list": ["list_transactions", "sync"] };
 

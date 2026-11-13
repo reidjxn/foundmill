@@ -6,7 +6,7 @@
  */
 import { describe, expect, it } from "vitest";
 import { BUILTIN_CONNECTOR_KEYS, CONNECTOR_KEYS, createAllConnectors, createBuiltinConnectors } from "../catalogue";
-import { CAPABILITY_TOOLS, GATEWAY_TOOL_NAMES, NOT_YET_SERVED, resolveGrants, ROUTE_ONLY_REASON, ROUTE_ONLY_TOOLS, SDK_BUILTIN_CAPABILITIES, servedGrants, SERVICE_ONLY_CONNECTORS, SERVICE_ONLY_REASON, SESSION_MANAGED_CAPABILITIES, toolsForCapability } from "../grants";
+import { CAPABILITY_TOOLS, GATEWAY_TOOL_NAMES, grantsActOutside, NOT_YET_SERVED, resolveGrants, ROUTE_ONLY_REASON, ROUTE_ONLY_TOOLS, SDK_BUILTIN_CAPABILITIES, servedGrants, SERVICE_ONLY_CONNECTORS, SERVICE_ONLY_REASON, SESSION_MANAGED_CAPABILITIES, toolsForCapability } from "../grants";
 
 describe("the capability map", () => {
   it("knows every tool of every connector the gateway serves, and nothing else", () => {
@@ -170,5 +170,29 @@ describe("servedGrants (what a founder is shown)", () => {
     expect(resolveGrants(kept).unresolved).toEqual([]);
     // Nothing real is hidden: what is shown resolves to exactly the tools the stored grants gave a session.
     expect(resolveGrants(kept).toolRefs).toEqual(resolveGrants(stored).toolRefs);
+  });
+});
+
+describe("grantsActOutside (the credit saver keeps outward and money work on its model)", () => {
+  it("is true when a granted tool reaches someone outside the business or spends money, and agrees with the connectors' own hints", () => {
+    expect(grantsActOutside(resolveGrants([{ connectorKey: "resend", tools: ["mail.send"] }]).toolRefs)).toBe(true);
+    expect(grantsActOutside(["platform_mail:*"])).toBe(true);
+    const served = [...createAllConnectors({ secrets: {} }), ...createBuiltinConnectors({ secrets: {} })];
+    for (const c of served) {
+      for (const [tool, hints] of Object.entries(c.policyHints)) expect(grantsActOutside([`${c.key}:${tool}`]), `${c.key}:${tool}`).toBe(Boolean(hints.contactsThirdParty || hints.spendsMoney));
+    }
+  });
+
+  it("is false for research, reading and a hard-gated hand-off to the founder", () => {
+    const research = resolveGrants([
+      { connectorKey: "web", tools: ["fetch"] },
+      { connectorKey: "quarantine", tools: ["*"] },
+      { connectorKey: "google_drive", tools: ["files.list", "files.read"] },
+    ]).toolRefs;
+    expect(research.length).toBeGreaterThan(0);
+    expect(grantsActOutside(research)).toBe(false);
+    expect(grantsActOutside(["platform:request_human_action"])).toBe(false);
+    expect(grantsActOutside(["unknown:thing"])).toBe(false);
+    expect(grantsActOutside([])).toBe(false);
   });
 });

@@ -198,7 +198,7 @@ export class MockModelClient implements ModelClient {
    * before each element completes (both 0 by default, so tests and e2e see every element at once, in order).
    */
   async streamStructured<T, E>(req: StreamStructuredRequest<T, E>): Promise<StreamStructuredResult<T, E>> {
-    const resolution = resolveModel(req.route, req.modelOverride);
+    const resolution = resolveModel(req.route, req.modelOverride, { lowCredits: req.lowCredits });
     return runStructuredStream(req, {
       mode: "mock",
       modelId: resolution.modelId,
@@ -246,7 +246,7 @@ export class MockModelClient implements ModelClient {
     const failure = this.opts.failWith?.[req.route];
     if (failure) throw failure;
 
-    const resolution = resolveModel(req.route, req.modelOverride);
+    const resolution = resolveModel(req.route, req.modelOverride, { lowCredits: req.lowCredits });
     if (resolution.warning) this.opts.logger?.warn({ route: req.route, override: req.modelOverride }, resolution.warning);
 
     const schemaJson = req.schema ? safeJsonSchema(req.schema) : undefined;
@@ -288,9 +288,9 @@ export class MockModelClient implements ModelClient {
     return { resolution, rng, json, text, repaired, usage, cost };
   }
 
-  private async emitUsage(req: Pick<CompleteRequest, "route" | "modelOverride" | "scope" | "attribution">, usage: TokenUsage, cost: MeterResult, durationMs: number, attempt: number, streamed = false): Promise<void> {
+  private async emitUsage(req: Pick<CompleteRequest, "route" | "modelOverride" | "lowCredits" | "scope" | "attribution">, usage: TokenUsage, cost: MeterResult, durationMs: number, attempt: number, streamed = false): Promise<void> {
     if (!this.opts.onUsage) return;
-    const resolution = resolveModel(req.route, req.modelOverride);
+    const resolution = resolveModel(req.route, req.modelOverride, { lowCredits: req.lowCredits });
     const event: UsageEvent = {
       route: req.route,
       model: resolution.modelId,

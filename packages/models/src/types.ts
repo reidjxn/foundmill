@@ -53,6 +53,11 @@ export interface CompleteRequest<T = unknown> {
   /** Per-agent model choice (BUILD §11.10 "Model selection"); subject to the route's lock/warn rules. */
   modelOverride?: ModelKey;
   /**
+   * The business's credits are low (credit saver): a routine route runs on its lower-cost model (`ROUTES[route].lowCredits`,
+   * routing.ts); a kept route is unchanged. Set by the credits gate (`ModelCallGate`), not by callers.
+   */
+  lowCredits?: boolean;
+  /**
    * Caller scope for rate-limit isolation (BUILD §10.3: a 429 backs off the affected session only). Usually the agent
    * session id. Defaults to "default".
    */

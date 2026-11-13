@@ -13,9 +13,23 @@
  * `finishSession` books only what the session has not booked yet (`repos.usage.sessionTokens`). A session on the
  * business's own key never comes here: its spend is the founder's, billed by Anthropic.
  */
+import { grantsActOutside } from "@foundmill/connectors";
 import { bookUsage, checkPlatformCredits, repos } from "@foundmill/db";
-import type { ModelKey } from "@foundmill/shared";
+import type { ModelKey, ModuleKey } from "@foundmill/shared";
 import type { OrchestratorDeps } from "../deps";
+
+/** The modules whose agents do money and legal work: low credits never move their sessions to a lower-cost model. */
+export const LOW_CREDITS_KEPT_MODULES: readonly ModuleKey[] = ["finance", "legal"];
+
+/**
+ * Whether an agent session keeps its usual model when credits are low (the credit saver). The route decides first
+ * (`ROUTES[route].lowCredits`, packages/models); on top of it a session keeps its model when its tools can reach someone
+ * outside the business or spend money (`grantsActOutside`: the tools the house rules' policy asks about), or when its
+ * agent does money or legal work (`LOW_CREDITS_KEPT_MODULES`).
+ */
+export function sessionKeepsModelOnLowCredits(session: { module: ModuleKey | null; toolRefs: readonly string[] }): boolean {
+  return (session.module !== null && LOW_CREDITS_KEPT_MODULES.includes(session.module)) || grantsActOutside(session.toolRefs);
+}
 
 /** How often a running session books its spend and re-reads the balance between turns. */
 export const SESSION_CREDIT_CHECK_MS = 15_000;

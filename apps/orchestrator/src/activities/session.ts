@@ -34,7 +34,7 @@ import type { Query } from "@anthropic-ai/claude-agent-sdk";
 import { AgentInstructions, buildSystemPrompt, docText, getTemplate, getTemplateByAgentType, hasClubRulesPrefix, listTemplates, restoredWorkspaceNote, ToolGrant, type AgentSkillPrompt, type AgentTemplate } from "@foundmill/agents";
 import { APP_NAME, CREDITS_CURRENCY, sandboxCostMicroMinor } from "@foundmill/config";
 import { firstChannelToOpen, resolveGrants } from "@foundmill/connectors";
-import { bookUsage, closeApprovalItem, loadByokApiKey, MICRO_PER_MINOR, repos, signoffDecisionBlock, type Agent, type AgentVersion, type Approval, type Business, type Task } from "@foundmill/db";
+import { bookUsage, checkPlatformCredits, closeApprovalItem, loadByokApiKey, MICRO_PER_MINOR, repos, signoffDecisionBlock, type Agent, type AgentVersion, type Approval, type Business, type Task } from "@foundmill/db";
 import { publishSessionEvent, type SessionEventInput } from "@foundmill/events";
 import { meter, MODEL_PRICING, resolveModel, type ModelId, type RouteKey } from "@foundmill/models";
 import { assertNoLongLivedCredentials, MockSandbox, MockSandboxProvider, RECORDINGS, redactCredentialValues, stableHash32, type Sandbox, type SandboxSpecInput } from "@foundmill/sandbox";
@@ -52,7 +52,7 @@ import { AGENT_PAUSED_FAILURE, CANCELLED_REASON, type RunUsage } from "../sessio
 import { failureStreak } from "../retry";
 import { openApprovalNote } from "./approvals";
 import { LoopDetector } from "./loop";
-import { CREDITS_USED_UP_SUMMARY, SessionCredits, unbookedTokens } from "./session-credits";
+import { CREDITS_USED_UP_SUMMARY, SessionCredits, sessionKeepsModelOnLowCredits, unbookedTokens } from "./session-credits";
 import { budgetSummary, LIMIT_WORDS, sessionBudget, type SessionBudget } from "./session-budget";
 import { archiveSessionRecording } from "./recording";
 import { createSessionWorkspace, guardToolCall, hookOutputFor, removeSessionWorkspace, sdkEnvFor, sdkToolPolicyFor } from "./sdk-isolation";
@@ -764,8 +764,11 @@ export function createSessionActivities(deps: OrchestratorDeps) {
       if (business.agentsStoppedAt) throw ApplicationFailure.nonRetryable("Agents are stopped for this business", AGENT_PAUSED_FAILURE);
       const grants = resolveGrants(parseGrants(version, template));
       const route: RouteKey = template.route;
-      const model = resolveModel(route, agent.modelKey);
       const { provider, mode, fellBackFrom } = await deps.sandbox();
+      // The credit saver: a session on the platform key whose month's credits are low runs routine work on the route's
+      // lower-cost model, unless its tools reach outside the business or spend money, or it does money or legal work.
+      const lowCredits = business.modelBilling !== "byok" && !sessionKeepsModelOnLowCredits({ module: template.module, toolRefs: grants.toolRefs }) && (await checkPlatformCredits(deps.db, input.businessId, { live: mode !== "mock", now: deps.clock.now() })).low;
+      const model = resolveModel(route, agent.modelKey, { lowCredits });
       // AC-11.6.6: the sandbox environment is asserted before anything is created.
       const env = buildSandboxEnv({ businessId: input.businessId, agentId: agent.id, taskId: task.id, sessionId: input.sessionId, gatewayUrl: deps.gateway.baseUrl });
       const pool = provider instanceof MockSandboxProvider ? provider.recordings : RECORDINGS;

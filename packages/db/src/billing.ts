@@ -27,7 +27,7 @@
  * `assertPlatformCredits` refuses a call while the month's credits are used up (or stopped for it), and where calls are
  * live, credits granted by a simulated payment never count (`ALLOW_MOCK_PAYMENTS`, docs/DEPLOY.md §4).
  */
-import { APP_NAME, CREDITS_CURRENCY, includedCreditsMinor, tierIncludedCreditPlaces } from "@foundmill/config";
+import { APP_NAME, creditsAreLow, CREDITS_CURRENCY, includedCreditsMinor, lowCreditsThresholdMinor, tierIncludedCreditPlaces } from "@foundmill/config";
 import { CreditsExhaustedError } from "@foundmill/shared";
 import { stopBusinessAgents } from "./controls";
 import { repos } from "./repos";
@@ -37,6 +37,10 @@ import type { Business, CreditBalance, UsageEntry } from "./schema";
 import { businessAllowance } from "./tiers";
 
 export const CREDITS_EXHAUSTED_SUBJECT = "Credits used up: team paused";
+/** The one note a month when credits fall below the low line and routine work moves to a lower-cost model. */
+export const CREDITS_LOW_SUBJECT = "Credits running low: routine work moved to a lighter model";
+/** The audit action that records the low-credits note (one per business and month). */
+export const CREDITS_LOW_AUDIT_ACTION = "billing.credits_low";
 /** The warning a business on its own key gets: its agents keep working, the platform-key features wait. */
 export const PLATFORM_CREDITS_EXHAUSTED_SUBJECT = "Credits used up: conversations and Refresh paused";
 
@@ -51,6 +55,8 @@ export interface CreditsOutcome {
   exhausted: "now" | "already" | null;
   pausedAgents: number;
   noteId: string | null;
+  /** The low-credits note this charge posted (the first charge of the month below the low line), else null. */
+  lowNoteId?: string | null;
 }
 
 export interface BookUsageResult {
@@ -101,6 +107,10 @@ export async function bookUsage(db: Executor, businessId: string, input: RecordU
     // The exact cost (0039): a call under half a cent is carried until the period's charges complete a cent.
     const charged = await repos.usage.chargeCreditsMicro(tx, businessId, period, Number(entry.costMicroMinor ?? Number(entry.costMinor) * MICRO_PER_MINOR), { includedMinor: (t) => includedCreditsFor(t, business, period, { lock: true }) });
     if (!charged) return { entry, credits: { enforced: false, balance: null, exhausted: null, pausedAgents: 0, noteId: null } };
+    if (charged.exhausted === null) {
+      const lowNoteId = await creditsLowNotice(tx, business, period, charged.balance);
+      return { entry, credits: { enforced: true, balance: charged.balance, exhausted: null, pausedAgents: 0, noteId: null, lowNoteId } };
+    }
     if (charged.exhausted !== "now") return { entry, credits: { enforced: true, balance: charged.balance, exhausted: charged.exhausted, pausedAgents: 0, noteId: null } };
     const { pausedAgents, noteId } = await creditsUsedUp(tx, business, period, charged.balance);
     return { entry, credits: { enforced: true, balance: charged.balance, exhausted: "now", pausedAgents, noteId } };
@@ -181,6 +191,11 @@ export interface PlatformCreditsCheck {
   balanceMinor: number;
   /** What a live call may spend: the balance less credits granted by a simulated payment. Never below zero. */
   spendableMinor: number;
+  /**
+   * The call may run, but what is spendable is below the low line (`creditsAreLow`, packages/config): routine work runs on
+   * its lower-cost model (the credit saver, `ModelCallVerdict.lowCredits`). False whenever `ok` is false.
+   */
+  low: boolean;
   modelBilling: Business["modelBilling"];
 }
 
@@ -193,13 +208,25 @@ export async function checkPlatformCredits(db: Executor, businessId: string, opt
   const business = await repos.businesses.get(db, businessId, { includeArchived: true });
   const period = periodOf(options.now ?? new Date());
   const row = await repos.usage.creditBalance(db, business.id, period);
-  const balanceMinor = row ? Number(row.balanceMinor) : await includedCreditsFor(db, business, period);
+  const included = row ? null : await includedCreditsFor(db, business, period);
+  const balanceMinor = row ? Number(row.balanceMinor) : (included ?? 0);
   const mockMinor = options.live && balanceMinor > 0 ? await repos.checkouts.mockGrantedMinor(db, business.id, period) : 0;
   const spendableMinor = Math.max(0, balanceMinor - mockMinor);
   // A credits stop from an earlier month is lifted by the new month's credits (resuming the agents stays with an admin).
   const stopped = business.agentsStoppedReason === "credits_exhausted" && business.agentsStoppedAt !== null && periodOf(business.agentsStoppedAt) === period;
   const reason = stopped || balanceMinor <= 0 ? "exhausted" : spendableMinor <= 0 ? "mock_only" : null;
-  return { ok: reason === null, reason, period, balanceMinor, spendableMinor, modelBilling: business.modelBilling };
+  const low = reason === null && (await belowLowLine(db, business, period, spendableMinor, included));
+  return { ok: reason === null, reason, period, balanceMinor, spendableMinor, low, modelBilling: business.modelBilling };
+}
+
+/**
+ * Whether `amountMinor` is below this month's low line. The line is a share of what the month includes for this business
+ * (after the founder's pool, `includedCreditsFor`), so the pool is read only when the amount is under the highest line
+ * the tier could have: almost every call answers without a query. `included` is passed when the caller already has it.
+ */
+async function belowLowLine(db: Executor, business: CreditsBusiness, period: string, amountMinor: number, included: number | null = null): Promise<boolean> {
+  if (amountMinor <= 0 || amountMinor >= lowCreditsThresholdMinor(includedCreditsMinor(business.planTier))) return false;
+  return creditsAreLow(amountMinor, included ?? (await includedCreditsFor(db, business, period)));
 }
 
 /** Throws `CreditsExhaustedError` (402, a sentence the founder can act on) when `checkPlatformCredits` says no. */
@@ -272,7 +299,7 @@ async function pauseForCredits(db: Executor, business: Business, period: string,
       type: "warning",
       from_agent_id: chief.id,
       subject: CREDITS_EXHAUSTED_SUBJECT,
-      body_md: `${way} Conversations, Refresh and planning run on ${APP_NAME}'s key, so they wait for a top-up or next month's credits on ${shortDate(periodRange(period).to)}. Spend so far is an Estimate in US dollars; the model invoice is the real figure.`,
+      body_md: `${way} Or wait for next month's credits on ${shortDate(periodRange(period).to)}, then press Resume agents. Conversations, Refresh and planning run on ${APP_NAME}'s key, so they wait for a top-up or next month's credits. Spend so far is an Estimate in US dollars; the model invoice is the real figure.`,
       status_strip: [],
       exhibit: { kind: "none", spec_ref: null },
       decision: null,
@@ -290,6 +317,61 @@ async function pauseForCredits(db: Executor, business: Business, period: string,
   }
   await repos.audit.append(db, businessId, { actorKind: "system", action: "billing.credits_exhausted", target: { kind: "business", id: businessId }, details: { period, pausedAgents, noteId, planTier: business.planTier, modelBilling: business.modelBilling, teamStopped: true } });
   return { pausedAgents, noteId };
+}
+
+/**
+ * The low-credits note (the credit saver's one notice): the first charge of a month that leaves the balance above zero
+ * but below the low line posts one Inbox note from the Chief of Staff, in plain words: what changed (routine work runs on
+ * a lighter model), what did not (founder-facing and high-stakes work), and how to avoid it (a top-up or the founder's
+ * own key). One per business and month, recorded in the audit log (`CREDITS_LOW_AUDIT_ACTION`); the charges of one
+ * month are serialized on the balance row, so two charges never post two notes. Returns the note's id, else null.
+ */
+async function creditsLowNotice(db: Executor, business: Business, period: string, balance: CreditBalance): Promise<string | null> {
+  const balanceMinor = Number(balance.balanceMinor);
+  if (!(await belowLowLine(db, business, period, balanceMinor))) return null;
+  // Matched on the period it is about, not on when it was written: a late-booked charge belongs to its own month.
+  if (await repos.audit.latestMatching(db, business.id, CREDITS_LOW_AUDIT_ACTION, { period }, new Date(0))) return null;
+  const { to } = periodRange(period);
+  const chief = await repos.agents.chiefOfStaff(db, business.id);
+  let noteId: string | null = null;
+  if (chief) {
+    const note = await repos.inbox.createItem(db, business.id, {
+      type: "warning",
+      from_agent_id: chief.id,
+      subject: CREDITS_LOW_SUBJECT,
+      body_md: creditsLowBody(business, balanceMinor, to),
+      status_strip: [],
+      exhibit: { kind: "none", spec_ref: null },
+      decision: null,
+      blocks_continue: false,
+      source_event_ids: [],
+      entity_ids: [],
+    });
+    noteId = note.id;
+    await repos.events.write(db, business.id, {
+      type: "inbox.item_created",
+      actor: { kind: "agent", id: chief.id },
+      entityIds: [note.id],
+      payload: { inboxItemId: note.id, type: note.type, fromAgentId: chief.id, subject: note.subject, blocksContinue: note.blocksContinue, sourceEventIds: [], cost: null },
+    });
+  }
+  await repos.audit.append(db, business.id, { actorKind: "system", action: CREDITS_LOW_AUDIT_ACTION, target: { kind: "business", id: business.id }, details: { period, balanceMinor, noteId, planTier: business.planTier, modelBilling: business.modelBilling } });
+  return noteId;
+}
+
+/** The low-credits note's body, worded for how the business pays for its agents and for its plan. */
+function creditsLowBody(business: Business, balanceMinor: number, nextMonth: Date): string {
+  const left = `This month's credits are down to ${usd(balanceMinor)} (an Estimate in US dollars).`;
+  const kept = "Replies to you, plans, the Chief of Staff, anything that goes outside the business, and money and legal work keep their usual model.";
+  if (business.modelBilling === "byok") {
+    return `${left} Your agents run on your own Anthropic key, so they are not affected. To make the credits last, planning and first drafts on ${APP_NAME}'s key now use a lighter, lower-cost model. ${kept} To keep everything on its usual model, top up in Settings → Billing. Next month's credits arrive on ${shortDate(nextMonth)}.`;
+  }
+  const free = business.planTier === "free";
+  const avoid = free
+    ? "To keep everything on its usual model, add your own Anthropic key in Settings → Keys (Anthropic bills your key, not us)."
+    : "To keep everything on its usual model, top up in Settings → Billing, or add your own Anthropic key in Settings → Keys (Anthropic bills your key, not us).";
+  const until = free ? "you add your key" : "you top up or add your key";
+  return `${left} To make them last, routine work now runs on a lighter, lower-cost model: research, drafts, internal prep and planning. ${kept} ${avoid} If the credits run out, the team pauses until ${until}, or until next month's credits arrive on ${shortDate(nextMonth)}.`;
 }
 
 /**
