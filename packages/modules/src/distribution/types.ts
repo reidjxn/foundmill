@@ -5,6 +5,7 @@
  * optional-tolerant.
  */
 import type { PostDraft } from "@foundmill/shared/post-draft";
+import type { PostOutcomeCounts } from "@foundmill/shared/post-outcomes";
 import type { AgentStatus, ApprovalState, AssetKind, CampaignStatus, ChannelAvailabilityRow, ChannelKey, ChannelLine, ConversionKind, DeptColourToken, EntityKind, MatchdayLevel } from "@foundmill/shared";
 
 export type Iso = string;
@@ -157,6 +158,11 @@ export interface AssetRow {
    * the picture the api attached, ready for the share panel. Null or absent for every other asset.
    */
   sharePost?: PostDraft | null;
+  /**
+   * What a team post led to (item 8): real follows and replies when the reader reads the CRM, payments when they read
+   * Finance. Null or absent when it led to nothing the reader may see. Visits are never in it.
+   */
+  postOutcomes?: PostOutcomeCounts | null;
   createdAt?: Iso;
   updatedAt?: Iso;
 }

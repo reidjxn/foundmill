@@ -103,6 +103,19 @@ describe("a post the team wrote to be shared", () => {
     await waitFor(() => expect(fake.mutations).toEqual([{ path: "distribution.assets.reject", input: { assetId: POST_ID } }]));
   });
 
+  it("says what a shared post led to, outcomes only, and nothing for a post that led to nothing", () => {
+    const fake = createFakeSource({ businessId: BID, responses: withPost(teamPost({ approvalState: "approved", postOutcomes: { follow: 2, reply: 1, payment: 0 } })) });
+    renderScreen(fake, <CreativeScreen businessId={BID} departmentId="d1" />);
+    expect(within(card()).getByTestId("post-outcomes").textContent).toBe("Led to 2 follows and 1 reply");
+    expect(within(card()).queryByText(/visit/i)).toBeNull();
+  });
+
+  it("shows no outcome line for a quiet post, nor for an asset that is not a team post", () => {
+    const fake = createFakeSource({ businessId: BID, responses: withPost(teamPost({ postOutcomes: null })) });
+    renderScreen(fake, <CreativeScreen businessId={BID} departmentId="d1" />);
+    expect(within(card()).queryByTestId("post-outcomes")).toBeNull();
+  });
+
   it("once a share was opened it says so and is still there to share again; it is never called posted", () => {
     const fake = createFakeSource({ businessId: BID, responses: withPost(teamPost({ approvalState: "approved" })) });
     renderScreen(fake, <CreativeScreen businessId={BID} departmentId="d1" />);

@@ -14,18 +14,21 @@
  * `public_project_pages` lists it (published, committed, not archived, not a sample business) and a person only while
  * `public_person_profiles` lists them (public, not archived). The views give no ids, so each is joined to its own table
  * on the public address (the slug, the handle) to learn which business and which account it is; a draft page, a private
- * profile and an unknown address all read the same: null.
+ * profile and an unknown address all read the same: null. A shared post's code (`s.<code>`, 0102) resolves to its
+ * project's page and is recorded as that page (`p.<slug>`), exactly as if the person came from the page: a simulated
+ * link and a code whose project has no public page resolve to nothing, and no post code is ever recorded here.
  */
-import { VIA_KINDS, formatVia, parseVia, type ViaKind, type ViaRef } from "@foundmill/shared/via";
+import { ATTRIBUTION_VIA_KINDS, formatVia, parseVia, type AttributionViaKind, type ViaRef } from "@foundmill/shared/via";
 import { and, asc, eq, inArray } from "drizzle-orm";
 import { OWNER_ROLES } from "@foundmill/shared";
 import { z } from "zod";
-import { attributions, founderProfiles, memberships, projectPages, publicPersonProfiles, publicProjectPages, type Attribution } from "../schema";
+import { attributions, founderProfiles, memberships, postLinks, projectPages, publicPersonProfiles, publicProjectPages, type Attribution } from "../schema";
 import { Id, maybeOne, parseInput, type Executor } from "./_shared";
 
 /** What a reference resolved to: the public thing it named and who is credited for it. */
 export interface AttributionSource {
-  kind: ViaKind;
+  /** Only a page or a person: a post's code is recorded as its project's page (0102 leaves 0088 as it is). */
+  kind: AttributionViaKind;
   /** The slug or handle, as the public address spells it. */
   ref: string;
   /** The project whose page it is; null for a person's profile. */
@@ -35,7 +38,7 @@ export interface AttributionSource {
 }
 
 const SourceInput = z
-  .object({ kind: z.enum(VIA_KINDS), ref: z.string(), businessId: Id.nullable(), referrerUserId: Id.nullable() })
+  .object({ kind: z.enum(ATTRIBUTION_VIA_KINDS), ref: z.string(), businessId: Id.nullable(), referrerUserId: Id.nullable() })
   .refine((s) => parseVia(formatVia({ kind: s.kind, ref: s.ref })) !== null, "not a reference")
   .refine((s) => s.kind === "project_page" || s.businessId === null, "only a project page names a business");
 
@@ -50,6 +53,19 @@ export const attributionsRepo = {
   async resolve(db: Executor, ref: ViaRef): Promise<AttributionSource | null> {
     const named = parseVia(formatVia(ref));
     if (!named) return null;
+    if (named.kind === "post") {
+      // The post's project, then its page by the public view alone: the same answer as a visit straight from the page.
+      const page = maybeOne(
+        await db
+          .select({ slug: publicProjectPages.slug })
+          .from(postLinks)
+          .innerJoin(projectPages, eq(projectPages.businessId, postLinks.businessId))
+          .innerJoin(publicProjectPages, eq(publicProjectPages.slug, projectPages.slug))
+          .where(and(eq(postLinks.code, named.ref), eq(postLinks.simulated, false)))
+          .limit(1),
+      );
+      return page ? attributionsRepo.resolve(db, { kind: "project_page", ref: page.slug }) : null;
+    }
     if (named.kind === "project_page") {
       const page = maybeOne(
         await db

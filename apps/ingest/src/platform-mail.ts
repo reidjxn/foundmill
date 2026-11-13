@@ -48,6 +48,7 @@ import { APP_NAME, tierShowsBuiltOnMark } from "@foundmill/config";
 import { repos, awardFirstFollowerMilestone } from "@foundmill/db";
 import { FOLLOW_CONFIRM_PAGE, INVITATIONS_OFF_PAGE, NOTIFY_OFF_PAGE, notifyOffBody, PLATFORM_MAIL_SECRET_MIN_LENGTH, UNSUBSCRIBE_CONFIRM_BODY, UNSUBSCRIBE_CONFIRM_BUTTON, UNSUBSCRIBE_CONFIRM_TITLE, UNSUBSCRIBE_DONE_BODY, UNSUBSCRIBE_INVALID_BODY, builtOnWords } from "@foundmill/shared";
 import { ingestPlatformEvents, writeEventRow } from "./ingest";
+import { writeCreditEvent } from "./post-outcomes";
 import { nonceKey } from "./nonce-store";
 import type { IngestDeps } from "./types";
 
@@ -324,7 +325,7 @@ export async function handleFollowConfirm(deps: Deps, req: Request): Promise<Uns
     const result = await repos.followers.confirm(tx, { businessId: business.id, consentId: claims.consentId, emailHash: claims.emailHash, tokenHash: followConfirmNonceHash(claims.nonce), at });
     if (result.status !== "confirmed") return result.status;
     // The real outcome (the north star counts it): written once, when the person confirmed, never at the signup.
-    await writeEventRow(tx, {
+    const followed = await writeEventRow(tx, {
       businessId: business.id,
       type: "page.followed",
       actor: { kind: "system", id: "public-page" },
@@ -334,6 +335,10 @@ export async function handleFollowConfirm(deps: Deps, req: Request): Promise<Uns
       idempotencyKey: `page.followed:${result.consentId}`,
     });
     await repos.audit.append(tx, business.id, { actorKind: "system", actorId: null, action: "page.followed", target: { kind: "entity", id: result.entityId }, details: { consentId: result.consentId, pageId: result.pageId, lawfulBasisSet: result.lawfulBasisSet } });
+    // The follow came through a shared team post (the signup kept the project's own visited link): credited to that
+    // post, once, in this transaction (item 8). An unconfirmed signup credits nothing: this is the only place a follow is.
+    const credit = await repos.postAttributions.creditFollow(tx, { businessId: business.id, consentId: result.consentId, outcomeEventId: followed.id, at });
+    if (credit) await writeCreditEvent(writeEventRow, tx, business.id, credit, at);
     // The project's first confirmed follower is a milestone (0089), recorded once, here, with the consent record's id
     // and nothing about the person. Every later follower awards nothing; a sample business has no real followers.
     if (!business.isDemo && (await awardFirstFollowerMilestone(tx, business.id, { consentId: result.consentId, at }))) first = true;

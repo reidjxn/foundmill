@@ -5,7 +5,7 @@
  * build and the credential expiry scan. Everything runs in mock mode without a network.
  */
 import { getSkillTests, getTemplateByAgentType, storedCustomTest } from "@foundmill/agents";
-import { openApprovalItem, periodOf, repos, resumeBusinessAgents, stopBusinessAgents } from "@foundmill/db";
+import { assets, openApprovalItem, periodOf, postAttributions, repos, resumeBusinessAgents, stopBusinessAgents } from "@foundmill/db";
 import { createModelClient } from "@foundmill/models";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createChannelActivities, emptyChannelState, launchApprovalReason, weeklyBudgetMinor } from "../activities/channel";
@@ -658,6 +658,25 @@ describe("channel engine steps (BUILD §11.7)", () => {
     // Disabled channel stops the engine.
     await repos.channels.setEnabled(t.db, t.businessId, channel.id, false);
     expect((await acts.channelStep({ ...base, step: "plan", state: report.state })).stop).toBe(true);
+  });
+
+  it("the social channel learns what its posts led to, counted (item 8): the lines in place of a CPA, and none in a quiet week", async () => {
+    const acts = createChannelActivities(t.deps);
+    const channel = await repos.channels.upsert(t.db, t.businessId, { channelKey: "social", line: "midfield", enabled: true, kitMode: false, ownerAgentId: t.workerId });
+    const base = { businessId: t.businessId, channelId: channel.id, channelKey: "social", weekIndex: 2 };
+    // A quiet week: nothing came back through a post, so no line (never a zero) and no CPA string.
+    const quiet = await acts.channelStep({ ...base, step: "learn", state: emptyChannelState() });
+    expect(quiet.state.learnings).toEqual([]);
+    expect(quiet.note).not.toMatch(/CPA|\b0\b/);
+    // A post on X that led to two follows and a reply this week.
+    const [asset] = await t.db.insert(assets).values({ businessId: t.businessId, kind: "post", title: "A post", body: "Northwind has a page now." }).returning();
+    const x = (await repos.postLinks.mint(t.db, t.businessId, asset!.id)).find((l) => l.network === "x")!;
+    for (const kind of ["follow", "follow", "reply"] as const)
+      await t.db.insert(postAttributions).values({ businessId: t.businessId, linkId: x.id, assetId: asset!.id, network: "x", outcomeKind: kind, outcomeEventId: crypto.randomUUID(), originId: crypto.randomUUID(), outcomeAt: new Date(t.clock.nowMs() - 86_400_000) });
+    const learned = await acts.channelStep({ ...base, step: "learn", state: emptyChannelState() });
+    expect(learned.state.learnings).toEqual(['w3: post "Northwind has a page now." (X): 2 follows, 1 reply (Counted, real people)']);
+    expect(learned.note).not.toMatch(/CPA/);
+    await repos.channels.setEnabled(t.db, t.businessId, channel.id, false);
   });
 
   it("decides who approves a launch by mode: offline tracking and Augmented always, Assisted a new campaign, every mode above the threshold", () => {

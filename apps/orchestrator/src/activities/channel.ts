@@ -280,6 +280,15 @@ export function createChannelActivities(deps: OrchestratorDeps) {
           return done("Metrics arrive through the connector webhooks (ingest); nothing to pull here.");
         }
         case "learn": {
+          // The social channel learns from what its posts led to, counted from real outcomes (item 8): at most three
+          // lines, one per post and place, in place of a cost per customer. A quiet week adds no line, never a zero.
+          // Paid channels keep their CPA below, labeled Estimate.
+          if (key === "social") {
+            const until = clock.now();
+            const lines = await repos.postAttributions.weekSummary(db, businessId, { since: new Date(until.getTime() - 7 * 24 * 60 * 60 * 1000), until, week: input.weekIndex + 1 });
+            state.learnings.push(...lines);
+            return done(lines.length ? lines.join("\n") : "nothing came back through posts this week; nothing to learn");
+          }
           if (!state.campaignId) return done("nothing launched this week; nothing to learn");
           const ran = await repos.campaigns.get(db, businessId, state.campaignId);
           if (ran.status !== "live") return done(`campaign is ${ran.status.replace(/_/g, " ")}, not live; nothing to learn`);

@@ -7,6 +7,7 @@ import { id, timestamps, tstz } from "./_common";
 import { businessId } from "./_refs";
 import { entities } from "./crm";
 import { projectPages } from "./pages";
+import { postLinks } from "./post-links";
 
 export const CONSENT_PURPOSES = ["email"] as const;
 export const CONSENT_SOURCES = ["page"] as const;
@@ -41,12 +42,18 @@ export const contactConsents = pgTable(
     confirmationTokenHash: text("confirmation_token_hash"),
     /** Set when the person unsubscribes from the project's mail (or it bounced, or they reported it). */
     withdrawnAt: tstz("withdrawn_at"),
+    /**
+     * 0102: the post link the visitor last arrived through before signing up (the project's own, not simulated, visited);
+     * the follow is credited to that post once confirmed. Written by the services only.
+     */
+    postLinkId: uuid("post_link_id").references(() => postLinks.id, { onDelete: "set null" }),
     ...timestamps(),
   },
   (t) => [
     uniqueIndex("contact_consents_once_key").on(t.businessId, t.entityId, t.purpose, t.source),
     index("contact_consents_entity_id_idx").on(t.entityId),
     index("contact_consents_page_id_idx").on(t.pageId),
+    index("contact_consents_post_link_id_idx").on(t.postLinkId),
   ],
 );
 export type ContactConsent = typeof contactConsents.$inferSelect;

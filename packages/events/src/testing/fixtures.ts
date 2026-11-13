@@ -560,6 +560,8 @@ export const EVENT_FIXTURES: { readonly [K in EventType]: EventPayloadInput<K> }
   "invitation.sent": { invitationId: fixtureId("invitation"), role: "collaborator", emailed: false },
   "invitation.accepted": { invitationId: fixtureId("invitation"), role: "cofounder", userId: fixtureId("user") },
   "invitation.declined": { invitationId: fixtureId("invitation"), role: "collaborator" },
+  "visit.attributed": { linkId: fixtureId("post-link"), assetId: fixtureId("asset-post"), network: "x" },
+  "post.outcome_attributed": { linkId: fixtureId("post-link"), assetId: fixtureId("asset-post"), network: null, outcomeKind: "follow", outcomeEventId: fixtureId("event-followed") },
   // Account-scoped (a person's own): written with `accountFixtureInput`, never with `fixtureInput`.
   "profile.published": { handle: "maya-okafor" },
   "profile.unpublished": { handle: "maya-okafor" },

@@ -457,6 +457,8 @@ export interface FollowInput {
   consent: boolean;
   /** The hidden field: a person never fills it in. */
   website?: string | null;
+  /** The last post code the visitor arrived with (the web's `fm_post` cookie): kept only for the project's own visited link. */
+  post?: string | null;
 }
 
 const followRefusal = (code: "follow_email" | "follow_consent" | "follow_closed") =>
@@ -531,7 +533,10 @@ export async function followPage(ctx: FollowContext, input: FollowInput): Promis
     const nonce = randomBytes(32).toString("base64url");
     const tokenHash = createHash("sha256").update(nonce, "utf8").digest("hex");
     const reserved = await ctx.db.transaction(async (tx) => {
-      const recorded = await repos.followers.record(tx, target.businessId, { pageId: target.pageId, slug: target.slug, email, consentText });
+      // The post the visitor last arrived through, when it is this project's own, real and was visited (item 8). The
+      // follow is credited to it only once the person confirms from their inbox.
+      const postLinkId = await repos.postLinks.followable(tx, target.businessId, input.post);
+      const recorded = await repos.followers.record(tx, target.businessId, { pageId: target.pageId, slug: target.slug, email, consentText, postLinkId });
       if (recorded.status === "nothing") return null;
       if (recorded.status === "new") {
         await repos.audit.append(tx, target.businessId, {

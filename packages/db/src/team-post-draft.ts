@@ -17,7 +17,7 @@
  */
 import { POST_DRAFT_ROUTE, postDraftDecision, postDraftFacts, runPostDraftStep, type PostDraftRefusal, type PostDraftSkip, type PostDraftStore, type PostDraftUsage } from "@foundmill/agents";
 import type { ModelClient } from "@foundmill/models";
-import { TEAM_POST_CAPS, teamPostShareDraft, type TeamPostRef } from "@foundmill/shared";
+import { TEAM_POST_CAPS, TEAM_POST_CODE_FOR_LENGTH, TEAM_POST_WEEK_MS, teamPostShareDraft, type TeamPostRef } from "@foundmill/shared";
 import { checkPlatformCredits } from "./billing";
 import type { Db } from "./client";
 import { repos } from "./repos";
@@ -85,8 +85,13 @@ export async function draftTeamPost(deps: TeamPostDraftDeps, businessId: string,
   if (!credits.ok && credits.modelBilling !== "byok") return skipped("no_credits");
 
   const agentId = src.agent?.id ?? null;
-  const link = teamPostShareDraft({ text: "", ref, page: { origin: deps.appUrl, slug: page.slug, projectName: src.business.name, pitch: page.pitch }, cardShown: src.cardShown }).link;
-  const facts = postDraftFacts({ businessName: src.business.name, page, trigger: ref.trigger, subject: ref.subject, at: src.at ?? now, timeZone: src.business.timeZone, link });
+  // The link the post will carry, with a code of the right length: its own codes are minted with the words (0102).
+  const sizing = { link: TEAM_POST_CODE_FOR_LENGTH, networks: {} };
+  const link = teamPostShareDraft({ text: "", ref, page: { origin: deps.appUrl, slug: page.slug, projectName: src.business.name, pitch: page.pitch }, cardShown: src.cardShown, codes: sizing }).link;
+  // What the project's earlier posts led to in the last 7 days, counted: data for the agent, never words for the post
+  // (the check refuses any figure the facts do not give, and these lines are not among the facts it reads).
+  const learned = await repos.postAttributions.weekSummary(deps.db, businessId, { since: new Date(now.getTime() - TEAM_POST_WEEK_MS), until: now, week: null });
+  const facts = postDraftFacts({ businessName: src.business.name, page, trigger: ref.trigger, subject: ref.subject, at: src.at ?? now, timeZone: src.business.timeZone, link, learned });
   const model = (usage: PostDraftUsage) => ({ route: POST_DRAFT_ROUTE, model: usage.model, mode: usage.mode, calls: usage.calls, costMinor: usage.costMinor, costLabel: "Estimate" });
   const store: PostDraftStore = {
     async write({ text, usage }) {

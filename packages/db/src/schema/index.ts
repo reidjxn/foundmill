@@ -31,3 +31,4 @@ export * from "./team-calls";
 export * from "./founder-return";
 export * from "./idea-box";
 export * from "./people";
+export * from "./post-links";

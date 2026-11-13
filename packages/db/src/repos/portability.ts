@@ -82,6 +82,7 @@ export const EXPORT_TABLES: Readonly<Record<string, ExportTableSpec>> = {
   journeys: t(s.journeys, "distribution"),
   chapter_titles: t(s.chapterTitles, "distribution"),
   milestones: t(s.milestones, "distribution"),
+  post_links: t(s.postLinks, "distribution"),
   // crm
   entities: t(s.entities, "crm"),
   entity_roles: t(s.entityRoles, "crm"),
@@ -90,6 +91,9 @@ export const EXPORT_TABLES: Readonly<Record<string, ExportTableSpec>> = {
   mentions: t(s.mentions, "crm"),
   field_provenance: t(s.fieldProvenance, "crm"),
   contact_consents: t(s.contactConsents, "crm"),
+  // What a shared post led to (0102): ids, the network and the kind only, never a person or an amount. Filed with the
+  // CRM, where its follows and replies belong; a payment row says only that one came through the post.
+  post_attributions: t(s.postAttributions, "crm"),
   merge_log: t(s.mergeLog, "crm"),
   // finance
   accounts: t(s.accounts, "finance", { omit: ["externalId"] }),

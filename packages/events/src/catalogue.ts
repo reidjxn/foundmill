@@ -47,6 +47,7 @@ import {
   SHARE_SUBJECT_KINDS,
   TEAM_POST_SUBJECTS,
   TEAM_POST_TRIGGERS,
+  POST_NETWORKS,
   SIGNOFF_KINDS,
   Severity,
   SkillGroup,
@@ -61,7 +62,8 @@ import {
   type EventScope,
   type EventType as EventTypeT,
 } from "@foundmill/shared";
-import { VIA_KINDS } from "@foundmill/shared/via";
+import { POST_OUTCOME_KINDS } from "@foundmill/shared/post-outcomes";
+import { ATTRIBUTION_VIA_KINDS } from "@foundmill/shared/via";
 import { assertAccountPayloadSchema } from "./account-payload";
 
 // ---------------------------------------------------------------------------------------------------
@@ -1913,6 +1915,44 @@ const postDrafted = declareEvent(
   },
 );
 
+/** Which post and where (item 8, packages/db `post_links`): the link's row, the post's asset and its network (null: a copied or sent link). */
+const PostLinkFacts = {
+  linkId: Id,
+  assetId: Id,
+  network: z.enum(POST_NETWORKS).nullable(),
+};
+
+const visitAttributed = declareEvent(
+  "visit.attributed",
+  z.object(PostLinkFacts),
+  {
+    // North star (CLAUDE.md, founder 2026-11-11; network decision Nov 13, 2026 "visits stay private"): a visit proves a
+    // link was opened, not that anything happened. It is never counted, shown or narrated; a follow needs one first.
+    doc: "A link of a post the team drafted and the founder shared was opened for the first time, in a browser that ran the public page's scripts (crawlers do not), by someone who is not a member of the project. Written once per link, when `post_links.first_visited_at` is set; a returning visit writes nothing. Ids and the network only: never an address, a device or a person. Not an outside result: the north star does not count it, nothing shows visit counts in public or in private, and it is never narrated.",
+    consumers: ["metrics"],
+    narratable: false,
+  },
+);
+
+const postOutcomeAttributed = declareEvent(
+  "post.outcome_attributed",
+  z.object({
+    ...PostLinkFacts,
+    /** What the post led to (`POST_OUTCOME_KINDS`). */
+    outcomeKind: z.enum(POST_OUTCOME_KINDS),
+    /** The real outcome's own event (`page.followed`, `lead.replied` or `payment.received`); one post at most per outcome. */
+    outcomeEventId: Id,
+  }),
+  {
+    // North star (CLAUDE.md, founder 2026-11-11): the outcome itself (`page.followed`, `lead.replied`,
+    // `payment.received`) is what counts, once. This only says which post it came through, so counting it too would
+    // count the same outcome twice: it is never counted toward the north star and never narrated.
+    doc: "A real outcome of the project came back through a post the team drafted and the founder shared (last touch, one post at most per outcome): a person who arrived through the post's link confirmed that they follow the project, replied for real within 30 days of following, or paid. Written in the transaction that records the credit (`post_attributions`). Ids, the network and the kind only: never the person, an address or an amount. Not counted toward the north star (its outcome event already is), and never narrated.",
+    consumers: ["stream", "metrics"],
+    narratable: false,
+  },
+);
+
 // ---------------------------------------------------------------------------------------------------
 // Invitations to a project (0091; docs/NETWORK.md F5, THESIS_REVIEW package 3.1)
 // ---------------------------------------------------------------------------------------------------
@@ -1992,8 +2032,8 @@ const profileUnpublished = declareAccountEvent("profile.unpublished", ProfileFac
 
 /** What the reference named, by its public address and nothing else. The same two fields for both readers. */
 const AttributionSource = z.strictObject({
-  /** A project's public page or a person's public profile (`VIA_KINDS`). */
-  sourceKind: z.enum(VIA_KINDS),
+  /** A project's public page or a person's public profile (`ATTRIBUTION_VIA_KINDS`). */
+  sourceKind: z.enum(ATTRIBUTION_VIA_KINDS),
   /**
    * The slug or handle as it arrived (3 to 40 lowercase letters, digits and hyphens). Public: it was in an address. An
    * address shaped like an id (32 letters a to f and digits in a row) is refused when the event is written, like any
@@ -2114,6 +2154,8 @@ export const EVENTS = {
   "invitation.sent": invitationSent,
   "invitation.accepted": invitationAccepted,
   "invitation.declined": invitationDeclined,
+  "visit.attributed": visitAttributed,
+  "post.outcome_attributed": postOutcomeAttributed,
 } as const satisfies { readonly [K in EventTypeT]: EventDeclaration<K, z.ZodType, EventScopeOf<K>> };
 
 export type EventsRegistry = typeof EVENTS;

@@ -1,5 +1,5 @@
 // @vitest-environment node
-import { VIA_COOKIE, VIA_MAX_AGE_SECONDS } from "@foundmill/shared/via";
+import { VIA_COOKIE, VIA_MAX_AGE_SECONDS, VIA_POST_COOKIE, VIA_POST_MAX_AGE_SECONDS } from "@foundmill/shared/via";
 import { NextRequest } from "next/server";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { proxy } from "../../proxy";
@@ -88,6 +88,20 @@ describe("proxy attribution: the first `via` a visitor arrives with", () => {
       expect(res.cookies.get(VIA_COOKIE), url).toMatchObject({ name: VIA_COOKIE, value, httpOnly: true, sameSite: "lax", path: "/", maxAge: VIA_MAX_AGE_SECONDS });
     }
     expect(VIA_MAX_AGE_SECONDS).toBe(30 * 24 * 60 * 60);
+  });
+
+  it("a shared post's code also sets fm_post (last touch, 7 days) and leaves fm_via to the first touch", async () => {
+    const first = await proxy(new NextRequest("http://localhost:3000/p/maple-bakes?via=s.k3m7qa2xpw"));
+    expect(first.cookies.get(VIA_COOKIE)?.value).toBe("s.k3m7qa2xpw");
+    expect(first.cookies.get(VIA_POST_COOKIE)).toMatchObject({ name: VIA_POST_COOKIE, value: "k3m7qa2xpw", httpOnly: true, sameSite: "lax", path: "/", maxAge: VIA_POST_MAX_AGE_SECONDS });
+    expect(VIA_POST_MAX_AGE_SECONDS).toBe(7 * 24 * 60 * 60);
+    // A visitor who already carries both: fm_via stays, fm_post takes the newer code.
+    const later = new NextRequest("http://localhost:3000/p/maple-bakes?via=s.abcdefgh22", { headers: { cookie: `${VIA_COOKIE}=p.maple-bakes; ${VIA_POST_COOKIE}=k3m7qa2xpw` } });
+    const res = await proxy(later);
+    expect(res.cookies.get(VIA_COOKIE)).toBeUndefined();
+    expect(res.cookies.get(VIA_POST_COOKIE)?.value).toBe("abcdefgh22");
+    // A page reference, or something that is not a code, changes no fm_post.
+    for (const url of ["http://localhost:3000/p/maple-bakes?via=p.maple-bakes", "http://localhost:3000/p/maple-bakes?via=s.NOTACODE00", "http://localhost:3000/p/maple-bakes?via=s.maple-bakes"]) expect((await proxy(new NextRequest(url))).cookies.get(VIA_POST_COOKIE), url).toBeUndefined();
   });
 
   it("is not secure in development and test, and secure everywhere else", async () => {

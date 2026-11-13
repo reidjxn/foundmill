@@ -20,6 +20,7 @@ export const PRIVACY_COOKIES = [
   { term: "sb-…-code-verifier", detail: "Protects a sign-in in progress (for example with Google). Lasts a few minutes." },
   { term: "fm_idea", detail: "Keeps the card you made on the home page before signing up, so you can keep it when you sign in. 7 days." },
   { term: "fm_via", detail: `Remembers the project's page or the person's profile on ${N} that brought you here, if one did, until you sign up. 30 days.` },
+  { term: "fm_post", detail: `Remembers the public code in the link of the last post from a project on ${N} that brought you here, if one did, so the project can see which post led to your follow. 7 days.` },
   { term: "fm_last_business", detail: "Opens the project you used last. Up to one year." },
   { term: "fm_date_format", detail: "The date format you chose. Up to one year." },
   { term: "fm_text_size", detail: "The text size you chose. Up to one year." },

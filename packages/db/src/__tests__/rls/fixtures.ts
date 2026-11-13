@@ -4,6 +4,7 @@
  * viewer and one row in every parent table that business-scoped samples need to reference.
  */
 import { eq, sql } from "drizzle-orm";
+import { newPostCode } from "../../repos/post-attributions";
 import * as s from "../../schema";
 import type { TestHarness } from "../../testing/pglite";
 
@@ -51,6 +52,10 @@ export interface BusinessFixture {
   agentThreadId: string;
   /** 0082: a live team call with both agents, started by the owner. */
   teamCallId: string;
+  /** 0102: team posts with no links yet (one per `post_links` sample: a post has one link per network). */
+  postAssetIds: string[];
+  /** 0102: post links, one per `post_attributions` sample (each carries its post and network). */
+  postLinks: { id: string; assetId: string; network: string | null }[];
 }
 
 const first = <T>(rows: T[], what: string): T => {
@@ -247,7 +252,25 @@ export async function createBusinessFixture(h: TestHarness, slug: string): Promi
     "team_calls",
   );
 
+  // 0102: team posts and their links (written by the services; codes from `a-z2-7`, unique per fixture). A suite that
+  // migrates only up to an earlier migration has no `post_links` yet: its pools stay empty.
+  const hasPostLinks = ((await db.execute(sql`select to_regclass('public.post_links') is not null as ok`)) as unknown as { rows: { ok: boolean }[] }).rows[0]?.ok === true;
+  const postAssets = hasPostLinks
+    ? await db
+        .insert(s.assets)
+        .values(Array.from({ length: 16 }, (_, i) => ({ businessId, kind: "post" as const, title: `Post ${i}`, body: `A post the team wrote, number ${i}.` })))
+        .returning({ id: s.assets.id })
+    : [];
+  const postLinkRows = hasPostLinks
+    ? await db
+        .insert(s.postLinks)
+        .values(postAssets.slice(8).map((a, i) => ({ businessId, assetId: a.id, network: i % 2 === 0 ? ("x" as const) : null, code: newPostCode(), firstVisitedAt: new Date("2026-11-12T10:00:00Z") })))
+        .returning({ id: s.postLinks.id, assetId: s.postLinks.assetId, network: s.postLinks.network })
+    : [];
+
   return {
+    postAssetIds: postAssets.slice(0, 8).map((a) => a.id),
+    postLinks: postLinkRows.map((r) => ({ id: r.id, assetId: r.assetId, network: r.network ?? null })),
     slug,
     businessId,
     ownerId,

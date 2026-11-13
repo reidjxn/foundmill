@@ -143,6 +143,11 @@ export const EVENT_WALLS = {
   "invitation.sent": { sections: ["team"] },
   "invitation.accepted": { sections: ["team"] },
   "invitation.declined": { sections: ["team"] },
+  // A shared post's link was opened for the first time, and a real outcome credited to a post (item 8): ids only, never
+  // narrated, never counted toward the north star. Visits stay private, so the first is filed with the metrics-only
+  // events; the second follows the walls of what it credits (a follower or a reply is the CRM's, a payment Finance's).
+  "visit.attributed": { sections: ["settings"] },
+  "post.outcome_attributed": { sections: (p) => (p.outcomeKind === "payment" ? ["distribution", "finance"] : ["distribution", "crm"]) },
 } as const satisfies { readonly [K in BusinessEventType]: EventWall };
 
 /** What one reader may see of business events: their walls (sections they may not read at all). */

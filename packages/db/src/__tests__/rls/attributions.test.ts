@@ -13,7 +13,7 @@
  *     address all resolve to nothing;
  *   - the row follows its account; the referrer and the source business may go and the row stays.
  */
-import { VIA_KINDS } from "@foundmill/shared/via";
+import { ATTRIBUTION_VIA_KINDS, type VIA_KINDS } from "@foundmill/shared/via";
 import type { PersonProfileContent, ProjectPageContent } from "@foundmill/shared";
 import { eq, sql } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -111,10 +111,10 @@ describe("attributions 0088: once per account, and what the database itself refu
     expect(await h.service().run((tx) => repos.attributions.forUser(tx, outsider))).toBeNull();
   });
 
-  it("the migration's kinds are the shared kinds", () => {
+  it("the migration's kinds are the shared kinds, unchanged by post codes (0102 does not widen them)", () => {
     const migration = readMigrations().find((m) => m.tag === "0088_attributions")!.sql;
     const block = /check \(source_kind in \(([^)]*)\)\)/.exec(migration)?.[1] ?? "";
-    expect([...block.matchAll(/'([a-z_]+)'/g)].map((m) => m[1]).sort()).toEqual([...VIA_KINDS].sort());
+    expect([...block.matchAll(/'([a-z_]+)'/g)].map((m) => m[1]).sort()).toEqual([...ATTRIBUTION_VIA_KINDS].sort());
   });
 });
 

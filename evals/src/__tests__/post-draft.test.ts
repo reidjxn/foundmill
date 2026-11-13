@@ -26,7 +26,20 @@ describe("post draft eval", () => {
     const bare = POST_DRAFT_CASES.find((c) => c.page.pitch === c.businessName && c.page.about === c.businessName)!;
     expect(bare).toMatchObject({ adversarial: true, trigger: "page_published" });
     // The facts every case is given carry the fact with its date, and nothing else about the project than its page.
-    for (const c of POST_DRAFT_CASES) expect(Object.keys(postDraftEvalFacts(c)).sort()).toEqual(["fact", "maxChars", "page", "projectName"]);
+    for (const c of POST_DRAFT_CASES) expect(Object.keys(postDraftEvalFacts(c)).sort()).toEqual(["fact", "learned", "maxChars", "page", "projectName"]);
+    // A project whose earlier posts led to counted outcomes: the counts reach the agent and must never reach the post.
+    const learned = POST_DRAFT_CASES.find((c) => (c.learned?.length ?? 0) > 0)!;
+    expect(learned.adversarial).toBe(true);
+    expect(postDraftEvalFacts(learned).learned).toEqual(learned.learned);
+  });
+
+  it("(b) a post that states a count from what earlier posts led to fails, through the product's check and the rubric", () => {
+    const c = byId("pd07");
+    expect(postDraftProblems(c, "Doorstep Bikes has a page now: bike repairs at your door, booked in a minute.")).toEqual([]);
+    const counted = postDraftProblems(c, "Doorstep Bikes has a page now, and 3 people follow it.");
+    expect(counted).toContain("the product's check refuses it (invented_figure)");
+    expect(counted).toContain("a number the inputs do not give");
+    expect(postDraftProblems(c, "Doorstep Bikes has a page now. Thanks for the follows and replies.").some((p) => p.startsWith("carries what it must never carry"))).toBe(true);
   });
 
   it("the rubric passes a plain post made of the facts", () => {

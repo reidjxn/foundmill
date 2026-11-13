@@ -13,6 +13,10 @@
  * (`?via=p.<slug>`, @foundmill/shared/via). A paid plan shows none of it. Once the founders show a milestone the
  * project has a story (`./story`, `page.story`): the mark and the line after a follow then lead there instead of to the
  * landing page, with the same `via`, and the line's link reads "See how it was made".
+ *
+ * An address that carries a shared post's code (`?via=s.<code>`, item 8) sends one beacon once the page has loaded
+ * (components/public/PostVisitBeacon.tsx): the post's link counts as visited, so a follow from it can be credited to the
+ * post. Nothing on the page changes, and no visit count is ever shown.
  */
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
@@ -22,6 +26,7 @@ import { builtOnWords, pageDescription, pageTitle } from "@foundmill/shared/proj
 import { storyPath } from "@foundmill/shared/project-story";
 import { withVia } from "@foundmill/shared/via";
 import { FollowProjectForm } from "@/components/public/FollowProjectForm";
+import { PostVisitBeacon } from "@/components/public/PostVisitBeacon";
 import { getServerAuth } from "@/lib/auth/server";
 import { publicProjectPage } from "@/lib/public-page.server";
 
@@ -55,26 +60,44 @@ export default async function PublicProjectPageRoute({ params }: Props) {
   const mark = !page.mark ? "none" : member ? "member" : "visitor";
   const words = builtOnWords(APP_NAME);
   // The story is what turns a noticed mark into "I could do this" (docs/NETWORK.md F2); without one, the landing page.
-  const markHref = withVia(page.story ? storyPath(page.slug) : "/", { kind: "project_page", ref: page.slug });
+  const markHref = withVia(page.story ? storyPath(page.slug) : "/", {
+    kind: "project_page",
+    ref: page.slug,
+  });
   return (
-    <ProjectPage
-      name={page.name}
-      pitch={page.pitch}
-      about={page.about}
-      forWhom={page.forWhom}
-      stage={page.stage}
-      publishedAt={page.publishedAt}
-      brandPrimary={page.brandPrimary}
-      brandSecondary={page.brandSecondary}
-      logo={page.logo}
-      founderNames={page.founderNames}
-      mark={mark}
-      markHref={markHref}
-      follow={
-        page.followForm ? (
-          <FollowProjectForm name={page.name} slug={page.slug} builtOn={mark === "visitor" ? { line: words.afterFollow(page.name), linkLabel: page.story ? words.afterFollowStoryLink : words.afterFollowLink, href: markHref } : null} />
-        ) : null
-      }
-    />
+    <>
+      <PostVisitBeacon />
+      <ProjectPage
+        name={page.name}
+        pitch={page.pitch}
+        about={page.about}
+        forWhom={page.forWhom}
+        stage={page.stage}
+        publishedAt={page.publishedAt}
+        brandPrimary={page.brandPrimary}
+        brandSecondary={page.brandSecondary}
+        logo={page.logo}
+        founderNames={page.founderNames}
+        mark={mark}
+        markHref={markHref}
+        follow={
+          page.followForm ? (
+            <FollowProjectForm
+              name={page.name}
+              slug={page.slug}
+              builtOn={
+                mark === "visitor"
+                  ? {
+                      line: words.afterFollow(page.name),
+                      linkLabel: page.story ? words.afterFollowStoryLink : words.afterFollowLink,
+                      href: markHref,
+                    }
+                  : null
+              }
+            />
+          ) : null
+        }
+      />
+    </>
   );
 }

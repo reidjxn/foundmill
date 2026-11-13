@@ -124,8 +124,9 @@ export function queuePostDraft(deps: PostDraftDeps, businessId: string, trigger:
 
 /**
  * What the Creative tab opens the share panel with for each post the team wrote: the words, and the link and picture
- * the code attaches (the milestone's card while it is on the page, else the project's page, with the page's `via`; no
- * link while the page is down). Built from what is public anyway, so any reader of the tab may have it.
+ * the code attaches (the milestone's card while it is on the page, else the project's page; no link while the page is
+ * down). Each link carries the post's own code for its network (`s.<code>`, 0102), or the page's `via` for a post that
+ * has none. Built from what is public anyway, so any reader of the tab may have it.
  */
 export async function teamPostShares(tx: Executor, scope: { businessId: string; businessName: string; isDemo: boolean; appUrl: string }, rows: readonly Asset[]): Promise<Map<string, PostDraft>> {
   const out = new Map<string, PostDraft>();
@@ -138,6 +139,8 @@ export async function teamPostShares(tx: Executor, scope: { businessId: string; 
   const published = pageRow?.published ?? null;
   const page = pageRow && published ? { origin: scope.appUrl, slug: pageRow.slug, projectName: scope.businessName, pitch: published.pitch } : null;
   const shown = page ? await repos.teamPosts.shownMilestoneIds(tx, scope.businessId, posts.filter((p) => p.ref.trigger === "milestone_shown").map((p) => p.ref.refId)) : new Set<string>();
-  for (const { asset, ref } of posts) out.set(asset.id, teamPostShareDraft({ text: asset.body ?? "", ref, page, cardShown: shown.has(ref.refId) }));
+  // Each post's own codes (0102): every link it opens with carries one, so what comes back through it is its own.
+  const codes = page ? await repos.postLinks.codesFor(tx, scope.businessId, posts.map((p) => p.asset.id)) : new Map();
+  for (const { asset, ref } of posts) out.set(asset.id, teamPostShareDraft({ text: asset.body ?? "", ref, page, cardShown: shown.has(ref.refId), codes: codes.get(asset.id) ?? null }));
   return out;
 }

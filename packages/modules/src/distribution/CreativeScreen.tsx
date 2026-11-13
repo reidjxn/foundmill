@@ -14,7 +14,9 @@
  * it reads "Written by your team for you to share" where a campaign's name would be, its pill says where it stands
  * ("Not shared yet", "Share opened", "Set aside"), and in place of Approve and Reject it carries Share and "Not this
  * one", which sets it aside (`distribution.assets.reject`) so it is not offered again. Opening a share for it tells the
- * api which post it was, and the post stops waiting. It never counts as awaiting approval.
+ * api which post it was, and the post stops waiting. It never counts as awaiting approval. Once a shared post led to a
+ * real outcome, one line under it says so ("Led to 2 follows and 1 reply", item 8): outcomes only, as the api walls
+ * them (follows and replies behind the CRM, payments behind Finance), never a visit, never a zero.
  */
 import { useCallback, useMemo, useState } from "react";
 import { Check, ExternalLink, FileText, Film, Image, Mail, Mailbox, Megaphone, Newspaper, ScrollText, Share2, X } from "lucide-react";
@@ -23,6 +25,7 @@ import { Button, EntityLink, Icon, Panel, SegmentedControl, SharePost, StatusPil
 import { CHANNELS_SHARED_BY_TAP } from "@foundmill/shared/channel-availability";
 import { APPROVAL_STATES, ASSET_KINDS, type ApprovalState, type AssetKind } from "@foundmill/shared/constants";
 import { SHARE_OPEN_WORDS, writtenPostDraft } from "@foundmill/shared/share-drafts";
+import { postOutcomeLine } from "@foundmill/shared/post-outcomes";
 import { TEAM_POST_WORDS, isTeamPost } from "@foundmill/shared/team-posts";
 import type { ShareOpened } from "@foundmill/shared/share-targets";
 import { routes } from "@foundmill/widgets/shared/routes";
@@ -138,7 +141,7 @@ export function CreativeScreen({ businessId }: ModuleScreenProps) {
   const action = useAction();
   const [state, setState] = useState<ApprovalState | null>(null);
   const [highlight] = useState<string | null>(() => searchParam("asset"));
-  useBusinessEvents(() => assets.refetch(), ["approval.resolved", "campaign.launched", "post.drafted"]);
+  useBusinessEvents(() => assets.refetch(), ["approval.resolved", "campaign.launched", "post.drafted", "post.outcome_attributed"]);
 
   const groups = useMemo(() => groupAssets(assets.data ?? [], state), [assets.data, state]);
   const counts = useMemo(() => {
@@ -231,6 +234,8 @@ function AssetCard({ asset, highlighted, campaign, author, businessId, pending, 
   const team = teamPostOf(asset);
   const decidable = !team && (asset.approvalState === "pending" || asset.approvalState === "draft");
   const title = asset.title || `${meta.word} draft`;
+  // What a team post led to, counted from real outcomes; nothing for a post that led to nothing (never a zero).
+  const outcomes = team && asset.postOutcomes ? postOutcomeLine(asset.postOutcomes) : null;
   const state = team ? { word: TEAM_POST_WORDS.states[asset.approvalState], tone: asset.approvalState === "approved" ? ("good" as const) : ("neutral" as const) } : APPROVAL_WORDS[asset.approvalState];
   return (
     <article aria-label={title} data-asset={asset.id} data-state={asset.approvalState} data-team-post={team ? "" : undefined} className={cn("surface-panel flex h-full flex-col gap-2 p-3", highlighted && "outline outline-2 outline-link")}>
@@ -257,6 +262,11 @@ function AssetCard({ asset, highlighted, campaign, author, businessId, pending, 
       {asset.body ? (
         <p className="line-clamp-4 whitespace-pre-line text-small text-secondary" data-testid="asset-body">
           {asset.body}
+        </p>
+      ) : null}
+      {outcomes ? (
+        <p className="text-small text-primary" data-testid="post-outcomes">
+          {outcomes}
         </p>
       ) : null}
       <div className="mt-auto flex flex-wrap items-center gap-1.5 pt-1">
