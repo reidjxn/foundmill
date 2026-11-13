@@ -241,5 +241,8 @@ export const NON_TENANT_TABLES = [
   // are not readable by a client, so the generic suite cannot select them); both in rls/invitations.test.ts.
   "account_admissions",
   "invitations",
+  // 0094: a founder's standing ended (business-scoped, but read by the person once they are out, written by a trigger and
+  // the service role only, its token hash not readable by a client); covered by rls/founder-departures.test.ts.
+  "founder_departures",
 ] as const;
 

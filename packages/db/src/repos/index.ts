@@ -63,6 +63,7 @@ import { notifyFactsRepo } from "./notify-facts";
 import { attributionsRepo } from "./attributions";
 import { teamPostsRepo } from "./team-posts";
 import { admissionsRepo, invitationsRepo } from "./people";
+import { founderDeparturesRepo } from "./founder-departures";
 
 export const repos = {
   businesses: businessesRepo,
@@ -126,6 +127,7 @@ export const repos = {
   teamPosts: teamPostsRepo,
   admissions: admissionsRepo,
   invitations: invitationsRepo,
+  founderDepartures: founderDeparturesRepo,
 } as const;
 export type Repos = typeof repos;
 export type RepoArea = keyof Repos;
@@ -136,6 +138,7 @@ export { DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE, encodeCursor, decodeCursor, decodeTim
 export * from "./agents";
 export * from "./approvals";
 export * from "./audit";
+export { cancelWindowEnd, type FounderDepartureView } from "./founder-departures";
 export * from "./autopilot";
 export * from "./businesses";
 export * from "./campaigns";

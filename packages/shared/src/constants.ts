@@ -472,6 +472,7 @@ export const EVENT_TYPES = [
   "referral.arrived",
   "post.drafted",
   "invitation.sent", "invitation.accepted", "invitation.declined",
+  "founder_notice.sent",
 ] as const;
 export type EventType = (typeof EVENT_TYPES)[number];
 
@@ -517,7 +518,7 @@ export const isPersonAddressedEvent = (type: string | null | undefined): boolean
  */
 export const EVENT_SCOPES = ["business", "account"] as const;
 export type EventScope = (typeof EVENT_SCOPES)[number];
-export const ACCOUNT_EVENT_TYPES = ["profile.published", "profile.unpublished", "signup.attributed", "referral.arrived"] as const satisfies readonly EventType[];
+export const ACCOUNT_EVENT_TYPES = ["profile.published", "profile.unpublished", "signup.attributed", "referral.arrived", "founder_notice.sent"] as const satisfies readonly EventType[];
 export type AccountEventType = (typeof ACCOUNT_EVENT_TYPES)[number];
 /** Every event type that belongs to a project: all of `EVENT_TYPES` but the account-scoped ones. */
 export type BusinessEventType = Exclude<EventType, AccountEventType>;
@@ -625,6 +626,26 @@ export const LIMITED_EMAIL_KINDS: readonly EmailNotificationKind[] = ["decision_
  */
 export const ADDRESS_EMAIL_KINDS = ["invitation"] as const;
 export type AddressEmailKind = (typeof ADDRESS_EMAIL_KINDS)[number];
+/**
+ * Account-safety notices (security review P2-3, Nov 13, 2026): Foundmill's email to the founders of a project when its
+ * founders change or its deletion is asked for or canceled. Classed apart from both lists above, like the security mail
+ * of any service: nobody holds a switch for it, the pause does not hold it, no daily limit, no project outreach room and
+ * no "Don't send me invitations" stops it; only a hard suppression of the address (a bounce or a spam report) does.
+ * Never sent to the person who did the thing.
+ */
+export const ACCOUNT_SAFETY_EMAIL_KINDS = ["founder_notice"] as const;
+export type AccountSafetyEmailKind = (typeof ACCOUNT_SAFETY_EMAIL_KINDS)[number];
+/** What a founder notice is about: a founder's role went below a founder's, a founder was removed, deletion asked for or canceled. */
+export const FOUNDER_NOTICES = ["role_changed", "removed", "deletion_requested", "deletion_canceled"] as const;
+export type FounderNotice = (typeof FOUNDER_NOTICES)[number];
+/**
+ * How long a founder whose standing was taken away (demoted or removed by another founder) may still cancel a pending
+ * deletion of that project: from Foundmill's email or the card on their home (security review P2-3).
+ */
+export const FORMER_FOUNDER_CANCEL_WINDOW_MS = 7 * 86_400_000;
+/** How a founder's standing ended (`founder_departures.how`, 0094): by another founder's change, by removal, or by their own. */
+export const FOUNDER_DEPARTURE_KINDS = ["demoted", "removed", "left"] as const;
+export type FounderDepartureKind = (typeof FOUNDER_DEPARTURE_KINDS)[number];
 
 /** The account's type size (`account_preferences.text_size`, 0064): comfortable grows body and small text; the structure keeps its sizes. */
 export const TEXT_SIZES = ["standard", "comfortable"] as const;

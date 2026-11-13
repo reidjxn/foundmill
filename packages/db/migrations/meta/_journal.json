@@ -575,6 +575,13 @@
       "when": 1796131980000,
       "tag": "0093_collaborator_money_legal",
       "breakpoints": true
+    },
+    {
+      "idx": 82,
+      "version": "7",
+      "when": 1796132580000,
+      "tag": "0094_founder_departures",
+      "breakpoints": true
     }
   ]
 }

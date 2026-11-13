@@ -6,9 +6,13 @@
  *     column but `tokenHash` and `email`; an owner or an admin creates and revokes (an owner alone for a cofounder).
  *   - `accountAdmissions`: account-scoped, one row per account the api admitted other than through SIGNUP_ALLOWLIST.
  *     Service role only.
+ *   - `founderDepartures` (0094, security review P2-3): one row each time a membership lost a founder's standing, written
+ *     by a trigger on `memberships`; the person reads their own, a founder of the project the project's, nobody the
+ *     cancel token's hash. Service role writes the one-click cancel columns.
  */
-import { INVITATION_ROLES, INVITATION_STATES } from "@foundmill/shared";
-import { index, pgTable, text, uuid } from "drizzle-orm/pg-core";
+import { FOUNDER_DEPARTURE_KINDS, INVITATION_ROLES, INVITATION_STATES } from "@foundmill/shared";
+import { sql } from "drizzle-orm";
+import { index, pgTable, text, uniqueIndex, uuid } from "drizzle-orm/pg-core";
 import { authUsers } from "drizzle-orm/supabase";
 import { id, timestamps, tstz } from "./_common";
 import { businessId } from "./_refs";
@@ -59,3 +63,31 @@ export const accountAdmissions = pgTable(
   (t) => [index("account_admissions_invitation_id_idx").on(t.invitationId), index("account_admissions_how_created_at_idx").on(t.how, t.createdAt)],
 );
 export type AccountAdmission = typeof accountAdmissions.$inferSelect;
+
+/** A founder's standing ended (0094): demoted or removed by someone else, or left. The trigger writes it; see the migration. */
+export const founderDepartures = pgTable(
+  "founder_departures",
+  {
+    id: id(),
+    businessId: businessId(),
+    userId: uuid("user_id").notNull().references(() => authUsers.id, { onDelete: "cascade" }),
+    priorRole: text("prior_role", { enum: ["owner", "cofounder"] }).notNull(),
+    how: text("how", { enum: FOUNDER_DEPARTURE_KINDS }).notNull(),
+    newRole: text("new_role"),
+    byUserId: uuid("by_user_id").references(() => authUsers.id, { onDelete: "set null" }),
+    departedAt: tstz("departed_at").notNull().defaultNow(),
+    /** SHA-256 of the one-click cancel token, lowercase hex. No client role reads it. */
+    cancelTokenHash: text("cancel_token_hash"),
+    /** The audit entry of the deletion request the link cancels. */
+    cancelRequestId: uuid("cancel_request_id"),
+    cancelExpiresAt: tstz("cancel_expires_at"),
+    cancelUsedAt: tstz("cancel_used_at"),
+    ...timestamps(),
+  },
+  (t) => [
+    uniqueIndex("founder_departures_cancel_token_key").on(t.cancelTokenHash).where(sql`cancel_token_hash is not null`),
+    index("founder_departures_user_idx").on(t.userId, t.departedAt.desc()),
+    index("founder_departures_business_idx").on(t.businessId, t.departedAt.desc()),
+  ],
+);
+export type FounderDeparture = typeof founderDepartures.$inferSelect;

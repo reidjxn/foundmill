@@ -233,5 +233,8 @@ export const NOTIFY_EMAIL_REFUSALS = {
   per_inviter: "This person's invitations were already emailed as many times as one day allows, so nothing was sent. The link can still be copied.",
   address_ceiling: "Today's limit for invitation emails has been reached, so nothing was sent. The link can still be copied.",
   suppressed: "This address asked not to get invitations, so nothing was sent.",
+  not_founder: "This person is not one of the founders this notice is for, so nothing was sent.",
+  own_action: "This person did it themselves, so nothing was sent.",
+  hard_suppressed: "Mail to this address bounced or was reported as spam, so nothing was sent.",
 } as const;
 export type NotifyEmailNotSent = keyof typeof NOTIFY_EMAIL_REFUSALS;

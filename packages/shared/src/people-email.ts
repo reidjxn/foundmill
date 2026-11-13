@@ -8,6 +8,7 @@
  * them says or implies anything about work or a job: they say what is yours and who is asking.
  */
 import { NOTIFY_NO_REPLY_LINE, withoutLinks, type NotifyEmailText } from "./notify-email";
+import { FORMER_PROJECT_CARD, rolePhrase } from "./founder-notices";
 import { INVITATION_ROLE_SENTENCE, invitationRolePhrase, type InvitationRole } from "./people";
 
 const oneLine = (value: string, max: number): string => {
@@ -77,4 +78,96 @@ export function invitationAcceptedEmail(f: { appName: string; recipientName: str
       { label: "Pause every email", href: f.pauseLink },
     ],
   });
+}
+
+/**
+ * What a founder notice says (security review P2-3; `ACCOUNT_SAFETY_EMAIL_KINDS`). Built by the gateway from its own
+ * reads of the audit entry, the people's profile names, the project's name and the recipient's zone. `reader` is who it
+ * goes to: a current founder, the person it happened to (`subject`), or a founder removed or demoted in the last 7 days
+ * (`former`), who may carry the one-click link that cancels the deletion. There is no off link: these emails reach the
+ * founders whatever their email switches say, so the footer says why instead.
+ */
+export interface FounderNoticeFacts {
+  appName: string;
+  notice: "role_changed" | "removed" | "deletion_requested" | "deletion_canceled";
+  reader: "founder" | "subject" | "former";
+  recipientName: string | null;
+  /** Who did it, by their profile name (null: none yet). */
+  actorName: string | null;
+  /** The person whose role changed or who was removed (null for a deletion, or no name yet). */
+  subjectName: string | null;
+  projectName: string;
+  /** "Nov 13, 2026 at 3:45 PM EST": when it was done, in the reader's zone. */
+  when: string;
+  /** The role before and after (role_changed, removed). */
+  fromRole?: string | null;
+  toRole?: string | null;
+  /** "Nov 20, 2026": the day a scheduled deletion happens (deletion_requested; and on a removal while one waits). */
+  scheduledFor?: string | null;
+  /** The actor of a cancel was a former founder: the day their standing ended ("Nov 12, 2026"). */
+  actorFormerUntil?: string | null;
+  /** The one-click cancel (`/a/<token>`) and the last day it works; only for a former founder or the person it happened to. */
+  cancel?: { link: string; until: string } | null;
+  /** Into the app: People for a role change or a removal, the Danger zone for a deletion (founders only). */
+  link?: string | null;
+}
+
+/** The subject line and the body of a founder notice, in plain text and simple HTML. */
+export function founderNoticeEmail(f: FounderNoticeFacts): NotifyEmailText {
+  const project = oneLine(f.projectName, 120);
+  const actor = f.actorName ? oneLine(f.actorName, 60) : f.notice === "deletion_canceled" && f.actorFormerUntil ? "Someone who was a founder" : "One of the founders";
+  const subject = f.subjectName ? oneLine(f.subjectName, 60) : "a founder";
+  const hi = f.recipientName ? `Hi ${oneLine(f.recipientName, 60)},` : "Hi,";
+  const from = rolePhrase(f.fromRole ?? "owner");
+  const to = rolePhrase(f.toRole ?? "member");
+  const scheduled = f.scheduledFor ? `${project} is set to be deleted on ${f.scheduledFor}.` : `${project} is set to be deleted.`;
+  const footer = `You get this because you are, or until recently were, a founder of ${project} on ${f.appName}. Emails about who runs a project and whether it is deleted always reach its founders, whatever your email settings say.`;
+  const cancelPart = (lead: string): Pick<Piece, "button" | "after"> =>
+    f.cancel ? { button: { label: FORMER_PROJECT_CARD.button, href: f.cancel.link }, after: [`${lead} You can cancel the deletion until ${f.cancel.until}.`, FORMER_PROJECT_CARD.note] } : {};
+  let title: string;
+  let piece: Omit<Piece, "footer">;
+  switch (f.notice) {
+    case "role_changed":
+      if (f.reader === "subject") {
+        title = `Your role in ${project} changed`;
+        piece = {
+          paragraphs: [hi, `${actor} changed your role in ${project} from ${from} to ${to} on ${f.when}.`, "If you didn't expect this, talk it over with the other founders. Your account, and anything else you build here, is not affected."],
+          ...(f.cancel ? cancelPart(scheduled) : f.link ? { button: { label: `Open ${project}`, href: f.link } } : {}),
+        };
+      } else {
+        title = `${actor} changed ${subject}'s role in ${project}`;
+        piece = { paragraphs: [hi, `${actor} changed ${subject}'s role in ${project} from ${from} to ${to} on ${f.when}.`, "If this wasn't agreed, a founder can change it back in Settings › People."], ...(f.link ? { button: { label: "Open People", href: f.link } } : {}) };
+      }
+      break;
+    case "removed":
+      if (f.reader === "subject") {
+        title = `You were removed from ${project}`;
+        piece = { paragraphs: [hi, `${actor} removed you from ${project} on ${f.when}. You were ${from}.`, "Your account and your other projects are not affected. To come back, one of the founders can send you a new invitation."], ...cancelPart(scheduled) };
+      } else {
+        title = `${actor} removed ${subject} from ${project}`;
+        piece = { paragraphs: [hi, `${actor} removed ${subject}, who was ${from}, from ${project} on ${f.when}.`, "If this wasn't agreed, a founder can invite them back from Settings › People."], ...(f.link ? { button: { label: "Open People", href: f.link } } : {}) };
+      }
+      break;
+    case "deletion_requested": {
+      title = `${actor} asked to delete ${project}`;
+      const lead = `${actor} asked for ${project} to be permanently deleted on ${f.when}. It will be deleted${f.scheduledFor ? ` on ${f.scheduledFor}` : ""} unless a founder cancels.`;
+      if (f.reader === "founder") piece = { paragraphs: [hi, lead, "To keep it, cancel from Settings › Danger zone before then. Nothing is deleted until that day."], ...(f.link ? { button: { label: "Open the Danger zone", href: f.link } } : {}) };
+      else piece = f.cancel ? { paragraphs: [hi, lead], ...cancelPart("You were one of its founders until recently.") } : { paragraphs: [hi, lead, "If you want it kept, ask one of the founders to cancel it."] };
+      break;
+    }
+    case "deletion_canceled": {
+      title = `${actor} canceled the deletion of ${project}`;
+      const who = f.actorFormerUntil ? `${actor}, a founder of ${project} until ${f.actorFormerUntil},` : actor;
+      piece = {
+        paragraphs: [
+          hi,
+          `${who} canceled the permanent deletion of ${project} on ${f.when}. Nothing was deleted and the project keeps working.`,
+          ...(f.actorFormerUntil ? ["Canceling gave them nothing else: they are still out of the project."] : []),
+          ...(f.reader === "founder" ? ["A founder can ask for the deletion again from Settings › Danger zone."] : []),
+        ],
+      };
+      break;
+    }
+  }
+  return render(title, { ...piece, footer });
 }
