@@ -8,7 +8,7 @@
  *   agents → business.resumeAgents (owners and admins); processing strip from `cycle.status` kept current by the stream;
  * - universal search (CommandPalette, remote) over local screens/commands + crm.search;
  * - date + runway chip from finance.overview, business-mode chip → Settings › What the team can do;
- * - NeedsLargerWindow below 1280 (AppShell measures the window itself); G-then-letter chords (AppShell);
+ * - NeedsLargerWindow below 1280 (AppShell measures the window itself), except Today and Needs you, which get the shell's phone layout (`phone`); G-then-letter chords (AppShell);
  * - providers for everything below: business context, WidgetDataProvider, ModuleEnv, EntityLink, keyboard registry,
  *   screen chrome, and the definitions in this business's own words (`GuidanceTermsProvider` over the layout's
  *   GuidanceHost: the glossary comes from `business.get`, which the shell already holds).
@@ -56,6 +56,7 @@ import { SpecUserProvider, specUserName } from "@/components/spec/spec-user";
 import { AgentDeskHost, prefetchAgentDesk, type AgentDeskApi } from "@/components/conversation/DeskHost";
 import { useNetworkBadge } from "@/components/live/signals";
 import { termsFor } from "@/components/providers/GuidanceHost";
+import { worksOnSmallScreens } from "@/components/providers/DesktopOnly";
 import { agentOfAskItem, agentOfCallItem, askPaletteItems, askQuestion, callPaletteItems, generatePaletteItems, paletteAgents } from "@/components/conversation/palette";
 import { BusinessProvider, makeBusinessContext, type BusinessGet, type DepartmentList } from "./business-context";
 import { switcherBusinesses } from "./business-switcher";
@@ -834,6 +835,8 @@ function ShellInner({ businessId, initialBusiness, initialDepartments, viewer, c
           <EntityLinkProvider value={entityLinks}>
             <ShellLinkProvider render={renderNextShellLink}>
               <AppShell
+                // Today and Needs you work from 390 px (package 2.1): the shell's phone layout; other routes keep the 1280 px floor.
+                phone={worksOnSmallScreens(pathname)}
                 mode={business.gameMode}
                 businessMode={business.businessMode}
                 // The mode chip says the setting in words with the business's own currency ("Asks before spending over £50").

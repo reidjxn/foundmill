@@ -312,7 +312,7 @@ export const EntityLink = forwardRef<HTMLAnchorElement, EntityLinkProps>(functio
         }
       }}
       title={unverified ? `${personaLabel ?? name} (unverified)` : undefined}
-      className={cn("entity-link", unverified && "decoration-dotted text-secondary", className)}
+      className={cn("entity-link in-data-[phone]:tap-reach", unverified && "decoration-dotted text-secondary", className)}
       {...rest}
     >
       {personaLabel ?? display ?? name}

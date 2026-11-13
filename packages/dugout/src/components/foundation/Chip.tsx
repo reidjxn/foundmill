@@ -149,11 +149,11 @@ export function ProvenanceChip({ kind, appearance = "chip", showIcon, className,
   const word = kind === "forecast" ? "Forecast" : "Estimate";
   const chip =
     appearance === "word" ? (
-      <button type="button" data-provenance={kind} data-appearance="word" className={cn("inline cursor-help rounded-xs text-tertiary", className)} {...rest}>
+      <button type="button" data-provenance={kind} data-appearance="word" className={cn("inline cursor-help rounded-xs text-tertiary in-data-[phone]:tap-reach", className)} {...rest}>
         {word}
       </button>
     ) : (
-      <button type="button" data-provenance={kind} data-appearance="chip" className={cn("est-chip cursor-help", className)} {...rest}>
+      <button type="button" data-provenance={kind} data-appearance="chip" className={cn("est-chip cursor-help in-data-[phone]:tap-reach", className)} {...rest}>
         {showIcon ? <Icon icon={kind === "forecast" ? TrendingUp : Calculator} size={11} /> : null}
         <span>{word}</span>
       </button>

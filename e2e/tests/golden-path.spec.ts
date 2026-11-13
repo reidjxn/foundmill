@@ -505,7 +505,7 @@ test.describe("seeded business (Northwind Skincare)", () => {
     await expect(page.getByTestId("crm-table-panel")).toContainText("Pennine Contract Cosmetics", { timeout: LONG });
   });
 
-  test("NeedsLargerWindow replaces the shell below 1280 px and the shell returns at 1440 px; the shell renders without React update loops", async ({ page }) => {
+  test("NeedsLargerWindow replaces a desktop-only screen below 1280 px (Needs you stays) and the shell returns at 1440 px; the shell renders without React update loops", async ({ page }) => {
     const loops: string[] = [];
     page.on("console", (msg) => {
       if (msg.type() === "error" && /Maximum update depth/.test(msg.text())) loops.push(msg.text());
@@ -514,8 +514,12 @@ test.describe("seeded business (Northwind Skincare)", () => {
     await expect(page.getByTestId("app-shell")).toBeVisible({ timeout: LONG });
     await page.goto(`/b/${NORTHWIND_BUSINESS_ID}/inbox`);
     await expect(page.getByTestId("inbox-list").getByRole("option").first()).toBeVisible({ timeout: LONG });
+    // The Inbox (Needs you) works from 390 px since package 2.1, so it stays on screen below 1280; a desktop-only route
+    // (the CRM) is the one that asks for a larger window.
     await page.setViewportSize({ width: 1279, height: 900 });
-    await expect(page.getByTestId("needs-larger-window")).toBeVisible();
+    await expect(page.getByTestId("needs-larger-window")).toHaveCount(0);
+    await page.goto(`/b/${NORTHWIND_BUSINESS_ID}/crm`);
+    await expect(page.getByTestId("needs-larger-window")).toBeVisible({ timeout: LONG });
     await page.setViewportSize({ width: 1440, height: 900 });
     await expect(page.getByTestId("app-shell")).toBeVisible();
     // Regression guard: apps/web/components/shell/chrome.tsx once re-ran its effect after its own setChrome.

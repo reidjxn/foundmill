@@ -6,6 +6,7 @@ import { Avatar, AvatarStack } from "../foundation/Avatar";
 import { SAMPLE_LOGOS } from "../foundation/logo-samples";
 import { Button } from "../foundation/Button";
 import { DeptChip, ProvenanceChip } from "../foundation/Chip";
+import { StatusStrip } from "../data/MetricTile";
 import { Icon, type IconComponent } from "../foundation/Icon";
 import { Sparkline } from "../foundation/Sparkline";
 import { StatusPill } from "../foundation/StatusPill";
@@ -314,4 +315,69 @@ export const At1280: Story = {
   args: { ...baseArgs, viewportWidth: 1280, screenTitle: "Retail Partnerships", continueButton: { state: { kind: "blocked", count: 2 } } },
   render: (args) => <Shell {...args} tabs={{ tabs: DISTRIBUTION_TABS, activeId: "formation" }} />,
   parameters: { docs: { description: { story: "The minimum window: the search gives way first (placeholder → “Search” → icon); the title and every chip keep their words." } } },
+};
+
+/** A phone: the shell fills a 390 × 844 frame (the shell's own `h-dvh` gives way to the frame's height). */
+const PhoneFrame = ({ children }: { children: ReactNode }) => <div className="h-[844px] w-phone overflow-hidden border-x border-line">{children}</div>;
+
+const PHONE_TABS = [
+  { id: "all", label: "All", href: "#all" },
+  { id: "respond", label: "Needs you", href: "#respond", badge: 1 },
+  { id: "customers", label: "Customers", href: "#customers" },
+  { id: "updates", label: "Updates", href: "#updates" },
+  { id: "archive", label: "Archive", href: "#archive" },
+];
+
+function PhoneToday() {
+  return (
+    <PageGrid flush stack className="p-gutter">
+      <Panel title="Your goal" span={6}>
+        <p className="text-body">Reach 1,500 paying customers by Dec 15</p>
+      </Panel>
+      <Panel title="Needs you" span={6}>
+        <p className="text-body">Approve batch 002 before the Ireland launch?</p>
+      </Panel>
+      <Panel title="Health" span={12} flush>
+        <StatusStrip
+          wrap
+          className="rounded-none border-0"
+          tiles={[
+            { label: "Cash", value: { amountMinor: 1_842_000, currency: "USD" } },
+            { label: "Runway", value: 7, format: "integer", unit: "mo", estimate: "estimate" },
+            { label: "Customers this week", value: 12, format: "integer" },
+          ]}
+        />
+      </Panel>
+    </PageGrid>
+  );
+}
+
+export const Phone390Today: Story = {
+  name: "390 px · phone mode (Today)",
+  args: { ...baseArgs, phone: true, viewportWidth: 390, screenTitle: "Today", className: "h-full" },
+  render: (args) => (
+    <PhoneFrame>
+      <Shell {...args} tabs={{ tabs: [{ id: "today", label: "Today", href: "#today" }, { id: "details", label: "Details", href: "#details" }], activeId: "today" }}>
+        <PhoneToday />
+      </Shell>
+    </PhoneFrame>
+  ),
+  parameters: { layout: "centered", docs: { description: { story: "A screen that works on a phone (CLAUDE.md \"Small screens\"): a compact top bar with a menu button, the logo and name, Continue and Stop all agents at 44 px; no sidebar or right rail; one column from the shell's own width (container queries)." } } },
+};
+export const Phone390Tabs: Story = {
+  name: "390 px · phone mode (tabs scroll sideways)",
+  args: { ...baseArgs, phone: true, viewportWidth: 390, screenTitle: "Inbox", className: "h-full", continueButton: { state: { kind: "blocked", count: 1 } } },
+  render: (args) => (
+    <PhoneFrame>
+      <Shell {...args} tabs={{ tabs: PHONE_TABS, activeId: "respond" }}>
+        <p className="p-gutter text-body text-secondary">One pane at a time: the list, then the note with a Back control.</p>
+      </Shell>
+    </PhoneFrame>
+  ),
+  parameters: { layout: "centered" },
+};
+export const Phone390WithoutPhoneMode: Story = {
+  name: "390 px · a screen that is not phone-ready (NeedsLargerWindow)",
+  args: { ...baseArgs, viewportWidth: 390 },
+  render: (args) => <Shell {...args} />,
 };

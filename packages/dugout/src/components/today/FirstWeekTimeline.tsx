@@ -53,7 +53,7 @@ export function FirstWeekTimeline({ steps, paused, span, className }: FirstWeekT
           {paused}
         </p>
       ) : null}
-      <ol className="m-0 grid list-none grid-cols-3 gap-gutter p-0" aria-label={FIRST_WEEK_TIMELINE_WORDS.title}>
+      <ol className="m-0 grid list-none grid-cols-1 gap-gutter p-0 @page-wide:grid-cols-3" aria-label={FIRST_WEEK_TIMELINE_WORDS.title}>
         {steps.map((s) => (
           <li key={s.id} className={cn("flex min-w-0 flex-col gap-1.5 border-t pt-2", s.state === "now" ? "border-kit-lift" : "border-line")} aria-current={s.state === "now" ? "step" : undefined} data-first-week-step={s.id} data-state={s.state}>
             <div className="flex items-center gap-2">

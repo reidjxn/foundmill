@@ -8,7 +8,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { Check, DoorOpen, LogIn, LogOut, MailOpen, Plus, UsersRound } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { Button, Chip, DataTable, Panel, StatusPill, type DataTableColumn, type RowAction, type SavedView } from "@foundmill/dugout";
 import { CreateCommunityDialog } from "./community-dialogs";
 import { routes } from "@foundmill/widgets/shared/routes";
@@ -18,7 +18,9 @@ import { useTRPC } from "@/lib/trpc-react";
 import { useTableViews } from "@/lib/table-views";
 import { useShellChrome } from "@/components/shell/chrome";
 import { COMMUNITY_ROLE_WORD, COMMUNITY_VISIBILITY, useCommunityMembership } from "./communities";
+import { PeopleList, type PeopleListItem } from "./PeopleList";
 import { AdultNotice, PersonalNotice } from "./shared";
+import { useNarrow } from "./useNarrow";
 
 export type CommunityRow = RouterOutputs["live"]["communities"]["list"][number];
 interface TableRow extends CommunityRow {
@@ -46,6 +48,8 @@ export function CommunitiesScreen() {
   // Saved per person across their businesses: the LIVE pages are the account's, not one business's (audit #204).
   const savedViews = useTableViews("live.communities", COMMUNITY_VIEWS, { defaultViewId: "all" });
   const [creating, setCreating] = useState(false);
+  const rootRef = useRef<HTMLDivElement>(null);
+  const narrow = useNarrow(rootRef);
 
   const rows = useMemo<TableRow[]>(() => (q.data ?? []).map((c) => ({ ...c, membership: c.role ? "joined" : "not_joined" })), [q.data]);
   const open = (id: string) => router.push(routes.community(id));
@@ -135,13 +139,38 @@ export function CommunitiesScreen() {
     c.role ? { id: "leave", label: "Leave", icon: LogOut, variant: "danger", separatorBefore: true, disabled: !!leaveBlocker(c), onSelect: toggle } : { id: "join", label: "Join", icon: LogIn, separatorBefore: true, onSelect: toggle },
   ];
 
+  // Below `page-wide` the table is a list: name, members and visibility, Join or Leave as the main action.
+  const listItems: PeopleListItem[] = rows.map((c) => {
+    const joined = !!c.role;
+    const stays = joined ? leaveBlocker(c) : null;
+    return {
+      id: c.id,
+      name: c.name,
+      avatar: false,
+      status: joined ? <StatusPill tone="good" icon={Check}>{COMMUNITY_ROLE_WORD[c.role!] ?? "Member"}</StatusPill> : c.invited ? <StatusPill tone="info" icon={MailOpen}>Invited</StatusPill> : undefined,
+      fact: `${c.memberCount} ${c.memberCount === 1 ? "member" : "members"} · ${COMMUNITY_VISIBILITY[c.visibility]?.label ?? c.visibility}`,
+      onOpen: () => open(c.id),
+      primary: {
+        label: joined ? "Leave" : "Join",
+        icon: joined ? LogOut : LogIn,
+        ghost: joined,
+        disabled: (membership.pending && membership.pendingId === c.id) || !!stays,
+        title: stays ?? undefined,
+        ariaLabel: `${joined ? "Leave" : "Join"} ${c.name}`,
+        testId: joined ? "community-leave" : "community-join",
+        onSelect: () => toggle(c as TableRow),
+      },
+    };
+  });
+
   return (
-    <div className="grid grid-cols-12 gap-gutter p-gutter" data-testid="communities-screen">
-      <PersonalNotice className="col-span-12" />
-      <AdultNotice className="col-span-12" />
+    <div className="@container">
+    <div className="grid grid-cols-1 gap-gutter p-gutter @page-wide:grid-cols-12" data-testid="communities-screen" ref={rootRef}>
+      <PersonalNotice className="@page-wide:col-span-12" />
+      <AdultNotice className="@page-wide:col-span-12" />
       <Panel
         title="Communities"
-        span={12}
+        className="@page-wide:col-span-12"
         flush
         loading={q.isLoading}
         error={q.error ? errorMessage(q.error) : undefined}
@@ -152,7 +181,7 @@ export function CommunitiesScreen() {
             <span className="text-small tabular-nums text-secondary">
               {rows.length} {rows.length === 1 ? "community" : "communities"}
             </span>
-            <Button size="sm" icon={Plus} onClick={() => setCreating(true)} data-testid="community-create">
+            <Button size="sm" className="min-h-tap @page-wide:min-h-0" icon={Plus} onClick={() => setCreating(true)} data-testid="community-create">
               Start a community
             </Button>
           </span>
@@ -160,6 +189,9 @@ export function CommunitiesScreen() {
         footer="Joining lets you read the feed and post. Posts are written and sent by you; agents can draft one, never post it."
         data-testid="communities-panel"
       >
+        {narrow ? (
+          rows.length ? <PeopleList label="Communities" data-testid="communities-list" items={listItems} /> : null
+        ) : (
         <DataTable<TableRow>
           aria-label="Communities"
           data={rows}
@@ -174,8 +206,10 @@ export function CommunitiesScreen() {
           empty={{ icon: UsersRound, children: "No communities in this view." }}
           className="border-0"
         />
+        )}
       </Panel>
       <CreateCommunityDialog open={creating} onOpenChange={setCreating} onCreated={(c) => open(c.id)} />
+    </div>
     </div>
   );
 }
