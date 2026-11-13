@@ -17,7 +17,6 @@ create table idea_drafts (
   prompt text not null default '' check (char_length(prompt) <= 500),
   interest text check (char_length(interest) <= 60),
   card jsonb not null,
-  weak_line text check (char_length(weak_line) <= 300),
   model_mode text not null check (model_mode in ('live', 'mock')),
   cost_micro bigint not null default 0 check (cost_micro >= 0),
   expires_at timestamptz not null,

@@ -224,6 +224,23 @@ export interface GatewayNotifyEmailRequest {
 /** Sent (on the mock: simulated), or not, with the gateway's reason and a plain sentence; never an error for "not sent". */
 export type GatewayNotifyEmailResult = { sent: true; simulated: boolean; eventId: string | null } | { sent: false; reason: string; message: string };
 
+/** A Turnstile token to check for the idea box (apps/gateway turnstile.ts `TurnstileVerifyRequest`). */
+export interface GatewayTurnstileRequest {
+  token: string;
+  remoteIp: string | null;
+  hostname: string | null;
+}
+
+/** Passed or not, why (a fixed word, never Cloudflare's), and whether the mock answered. */
+export interface GatewayTurnstileResult {
+  ok: boolean;
+  reason: "ok" | "invalid" | "expired" | "hostname" | "unconfigured" | "unavailable";
+  simulated: boolean;
+}
+
+/** The bot check waits at most this long (the gateway gives Cloudflare 5 s). */
+export const TURNSTILE_CLIENT_TIMEOUT_MS = 7_000;
+
 /** A follow confirmation waits at most this long: the visitor's form is waiting on it. */
 export const CONFIRM_FOLLOW_TIMEOUT_MS = 10_000;
 
@@ -272,6 +289,8 @@ export interface ApiGatewayClient {
    * with the gateway's code and status. Optional so test doubles need not stream.
    */
   streamSpeech?(input: GatewaySynthesizeSpeechRequest, signal?: AbortSignal): Promise<Response>;
+  /** The idea box's bot check (apps/gateway turnstile.ts). Optional so test doubles need not carry it; the HTTP client always does. */
+  verifyTurnstile?(input: GatewayTurnstileRequest): Promise<GatewayTurnstileResult>;
 }
 
 export interface CreateApiGatewayClientOptions {
@@ -348,6 +367,7 @@ export function createApiGatewayClient(opts: CreateApiGatewayClientOptions): Api
     repository: (businessId, owner, repo) => post<{ mode: "mock" | "live"; repository: GatewayRepository }>("/v1/github/repository", { businessId, owner, repo }),
     sendPush: (input) => post<GatewayPushResult>("/v1/push/send", input),
     confirmFollow: (input) => post<GatewayConfirmFollowResult>("/v1/platform-mail/confirm-follow", input, Math.min(timeoutMs, CONFIRM_FOLLOW_TIMEOUT_MS)),
+    verifyTurnstile: (input) => post<GatewayTurnstileResult>("/v1/turnstile/verify", input, Math.min(timeoutMs, TURNSTILE_CLIENT_TIMEOUT_MS)),
     notifyEmail: (input) => post<GatewayNotifyEmailResult>("/v1/notify/email", input, Math.min(timeoutMs, CONFIRM_FOLLOW_TIMEOUT_MS)),
     synthesizeSpeech: (input) => post<GatewaySpeech>("/v1/speech/synthesize", input, Math.max(timeoutMs, SPEECH_CLIENT_TIMEOUT_MS)),
     transcribeSpeech: (input) => post<GatewayTranscript>("/v1/speech/transcribe", input, Math.max(timeoutMs, TRANSCRIBE_CLIENT_TIMEOUT_MS)),

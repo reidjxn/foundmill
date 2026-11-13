@@ -25,8 +25,6 @@ export const ideaDrafts = pgTable(
     interest: text("interest"),
     /** The validated ConceptCard. */
     card: jsonb("card").notNull(),
-    /** The one line on what would raise a weak card's numbers; null for a strong one. */
-    weakLine: text("weak_line"),
     modelMode: text("model_mode", { enum: IDEA_DRAFT_MODEL_MODES }).notNull(),
     costMicro: bigint("cost_micro", { mode: "number" }).notNull().default(0),
     expiresAt: tstz("expires_at").notNull(),

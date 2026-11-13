@@ -25,7 +25,7 @@ afterAll(() => h?.close());
 const hash = (t: string) => createHash("sha256").update(t).digest("hex");
 const card = { id: "tutor-ai", name: "Tutorlane", pitch: "An AI teaching assistant for independent tutors", archetype: "b2b_saas", stars_current: 3, stars_potential: 4, attributes: [], citations: [], crest_seed: "t" };
 const toIdea = (row: s.IdeaDraftRow): CreateIdeaInput => ({ title: (row.card as typeof card).name, pitch: (row.card as typeof card).pitch, archetype: "b2b_saas", attributes: {}, starsCurrent: 3, starsPotential: 4, research: { citations: [] }, action: "generated" });
-const draft = (name: string, now = new Date()) => ideaDraftsRepo.create(h.db, { tokenHash: hash(`t-${name}`), claimHash: hash(`c-${name}`), prompt: "tutors", interest: null, card, weakLine: null, modelMode: "mock", costMicro: 1200, now });
+const draft = (name: string, now = new Date()) => ideaDraftsRepo.create(h.db, { tokenHash: hash(`t-${name}`), claimHash: hash(`c-${name}`), prompt: "tutors", interest: null, card, modelMode: "mock", costMicro: 1200, now });
 
 describe("idea_drafts and waitlist_entries", () => {
   it("no client role reads or writes them", async () => {
@@ -38,7 +38,7 @@ describe("idea_drafts and waitlist_entries", () => {
   });
 
   it("stores only hashes, and finds a live draft by the browser's token", async () => {
-    await expect(ideaDraftsRepo.create(h.db, { tokenHash: "plain-token", claimHash: hash("c"), prompt: "", interest: null, card, weakLine: null, modelMode: "mock", costMicro: 0 })).rejects.toThrow(/SHA-256/);
+    await expect(ideaDraftsRepo.create(h.db, { tokenHash: "plain-token", claimHash: hash("c"), prompt: "", interest: null, card, modelMode: "mock", costMicro: 0 })).rejects.toThrow(/SHA-256/);
     const now = new Date("2026-11-13T10:00:00Z");
     const row = await draft("find", now);
     expect(row.expiresAt.getTime() - now.getTime()).toBe(IDEA_DRAFT_TTL_MS);
@@ -84,6 +84,15 @@ describe("idea_drafts and waitlist_entries", () => {
     await ideaDraftsRepo.hold(h.db, hash("t-released"), holdUntil, then);
     expect(await ideaDraftsRepo.releaseHold(h.db, hash("t-released"))).toBe(true);
     expect(await ideaDraftsRepo.liveByToken(h.db, hash("t-released"), later)).toBeNull();
+  });
+
+  it("adds up what today's drafts cost", async () => {
+    const since = new Date(Date.now() - 60_000);
+    const before = await ideaDraftsRepo.spentSince(h.db, since);
+    await draft("spend-1");
+    await draft("spend-2");
+    expect((await ideaDraftsRepo.spentSince(h.db, since)) - before).toBe(2400);
+    expect(await ideaDraftsRepo.spentSince(h.db, new Date(Date.now() + 2 * 24 * 60 * 60_000))).toBe(0);
   });
 
   it("the waitlist keeps one entry per person and the draft they want to keep", async () => {

@@ -27,7 +27,6 @@ export interface CreateIdeaDraftInput {
   prompt: string;
   interest: string | null;
   card: unknown;
-  weakLine: string | null;
   modelMode: "live" | "mock";
   costMicro: number;
   now?: Date;
@@ -50,7 +49,6 @@ export const ideaDraftsRepo = {
         prompt: input.prompt.slice(0, 500),
         interest: input.interest?.slice(0, 60) ?? null,
         card: input.card,
-        weakLine: input.weakLine?.slice(0, 300) ?? null,
         modelMode: input.modelMode,
         costMicro: Math.max(0, Math.round(input.costMicro)),
         expiresAt: new Date(now.getTime() + IDEA_DRAFT_TTL_MS),
@@ -90,6 +88,13 @@ export const ideaDraftsRepo = {
     });
   },
 
+  /** A new claim token for a live draft (the visitor came back: the old one is not stored, so it is replaced). */
+  async rotateClaim(db: Executor, tokenHash: string, claimHash: string, now = new Date()): Promise<boolean> {
+    if (!isHash(tokenHash) || !isHash(claimHash)) return false;
+    const rows = await db.update(ideaDrafts).set({ claimHash, updatedAt: now }).where(and(eq(ideaDrafts.tokenHash, tokenHash), live(now))).returning({ id: ideaDrafts.id });
+    return rows.length > 0;
+  },
+
   /** Keeps a live draft until `until` (the waitlist). Returns whether a live draft was held. */
   async hold(db: Executor, tokenHash: string, until: Date, now = new Date()): Promise<IdeaDraftRow | null> {
     if (!isHash(tokenHash)) return null;
@@ -102,6 +107,12 @@ export const ideaDraftsRepo = {
     if (!isHash(tokenHash)) return false;
     const rows = await db.update(ideaDrafts).set({ heldUntil: null, updatedAt: now }).where(eq(ideaDrafts.tokenHash, tokenHash)).returning({ id: ideaDrafts.id });
     return rows.length > 0;
+  },
+
+  /** What the drafts written since `since` cost, in millionths of a US cent (Estimate): the idea box's daily ceiling. */
+  async spentSince(db: Executor, since: Date): Promise<number> {
+    const [row] = await db.select({ total: sql<string>`coalesce(sum(${ideaDrafts.costMicro}), 0)` }).from(ideaDrafts).where(gt(ideaDrafts.createdAt, since));
+    return Number(row?.total ?? 0);
   },
 
   /** Deletes every draft past its expiry and any hold, claimed or not. Returns how many. */
