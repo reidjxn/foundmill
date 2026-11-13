@@ -15,6 +15,7 @@ import { financeRouter } from "./routers/finance";
 import { founderRouter, publicPersonRouter } from "./routers/founder";
 import { goalRouter } from "./routers/goal";
 import { ideaRouter } from "./routers/idea";
+import { ideaBoxRouter, waitlistRouter } from "./routers/idea-box";
 import { importRouter } from "./routers/import";
 import { inboxRouter, planRouter } from "./routers/inbox";
 import { integrationsRouter, keysRouter } from "./routers/integrations";
@@ -50,6 +51,8 @@ export const appRouter = router({
   publicPage: publicPageRouter,
   publicPerson: publicPersonRouter,
   today: todayRouter,
+  ideaBox: ideaBoxRouter,
+  waitlist: waitlistRouter,
   chiefOfStaff: chiefOfStaffRouter,
   dev: devRouter,
   distribution: distributionRouter,

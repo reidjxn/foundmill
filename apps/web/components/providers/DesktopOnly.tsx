@@ -29,6 +29,10 @@ export const SMALL_SCREEN_PREFIXES: readonly string[] = [
   "/email/pause",
   "/terms",
   "/privacy",
+  // The landing page's hero and idea box (founder, 2026-11-13; docs/IDEA_BOX.md): exactly "/", never a prefix; and the
+  // card a person kept from it, where sign-in lands them.
+  "/",
+  "/new/card/",
   // The person's own pages and the people pages (package 2.1): their profile, finding people, communities, messages.
   "/public-profile",
   "/network",
@@ -52,7 +56,9 @@ export function worksOnSmallScreens(pathname: string | null | undefined): boolea
   if (!pathname) return false;
   if (SMALL_SCREEN_PATTERNS.some((re) => re.test(pathname))) return true;
   return SMALL_SCREEN_PREFIXES.some((entry) =>
-    entry.endsWith("/")
+    entry === "/"
+      ? pathname === "/"
+      : entry.endsWith("/")
       ? pathname.startsWith(entry) && pathname.length > entry.length
       : pathname === entry || pathname === `${entry}/`,
   );

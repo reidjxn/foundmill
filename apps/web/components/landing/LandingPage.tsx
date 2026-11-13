@@ -4,13 +4,13 @@
  * own parts on an example business the visitor picks above the hero's deck (Tutorlane, Glitchwick or Northwind
  * Skincare: the deck runs real cycles, the concept cards, the team's attribute ratings, live agent tiles, the Journey
  * Ribbon, a Customer Update, the Channel Board, an Inbox note with its DecisionBar), so what a visitor sees is the
- * product itself. The page wears the chosen business's brand colours. Desktop only, like the app: under 1280 px it
- * shows NeedsLargerWindow.
+ * product itself. The page wears the chosen business's brand colours. Under 1280 px a phone gets the hero and its idea
+ * box alone (founder, 2026-11-13; docs/IDEA_BOX.md), with a word that the rest is built for a larger window.
  */
 import Link from "next/link";
 import { ArrowRight } from "lucide-react";
 import { APP_NAME, APP_TAGLINE } from "@foundmill/config";
-import { Button, NeedsLargerWindow, Wordmark, isViewportTooSmall, kitStyle, useViewportWidth } from "@foundmill/dugout";
+import { Button, Wordmark, isViewportTooSmall, kitStyle, useViewportWidth } from "@foundmill/dugout";
 import { LEGAL_ROUTES } from "@/content/legal/facts";
 import { Channels, LiveSessions } from "./LiveSessions";
 import { FinalCall, YourCall } from "./Control";
@@ -56,7 +56,9 @@ function LandingContent({ terminalRenderer }: { terminalRenderer?: "plain" | "xt
   const width = useViewportWidth();
   const business = useExample();
   const id = business.identity.id;
-  if (isViewportTooSmall(width)) return <NeedsLargerWindow width={width} />;
+  // From 390 px the hero and its idea box work on their own (founder, 2026-11-13; docs/IDEA_BOX.md); the sections below
+  // are built for a large window, so a phone gets the hero and a kind word about the rest.
+  if (isViewportTooSmall(width)) return <PhoneLanding />;
   return (
     <div className="relative min-h-screen overflow-x-clip bg-base text-primary" style={kitStyle(business.identity.kit)} data-testid="landing" data-example={id}>
       <Backdrop />
@@ -74,6 +76,43 @@ function LandingContent({ terminalRenderer }: { terminalRenderer?: "plain" | "xt
         <FinalCall />
       </main>
       <Footer />
+    </div>
+  );
+}
+
+/** The landing page on a phone: the top bar's name and Sign in, the hero with the idea box, the legal links. */
+function PhoneLanding() {
+  const business = useExample();
+  return (
+    <div className="relative min-h-dvh overflow-x-clip bg-base text-primary" style={kitStyle(business.identity.kit)} data-testid="landing" data-layout="phone">
+      <Backdrop />
+      <header className="sticky top-0 z-40 border-b border-subtle/60 bg-base/70 backdrop-blur-md">
+        <div className="flex h-14 items-center gap-3 px-4">
+          <Link href="/" className="flex items-center text-primary hover:no-underline" aria-label={`${APP_NAME} home`}>
+            <Wordmark height={14} label={APP_NAME} />
+          </Link>
+          <span className="flex-1" />
+          <Button asChild variant="ghost" className="min-h-tap">
+            <Link href={SIGN_IN}>Sign in</Link>
+          </Button>
+        </div>
+      </header>
+      <main className="relative">
+        <Hero layout="phone" />
+        <p className="mx-4 rounded-md border border-line bg-surface-1 px-4 py-3 text-small text-secondary" data-testid="landing-phone-note">
+          The rest of {APP_NAME}, and the example business running, is built for screens 1280 px wide or more. Your card works here.
+        </p>
+      </main>
+      <footer className="mt-8 border-t border-subtle/60 px-4 py-4 text-small text-secondary">
+        <nav aria-label="Legal" className="flex items-center gap-4">
+          <Link href={LEGAL_ROUTES.terms} className="inline-flex min-h-tap items-center">
+            Terms
+          </Link>
+          <Link href={LEGAL_ROUTES.privacy} className="inline-flex min-h-tap items-center">
+            Privacy
+          </Link>
+        </nav>
+      </footer>
     </div>
   );
 }

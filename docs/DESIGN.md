@@ -362,6 +362,12 @@ The design system's `LegalPage` (`packages/dugout/src/components/public/LegalPag
 - **Text is data**, never markup: paragraphs, bulleted lists, and term lists (a name and what it means: the vendors, the cookies), drawn as a bordered list that puts the name beside its meaning from `@page-wide`. Links use `entity-link`, and only in-site paths, anchors, https and mailto are followed.
 - **Plain words**, as everywhere (§10): what we do, in the second person, without legal Latin.
 
+## 9e. The landing page's idea box (signed-out `/`, founder 2026-11-13)
+
+docs/IDEA_BOX.md and the published canvas (Version 6). The hero is the tagline, one line, and the box: a glass field (`idea-field`, 60 px, the edge catching light, an accent ring on focus) with the line in 17 px and, until the visitor clicks in, a placeholder that types ideas one after another (42 ms a character, a 1.8 s hold, erased at 16 ms; reduced motion: the first idea, still) with a blinking accent caret. **Generate** ("Shape my idea", Fan core tile, Enter key cap) is dark with a white 1 px outline (`idea-gen`), the founder's override of the light slab here. Under it, "Surprise me" opens the interests, and three assurances.
+
+The card (`IdeaCard`, design system, max 360 px) fills in as it streams: skeleton rows until each rating arrives; Founder fit "–" (unmeasured) and out of the overall; "First read" beside the overall; "What would raise it most" with the lowest rating's evidence; "Sample card" when the practice model wrote it. When it lands the headline becomes "<name> is yours to keep.", the field goes quiet with the visitor's words and a "Your words" tag, and beside the card: what signing in unlocks, Continue with Google (when on) and Continue with email, the free line, and "This card waits on this device for 7 days." On a phone the field stacks, Generate is full width, and the card sits under the field.
+
 ## 10. Writing in the interface
 
 Plain, specific, short. Sentence case everywhere: actions, tabs, titles, labels, chips and pills. Caps only on data labels, set by CSS (`t-data`), never typed. No exclamation marks. No "Oops". No emoji. Numbers carry units. Non-real numbers carry "Forecast" or "Estimate", spelled in full, in a dashed chip next to them (or as the word in `text-3` after the number inside reading prose). Empty states say what will appear and how to make it happen. Agents speak in the first person, briefly and specifically, and a typing line names what the agent is looking at.

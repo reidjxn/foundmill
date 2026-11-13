@@ -18,6 +18,7 @@ const N = APP_NAME;
 export const PRIVACY_COOKIES = [
   { term: "sb-…-auth-token", detail: "Keeps you signed in. Set when you sign in, removed when you sign out." },
   { term: "sb-…-code-verifier", detail: "Protects a sign-in in progress (for example with Google). Lasts a few minutes." },
+  { term: "fm_idea", detail: "Keeps the card you made on the home page before signing up, so you can keep it when you sign in. 7 days." },
   { term: "fm_last_business", detail: "Opens the project you used last. Up to one year." },
   { term: "fm_date_format", detail: "The date format you chose. Up to one year." },
   { term: "fm_text_size", detail: "The text size you chose. Up to one year." },
@@ -54,6 +55,7 @@ export const PRIVACY: LegalDocument = {
           items: [
             { term: "Account", detail: "Your email address, your name and how you sign in. With Google, we receive your name, email address and profile picture from Google." },
             { term: "Profile", detail: "What you choose to add: a headline, where you are based, what you are good at and what you want to learn. A public profile shows only what you publish." },
+            { term: "A card before sign-up", detail: "If you try the idea box on the home page before signing up, the line you type (or the interest you pick) and the card drafted from it. It is kept for 7 days, or until you sign in and keep it." },
             { term: "Projects", detail: "Your ideas and everything your team makes and does: plans, messages, drafts, code, pages, files, contacts you add, and your decisions and approvals." },
             { term: "Voice", detail: "If you talk to your team, the recording is turned into text. We keep the text, not the recording." },
             { term: "Keys", detail: "Keys you enter to connect your own accounts with other services. They are encrypted and used only to do what you ask." },
@@ -133,6 +135,7 @@ export const PRIVACY: LegalDocument = {
             { term: "Stripe", detail: "Payments. Ireland and the United States." },
             { term: "Google", detail: "Sign-in with Google, if you use it. United States." },
             { term: "GitHub", detail: "Your project's code, if you connect it. United States." },
+            { term: "Cloudflare", detail: "The check that the idea box is used by a person, not a bot (Turnstile). United States." },
           ],
         },
         { kind: "p", text: `Emails from ${N} and from your project's ${N} address carry no open or click tracking.` },
@@ -153,6 +156,7 @@ export const PRIVACY: LegalDocument = {
           kind: "terms",
           items: [
             { term: "Account", detail: "While your account is open. When you ask us to delete it, we delete it within 30 days." },
+            { term: "A card before sign-up", detail: "7 days, unless you keep it by signing in; 90 days if you join the waitlist with it." },
             { term: "Projects", detail: "Until you delete them. A deleted project is removed 7 days after you ask, so you can change your mind." },
             { term: "Backups", detail: "Deleted data leaves our backups as they expire, within 30 days." },
             { term: "Server logs", detail: "Up to 30 days." },
