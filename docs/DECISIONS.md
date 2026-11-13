@@ -3807,6 +3807,20 @@ The security review of the account events branch found no blocker, three things 
   - A future event with client-supplied record ids could turn the trigger's distinct error into an "is this UUID an account" oracle. Writers must check record ids against their own table first, and the api must map that error to a generic one.
   - None of this was run on real Postgres or Supabase (PGlite only). The definer trigger under `service_role`, EXECUTE on `fm_account_event_types()` for `authenticated` inside the check on `events`, and the platform's default privileges need one check on a real project before the migration is applied to production.
 
+## 2026-11-12 — The account relay is turned off: production's database pool wedged from the deploy that started it
+
+[reidjxn/foundmill#86](https://github.com/reidjxn/foundmill/pull/86) reached production at 19:20 UTC (the api applies migrations and deploys on merge). From that deploy on:
+- the api logged "N of 8 warm-up queries did not answer within 10000 ms: a pooled connection may be wedged" about once a minute, climbing from 1 to 8;
+- the pool watchdog found the pool wedged while the database answered outside it and restarted the api at 19:44 and 19:49, and by its design would keep doing so about every five minutes;
+- both shutdowns of the new code waited the whole 45 s on "stop outbox relay" and skipped closing Redis and the database, where every shutdown of the two days before took 0 to 19 ms.
+Nothing of the kind was logged from Nov 10 to 19:19 on Nov 12. Postgres itself logged only checkpoints.
+
+- **What is known.** It is the client-side loss of pooled connections described on 2026-10-19 (postgres.js), now at a rate of about one a minute. The only thing #86 added that runs on a timer in the api is the account relay, a second poller on the same pool every 250 ms beside the business relay.
+- **What is not known.** Why a second poller leaks connections when one did not. It did not reproduce here: the same supervisor on a local Postgres 16 and Redis, idle and with rows, and the whole api from main on a local Postgres with the real schema for 100 s, all stopped in milliseconds with no stuck session.
+- **Decision.** The account relay does not start (`ACCOUNT_RELAY_ENABLED = false` in `apps/api/src/services/relay.ts`). Account events are still written with their outbox rows, so nothing is lost; they are relayed when it is turned back on. No client reads `ae:{userId}` yet, so nothing a person sees changes. Migration 0085 stays: its tables, checks and trigger act only on writes.
+- **Before it is turned back on:** find the cause on a deployment with production's latency and load (not a laptop), and fold the account outbox into the business relay's own tick (one loop, one query after the other) so the pool carries one poller as it did before.
+- **What this session got wrong.** The pull request said the migration should be checked on a real database "before it is applied to production" and was merged without that check, and without knowing that a merge to main is a deploy. A merge is a deploy here: the check comes before the merge.
+
 ## A home for a person with no project (Nov 12, 2026; THESIS_REVIEW 2.4)
 
 - **Its own address, `/home`, not `/`.** A signed-out `/` is the landing page, which stays desktop until 2.1/2.7, and the small-screen rule is decided by path (`SMALL_SCREEN_PREFIXES`); one address for the person's home lets it work from 390 px without opening the landing page too. The signed-in index still answers `/` and sends a person with no project there.

@@ -15,6 +15,14 @@
  * account relay (`account_outbox` → `ae:{userId}`, docs/ARCHITECTURE.md §5 "Account events"). Each has its own loop,
  * its own transactions and its own backoff, so an account outbox that is stuck never holds up a project's events, and
  * the reverse; `wake()` wakes both and `stop()` stops both. `status()` describes the supervisor: both start with it.
+ *
+ * THE ACCOUNT RELAY IS OFF (`ACCOUNT_RELAY_ENABLED`, 2026-11-12). From the deploy that first started it, production's
+ * database pool lost a connection about every minute ("N of 8 warm-up queries did not answer"), the pool watchdog
+ * restarted the api about every five minutes, and each shutdown waited its whole 45 s on a relay tick that never
+ * answered. Nothing of the kind was logged in the days before, and nothing else that deploy added runs on a timer. It
+ * was not reproduced on a local Postgres, so the cause is not known yet: until it is, the second poller does not run.
+ * Account events are still written with their outbox rows and nothing is lost; they reach `ae:{userId}` when the relay
+ * is turned back on. No client subscribes to that stream yet.
  */
 import { runAccountOutboxRelay, runOutboxRelay, type OutboxRelay, type PlatformEvent } from "@foundmill/events";
 import type { ApiDeps } from "../context";
@@ -37,6 +45,9 @@ export interface RelaySupervisor {
   stop(): Promise<void>;
 }
 
+/** Whether the api starts the account relay beside the business one. Off: see the note at the top of this file. */
+export const ACCOUNT_RELAY_ENABLED = false;
+
 export interface RelaySupervisorOptions {
   /** Probe Redis (default: PING with a 1.5 s timeout on `deps.redis`). */
   reachable?: () => Promise<boolean>;
@@ -44,6 +55,8 @@ export interface RelaySupervisorOptions {
   start?: () => OutboxRelay;
   /** Start the account relay (default: `runAccountOutboxRelay` on `deps.db` and `deps.redis`). */
   startAccount?: () => OutboxRelay;
+  /** Whether to start the account relay at all (default `ACCOUNT_RELAY_ENABLED`). */
+  accountRelay?: boolean;
   /** Wait before the next probe; `attempt` counts from 1 (default: 1 s doubling to 30 s). */
   backoffMs?: (attempt: number) => number;
   now?: () => Date;
@@ -113,6 +126,10 @@ export function superviseOutboxRelay(deps: Pick<ApiDeps, "db" | "redis" | "log" 
     state = "running";
     since = now().toISOString();
     deps.log.info({ attempts }, "outbox relay started");
+    if (!(options.accountRelay ?? ACCOUNT_RELAY_ENABLED)) {
+      deps.log.info({}, "account outbox relay is off (account events wait in their outbox)");
+      return;
+    }
     // Beside it, never in its way: a failure to start the account relay leaves the business relay running.
     try {
       accountRelay = startAccount();
