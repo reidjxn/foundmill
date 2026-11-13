@@ -57,10 +57,10 @@ describe("team.humans: ownership stays with owners", () => {
     expect(await hz.caller({ userId: hz.A.memberId }).invitation.accept({ token })).toEqual({ businessId, already: true });
     expect(await roleOf(hz.A.ownerId)).toBe("owner");
     expect((await repos.memberships.get(hz.db, businessId, hz.A.memberId))?.role).toBe("member");
-    // A newcomer accepts it: a member held to Product and Customers (the collaborator's walls).
+    // A newcomer accepts it: a collaborator (THESIS_REVIEW 3.3), whose walls are the role's own.
     const newcomer = await hz.h.createUser("guards-invitee@test.local");
     expect(await hz.caller({ userId: newcomer }).invitation.accept({ token })).toEqual({ businessId, already: false });
-    expect(await repos.memberships.get(hz.db, businessId, newcomer)).toMatchObject({ role: "member", sectionPermissions: { finance: "none", settings: "none", product: "write", crm: "write" } });
+    expect(await repos.memberships.get(hz.db, businessId, newcomer)).toMatchObject({ role: "collaborator", sectionPermissions: {}, expiresAt: null });
   });
 
   it("nobody edits their own role or section permissions", async () => {

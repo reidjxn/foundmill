@@ -4,7 +4,7 @@
  * business.
  */
 import { APP_NAME } from "@foundmill/config";
-import { WRITE_ROLES, type Visibility } from "@foundmill/shared/constants";
+import { isOwnerRole, WRITE_ROLES, type Visibility } from "@foundmill/shared/constants";
 
 // ---------------------------------------------------------------------------------------------------------------------
 // Profile visibility
@@ -181,7 +181,7 @@ export function canSpeakAsBusiness(input: {
   const { business, membership } = input;
   if (business.gameMode !== "live" || !business.committedAt || business.archivedAt) return false;
   if (!(WRITE_ROLES as readonly string[]).includes(membership.role)) return false;
-  if (membership.role === "owner") return true;
+  if (isOwnerRole(membership.role)) return true;
   const explicit = membership.sectionPermissions?.live;
   return explicit ? explicit === "write" : true;
 }

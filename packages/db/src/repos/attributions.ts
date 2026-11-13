@@ -17,7 +17,8 @@
  * profile and an unknown address all read the same: null.
  */
 import { VIA_KINDS, formatVia, parseVia, type ViaKind, type ViaRef } from "@foundmill/shared/via";
-import { and, asc, eq } from "drizzle-orm";
+import { and, asc, eq, inArray } from "drizzle-orm";
+import { OWNER_ROLES } from "@foundmill/shared";
 import { z } from "zod";
 import { attributions, founderProfiles, memberships, projectPages, publicPersonProfiles, publicProjectPages, type Attribution } from "../schema";
 import { Id, maybeOne, parseInput, type Executor } from "./_shared";
@@ -59,12 +60,12 @@ export const attributionsRepo = {
           .limit(1),
       );
       if (!page) return null;
-      // The longest-standing owner, in the order the public page names its founders (0077).
+      // The longest-standing owner or cofounder, in the order the public page names its founders (0077, 0090).
       const owner = maybeOne(
         await db
           .select({ userId: memberships.userId })
           .from(memberships)
-          .where(and(eq(memberships.businessId, page.businessId), eq(memberships.role, "owner")))
+          .where(and(eq(memberships.businessId, page.businessId), inArray(memberships.role, [...OWNER_ROLES])))
           .orderBy(asc(memberships.createdAt), asc(memberships.id))
           .limit(1),
       );

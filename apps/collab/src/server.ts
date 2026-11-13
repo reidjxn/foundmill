@@ -19,7 +19,7 @@
  */
 import { APP_NAME } from "@foundmill/config";
 import { repos, type Db, type SpecBlock } from "@foundmill/db";
-import { AppError, NotFoundError, hasSectionAccess, type Section } from "@foundmill/shared";
+import { AppError, NotFoundError, hasSectionAccess, WRITE_ROLES as SHARED_WRITE_ROLES, type Section } from "@foundmill/shared";
 import { Server, type Hocuspocus, type onAuthenticatePayload, type onChangePayload, type onLoadDocumentPayload, type onRequestPayload, type onStoreDocumentPayload, type ServerConfiguration } from "@hocuspocus/server";
 import { createHash } from "node:crypto";
 import type { IncomingMessage, ServerResponse } from "node:http";
@@ -29,7 +29,8 @@ import { DEFAULT_FRAGMENT, fragmentToPmDoc, InvalidProseMirrorJsonError, parsePm
 import { createSpecBlockStore, type Author, type SpecBlockStore } from "./store";
 
 export const COLLAB_SERVICE = "collab" as const;
-export const WRITE_ROLES = ["owner", "admin", "member"] as const;
+/** The roles that may edit (the shared list: an owner, a cofounder, an admin, a member, a collaborator; THESIS_REVIEW 3.3). */
+export const WRITE_ROLES = SHARED_WRITE_ROLES;
 /** The section whose permissions govern spec blocks (staff walled from Product neither read nor edit them). */
 export const SPEC_SECTION: Section = "product";
 

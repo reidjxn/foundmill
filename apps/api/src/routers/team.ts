@@ -2,7 +2,7 @@
 import { TEMPLATE_KEYS, getTemplate, hasTemplate, listTemplates } from "@foundmill/agents";
 import { CREDITS_CURRENCY } from "@foundmill/config";
 import { SectionPermissions, repos, type AgentRosterActivity } from "@foundmill/db";
-import { DECISION_TYPES, DEFAULT_AGENT_STYLE, ForbiddenError, MEMBERSHIP_ROLES, NotFoundError, ValidationError, agentTier, characterFor, leadAgentIds } from "@foundmill/shared";
+import { DECISION_TYPES, DEFAULT_AGENT_STYLE, ForbiddenError, isOwnerRole, MEMBERSHIP_ROLES, NotFoundError, ValidationError, agentTier, characterFor, leadAgentIds } from "@foundmill/shared";
 import { z } from "zod";
 import { pendingApprovals, resolveApproval } from "../services/approvals";
 import { modelLimited } from "../services/model-limits";
@@ -11,7 +11,7 @@ import { archivePlaybook, compilePlaybookText, createPlaybook, setPlaybookEnable
 import { SkillChoice, SkillFileUpload, attachSkills, libraryView, resolveSkillChoice, uploadPreview } from "../services/skills";
 import { hireFromTemplate, shownToolGrants } from "../services/squad";
 import { SIGNALS, workflowIds } from "../services/temporal";
-import { Id, adminProcedure, audit, businessProcedure, emit, router, sectionAdmin, sectionRead, sectionWrite, writeProcedure } from "../trpc";
+import { Id, audit, businessProcedure, emit, router, sectionAdmin, sectionRead, sectionWrite, writeProcedure } from "../trpc";
 
 const read = sectionRead("team");
 const write = sectionWrite("team");
@@ -265,29 +265,37 @@ export const teamRouter = router({
     // Adding someone is an invitation they accept (`invitation.create` / `accept`, routers/people.ts; THESIS_REVIEW
     // package 3.1): the silent add by email or account id (`team.humans.invite`) was removed with it.
     /**
-     * Role and section permissions of another member. Nobody edits their own; only an owner changes an owner's row or
-     * grants ownership; the last owner keeps the role (the same rules hold in RLS, 0026_membership_guards).
+     * Role, section permissions and (a collaborator's only) the date access ends, of another member. Nobody edits their
+     * own; only someone with an owner's standing (an owner or a cofounder, THESIS_REVIEW 3.3) changes such a row or
+     * grants that standing; the last owner or cofounder keeps it (the same rules hold in RLS, 0026 and 0090).
      */
-    role: staffAdmin.input(z.object({ userId: Id, role: z.enum(MEMBERSHIP_ROLES).optional(), sectionPermissions: SectionPermissions.optional() })).mutation(({ ctx, input }) =>
-      ctx.rls(async (tx) => {
-        if (input.userId === ctx.userId) throw new ValidationError("You cannot change your own role or section permissions; another owner or admin can");
-        let membership = await repos.memberships.get(tx, ctx.businessId, input.userId);
-        if (!membership) throw new ValidationError("Not a member of this business");
-        if (ctx.role !== "owner" && membership.role === "owner") throw new ForbiddenError("Only an owner can change an owner's role or permissions");
-        if (ctx.role !== "owner" && input.role === "owner") throw new ForbiddenError("Only an owner can grant ownership");
-        if (input.role) membership = await repos.memberships.setRole(tx, ctx.businessId, input.userId, input.role);
-        if (input.sectionPermissions) membership = await repos.memberships.setSectionPermissions(tx, ctx.businessId, input.userId, input.sectionPermissions);
-        await audit(tx, ctx, { action: "team.humans.role", target: { kind: "membership", id: membership.id }, details: { role: input.role ?? null, sections: input.sectionPermissions ? Object.keys(input.sectionPermissions) : [] } });
-        // apps/stream re-checks the member's open subscriptions at once, under the new walls.
-        await emit(tx, ctx, { type: "membership.changed", payload: { userId: input.userId, change: "updated" } });
-        return membership;
-      }),
-    ),
+    role: staffAdmin
+      .input(z.object({ userId: Id, role: z.enum(MEMBERSHIP_ROLES).optional(), sectionPermissions: SectionPermissions.optional(), expiresAt: z.coerce.date().nullable().optional() }))
+      .mutation(({ ctx, input }) =>
+        ctx.rls(async (tx) => {
+          if (input.userId === ctx.userId) throw new ValidationError("You cannot change your own role or section permissions; another owner or admin can");
+          let membership = await repos.memberships.get(tx, ctx.businessId, input.userId);
+          if (!membership) throw new ValidationError("Not a member of this business");
+          if (!isOwnerRole(ctx.role) && isOwnerRole(membership.role)) throw new ForbiddenError("Only an owner or a cofounder can change an owner's or a cofounder's role or permissions");
+          if (!isOwnerRole(ctx.role) && input.role && isOwnerRole(input.role)) throw new ForbiddenError("Only an owner or a cofounder can make someone an owner or a cofounder");
+          if (input.role) membership = await repos.memberships.setRole(tx, ctx.businessId, input.userId, input.role);
+          if (input.sectionPermissions) membership = await repos.memberships.setSectionPermissions(tx, ctx.businessId, input.userId, input.sectionPermissions);
+          if (input.expiresAt !== undefined) {
+            if (input.expiresAt && input.expiresAt.getTime() <= Date.now()) throw new ValidationError("Choose a date after today, or remove the person instead");
+            membership = await repos.memberships.setExpiry(tx, ctx.businessId, input.userId, input.expiresAt);
+          }
+          await audit(tx, ctx, { action: "team.humans.role", target: { kind: "membership", id: membership.id }, details: { role: input.role ?? null, sections: input.sectionPermissions ? Object.keys(input.sectionPermissions) : [], ...(input.expiresAt !== undefined ? { expiresAt: input.expiresAt?.toISOString() ?? null } : {}) } });
+          // apps/stream re-checks the member's open subscriptions at once, under the new walls.
+          await emit(tx, ctx, { type: "membership.changed", payload: { userId: input.userId, change: "updated" } });
+          return membership;
+        }),
+      ),
     remove: staffAdmin.input(z.object({ userId: Id })).mutation(({ ctx, input }) =>
       ctx.rls(async (tx) => {
         if (input.userId === ctx.userId) throw new ValidationError("Leave the business from Settings instead of removing yourself");
         const target = await repos.memberships.get(tx, ctx.businessId, input.userId);
-        if (target?.role === "owner") throw new ValidationError("The owner cannot be removed");
+        // An owner's standing is stepped down first (an owner or a cofounder changes the role), then removed.
+        if (target && isOwnerRole(target.role)) throw new ValidationError(target.role === "cofounder" ? "A cofounder cannot be removed; another founder changes their role first" : "The owner cannot be removed");
         await repos.memberships.remove(tx, ctx.businessId, input.userId);
         await audit(tx, ctx, { action: "team.humans.remove", target: { kind: "membership", id: input.userId } });
         // apps/stream closes the removed person's open subscriptions to this business at once.

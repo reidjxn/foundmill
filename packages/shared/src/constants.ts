@@ -164,8 +164,27 @@ export function firstVisibleTab<T extends { slug: string; title?: string; positi
   return visibleTabs(dept, builder)[0];
 }
 
-export const MEMBERSHIP_ROLES = ["owner", "admin", "member", "viewer", "advisor"] as const;
+/**
+ * The roles of a project's people (BUILD §11.9; THESIS_REVIEW package 3.3, founder 2026-11-11 "the words for people").
+ * `cofounder` and `collaborator` are appended, so every stored role keeps its meaning:
+ *   - `owner`: the founder who started the project (Commit writes it), with every right;
+ *   - `cofounder`: equal standing, any number. Owner-equivalent wherever an owner is meant (`isOwnerRole`, and the
+ *     database's `has_role`, 0090), never told apart from an owner in what they may do;
+ *   - `collaborator`: someone trying out or helping, with limited access: read and write Product and Customers, read the
+ *     plan, nothing of Money or Settings (`COLLABORATOR_SECTIONS`, permissions.ts), and an optional end date
+ *     (`memberships.expires_at`) after which the membership opens nothing;
+ *   - `admin`, `member`, `viewer`, `advisor`: as before.
+ */
+export const MEMBERSHIP_ROLES = ["owner", "admin", "member", "viewer", "advisor", "cofounder", "collaborator"] as const;
 export type MembershipRole = (typeof MEMBERSHIP_ROLES)[number];
+/** An owner's standing: the founder who started the project and every cofounder. */
+export const OWNER_ROLES: readonly MembershipRole[] = ["owner", "cofounder"];
+/** The roles that administer a project: an owner's standing and admins. */
+export const ADMIN_ROLES: readonly MembershipRole[] = ["owner", "cofounder", "admin"];
+/** Whether `role` has an owner's standing (an owner or a cofounder). */
+export const isOwnerRole = (role: string | null | undefined): boolean => role === "owner" || role === "cofounder";
+/** Whether `role` administers the project (an owner's standing or an admin). */
+export const isAdminRole = (role: string | null | undefined): boolean => isOwnerRole(role) || role === "admin";
 /**
  * How a membership came to be (migration 0065): `invite` (team.humans.invite, the seeds' owners, every row before
  * 0065), `founder` (the owner seat Commit writes), `example` (business.example.open: a read-only walk around a seeded
@@ -173,7 +192,8 @@ export type MembershipRole = (typeof MEMBERSHIP_ROLES)[number];
  */
 export const MEMBERSHIP_SOURCES = ["invite", "founder", "example"] as const;
 export type MembershipSource = (typeof MEMBERSHIP_SOURCES)[number];
-export const WRITE_ROLES: readonly MembershipRole[] = ["owner", "admin", "member"];
+/** The roles that may change things (each still within its sections, permissions.ts). */
+export const WRITE_ROLES: readonly MembershipRole[] = ["owner", "cofounder", "admin", "member", "collaborator"];
 
 export const DEPT_COLOUR_TOKENS = ["dept-1", "dept-2", "dept-3", "dept-4", "dept-5", "dept-6", "dept-7", "dept-8"] as const;
 export type DeptColourToken = (typeof DEPT_COLOUR_TOKENS)[number];

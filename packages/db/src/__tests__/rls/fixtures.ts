@@ -3,7 +3,7 @@
  * so the tests only exercise the app roles. One fixture = one business with an owner, a member, a
  * viewer and one row in every parent table that business-scoped samples need to reference.
  */
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import * as s from "../../schema";
 import type { TestHarness } from "../../testing/pglite";
 
@@ -76,12 +76,10 @@ export async function createBusinessFixture(h: TestHarness, slug: string): Promi
   );
   const businessId = business.id;
 
-  await db.insert(s.memberships).values([
-    { businessId, userId: ownerId, role: "owner" },
-    { businessId, userId: adminId, role: "admin" },
-    { businessId, userId: memberId, role: "member" },
-    { businessId, userId: viewerId, role: "viewer" },
-  ]);
+  // Named columns, not the schema's insert: the migration-point suites (migration-0085.test.ts, -0086) build this
+  // fixture on a database from before 0090, whose memberships have no `expires_at` yet.
+  await db.execute(sql`insert into memberships (business_id, user_id, role) values
+    (${businessId}, ${ownerId}, 'owner'), (${businessId}, ${adminId}, 'admin'), (${businessId}, ${memberId}, 'member'), (${businessId}, ${viewerId}, 'viewer')`);
 
   const [agent, agent2] = await db
     .insert(s.agents)

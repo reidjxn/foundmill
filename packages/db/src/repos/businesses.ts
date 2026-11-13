@@ -1,9 +1,9 @@
 /** businesses — the business record (BUILD §7.2 "Accounts and businesses", routers business.*). */
-import { AGENT_STOP_REASONS, ARCHETYPES, BUSINESS_MODES, ConflictError, DATA_REGIONS, DEFAULT_BUSINESS_CURRENCY, GAME_MODES, MODEL_BILLING, PLAN_TIERS, ValidationError, slugify, uuid, type AgentStopReason, type BusinessMode, type GameMode, type MembershipRole, type PlanTier } from "@foundmill/shared";
-import { and, asc, desc, eq, isNotNull, isNull, sql } from "drizzle-orm";
+import { AGENT_STOP_REASONS, ARCHETYPES, BUSINESS_MODES, ConflictError, DATA_REGIONS, DEFAULT_BUSINESS_CURRENCY, GAME_MODES, MODEL_BILLING, OWNER_ROLES, PLAN_TIERS, ValidationError, slugify, uuid, type AgentStopReason, type BusinessMode, type GameMode, type MembershipRole, type PlanTier } from "@foundmill/shared";
+import { and, asc, desc, eq, inArray, isNotNull, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 import { auditLog, businessLogos, businesses, memberships, type Business } from "../schema";
-import { Currency, changes, defined, Id, IsoDateInput, maybeOne, MinorAmount, one, parseInput, rowsOf, uniqueViolation, type Executor } from "./_shared";
+import { Currency, changes, Id, IsoDateInput, maybeOne, MinorAmount, one, parseInput, rowsOf, uniqueViolation, type Executor } from "./_shared";
 
 const HexColour = z.string().regex(/^#[0-9a-fA-F]{6}$/, "brand colors are #RRGGBB");
 /** ISO 4217: three letters (0025 holds the column to the same shape). */
@@ -168,7 +168,7 @@ export const businessesRepo = {
   },
 
   /**
-   * Account-scoped: the archived businesses the user owns, most recently archived first (Settings › Danger zone
+   * Account-scoped: the archived businesses the user owns (as an owner or a cofounder), most recently archived first (Settings › Danger zone
    * promises an owner can restore one; New business lists them with Restore, Export and Delete permanently).
    */
   async listArchivedForUser(db: Executor, userId: string): Promise<Business[]> {
@@ -176,7 +176,7 @@ export const businessesRepo = {
       .select({ business: businesses })
       .from(memberships)
       .innerJoin(businesses, eq(businesses.id, memberships.businessId))
-      .where(and(eq(memberships.userId, userId), eq(memberships.role, "owner"), isNotNull(businesses.archivedAt)))
+      .where(and(eq(memberships.userId, userId), inArray(memberships.role, [...OWNER_ROLES]), isNotNull(businesses.archivedAt)))
       .orderBy(desc(businesses.archivedAt));
     return rows.map((r) => r.business);
   },

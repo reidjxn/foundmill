@@ -4,15 +4,18 @@
  * "invite" control makes this object, and it lives in Settings › People only (the solo guard: nothing prompts a
  * founder to invite anyone).
  *
- *   - `createInvitation` (Settings › People; an owner or an admin with Team write, an owner alone for a cofounder): a
+ *   - `createInvitation` (Settings › People; an owner, a cofounder or an admin with Team write; a cofounder invitation
+ *     only by an owner or a cofounder): a
  *     pending invitation for 14 days, its token returned once in the link and stored as SHA-256 only; when the founder
  *     typed an address, the gateway emails the link there (`invitation`, three a day per address). `invitation.sent`.
- *   - `listInvitations` / `revokeInvitation`: the project's invitations (addresses masked) and revoking a pending one.
+ *   - `listInvitations` / `revokeInvitation` (the same people): the project's invitations (addresses masked) and
+ *     revoking a pending one.
  *   - `invitationByToken` (public, `/i/<token>`): what it is (the project's name, the inviter's display name, the role in
  *     plain words) and nothing else. An unknown, expired, revoked, used or declined token reads the same, and so does an
  *     invitation whose inviter no longer holds the right to make it.
  *   - `acceptInvitation` (signed in with a confirmed address, admitted or not: a valid invitation is an admission): the
- *     membership (`invitationMembership`), once; the admission; an audit row; `invitation.accepted` and
+ *     membership in the role of the same name (`invitationMembership`: a cofounder or a collaborator, THESIS_REVIEW
+ *     3.3), once; the admission; an audit row; `invitation.accepted` and
  *     `membership.changed`; then the inviter is emailed (`invitation_accepted`, within their limits).
  *   - `declineInvitation` (public, the token is the credential): the link stops working; `invitation.declined`.
  *
@@ -127,7 +130,7 @@ export interface CreatedInvitation {
 export async function createInvitation(ctx: BusinessContext, raw: z.input<typeof CreateInvitationInput>): Promise<CreatedInvitation> {
   const input = CreateInvitationInput.parse(raw);
   const role = input.role as InvitationRole;
-  if (!rolesThatMayInvite(role).includes(ctx.role)) throw new ForbiddenError(role === "cofounder" ? "Only a founder with ownership can invite a cofounder, because a cofounder has the same standing." : "Only an owner or an admin can invite someone.");
+  if (!rolesThatMayInvite(role).includes(ctx.role)) throw new ForbiddenError(role === "cofounder" ? "Only an owner or a cofounder can invite a cofounder, because a cofounder has the same standing." : "Only an owner, a cofounder or an admin can invite someone.");
   if (ctx.business.isDemo) throw new ConflictError("This is a sample business, so nobody can be invited to it. Start your own project to invite people.");
   const now = new Date();
   await takeOrThrow(ctx.limits, "Invitations", [
@@ -164,7 +167,7 @@ export async function listInvitations(ctx: BusinessContext): Promise<InvitationV
   return rows.map((r) => viewOf(r, addresses.get(r.id), now));
 }
 
-/** Revokes a pending invitation (an owner or an admin; RLS and its guard say the same). */
+/** Revokes a pending invitation (an owner, a cofounder or an admin; RLS and its guard say the same). */
 export async function revokeInvitation(ctx: BusinessContext, invitationId: string): Promise<InvitationView> {
   const row = await ctx.rls(async (tx) => {
     const revoked = await repos.invitations.revoke(tx, ctx.businessId, invitationId, ctx.userId);

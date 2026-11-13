@@ -1,16 +1,17 @@
 /**
- * The people of a project and the way in (docs/NETWORK.md F5; docs/THESIS_REVIEW.md packages 2.2, 3.1, 3.3): what an
- * invitation offers, in the words a person reads. Zod-free and free of node:crypto, so a browser bundle may import
- * it as `@foundmill/shared/people`.
+ * The people of a project and the way in (docs/NETWORK.md F5; docs/THESIS_REVIEW.md packages 3.1, 3.3): what an
+ * invitation offers, in the words a person reads. Zod-free and free of node:crypto, so a browser bundle may import it
+ * as `@foundmill/shared/people`.
  *
- * **Two roles an invitation offers** (CLAUDE.md "the words for people"): a cofounder (equal standing, any number) and a
- * collaborator (someone trying out or helping, with limited access). Until the membership roles `cofounder` and
- * `collaborator` exist (package 3.3, a change of its own: every guard function and policy that checks a role has to learn
- * them), an accepted invitation is a membership in the roles that exist today, through `invitationMembership`: a
- * cofounder joins as an owner, which is the equal standing the founders have now; a collaborator joins as a member whose
- * section permissions hold them to Product and Customers. When 3.3 lands, this one function changes and nothing else.
+ * **Two roles an invitation offers** (CLAUDE.md "the words for people"), and they are the membership roles of the same
+ * names (`MEMBERSHIP_ROLES`): a cofounder (equal standing, any number: owner-equivalent wherever an owner is meant,
+ * `isOwnerRole`) and a collaborator (someone trying out or helping, with limited access, `COLLABORATOR_SECTIONS`, and
+ * an optional end date on the membership).
  */
-import type { MembershipRole } from "./constants";
+import { ADMIN_ROLES, OWNER_ROLES, type MembershipRole } from "./constants";
+import { COLLABORATOR_SECTIONS } from "./permissions";
+
+export { COLLABORATOR_SECTIONS };
 
 export const INVITATION_ROLES = ["cofounder", "collaborator"] as const;
 export type InvitationRole = (typeof INVITATION_ROLES)[number];
@@ -34,34 +35,17 @@ export const INVITATION_ROLE_SENTENCE: Readonly<Record<InvitationRole, string>> 
 /** "a cofounder" / "a collaborator", for "Maya invited you to join Bread by Bike as a cofounder". */
 export const invitationRolePhrase = (role: InvitationRole): string => `a ${INVITATION_ROLE_WORD[role].toLowerCase()}`;
 
-/**
- * A collaborator's section permissions (BUILD §11.9 walls, packages/shared permissions.ts): read and write on Product
- * (with Development, the Product area's other half) and Customers (Distribution and the contacts), read on the Plan (the
- * roadmap is Product's; the Inbox, where the plan's notes arrive, is read only) and the Team, and nothing of Money
- * (Finance, Legal, Billing), Settings or the network.
- */
-export const COLLABORATOR_SECTIONS = Object.freeze({
-  product: "write",
-  development: "write",
-  distribution: "write",
-  crm: "write",
-  inbox: "read",
-  team: "read",
-  finance: "none",
-  legal: "none",
-  billing: "none",
-  settings: "none",
-  live: "none",
-} as const);
-
-/** The membership an accepted invitation becomes, in the roles that exist today (see the file comment). */
+/** The membership an accepted invitation becomes: the role of the same name, with the role's own section rules. */
 export function invitationMembership(role: InvitationRole): { role: MembershipRole; sectionPermissions: Record<string, "read" | "write" | "none"> } {
-  return role === "cofounder" ? { role: "owner", sectionPermissions: {} } : { role: "member", sectionPermissions: { ...COLLABORATOR_SECTIONS } };
+  return { role, sectionPermissions: {} };
 }
 
-/** The membership roles that may invite someone in `role`: a cofounder only by an owner (it grants ownership), a collaborator by an owner or an admin. */
+/**
+ * The membership roles that may invite someone in `role`: a cofounder only by someone with an owner's standing (an
+ * owner or a cofounder: equal standing is theirs to give), a collaborator also by an admin.
+ */
 export function rolesThatMayInvite(role: InvitationRole): readonly MembershipRole[] {
-  return role === "cofounder" ? ["owner"] : ["owner", "admin"];
+  return role === "cofounder" ? OWNER_ROLES : ADMIN_ROLES;
 }
 
 /** Invitation tokens: 32 random bytes as base64url (43 characters). Anything else is not looked up. */

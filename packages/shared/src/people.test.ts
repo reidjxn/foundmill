@@ -1,26 +1,39 @@
 import { describe, expect, it } from "vitest";
-import { hasSectionAccess } from "./permissions";
+import { isAdminRole, isOwnerRole, MEMBERSHIP_ROLES } from "./constants";
+import { hasSectionAccess, SECTIONS } from "./permissions";
 import { emailDate, invitationAcceptedEmail, invitationEmail } from "./people-email";
 import { COLLABORATOR_SECTIONS, INVITATION_ROLE_SENTENCE, invitationMembership, invitationRolePhrase, isPeopleTokenShape, maskedAddress, rolesThatMayInvite } from "./people";
 
 describe("what an invitation offers (THESIS_REVIEW 3.1, 3.3)", () => {
-  it("a cofounder joins with the founders' standing; a collaborator on Product and Customers, reading the plan, never Money or Settings", () => {
-    expect(invitationMembership("cofounder")).toEqual({ role: "owner", sectionPermissions: {} });
+  it("a cofounder joins as a cofounder, with an owner's standing; a collaborator on Product and Customers, reading the plan, never Money or Settings", () => {
+    expect(invitationMembership("cofounder")).toEqual({ role: "cofounder", sectionPermissions: {} });
+    expect(isOwnerRole("cofounder") && isAdminRole("cofounder")).toBe(true);
+    for (const s of SECTIONS) expect(hasSectionAccess({ role: "cofounder", sectionPermissions: { [s]: "none" } }, s, "write"), s).toBe(true);
     const collaborator = invitationMembership("collaborator");
-    expect(collaborator.role).toBe("member");
+    expect(collaborator).toEqual({ role: "collaborator", sectionPermissions: {} });
+    expect(isOwnerRole("collaborator") || isAdminRole("collaborator")).toBe(false);
     const m = { role: collaborator.role, sectionPermissions: collaborator.sectionPermissions };
     for (const s of ["product", "development", "distribution", "crm"] as const) expect(hasSectionAccess(m, s, "write"), s).toBe(true);
     for (const s of ["inbox", "team"] as const) expect([hasSectionAccess(m, s, "read"), hasSectionAccess(m, s, "write")], s).toEqual([true, false]);
     for (const s of ["finance", "legal", "billing", "settings", "live"] as const) expect(hasSectionAccess(m, s, "read"), s).toBe(false);
-    // A copy, never the frozen constant itself.
-    expect(collaborator.sectionPermissions).not.toBe(COLLABORATOR_SECTIONS);
+    // Section permissions narrow a collaborator and never widen them past the role.
+    const widened = { role: "collaborator" as const, sectionPermissions: { finance: "write" as const, settings: "read" as const, crm: "none" as const } };
+    expect([hasSectionAccess(widened, "finance", "read"), hasSectionAccess(widened, "settings", "read"), hasSectionAccess(widened, "crm", "read")]).toEqual([false, false, false]);
+    expect(COLLABORATOR_SECTIONS.finance).toBe("none");
   });
 
-  it("a cofounder invitation is an owner's to make; a collaborator's an owner's or an admin's", () => {
-    expect(rolesThatMayInvite("cofounder")).toEqual(["owner"]);
-    expect(rolesThatMayInvite("collaborator")).toEqual(["owner", "admin"]);
+  it("a cofounder invitation is an owner's or a cofounder's to make; a collaborator's also an admin's", () => {
+    expect(rolesThatMayInvite("cofounder")).toEqual(["owner", "cofounder"]);
+    expect(rolesThatMayInvite("collaborator")).toEqual(["owner", "cofounder", "admin"]);
     expect(invitationRolePhrase("cofounder")).toBe("a cofounder");
     expect(INVITATION_ROLE_SENTENCE.collaborator).not.toMatch(/staff|seat|squad|club/i);
+  });
+
+  it("every role that existed keeps its meaning", () => {
+    expect(MEMBERSHIP_ROLES.slice(0, 5)).toEqual(["owner", "admin", "member", "viewer", "advisor"]);
+    expect(hasSectionAccess({ role: "member", sectionPermissions: {} }, "finance", "write")).toBe(true);
+    expect(hasSectionAccess({ role: "viewer", sectionPermissions: {} }, "product", "write")).toBe(false);
+    expect(hasSectionAccess({ role: "admin", sectionPermissions: { finance: "none" } }, "finance", "read")).toBe(false);
   });
 
   it("tokens have one shape; an address is shown masked", () => {

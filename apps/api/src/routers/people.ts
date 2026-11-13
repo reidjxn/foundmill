@@ -2,8 +2,8 @@
  * The way in (docs/NETWORK.md F5; THESIS_REVIEW package 3.1): `invitation.*`.
  *
  * - `invitation.create` / `list` / `revoke`: Settings › People, the right of those who manage the project's people (an
- *   owner or an admin with Team write, `sectionAdmin("team")`; a cofounder invitation an owner's alone).
- *   services/invitations.ts.
+ *   owner, a cofounder or an admin with Team write, `sectionAdmin("team")`; a cofounder invitation only an owner's or a
+ *   cofounder's). services/invitations.ts.
  * - `invitation.byToken` and `invitation.decline`: public, the token is the credential, rate-limited.
  * - `invitation.accept`: signed in with a confirmed address, admitted or not (`signedInProcedure`): a valid invitation
  *   is an admission.

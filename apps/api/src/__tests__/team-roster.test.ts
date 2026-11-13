@@ -203,7 +203,7 @@ describe("team.humans and team.responsibilities (W19)", () => {
     expect("invite" in (owner.team.humans as Record<string, unknown>)).toBe(false);
     const { link } = await owner.invitation.create({ businessId, role: "cofounder" });
     expect(await hz.caller({ userId: newcomer }).invitation.accept({ token: link.split("/i/")[1]! })).toEqual({ businessId, already: false });
-    expect(await repos.memberships.get(hz.db, businessId, newcomer)).toMatchObject({ role: "owner", sectionPermissions: {} });
+    expect(await repos.memberships.get(hz.db, businessId, newcomer)).toMatchObject({ role: "cofounder", sectionPermissions: {} });
     // founder.profile.get tells a person their own account ID.
     expect((await hz.caller({ userId: newcomer }).founder.profile.get()).userId).toBe(newcomer);
   });

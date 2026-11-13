@@ -3,6 +3,7 @@
  * Business context for every page under /b/[bid]: the business row, the founder's role, departments (in order) and
  * helpers to resolve a department by slug. The layout seeds it from the server; the shell keeps it fresh.
  */
+import { isAdminRole, isOwnerRole } from "@foundmill/shared/constants";
 import { createContext, useContext, type ReactNode } from "react";
 import { accessFor, type Access } from "@/lib/access";
 import type { RouterOutputs } from "@/lib/trpc";
@@ -48,8 +49,9 @@ export function makeBusinessContext(businessId: string, data: BusinessGet, depar
     departments,
     departmentBySlug: (slug) => departments.find((d) => d.slug === slug),
     departmentById: (id) => departments.find((d) => d.id === id),
-    isAdmin: data.role === "owner" || data.role === "admin",
-    isOwner: data.role === "owner",
+    isAdmin: isAdminRole(data.role),
+    // An owner's standing: an owner or a cofounder (THESIS_REVIEW 3.3).
+    isOwner: isOwnerRole(data.role),
     // The business too: an example-source membership of a business that is not a demo is never an example.
     access: accessFor(data.membership, data.business),
   };

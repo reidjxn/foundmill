@@ -47,6 +47,7 @@ import {
   WRITE_ROLES,
   hasSectionAccess,
   pageContentProblems,
+  isAdminRole,
   pageSlugProblem,
   pageUrl,
   readPageContent,
@@ -109,7 +110,7 @@ export const PAGE_PUBLISH_ROLE_MESSAGE = "Only an owner or an admin can publish 
 const sampleRefusal = () => new AppError("page_sample_business", PAGE_SAMPLE_MESSAGE, 409);
 
 const canEditPage = (ctx: BusinessContext): boolean => WRITE_ROLES.includes(ctx.role) && hasSectionAccess(ctx.membership, "product", "write");
-const canPublishPage = (ctx: BusinessContext): boolean => (ctx.role === "owner" || ctx.role === "admin") && hasSectionAccess(ctx.membership, "product", "write");
+const canPublishPage = (ctx: BusinessContext): boolean => isAdminRole(ctx.role) && hasSectionAccess(ctx.membership, "product", "write");
 
 /**
  * The address a first save uses: the business's own slug made into a page address, with a short suffix of the business

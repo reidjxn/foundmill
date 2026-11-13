@@ -1,7 +1,7 @@
 /**
- * The way in (THESIS_REVIEW packages 2.2 and 3.1; docs/NETWORK.md F5; 0089): the admit decision in every mode
- * (services/access.ts), and invitations to a project (services/invitations.ts), with the attribution an accepted
- * invitation brings.
+ * The way in (THESIS_REVIEW packages 2.2, 3.1 and 3.3; docs/NETWORK.md F5; 0089, 0090): the admit decision in every
+ * mode (services/access.ts), invitations to a project (services/invitations.ts) with the attribution an accepted
+ * invitation brings, and what the two roles an invitation offers may then do.
  */
 import { createHash } from "node:crypto";
 import { repos } from "@foundmill/db";
@@ -9,7 +9,7 @@ import { ON_WAITLIST_WORDS, type ProjectPageContent } from "@foundmill/shared";
 import { TRPCError } from "@trpc/server";
 import { eq } from "drizzle-orm";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
-import { invitations as invitationsTable } from "@foundmill/db";
+import { invitations as invitationsTable, memberships as membershipsTable } from "@foundmill/db";
 import type { CallerUser } from "../context";
 import { createCaller } from "../router";
 import { decideAdmission, forgetAdmittedMemo, ON_WAITLIST_MESSAGE, type AdmissionFacts } from "../services/access";
@@ -201,7 +201,7 @@ describe("invitations", () => {
     const { link, invitation } = await owner.invitation.create({ businessId, role: "cofounder" });
     const p = await person("cofounder");
     expect(await hz.caller(p).invitation.accept({ token: tokenOf(link) })).toEqual({ businessId, already: false });
-    expect(await repos.memberships.get(hz.db, businessId, p.userId)).toMatchObject({ role: "owner", source: "invite" });
+    expect(await repos.memberships.get(hz.db, businessId, p.userId)).toMatchObject({ role: "cofounder", source: "invite" });
     const q = await person("second-use");
     expect((await refusal(hz.caller(q).invitation.accept({ token: tokenOf(link) })))?.code).toBe("NOT_FOUND");
     expect(await repos.memberships.get(hz.db, businessId, q.userId)).toBeNull();
@@ -227,5 +227,60 @@ describe("invitations", () => {
     expect(await repos.attributions.forUser(hz.db, p.userId)).not.toBeNull();
     // The project page is live: the row names it, with the inviter credited (not the page's longest-standing owner).
     expect(await repos.attributions.forUser(hz.db, p.userId)).toMatchObject({ sourceKind: "project_page", sourceBusinessId: businessId, referrerUserId: hz.A.adminId });
+  });
+});
+
+describe("after accepting: a cofounder's standing and a collaborator's walls (THESIS_REVIEW 3.3)", () => {
+  const join = async (role: "cofounder" | "collaborator", tag: string) => {
+    const { link } = await hz.caller({ userId: hz.A.ownerId }).invitation.create({ businessId: hz.A.businessId, role });
+    const p = await person(tag);
+    await hz.caller(p).invitation.accept({ token: tokenOf(link) });
+    return p;
+  };
+
+  it("a cofounder invites a cofounder, manages the people and reaches Money and Settings like an owner", async () => {
+    const { businessId } = hz.A;
+    const c = await join("cofounder", "standing");
+    const me = hz.caller(c);
+    expect((await me.invitation.create({ businessId, role: "cofounder" })).invitation.role).toBe("cofounder");
+    expect(Array.isArray(await me.invitation.list({ businessId }))).toBe(true);
+    expect(await refusal(me.finance.accounts.list({ businessId }))).toBeNull();
+    // Changes an admin's role, never their own, and is not removed by an admin.
+    expect(await refusal(me.team.humans.role({ businessId, userId: hz.A.viewerId, role: "advisor" }))).toBeNull();
+    await me.team.humans.role({ businessId, userId: hz.A.viewerId, role: "viewer" });
+    expect((await refusal(me.team.humans.role({ businessId, userId: c.userId, role: "member" })))?.code).toBe("BAD_REQUEST");
+    expect((await refusal(hz.caller({ userId: hz.A.adminId }).team.humans.role({ businessId, userId: c.userId, role: "member" })))?.code).toBe("FORBIDDEN");
+    expect((await refusal(hz.caller({ userId: hz.A.adminId }).team.humans.role({ businessId, userId: hz.A.memberId, role: "cofounder" })))?.code).toBe("FORBIDDEN");
+    expect((await refusal(hz.caller({ userId: hz.A.ownerId }).team.humans.remove({ businessId, userId: c.userId })))?.code).toBe("BAD_REQUEST");
+  });
+
+  it("a collaborator works on Product and Customers, reads the plan's notes, and is refused Money, Settings and the people", async () => {
+    const { businessId } = hz.A;
+    const p = await join("collaborator", "walls");
+    const me = hz.caller(p);
+    expect(await refusal(me.product.roadmap.list({ businessId }))).toBeNull();
+    expect(await refusal(me.crm.search({ businessId, q: "role:customer" }))).toBeNull();
+    expect(await refusal(me.inbox.list({ businessId }))).toBeNull();
+    for (const call of [me.finance.accounts.list({ businessId }), me.business.audit({ businessId }), me.invitation.list({ businessId }), me.invitation.create({ businessId, role: "collaborator" }), me.team.humans.role({ businessId, userId: hz.A.viewerId, role: "advisor" })]) {
+      expect((await refusal(call))?.code).toBe("FORBIDDEN");
+    }
+    // Section permissions can narrow a collaborator, never widen them past the role.
+    await hz.caller({ userId: hz.A.ownerId }).team.humans.role({ businessId, userId: p.userId, sectionPermissions: { finance: "write", crm: "none" } });
+    expect((await refusal(me.finance.accounts.list({ businessId })))?.code).toBe("FORBIDDEN");
+    expect((await refusal(me.crm.search({ businessId, q: "role:customer" })))?.code).toBe("FORBIDDEN");
+  });
+
+  it("a collaborator's access can end on a date; from then the project is closed to them", async () => {
+    const { businessId } = hz.A;
+    const p = await join("collaborator", "trial");
+    const owner = hz.caller({ userId: hz.A.ownerId });
+    expect((await refusal(owner.team.humans.role({ businessId, userId: p.userId, expiresAt: new Date(Date.now() - 1000) })))?.code).toBe("BAD_REQUEST");
+    expect((await refusal(owner.team.humans.role({ businessId, userId: hz.A.memberId, expiresAt: new Date(Date.now() + 86_400_000) })))?.code).toBe("BAD_REQUEST");
+    expect(await owner.team.humans.role({ businessId, userId: p.userId, expiresAt: new Date(Date.now() + 14 * 86_400_000) })).toMatchObject({ role: "collaborator", expiresAt: expect.any(Date) });
+    expect(await refusal(hz.caller(p).inbox.list({ businessId }))).toBeNull();
+    // The date passes (written on the service connection, as a clock would).
+    await hz.db.update(membershipsTable).set({ expiresAt: new Date(Date.now() - 1000) }).where(eq(membershipsTable.userId, p.userId));
+    expect(await refusal(hz.caller(p).inbox.list({ businessId }))).toMatchObject({ code: "FORBIDDEN", appCode: "not_a_member" });
+    expect((await repos.memberships.listForUser(hz.db, p.userId)).some((m) => m.businessId === businessId)).toBe(false);
   });
 });

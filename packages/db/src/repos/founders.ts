@@ -1,6 +1,6 @@
 /** founder_profiles — account-scoped (userId first), routers founder.profile.get/update. */
 import { BIDI_NAME_MESSAGE, RESERVED_NAME_MESSAGE, hasBidiControl, isReservedName } from "@foundmill/config";
-import { VISIBILITY, ValidationError } from "@foundmill/shared";
+import { ADMIN_ROLES, OWNER_ROLES, VISIBILITY, ValidationError } from "@foundmill/shared";
 import { and, asc, eq, inArray, isNull, ne, sql } from "drizzle-orm";
 import { authUsers } from "drizzle-orm/supabase";
 import { z } from "zod";
@@ -63,7 +63,7 @@ export const foundersRepo = {
     return db
       .select({ userId: memberships.userId, role: memberships.role, sectionPermissions: memberships.sectionPermissions })
       .from(memberships)
-      .where(and(eq(memberships.businessId, businessId), inArray(memberships.role, ["owner", "admin"]), ne(memberships.source, "example")));
+      .where(and(eq(memberships.businessId, businessId), inArray(memberships.role, [...ADMIN_ROLES]), ne(memberships.source, "example")));
   },
 
   /**
@@ -147,8 +147,8 @@ export const foundersRepo = {
       .from(memberships)
       .innerJoin(businesses, eq(businesses.id, memberships.businessId))
       .leftJoin(founderProfiles, and(eq(founderProfiles.userId, memberships.userId), isNull(founderProfiles.archivedAt)))
-      .where(and(eq(memberships.businessId, businessId), eq(memberships.role, "owner")))
-      .orderBy(sql`(${memberships.userId} = ${businesses.createdBy}) desc`, asc(memberships.createdAt), asc(memberships.id))
+      .where(and(eq(memberships.businessId, businessId), inArray(memberships.role, [...OWNER_ROLES])))
+      .orderBy(sql`(${memberships.userId} = ${businesses.createdBy} and ${memberships.role} = 'owner') desc`, asc(memberships.createdAt), asc(memberships.id))
       .limit(1);
     return rows[0]?.experience ?? null;
   },

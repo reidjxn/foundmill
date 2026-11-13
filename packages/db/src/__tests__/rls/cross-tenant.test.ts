@@ -3,10 +3,14 @@
  *   - a member of business A cannot read, insert into, update or delete business B's rows,
  *   - a viewer can read but not write,
  *   - a non-member and anon see nothing,
- *   - the intended writer (member / admin / service) can write and others cannot.
+ *   - the intended writer (member / admin / service) can write and others cannot,
+ *   - 0090's roles: a cofounder of A writes where an owner writes and reaches nothing of B; a collaborator of A writes
+ *     where a member writes (never an admin-only table) and reaches nothing of B; a collaborator whose access has ended
+ *     reaches nothing at all (`has_role` and `is_member` changed for every table at once, so every table is checked).
  * Test names carry the table name so a failure says which table regressed.
  */
 import { and, eq, getTableName, sql } from "drizzle-orm";
+import * as s from "../../schema";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { DbTx } from "../../client";
 import { createTestDb, type Runner, type TestHarness } from "../../testing/pglite";
@@ -17,6 +21,10 @@ let h: TestHarness;
 let A: BusinessFixture;
 let B: BusinessFixture;
 let outsiderId: string;
+/** 0090: A's cofounder, A's collaborator, and a collaborator of A whose access ended yesterday. */
+let cofounderId: string;
+let collaboratorId: string;
+let endedId: string;
 /** id of the service-inserted row per table per business. */
 const seeded = new Map<string, { a: string; b: string }>();
 
@@ -49,6 +57,12 @@ beforeAll(async () => {
   A = await createBusinessFixture(h, "alpha");
   B = await createBusinessFixture(h, "bravo");
   outsiderId = await h.createUser("outsider@test.local");
+  [cofounderId, collaboratorId, endedId] = await Promise.all([h.createUser("alpha-cofounder@test.local"), h.createUser("alpha-collaborator@test.local"), h.createUser("alpha-ended@test.local")]);
+  await h.db.insert(s.memberships).values([
+    { businessId: A.businessId, userId: cofounderId, role: "cofounder" },
+    { businessId: A.businessId, userId: collaboratorId, role: "collaborator", expiresAt: new Date(Date.now() + 14 * 86_400_000) },
+    { businessId: A.businessId, userId: endedId, role: "collaborator", expiresAt: new Date(Date.now() - 86_400_000) },
+  ]);
   // One service-written row per table per business.
   for (const t of TENANT_TABLES) {
     const [a, b] = await h.service().run(async (tx) => {
@@ -130,12 +144,36 @@ describe.each(TENANT_TABLES.map((t) => [t.name, t] as const))("%s", (_name, t) =
     await expectNoEffect(h.anon().run((tx) => selectAll(tx, table)));
   });
 
+  it(`${t.name}: cofounder and collaborator of A read A's rows, never B's, and cannot write into B`, async () => {
+    for (const id of [cofounderId, collaboratorId]) {
+      expect(await countAs(h.asUser(id), table, A.businessId)).toBeGreaterThanOrEqual(1);
+      expect(await countAs(h.asUser(id), table, B.businessId)).toBe(0);
+      await expect(h.asUser(id).run((tx) => insertRow(tx, table, { ...t.sample(B), businessId: B.businessId }))).rejects.toThrow(RLS_DENIED);
+      await expectNoEffect(h.asUser(id).run((tx) => updateRows(tx, table, B.businessId, patchFor(t))));
+      await expectNoEffect(h.asUser(id).run((tx) => deleteRows(tx, table, B.businessId, seeded.get(t.name)!.b)));
+    }
+  });
+
+  it(`${t.name}: a collaborator whose access ended reaches nothing`, async () => {
+    expect(await h.asUser(endedId).run((tx) => selectAll(tx, table))).toHaveLength(0);
+    await expect(h.asUser(endedId).run((tx) => insertRow(tx, table, { ...t.sample(A), businessId: A.businessId }))).rejects.toThrow(RLS_DENIED);
+    await expectNoEffect(h.asUser(endedId).run((tx) => updateRows(tx, table, A.businessId, patchFor(t))));
+  });
+
   if (t.write === "member" || t.write === "append") {
     it(`${t.name}: member of A can insert into A`, async () => {
       const rows = await h.asUser(A.memberId).run((tx) => insertRow(tx, table, { ...t.sample(A), businessId: A.businessId }));
       expect(rows).toHaveLength(1);
       const check = await h.service().run((tx) => tx.select({ b: table.businessId }).from(table).where(eq(table.id, rows[0]!.id)));
       expect((check as { b: string }[])[0]?.b).toBe(A.businessId);
+    });
+  }
+
+  if (t.write === "member" || t.write === "append") {
+    it(`${t.name}: cofounder and collaborator of A can insert into A`, async () => {
+      // A sample that names its writer (a call started by, a turn spoken by the member) names the person writing instead.
+      const as = (id: string) => Object.fromEntries(Object.entries(t.sample(A)).map(([k, v]) => [k, v === A.memberId ? id : v]));
+      for (const id of [cofounderId, collaboratorId]) expect(await h.asUser(id).run((tx) => insertRow(tx, table, { ...as(id), businessId: A.businessId }))).toHaveLength(1);
     });
   }
 
@@ -167,11 +205,17 @@ describe.each(TENANT_TABLES.map((t) => [t.name, t] as const))("%s", (_name, t) =
       expect(r1).toHaveLength(1);
       expect(r2).toHaveLength(1);
     });
+    it(`${t.name}: a cofounder of A writes it like an owner; a collaborator cannot (admin-only table)`, async () => {
+      expect(await h.asUser(cofounderId).run((tx) => insertRow(tx, table, { ...t.sample(A), businessId: A.businessId }))).toHaveLength(1);
+      await expect(h.asUser(collaboratorId).run((tx) => insertRow(tx, table, { ...t.sample(A), businessId: A.businessId }))).rejects.toThrow(RLS_DENIED);
+      await expectNoEffect(h.asUser(collaboratorId).run((tx) => updateRows(tx, table, A.businessId, patchFor(t))));
+    });
   }
 
   if (t.write === "service") {
     it(`${t.name}: owner of A cannot insert into A (service-written table)`, async () => {
       await expect(h.asUser(A.ownerId).run((tx) => insertRow(tx, table, { ...t.sample(A), businessId: A.businessId }))).rejects.toThrow(RLS_DENIED);
+      await expect(h.asUser(cofounderId).run((tx) => insertRow(tx, table, { ...t.sample(A), businessId: A.businessId }))).rejects.toThrow(RLS_DENIED);
     });
     it(`${t.name}: owner of A cannot update A's rows (service-written table)`, async () => {
       // journeys is the one exception: members may mark a journey as viewed.

@@ -30,6 +30,7 @@ import {
   MILESTONE_SHOW_ROLE_MESSAGE,
   cardUrl,
   hasSectionAccess,
+  isAdminRole,
   pageSlugProblem,
   pageUrl,
   storyUrl,
@@ -59,7 +60,7 @@ const notFound = () => new AppError("milestone_not_found", MILESTONE_NOT_FOUND_M
 const notShowable = () => new AppError("milestone_not_showable", MILESTONE_NOT_SHOWABLE_MESSAGE, 409);
 
 /** The right that publishes the page shows things on it: an owner or an admin with Product write. */
-const canShow = (ctx: BusinessContext): boolean => (ctx.role === "owner" || ctx.role === "admin") && hasSectionAccess(ctx.membership, "product", "write");
+const canShow = (ctx: BusinessContext): boolean => isAdminRole(ctx.role) && hasSectionAccess(ctx.membership, "product", "write");
 
 const keyOf = (ref: Record<string, unknown> | null | undefined): string | null => (typeof ref?.trophyKey === "string" ? ref.trophyKey : null);
 

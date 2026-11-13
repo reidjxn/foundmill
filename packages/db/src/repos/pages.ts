@@ -16,7 +16,7 @@
  * gets only what the view `public_project_pages` lists (0077). An unknown address and a page that is not published
  * answer the same: null.
  */
-import { ConflictError, PAGE_READY_NOTE, PAGE_SLUG_TAKEN, ProjectPageContent, ProjectPageDraft, ProjectPageSlug, readPageContent, suffixPageSlug, suggestPageSlug, type ProjectPageContent as PageContent } from "@foundmill/shared";
+import { ConflictError, OWNER_ROLES, PAGE_READY_NOTE, PAGE_SLUG_TAKEN, ProjectPageContent, ProjectPageDraft, ProjectPageSlug, readPageContent, suffixPageSlug, suggestPageSlug, type ProjectPageContent as PageContent } from "@foundmill/shared";
 import { toLogoDataUrl } from "@foundmill/shared/logo";
 import { and, desc, eq, inArray, isNotNull, isNull, ne, sql } from "drizzle-orm";
 import { z } from "zod";
@@ -313,13 +313,13 @@ export const pagesRepo = {
     return rows.length === 0;
   },
 
-  /** The display names the public page would show for this business's owners (the view's own rule), for the preview. */
+  /** The display names the public page would show for this business's founders, its owners and cofounders (the view's own rule, 0090), for the preview. */
   async ownerNames(db: Executor, businessId: string): Promise<string[]> {
     const rows = await db
       .select({ name: founderProfiles.displayName })
       .from(memberships)
       .innerJoin(founderProfiles, eq(founderProfiles.userId, memberships.userId))
-      .where(and(eq(memberships.businessId, businessId), eq(memberships.role, "owner"), isNull(founderProfiles.archivedAt)))
+      .where(and(eq(memberships.businessId, businessId), inArray(memberships.role, [...OWNER_ROLES]), isNull(founderProfiles.archivedAt)))
       .orderBy(memberships.createdAt, memberships.id);
     return rows.map((r) => r.name.trim()).filter(Boolean);
   },

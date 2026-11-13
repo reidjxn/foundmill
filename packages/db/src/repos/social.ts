@@ -8,7 +8,7 @@
  * view only selects LIVE businesses (0012), so the visibility rule is enforced in SQL, not here.
  */
 import { RESERVED_NAME_MESSAGE, isReservedName } from "@foundmill/config";
-import { AppError, ForbiddenError, NotFoundError, ValidationError, VISIBILITY } from "@foundmill/shared";
+import { AppError, ForbiddenError, NotFoundError, OWNER_ROLES, ValidationError, VISIBILITY } from "@foundmill/shared";
 import { and, asc, desc, eq, inArray, isNotNull, isNull, ne, or, sql, type AnyColumn, type SQL } from "drizzle-orm";
 import { authUsers } from "drizzle-orm/supabase";
 import { z } from "zod";
@@ -720,13 +720,13 @@ export const socialRepo = {
     return { users, businesses: [...cards.values()] };
   },
 
-  /** The owner of a listed business: the person a request to connect with the business reaches. Null when it is not listed. */
+  /** The owner of a listed business (the longest-standing owner or cofounder): the person a request to connect with the business reaches. Null when it is not listed. */
   async listedBusinessOwner(db: Executor, businessId: string): Promise<string | null> {
     const rows = await db
       .select({ userId: memberships.userId })
       .from(memberships)
       .innerJoin(businesses, eq(businesses.id, memberships.businessId))
-      .where(and(eq(memberships.businessId, businessId), eq(memberships.role, "owner"), ne(memberships.source, "example"), publicBusiness))
+      .where(and(eq(memberships.businessId, businessId), inArray(memberships.role, [...OWNER_ROLES]), ne(memberships.source, "example"), publicBusiness))
       .orderBy(asc(memberships.createdAt))
       .limit(1);
     return rows[0]?.userId ?? null;

@@ -14,7 +14,7 @@ import { isModelBillingError } from "@foundmill/models";
 import { admitOrWait, assertConfirmedSignIn } from "./services/access";
 import { modelBillingAppError } from "./services/model-errors";
 import { writeEventRow } from "./services/events";
-import { AppError, ConflictError, DEFAULT_AGENT_STYLE, NotFoundError, WRITE_ROLES, effectivePermission, isAgentStyle, type Actor, type AgentStyle, type BusinessEventType, type MembershipRole, type PermissionLevel, type Section } from "@foundmill/shared";
+import { ADMIN_ROLES, AppError, ConflictError, DEFAULT_AGENT_STYLE, NotFoundError, OWNER_ROLES, WRITE_ROLES, effectivePermission, isAgentStyle, type Actor, type AgentStyle, type BusinessEventType, type MembershipRole, type PermissionLevel, type Section } from "@foundmill/shared";
 import type { Context } from "./context";
 
 export const Id = z.guid();
@@ -375,16 +375,16 @@ export function sectionPermission(section: Section, level: PermissionLevel = "wr
   });
 }
 
-/** Mutations: owner/admin/member only (viewers and advisors never write — RLS enforces the same). */
+/** Mutations: owner, cofounder, admin, member and collaborator (viewers and advisors never write — RLS enforces the same). */
 export const writeProcedure = businessProcedure.use(requireRoles(WRITE_ROLES, "changes"));
-/** Owner/admin only: modes, holiday, kill switch, staff, keys, billing, integrations, structure. */
-export const adminProcedure = businessProcedure.use(requireRoles(["owner", "admin"], "administration"));
-/** Owner only: tier changes, permanent actions. */
-export const ownerProcedure = businessProcedure.use(requireRoles(["owner"], "owner actions"));
-/** Owner/admin on a business that may be archived (export). */
-export const adminArchivedProcedure = archivedBusinessProcedure.use(requireRoles(["owner", "admin"], "administration"));
-/** Owner only on a business that may be archived (restore, permanent deletion). */
-export const ownerArchivedProcedure = archivedBusinessProcedure.use(requireRoles(["owner"], "owner actions"));
+/** An owner's standing (an owner or a cofounder) or an admin: modes, holiday, kill switch, people, keys, billing, integrations, structure. */
+export const adminProcedure = businessProcedure.use(requireRoles(ADMIN_ROLES, "administration"));
+/** An owner's standing only (an owner or a cofounder, THESIS_REVIEW 3.3): tier changes, permanent actions. */
+export const ownerProcedure = businessProcedure.use(requireRoles(OWNER_ROLES, "owner actions"));
+/** An owner's standing or an admin, on a business that may be archived (export). */
+export const adminArchivedProcedure = archivedBusinessProcedure.use(requireRoles(ADMIN_ROLES, "administration"));
+/** An owner's standing only, on a business that may be archived (restore, permanent deletion). */
+export const ownerArchivedProcedure = archivedBusinessProcedure.use(requireRoles(OWNER_ROLES, "owner actions"));
 
 /**
  * Closes the LIVE surfaces (live.*, going live, committing as LIVE) while `FLAGS.liveMode` is off and the deployment has
