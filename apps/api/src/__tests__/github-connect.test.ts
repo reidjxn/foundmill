@@ -108,7 +108,9 @@ describe("integrations.connect for a live GitHub App", () => {
     calls.length = 0;
     await expect(finish(ownerId, businessId, b.state)).rejects.toThrow(/started by someone else or for another business/);
     const [body, sig] = state.split(".");
-    await expect(finish(ownerId, businessId, `${body}.${sig!.slice(0, -2)}AA`)).rejects.toThrow(/not valid/);
+    // A signature with its first character changed (never the last two: they carry 10 bits, so "AA" there is the same
+    // signature once in 1,024 runs and the forged link was then, rightly, accepted).
+    await expect(finish(ownerId, businessId, `${body}.${sig![0] === "A" ? "B" : "A"}${sig!.slice(1)}`)).rejects.toThrow(/not valid/);
     await expect(finish(ownerId, businessId, `${Buffer.from(JSON.stringify({ b: businessId, u: ownerId, exp: 4102444800, n: "forgedforged" })).toString("base64url")}.${sig}`)).rejects.toThrow(/not valid/);
     const old = signInstallState(TEST_SESSION_TOKEN_SECRET, { userId: ownerId, businessId }, new Date(Date.now() - 16 * 60_000));
     await expect(finish(ownerId, businessId, old)).rejects.toThrow(/expired/);
