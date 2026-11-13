@@ -76,15 +76,17 @@ describe("Settings › Danger zone (BUILD §11.15): export, deletion request, ar
     expect(result.inboxItem?.bodyMd).toMatch(/Bank transactions: 5,0\d\d/);
   });
 
-  it("business.export leaves out the sections the member is walled off", async () => {
+  it("business.export is refused to a member walled off a section, and leaves out billing for a billing wall", async () => {
     const { businessId, adminId } = hz.A;
     await repos.memberships.setSectionPermissions(hz.db, businessId, adminId, { finance: "none" });
+    await expect(hz.caller({ userId: adminId }).business.export({ businessId })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    await repos.memberships.setSectionPermissions(hz.db, businessId, adminId, { billing: "none" });
     const result = await hz.caller({ userId: adminId }).business.export({ businessId });
-    expect(result.archive.tables.transactions).toBeUndefined();
-    expect(result.archive.tables.accounts).toBeUndefined();
+    expect(result.archive.tables.usage_ledger).toBeUndefined();
+    expect(result.archive.tables.transactions).toBeDefined();
     expect(result.archive.tables.tasks).toBeDefined();
-    expect(result.archive.excluded.map((e) => e.what)).toContain("The finance section");
-    expect(result.inboxItem?.bodyMd).toContain("Left out because your role has no access: finance");
+    expect(result.archive.excluded.map((e) => e.what)).toContain("The billing section");
+    expect(result.inboxItem?.bodyMd).toContain("Left out because your role has no access: billing");
     await repos.memberships.setSectionPermissions(hz.db, businessId, adminId, {});
   });
 

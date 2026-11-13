@@ -70,21 +70,33 @@ describe("#98 staff permissions hold for admins", () => {
     }
   });
 
-  it("business.export leaves out the sections the admin has no access to", async () => {
-    const { businessId, adminId } = hz.A;
-    await walls(adminId, { finance: "none", billing: "none" });
+  it("business.export needs read access to every exported section: a walled admin is refused, an owner exports", async () => {
+    const { businessId, adminId, ownerId } = hz.A;
+    // Finance and CRM content is quoted in tables filed under other sections (Inbox notes, approvals, journeys), so a
+    // wall cannot be kept by leaving out whole tables: the export is refused instead (DECISIONS 2026-10-13, W15).
+    const refused: Record<string, "none">[] = [{ finance: "none" }, { crm: "none" }, { finance: "none", billing: "none" }];
+    for (const wall of refused) {
+      await walls(adminId, wall);
+      try {
+        expect(await code(as(adminId).business.export({ businessId }))).toBe("FORBIDDEN");
+        expect(await code(as(ownerId).business.export({ businessId }))).toBe("OK");
+      } finally {
+        await walls(adminId, {});
+      }
+    }
+    // Read access is enough.
+    await walls(adminId, { finance: "read", crm: "read" });
     try {
-      const result = await as(adminId).business.export({ businessId });
-      expect(result.archive.tables.transactions).toBeUndefined();
-      expect(result.archive.excluded.map((e) => e.what)).toContain("The finance section");
+      expect(await code(as(adminId).business.export({ businessId }))).toBe("OK");
     } finally {
       await walls(adminId, {});
     }
-    // A wall on billing alone does not stop an export.
+    // A wall on billing alone does not stop an export; its tables are left out and the archive says so.
     await walls(adminId, { billing: "none" });
     try {
-      const archive = await as(adminId).business.export({ businessId });
-      expect(archive.counts).toBeDefined();
+      const result = await as(adminId).business.export({ businessId });
+      expect(result.archive.tables.usage_ledger).toBeUndefined();
+      expect(result.archive.excluded.map((e) => e.what)).toContain("The billing section");
     } finally {
       await walls(adminId, {});
     }
