@@ -57,8 +57,26 @@ interface ResultEnvelope {
   ok?: boolean;
   data?: unknown;
   simulated?: boolean;
-  error?: { code?: string };
+  error?: { code?: string; status?: number; retryable?: boolean };
 }
+
+/**
+ * Whether a failed clip copy may be tried again at the next lookup: only Runway being busy (429) or its storage timing
+ * out or failing (5xx, which the connector marks retryable). Everything else is permanent: a clip too large, an address
+ * off Runway's storage, a redirect, an answer that is not a video. Trying those again would download up to ~32 MB per
+ * lookup for nothing.
+ */
+export function clipCopyMayRetry(error: ResultEnvelope["error"]): boolean {
+  if (!error) return false;
+  if (error.code === "rate_limited" || error.status === 429) return true;
+  return error.retryable === true && typeof error.status === "number" && error.status >= 500;
+}
+
+/** A failed copy's error as the row keeps it: a short code, never vendor text. */
+const errorCodeOf = (error: ResultEnvelope["error"]): string => {
+  const code = typeof error?.code === "string" ? error.code.toLowerCase().replace(/[^a-z0-9_]/g, "_").slice(0, 40) : "";
+  return /^[a-z]/.test(code) ? code : "copy_failed";
+};
 const envelopeOf = (res: GatewayCallResponse): ResultEnvelope => (res.result && typeof res.result === "object" ? (res.result as ResultEnvelope) : {});
 const record = (v: unknown): Record<string, unknown> => (v && typeof v === "object" && !Array.isArray(v) ? (v as Record<string, unknown>) : {});
 /** The tool's own output: inside the untrusted envelope (`content`), or as it came. */
@@ -209,7 +227,11 @@ export function createPostMediaActivities(deps: OrchestratorDeps) {
       }
       const env = envelopeOf(res);
       const out = contentOf(env.data);
-      if (env.ok === false) return { status: "waiting" };
+      if (env.ok === false) {
+        if (clipCopyMayRetry(env.error)) return { status: "waiting" };
+        await fail(input.businessId, row, errorCodeOf(env.error));
+        return { status: "done", state: "failed" };
+      }
       if (isSimulated(env, out)) {
         await repos.postMedia.markSimulated(deps.db, input.businessId, row.id);
         return { status: "done", state: "simulated" };

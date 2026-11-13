@@ -164,6 +164,43 @@ describe("a post draft's media", () => {
     }
   });
 
+  it("a permanent copy failure ends after one download; only 429 and 5xx are looked up again", async () => {
+    await connect("runway");
+    /** Runs the workflow's lookups (at most 60) with a copy that always fails with `error`; returns how many were made. */
+    const lookupsUntilDone = async (error: { code: string; status: number; retryable?: boolean }) => {
+      const draft = await newDraft();
+      const g = fakeGateway({ ask: false });
+      const acts = withGateway({
+        ...g,
+        call: async (token, req) => (req.tool === "download_video" ? (g.calls.push(req), { outcome: "allow", result: { ok: false, error: { message: "x", ...error }, untrusted: false, costMinor: 0 } }) : g.call(token, req)),
+      });
+      const started = await acts.startPostMedia({ businessId: t.businessId, assetId: draft, kind: "video" });
+      if (started.status !== "making") throw new Error(`expected making, got ${started.status}`);
+      let last = { status: "waiting" } as Awaited<ReturnType<typeof acts.checkPostVideo>>;
+      for (let i = 0; i < 60 && last.status === "waiting"; i++) last = await acts.checkPostVideo({ businessId: t.businessId, mediaId: started.mediaId });
+      return { downloads: g.calls.filter((c) => c.tool === "download_video").length, last, row: await repos.postMedia.get(t.db, t.businessId, started.mediaId) };
+    };
+    for (const error of [
+      { code: "clip_too_large", status: 413 },
+      { code: "clip_host_not_allowed", status: 502 },
+      { code: "clip_not_video", status: 415 },
+      { code: "clip_redirected", status: 502 },
+      { code: "invalid_url", status: 502 },
+      { code: "blocked_address", status: 400 },
+    ]) {
+      const out = await lookupsUntilDone(error);
+      expect(out.downloads, error.code).toBe(1);
+      expect(out.last).toEqual({ status: "done", state: "failed" });
+      expect(out.row).toMatchObject({ state: "failed", errorCode: error.code });
+    }
+    for (const error of [{ code: "rate_limited", status: 429, retryable: true }, { code: "vendor_error", status: 504, retryable: true }, { code: "vendor_error", status: 503, retryable: true }]) {
+      const out = await lookupsUntilDone(error);
+      expect(out.downloads, `${error.status}`).toBe(60);
+      expect(out.last).toEqual({ status: "waiting" });
+      expect(out.row?.state).toBe("making");
+    }
+  });
+
   it("a declined OK sets the media aside; the post itself is untouched", async () => {
     await connect("runway");
     const draft = await newDraft();
