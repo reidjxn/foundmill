@@ -73,7 +73,7 @@ describe("page titles", () => {
     expect(title("/crm/e1/overview")).toBe("Overview · Contacts");
     expect(title("/milestones")).toBe("Milestones");
     expect(title("/journey/j1")).toBe("Customer Update");
-    expect(title("/settings/members")).toBe("Members · Settings");
+    expect(title("/settings/members")).toBe("People · Settings");
     expect(title("/settings/danger")).toBe("Danger zone · Settings");
     expect(title("/settings/nope")).toBe("Settings");
     expect(title("/d/finance/overview")).toBe("Overview · Finance");
@@ -90,7 +90,7 @@ describe("page titles", () => {
   });
 
   it("names settings sections, department tabs, agents and entities", () => {
-    expect(settingsTitle("members")).toBe("Members · Settings");
+    expect(settingsTitle("members")).toBe("People · Settings");
     expect(settingsTitle("danger")).toBe("Danger zone · Settings");
     // The glossary slug stays; the tab reads "Your words" (docs/UX_AUDIT_AND_PLAN.md §7.17).
     expect(settingsTitle("glossary")).toBe("Your words · Settings");

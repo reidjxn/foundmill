@@ -17,20 +17,21 @@ test.describe("settings, plain words", () => {
     await openBusiness(page);
   });
 
-  test("Members: the account id is one short line, roles are words, no developer notes", async ({ page }) => {
+  test("People: each person on one line with their role in words, no developer notes, and an invitation instead of the silent add", async ({ page }) => {
     const screen = await openSettings(page, "members");
     const list = screen.getByTestId("member-list");
     await expect(list).toBeVisible({ timeout: LONG });
-    await expect(list).toContainText(/Account [0-9a-f]{8}…[0-9a-f]{4}/);
+    await expect(list).toContainText(/(Owner|Cofounder|Admin|Member|Collaborator|Viewer|Advisor) · since [A-Z][a-z]{2} \d{1,2}, \d{4}/);
     await expect(screen).not.toContainText(/auth build|owner:|admin:/);
     await expect(list.getByRole("combobox").first()).toContainText(/^(Owner|Admin|Member|Viewer|Advisor)$/);
     // The founder's own row reads as a name with a "You" chip, never "You You".
     await expect(list).not.toContainText(/\bYou\s*You\b/);
-    // A co-founder is added by account ID or sign-in email; Add member waits for one of them (WEB-12).
-    await expect(screen.getByTestId("add-member")).toBeDisabled();
+    // Someone joins through an invitation they accept (THESIS 3.1): no "Add member" by account ID or sign-in email.
+    await expect(screen.getByTestId("add-member")).toHaveCount(0);
+    await expect(screen.getByTestId("invite-create")).toBeVisible();
   });
 
-  test("Members: removing someone asks first (MLSL-40)", async ({ page }) => {
+  test("People: removing someone asks first (MLSL-40)", async ({ page }) => {
     const screen = await openSettings(page, "members");
     const list = screen.getByTestId("member-list");
     await expect(list).toBeVisible({ timeout: LONG });

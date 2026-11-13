@@ -1,25 +1,49 @@
 /**
- * Settings › Members (WEB-12, MLSL-40): a co-founder is added by the account ID on their profile or by the email they
- * sign in with.
+ * Settings › People (THESIS_REVIEW 3.1, MLSL-40): someone joins through an invitation they accept; the silent add by
+ * account ID or sign-in email is gone. A cofounder invitation is an owner's or a cofounder's to make (3.3).
  */
 import { describe, expect, it } from "vitest";
-import { inviteTarget, memberLabel, shortId } from "../MembersTab";
+import { inviteEmailProblem, mayChangeRole, mayInvite, memberLabel, memberMeta, ROLE_ORDER, shortId } from "../MembersTab";
 
 const ID = "5a1e0000-0000-4000-8000-00000000fe01";
 
-describe("inviteTarget (WEB-12)", () => {
-  it("sends the account ID when one is typed, else the sign-in email", () => {
-    expect(inviteTarget(ID, "")).toEqual({ userId: ID });
-    expect(inviteTarget(` ${ID} `, "ada@northwind.example")).toEqual({ userId: ID, email: "ada@northwind.example" });
-    expect(inviteTarget("", " ada@northwind.example ")).toEqual({ email: "ada@northwind.example" });
+describe("inviting someone", () => {
+  it("a cofounder by an owner or a cofounder; a collaborator also by an admin; nobody else", () => {
+    expect(mayInvite("owner", "cofounder")).toBe(true);
+    expect(mayInvite("cofounder", "cofounder")).toBe(true);
+    expect(mayInvite("admin", "cofounder")).toBe(false);
+    expect(mayInvite("admin", "collaborator")).toBe(true);
+    for (const r of ["member", "collaborator", "viewer", "advisor"] as const) expect([mayInvite(r, "cofounder"), mayInvite(r, "collaborator")]).toEqual([false, false]);
   });
-  it("is null while neither is valid", () => {
-    expect(inviteTarget("", "")).toBeNull();
-    expect(inviteTarget("not-an-id", "ada@northwind.example")).toBeNull();
-    expect(inviteTarget("", "ada@")).toBeNull();
+  it("the address is optional, and checked only when typed", () => {
+    expect(inviteEmailProblem("")).toBeNull();
+    expect(inviteEmailProblem("  ")).toBeNull();
+    expect(inviteEmailProblem("ada@northwind.example")).toBeNull();
+    expect(inviteEmailProblem("ada@")).toMatch(/doesn't look like an email/);
   });
   it("shortens a long id for one line", () => {
     expect(shortId(ID)).toBe("5a1e0000…fe01");
+  });
+});
+
+describe("the people list (THESIS_REVIEW 3.3)", () => {
+  it("lists every role once, the founders first", () => {
+    expect(ROLE_ORDER).toEqual(["owner", "cofounder", "admin", "member", "collaborator", "viewer", "advisor"]);
+  });
+  it("only someone with an owner's standing changes a cofounder's or an admin's role; nobody their own; an owner's never from the list", () => {
+    expect(mayChangeRole("cofounder", "cofounder", false)).toBe(true);
+    expect(mayChangeRole("owner", "admin", false)).toBe(true);
+    expect(mayChangeRole("admin", "cofounder", false)).toBe(false);
+    expect(mayChangeRole("admin", "collaborator", false)).toBe(true);
+    expect(mayChangeRole("owner", "owner", false)).toBe(false);
+    expect(mayChangeRole("owner", "member", true)).toBe(false);
+  });
+  it("says when a collaborator's access ends, in US dates", () => {
+    const fmt = (d: Date | string) => new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", timeZone: "UTC" }).format(new Date(d));
+    const now = new Date("2026-11-13T12:00:00Z");
+    expect(memberMeta({ role: "collaborator", createdAt: "2026-11-01T12:00:00Z", expiresAt: "2026-11-27T12:00:00Z" }, fmt, now)).toBe("Collaborator · since Nov 1 · until Nov 27");
+    expect(memberMeta({ role: "collaborator", createdAt: "2026-11-01T12:00:00Z", expiresAt: "2026-11-03T12:00:00Z" }, fmt, now)).toBe("Collaborator · since Nov 1 · access ended Nov 3");
+    expect(memberMeta({ role: "cofounder", createdAt: "2026-11-01T12:00:00Z", expiresAt: null }, fmt, now)).toBe("Cofounder · since Nov 1");
   });
 });
 

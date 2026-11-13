@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { LIMITS } from "@foundmill/config";
 import { TRPCClientError } from "@trpc/client";
-import { apiTrpcUrl, appErrorCode, createApiLinks, createUntypedApiClient, errorMessage, fetchWithTimeout, fieldConflictOf, forbiddenMessage, isNotInvited, NO_ACCESS_PREFIX, isStreamingOperation, notInvitedReason, RATE_LIMITED_MESSAGE, REQUEST_TIMEOUT_MESSAGE, resolveBearer, STREAMING_PROCEDURES, tierLimitOf, trpcErrorCode, trpcPathPrefix, trpcQueryKey } from "../trpc";
+import { apiTrpcUrl, appErrorCode, createApiLinks, createUntypedApiClient, errorMessage, fetchWithTimeout, fieldConflictOf, forbiddenMessage, isNotInvited, isOnWaitlist, NO_ACCESS_PREFIX, isStreamingOperation, notInvitedReason, RATE_LIMITED_MESSAGE, REQUEST_TIMEOUT_MESSAGE, resolveBearer, STREAMING_PROCEDURES, tierLimitOf, trpcErrorCode, trpcPathPrefix, trpcQueryKey } from "../trpc";
 import { makeQueryClient } from "../query-client";
 import { routersToInvalidate, withBusiness } from "../widget-data";
 
@@ -72,8 +72,8 @@ describe("trpc helpers", () => {
     expect(errorMessage(refused("You do not have write access to legal"))).toBe("You can read Legal but not change it. Ask an owner or admin for write access.");
     expect(errorMessage(refused("Your role (viewer) cannot perform changes"))).toBe("As a viewer you can follow this business, but not change it.");
     expect(errorMessage(refused("Your role (advisor) cannot perform changes"))).toBe("As an advisor you can follow this business, but not change it.");
-    expect(errorMessage(refused("Your role (member) cannot perform administration"))).toBe("Only an owner or admin can do this.");
-    expect(errorMessage(refused("Your role (admin) cannot perform owner actions"))).toBe("Only the owner can do this.");
+    expect(errorMessage(refused("Your role (member) cannot perform administration"))).toBe("Only an owner, a cofounder or an admin can do this.");
+    expect(errorMessage(refused("Your role (admin) cannot perform owner actions"))).toBe("Only an owner or a cofounder can do this.");
     // The plan refusal already explains itself in words; a sentence the API wrote is kept.
     expect(forbiddenMessage("You do not have write access to finance and legal, and this plan would pay a bill. Someone with that access can decide it.")).toContain("Someone with that access can decide it.");
     expect(errorMessage(refused("You are not a member of this business"))).toBe("You are not a member of this business");
@@ -95,6 +95,14 @@ describe("trpc helpers", () => {
     expect(notInvitedReason(err({ reason: "not_listed" }))).toBe("not_listed");
     expect(notInvitedReason(err())).toBe("not_listed");
     expect(notInvitedReason(new Error("x"))).toBe("not_listed");
+  });
+
+  it("tells the on_waitlist refusal from not_invited (services/access.ts: a refusal of its own)", () => {
+    const err = (appCode: string) => new TRPCClientError("x", { result: { error: { code: -32003, message: "x", data: { code: "FORBIDDEN", httpStatus: 403, appCode, details: { reason: "ceiling" } } } } } as never);
+    expect(isOnWaitlist(err("on_waitlist"))).toBe(true);
+    expect(isNotInvited(err("on_waitlist"))).toBe(false);
+    expect(isOnWaitlist(err("not_invited"))).toBe(false);
+    expect(isOnWaitlist(new Error("on_waitlist"))).toBe(false);
   });
 
   it("never retries a malformed input, which is refused the same way every time (audit WEB-14)", () => {

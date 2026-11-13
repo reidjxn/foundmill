@@ -6,3 +6,6 @@ export * from "./public/ProjectStory";
 export * from "./public/MilestoneCard";
 // A person's own public profile (package 2.3) at /u/<handle>.
 export * from "./public/PersonPage";
+// An invitation to a project at /i/<token> (docs/NETWORK.md F5), and "You're on the list." (the api's `on_waitlist`).
+export * from "./public/InvitationCard";
+export * from "./public/OnWaitlistCard";
