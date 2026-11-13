@@ -143,7 +143,8 @@ describe("team.agents (W19)", () => {
     const hired = (await owner.team.agents.list({ businessId })).agents.find((x) => x.id === agent.id)!;
     const version = await repos.agents.getVersion(hz.db, businessId, hired.currentVersionId!);
     expect(hired.tools).toEqual(version.tools);
-    // The social agent holds the founder-own-key video and voiceover tools since #109 (both ask first).
+    // The social template also grants the two media connectors on the founder's own key (built, so they resolve):
+    // they ask first and say "not connected" until the founder connects them.
     expect(hired.tools.map((t) => t.connectorKey)).toEqual(["platform", "quarantine", "runway", "elevenlabs_voice"]);
   });
 
