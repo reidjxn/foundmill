@@ -779,6 +779,7 @@ export function createSessionActivities(deps: OrchestratorDeps) {
         sandboxMode: mode,
         fellBackFrom,
         modelKey: model.modelKey,
+        lowCredits: model.lowCredits === true,
         modelId: model.modelId,
         recordingKey,
         allowedTools: grants.toolRefs,
@@ -804,7 +805,7 @@ export function createSessionActivities(deps: OrchestratorDeps) {
       const { agent, task, business, version, template, skills } = await loadContext(input);
       // The credit saver's keep rule, checked again against the tools this run will hold (the token is minted from the
       // agent's current tools, which may have changed since `prepareSession`): high-stakes tools go back to the usual model.
-      const kept = keptModelForRun(launched.modelKey, { route: template.route, agentModel: agent.modelKey, module: template.module, toolRefs: resolveGrants(parseGrants(version, template)).toolRefs });
+      const kept = keptModelForRun(launched, { route: template.route, agentModel: agent.modelKey, module: template.module, toolRefs: resolveGrants(parseGrants(version, template)).toolRefs });
       const launch: SessionLaunch = kept ? { ...launched, modelKey: kept.modelKey, modelId: kept.modelId } : launched;
       const startedAtMs = deps.clock.nowMs();
       const recorder = new SessionRecorder(deps, { input, launch, task, agent, startedAtMs, run });

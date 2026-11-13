@@ -6,6 +6,7 @@
  */
 import { lowCreditsThresholdMinor, includedCreditsMinor } from "@foundmill/config";
 import { periodOf, repos, resumeBusinessAgents, stopBusinessAgents } from "@foundmill/db";
+import { readSessionEvents } from "@foundmill/events";
 import { MockModelClient, type UsageEvent } from "@foundmill/models";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { createSessionActivities } from "../activities/session";
@@ -120,11 +121,49 @@ describe("every run checks the keep rule again (security review, finding 1)", ()
 
   it("keptModelForRun moves a run up only when its tools keep it, never down", () => {
     const run = { route: "worker" as const, agentModel: "sonnet" as const, module: "development" as const };
-    expect(keptModelForRun("haiku", { ...run, toolRefs: ["platform_mail:send_mail"] })?.modelKey).toBe("sonnet");
-    expect(keptModelForRun("haiku", { ...run, toolRefs: ["github:merge_pr"] })?.modelKey).toBe("sonnet");
-    expect(keptModelForRun("haiku", { ...run, toolRefs: ["github:read_tree"] })).toBeNull();
-    expect(keptModelForRun("sonnet", { ...run, toolRefs: ["platform_mail:send_mail"] })).toBeNull();
-    expect(keptModelForRun("opus", { ...run, toolRefs: ["platform_mail:send_mail"] })).toBeNull();
+    const low = (modelKey: "haiku" | "sonnet" | "opus") => ({ modelKey, lowCredits: true });
+    expect(keptModelForRun(low("haiku"), { ...run, toolRefs: ["platform_mail:send_mail"] })?.modelKey).toBe("sonnet");
+    expect(keptModelForRun(low("haiku"), { ...run, toolRefs: ["github:merge_pr"] })?.modelKey).toBe("sonnet");
+    expect(keptModelForRun(low("haiku"), { ...run, toolRefs: ["github:read_tree"] })).toBeNull();
+    expect(keptModelForRun(low("sonnet"), { ...run, toolRefs: ["platform_mail:send_mail"] })).toBeNull();
+    expect(keptModelForRun(low("opus"), { ...run, toolRefs: ["platform_mail:send_mail"] })).toBeNull();
+    // A launch prepared before the field existed is compared as before.
+    expect(keptModelForRun({ modelKey: "haiku" }, { ...run, toolRefs: ["platform_mail:send_mail"] })?.modelKey).toBe("sonnet");
+  });
+
+  it("a launch the credit saver did not lower is never moved by it, even when the founder raised the agent's model mid-session", async () => {
+    await setBalance(LINE + 200);
+    const sessionId = await openSessionRow(t, t.workerId, t.codeTaskId);
+    const input = { businessId: B(), agentId: t.workerId, taskId: t.codeTaskId, sessionId };
+    const acts = createSessionActivities(t.deps);
+    const launch = await acts.prepareSession(input);
+    expect(launch).toMatchObject({ modelKey: "sonnet", lowCredits: false });
+    // The agent holds an outward tool and the founder moves it to Opus while the session waits.
+    const agent = await repos.agents.get(t.db, B(), t.workerId);
+    const before = agent.currentVersionId!;
+    const current = await repos.agents.getVersion(t.db, B(), before);
+    const outward = await repos.agents.createVersion(t.db, B(), t.workerId, { instructions: current.instructions as never, tools: [...(current.tools as unknown[]), { connectorKey: "platform_mail", tools: ["mail.send"] }], state: "live" });
+    await repos.agents.promoteVersion(t.db, B(), t.workerId, outward.id, { keepAgentModel: true });
+    await repos.agents.update(t.db, B(), t.workerId, { modelKey: "opus" });
+    try {
+      await stopBusinessAgents(t.db, B(), { reason: "kill_switch" });
+      const result = await acts.runAgentSession(input, launch, null, null);
+      expect(result.outcome).toBe("stopped");
+      // No credit-saver move, and no note blaming the tools for low credits.
+      expect(result.modelKey).toBeUndefined();
+      const notes = (await readSessionEvents(t.redis, sessionId)).map((e) => JSON.stringify(e));
+      expect(notes.some((n) => n.includes("even though credits are low"))).toBe(false);
+    } finally {
+      await resumeBusinessAgents(t.db, B());
+      await repos.agents.update(t.db, B(), t.workerId, { modelKey: "sonnet" });
+      await repos.agents.promoteVersion(t.db, B(), t.workerId, before, { keepAgentModel: true });
+    }
+  });
+
+  it("a launch the credit saver lowered says so", async () => {
+    await setBalance(LINE - 1);
+    const sessionId = await openSessionRow(t, t.workerId, t.codeTaskId);
+    expect(await createSessionActivities(t.deps).prepareSession({ businessId: B(), agentId: t.workerId, taskId: t.codeTaskId, sessionId })).toMatchObject({ modelKey: "haiku", lowCredits: true });
   });
 });
 

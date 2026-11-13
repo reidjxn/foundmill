@@ -40,11 +40,16 @@ const MODEL_RANK: Record<ModelKey, number> = { haiku: 0, sonnet: 1, opus: 2 };
  * mints its token from them. So each run checks again: when the tools it will hold now keep the session's model
  * (`sessionKeepsModelOnLowCredits`) and the launch was moved below the route's usual model, the run goes back up to
  * the usual model. A run is never moved down here (a launch on its usual model stays on it).
+ *
+ * Only a launch the credit saver moved down (`launch.lowCredits`) is moved back up: a launch below the agent's model for
+ * any other reason (the founder raised the agent's model mid-session) keeps it, as runs did before the saver. A launch
+ * prepared before `lowCredits` existed (the field absent) is compared as before.
  */
-export function keptModelForRun(launchModel: ModelKey, run: { route: RouteKey; agentModel: ModelKey; module: ModuleKey | null; toolRefs: readonly string[] }): RouteResolution | null {
+export function keptModelForRun(launch: { modelKey: ModelKey; lowCredits?: boolean }, run: { route: RouteKey; agentModel: ModelKey; module: ModuleKey | null; toolRefs: readonly string[] }): RouteResolution | null {
+  if (launch.lowCredits === false) return null;
   if (!sessionKeepsModelOnLowCredits(run)) return null;
   const usual = resolveModel(run.route, run.agentModel);
-  return MODEL_RANK[launchModel] < MODEL_RANK[usual.modelKey] ? usual : null;
+  return MODEL_RANK[launch.modelKey] < MODEL_RANK[usual.modelKey] ? usual : null;
 }
 
 /** How often a running session books its spend and re-reads the balance between turns. */
