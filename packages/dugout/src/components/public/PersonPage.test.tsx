@@ -60,10 +60,10 @@ describe("PersonPage", () => {
     expect(screen.getByRole("heading", { level: 1, name: "Sam" })).toBeTruthy();
   });
 
-  it("links home with the product's name and carries no form or contact button", () => {
+  it("carries no mark of the product, no footer, and no form or contact button", () => {
     render(<PersonPage {...props} lookingFor="looking_for_cofounder" />);
-    const link = screen.getByRole("link", { name: `Made with ${APP_NAME}` });
-    expect(link.getAttribute("href")).toBe("/");
+    expect(document.querySelector("footer")).toBeNull();
+    expect(document.body.textContent).not.toContain(APP_NAME);
     expect(document.querySelector("form, input, button, textarea")).toBeNull();
   });
 

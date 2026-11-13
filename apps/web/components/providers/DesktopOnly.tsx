@@ -23,6 +23,7 @@ import { NeedsLargerWindow, isViewportTooSmall, useViewportWidth } from "@foundm
 export const SMALL_SCREEN_PREFIXES: readonly string[] = [
   "/p/",
   "/u/",
+  "/m/",
   "/login",
   "/home",
   "/a/",

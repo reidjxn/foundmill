@@ -207,9 +207,13 @@ describe("schedule activities on PGlite", () => {
     expect(await mine()).toEqual(["print"]);
     await repos.integrations.upsert(t.db, t.businessId, { connectorKey: "github", status: "connected", authKind: "app" });
     expect(await mine()).toEqual(["print", "seo"]);
+    // Tap-to-post (founder, 2026-11-12): social is available and on the board, and the founder posts it. No engine is
+    // ever ensured for it, so the reconciler does not start one every 15 minutes for the engine to stop at once.
+    const social = await repos.channels.upsert(t.db, t.businessId, { channelKey: "social", line: "midfield", enabled: true, kitMode: false });
+    expect(await mine()).toEqual(["print", "seo"]);
     // In test (and development) nothing is left out.
     const all = (await acts.listEnginesToEnsure()).channels.filter((c) => c.businessId === t.businessId).map((c) => c.channelId);
-    expect(all).toEqual(expect.arrayContaining([t.fixture.channelId, print.id, seo.id]));
+    expect(all).toEqual(expect.arrayContaining([t.fixture.channelId, print.id, seo.id, social.id]));
   });
 
   it("purges CRM records whose deletion came due and records it on the audit chain", async () => {

@@ -3,7 +3,7 @@
  * `/u/<handle>`, signed out, from 390 px. The same component draws the edit screen's live preview at phone width, so
  * the person sees exactly what goes out. The same family as `ProjectPage`: dark like the product, a line along the top
  * (Foundmill's accent: a person has no brand colors of their own), the reading measure, a container query at
- * `--container-page-wide` so the preview lays it out as a phone does, and "Made with Foundmill" as the footer.
+ * `--container-page-wide` so the preview lays it out as a phone does,. It carries no mark of the product at all (founder, 2026-11-12): the mark belongs to what a person builds, a project's page on the free plan, never to the person.
  *
  * An initials avatar (no picture yet), the name as the headline, then the person's own headline, the place, one line
  * for what they are here for only when it is about people (`lookingForLine`; "Building on my own" shows nothing at
@@ -15,7 +15,6 @@
  */
 import { useId, type HTMLAttributes } from "react";
 import { ArrowUpRight, Handshake, MapPin } from "lucide-react";
-import { APP_NAME } from "@foundmill/config";
 import { lookingForLine, type PersonLookingFor } from "@foundmill/shared/person-profile";
 import { pageParagraphs } from "@foundmill/shared/project-page";
 import { cn } from "../../lib/cn";
@@ -49,8 +48,6 @@ export interface PersonPageProps extends Omit<HTMLAttributes<HTMLElement>, "chil
   place?: string | null;
   /** The person's public project pages. */
   projects?: readonly PersonPageProject[] | null;
-  /** Where "Made with Foundmill" goes. Default the site root. */
-  homeHref?: string;
   /** "page" fills the window (the public route); "preview" sits inside a frame (the edit screen). */
   variant?: "page" | "preview";
 }
@@ -62,12 +59,11 @@ export const PERSON_PAGE_WORDS = {
   wantsToLearn: "Wants to learn",
   projects: "Projects",
   place: "Based in",
-  madeWith: `Made with ${APP_NAME}`,
 } as const;
 
 const clean = (tags: readonly string[] | null | undefined): string[] => (tags ?? []).map((t) => t.trim()).filter(Boolean);
 
-export function PersonPage({ name, headline, about, strengths, wantsToLearn, lookingFor, place, projects, homeHref = "/", variant = "page", className, ...rest }: PersonPageProps) {
+export function PersonPage({ name, headline, about, strengths, wantsToLearn, lookingFor, place, projects, variant = "page", className, ...rest }: PersonPageProps) {
   const paragraphs = pageParagraphs(about ?? "");
   const good = clean(strengths);
   const learn = clean(wantsToLearn);
@@ -177,13 +173,6 @@ export function PersonPage({ name, headline, about, strengths, wantsToLearn, loo
           </section>
         ) : null}
       </div>
-      <footer className="border-t border-line">
-        <div className="mx-auto flex w-full max-w-reading px-gutter">
-          <a href={homeHref} className="t-action inline-flex min-h-tap items-center rounded-sm text-secondary transition-colors duration-hover hover:text-primary focus-ring" data-person-made-with="">
-            {PERSON_PAGE_WORDS.madeWith}
-          </a>
-        </div>
-      </footer>
     </article>
   );
 }

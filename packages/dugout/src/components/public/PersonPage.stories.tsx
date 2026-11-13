@@ -14,7 +14,7 @@ const meta = {
     docs: {
       description: {
         component:
-          "A person's public profile at `/u/<handle>` (docs/THESIS_REVIEW.md package 2.3): an initials avatar, the name, the headline, the place, one line about people only when the person chose one (“Building on my own” shows nothing), about in the reading measure, “Good at” and “Wants to learn” chips, the person's public project pages as cards, and “Made with Foundmill”. Plain text only, every string a text node. Server-safe.",
+          "A person's public profile at `/u/<handle>` (docs/THESIS_REVIEW.md package 2.3): an initials avatar, the name, the headline, the place, one line about people only when the person chose one (“Building on my own” shows nothing), about in the reading measure, “Good at” and “Wants to learn” chips, and the person's public project pages as cards. No mark of the product: that belongs to a project's page, never to a person. Plain text only, every string a text node. Server-safe.",
       },
     },
   },

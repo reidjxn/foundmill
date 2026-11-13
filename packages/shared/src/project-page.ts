@@ -293,6 +293,29 @@ export const FOLLOW_SOURCE_LABEL = "Public page";
 export const FOLLOW_CONSENT_PURPOSE = "email";
 /** Longest address the form takes: the CRM's name limit (a follower's address is its identifier and, masked, its name). */
 export const FOLLOW_EMAIL_MAX = 200;
+/**
+ * The mark a free project's visitors meet (docs/NETWORK.md F2; founder, 2026-11-12): small and unobtrusive, placed on
+ * the visitor's path (the page's foot, the line after a follow, the foot of the confirmation email and page, a corner
+ * of the share image) and kept off the founder's. `appName` is APP_NAME. A paid plan shows none of it
+ * (`tierShowsBuiltOnMark` in @foundmill/config).
+ */
+export function builtOnWords(appName: string) {
+  return {
+    /** The mark itself: "Built on Foundmill". */
+    mark: `Built on ${appName}`,
+    /** Under "Check your email to confirm", for the visitor who just followed. */
+    afterFollow: (name: string) => `${oneLine(name)} is built on ${appName}.`,
+    /** The link after that sentence. */
+    afterFollowLink: "Start your own",
+    /** The same link once the project shows a story (`/p/<slug>/story`): it goes there instead (docs/NETWORK.md F2). */
+    afterFollowStoryLink: "See how it was made",
+    /** The foot of the confirmation email and of the page its link opens. */
+    foot: (name: string) => `${oneLine(name)} is built on ${appName}.`,
+    /** Beside the console's preview, for the founders of a project on the free plan. */
+    previewNote: "The small line at the foot is removed on a paid plan.",
+  } as const;
+}
+
 /** How long the link in the confirmation email works. */
 export const FOLLOW_CONFIRM_TTL_MS = 7 * 24 * 60 * 60_000;
 
@@ -370,9 +393,11 @@ export function followerDisplayName(email: string): string {
  */
 export const FOLLOW_CONFIRM_EMAIL = {
   subject: (name: string) => `Confirm that you want to follow ${oneLine(name)}`,
-  text: (name: string, appName: string, link: string) => {
+  /** `foot` is the "Built on" line for a project on the free plan (`builtOnWords().foot`): words only, never a second link. */
+  text: (name: string, appName: string, link: string, foot?: string | null) => {
     const n = oneLine(name);
-    return `Someone, hopefully you, asked to follow ${n} on ${appName} with this address. Confirm to get email from ${n} about this project:\n\n${link}\n\nIf it was not you, ignore this email and nothing will happen.`;
+    const body = `Someone, hopefully you, asked to follow ${n} on ${appName} with this address. Confirm to get email from ${n} about this project:\n\n${link}\n\nIf it was not you, ignore this email and nothing will happen.`;
+    return foot ? `${body}\n\n${oneLine(foot)}` : body;
   },
 } as const;
 

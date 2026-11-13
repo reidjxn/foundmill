@@ -4,10 +4,15 @@
  * visitor); no client role writes; the queue is the services' alone; the database refuses a payload that carries an
  * account id (in any common spelling), an actor that is a second party and any rewrite; an account-scoped type is
  * never a row of a business's `events`, and only such a type is a row here; the rows go with the account.
+ *
+ * The list of account-scoped types is `fm_account_event_types()`: defined by 0085 and redefined by every migration
+ * that adds a type (0088: `signup.attributed`, `referral.arrived`). It is held equal to `ACCOUNT_EVENT_TYPES` twice
+ * here: as the migrated database answers it, and as the latest migration that defines it spells it.
  */
 import { ACCOUNT_EVENT_TYPES } from "@foundmill/shared";
 import { getTableColumns, sql } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { readMigrations } from "../../migrations";
 import { repos } from "../../repos";
 import { EXPORT_EXCLUDED_TABLES, EXPORT_TABLES } from "../../repos/portability";
 import * as s from "../../schema";
@@ -43,6 +48,22 @@ async function write(userId: string, type: string, payload: Record<string, unkno
 }
 
 const truth = async <T>(q: ReturnType<typeof sql>) => ((await h.db.execute(q)) as unknown as { rows: T[] }).rows;
+
+/**
+ * Every definition of `fm_account_event_types()` among the migrations, in the order they run: the migration, the
+ * attributes it states between the signature and the body, and the list it returns.
+ */
+function accountTypeDefinitions(): { tag: string; replaces: boolean; attributes: string; types: string[] }[] {
+  const definition = /create (or replace )?function fm_account_event_types\(\) returns text\[\]\s+([^$]*?)\s+as \$\$\s*select array\[([^\]]*)\]::text\[\]\s*\$\$;/g;
+  return readMigrations().flatMap((m) =>
+    [...m.sql.matchAll(definition)].map((found) => ({
+      tag: m.tag,
+      replaces: found[1] !== undefined,
+      attributes: found[2]!.replace(/\s+/g, " "),
+      types: [...found[3]!.matchAll(/'([^']*)'/g)].map((t) => t[1]!),
+    })),
+  );
+}
 /** A statement on the owner connection (every privilege, no RLS), failing with Postgres's own message. */
 const asOwner = (q: ReturnType<typeof sql>) => h.db.execute(q).catch((err: unknown) => Promise.reject(unwrapDbError(err)));
 
@@ -334,11 +355,82 @@ describe("account_events: lifecycle", () => {
     const [row] = await truth<{ types: string[] }>(sql`select fm_account_event_types() as types`);
     // A type added to ACCOUNT_EVENT_TYPES without the migration that redefines the function fails here.
     expect([...row!.types].sort()).toEqual([...ACCOUNT_EVENT_TYPES].sort());
+    // The same list in the same order, so a type is only ever appended.
+    expect(row!.types).toEqual([...ACCOUNT_EVENT_TYPES]);
     const checks = await truth<{ table_name: string; conname: string; definition: string }>(sql`
       select conrelid::regclass::text as table_name, conname, pg_get_constraintdef(oid) as definition from pg_constraint
        where conname in ('events_not_account_scoped', 'account_events_type_account_scoped') order by 1`);
     expect(checks.map((c) => [c.table_name, c.conname])).toEqual([["account_events", "account_events_type_account_scoped"], ["events", "events_not_account_scoped"]]);
     for (const c of checks) expect(c.definition, c.conname).toContain("fm_account_event_types()");
+  });
+
+  it("the latest definition among the migrations is the shared vocabulary's, and every redefinition only appends and keeps the attributes", async () => {
+    const definitions = accountTypeDefinitions();
+    // 0085 creates it; every later one replaces it. Not pinned to a count: the next account-scoped type adds one.
+    expect(definitions.length).toBeGreaterThanOrEqual(2);
+    expect(definitions.map((d) => d.replaces)).toEqual([false, ...definitions.slice(1).map(() => true)]);
+    expect(definitions[0]!.tag).toBe("0085_account_events");
+    expect(definitions[0]!.types).toEqual(["profile.published", "profile.unpublished"]);
+    // The latest one, whichever migration it is in, is `ACCOUNT_EVENT_TYPES`, in order.
+    const latest = definitions.at(-1)!;
+    expect(latest.types).toEqual([...ACCOUNT_EVENT_TYPES]);
+    expect(latest.types).toEqual(expect.arrayContaining(["signup.attributed", "referral.arrived"]));
+    for (const [i, d] of definitions.entries()) {
+      expect(new Set(d.types).size, d.tag).toBe(d.types.length);
+      // `create or replace` resets what it does not state: language, volatility, parallel safety and the search path
+      // are restated exactly as 0085 has them.
+      expect(d.attributes, d.tag).toBe("language sql immutable parallel safe set search_path = ''");
+      // Append only: each list starts with the one before it.
+      if (i > 0) expect(d.types.slice(0, definitions[i - 1]!.types.length), d.tag).toEqual(definitions[i - 1]!.types);
+    }
+    // No migration defines it in a spelling the reader above does not see (a second function, another signature).
+    const mentions = readMigrations().flatMap((m) => [...m.sql.matchAll(/^\s*create\b[^;]*?\bfunction\s+fm_account_event_types\b/gim)].map(() => m.tag));
+    expect(mentions).toEqual(definitions.map((d) => d.tag));
+    // And the migrated database holds one function of that name, with those attributes and 0085's grants.
+    const live = await truth<{ volatility: string; parallel: string; definer: boolean; config: string[] | null; lang: string; args: number; anon: boolean; authenticated: boolean; service: boolean; everyone: boolean }>(sql`
+      select p.provolatile::text as volatility, p.proparallel::text as parallel, p.prosecdef as definer, p.proconfig as config, l.lanname as lang, p.pronargs::int as args,
+             has_function_privilege('anon', p.oid, 'execute') as anon,
+             has_function_privilege('authenticated', p.oid, 'execute') as authenticated,
+             has_function_privilege('service_role', p.oid, 'execute') as service,
+             exists (select 1 from aclexplode(p.proacl) a where a.grantee = 0) as everyone
+        from pg_proc p join pg_language l on l.oid = p.prolang
+       where p.proname = 'fm_account_event_types'`);
+    expect(live).toEqual([{ volatility: "i", parallel: "s", definer: false, config: ['search_path=""'], lang: "sql", args: 0, anon: false, authenticated: true, service: true, everyone: false }]);
+  });
+
+  it("account_events takes the two attribution types, each in its own person's rows, and still nothing else", async () => {
+    const kim = await h.createUser("kim-account-events@test.local");
+    const lou = await h.createUser("lou-account-events@test.local");
+    // One sign-up, two people: the new person's row and the credited person's, both by the system, both a public address.
+    const arrived = await write(kim, "signup.attributed", { sourceKind: "project_page", sourceRef: "bread-by-bike" }, { actor: { kind: "system", id: "attribution" }, key: "attribution:1:signup" });
+    const credited = await write(lou, "referral.arrived", { sourceKind: "project_page", sourceRef: "bread-by-bike" }, { actor: { kind: "system", id: "attribution" }, key: "attribution:1:referral" });
+    expect((await h.asUser(kim).run((tx) => tx.select(mine).from(s.accountEvents))).map((r) => [r.id, r.type, r.payload])).toEqual([[arrived.eventId, "signup.attributed", { sourceKind: "project_page", sourceRef: "bread-by-bike" }]]);
+    expect((await h.asUser(lou).run((tx) => tx.select(mine).from(s.accountEvents))).map((r) => [r.id, r.type, r.payload])).toEqual([[credited.eventId, "referral.arrived", { sourceKind: "project_page", sourceRef: "bread-by-bike" }]]);
+    // Neither reads the other's row, by its id or by the other's account; a third account and a visitor read neither.
+    expect(await h.asUser(kim).execute(sql`select id from account_events where id = ${credited.eventId}::uuid or user_id = ${lou}::uuid`)).toEqual([]);
+    expect(await h.asUser(lou).execute(sql`select id from account_events where id = ${arrived.eventId}::uuid or user_id = ${kim}::uuid`)).toEqual([]);
+    expect(await h.asUser(cy).execute(sql`select id from account_events where id in (${arrived.eventId}::uuid, ${credited.eventId}::uuid)`)).toEqual([]);
+    await expect(h.anon().execute(sql`select id from account_events where id = ${arrived.eventId}::uuid`)).rejects.toThrow(DENIED);
+    // The guard holds for these types as for any: the credited person's row can never carry the new person's account id.
+    await expect(write(lou, "referral.arrived", { sourceKind: "project_page", sourceRef: "bread-by-bike", who: kim }, { actor: { kind: "system", id: "attribution" } })).rejects.toThrow(/never names a person by their account id/);
+    await expect(write(lou, "referral.arrived", { sourceKind: "project_page", sourceRef: kim.replace(/-/g, "") }, { actor: { kind: "system", id: "attribution" } })).rejects.toThrow(/never names a person by their account id/);
+    await expect(write(lou, "referral.arrived", { sourceKind: "project_page", sourceRef: "bread-by-bike" }, { actor: { kind: "user", id: kim } })).rejects.toThrow(/account_events_actor_own/);
+    // A name near the new ones is not one of them.
+    for (const type of ["signup.created", "referral.credited", "signup.attributed ", "Referral.Arrived", "referral"]) {
+      await expect(write(kim, type, { sourceKind: "project_page", sourceRef: "bread-by-bike" }), type).rejects.toThrow(/account_events_type_account_scoped/);
+    }
+  });
+
+  it("a member of a business cannot put signup.attributed or referral.arrived into the business's events", async () => {
+    // Named here as well as in the loop below, so the two attribution types cannot drop out of it unnoticed.
+    expect([...ACCOUNT_EVENT_TYPES]).toEqual(expect.arrayContaining(["signup.attributed", "referral.arrived"]));
+    for (const type of ["signup.attributed", "referral.arrived"]) {
+      const insert = sql`insert into events (business_id, type, actor, payload) values (${A.businessId}::uuid, ${type}, ${JSON.stringify({ kind: "user", id: A.memberId })}::jsonb, '{"sourceKind":"project_page","sourceRef":"forged"}'::jsonb)`;
+      for (const writer of [A.memberId, A.adminId, A.ownerId]) await expect(h.asUser(writer).execute(insert), `${type} as ${writer}`).rejects.toThrow(/events_not_account_scoped/);
+      await expect(h.service().execute(insert), `${type} as service_role`).rejects.toThrow(/events_not_account_scoped/);
+      await expect(asOwner(insert), `${type} on the owner connection`).rejects.toThrow(/events_not_account_scoped/);
+    }
+    expect(await truth<{ n: number }>(sql`select count(*)::int as n from events where type in ('signup.attributed', 'referral.arrived')`)).toEqual([{ n: 0 }]);
   });
 
   it("the business events table refuses an account-scoped type, whoever writes: a member, an owner, the service role, the owner connection", async () => {

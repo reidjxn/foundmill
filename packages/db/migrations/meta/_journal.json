@@ -533,6 +533,27 @@
       "when": 1796128500000,
       "tag": "0087_client_grants",
       "breakpoints": true
+    },
+    {
+      "idx": 76,
+      "version": "7",
+      "when": 1796128560000,
+      "tag": "0088_attributions",
+      "breakpoints": true
+    },
+    {
+      "idx": 77,
+      "version": "7",
+      "when": 1796128620000,
+      "tag": "0089_public_milestones",
+      "breakpoints": true
+    },
+    {
+      "idx": 78,
+      "version": "7",
+      "when": 1796128680000,
+      "tag": "0090_page_dates_recorded",
+      "breakpoints": true
     }
   ]
 }

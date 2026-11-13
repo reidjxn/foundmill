@@ -14,7 +14,8 @@
  *   business, and screens the text with the deterministic checks of `community-screen` (markup and script links, email
  *   addresses, phone numbers). A held page stays unpublished and the answer says why in one plain sentence
  *   (`PAGE_HOLD_MESSAGES`). No model is called anywhere here. Each change writes its event through the outbox and an
- *   audit row in the same transaction.
+ *   audit row in the same transaction. The first publish also records the milestone "Page live" in that transaction
+ *   (`awardPageLiveMilestone`, at the page's `published_at`; publishing changes later awards nothing new).
  * - **The public read** (`publicPageBySlug`): the view `public_project_pages` on the service connection (since 0081 the
  *   view is the service role's only), so only its columns leave, plus the logo of a page the view lists. Limited per
  *   caller, then per address and across all of them; a lookup that finds nothing gives those back and draws from a
@@ -27,8 +28,9 @@
  *   email. `page.followed` is written when the person confirms (ingest `/mail/confirm`), not here.
  */
 import { communityScreenLocalFlags } from "@foundmill/agents";
+import { tierShowsBuiltOnMark } from "@foundmill/config";
 import { createHash, createHmac, randomBytes } from "node:crypto";
-import { repos, type DbTx, type InboxItem, type ProjectPage } from "@foundmill/db";
+import { awardPageLiveMilestone, repos, type DbTx, type InboxItem, type ProjectPage } from "@foundmill/db";
 import {
   AppError,
   FOLLOW_ERRORS,
@@ -61,6 +63,7 @@ import { audit, emit, type BusinessContext } from "../trpc";
 import type { Context } from "../context";
 import { answerNote } from "./answer-note";
 import type { DecideItemResult } from "./decide";
+import { queuePostDraft } from "./post-drafts";
 import { takeOrThrow } from "./rate-limit";
 
 /** What the console's Public page tab reads (`page.get`) and every change answers. */
@@ -91,6 +94,8 @@ export interface PageView {
   preview: { name: string; brandPrimary: string; brandSecondary: string; founderNames: string[] };
   /** How many people follow the page now (package 1.6): a count only, never who. */
   followers: number;
+  /** Whether the page carries the small "Built on" mark for its visitors (the free plan; docs/NETWORK.md F2). */
+  mark: boolean;
 }
 
 /** `page.publish`'s answer: published, or held with the reason and its sentence (the page stays as it was). */
@@ -144,6 +149,7 @@ async function viewOf(tx: DbTx, ctx: BusinessContext, row: ProjectPage | null, s
     isSample: ctx.business.isDemo,
     preview: { name: ctx.business.name, brandPrimary: ctx.business.kitPrimary, brandSecondary: ctx.business.kitSecondary, founderNames },
     followers,
+    mark: tierShowsBuiltOnMark(ctx.business.planTier),
   };
 }
 
@@ -224,15 +230,23 @@ export async function publishPage(ctx: BusinessContext, input: { content: PageCo
     });
     return { outcome: "held", reason, message: PAGE_HOLD_MESSAGES[reason], page };
   }
+  let wentLive = false;
   const page = await ctx.rls(async (tx) => {
     const { page: row, wasLive } = await repos.pages.publish(tx, ctx.businessId, { content, slug, userId: ctx.userId });
+    wentLive = !wasLive;
     const url = pageUrl(ctx.env.APP_URL, row.slug);
     await emit(tx, ctx, { type: "page.published", payload: { pageId: row.id, slug: row.slug, url } });
+    // The page is live: the project's first early milestone, recorded once at the moment it went live (0089). A page
+    // that was already live before this existed gets it here too, with its original date.
+    if (row.publishedAt) await awardPageLiveMilestone(tx, ctx.businessId, { pageId: row.id, at: row.publishedAt });
     // The Product lead's "Your project's page is ready" note asked for exactly this: it stops waiting in Needs you.
     await repos.pages.closeReadyNote(tx, ctx.businessId, ctx.userId);
     await audit(tx, ctx, { action: "page.published", target: { kind: "project_page", id: row.id }, details: { slug: row.slug, url, changes: wasLive } });
     return viewOf(tx, ctx, row);
   });
+  // The page went live (not a change to a live page): the social agent may draft a post about it for the founder to
+  // share by tap, where the founder put the social channel on the board (services/post-drafts.ts). Never waited on.
+  if (wentLive) queuePostDraft(ctx, ctx.businessId, { kind: "page_published" });
   return { outcome: "published", page };
 }
 
@@ -282,6 +296,10 @@ export interface PublicPageView {
   founderNames: string[];
   /** Whether the page carries the "Follow" form (`publicPage.follow`). */
   followForm: boolean;
+  /** Whether the page carries the small "Built on" mark (a project on the free plan; a paid plan removes it). */
+  mark: boolean;
+  /** Whether the founders show at least one milestone: the project then has a story at `/p/<slug>/story` (0089). */
+  story: boolean;
 }
 
 /**
@@ -347,7 +365,7 @@ export async function publicPageBySlug(ctx: Pick<Context, "db" | "env" | "limits
     await takeOrThrow(ctx.limits, "Page view", [{ key: publicPageLimitKeys.unknown, rule: PUBLIC_PAGE_LIMITS.unknown }]);
     return null;
   }
-  const logo = await repos.pages.public.logoBySlug(ctx.db, clean);
+  const [logo, planTier, story] = await Promise.all([repos.pages.public.logoBySlug(ctx.db, clean), repos.pages.public.planTierBySlug(ctx.db, clean), repos.pages.public.hasStory(ctx.db, clean)]);
   const { pitch, about, forWhom, stage, showFounders, followForm } = page.content;
   return {
     slug: page.slug,
@@ -363,6 +381,9 @@ export async function publicPageBySlug(ctx: Pick<Context, "db" | "env" | "limits
     logo,
     founderNames: showFounders ? page.founderNames : [],
     followForm,
+    // Taken down between the two reads: no plan to go by, so the mark stays (the free plan's rule).
+    mark: tierShowsBuiltOnMark(planTier ?? "free"),
+    story,
   };
 }
 

@@ -69,7 +69,7 @@ Internal identifiers may keep old names until a rename is worth its churn: packa
 - Every connector has real + mock implementations; INTEGRATIONS_MODE=mock must run the golden path.
 - Label every non-real number "Forecast" or "Estimate".
 - A simulated tool result is never reported as an action. A mock connector's result carries `simulated` and a notice; agents, the Composer and service copy say it was simulated and not done.
-- People are free on every plan: no limit on cofounders or collaborators, and cofounders' included credits pool on a shared project (founder, 2026-11-11). Plans differ by agent work only.
+- People are free on every plan: no limit on cofounders or collaborators, and cofounders' included credits pool on a shared project (founder, 2026-11-11). Plans differ by agent work only. One exception, and only this one (founder, 2026-11-12): the small "Built on Foundmill" mark that a free project's visitors see is removed completely on a paid plan (`tierShowsBuiltOnMark`). It is not a precedent: nothing else may differ by plan outside agent work.
 - Write US English with US dates and times in everything a user can read (see the 2026-10-10 rule above). English only: no translation layer or string catalog (founder, 2026-11-11).
 - 18 or older for the whole product, confirmed once at sign-up (founder, 2026-11-11).
 - Foundmill hosts every project's public page at a Foundmill address for free, and gives a project an address to send email from, with a daily cap per project and the founder's approval for outside contact (founder, 2026-11-11).

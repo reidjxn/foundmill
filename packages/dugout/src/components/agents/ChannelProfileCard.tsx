@@ -65,6 +65,7 @@ export function ChannelProfileCard({ channel, onOpenChannel, onToggle, onPause, 
         {channel.recommended ? <Chip tone="kit">Recommended</Chip> : null}
         <Chip tone={channel.enabled ? "good" : "neutral"}>{channel.enabled ? "On the board" : "Off the board"}</Chip>
         {channel.paused ? <Chip tone="warn">Paused</Chip> : null}
+        {channel.founderPosts ? <Chip tone="neutral">You post it</Chip> : null}
         {(channel.kitMode ?? meta.kitModeByDefault) ? <Chip tone="info">Offline tracking</Chip> : null}
       </div>
       <dl className="grid grid-cols-2 gap-x-4 gap-y-1.5">

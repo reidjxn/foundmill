@@ -24,6 +24,7 @@ import { legalRouter } from "./routers/legal";
 import { liveRouter } from "./routers/live";
 import { pageRouter, publicPageRouter } from "./routers/page";
 import { productRouter } from "./routers/product";
+import { shareRouter } from "./routers/share";
 import { teamRouter } from "./routers/team";
 import { todayRouter } from "./routers/today";
 import { chiefOfStaffRouter } from "./routers/chief-of-staff";
@@ -49,6 +50,8 @@ export const appRouter = router({
   goal: goalRouter,
   page: pageRouter,
   publicPage: publicPageRouter,
+  // Tap-to-post: a pressed share control, recorded as a share that was opened (services/shares.ts).
+  share: shareRouter,
   publicPerson: publicPersonRouter,
   today: todayRouter,
   ideaBox: ideaBoxRouter,

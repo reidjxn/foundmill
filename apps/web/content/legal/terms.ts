@@ -5,12 +5,92 @@
  * change this text and TERMS_UPDATED in the same change.
  */
 import { APP_NAME } from "@foundmill/config";
-import type { LegalDocument } from "@foundmill/dugout";
-import { LEGAL_CONTACT_EMAIL, LEGAL_ENTITY, LEGAL_ROUTES, TERMS_UPDATED, entityLine } from "./facts";
+import type { LegalBlock, LegalDocument, LegalSection } from "@foundmill/dugout";
+import { COPYRIGHT_AGENT, LEGAL_CONTACT_EMAIL, LEGAL_ENTITY, LEGAL_ROUTES, TERMS_UPDATED, entityLine, type CopyrightAgent } from "./facts";
 
 const mail = { text: LEGAL_CONTACT_EMAIL, href: `mailto:${LEGAL_CONTACT_EMAIL}` };
 const privacy = { text: "Privacy Policy", href: LEGAL_ROUTES.privacy };
 const N = APP_NAME;
+
+/** The US Copyright Office's directory of designated agents. */
+export const DMCA_DIRECTORY_URL = "https://www.copyright.gov/dmca-directory/";
+
+/** Where notices go: the registered agent's details once registered, else the intake email and the company's address. */
+function copyrightAgentBlock(agent: CopyrightAgent): LegalBlock {
+  const email = { text: agent.email, href: `mailto:${agent.email}` };
+  const address = agent.postalAddress ?? LEGAL_ENTITY.postalAddress;
+  if (!agent.registered) {
+    return {
+      kind: "terms",
+      items: [
+        { term: "Email", detail: email },
+        ...(address ? [{ term: "Post", detail: `${LEGAL_ENTITY.name}, Attn: Copyright Agent, ${address}` }] : []),
+      ],
+    };
+  }
+  return {
+    kind: "terms",
+    items: [
+      { term: "Designated agent", detail: agent.name },
+      ...(address ? [{ term: "Address", detail: address }] : []),
+      { term: "Email", detail: email },
+      ...(agent.phone ? [{ term: "Phone", detail: agent.phone }] : []),
+      {
+        term: "Registration",
+        detail: [
+          "Listed in the US Copyright Office's ",
+          { text: "DMCA Designated Agent Directory", href: DMCA_DIRECTORY_URL },
+          agent.registrationNumber ? `, registration number ${agent.registrationNumber}` : "",
+        ],
+      },
+    ],
+  };
+}
+
+/**
+ * Copyright complaints under the US DMCA (17 U.S.C. § 512; founder, 2026-11-13): the notice (§ 512(c)(3)), what we do,
+ * the counter-notice (§ 512(g)), repeat infringers (§ 512(i)) and false notices (§ 512(f)). Kept close to the statute:
+ * no promises beyond it. Not legal advice; the founder's lawyer reviews it with the rest.
+ */
+export function copyrightSection(agent: CopyrightAgent = COPYRIGHT_AGENT): LegalSection {
+  return {
+    id: "copyright",
+    heading: "Copyright complaints",
+    blocks: [
+      { kind: "p", text: `If you believe that something on ${N} infringes a copyright you own, or one you are authorized to act for, you can ask us to remove it. This section follows the US Digital Millennium Copyright Act (17 U.S.C. § 512).` },
+      { kind: "p", text: agent.registered ? "Send notices to our designated copyright agent:" : "Send notices to our copyright agent:" },
+      copyrightAgentBlock(agent),
+      { kind: "p", text: "Your notice must include all of the following:" },
+      {
+        kind: "list",
+        items: [
+          "your physical or electronic signature, as the copyright owner or as someone authorized to act for the owner",
+          "a description of the copyrighted work you say is infringed or, if your notice covers several works on one site, a representative list of them",
+          `a description of the material you say is infringing, with enough information for us to find it, such as the address of the page on ${N}`,
+          "your contact information: your address, telephone number and email address",
+          "a statement that you believe in good faith that the use of the material in the way you complain of is not authorized by the copyright owner, its agent or the law",
+          "a statement that the information in your notice is accurate and, under penalty of perjury, that you are the copyright owner or authorized to act for the owner",
+        ],
+      },
+      { kind: "p", text: "When we receive a notice that meets these requirements, we promptly remove the material or disable access to it, and we promptly take reasonable steps to tell the person who posted it." },
+      { kind: "p", text: "If material you posted was removed or disabled because of a notice, and you believe that happened by mistake or because the material was misidentified, you can send a counter-notice to the same address. It must include all of the following:" },
+      {
+        kind: "list",
+        items: [
+          "your physical or electronic signature",
+          "a description of the material that was removed or disabled, and where it appeared before it was removed or disabled",
+          "a statement, under penalty of perjury, that you believe in good faith that the material was removed or disabled by mistake or because it was misidentified",
+          "your name, address and telephone number",
+          // plain-allow: the statute's own words (§ 512(g)(3)(D)); a counter-notice must state this consent as written.
+          "a statement that you consent to the jurisdiction of the US federal district court for the judicial district where your address is or, if your address is outside the United States, for any judicial district in which we may be found, and that you will accept service of process from the person who sent the notice or from their agent",
+        ],
+      },
+      { kind: "p", text: "When we receive a counter-notice that meets these requirements, we promptly send a copy to the person who sent the notice and tell them that we will restore the material, or stop disabling access to it, in 10 business days. We then do so no sooner than 10 and no later than 14 business days after we receive the counter-notice, unless our copyright agent first receives notice from that person that they have filed a court action seeking an order to stop you from infringing with that material on " + N + "." },
+      { kind: "p", text: "In appropriate circumstances, we close the accounts of people who repeatedly infringe copyrights." },
+      { kind: "p", text: "Do not send a false notice or counter-notice. Under 17 U.S.C. § 512(f), anyone who knowingly and materially misrepresents that material is infringing, or that it was removed or disabled by mistake or misidentification, can be liable for damages, including costs and attorneys' fees. If you are not sure, consider asking a lawyer before you send one." },
+    ],
+  };
+}
 
 export const TERMS: LegalDocument = {
   title: "Terms of Service",
@@ -125,6 +205,7 @@ export const TERMS: LegalDocument = {
         { kind: "p", text: "We may remove content, stop an action or limit an account that breaks these rules, and report illegal activity where the law requires it." },
       ],
     },
+    copyrightSection(),
     {
       id: "credits-payment",
       heading: "Plans, credits and payment",

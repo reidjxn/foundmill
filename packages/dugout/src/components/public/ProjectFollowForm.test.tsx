@@ -48,6 +48,25 @@ describe("ProjectFollowForm", () => {
     expect(document.querySelector("form, input, button")).toBeNull();
   });
 
+  it("after a signup, a visitor to a free project gets one small line more, with its link; without it, nothing", () => {
+    const builtOn = { line: "Northwind Skincare is built on Foundmill.", linkLabel: "Start your own", href: "/?via=p.northwind-skincare" };
+    const { unmount } = render(<ProjectFollowForm name="Northwind Skincare" state={{ status: "done" }} builtOn={builtOn} />);
+    const line = document.querySelector("[data-follow-built-on]")!;
+    expect(line.textContent).toBe("Northwind Skincare is built on Foundmill.Start your own");
+    expect(line.className).toContain("t-small");
+    const link = screen.getByRole("link", { name: "Start your own" });
+    expect(link.getAttribute("href")).toBe("/?via=p.northwind-skincare");
+    expect(link.className).toContain("min-h-tap");
+    // After the answer, never before it.
+    expect(document.querySelector("[data-follow-done]")!.compareDocumentPosition(line) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    unmount();
+    // Never while the form is still being filled in, and never in the console's preview.
+    render(<ProjectFollowForm name="Northwind Skincare" action="/follow" builtOn={builtOn} />);
+    expect(document.querySelector("[data-follow-built-on]")).toBeNull();
+    render(<ProjectFollowForm name="Northwind Skincare" preview builtOn={builtOn} />);
+    expect(document.querySelector("[data-follow-built-on]")).toBeNull();
+  });
+
   it("says what went wrong in plain words and puts the visitor's address back", () => {
     render(<ProjectFollowForm name="Northwind Skincare" action="/follow" state={{ status: "error", field: "email", message: FOLLOW_ERRORS.email, email: "maya@" }} />);
     expect(screen.getByRole("alert").textContent).toBe(FOLLOW_ERRORS.email);

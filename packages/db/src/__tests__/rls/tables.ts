@@ -221,5 +221,7 @@ export const NON_TENANT_TABLES = [
   "founder_presence",
   "founder_visit_days",
   "founder_notifications",
+  // 0088: who or what brought a new person (user-owned, service role only); rls/attributions.test.ts.
+  "attributions",
 ] as const;
 

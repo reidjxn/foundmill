@@ -20,6 +20,10 @@
  * it is in offline tracking, every step of a channel that is not available for the business ends the engine with a
  * note, ends what the engine had open and marks no campaign live. Where simulated results are allowed (a sample
  * business, development, test) every channel is available and nothing changes.
+ *
+ * A channel the founder posts by tap (founder, 2026-11-12; `by_tap`) is available and still does nothing here: the
+ * founder presses Post in the network's own window, and no agent can. Its engine ends at its first step with a note
+ * that says so; nothing is planned, launched or measured, and no result is invented.
  */
 import { buildChannelCreativeRequest, docText, finaliseCreative, getChannelTemplate } from "@foundmill/agents";
 import { LIMITS } from "@foundmill/config";
@@ -29,7 +33,7 @@ import { CHANNEL_KEYS, CHANNEL_META, mockResultsAllowed, type BusinessMode, type
 import type { OrchestratorDeps } from "../deps";
 import { emitEvent, systemActor } from "../events";
 import { openApprovalNote } from "./approvals";
-import { channelBlocked } from "./channel-availability";
+import { channelEngineBlocked } from "./channel-availability";
 import { requestJourneyDailyRefresh } from "../journey-refresh";
 import type { ChannelEngineState, ChannelStep, ChannelStepResult } from "./types";
 
@@ -37,6 +41,8 @@ export const emptyChannelState = (): ChannelEngineState => ({ campaignId: null, 
 
 /** The engine's note when it stops because the channel cannot act for this business (a log line; the Board says it in a founder's words). */
 export function channelUnavailableNote(label: string, availability: ChannelAvailability): string {
+  // Tap-to-post: the channel is available to the founder, and there is nothing in it for an agent to launch or measure.
+  if (availability.reason === "by_tap") return `${label} is posted by the founder, one press at a time (tap-to-post): no agent can publish there, so the engine is stopping; nothing planned, launched or measured`;
   const why = availability.reason === "not_connected" ? `${availability.connectorKey ?? "its connector"} is not ${availability.connectable ? "connected for this business" : "live on this deployment"}` : "no tool publishes to it yet";
   return `${label} is not available yet (${why}) and is not in offline tracking; engine stopping, nothing planned or launched`;
 }
@@ -136,7 +142,7 @@ export function createChannelActivities(deps: OrchestratorDeps) {
       // Only a channel that can really act runs (founder, 2026-11-11). Offline tracking is honest by design (the agent
       // prepares, the founder submits), so it runs whatever the connectors are. The integrations are read only where
       // simulated results are not allowed, so development, tests and the sample businesses are untouched.
-      const blocked = await channelBlocked(deps, business, key, channel.kitMode);
+      const blocked = await channelEngineBlocked(deps, business, key, channel.kitMode);
       if (blocked) {
         // The full stop, as for a channel taken off the board: nothing the engine had open stays scheduled or live.
         await repos.campaigns.endForChannel(db, businessId, channel.id);

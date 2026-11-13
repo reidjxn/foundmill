@@ -7,7 +7,7 @@ test.describe("milestones", () => {
     await openBusiness(page);
   });
 
-  test("/trophies forwards to /milestones, which shows the eight milestones and the timeline", async ({ page }) => {
+  test("/trophies forwards to /milestones, which shows the ten milestones and the timeline", async ({ page }) => {
     await page.goto(`/b/${NORTHWIND_BUSINESS_ID}/trophies`);
     await expect(page).toHaveURL(new RegExp(`/b/${NORTHWIND_BUSINESS_ID}/milestones$`), { timeout: LONG });
     await expect(page.getByTestId("milestones-screen")).toBeVisible({ timeout: LONG });
@@ -16,13 +16,19 @@ test.describe("milestones", () => {
     await expect(bar.getByRole("tab")).toHaveText(["Roadmap", "Milestones"]);
     await expect(bar.getByRole("tab", { name: "Milestones" })).toHaveAttribute("aria-selected", "true");
     await expect(page.locator("[data-testid=app-shell] nav [data-sidebar-item='area-plan']")).toHaveAttribute("aria-current", "page");
-    await expect(page.locator("[data-trophy]")).toHaveCount(8);
+    // The two early ones lead ("Page live", "First follower"), then the eight of customers and revenue.
+    await expect(page.locator("[data-trophy]")).toHaveCount(10);
+    expect(await page.locator("[data-trophy]").evaluateAll((els) => els.slice(0, 3).map((e) => e.getAttribute("data-trophy")))).toEqual(["page_live", "first_follower", "customer_1"]);
+    // A sample business has no public page, so it is offered nothing to show on one (e2e/project-story.spec.ts covers a real project).
+    await expect(page.locator("[data-trophy-show], [data-trophy-on-page]")).toHaveCount(0);
+    await expect(page.getByTestId("milestones-page-note")).toHaveCount(0);
     await expect(page.getByTestId("milestones-timeline")).toBeVisible();
     // Guidance on (the product default): the timeline panel's one-sentence help tip, named after its title.
     await expect(page.getByTestId("milestones-timeline").getByRole("button", { name: "About Releases, decisions and launches" })).toBeVisible();
     // Two years of seeded wins light several milestones up.
     expect(await page.locator("[data-trophy][data-achieved]").count()).toBeGreaterThanOrEqual(1);
     await expect(page.getByTestId("milestones-screen")).toHaveAttribute("data-won", /^[1-8]$/);
+    await expect(page.locator("[data-trophy='page_live']")).not.toHaveAttribute("data-achieved", "true");
     // Money milestones are in the business's own currency: Northwind keeps its books in pounds, never euros.
     const revenue = page.locator("[data-trophy]").filter({ hasText: /First £[\d.]+K monthly revenue/ });
     await expect(revenue).toHaveCount(3);
