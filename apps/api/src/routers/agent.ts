@@ -5,7 +5,7 @@
  */
 import { AgentInstructions, CUSTOM_SKILL_TEST_COUNT, CustomSkillTestsOutput, HOUSE_STYLE, customSkillKey, detectClubRuleViolation, isCustomSkillKey, deriveTraits, getPrompt, getSkillDefinition, getSkillTests, getTemplateByAgentType, redactHeldOut, storedCustomTest } from "@foundmill/agents";
 import { CREDITS_CURRENCY, LIMITS } from "@foundmill/config";
-import { UpdateAgentInput, periodOf, repos, type Agent, type Executor } from "@foundmill/db";
+import { UpdateAgentInput, periodOf, repos, type Agent, type AgentVersion, type Executor } from "@foundmill/db";
 import { MODELS, meter, resolveModel, type RouteKey } from "@foundmill/models";
 import { ConflictError, ForbiddenError, MODEL_KEYS, ValidationError, type ModelKey } from "@foundmill/shared";
 import { z } from "zod";
@@ -63,6 +63,15 @@ export function widensGrants(live: unknown, next: unknown): boolean {
   return false;
 }
 
+/**
+ * The grants a version runs with, as the orchestrator reads them (`parseGrants`): a system-written version 1, or a
+ * version with no tools, follows its template.
+ */
+function runningGrants(version: Pick<AgentVersion, "version" | "createdByKind" | "tools"> | undefined, templateTools: unknown): unknown {
+  const followsTemplate = !version || (version.version === 1 && version.createdByKind === "system");
+  if (followsTemplate || !Array.isArray(version.tools) || version.tools.length === 0) return templateTools ?? [];
+  return version.tools;
+}
 
 /** Reference usage per test for the wage estimate: ~4k input / 1.2k output tokens plus an Opus grading pass. */
 const REFERENCE_TEST_USAGE = { inputTokens: 4_000, outputTokens: 1_200, cacheCreationInputTokens: 0, cacheReadInputTokens: 0 };
@@ -340,6 +349,11 @@ export const agentRouter = router({
         const current = versions.find((v) => v.id === agent.currentVersionId);
         const previous = versions.filter((v) => v.id !== agent.currentVersionId && v.state === "retired" && (!current || v.version < current.version)).sort((a, b) => b.version - a.version)[0];
         if (!previous) throw new ValidationError("No previous live version to roll back to");
+        // Rolling back can bring back tools an owner or admin took away: that widens the live grants, so it is theirs.
+        if (!isAdminRole(ctx)) {
+          const templateTools = getTemplateByAgentType(agent.agentType)?.tools;
+          if (widensGrants(runningGrants(current, templateTools), runningGrants(previous, templateTools))) throw new ForbiddenError("The previous version gives the agent tools the live one does not; an owner or admin rolls it back");
+        }
         const rolled = await repos.agents.rollback(tx, ctx.businessId, agent.id, previous.id);
         const restored = agent.currentVersionId ? await repos.training.revertPromotion(tx, ctx.businessId, agent.id, agent.currentVersionId) : [];
         const closed = await repos.training.closeWatch(tx, ctx.businessId, agent.id);

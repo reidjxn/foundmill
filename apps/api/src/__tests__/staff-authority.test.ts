@@ -4,7 +4,7 @@
  * - #98  an admin walled from Team cannot rewrite staff memberships, and an admin walled from any exported section
  *        cannot take it out through business.export.
  * - #107 a member cannot raise autonomy or caps, switch negotiation, give an agent new tools or promote a version that
- *        does, or answer an agent's approval nobody handed to them; caps are bounded.
+ *        does (or roll back to one), or answer an agent's approval nobody handed to them; caps are bounded.
  * - #113 agent.profile.update takes the profile's own fields only (autonomy, negotiation, model are a 400).
  * - #250 a member with Inbox write cannot confirm a plan whose spend asked the founder first.
  * - #100 journey.* follow the Distribution, Finance and CRM walls; the Ribbon keeps its shape for walled staff.
@@ -128,6 +128,24 @@ describe("#107 a member cannot widen what an agent does on its own", () => {
     const run = await repos.training.create(hz.db, businessId, { agentId, fromVersionId: live.currentVersionId, toVersionId: draft.version.id, status: "awaiting_decision", requestedBy: adminId });
     expect(await code(as(memberId).agent.training.promote({ businessId, runId: run.id }))).toBe("FORBIDDEN");
     expect(await code(as(adminId).agent.training.promote({ businessId, runId: run.id }))).toBe("OK");
+  });
+
+  it("a member cannot roll an agent back to a version with tools an owner or admin took away; an owner can", async () => {
+    const { businessId, memberId, adminId, ownerId, agent2Id } = hz.A;
+    const instructions = { role: "Builds the product", goals: ["Ship the onboarding"], rules: ["Ask before spending"], playbook: ["Read the brief"], tone: "Plain", examples: [] };
+    // v1 grants a send; the admin takes it away and makes the narrower version live, so the wider one is retired.
+    const wide = await repos.agents.createVersion(hz.db, businessId, agent2Id, { instructions, tools: [{ connectorKey: "sendgrid", tools: ["send_mail", "create_contact"] }], modelKey: "sonnet", state: "draft", createdByKind: "user", createdBy: ownerId });
+    await repos.agents.promoteVersion(hz.db, businessId, agent2Id, wide.id);
+    const narrow = await as(adminId).agent.training.saveDraft({ businessId, agentId: agent2Id, instructions, tools: [{ connectorKey: "sendgrid", tools: ["create_contact"] }] });
+    const run = await repos.training.create(hz.db, businessId, { agentId: agent2Id, fromVersionId: wide.id, toVersionId: narrow.version.id, status: "awaiting_decision", requestedBy: adminId });
+    expect(await code(as(adminId).agent.training.promote({ businessId, runId: run.id }))).toBe("OK");
+    expect((await repos.agents.get(hz.db, businessId, agent2Id)).currentVersionId).toBe(narrow.version.id);
+    // The member's rollback would give the send back: refused, and the narrower version stays live.
+    expect(await code(as(memberId).agent.training.rollback({ businessId, agentId: agent2Id }))).toBe("FORBIDDEN");
+    expect((await repos.agents.get(hz.db, businessId, agent2Id)).currentVersionId).toBe(narrow.version.id);
+    // The owner may.
+    expect(await code(as(ownerId).agent.training.rollback({ businessId, agentId: agent2Id }))).toBe("OK");
+    expect((await repos.agents.get(hz.db, businessId, agent2Id)).currentVersionId).toBe(wide.id);
   });
 
   it("widensGrants: only new connector:tool pairs widen; a connector wildcard covers its tools", () => {
