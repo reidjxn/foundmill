@@ -160,6 +160,9 @@ export const ROUTES = {
   // (a pitch, a few paragraphs, who it is for) that mostly keeps the founder's text, on the path before the vision.
   // Sonnet at low effort writes it in seconds and holds to "keep their words, invent nothing"; Opus would add cost and
   // wait for no gain on a page this short. Any failure falls back to the deterministic starter draft.
+  // Also the posts the social agent drafts for the founder to share by tap (docs/NETWORK.md F3, F7; packages/agents
+  // `post-draft.ts`): the same kind of work (one or two sentences of public copy from the page's own words, nothing
+  // invented), so it shares the route and its settings and is told apart in the usage ledger by its kind (`post_draft`).
   projectPage: { model: "sonnet", effort: "low", maxTokens: LOW_EFFORT_MAX_TOKENS },
   // Team call (docs/TEAM_CALL.md §4): the next one to four spoken turns of a call. The founder is listening and waiting,
   // so Sonnet at low effort, like a reply at the desk; turns are short spoken sentences.

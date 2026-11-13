@@ -6,6 +6,7 @@ export * from "./repos";
 export { BYOK_CONNECTOR_KEY, BYOK_CREDENTIAL_KIND, LEGACY_BYOK_CREDENTIAL_KIND, StoredApiKeySchema, loadByokApiKey, type ByokApiKey } from "./byok";
 export { assertPlatformCredits, bookUsage, chargesCredits, checkPlatformCredits, creditsState, creditsUsedUp, CREDITS_EXHAUSTED_SUBJECT, includedCreditsFor, modelBudgetState, PLATFORM_CREDITS_EXHAUSTED_SUBJECT, platformCredits, type BookUsageResult, type CreditsOutcome, type ModelBudgetState, type PlatformCredits, type PlatformCreditsCheck } from "./billing";
 export { loadNotifyFacts } from "./notify-facts";
+export { loadBriefFacts, type BriefAgent, type BriefFacts } from "./brief-facts";
 export { autopilotChangedPayload, CAPPED_TRIGGERS, loadAutopilotFacts, openRunOf, runRoundsOf, summarizeCycleEvents, STALE_CYCLE_MS, type AutopilotChange, type CycleEventLike, type CycleSummary, type OpenRun } from "./autopilot";
 export { bothSignedOff, loadProductStage, productStageOf, type ProductStageFacts } from "./product-stage";
 export { resumeBusinessAgents, stopBusinessAgents, type ResumeBusinessResult, type StopBusinessResult } from "./controls";
@@ -20,5 +21,6 @@ export { appliedMigrationCount, DEFAULT_MIGRATION_LOCK_TIMEOUT_MS, isMigrationLo
 export { DEFAULT_PGLITE_DIR, PGLITE_BOOTSTRAP_SQL, findWorkspaceRoot, isPgliteDb, isPgliteUrl, parsePgliteUrl, pgliteUrl, resolvePgliteDir } from "./pglite";
 export type { LazyPgliteClient, PgliteTarget } from "./pglite";
 export { attachAddedSkills, resolveLibrarySkill, resolveSkillFile, skillLibraryEntries, type ResolvedSkill } from "./skill-attach";
-export { awardMilestonesForConversion, awardRevenueMilestones, catchUpMilestones, monthlyRevenueAt, MONTHLY_REVENUE_REF } from "./milestones";
+export { awardMilestonesForConversion, awardRevenueMilestones, awardPageLiveMilestone, awardFirstFollowerMilestone, catchUpMilestones, monthlyRevenueAt, MONTHLY_REVENUE_REF } from "./milestones";
+export { draftTeamPost, type TeamPostDraftDeps, type TeamPostDraftOptions, type TeamPostDraftResult, type TeamPostDraftSkip } from "./team-post-draft";
 export { achieveGoalIfReached, counterFor, goalCounters, goalProgress, type GoalCounters, type GoalProgress } from "./goals";

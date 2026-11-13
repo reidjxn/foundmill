@@ -36,7 +36,7 @@ import { ASSET_KIND_WORD } from "./channel-data";
 import { DateText } from "../dates";
 import { fitColumns, fitToGrow, type ColumnFit } from "../fit";
 import { InlineError, SIMPLE_VIEW_ID, Screen, channelLabel, fitTableHeight, searchParam, useAction, useDefaultViewId } from "./shared";
-import type { AgentRow, AssetRow, CampaignRow, ChannelsListResponse, Page } from "./types";
+import type { AgentRow, AgentsListResponse, AssetRow, CampaignRow, ChannelsListResponse, Page } from "./types";
 
 export interface CampaignTableRow extends CampaignRow {
   channelLabel: string;
@@ -119,7 +119,7 @@ export function CampaignsScreen({ businessId }: ModuleScreenProps) {
   const campaigns = useWidgetQuery<Page<CampaignRow>>("distribution.campaigns.list", { limit: 200 });
   const channels = useWidgetQuery<ChannelsListResponse>("distribution.channels.list", {});
   const assets = useWidgetQuery<AssetRow[]>("distribution.assets.list", {});
-  const agents = useWidgetQuery<AgentRow[]>("team.agents.list", {});
+  const agents = useWidgetQuery<AgentsListResponse>("team.agents.list", {});
   const action = useAction();
   // Saved per person, business and table (audit #204): they come back after a reload. Simple opens first while guidance is on.
   const defaultViewId = useDefaultViewId("all");
@@ -240,7 +240,7 @@ export function CampaignsScreen({ businessId }: ModuleScreenProps) {
           ) : null
         }
       >
-        {selected ? <CampaignDetail row={selected} agents={agents.data} businessId={businessId} pending={action.pending} onStatus={(s) => void setStatus(selected, s)} onEnd={() => setEnding(selected)} onEdit={() => setEditing(selected)} onDecide={decideAsset} onOpenAsset={(a) => navigate(`${moduleTabHref(businessId, departments.data, "distribution", "creative")}?asset=${a.id}`)} /> : null}
+        {selected ? <CampaignDetail row={selected} agents={agents.data?.agents} businessId={businessId} pending={action.pending} onStatus={(s) => void setStatus(selected, s)} onEnd={() => setEnding(selected)} onEdit={() => setEditing(selected)} onDecide={decideAsset} onOpenAsset={(a) => navigate(`${moduleTabHref(businessId, departments.data, "distribution", "creative")}?asset=${a.id}`)} /> : null}
       </Panel>
       <CampaignDialog
         open={editing !== null}

@@ -1,8 +1,10 @@
 // @vitest-environment node
+import { VIA_COOKIE, VIA_MAX_AGE_SECONDS } from "@foundmill/shared/via";
 import { NextRequest } from "next/server";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { proxy } from "../../proxy";
 import { DEV_AUTH_COOKIE, LAST_BUSINESS_COOKIE } from "../auth/constants";
+import { resetPublicEnvCache } from "../env";
 
 /** A signed-in request (the development bypass cookie; vitest runs with NEXT_PUBLIC_APP_ENV=test and no Supabase). */
 function signedIn(url: string, extraCookie = ""): NextRequest {
@@ -66,5 +68,92 @@ describe("proxy redirects", () => {
   it("sends a signed-out visitor to sign in with the page as next", async () => {
     const res = await proxy(new NextRequest("http://localhost:3000/b/abc/home"));
     expect(res.headers.get("location")).toBe("http://localhost:3000/login?next=%2Fb%2Fabc%2Fhome");
+  });
+});
+
+describe("proxy attribution: the first `via` a visitor arrives with", () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    resetPublicEnvCache();
+  });
+
+  it("is kept in an httpOnly cookie for 30 days, on a public page, the landing page and a person's profile", async () => {
+    for (const [url, value] of [
+      ["http://localhost:3000/p/maple-bakes?via=p.maple-bakes", "p.maple-bakes"],
+      ["http://localhost:3000/?via=u.maya", "u.maya"],
+      ["http://localhost:3000/u/maya?utm_source=x&via=u.maya", "u.maya"],
+    ] as const) {
+      const res = await proxy(new NextRequest(url));
+      expect(res.headers.get("x-middleware-next"), url).toBe("1");
+      expect(res.cookies.get(VIA_COOKIE), url).toMatchObject({ name: VIA_COOKIE, value, httpOnly: true, sameSite: "lax", path: "/", maxAge: VIA_MAX_AGE_SECONDS });
+    }
+    expect(VIA_MAX_AGE_SECONDS).toBe(30 * 24 * 60 * 60);
+  });
+
+  it("is not secure in development and test, and secure everywhere else", async () => {
+    expect((await proxy(new NextRequest("http://localhost:3000/p/maple-bakes?via=p.maple-bakes"))).cookies.get(VIA_COOKIE)?.secure).toBeFalsy();
+    for (const appEnv of ["staging", "production"]) {
+      vi.stubEnv("NEXT_PUBLIC_APP_ENV", appEnv);
+      resetPublicEnvCache();
+      const res = await proxy(new NextRequest("https://foundmill.example/p/maple-bakes?via=p.maple-bakes"));
+      expect(res.cookies.get(VIA_COOKIE), appEnv).toMatchObject({ value: "p.maple-bakes", secure: true, httpOnly: true, sameSite: "lax" });
+    }
+  });
+
+  it("first touch wins: a visitor who already carries a reference keeps it", async () => {
+    const res = await proxy(new NextRequest("http://localhost:3000/p/other-project?via=p.other-project", { headers: { cookie: `${VIA_COOKIE}=u.maya` } }));
+    expect(res.cookies.get(VIA_COOKIE)).toBeUndefined();
+    expect(res.headers.get("set-cookie")).toBeNull();
+    // The same address again changes nothing either.
+    const again = await proxy(new NextRequest("http://localhost:3000/u/maya?via=u.maya", { headers: { cookie: `${VIA_COOKIE}=u.maya` } }));
+    expect(again.cookies.get(VIA_COOKIE)).toBeUndefined();
+  });
+
+  it("a value that is not a reference sets nothing and changes nothing else about the answer", async () => {
+    // The last one carries two: the first `via` on an address is the one read.
+    for (const bad of ["", "maple-bakes", "x.maple-bakes", "p.", "p.Maple", "p.-maple", "u.a", `p.${"a".repeat(41)}`, "p.maple%20bakes", "%3Cscript%3E", "nope&via=u.maya"]) {
+      for (const path of ["/p/maple-bakes", "/", "/b/abc/home"]) {
+        const plain = await proxy(new NextRequest(`http://localhost:3000${path}`));
+        const res = await proxy(new NextRequest(`http://localhost:3000${path}?via=${bad}`));
+        expect(res.cookies.get(VIA_COOKIE), `${path} ${bad}`).toBeUndefined();
+        expect(res.status, `${path} ${bad}`).toBe(plain.status);
+        expect(res.headers.get("x-middleware-next"), `${path} ${bad}`).toBe(plain.headers.get("x-middleware-next"));
+        expect(res.headers.get("set-cookie"), `${path} ${bad}`).toBe(plain.headers.get("set-cookie"));
+      }
+    }
+    // No `via` at all: no cookie.
+    expect((await proxy(new NextRequest("http://localhost:3000/p/maple-bakes"))).cookies.get(VIA_COOKIE)).toBeUndefined();
+  });
+
+  it("rides along with what the proxy already does: the sign-in redirect, the signed-in index, the stale-business rewrite", async () => {
+    // Signed out on an app page: still sent to sign in, with the page (and its query) as next, and the cookie set.
+    const signIn = await proxy(new NextRequest("http://localhost:3000/b/abc/home?via=p.maple-bakes"));
+    expect(signIn.status).toBe(307);
+    expect(signIn.headers.get("location")).toBe("http://localhost:3000/login?next=%2Fb%2Fabc%2Fhome%3Fvia%3Dp.maple-bakes");
+    expect(signIn.cookies.get(VIA_COOKIE)?.value).toBe("p.maple-bakes");
+
+    // Signed in on `/` with a last business: the same redirect as without `via`.
+    const home = await proxy(signedIn("http://localhost:3000/?via=u.maya", `${LAST_BUSINESS_COOKIE}=${LAST}`));
+    expect(home.status).toBe(307);
+    expect(home.headers.get("location")).toBe(`http://localhost:3000/b/${LAST}/today`);
+    expect(home.cookies.get(VIA_COOKIE)?.value).toBe("u.maya");
+
+    // Signed in on `/` without one: the same rewrite to the index.
+    const index = await proxy(signedIn("http://localhost:3000/?via=u.maya"));
+    expect(index.headers.get("x-middleware-rewrite")).toBe("http://localhost:3000/start");
+    expect(index.cookies.get(VIA_COOKIE)?.value).toBe("u.maya");
+
+    // The stale-business rewrite still clears its cookie, beside the new one.
+    const stale = await proxy(signedIn(`http://localhost:3000/?stale=${LAST}&via=p.maple-bakes`, `${LAST_BUSINESS_COOKIE}=${LAST}`));
+    expect(stale.headers.get("x-middleware-rewrite")).toBe("http://localhost:3000/start");
+    expect(stale.cookies.get(LAST_BUSINESS_COOKIE)).toMatchObject({ value: "", maxAge: 0 });
+    expect(stale.cookies.get(VIA_COOKIE)?.value).toBe("p.maple-bakes");
+
+    // With `via`, everything but the attribution cookie is what it is without it.
+    const withVia = await proxy(signedIn("http://localhost:3000/b/abc/inbox?tab=notes&via=p.maple-bakes"));
+    const without = await proxy(signedIn("http://localhost:3000/b/abc/inbox?tab=notes"));
+    expect(withVia.status).toBe(without.status);
+    expect(withVia.headers.get("x-middleware-next")).toBe(without.headers.get("x-middleware-next"));
+    expect(withVia.headers.get("location")).toBe(without.headers.get("location"));
   });
 });

@@ -359,6 +359,11 @@ export interface ChannelTokenData {
    * the channel's default; absent means the default (`CHANNEL_META[key].kitModeByDefault`).
    */
   kitMode?: boolean;
+  /**
+   * The founder posts this channel themselves, one press at a time (tap-to-post): on the board it is never counted as
+   * running, its line to the hub is still, and its name says "you post it".
+   */
+  founderPosts?: boolean;
   results?: Array<{ label: string; value: string }>;
 }
 

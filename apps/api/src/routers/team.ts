@@ -5,6 +5,7 @@ import { SectionPermissions, assertSeatAvailable, repos, type AgentRosterActivit
 import { ConflictError, DECISION_TYPES, DEFAULT_AGENT_STYLE, ForbiddenError, MEMBERSHIP_ROLES, NotFoundError, ValidationError, agentTier, characterFor, leadAgentIds } from "@foundmill/shared";
 import { z } from "zod";
 import { pendingApprovals, resolveApproval } from "../services/approvals";
+import { assertWithinGrantorAccess } from "../services/grants";
 import { modelLimited } from "../services/model-limits";
 import { ensurePortraits } from "../services/personas";
 import { archivePlaybook, compilePlaybookText, createPlaybook, setPlaybookEnabled, toPlaybookView, updatePlaybook } from "../services/playbooks";
@@ -266,12 +267,15 @@ export const teamRouter = router({
      * Add someone who already has an account, by their account ID (shown on their founder profile and in Settings ›
      * Preferences) or by the email they sign in with, resolved here to their account. No email is sent: invitation
      * emails do not exist yet. Adds a new member only: an existing member (the owner included) is never overwritten
-     * (409; use `role`).
+     * (409; use `role`). Someone without an owner's standing adds nobody with more than their own access
+     * (`assertWithinGrantorAccess`): no section above their own level and no role above theirs.
      */
     invite: staffAdmin
       .input(z.object({ userId: Id.optional(), role: z.enum(MEMBERSHIP_ROLES).default("member"), sectionPermissions: SectionPermissions.default({}), email: z.string().trim().email().max(320).optional() }).refine((v) => v.userId || v.email, "Give the person's account ID or the email they sign in with"))
       .mutation(async ({ ctx, input }) => {
         if (input.role === "owner") throw new ValidationError("Ownership is granted by an owner from Role and permissions, not by invitation");
+        // Before the account is looked up, so a refusal says nothing about whether the email has one.
+        assertWithinGrantorAccess(ctx.membership, { role: input.role, sectionPermissions: input.sectionPermissions });
         // auth.users holds no business's rows: the email is looked up on the service connection.
         const userId = input.userId ?? (await repos.founders.userIdByEmail(ctx.db, input.email!));
         if (!userId) throw new ValidationError("No account signs in with that email yet. Ask them to sign in once, then add them by email or by the account ID on their profile.");
@@ -288,7 +292,9 @@ export const teamRouter = router({
       }),
     /**
      * Role and section permissions of another member. Nobody edits their own; only an owner changes an owner's row or
-     * grants ownership; the last owner keeps the role (the same rules hold in RLS, 0026_membership_guards).
+     * grants ownership; the last owner keeps the role (the same rules hold in RLS, 0026_membership_guards). Someone
+     * without an owner's standing gives no more than their own access (`assertWithinGrantorAccess`; the api's rule alone,
+     * as the section walls are: no policy reads section permissions).
      */
     role: staffAdmin.input(z.object({ userId: Id, role: z.enum(MEMBERSHIP_ROLES).optional(), sectionPermissions: SectionPermissions.optional() })).mutation(({ ctx, input }) =>
       ctx.rls(async (tx) => {
@@ -297,6 +303,9 @@ export const teamRouter = router({
         if (!membership) throw new ValidationError("Not a member of this business");
         if (ctx.role !== "owner" && membership.role === "owner") throw new ForbiddenError("Only an owner can change an owner's role or permissions");
         if (ctx.role !== "owner" && input.role === "owner") throw new ForbiddenError("Only an owner can grant ownership");
+        // Nor past the editor's own access: no section above their own level on it and no role above theirs (an owner is
+        // not limited); narrowing and lowering stay free (services/grants.ts).
+        assertWithinGrantorAccess(ctx.membership, { role: input.role ?? membership.role, sectionPermissions: input.sectionPermissions ?? membership.sectionPermissions }, membership);
         if (input.role) membership = await repos.memberships.setRole(tx, ctx.businessId, input.userId, input.role);
         if (input.sectionPermissions) membership = await repos.memberships.setSectionPermissions(tx, ctx.businessId, input.userId, input.sectionPermissions);
         await audit(tx, ctx, { action: "team.humans.role", target: { kind: "membership", id: membership.id }, details: { role: input.role ?? null, sections: input.sectionPermissions ? Object.keys(input.sectionPermissions) : [] } });

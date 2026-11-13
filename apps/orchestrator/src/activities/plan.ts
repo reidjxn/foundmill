@@ -24,7 +24,7 @@ import type { OrchestratorDeps } from "../deps";
 import { emitEvent, systemActor } from "../events";
 import type { GatewayCallResponse } from "../gateway-client";
 import { grantApproval, openApprovalNote } from "./approvals";
-import { channelBlocked } from "./channel-availability";
+import { channelBlocked, channelEngineBlocked } from "./channel-availability";
 import { openAgentSession } from "./dispatch";
 import type { LoadedPlan, PlanActionResult, PlanActionView } from "./types";
 import { gmailSendArgs, messageFor, sendgridSendArgs } from "./connector-calls";
@@ -383,6 +383,10 @@ export function createPlanActivities(deps: OrchestratorDeps) {
         const channel = existing ? await repos.channels.setEnabled(db, businessId, existing.id, enabled) : await repos.channels.upsert(db, businessId, { channelKey: p.channel, line: CHANNEL_META[p.channel].line, enabled, kitMode: CHANNEL_META[p.channel].kitModeByDefault, ownerAgentId: action.agentId });
         // Before the founder has started distribution (0062) the channel keeps its place on the board; its engine starts
         // with Start distribution and nothing is recorded now.
+        // A channel the founder posts by tap goes on the board and gets no engine (founder, 2026-11-12): no agent can
+        // publish there, so nothing is recorded as running and the result says who posts.
+        const founderPosts = enabled && (await channelEngineBlocked(deps, ctx.business, p.channel, channel.kitMode)) !== null;
+        if (founderPosts) return { result: { channelId: channel.id, enabled, deferred: "the founder posts this channel with one press on each draft; no engine runs for it" }, spawn: [] };
         const waiting = enabled && !(await repos.businesses.distributionStarted(db, businessId));
         if (waiting) return { result: { channelId: channel.id, enabled, deferred: "distribution has not started; the engine starts with it" }, spawn: [] };
         // The engine's id is recorded with the channel so Stop all agents (and the Distribution toggle) can reach it;
@@ -401,7 +405,7 @@ export function createPlanActivities(deps: OrchestratorDeps) {
           // A budget on a channel with no row yet creates the row; it goes on the board only if the channel can run.
           const existing =
             (await repos.channels.getByKey(db, businessId, p.channel)) ??
-            (await repos.channels.upsert(db, businessId, { channelKey: p.channel, line: CHANNEL_META[p.channel].line, enabled: (await channelBlocked(deps, ctx.business, p.channel, false)) === null, ownerAgentId: action.agentId }));
+            (await repos.channels.upsert(db, businessId, { channelKey: p.channel, line: CHANNEL_META[p.channel].line, enabled: (await channelEngineBlocked(deps, ctx.business, p.channel, false)) === null, ownerAgentId: action.agentId }));
           const channel = await repos.channels.setBudget(db, businessId, existing.id, amount, currency);
           return { result: { channelId: channel.id, budgetMinor: amount, currency }, spawn: [] };
         }

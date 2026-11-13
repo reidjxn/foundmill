@@ -18,6 +18,7 @@ import { createMergeActivities } from "./merge";
 import { createMiscActivities } from "./misc";
 import { createNotifyActivities } from "./notify";
 import { createPlanActivities } from "./plan";
+import { createPostDraftActivities } from "./post-draft";
 import { createRoadmapPlanActivities } from "./roadmap-plan";
 import { createScheduleActivities } from "./schedules";
 import { createSecondReadActivities } from "./second-read";
@@ -51,6 +52,7 @@ export function createActivities(deps: OrchestratorDeps) {
     ...createAutopilotActivities(deps),
     ...createSourceWatcherActivities(deps),
     ...createNotifyActivities(deps),
+    ...createPostDraftActivities(deps),
   };
 }
 
@@ -59,3 +61,4 @@ export * from "./types";
 export type { AutopilotEvaluation } from "./autopilot";
 export type { DocumentSecondRead, DocumentSecondReadInput, MergeSecondRead } from "./second-read";
 export type { SourceWatchInput, SourceWatchReason, SourceWatchResult, SourceWatchSweepInput, SourceWatchWorkflowInput, SourceWatchWorkflowResult } from "./source-watcher";
+export type { PostDraftInput, PostDraftResult } from "./post-draft";

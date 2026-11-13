@@ -25,6 +25,7 @@ export type { PlaybookResult } from "./playbook";
 export { incorporation, INCORPORATION_SUBMITTER_PATCH } from "./incorporation";
 export type { IncorporationResult } from "./incorporation";
 export { journeyBuild } from "./journeyBuild";
+export { postDraft } from "./postDraft";
 export { importBusiness } from "./importBusiness";
 export type { ImportBusinessResult } from "./importBusiness";
 export { businessFoundations, FOUNDATIONS_DRAFT_FAILED, FOUNDATIONS_PAGE_PATCH, FOUNDATIONS_SAVE_FAILED, FOUNDATIONS_SECOND_READ_PATCH, FOUNDATIONS_STAGED_PATCH } from "./businessFoundations";
