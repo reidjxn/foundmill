@@ -44,7 +44,7 @@ export function WeekPlan({ done, next, loading, error, onRetry, empty, span, cla
   const nothing = done.length === 0 && next.length === 0;
   return (
     <Panel title={WEEK_PLAN_WORDS.title} span={span} loading={loading} error={error} onRetry={onRetry} empty={!loading && !error && (empty || nothing) ? { icon: CalendarClock, children: empty ?? "The week's work shows here after the first round of work, which starts when you press Continue.", compact: true } : undefined} className={className} data-testid="week-plan">
-      <div className="grid grid-cols-2 gap-gutter">
+      <div className="grid grid-cols-1 gap-gutter @page-wide:grid-cols-2">
         <Group label={WEEK_PLAN_WORDS.done} sentences={done} id="done" />
         <Group label={WEEK_PLAN_WORDS.next} sentences={next} id="next" />
       </div>

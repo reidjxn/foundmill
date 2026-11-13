@@ -9,8 +9,8 @@ export const LEGAL_ENTITY = {
   name: "Collingham AB",
   orgNumber: "559360-6907",
   country: "Sweden",
-  /** The registered postal address, one line. Null until the founder gives it: the pages then name the country only. */
-  postalAddress: null as string | null,
+  /** The registered postal address, one line (founder, 2026-11-13). */
+  postalAddress: "Valhallavägen 38, 11422 Stockholm, Sweden" as string | null,
 } as const;
 
 /** Where people write about privacy, their data and these documents. */

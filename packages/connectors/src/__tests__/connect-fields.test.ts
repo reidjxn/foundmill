@@ -26,7 +26,7 @@ describe("connect fields for API-key connectors", () => {
 
   it("the connectors that run on the founder's own key declare it, and none may use a platform key (founder, 2026-11-12)", () => {
     const registry = createDefaultRegistry({ secrets: {} });
-    const own = ["openai", "gemini", "perplexity", "serpapi", "firecrawl", "indexnow"];
+    const own = ["openai", "gemini", "perplexity", "serpapi", "firecrawl", "indexnow", "apollo", "vercel", "posthog", "resend"];
     for (const mode of ["mock", "live"] as const) {
       const byKey = new Map(registry.catalogue(mode).map((c) => [c.key, c]));
       for (const key of own) {
@@ -37,6 +37,11 @@ describe("connect fields for API-key connectors", () => {
         expect(entry.rateLimits.perDay, key).toBeGreaterThan(0);
       }
       expect(byKey.get("indexnow")!.connectFields.map((f) => `${f.name}${f.required ? "!" : ""}`)).toEqual(["host", "key!", "keyLocation"]);
+      const fieldsOf = (key: string) => byKey.get(key)!.connectFields.map((f) => `${f.name}${f.secret ? "*" : ""}${f.required ? "!" : ""}`);
+      expect(fieldsOf("apollo")).toEqual(["apiKey*!"]);
+      expect(fieldsOf("vercel")).toEqual(["apiToken*!", "teamId"]);
+      expect(fieldsOf("posthog")).toEqual(["apiKey*!", "projectId!", "region!"]);
+      expect(fieldsOf("resend")).toEqual(["apiKey*!"]);
       for (const key of ["openai", "gemini", "perplexity", "serpapi", "firecrawl"]) expect(byKey.get(key)!.connectFields.map((f) => `${f.name}${f.secret ? "*" : ""}${f.required ? "!" : ""}`), key).toEqual(["apiKey*!"]);
     }
   });

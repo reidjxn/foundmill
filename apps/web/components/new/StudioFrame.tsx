@@ -75,7 +75,7 @@ export function StudioFrame({ step, steps = STUDIO_STEPS, title, lede, actions, 
       {/* No sidebar here: toasts go bottom right, never onto the first column of cards. */}
       <ToastPlacement position="bottom-right" sidebar="none" />
       <header className="first-run-bar sticky top-0 z-20 flex h-kitbar shrink-0 items-center gap-8 px-gutter">
-        <Link href="/" className="flex items-center text-primary hover:no-underline" aria-label={`${APP_NAME} home`}>
+        <Link href="/" className={cn("flex items-center text-primary hover:no-underline", smallScreen && "min-h-tap")} aria-label={`${APP_NAME} home`}>
           <Wordmark height={20} label={APP_NAME} />
         </Link>
         {step ? (
@@ -116,7 +116,7 @@ export function StudioFrame({ step, steps = STUDIO_STEPS, title, lede, actions, 
         ) : null}
         <div className="ml-auto flex shrink-0 items-center gap-3">
           {viewer?.email ? <span className={cn("font-mono text-mono text-tertiary", smallScreen && "hidden @page-wide:inline")}>{viewer.email}</span> : null}
-          <SignOutButton icon={LogOut} />
+          <SignOutButton icon={LogOut} className={smallScreen ? "min-h-tap" : undefined} />
         </div>
       </header>
       <main className={cn("mx-auto w-full flex-1 px-gutter pb-10 pt-8", width === "wide" ? "first-run-wide" : "first-run-measure")}>

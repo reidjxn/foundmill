@@ -1,10 +1,17 @@
-import type { Meta, StoryObj } from "@storybook/react-vite";
+import type { Decorator, Meta, StoryObj } from "@storybook/react-vite";
 import { PageGrid } from "../shell/PageGrid";
 import { GoalPanel, type GoalPanelGoal, type GoalPanelProposal } from "./GoalPanel";
 
 const proposal: GoalPanelProposal = { id: "g2", sentence: "Get the first 10 paying customers by Dec 19", proposedBy: "Ines Park", because: "Recommended because the first customers tell us what to build next." };
 const active: GoalPanelGoal = { id: "g1", sentence: "Get the first 10 paying customers by Dec 19", state: "on_pace", progress: { current: 4, target: 10, valueText: "4 of 10 paying customers", pace: "4 of 10 so far, 38 days left: on pace (Forecast)." } };
 const wait = () => new Promise<void>((resolve) => setTimeout(resolve, 600));
+
+/** A 390 px phone frame that is its own container, so the panel lays itself out from its width (package 2.1). */
+const Phone: Decorator = (Story) => (
+  <div className="@container w-phone border-x border-line">
+    <Story />
+  </div>
+);
 
 const meta = {
   title: "Today/GoalPanel",
@@ -19,9 +26,11 @@ const meta = {
   },
   decorators: [
     (Story) => (
-      <PageGrid>
-        <Story />
-      </PageGrid>
+      <div className="@container">
+        <PageGrid>
+          <Story />
+        </PageGrid>
+      </div>
     ),
   ],
   args: { active: null, proposed: null, canDecide: true, span: 6, onApprove: () => {}, onRequestChange: wait },
@@ -46,3 +55,4 @@ export const Achieved: Story = { args: { active: { ...active, state: "reached", 
 /** A viewer or advisor: the proposal, without the answers. */
 export const ReadOnly: Story = { args: { proposed: proposal, canDecide: false } };
 export const Loading: Story = { args: { loading: true } };
+export const Phone390Proposed: Story = { name: "390 px", decorators: [Phone], args: { proposed: proposal } };

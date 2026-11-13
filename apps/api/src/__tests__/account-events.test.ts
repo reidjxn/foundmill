@@ -12,7 +12,7 @@ import { PERSON_HANDLE_RESERVED, type PersonProfileContent } from "@foundmill/sh
 import { sql } from "drizzle-orm";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { handleLooksLikeAnId, suggestedHandle, unpublishPublicProfile } from "../services/person-profile";
-import { ACCOUNT_RELAY_ENABLED, superviseOutboxRelay } from "../services/relay";
+import { ACCOUNT_RELAY_ENABLED, RELAY_STOP_TIMEOUT_MS, combineRelays, superviseOutboxRelay } from "../services/relay";
 import { writeEventRow } from "../services/events";
 import { createApiHarness, type ApiHarness } from "./harness";
 
@@ -254,7 +254,7 @@ describe("profile.published and profile.unpublished", () => {
   });
 });
 
-describe("the relay supervisor runs the account relay beside the business one", () => {
+describe("the relay supervisor runs the account outbox in the business relay's loop", () => {
   const log = () => ({ warn: vi.fn(), info: vi.fn() });
   const until = async (cond: () => Promise<boolean>, what: string) => {
     const start = Date.now();
@@ -264,9 +264,9 @@ describe("the relay supervisor runs the account relay beside the business one", 
     }
   };
 
-  it("publishes a profile event to the person's own stream and a business event to the business's, each through its own relay", async () => {
+  it("publishes a profile event to the person's own stream and a business event to the business's, through the one relay", async () => {
     const redis = new MemoryRedis();
-    const supervisor = superviseOutboxRelay({ db: hz.db, redis: redis as never, log: log() as never, env: hz.deps.env }, { reachable: async () => true, accountRelay: true });
+    const supervisor = superviseOutboxRelay({ db: hz.db, redis: redis as never, log: log() as never, env: hz.deps.env }, { reachable: async () => true });
     try {
       await until(async () => supervisor.status().state === "running", "relays started");
       const p = await person("Relay Reader");
@@ -293,53 +293,68 @@ describe("the relay supervisor runs the account relay beside the business one", 
     expect(supervisor.status().state).toBe("stopped");
   });
 
-  it("starts both once Redis answers, wakes both, stops both, and a failure to start the account relay leaves the business relay running", async () => {
-    const fake = () => ({ wake: vi.fn(), stop: vi.fn(async () => undefined) }) as unknown as OutboxRelay & { wake: ReturnType<typeof vi.fn>; stop: ReturnType<typeof vi.fn> };
-    const business = fake();
-    const account = fake();
-    const supervisor = superviseOutboxRelay({ db: {} as never, redis: null, log: log() as never, env: hz.deps.env }, { reachable: async () => true, start: () => business, startAccount: () => account, accountRelay: true });
-    await until(async () => supervisor.status().state === "running", "started");
-    supervisor.wake();
-    expect(business.wake).toHaveBeenCalledTimes(1);
-    expect(account.wake).toHaveBeenCalledTimes(1);
-    await supervisor.stop();
-    expect(business.stop).toHaveBeenCalledTimes(1);
-    expect(account.stop).toHaveBeenCalledTimes(1);
-
-    const alone = fake();
-    const quiet = log();
-    const second = superviseOutboxRelay(
-      { db: {} as never, redis: null, log: quiet as never, env: hz.deps.env },
-      {
-        reachable: async () => true,
-        start: () => alone,
-        accountRelay: true,
-        startAccount: () => {
-          throw new Error("account relay could not be built");
-        },
-      },
-    );
-    await until(async () => second.status().state === "running", "business relay started without the account relay");
-    second.wake();
-    expect(alone.wake).toHaveBeenCalledTimes(1);
-    expect(JSON.stringify(quiet.warn.mock.calls)).toContain("account outbox relay did not start");
-    await second.stop();
-    expect(alone.stop).toHaveBeenCalledTimes(1);
+  it("one loop: the business batch then the account batch in the same tick; an account failure never fails the tick", async () => {
+    const order: string[] = [];
+    const relayOf = (name: string, tick: () => Promise<number>) => ({ tick: vi.fn(async () => (order.push(name), tick())) }) as unknown as OutboxRelay;
+    const accountErrors: unknown[] = [];
+    const tickErrors: unknown[] = [];
+    // The account batch throws: the tick still answers with the business count.
+    const loop = combineRelays(relayOf("business", async () => 3), relayOf("account", async () => Promise.reject(new Error("redis down"))), { onError: (e) => tickErrors.push(e), onAccountError: (e) => accountErrors.push(e), intervalMs: 5 });
+    expect(await loop.tick()).toBe(3);
+    expect(order).toEqual(["business", "account"]);
+    expect(accountErrors).toHaveLength(1);
+    expect(tickErrors).toHaveLength(0);
+    // Full when either batch is full: the loop runs again at once.
+    const full = combineRelays(relayOf("b", async () => 0), relayOf("a", async () => 100), { onError: () => undefined, onAccountError: () => undefined });
+    expect(await full.tick()).toBe(100);
+    // A business failure fails the tick (the loop backs off), and the account batch is not run that tick.
+    order.length = 0;
+    const down = combineRelays(relayOf("business", async () => Promise.reject(new Error("db"))), relayOf("account", async () => 1), { onError: () => undefined, onAccountError: () => undefined });
+    await expect(down.tick()).rejects.toThrow("db");
+    expect(order).toEqual(["business"]);
+    // Without an account relay it is the business relay alone.
+    expect(await combineRelays(relayOf("business", async () => 2), null, { onError: () => undefined, onAccountError: () => undefined }).tick()).toBe(2);
   });
 
-  it("the account relay is off by default: only the business relay starts, wakes and stops, and the log says so", async () => {
-    expect(ACCOUNT_RELAY_ENABLED).toBe(false);
+  it("starts one relay once Redis answers, wakes it and stops it; the account outbox is on by default and can be turned off", async () => {
+    expect(ACCOUNT_RELAY_ENABLED).toBe(true);
     const fake = () => ({ wake: vi.fn(), stop: vi.fn(async () => undefined) }) as unknown as OutboxRelay & { wake: ReturnType<typeof vi.fn>; stop: ReturnType<typeof vi.fn> };
-    const business = fake();
-    const startAccount = vi.fn(() => fake());
-    const said = log();
-    const supervisor = superviseOutboxRelay({ db: {} as never, redis: null, log: said as never, env: hz.deps.env }, { reachable: async () => true, start: () => business, startAccount });
+    const relay = fake();
+    const supervisor = superviseOutboxRelay({ db: {} as never, redis: null, log: log() as never, env: hz.deps.env }, { reachable: async () => true, start: () => relay });
     await until(async () => supervisor.status().state === "running", "started");
-    expect(startAccount).not.toHaveBeenCalled();
-    expect(JSON.stringify(said.info.mock.calls)).toContain("account outbox relay is off");
     supervisor.wake();
-    expect(business.wake).toHaveBeenCalledTimes(1);
+    expect(relay.wake).toHaveBeenCalledTimes(1);
     await supervisor.stop();
-    expect(business.stop).toHaveBeenCalledTimes(1);
+    expect(relay.stop).toHaveBeenCalledTimes(1);
+
+    // Turned off: the default relay publishes the business outbox only, and the log says so.
+    const redis = new MemoryRedis();
+    const said = log();
+    const off = superviseOutboxRelay({ db: hz.db, redis: redis as never, log: said as never, env: hz.deps.env }, { reachable: async () => true, accountRelay: false });
+    try {
+      await until(async () => off.status().state === "running", "started without the account outbox");
+      expect(JSON.stringify(said.info.mock.calls)).toContain("account outbox relay is off");
+      const p = await person("Relay Off");
+      await p.me.founder.publicProfile.publish({ handle: "relay-off", content: content() });
+      off.wake();
+      await new Promise((r) => setTimeout(r, 400));
+      expect(await redis.xlen(accountStreamKey(p.userId))).toBe(0);
+      expect((await queued(p.userId)).every((q) => !q.published)).toBe(true);
+    } finally {
+      await off.stop();
+    }
+  });
+
+  it("stopping never waits longer than its bound: a relay whose tick never returns is left behind with a warning", async () => {
+    const stuck = { wake: vi.fn(), stop: vi.fn(() => new Promise<void>(() => undefined)) } as unknown as OutboxRelay;
+    const said = log();
+    const supervisor = superviseOutboxRelay({ db: {} as never, redis: null, log: said as never, env: hz.deps.env }, { reachable: async () => true, start: () => stuck, stopTimeoutMs: 50 });
+    await until(async () => supervisor.status().state === "running", "started");
+    const t = Date.now();
+    await supervisor.stop();
+    expect(Date.now() - t).toBeLessThan(2_000);
+    expect(supervisor.status().state).toBe("stopped");
+    expect(JSON.stringify(said.warn.mock.calls)).toContain("did not stop in time");
+    expect(RELAY_STOP_TIMEOUT_MS).toBeLessThanOrEqual(5_000);
   });
 });

@@ -26,7 +26,7 @@ export function PublicPageNote({ href, span = 12, className }: PublicPageNotePro
     <div className={cn("min-w-0", spanClass(span), className)} data-testid="public-page-note">
       {renderLink({
         href,
-        className: "group flex min-h-control-lg items-center gap-2.5 rounded-md border border-line bg-surface-1 px-panel-pad text-secondary transition-colors duration-hover hover:border-line-strong hover:text-primary focus-ring",
+        className: "group flex min-h-tap items-center gap-2.5 py-2 @page-wide:min-h-control-lg @page-wide:py-0 rounded-md border border-line bg-surface-1 px-panel-pad text-secondary transition-colors duration-hover hover:border-line-strong hover:text-primary focus-ring",
         children: (
           <>
             <Icon icon={Globe} className="shrink-0 text-tertiary group-hover:text-secondary" />

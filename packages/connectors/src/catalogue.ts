@@ -40,6 +40,10 @@ import { createPerplexityConnector } from "./connectors/perplexity";
 import { createSerpapiConnector } from "./connectors/serpapi";
 import { createFirecrawlConnector } from "./connectors/firecrawl";
 import { createIndexNowConnector } from "./connectors/indexnow";
+import { createApolloConnector } from "./connectors/apollo";
+import { createVercelConnector } from "./connectors/vercel";
+import { createPosthogConnector } from "./connectors/posthog";
+import { createResendConnector } from "./connectors/resend";
 
 export type ConnectorFactory = (options?: LiveConnectorOptions) => Connector;
 
@@ -79,6 +83,11 @@ export const CONNECTOR_FACTORIES: Readonly<Record<string, ConnectorFactory>> = O
   serpapi: createSerpapiConnector,
   firecrawl: createFirecrawlConnector,
   indexnow: createIndexNowConnector,
+  // Also on the founder's own key: leads, deployments, product analytics and email from the founder's own domain.
+  apollo: createApolloConnector,
+  vercel: createVercelConnector,
+  posthog: createPosthogConnector,
+  resend: createResendConnector,
 });
 
 export const CONNECTOR_KEYS = Object.freeze(Object.keys(CONNECTOR_FACTORIES));

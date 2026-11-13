@@ -34,11 +34,28 @@ export const SMALL_SCREEN_PREFIXES: readonly string[] = [
   // card a person kept from it, where sign-in lands them.
   "/",
   "/new/card/",
+  // The person's own pages and the people pages (package 2.1): their profile, finding people, communities, messages.
+  "/public-profile",
+  "/network",
+  "/communities",
+  "/communities/",
+  "/profiles/",
 ];
 
-/** Whether `pathname` renders at every width (one of `SMALL_SCREEN_PREFIXES`). */
+/**
+ * Routes inside a project that work from 390 px (package 2.1): Today and Needs you (the Inbox), each in the business
+ * shell's phone layout. Matched as patterns because the project's id is part of the path; every other project route
+ * keeps the 1280 px floor.
+ */
+export const SMALL_SCREEN_PATTERNS: readonly RegExp[] = [
+  /^\/b\/[0-9a-f-]{36}\/today\/?$/i,
+  /^\/b\/[0-9a-f-]{36}\/inbox(\/[^/]+)?\/?$/i,
+];
+
+/** Whether `pathname` renders at every width (one of `SMALL_SCREEN_PREFIXES` or `SMALL_SCREEN_PATTERNS`). */
 export function worksOnSmallScreens(pathname: string | null | undefined): boolean {
   if (!pathname) return false;
+  if (SMALL_SCREEN_PATTERNS.some((re) => re.test(pathname))) return true;
   return SMALL_SCREEN_PREFIXES.some((entry) =>
     entry === "/"
       ? pathname === "/"

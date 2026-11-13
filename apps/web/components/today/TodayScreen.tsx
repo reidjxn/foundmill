@@ -187,7 +187,7 @@ export function TodayScreen() {
       <HomeBlockers />
       <GoalEnsure />
       <HomeFoundations />
-      <PageGrid flush>
+      <PageGrid flush stack>
         {since && sinceLines.length ? <SinceLastVisit span={12} meta={`Since ${formatDateTime(since.since, datePrefs)}`} lines={sinceLines} /> : null}
         {visitQ.data ? <StreakStrip span={12} {...streakStripProps(visitQ.data.streak)} /> : null}
         {firstWeek ? <FirstWeekTimeline span={12} steps={firstWeek.steps} paused={firstWeek.paused} /> : null}
@@ -227,7 +227,7 @@ export function TodayScreen() {
           onRetry={() => void todayQ.refetch()}
         />
         <Panel title={TODAY_WORDS.health} span={12} flush data-testid="today-health">
-          <StatusStrip tiles={tiles} className="rounded-none border-0" aria-label="Business health" />
+          <StatusStrip tiles={tiles} wrap className="rounded-none border-0" aria-label="Business health" />
         </Panel>
       </PageGrid>
     </div>

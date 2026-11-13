@@ -91,5 +91,8 @@ describe("the legal pages", () => {
     expect(privacy).toMatch(/do not sell/);
     expect(privacy).toMatch(/train AI models/);
     expect(privacy).toMatch(/Limited Use/);
+    // Cloudflare requires Invisible-mode sites to link its Turnstile Privacy Addendum (the idea box's bot check).
+    expect(walk(PRIVACY).hrefs).toContain("https://www.cloudflare.com/turnstile-privacy-policy/");
+    expect(privacy).toMatch(/Cloudflare Turnstile to block automated abuse/);
   });
 });

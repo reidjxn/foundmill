@@ -1,6 +1,6 @@
 /* ---------- The landing page's idea box (founder, 2026-11-13; docs/IDEA_BOX.md; the canvas Version 6) ---------- */
 /* The field: a glass pill over the canvas light, its edge catching the light at the corners (edge-hi). Focused, a soft
-   accent ring; quiet once a card has landed. On a phone it stacks (`idea-field-stack`). */
+   accent ring; quiet once a card has landed. On a phone Generate goes under it. */
 @utility idea-field {
   position: relative;
   display: flex;
@@ -8,7 +8,7 @@
   gap: 12px;
   width: 100%;
   min-height: 60px;
-  padding: 6px 6px 6px 22px;
+  padding: 6px 18px 6px 22px;
   border-radius: 14px;
   border: 1px solid transparent;
   text-align: left;
@@ -33,12 +33,6 @@
 }
 @utility idea-field-quiet {
   box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.45), 0 18px 44px -18px rgba(0, 0, 0, 0.8);
-}
-@utility idea-field-stack {
-  flex-direction: column;
-  align-items: stretch;
-  gap: 10px;
-  padding: 14px 8px 8px;
 }
 /* The line itself: 17 px, the placeholder in text-3. */
 @utility idea-input {
@@ -81,17 +75,19 @@
     opacity: 0;
   }
 }
-/* Generate: dark with a white 1 px outline, never the light slab (founder, 2026-11-13), so the field leads. */
+/* Generate: dark with a white 1 px outline, never the light slab (founder, 2026-11-13), so the field leads. It sits
+   beside the field, never inside it, and on hover a light runs along the outline (still under reduced motion). */
 @utility idea-gen {
   position: relative;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 10px;
-  height: 48px;
-  padding: 0 14px 0 7px;
+  gap: 8px;
+  height: 46px;
+  padding: 0 12px 0 6px;
   border: 0;
-  border-radius: 8px;
+  border-radius: 10px;
+  isolation: isolate;
   cursor: pointer;
   flex: none;
   white-space: nowrap;
@@ -101,8 +97,32 @@
   background: linear-gradient(180deg, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0.015)), var(--surface-1);
   box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.78), inset 0 1px 0 rgba(255, 255, 255, 0.12), 0 10px 28px -14px color-mix(in oklab, var(--kit-lift) 45%, transparent);
   transition: box-shadow var(--dur-hover, 120ms) ease;
+  /* The shimmer: a bright band masked to the 1 px outline, swept round on hover. */
+  &::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    padding: 1.5px;
+    border-radius: inherit;
+    background: linear-gradient(115deg, transparent 36%, var(--kit-lift) 44%, #fff 50%, var(--kit-lift) 56%, transparent 64%) 0 0 / 300% 100%;
+    -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+    -webkit-mask-composite: xor;
+    mask: linear-gradient(#000 0 0) content-box exclude, linear-gradient(#000 0 0);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity var(--dur-hover, 120ms) ease;
+  }
   &:hover:not(:disabled) {
-    box-shadow: inset 0 0 0 1px #fff, inset 0 1px 0 rgba(255, 255, 255, 0.16), 0 0 0 4px rgba(255, 255, 255, 0.06), 0 12px 32px -12px color-mix(in oklab, var(--kit-lift) 60%, transparent);
+    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.16), 0 0 0 4px rgba(255, 255, 255, 0.06), 0 12px 32px -12px color-mix(in oklab, var(--kit-lift) 60%, transparent);
+    &::before {
+      opacity: 1;
+      animation: idea-shimmer 2.2s ease-in-out infinite;
+      @media (prefers-reduced-motion: reduce) {
+        animation: none;
+        background-position: 50% 0;
+      }
+    }
   }
   &:focus-visible {
     outline: 2px solid var(--accent);
@@ -113,12 +133,20 @@
     opacity: 0.7;
   }
 }
+@keyframes idea-shimmer {
+  from {
+    background-position: 100% 0;
+  }
+  to {
+    background-position: 0% 0;
+  }
+}
 /* The brand tile inside Generate (the Fan glyph). */
 @utility idea-gen-core {
   display: grid;
   place-items: center;
-  width: 34px;
-  height: 34px;
+  width: 32px;
+  height: 32px;
   border-radius: 28%;
   color: var(--kit-on);
   background: radial-gradient(circle at 38% 28%, color-mix(in oklab, var(--kit-primary) 60%, #fff), var(--kit-primary) 55%, color-mix(in oklab, var(--kit-primary) 62%, #000));
