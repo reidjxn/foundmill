@@ -284,13 +284,15 @@ describe("firecrawl typed read (facts)", () => {
     expect(JSON.stringify(facts)).not.toContain("evil");
   });
 
-  it("handles 100,000 opening brackets in well under 200 ms", async () => {
+  // A quadratic pattern needs billions of steps at this size (seconds to minutes); the linear one takes milliseconds.
+  // The bound is loose on purpose: a shared CI runner under load has measured over 400 ms for the whole call.
+  it("handles 100,000 opening brackets in linear time (well under 2 s)", async () => {
     for (const markdown of ["[".repeat(100_000), `${"[".repeat(60_000)}](${" ".repeat(10_000)}`, "[](".repeat(30_000), `${"[a](".repeat(15_000)}`]) {
       const c = scrapeWith({ success: true, data: { markdown, metadata: {} } });
       const ctx = makeToolContext(c, { mode: "live", credential });
       const started = performance.now();
       const r = await c.callTool("scrape_page", { url: NW, lookFor: ["example.org"] }, ctx);
-      expect(performance.now() - started).toBeLessThan(200);
+      expect(performance.now() - started).toBeLessThan(2_000);
       expect(factsOf(r)).toBeDefined();
     }
   });

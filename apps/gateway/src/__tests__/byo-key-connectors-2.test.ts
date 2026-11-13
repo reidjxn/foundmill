@@ -278,14 +278,15 @@ describe("resend.send_mail carries the gateway's own unsubscribe link", () => {
     expect(own.bodies).toEqual([]);
   });
 
-  it("sends nothing where no signed link can be made (platform mail off, or no https ingest address)", async () => {
-    for (const config of [undefined, { ...MAIL_CONFIG, signingSecret: null }, { ...MAIL_CONFIG, unsubscribeBase: "http://localhost:4005" }]) {
-      const { r, bodies } = await sendBody(config);
-      expect(asAllow(r).result).toMatchObject({ ok: false, error: { code: "unsubscribe_unavailable" } });
-      expect(bodies).toEqual([]);
-      await open?.close();
-      open = null;
-    }
+  // One gateway per case: each setup takes over 10 s on a loaded CI runner, so three in one case outran its timeout.
+  it.each([
+    ["platform mail off", undefined],
+    ["no signing secret", { ...MAIL_CONFIG, signingSecret: null }],
+    ["no https ingest address", { ...MAIL_CONFIG, unsubscribeBase: "http://localhost:4005" }],
+  ] as const)("sends nothing where no signed link can be made: %s", async (_label, config) => {
+    const { r, bodies } = await sendBody(config);
+    expect(asAllow(r).result).toMatchObject({ ok: false, error: { code: "unsubscribe_unavailable" } });
+    expect(bodies).toEqual([]);
   });
 });
 
