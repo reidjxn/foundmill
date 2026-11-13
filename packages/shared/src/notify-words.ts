@@ -10,6 +10,7 @@ import { countOf, usDate } from "./copy";
 import { notificationLinkParams } from "./founder-notifications";
 import { formatMoney } from "./money";
 import { NOTIFY_NO_REPLY_LINE, withoutLinks, type NotifyEmailText } from "./notify-email";
+import { postalAddressLine } from "./platform-mail";
 
 /** The note fields the words read (packages/db `NotifyItem` has them). */
 export interface NotifyItemLike {
@@ -130,6 +131,8 @@ export interface RetentionEmailContext {
   streak?: { current: number; visitedToday: boolean } | null;
   /** A one-click answer for the first waiting decision, when it qualifies. */
   oneClick: { itemId: string; label: string; consequence: string; url: string } | null;
+  /** Foundmill's registered postal address (`APP_POSTAL_ADDRESS`), in every email it sends (US CAN-SPAM). */
+  postalAddress: string;
 }
 
 const oneLine = (value: string, max: number): string => {
@@ -264,9 +267,10 @@ function compose(plan: RetentionEmailPlan, ctx: RetentionEmailContext): { subjec
 function footer(ctx: RetentionEmailContext): { text: string; html: string } {
   const settings = link(ctx, `/b/${ctx.businessId}/settings/preferences`);
   const why = `You get this because you are part of ${safeText(ctx.businessName, 120)} on ${ctx.appName}.`;
+  const postal = postalAddressLine(`${ctx.appName}, ${ctx.postalAddress}`);
   return {
-    text: `${NOTIFY_NO_REPLY_LINE}\n\n--\n${why}\nChoose which emails you get: ${settings}\nTurn these emails off: ${ctx.offLink}\nPause every email: ${ctx.pauseLink}`,
-    html: `<p style="margin:0 0 12px;font-size:14px;line-height:22px">${esc(NOTIFY_NO_REPLY_LINE)}</p><hr><p style="color:#6b7280;font-size:12px;line-height:18px;margin:12px 0 0">${esc(why)} <a href="${esc(settings)}" style="color:#6b7280">Choose which emails you get</a> · <a href="${esc(ctx.offLink)}" style="color:#6b7280">Turn these emails off</a> · <a href="${esc(ctx.pauseLink)}" style="color:#6b7280">Pause every email</a></p>`,
+    text: `${NOTIFY_NO_REPLY_LINE}\n\n--\n${why}\nChoose which emails you get: ${settings}\nTurn these emails off: ${ctx.offLink}\nPause every email: ${ctx.pauseLink}\n${postal}`,
+    html: `<p style="margin:0 0 12px;font-size:14px;line-height:22px">${esc(NOTIFY_NO_REPLY_LINE)}</p><hr><p style="color:#6b7280;font-size:12px;line-height:18px;margin:12px 0 0">${esc(why)} <a href="${esc(settings)}" style="color:#6b7280">Choose which emails you get</a> · <a href="${esc(ctx.offLink)}" style="color:#6b7280">Turn these emails off</a> · <a href="${esc(ctx.pauseLink)}" style="color:#6b7280">Pause every email</a><br>${esc(postal)}</p>`,
   };
 }
 

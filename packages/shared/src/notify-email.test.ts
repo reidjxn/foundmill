@@ -12,6 +12,7 @@ const facts = (over: Partial<DecisionWaitingFacts> = {}): DecisionWaitingFacts =
   link: "https://foundmill.com/b/b1/inbox/i1",
   offLink: "https://ingest.foundmill.com/mail/notify/off?t=n1.x",
   appName: "Foundmill",
+  postalAddress: "Box 1, 11422 Stockholm, Sweden",
   ...over,
 });
 
@@ -32,8 +33,11 @@ describe("the email when something has waited a day for an answer", () => {
         "",
         "--",
         "You get this because you are part of Northwind on Foundmill. Turn these emails off: https://ingest.foundmill.com/mail/notify/off?t=n1.x",
+        "Postal address: Foundmill, Box 1, 11422 Stockholm, Sweden.",
       ].join("\n"),
     );
+    // Foundmill's own address in every email it sends (US CAN-SPAM), in both parts.
+    expect(e.html).toContain("<br>Postal address: Foundmill, Box 1, 11422 Stockholm, Sweden.</p>");
     expect(e.html).toContain('<a href="https://foundmill.com/b/b1/inbox/i1">Open it</a>');
     expect(e.html).toContain('<a href="https://ingest.foundmill.com/mail/notify/off?t=n1.x">Turn these emails off</a>');
   });

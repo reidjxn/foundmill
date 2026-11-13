@@ -9,6 +9,7 @@ import { repos, type Executor } from "@foundmill/db";
 import { AppError, connectorMode, ForbiddenError, platformMailAddress, platformMailDomain, platformMailLive } from "@foundmill/shared";
 import { z } from "zod";
 import type { GatewayConnectResult } from "../services/gateway";
+import { clearPostalAddress, isProjectFounder, postalAddressOf, setPostalAddress } from "../services/postal-address";
 import { oauthRedirectUri, signConnectState, signInstallState, verifyConnectState, verifyInstallState } from "../services/install-state";
 import { ANTHROPIC, revokeAnthropicKey, storeAnthropicKey, validateAnthropicKey } from "../services/keys";
 import { Id, audit, router, sectionAdmin, sectionRead } from "../trpc";
@@ -52,6 +53,8 @@ export const integrationsRouter = router({
    * sending domain (no row is shown). The address is chosen here on first view if no send chose it yet (service
    * connection: no app role writes `project_mail`), then kept. `sentToday` counts `mail.sent` since midnight UTC, the
    * window the gateway's cap uses; `cap` is the operator's override for this project, else the deployment's default.
+   * `postalAddress` is the founders' own (0097, US CAN-SPAM), read under RLS: null for a collaborator, who sees only
+   * whether one is needed (`canEditPostalAddress` false).
    */
   platformMail: read.query(async ({ ctx }) => {
     const domain = platformMailDomain(ctx.env);
@@ -60,6 +63,7 @@ export const integrationsRouter = router({
     const now = new Date();
     const since = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
     const { counts, owns } = await ctx.rls(async (tx) => ({ counts: await repos.events.countByType(tx, ctx.businessId, { from: since }), owns: [await repos.integrations.getByKey(tx, ctx.businessId, "sendgrid"), await repos.integrations.getByKey(tx, ctx.businessId, "resend")] }));
+    const postalAddress = await postalAddressOf(ctx);
     return {
       address: platformMailAddress(row.localPart, domain),
       sentToday: counts["mail.sent"] ?? 0,
@@ -68,8 +72,16 @@ export const integrationsRouter = router({
       live: platformMailLive(ctx.env),
       // The founder's own sender, SendGrid or Resend: the gateway sends from it and the project's address steps aside.
       ownSender: owns.some((own) => own !== null && own.archivedAt === null && (own.status === "connected" || (own.status === "degraded" && own.connectorKey !== "resend"))),
+      postalAddress,
+      canEditPostalAddress: isProjectFounder(ctx),
     };
   }),
+
+  /** The founders enter or change the project's postal address for marketing email (US CAN-SPAM); answers the open note. */
+  setPostalAddress: admin.input(z.object({ address: z.string().max(1_000) })).mutation(({ ctx, input }) => setPostalAddress(ctx, input.address)),
+
+  /** The founders remove it: marketing email from the project's address waits again until one is entered. */
+  clearPostalAddress: admin.mutation(({ ctx }) => clearPostalAddress(ctx)),
 
   connect: admin.input(z.object({ connectorKey: z.string().min(1).max(60), input: z.record(z.string(), z.unknown()).default({}) })).mutation(async ({ ctx, input }) => {
     const mode = connectorMode(ctx.env, input.connectorKey);

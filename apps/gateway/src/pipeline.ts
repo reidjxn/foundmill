@@ -764,7 +764,7 @@ async function allow(deps: GatewayDeps, session: SessionToken, req: CallRequestP
   // A project's Foundmill sending address: its own guards, after Cedar and before the vendor (platform-mail.ts).
   let platformMail: PreparedPlatformMail | null = null;
   if (connector.key === PLATFORM_MAIL_KEY) {
-    const decision = await preparePlatformMail({ db: deps.db, rateLimits: deps.rateLimits, config: deps.platformMail, ...(deps.appEnv !== undefined ? { appEnv: deps.appEnv } : {}) }, { business: loaded.business, args: guarded.args, mode, now: now().getTime() });
+    const decision = await preparePlatformMail({ db: deps.db, rateLimits: deps.rateLimits, config: deps.platformMail, ...(deps.appEnv !== undefined ? { appEnv: deps.appEnv } : {}) }, { business: loaded.business, args: guarded.args, mode, now: now().getTime(), agentId: session.agentId, log });
     if (!decision.ok) {
       const reasons = [decision.reason];
       const audit = await appendAudit(deps, session, req, { outcome: "deny", reasons, policyIds: [decision.policyId] });

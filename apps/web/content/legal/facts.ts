@@ -4,13 +4,18 @@
  * The company's name appears on the two legal pages and nowhere else a visitor can read (founder, 2026-11-13): this
  * directory is the only place in the apps and packages that holds it, and `legal-name.test.ts` keeps it that way. Show
  * the product by APP_NAME everywhere else.
+ *
+ * The registered address is not held here: it lives in @foundmill/config (`APP_POSTAL_ADDRESS`), because every email the
+ * product sends of its own carries it too (US CAN-SPAM), and the gateway cannot read this directory. One source.
  */
+import { APP_POSTAL_ADDRESS } from "@foundmill/config";
+
 export const LEGAL_ENTITY = {
   name: "Collingham AB",
   orgNumber: "559360-6907",
   country: "Sweden",
-  /** The registered postal address, one line (founder, 2026-11-13). */
-  postalAddress: "Valhallavägen 38, 11422 Stockholm, Sweden" as string | null,
+  /** The registered postal address, one line (founder, 2026-11-13): `APP_POSTAL_ADDRESS`, the one source. */
+  postalAddress: APP_POSTAL_ADDRESS as string | null,
 } as const;
 
 /** Where people write about privacy, their data and these documents. */

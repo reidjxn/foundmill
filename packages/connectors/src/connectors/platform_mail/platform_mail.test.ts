@@ -22,7 +22,10 @@ const envelope = (businessId = TEST_BUSINESS_ID) => ({
   messageRef: ref,
   unsubscribeUrl: platformUnsubscribeUrl("https://ingest.foundmill.test", platformUnsubscribeToken(SECRET, businessId, ANNA)),
   customArgs: platformMailCustomArgs(SECRET, businessId, ref, ANNA),
+  commercial: true,
+  postalAddress: POSTAL,
 });
+const POSTAL = "PO Box 1234, Springfield, IL 62701, USA";
 const mail = { to: { email: "Anna@Example.com", name: "Anna" }, subject: "Thanks for joining the list", text: "Hi Anna, thanks for signing up." };
 
 describe("platform_mail content", () => {
@@ -73,6 +76,34 @@ describe("platform_mail mock", () => {
     expect(body.text).toContain("To stop getting these emails: https://ingest.foundmill.test/mail/unsubscribe?t=");
     expect(body.html).toContain(">Unsubscribe</a>");
     expect(verifyPlatformMailArgs(SECRET, { ...body.personalizations[0]!.customArgs, email: "anna@example.com" })).toEqual({ businessId: TEST_BUSINESS_ID, messageRef: ref });
+  });
+
+  it("puts the founders' postal address in a commercial message's footer, on the footer's one line (US CAN-SPAM)", async () => {
+    const mock = createPlatformMailMock();
+    await mock.callTool("send_mail", { ...mail, html: "<p>Hi Anna</p>" }, makeToolContext(mock, { platformMail: envelope() }));
+    const body = mock.sentFor(TEST_BUSINESS_ID)[0]!.body as { text: string; html: string };
+    const footer = body.text.split("\n").at(-1)!;
+    expect(footer).toBe(`Sent by Northwind with ${APP_NAME}. Postal address: ${POSTAL}. To stop getting these emails: ${envelope().unsubscribeUrl}`);
+    expect(body.html).toContain(`<br>Postal address: ${POSTAL}.<br><a href=`);
+  });
+
+  it("escapes the address in the HTML part", async () => {
+    const mock = createPlatformMailMock();
+    await mock.callTool("send_mail", { ...mail, html: "<p>Hi</p>" }, makeToolContext(mock, { platformMail: { ...envelope(), postalAddress: "12 Main & Elm St, Springfield" } }));
+    expect((mock.sentFor(TEST_BUSINESS_ID)[0]!.body as { html: string }).html).toContain("Postal address: 12 Main &amp; Elm St, Springfield.");
+  });
+
+  it("sends no commercial message without the postal address; a transactional one goes without it", async () => {
+    const mock = createPlatformMailMock();
+    const { postalAddress: _omit, ...bare } = envelope();
+    await expect(mock.callTool("send_mail", mail, makeToolContext(mock, { platformMail: bare }))).rejects.toMatchObject({ code: "connector_unconfigured" });
+    await expect(mock.callTool("send_mail", mail, makeToolContext(mock, { platformMail: { ...bare, postalAddress: "  " } }))).rejects.toMatchObject({ code: "connector_unconfigured" });
+    expect(mock.sentFor(TEST_BUSINESS_ID)).toHaveLength(0);
+    const r = await mock.callTool("send_mail", { ...mail, purpose: "reply" }, makeToolContext(mock, { platformMail: { ...bare, commercial: false } }));
+    expect(r.ok).toBe(true);
+    const text = (mock.sentFor(TEST_BUSINESS_ID)[0]!.body as { text: string }).text;
+    expect(text).not.toContain("Postal address");
+    expect(text).toContain("To stop getting these emails:");
   });
 
   it("sends nothing without the gateway's envelope, or with another business's", async () => {

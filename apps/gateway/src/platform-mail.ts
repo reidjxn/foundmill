@@ -14,8 +14,12 @@
  *   3. the message: one recipient, plain text and simple HTML, no attachments (`platformMailContentProblem`);
  *   4. the suppression list again, for the recipient the message names (Cedar checked every address in the arguments);
  *   5. the project's address (`project_mail`, chosen on first use and then kept) and that Foundmill has not paused it;
- *   6. the project's daily cap, per UTC day (`project_mail.daily_cap`, else PLATFORM_MAIL_DAILY_CAP);
- *   7. the deployment's daily ceiling across every project (PLATFORM_MAIL_DAILY_CEILING).
+ *   6. a commercial message carries the founders' postal address (US CAN-SPAM; founder, Nov 13, 2026): the message is
+ *      classified once (packages/shared `projectMailClass`: a declared reply counts only when this person wrote to the
+ *      project first, a declared receipt only when they paid it, anything else is commercial), and a commercial one
+ *      with no address entered is refused, with one note to the founders to add it (`repos.postalAddress.raiseNote`);
+ *   7. the project's daily cap, per UTC day (`project_mail.daily_cap`, else PLATFORM_MAIL_DAILY_CAP);
+ *   8. the deployment's daily ceiling across every project (PLATFORM_MAIL_DAILY_CEILING).
  *
  * The two counts are taken atomically (Redis INCR, shared by every replica). Outside development and test a count that
  * is not shared (no Redis, or Redis down and the store counting in this process's memory) caps nothing, so the send is
@@ -29,8 +33,9 @@
 import { emailLinkSecret } from "@foundmill/shared/email-links";
 import { randomUUID } from "node:crypto";
 import { repos, type Business } from "@foundmill/db";
-import { mockResultsAllowed, PLATFORM_MAIL_REFUSALS, PLATFORM_MAIL_SECRET_MIN_LENGTH, platformMailAddress, platformMailDomain, platformMailSigningSecret, type Env } from "@foundmill/shared";
-import { DEV_PLATFORM_MAIL_SECRET, platformMailContentProblem, platformMailCustomArgs, platformMailSenderName, PlatformSendMail, platformUnsubscribeToken, platformUnsubscribeUrl, suppressionHashOfEmail, type ConnectorMode, type PlatformMailEnvelope } from "@foundmill/connectors";
+import { mockResultsAllowed, PLATFORM_MAIL_REFUSALS, PLATFORM_MAIL_SECRET_MIN_LENGTH, platformMailAddress, platformMailDomain, platformMailSigningSecret, PROJECT_MAIL_RELATIONSHIP_MS, projectMailClass, type Env, type MailClass, type ProjectMailPurpose } from "@foundmill/shared";
+import { DEV_PLATFORM_MAIL_SECRET, emailEntityId, platformMailContentProblem, platformMailCustomArgs, platformMailSenderName, PlatformSendMail, platformUnsubscribeToken, platformUnsubscribeUrl, suppressionHashOfEmail, type ConnectorMode, type PlatformMailEnvelope } from "@foundmill/connectors";
+import { writeGatewayEvent } from "./events";
 import { DAY_MS, type RateLimitStore } from "./rate-limit";
 
 export interface PlatformMailConfig {
@@ -97,6 +102,8 @@ export const PLATFORM_MAIL_POLICY = {
   simulated: "platform-mail-simulated",
   /** The daily counts are not shared by every replica right now (no Redis, or Redis down). */
   store: "platform-mail-store",
+  /** A commercial message, and the founders have not entered the project's postal address (US CAN-SPAM). */
+  no_postal_address: "platform-mail-no-postal-address",
 } as const;
 
 /** Counter keys: one per project and one for the whole deployment, in fixed UTC-day windows. */
@@ -115,6 +122,8 @@ export interface PreparedPlatformMail {
   envelope: PlatformMailEnvelope;
   localPart: string;
   recipientHash: string;
+  /** How the message was classified (`projectMailClass`). */
+  mailClass: MailClass;
   /** Gives both counts back (the send did not go out). Idempotent. */
   release(): Promise<void>;
 }
@@ -146,7 +155,7 @@ export interface PlatformMailDeps {
 export type PlatformMailRefusal = { ok: false; policyId: string; reason: string };
 const refuse = (policyId: string, reason: string): PlatformMailRefusal => ({ ok: false, policyId, reason });
 
-export async function preparePlatformMail(deps: PlatformMailDeps, input: { business: Pick<Business, "id" | "name" | "isDemo">; args: unknown; mode: ConnectorMode; now: number }): Promise<PlatformMailDecision> {
+export async function preparePlatformMail(deps: PlatformMailDeps, input: { business: Pick<Business, "id" | "name" | "isDemo">; args: unknown; mode: ConnectorMode; now: number; agentId?: string; log?: { warn: (obj: Record<string, unknown>, msg: string) => void } }): Promise<PlatformMailDecision> {
   const config = deps.config;
   const businessId = input.business.id;
   // 1. Switched on, and configured for where it runs.
@@ -178,7 +187,15 @@ export async function preparePlatformMail(deps: PlatformMailDeps, input: { busin
   const row = await repos.projectMail.ensure(deps.db, businessId);
   if (row.status !== "active") return refuse(PLATFORM_MAIL_POLICY.paused, PLATFORM_MAIL_REFUSALS.paused);
 
-  // 6 and 7. The project's day, then the deployment's. Outside development and test only a shared count caps anything.
+  // 6. A commercial message carries the founders' postal address; without one it is refused and the founders are told once.
+  const mailClass = await classifyProjectMail(deps.db, businessId, { purpose: parsed.data.purpose, email: parsed.data.to.email, now: input.now });
+  const postalAddress = mailClass === "commercial" ? await repos.postalAddress.addressOf(deps.db, businessId) : null;
+  if (mailClass === "commercial" && !postalAddress) {
+    await raisePostalAddressNote(deps.db, businessId, { agentId: input.agentId ?? null, now: input.now }).catch((e: unknown) => input.log?.warn({ businessId, reason: e instanceof Error ? e.name : "unknown" }, "postal address note not raised"));
+    return refuse(PLATFORM_MAIL_POLICY.no_postal_address, PLATFORM_MAIL_REFUSALS.no_postal_address);
+  }
+
+  // 7 and 8. The project's day, then the deployment's. Outside development and test only a shared count caps anything.
   const counted = await takePlatformMailDay(deps, { businessId, cap: row.dailyCap ?? config.dailyCap, ceiling: config.ceiling, devStack, now: input.now });
   if (!counted.ok) return counted;
   const release = counted.release;
@@ -191,6 +208,7 @@ export async function preparePlatformMail(deps: PlatformMailDeps, input: { busin
     prepared: {
       localPart: row.localPart,
       recipientHash,
+      mailClass,
       release,
       envelope: {
         from: { email, name: fromName },
@@ -198,9 +216,45 @@ export async function preparePlatformMail(deps: PlatformMailDeps, input: { busin
         messageRef,
         unsubscribeUrl: platformUnsubscribeUrl(config.unsubscribeBase, platformUnsubscribeToken(secret, businessId, recipientHash)),
         customArgs: platformMailCustomArgs(secret, businessId, messageRef, recipientHash),
+        commercial: mailClass === "commercial",
+        ...(postalAddress ? { postalAddress } : {}),
       },
     },
   };
+}
+
+/**
+ * Step 6's classification, with the proof a declared purpose needs (packages/shared `projectMailClass`): a reply only to
+ * a person whose verified reply reached the project within `PROJECT_MAIL_RELATIONSHIP_MS`, a receipt only for a payment
+ * from this address within it. Read only when the agent declared one; anything else is commercial.
+ */
+export async function classifyProjectMail(db: PlatformMailDeps["db"], businessId: string, input: { purpose: ProjectMailPurpose | undefined; email: string; now: number }): Promise<MailClass> {
+  const since = new Date(input.now - PROJECT_MAIL_RELATIONSHIP_MS);
+  const wroteFirst = input.purpose === "reply" ? await repos.postalAddress.wroteFirst(db, businessId, { entityId: emailEntityId(input.email), since }) : false;
+  const paid = input.purpose === "receipt" ? await repos.postalAddress.paid(db, businessId, { email: input.email, since }) : false;
+  return projectMailClass({ purpose: input.purpose, wroteFirst, paid });
+}
+
+/**
+ * The founders' note to add the address, from the Chief of Staff (else the agent that tried to send), once while open
+ * and quiet for a week after "Later" (`repos.postalAddress.raiseNote`), through the outbox like every Inbox note.
+ */
+async function raisePostalAddressNote(db: PlatformMailDeps["db"], businessId: string, input: { agentId: string | null; now: number }): Promise<void> {
+  const chief = await repos.agents.chiefOfStaff(db, businessId).catch(() => null);
+  const fromAgentId = chief?.id ?? input.agentId;
+  if (!fromAgentId) return;
+  await repos.postalAddress.raiseNote(db, businessId, {
+    fromAgentId,
+    now: new Date(input.now),
+    onCreated: async (tx, item) => {
+      await writeGatewayEvent(tx, {
+        businessId,
+        type: "inbox.item_created",
+        actor: { kind: "agent", id: fromAgentId },
+        payload: { inboxItemId: item.id, type: item.type, fromAgentId, subject: item.subject, blocksContinue: item.blocksContinue, sourceEventIds: [], cost: null },
+      });
+    },
+  });
 }
 
 /**
