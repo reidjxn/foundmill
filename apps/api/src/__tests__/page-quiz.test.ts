@@ -6,7 +6,7 @@
  * read carries no evidence; an answer counts its result type once, against the live version only; an edit takes it off
  * the page; pressure words are refused at approval; events go through the outbox.
  */
-import { repos } from "@foundmill/db";
+import { interactions, repos } from "@foundmill/db";
 import { PAGE_QUIZ_MIN_CUSTOMERS, type PageQuizDefinition, type ProjectPageContent } from "@foundmill/shared";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { createApiHarness, type ApiHarness } from "./harness";
@@ -143,4 +143,32 @@ describe("pageQuiz: review, approve, turn on, count", () => {
     expect(await code(other.owner.pageQuiz.get({ businessId: a.id }))).toBe("FORBIDDEN");
     expect(await code(other.owner.pageQuiz.draft({ businessId: a.id }))).toBe("FORBIDDEN");
   });
+});
+
+describe("pageQuiz: security review fixes (Nov 13, 2026)", () => {
+  it("names, addresses and phone numbers in replies and payment descriptions never reach the model; a description naming someone is never an offer", async () => {
+    const b = await project("Private");
+    await customers(b.id, 4, 3);
+    const named = await repos.entities.create(hz.db, b.id, { kind: "person", displayName: "Priya Natarajan", identifiers: { email: "priya.n@example.com" }, source: "user" });
+    await repos.entities.addRole(hz.db, b.id, named.id, { role: "customer" });
+    await hz.db.insert(interactions).values({ businessId: b.id, kind: "email", direction: "inbound", entityIds: [named.id], summary: "Priya Natarajan: ring me on 0161 555 0101 or priya.n@example.com" });
+    const account = await repos.finance.upsertAccount(hz.db, b.id, { provider: "manual", externalId: "acc-1", name: "Sales" });
+    await repos.finance.upsertTransactions(hz.db, b.id, [{ accountId: account.id, externalId: "t1", bookedAt: new Date("2026-11-01"), amountMinor: 2500, counterpartyEntityId: named.id, description: "Gift box for Priya Natarajan" }]);
+
+    const seen: string[] = [];
+    const complete = hz.deps.models.complete.bind(hz.deps.models);
+    hz.deps.models.complete = (async (req: Parameters<typeof complete>[0]) => {
+      seen.push(JSON.stringify([req.system, req.messages]));
+      return complete(req);
+    }) as typeof complete;
+    try {
+      const drafted = await b.owner.pageQuiz.draft({ businessId: b.id });
+      expect(seen.length).toBeGreaterThan(0);
+      for (const s of ["Priya", "Natarajan", "priya.n@example.com", "0161 555 0101", "Gift box for"]) expect(seen.join("\n"), s).not.toContain(s);
+      if (drafted.outcome === "drafted") expect(JSON.stringify(drafted.view.quiz!.definition)).not.toMatch(/Priya|Natarajan|example\.com/);
+    } finally {
+      hz.deps.models.complete = complete;
+    }
+  });
+
 });

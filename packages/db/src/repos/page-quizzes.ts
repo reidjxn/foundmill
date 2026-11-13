@@ -117,6 +117,29 @@ export const pageQuizzesRepo = {
   },
 
   /**
+   * The names and email addresses of the project's people and organizations (service connection; security review,
+   * Nov 13, 2026): what packages/agents takes out of replies and payment descriptions before the model sees them, and
+   * refuses in a draft. Never sent to the model, never returned to a client.
+   */
+  async personalTerms(db: Executor, businessId: string): Promise<{ names: string[]; emails: string[] }> {
+    const rows = rowsOf<{ display_name: string; aliases: string[] | null; email: string | null }>(
+      await db.execute(sql`
+        select e.display_name, e.aliases, e.identifiers ->> 'email' as email
+          from entities e
+         where e.business_id = ${businessId} and e.kind in ('person', 'organisation') and e.merged_into_id is null
+         order by e.created_at, e.id
+         limit 5000`),
+    );
+    const names = new Set<string>();
+    const emails = new Set<string>();
+    for (const r of rows) {
+      for (const n of [r.display_name, ...(r.aliases ?? [])]) if (n && n.trim()) names.add(n.trim());
+      if (r.email && r.email.includes("@")) emails.add(r.email.trim().toLowerCase());
+    }
+    return { names: [...names], emails: [...emails] };
+  },
+
+  /**
    * The team's draft (service connection): the row, or the definition of the one there is replaced (a new version, back
    * to draft, off the page). `updated_by` stays as it was: it names people.
    */

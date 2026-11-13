@@ -193,3 +193,40 @@ describe("mock mode", () => {
     expect(await runPageQuizDraft(client, same, attribution)).toMatchObject({ outcome: "refused", reason: "too_little_data" });
   });
 });
+
+describe("personal data never reaches the model or the page (security review, Nov 13, 2026)", () => {
+  const terms = { names: ["Maya Lee", "Office Fleet Ltd", "Follower (ma***@example.com)"], emails: ["maya@example.com"] };
+  const withPeople = () =>
+    facts({
+      customers: [customer(1, "organization", ["p1"], ["Maya Lee here, call me on 0161 555 0101 or maya@example.com about the Monday box."]), ...facts().customers.slice(1)],
+      offers: [{ ref: "p1", title: "Weekly coffee box", buyers: 4 }, { ref: "p2", title: "Gift bag of beans", buyers: 4 }, { ref: "p3", title: "Gift box for Maya Lee", buyers: 1 }],
+    });
+  const capture = (answers: unknown[]) => {
+    const seen: string[] = [];
+    const client = { complete: async (req: { messages: { content: string }[]; system: string[] }) => (seen.push([...req.system, ...req.messages.map((m) => m.content)].join("\n")), result(answers.shift())) } as never;
+    return { client, seen };
+  };
+  const attribution = { businessId: "b", kind: PAGE_QUIZ_USAGE_KIND };
+
+  it("replies and payment descriptions are redacted before the request; a description naming someone is not offered", async () => {
+    const h = capture([good]);
+    await runPageQuizDraft(h.client, withPeople(), attribution, terms);
+    const sent = h.seen[0]!;
+    for (const s of ["Maya", "Lee", "0161 555 0101", "maya@example.com", "Gift box for"]) expect(sent, s).not.toContain(s);
+    expect(sent).toContain("[name] here, call me on [phone] or [email] about the Monday box.");
+  });
+
+  it("a draft whose words or offer titles name a person, or carry an address or a phone number, is refused", async () => {
+    for (const name of ["Customers like Maya", "Write to maya@example.com", "Ring 0161 555 0101", "Friends of [name]"]) {
+      const bad = { ...good, types: [{ ...good.types[0]!, name }, good.types[1]!] };
+      expect(await runPageQuizDraft(capture([bad, bad]).client, withPeople(), attribution, terms), name).toMatchObject({ outcome: "refused", reason: "personal_data" });
+    }
+    // An offer title is checked too, whatever terms the caller passed.
+    const named = facts({ offers: [{ ref: "p1", title: "Box for jo@example.com", buyers: 4 }, facts().offers[1]!] });
+    expect(finalisePageQuiz(good, named)).toMatchObject({ refused: "personal_data" });
+  });
+
+  it("a word of the project's own is not taken for a name, and a plain draft passes", async () => {
+    expect(await runPageQuizDraft(capture([good]).client, facts(), attribution, { names: ["Ember Smith"], emails: [] })).toMatchObject({ outcome: "drafted" });
+  });
+});

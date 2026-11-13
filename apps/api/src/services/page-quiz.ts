@@ -131,7 +131,9 @@ export async function draftPageQuiz(ctx: BusinessContext): Promise<PageQuizDraft
   if (!canEditQuiz(ctx)) throw new ForbiddenError("You can read the quiz but not ask for a draft.");
   const existing = await repos.pageQuizzes.get(ctx.db, ctx.businessId);
   if (existing && existing.status !== "draft" && !canApproveQuiz(ctx)) throw new ForbiddenError(PAGE_QUIZ_EDIT_APPROVED_MESSAGE);
-  const [stored, page] = await Promise.all([repos.pageQuizzes.facts(ctx.db, ctx.businessId), ctx.rls((tx) => pageFacts(tx, ctx))]);
+  // The contacts' names and addresses, on the service connection: taken out of what the model reads, and refused in a
+  // draft. They are never sent anywhere.
+  const [stored, page, terms] = await Promise.all([repos.pageQuizzes.facts(ctx.db, ctx.businessId), ctx.rls((tx) => pageFacts(tx, ctx)), repos.pageQuizzes.personalTerms(ctx.db, ctx.businessId)]);
   const facts: PageQuizFacts = {
     businessName: ctx.business.name,
     page: { pitch: page.content.pitch, about: page.content.about, forWhom: page.content.forWhom, followForm: page.followForm },
@@ -139,7 +141,7 @@ export async function draftPageQuiz(ctx: BusinessContext): Promise<PageQuizDraft
     offers: stored.offers,
     totals: stored.totals,
   };
-  const result = await runPageQuizDraft(ctx.models, facts, { businessId: ctx.businessId, kind: PAGE_QUIZ_USAGE_KIND });
+  const result = await runPageQuizDraft(ctx.models, facts, { businessId: ctx.businessId, kind: PAGE_QUIZ_USAGE_KIND }, terms);
   if (result.outcome === "refused") {
     ctx.log?.info?.({ businessId: ctx.businessId, reason: result.reason, calls: result.calls }, "page quiz: not drafted");
     return { outcome: "refused", message: result.message, view: await pageQuizView(ctx) };

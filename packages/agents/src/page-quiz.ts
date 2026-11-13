@@ -35,6 +35,7 @@ import {
 import { buildSystemPrompt } from "./club-rules";
 import { inertJson, plainModelText, untrustedBlock } from "./foundations";
 import { pageQuizPrompt } from "./prompts/page-quiz";
+import { NO_PERSONAL_TERMS, namePatterns, personalDataIn, redactPersonal, type PersonalTerms } from "./page-quiz-personal";
 import { getTemplate } from "./registry";
 import type { RouteKey } from "./types";
 
@@ -128,7 +129,7 @@ export function buildPageQuizRequest(facts: PageQuizFacts, retryReason?: string)
 // ---------------------------------------------------------------------------------------------------------------------
 
 /** Why an answer was not used. `too_little_data` is the team's own honest answer; the rest are broken rules. */
-export type PageQuizRefusal = "too_little_data" | "unsupported_type" | "unknown_offer" | "invented_figure" | "pressure" | "markup" | "limits";
+export type PageQuizRefusal = "too_little_data" | "unsupported_type" | "unknown_offer" | "invented_figure" | "pressure" | "markup" | "personal_data" | "limits";
 
 const NUMBER_RE = /\d+(?:[.,]\d+)*/g;
 const numbersIn = (text: string): string[] => (text.match(NUMBER_RE) ?? []).map((n) => n.replace(/[.,](?=\d{3}\b)/g, ""));
@@ -141,10 +142,28 @@ export function pageQuizInventedFigures(texts: readonly string[], facts: Pick<Pa
   return [...new Set(numbersIn(texts.join("\n")))].filter((n) => !known.has(n));
 }
 
+/** The project's own words: a word they use is never taken for a person's name. */
+const ownWords = (facts: Pick<PageQuizFacts, "businessName" | "page">) => [facts.businessName, facts.page.pitch, facts.page.about, facts.page.forWhom].join("\n");
+
+/**
+ * The facts as the model may see them (security review, Nov 13, 2026): names, email addresses and phone numbers out of
+ * every reply; a payment description that named anyone is not offered at all (its title would be public), and the
+ * customers who bought it keep their other purchases. The counts stay the real ones.
+ */
+export function redactPageQuizFacts(facts: PageQuizFacts, terms: PersonalTerms = NO_PERSONAL_TERMS): PageQuizFacts {
+  const patterns = namePatterns(terms, ownWords(facts));
+  const dropped = new Set(facts.offers.filter((o) => redactPersonal(o.title, patterns, terms) !== o.title).map((o) => o.ref));
+  return {
+    ...facts,
+    offers: facts.offers.filter((o) => !dropped.has(o.ref)),
+    customers: facts.customers.map((c) => ({ ...c, bought: c.bought.filter((r) => !dropped.has(r)), replies: c.replies.map((r) => redactPersonal(r, patterns, terms)) })),
+  };
+}
+
 export type PageQuizFinal = { definition: PageQuizDefinition; evidence: PageQuizEvidence; reason: string } | { refused: PageQuizRefusal; detail: string };
 
 /** The model's answer as a definition and what it rested on, or why it cannot be used (see the file's note). */
-export function finalisePageQuiz(json: unknown, facts: PageQuizFacts): PageQuizFinal {
+export function finalisePageQuiz(json: unknown, facts: PageQuizFacts, terms: PersonalTerms = NO_PERSONAL_TERMS): PageQuizFinal {
   const parsed = PageQuizOutput.safeParse(json);
   if (!parsed.success) return { refused: "limits", detail: "the answer did not have the asked shape" };
   const out = parsed.data;
@@ -153,7 +172,12 @@ export function finalisePageQuiz(json: unknown, facts: PageQuizFacts): PageQuizF
   if (out.types.length < L.types.min) return { refused: "too_little_data", detail: out.reason || "fewer than two types" };
   if (out.types.length > L.types.max || out.questions.length < L.questions.min || out.questions.length > L.questions.max) return { refused: "limits", detail: "2 to 4 types and 2 to 4 questions" };
 
-  const texts = [...out.types.flatMap((t) => [t.name, t.summary]), ...out.questions.flatMap((q) => [q.text, ...q.answers.map((a) => a.text)])];
+  // Every text a visitor would read, the titles of the offers the types point to included.
+  const offerTitles = out.types.map((t) => pageQuizOfferChoices(facts).find((o) => o.ref === t.offer_ref)?.title ?? "");
+  const texts = [...out.types.flatMap((t) => [t.name, t.summary]), ...out.questions.flatMap((q) => [q.text, ...q.answers.map((a) => a.text)]), ...offerTitles.filter(Boolean)];
+  const patterns = namePatterns(terms, ownWords(facts));
+  const personal = texts.map((s) => personalDataIn(s, patterns, terms)).find(Boolean);
+  if (personal) return { refused: "personal_data", detail: `nothing that identifies a person (${personal}): no names, email addresses or phone numbers` };
   if (texts.some((s) => plainModelText(s) !== s || /https?:|www\.|[<>*`#]|\[\[/.test(s))) return { refused: "markup", detail: "plain text only, no links or markup" };
   const pushed = texts.map((s) => pageQuizPressure(s) ?? (/!/.test(s) ? "!" : null)).find(Boolean);
   if (pushed) return { refused: "pressure", detail: `no pressure words ("${pushed}")` };
@@ -233,7 +257,9 @@ export type PageQuizDraftResult =
  * Readiness first (no call without enough real customers), then the call, and one retry with the reason when the
  * answer broke a rule. The team's own "too little data" is final: it is never asked to try harder.
  */
-export async function runPageQuizDraft(client: ModelClient, facts: PageQuizFacts, attribution: UsageAttribution): Promise<PageQuizDraftResult> {
+export async function runPageQuizDraft(client: ModelClient, input: PageQuizFacts, attribution: UsageAttribution, terms: PersonalTerms = NO_PERSONAL_TERMS): Promise<PageQuizDraftResult> {
+  // Names, addresses and phone numbers never reach the model; the terms themselves are never sent.
+  const facts = redactPageQuizFacts(input, terms);
   const ready = pageQuizReadiness(facts);
   if (!ready.ready) return { outcome: "refused", reason: ready.reason, message: pageQuizRefusalMessage(ready.reason, facts), costMinor: 0, calls: 0 };
   let costMinor = 0;
@@ -243,7 +269,7 @@ export async function runPageQuizDraft(client: ModelClient, facts: PageQuizFacts
     const req = buildPageQuizRequest(facts, retry);
     const result: CompleteResult = await client.complete({ ...req, attribution });
     costMinor += result.cost.costMinorInt;
-    const fin = finalisePageQuiz(result.json, facts);
+    const fin = finalisePageQuiz(result.json, facts, terms);
     if ("definition" in fin) return { outcome: "drafted", definition: fin.definition, evidence: fin.evidence, costMinor, calls: call };
     last = fin.refused;
     if (fin.refused === "too_little_data") return { outcome: "refused", reason: "too_little_data", message: pageQuizRefusalMessage("too_little_data", facts), costMinor, calls: call };
