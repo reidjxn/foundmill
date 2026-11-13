@@ -231,8 +231,14 @@ export const agentRouter = router({
         if (agent.archivedAt) throw new ValidationError(`${agent.name} has left the team; its profile is kept as a record`);
         const current = agent.currentVersionId ? await repos.agents.getVersion(tx, ctx.businessId, agent.currentVersionId) : null;
         const before = current ? AgentInstructions.safeParse(current.instructions) : null;
-        // New tool grants become the session token's allowedTools once promoted: only an owner or admin grants them.
-        if (input.tools && !isAdminRole(ctx) && widensGrants(current?.tools, input.tools)) throw new ForbiddenError("Only an owner or admin gives an agent new tools");
+        // New tool grants become the session token's allowedTools once promoted: only an owner or admin grants them. Both
+        // sides are read as sessions read them: an empty list (or a system-written version 1) means the template's tools.
+        if (input.tools && !isAdminRole(ctx)) {
+          const templateTools = getTemplateByAgentType(agent.agentType)?.tools;
+          // The draft is a user-written version after the live one, never a system-written version 1.
+          const draft = { version: (current?.version ?? 0) + 1, createdByKind: "user" as const, tools: input.tools };
+          if (widensGrants(runningGrants(current ?? undefined, templateTools), runningGrants(draft, templateTools))) throw new ForbiddenError("Only an owner or admin gives an agent new tools");
+        }
         const detection = detectClubRuleViolation(before?.success ? { before: before.data, after: input.instructions } : { before: input.instructions, after: input.instructions });
         const version = await repos.agents.createVersion(tx, ctx.businessId, agent.id, { instructions: input.instructions, tools: input.tools ?? (current?.tools as unknown[] | undefined) ?? [], modelKey: input.modelKey ?? agent.modelKey, state: "draft", createdByKind: "user", createdBy: ctx.userId });
         await audit(tx, ctx, { action: "agent.training.save_draft", target: { kind: "agent_version", id: version.id }, details: { agentId: agent.id, flagged: detection.flagged, violations: detection.violations.length, comment: input.comment ?? null } });
@@ -302,7 +308,8 @@ export const agentRouter = router({
           const pending = await repos.training.get(tx, ctx.businessId, input.runId);
           const agent = await repos.agents.get(tx, ctx.businessId, pending.agentId);
           const [to, live] = await Promise.all([pending.toVersionId ? repos.agents.getVersion(tx, ctx.businessId, pending.toVersionId) : null, agent.currentVersionId ? repos.agents.getVersion(tx, ctx.businessId, agent.currentVersionId) : null]);
-          if (to && widensGrants(live?.tools, to.tools)) throw new ForbiddenError("This version gives the agent new tools; an owner or admin promotes it");
+          const templateTools = getTemplateByAgentType(agent.agentType)?.tools;
+          if (to && widensGrants(runningGrants(live ?? undefined, templateTools), runningGrants(to, templateTools))) throw new ForbiddenError("This version gives the agent new tools; an owner or admin promotes it");
         }
         const watchUntil = new Date(Date.now() + LIMITS.rollbackWatchDays * 86_400_000);
         const run = await repos.training.decide(tx, ctx.businessId, input.runId, "promoted", { watchUntil });

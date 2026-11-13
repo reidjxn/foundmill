@@ -9,6 +9,7 @@
  * - #250 a member with Inbox write cannot confirm a plan whose spend asked the founder first.
  * - #100 journey.* follow the Distribution, Finance and CRM walls; the Ribbon keeps its shape for walled staff.
  */
+import { getTemplateByAgentType } from "@foundmill/agents";
 import { LIMITS } from "@foundmill/config";
 import { repos, type InboxItem } from "@foundmill/db";
 import { TRPCError } from "@trpc/server";
@@ -146,6 +147,24 @@ describe("#107 a member cannot widen what an agent does on its own", () => {
     // The owner may.
     expect(await code(as(ownerId).agent.training.rollback({ businessId, agentId: agent2Id }))).toBe("OK");
     expect((await repos.agents.get(hz.db, businessId, agent2Id)).currentVersionId).toBe(wide.id);
+  });
+
+  it("an empty tool list is the template's full set: a member can neither save nor promote one over narrower grants", async () => {
+    const { businessId, memberId, adminId, ownerId } = hz.A;
+    const template = getTemplateByAgentType("backend_engineer")!;
+    const all = template.tools.flatMap((g) => g.tools.map((t) => `${g.connectorKey}:${t}`));
+    expect(all.length).toBeGreaterThan(1);
+    const agent = await repos.agents.create(hz.db, businessId, { name: "Narrowed Engineer", agentType: "backend_engineer" });
+    const instructions = { role: "Builds the product", goals: ["Ship"], rules: ["Ask before spending"], playbook: ["Read the brief"], tone: "Plain", examples: [] };
+    const first = template.tools[0]!;
+    const narrow = await repos.agents.createVersion(hz.db, businessId, agent.id, { instructions, tools: [{ connectorKey: first.connectorKey, tools: [first.tools[0]!] }], modelKey: "sonnet", state: "draft", createdByKind: "user", createdBy: ownerId });
+    await repos.agents.promoteVersion(hz.db, businessId, agent.id, narrow.id);
+    // Sessions read an empty list as the template's tools, so saving one widens what the agent may do.
+    expect(await code(as(memberId).agent.training.saveDraft({ businessId, agentId: agent.id, instructions, tools: [] }))).toBe("FORBIDDEN");
+    const empty = await repos.agents.createVersion(hz.db, businessId, agent.id, { instructions, tools: [], modelKey: "sonnet", state: "draft", createdByKind: "user", createdBy: adminId });
+    const run = await repos.training.create(hz.db, businessId, { agentId: agent.id, fromVersionId: narrow.id, toVersionId: empty.id, status: "awaiting_decision", requestedBy: adminId });
+    expect(await code(as(memberId).agent.training.promote({ businessId, runId: run.id }))).toBe("FORBIDDEN");
+    expect(await code(as(adminId).agent.training.promote({ businessId, runId: run.id }))).toBe("OK");
   });
 
   it("widensGrants: only new connector:tool pairs widen; a connector wildcard covers its tools", () => {
