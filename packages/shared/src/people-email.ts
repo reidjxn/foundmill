@@ -188,9 +188,9 @@ export function founderNoticeEmail(f: FounderNoticeFacts): NotifyEmailText {
  * for carried one.
  */
 /**
- * The one folded email for the day once a person's essential founder notices reach their share (or the platform's
- * circuit breaker trips), across every project: it says more changed and where to look, and carries the latest deletion
- * this person may still cancel, when there is one (`cancel`, with that project's name).
+ * The folded email past a person's essential founder notices' share (or the platform's circuit breaker), across every
+ * project: it says more changed and where to look, and carries the latest deletion this person may still cancel, when
+ * there is one (`cancel`, with that project's name). Sent once per such deletion, and once for none, in a UTC day.
  */
 export function founderNoticeEssentialMoreEmail(f: { appName: string; recipientName: string | null; link: string | null; cancel?: { link: string; until: string; projectName: string } | null }): NotifyEmailText {
   const hi = f.recipientName ? `Hi ${oneLine(f.recipientName, 60)},` : "Hi,";

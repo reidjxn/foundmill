@@ -14,10 +14,11 @@
  *      day (`FOUNDER_NOTICE_LOOKBACK_MS`);
  *   4. the reader: never the person who did it (`own_action`), but for one receipt: the person who asked for a deletion
  *      (`self`, whatever the team's size); a founder of the project now (an owner or a cofounder, not through an example
- *      membership, not ended), or the person whose role changed or who was removed, or, for a deletion, one of the
- *      `FOUNDER_NOTICE_LIMITS.formerPerRequest` (50) people someone else most recently demoted or removed from the
- *      project who have not got the standing back (`founder_departures`; the cancel stays with those taken out within 30
- *      days before the request, or after it: "in the window"); anyone else is `not_founder`;
+ *      membership, not ended), or the person whose role changed or who was removed, or, for a deletion and its cancel, a
+ *      former founder for the request (someone else took their standing away within 30 days before it, or after it: "in
+ *      the window"; every one of them, uncapped, since they may cancel it) or, beyond the window, one of the
+ *      `FOUNDER_NOTICE_LIMITS.formerPerRequest` (50) people someone else most recently took out of the project who have
+ *      not got the standing back (`founder_departures`); anyone else is `not_founder`;
  *   5. once per entry and person (`founder_notifications`' dedupe key `founder_notice:<audit id>`);
  *   6. their address, from `auth.users`, and no hard suppression of it (`isHardSuppressed`: a bounce or a spam report,
  *      platform-wide or for this project). Nothing else holds it back: no email switch, no pause, no daily limit, no
@@ -36,10 +37,11 @@
  *      skips those and is bounded on its own (final review): `essentialPerRecipientDay` (10) a day per person across
  *      every project (`pn:safety:essential:<user>:day`), and a circuit breaker over all of them
  *      (`pn:safety:reserved:day`, PLATFORM_SAFETY_RESERVED_DAILY_CEILING, default 20,000; a warning at half, an error at
- *      the ceiling). Past either, the person gets one folded email for the day ("More changes to who runs your
- *      projects"), which carries the latest deletion they may still cancel (their own link from this request when it is
- *      that one, else a link minted here), and every further essential notice that day is recorded as `folded` (or
- *      `folded_reserved_ceiling`), never dropped silently.
+ *      the ceiling). Past either, until the end of the UTC day, one email per deletion the person may cancel and one for
+ *      none (final review, P1-A; marker `pn:safety-more:essential:<user>:<request|none>:<day>`): a notice that carries
+ *      its own request's cancel goes in full, once for that request; any other becomes one "More changes to who runs your
+ *      projects" email carrying the latest deletion they may cancel (a link minted here), once for that one. Every
+ *      further essential notice that day is recorded as `folded` (or `folded_reserved_ceiling`), never dropped silently.
  *
  * The words are `founderNoticeEmail` (packages/shared people-email.ts) over the gateway's own reads (the profile names of
  * the reader, the actor and the person it was about, the project's name, the reader's time zone), every one through
@@ -79,7 +81,7 @@ import { newActionToken } from "@foundmill/shared/email-links";
 import { DEV_PLATFORM_MAIL_SECRET, isConfigError, mockIntegrationRecord, PLATFORM_NOTIFY_KEY, suppressionHashOfEmail, type ToolContext } from "@foundmill/connectors";
 import { redactLinks, type NotifyEmailResponse } from "./notify-email";
 import { modeFor, safeError, vendorRefusedOutright, type GatewayDeps } from "./pipeline";
-import { DAY_MS } from "./rate-limit";
+import { DAY_MS, windowStart } from "./rate-limit";
 
 const Token = z.string().regex(/^[A-Za-z0-9_-]{43}$/);
 
@@ -105,8 +107,14 @@ export const PLATFORM_SAFETY_CEILING_KEY = "pn:safety:day";
 export const PLATFORM_SAFETY_RESERVED_KEY = "pn:safety:reserved:day";
 /** The essential founder notices one person got today, across every project (`essentialPerRecipientDay`). */
 export const founderNoticeEssentialKey = (userId: string): string => `pn:safety:essential:${userId.toLowerCase()}:day`;
-/** The marker that the day's one folded essential email to this person went out. */
-export const founderNoticeEssentialMoreKey = (userId: string): string => `pn:safety-more:essential:${userId.toLowerCase()}:day`;
+/**
+ * The marker that today's one email past this person's essential share went out for one deletion they may cancel
+ * (`requestId`), or for none: keyed on the request (final review, P1-A), so a deletion that becomes cancellable later in
+ * the day still gets its one email with its link, and on the UTC day, as the counters are.
+ */
+export const founderNoticeEssentialMoreKey = (userId: string, requestId: string | null, now: number): string => `pn:safety-more:essential:${userId.toLowerCase()}:${requestId?.toLowerCase() ?? "none"}:${windowStart(now, DAY_MS)}`;
+/** How long a marker set now lasts: to the end of this UTC day, as the day's counters do. */
+const untilEndOfUtcDay = (now: number): number => windowStart(now, DAY_MS) + DAY_MS - now;
 /** Every founder notice about one project in a UTC day, under the platform's ceiling (`perProjectDay`). */
 export const founderNoticeProjectKey = (businessId: string): string => `pn:safety:project:${businessId.toLowerCase()}:day`;
 /** Founder notices one person got about one project, this hour and today. */
@@ -140,7 +148,8 @@ const LATEST_CANCEL_PROJECTS = 50;
 
 /**
  * The latest deletion this person may still cancel, in any project: a waiting request, before its day, that they are a
- * former founder for (as the card on their home reads it). Null when there is none.
+ * former founder for (as the card on their home reads it). Their departures are read most recent first, at most
+ * `LATEST_CANCEL_PROJECTS` of them. Null when there is none.
  */
 async function latestCancelFor(deps: GatewayDeps, userId: string, now: Date): Promise<{ businessId: string; businessName: string; request: AuditEntry; until: Date } | null> {
   const departures = await repos.founderDepartures.forUser(deps.db, userId, new Date(now.getTime() - FORMER_FOUNDER_LOOKBACK_MS - 14 * DAY_MS));
@@ -198,18 +207,23 @@ export async function sendFounderNotice(deps: GatewayDeps, input: FounderNoticeR
   const membership = await repos.memberships.getActive(deps.db, businessId, userId).catch(() => null);
   const isFounder = !!membership && membership.source !== "example" && isOwnerRole(membership.role);
   const request = notice === "deletion_requested" ? entry : notice === "deletion_canceled" ? await canceledRequest(deps, businessId, entry) : null;
-  let reader: "founder" | "subject" | "former" | "self";
+  let reader: "founder" | "subject" | "former" | "self" | undefined;
   if (isActor) reader = "self";
   else if (subjectId && subjectId.toLowerCase() === userId.toLowerCase()) reader = "subject";
   else if (isFounder) reader = "founder";
-  // Anyone someone else ever took out of the project hears about its deletion (third review); the cancel stays with the
-  // former founders for the request (checked with the link below).
-  // Of them, the most recent `formerPerRequest` (final review): a request's fan-out does not grow with every account
-  // ever taken out.
-  else if (request && (await repos.founderDepartures.formerFounderEver(deps.db, businessId, userId, { limit: FOUNDER_NOTICE_LIMITS.formerPerRequest }))) reader = "former";
-  else return notSent("not_founder");
+  else reader = undefined;
+  // A deletion and its cancel reach every former founder for the request (someone else took their standing away within
+  // 30 days before it, or after it), uncapped: they may cancel it, and their per-person share bounds what each gets
+  // (final review, P1-B). Beyond that window, anyone else someone took out of the project hears too (third review), the
+  // `formerPerRequest` (50) most recent of them.
+  const windowDeparture = request && reader === undefined ? await repos.founderDepartures.formerFounderFor(deps.db, businessId, userId, request.createdAt) : null;
+  if (reader === undefined) {
+    if (windowDeparture) reader = "former";
+    else if (request && (await repos.founderDepartures.formerFoundersLongAgo(deps.db, businessId, request.createdAt, { limit: FOUNDER_NOTICE_LIMITS.formerPerRequest })).some((r) => r.userId.toLowerCase() === userId.toLowerCase())) reader = "former";
+    else return notSent("not_founder");
+  }
   // A former founder for this request (in the window): their deletion email is essential, with or without its link.
-  const inWindow = reader === "former" && notice === "deletion_requested" && request ? (await repos.founderDepartures.formerFounderFor(deps.db, businessId, userId, request.createdAt)) !== null : false;
+  const inWindow = reader === "former" && notice === "deletion_requested" && windowDeparture !== null;
 
   // 5. Once per entry and person.
   const dedupeKey = `founder_notice:${entry.id}`;
@@ -291,6 +305,7 @@ export async function sendFounderNotice(deps: GatewayDeps, input: FounderNoticeR
   let more = false;
   let foldAll = false;
   let breaker = false;
+  let foldLatest: Awaited<ReturnType<typeof latestCancelFor>> = null;
   if (essential) {
     const reserved = await hit(PLATFORM_SAFETY_RESERVED_KEY, DAY_MS);
     if (reserved === Math.ceil(reservedCeiling / 2) && reserved < reservedCeiling) deps.log.warn({ count: reserved, ceiling: reservedCeiling }, "essential founder notices: half of the reserved daily ceiling is used");
@@ -298,8 +313,13 @@ export async function sendFounderNotice(deps: GatewayDeps, input: FounderNoticeR
     breaker = reserved > reservedCeiling;
     const mine = await hit(founderNoticeEssentialKey(userId), DAY_MS);
     if (breaker || mine > FOUNDER_NOTICE_LIMITS.essentialPerRecipientDay) {
-      const key = founderNoticeEssentialMoreKey(userId);
-      if (!(await claimFirst(key, DAY_MS))) {
+      // Past the share (or the breaker): one email per deletion this person may cancel, and one for none, until the end
+      // of the UTC day (final review, P1-A). A notice that carries its own request's cancel goes in full, once for that
+      // request; any other is folded into one email carrying the latest deletion they may cancel, once for that one.
+      const own = cancel && waiting ? waiting.id : null;
+      foldLatest = own ? null : await latestCancelFor(deps, userId, now).catch(() => null);
+      const key = founderNoticeEssentialMoreKey(userId, own ?? foldLatest?.request.id ?? null, now.getTime());
+      if (!(await claimFirst(key, untilEndOfUtcDay(now.getTime())))) {
         await giveBack();
         const reason = breaker ? "folded_reserved_ceiling" : "folded";
         await repos.notifications.skip(deps.db, businessId, { userId, kind, dedupeKey, reason }).catch(() => undefined);
@@ -307,7 +327,7 @@ export async function sendFounderNotice(deps: GatewayDeps, input: FounderNoticeR
         return notSent("folded");
       }
       marker = key;
-      foldAll = true;
+      foldAll = own === null;
     }
   } else {
     if ((await hit(PLATFORM_SAFETY_CEILING_KEY, DAY_MS)) > ceiling) {
@@ -333,26 +353,15 @@ export async function sendFounderNotice(deps: GatewayDeps, input: FounderNoticeR
     }
   }
 
-  // The day's folded email carries the latest deletion this person may still cancel: this request's own link when it is
-  // that one, else a link minted here for it (and this request's unused link is forgotten).
+  // The folded email carries the latest deletion this person may still cancel, through a link minted here for it (the
+  // notice in hand carried no cancel of its own: one that did went in full above).
   let foldCancel: { link: string; until: Date; projectName: string } | null = null;
-  if (foldAll) {
-    const latest = await latestCancelFor(deps, userId, now).catch(() => null);
-    if (latest && cancel && waiting && latest.request.id === waiting.id) {
-      foldCancel = { link: cancel.link, until: cancel.until, projectName: business.name };
-    } else if (latest) {
-      const fresh = newActionToken();
-      const row = await repos.founderCancelLinks.create(deps.db, { businessId: latest.businessId, userId, requestId: latest.request.id, tokenHash: fresh.hash, expiresAt: latest.until }).catch(() => null);
-      if (row) {
-        minted = { id: row.id, token: fresh.token };
-        foldCancel = { link: `${appUrl}/a/${fresh.token}`, until: latest.until, projectName: latest.businessName };
-      }
-      if (cancel && input.data.cancelToken) {
-        const unused = await repos.founderCancelLinks.byTokenHash(deps.db, sha256(input.data.cancelToken)).catch(() => null);
-        if (unused) await repos.founderCancelLinks.remove(deps.db, unused.id).catch(() => undefined);
-      }
-    } else if (cancel) {
-      foldCancel = { link: cancel.link, until: cancel.until, projectName: business.name };
+  if (foldAll && foldLatest) {
+    const fresh = newActionToken();
+    const row = await repos.founderCancelLinks.create(deps.db, { businessId: foldLatest.businessId, userId, requestId: foldLatest.request.id, tokenHash: fresh.hash, expiresAt: foldLatest.until }).catch(() => null);
+    if (row) {
+      minted = { id: row.id, token: fresh.token };
+      foldCancel = { link: `${appUrl}/a/${fresh.token}`, until: foldLatest.until, projectName: foldLatest.businessName };
     }
   }
   const offersCancel = foldAll ? foldCancel !== null : cancel !== null;
@@ -445,5 +454,6 @@ export async function sendFounderNotice(deps: GatewayDeps, input: FounderNoticeR
     .append(deps.db, businessId, { actorKind: "system", action: "gateway.notify.founder_notice_sent", target: { kind: "audit_entry", id: entry.id }, details: { service, mode, simulated, notice, reader, userId, notificationId, offersCancel, more, essential, foldedAll: foldAll, breaker } })
     .catch((e: unknown) => deps.log.warn({ businessId, reason: e instanceof Error ? e.name : "unknown" }, "founder notice audit not written"));
   deps.log.info({ businessId, userId, kind, notice, mode }, "founder notice sent");
-  return { sent: true, simulated, eventId };
+  // Whether the email that went carried a cancel, for the api's record (final review, P3).
+  return { sent: true, simulated, eventId, offersCancel };
 }

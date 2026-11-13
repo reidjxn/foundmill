@@ -165,6 +165,17 @@ describe("the repo: at most so many former founders per request, the most recent
     expect((await repos.founderDepartures.formerFoundersEver(h.db, B.businessId, { limit: before + 2 })).map((r) => r.userId).slice(before)).toEqual([newest, middle]);
     expect(await repos.founderDepartures.formerFounderEver(h.db, B.businessId, oldest, { limit: before + 2 })).toBeNull();
     expect((await repos.founderDepartures.formerFounderEver(h.db, B.businessId, oldest))?.userId).toBe(oldest);
+    // Beyond a request's own window only (more than 30 days before it), capped and ordered in the database; someone
+    // taken out within the window is the window's, never capped.
+    const recent = await h.createUser("depart-limit-recent@test.local");
+    await h.db.insert(s.memberships).values({ businessId: B.businessId, userId: recent, role: "cofounder" });
+    await h.db.delete(s.memberships).where(and(eq(s.memberships.businessId, B.businessId), eq(s.memberships.userId, recent)));
+    const now = new Date();
+    expect((await repos.founderDepartures.formerFoundersLongAgo(h.db, B.businessId, now, { limit: 2 })).map((r) => r.userId)).toEqual([newest, middle]);
+    expect((await repos.founderDepartures.formerFoundersLongAgo(h.db, B.businessId, now, { limit: 50 })).map((r) => r.userId)).not.toContain(recent);
+    expect((await repos.founderDepartures.formerFoundersFor(h.db, B.businessId, now)).map((r) => r.userId)).toContain(recent);
+    expect((await repos.founderDepartures.formerFounderFor(h.db, B.businessId, recent, now))?.how).toBe("removed");
+    expect(await repos.founderDepartures.formerFounderFor(h.db, B.businessId, oldest, now)).toBeNull();
   });
 });
 

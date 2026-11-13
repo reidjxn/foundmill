@@ -57,8 +57,8 @@ export function rolePhrase(role: MembershipRole | string): string {
 /**
  * An essential notice (final review): it skips the ordinary notices' ceilings and the per-project fold, and is bounded on
  * its own instead (`FOUNDER_NOTICE_LIMITS.essentialPerRecipientDay` per person a day across every project, and the
- * reserved circuit breaker), past which the person gets one folded email for the day that still carries the latest
- * deletion they may cancel. Essential:
+ * reserved circuit breaker), past which, until the end of the UTC day, the person gets one email per deletion they may
+ * cancel (with its link) and one for none. Essential:
  *   - (a) an email that carries the one-click cancel;
  *   - (b) the removal's email to the person removed;
  *   - a deletion request's email to a founder now, to the person who asked (the receipt), and to a former founder for
@@ -183,7 +183,7 @@ export const FOUNDER_NOTICE_MORE = {
   lead: (projectName: string) => `There were more changes to who runs ${clip(withoutLinks(projectName), 120)}, or to whether it is deleted, than we email about one by one. We won't email about each of them for a while.`,
   founder: "Open the project to see where things stand: Settings › People and Settings › Danger zone.",
   other: "If you are still one of its founders, open Settings › People and Settings › Danger zone to see where things stand. If a deletion waits that you can still cancel, your home shows it.",
-  /** The one folded email a person gets for the day once their essential notices reach their share, across every project. */
+  /** The folded email past a person's essential share, across every project (once per deletion they may cancel, or none). */
   all: {
     subject: "More changes to who runs your projects",
     lead: "Today there were more changes to who runs projects you are, or were, a founder of, or to whether they are deleted, than we email about one by one. We won't email about each of them again until tomorrow.",

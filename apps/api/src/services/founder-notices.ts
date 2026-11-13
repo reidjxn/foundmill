@@ -6,9 +6,10 @@
  *
  *   - `tellFounders` asks the gateway's one sender (`/v1/notify/email`, kind `founder_notice`) for one email per person:
  *     every founder now (an owner or a cofounder), the person whose role changed or who was removed, and, for a deletion,
- *     the `FOUNDER_NOTICE_LIMITS.formerPerRequest` (50) people someone else most recently demoted or removed from the
- *     project who are not founders now (`founder_departures`, 0097; the one-click cancel is for those taken out within 30
- *     days before the request, or after it). Never the person who did it, but for one receipt: the person who asked for
+ *     every former founder for the request (someone else took their standing away within 30 days before it, or after it;
+ *     uncapped, and each of their emails carries the one-click cancel) and, beyond that window, the
+ *     `FOUNDER_NOTICE_LIMITS.formerPerRequest` (50) people someone else most recently took out of the project who are not
+ *     founders now (`founder_departures`, 0097). Never the person who did it, but for one receipt: the person who asked for
  *     a deletion, whatever the team's size. Ids only: the gateway reads the audit entry and everyone again, and holds the
  *     counts (the ordinary notices' ceilings and per-project fold; the essential ones' per-person day and circuit
  *     breaker). Asked after the change committed, `NOTICE_CONCURRENCY` at a time; a refusal or an unreachable gateway
@@ -158,12 +159,16 @@ export async function tellFounders(deps: NoticeDeps, input: TellFoundersInput): 
   ]);
   // The request this notice is about, for a deletion: the former founders are counted from it.
   const request = input.notice === "deletion_requested" ? entry : input.notice === "deletion_canceled" && entry ? await canceledRequest(deps.db, input.businessId, entry) : null;
-  // Everyone someone else ever took out of the project hears about its deletion and its cancel (third review); the
-  // one-click cancel stays with the former founders for the request (within 30 days before it, or after it).
-  // At most the `formerPerRequest` most recent of them (final review, P1): the fan-out stays bounded.
-  const former = request ? await repos.founderDepartures.formerFoundersEver(deps.db, input.businessId, { limit: FOUNDER_NOTICE_LIMITS.formerPerRequest }) : [];
-  // Who may still cancel the deletion that waits now (for a role change or a removal made while one waits).
+  // Who may still cancel the deletion that waits now (for a role change or a removal made while one waits); for a
+  // request, the request itself, read once.
   const formerForWaiting = waiting ? await repos.founderDepartures.formerFoundersFor(deps.db, input.businessId, waiting.createdAt) : [];
+  // A deletion and its cancel reach the former founders for the request (within 30 days before it, or after it), every
+  // one of them, uncapped: they may cancel it, and the gateway's per-person share bounds what each gets (final review,
+  // P1-B: 50 sock puppets taken out later must not push the one who may cancel out). Beyond that window, everyone else
+  // someone took out of the project hears too (third review), the `formerPerRequest` (50) most recent of them.
+  const inWindow = request ? (waiting && waiting.id === request.id ? formerForWaiting : await repos.founderDepartures.formerFoundersFor(deps.db, input.businessId, request.createdAt)) : [];
+  const longAgo = request ? await repos.founderDepartures.formerFoundersLongAgo(deps.db, input.businessId, request.createdAt, { limit: FOUNDER_NOTICE_LIMITS.formerPerRequest }) : [];
+  const former = [...inWindow, ...longAgo];
   const recipients = new Set<string>(founders.map((m) => m.userId.toLowerCase()));
   if (subject) recipients.add(subject);
   for (const d of former) recipients.add(d.userId.toLowerCase());
@@ -190,7 +195,9 @@ export async function tellFounders(deps: NoticeDeps, input: TellFoundersInput): 
         await forget();
         deps.log.info({ businessId: input.businessId, userId, notice: input.notice, reason: answer.reason }, "founder notice not sent");
       }
-      return { userId, sent: answer.sent, reason: answer.sent ? null : answer.reason, offersCancel: answer.sent && link !== null };
+      // The gateway says whether the email it sent carried a cancel (it may have folded it into the day's one email,
+      // with another link, or none): that is what is recorded (final review, P3).
+      return { userId, sent: answer.sent, reason: answer.sent ? null : answer.reason, offersCancel: answer.sent && (answer.offersCancel ?? link !== null) };
     } catch (e) {
       // No answer is not "not sent": the gateway may have sent it, so the link stays (third review). It works only for
       // its own request, once, until that request's day.

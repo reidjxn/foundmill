@@ -656,9 +656,10 @@ export const FORMER_FOUNDER_LOOKBACK_MS = 30 * 86_400_000;
  *   - essential notices (`isEssentialFounderNotice`) skip those three and are bounded on their own:
  *     `essentialPerRecipientDay` a day per person across every project (`pn:safety:essential:<user>:day`), and every
  *     essential notice together under `reservedCeilingDefault` a day (`pn:safety:reserved:day`,
- *     PLATFORM_SAFETY_RESERVED_DAILY_CEILING), a circuit breaker; past either, one folded email per person for the day,
- *     which carries the latest deletion that person may still cancel;
- *   - `formerPerRequest`: the most recent former founders one deletion request (or its cancel) emails;
+ *     PLATFORM_SAFETY_RESERVED_DAILY_CEILING), a circuit breaker; past either, until the end of the UTC day, one email per
+ *     deletion that person may cancel (with its link) and one for none;
+ *   - `formerPerRequest`: beyond a request's 30-day window, the most recent people taken out that one deletion request
+ *     (or its cancel) emails; the former founders for the request itself are never capped;
  *   - `actorPerDay`: how many times one person may lower a founder's role, or ask for a deletion, in one project in a
  *     day, and `actorPerDayAll`: both together, across every project, in a day.
  */

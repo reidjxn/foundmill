@@ -300,4 +300,34 @@ describe("founder notices and the former founder's cancel", () => {
     expect(most).toBe(NOTICE_CONCURRENCY);
     await repos.audit.append(hz.db, hz.A.businessId, { actorKind: "user", actorId: ana, action: "business.cancel_deletion", target: { kind: "business", id: hz.A.businessId }, details: {} });
   });
+
+  it("a deletion asks for every former founder for it, however many were taken out after them; what is recorded is what the gateway says went", async () => {
+    const C = await createBusinessFixture(hz.h, "notices-many");
+    const victim = await hz.h.createUser("victim-notices@example.com");
+    await hz.db.insert(memberships).values({ businessId: C.businessId, userId: victim, role: "cofounder" });
+    await hz.db.delete(memberships).where(and(eq(memberships.businessId, C.businessId), eq(memberships.userId, victim)));
+    const later = await Promise.all(Array.from({ length: FOUNDER_NOTICE_LIMITS.formerPerRequest + 1 }, (_, i) => hz.h.createUser(`later-${i}-notices@example.com`)));
+    await hz.db.insert(memberships).values(later.map((userId) => ({ businessId: C.businessId, userId, role: "cofounder" as const })));
+    for (const userId of later) await hz.db.delete(memberships).where(and(eq(memberships.businessId, C.businessId), eq(memberships.userId, userId)));
+    const request = await repos.audit.append(hz.db, C.businessId, { actorKind: "user", actorId: C.ownerId, action: "business.request_deletion", target: { kind: "business", id: C.businessId }, details: { scheduledFor: new Date(Date.now() + 7 * 86_400_000).toISOString() } });
+    const tokens = new Map<string, string | undefined>();
+    const result = await tellFounders(
+      {
+        db: hz.db,
+        log: hz.deps.log,
+        gateway: {
+          notifyEmail: async (input) => {
+            tokens.set(input.userId, (input.data as { cancelToken?: string }).cancelToken);
+            // The gateway folded the victim's notice into an email without the link.
+            return { sent: true, simulated: true, eventId: null, offersCancel: input.userId !== victim };
+          },
+        },
+      },
+      { businessId: C.businessId, auditId: request.id, notice: "deletion_requested", actorUserId: C.ownerId },
+    );
+    expect(tokens.get(victim)).toMatch(/^[A-Za-z0-9_-]{43}$/);
+    for (const userId of later) expect(tokens.has(userId)).toBe(true);
+    expect(result.asked.find((a) => a.userId === victim)).toMatchObject({ sent: true, offersCancel: false });
+    expect(result.asked.find((a) => a.userId === later[0])).toMatchObject({ sent: true, offersCancel: true });
+  });
 });

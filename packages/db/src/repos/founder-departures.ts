@@ -11,7 +11,7 @@
  *   signed-in person's own id only.
  * - `formerFoundersFor` / `formerFounderFor` and everything about the links are the service connection's.
  */
-import { and, desc, eq, gte, inArray, isNull, sql } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, isNull, lt, notExists, sql } from "drizzle-orm";
 import { z } from "zod";
 import { FORMER_FOUNDER_LOOKBACK_MS, OWNER_ROLES } from "@foundmill/shared";
 import { businesses, memberships } from "../schema";
@@ -51,8 +51,34 @@ async function formerSince(db: Executor, businessId: string, since: Date): Promi
     .from(memberships)
     .where(and(eq(memberships.businessId, bid), inArray(memberships.role, [...OWNER_ROLES]), membershipNotEnded, inArray(memberships.userId, others.map((r) => r.userId))));
   const still = new Set(founders.map((f) => f.userId));
-  // Most recent first, so a caller that takes only so many (`formerPerRequest`) keeps the latest.
+  // Most recent first.
   return others.filter((r) => !still.has(r.userId)).sort((x, y) => y.departedAt.getTime() - x.departedAt.getTime() || (x.id < y.id ? 1 : -1));
+}
+
+/** No founder's standing in the business now (an owner or a cofounder, not ended) for the row's person. */
+const notFounderNow = (bid: string, userIdColumn: unknown) =>
+  notExists(
+    sql`(select 1 from ${memberships} where ${memberships.businessId} = ${bid} and ${memberships.userId} = ${userIdColumn} and ${inArray(memberships.role, [...OWNER_ROLES])} and ${membershipNotEnded})`,
+  );
+
+/**
+ * The people whose latest departure from the business is before `before`, when someone else caused it and they are not
+ * founders now, most recent first, at most `limit`: ordered and limited in the database (final review, P3).
+ */
+async function formerBefore(db: Executor, businessId: string, before: Date | null, limit: number): Promise<FounderDepartureView[]> {
+  const bid = parseInput(Id, businessId, "business id");
+  const latest = db
+    .selectDistinctOn([founderDepartures.userId], visible)
+    .from(founderDepartures)
+    .where(eq(founderDepartures.businessId, bid))
+    .orderBy(founderDepartures.userId, desc(founderDepartures.departedAt), desc(founderDepartures.id))
+    .as("latest");
+  return db
+    .select({ id: latest.id, businessId: latest.businessId, userId: latest.userId, priorRole: latest.priorRole, how: latest.how, newRole: latest.newRole, byUserId: latest.byUserId, departedAt: latest.departedAt })
+    .from(latest)
+    .where(and(inArray(latest.how, ["demoted", "removed"]), before ? lt(latest.departedAt, before) : undefined, notFounderNow(bid, latest.userId)))
+    .orderBy(desc(latest.departedAt), desc(latest.id))
+    .limit(Math.max(0, limit));
 }
 
 export const founderDeparturesRepo = {
@@ -70,8 +96,8 @@ export const founderDeparturesRepo = {
 
   /**
    * Service role, for the signed-in person's own id: their latest departure per business since `since`, when someone else
-   * caused it, with the business's name (archived ones too: a deletion can wait on an archived business). The card on
-   * their home reads it.
+   * caused it, with the business's name (archived ones too: a deletion can wait on an archived business), most recent
+   * first (final review, P3). The card on their home and the gateway's folded email read it.
    */
   async forUser(db: Executor, userId: string, since: Date): Promise<(FounderDepartureView & { businessName: string })[]> {
     const rows = await db
@@ -80,7 +106,7 @@ export const founderDeparturesRepo = {
       .innerJoin(businesses, eq(businesses.id, founderDepartures.businessId))
       .where(and(eq(founderDepartures.userId, parseInput(Id, userId, "user id")), gte(founderDepartures.departedAt, since)))
       .orderBy(founderDepartures.businessId, desc(founderDepartures.departedAt), desc(founderDepartures.id));
-    return rows.filter((r) => r.how === "demoted" || r.how === "removed");
+    return rows.filter((r) => r.how === "demoted" || r.how === "removed").sort((x, y) => y.departedAt.getTime() - x.departedAt.getTime());
   },
 
   /**
@@ -98,8 +124,18 @@ export const founderDeparturesRepo = {
    * to cancel stays with the former founders for the request (`formerFoundersFor`).
    */
   async formerFoundersEver(db: Executor, businessId: string, opts: { limit?: number } = {}): Promise<FounderDepartureView[]> {
-    const all = await formerSince(db, businessId, new Date(0));
-    return opts.limit === undefined ? all : all.slice(0, Math.max(0, opts.limit));
+    if (opts.limit === undefined) return formerSince(db, businessId, new Date(0));
+    return formerBefore(db, businessId, null, opts.limit);
+  },
+
+  /**
+   * Service role: the former founders a deletion request made at `requestedAt` emails beyond its own window: the people
+   * someone else took out more than 30 days before it (their latest departure), not founders now, most recent first and
+   * at most `limit` (`FOUNDER_NOTICE_LIMITS.formerPerRequest`), ordered and limited in the database (final review). The
+   * former founders for the request itself (`formerFoundersFor`) are never capped: they may cancel it.
+   */
+  async formerFoundersLongAgo(db: Executor, businessId: string, requestedAt: Date, opts: { limit: number }): Promise<FounderDepartureView[]> {
+    return formerBefore(db, businessId, formerFounderSince(requestedAt), opts.limit);
   },
 
   /**
@@ -110,10 +146,29 @@ export const founderDeparturesRepo = {
     const uid = parseInput(Id, userId, "user id");
     return (await founderDeparturesRepo.formerFoundersEver(db, businessId, opts)).find((r) => r.userId === uid) ?? null;
   },
-  /** Service role: this person's departure if they are a former founder for a request made at `requestedAt`, else null. */
+  /**
+   * Service role: this person's departure if they are a former founder for a request made at `requestedAt`, else null:
+   * one person's rows only (their latest departure since 30 days before the request, someone else's change, not a
+   * founder now).
+   */
   async formerFounderFor(db: Executor, businessId: string, userId: string, requestedAt: Date): Promise<FounderDepartureView | null> {
+    const bid = parseInput(Id, businessId, "business id");
     const uid = parseInput(Id, userId, "user id");
-    return (await founderDeparturesRepo.formerFoundersFor(db, businessId, requestedAt)).find((r) => r.userId === uid) ?? null;
+    const latest = maybeOne(
+      await db
+        .select(visible)
+        .from(founderDepartures)
+        .where(and(eq(founderDepartures.businessId, bid), eq(founderDepartures.userId, uid), gte(founderDepartures.departedAt, formerFounderSince(requestedAt))))
+        .orderBy(desc(founderDepartures.departedAt), desc(founderDepartures.id))
+        .limit(1),
+    );
+    if (!latest || (latest.how !== "demoted" && latest.how !== "removed")) return null;
+    const founder = await db
+      .select({ id: memberships.id })
+      .from(memberships)
+      .where(and(eq(memberships.businessId, bid), eq(memberships.userId, uid), inArray(memberships.role, [...OWNER_ROLES]), membershipNotEnded))
+      .limit(1);
+    return founder.length > 0 ? null : latest;
   },
 };
 

@@ -239,7 +239,7 @@ export type GatewayNotifyEmailRequest =
 export type GatewayAddressEmailRequest = { kind: "invitation"; data: { invitationId: string; token: string } };
 
 /** Sent (on the mock: simulated), or not, with the gateway's reason and a plain sentence; never an error for "not sent". */
-export type GatewayNotifyEmailResult = { sent: true; simulated: boolean; eventId: string | null } | { sent: false; reason: string; message: string };
+export type GatewayNotifyEmailResult = { sent: true; simulated: boolean; eventId: string | null; /** A founder notice: whether the email that went carried a one-click cancel. */ offersCancel?: boolean } | { sent: false; reason: string; message: string };
 
 /** A Turnstile token to check for the idea box (apps/gateway turnstile.ts `TurnstileVerifyRequest`). */
 export interface GatewayTurnstileRequest {
