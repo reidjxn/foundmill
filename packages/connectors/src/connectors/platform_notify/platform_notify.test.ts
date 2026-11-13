@@ -48,6 +48,18 @@ describe("platform_notify", () => {
     expect(body.categories).toEqual(["foundmill-notify"]);
   });
 
+  it("an account-safety notice: no unsubscribe link or header, its own category; exactly one of the two is given", async () => {
+    const mock = createPlatformNotifyMock();
+    const ctx = makeToolContext(mock);
+    const { unsubscribeUrl: _off, ...notice } = mail;
+    expect((await mock.callTool("send_notification", { ...notice, accountSafety: true }, ctx)).ok).toBe(true);
+    const [sent] = mock.sentFor(TEST_BUSINESS_ID);
+    expect((sent!.body as { headers?: unknown }).headers).toBeUndefined();
+    expect((sent!.body as { categories: string[] }).categories).toEqual(["foundmill-notify", "foundmill-account-safety"]);
+    // Both, or a false flag, or neither: refused.
+    for (const bad of [{ ...mail, accountSafety: true }, { ...notice, accountSafety: false }, notice]) expect((await mock.callTool("send_notification", bad, ctx)).ok, JSON.stringify(Object.keys(bad))).toBe(false);
+  });
+
   it("needs the platform key, and takes no extra fields (no attachments, no Bcc, no headers)", async () => {
     const keyless = createPlatformNotifyConnector({ secrets: {} });
     await expect(keyless.callTool("send_notification", mail, makeToolContext(keyless, { mode: "live" }))).rejects.toMatchObject({ code: "connector_unconfigured" });
