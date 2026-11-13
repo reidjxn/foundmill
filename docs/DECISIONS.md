@@ -3897,3 +3897,10 @@ The design and the founder's thirteen answers are docs/IDEA_BOX.md. What was dec
 - **P2, IPv6 rotation.** The per-address windows count an IPv6 address by its /64 and an IPv4-mapped address as IPv4 (`limitAddress`).
 - **P3.** The expected Turnstile hostname comes from `APP_URL`, never the request; a missing hostname is refused; the widget's action (`idea_box`) must match. The mock Turnstile answer, and the api's no-gateway shortcut, need mock models and mock integrations as well as a development or test `APP_ENV`. A waitlist-held card is found by the person's waitlist entry, so it can be kept after the 7-day cookie is gone.
 - **Left as they are.** The claim token stays in the sign-in link's URL (it now claims nothing on its own, works only within 30 minutes of a sign-in, and is replaced each time the card is shown). The cookie keeps `Domain=foundmill.com` (no subdomain serves anyone's content). The CSP allows the Turnstile host, not a path. The CORS list still includes localhost.
+
+### The Terms and the Privacy Policy: the founder's answers (2026-11-13)
+
+- **Contact:** privacy@foundmill.com (the founder sets it up as a mailbox or forwarding).
+- **Registered address:** Valhallavägen 38, 11422 Stockholm, Sweden, on both pages (`apps/web/content/legal/facts.ts`).
+- **Refunds:** as the Terms say: bought credits that are unused are refundable within 14 days of purchase; used and included credits are not.
+- **Bought credits last 12 months from purchase** (not to the end of the month). It changes how charges draw on balances, so it ships as its own change with the Terms' sentence; until it does, the Terms keep saying what the code does (no top-up takes a real payment yet: Stripe runs in mock on production).

@@ -1775,3 +1775,7 @@ docs/IDEA_BOX.md; DECISIONS "The landing page's idea box".
 - **Tests.** db `rls/idea-drafts.test.ts`; api `idea-box.test.ts` (12, through the HTTP app and the caller); gateway `turnstile.test.ts`; evals `idea-box` (offline checker; live in `pnpm evals`); dugout `IdeaCard.test.tsx`; web `IdeaBox.test.tsx`, `sign-in-code.test.tsx`, the routing and small-screen lists; Playwright `idea-box.spec.ts` (type, stream, keep, sign in, land on the card; the phone at 390 px with Surprise me).
 - **Security review (Nov 13, 2026).** One P1 and two P2 fixed (DECISIONS "The idea box: fixes from the security review"); P3s fixed or recorded.
 - **Not done.** The live eval has not run (no key here): the 2 s and 10 s bar is measured there. Sharing a card publicly is the network session's (`ideaShare.publish`); the card page leaves it out until it exists. The waitlist keeps the card only on the browser that made it (the claim token is not used to hold). /onboarding is still desktop only, so a phone that signs in lands on its card and then meets the larger-window note.
+
+## 2026-11-13 — The legal pages: the registered address
+
+The founder's answers on the Terms and the Privacy Policy (DECISIONS "the founder's answers"): the registered postal address on both pages; privacy@foundmill.com and the 14-day refund rule confirmed. Bought credits lasting 12 months is the next change (code and Terms together).
