@@ -198,4 +198,15 @@ describe("pageQuiz: security review fixes (Nov 13, 2026)", () => {
     expect(await answerPublicQuiz(ctx, { slug: other.slug, version: other.version, answers })).toEqual({ outcome: "result", type: "t1" });
     expect((await other.owner.pageQuiz.get({ businessId: other.id })).counts).toEqual({ t1: 1 });
   });
+
+  it("turning a quiz on checks it again: an offer pointing to a Follow form the page no longer has is refused", async () => {
+    const b = await project("Recheck");
+    await customers(b.id, 3, 3);
+    const drafted = await b.owner.pageQuiz.draft({ businessId: b.id });
+    if (drafted.outcome !== "drafted") throw new Error(drafted.message);
+    await b.owner.pageQuiz.approve({ businessId: b.id, definition: drafted.view.quiz!.definition as never });
+    await b.owner.page.publish({ businessId: b.id, content: page({ followForm: false }) });
+    await expect(b.owner.pageQuiz.setLive({ businessId: b.id, on: true })).rejects.toThrow(/no Follow form/);
+    expect((await repos.pageQuizzes.get(hz.db, b.id))?.status).toBe("approved");
+  });
 });

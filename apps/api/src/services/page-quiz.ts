@@ -208,6 +208,12 @@ export async function setPageQuizLive(ctx: BusinessContext, input: { on: boolean
     if (input.on && current.status === "draft") throw new ValidationError("Approve the quiz before you turn it on.");
     const page = await pageFacts(tx, ctx);
     if (input.on && !page.slug) throw new ValidationError("Save your public page first: the quiz shows on it.");
+    if (input.on) {
+      // Checked again, as the page is now: a link or the Follow form may have changed since it was approved.
+      const definition = readPageQuiz(current.definition);
+      const problems = definition ? pageQuizProblems(definition, { followForm: page.followForm }) : [{ path: "quiz", message: "That quiz could not be read. Draft it again." }];
+      if (problems.length) throw new ValidationError(problems[0]!.message, { field: problems[0]!.path, problems });
+    }
     const row = await repos.pageQuizzes.setStatus(tx, ctx.businessId, input.on ? { from: ["approved"], to: "live", userId: ctx.userId } : { from: ["live"], to: "approved", userId: ctx.userId });
     if (!row) return viewOf(tx, ctx, current);
     const definition = readPageQuiz(row.definition)!;
