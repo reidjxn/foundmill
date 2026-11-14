@@ -143,7 +143,7 @@ describe("team.agents (W19)", () => {
     const hired = (await owner.team.agents.list({ businessId })).agents.find((x) => x.id === agent.id)!;
     const version = await repos.agents.getVersion(hz.db, businessId, hired.currentVersionId!);
     expect(hired.tools).toEqual(version.tools);
-    expect(hired.tools.map((t) => t.connectorKey)).toEqual(["platform", "quarantine"]);
+    expect(hired.tools.map((t) => t.connectorKey)).toEqual(["platform", "quarantine", "buffer"]);
   });
 
   it("team.agents.list rates each agent on the one /20 scale (`rating20`, one decimal) and keeps the deprecated /10 `rating` for one release", async () => {
