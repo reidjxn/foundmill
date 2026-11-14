@@ -37,12 +37,25 @@ const ask = {
   canWithdraw: false,
 };
 
+/**
+ * Runs one replay. On a phone the list gives way to the note, so the browser can drop a request before its answer
+ * arrives; its response is then gone and there is nothing to replay. The request the page keeps is replayed.
+ */
+async function replayed(route: Route, run: () => Promise<void>): Promise<void> {
+  try {
+    await run();
+  } catch (err) {
+    if (/disposed|Target page, context or browser has been closed|Request context disposed/i.test(String(err))) return;
+    throw err;
+  }
+}
+
 const procedures = (route: Route) => decodeURIComponent(new URL(route.request().url()).pathname.split("/trpc/")[1] ?? "").split(",");
 
 /** Replays the Inbox's note as the founder's own ask, and `showcase.ask` as that ask; records `showcase.answer`. */
 async function replayAsk(page: Page): Promise<{ answered: () => Record<string, unknown> | null }> {
   let answered: Record<string, unknown> | null = null;
-  await page.route(/\/trpc\/[^?]*inbox\.get/, async (route) => {
+  await page.route(/\/trpc\/[^?]*inbox\.get/, (route) => replayed(route, async () => {
     const response = await route.fetch();
     const names = procedures(route);
     const body = (await response.json()) as { result?: { data?: { json?: Record<string, unknown> } } }[];
@@ -52,14 +65,14 @@ async function replayAsk(page: Page): Promise<{ answered: () => Record<string, u
       Object.assign(data, { approval: null, signoff: null, decisions: [], plan: null });
     }
     await route.fulfill({ response, json: body });
-  });
-  await page.route(/\/trpc\/[^?]*showcase\.ask/, async (route) => {
+  }));
+  await page.route(/\/trpc\/[^?]*showcase\.ask/, (route) => replayed(route, async () => {
     const names = procedures(route);
     const response = await route.fetch();
     const body = (await response.json()) as unknown[];
     body[names.indexOf("showcase.ask")] = { result: { data: { json: ask } } };
     await route.fulfill({ response, json: body, status: 200 });
-  });
+  }));
   await page.route(/\/trpc\/[^?]*showcase\.answer/, async (route) => {
     const sent = JSON.parse(route.request().postData() ?? "{}") as Record<string, { json?: Record<string, unknown> }>;
     answered = Object.values(sent)[0]?.json ?? null;
