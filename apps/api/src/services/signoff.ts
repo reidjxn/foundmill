@@ -16,7 +16,7 @@
 import { CHANNEL_SCORING_TASK, getArchetypeSeed } from "@foundmill/agents";
 import { LIMITS } from "@foundmill/config";
 import { bothSignedOff, loadProductStage, repos, signoffDecisionBlock, type Decision, type DbTx, type InboxItem, type PlanWithActions, type ProductSignoff, type Task } from "@foundmill/db";
-import { AppError, CHANNEL_KEYS, CHANNEL_META, channelEngineMayRun, ConflictError, ForbiddenError, ValidationError, type ChannelKey, type ProductStage, type SignoffKind, type SignoffStatus } from "@foundmill/shared";
+import { AppError, CHANNEL_KEYS, CHANNEL_META, channelEngineMayRun, ConflictError, ForbiddenError, isAdminRole, ValidationError, type ChannelKey, type ProductStage, type SignoffKind, type SignoffStatus } from "@foundmill/shared";
 import type { BusinessContext } from "../trpc";
 import { audit, emit } from "../trpc";
 import { channelRowsFor, MIN_DECISION_OPTIONS, offerableOptions, OPTIONS_LEFT_OUT_LINE } from "./channel-availability";
@@ -438,7 +438,7 @@ export function scoringTaskFor(available: readonly ChannelKey[]): { title: strin
 }
 
 export async function startDistribution(ctx: BusinessContext, input: { via: "board" | "inbox"; itemId?: string | null }): Promise<StartDistributionResult> {
-  if (ctx.role !== "owner" && ctx.role !== "admin") throw new ForbiddenError("Owners and admins start distribution.");
+  if (!isAdminRole(ctx.role)) throw new ForbiddenError("Owners, cofounders and admins start distribution.");
   await assertAgentsRunning(ctx, "distribution");
   const seed = ctx.business.archetype ? getArchetypeSeed(ctx.business.archetype) : null;
 

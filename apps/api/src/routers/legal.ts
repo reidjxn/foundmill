@@ -5,7 +5,7 @@
 import { isUntrusted, mockIntegrationRecord, readForQuarantine, type ToolContext } from "@foundmill/connectors";
 import { HOUSE_STYLE } from "@foundmill/agents";
 import { CANCELABLE_INCORPORATION_STATUSES, CreateContractInput, UpdateContractInput, repos } from "@foundmill/db";
-import { AppError, ConflictError, connectorMode, CurrencyCode, INCORPORATION_ROUTES, ValidationError } from "@foundmill/shared";
+import { AppError, ConflictError, connectorMode, CurrencyCode, INCORPORATION_ROUTES, isAdminRole, ValidationError } from "@foundmill/shared";
 import type { GatewayRegistryKey } from "../services/gateway";
 import { SECTOR_GATES, SECTOR_KEYS } from "@foundmill/shared/sectors";
 import { z } from "zod";
@@ -331,7 +331,7 @@ export const legalRouter = router({
      */
     setStatus: write.input(z.object({ contractId: Id, status: z.enum(CONTRACT_STATUSES), provider: z.enum(["dropbox_sign", "manual", "other"]).default("manual") })).mutation(({ ctx, input }) =>
       ctx.rls(async (tx) => {
-        if (input.status === "signed" && !["owner", "admin"].includes(ctx.role)) throw new ValidationError("Only the founder (owner/admin) can record a signature");
+        if (input.status === "signed" && !isAdminRole(ctx.role)) throw new ValidationError("Only a founder (an owner, a cofounder or an admin) can record a signature");
         const { contract, changed } = await repos.legal.transitionContract(tx, ctx.businessId, input.contractId, input.status);
         if (!changed) return contract;
         if (input.status === "signed" && contract.counterpartyEntityId) {

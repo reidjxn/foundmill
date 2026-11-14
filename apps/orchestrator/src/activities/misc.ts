@@ -3,7 +3,7 @@
  * founder takeover) and Door B business import (sources read through the gateway; nothing scraped directly).
  */
 import { repos, type Source } from "@foundmill/db";
-import { IMPORT_READERS, INCORPORATION_ROUTE_LABELS, uuid } from "@foundmill/shared";
+import { ADMIN_ROLES, IMPORT_READERS, INCORPORATION_ROUTE_LABELS, uuid } from "@foundmill/shared";
 import type { OrchestratorDeps } from "../deps";
 import { emitEvent, systemActor } from "../events";
 import type { GatewayCallResponse } from "../gateway-client";
@@ -142,8 +142,8 @@ export function createMiscActivities(deps: OrchestratorDeps) {
     async verifyIncorporationSubmitter(input: { businessId: string; incorporationId: string; userId: string | null }): Promise<{ ok: boolean; reason: string | null }> {
       if (!input.userId || !UUID_RE.test(input.userId)) return { ok: false, reason: "the signal names no sender" };
       await repos.legal.getIncorporation(deps.db, input.businessId, input.incorporationId); // NotFound when it is not this business's
-      const ok = await repos.memberships.hasRole(deps.db, input.businessId, input.userId, ["owner", "admin"]);
-      return ok ? { ok: true, reason: null } : { ok: false, reason: "the sender is not an owner or admin of this business" };
+      const ok = await repos.memberships.hasRole(deps.db, input.businessId, input.userId, ADMIN_ROLES);
+      return ok ? { ok: true, reason: null } : { ok: false, reason: "the sender is not an owner, a cofounder or an admin of this business" };
     },
 
     /** The founder canceled (or the kill switch stopped it): abandoned, and the entity it was forming archived. */

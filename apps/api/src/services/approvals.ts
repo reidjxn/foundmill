@@ -373,7 +373,8 @@ export async function approvalView(tx: DbTx, ctx: Pick<BusinessContext, "busines
   const walls = { argsWalled, financeWalled };
   const what = await approvalWhatFor(tx, ctx.businessId, approval, walls);
   // A GitHub call: whether there is anywhere for it to run (null for every other call).
-  const githubConnected = approval.connectorKey === "github" ? integrationConnected(await repos.integrations.getByKey(tx, ctx.businessId, "github")) : null;
+  // A collaborator reads no integration (0094): for them the pane says nothing about where the call would run.
+  const githubConnected = approval.connectorKey === "github" && ctx.role !== "collaborator" ? integrationConnected(await repos.integrations.getByKey(tx, ctx.businessId, "github")) : null;
   // A batched note: every request it covers, each with what it would run, so the pane can show one expander per channel.
   const agents = linked.length > 1 ? new Map((await repos.agents.list(tx, ctx.businessId, { limit: 500 })).items.map((a) => [a.id, a])) : null;
   const batch =

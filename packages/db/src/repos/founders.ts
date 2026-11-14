@@ -1,11 +1,12 @@
 /** founder_profiles — account-scoped (userId first), routers founder.profile.get/update. */
 import { BIDI_NAME_MESSAGE, RESERVED_NAME_MESSAGE, hasBidiControl, isReservedName } from "@foundmill/config";
-import { VISIBILITY, ValidationError } from "@foundmill/shared";
+import { ADMIN_ROLES, OWNER_ROLES, VISIBILITY, ValidationError } from "@foundmill/shared";
 import { and, asc, eq, inArray, isNull, ne, sql } from "drizzle-orm";
 import { authUsers } from "drizzle-orm/supabase";
 import { z } from "zod";
 import { businesses, founderProfiles, memberships, type Business, type FounderProfile, type Membership } from "../schema";
 import { Currency, changes, Id, maybeOne, MinorAmount, one, parseInput, type Executor, patchSchema } from "./_shared";
+import { membershipNotEnded } from "./memberships";
 
 const SkillRatings = z.record(z.string(), z.number().int().min(1).max(20));
 
@@ -63,7 +64,7 @@ export const foundersRepo = {
     return db
       .select({ userId: memberships.userId, role: memberships.role, sectionPermissions: memberships.sectionPermissions })
       .from(memberships)
-      .where(and(eq(memberships.businessId, businessId), inArray(memberships.role, ["owner", "admin"]), ne(memberships.source, "example")));
+      .where(and(eq(memberships.businessId, businessId), inArray(memberships.role, [...ADMIN_ROLES]), ne(memberships.source, "example")));
   },
 
   /**
@@ -122,7 +123,8 @@ export const foundersRepo = {
       .select({ profile: founderProfiles, membership: memberships, business: businesses, businessOrder: sql<number>`row_number() over (order by ${businesses.createdAt} desc nulls last)`.mapWith(Number) })
       .from(sql`(select ${id}::uuid as user_id) as "me"`)
       .leftJoin(founderProfiles, and(sql`${founderProfiles.userId} = "me"."user_id"`, isNull(founderProfiles.archivedAt)))
-      .leftJoin(memberships, sql`${memberships.userId} = "me"."user_id"`)
+      // A membership that has ended (0092) is not one of the person's: `memberships.listForUser` leaves it out too.
+      .leftJoin(memberships, and(sql`${memberships.userId} = "me"."user_id"`, membershipNotEnded))
       .leftJoin(businesses, and(eq(businesses.id, memberships.businessId), isNull(businesses.archivedAt)))
       .orderBy(asc(memberships.createdAt));
     const held = rows.filter((r): r is typeof r & { membership: Membership } => r.membership !== null);
@@ -147,8 +149,8 @@ export const foundersRepo = {
       .from(memberships)
       .innerJoin(businesses, eq(businesses.id, memberships.businessId))
       .leftJoin(founderProfiles, and(eq(founderProfiles.userId, memberships.userId), isNull(founderProfiles.archivedAt)))
-      .where(and(eq(memberships.businessId, businessId), eq(memberships.role, "owner")))
-      .orderBy(sql`(${memberships.userId} = ${businesses.createdBy}) desc`, asc(memberships.createdAt), asc(memberships.id))
+      .where(and(eq(memberships.businessId, businessId), inArray(memberships.role, [...OWNER_ROLES])))
+      .orderBy(sql`(${memberships.userId} = ${businesses.createdBy} and ${memberships.role} = 'owner') desc`, asc(memberships.createdAt), asc(memberships.id))
       .limit(1);
     return rows[0]?.experience ?? null;
   },
