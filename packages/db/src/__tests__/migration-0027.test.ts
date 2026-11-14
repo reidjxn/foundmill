@@ -9,8 +9,11 @@ import { createTestDb, type TestHarness } from "../testing/pglite";
 import { createBusinessFixture, type BusinessFixture } from "./rls/fixtures";
 
 const TAG = "0027_live_social_delivery";
-/** Later migrations that build on 0027's columns (0058 grants them): applied right after it, as on a real upgrade. */
-const AFTER_TAGS = ["0058_live_social_column_grants"];
+/**
+ * Later migrations that build on 0027's tables (0058 grants their columns; 0104 copies `network_attestations` and keeps
+ * it in step with `adult_confirmations`): applied right after it, as on a real upgrade.
+ */
+const AFTER_TAGS = ["0058_live_social_column_grants", "0104_adult_confirmations"];
 // 0060 removes the very events and notes this test writes (and refuses them from then on): 0027 is checked as it was.
 const LATER_REMOVES_THEM = "0060_private_network_events";
 let h: TestHarness;
