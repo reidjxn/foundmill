@@ -32,7 +32,7 @@ describe("team.humans: ownership stays with owners", () => {
     expect(await code(admin.team.humans.role({ businessId, userId: hz.A.ownerId, sectionPermissions: { billing: "none" } }))).toBe("FORBIDDEN");
     // A collaborator invitation the owner opens changes nothing: they are already one of the project's people.
     const { link } = await admin.invitation.create({ businessId, role: "collaborator" });
-    expect(await hz.caller({ userId: hz.A.ownerId }).invitation.accept({ token: link.split("/i/")[1]! })).toEqual({ businessId, already: true });
+    expect(await hz.caller({ userId: hz.A.ownerId }).invitation.accept({ confirmAdult: true, token: link.split("/i/")[1]! })).toEqual({ businessId, already: true });
     expect(await roleOf(hz.A.ownerId)).toBe("owner");
     // So the takeover path (demote, then remove) is closed too, and the owner keeps owner-only actions.
     expect(await code(admin.team.humans.remove({ businessId, userId: hz.A.ownerId }))).toBe("BAD_REQUEST");
@@ -53,13 +53,13 @@ describe("team.humans: ownership stays with owners", () => {
     // The sole owner accepting their own collaborator invitation would have orphaned the business (ARB-03).
     const { link } = await owner.invitation.create({ businessId, role: "collaborator" });
     const token = link.split("/i/")[1]!;
-    expect(await owner.invitation.accept({ token })).toEqual({ businessId, already: true });
-    expect(await hz.caller({ userId: hz.A.memberId }).invitation.accept({ token })).toEqual({ businessId, already: true });
+    expect(await owner.invitation.accept({ confirmAdult: true, token })).toEqual({ businessId, already: true });
+    expect(await hz.caller({ userId: hz.A.memberId }).invitation.accept({ confirmAdult: true, token })).toEqual({ businessId, already: true });
     expect(await roleOf(hz.A.ownerId)).toBe("owner");
     expect((await repos.memberships.get(hz.db, businessId, hz.A.memberId))?.role).toBe("member");
     // A newcomer accepts it: a collaborator (THESIS_REVIEW 3.3), whose walls are the role's own.
     const newcomer = await hz.h.createUser("guards-invitee@test.local");
-    expect(await hz.caller({ userId: newcomer }).invitation.accept({ token })).toEqual({ businessId, already: false });
+    expect(await hz.caller({ userId: newcomer }).invitation.accept({ confirmAdult: true, token })).toEqual({ businessId, already: false });
     expect(await repos.memberships.get(hz.db, businessId, newcomer)).toMatchObject({ role: "collaborator", sectionPermissions: {}, expiresAt: null });
   });
 

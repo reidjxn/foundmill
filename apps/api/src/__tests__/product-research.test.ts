@@ -22,7 +22,7 @@ afterAll(() => hz?.close());
 async function founder(email: string) {
   const userId = await hz.h.createUser(email);
   const caller = hz.caller({ userId, email });
-  await caller.founder.profile.update({ displayName: "Reid", experience: "first-time", skills: { engineering: 14, sales: 8 }, targetMarkets: ["Nordics"], constraints: ["bootstrapped"], riskAppetite: "medium", budgetMinor: 2_500_000 });
+  await caller.founder.profile.update({ confirmAdult: true, displayName: "Reid", experience: "first-time", skills: { engineering: 14, sales: 8 }, targetMarkets: ["Nordics"], constraints: ["bootstrapped"], riskAppetite: "medium", budgetMinor: 2_500_000 });
   return { userId, caller };
 }
 

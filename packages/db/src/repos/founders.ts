@@ -6,6 +6,7 @@ import { authUsers } from "drizzle-orm/supabase";
 import { z } from "zod";
 import { businesses, founderProfiles, memberships, type Business, type FounderProfile, type Membership } from "../schema";
 import { Currency, changes, Id, maybeOne, MinorAmount, one, parseInput, type Executor, patchSchema } from "./_shared";
+import { adultsRepo } from "./adults";
 import { membershipNotEnded } from "./memberships";
 
 const SkillRatings = z.record(z.string(), z.number().int().min(1).max(20));
@@ -115,12 +116,20 @@ export const foundersRepo = {
    * businesses with the role held in each as `businesses.listForUser` answers them (newest first). Until 2026-10-15 these
    * were three statements on three pooled connections. Each business says whether it is held through an example
    * membership (`isExample`, 0065), so the index route and the LIVE pages never take a demo for the founder's own.
+   * `adultConfirmed`: the account's "I am 18 or older" is on record (`adults.confirmedAt` has a date; 0100), in the same
+   * statement.
    */
-  async account(db: Executor, userId: string): Promise<{ profile: FounderProfile | null; memberships: Membership[]; businesses: (Business & { role: string; isExample: boolean })[] }> {
+  async account(db: Executor, userId: string): Promise<{ profile: FounderProfile | null; memberships: Membership[]; businesses: (Business & { role: string; isExample: boolean })[]; adultConfirmed: boolean }> {
     const id = parseInput(Id, userId, "user id");
     // One row per membership (one row of nulls when there is none), each carrying the profile.
     const rows = await db
-      .select({ profile: founderProfiles, membership: memberships, business: businesses, businessOrder: sql<number>`row_number() over (order by ${businesses.createdAt} desc nulls last)`.mapWith(Number) })
+      .select({
+        profile: founderProfiles,
+        membership: memberships,
+        business: businesses,
+        businessOrder: sql<number>`row_number() over (order by ${businesses.createdAt} desc nulls last)`.mapWith(Number),
+        adultConfirmed: sql<boolean>`(${adultsRepo.confirmedAtSql(id)}) is not null`.mapWith((v: unknown) => v === true || v === "t" || v === "true"),
+      })
       .from(sql`(select ${id}::uuid as user_id) as "me"`)
       .leftJoin(founderProfiles, and(sql`${founderProfiles.userId} = "me"."user_id"`, isNull(founderProfiles.archivedAt)))
       // A membership that has ended (0092) is not one of the person's: `memberships.listForUser` leaves it out too.
@@ -135,6 +144,7 @@ export const foundersRepo = {
         .filter((r): r is typeof r & { business: Business } => r.business !== null)
         .sort((a, b) => a.businessOrder - b.businessOrder)
         .map((r) => ({ ...r.business, role: r.membership.role, isExample: r.membership.source === "example" })),
+      adultConfirmed: rows[0]?.adultConfirmed === true,
     };
   },
 

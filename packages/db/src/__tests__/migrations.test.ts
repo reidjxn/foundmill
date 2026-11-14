@@ -111,6 +111,9 @@ describe("journal", () => {
       "0095_collaborator_money_legal",
       "0096_membership_grant_guards",
       "0097_founder_departures",
+      "0098_credit_lots",
+      "0099_events_collaborator_walls",
+      "0100_adult_confirmations",
       "0101_project_postal_address",
     ]);
     // strictly increasing `when` so drizzle applies them in order

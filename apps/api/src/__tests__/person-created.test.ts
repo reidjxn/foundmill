@@ -52,6 +52,8 @@ const TOKEN = "idea-draft-token-PRIVATE-9f2c";
 beforeAll(async () => {
   hz = await createApiHarness({ prefix: "person-created" });
   ida = await hz.h.createUser("person-created-ida@test.local");
+  // A public profile is public once its person confirmed 18 or older (0100).
+  await repos.adults.confirm(hz.db, ida);
   await repos.founders.upsert(hz.db, ida, { displayName: "Ida Moss" });
   await repos.personProfiles.save(hz.db, ida, { handle: "ida-moss", content: person() });
   await repos.personProfiles.publish(hz.db, ida);
@@ -62,9 +64,9 @@ beforeEach(() => vi.mocked(recordSignupAttribution).mockClear());
 describe("founder.profile.update runs onPersonCreated on the save that creates the profile", () => {
   it("the attribution step still runs: the row and its two account events are written, once", async () => {
     // An accepted invitation outranks the cookie's reference (services/attribution.ts `recordInvitationAttribution`).
-    expect(PERSON_CREATED_STEPS.map((step) => step.name)).toEqual(["invitation_attribution", "signup_attribution"]);
+    expect(PERSON_CREATED_STEPS.map((step) => step.name)).toEqual(["invitation_attribution", "signup_attribution", "adult_confirmation"]);
     const p = await newcomer();
-    await p.me.founder.profile.update({ ...answer, via: "u.ida-moss" });
+    await p.me.founder.profile.update({ confirmAdult: true, ...answer, via: "u.ida-moss" });
     expect(recordSignupAttribution).toHaveBeenCalledTimes(1);
     expect(vi.mocked(recordSignupAttribution).mock.calls[0]!.slice(1)).toEqual([p.userId, "u.ida-moss"]);
     expect(await repos.attributions.forUser(hz.db, p.userId)).toMatchObject({ sourceKind: "person_profile", sourceRef: "ida-moss", referrerUserId: ida });
@@ -72,18 +74,18 @@ describe("founder.profile.update runs onPersonCreated on the save that creates t
     expect(await eventTypes(ida)).toContain("referral.arrived");
 
     // A later save is not the save that creates the profile: no step runs, whatever it carries.
-    await p.me.founder.profile.update({ displayName: "Renamed", via: "u.ida-moss", ideaDraftToken: TOKEN });
+    await p.me.founder.profile.update({ confirmAdult: true, displayName: "Renamed", via: "u.ida-moss", ideaDraftToken: TOKEN });
     expect(recordSignupAttribution).toHaveBeenCalledTimes(1);
     expect(await eventTypes(p.userId)).toEqual(["signup.attributed"]);
   });
 
   it("a step that throws never fails the save or changes its answer", async () => {
     const plain = await newcomer();
-    const expected = comparable(await plain.me.founder.profile.update(answer));
+    const expected = comparable(await plain.me.founder.profile.update({ ...answer, confirmAdult: true }));
 
     vi.mocked(recordSignupAttribution).mockRejectedValueOnce(new Error("Failed query: select … params: ida-moss"));
     const p = await newcomer();
-    const saved = await p.me.founder.profile.update({ ...answer, via: "u.ida-moss", ideaDraftToken: TOKEN });
+    const saved = await p.me.founder.profile.update({ confirmAdult: true, ...answer, via: "u.ida-moss", ideaDraftToken: TOKEN });
     expect(comparable(saved)).toEqual(expected);
     expect(await repos.founders.get(hz.db, p.userId)).toMatchObject({ displayName: "Newcomer" });
     // The step did not run to its end, and the save stands without it.
@@ -95,20 +97,20 @@ describe("founder.profile.update runs onPersonCreated on the save that creates t
       throw new TypeError("thrown before any promise");
     });
     const q = await newcomer();
-    expect(comparable(await q.me.founder.profile.update({ ...answer, via: "u.ida-moss" }))).toEqual(expected);
+    expect(comparable(await q.me.founder.profile.update({ confirmAdult: true, ...answer, via: "u.ida-moss" }))).toEqual(expected);
     // The next person is attributed as ever.
     const r = await newcomer();
-    await r.me.founder.profile.update({ ...answer, via: "u.ida-moss" });
+    await r.me.founder.profile.update({ confirmAdult: true, ...answer, via: "u.ida-moss" });
     expect(await repos.attributions.forUser(hz.db, r.userId)).not.toBeNull();
   });
 
   it("ideaDraftToken is accepted and ignored: the same answer, nothing stored, nothing read", async () => {
     const plain = await newcomer();
-    const expected = comparable(await plain.me.founder.profile.update(answer));
+    const expected = comparable(await plain.me.founder.profile.update({ ...answer, confirmAdult: true }));
     const before = (await rows<{ n: number }>(sql`select (select count(*)::int from account_events) + (select count(*)::int from attributions) + (select count(*)::int from events) as n`))[0]!.n;
 
     const p = await newcomer();
-    const saved = await p.me.founder.profile.update({ ...answer, ideaDraftToken: TOKEN });
+    const saved = await p.me.founder.profile.update({ confirmAdult: true, ...answer, ideaDraftToken: TOKEN });
     expect(comparable(saved)).toEqual(expected);
     expect(saved).not.toHaveProperty("ideaDraftToken");
     expect(JSON.stringify(saved)).not.toContain(TOKEN);
@@ -119,7 +121,7 @@ describe("founder.profile.update runs onPersonCreated on the save that creates t
 
     // Beside a reference, the reference is still recorded and the token still changes nothing.
     const q = await newcomer();
-    expect(comparable(await q.me.founder.profile.update({ ...answer, via: "u.ida-moss", ideaDraftToken: TOKEN }))).toEqual(expected);
+    expect(comparable(await q.me.founder.profile.update({ confirmAdult: true, ...answer, via: "u.ida-moss", ideaDraftToken: TOKEN }))).toEqual(expected);
     expect(await repos.attributions.forUser(hz.db, q.userId)).toMatchObject({ sourceRef: "ida-moss" });
     expect(JSON.stringify(await rows(sql`select to_jsonb(e)::text as t from account_events e where e.user_id in (${q.userId}::uuid, ${ida}::uuid)`))).not.toContain(TOKEN);
   });
@@ -127,13 +129,13 @@ describe("founder.profile.update runs onPersonCreated on the save that creates t
   it("ideaDraftToken is bounded: 200 characters at most, text only, refused before anything is read", async () => {
     expect(IDEA_DRAFT_TOKEN_MAX_LENGTH).toBe(200);
     const p = await newcomer();
-    expect(await code(p.me.founder.profile.update({ ...answer, ideaDraftToken: "t".repeat(201) }))).toBe("BAD_REQUEST");
-    expect(await code(p.me.founder.profile.update({ ...answer, ideaDraftToken: 42 as never }))).toBe("BAD_REQUEST");
-    expect(await code(p.me.founder.profile.update({ ...answer, ideaDraftToken: { token: TOKEN } as never }))).toBe("BAD_REQUEST");
+    expect(await code(p.me.founder.profile.update({ confirmAdult: true, ...answer, ideaDraftToken: "t".repeat(201) }))).toBe("BAD_REQUEST");
+    expect(await code(p.me.founder.profile.update({ confirmAdult: true, ...answer, ideaDraftToken: 42 as never }))).toBe("BAD_REQUEST");
+    expect(await code(p.me.founder.profile.update({ confirmAdult: true, ...answer, ideaDraftToken: { token: TOKEN } as never }))).toBe("BAD_REQUEST");
     expect(await repos.founders.get(hz.db, p.userId)).toBeNull();
     expect(recordSignupAttribution).not.toHaveBeenCalled();
-    expect(await code(p.me.founder.profile.update({ ...answer, ideaDraftToken: "t".repeat(200) }))).toBe("ok");
-    expect(await code(hz.caller(null).founder.profile.update({ ...answer, ideaDraftToken: TOKEN }))).toBe("UNAUTHORIZED");
+    expect(await code(p.me.founder.profile.update({ confirmAdult: true, ...answer, ideaDraftToken: "t".repeat(200) }))).toBe("ok");
+    expect(await code(hz.caller(null).founder.profile.update({ confirmAdult: true, ...answer, ideaDraftToken: TOKEN }))).toBe("UNAUTHORIZED");
   });
 });
 

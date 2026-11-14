@@ -65,6 +65,7 @@ import { attributionsRepo } from "./attributions";
 import { teamPostsRepo } from "./team-posts";
 import { ideaDraftsRepo, waitlistRepo } from "./idea-drafts";
 import { admissionsRepo, invitationsRepo } from "./people";
+import { adultsRepo } from "./adults";
 import { founderCancelLinksRepo, founderDeparturesRepo } from "./founder-departures";
 
 export const repos = {
@@ -132,6 +133,7 @@ export const repos = {
   teamPosts: teamPostsRepo,
   admissions: admissionsRepo,
   invitations: invitationsRepo,
+  adults: adultsRepo,
   founderDepartures: founderDeparturesRepo,
   founderCancelLinks: founderCancelLinksRepo,
 } as const;
@@ -181,6 +183,7 @@ export * from "./research";
 export * from "./screens";
 export * from "./skills";
 export * from "./social";
+export * from "./adults";
 export * from "./tasks";
 export * from "./training";
 export * from "./usage";
