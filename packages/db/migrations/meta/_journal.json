@@ -607,7 +607,21 @@
     {
       "idx": 86,
       "version": "7",
-      "when": 1796133780000,
+      "when": 1796133240000,
+      "tag": "0098_credit_lots",
+      "breakpoints": true
+    },
+    {
+      "idx": 87,
+      "version": "7",
+      "when": 1796133840000,
+      "tag": "0099_events_collaborator_walls",
+      "breakpoints": true
+    },
+    {
+      "idx": 88,
+      "version": "7",
+      "when": 1796134440000,
       "tag": "0100_adult_confirmations",
       "breakpoints": true
     }
