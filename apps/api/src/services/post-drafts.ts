@@ -32,6 +32,7 @@ import { channelFactsFor } from "./channel-availability";
 import { writeEventRow } from "./events";
 import type { ApiLogger } from "./log";
 import { WORKFLOWS, workflowIds, type TemporalService } from "./temporal";
+import { ungated } from "./tx-gate";
 
 export interface PostDraftDeps {
   db: Db;
@@ -110,9 +111,14 @@ export async function requestPostDraft(deps: PostDraftDeps, businessId: string, 
   }
 }
 
-/** `requestPostDraft`, not waited on: the caller's own answer (a page published, a milestone shown) never waits for a draft. */
+/**
+ * `requestPostDraft`, not waited on: the caller's own answer (a page published, a milestone shown) never waits for a
+ * draft. The draft outlives the request that asked for it, so it runs on the database itself, not the request's gated
+ * view (services/tx-gate.ts), which starts no transaction once the client has closed the request: a founder who
+ * reloads the Board right after putting social on it still gets the post.
+ */
 export function queuePostDraft(deps: PostDraftDeps, businessId: string, trigger: TeamPostTriggerInput): void {
-  const request = requestPostDraft(deps, businessId, trigger).finally(() => requests.delete(request));
+  const request = requestPostDraft({ ...deps, db: ungated(deps.db) }, businessId, trigger).finally(() => requests.delete(request));
   requests.add(request);
 }
 
