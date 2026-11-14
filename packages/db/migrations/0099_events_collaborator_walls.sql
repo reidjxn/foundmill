@@ -1,4 +1,4 @@
--- 0098 — a collaborator reads only the business events a collaborator's sections cover (security fix, Nov 14, 2026).
+-- 0099 — a collaborator reads only the business events a collaborator's sections cover (security fix, Nov 14, 2026).
 -- It follows 0097.
 --
 -- `events` and `outbox` were made by `fm_tenant_table` (0011): `T_select` over `is_member` and `T_write`, FOR ALL, over
@@ -7,7 +7,7 @@
 -- policy answers SELECT too): `payment.received` with its amount, `bank.balance_updated`, `runway.threshold_crossed`,
 -- `contract.signed`, `filing.due`, the Settings-only metrics. 0094 and 0095 closed the Money and Legal tables; the
 -- events that describe them stayed open. The api and the business stream never served them to a collaborator
--- (@foundmill/shared `COLLABORATOR_SECTIONS`; apps/stream `EVENT_WALLS`); from 0098 the database says the same.
+-- (@foundmill/shared `COLLABORATOR_SECTIONS`; apps/stream `EVENT_WALLS`); from 0099 the database says the same.
 --
 --   * `fm_collaborator_event_types()`: the business event types a collaborator may read. It is the list of the types
 --     `EVENT_WALLS` files only under sections a collaborator can read (Product, Development, Distribution, Customers,
@@ -49,7 +49,7 @@ begin
      and tablename in ('events', 'outbox')
      and policyname <> tablename || '_select' and policyname <> tablename || '_write';
   if stray is not null then
-    raise exception '0098: unexpected policies on events and outbox: %', stray;
+    raise exception '0099: unexpected policies on events and outbox: %', stray;
   end if;
 end;
 $$;
@@ -59,7 +59,7 @@ language sql immutable parallel safe set search_path = pg_catalog, public, pg_te
   select array['idea.committed', 'spec.proposal_created', 'spec.version_published', 'source.added', 'source.scored', 'task.started', 'task.progressed', 'task.completed', 'task.blocked', 'pr.merged', 'deploy.succeeded', 'lead.created', 'lead.replied', 'campaign.launched', 'channel.threshold_breached', 'signup.created', 'activation.reached', 'customer.converted', 'agent.health_changed', 'training.completed', 'agent.promoted', 'approval.requested', 'approval.resolved', 'mode.changed', 'holiday.started', 'holiday.ended', 'cycle.started', 'cycle.completed', 'cycle.run_started', 'cycle.run_ended', 'autopilot.changed', 'autopilot.cycle_started', 'inbox.item_created', 'inbox.item_updated', 'decision.made', 'foundations.progressed', 'product.research_drafted', 'conversation.message_posted', 'membership.changed', 'business.updated', 'agent.message_sent', 'product.signoff_decided', 'distribution.started', 'goal.proposed', 'goal.approved', 'goal.change_requested', 'goal.achieved', 'page.published', 'team_call.started', 'team_call.ended', 'page.unpublished', 'page.followed', 'mail.sent', 'milestone.shown', 'milestone.hidden', 'post.drafted', 'invitation.sent', 'invitation.accepted', 'invitation.declined']::text[]
 $$;
 --> statement-breakpoint
-comment on function fm_collaborator_event_types() is 'The business event types a collaborator may read: those apps/stream EVENT_WALLS files only under sections a collaborator can read (0098). The select, update and delete policies of events and outbox call it.';
+comment on function fm_collaborator_event_types() is 'The business event types a collaborator may read: those apps/stream EVENT_WALLS files only under sections a collaborator can read (0099). The select, update and delete policies of events and outbox call it.';
 --> statement-breakpoint
 -- Not security definer: it reads nothing. The row policies call it as authenticated; anon never reaches `events` (no
 -- grant) and on Supabase would otherwise hold EXECUTE directly (0087).

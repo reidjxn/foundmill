@@ -1,5 +1,5 @@
 /**
- * 0098 — a collaborator reads only the business events a collaborator's sections cover. `events_select` admits a
+ * 0099 — a collaborator reads only the business events a collaborator's sections cover. `events_select` admits a
  * collaborator to a row only when its type is on `fm_collaborator_event_types()` (the types apps/stream `EVENT_WALLS`
  * files only under sections a collaborator reads; apps/stream collaborator-event-types.test.ts holds the list to the
  * walls), and the outbox follows its event. Owners, cofounders, admins, members and viewers read as before; an ended
@@ -54,7 +54,7 @@ beforeAll(async () => {
 }, 120_000);
 afterAll(() => h?.close());
 
-describe("events 0098: who reads which event", () => {
+describe("events 0099: who reads which event", () => {
   it("a collaborator cannot read a payment.received event, and reads a Product and a Distribution event", async () => {
     expect(await sees(collaborator, [ev.payment, ev.spec, ev.lead])).toEqual([ev.spec, ev.lead].sort());
     // Not by its id either, nor by its type, nor through the repo's own reads.
@@ -89,7 +89,7 @@ describe("events 0098: who reads which event", () => {
   });
 });
 
-describe("events 0098: a collaborator's writes are held to the same list", () => {
+describe("events 0099: a collaborator's writes are held to the same list", () => {
   it("a collaborator writes an event of their sections, with its outbox row, and reads it back", async () => {
     const row = await writeAs(collaborator, A.businessId, "task.started", { taskId: crypto.randomUUID() });
     expect(await sees(collaborator, [row.id])).toEqual([row.id]);
@@ -119,7 +119,7 @@ describe("events 0098: a collaborator's writes are held to the same list", () =>
   });
 });
 
-describe("events 0098: the catalog", () => {
+describe("events 0099: the catalog", () => {
   it("the migrated database answers the list the latest migration spells", async () => {
     const definition = /create (?:or replace )?function fm_collaborator_event_types\(\) returns text\[\][^$]*?as \$\$\s*select array\[([^\]]*)\]::text\[\]\s*\$\$;/g;
     const latest = readMigrations().flatMap((m) => [...m.sql.matchAll(definition)].map((f) => [...f[1]!.matchAll(/'([^']*)'/g)].map((t) => t[1]!))).at(-1);
@@ -136,7 +136,7 @@ describe("events 0098: the catalog", () => {
     expect([await may("anon"), await may("authenticated"), await may("service_role")]).toEqual([false, true, true]);
   });
 
-  it("events and outbox carry exactly the policies 0098 wrote", async () => {
+  it("events and outbox carry exactly the policies 0099 wrote", async () => {
     const policies = await rows<{ tablename: string; policyname: string; cmd: string }>(sql`select tablename, policyname, cmd from pg_policies where schemaname = 'public' and tablename in ('events', 'outbox') order by 1, 2`);
     expect(policies.map((p) => `${p.tablename}.${p.policyname}:${p.cmd}`)).toEqual([
       "events.events_delete:DELETE",

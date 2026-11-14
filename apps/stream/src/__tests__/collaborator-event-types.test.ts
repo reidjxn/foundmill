@@ -1,5 +1,5 @@
 /**
- * 0098 — the business event types a collaborator may read in the database (`fm_collaborator_event_types()`, the select
+ * 0099 — the business event types a collaborator may read in the database (`fm_collaborator_event_types()`, the select
  * policy of `events` and `outbox`) are the types the stream's walls deliver to a collaborator at all: `EVENT_WALLS`
  * files each type under sections, and a collaborator receives a type only when every section it can be filed under is
  * one a collaborator can read (@foundmill/shared `COLLABORATOR_SECTIONS`). The list is read from the latest migration
@@ -52,7 +52,7 @@ function entry(type: BusinessEventType, payload: Record<string, unknown>): Strea
   return { stream: `ev:${BUSINESS_A}`, id: `${seq}-0`, fields: { id, type, json: JSON.stringify(event) } };
 }
 
-describe("fm_collaborator_event_types() (0098) and the stream's walls", () => {
+describe("fm_collaborator_event_types() (0099) and the stream's walls", () => {
   const defs = definitions();
   const latest = defs.at(-1);
 
