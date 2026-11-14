@@ -23,6 +23,7 @@
  */
 import { emptyWhy } from "@foundmill/shared/empty-why";
 import { PAGE_READY_NOTE } from "@foundmill/shared/project-page";
+import { POSTAL_ADDRESS_NOTE } from "@foundmill/shared/platform-mail";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
 import { useCallback, useMemo, useState } from "react";
@@ -116,9 +117,18 @@ export function TodayScreen() {
       setPendingId(row.id);
       // The page note's one tap (package 1.3) opens Product › Public page, where the founder checks and publishes it.
       const opensPage = row.quickOption.id === PAGE_READY_NOTE.options.check;
+      // The postal address note's one tap opens Settings › Integrations, where a founder enters the address.
+      const opensSettings = row.quickOption.id === POSTAL_ADDRESS_NOTE.options.add;
       decide.mutate(
         { businessId, itemId: row.id, chosenOption: row.quickOption.id },
-        { onSuccess: () => (opensPage ? router.push(moduleTabHref(businessId, departments, "product", "public-page")) : toast({ title: "Answered", description: row.quickOption!.label, tone: "good" })) },
+        {
+          onSuccess: () =>
+            opensPage
+              ? router.push(moduleTabHref(businessId, departments, "product", "public-page"))
+              : opensSettings
+                ? router.push(routes.settings(businessId, "integrations"))
+                : toast({ title: "Answered", description: row.quickOption!.label, tone: "good" }),
+        },
       );
     },
     [decide, businessId, toast, router, departments],

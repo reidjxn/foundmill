@@ -19,7 +19,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vites
 import { createPlatformNotifyMock, readNotifyOffToken } from "@foundmill/connectors";
 import { repos } from "@foundmill/db";
 import * as s from "@foundmill/db";
-import { APP_NAME } from "@foundmill/config";
+import { APP_NAME, APP_POSTAL_ADDRESS } from "@foundmill/config";
 import { NOTIFY_EMAIL_REFUSALS } from "@foundmill/shared";
 import { DEV_PLATFORM_MAIL_SECRET, PLATFORM_MAIL_CEILING_KEY, type PlatformMailConfig } from "../platform-mail";
 import { NOTIFY_EMAIL_ROUTE, notifyItemKey, notifyPersonDayKey, notifyProjectDayKey, PLATFORM_NOTIFY_CEILING_KEY } from "../notify-email";
@@ -83,6 +83,9 @@ describe("email from Foundmill to a person (gateway)", () => {
     expect(sent!.text).toContain(`“Which price should Starter have? (${n})”`);
     expect(sent!.text).toContain(`Open it: http://localhost:3000/b/${g.businessId}/inbox/${p.itemId}`);
     expect(sent!.text).toContain(`You get this because you are part of Gateway Test Club on ${APP_NAME}. Turn these emails off: http://localhost:4005/mail/notify/off?t=`);
+    // Foundmill's registered address in every email it sends (US CAN-SPAM), never the company's name.
+    expect(sent!.text).toContain(`Postal address: ${APP_NAME}, ${APP_POSTAL_ADDRESS}.`);
+    expect(sent!.html).toContain(`Postal address: ${APP_NAME}, ${APP_POSTAL_ADDRESS}.`);
     // The link carries the record's id, so the return it brings is counted (`founder.session_started`, via email).
     expect(sent!.html).toMatch(new RegExp(`<a href="http://localhost:3000/b/${g.businessId}/inbox/${p.itemId}\\?via=email&amp;n=[0-9a-f-]{36}">Open it</a>`));
     const link = sent!.text.match(/\/mail\/notify\/off\?t=(\S+)/);
@@ -307,6 +310,8 @@ describe("email from Foundmill to a person (gateway)", () => {
     const { rows } = await g.h.pg.query<{ kind: string; status: string; body_text: string }>("select kind, status, body_text from founder_notifications where user_id = $1 order by kind", [p.userId]);
     expect(rows.map((r) => [r.kind, r.status])).toEqual([["daily_brief", "sent"], ["win", "sent"]]);
     for (const r of rows) expect(r.body_text).not.toMatch(/\/email\/pause\?t=|\/a\/[A-Za-z0-9_-]{20,}/);
+    // The retention kinds carry Foundmill's registered address too (US CAN-SPAM).
+    for (const r of rows) expect(r.body_text).toContain(`Postal address: ${APP_NAME}, ${APP_POSTAL_ADDRESS}.`);
   });
 
   it("only the api and the orchestrator may ask, and a body with anything but ids is refused", async () => {

@@ -12,6 +12,7 @@ import { z } from "zod";
 import { areaWordsFor } from "../services/area-words";
 import { autopilotStatus, ensureAutopilot, setAutopilot } from "../services/autopilot";
 import { pauseCycle, resumeCycle, startCycle } from "../services/cycle";
+import { afterPeopleChange } from "../services/showcase";
 import { assertAgentsRunning, resumeAgents, stopAllAgents } from "../services/killswitch";
 import { requireAdultToGoLive } from "../services/live";
 import { archiveBusiness, cancelDeletion, deletionState, exportBusiness, requestDeletion, restoreBusiness } from "../services/lifecycle";
@@ -230,11 +231,12 @@ export const businessRouter = router({
      * the same business is never touched; `left: false` when there was none). Audited on the business when a row went.
      */
     leave: protectedProcedure.input(z.object({ businessId: Id })).mutation(({ ctx, input }) =>
-      ctx.db.transaction(async (tx) => {
+      // Anyone leaving a business: a showcase ask about it is checked again (review finding 8; services/showcase.ts).
+      afterPeopleChange({ ...ctx, businessId: input.businessId }, ctx.db.transaction(async (tx) => {
         const gone = await repos.memberships.leaveExample(tx, input.businessId, ctx.userId);
         if (gone) await audit(tx, { businessId: input.businessId, userId: ctx.userId }, { action: "business.example.leave", target: { kind: "membership", id: gone.id }, details: { businessId: input.businessId } });
         return { businessId: input.businessId, left: gone !== null };
-      }),
+      })),
     ),
   }),
 

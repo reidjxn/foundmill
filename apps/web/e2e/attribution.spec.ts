@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { expect, test, type BrowserContext } from "@playwright/test";
-import { LONG, signInAs } from "./helpers";
+import { confirmAdultOnForm, LONG, signInAs } from "./helpers";
 
 /**
  * Attribution on the web (docs/NETWORK.md §5; lib/via.ts, proxy.ts, app/onboarding). Stack and commands: e2e/README.md.
@@ -39,6 +39,8 @@ test.describe("attribution", () => {
     await page.getByLabel(/What the team calls you/).fill("Attribution Founder");
     await page.getByLabel("First-time founder").check();
     await page.getByLabel("Full time").check();
+    // A new account confirms it is 18 or older on this form, once (0100).
+    await confirmAdultOnForm(page);
 
     const save = page.waitForRequest((r) => r.method() === "POST" && r.url().includes("founder.profile.update"), { timeout: LONG });
     await page.getByTestId("profile-submit-bottom").click();

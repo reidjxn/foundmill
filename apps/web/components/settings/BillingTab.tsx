@@ -277,9 +277,9 @@ export function BillingTab() {
         {p?.topUp.available === false ? (
           <Hint>{p.topUp.reason}</Hint>
         ) : p?.topUp.mode === "mock" ? (
-          <Hint>Credits are in US dollars and pay for model calls on {APP_NAME}&apos;s key. Your plan includes {p ? money(p.includedCreditsMinor) : "some"} a month; when they run out the team pauses until you top up or add your own Anthropic key in Settings › Keys. This server simulates payments: Top up opens a mock checkout here, no money moves, and the credits are labeled as a mock top-up.</Hint>
+          <Hint>Credits are in US dollars and pay for model calls on {APP_NAME}&apos;s key. Your plan includes {p ? money(p.includedCreditsMinor) : "some"} a month, used first; credits you buy last 12 months. When they run out the team pauses until you top up or add your own Anthropic key in Settings › Keys. This server simulates payments: Top up opens a mock checkout here, no money moves, and the credits are labeled as a mock top-up.</Hint>
         ) : (
-          <Hint>Credits are in US dollars, the currency model prices are listed in, and pay for model calls on {APP_NAME}&apos;s key. Your plan includes {p ? money(p.includedCreditsMinor) : "some"} a month; when they run out the team pauses until you top up or add your own Anthropic key in Settings › Keys. You pay on Stripe&apos;s secure page; the credits arrive once Stripe confirms the payment.</Hint>
+          <Hint>Credits are in US dollars, the currency model prices are listed in, and pay for model calls on {APP_NAME}&apos;s key. Your plan includes {p ? money(p.includedCreditsMinor) : "some"} a month, used first; credits you buy last 12 months. When they run out the team pauses until you top up or add your own Anthropic key in Settings › Keys. You pay on Stripe&apos;s secure page; the credits arrive once Stripe confirms the payment.</Hint>
         )}
       </SettingsSection>
 

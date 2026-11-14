@@ -81,7 +81,7 @@ describe("resolveGrants", () => {
   });
 
   it("never puts a route-only tool (the repository archive) in an agent's token: not by capability, by name or through *", () => {
-    expect([...ROUTE_ONLY_TOOLS].sort()).toEqual(["github:download_archive", "github:get_repository"]);
+    expect([...ROUTE_ONLY_TOOLS].sort()).toEqual(["github:download_archive", "github:get_repository", "runway:download_video"]);
     const r = resolveGrants([{ connectorKey: "github", tools: ["repos.read", "download_archive", "get_repository"] }]);
     expect(r.toolRefs).toEqual(["github:list_repos", "github:read_tree", "github:read_file", "github:compare_refs"]);
     expect(r.unresolved).toEqual([

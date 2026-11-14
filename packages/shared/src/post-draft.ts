@@ -12,6 +12,8 @@
  * `POST_DEFAULT_LIMIT` (the strictest), and one with no share target simply has none.
  */
 
+import type { PostDraftMedia } from "./post-media";
+
 export const POST_NETWORKS = ["x", "linkedin", "facebook", "threads", "reddit", "bluesky", "instagram", "tiktok"] as const;
 export type PostNetwork = (typeof POST_NETWORKS)[number];
 
@@ -35,6 +37,8 @@ export interface PostDraft {
   link?: string;
   image?: PostDraftImage;
   variants: Partial<Record<PostNetwork, PostDraftVariant>>;
+  /** Optional media made for the draft: a short video and a voiceover (./post-media). Absent: the draft is text only. */
+  media?: PostDraftMedia;
 }
 
 /** Outer bounds of a stored draft (the Zod schemas hold a draft to these; fitting brings each network under its own). */

@@ -26,7 +26,7 @@
 import { z } from "zod";
 import { APP_NAME, tierShowsBuiltOnMark } from "@foundmill/config";
 import { repos } from "@foundmill/db";
-import { builtOnWords, FOLLOW_CONFIRM_EMAIL, FOLLOW_CONFIRM_TTL_MS, mockResultsAllowed, PLATFORM_MAIL_SECRET_MIN_LENGTH, platformMailAddress } from "@foundmill/shared";
+import { builtOnWords, FOLLOW_CONFIRM_EMAIL, FOLLOW_CONFIRM_TTL_MS, FOLLOW_CONFIRMATION_MAIL_CLASS, mockResultsAllowed, PLATFORM_MAIL_SECRET_MIN_LENGTH, platformMailAddress } from "@foundmill/shared";
 import {
   DEV_PLATFORM_MAIL_SECRET,
   followConfirmNonceHash,
@@ -127,6 +127,9 @@ export async function sendFollowConfirmation(deps: GatewayDeps, input: ConfirmFo
       messageRef,
       unsubscribeUrl: platformUnsubscribeUrl(config.unsubscribeBase, platformUnsubscribeToken(secret, input.businessId, emailHash)),
       customArgs: platformMailCustomArgs(secret, input.businessId, messageRef, emailHash),
+      // Double opt-in: the person asked for it and it says only that, so it is transactional (US CAN-SPAM) and never
+      // waits on the founders' postal address (packages/shared `FOLLOW_CONFIRMATION_MAIL_CLASS`).
+      commercial: FOLLOW_CONFIRMATION_MAIL_CLASS === "commercial",
     },
   };
   const connector = deps.registry.get(PLATFORM_MAIL_KEY, mode);

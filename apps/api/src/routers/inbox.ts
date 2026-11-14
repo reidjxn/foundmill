@@ -30,7 +30,7 @@ export const inboxRouter = router({
       const firstPage = !input?.cursor;
       const [page, tally, waiting] = await Promise.all([
         repos.inbox.list(tx, ctx.businessId, input ?? {}, ctx.userId),
-        firstPage ? Promise.all([repos.inbox.countByTab(tx, ctx.businessId), repos.inbox.countBlocking(tx, ctx.businessId)]) : null,
+        firstPage ? Promise.all([repos.inbox.countByTab(tx, ctx.businessId, ctx.userId), repos.inbox.countBlocking(tx, ctx.businessId)]) : null,
         repos.plans.awaitingConfirmation(tx, ctx.businessId),
       ]);
       const walls = inboxWalls(ctx.membership);

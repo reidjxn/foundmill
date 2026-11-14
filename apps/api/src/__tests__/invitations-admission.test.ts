@@ -133,8 +133,8 @@ describe("admitOrWait: invite-only", () => {
     expect(await refusal(me.founder.preferences.get())).toMatchObject({ reason: "not_listed" });
     // The invitation's own page and accept do not need an admission; an anonymous sign-in never accepts.
     expect(await callerIn(INVITE_ONLY, null).invitation.byToken({ token: tokenOf(link) })).toMatchObject({ state: "pending", role: "collaborator" });
-    expect(await refusal(callerIn(INVITE_ONLY, { ...p, emailConfirmed: false }).invitation.accept({ token: tokenOf(link) }))).toMatchObject({ reason: "email_unconfirmed" });
-    expect(await me.invitation.accept({ token: tokenOf(link) })).toEqual({ businessId: hz.A.businessId, already: false });
+    expect(await refusal(callerIn(INVITE_ONLY, { ...p, emailConfirmed: false }).invitation.accept({ confirmAdult: true, token: tokenOf(link) }))).toMatchObject({ reason: "email_unconfirmed" });
+    expect(await me.invitation.accept({ confirmAdult: true, token: tokenOf(link) })).toEqual({ businessId: hz.A.businessId, already: false });
     forgetAdmittedMemo();
     expect(await refusal(me.founder.preferences.get())).toBeNull();
     expect(await refusal(me.inbox.list({ businessId: hz.A.businessId }))).toBeNull();
@@ -146,18 +146,18 @@ describe("admitOrWait: invite-only", () => {
     // p joins by the listed owner's invitation, then the owner makes them an admin, so they may invite collaborators.
     const { link } = await hz.caller({ userId: hz.A.ownerId }).invitation.create({ businessId, role: "collaborator" });
     const p = await person("invited-admin");
-    await callerIn(INVITE_ONLY, p).invitation.accept({ token: tokenOf(link) });
+    await callerIn(INVITE_ONLY, p).invitation.accept({ confirmAdult: true, token: tokenOf(link) });
     await hz.caller({ userId: hz.A.ownerId }).team.humans.role({ businessId, userId: p.userId, role: "admin" });
     const second = await callerIn(INVITE_ONLY, p).invitation.create({ businessId, role: "collaborator" });
     // A new account: refused, nothing written, the link still waits.
     const fresh = await person("second-hop");
-    expect(await refusal(callerIn(INVITE_ONLY, fresh).invitation.accept({ token: tokenOf(second.link) }))).toMatchObject({ code: "FORBIDDEN", appCode: "invitation_cannot_admit", message: INVITATION_CANNOT_ADMIT_MESSAGE });
+    expect(await refusal(callerIn(INVITE_ONLY, fresh).invitation.accept({ confirmAdult: true, token: tokenOf(second.link) }))).toMatchObject({ code: "FORBIDDEN", appCode: "invitation_cannot_admit", message: INVITATION_CANNOT_ADMIT_MESSAGE });
     expect(await repos.admissions.has(hz.db, fresh.userId)).toBe(false);
     expect(await membershipOf(businessId, fresh.userId)).toBeNull();
     expect(await hz.caller(null).invitation.byToken({ token: tokenOf(second.link) })).toMatchObject({ state: "pending" });
     // An account the list already admits: the same link adds them.
     const listed = { userId: await hz.h.createUser("listed2@people.test"), email: "listed2@people.test" };
-    expect(await callerIn(INVITE_ONLY, listed).invitation.accept({ token: tokenOf(second.link) })).toEqual({ businessId, already: false });
+    expect(await callerIn(INVITE_ONLY, listed).invitation.accept({ confirmAdult: true, token: tokenOf(second.link) })).toEqual({ businessId, already: false });
     expect(await membershipOf(businessId, listed.userId)).toMatchObject({ role: "collaborator" });
     expect(await repos.admissions.has(hz.db, listed.userId)).toBe(false);
   });
@@ -170,17 +170,17 @@ describe("admitOrWait: invite-only", () => {
     for (let i = 0; i < INVITATION_ADMISSIONS_PER_INVITER_PER_DAY + 2; i++) links.push((await owner.invitation.create({ businessId, role: "collaborator" })).link);
     for (let i = 0; i < INVITATION_ADMISSIONS_PER_INVITER_PER_DAY; i++) {
       const p = await person(`cap-${i}`);
-      expect(await callerIn(INVITE_ONLY, p).invitation.accept({ token: tokenOf(links[i]!) })).toEqual({ businessId, already: false });
+      expect(await callerIn(INVITE_ONLY, p).invitation.accept({ confirmAdult: true, token: tokenOf(links[i]!) })).toEqual({ businessId, already: false });
     }
     expect(await repos.admissions.admittedByInviterSince(hz.db, hz.B.ownerId, todayStart())).toBe(INVITATION_ADMISSIONS_PER_INVITER_PER_DAY);
     const over = await person("cap-over");
-    expect(await refusal(callerIn(INVITE_ONLY, over).invitation.accept({ token: tokenOf(links[INVITATION_ADMISSIONS_PER_INVITER_PER_DAY]!) }))).toMatchObject({ code: "TOO_MANY_REQUESTS", appCode: "invitation_admissions_limit", message: INVITATION_ADMISSIONS_LIMIT_MESSAGE });
+    expect(await refusal(callerIn(INVITE_ONLY, over).invitation.accept({ confirmAdult: true, token: tokenOf(links[INVITATION_ADMISSIONS_PER_INVITER_PER_DAY]!) }))).toMatchObject({ code: "TOO_MANY_REQUESTS", appCode: "invitation_admissions_limit", message: INVITATION_ADMISSIONS_LIMIT_MESSAGE });
     expect(await repos.admissions.has(hz.db, over.userId)).toBe(false);
     expect(await membershipOf(businessId, over.userId)).toBeNull();
     // Someone already in is never counted: an account an earlier invitation let in joins with the next link.
     const already = await person("cap-already");
     await repos.admissions.record(hz.db, { userId: already.userId, how: "open" });
-    expect(await callerIn(INVITE_ONLY, already).invitation.accept({ token: tokenOf(links[INVITATION_ADMISSIONS_PER_INVITER_PER_DAY + 1]!) })).toEqual({ businessId, already: false });
+    expect(await callerIn(INVITE_ONLY, already).invitation.accept({ confirmAdult: true, token: tokenOf(links[INVITATION_ADMISSIONS_PER_INVITER_PER_DAY + 1]!) })).toEqual({ businessId, already: false });
   });
 
   it("the advisory lock is taken before the counts it guards (the mechanism; the race itself needs a real-Postgres run)", async () => {
@@ -193,7 +193,7 @@ describe("admitOrWait: invite-only", () => {
     vi.spyOn(repos.admissions, "record").mockImplementation(async (db, input) => (order.push("record"), record(db, input)));
     const { link } = await hz.caller({ userId: hz.A.ownerId }).invitation.create({ businessId: hz.A.businessId, role: "collaborator" });
     const p = await person("lock-order");
-    await callerIn(INVITE_ONLY, p).invitation.accept({ token: tokenOf(link) });
+    await callerIn(INVITE_ONLY, p).invitation.accept({ confirmAdult: true, token: tokenOf(link) });
     expect(order).toEqual(["lock", "count", "record"]);
   });
 });
@@ -244,7 +244,7 @@ describe("admitOrWait: open sign-up with a daily ceiling", () => {
     const OPEN = { SIGNUP_OPEN: "1", SIGNUP_DAILY_CEILING: before + 1, SIGNUP_ALLOWLIST: adminEmail };
     const { link } = await hz.caller({ userId: hz.A.adminId }).invitation.create({ businessId: hz.A.businessId, role: "collaborator" });
     const invited = await person("open-invited");
-    expect(await callerIn(OPEN, invited).invitation.accept({ token: tokenOf(link) })).toEqual({ businessId: hz.A.businessId, already: false });
+    expect(await callerIn(OPEN, invited).invitation.accept({ confirmAdult: true, token: tokenOf(link) })).toEqual({ businessId: hz.A.businessId, already: false });
     expect((await repos.admissions.forUser(hz.db, invited.userId))?.how).toBe("invitation");
     expect(await repos.admissions.openSince(hz.db, todayStart())).toBe(before + 1);
     // The ceiling is now reached: the next new account waits.
@@ -259,10 +259,10 @@ describe("admitOrWait: open sign-up with a daily ceiling", () => {
     // The owner is neither listed nor admitted here: open sign-up's own decision applies.
     const OPEN = { SIGNUP_OPEN: "1", SIGNUP_DAILY_CEILING: before + 1 };
     const a = await person("open-plain-a");
-    expect(await callerIn(OPEN, a).invitation.accept({ token: tokenOf(link) })).toMatchObject({ already: false });
+    expect(await callerIn(OPEN, a).invitation.accept({ confirmAdult: true, token: tokenOf(link) })).toMatchObject({ already: false });
     expect((await repos.admissions.forUser(hz.db, a.userId))?.how).toBe("open");
     const b = await person("open-plain-b");
-    expect(await refusal(callerIn(OPEN, b).invitation.accept({ token: tokenOf(second.link) }))).toMatchObject({ appCode: "on_waitlist" });
+    expect(await refusal(callerIn(OPEN, b).invitation.accept({ confirmAdult: true, token: tokenOf(second.link) }))).toMatchObject({ appCode: "on_waitlist" });
     expect(await membershipOf(hz.A.businessId, b.userId)).toBeNull();
   });
 
@@ -272,17 +272,17 @@ describe("admitOrWait: open sign-up with a daily ceiling", () => {
     const before = await repos.admissions.openSince(hz.db, todayStart());
     const OPEN = { SIGNUP_OPEN: "1", SIGNUP_DAILY_CEILING: before + 1 };
     const a = await person("open-inviter-a");
-    expect(await callerIn(OPEN, a).invitation.accept({ token: under })).toEqual({ businessId: hz.A.businessId, already: false });
+    expect(await callerIn(OPEN, a).invitation.accept({ confirmAdult: true, token: under })).toEqual({ businessId: hz.A.businessId, already: false });
     expect(await repos.admissions.forUser(hz.db, a.userId)).toMatchObject({ how: "invitation" });
     // The ceiling is reached: the next invitee of the same inviter waits, with the words a sign-up meets, and nothing changes.
     const b = await person("open-inviter-b");
-    expect(await refusal(callerIn(OPEN, b).invitation.accept({ token: at }))).toEqual({ code: "FORBIDDEN", appCode: "on_waitlist", reason: "ceiling", message: ON_WAITLIST_MESSAGE });
+    expect(await refusal(callerIn(OPEN, b).invitation.accept({ confirmAdult: true, token: at }))).toEqual({ code: "FORBIDDEN", appCode: "on_waitlist", reason: "ceiling", message: ON_WAITLIST_MESSAGE });
     expect(await repos.admissions.has(hz.db, b.userId)).toBe(false);
     expect(await membershipOf(hz.A.businessId, b.userId)).toBeNull();
     expect(await hz.caller(null).invitation.byToken({ token: at })).toMatchObject({ state: "pending" });
     expect(await repos.admissions.openSince(hz.db, todayStart())).toBe(before + 1);
     // With room again (tomorrow's ceiling), the same link works.
-    expect(await callerIn({ ...OPEN, SIGNUP_DAILY_CEILING: before + 2 }, b).invitation.accept({ token: at })).toMatchObject({ already: false });
+    expect(await callerIn({ ...OPEN, SIGNUP_DAILY_CEILING: before + 2 }, b).invitation.accept({ confirmAdult: true, token: at })).toMatchObject({ already: false });
   });
 
   it("an inviter the list or the time before let in goes past the ceiling, within their own number", async () => {
@@ -294,15 +294,15 @@ describe("admitOrWait: open sign-up with a daily ceiling", () => {
     expect(await refusal(callerIn(FULL, await person("past-signup")).founder.preferences.get())).toMatchObject({ appCode: "on_waitlist" });
     for (const inviter of [listed, existing]) {
       const p = await person("past-invitee");
-      expect(await callerIn(FULL, p).invitation.accept({ token: await collaboratorLink(inviter.userId) })).toMatchObject({ already: false });
+      expect(await callerIn(FULL, p).invitation.accept({ confirmAdult: true, token: await collaboratorLink(inviter.userId) })).toMatchObject({ already: false });
       expect(await repos.admissions.forUser(hz.db, p.userId)).toMatchObject({ how: "invitation" });
     }
     expect(await repos.admissions.openSince(hz.db, todayStart())).toBe(before + 2);
     // Past their own number of the day, the ceiling decides for them too.
-    for (let i = 1; i < INVITATION_ADMISSIONS_PER_INVITER_PER_DAY; i++) await callerIn(FULL, await person("past-more")).invitation.accept({ token: await collaboratorLink(listed.userId) });
+    for (let i = 1; i < INVITATION_ADMISSIONS_PER_INVITER_PER_DAY; i++) await callerIn(FULL, await person("past-more")).invitation.accept({ confirmAdult: true, token: await collaboratorLink(listed.userId) });
     expect(await repos.admissions.admittedByInviterSince(hz.db, listed.userId, todayStart())).toBe(INVITATION_ADMISSIONS_PER_INVITER_PER_DAY);
     const over = await person("past-over");
-    expect(await refusal(callerIn(FULL, over).invitation.accept({ token: await collaboratorLink(listed.userId) }))).toMatchObject({ appCode: "on_waitlist", reason: "ceiling" });
+    expect(await refusal(callerIn(FULL, over).invitation.accept({ confirmAdult: true, token: await collaboratorLink(listed.userId) }))).toMatchObject({ appCode: "on_waitlist", reason: "ceiling" });
     expect(await repos.admissions.has(hz.db, over.userId)).toBe(false);
   });
 
@@ -314,12 +314,12 @@ describe("admitOrWait: open sign-up with a daily ceiling", () => {
     // The day's count as the lock-holder reads it: one place left past the ceiling, then none.
     const spy = vi.spyOn(repos.admissions, "openSince").mockResolvedValue(ceiling + INVITATION_ADMISSIONS_PAST_CEILING_PER_DAY - 1);
     const last = await person("past-cap-last");
-    expect(await callerIn(OPEN, last).invitation.accept({ token: await collaboratorLink(listed.userId) })).toMatchObject({ already: false });
+    expect(await callerIn(OPEN, last).invitation.accept({ confirmAdult: true, token: await collaboratorLink(listed.userId) })).toMatchObject({ already: false });
     expect(await repos.admissions.forUser(hz.db, last.userId)).toMatchObject({ how: "invitation" });
     spy.mockResolvedValue(ceiling + INVITATION_ADMISSIONS_PAST_CEILING_PER_DAY);
     const token = await collaboratorLink(listed.userId);
     const after = await person("past-cap-after");
-    expect(await refusal(callerIn(OPEN, after).invitation.accept({ token }))).toMatchObject({ appCode: "on_waitlist", reason: "ceiling", message: ON_WAITLIST_MESSAGE });
+    expect(await refusal(callerIn(OPEN, after).invitation.accept({ confirmAdult: true, token }))).toMatchObject({ appCode: "on_waitlist", reason: "ceiling", message: ON_WAITLIST_MESSAGE });
     expect(await repos.admissions.has(hz.db, after.userId)).toBe(false);
     expect(await hz.caller(null).invitation.byToken({ token })).toMatchObject({ state: "pending" });
   });
@@ -335,7 +335,7 @@ describe("admitOrWait: open sign-up with a daily ceiling", () => {
     vi.spyOn(repos.admissions, "admittedByInviterSince").mockImplementation(async (db, id, since) => (order.push("inviter"), perInviter(db, id, since)));
     vi.spyOn(repos.admissions, "openSince").mockImplementation(async (db, since) => (order.push("day"), day(db, since)));
     const before = await day(hz.db, todayStart());
-    await callerIn({ SIGNUP_OPEN: "1", SIGNUP_DAILY_CEILING: before + 1 }, await person("open-lock-invitee")).invitation.accept({ token });
+    await callerIn({ SIGNUP_OPEN: "1", SIGNUP_DAILY_CEILING: before + 1 }, await person("open-lock-invitee")).invitation.accept({ confirmAdult: true, token });
     expect(order.slice(order.indexOf("lock"))).toEqual(["lock", "inviter", "day"]);
   });
 
@@ -395,7 +395,7 @@ describe("invitations", () => {
     }
     expect(await hz.caller(null).invitation.byToken({ token })).toEqual({ state: "unavailable" });
     const p = await person("old-cofounder-link");
-    expect((await refusal(hz.caller(p).invitation.accept({ token })))?.code).toBe("NOT_FOUND");
+    expect((await refusal(hz.caller(p).invitation.accept({ confirmAdult: true, token })))?.code).toBe("NOT_FOUND");
   });
 
   it("making an invitation, and keeping it alive, needs write on the Team section, not the role alone", async () => {
@@ -407,7 +407,7 @@ describe("invitations", () => {
       expect((await refusal(admin.invitation.create({ businessId, role: "collaborator" })))?.code).toBe("FORBIDDEN");
       expect(await hz.caller(null).invitation.byToken({ token: tokenOf(link) })).toEqual({ state: "unavailable" });
       const p = await person("narrowed-inviter");
-      expect((await refusal(hz.caller(p).invitation.accept({ token: tokenOf(link) })))?.code).toBe("NOT_FOUND");
+      expect((await refusal(hz.caller(p).invitation.accept({ confirmAdult: true, token: tokenOf(link) })))?.code).toBe("NOT_FOUND");
       expect(await membershipOf(businessId, p.userId)).toBeNull();
     } finally {
       await repos.memberships.setSectionPermissions(hz.db, businessId, hz.A.adminId, {});
@@ -435,7 +435,7 @@ describe("invitations", () => {
     try {
       expect(await anon.invitation.byToken({ token: tokenOf(second.link) })).toEqual({ state: "unavailable" });
       const p = await person("too-late");
-      expect((await refusal(hz.caller(p).invitation.accept({ token: tokenOf(second.link) })))?.code).toBe("NOT_FOUND");
+      expect((await refusal(hz.caller(p).invitation.accept({ confirmAdult: true, token: tokenOf(second.link) })))?.code).toBe("NOT_FOUND");
     } finally {
       await repos.memberships.setRole(hz.db, businessId, hz.A.adminId, "admin");
     }
@@ -479,10 +479,10 @@ describe("invitations", () => {
     const p = await person("cofounder");
     const { link, invitation } = await owner.invitation.create({ businessId, role: "cofounder", email: p.email });
     // The address as the person typed it at sign-in: case does not matter.
-    expect(await hz.caller({ ...p, email: p.email.toUpperCase() }).invitation.accept({ token: tokenOf(link) })).toEqual({ businessId, already: false });
+    expect(await hz.caller({ ...p, email: p.email.toUpperCase() }).invitation.accept({ confirmAdult: true, token: tokenOf(link) })).toEqual({ businessId, already: false });
     expect(await repos.memberships.get(hz.db, businessId, p.userId)).toMatchObject({ role: "cofounder", source: "invite" });
     const q = await person("second-use");
-    expect((await refusal(hz.caller(q).invitation.accept({ token: tokenOf(link) })))?.code).toBe("NOT_FOUND");
+    expect((await refusal(hz.caller(q).invitation.accept({ confirmAdult: true, token: tokenOf(link) })))?.code).toBe("NOT_FOUND");
     expect(await repos.memberships.get(hz.db, businessId, q.userId)).toBeNull();
     const events = (await repos.events.list(hz.db, businessId, { limit: 200 })).items;
     expect(events.find((e) => e.type === "invitation.accepted" && (e.payload as { invitationId: string }).invitationId === invitation.id)?.payload).toEqual({ invitationId: invitation.id, role: "cofounder", userId: p.userId });
@@ -499,24 +499,24 @@ describe("invitations", () => {
     const [alice, bob, carol, dave, erin] = [await person("alice"), await person("bob"), await person("carol"), await person("dave"), await person("erin")];
     const forAlice = await owner.invitation.create({ businessId, role: "cofounder", email: alice.email });
     // Bob holds the link (a forwarded email): told to sign in with the address it was sent to, and nothing changes.
-    const other = await refusal(hz.caller(bob).invitation.accept({ token: tokenOf(forAlice.link) }));
+    const other = await refusal(hz.caller(bob).invitation.accept({ confirmAdult: true, token: tokenOf(forAlice.link) }));
     expect(other).toMatchObject({ code: "FORBIDDEN", appCode: "invitation_other_address", message: INVITATION_OTHER_ADDRESS_WORDS });
     expect(INVITATION_OTHER_ADDRESS_WORDS).toBe("Sign in with the address this invitation was sent to.");
     expect(JSON.stringify(other)).not.toContain(alice.email);
-    expect(await refusal(hz.caller({ userId: bob.userId, email: null }).invitation.accept({ token: tokenOf(forAlice.link) }))).toMatchObject({ appCode: "invitation_other_address" });
+    expect(await refusal(hz.caller({ userId: bob.userId, email: null }).invitation.accept({ confirmAdult: true, token: tokenOf(forAlice.link) }))).toMatchObject({ appCode: "invitation_other_address" });
     expect(await membershipOf(businessId, bob.userId)).toBeNull();
     // A dead link still reads as one, whoever opens it.
-    expect(await refusal(hz.caller(bob).invitation.accept({ token: "D".repeat(43) }))).toMatchObject({ code: "NOT_FOUND", appCode: "invitation_unavailable", message: INVITATION_UNAVAILABLE_MESSAGE });
+    expect(await refusal(hz.caller(bob).invitation.accept({ confirmAdult: true, token: "D".repeat(43) }))).toMatchObject({ code: "NOT_FOUND", appCode: "invitation_unavailable", message: INVITATION_UNAVAILABLE_MESSAGE });
     expect(await hz.caller(null).invitation.byToken({ token: tokenOf(forAlice.link) })).toMatchObject({ state: "pending" });
-    expect(await hz.caller(alice).invitation.accept({ token: tokenOf(forAlice.link) })).toEqual({ businessId, already: false });
+    expect(await hz.caller(alice).invitation.accept({ confirmAdult: true, token: tokenOf(forAlice.link) })).toEqual({ businessId, already: false });
     expect(await membershipOf(businessId, alice.userId)).toMatchObject({ role: "cofounder" });
     // A collaborator invitation that names an address is that address's too.
     const forCarol = await owner.invitation.create({ businessId, role: "collaborator", email: carol.email });
-    expect(await refusal(hz.caller(dave).invitation.accept({ token: tokenOf(forCarol.link) }))).toMatchObject({ code: "FORBIDDEN", appCode: "invitation_other_address" });
-    expect(await hz.caller(carol).invitation.accept({ token: tokenOf(forCarol.link) })).toMatchObject({ already: false });
+    expect(await refusal(hz.caller(dave).invitation.accept({ confirmAdult: true, token: tokenOf(forCarol.link) }))).toMatchObject({ code: "FORBIDDEN", appCode: "invitation_other_address" });
+    expect(await hz.caller(carol).invitation.accept({ confirmAdult: true, token: tokenOf(forCarol.link) })).toMatchObject({ already: false });
     // Link-only: whoever opens it.
     const linkOnly = await owner.invitation.create({ businessId, role: "collaborator" });
-    expect(await hz.caller(erin).invitation.accept({ token: tokenOf(linkOnly.link) })).toMatchObject({ already: false });
+    expect(await hz.caller(erin).invitation.accept({ confirmAdult: true, token: tokenOf(linkOnly.link) })).toMatchObject({ already: false });
     expect(await membershipOf(businessId, erin.userId)).toMatchObject({ role: "collaborator" });
   });
 
@@ -547,7 +547,7 @@ describe("invitations", () => {
     const calls: { userId: string; lock: string | undefined }[] = [];
     vi.spyOn(repos.memberships, "getActive").mockImplementation(async (db, bid, userId, options = {}) => (calls.push({ userId, lock: options.lock }), getActive(db, bid, userId, options)));
     const p = await person("share-lock");
-    await hz.caller(p).invitation.accept({ token: tokenOf(link) });
+    await hz.caller(p).invitation.accept({ confirmAdult: true, token: tokenOf(link) });
     const inviterChecks = calls.filter((c) => c.userId === hz.A.adminId);
     // Once before the transaction (no lock), once inside it, for share.
     expect(inviterChecks.map((c) => c.lock ?? null)).toEqual([null, "share"]);
@@ -565,7 +565,7 @@ describe("invitations", () => {
     const { businessId } = hz.A;
     const { link, invitation } = await hz.caller({ userId: hz.A.ownerId }).invitation.create({ businessId, role: "collaborator" });
     const [a, b] = [await person("race-accept-a"), await person("race-accept-b")];
-    const answers = await Promise.all([refusal(hz.caller(a).invitation.accept({ token: tokenOf(link) })), refusal(hz.caller(b).invitation.accept({ token: tokenOf(link) }))]);
+    const answers = await Promise.all([refusal(hz.caller(a).invitation.accept({ confirmAdult: true, token: tokenOf(link) })), refusal(hz.caller(b).invitation.accept({ confirmAdult: true, token: tokenOf(link) }))]);
     expect(answers.filter((x) => x === null)).toHaveLength(1);
     expect(answers.filter((x) => x?.code === "NOT_FOUND")).toHaveLength(1);
     const joined = [await membershipOf(businessId, a.userId), await membershipOf(businessId, b.userId)].filter((m) => m !== null);
@@ -581,7 +581,7 @@ describe("invitations", () => {
     const owner = hz.caller({ userId: hz.A.ownerId });
     const { link, invitation } = await owner.invitation.create({ businessId, role: "collaborator" });
     const p = await person("race-revoke");
-    const [accepted, revoked] = await Promise.all([refusal(hz.caller(p).invitation.accept({ token: tokenOf(link) })), refusal(owner.invitation.revoke({ businessId, invitationId: invitation.id }))]);
+    const [accepted, revoked] = await Promise.all([refusal(hz.caller(p).invitation.accept({ confirmAdult: true, token: tokenOf(link) })), refusal(owner.invitation.revoke({ businessId, invitationId: invitation.id }))]);
     expect([accepted === null, revoked === null].filter(Boolean)).toHaveLength(1);
     const [row] = await hz.db.select({ state: invitationsTable.state }).from(invitationsTable).where(eq(invitationsTable.id, invitation.id));
     expect(row!.state).toBe(accepted === null ? "accepted" : "revoked");
@@ -599,8 +599,8 @@ describe("invitations", () => {
     const admin = hz.caller({ userId: hz.A.adminId });
     const { link } = await admin.invitation.create({ businessId, role: "collaborator" });
     const p = await person("attributed");
-    await hz.caller(p).invitation.accept({ token: tokenOf(link) });
-    await hz.caller(p).founder.profile.update({ displayName: "Invited Person", experience: "first_time", skills: { marketing: 5 }, targetMarkets: ["US"], riskAppetite: "medium", via: "u.someone-else" });
+    await hz.caller(p).invitation.accept({ confirmAdult: true, token: tokenOf(link) });
+    await hz.caller(p).founder.profile.update({ confirmAdult: true, displayName: "Invited Person", experience: "first_time", skills: { marketing: 5 }, targetMarkets: ["US"], riskAppetite: "medium", via: "u.someone-else" });
     expect(await repos.attributions.forUser(hz.db, p.userId)).not.toBeNull();
     // The project page is live: the row names it, with the inviter credited (not the page's longest-standing owner).
     expect(await repos.attributions.forUser(hz.db, p.userId)).toMatchObject({ sourceKind: "project_page", sourceBusinessId: businessId, referrerUserId: hz.A.adminId });
@@ -611,7 +611,7 @@ describe("after accepting: a cofounder's standing and a collaborator's walls (TH
   const join = async (role: "cofounder" | "collaborator", tag: string) => {
     const p = await person(tag);
     const { link } = await hz.caller({ userId: hz.A.ownerId }).invitation.create({ businessId: hz.A.businessId, role, ...(role === "cofounder" ? { email: p.email } : {}) });
-    await hz.caller(p).invitation.accept({ token: tokenOf(link) });
+    await hz.caller(p).invitation.accept({ confirmAdult: true, token: tokenOf(link) });
     return p;
   };
   const endAccess = (userId: string) => hz.db.update(membershipsTable).set({ expiresAt: new Date(Date.now() - 1000) }).where(and(eq(membershipsTable.businessId, hz.A.businessId), eq(membershipsTable.userId, userId)));
@@ -693,13 +693,13 @@ describe("after accepting: a cofounder's standing and a collaborator's walls (TH
     const first = await membershipOf(businessId, p.userId);
     await endAccess(p.userId);
     const { link } = await hz.caller({ userId: hz.A.ownerId }).invitation.create({ businessId, role: "collaborator" });
-    expect(await hz.caller(p).invitation.accept({ token: tokenOf(link) })).toEqual({ businessId, already: false });
+    expect(await hz.caller(p).invitation.accept({ confirmAdult: true, token: tokenOf(link) })).toEqual({ businessId, already: false });
     const renewed = await membershipOf(businessId, p.userId);
     expect(renewed).toMatchObject({ id: first!.id, role: "collaborator", expiresAt: null, source: "invite" });
     expect(await refusal(hz.caller(p).inbox.list({ businessId }))).toBeNull();
     // Someone still in is "already" one of the people: the next link stays unused.
     const again = await hz.caller({ userId: hz.A.ownerId }).invitation.create({ businessId, role: "collaborator" });
-    expect(await hz.caller(p).invitation.accept({ token: tokenOf(again.link) })).toEqual({ businessId, already: true });
+    expect(await hz.caller(p).invitation.accept({ confirmAdult: true, token: tokenOf(again.link) })).toEqual({ businessId, already: true });
     expect(await hz.caller(null).invitation.byToken({ token: tokenOf(again.link) })).toMatchObject({ state: "pending" });
   });
 });

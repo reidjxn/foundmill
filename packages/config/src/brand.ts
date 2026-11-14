@@ -4,6 +4,13 @@ export const APP_TAGLINE = "Build a real business with a team of AI agents." as 
 /** Canonical public origin of the product (apex domain purchased 2026-10-06). */
 export const APP_DOMAIN = "foundmill.com" as const;
 export const APP_ORIGIN = `https://${APP_DOMAIN}` as const;
+/**
+ * The registered postal address of the company that runs the product, one line (founder, 2026-11-13). The one source:
+ * the Terms and the Privacy Policy state it (apps/web content/legal/facts.ts), and every email the product sends of its
+ * own carries it in the footer (US CAN-SPAM: a valid physical postal address in every commercial message). The address
+ * only: the company's name stays on the two legal pages (founder, 2026-11-13; apps/web legal-content.test.ts).
+ */
+export const APP_POSTAL_ADDRESS = "Valhallavägen 38, 11422 Stockholm, Sweden" as const;
 
 // --- names only the platform may use (audit GLS2F-06, LS2-04) ---------------------------------------------------------
 

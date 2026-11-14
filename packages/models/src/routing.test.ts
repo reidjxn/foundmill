@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ALWAYS_THINKS, IMAGE_MODELS, LOW_EFFORT_MAX_TOKENS, MODELS, MODEL_CAPABILITIES, PLAIN_MAX_TOKENS, ROUTES, THINKING_MAX_TOKENS, lowCreditsModel, maxTokensFor, resolveModel, routeAcceptsImages, type RouteKey } from "./routing";
+import { ALWAYS_THINKS, IMAGE_MODELS, VIDEO_MODELS, LOW_EFFORT_MAX_TOKENS, MODELS, MODEL_CAPABILITIES, PLAIN_MAX_TOKENS, ROUTES, THINKING_MAX_TOKENS, lowCreditsModel, maxTokensFor, resolveModel, routeAcceptsImages, type RouteKey } from "./routing";
 
 describe("routing (BUILD §10.1)", () => {
   it("MODELS and ROUTES are exactly the spec table", () => {
@@ -175,6 +175,13 @@ describe("low credits (credit saver)", () => {
       expect(resolveModel(route, undefined, { lowCredits: false })).toEqual(resolveModel(route));
       expect(resolveModel(route).lowCredits).toBeUndefined();
     }
+  });
+});
+
+describe("video models", () => {
+  it("the showcase clip's video model lives here and is not a Claude route", () => {
+    expect(VIDEO_MODELS).toEqual({ showcase_clip: "gen4_turbo" });
+    expect(Object.keys(ROUTES)).not.toContain("showcase_clip");
   });
 });
 

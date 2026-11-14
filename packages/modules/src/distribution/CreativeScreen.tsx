@@ -15,6 +15,11 @@
  * ("Not shared yet", "Share opened", "Set aside"), and in place of Approve and Reject it carries Share and "Not this
  * one", which sets it aside (`distribution.assets.reject`) so it is not offered again. Opening a share for it tells the
  * api which post it was, and the post stops waiting. It never counts as awaiting approval.
+ *
+ * A team post may carry media (`sharePost.media`: a short video and a voiceover made on the founder's own accounts,
+ * packages/shared `post-media.ts`). Its card says so in one line ("With a short video", "Video simulated, none made",
+ * "Video waits for your OK"), and the share panel shows the preview, or why there is none. A simulated video is never
+ * called a video that exists.
  */
 import { useCallback, useMemo, useState } from "react";
 import { Check, ExternalLink, FileText, Film, Image, Mail, Mailbox, Megaphone, Newspaper, ScrollText, Share2, X } from "lucide-react";
@@ -23,7 +28,8 @@ import { Button, EntityLink, Icon, Panel, SegmentedControl, SharePost, StatusPil
 import { CHANNELS_SHARED_BY_TAP } from "@foundmill/shared/channel-availability";
 import { APPROVAL_STATES, ASSET_KINDS, type ApprovalState, type AssetKind } from "@foundmill/shared/constants";
 import { SHARE_OPEN_WORDS, writtenPostDraft } from "@foundmill/shared/share-drafts";
-import { TEAM_POST_WORDS, isTeamPost } from "@foundmill/shared/team-posts";
+import { TEAM_POST_WORDS, isTeamPost, parseTeamPostRef } from "@foundmill/shared/team-posts";
+import { postMediaCardLabel } from "@foundmill/shared/post-media";
 import type { ShareOpened } from "@foundmill/shared/share-targets";
 import { routes } from "@foundmill/widgets/shared/routes";
 import { moduleHref, useDepartments } from "@foundmill/widgets/shared/departments";
@@ -103,6 +109,19 @@ export function assetSharedByTap(asset: Pick<AssetRow, "kind" | "body" | "approv
   return !!campaign && tapChannelIds.has(campaign.channelId);
 }
 
+/** The house's post of a showcase video every founder of a project approved (0103): shared only after its check. */
+export function showcasePostOf(asset: Pick<Partial<AssetRow>, "contentRef">): boolean {
+  return parseTeamPostRef(asset.contentRef)?.trigger === "showcase_approved";
+}
+
+/** What `showcase.shareCheck` answers. */
+interface ShowcaseShareCheck {
+  showcase: boolean;
+  ok: boolean;
+  message: string | null;
+  networks: string[];
+}
+
 export function CreativeScreen({ businessId }: ModuleScreenProps) {
   const { navigate, mutate } = useWidgetData();
   const departments = useDepartments();
@@ -116,6 +135,9 @@ export function CreativeScreen({ businessId }: ModuleScreenProps) {
   const page = useWidgetQuery<PageForShare>("page.get", {});
   const tapChannelIds = useMemo(() => new Set((channels.data?.channels ?? []).filter((c) => CHANNELS_SHARED_BY_TAP.includes(c.channelKey)).map((c) => c.id)), [channels.data]);
   const [sharing, setSharing] = useState<AssetRow | null>(null);
+  // A showcase post opens on the networks its founders approved only, after the api said it may be shared now.
+  const [shareOnly, setShareOnly] = useState<string[] | null>(null);
+  const [shareRefused, setShareRefused] = useState<string | null>(null);
   const shareDraft = useMemo(() => {
     if (!sharing?.body) return null;
     // A team post arrives with its link and picture attached by the api (the card or the page, with `via`).
@@ -134,6 +156,34 @@ export function CreativeScreen({ businessId }: ModuleScreenProps) {
         .catch(() => undefined);
     },
     [mutate, sharing, assets],
+  );
+  /**
+   * Opens the share panel. For a showcase post the check is awaited first (review finding 1): a share window opens the
+   * moment a control is pressed and is only reported afterwards, so a post that may not be shared must never reach the
+   * panel at all. On a refusal nothing opens and the reason is said.
+   */
+  const openShare = useCallback(
+    async (asset: AssetRow) => {
+      setShareRefused(null);
+      if (!showcasePostOf(asset)) {
+        setShareOnly(null);
+        setSharing(asset);
+        return;
+      }
+      try {
+        const check = await mutate<ShowcaseShareCheck>("showcase.shareCheck", { assetId: asset.id });
+        if (check.showcase && !check.ok) {
+          setShareRefused(check.message ?? "This video cannot be shared now.");
+          assets.refetch();
+          return;
+        }
+        setShareOnly(check.showcase ? check.networks : null);
+        setSharing(asset);
+      } catch (err) {
+        setShareRefused(err instanceof Error ? err.message : "This video cannot be shared now.");
+      }
+    },
+    [mutate, assets],
   );
   const action = useAction();
   const [state, setState] = useState<ApprovalState | null>(null);
@@ -190,6 +240,7 @@ export function CreativeScreen({ businessId }: ModuleScreenProps) {
         flush
       >
         <InlineError error={action.error} className="px-panel-pad pt-2" />
+        <InlineError error={shareRefused} className="px-panel-pad pt-2" />
         {groups.length === 0 && total > 0 ? <p className="px-panel-pad py-4 text-small text-secondary">No {state ? APPROVAL_WORDS[state].word.toLowerCase() : ""} assets. Pick All to see the rest.</p> : null}
         <div className="flex flex-col gap-4 p-panel-pad">
           {groups.map((g) => {
@@ -202,7 +253,7 @@ export function CreativeScreen({ businessId }: ModuleScreenProps) {
                 <ul className="grid grid-cols-3 gap-3 2xl:grid-cols-4">
                   {g.assets.map((a) => (
                     <li key={a.id}>
-                      <AssetCard asset={a} highlighted={a.id === highlight} campaign={campaignName(a.campaignId)} author={a.authoredByAgentId ? { id: a.authoredByAgentId, name: agentName(a.authoredByAgentId) } : null} businessId={businessId} pending={action.pending} onDecide={decide} onShare={assetSharedByTap(a, campaigns.data?.items ?? [], tapChannelIds) ? setSharing : undefined} />
+                      <AssetCard asset={a} highlighted={a.id === highlight} campaign={campaignName(a.campaignId)} author={a.authoredByAgentId ? { id: a.authoredByAgentId, name: agentName(a.authoredByAgentId) } : null} businessId={businessId} pending={action.pending} onDecide={decide} onShare={assetSharedByTap(a, campaigns.data?.items ?? [], tapChannelIds) ? (x) => void openShare(x) : undefined} />
                     </li>
                   ))}
                 </ul>
@@ -211,7 +262,7 @@ export function CreativeScreen({ businessId }: ModuleScreenProps) {
           })}
         </div>
       </Panel>
-      {shareDraft ? <SharePost open onOpenChange={(o) => (o ? undefined : setSharing(null))} title={SHARE_OPEN_WORDS.draftTitle} description={SHARE_OPEN_WORDS.description} draft={shareDraft} appName={APP_NAME} onShare={recordShare} /> : null}
+      {shareDraft ? <SharePost open onOpenChange={(o) => (o ? undefined : setSharing(null))} title={SHARE_OPEN_WORDS.draftTitle} description={SHARE_OPEN_WORDS.description} draft={shareDraft} appName={APP_NAME} onShare={recordShare} only={shareOnly ?? undefined} /> : null}
     </Screen>
   );
 }
@@ -231,6 +282,7 @@ function AssetCard({ asset, highlighted, campaign, author, businessId, pending, 
   const team = teamPostOf(asset);
   const decidable = !team && (asset.approvalState === "pending" || asset.approvalState === "draft");
   const title = asset.title || `${meta.word} draft`;
+  const mediaLabel = team ? postMediaCardLabel(asset.sharePost?.media) : null;
   const state = team ? { word: TEAM_POST_WORDS.states[asset.approvalState], tone: asset.approvalState === "approved" ? ("good" as const) : ("neutral" as const) } : APPROVAL_WORDS[asset.approvalState];
   return (
     <article aria-label={title} data-asset={asset.id} data-state={asset.approvalState} data-team-post={team ? "" : undefined} className={cn("surface-panel flex h-full flex-col gap-2 p-3", highlighted && "outline outline-2 outline-link")}>
@@ -257,6 +309,12 @@ function AssetCard({ asset, highlighted, campaign, author, businessId, pending, 
       {asset.body ? (
         <p className="line-clamp-4 whitespace-pre-line text-small text-secondary" data-testid="asset-body">
           {asset.body}
+        </p>
+      ) : null}
+      {mediaLabel ? (
+        <p className="flex items-center gap-1.5 text-small text-secondary" data-asset-media="">
+          <Icon icon={Film} size="inline" className="text-tertiary" />
+          {mediaLabel}
         </p>
       ) : null}
       <div className="mt-auto flex flex-wrap items-center gap-1.5 pt-1">

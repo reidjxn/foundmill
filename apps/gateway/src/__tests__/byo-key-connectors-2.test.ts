@@ -144,6 +144,8 @@ describe("platform_mail steps aside for the founder's own Resend", () => {
     g.deps.appEnv = "test";
     g.deps.platformMail = config;
     const token = await g.token({ allowedTools: ["platform_mail:*"] });
+    // A marketing message from the project's address carries the founders' postal address (US CAN-SPAM).
+    await repos.postalAddress.set(g.db, g.businessId, { address: "PO Box 1234, Springfield, IL 62701, USA", userId: null });
     await repos.integrations.upsert(g.db, g.businessId, { connectorKey: "resend", status: "connected", authKind: "api_key", accountLabel: "own" });
     expect(asDeny(await g.client.call(token, message)).policyIds).toEqual([PLATFORM_MAIL_POLICY.own_sender]);
     // A degraded Resend (no verified domain) cannot send, so it must not leave the project with no sender at all.

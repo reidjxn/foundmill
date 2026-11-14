@@ -14,10 +14,18 @@
  *   signal: each group has its heading and its sentence.
  * - Where the browser offers the device's own share sheet, "Share…" comes first, and is never the only way.
  * - `onShare` is told which control was pressed (never the words). It is called and not waited on.
+ * - `only`: a post approved for given networks (a showcase video every founder of a project said yes to, 0103). Only
+ *   those networks are offered, the words cannot be changed (the founders approved these words), and nothing goes out
+ *   without a network: no device sheet, no plain copy, no message apps.
+ * - A draft with media (`draft.media`, a short video and a voiceover the team made on the founder's own accounts) shows
+ *   it under the link (`PostMediaPreview`): a preview and "Save" for a real one, one honest line otherwise (simulated,
+ *   waiting for the founder's OK, not connected). No network's share window takes a file from a web link, so where the
+ *   device's share sheet takes files, "Share with the video…" hands it the clip with the text; everywhere else the
+ *   founder saves the video and adds it when they post. A simulated item is never offered as a file.
  */
 import { useEffect, useId, useMemo, useState, type ReactNode } from "react";
 import { Copy, Download, ExternalLink, Link2, MessageCircle, Share2 } from "lucide-react";
-import { POST_TEXT_MAX, withPostText, type PostDraft } from "@foundmill/shared/post-draft";
+import { POST_TEXT_MAX, postTextWithLink, withPostText, type PostDraft } from "@foundmill/shared/post-draft";
 import {
   SHARE_KIND_WORDS,
   SHARE_MESSAGE_WORDS,
@@ -29,7 +37,9 @@ import {
   type ShareTarget,
   type ShareTargetKind,
 } from "@foundmill/shared/share-targets";
+import { POST_MEDIA_WORDS, postMediaPostable } from "@foundmill/shared/post-media";
 import { Button } from "../foundation/Button";
+import { PostMediaPreview } from "./PostMediaPreview";
 import { Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "../foundation/Dialog";
 import { Field } from "../foundation/Label";
 import { Textarea } from "../foundation/Textarea";
@@ -46,6 +56,8 @@ export interface SharePostProps {
   appName: string;
   /** A share control was pressed: which one, never the words. Called and not waited on. */
   onShare?: (opened: ShareOpened) => void;
+  /** Only these networks, these exact words, and never a share without a network (a showcase video). */
+  only?: readonly string[];
 }
 
 /** What "Copy" could not do, said plainly. */
@@ -77,7 +89,7 @@ function Count({ target }: { target: ShareTarget }) {
   );
 }
 
-export function SharePost({ open, onOpenChange, title, description, draft, appName, onShare }: SharePostProps) {
+export function SharePost({ open, onOpenChange, title, description, draft, appName, onShare, only }: SharePostProps) {
   const id = useId();
   const [text, setText] = useState(draft.text);
   const [said, setSaid] = useState<string | null>(null);
@@ -95,7 +107,7 @@ export function SharePost({ open, onOpenChange, title, description, draft, appNa
   }, []);
 
   const current = useMemo(() => withPostText(draft, text), [draft, text]);
-  const targets = useMemo(() => shareTargets(current), [current]);
+  const targets = useMemo(() => shareTargets(current).filter((t) => !only || only.includes(t.network)), [current, only]);
   const messages = useMemo(() => messageTargets(current), [current]);
   const byKind = (kind: ShareTargetKind) => targets.filter((t) => t.kind === kind);
   const link = current.link;
@@ -121,6 +133,21 @@ export function SharePost({ open, onOpenChange, title, description, draft, appNa
     // The person may close the sheet without choosing anything: that is not an error.
     void navigator.share({ text: current.text.trim(), ...(link ? { url: link } : {}) }).catch(() => undefined);
   };
+  // The draft's own video, when it is real and stored: the device's share sheet may take it as a file with the words.
+  const video = postMediaPostable(draft.media?.video) ? draft.media!.video! : null;
+  const shareVideoOnDevice = async () => {
+    if (!video) return;
+    tell({ network: null, target: "device" });
+    try {
+      const blob = await (await fetch(video.url!)).blob();
+      const file = new File([blob], video.fileName ?? "video.mp4", { type: video.mime ?? "video/mp4" });
+      const withFile = { files: [file], text: postTextWithLink({ text: current.text, link }) };
+      if (typeof navigator.canShare === "function" && navigator.canShare(withFile)) await navigator.share(withFile);
+      else setSaid(POST_MEDIA_WORDS.saveNote);
+    } catch {
+      // Closed without choosing, or the file could not be read: the "Save" link is still there.
+    }
+  };
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -131,7 +158,7 @@ export function SharePost({ open, onOpenChange, title, description, draft, appNa
         </DialogHeader>
         <DialogBody className="flex flex-col gap-3">
           <Field htmlFor={`${id}-text`} label={SHARE_PANEL_WORDS.text} hint={SHARE_PANEL_WORDS.textHint}>
-            <Textarea id={`${id}-text`} rows={3} maxLength={POST_TEXT_MAX} value={text} onChange={(e) => setText(e.target.value)} data-share-text="" />
+            <Textarea id={`${id}-text`} rows={3} maxLength={POST_TEXT_MAX} value={text} readOnly={!!only} onChange={(e) => (only ? undefined : setText(e.target.value))} data-share-text="" />
           </Field>
           {link ? (
             <div className="flex flex-col gap-1">
@@ -141,9 +168,15 @@ export function SharePost({ open, onOpenChange, title, description, draft, appNa
               </span>
             </div>
           ) : null}
-          {device ? (
-            <div>
-              <Button variant="tinted" icon={Share2} onClick={shareOnDevice} data-share-device="">
+          {draft.media ? <PostMediaPreview media={draft.media} /> : null}
+          {device && !only ? (
+            <div className="flex flex-wrap items-center gap-2">
+              {video ? (
+                <Button variant="tinted" icon={Share2} onClick={() => void shareVideoOnDevice()} data-share-device-media="">
+                  {POST_MEDIA_WORDS.shareVideo}
+                </Button>
+              ) : null}
+              <Button variant={video ? "default" : "tinted"} icon={Share2} onClick={shareOnDevice} data-share-device="">
                 {SHARE_PANEL_WORDS.device}
               </Button>
             </div>
@@ -185,7 +218,7 @@ export function SharePost({ open, onOpenChange, title, description, draft, appNa
                   ))}
                 </ul>
                 {/* The words are not carried into these windows, so they are one press away to paste there. */}
-                {kind === "link_only" ? (
+                {kind === "link_only" && !only ? (
                   <div>
                     <Button size="sm" variant="ghost" icon={Copy} onClick={() => void copy(current.text.trim(), SHARE_PANEL_WORDS.textCopied, { network: null, target: "copy" })} data-share-copy-text="">
                       {SHARE_PANEL_WORDS.copyText}
@@ -196,6 +229,7 @@ export function SharePost({ open, onOpenChange, title, description, draft, appNa
             );
           })}
 
+          {only ? null : (
           <Group id={`${id}-message`} kind="message" title={SHARE_MESSAGE_WORDS.title}>
             <div className="flex flex-wrap items-center gap-2">
               {messages.map((m) => (
@@ -212,6 +246,7 @@ export function SharePost({ open, onOpenChange, title, description, draft, appNa
               ) : null}
             </div>
           </Group>
+          )}
         </DialogBody>
         <DialogFooter className="justify-between">
           <span className="min-w-0 flex-1 text-small text-secondary">

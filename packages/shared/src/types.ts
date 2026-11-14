@@ -81,6 +81,8 @@ import { PERSON_ABOUT_MAX, PERSON_HEADLINE_MAX, PERSON_LOOKING_FOR, PERSON_PLACE
 import type * as PP from "./person-profile";
 import { POST_IMAGE_ALT_MAX, POST_NETWORKS, POST_TEXT_MAX, POST_TITLE_MAX, POST_URL_MAX, isPostUrl } from "./post-draft";
 import type * as PD from "./post-draft";
+import { POST_MEDIA_KINDS, POST_MEDIA_MIMES, POST_MEDIA_STATES } from "./post-media";
+import type * as PM from "./post-media";
 
 // The zod-free half (tuples, unions, records): "@foundmill/shared/constants".
 export * from "./constants";
@@ -95,6 +97,8 @@ export * from "./person-profile";
 export * from "./post-draft";
 export * from "./share-targets";
 export * from "./share-drafts";
+// A post draft's optional media (a short video and a voiceover), zod-free: "@foundmill/shared/post-media".
+export * from "./post-media";
 // Posts the team writes for the founder to share by tap, zod-free: "@foundmill/shared/team-posts".
 export * from "./team-posts";
 
@@ -359,10 +363,36 @@ export const PostDraftVariant = z.object({
   image: PostDraftImage.optional(),
 });
 export type PostDraftVariant = PD.PostDraftVariant;
+/**
+ * A draft's media (./post-media). `url` is a same-origin path for the founder's browser (`/api/post-media/<token>`),
+ * never a vendor's address; a simulated item carries no file and no address.
+ */
+export const PostDraftMediaItem = z
+  .object({
+    kind: z.enum(POST_MEDIA_KINDS),
+    state: z.enum(POST_MEDIA_STATES),
+    mediaId: z.uuid(),
+    simulated: z.boolean(),
+    mime: z.enum(POST_MEDIA_MIMES).nullish(),
+    bytes: z.number().int().nonnegative().nullish(),
+    durationSeconds: z.number().nonnegative().max(600).nullish(),
+    url: z.string().regex(/^\/api\/post-media\/[A-Za-z0-9_.-]{20,600}$/).optional(),
+    fileName: z.string().max(80).optional(),
+  })
+  .refine((m) => !(m.simulated && (m.url !== undefined || m.state === "ready")), { message: "A simulated item has no file and is never ready" });
+export type PostDraftMediaItem = PM.PostDraftMediaItem;
+export const PostDraftMedia = z.object({
+  videoTools: z.enum(["connected", "not_connected"]),
+  voiceTools: z.enum(["connected", "not_connected"]),
+  video: PostDraftMediaItem.optional(),
+  voiceover: PostDraftMediaItem.optional(),
+});
+export type PostDraftMedia = PM.PostDraftMedia;
 export const PostDraft = z.object({
   text: z.string().min(1).max(POST_TEXT_MAX),
   link: PostUrl.optional(),
   image: PostDraftImage.optional(),
   variants: z.partialRecord(PostNetwork, PostDraftVariant).default({}),
+  media: PostDraftMedia.optional(),
 });
 export type PostDraft = PD.PostDraft;

@@ -136,6 +136,8 @@ export const TENANT_TABLES: TenantTableSpec[] = [
   spec("cap_table_entries", s.capTableEntries, "admin", (f) => ({ holderEntityId: f.entityId, securityId: f.securityId, quantity: "1000" })),
   spec("usage_ledger", s.usageLedger, "service", (f) => ({ agentId: f.agentId, sessionId: f.sessionId, kind: "tokens", quantity: 500, costMinor: 3 })),
   spec("credit_balances", s.creditBalances, "service", () => ({ period: uniq("2026-02"), balanceMinor: 10000 })),
+  // 0098 bought credits as lots, 12 months each (written by the api and the ingest webhook with the service role)
+  spec("credit_lots", s.creditLots, "service", () => ({ amountMinor: 2500, remainingMinor: 2500, purchasedAt: new Date("2026-11-13T00:00:00Z"), expiresAt: new Date("2027-11-13T00:00:00Z") })),
   // 0033 credit top-ups through Stripe Checkout (written by the api and the ingest webhook with the service role)
   spec("billing_checkouts", s.billingCheckouts, "service", () => ({ mode: "mock", amountMinor: 5000, currency: "USD" })),
   // 0053 saved session recordings (the orchestrator writes them with the service role when a session finishes)
@@ -174,7 +176,7 @@ export const TENANT_TABLES: TenantTableSpec[] = [
  * only owners and admins write, and the Money tables services write, outside what a collaborator's screens use. The
  * generic suite checks a collaborator reads none of their rows and everyone else reads them as before.
  */
-export const COLLABORATOR_CLOSED_TABLES: readonly string[] = ["accounts", "securities", "cap_table_entries", "usage_ledger", "credit_balances", "billing_checkouts", "legal_entities", "incorporations", "integrations", "webhooks", "policies", "app_installations"];
+export const COLLABORATOR_CLOSED_TABLES: readonly string[] = ["accounts", "securities", "cap_table_entries", "usage_ledger", "credit_balances", "billing_checkouts", "credit_lots", "legal_entities", "incorporations", "integrations", "webhooks", "policies", "app_installations"];
 /**
  * Admin- or service-written tables a collaborator still reads, each for a screen of theirs (0094's header gives the
  * reasons). Named so a change to the list is a decision.
@@ -196,6 +198,8 @@ export const NON_TENANT_TABLES = [
   "businesses",
   "founder_profiles",
   "account_preferences",
+  // 0100: "I am 18 or older", once per account (user-owned, no business_id); covered by rls/adult-confirmations.test.ts.
+  "adult_confirmations",
   // 0074: a person's phones (user-owned, no business_id); covered by rls/founder-devices.test.ts.
   "founder_devices",
   // 0080: handles a person left, kept for them for 90 days (user-owned, service role only); rls/person-profiles.test.ts.
@@ -235,6 +239,8 @@ export const NON_TENANT_TABLES = [
   "project_mail",
   // 0078: a platform table (no business_id: the project it belonged to is gone), service role only; covered by rls/project-mail.test.ts.
   "retired_mail_local_parts",
+  // 0101: business-scoped, one row per business, founders only; covered by rls/project-postal-address.test.ts.
+  "project_postal_addresses",
   // 0083: one person's rows in one business (presence, visit days, founder emails); covered by rls/founder-return.test.ts.
   "founder_presence",
   "founder_visit_days",
@@ -245,11 +251,18 @@ export const NON_TENANT_TABLES = [
   // are not readable by a client, so the generic suite cannot select them); both in rls/invitations.test.ts.
   "account_admissions",
   "invitations",
+  // 0103: showcase requests (the house's, written by the service only) and consents (one founder's own row, read only
+  // by that founder); both in rls/showcase.test.ts.
+  "showcase_requests",
+  "showcase_consents",
   // 0097: a founder's standing ended (business-scoped, but read by the person once they are out, written by a trigger and
   // the service role only, its token hash not readable by a client); covered by rls/founder-departures.test.ts.
   "founder_departures",
   // 0097: one email's one-click cancel of a deletion request (business-scoped, service role only: a client role reads
   // nothing of it); covered by rls/founder-departures.test.ts.
   "founder_cancel_links",
+  // 0102: a post draft's media, one row per draft and kind, written by services only (the generated suite cannot make a
+  // draft per insert); covered by rls/post-media.test.ts.
+  "post_media",
 ] as const;
 
