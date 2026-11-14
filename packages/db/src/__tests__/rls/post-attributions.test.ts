@@ -121,6 +121,32 @@ describe("nobody in a project writes them; members read their own", () => {
   });
 });
 
+describe("#120's roles: a collaborator reads no payment credit (security review, Nov 14)", () => {
+  it("a collaborator reads the follow and reply rows and no payment row; a cofounder and an owner read all three", async () => {
+    const f = await createBusinessFixture(h, "postlinks-roles");
+    const [cofounder, collaborator, ended] = await Promise.all([h.createUser("postlinks-cofounder@test.local"), h.createUser("postlinks-collaborator@test.local"), h.createUser("postlinks-ended@test.local")]);
+    await h.db.insert(s.memberships).values([
+      { businessId: f.businessId, userId: cofounder, role: "cofounder" },
+      { businessId: f.businessId, userId: collaborator, role: "collaborator" },
+      { businessId: f.businessId, userId: ended, role: "collaborator", expiresAt: new Date(Date.now() - 60_000) },
+    ]);
+    const p = await post(f);
+    for (const outcomeKind of ["follow", "reply", "payment"] as const)
+      await h.service().run((tx) => tx.insert(s.postAttributions).values({ businessId: f.businessId, linkId: p.x.id, assetId: p.assetId, network: "x", outcomeKind, outcomeEventId: crypto.randomUUID(), originId: crypto.randomUUID(), outcomeAt: NOW }));
+    const kinds = async (userId: string) => (await h.asUser(userId).run((tx) => tx.select({ kind: s.postAttributions.outcomeKind }).from(s.postAttributions).where(eq(s.postAttributions.businessId, f.businessId)))).map((r) => r.kind).sort();
+    expect(await kinds(collaborator)).toEqual(["follow", "reply"]);
+    expect(await kinds(cofounder)).toEqual(["follow", "payment", "reply"]);
+    expect(await kinds(f.ownerId)).toEqual(["follow", "payment", "reply"]);
+    expect(await kinds(f.memberId)).toEqual(["follow", "payment", "reply"]);
+    // A collaborator whose access ended reads nothing; another business's people read nothing either.
+    expect(await kinds(ended)).toEqual([]);
+    expect(await kinds(A.ownerId)).toEqual([]);
+    // The repo read the Creative tab uses, on the collaborator's own connection: no payment counted.
+    expect((await h.asUser(collaborator).run((tx) => repos.postAttributions.countsByAsset(tx, f.businessId, [p.assetId]))).get(p.assetId)).toEqual({ follow: 1, reply: 1, payment: 0 });
+    expect((await h.asUser(cofounder).run((tx) => repos.postAttributions.countsByAsset(tx, f.businessId, [p.assetId]))).get(p.assetId)).toEqual({ follow: 1, reply: 1, payment: 1 });
+  });
+});
+
 describe("the repos", () => {
   it("a link is followable only by its own business, unsimulated and visited; the first visit stamps it once", async () => {
     const a = await post(A);

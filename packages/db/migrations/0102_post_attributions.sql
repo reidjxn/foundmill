@@ -7,7 +7,8 @@
 -- code. Last touch, at most one post per outcome. Visits are never counted or shown; the first one only stamps the link.
 --
 -- Who may do what:
---   read    members of the business (the Creative tab says what a post led to, behind the CRM and Finance walls)
+--   read    members of the business (the Creative tab says what a post led to, behind the CRM and Finance walls); a
+--           collaborator reads no payment credit, as they read nothing of Money (0094, 0095)
 --   write   the services only (the api's signed-out page reads, ingest's confirmation and webhooks, the drafting step)
 --
 -- Nothing here names a person: no entity id, no address, no IP, no device, no amount. A business never reaches another's
@@ -107,6 +108,14 @@ create trigger contact_consents_post_link_same_business before insert or update 
 select fm_tenant_table('post_links', array['owner'], 'read_only');
 --> statement-breakpoint
 select fm_tenant_table('post_attributions', array['owner'], 'read_only');
+--> statement-breakpoint
+-- A collaborator reads nothing of Money (0094, 0095; @foundmill/shared `COLLABORATOR_SECTIONS`), so in the database too
+-- they read the follows and replies a post led to and never a payment credit (security review, Nov 14, 2026). Every
+-- other member reads all of them, as the api's walls already decide per section.
+drop policy post_attributions_select on post_attributions;
+--> statement-breakpoint
+create policy post_attributions_select on post_attributions for select
+  using (is_member_not_collaborator(business_id) or (outcome_kind <> 'payment' and is_member(business_id)));
 --> statement-breakpoint
 -- Read only for app roles in the grants too, not only in the policies: nobody in a project writes what a post led to.
 revoke insert, update, delete on post_links, post_attributions from anon, authenticated;
