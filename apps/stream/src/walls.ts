@@ -52,6 +52,7 @@ export const EVENT_WALLS = {
   "task.progressed": { sections: ["development"] },
   "task.completed": { sections: ["development"], hide: { finance: ["cost", "summary"], crm: ["summary"] } },
   "task.blocked": { sections: ["development"], hide: freeText("detail") },
+  "task.design_checked": { sections: ["development"], hide: freeText("result") },
   "pr.merged": { sections: ["development"] },
   "deploy.succeeded": { sections: ["development"] },
   "lead.created": { sections: ["distribution"], hide: { crm: ["source", "country", "lawfulBasis"] } },

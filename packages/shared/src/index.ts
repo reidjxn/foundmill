@@ -53,4 +53,6 @@ export * from "./notify-words";
 export * from "./morning-brief";
 export * from "./loop-stops";
 export * from "./idea-box";
+export * from "./design-lint";
+export * from "./design-check";
 export * from "./limit-address";

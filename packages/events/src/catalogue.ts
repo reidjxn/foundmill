@@ -24,6 +24,7 @@ import {
   BusinessMode,
   ChannelKey,
   CONTINUE_RUN_END_REASONS,
+  DesignCheckResult,
   ConversationAuthorKind,
   ConversationSubjectKind,
   ConversionKind,
@@ -410,6 +411,22 @@ const taskBlocked = declareEvent(
   {
     doc: "A task cannot continue: waiting on approval, a dependency, a credential, budget, a rate limit, a detected loop or a failure. Narrated as a warning (or decision when an approval is needed).",
     consumers: ["composer", "metrics", "health", "playbooks"],
+  },
+);
+
+const taskDesignChecked = declareEvent(
+  "task.design_checked",
+  z.object({
+    ...TaskRef,
+    assigneeAgentId: Id,
+    sessionId: Id.nullable().default(null),
+    /** What the check did and found (packages/shared `DesignCheckResult`): reviewed, not seen (and why), or simulated. */
+    result: DesignCheckResult,
+  }),
+  {
+    doc: "The design check of a code agent's UI change (item 13): screenshots of the changed pages at desktop and 390 px, a separate reviewer's ranked fixes, and whether the author was asked to apply them. `not_seen` and `simulated` say no screenshot exists. Attached to the change's approval; never blocks it.",
+    consumers: ["stream"],
+    narratable: false,
   },
 );
 
@@ -2134,6 +2151,7 @@ export const EVENTS = {
   "task.progressed": taskProgressed,
   "task.completed": taskCompleted,
   "task.blocked": taskBlocked,
+  "task.design_checked": taskDesignChecked,
   "pr.merged": prMerged,
   "deploy.succeeded": deploySucceeded,
   "lead.created": leadCreated,

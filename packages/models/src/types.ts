@@ -13,9 +13,21 @@ export type ModelMode = "mock" | "live";
 
 export type ChatRole = "user" | "assistant";
 
+/** Media types an image block may carry (Anthropic image input). */
+export const CHAT_IMAGE_MEDIA_TYPES = ["image/png", "image/jpeg", "image/webp"] as const;
+export type ChatImageMediaType = (typeof CHAT_IMAGE_MEDIA_TYPES)[number];
+
+/** An image sent with a message, base64 without a data: prefix. Only routes marked `vision` in routing.ts accept them. */
+export interface ChatImage {
+  mediaType: ChatImageMediaType;
+  data: string;
+}
+
 export interface ChatMessage {
   role: ChatRole;
   content: string;
+  /** Images sent before the text of this (user) message; the route must be a `vision` route (client throws otherwise). */
+  images?: readonly ChatImage[];
 }
 
 /** Effort hint for the live client (`output_config.effort`). Ignored in mock mode. */
