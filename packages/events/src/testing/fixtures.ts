@@ -571,6 +571,8 @@ export const EVENT_FIXTURES: { readonly [K in EventType]: EventPayloadInput<K> }
   // One sign-up, two people, two rows: the new person's and the credited person's. A public address and nothing else.
   "signup.attributed": { sourceKind: "project_page", sourceRef: "northwind-skincare" },
   "referral.arrived": { sourceKind: "person_profile", sourceRef: "maya-okafor" },
+  // A founder notice for the person emailed: the notice and the project's and the record's ids, nobody's account.
+  "founder_notice.sent": { notice: "removed", businessId: fixtureId("business"), notificationId: fixtureId("notification"), offersCancel: true, simulated: true },
 };
 
 /** A valid `WriteEventInput` for the given business-scoped type, with the fixture payload and envelope. */

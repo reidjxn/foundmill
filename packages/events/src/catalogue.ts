@@ -40,6 +40,7 @@ import {
   Money,
   NOTIFICATION_KINDS,
   EMAIL_NOTIFICATION_KINDS,
+  FOUNDER_NOTICES,
   INVITATION_ROLES,
   SHOWCASE_REQUEST_STATES,
   SHOWCASE_WITHDRAW_REASONS,
@@ -2090,6 +2091,30 @@ const referralArrived = declareAccountEvent("referral.arrived", AttributionSourc
   consumers: ["metrics"],
 });
 
+// A founder notice (security review P2-3, Nov 13, 2026) goes to every founder of a project and to the person it happened
+// to, who may be out of the project by then (removed). So the fact that Foundmill emailed them is theirs, not the
+// project's: one account event per person emailed, never a `notify.email_sent` in a project the reader may no longer
+// belong to. The payload names the project by its record id and nobody by an account: not who did it, not whom it was
+// about (the reader learns those from the email itself).
+const FounderNoticeFacts = z.strictObject({
+  /** What the email was about: a founder's role lowered, a founder removed, deletion asked for or canceled. */
+  notice: z.enum(FOUNDER_NOTICES),
+  /** The project it was about (the id of a record; the reader was, or is, one of its founders). */
+  businessId: z.uuid(),
+  /** The `founder_notifications` row that holds the words (readable by this person while they are a member). */
+  notificationId: z.uuid(),
+  /** The email carried the one-click link that cancels the project's deletion (a founder removed or demoted recently). */
+  offersCancel: z.boolean(),
+  /** Sent on the mock: nothing left for real. */
+  simulated: z.boolean(),
+});
+
+const founderNoticeSent = declareAccountEvent("founder_notice.sent", FounderNoticeFacts, {
+  doc: "For the person emailed: Foundmill sent you a founder notice (a founder's role went below a founder's, a founder was removed, the project's deletion was asked for or canceled). Written by the gateway's `/v1/notify/email` after each such email, once per notice and person (idempotency key `founder_notice:<audit entry id>`), to the reader's own account events: a current founder's, the affected person's, or a former founder's for a deletion request (someone else demoted or removed them within 30 days before it, or after it), or the receipt to the person who asked for a deletion. The payload is the notice, the project's and the record's ids, whether it offered the one-click cancel, and `simulated`; never who did it or whom it was about, never the address. Not an outcome of any project.",
+  consumers: ["stream"],
+  recordIds: ["businessId", "notificationId"],
+});
+
 // ---------------------------------------------------------------------------------------------------
 // Registry
 // ---------------------------------------------------------------------------------------------------
@@ -2177,6 +2202,7 @@ export const EVENTS = {
   "milestone.hidden": milestoneHidden,
   "share.opened": shareOpened,
   "referral.arrived": referralArrived,
+  "founder_notice.sent": founderNoticeSent,
   "post.drafted": postDrafted,
   "invitation.sent": invitationSent,
   "invitation.accepted": invitationAccepted,
