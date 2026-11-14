@@ -197,6 +197,29 @@ describe("the repo: a person's projects, one row each, most recent first (verifi
   });
 });
 
+describe("the purge waits when a deletion's founder notice was held back (bounds check, P3)", () => {
+  it("a notice skipped past the hard daily ceiling moves the request's day out by the days left then, a day at least", async () => {
+    const DAY = 86_400_000;
+    const scheduledFor = new Date(Date.now() - 2 * DAY);
+    const request = await repos.audit.append(h.db, A.businessId, { actorKind: "user", actorId: A.ownerId, action: "business.request_deletion", target: { kind: "business", id: A.businessId }, details: { scheduledFor: scheduledFor.toISOString() } });
+    const due = async (at: Date) => (await repos.businesses.deletionsDue(h.db, at)).some((d) => d.businessId === A.businessId);
+    expect(await due(new Date())).toBe(true);
+    // Held back 3 days before its day: the day moves out by 3 days (to tomorrow).
+    await repos.notifications.skip(h.db, A.businessId, { userId: A.ownerId, kind: "founder_notice", dedupeKey: `founder_notice:${request.id}`, reason: "reserved_hard_ceiling" });
+    await h.db.execute(sql`update founder_notifications set created_at = ${new Date(scheduledFor.getTime() - 3 * DAY)} where dedupe_key = ${`founder_notice:${request.id}`}`);
+    expect(await due(new Date())).toBe(false);
+    expect(await due(new Date(Date.now() + 2 * DAY))).toBe(true);
+    // Held back on its very day: a day at least.
+    await h.db.execute(sql`update founder_notifications set created_at = ${scheduledFor} where dedupe_key = ${`founder_notice:${request.id}`}`);
+    expect(await due(new Date(scheduledFor.getTime() + DAY - 60_000))).toBe(false);
+    expect(await due(new Date(scheduledFor.getTime() + DAY))).toBe(true);
+    // Any other skip reason changes nothing.
+    await h.db.execute(sql`update founder_notifications set skip_reason = 'folded' where dedupe_key = ${`founder_notice:${request.id}`}`);
+    expect(await due(new Date())).toBe(true);
+    await repos.audit.append(h.db, A.businessId, { actorKind: "user", actorId: A.ownerId, action: "business.cancel_deletion", target: { kind: "business", id: A.businessId }, details: {} });
+  });
+});
+
 describe("founder_cancel_links", () => {
   it("one email's link: found by its hash, works once and before its end; a second link never replaces the first", async () => {
     const request = await repos.audit.append(h.db, A.businessId, { actorKind: "user", actorId: A.ownerId, action: "business.request_deletion", details: {} });
