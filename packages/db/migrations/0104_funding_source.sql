@@ -1,4 +1,4 @@
--- 0100 — who funds a business's agent work (founder, Nov 13, 2026: "use your own AI plan" only through a provider's
+-- 0104 — who funds a business's agent work (founder, Nov 13, 2026: "use your own AI plan" only through a provider's
 -- official program; the seam is provider-neutral and off by default).
 --
 -- `funding_source`: `foundmill_credits` (the platform's key, paid from the month's credits), `own_api_key` (the

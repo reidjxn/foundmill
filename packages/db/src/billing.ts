@@ -100,7 +100,7 @@ export function fundingOfRow(entry: Pick<UsageEntry, "billedTo"> & { details?: u
 }
 
 /**
- * What funds a business's agents' model calls now (0100): the founder's own plan only while `FLAGS.ownPlanFunding` is on
+ * What funds a business's agents' model calls now (0104): the founder's own plan only while `FLAGS.ownPlanFunding` is on
  * and its provider is integrated (`ownPlanFunds`, packages/config; with the flag off, never); otherwise the founder's own
  * key on `byok`, else the month's credits. `ownPlan` overrides the flag and the provider list (tests).
  */
@@ -158,7 +158,7 @@ export async function includedCreditsFor(db: Executor, business: CreditsBusiness
 export async function bookUsage(db: Executor, businessId: string, input: BookUsageInput, options: { ownPlan?: OwnPlanOptions } = {}): Promise<BookUsageResult> {
   const { funding: _funding, ...row } = input;
   return db.transaction(async (tx) => {
-    // Which source paid is recorded on the row (0100), checked against the business, so only a row the founder's own
+    // Which source paid is recorded on the row (0104), checked against the business, so only a row the founder's own
     // plan really paid is left uncharged.
     const recorded: RecordUsageInput = input.kind === "tool" ? row : { ...row, details: { ...(row.details ?? {}), funding: await fundingFor(tx, businessId, input, options.ownPlan) } };
     const { entry, created } = await repos.usage.recordOnce(tx, businessId, recorded);
@@ -287,7 +287,7 @@ export async function checkPlatformCredits(db: Executor, businessId: string, opt
   const business = await repos.businesses.get(db, businessId, { includeArchived: true });
   const period = periodOf(options.now ?? new Date());
   const row = await repos.usage.creditBalance(db, business.id, period);
-  // Only a call routed to the founder's own plan at its provider skips Foundmill's credits (0100); with the flag off none
+  // Only a call routed to the founder's own plan at its provider skips Foundmill's credits (0104); with the flag off none
   // is. Every call on the platform key (no `routedTo`) keeps the stop and the zero check, whatever the business's funding.
   const plan = agentWorkFunding(business, options.ownPlan);
   if (options.routedTo !== undefined && plan.source === "own_plan" && plan.provider === options.routedTo) {

@@ -230,7 +230,7 @@ export const businessesRepo = {
       committedAt: null,
       planTier: v.planTier,
       modelBilling: v.modelBilling,
-      // What 0100's trigger writes: a new business follows its billing (nothing creates one on the founder's own plan).
+      // What 0104's trigger writes: a new business follows its billing (nothing creates one on the founder's own plan).
       fundingSource: v.modelBilling === "byok" ? "own_api_key" : "foundmill_credits",
       fundingPlanProvider: null,
       spendCapMinor: v.spendCapMinor,
@@ -349,7 +349,7 @@ export const businessesRepo = {
 
   /** The monthly model budget in US cents (Settings; 0059): what the team's metered work may cost in a month. Null removes it. */
   /**
-   * 0100 — put the business's agent work on the founder's own AI plan at `provider`, or take it off (`null`: funding goes
+   * 0104 — put the business's agent work on the founder's own AI plan at `provider`, or take it off (`null`: funding goes
    * back to following `model_billing`). Refused (ConflictError) unless `FLAGS.ownPlanFunding` is on and the provider is
    * integrated (`ownPlanFunds`, packages/config): today the flag is off and no provider is, so nothing can set it. Only
    * service code passes the database's guard; an app role is refused there whatever its role. `ownPlan` overrides the flag

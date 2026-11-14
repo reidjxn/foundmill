@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { FLAGS, OWN_PLAN_PROVIDERS, SIMULATE_TOKEN_AUDIENCE, SIMULATE_TOKEN_MAX_TTL_SECONDS, isSimulateEnv, ownPlanFunds, simulatePanelHonoured } from "../flags";
 
-describe("the founder's own AI plan (0100)", () => {
+describe("the founder's own AI plan (0104)", () => {
   it("is off, with no provider integrated, so no work is billed to a plan", () => {
     expect(FLAGS.ownPlanFunding).toBe(false);
     expect(OWN_PLAN_PROVIDERS).toEqual([]);

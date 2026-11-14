@@ -53,7 +53,7 @@ const businessEventRows = async () => ({
 beforeAll(async () => {
   const all = readMigrations();
   // Every other migration first (as migration-0060's test does), so the fixtures, written with today's schema, find every
-  // column a later migration added (0100's `businesses.funding_source`); none of them touches events or outbox.
+  // column a later migration added (0104's `businesses.funding_source`); none of them touches events or outbox.
   h = await createTestDb({ migrations: all.filter((m) => m.tag !== TAG) });
   // A business with events and queue rows, and a person whose profile is already public.
   A = await createBusinessFixture(h, "m-account-events");

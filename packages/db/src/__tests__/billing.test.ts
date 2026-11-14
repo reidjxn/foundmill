@@ -359,7 +359,7 @@ describe("low credits (the credit saver)", () => {
   });
 });
 
-describe("who funds the work (0100)", () => {
+describe("who funds the work (0104)", () => {
   const ON = { enabled: true, providers: ["openai"] } as const;
   const sept = new Date(Date.UTC(2028, 8, 4, 12));
   const row = (billedTo: "byok" | "credits") => ({ kind: "tokens" as const, modelKey: "sonnet" as const, quantity: 100, unit: "tokens", costMinor: 30, billedTo, occurredAt: sept, details: { label: "Estimate" } });

@@ -1,5 +1,5 @@
 /**
- * 0100 who funds a business's agent work: `businesses.funding_source` and `funding_plan_provider`. The businesses table's
+ * 0104 who funds a business's agent work: `businesses.funding_source` and `funding_plan_provider`. The businesses table's
  * tenancy is the generated suite's (tables.ts); this one proves the new columns across tenants and the parts it cannot
  * see: a member reads only their own business's funding, no other business's member reads or writes it, an anonymous
  * caller sees nothing, no app role (not even an owner) sets or changes the founder's own plan, the own-key path maps onto
@@ -30,7 +30,7 @@ beforeAll(async () => {
 }, 120_000);
 afterAll(() => h?.close());
 
-describe("businesses.funding_source (0100): tenancy", () => {
+describe("businesses.funding_source (0104): tenancy", () => {
   it("defaults to today's behavior: the month's credits", async () => {
     expect(await fundingOf(A.businessId)).toEqual({ source: "foundmill_credits", provider: null });
   });
@@ -60,7 +60,7 @@ describe("businesses.funding_source (0100): tenancy", () => {
   });
 });
 
-describe("businesses.funding_source (0100): the own-key path and the own plan", () => {
+describe("businesses.funding_source (0104): the own-key path and the own plan", () => {
   it("the existing own-key path maps onto own_api_key without any code change, and back", async () => {
     await h.service().run((tx) => repos.businesses.update(tx, A.businessId, { modelBilling: "byok" }));
     expect(await fundingOf(A.businessId)).toEqual({ source: "own_api_key", provider: null });

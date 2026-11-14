@@ -190,12 +190,12 @@ export const businesses = pgTable(
     planTier: text("plan_tier", { enum: PLAN_TIERS }).notNull().default("free"),
     modelBilling: text("model_billing", { enum: MODEL_BILLING }).notNull().default("credits"),
     /**
-     * 0100 — who funds the agent work: `foundmill_credits` and `own_api_key` follow `modelBilling` (a trigger keeps them in
+     * 0104 — who funds the agent work: `foundmill_credits` and `own_api_key` follow `modelBilling` (a trigger keeps them in
      * step on every write); `own_plan` is the founder's own AI plan at `fundingPlanProvider`, set only by service code and
      * only billed to that plan while `FLAGS.ownPlanFunding` is on and the provider is integrated (none is: packages/config).
      */
     fundingSource: text("funding_source", { enum: FUNDING_SOURCES }).notNull().default("foundmill_credits"),
-    /** The provider whose plan funds the work; set exactly when `fundingSource` is `own_plan` (0100's check). */
+    /** The provider whose plan funds the work; set exactly when `fundingSource` is `own_plan` (0104's check). */
     fundingPlanProvider: text("funding_plan_provider"),
     /**
      * The founder's "Spend cap per action" (Commit, Settings › What the team can do; 0024), in minor units of the business currency.
