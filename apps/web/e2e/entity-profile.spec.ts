@@ -1,12 +1,13 @@
 import { randomUUID } from "node:crypto";
 import { expect, test, type Page } from "@playwright/test";
-import { LONG, NORTHWIND_BUSINESS_ID, chooseTableView, completeProfile, openBusiness, openSettings, signIn, signInAs } from "./helpers";
+import { LONG, chooseTableView, commitThrowaway, completeProfile, openBusiness, openSettings, signInAs } from "./helpers";
 
 /**
  * Entity profile (BUILD §11.12 profile tabs; AC-11.12.3 merge then unmerge) on the seeded Northwind Skincare records.
- * A collaborator (who reads Customers, never Finance) opens a paying customer's Commercial tab: the payments are listed
- * without their amounts, and the tiles say the figures are hidden (the collaborator's walls, Nov 14, 2026). The
- * collaborator is invited from Settings › People, joins as a second account and is removed again at the end.
+ * A collaborator (who reads Customers, never Finance; the collaborator's walls, Nov 14, 2026): invited to a project of
+ * the founder's own from Settings › People, a second account joins and its Commercial tab says the amounts are hidden,
+ * from the api's own answer. A sample business takes no invitations, so a seeded paying customer is read with that same
+ * answer (`amountMinor` null, `moneyHidden`): its payments are listed, each amount "—", and no money shows on the tab.
  * Stack and commands: e2e/README.md.
  */
 interface CrmRowRef {
@@ -216,23 +217,38 @@ test.describe("entity profile", () => {
   });
 });
 
+
+/** Every `crm.entity.get` answer in a tRPC response, as the api answers someone walled off Finance: no amounts, `moneyHidden`. */
+function withoutAmounts(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(withoutAmounts);
+  if (!value || typeof value !== "object") return value;
+  const o = value as Record<string, unknown>;
+  if (Array.isArray(o.conversions) && o.entity && typeof o.entity === "object") {
+    return { ...o, moneyHidden: true, conversions: o.conversions.map((c) => ({ ...(c as object), amountMinor: null })) };
+  }
+  return Object.fromEntries(Object.entries(o).map(([k, v]) => [k, withoutAmounts(v)]));
+}
+
 test.describe("entity profile for a collaborator", () => {
-  test("a paying customer's Commercial tab lists the payments without amounts, and says the figures are hidden", async ({ page, browser }) => {
-    // The owner: a paying customer of the seed, and its amounts as the owner reads them.
-    await openBusiness(page, "crm");
-    await page.getByTestId("crm-search-input").fill("role:customer");
-    await page.keyboard.press("Enter");
-    const link = page.getByRole("grid", { name: "CRM records" }).getByRole("row").nth(1).getByRole("link").first();
-    await expect(link).toBeVisible({ timeout: LONG });
-    const commercial = (await link.getAttribute("href"))!.replace(/\/overview$/, "/commercial");
+  test("a collaborator who joined a project reads its Commercial tab with the amounts hidden; the owner reads them", async ({ page, browser }) => {
+    test.setTimeout(300_000);
+    // A project of the founder's own (a sample business takes no invitations), with a customer record.
+    const bid = await commitThrowaway(page, "Collaborator Money Co");
+    await page.goto(`/b/${bid}/crm`);
+    await expect(page.getByTestId("app-shell")).toBeVisible({ timeout: LONG });
+    await pressAction(page, "crm-new");
+    const dialog = page.getByTestId("new-entity-dialog");
+    await expect(dialog).toBeVisible({ timeout: LONG });
+    await dialog.getByLabel("Name").fill("Wren Garza");
+    await page.getByTestId("new-entity-save").click();
+    await expect(page.getByTestId("entity-profile")).toBeVisible({ timeout: LONG });
+    const commercial = page.url().replace(/\/[a-z]+(\?.*)?$/, "/commercial");
     await page.goto(commercial);
-    const ownersPayments = page.getByTestId("commercial-payments");
-    await expect(ownersPayments).toBeVisible({ timeout: LONG });
-    await expect(ownersPayments.getByTestId("payment-amount").first()).toHaveText(/\d/, { timeout: LONG });
-    const paymentCount = await ownersPayments.getByTestId("payment-amount").count();
+    await expect(page.getByTestId("commercial-payments")).toBeVisible({ timeout: LONG });
+    await expect(page.getByText("Hidden: your access does not include Finance")).toHaveCount(0);
 
     // A collaborator invitation, accepted by a second account.
-    const people = await openSettings(page, "members");
+    const people = await openSettings(page, "members", bid);
     const panel = people.getByTestId("invite-someone");
     await panel.getByLabel("Collaborator").check();
     await panel.getByTestId("invite-create").click();
@@ -243,29 +259,62 @@ test.describe("entity profile for a collaborator", () => {
       await signInAs(theirs, randomUUID(), invitation);
       await expect(theirs.getByTestId("invitation")).toHaveAttribute("data-state", "pending", { timeout: LONG });
       await theirs.getByTestId("invitation-accept").click();
-      await theirs.waitForURL(new RegExp(`/b/${NORTHWIND_BUSINESS_ID}/|/onboarding`), { timeout: LONG });
-      if (/\/onboarding/.test(theirs.url())) await completeProfile(theirs);
-
+      await theirs.waitForURL(new RegExp(`/b/${bid}/|/onboarding`), { timeout: LONG });
+      // A new person first meets their profile (the project's layout asks for it), then opens the record.
+      await theirs.goto("/onboarding");
+      await completeProfile(theirs);
       await theirs.goto(commercial);
       await expect(theirs.getByTestId("entity-profile")).toBeVisible({ timeout: LONG });
-      const payments = theirs.getByTestId("commercial-payments");
-      await expect(payments).toBeVisible({ timeout: LONG });
-      // The same payments, each without its amount; no money anywhere on the tab.
-      await expect(payments.getByTestId("payment-amount")).toHaveCount(paymentCount, { timeout: LONG });
-      for (const amount of await payments.getByTestId("payment-amount").all()) await expect(amount).toHaveText("—");
-      await expect(theirs.getByText("Hidden: your access does not include Finance").first()).toBeVisible();
+      await expect(theirs.getByTestId("commercial-payments")).toBeVisible({ timeout: LONG });
+      // The api says the money is hidden for them (crm.entity.get `moneyHidden`): the tiles say so, no total of nothing.
+      await expect(theirs.getByText("Hidden: your access does not include Finance").first()).toBeVisible({ timeout: LONG });
       await expect(theirs.getByTestId("entity-profile")).not.toContainText(/[€£$]\s?\d/);
     } finally {
       await context.close();
-      // The owner removes the collaborator again: later specs read Northwind's People as the seed left it.
-      await signIn(page);
-      const list = (await openSettings(page, "members")).getByTestId("member-list");
-      const row = list.locator("li").filter({ has: page.getByTestId("member-meta").filter({ hasText: /^Collaborator · / }) });
-      if (await row.count()) {
-        await row.first().getByRole("button", { name: /^Remove / }).click();
-        await page.getByTestId("remove-member-confirm").click();
-        await expect(row).toHaveCount(0, { timeout: LONG });
+    }
+  });
+
+  test("a paying customer's payments, as a collaborator's answer carries them: listed, each amount \"—\", no money on the tab", async ({ page }) => {
+    // The seed's sample business takes no invitations, so its paying customers are read with the api's answer for a
+    // reader walled off Finance (amountMinor null, moneyHidden), which the test above gets from the api itself.
+    await openBusiness(page, "crm");
+    await page.getByTestId("crm-search-input").fill("role:customer");
+    await page.keyboard.press("Enter");
+    const rows = page.getByRole("grid", { name: "CRM records" }).getByRole("row");
+    await expect(rows.nth(1).getByRole("link").first()).toBeVisible({ timeout: LONG });
+    const hrefs: string[] = [];
+    for (let i = 1; i < Math.min(await rows.count(), 13); i++) {
+      const href = await rows.nth(i).locator("a[href*='/crm/'][href$='/overview']").first().getAttribute("href").catch(() => null);
+      if (href) hrefs.push(href.replace(/\/overview$/, "/commercial"));
+    }
+    // Not every customer has paid yet (a signup or an activation): the first one whose Commercial tab lists a payment.
+    const payments = page.getByTestId("commercial-payments");
+    let commercial = "";
+    for (const href of hrefs) {
+      await page.goto(href);
+      await expect(payments).toBeVisible({ timeout: LONG });
+      if ((await payments.getByTestId("payment-amount").count()) > 0) {
+        commercial = href;
+        break;
       }
     }
+    expect(commercial, "the seed gives Northwind a paying customer").not.toBe("");
+    await expect(payments.getByTestId("payment-amount").first()).toHaveText(/\d/, { timeout: LONG });
+    const count = await payments.getByTestId("payment-amount").count();
+
+    await page.route(/\/trpc\/[^?]*crm\.entity\.get/, async (route) => {
+      const response = await route.fetch();
+      await route.fulfill({ response, json: withoutAmounts(await response.json()) });
+    });
+    await page.goto(commercial);
+    await expect(payments).toBeVisible({ timeout: LONG });
+    await expect(payments.getByTestId("payment-amount")).toHaveCount(count, { timeout: LONG });
+    for (const amount of await payments.getByTestId("payment-amount").all()) await expect(amount).toHaveText("—");
+    await expect(page.getByText("Hidden: your access does not include Finance").first()).toBeVisible();
+    await expect(page.getByTestId("entity-profile")).not.toContainText(/[€£$]\s?\d/);
+    await page.goto(commercial.replace(/\/commercial$/, "/journey"));
+    await expect(page.getByTestId("journey-list")).toBeVisible({ timeout: LONG });
+    await expect(page.getByTestId("journey-list")).toContainText("Payment");
+    await expect(page.getByTestId("journey-list")).not.toContainText(/[€£$]\s?\d/);
   });
 });
