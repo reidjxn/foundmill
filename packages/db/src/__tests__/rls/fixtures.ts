@@ -52,9 +52,9 @@ export interface BusinessFixture {
   agentThreadId: string;
   /** 0082: a live team call with both agents, started by the owner. */
   teamCallId: string;
-  /** 0102: team posts with no links yet (one per `post_links` sample: a post has one link per network). */
+  /** 0106: team posts with no links yet (one per `post_links` sample: a post has one link per network). */
   postAssetIds: string[];
-  /** 0102: post links, one per `post_attributions` sample (each carries its post and network). */
+  /** 0106: post links, one per `post_attributions` sample (each carries its post and network). */
   postLinks: { id: string; assetId: string; network: string | null }[];
 }
 
@@ -252,7 +252,7 @@ export async function createBusinessFixture(h: TestHarness, slug: string): Promi
     "team_calls",
   );
 
-  // 0102: team posts and their links (written by the services; codes from `a-z2-7`, unique per fixture). A suite that
+  // 0106: team posts and their links (written by the services; codes from `a-z2-7`, unique per fixture). A suite that
   // migrates only up to an earlier migration has no `post_links` yet: its pools stay empty.
   const hasPostLinks = ((await db.execute(sql`select to_regclass('public.post_links') is not null as ok`)) as unknown as { rows: { ok: boolean }[] }).rows[0]?.ok === true;
   const postAssets = hasPostLinks

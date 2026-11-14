@@ -1,5 +1,5 @@
 /**
- * 0102 — what a shared team post led to (item 8; packages/shared `post-outcomes.ts`). Members read; only the services
+ * 0106 — what a shared team post led to (item 8; packages/shared `post-outcomes.ts`). Members read; only the services
  * write. Nothing here names a person: no entity id, no address, no IP, no device, no amount.
  */
 import { POST_NETWORKS } from "@foundmill/shared/post-draft";

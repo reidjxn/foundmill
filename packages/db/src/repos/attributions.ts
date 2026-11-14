@@ -14,7 +14,7 @@
  * `public_project_pages` lists it (published, committed, not archived, not a sample business) and a person only while
  * `public_person_profiles` lists them (public, not archived). The views give no ids, so each is joined to its own table
  * on the public address (the slug, the handle) to learn which business and which account it is; a draft page, a private
- * profile and an unknown address all read the same: null. A shared post's code (`s.<code>`, 0102) resolves to its
+ * profile and an unknown address all read the same: null. A shared post's code (`s.<code>`, 0106) resolves to its
  * project's page and is recorded as that page (`p.<slug>`), exactly as if the person came from the page: a simulated
  * link and a code whose project has no public page resolve to nothing, and no post code is ever recorded here.
  */
@@ -27,7 +27,7 @@ import { Id, maybeOne, parseInput, type Executor } from "./_shared";
 
 /** What a reference resolved to: the public thing it named and who is credited for it. */
 export interface AttributionSource {
-  /** Only a page or a person: a post's code is recorded as its project's page (0102 leaves 0088 as it is). */
+  /** Only a page or a person: a post's code is recorded as its project's page (0106 leaves 0088 as it is). */
   kind: AttributionViaKind;
   /** The slug or handle, as the public address spells it. */
   ref: string;

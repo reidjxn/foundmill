@@ -1,5 +1,5 @@
 /**
- * 0102 `post_links`, `post_attributions` and `contact_consents.post_link_id`: what a shared team post led to (item 8).
+ * 0106 `post_links`, `post_attributions` and `contact_consents.post_link_id`: what a shared team post led to (item 8).
  *
  * The generated cross-tenant suite covers both tables' tenancy (./tables.ts, write mode `service`). This file covers what
  * only they have:

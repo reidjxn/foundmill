@@ -48,7 +48,7 @@ export interface RecordFollowerInput {
   consentText: string;
   at?: Date;
   /**
-   * The post link the visitor last arrived through (0102), already checked by the caller (`postLinks.followable`: the
+   * The post link the visitor last arrived through (0106), already checked by the caller (`postLinks.followable`: the
    * business's own, not simulated, visited). A new signup keeps it; a repeat signup that is still pending takes the
    * newer one (last touch).
    */

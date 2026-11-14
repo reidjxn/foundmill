@@ -111,7 +111,7 @@ describe("attributions 0088: once per account, and what the database itself refu
     expect(await h.service().run((tx) => repos.attributions.forUser(tx, outsider))).toBeNull();
   });
 
-  it("the migration's kinds are the shared kinds, unchanged by post codes (0102 does not widen them)", () => {
+  it("the migration's kinds are the shared kinds, unchanged by post codes (0106 does not widen them)", () => {
     const migration = readMigrations().find((m) => m.tag === "0088_attributions")!.sql;
     const block = /check \(source_kind in \(([^)]*)\)\)/.exec(migration)?.[1] ?? "";
     expect([...block.matchAll(/'([a-z_]+)'/g)].map((m) => m[1]).sort()).toEqual([...ATTRIBUTION_VIA_KINDS].sort());

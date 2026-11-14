@@ -85,7 +85,7 @@ export async function draftTeamPost(deps: TeamPostDraftDeps, businessId: string,
   if (!credits.ok && credits.modelBilling !== "byok") return skipped("no_credits");
 
   const agentId = src.agent?.id ?? null;
-  // The link the post will carry, with a code of the right length: its own codes are minted with the words (0102).
+  // The link the post will carry, with a code of the right length: its own codes are minted with the words (0106).
   const sizing = { link: TEAM_POST_CODE_FOR_LENGTH, networks: {} };
   const link = teamPostShareDraft({ text: "", ref, page: { origin: deps.appUrl, slug: page.slug, projectName: src.business.name, pitch: page.pitch }, cardShown: src.cardShown, codes: sizing }).link;
   // What the project's earlier posts led to in the last 7 days, counted: data for the agent, never words for the post

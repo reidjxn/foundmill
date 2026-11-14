@@ -120,7 +120,7 @@ describe("no client TRUNCATE, TRIGGER or REFERENCES", () => {
   });
 });
 
-describe("what a shared post led to is the services' to write (0102)", () => {
+describe("what a shared post led to is the services' to write (0106)", () => {
   for (const table of ["post_links", "post_attributions"]) {
     for (const role of CLIENT_ROLES) {
       it(`${role} holds no INSERT, UPDATE or DELETE on ${table}`, async () => {

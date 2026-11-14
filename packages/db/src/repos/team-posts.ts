@@ -7,7 +7,7 @@
  *   is public: the business's name and time zone, the four public fields of its published page, where the social
  *   channel and its agent stand, and what was already drafted. Nothing about a follower, a customer or money is read.
  * - `write` and `drop` take a lock per business and check again inside it, so a trigger delivered twice writes once
- *   and the caps hold. `write` also mints the post's public codes (0102 `post_links`: one per network and one for a
+ *   and the caps hold. `write` also mints the post's public codes (0106 `post_links`: one per network and one for a
  *   copied or sent link) in the same transaction, except for a sample business. A dropped attempt leaves an archived row with no words: the trigger is not tried again, and
  *   the attempt counts toward the caps.
  * - `markShared` and `dismiss` are the founder's two answers: a share that was opened (`approved`: their own press is
@@ -186,7 +186,7 @@ export const teamPostsRepo = {
         .values({ businessId, campaignId: null, kind: "post", title: teamPostTitle(input.ref), contentRef: teamPostRef(input.ref), body: input.text.slice(0, 8000), approvalState: "draft", authoredByAgentId: input.authoredByAgentId, createdAt: now })
         .returning();
       if (!asset) return { written: false, asset: null, skip: null };
-      // The post's own codes (0102), so a real outcome that comes back through one of its links is credited to it. A
+      // The post's own codes (0106), so a real outcome that comes back through one of its links is credited to it. A
       // sample business shows nothing in public and gets none.
       const business = maybeOne(await tx.select({ isDemo: businesses.isDemo }).from(businesses).where(eq(businesses.id, businessId)).limit(1));
       if (business && !business.isDemo) await postLinksRepo.mint(tx, businessId, asset.id, { simulated: input.simulatedLinks === true });

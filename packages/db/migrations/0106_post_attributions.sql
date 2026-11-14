@@ -1,4 +1,4 @@
--- 0102 — what a shared team post led to (item 8, approved by the network session Nov 13, 2026). A post the team drafted
+-- 0106 — what a shared team post led to (item 8, approved by the network session Nov 13, 2026). A post the team drafted
 -- for the founder to share by tap gets its own public codes, minted in the transaction that stores the draft: one per
 -- network and one for a copied link, a message and the device's own share sheet (network null). Each link of the post
 -- then carries `?via=s.<code>` (@foundmill/shared/via) in place of the page's `p.<slug>`. A real outcome that came back

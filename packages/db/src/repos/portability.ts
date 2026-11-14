@@ -99,7 +99,7 @@ export const EXPORT_TABLES: Readonly<Record<string, ExportTableSpec>> = {
   forecasts: t(s.forecasts, "finance"),
   securities: t(s.securities, "finance"),
   cap_table_entries: t(s.capTableEntries, "finance"),
-  // What a shared post led to (0102): ids, the network and the kind only, never a person or an amount. It holds payment
+  // What a shared post led to (0106): ids, the network and the kind only, never a person or an amount. It holds payment
   // credits, so it is filed under the strictest wall of what it holds (security review, Nov 14, 2026): nobody without
   // Finance exports a payment credit. Its follows and replies are the CRM's too, and a Finance reader of this archive
   // reads the CRM as well (Export everything needs read access to every section).

@@ -1,5 +1,5 @@
 /**
- * What a shared team post led to (0102; item 8, approved by the network session Nov 13, 2026; packages/shared
+ * What a shared team post led to (0106; item 8, approved by the network session Nov 13, 2026; packages/shared
  * `post-outcomes.ts`). Service connection only: members read both tables through RLS, nobody in a project writes them.
  *
  * - `postLinks.mint`: the post's public codes, one per network and one for a copied or sent link (network null), in the

@@ -43,7 +43,7 @@ export const contactConsents = pgTable(
     /** Set when the person unsubscribes from the project's mail (or it bounced, or they reported it). */
     withdrawnAt: tstz("withdrawn_at"),
     /**
-     * 0102: the post link the visitor last arrived through before signing up (the project's own, not simulated, visited);
+     * 0106: the post link the visitor last arrived through before signing up (the project's own, not simulated, visited);
      * the follow is credited to that post once confirmed. Written by the services only.
      */
     postLinkId: uuid("post_link_id").references(() => postLinks.id, { onDelete: "set null" }),
