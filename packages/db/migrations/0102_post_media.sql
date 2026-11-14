@@ -1,4 +1,4 @@
--- 0103 — a post draft's media, the "ready-to-post kit" (packages/shared `post-media.ts`; founder, 2026-11-13): a short
+-- 0102 — a post draft's media, the "ready-to-post kit" (packages/shared `post-media.ts`; founder, 2026-11-13): a short
 -- vertical video made on the founder's own Runway account and, if they like, a voiceover made on their own ElevenLabs
 -- account, for a post the social agent drafted (an `assets` row, kind `post`). Media is added to the existing draft:
 -- the draft, its caps and its check are unchanged, and posting stays the founder's own press.

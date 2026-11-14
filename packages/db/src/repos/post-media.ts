@@ -1,5 +1,5 @@
 /**
- * A post draft's media (0103 `post_media`; packages/shared `post-media.ts`): a short video and a voiceover for a post
+ * A post draft's media (0102 `post_media`; packages/shared `post-media.ts`): a short video and a voiceover for a post
  * the social agent drafted, made on the founder's own Runway and ElevenLabs accounts. One row per draft and kind.
  *
  * - `open` starts a row (`asking`) for a team post that waits to be shared, once: a second ask finds the first.

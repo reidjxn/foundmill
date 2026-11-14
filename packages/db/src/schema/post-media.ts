@@ -1,5 +1,5 @@
 /**
- * 0103 — a post draft's media (packages/shared `post-media.ts`): a short video made on the founder's own Runway account
+ * 0102 — a post draft's media (packages/shared `post-media.ts`): a short video made on the founder's own Runway account
  * and a voiceover made on their own ElevenLabs account, for a post the social agent drafted. One row per draft and
  * kind. `content` is the file itself, copied into the project's own storage once it is made (Runway's address expires
  * within a day or two, and a voiceover arrives inline), so it stays reachable for tap-to-post and for a publishing

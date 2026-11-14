@@ -1,5 +1,5 @@
 /**
- * 0103 `post_media` (a post draft's media: a short video and a voiceover on the founder's own accounts).
+ * 0102 `post_media` (a post draft's media: a short video and a voiceover on the founder's own accounts).
  *
  * One row per draft and kind, so it is not in the generated cross-tenant suite; this file covers tenancy by hand and
  * what only this table has:

@@ -251,7 +251,7 @@ export const NON_TENANT_TABLES = [
   // 0097: one email's one-click cancel of a deletion request (business-scoped, service role only: a client role reads
   // nothing of it); covered by rls/founder-departures.test.ts.
   "founder_cancel_links",
-  // 0103: a post draft's media, one row per draft and kind, written by services only (the generated suite cannot make a
+  // 0102: a post draft's media, one row per draft and kind, written by services only (the generated suite cannot make a
   // draft per insert); covered by rls/post-media.test.ts.
   "post_media",
 ] as const;
