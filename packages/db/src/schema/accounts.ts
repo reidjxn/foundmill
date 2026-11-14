@@ -1,5 +1,5 @@
 /** 0002 — founder profiles, businesses, ideas (+ the businessId() helper every business-scoped table uses); 0022 — account preferences; 0025 — the business currency. */
-import { AGENT_STOP_REASONS, AGENT_STYLES, ARCHETYPES, AUTOPILOT_CADENCES, AUTOPILOT_PAUSE_REASONS, BUSINESS_MODES, DATA_REGIONS, DATE_FORMAT_PREFERENCES, DEVICE_PLATFORMS, GAME_MODES, GUIDANCE_MODES, MODEL_BILLING, PERSON_LOOKING_FOR, PLAN_TIERS, PUSH_PROVIDERS, TEXT_SIZES, TIME_FORMAT_PREFERENCES, VISIBILITY, type EmailNotificationPrefs, type NotificationPrefs } from "@foundmill/shared";
+import { AGENT_STOP_REASONS, AGENT_STYLES, ARCHETYPES, AUTOPILOT_CADENCES, AUTOPILOT_PAUSE_REASONS, BUSINESS_MODES, DATA_REGIONS, DATE_FORMAT_PREFERENCES, DEVICE_PLATFORMS, FUNDING_SOURCES, GAME_MODES, GUIDANCE_MODES, MODEL_BILLING, PERSON_LOOKING_FOR, PLAN_TIERS, PUSH_PROVIDERS, TEXT_SIZES, TIME_FORMAT_PREFERENCES, VISIBILITY, type EmailNotificationPrefs, type NotificationPrefs } from "@foundmill/shared";
 import { VIA_KINDS } from "@foundmill/shared/via";
 import { sql } from "drizzle-orm";
 import { boolean, char, index, integer, jsonb, numeric, pgTable, pgView, text, uniqueIndex, uuid, type AnyPgColumn } from "drizzle-orm/pg-core";
@@ -203,6 +203,14 @@ export const businesses = pgTable(
     committedAt: tstz("committed_at"),
     planTier: text("plan_tier", { enum: PLAN_TIERS }).notNull().default("free"),
     modelBilling: text("model_billing", { enum: MODEL_BILLING }).notNull().default("credits"),
+    /**
+     * 0104 — who funds the agent work: `foundmill_credits` and `own_api_key` follow `modelBilling` (a trigger keeps them in
+     * step on every write); `own_plan` is the founder's own AI plan at `fundingPlanProvider`, set only by service code and
+     * only billed to that plan while `FLAGS.ownPlanFunding` is on and the provider is integrated (none is: packages/config).
+     */
+    fundingSource: text("funding_source", { enum: FUNDING_SOURCES }).notNull().default("foundmill_credits"),
+    /** The provider whose plan funds the work; set exactly when `fundingSource` is `own_plan` (0104's check). */
+    fundingPlanProvider: text("funding_plan_provider"),
     /**
      * The founder's "Spend cap per action" (Commit, Settings › What the team can do; 0024), in minor units of the business currency.
      * Above it every spend asks first, whatever the mode: the gateway lowers each agent's approval threshold to it.

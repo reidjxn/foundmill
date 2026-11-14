@@ -219,6 +219,11 @@ export interface SessionLaunch {
   fellBackFrom: string | null;
   modelKey: ModelKey;
   modelId: string;
+  /**
+   * The credit saver moved this launch to its route's lower-cost model (`prepareSession`). Only such a launch is moved
+   * back up by a later run (`keptModelForRun`); a launch prepared before the field existed has none.
+   */
+  lowCredits?: boolean;
   /** Recording key replayed in mock mode. */
   recordingKey: string | null;
   /** `connector:tool` refs granted to the session token. */

@@ -71,7 +71,7 @@ export async function createBusinessFixture(h: TestHarness, slug: string): Promi
   // An established business (channels running, campaigns live): its founder started distribution (0062). A test about the
   // first days commits a fresh business instead, which starts with distribution not started.
   // Named columns, not the schema's insert: the migration-point suites build this fixture on a database from before
-  // 0103, whose businesses have no `showcase_may_ask` yet.
+  // 0103 and 0104, whose businesses have no `showcase_may_ask` or `funding_source` yet.
   const business = first(
     ((await db.execute(sql`insert into businesses (name, slug, created_by, archetype, distribution_started_at) values (${slug.toUpperCase()}, ${slug}, ${ownerId}, 'b2b_saas', ${"2026-01-01T00:00:00Z"}::timestamptz) returning id`)) as unknown as { rows: { id: string }[] }).rows,
     "businesses",

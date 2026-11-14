@@ -10,6 +10,7 @@ import {
   BUSINESS_MODES,
   PLAN_TIERS,
   MODEL_BILLING,
+  FUNDING_SOURCES,
   DATA_REGIONS,
   ARCHETYPES,
   MODULE_KEYS,
@@ -109,6 +110,8 @@ export const PlanTier = z.enum(PLAN_TIERS);
 export type PlanTier = C.PlanTier;
 export const ModelBilling = z.enum(MODEL_BILLING);
 export type ModelBilling = C.ModelBilling;
+export const FundingSource = z.enum(FUNDING_SOURCES);
+export type FundingSource = C.FundingSource;
 export const DataRegion = z.enum(DATA_REGIONS);
 export type DataRegion = C.DataRegion;
 export const Archetype = z.enum(ARCHETYPES);

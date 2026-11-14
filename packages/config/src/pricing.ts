@@ -57,6 +57,31 @@ export function includedCreditsMinor(tier: TierKey): number {
 }
 
 /**
+ * Low credits (credit saver). When a month's spendable credits fall below the line, routine work moves to a lower-cost
+ * model (each route's `lowCredits` in packages/models routing.ts) while founder-facing and high-stakes work keeps its
+ * own, so the team does not stop dead a few calls before the pause at zero.
+ *
+ * The line is the larger of a share of the month's included credits and a small floor:
+ * - `LOW_CREDITS_SHARE` (20 %): on the free plan's $5 that is $1, the last fifth of the month, where a founder with
+ *   little money most needs the team to keep going.
+ * - `LOW_CREDITS_FLOOR_MINOR` ($1): a month that started with nothing included (the founder's pool went to another
+ *   business) or a small top-up still gets the saver before the pause, and a larger plan's line never drops below it.
+ * A top-up raises the balance above the line again, and the saver lifts by itself.
+ */
+export const LOW_CREDITS_SHARE = 0.2;
+export const LOW_CREDITS_FLOOR_MINOR = 100;
+
+/** The low-credits line in USD cents for a month that includes `includedMinor` (see `LOW_CREDITS_SHARE`). */
+export function lowCreditsThresholdMinor(includedMinor: number): number {
+  return Math.max(LOW_CREDITS_FLOOR_MINOR, Math.round(Math.max(0, includedMinor) * LOW_CREDITS_SHARE));
+}
+
+/** Whether `spendableMinor` is in the saver's band: something left, but below the line. Zero is the pause, not this. */
+export function creditsAreLow(spendableMinor: number, includedMinor: number): boolean {
+  return spendableMinor > 0 && spendableMinor < lowCreditsThresholdMinor(includedMinor);
+}
+
+/**
  * How a new business on `tier` pays for model calls: on credits (its included credits) unless the tier requires the
  * founder's own key. Storing a key moves a business to `byok` (apps/api keys).
  */

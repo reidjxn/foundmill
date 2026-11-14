@@ -1,40 +1,40 @@
 import { describe, expect, it } from "vitest";
-import { ALWAYS_THINKS, IMAGE_MODELS, VIDEO_MODELS, LOW_EFFORT_MAX_TOKENS, MODELS, MODEL_CAPABILITIES, PLAIN_MAX_TOKENS, ROUTES, THINKING_MAX_TOKENS, maxTokensFor, resolveModel, routeAcceptsImages } from "./routing";
+import { ALWAYS_THINKS, IMAGE_MODELS, VIDEO_MODELS, LOW_EFFORT_MAX_TOKENS, MODELS, MODEL_CAPABILITIES, PLAIN_MAX_TOKENS, ROUTES, THINKING_MAX_TOKENS, lowCreditsModel, maxTokensFor, resolveModel, routeAcceptsImages, type RouteKey } from "./routing";
 
 describe("routing (BUILD §10.1)", () => {
   it("MODELS and ROUTES are exactly the spec table", () => {
     expect(MODELS).toEqual({ opus: "claude-opus-5-5", sonnet: "claude-sonnet-5-5", haiku: "claude-haiku-4-5-20251001" });
     expect(ROUTES).toEqual({
-      inboxComposer: { model: "opus", locked: true, effort: "low", maxTokens: 16_000 },
-      planCompiler: { model: "opus", locked: true, effort: "low", maxTokens: 16_000 },
-      chiefOfStaff: { model: "opus", warnOnDowngrade: true, maxTokens: 16_000 },
-      departmentLead: { model: "opus", maxTokens: 16_000 },
-      leadRecommendation: { model: "opus", effort: "low", maxTokens: 16_000 },
-      planner: { model: "opus", effort: "low", maxTokens: 16_000 },
-      codeReview: { model: "opus", maxTokens: 16_000 },
-      documentReview: { model: "opus", maxTokens: 16_000 },
-      ideation: { model: "opus", effort: "low", speed: "fast", maxTokens: 8_000 },
-      ideationSlate: { model: "opus", effort: "low", speed: "fast", maxTokens: 8_000 },
-      logoDesigner: { model: "opus", effort: "low", speed: "fast", maxTokens: 8_000 },
-      foundations: { model: "opus", effort: "low", speed: "fast", maxTokens: 8_000 },
-      foundationsSkeleton: { model: "opus", effort: "low", speed: "fast", maxTokens: 8_000 },
-      skillGrader: { model: "opus", maxTokens: 16_000 },
-      coach: { model: "opus", maxTokens: 16_000 },
-      worker: { model: "sonnet", maxTokens: 16_000 },
-      journeyCommentary: { model: "sonnet", maxTokens: 16_000 },
-      nightlyBatch: { model: "sonnet", batch: true, maxTokens: 16_000 },
-      linker: { model: "haiku", maxTokens: 4_096 },
-      classifier: { model: "haiku", maxTokens: 4_096 },
-      categoriser: { model: "haiku", maxTokens: 4_096 },
-      quarantinedReader: { model: "haiku", maxTokens: 4_096 },
-      moderation: { model: "haiku", maxTokens: 4_096 },
-      founderTitle: { model: "haiku", maxTokens: 4_096 },
-      conversation: { model: "sonnet", effort: "low", maxTokens: 8_000 },
-      goalProposal: { model: "sonnet", effort: "low", maxTokens: 8_000 },
-      projectPage: { model: "sonnet", effort: "low", maxTokens: 8_000 },
-      teamCallTurn: { model: "sonnet", effort: "low", maxTokens: 8_000 },
-      teamCallWrapUp: { model: "opus", effort: "low", maxTokens: 8_000 },
-      designReview: { model: "opus", effort: "low", vision: true, maxTokens: 8_000 },
+      inboxComposer: { model: "opus", lowCredits: "keep", locked: true, effort: "low", maxTokens: 16_000 },
+      planCompiler: { model: "opus", lowCredits: "keep", locked: true, effort: "low", maxTokens: 16_000 },
+      chiefOfStaff: { model: "opus", lowCredits: "keep", warnOnDowngrade: true, maxTokens: 16_000 },
+      departmentLead: { model: "opus", lowCredits: "sonnet", maxTokens: 16_000 },
+      leadRecommendation: { model: "opus", lowCredits: "keep", effort: "low", maxTokens: 16_000 },
+      planner: { model: "opus", lowCredits: "sonnet", effort: "low", maxTokens: 16_000 },
+      codeReview: { model: "opus", lowCredits: "keep", maxTokens: 16_000 },
+      documentReview: { model: "opus", lowCredits: "keep", maxTokens: 16_000 },
+      ideation: { model: "opus", lowCredits: "keep", effort: "low", speed: "fast", maxTokens: 8_000 },
+      ideationSlate: { model: "opus", lowCredits: "keep", effort: "low", speed: "fast", maxTokens: 8_000 },
+      logoDesigner: { model: "opus", lowCredits: "sonnet", effort: "low", speed: "fast", maxTokens: 8_000 },
+      foundations: { model: "opus", lowCredits: "sonnet", effort: "low", speed: "fast", maxTokens: 8_000 },
+      foundationsSkeleton: { model: "opus", lowCredits: "sonnet", effort: "low", speed: "fast", maxTokens: 8_000 },
+      skillGrader: { model: "opus", lowCredits: "sonnet", maxTokens: 16_000 },
+      coach: { model: "opus", lowCredits: "sonnet", maxTokens: 16_000 },
+      worker: { model: "sonnet", lowCredits: "haiku", maxTokens: 16_000 },
+      journeyCommentary: { model: "sonnet", lowCredits: "haiku", maxTokens: 16_000 },
+      nightlyBatch: { model: "sonnet", lowCredits: "haiku", batch: true, maxTokens: 16_000 },
+      linker: { model: "haiku", lowCredits: "keep", maxTokens: 4_096 },
+      classifier: { model: "haiku", lowCredits: "keep", maxTokens: 4_096 },
+      categoriser: { model: "haiku", lowCredits: "keep", maxTokens: 4_096 },
+      quarantinedReader: { model: "haiku", lowCredits: "keep", maxTokens: 4_096 },
+      moderation: { model: "haiku", lowCredits: "keep", maxTokens: 4_096 },
+      founderTitle: { model: "haiku", lowCredits: "keep", maxTokens: 4_096 },
+      conversation: { model: "sonnet", lowCredits: "keep", effort: "low", maxTokens: 8_000 },
+      goalProposal: { model: "sonnet", lowCredits: "keep", effort: "low", maxTokens: 8_000 },
+      projectPage: { model: "sonnet", lowCredits: "keep", effort: "low", maxTokens: 8_000 },
+      teamCallTurn: { model: "sonnet", lowCredits: "keep", effort: "low", maxTokens: 8_000 },
+      teamCallWrapUp: { model: "opus", lowCredits: "keep", effort: "low", maxTokens: 8_000 },
+      designReview: { model: "opus", lowCredits: "keep", effort: "low", vision: true, maxTokens: 8_000 },
     });
   });
 
@@ -135,6 +135,46 @@ describe("routing (BUILD §10.1)", () => {
   it("plain routes accept any override silently", () => {
     expect(resolveModel("codeReview", "haiku")).toMatchObject({ modelKey: "haiku", warning: undefined });
     expect(resolveModel("classifier", "opus").modelId).toBe(MODELS.opus);
+  });
+});
+
+describe("low credits (credit saver)", () => {
+  const routes = Object.keys(ROUTES) as RouteKey[];
+  const RANK = { haiku: 0, sonnet: 1, opus: 2 } as const;
+
+  it("founder-facing and high-stakes work keeps its model", () => {
+    const kept: RouteKey[] = ["inboxComposer", "planCompiler", "chiefOfStaff", "conversation", "leadRecommendation", "codeReview", "projectPage", "goalProposal", "teamCallTurn", "teamCallWrapUp", "quarantinedReader", "moderation"];
+    for (const route of kept) {
+      expect(lowCreditsModel(route)).toBeNull();
+      const r = resolveModel(route, undefined, { lowCredits: true });
+      expect(r.modelKey).toBe(ROUTES[route].model);
+      expect(r.lowCredits).toBeUndefined();
+    }
+  });
+
+  it("routine work moves to a lower-cost model, never a higher one, and locked routes never move", () => {
+    expect(resolveModel("worker", undefined, { lowCredits: true })).toMatchObject({ modelKey: "haiku", modelId: MODELS.haiku, lowCredits: true });
+    expect(resolveModel("departmentLead", undefined, { lowCredits: true })).toMatchObject({ modelKey: "sonnet", lowCredits: true });
+    expect(resolveModel("planner", undefined, { lowCredits: true })).toMatchObject({ modelKey: "sonnet", effort: "low", lowCredits: true });
+    expect(resolveModel("foundations", undefined, { lowCredits: true }).modelKey).toBe("sonnet");
+    for (const route of routes) {
+      const moved = lowCreditsModel(route);
+      if (moved) expect(RANK[moved]).toBeLessThan(RANK[ROUTES[route].model]);
+      if ((ROUTES[route] as { locked?: boolean }).locked) expect(moved).toBeNull();
+    }
+  });
+
+  it("an agent's own model choice is moved too, unless it is already cheaper", () => {
+    expect(resolveModel("worker", "opus", { lowCredits: true }).modelKey).toBe("haiku");
+    expect(resolveModel("departmentLead", "haiku", { lowCredits: true })).toMatchObject({ modelKey: "haiku" });
+    expect(resolveModel("departmentLead", "haiku", { lowCredits: true }).lowCredits).toBeUndefined();
+  });
+
+  it("without low credits nothing changes", () => {
+    for (const route of routes) {
+      expect(resolveModel(route, undefined, { lowCredits: false })).toEqual(resolveModel(route));
+      expect(resolveModel(route).lowCredits).toBeUndefined();
+    }
   });
 });
 
