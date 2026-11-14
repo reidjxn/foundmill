@@ -29,14 +29,23 @@ export const pageQuizRouter = router({
   setLive: publish.input(z.object({ on: z.boolean() })).mutation(({ ctx, input }) => setPageQuizLive(ctx, input)),
 });
 
-/** Question key → answer key, as many as the quiz has (an incomplete set scores as unanswered). */
+/** A plain object with at most one key per question: counted before zod reads any key, so oversized input is one short issue. */
+const fewPlainKeys = (value: unknown): boolean => {
+  if (typeof value !== "object" || value === null || Object.getPrototypeOf(value) !== Object.prototype) return false;
+  let n = 0;
+  for (const _key in value) if (++n > PAGE_QUIZ_QUESTION_KEYS.length) return false;
+  return true;
+};
+
 /**
- * A visitor's answers, at most one per question (`q1`..`q4`). A strict object, not a record: signed out, anyone can send
- * this, and a record checks its every key and value before any size rule, so a 2 MB body of junk keys made zod build an
- * issue object per key (hundreds of MB; GHSA-mrhx-c7xc-m3w5). Unknown keys are now one issue in all.
+ * A visitor's answers, at most one per question (`q1`..`q4`). Signed out, anyone can send this, so its size is checked
+ * before zod looks at a key (GHSA-mrhx-c7xc-m3w5): a record, as before, made zod build an issue per key of a 2 MB body
+ * (hundreds of MB), and a strict object alone still returned every unknown key in its one issue. Then a strict object of
+ * the four questions, as the record allowed.
  */
 export const AnswersInput = z
-  .strictObject(Object.fromEntries(PAGE_QUIZ_QUESTION_KEYS.map((key) => [key, z.string().max(4).optional()])) as Record<(typeof PAGE_QUIZ_QUESTION_KEYS)[number], z.ZodOptional<z.ZodString>>)
+  .custom<Record<string, unknown>>(fewPlainKeys, { message: "At most one answer per question" })
+  .pipe(z.strictObject(Object.fromEntries(PAGE_QUIZ_QUESTION_KEYS.map((key) => [key, z.string().max(4).optional()])) as Record<(typeof PAGE_QUIZ_QUESTION_KEYS)[number], z.ZodOptional<z.ZodString>>))
   .transform((answers) => Object.fromEntries(Object.entries(answers).filter((entry): entry is [string, string] => typeof entry[1] === "string")));
 
 export const publicQuizRouter = router({
