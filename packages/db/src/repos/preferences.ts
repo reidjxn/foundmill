@@ -23,7 +23,7 @@ import {
   type EmailNotificationPrefs,
   type NotificationPrefs,
 } from "@foundmill/shared";
-import { FOUNDER_NOTIFICATION_LIMITS, isValidTimeZone } from "@foundmill/shared";
+import { boundedRecord, FOUNDER_NOTIFICATION_LIMITS, isValidTimeZone } from "@foundmill/shared";
 import { eq, inArray, sql } from "drizzle-orm";
 import { z } from "zod";
 import { accountPreferences, GUIDANCE_MODES, TEXT_SIZES, type GuidanceMode, type SeenMap, type TextSize } from "../schema";
@@ -75,14 +75,17 @@ export const DEFAULT_NOTIFICATION_PREFERENCES: Readonly<NotificationPreferences>
 
 export const DEFAULT_ACCOUNT_PREFERENCES: Readonly<AccountPreferencesView> = Object.freeze({ ...DEFAULT_DATE_FORMAT_PREFS, ...DEFAULT_GUIDANCE_PREFS, ...DEFAULT_NOTIFICATION_PREFERENCES });
 
-/** Ids to remember as seen or done, each set to true ("Got it" on Home: `{ home: true }`); at most 50 in one change. */
-const SeenMarks = z.record(z.string().trim().min(1).max(120), z.literal(true)).refine((m) => Object.keys(m).length <= 50, { message: "At most 50 screens or tours in one change" });
+/**
+ * Ids to remember as seen or done, each set to true ("Got it" on Home: `{ home: true }`); at most 50 in one change,
+ * counted before zod reads a key (`boundedRecord`, GHSA-mrhx-c7xc-m3w5).
+ */
+const SeenMarks = boundedRecord(50, z.record(z.string().trim().min(1).max(120), z.literal(true)), "At most 50 screens or tours in one change");
 
 /** The kinds of push to turn on or off in one change (`{ customer: false }`); only the known kinds, at least one. */
-const NotificationMarks = z.partialRecord(z.enum(NOTIFICATION_KINDS), z.boolean()).refine((m) => Object.keys(m).length > 0, { message: "Name at least one kind of notification" });
+const NotificationMarks = boundedRecord(NOTIFICATION_KINDS.length, z.partialRecord(z.enum(NOTIFICATION_KINDS), z.boolean()), "At most one setting per kind of notification").refine((m) => Object.keys(m).length > 0, { message: "Name at least one kind of notification" });
 
 /** The kinds of email to turn on or off in one change (`{ decision_waiting: false }`); only the known kinds, at least one. */
-const EmailNotificationMarks = z.partialRecord(z.enum(EMAIL_NOTIFICATION_KINDS), z.boolean()).refine((m) => Object.keys(m).length > 0, { message: "Name at least one kind of email" });
+const EmailNotificationMarks = boundedRecord(EMAIL_NOTIFICATION_KINDS.length, z.partialRecord(z.enum(EMAIL_NOTIFICATION_KINDS), z.boolean()), "At most one setting per kind of email").refine((m) => Object.keys(m).length > 0, { message: "Name at least one kind of email" });
 
 /** The stored map (only what was chosen) merged over the defaults, in the kinds' own order. */
 export function notificationPrefsOf(stored: Partial<NotificationPrefs> | null | undefined): NotificationPrefs {
@@ -244,7 +247,7 @@ export const DEFAULT_EMAIL_PREFS: Readonly<EmailPrefs> = Object.freeze({
 
 export const EmailPrefsPatch = z
   .object({
-    email: z.partialRecord(z.enum(EMAIL_NOTIFICATION_KINDS), z.boolean()).optional(),
+    email: boundedRecord(EMAIL_NOTIFICATION_KINDS.length, z.partialRecord(z.enum(EMAIL_NOTIFICATION_KINDS), z.boolean()), "At most one setting per kind of email").optional(),
     briefHour: z.number().int().min(0).max(23).optional(),
     timeZone: z.string().trim().max(64).refine((tz) => isValidTimeZone(tz), "Choose a real time zone").nullable().optional(),
     browserNotifications: z.boolean().optional(),

@@ -4,7 +4,7 @@
  * ("agent" | "type" | "all", BUILD §9.6 ApplyScopeDialog). BUILD §11.10; AC-11.10.1/2/5/6.
  */
 import { AgentInstructions, CUSTOM_SKILL_TEST_COUNT, CustomSkillTestsOutput, HOUSE_STYLE, customSkillKey, detectClubRuleViolation, isCustomSkillKey, deriveTraits, getPrompt, getSkillDefinition, getSkillTests, getTemplateByAgentType, redactHeldOut, storedCustomTest } from "@foundmill/agents";
-import { CREDITS_CURRENCY, LIMITS } from "@foundmill/config";
+import { CREDITS_CURRENCY, INPUT_LIMITS, LIMITS } from "@foundmill/config";
 import { UpdateAgentInput, periodOf, repos, type Agent, type AgentVersion, type Executor } from "@foundmill/db";
 import { MODELS, meter, resolveModel, type RouteKey } from "@foundmill/models";
 import { ConflictError, ForbiddenError, isAdminRole as isAdminMembershipRole, MODEL_KEYS, ValidationError, type ModelKey } from "@foundmill/shared";
@@ -27,11 +27,11 @@ const admin = sectionAdmin("team");
 const isAdminRole = (ctx: Pick<BusinessContext, "role">) => isAdminMembershipRole(ctx.role);
 
 export const ApplyScope = z.enum(["agent", "type", "all"]);
-const Tools = z.array(z.object({ connectorKey: z.string().min(1), tools: z.array(z.string().min(1)).min(1) }));
+const Tools = z.array(z.object({ connectorKey: z.string().min(1), tools: z.array(z.string().min(1)).max(INPUT_LIMITS.agentToolsPerGrant).min(1) })).max(INPUT_LIMITS.agentToolGrants);
 /** Caps are bounded (`LIMITS.agentCapMaxMinor`): above it a spend is the founder's to approve, whatever the agent's cap. */
 const CapMinor = z.number().int().nonnegative().max(LIMITS.agentCapMaxMinor, "That is above the most an agent may be allowed on its own; approve larger spends yourself");
 const Autonomy = z.object({ mode: z.enum(["inherit", "lower", "higher"]).default("inherit"), spendCapMinor: CapMinor.optional(), approvalThresholdMinor: CapMinor.optional() });
-const Negotiation = z.object({ enabled: z.boolean(), priceMinMinor: z.number().int().nonnegative().optional(), priceMaxMinor: z.number().int().nonnegative().optional(), walkAwayMinor: z.number().int().nonnegative().optional(), maxConcessionPct: z.number().min(0).max(100).optional(), topics: z.array(z.string().min(1)).default([]) });
+const Negotiation = z.object({ enabled: z.boolean(), priceMinMinor: z.number().int().nonnegative().optional(), priceMaxMinor: z.number().int().nonnegative().optional(), walkAwayMinor: z.number().int().nonnegative().optional(), maxConcessionPct: z.number().min(0).max(100).optional(), topics: z.array(z.string().min(1)).max(INPUT_LIMITS.negotiationTopics).default([]) });
 
 /** The agents a scoped change applies to; a released agent keeps its profile as a record and takes no changes. */
 async function scopedAgents(ctx: BusinessContext, agentId: string, scope: z.infer<typeof ApplyScope>): Promise<Agent[]> {

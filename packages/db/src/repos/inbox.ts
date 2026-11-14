@@ -209,8 +209,8 @@ function tabCondition(tab: InboxTab) {
 
 export const InboxListFilter = PageInput.extend({
   tab: z.enum(INBOX_TABS).default("all"),
-  state: z.union([z.enum(INBOX_STATES), z.array(z.enum(INBOX_STATES))]).optional(),
-  type: z.union([z.enum(INBOX_ITEM_TYPES), z.array(z.enum(INBOX_ITEM_TYPES))]).optional(),
+  state: z.union([z.enum(INBOX_STATES), z.array(z.enum(INBOX_STATES)).max(INBOX_STATES.length)]).optional(),
+  type: z.union([z.enum(INBOX_ITEM_TYPES), z.array(z.enum(INBOX_ITEM_TYPES)).max(INBOX_ITEM_TYPES.length)]).optional(),
   fromAgentId: Id.optional(),
   blocking: z.boolean().optional(),
 });

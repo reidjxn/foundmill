@@ -1,6 +1,6 @@
 /** team.agents.* / team.humans.* / team.responsibilities.* (BUILD §11.9; AC-11.9.2 responsibilities route approvals). */
 import { TEMPLATE_KEYS, getTemplate, hasTemplate, listTemplates } from "@foundmill/agents";
-import { CREDITS_CURRENCY } from "@foundmill/config";
+import { CREDITS_CURRENCY, INPUT_LIMITS } from "@foundmill/config";
 import { SectionPermissions, membershipEnded, repos, type AgentRosterActivity } from "@foundmill/db";
 import { ADMIN_ROLES, DECISION_TYPES, DEFAULT_AGENT_STYLE, eventAsSeenBy, ForbiddenError, hasSectionAccess, isOwnerRole, MEMBERSHIP_ROLES, NotFoundError, ValidationError, agentTier, characterFor, leadAgentIds } from "@foundmill/shared";
 import { z } from "zod";
@@ -220,7 +220,7 @@ export const teamRouter = router({
     }),
 
     /** Clone any agent but the Chief of Staff (one per business). */
-    clone: write.input(z.object({ agentId: Id, name: z.string().min(1).max(80), departmentIds: z.array(Id).optional() })).mutation(async ({ ctx, input }) =>
+    clone: write.input(z.object({ agentId: Id, name: z.string().min(1).max(80), departmentIds: z.array(Id).max(INPUT_LIMITS.departmentIds).optional() })).mutation(async ({ ctx, input }) =>
       ctx.db.transaction(async (tx) => {
         // The repo refuses a department that is not this business's. A clone joins the departments it is filed under as
         // a hire does, so department rosters and merges see it (audit ARB-24).

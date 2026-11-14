@@ -100,7 +100,7 @@ export const CreateJourneyInput = z.object({
 export type CreateJourneyInput = z.input<typeof CreateJourneyInput>;
 
 export const JourneyListFilter = PageInput.extend(DateRange.shape).extend({
-  matchdayLevel: z.union([z.enum(MATCHDAY_LEVELS), z.array(z.enum(MATCHDAY_LEVELS))]).optional(),
+  matchdayLevel: z.union([z.enum(MATCHDAY_LEVELS), z.array(z.enum(MATCHDAY_LEVELS)).max(MATCHDAY_LEVELS.length)]).optional(),
   kind: z.enum(CONVERSION_KINDS).optional(),
   unviewedOnly: z.boolean().default(false),
   /** `created` (default): the newest Customer Updates first; `converted`: the newest wins first, by when they happened. */

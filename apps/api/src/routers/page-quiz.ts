@@ -9,7 +9,8 @@
  * - `publicQuiz.bySlug`: anyone; the view `public_page_quizzes` only; null when there is no live quiz there.
  * - `publicQuiz.answer`: anyone; scores the answers against the live version and counts the result type once.
  */
-import { PAGE_QUIZ_QUESTION_KEYS, PAGE_SLUG_MAX } from "@foundmill/shared";
+import { INPUT_LIMITS } from "@foundmill/config";
+import { boundedRecord, PAGE_QUIZ_QUESTION_KEYS, PAGE_SLUG_MAX } from "@foundmill/shared";
 import { z } from "zod";
 import { answerPublicQuiz, approvePageQuiz, draftPageQuiz, pageQuizView, publicQuizBySlug, savePageQuiz, setPageQuizLive } from "../services/page-quiz";
 import { publicProcedure, router, sectionAdmin, sectionRead, sectionWrite } from "../trpc";
@@ -19,7 +20,7 @@ const write = sectionWrite("product");
 const publish = sectionAdmin("product");
 
 /** The definition as the client sends it: bounded here, read and checked field by field in the service. */
-const DefinitionInput = z.record(z.string(), z.unknown()).refine((v) => JSON.stringify(v).length <= 24_000, { message: "That quiz is too long." });
+const DefinitionInput = boundedRecord(INPUT_LIMITS.jsonObjectKeys, z.record(z.string(), z.unknown())).refine((v) => JSON.stringify(v).length <= 24_000, { message: "That quiz is too long." });
 
 export const pageQuizRouter = router({
   get: read.query(({ ctx }) => pageQuizView(ctx)),
