@@ -14,7 +14,7 @@ import { Worker } from "@temporalio/worker";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { Activities } from "../../activities";
 import { WORKFLOWS_PATH } from "../../index";
-import { businessFoundations, FOUNDATIONS_PAGE_PATCH, FOUNDATIONS_STAGED_PATCH } from "../../workflows";
+import { businessFoundations, FOUNDATIONS_PAGE_PATCH, FOUNDATIONS_SECOND_READ_PATCH, FOUNDATIONS_STAGED_PATCH } from "../../workflows";
 import { createTemporalRig, wfId, type TemporalRig } from "./temporal";
 
 const LEGACY = ["legacy-drafting", "legacy-ready", "legacy-draft-failed"] as const;
@@ -60,6 +60,7 @@ describe("businessFoundations: new workflows", () => {
       draftFoundationsRoadmap: async () => ({ current: true, usage }),
       applyFoundations: async () => ({ applied: true, inboxItemId: null }),
       failFoundations: async () => ({ failed: true }),
+      secondReadDocument: async () => ({ status: "skipped" as const, reason: "it is too short to need a second read" }),
     };
     const workflowId = wfId("foundations");
     const result = await rig.run(acts, (client, taskQueue) => client.workflow.execute(businessFoundations, { workflowId, taskQueue, args: [{ businessId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb", attempt: 1 }] }));
@@ -72,8 +73,9 @@ describe("businessFoundations: new workflows", () => {
     expect(patches).toEqual([
       { id: FOUNDATIONS_STAGED_PATCH, deprecated: false },
       { id: FOUNDATIONS_PAGE_PATCH, deprecated: false },
+      { id: FOUNDATIONS_SECOND_READ_PATCH, deprecated: false },
     ]);
-    expect(scheduled({ events: history.events ?? [] })).toEqual(["draftProjectPage", "draftFoundationsPlan", "draftFoundationsSections", "draftFoundationsRoadmap", "applyFoundations"]);
+    expect(scheduled({ events: history.events ?? [] })).toEqual(["draftProjectPage", "draftFoundationsPlan", "draftFoundationsSections", "draftFoundationsRoadmap", "applyFoundations", "secondReadDocument"]);
     await expect(Worker.runReplayHistory({ workflowsPath: WORKFLOWS_PATH, replayName: "staged" }, history)).resolves.toBeUndefined();
   }, 120_000);
 });

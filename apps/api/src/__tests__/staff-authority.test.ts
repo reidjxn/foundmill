@@ -57,12 +57,12 @@ describe("#98 staff permissions hold for admins", () => {
     await walls(adminId, { team: "none" });
     try {
       const outsider = await hz.h.createUser("authority-outsider@test.local");
-      expect(await code(as(adminId).team.humans.invite({ businessId, userId: outsider, role: "member" }))).toBe("FORBIDDEN");
+      expect(await code(as(adminId).invitation.create({ businessId, role: "collaborator" }))).toBe("FORBIDDEN");
+      expect(await code(as(adminId).invitation.revoke({ businessId, invitationId: outsider }))).toBe("FORBIDDEN");
       expect(await code(as(adminId).team.humans.role({ businessId, userId: viewerId, sectionPermissions: { finance: "write" } }))).toBe("FORBIDDEN");
       expect(await code(as(adminId).team.humans.remove({ businessId, userId: viewerId }))).toBe("FORBIDDEN");
-      // Nor can it lift its own wall, by role or by invite.
+      // Nor can it lift its own wall by role (and accepting an invitation never changes an existing member).
       expect(await code(as(adminId).team.humans.role({ businessId, userId: adminId, sectionPermissions: {} }))).not.toBe("OK");
-      expect(await code(as(adminId).team.humans.invite({ businessId, userId: adminId, role: "admin" }))).not.toBe("OK");
       expect((await repos.memberships.get(hz.db, businessId, adminId))?.sectionPermissions).toEqual({ team: "none" });
       expect(await code(as(hz.A.ownerId).team.humans.role({ businessId, userId: viewerId, sectionPermissions: { finance: "read" } }))).toBe("OK");
     } finally {

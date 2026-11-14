@@ -15,10 +15,10 @@
  * (`@foundmill/shared/email-links`). It stamps `emails_paused_at`; Settings › Preferences › Email turns them back on.
  */
 import { repos, withRls, type Business, type Membership } from "@foundmill/db";
-import { hasSectionAccess, oneClickOption } from "@foundmill/shared";
+import { hasSectionAccess, isAdminRole, oneClickOption } from "@foundmill/shared";
 import { emailLinkSecret, hashActionToken, isActionTokenShape, verifyPauseToken } from "@foundmill/shared/email-links";
 import { z } from "zod";
-import { assertAllowlisted } from "../services/access";
+import { isAdmittedNow } from "../services/access";
 import { decideInboxItem, oneClickPlanAllowed } from "../services/decide";
 import type { BusinessContext, RlsRunner } from "../trpc";
 import { publicProcedure, router } from "../trpc";
@@ -54,13 +54,9 @@ async function resolve(ctx: Context, token: string, now: Date): Promise<Resolved
   const { membership, business } = await repos.memberships.access(ctx.db, n.businessId, n.userId);
   // Owners and admins who may still write the Inbox (section permissions hold here as in inbox.decide), on a deployment
   // that still admits them (the allowlist protectedProcedure would apply).
-  if (!membership || !business || membership.source === "example" || (membership.role !== "owner" && membership.role !== "admin") || !hasSectionAccess(membership, "inbox", "write")) return { ...none, notification: n };
+  if (!membership || !business || membership.source === "example" || !isAdminRole(membership.role) || !hasSectionAccess(membership, "inbox", "write")) return { ...none, notification: n };
   const email = await repos.founders.emailOf(ctx.db, n.userId);
-  try {
-    assertAllowlisted(ctx.env, { userId: n.userId, email, emailConfirmed: email !== null });
-  } catch {
-    return { ...none, notification: n };
-  }
+  if (!(await isAdmittedNow(ctx, { userId: n.userId, email, emailConfirmed: email !== null }))) return { ...none, notification: n };
   const item = await repos.notifyFacts.item(ctx.db, n.businessId, n.actionItemId);
   if (!item) return { ...none, notification: n };
   if (item.state === "answered" || item.state === "archived") return { ...none, state: "answered", notification: n };

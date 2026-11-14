@@ -3,7 +3,10 @@
  * `onPersonCreated` on the save that creates the profile, after the profile is saved, and on no other save.
  *
  * The steps, in order (`PERSON_CREATED_STEPS`):
- *   1. `signup_attribution`: who or what brought the person (`recordSignupAttribution`, ./attribution), from `via`.
+ *   1. `invitation_attribution`: when the person accepted an invitation before their profile existed, the person who
+ *      invited them is credited (`recordInvitationAttribution`, ./attribution);
+ *   2. `signup_attribution`: who or what brought the person (`recordSignupAttribution`, ./attribution), from `via`,
+ *      when the first step recorded nothing (an account is attributed once).
  * `ideaDraftToken` is accepted and passed to every step, and no step reads it yet: the step that claims an idea drafted
  * before sign-up (`claimIdeaDraft`) is added to the list by the change that builds it.
  *
@@ -20,7 +23,7 @@
  *     or a background query on the api's database pool, and a step must not either.
  */
 import type { Db } from "@foundmill/db";
-import { recordSignupAttribution } from "./attribution";
+import { recordInvitationAttribution, recordSignupAttribution } from "./attribution";
 import type { ApiLogger } from "./log";
 
 export interface PersonCreatedDeps {
@@ -49,6 +52,8 @@ export interface PersonCreatedStep {
 
 /** The steps, in the order they run. Append a step here; never reorder one in front of another that it depends on. */
 export const PERSON_CREATED_STEPS: readonly PersonCreatedStep[] = [
+  // An accepted invitation outranks the cookie's reference: the attribution is written once, so the first step wins.
+  { name: "invitation_attribution", run: (deps, userId) => recordInvitationAttribution(deps, userId) },
   { name: "signup_attribution", run: (deps, userId, input) => recordSignupAttribution(deps, userId, input.via) },
 ];
 

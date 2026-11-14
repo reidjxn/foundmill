@@ -142,6 +142,7 @@ export const EXPORT_EXCLUDED_TABLES: Readonly<Record<string, string>> = {
   founder_presence: "When each person was last in the business: one person's own activity, not business data.",
   founder_visit_days: "The days each person opened the business: one person's own activity, not business data.",
   founder_notifications: "The emails sent to each founder: one person's own mail, readable only by them in Settings.",
+  invitations: "Links to join the project: their token hashes and the addresses they were sent to are not the business's data to carry elsewhere; the People in the archive are who joined.",
   composer_buffer: "Inbox notes waiting to be written (internal queue).",
   workspace_blobs: "Sandbox file snapshots; the code reaches your repository through pushes.",
   workspace_snapshots: "Sandbox file snapshots; the code reaches your repository through pushes.",

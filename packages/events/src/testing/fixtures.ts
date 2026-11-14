@@ -577,6 +577,9 @@ export const EVENT_FIXTURES: { readonly [K in EventType]: EventPayloadInput<K> }
   "milestone.hidden": { milestoneId: fixtureId("milestone"), key: "page_live", slug: "northwind-skincare", url: `https://foundmill.example/m/${fixtureId("milestone")}` },
   "share.opened": { network: "x", kind: "milestone", refId: fixtureId("milestone"), target: "tap" },
   "post.drafted": { assetId: fixtureId("asset-post"), trigger: "page_published", subject: "page_live", agentId: FIXTURE_AGENT_ID },
+  "invitation.sent": { invitationId: fixtureId("invitation"), role: "collaborator", emailed: false },
+  "invitation.accepted": { invitationId: fixtureId("invitation"), role: "cofounder", userId: fixtureId("user") },
+  "invitation.declined": { invitationId: fixtureId("invitation"), role: "collaborator" },
   // Account-scoped (a person's own): written with `accountFixtureInput`, never with `fixtureInput`.
   "profile.published": { handle: "maya-okafor" },
   "profile.unpublished": { handle: "maya-okafor" },

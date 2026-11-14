@@ -61,7 +61,8 @@ beforeEach(() => vi.mocked(recordSignupAttribution).mockClear());
 
 describe("founder.profile.update runs onPersonCreated on the save that creates the profile", () => {
   it("the attribution step still runs: the row and its two account events are written, once", async () => {
-    expect(PERSON_CREATED_STEPS.map((step) => step.name)).toEqual(["signup_attribution"]);
+    // An accepted invitation outranks the cookie's reference (services/attribution.ts `recordInvitationAttribution`).
+    expect(PERSON_CREATED_STEPS.map((step) => step.name)).toEqual(["invitation_attribution", "signup_attribution"]);
     const p = await newcomer();
     await p.me.founder.profile.update({ ...answer, via: "u.ida-moss" });
     expect(recordSignupAttribution).toHaveBeenCalledTimes(1);
@@ -141,7 +142,7 @@ describe("onPersonCreated", () => {
     const { lines, log } = capture();
     const p = await newcomer();
     const ran: string[] = [];
-    const attribution = PERSON_CREATED_STEPS[0]!;
+    const attribution = PERSON_CREATED_STEPS.find((step) => step.name === "signup_attribution")!;
     const steps: PersonCreatedStep[] = [
       // Writes in its own transaction, then a later step fails: the row stays.
       { name: "signup_attribution", run: attribution.run },
@@ -204,19 +205,25 @@ describe("onPersonCreated", () => {
   });
 
   it("with the steps it ships: nothing to do reads nothing, and a database that fails is logged without the values", async () => {
-    // No reference: the attribution step returns before it opens a transaction, and the token opens none.
+    // No reference: the cookie's step returns before it opens a transaction, and the token opens none.
     const untouched = { transaction: () => Promise.reject(new Error("must not be called")), execute: () => Promise.reject(new Error("must not be called")) } as unknown as Db;
     const quiet = capture();
+    const cookieStep = PERSON_CREATED_STEPS.filter((step) => step.name === "signup_attribution");
     for (const input of [{}, { ideaDraftToken: TOKEN }, { via: undefined, ideaDraftToken: TOKEN }, { via: "not a reference", ideaDraftToken: TOKEN }, { via: 42, ideaDraftToken: { not: "text" } }]) {
-      await expect(onPersonCreated({ db: untouched, log: quiet.log }, (await newcomer()).userId, input)).resolves.toBeUndefined();
+      await expect(onPersonCreated({ db: untouched, log: quiet.log }, (await newcomer()).userId, input, cookieStep)).resolves.toBeUndefined();
     }
+    expect(quiet.lines).toEqual([]);
+    // The invitation step reads one row (the person's first accepted invitation) and, with none, writes nothing.
+    const none = await newcomer();
+    await expect(onPersonCreated({ db: hz.db, log: quiet.log }, none.userId, {}, PERSON_CREATED_STEPS.filter((step) => step.name === "invitation_attribution"))).resolves.toBeUndefined();
+    expect(await repos.attributions.forUser(hz.db, none.userId)).toBeNull();
     expect(quiet.lines).toEqual([]);
 
     // A failing database under the attribution step: its own line, and still no value.
     const failing = { transaction: async () => Promise.reject(new Error(`Failed query: … params: ida-moss ${TOKEN}`)) } as unknown as Db;
     const loud = capture();
     const p = await newcomer();
-    await expect(onPersonCreated({ db: failing, log: loud.log }, p.userId, { via: "u.ida-moss", ideaDraftToken: TOKEN })).resolves.toBeUndefined();
+    await expect(onPersonCreated({ db: failing, log: loud.log }, p.userId, { via: "u.ida-moss", ideaDraftToken: TOKEN }, cookieStep)).resolves.toBeUndefined();
     expect(loud.lines).toHaveLength(1);
     expect(JSON.parse(loud.lines[0]!)).toMatchObject({ userId: p.userId, error: "Error", msg: "signup attribution was not recorded" });
     for (const said of [TOKEN, "ida-moss"]) expect(loud.lines[0], said).not.toContain(said);

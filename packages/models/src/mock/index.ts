@@ -19,6 +19,7 @@ import {
   CoachOutput,
   CodeReviewOutput,
   CommentaryOutput,
+  DocumentReviewOutput,
   ComposerOutput,
   CyclePlanOutput,
   DepartmentLeadOutput,
@@ -49,6 +50,7 @@ import { generateChiefOfStaff } from "./chiefOfStaff";
 import { generateCategoriser, generateClassifier } from "./classifier";
 import { generateCoach } from "./coach";
 import { generateCodeReview } from "./codeReview";
+import { generateDocumentReview } from "./documentReview";
 import { generateDepartmentLead } from "./departmentLead";
 import { generateJurisdictionRecommendation, isJurisdictionRequest } from "./jurisdictionRecommender";
 import { generateFoundationsSkeleton, generateIdeationSlate } from "./drafts";
@@ -96,6 +98,7 @@ export const MOCK_ROUTES: Record<RouteKey, MockRouteDefinition> = {
   leadRecommendation: { route: "leadRecommendation", description: "Distribution's channel scores and Legal's country cards behind a Recommend button.", schema: DepartmentLeadOutput, generate: (ctx) => (isJurisdictionRequest(ctx) ? generateJurisdictionRecommendation(ctx) : generateDepartmentLead(ctx)) },
   planner: { route: "planner", description: "Roadmap items → ordered tasks with what counts as done, test expectations, file-scope hints and dependencies.", schema: TaskGraphOutput, generate: generatePlanner },
   codeReview: { route: "codeReview", description: "Deterministic review of a unified diff against the platform rules.", schema: CodeReviewOutput, generate: generateCodeReview },
+  documentReview: { route: "documentReview", description: "Second read of a long document: inconsistent prices or launch months, unlabeled figures about the future, claims that need a source; a claim whose only sources are simulated is never supported.", schema: DocumentReviewOutput, generate: generateDocumentReview },
   ideation: { route: "ideation", description: "6–12 concept cards with 10 attributes (1–20), evidence and ≥ 2 citations, seeded by the prompt; one card (keeping the slate item's name, business type and angle) when the schema is a single card.", schema: IdeationOutput, generate: generateIdeationRoute },
   ideationSlate: { route: "ideationSlate", description: "The 6–12 names, business types and one-line angles of an ideation set, drafted by the ideation mock for the same prompt.", schema: IdeationSlateOutput, generate: generateIdeationSlate },
   logoDesigner: { route: "logoDesigner", description: "N distinct geometric logo marks as SVG on a 100 × 100 tile, in the brand colors; never a shield, badge, star or ball.", schema: LogoDesignOutput, generate: generateLogoDesigner },
@@ -360,6 +363,7 @@ export { CHANNEL_WAITS_REASON, generateChiefOfStaff, readTasks, scoreTask } from
 export { generateDepartmentLead } from "./departmentLead";
 export { generatePlanner } from "./planner";
 export { generateCodeReview, parseDiff } from "./codeReview";
+export { generateDocumentReview } from "./documentReview";
 export { generateSkillGrader } from "./skillGrader";
 export { generateCoach } from "./coach";
 export { generateJourneyCommentary } from "./journeyCommentary";

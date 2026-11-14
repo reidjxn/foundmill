@@ -108,3 +108,34 @@ describe("checkComposerText", () => {
     expect(good.ok).toBe(true);
   });
 });
+
+describe("stripInvalidMentions: always valid, words kept (security re-check follow-ups)", () => {
+  it("never joins the words around a removed token into a mention of a hidden entity", () => {
+    const spliced = `Note [[[[ent:x]]ent:${FIXTURE_IDS.hiddenInvestor}|Secret]] end.`;
+    const out = stripInvalidMentions(spliced, m);
+    expect(validateMarkup(out, m).valid).toBe(true);
+    expect(validateMarkup(out, m).entityIds).not.toContain(FIXTURE_IDS.hiddenInvestor);
+    expect(out).not.toContain(`[[ent:${FIXTURE_IDS.hiddenInvestor}`);
+  });
+
+  it("keeps the space before a following mention", () => {
+    const text = `x [[ent:abc| [[ent:${FIXTURE_IDS.meridian}|Meridian]] replied.`;
+    const out = stripInvalidMentions(text, m);
+    expect(out).toBe(`x [[ent:${FIXTURE_IDS.meridian}|Meridian]] replied.`);
+    expect(validateMarkup(out, m).valid).toBe(true);
+  });
+
+  it("returns valid text for any of a set of hostile inputs", () => {
+    const hostile = [
+      `[[ent:[[ent:[[ent:${FIXTURE_IDS.hiddenInvestor}|S]]`,
+      `[[[[[[ent:a]]ent:b]]ent:${FIXTURE_IDS.hiddenInvestor}|S]]`,
+      `|[[ent:${FIXTURE_IDS.hiddenInvestor}|S\r\n]]`,
+      `[[ent:]] [[ent:|]] [[ent:${FIXTURE_IDS.meridian}|Meridian]]`,
+    ];
+    for (const text of hostile) {
+      const out = stripInvalidMentions(text, m);
+      expect(validateMarkup(out, m).valid, text).toBe(true);
+      expect(validateMarkup(out, m).entityIds, text).not.toContain(FIXTURE_IDS.hiddenInvestor);
+    }
+  });
+});

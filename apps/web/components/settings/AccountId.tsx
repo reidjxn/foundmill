@@ -1,8 +1,8 @@
 "use client";
 /**
- * The signed-in person's own account ID, with Copy: the ID a co-founder's owner or admin types into Settings › Members
- * to add them (team.humans.invite also accepts the email they sign in with). Shown on the founder profile
- * (/onboarding) and in Settings › Preferences, so a new co-founder can always find it.
+ * The signed-in person's own account ID, with Copy: for support to find the account. Nobody is added to a project by
+ * it any more: people join through an invitation they accept (Settings › People; THESIS_REVIEW 3.1). Shown on the
+ * founder profile (/onboarding) and in Settings › Preferences.
  */
 import { Copy } from "lucide-react";
 import { useState } from "react";
@@ -21,7 +21,7 @@ export function AccountId({ accountId, className }: AccountIdProps) {
     try {
       await navigator.clipboard.writeText(accountId);
       setCopied(true);
-      toast({ title: "Account ID copied", description: "Send it to the owner or an admin of the business that adds you.", tone: "good" });
+      toast({ title: "Account ID copied", description: "Give it to support if they ask for it.", tone: "good" });
     } catch {
       toast({ title: "Copy did not work", description: "Select the ID and copy it by hand.", tone: "warn" });
     }
@@ -36,7 +36,7 @@ export function AccountId({ accountId, className }: AccountIdProps) {
           {copied ? "Copied" : "Copy"}
         </Button>
       </div>
-      <p className="mt-1 text-small text-secondary">To join a co-founder's business, send them this ID or the email you sign in with; they add you from Settings › Members.</p>
+      <p className="mt-1 text-small text-secondary">Your account's ID, if support asks for it. To join someone's project, open the invitation link they send you.</p>
     </div>
   );
 }

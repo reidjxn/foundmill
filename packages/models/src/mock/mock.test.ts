@@ -37,6 +37,16 @@ const SAMPLE_INPUT: Record<RouteKey, Record<string, unknown>> = {
   leadRecommendation: DEPARTMENT_LEAD_INPUT,
   planner: { roadmap_items: [{ id: "r1", title: "Retail partner portal", description: "A page where retail partners place orders and see invoices" }, { id: "r2", title: "Stripe payment webhooks", description: "Record invoice.paid events" }] },
   codeReview: { diff: "diff --git a/apps/api/src/routers/orders.ts b/apps/api/src/routers/orders.ts\n--- a/apps/api/src/routers/orders.ts\n+++ b/apps/api/src/routers/orders.ts\n@@ -1,3 +1,6 @@\n+const rows = await db.select().from(orders);\n+console.log(rows);\n+const key = process.env.STRIPE_KEY;\n" },
+  documentReview: {
+    document: {
+      kind: "specification",
+      title: "Northwind Skincare specification",
+      sections: [
+        { id: "pricing", heading: "Pricing", text: "The starter plan is $29 a month." },
+        { id: "metrics", heading: "Metrics", text: "We will reach 400 customers by the end of year one. The starter plan costs $39 a month." },
+      ],
+    },
+  },
   ideation: { prompt: "A skincare brand for people with eczema who want fragrance-free products", founder: { skills: { engineering: 8, sales: 14, design: 12, finance: 9, domain: 16 }, constraints: ["bootstrapped"] } },
   ideationSlate: { prompt: "A skincare brand for people with eczema who want fragrance-free products", founder: { constraints: ["bootstrapped"] } },
   foundationsSkeleton: {

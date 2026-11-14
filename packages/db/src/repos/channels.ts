@@ -490,6 +490,18 @@ export const channelsRepo = {
     return rows.length > 0;
   },
 
+  /**
+   * Service only: suppresses an address hash platform-wide once (every project's mail and every invitation honor it,
+   * `isSuppressed`). True when it was written now, false when the hash was already suppressed platform-wide.
+   */
+  async suppressEverywhere(db: Executor, input: { emailHash: string; reason: string; source: string }): Promise<boolean> {
+    const v = parseInput(AddSuppressionInput, { ...input, scope: "platform" }, "suppression entry");
+    const existing = await db.select({ id: suppressionList.id }).from(suppressionList).where(and(eq(suppressionList.scope, "platform"), eq(suppressionList.emailHash, v.emailHash!))).limit(1);
+    if (existing.length > 0) return false;
+    await db.insert(suppressionList).values({ businessId: null, emailHash: v.emailHash!, reason: v.reason, scope: "platform", source: v.source ?? null });
+    return true;
+  },
+
   async removeSuppression(db: Executor, businessId: string, entryId: string): Promise<void> {
     await db.delete(suppressionList).where(and(eq(suppressionList.businessId, businessId), eq(suppressionList.id, entryId), inArray(suppressionList.scope, ["business"])));
   },

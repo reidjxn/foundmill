@@ -41,6 +41,7 @@ import {
   Money,
   NOTIFICATION_KINDS,
   EMAIL_NOTIFICATION_KINDS,
+  INVITATION_ROLES,
   PUSH_PROVIDERS,
   SHARE_DESTINATIONS,
   SHARE_OPEN_TARGETS,
@@ -1930,6 +1931,53 @@ const postDrafted = declareEvent(
 );
 
 // ---------------------------------------------------------------------------------------------------
+// Invitations to a project (0091; docs/NETWORK.md F5, THESIS_REVIEW package 3.1)
+// ---------------------------------------------------------------------------------------------------
+
+const InvitationRoleEnum = z.enum(INVITATION_ROLES);
+
+const invitationSent = declareEvent(
+  "invitation.sent",
+  z.object({
+    /** The invitation (0091 `invitations`): never its token, and never the address it was sent to. */
+    invitationId: Id,
+    role: InvitationRoleEnum,
+    /** Whether Foundmill emailed the link to an address the inviter typed (else the inviter shares the link themselves). */
+    emailed: z.boolean(),
+  }),
+  {
+    doc: "An owner, a cofounder or an admin of the project made an invitation for someone to join it as a cofounder or a collaborator (`invitation.create`, Settings › People). The link was shown to them once; when they typed an address, Foundmill was asked to email it there. Not an outside result of the project's own work. Never narrated: the People tab lists the invitation; apps/stream pushes it so that tab follows.",
+    consumers: ["stream", "metrics"],
+    narratable: false,
+  },
+);
+
+const invitationAccepted = declareEvent(
+  "invitation.accepted",
+  z.object({
+    invitationId: Id,
+    role: InvitationRoleEnum,
+    /** The person who accepted and is now one of the project's people (the membership row carries their access). */
+    userId: Id,
+  }),
+  {
+    doc: "The person an invitation was for signed in and accepted it (`invitation.accept`): they joined the project as a cofounder or a collaborator, once (the invitation is used up). The person who invited them is emailed within their limits (`invitation_accepted`). Written beside `membership.changed`. Not narrated: People shows them at once; apps/stream pushes it.",
+    consumers: ["stream", "metrics"],
+    narratable: false,
+  },
+);
+
+const invitationDeclined = declareEvent(
+  "invitation.declined",
+  z.object({ invitationId: Id, role: InvitationRoleEnum }),
+  {
+    doc: "The person an invitation was for said no to it from its page (`invitation.decline`): the link stops working. Nothing about who they are is kept. Not narrated, and nobody is emailed about it.",
+    consumers: ["stream", "metrics"],
+    narratable: false,
+  },
+);
+
+// ---------------------------------------------------------------------------------------------------
 // Account events: a person's own public profile (0080; account-scoped, docs/ARCHITECTURE.md §5 "Account events")
 // ---------------------------------------------------------------------------------------------------
 
@@ -2081,6 +2129,9 @@ export const EVENTS = {
   "share.opened": shareOpened,
   "referral.arrived": referralArrived,
   "post.drafted": postDrafted,
+  "invitation.sent": invitationSent,
+  "invitation.accepted": invitationAccepted,
+  "invitation.declined": invitationDeclined,
 } as const satisfies { readonly [K in EventTypeT]: EventDeclaration<K, z.ZodType, EventScopeOf<K>> };
 
 export type EventsRegistry = typeof EVENTS;

@@ -14,7 +14,7 @@ import { EXPERIENCE_OPTIONS, TIME_OPTIONS, budgetWords, placeAndMarketsWords } f
 export type FounderProfileGet = RouterOutputs["founder"]["profile"]["get"];
 
 export interface StudioViewer {
-  /** The account ID a co-founder adds this person by. */
+  /** The person's account ID (for support: people join a project by invitation, not by it). */
   userId: string | null;
   email: string | null;
   profile: FounderProfileGet["profile"];

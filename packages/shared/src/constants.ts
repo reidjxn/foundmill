@@ -164,8 +164,27 @@ export function firstVisibleTab<T extends { slug: string; title?: string; positi
   return visibleTabs(dept, builder)[0];
 }
 
-export const MEMBERSHIP_ROLES = ["owner", "admin", "member", "viewer", "advisor"] as const;
+/**
+ * The roles of a project's people (BUILD §11.9; THESIS_REVIEW package 3.3, founder 2026-11-11 "the words for people").
+ * `cofounder` and `collaborator` are appended, so every stored role keeps its meaning:
+ *   - `owner`: the founder who started the project (Commit writes it), with every right;
+ *   - `cofounder`: equal standing, any number. Owner-equivalent wherever an owner is meant (`isOwnerRole`, and the
+ *     database's `has_role`, 0092), never told apart from an owner in what they may do;
+ *   - `collaborator`: someone trying out or helping, with limited access: read and write Product and Customers, read the
+ *     plan, nothing of Money or Settings (`COLLABORATOR_SECTIONS`, permissions.ts), and an optional end date
+ *     (`memberships.expires_at`) after which the membership opens nothing;
+ *   - `admin`, `member`, `viewer`, `advisor`: as before.
+ */
+export const MEMBERSHIP_ROLES = ["owner", "admin", "member", "viewer", "advisor", "cofounder", "collaborator"] as const;
 export type MembershipRole = (typeof MEMBERSHIP_ROLES)[number];
+/** An owner's standing: the founder who started the project and every cofounder. */
+export const OWNER_ROLES: readonly MembershipRole[] = ["owner", "cofounder"];
+/** The roles that administer a project: an owner's standing and admins. */
+export const ADMIN_ROLES: readonly MembershipRole[] = ["owner", "cofounder", "admin"];
+/** Whether `role` has an owner's standing (an owner or a cofounder). */
+export const isOwnerRole = (role: string | null | undefined): boolean => role === "owner" || role === "cofounder";
+/** Whether `role` administers the project (an owner's standing or an admin). */
+export const isAdminRole = (role: string | null | undefined): boolean => isOwnerRole(role) || role === "admin";
 /**
  * How a membership came to be (migration 0065): `invite` (team.humans.invite, the seeds' owners, every row before
  * 0065), `founder` (the owner seat Commit writes), `example` (business.example.open: a read-only walk around a seeded
@@ -173,7 +192,8 @@ export type MembershipRole = (typeof MEMBERSHIP_ROLES)[number];
  */
 export const MEMBERSHIP_SOURCES = ["invite", "founder", "example"] as const;
 export type MembershipSource = (typeof MEMBERSHIP_SOURCES)[number];
-export const WRITE_ROLES: readonly MembershipRole[] = ["owner", "admin", "member"];
+/** The roles that may change things (each still within its sections, permissions.ts). */
+export const WRITE_ROLES: readonly MembershipRole[] = ["owner", "cofounder", "admin", "member", "collaborator"];
 
 export const DEPT_COLOUR_TOKENS = ["dept-1", "dept-2", "dept-3", "dept-4", "dept-5", "dept-6", "dept-7", "dept-8"] as const;
 export type DeptColourToken = (typeof DEPT_COLOUR_TOKENS)[number];
@@ -451,6 +471,7 @@ export const EVENT_TYPES = [
   "share.opened",
   "referral.arrived",
   "post.drafted",
+  "invitation.sent", "invitation.accepted", "invitation.declined",
 ] as const;
 export type EventType = (typeof EVENT_TYPES)[number];
 
@@ -585,12 +606,25 @@ export const DEFAULT_NOTIFICATION_PREFS: Readonly<NotificationPrefs> = Object.fr
  * used-up credits, and the morning brief and the Monday weekly review. Every kind is on until the person turns it off
  * (Settings › Preferences, or the link in the email).
  */
-export const EMAIL_NOTIFICATION_KINDS = ["decision_waiting", "win", "milestone", "run_finished", "credits", "daily_brief", "weekly_review"] as const;
+export const EMAIL_NOTIFICATION_KINDS = ["decision_waiting", "win", "milestone", "run_finished", "credits", "daily_brief", "weekly_review", "invitation_accepted"] as const;
 export type EmailNotificationKind = (typeof EMAIL_NOTIFICATION_KINDS)[number];
 export type EmailNotificationPrefs = Record<EmailNotificationKind, boolean>;
-export const DEFAULT_EMAIL_NOTIFICATION_PREFS: Readonly<EmailNotificationPrefs> = Object.freeze({ decision_waiting: true, win: true, milestone: true, run_finished: true, credits: true, daily_brief: true, weekly_review: true });
-/** The kinds the daily limits count; the morning brief and the weekly review are on their own schedule (founder, 2026-11-12). */
+export const DEFAULT_EMAIL_NOTIFICATION_PREFS: Readonly<EmailNotificationPrefs> = Object.freeze({ decision_waiting: true, win: true, milestone: true, run_finished: true, credits: true, daily_brief: true, weekly_review: true, invitation_accepted: true });
+/**
+ * The kinds the daily limits count; the morning brief and the weekly review are on their own schedule (founder,
+ * 2026-11-12), and the note that someone a person invited joined is the answer to something they did, so it never uses up
+ * the three a day their own project's news has.
+ */
 export const LIMITED_EMAIL_KINDS: readonly EmailNotificationKind[] = ["decision_waiting", "win", "milestone", "run_finished", "credits"];
+/**
+ * What Foundmill may email to an address rather than to an account (`POST /v1/notify/email`, the same sender): an
+ * invitation to a project, sent to the address the inviter typed. Nobody holds a preference for it: it is one message
+ * the inviter asked for, with a "Don't send me invitations" link that stops every invitation to the address. It counts
+ * toward three a day per address, five emailed invitations a day per inviter (`INVITATION_EMAILS_PER_INVITER_PER_DAY`)
+ * and its own share of the daily ceiling (`ADDRESS_EMAIL_CEILING_SHARE`), never toward an account's own three a day.
+ */
+export const ADDRESS_EMAIL_KINDS = ["invitation"] as const;
+export type AddressEmailKind = (typeof ADDRESS_EMAIL_KINDS)[number];
 
 /** The account's type size (`account_preferences.text_size`, 0064): comfortable grows body and small text; the structure keeps its sizes. */
 export const TEXT_SIZES = ["standard", "comfortable"] as const;
