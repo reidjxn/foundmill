@@ -27,6 +27,16 @@ async function shortTargets(page: Page): Promise<string[]> {
   });
 }
 
+/**
+ * A decision's conversation with its agent draws its quick replies a moment after the note, so the 44 px check waits
+ * for them: measured before, the replies were never checked (a race CI lost on PR #114, when the replies were 32 px).
+ */
+async function conversationSettled(page: Page): Promise<void> {
+  const desk = page.getByTestId("reading-pane").getByRole("region", { name: /^Conversation with / });
+  await expect(desk).toBeVisible({ timeout: LONG });
+  await expect(desk.getByRole("group", { name: "Quick replies" })).toBeVisible({ timeout: LONG });
+}
+
 test.describe("Today and Needs you on a phone", () => {
   test("Today at 390 px: no larger-window ask, no sideways scroll, Needs you in one column, the menu reaches the Inbox", async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
@@ -117,6 +127,7 @@ test.describe("Today and Needs you on a phone", () => {
     await page.getByTestId("inbox-list").getByRole("option").first().click();
     await expect(page.getByTestId("reading-pane")).toBeVisible();
     await expect(page.getByTestId("decision-bar")).toBeVisible({ timeout: LONG });
+    await conversationSettled(page);
     await expect.poll(() => overflow(page), { timeout: LONG }).toBeLessThanOrEqual(0);
     expect(await shortTargets(page), "every link and button on a decision is at least 44 px high").toEqual([]);
   });

@@ -48,6 +48,14 @@ export interface PlatformMailConfig {
   appUrl?: string;
   /** That email's own daily ceiling, every person together (PLATFORM_NOTIFY_DAILY_CEILING, `pn:all:day`; default 1,000). */
   notifyCeiling?: number;
+  /** Every ordinary founder notice together in a UTC day (PLATFORM_SAFETY_DAILY_CEILING, `pn:safety:day`; default 5,000), enforced. 0 means 0. */
+  safetyCeiling?: number;
+  /**
+   * The circuit breaker over every essential founder notice together in a UTC day (PLATFORM_SAFETY_RESERVED_DAILY_CEILING,
+   * `pn:safety:reserved:day`; default 20,000): a warning at half, an error at the ceiling, and past it the per-person
+   * folded email. 0 means 0 (every essential notice folds).
+   */
+  safetyReservedCeiling?: number;
   /** Follow confirmations a project may send in a UTC day (`pm:<id>:follow`); default `FOLLOW_CONFIRM_DAILY_CAP`. For tests. */
   followCap?: number;
   /** Follow confirmations across the deployment in a UTC day (`pm:all:follow`); default `FOLLOW_CONFIRM_DAILY_CEILING`. For tests. */
@@ -64,7 +72,7 @@ export { DEV_PLATFORM_MAIL_SECRET };
 
 /** Throws at boot when the domain is set outside development and test without a signing secret of 32+ characters. */
 export function platformMailConfig(
-  env: Pick<Env, "APP_ENV" | "PLATFORM_MAIL_DOMAIN" | "PLATFORM_MAIL_DAILY_CAP" | "PLATFORM_MAIL_DAILY_CEILING" | "PLATFORM_MAIL_SIGNING_SECRET" | "INGEST_PUBLIC_URL" | "INGEST_URL"> & Partial<Pick<Env, "PLATFORM_NOTIFY_LOCAL_PART" | "APP_URL" | "PLATFORM_NOTIFY_DAILY_CEILING" | "SESSION_TOKEN_SECRET">>,
+  env: Pick<Env, "APP_ENV" | "PLATFORM_MAIL_DOMAIN" | "PLATFORM_MAIL_DAILY_CAP" | "PLATFORM_MAIL_DAILY_CEILING" | "PLATFORM_MAIL_SIGNING_SECRET" | "INGEST_PUBLIC_URL" | "INGEST_URL"> & Partial<Pick<Env, "PLATFORM_NOTIFY_LOCAL_PART" | "APP_URL" | "PLATFORM_NOTIFY_DAILY_CEILING" | "PLATFORM_SAFETY_DAILY_CEILING" | "PLATFORM_SAFETY_RESERVED_DAILY_CEILING" | "SESSION_TOKEN_SECRET">>,
 ): PlatformMailConfig {
   return {
     domain: platformMailDomain(env),
@@ -74,6 +82,9 @@ export function platformMailConfig(
     unsubscribeBase: (env.INGEST_PUBLIC_URL?.trim() || env.INGEST_URL).replace(/\/+$/, ""),
     notifyLocalPart: env.PLATFORM_NOTIFY_LOCAL_PART || "hello",
     notifyCeiling: env.PLATFORM_NOTIFY_DAILY_CEILING ?? PLATFORM_NOTIFY_DEFAULT_CEILING,
+    // Set means set, 0 included (final review): only an absent value takes the default (loadEnv refuses 0 at boot).
+    ...(env.PLATFORM_SAFETY_DAILY_CEILING !== undefined ? { safetyCeiling: env.PLATFORM_SAFETY_DAILY_CEILING } : {}),
+    ...(env.PLATFORM_SAFETY_RESERVED_DAILY_CEILING !== undefined ? { safetyReservedCeiling: env.PLATFORM_SAFETY_RESERVED_DAILY_CEILING } : {}),
     ...(env.APP_URL ? { appUrl: env.APP_URL.trim().replace(/\/+$/, "") } : {}),
     ...(pauseSecretOf(env) ? { pauseSecret: pauseSecretOf(env)! } : {}),
   };

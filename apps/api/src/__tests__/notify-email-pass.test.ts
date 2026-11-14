@@ -20,7 +20,9 @@ let asked: GatewayNotifyEmailRequest[] = [];
 let answer: (input: GatewayNotifyEmailRequest) => Promise<GatewayNotifyEmailResult>;
 
 /** What the real gateway records after a send: one event per person and UTC day within the business. */
-async function recordSent(input: GatewayNotifyEmailRequest, at = NOW): Promise<GatewayNotifyEmailResult> {
+async function recordSent(request: GatewayNotifyEmailRequest, at = NOW): Promise<GatewayNotifyEmailResult> {
+  if (request.kind === "founder_notice") return { sent: false, reason: "not_founder", message: "" };
+  const input = request;
   const event = await repos.events.write(hz.db, input.businessId, { type: "notify.email_sent", actor: { kind: "system", id: "notify-email" }, entityIds: [], occurredAt: at, payload: { kind: input.kind, userId: input.userId, inboxItemId: input.data.inboxItemId, messageId: "m", simulated: true, notificationId: randomUUID(), offersAnswer: false }, idempotencyKey: notifyEmailDayKey(input.kind, input.userId, at) });
   return { sent: true, simulated: true, eventId: event.id };
 }

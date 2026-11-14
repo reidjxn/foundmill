@@ -413,6 +413,40 @@ export const workspacesRepo = {
     return { snapshots: gone.length, blobs };
   },
 
+  /**
+   * Store contents that belong to no snapshot (the design check's screenshots, item 13), addressed by sha256 like the
+   * saved files, within the same quota. Returns each content's sha256 in input order, or null for one past the quota.
+   * No manifest references them, so a sweep (when the business's storage fills up, or the task is forgotten) may remove
+   * them first: they are evidence for a review, never code.
+   */
+  async putBlobs(db: Executor, businessId: string, contents: readonly Uint8Array[], options: { quotaBytes?: number; maxBytesEach?: number } = {}): Promise<(string | null)[]> {
+    const quotaBytes = options.quotaBytes ?? WORKSPACE_QUOTA_BYTES;
+    const maxEach = options.maxBytesEach ?? 8 * 1024 * 1024;
+    if (contents.length === 0) return [];
+    if (contents.length > 50) throw new ValidationError("at most 50 contents at a time");
+    await lockBusiness(db, businessId);
+    const shas = contents.map((c) => sha256(c));
+    const stored = new Set((await db.select({ sha256: workspaceBlobs.sha256 }).from(workspaceBlobs).where(and(eq(workspaceBlobs.businessId, businessId), inArray(workspaceBlobs.sha256, [...new Set(shas)])))).map((r) => r.sha256));
+    let used = await storedBytes(db, businessId);
+    const out: (string | null)[] = [];
+    for (const [i, content] of contents.entries()) {
+      const sha = shas[i]!;
+      if (stored.has(sha)) {
+        out.push(sha);
+        continue;
+      }
+      if (content.byteLength === 0 || content.byteLength > maxEach || used + content.byteLength > quotaBytes) {
+        out.push(null);
+        continue;
+      }
+      await db.insert(workspaceBlobs).values({ businessId, sha256: sha, sizeBytes: content.byteLength, content }).onConflictDoNothing({ target: [workspaceBlobs.businessId, workspaceBlobs.sha256] });
+      stored.add(sha);
+      used += content.byteLength;
+      out.push(sha);
+    }
+    return out;
+  },
+
   /** The contents of a snapshot's files (every file, or only `paths`), in manifest order. */
   async readFiles(db: Executor, businessId: string, snapshot: Pick<WorkspaceSnapshot, "files">, paths?: readonly string[]): Promise<Array<WorkspaceManifestEntry & { content: Uint8Array }>> {
     const wanted = paths ? new Set(paths) : null;

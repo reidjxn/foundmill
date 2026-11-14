@@ -5,6 +5,7 @@ import { SectionPermissions, membershipEnded, repos, type AgentRosterActivity } 
 import { ADMIN_ROLES, DECISION_TYPES, DEFAULT_AGENT_STYLE, ForbiddenError, hasSectionAccess, isOwnerRole, MEMBERSHIP_ROLES, NotFoundError, ValidationError, agentTier, characterFor, leadAgentIds } from "@foundmill/shared";
 import { z } from "zod";
 import { pendingApprovals, resolveApproval } from "../services/approvals";
+import { founderChangeNote, noticeNames, recentlyLowered, refundingOnFailure, takeFounderChange, tellFoundersQuietly, type FounderChangeRefund } from "../services/founder-notices";
 import { assertWithinGrantorAccess } from "../services/grants";
 import { modelLimited } from "../services/model-limits";
 import { ensurePortraits } from "../services/personas";
@@ -274,8 +275,11 @@ export const teamRouter = router({
      */
     role: staffAdmin
       .input(z.object({ userId: Id, role: z.enum(MEMBERSHIP_ROLES).optional(), sectionPermissions: SectionPermissions.optional(), expiresAt: z.coerce.date().nullable().optional() }))
-      .mutation(({ ctx, input }) =>
-        ctx.rls(async (tx) => {
+      .mutation(async ({ ctx, input }) => {
+        const names = await noticeNames(ctx.db, ctx.userId, input.userId);
+        // The founder change taken below is given back when the transaction fails after it (final review, P3).
+        const refund: { current: FounderChangeRefund | null } = { current: null };
+        const changed = await refundingOnFailure(refund, () => ctx.rls(async (tx) => {
           if (input.userId === ctx.userId) throw new ValidationError("You cannot change your own role or section permissions; another owner or admin can");
           // Judged on fresh rows, not on the request's: the business's people changes take turns (the owner lock, as
           // `setRole` and `remove` take it), the editor's own row is re-read under a share lock and the person's under an
@@ -286,6 +290,7 @@ export const teamRouter = router({
           const locked = await repos.memberships.getForUpdate(tx, ctx.businessId, input.userId);
           let membership = locked ?? (await repos.memberships.get(tx, ctx.businessId, input.userId));
           if (!membership) throw new ValidationError("Not a member of this business");
+          const fromRole = membership.role;
           if (!isOwnerRole(editor.role) && isOwnerRole(membership.role)) throw new ForbiddenError("Only an owner or a cofounder can change an owner's or a cofounder's role or permissions");
           if (!isOwnerRole(editor.role) && input.role && isOwnerRole(input.role)) throw new ForbiddenError("Only an owner or a cofounder can make someone an owner or a cofounder");
           // RLS let the row be read but not locked: it is not this editor's to change.
@@ -294,31 +299,52 @@ export const teamRouter = router({
           // owner's standing is not limited); narrowing and lowering stay free (services/grants.ts). A collaborator whose
           // access ended has none now, so a new date gives everything the row holds and is judged as a grant.
           assertWithinGrantorAccess(editor, { role: input.role ?? membership.role, sectionPermissions: input.sectionPermissions ?? membership.sectionPermissions }, membershipEnded(membership) ? null : membership);
+          // One person lowers a founder's role at most so often a day in a project (second review, P1-1).
+          if (isOwnerRole(fromRole) && input.role && !isOwnerRole(input.role)) refund.current = await takeFounderChange(ctx, "lower");
           if (input.role) membership = await repos.memberships.setRole(tx, ctx.businessId, input.userId, input.role);
           if (input.sectionPermissions) membership = await repos.memberships.setSectionPermissions(tx, ctx.businessId, input.userId, input.sectionPermissions);
           if (input.expiresAt !== undefined) {
             if (input.expiresAt && input.expiresAt.getTime() <= Date.now()) throw new ValidationError("Choose a date after today, or remove the person instead");
             membership = await repos.memberships.setExpiry(tx, ctx.businessId, input.userId, input.expiresAt);
           }
-          await audit(tx, ctx, { action: "team.humans.role", target: { kind: "membership", id: membership.id }, details: { role: input.role ?? null, sections: input.sectionPermissions ? Object.keys(input.sectionPermissions) : [], ...(input.expiresAt !== undefined ? { expiresAt: input.expiresAt?.toISOString() ?? null } : {}) } });
+          // `userId` and `fromRole` let the gateway read a founder notice from this entry (security review P2-3).
+          const entry = await audit(tx, ctx, { action: "team.humans.role", target: { kind: "membership", id: membership.id }, details: { userId: input.userId, fromRole, role: input.role ?? null, sections: input.sectionPermissions ? Object.keys(input.sectionPermissions) : [], ...(input.expiresAt !== undefined ? { expiresAt: input.expiresAt?.toISOString() ?? null } : {}) } });
           // apps/stream re-checks the member's open subscriptions at once, under the new walls.
           await emit(tx, ctx, { type: "membership.changed", payload: { userId: input.userId, change: "updated" } });
-          return membership;
-        }),
-      ),
-    remove: staffAdmin.input(z.object({ userId: Id })).mutation(({ ctx, input }) =>
-      ctx.rls(async (tx) => {
+          // A founder's standing taken away: the Inbox tells the other founders (never only the one who did it).
+          const lowered = isOwnerRole(fromRole) && !isOwnerRole(membership.role);
+          if (lowered) await founderChangeNote(tx, { names, businessId: ctx.businessId, actorUserId: ctx.userId, subjectUserId: input.userId, notice: "role_changed", fromRole, toRole: membership.role, timeZone: ctx.business.timeZone });
+          return { membership, auditId: entry.id, lowered };
+        }));
+        // Every founder and the person themselves hear it by email, once the change has committed.
+        if (changed.lowered) await tellFoundersQuietly(ctx, { businessId: ctx.businessId, auditId: changed.auditId, notice: "role_changed", actorUserId: ctx.userId, subjectUserId: input.userId });
+        return changed.membership;
+      }),
+    /**
+     * Removes a member. A founder is stepped down first (their role changed), then removed; a person whose founder's
+     * standing someone else took away in the last 30 days counts as a founder removed (security review P2-3): the entry
+     * names the role they had (`formerRole`), the other founders get an Inbox note, and every founder and the person
+     * removed are emailed.
+     */
+    remove: staffAdmin.input(z.object({ userId: Id })).mutation(async ({ ctx, input }) => {
+      const [names, lowered] = await Promise.all([noticeNames(ctx.db, ctx.userId, input.userId), recentlyLowered(ctx.db, ctx.businessId, input.userId)]);
+      const removed = await ctx.rls(async (tx) => {
         if (input.userId === ctx.userId) throw new ValidationError("Leave the business from Settings instead of removing yourself");
         const target = await repos.memberships.get(tx, ctx.businessId, input.userId);
         // An owner's standing is stepped down first (an owner or a cofounder changes the role), then removed.
         if (target && isOwnerRole(target.role)) throw new ValidationError(target.role === "cofounder" ? "A cofounder cannot be removed; another founder changes their role first" : "The owner cannot be removed");
+        const lately = target ? lowered : null;
         await repos.memberships.remove(tx, ctx.businessId, input.userId);
-        await audit(tx, ctx, { action: "team.humans.remove", target: { kind: "membership", id: input.userId } });
+        // `userId`, the role and the founder's role they had lately let the gateway read a founder notice from this entry.
+        const entry = await audit(tx, ctx, { action: "team.humans.remove", target: { kind: "membership", id: input.userId }, details: { userId: input.userId, role: target?.role ?? null, ...(lately ? { formerRole: lately } : {}) } });
         // apps/stream closes the removed person's open subscriptions to this business at once.
         if (target) await emit(tx, ctx, { type: "membership.changed", payload: { userId: input.userId, change: "removed" } });
-        return { removed: true };
-      }),
-    ),
+        if (lately) await founderChangeNote(tx, { names, businessId: ctx.businessId, actorUserId: ctx.userId, subjectUserId: input.userId, notice: "removed", fromRole: lately, timeZone: ctx.business.timeZone });
+        return { auditId: entry.id, wasFounder: lately !== null };
+      });
+      if (removed.wasFounder) await tellFoundersQuietly(ctx, { businessId: ctx.businessId, auditId: removed.auditId, notice: "removed", actorUserId: ctx.userId, subjectUserId: input.userId });
+      return { removed: true };
+    }),
   }),
 
   responsibilities: router({

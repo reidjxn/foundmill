@@ -40,6 +40,7 @@ import { useBusinessLive } from "@/lib/stream-status";
 import { GoalEnsure, HomeBlockers, HomeFoundations } from "@/components/home/lead";
 import { formatMoney } from "@/lib/format";
 import { needsYouHref, sinceLastVisitLines, streakStripProps, toNeedsYouRows, toPanelGoal, toPanelProposal } from "./today-view";
+import { FormerProjects } from "@/components/home/FormerProjects";
 
 /** The reads a Today answer changes. */
 const AFTER_ANSWER = ["inbox", "today", "goal", "plan", "business", "product", "dev"] as const;
@@ -184,6 +185,7 @@ export function TodayScreen() {
   const firstWeek = todayQ.data?.firstWeek ?? null;
   return (
     <div className="flex min-h-full flex-col gap-gutter p-gutter" data-testid="today-screen">
+      <FormerProjects className="flex flex-col gap-gutter" />
       <HomeBlockers />
       <GoalEnsure />
       <HomeFoundations />
