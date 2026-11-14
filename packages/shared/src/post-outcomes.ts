@@ -16,6 +16,7 @@ import { countOf } from "./copy";
 import type { Section } from "./permissions";
 import type { PostNetwork } from "./post-draft";
 import { shareLabelOf } from "./share-targets";
+import { TEAM_POST_SUBJECT_LABELS, type TeamPostSubject } from "./team-posts";
 
 export const POST_OUTCOME_KINDS = ["follow", "reply", "payment"] as const;
 export type PostOutcomeKind = (typeof POST_OUTCOME_KINDS)[number];
@@ -87,13 +88,6 @@ export function postOutcomePlace(network: PostNetwork | null): string {
   return network ? shareLabelOf(network) : "a copied or sent link";
 }
 
-/** The words of a post as a learning line quotes them: one line, at most 40 characters. */
-export function postQuote(text: string): string {
-  const one = text.replace(/\s+/g, " ").trim();
-  const chars = Array.from(one);
-  return chars.length <= 40 ? one : `${chars.slice(0, 39).join("").trimEnd()}…`;
-}
-
 /**
  * What "What worked" says of an outcome a shared post brought (item 8; ./morning-brief `RealOutcome.viaPost`): what an outcome's
  * line adds when a shared post brought it, "from your post on X, Nov 12" ("from a link to your post, Nov 12" for a
@@ -114,18 +108,48 @@ export function viaPostWords(input: { network: PostNetwork | null; sharedAt: Dat
 export const POST_WEEK_SUMMARY_MAX = 3;
 
 /**
- * One line of the social channel's weekly learning: `w3: post "…" (X): 2 follows, 1 reply (Counted, real people)`
- * (`last 7 days: …` where there is no week number, as for a new draft). Null when the post led to nothing that week (a
- * quiet week adds no line, never a zero).
+ * One line of the social channel's weekly learning: `w3: the post about Page live (X): 2 follows, 1 reply (Counted,
+ * real people)` (`last 7 days: …` where there is no week number, as for a new draft). Null when the post led to nothing
+ * that week (a quiet week adds no line, never a zero).
+ *
+ * Every word of it is written here: the subject's code-written label (`TEAM_POST_SUBJECT_LABELS`), the network's name
+ * and the counts. Never the post's own words (security review, Nov 14, 2026): these lines go to agents as trusted
+ * input, and a post's text is whatever the founder typed into the share panel.
  */
-export function postWeekLine(input: {
-  week: number | null;
-  text: string;
-  network: PostNetwork | null;
-  counts: PostOutcomeCounts;
-}): string | null {
+export function postWeekLine(input: { week: number | null; subject: TeamPostSubject | null; network: PostNetwork | null; counts: PostOutcomeCounts }): string | null {
   const parts = countWords(input.counts);
   if (!parts.length) return null;
   const when = input.week === null ? "last 7 days" : `w${input.week}`;
-  return `${when}: post "${postQuote(input.text)}" (${postOutcomePlace(input.network)}): ${parts.join(", ")} (Counted, real people)`;
+  const post = input.subject ? `the post about ${TEAM_POST_SUBJECT_LABELS[input.subject]}` : "a post";
+  return `${when}: ${post} (${postOutcomePlace(input.network)}): ${parts.join(", ")} (Counted, real people)`;
+}
+
+/** One counted group as the database reads it: which post (by id and subject), where, what kind and how many. */
+export interface PostWeekRow {
+  assetId: string;
+  subject: TeamPostSubject | null;
+  network: PostNetwork | null;
+  kind: PostOutcomeKind;
+  n: number;
+}
+
+/**
+ * The week's learning from counted rows: one line per post and place, most outcomes first (then payments, then
+ * replies), at most `POST_WEEK_SUMMARY_MAX`; none for a quiet week. Reads only the fields of `PostWeekRow`: anything
+ * else a row carries (a post's words, say) never reaches a line.
+ */
+export function postWeekSummary(rows: readonly PostWeekRow[], week: number | null): string[] {
+  const groups = new Map<string, { subject: TeamPostSubject | null; network: PostNetwork | null; counts: Record<PostOutcomeKind, number> }>();
+  for (const r of rows) {
+    const key = `${r.assetId}:${r.network ?? ""}`;
+    const g = groups.get(key) ?? { subject: r.subject, network: r.network, counts: { ...NO_POST_OUTCOMES } };
+    g.counts[r.kind] += Number(r.n);
+    groups.set(key, g);
+  }
+  const total = (c: Record<PostOutcomeKind, number>) => POST_OUTCOME_KINDS.reduce((sum, k) => sum + c[k], 0);
+  return [...groups.values()]
+    .sort((a, b) => total(b.counts) - total(a.counts) || b.counts.payment - a.counts.payment || b.counts.reply - a.counts.reply)
+    .map((g) => postWeekLine({ week, subject: g.subject, network: g.network, counts: g.counts }))
+    .filter((line): line is string => line !== null)
+    .slice(0, POST_WEEK_SUMMARY_MAX);
 }

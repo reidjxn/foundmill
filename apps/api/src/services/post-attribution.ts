@@ -21,16 +21,30 @@ import type { Context } from "../context";
 import { writeEventRow } from "./events";
 import { PUBLIC_STORY_LIMITS } from "./milestones";
 import { callerLimitKey } from "./pages";
-import { takeOrThrow } from "./rate-limit";
+import { takeOrThrow, type WindowLimit } from "./rate-limit";
 
-/** The visit beacon's limits: the public story reads' (one per page load at most, so the same ceilings hold). */
-export const POST_VISIT_LIMITS = PUBLIC_STORY_LIMITS;
+/**
+ * The visit beacon's limits (security review, Nov 14, 2026), in the order they are taken:
+ * - `perCaller`: 30 a minute by the address the api sees. One page load sends one beacon, so this is plenty for a
+ *   person and keeps a handful of addresses from filling the shared ceiling.
+ * - `perKey` (one code) and `all` (every business together): the public story reads' ceilings.
+ * - `unknown`: a code that names no link gives its `all` hit back and is counted here instead, so made-up codes never
+ *   starve the first visits of real ones. The answer is the same either way: this bucket never refuses anyone, since a
+ *   refusal only made-up codes could earn would tell a stranger which codes exist.
+ */
+export const POST_VISIT_LIMITS = {
+  perCaller: { limit: 30, windowMs: 60_000 },
+  perKey: PUBLIC_STORY_LIMITS.perKey,
+  all: PUBLIC_STORY_LIMITS.all,
+  unknown: PUBLIC_STORY_LIMITS.unknown,
+} as const satisfies Record<string, WindowLimit>;
 
 export const postVisitLimitKeys = {
   caller: (env: Pick<Env, "SESSION_TOKEN_SECRET">, address: string) =>
     callerLimitKey(env, "post-visit", address),
   code: (code: string) => `post-visit:code:${code}`,
   all: "post-visit:all",
+  unknown: "post-visit:unknown",
 } as const;
 
 type VisitContext = Pick<Context, "db" | "env" | "limits" | "log"> & {
@@ -60,12 +74,16 @@ export async function recordPostVisit(
         rule: POST_VISIT_LIMITS.perCaller,
       },
     ]);
-  await takeOrThrow(ctx.limits, "Page visit", [
-    { key: postVisitLimitKeys.code(ref.ref), rule: POST_VISIT_LIMITS.perKey },
-    { key: postVisitLimitKeys.all, rule: POST_VISIT_LIMITS.all },
-  ]);
+  await takeOrThrow(ctx.limits, "Page visit", [{ key: postVisitLimitKeys.code(ref.ref), rule: POST_VISIT_LIMITS.perKey }]);
+  const shared = await takeOrThrow(ctx.limits, "Page visit", [{ key: postVisitLimitKeys.all, rule: POST_VISIT_LIMITS.all }]);
   const link = await repos.postLinks.byCode(ctx.db, ref.ref);
-  if (!link || link.simulated || link.firstVisitedAt) return ok;
+  if (!link) {
+    // Not a code anyone minted: the shared hit goes back and the unknown bucket counts it, without a refusal.
+    await ctx.limits.refund(shared);
+    await ctx.limits.take([{ key: postVisitLimitKeys.unknown, rule: POST_VISIT_LIMITS.unknown }]);
+    return ok;
+  }
+  if (link.simulated || link.firstVisitedAt) return ok;
   // A founder (or anyone in the project) opening their own post's link is not a visit the post brought.
   if (ctx.userId && (await repos.memberships.get(ctx.db, link.businessId, ctx.userId))) return ok;
   const at = (ctx.now ?? (() => new Date()))();

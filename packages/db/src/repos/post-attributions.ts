@@ -20,14 +20,12 @@
 import { POST_NETWORKS, type PostNetwork } from "@foundmill/shared/post-draft";
 import {
   NO_POST_OUTCOMES,
-  POST_OUTCOME_KINDS,
   POST_OUTCOME_WINDOW_MS,
-  POST_WEEK_SUMMARY_MAX,
-  postWeekLine,
+  postWeekSummary,
   type PostOutcomeCounts,
   type PostOutcomeKind,
 } from "@foundmill/shared/post-outcomes";
-import type { TeamPostCodes } from "@foundmill/shared/team-posts";
+import { parseTeamPostRef, type TeamPostCodes } from "@foundmill/shared/team-posts";
 import { POST_CODE_ALPHABET, POST_CODE_LENGTH, isPostCode } from "@foundmill/shared/via";
 import { and, desc, eq, gte, inArray, isNotNull, isNull, lte, sql } from "drizzle-orm";
 import { randomBytes } from "node:crypto";
@@ -448,59 +446,16 @@ export const postAttributionsRepo = {
    * most outcomes first (`w3: post "…" (X): 2 follows, 1 reply (Counted, real people)`). A quiet week gives none.
    */
   async weekSummary(db: Executor, businessId: string, input: WeekSummaryInput): Promise<string[]> {
+    // The post is named by its code-written subject (`content_ref`), never by its words: these lines reach agents.
     const rows = await db
-      .select({
-        assetId: postAttributions.assetId,
-        network: postAttributions.network,
-        kind: postAttributions.outcomeKind,
-        n: sql<number>`count(*)::int`,
-        body: assets.body,
-      })
+      .select({ assetId: postAttributions.assetId, network: postAttributions.network, kind: postAttributions.outcomeKind, n: sql<number>`count(*)::int`, contentRef: assets.contentRef })
       .from(postAttributions)
-      .innerJoin(
-        assets,
-        and(eq(assets.id, postAttributions.assetId), eq(assets.businessId, businessId)),
-      )
-      .where(
-        and(
-          eq(postAttributions.businessId, businessId),
-          gte(postAttributions.outcomeAt, input.since),
-          sql`${postAttributions.outcomeAt} < ${input.until}`,
-        ),
-      )
-      .groupBy(
-        postAttributions.assetId,
-        postAttributions.network,
-        postAttributions.outcomeKind,
-        assets.body,
-      );
-    const groups = new Map<
-      string,
-      { network: PostNetwork | null; text: string; counts: Record<PostOutcomeKind, number> }
-    >();
-    for (const r of rows) {
-      const key = `${r.assetId}:${r.network ?? ""}`;
-      const g = groups.get(key) ?? {
-        network: (r.network ?? null) as PostNetwork | null,
-        text: r.body ?? "",
-        counts: { ...NO_POST_OUTCOMES },
-      };
-      g.counts[r.kind] += Number(r.n);
-      groups.set(key, g);
-    }
-    const total = (c: Record<PostOutcomeKind, number>) =>
-      POST_OUTCOME_KINDS.reduce((sum, k) => sum + c[k], 0);
-    return [...groups.values()]
-      .sort(
-        (a, b) =>
-          total(b.counts) - total(a.counts) ||
-          b.counts.payment - a.counts.payment ||
-          b.counts.reply - a.counts.reply,
-      )
-      .map((g) =>
-        postWeekLine({ week: input.week, text: g.text, network: g.network, counts: g.counts }),
-      )
-      .filter((line): line is string => line !== null)
-      .slice(0, POST_WEEK_SUMMARY_MAX);
+      .innerJoin(assets, and(eq(assets.id, postAttributions.assetId), eq(assets.businessId, businessId)))
+      .where(and(eq(postAttributions.businessId, businessId), gte(postAttributions.outcomeAt, input.since), sql`${postAttributions.outcomeAt} < ${input.until}`))
+      .groupBy(postAttributions.assetId, postAttributions.network, postAttributions.outcomeKind, assets.contentRef);
+    return postWeekSummary(
+      rows.map((r) => ({ assetId: r.assetId, subject: parseTeamPostRef(r.contentRef)?.subject ?? null, network: (r.network ?? null) as PostNetwork | null, kind: r.kind, n: Number(r.n) })),
+      input.week,
+    );
   },
 };

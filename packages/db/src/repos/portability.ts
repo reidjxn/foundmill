@@ -91,9 +91,6 @@ export const EXPORT_TABLES: Readonly<Record<string, ExportTableSpec>> = {
   mentions: t(s.mentions, "crm"),
   field_provenance: t(s.fieldProvenance, "crm"),
   contact_consents: t(s.contactConsents, "crm"),
-  // What a shared post led to (0102): ids, the network and the kind only, never a person or an amount. Filed with the
-  // CRM, where its follows and replies belong; a payment row says only that one came through the post.
-  post_attributions: t(s.postAttributions, "crm"),
   merge_log: t(s.mergeLog, "crm"),
   // finance
   accounts: t(s.accounts, "finance", { omit: ["externalId"] }),
@@ -102,6 +99,11 @@ export const EXPORT_TABLES: Readonly<Record<string, ExportTableSpec>> = {
   forecasts: t(s.forecasts, "finance"),
   securities: t(s.securities, "finance"),
   cap_table_entries: t(s.capTableEntries, "finance"),
+  // What a shared post led to (0102): ids, the network and the kind only, never a person or an amount. It holds payment
+  // credits, so it is filed under the strictest wall of what it holds (security review, Nov 14, 2026): nobody without
+  // Finance exports a payment credit. Its follows and replies are the CRM's too, and a Finance reader of this archive
+  // reads the CRM as well (Export everything needs read access to every section).
+  post_attributions: t(s.postAttributions, "finance"),
   // billing
   usage_ledger: t(s.usageLedger, "billing"),
   credit_balances: t(s.creditBalances, "billing"),

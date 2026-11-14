@@ -135,7 +135,7 @@ describe("buildPostDraftRequest", () => {
   });
 
   it("what earlier posts led to goes in as inert JSON to learn from, and none of its counts may reach the post", () => {
-    const learned = ['last 7 days: post "Maple Bakes has a page now." (X): 2 follows, 1 reply (Counted, real people)'];
+    const learned = ["last 7 days: the post about Page live (X): 2 follows, 1 reply (Counted, real people)"];
     const f = facts({ learned });
     expect(f.learned).toEqual(learned);
     const user = buildPostDraftRequest(f).messages[0]!.content;
