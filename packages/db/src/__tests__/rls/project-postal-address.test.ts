@@ -1,5 +1,5 @@
 /**
- * 0097 `project_postal_addresses` (the founders' postal address for the project's marketing email, US CAN-SPAM).
+ * 0101 `project_postal_addresses` (the founders' postal address for the project's marketing email, US CAN-SPAM).
  *
  * One row per business, so it is not in the generated cross-tenant suite; this file covers tenancy by hand:
  *   - the founders (owner, admin) read, enter, change and remove their own project's address;

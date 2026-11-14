@@ -53,7 +53,7 @@ export const integrationsRouter = router({
    * sending domain (no row is shown). The address is chosen here on first view if no send chose it yet (service
    * connection: no app role writes `project_mail`), then kept. `sentToday` counts `mail.sent` since midnight UTC, the
    * window the gateway's cap uses; `cap` is the operator's override for this project, else the deployment's default.
-   * `postalAddress` is the founders' own (0097, US CAN-SPAM), read under RLS: null for a collaborator, who sees only
+   * `postalAddress` is the founders' own (0101, US CAN-SPAM), read under RLS: null for a collaborator, who sees only
    * whether one is needed (`canEditPostalAddress` false).
    */
   platformMail: read.query(async ({ ctx }) => {

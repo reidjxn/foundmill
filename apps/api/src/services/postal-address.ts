@@ -3,7 +3,7 @@
  * Settings › Integrations › Email from your project, and the founders' note that asks for it (raised by the gateway the
  * first time it refuses a marketing send without one; packages/db `repos.postalAddress.raiseNote`).
  *
- * Only the founders (owner or admin) read, enter, change or remove it: RLS on `project_postal_addresses` (0097) holds
+ * Only the founders (owner or admin) read, enter, change or remove it: RLS on `project_postal_addresses` (0101) holds
  * that, and the procedures are admin-only too. Saving it answers the open note, so it never waits in Needs you after the
  * founder did what it asked. The audit row says that it changed, never the address.
  */

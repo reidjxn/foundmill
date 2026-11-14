@@ -42,7 +42,7 @@ export const retiredMailLocalParts = pgTable(
 );
 
 /**
- * 0097 — the founders' postal address for the project's marketing email (US CAN-SPAM), one line. Private: the founders
+ * 0101 — the founders' postal address for the project's marketing email (US CAN-SPAM), one line. Private: the founders
  * (owner or admin) read and write it; collaborators do not; the gateway reads it on the service connection for the footer.
  */
 export const projectPostalAddresses = pgTable(

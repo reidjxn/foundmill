@@ -1,4 +1,4 @@
--- 0097 — the founders' postal address for a project's marketing email (US CAN-SPAM; founder, Nov 13, 2026). CAN-SPAM
+-- 0101 — the founders' postal address for a project's marketing email (US CAN-SPAM; founder, Nov 13, 2026). CAN-SPAM
 -- asks every commercial email to carry a valid physical postal address of the sender (a PO box is allowed). A project's
 -- marketing email from its Foundmill sending address shows the founders' own address in the footer, which they enter
 -- in Settings › Integrations; until they do, the gateway refuses a commercial send (a reply to a person who wrote first,
