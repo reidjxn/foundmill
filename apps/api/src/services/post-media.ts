@@ -13,7 +13,7 @@
  * - `servePostMedia` answers that route: the file of a ready, real item, or 404.
  */
 import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
-import { postMediaTools } from "@foundmill/agents";
+import { POST_MEDIA_CONNECTORS, postMediaTools } from "@foundmill/agents";
 import { repos, type Executor, type PostMediaRow } from "@foundmill/db";
 import { isPostMediaKind, isPostMediaMime, isPostMediaState, mockResultsAllowed, postMediaFileName, type Env, type PostDraftMedia, type PostDraftMediaItem } from "@foundmill/shared";
 import { z } from "zod";
@@ -75,14 +75,34 @@ function itemOf(row: PostMediaRow, link: string | null, projectName: string): Po
 }
 
 /**
- * Each draft's media (by asset id), for the drafts given. A draft with nothing stored still says whether the video
- * tools are connected, so a text-only draft can say why.
+ * Whether the project's media tools are connected, as two booleans and nothing else. Read on the service connection
+ * (`serviceDb`), not the viewer's: a collaborator's RLS reads no integration rows (0094), and that rule stays. So the
+ * api works the answer out itself, from only the connector key and status of the two media connectors
+ * (`repos.integrations.connectionStatuses`), and hands on only the booleans: no credential, id, account name or other
+ * field of an integration reaches anyone who can see the draft.
  */
-export async function draftMedia(tx: Executor, scope: { businessId: string; businessName: string; isDemo: boolean; env: Pick<Env, "APP_ENV" | "SESSION_TOKEN_SECRET">; now?: Date }, assetIds: readonly string[]): Promise<Map<string, PostDraftMedia>> {
+export interface PostMediaToolStatus {
+  video: boolean;
+  voice: boolean;
+}
+
+export async function postMediaToolStatus(serviceDb: Executor, scope: { businessId: string; isDemo: boolean; env: Pick<Env, "APP_ENV"> }): Promise<PostMediaToolStatus> {
+  const statuses = await repos.integrations.connectionStatuses(serviceDb, scope.businessId, Object.values(POST_MEDIA_CONNECTORS)).catch(() => []);
+  const tools = postMediaTools(statuses, { mockAllowed: mockResultsAllowed(scope.env.APP_ENV, scope.isDemo) });
+  return { video: tools.video === true, voice: tools.voice === true };
+}
+
+/**
+ * Each draft's media (by asset id), for the drafts given (read in the viewer's own transaction, `tx`). A draft with
+ * nothing stored still says whether the video tools are connected, so a text-only draft can say why; that status
+ * (`tools`) is the same for every role that can see the draft: the caller works it out with `postMediaToolStatus`
+ * before it opens the viewer's transaction (one connection is never asked for while another waits on it).
+ */
+export async function draftMedia(tx: Executor, scope: { businessId: string; businessName: string; isDemo: boolean; env: Pick<Env, "APP_ENV" | "SESSION_TOKEN_SECRET">; tools: PostMediaToolStatus; now?: Date }, assetIds: readonly string[]): Promise<Map<string, PostDraftMedia>> {
   const out = new Map<string, PostDraftMedia>();
   if (assetIds.length === 0) return out;
-  const [integrations, rows] = await Promise.all([repos.integrations.list(tx, scope.businessId).catch(() => []), repos.postMedia.forAssets(tx, scope.businessId, assetIds)]);
-  const tools = postMediaTools(integrations, { mockAllowed: mockResultsAllowed(scope.env.APP_ENV, scope.isDemo) });
+  const tools = scope.tools;
+  const rows = await repos.postMedia.forAssets(tx, scope.businessId, assetIds);
   const key = postMediaLinkKey(scope.env);
   const now = scope.now ?? new Date();
   for (const id of assetIds) out.set(id, { videoTools: tools.video ? "connected" : "not_connected", voiceTools: tools.voice ? "connected" : "not_connected" });

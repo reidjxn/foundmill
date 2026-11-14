@@ -30,7 +30,7 @@ import { draftTeamPost, repos, type Asset, type Db, type Executor, type TeamPost
 import type { ModelClient } from "@foundmill/models";
 import { parseTeamPostRef, teamPostShareDraft, type Env, type PostDraft, type PostDraftMedia } from "@foundmill/shared";
 import { channelFactsFor } from "./channel-availability";
-import { draftMedia } from "./post-media";
+import { draftMedia, type PostMediaToolStatus } from "./post-media";
 import { writeEventRow } from "./events";
 import type { ApiLogger } from "./log";
 import { WORKFLOWS, workflowIds, type TemporalService } from "./temporal";
@@ -129,7 +129,7 @@ export function queuePostDraft(deps: PostDraftDeps, businessId: string, trigger:
  * the code attaches (the milestone's card while it is on the page, else the project's page, with the page's `via`; no
  * link while the page is down). Built from what is public anyway, so any reader of the tab may have it.
  */
-export async function teamPostShares(tx: Executor, scope: { businessId: string; businessName: string; isDemo: boolean; appUrl: string; env?: Pick<Env, "APP_ENV" | "SESSION_TOKEN_SECRET"> }, rows: readonly Asset[]): Promise<Map<string, PostDraft>> {
+export async function teamPostShares(tx: Executor, scope: { businessId: string; businessName: string; isDemo: boolean; appUrl: string; media?: { env: Pick<Env, "APP_ENV" | "SESSION_TOKEN_SECRET">; tools: PostMediaToolStatus } }, rows: readonly Asset[]): Promise<Map<string, PostDraft>> {
   const out = new Map<string, PostDraft>();
   const posts = rows.flatMap((a) => {
     const ref = a.kind === "post" && a.body?.trim() ? parseTeamPostRef(a.contentRef) : null;
@@ -142,7 +142,9 @@ export async function teamPostShares(tx: Executor, scope: { businessId: string; 
   const shown = page ? await repos.teamPosts.shownMilestoneIds(tx, scope.businessId, posts.filter((p) => p.ref.trigger === "milestone_shown").map((p) => p.ref.refId)) : new Set<string>();
   // The draft's optional media (services/post-media.ts): a short video and a voiceover on the founder's own accounts,
   // or, with neither, whether the tools are connected, so a text-only draft can say why.
-  const media = scope.env ? await draftMedia(tx, { businessId: scope.businessId, businessName: scope.businessName, isDemo: scope.isDemo, env: scope.env }, posts.map((p) => p.asset.id)) : new Map<string, PostDraftMedia>();
+  // The tools' status was read on the service connection and reduced to two booleans (`postMediaToolStatus`), so every
+  // role that can see the draft, a collaborator included, is told the same thing.
+  const media = scope.media ? await draftMedia(tx, { businessId: scope.businessId, businessName: scope.businessName, isDemo: scope.isDemo, env: scope.media.env, tools: scope.media.tools }, posts.map((p) => p.asset.id)) : new Map<string, PostDraftMedia>();
   for (const { asset, ref } of posts) {
     const draft = teamPostShareDraft({ text: asset.body ?? "", ref, page, cardShown: shown.has(ref.refId) });
     const m = media.get(asset.id);

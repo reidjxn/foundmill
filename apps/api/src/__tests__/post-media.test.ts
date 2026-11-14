@@ -94,6 +94,38 @@ describe("a post draft's media at the api", () => {
     expect(res.status).toBe(404);
   });
 
+  it("a collaborator sees the video tools as connected when a founder has connected Runway, and is told nothing else of the integration", async () => {
+    const b = await project("Woodwick Four");
+    const collaboratorId = await hz.h.createUser("pmd-woodwick-four-collaborator@test.local");
+    await repos.memberships.add(hz.db, b.id, { userId: collaboratorId, role: "collaborator" });
+    const collaborator = hz.caller({ userId: collaboratorId });
+    // A founder connected Runway on their own key: the row holds an account name and settings a collaborator may not read (0094).
+    const runway = await repos.integrations.upsert(hz.db, b.id, { connectorKey: "runway", status: "connected", authKind: "api_key", accountLabel: "Maya's Runway account", settings: { workspace: "maya-studio" } });
+    // Their RLS still reads no integration rows: the rule stays as it is.
+    const own = await collaborator.integrations.list({ businessId: b.id }).catch(() => null);
+    expect(own?.integrations ?? []).toEqual([]);
+    const assets = await collaborator.distribution.assets.list({ businessId: b.id });
+    const post = assets.find((a) => a.id === b.postId)!;
+    const media = (post.sharePost as PostDraft).media!;
+    expect(media).toEqual({ videoTools: "connected", voiceTools: "not_connected" });
+    expect(Object.keys(media).sort()).toEqual(["videoTools", "voiceTools"]);
+    // Nothing of the integration rides anywhere in what the collaborator gets.
+    const seen = JSON.stringify(assets);
+    for (const leak of [runway.id, "Maya's Runway account", "maya-studio", "api_key", "accountLabel", "connectorKey"]) expect(seen).not.toContain(leak);
+  });
+
+  it("the founders' view is unchanged: the owner sees the same status", async () => {
+    const b = await project("Woodwick Five");
+    await repos.integrations.upsert(hz.db, b.id, { connectorKey: "runway", status: "connected", authKind: "api_key", accountLabel: "Runway" });
+    await repos.integrations.upsert(hz.db, b.id, { connectorKey: "elevenlabs_voice", status: "connected", authKind: "api_key", accountLabel: "ElevenLabs" });
+    const [post] = (await b.owner.distribution.assets.list({ businessId: b.id })).filter((a) => a.id === b.postId);
+    expect((post!.sharePost as PostDraft).media).toEqual({ videoTools: "connected", voiceTools: "connected" });
+    // An archived or disconnected integration is not connected, for every role.
+    await repos.integrations.upsert(hz.db, b.id, { connectorKey: "elevenlabs_voice", status: "disconnected", authKind: "api_key", accountLabel: "ElevenLabs" });
+    const [again] = (await b.viewer.distribution.assets.list({ businessId: b.id })).filter((a) => a.id === b.postId);
+    expect((again!.sharePost as PostDraft).media).toEqual({ videoTools: "connected", voiceTools: "not_connected" });
+  });
+
   it("a link names one item of one business, is refused when forged, and expires within the hour", async () => {
     const key = postMediaLinkKey(hz.deps.env)!;
     const item = { businessId: crypto.randomUUID(), mediaId: crypto.randomUUID() };
