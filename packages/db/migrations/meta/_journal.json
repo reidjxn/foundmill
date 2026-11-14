@@ -624,6 +624,13 @@
       "when": 1796134440000,
       "tag": "0100_adult_confirmations",
       "breakpoints": true
+    },
+    {
+      "idx": 89,
+      "version": "7",
+      "when": 1796135040000,
+      "tag": "0101_project_postal_address",
+      "breakpoints": true
     }
   ]
 }
