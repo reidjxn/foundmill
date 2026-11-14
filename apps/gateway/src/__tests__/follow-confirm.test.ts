@@ -158,7 +158,9 @@ describe("follow confirmation (gateway)", () => {
     expect(g.rateLimits.peek(PLATFORM_MAIL_CEILING_KEY, Date.now())).toBe(usedAll);
     expect(g.rateLimits.peek(followConfirmDayKey(g.businessId), Date.now())).toBeGreaterThanOrEqual(3);
     expect(g.rateLimits.peek(FOLLOW_CONFIRM_CEILING_KEY, Date.now())).toBeGreaterThanOrEqual(3);
-    // The founders' own send from the project's address still has its day.
+    // The founders' own send from the project's address still has its day (a marketing email needs their postal address,
+    // US CAN-SPAM, so it is on record first).
+    await repos.postalAddress.set(g.db, g.businessId, { address: "PO Box 1234, Springfield, IL 62701, USA", userId: null });
     const business = (await repos.businesses.get(g.db, g.businessId))!;
     const decision = await preparePlatformMail(
       { db: g.db, rateLimits: g.rateLimits, config: g.deps.platformMail, appEnv: "test" },
