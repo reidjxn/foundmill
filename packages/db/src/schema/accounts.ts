@@ -150,6 +150,20 @@ export type AccountPreferences = typeof accountPreferences.$inferSelect;
 export type NewAccountPreferences = typeof accountPreferences.$inferInsert;
 
 /**
+ * 0104 — the person's own statement that they are 18 or older, confirmed once at sign-up for the whole product (founder,
+ * 2026-11-11). One row per account, ever; the source of truth (`network_attestations`, 0027, is kept in step with it by
+ * triggers). A person reads and inserts only their own row; `confirmed_at` is the database's time (a trigger), never the
+ * client's, and no client may update or delete it.
+ */
+export const adultConfirmations = pgTable("adult_confirmations", {
+  id: id(),
+  userId: uuid("user_id").notNull().unique().references(() => authUsers.id, { onDelete: "cascade" }),
+  confirmedAt: tstz("confirmed_at").notNull().defaultNow(),
+  ...timestamps(),
+});
+export type AdultConfirmation = typeof adultConfirmations.$inferSelect;
+
+/**
  * 0073 — the phones a signed-in person registered for push from the mobile companion app (docs/mobile): one row per
  * provider subscription id, owned by the account that signed in on that phone last. Account-scoped like
  * account_preferences; each person reads, writes and deletes only their own rows, the service role reads them all to

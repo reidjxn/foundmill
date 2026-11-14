@@ -64,6 +64,7 @@ import { attributionsRepo } from "./attributions";
 import { teamPostsRepo } from "./team-posts";
 import { ideaDraftsRepo, waitlistRepo } from "./idea-drafts";
 import { admissionsRepo, invitationsRepo } from "./people";
+import { adultsRepo } from "./adults";
 
 export const repos = {
   businesses: businessesRepo,
@@ -129,6 +130,7 @@ export const repos = {
   teamPosts: teamPostsRepo,
   admissions: admissionsRepo,
   invitations: invitationsRepo,
+  adults: adultsRepo,
 } as const;
 export type Repos = typeof repos;
 export type RepoArea = keyof Repos;
@@ -175,6 +177,7 @@ export * from "./research";
 export * from "./screens";
 export * from "./skills";
 export * from "./social";
+export * from "./adults";
 export * from "./tasks";
 export * from "./training";
 export * from "./usage";
