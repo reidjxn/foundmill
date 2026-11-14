@@ -31,4 +31,6 @@ export * from "./team-calls";
 export * from "./founder-return";
 export * from "./idea-box";
 export * from "./page-quizzes";
+export * from "./post-media";
 export * from "./people";
+export * from "./showcase";

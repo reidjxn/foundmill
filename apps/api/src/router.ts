@@ -26,6 +26,7 @@ import { pageRouter, publicPageRouter } from "./routers/page";
 import { pageQuizRouter, publicQuizRouter } from "./routers/page-quiz";
 import { productRouter } from "./routers/product";
 import { shareRouter } from "./routers/share";
+import { showcaseRouter } from "./routers/showcase";
 import { teamRouter } from "./routers/team";
 import { invitationRouter } from "./routers/people";
 import { todayRouter } from "./routers/today";
@@ -57,6 +58,7 @@ export const appRouter = router({
   publicQuiz: publicQuizRouter,
   // Tap-to-post: a pressed share control, recorded as a share that was opened (services/shares.ts).
   share: shareRouter,
+  showcase: showcaseRouter,
   publicPerson: publicPersonRouter,
   today: todayRouter,
   ideaBox: ideaBoxRouter,

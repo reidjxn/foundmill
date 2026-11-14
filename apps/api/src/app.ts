@@ -19,6 +19,7 @@ import { requestIdFrom } from "./request-id";
 import { appRouter } from "./router";
 import { etagMatches, storedPortrait } from "./services/personas";
 import { speechTickets } from "./services/speech-tickets";
+import { servePostMedia } from "./services/post-media";
 import { assertPlatformCredits } from "@foundmill/db";
 import { checkWorker } from "./services/worker-health";
 import { getTracer } from "@foundmill/shared/telemetry";
@@ -105,8 +106,9 @@ export function clientOf(header: string | undefined): string | null {
   return /^[A-Za-z0-9._/+-]+(?: [A-Za-z0-9._/+-]+){0,2}$/.test(value) && value.length <= 64 ? value : null;
 }
 
-/** A path as it may be logged or traced: a Team call audio ticket (the key to one turn's speech) masked. */
+/** A path as it may be logged or traced: a Team call audio ticket and a post media link (each the key to one file) masked. */
 export function loggedPath(path: string): string {
+  if (path.startsWith("/post-media/")) return "/post-media/:token";
   return path.startsWith("/team-call-audio/") ? "/team-call-audio/:ticket" : path;
 }
 
@@ -277,6 +279,26 @@ export function createApp(deps: ApiDeps) {
       const status = err instanceof AppError && err.status >= 400 && err.status < 600 ? err.status : 502;
       deps.log.warn({ code: err instanceof AppError ? err.code : "unknown", status }, "team call audio stream refused");
       return c.body(null, status as 404, plain);
+    }
+  });
+
+  // A post draft's media (services/post-media.ts): the file of a ready, real item at the signed address the Creative tab
+  // and the share panel were given (the web serves it from its own origin, `/api/post-media/<token>`). No sign-in here
+  // (a <video> element and a "Save" link send no bearer), so the token is the key: it names one item of one business
+  // and expires within the hour. Private to the browser, never kept by a shared cache, and never run as a page.
+  app.get("/post-media/:token", async (c) => {
+    const plain = { "cache-control": "private, max-age=600", "x-content-type-options": "nosniff" };
+    const gone = { ...plain, "cache-control": "no-store" };
+    try {
+      const file = await servePostMedia(deps.db, deps.env, c.req.param("token"));
+      if (!file) return c.body(null, 404, gone);
+      return new Response(file.content as unknown as BodyInit, {
+        status: 200,
+        headers: { ...plain, "content-type": file.mime, "content-length": String(file.content.byteLength), "cross-origin-resource-policy": "same-site", "content-security-policy": "default-src 'none'; sandbox" },
+      });
+    } catch (err) {
+      deps.log.warn({ code: err instanceof AppError ? err.code : "unknown" }, "post media not served");
+      return c.body(null, 404, gone);
     }
   });
 

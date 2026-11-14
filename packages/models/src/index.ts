@@ -9,7 +9,7 @@ export { parseJsonLoose } from "./json";
 export { JsonElementScanner, getAtPath, arrayAtPath, elementPathKeys, type ScannedElement, type JsonElementScannerOptions } from "./stream-json";
 export { streamStructured, runStructuredStream, StreamInterruptedError, elementIndexOf, DEFAULT_PARTIAL_THROTTLE_MS, MAX_STREAM_INTERRUPTIONS, type StreamCallArgs, type StreamCallResult, type StructuredStreamDeps } from "./structured-stream";
 export * from "./rate-limit";
-export { gateModelClient, type ModelCallGate } from "./gate";
+export { gateModelClient, type ModelCallGate, type ModelCallVerdict } from "./gate";
 export * from "./schemas";
 export * from "./planParams";
 // Team call (docs/TEAM_CALL.md §4): not through ./schemas, which this module imports `PlanAction` from.

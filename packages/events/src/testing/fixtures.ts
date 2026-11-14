@@ -583,6 +583,11 @@ export const EVENT_FIXTURES: { readonly [K in EventType]: EventPayloadInput<K> }
   "invitation.sent": { invitationId: fixtureId("invitation"), role: "collaborator", emailed: false },
   "invitation.accepted": { invitationId: fixtureId("invitation"), role: "cofounder", userId: fixtureId("user") },
   "invitation.declined": { invitationId: fixtureId("invitation"), role: "collaborator" },
+  "showcase.requested": { requestId: fixtureId("showcase-request"), subjectBusinessId: fixtureId("business") },
+  "showcase.approved": { requestId: fixtureId("showcase-request"), subjectBusinessId: fixtureId("business"), assetId: fixtureId("asset-post") },
+  "showcase.withdrawn": { requestId: fixtureId("showcase-request"), subjectBusinessId: fixtureId("business"), reason: "founder_withdrew" },
+  "showcase.asked": { requestId: fixtureId("showcase-request") },
+  "showcase.settled": { requestId: fixtureId("showcase-request"), state: "approved" },
   // Account-scoped (a person's own): written with `accountFixtureInput`, never with `fixtureInput`.
   "profile.published": { handle: "maya-okafor" },
   "profile.unpublished": { handle: "maya-okafor" },

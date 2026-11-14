@@ -25,11 +25,12 @@
  */
 import { APPROVAL_OPTIONS, approvalSection, repos, type DbTx, type InboxItem, type Task } from "@foundmill/db";
 import { CREDITS_CURRENCY } from "@foundmill/config";
-import { GOAL_OPTION_IDS, PAGE_READY_NOTE, WRITE_ROLES, addDaysToDay, dailyStreak, dayKeyIn, firstWeekTimeline, firstWeekVisible, hasSectionAccess, isPageReadyDecision, vacationDayKeys, weekPlanWords, type FirstWeekWords, type Streak, type WeekFacts, type WeekPlanWords } from "@foundmill/shared";
+import { GOAL_OPTION_IDS, PAGE_READY_NOTE, POSTAL_ADDRESS_NOTE, WRITE_ROLES, addDaysToDay, dailyStreak, dayKeyIn, firstWeekTimeline, firstWeekVisible, hasSectionAccess, isPageReadyDecision, isPostalAddressDecision, vacationDayKeys, weekPlanWords, type FirstWeekWords, type Streak, type WeekFacts, type WeekPlanWords } from "@foundmill/shared";
 import { channelRowsFor } from "./channel-availability";
 import type { BusinessContext } from "../trpc";
 import { autopilotStatus } from "./autopilot";
 import { cycleStatus, type CycleStatus } from "./cycle";
+import { isProjectFounder } from "./postal-address";
 import { idsOfItem, inboxWalls, loadRedactionSource, redactInboxItem } from "./inbox-redaction";
 
 /** How many notes Today shows (the rest wait in the Inbox behind "See all in the Inbox"). */
@@ -118,12 +119,14 @@ async function quickAnswerFor(tx: DbTx, ctx: BusinessContext, item: InboxItem, a
   if (goal) return { kind: "goal", quickOption: quick(GOAL_OPTION_IDS.approve, goal.status === "proposed") };
   // The page note (package 1.3): one tap answers it and the web opens Product › Public page; nothing is published.
   if (isPageReadyDecision(item.decision)) return { kind: "decision", quickOption: quick(PAGE_READY_NOTE.options.check, hasSectionAccess(ctx.membership, "product", "read")) };
+  // The founders' postal address note: one tap answers it and the web opens Settings › Integrations (founders only).
+  if (isPostalAddressDecision(item.decision)) return { kind: "decision", quickOption: quick(POSTAL_ADDRESS_NOTE.options.add, isProjectFounder(ctx)) };
   return { kind: item.type === "warning" ? "warning" : "decision", quickOption: null };
 }
 
 /** The first notes of Needs you as this reader sees them, and how many wait in all. */
 export async function needsYouFor(tx: DbTx, ctx: BusinessContext): Promise<{ items: NeedsYouItem[]; total: number }> {
-  const [page, counts] = await Promise.all([repos.inbox.list(tx, ctx.businessId, { tab: "respond", limit: TODAY_NEEDS_YOU_MAX }, ctx.userId), repos.inbox.countByTab(tx, ctx.businessId)]);
+  const [page, counts] = await Promise.all([repos.inbox.list(tx, ctx.businessId, { tab: "respond", limit: TODAY_NEEDS_YOU_MAX }, ctx.userId), repos.inbox.countByTab(tx, ctx.businessId, ctx.userId)]);
   const rows = page.items.slice(0, TODAY_NEEDS_YOU_MAX);
   if (rows.length === 0) return { items: [], total: counts.respond };
   const walls = inboxWalls(ctx.membership);

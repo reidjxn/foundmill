@@ -11,7 +11,8 @@
  *   the membership, and admits the account on its inviter's standing (services/access.ts `admitThroughInvitation`).
  *   An invitation to an address is accepted only by the account signed in with it: the address is the token's
  *   (`ctx.email`), or, for a development account's token (which carries none, services/dev-users.ts), the stub
- *   account's own in `auth.users`.
+ *   account's own in `auth.users`. Joining is for people 18 or older: an accepter with no confirmation on record sends
+ *   `confirmAdult: true` (the invitation's "I am 18 or older"), else `adult_unconfirmed` (services/adults.ts).
  */
 import { repos } from "@foundmill/db";
 import { z } from "zod";
@@ -33,7 +34,9 @@ export const invitationRouter = router({
   list: sectionAdmin("team").query(({ ctx }) => listInvitations(ctx)),
   revoke: sectionAdmin("team").input(z.object({ invitationId: Id })).mutation(({ ctx, input }) => revokeInvitation(ctx, input.invitationId)),
   byToken: publicProcedure.input(Token).query(({ ctx, input }) => invitationByToken(ctx, input.token)),
-  accept: signedInProcedure.input(Token).mutation(async ({ ctx, input }) => acceptInvitation(ctx, { userId: ctx.userId, email: await signedInAddress(ctx, ctx.userId), emailConfirmed: ctx.emailConfirmed }, input.token)),
+  accept: signedInProcedure
+    .input(Token.extend({ confirmAdult: z.literal(true).optional() }))
+    .mutation(async ({ ctx, input }) => acceptInvitation(ctx, { userId: ctx.userId, email: await signedInAddress(ctx, ctx.userId), emailConfirmed: ctx.emailConfirmed }, input.token, { confirmAdult: input.confirmAdult })),
   decline: publicProcedure
     .input(Token)
     .mutation(async ({ ctx, input }) => declineInvitation(ctx, input.token, ctx.userId ? { userId: ctx.userId, email: await signedInAddress(ctx, ctx.userId), emailConfirmed: ctx.emailConfirmed === true } : null)),

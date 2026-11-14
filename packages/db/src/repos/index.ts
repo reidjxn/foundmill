@@ -26,6 +26,7 @@ import { pagesRepo } from "./pages";
 import { pageQuizzesRepo } from "./page-quizzes";
 import { personProfilesRepo } from "./person-profiles";
 import { mailRepo } from "./mail";
+import { postalAddressRepo } from "./postal-address";
 import { followersRepo } from "./followers";
 import { notifyEmailRepo } from "./notify-email";
 import { holidaysRepo } from "./holidays";
@@ -63,8 +64,11 @@ import { notificationsRepo } from "./notifications";
 import { notifyFactsRepo } from "./notify-facts";
 import { attributionsRepo } from "./attributions";
 import { teamPostsRepo } from "./team-posts";
+import { postMediaRepo } from "./post-media";
 import { ideaDraftsRepo, waitlistRepo } from "./idea-drafts";
 import { admissionsRepo, invitationsRepo } from "./people";
+import { showcaseRepo } from "./showcase";
+import { adultsRepo } from "./adults";
 import { founderCancelLinksRepo, founderDeparturesRepo } from "./founder-departures";
 
 export const repos = {
@@ -82,6 +86,7 @@ export const repos = {
   pageQuizzes: pageQuizzesRepo,
   personProfiles: personProfilesRepo,
   projectMail: mailRepo,
+  postalAddress: postalAddressRepo,
   followers: followersRepo,
   notifyEmail: notifyEmailRepo,
   departments: departmentsRepo,
@@ -130,8 +135,11 @@ export const repos = {
   accountEvents: accountEventsRepo,
   attributions: attributionsRepo,
   teamPosts: teamPostsRepo,
+  postMedia: postMediaRepo,
   admissions: admissionsRepo,
   invitations: invitationsRepo,
+  showcase: showcaseRepo,
+  adults: adultsRepo,
   founderDepartures: founderDeparturesRepo,
   founderCancelLinks: founderCancelLinksRepo,
 } as const;
@@ -182,6 +190,7 @@ export * from "./research";
 export * from "./screens";
 export * from "./skills";
 export * from "./social";
+export * from "./adults";
 export * from "./tasks";
 export * from "./training";
 export * from "./usage";
@@ -201,4 +210,6 @@ export * from "./notify-facts";
 export * from "./account-events";
 export * from "./attributions";
 export * from "./team-posts";
+export * from "./post-media";
 export * from "./people";
+export * from "./showcase";

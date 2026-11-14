@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import { LONG, signInAs } from "./helpers";
+import { confirmAdultOnForm, LONG, signInAs } from "./helpers";
 
 /**
  * /home — the home of a signed-in person with no project yet (docs/THESIS_REVIEW.md package 2.4). Signs in as its own
@@ -17,6 +17,7 @@ async function signInWithProfile(page: Page): Promise<void> {
     await page.getByLabel(/What the team calls you/).fill("Robin");
     await page.getByLabel("First-time founder").check();
     await page.getByLabel("Full time").check();
+    await confirmAdultOnForm(page);
     await page.getByTestId("profile-submit-bottom").click();
     await expect(page).toHaveURL(/\/new$/, { timeout: LONG });
     await page.goto("/");

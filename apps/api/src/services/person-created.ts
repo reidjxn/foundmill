@@ -6,7 +6,12 @@
  *   1. `invitation_attribution`: when the person accepted an invitation before their profile existed, the person who
  *      invited them is credited (`recordInvitationAttribution`, ./attribution);
  *   2. `signup_attribution`: who or what brought the person (`recordSignupAttribution`, ./attribution), from `via`,
- *      when the first step recorded nothing (an account is attributed once).
+ *      when the first step recorded nothing (an account is attributed once);
+ *   3. `adult_confirmation`: the person's "I am 18 or older" from the save (`confirmAdult: true`), recorded on the
+ *      account once (`recordAdultConfirmation`, ./adults; 0100). The save itself records it before the profile exists
+ *      (`founder.profile.update` calls `requireAdult` first, so a profile never exists without it) or refuses; this
+ *      step then writes nothing (the first confirmation stands). It stays for a caller that creates a profile another
+ *      way and hands the confirmation here.
  * `ideaDraftToken` is accepted and passed to every step, and no step reads it yet: the step that claims an idea drafted
  * before sign-up (`claimIdeaDraft`) is added to the list by the change that builds it.
  *
@@ -23,6 +28,7 @@
  *     or a background query on the api's database pool, and a step must not either.
  */
 import type { Db } from "@foundmill/db";
+import { recordAdultConfirmation } from "./adults";
 import { recordInvitationAttribution, recordSignupAttribution } from "./attribution";
 import type { ApiLogger } from "./log";
 
@@ -41,6 +47,8 @@ export interface PersonCreatedInput {
   via?: unknown;
   /** The token of an idea drafted before sign-up. No step reads it yet. */
   ideaDraftToken?: unknown;
+  /** The person ticked "I am 18 or older" on the screen that created the profile: recorded only when exactly `true`. */
+  confirmAdult?: unknown;
 }
 
 export interface PersonCreatedStep {
@@ -55,6 +63,13 @@ export const PERSON_CREATED_STEPS: readonly PersonCreatedStep[] = [
   // An accepted invitation outranks the cookie's reference: the attribution is written once, so the first step wins.
   { name: "invitation_attribution", run: (deps, userId) => recordInvitationAttribution(deps, userId) },
   { name: "signup_attribution", run: (deps, userId, input) => recordSignupAttribution(deps, userId, input.via) },
+  // 18 or older, for the whole product (founder, 2026-11-11): the account's record, once; a second confirmation writes nothing.
+  {
+    name: "adult_confirmation",
+    run: async (deps, userId, input) => {
+      if (input.confirmAdult === true) await recordAdultConfirmation(deps.db, userId);
+    },
+  },
 ];
 
 /** A reason code for the log: the error's class name when it is a plain word, never its message or any other field. */
