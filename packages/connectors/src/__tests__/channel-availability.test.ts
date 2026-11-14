@@ -53,8 +53,9 @@ describe("CHANNEL_ACTING_TOOLS", () => {
     expect(CHANNEL_ACTING_TOOLS.email_automation).toEqual(["sendgrid:send_mail", "platform_mail:send_mail", "resend:send_mail"]);
     expect(CHANNEL_ACTING_TOOLS.seo).toEqual(["github:commit_files"]);
     expect(CHANNEL_ACTING_TOOLS.geo).toEqual(["github:commit_files"]);
-    expect(acting).toEqual(["email_automation", "seo", "geo"]);
-    expect(empty).toEqual(["lead_generation", "content", "social", "paid_ads", "influencer", "affiliate", "direct_mail", "print", "broadcast", "outdoor", "pr", "events"]);
+    expect(CHANNEL_ACTING_TOOLS.social).toEqual(["buffer:queue_post"]);
+    expect(acting).toEqual(["email_automation", "seo", "geo", "social"]);
+    expect(empty).toEqual(["lead_generation", "content", "paid_ads", "influencer", "affiliate", "direct_mail", "print", "broadcast", "outdoor", "pr", "events"]);
   });
 });
 
@@ -103,6 +104,22 @@ describe("channelAvailability", () => {
     // The connector exists and is not connected: the founder still posts by tap, and is not told to connect anything.
     expect(channelAvailability("social", facts({ liveConnectors: ["github"] }), table)).toEqual({ available: true, reason: "by_tap", byTap: true });
     expect(channelAvailability("social", facts(), table)).toEqual({ available: true, reason: "by_tap", byTap: true });
+  });
+
+  it("the founder's own Buffer: social stays by tap until Buffer is live and connected, then the team posts (the founder approves each post)", () => {
+    // Not connected, or connected but not live on this deployment: by tap, and nothing is asked of the founder.
+    expect(channelAvailability("social", facts({ liveConnectors: ["buffer"] }))).toEqual({ available: true, reason: "by_tap", byTap: true });
+    expect(channelAvailability("social", facts({ connectedConnectors: ["buffer"] }))).toEqual({ available: true, reason: "by_tap", byTap: true });
+    // Live and connected: the connector acts, and the founder's press is no longer how it goes out.
+    for (const live of [["buffer"], "all"] as const) {
+      const acting = channelAvailability("social", facts({ liveConnectors: live, connectedConnectors: ["buffer"] }));
+      expect(acting).toEqual({ available: true, reason: "acts" });
+      expect(channelTeamRuns(acting)).toBe(true);
+      expect(channelEngineMayRun(acting, false)).toBe(true);
+    }
+    expect(channelAvailabilityRows(facts({ liveConnectors: ["buffer"], connectedConnectors: ["buffer"] })).social.sentence).toBeNull();
+    // Another channel's connector does not open social.
+    expect(channelAvailability("social", facts({ liveConnectors: "all", connectedConnectors: ["resend", "github"] }))).toEqual({ available: true, reason: "by_tap", byTap: true });
   });
 
   it("not_connected: the connector is mock here, or the business has not connected it", () => {

@@ -480,6 +480,21 @@ const RAW_TASKS: GoldenTask[] = [
     ],
   }),
   t({
+    id: "channel_social.own_buffer_account",
+    templateKey: "channel_social",
+    title: "Posts through the founder's own Buffer account, queued with the founder's OK, never reported as posted",
+    prompt: `Post run pr_buf_4 for Ledgerly (milestone mil_12, the approval workflow launch). Tool results: buffer list_channels returned 3 channels: LinkedIn (ch_li_1), X (ch_x_1) and Mastodon (ch_ma_1, network not drafted for). buffer queue_post for the LinkedIn post (ch_li_1, next free slot) came back "waiting for the founder's approval" (publishing is the founder's call). buffer queue_post for the X post (ch_x_1) was refused before it reached Buffer: its picture is at a signed link that expires in about a day, and Buffer fetches the picture when the post goes out ("use a lasting https address instead, or queue the post without a picture"). get_post was not called. The LinkedIn and X drafts are ready. Write the report for the founder: what is waiting for them, what was refused and why, what you will do next about the X post, and what has and has not happened. Cite pr_buf_4. Under 220 words.`,
+    checks: [CHECK.all("pr_buf_4"), CHECK.none("successfully posted", "is now live", "has been published", "is published"), CHECK.words(70, 250)],
+    sourceIds: ["pr_buf_4"],
+    rubric: [
+      "Says the LinkedIn post is waiting for the founder's OK in Buffer's queue flow and is not queued, scheduled or published yet; does not call it posted.",
+      "Says the X post was refused because its picture is at an expiring link, and offers a way forward: a lasting https address for the picture, or queuing without it; does not retry the same link.",
+      "Does not draft or queue anything for Mastodon, and says nothing about it beyond it not being a network the team drafts for.",
+      "Says nothing has gone out on any network, and that it will check with get_post, counting a post as published only once its status is sent.",
+      "Treats the approval as the founder's choice, with no pressure.",
+    ],
+  }),
+  t({
     id: "channel_paid_ads.kill_switch",
     templateKey: "channel_paid_ads",
     title: "Apply the CPA kill switch",

@@ -64,6 +64,7 @@ export const THIRD_PARTY_CONNECTOR_KEYS = [
   // `elevenlabs` (Team call speech, service-only): it is the founder's own ElevenLabs account.
   "runway",
   "elevenlabs_voice",
+  "buffer",
 ] as const;
 
 export const CONNECTOR_KEYS = [...PLATFORM_CONNECTOR_KEYS, ...THIRD_PARTY_CONNECTOR_KEYS] as const;
