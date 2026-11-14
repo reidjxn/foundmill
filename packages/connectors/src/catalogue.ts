@@ -46,6 +46,7 @@ import { createApolloConnector } from "./connectors/apollo";
 import { createVercelConnector } from "./connectors/vercel";
 import { createPosthogConnector } from "./connectors/posthog";
 import { createResendConnector } from "./connectors/resend";
+import { createBufferConnector } from "./connectors/buffer";
 
 export type ConnectorFactory = (options?: LiveConnectorOptions) => Connector;
 
@@ -94,6 +95,8 @@ export const CONNECTOR_FACTORIES: Readonly<Record<string, ConnectorFactory>> = O
   // is not the platform's `elevenlabs` (Team call speech): it never reads the platform key.
   runway: createRunwayConnector,
   elevenlabs_voice: createElevenlabsVoiceConnector,
+  // Posts queued in the founder's own Buffer account, which publishes them on the networks the founder connected there.
+  buffer: createBufferConnector,
 });
 
 export const CONNECTOR_KEYS = Object.freeze(Object.keys(CONNECTOR_FACTORIES));

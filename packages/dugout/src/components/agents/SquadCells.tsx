@@ -173,6 +173,7 @@ export const TOOL_ICONS: Record<string, { icon: IconComponent; label: string }> 
   resend: { icon: Mail, label: "Resend" },
   runway: { icon: Clapperboard, label: "Runway" },
   elevenlabs_voice: { icon: Mic, label: "ElevenLabs" },
+  buffer: { icon: PenLine, label: "Buffer" },
 };
 
 export interface ToolIconsProps {

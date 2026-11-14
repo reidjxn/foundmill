@@ -38,6 +38,7 @@ const BRANDS: Record<string, string> = {
   posthog: "PostHog",
   runway: "Runway",
   elevenlabs_voice: "ElevenLabs",
+  buffer: "Buffer",
   dropbox_sign: "Dropbox Sign",
   google_drive: "Google Drive",
   google_calendar: "Google Calendar",

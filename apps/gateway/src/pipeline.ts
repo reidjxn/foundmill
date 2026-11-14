@@ -33,6 +33,7 @@ import {
   modeKeyOf,
   PLATFORM_MAIL_KEY,
   readForQuarantine,
+  readableContent,
   toAgentEnvelope,
   type Connector,
   type ConnectorMode,
@@ -861,7 +862,9 @@ async function allow(deps: GatewayDeps, session: SessionToken, req: CallRequestP
       // An agent that can contact people, spend or do something irreversible never reads third-party text raw: a model with no
       // tools reads it and the agent gets typed fields only (BUILD §9.8 step 2). If the reader fails, the agent gets nothing.
       try {
-        const digest = await deps.reader.digest({ content, businessId: session.businessId, agentId: session.agentId, sessionId: session.sessionId });
+        // The reader is shown the content's text, with any binary value (a voiceover's base64) as a note of its size: its
+        // window then holds the words around the bytes, and a 4 MB file is never serialized into its prompt.
+        const digest = await deps.reader.digest({ content: readableContent(content), businessId: session.businessId, agentId: session.agentId, sessionId: session.sessionId });
         // The digest is third-party content too: an address the reader wrote out (one the raw scan missed or cut short)
         // reaches the agent as an ordinary address, so it is remembered like the raw text's. If that fails, nothing is passed on.
         const fromDigest = await deps.recipients.record(session.businessId, candidatesFromContent(digest));

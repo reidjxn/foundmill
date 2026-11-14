@@ -15,6 +15,7 @@ import { anthropicTools } from "./connectors/anthropic/tools";
 import { apolloTools } from "./connectors/apollo/tools";
 import { posthogTools } from "./connectors/posthog/tools";
 import { resendTools } from "./connectors/resend/tools";
+import { bufferTools } from "./connectors/buffer/tools";
 import { vercelTools } from "./connectors/vercel/tools";
 import { firecrawlTools } from "./connectors/firecrawl/tools";
 import { runwayTools } from "./connectors/runway/tools";
@@ -92,6 +93,7 @@ export const GATEWAY_TOOL_NAMES: Readonly<Record<string, readonly string[]>> = O
   resend: names(resendTools),
   runway: names(runwayTools),
   elevenlabs_voice: names(elevenlabsVoiceTools),
+  buffer: names(bufferTools),
   platform: names(platformTools),
   web: names(webTools),
   quarantine: names(quarantineTools),
@@ -122,6 +124,8 @@ export const CAPABILITY_TOOLS: Readonly<Record<string, Readonly<Record<string, r
   // or a voiceover spends the founder's money and asks first; looking a task up and listing voices are free reads.
   runway: { "video.generate": ["generate_video_from_text", "generate_video_from_image", "get_video_task"], "video.read": ["get_video_task"] },
   elevenlabs_voice: { "voiceover.generate": ["generate_voiceover", "list_voices"], "voices.list": ["list_voices"] },
+  // The founder's own Buffer account: reading channels and a post's status runs; queuing a post publishes in public later and asks first.
+  buffer: { "channels.read": ["list_channels"], "posts.queue": ["queue_post", "list_channels"], "posts.read": ["get_post"] },
   github: {
     // download_archive is the platform's own checkout (the gateway's archive route, ROUTE_ONLY_TOOLS): never an agent's tool.
     "repos.read": ["list_repos", "read_tree", "read_file", "compare_refs"],
