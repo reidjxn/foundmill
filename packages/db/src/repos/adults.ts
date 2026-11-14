@@ -6,11 +6,12 @@
  * reads as confirmed here, and the reverse.
  *
  * Runs as the person under RLS (they read and insert only their own row) or on the service connection. The time is the
- * database's: whatever an insert says, the row holds now() (a trigger), and the first confirmation stands.
+ * database's: a client names only `user_id` (a column grant), the row holds now() (a trigger), and the first
+ * confirmation stands.
  */
 import { eq, sql } from "drizzle-orm";
 import { adultConfirmations } from "../schema";
-import { Id, one, parseInput, type Executor } from "./_shared";
+import { Id, one, parseInput, rowsOf, type Executor } from "./_shared";
 
 export const adultsRepo = {
   /** When the person confirmed that they are 18 or older; null when they have not. */
@@ -32,9 +33,11 @@ export const adultsRepo = {
    */
   async confirm(db: Executor, userId: string): Promise<{ confirmedAt: Date; created: boolean }> {
     const id = parseInput(Id, userId, "user id");
-    const inserted = await db.insert(adultConfirmations).values({ userId: id }).onConflictDoNothing({ target: adultConfirmations.userId }).returning({ at: adultConfirmations.confirmedAt });
-    if (inserted[0]) return { confirmedAt: inserted[0].at, created: true };
+    // `user_id` alone: a client role may name no other column (0104's column grant), and every other value is the
+    // database's. Drizzle's insert lists every column (as `default`), so the statement is written out.
+    const inserted = rowsOf<{ user_id: string }>(await db.execute(sql`insert into adult_confirmations (user_id) values (${id}::uuid) on conflict (user_id) do nothing returning user_id`));
+    // Read back through the schema, so the time is the same Date every other read answers.
     const row = one(await db.select({ at: adultConfirmations.confirmedAt }).from(adultConfirmations).where(eq(adultConfirmations.userId, id)).limit(1), "adult confirmation");
-    return { confirmedAt: row.at, created: false };
+    return { confirmedAt: row.at, created: inserted.length > 0 };
   },
 };

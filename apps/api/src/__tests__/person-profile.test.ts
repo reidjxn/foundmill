@@ -27,6 +27,8 @@ let n = 0;
 async function person(displayName: string, options: { profile?: boolean } = {}) {
   n += 1;
   const userId = await hz.h.createUser(`person-${n}@test.local`);
+  // A public profile is public once its person confirmed 18 or older (0104).
+  if (options.profile !== false) await repos.adults.confirm(hz.db, userId);
   if (options.profile !== false) await repos.founders.upsert(hz.db, userId, { displayName, experience: "PRIVATE-experience", residence: "PRIVATE-residence", citizenship: "PRIVATE-citizenship", budgetMinor: 1_234_567, skills: { finance: 19 }, constraints: ["PRIVATE-constraint"], riskAppetite: "PRIVATE-risk", timeCommitment: "PRIVATE-time", targetMarkets: ["PRIVATE-market"] });
   return { userId, me: hz.caller({ userId }) };
 }

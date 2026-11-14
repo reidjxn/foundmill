@@ -56,8 +56,12 @@ const rows = async <T>(q: ReturnType<typeof sql>): Promise<T[]> => ((await h.db.
 const commit = (businessId: string) => h.db.update(s.businesses).set({ committedAt: new Date("2026-10-01T00:00:00Z") }).where(eq(s.businesses.id, businessId));
 const publicHandles = async (runner = h.service()) => (await runner.execute<{ handle: string }>(sql`select handle from public_person_profiles order by handle`)).map((r) => r.handle);
 
-/** A founder profile written as the api writes it (service role), with private values planted. */
-async function makeProfile(userId: string, displayName: string) {
+/**
+ * A founder profile written as the api writes it (service role), with private values planted. The api creates a
+ * profile only for a person who confirmed they are 18 or older (0104), so the confirmation comes first.
+ */
+async function makeProfile(userId: string, displayName: string, options: { adult?: boolean } = {}) {
+  if (options.adult !== false) await repos.adults.confirm(h.db as never, userId);
   await repos.founders.upsert(h.db as never, userId, { displayName, ...PRIVATE_MARKERS, targetMarkets: [...PRIVATE_MARKERS.targetMarkets], constraints: [...PRIVATE_MARKERS.constraints], skills: { ...PRIVATE_MARKERS.skills }, currency: "GBP", visibility: "public" });
 }
 
@@ -205,6 +209,21 @@ describe("public_person_profiles: what anyone may read", () => {
     expect(await repos.personProfiles.public.byHandle(h.db as never, "no-such-person")).toBeNull();
     expect(await repos.personProfiles.public.byHandle(h.db as never, "Not A Handle")).toBeNull();
     expect(await repos.personProfiles.public.byHandle(h.db as never, "")).toBeNull();
+  });
+
+  it("0104: a public profile reads as public only once its person confirmed they are 18 or older", async () => {
+    const p = await h.createUser("person-unconfirmed@test.local");
+    // A profile from before sign-up asked: public, published, with no confirmation on record.
+    await makeProfile(p, "Uma Unconfirmed", { adult: false });
+    await repos.personProfiles.save(h.db as never, p, { handle: "uma-unconfirmed", content: profile({ headline: "UMA-headline" }) });
+    await repos.personProfiles.publish(h.db as never, p);
+    expect(await publicHandles()).not.toContain("uma-unconfirmed");
+    expect(await repos.personProfiles.public.byHandle(h.db as never, "uma-unconfirmed")).toBeNull();
+    expect(JSON.stringify(await h.service().execute(sql`select * from public_person_profiles`))).not.toContain("UMA-headline");
+    // Confirmed: public as published, with nothing to publish again.
+    await repos.adults.confirm(h.db as never, p);
+    expect(await publicHandles()).toContain("uma-unconfirmed");
+    expect((await repos.personProfiles.public.byHandle(h.db as never, "uma-unconfirmed"))?.content.headline).toBe("UMA-headline");
   });
 
   it("lists a project page only where the person owns it and the published page names its founders", async () => {

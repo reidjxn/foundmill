@@ -29,6 +29,8 @@ let n = 0;
 async function person(displayName: string) {
   n += 1;
   const userId = await hz.h.createUser(`account-events-${n}@test.local`);
+  // A public profile is public once its person confirmed 18 or older (0104).
+  await repos.adults.confirm(hz.db, userId);
   await repos.founders.upsert(hz.db, userId, { displayName, experience: "PRIVATE-experience", residence: "PRIVATE-residence" });
   return { userId, me: hz.caller({ userId }) };
 }
@@ -102,6 +104,7 @@ describe("profile.published and profile.unpublished", () => {
   it("another account cannot read them: not a stranger, not a cofounder in the person's own project", async () => {
     // The owner of business A publishes; the admin, member and viewer of A are in the same project.
     const owner = hz.caller({ userId: hz.A.ownerId });
+    await repos.adults.confirm(hz.db, hz.A.ownerId);
     await repos.founders.upsert(hz.db, hz.A.ownerId, { displayName: "Olu Owner" });
     await owner.founder.publicProfile.publish({ handle: "olu-owner", content: content() });
     const stranger = await person("Stray Reader");

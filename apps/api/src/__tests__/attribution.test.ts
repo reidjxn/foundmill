@@ -71,6 +71,8 @@ beforeAll(async () => {
   // B's page is a draft only.
   await repos.pages.saveDraft(hz.db, hz.B.businessId, { draft: page(), slug: "still-a-draft", userId: hz.B.ownerId });
   sam = await hz.h.createUser("attribution-sam@test.local");
+  // A public profile is public once its person confirmed 18 or older (0104).
+  await repos.adults.confirm(hz.db, sam);
   await repos.founders.upsert(hz.db, sam, { displayName: "Sam Lee" });
   await repos.personProfiles.save(hz.db, sam, { handle: "sam-lee", content: person() });
   await repos.personProfiles.publish(hz.db, sam);
