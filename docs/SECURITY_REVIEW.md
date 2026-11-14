@@ -199,7 +199,7 @@ Folded in from the "SECURITY_REVIEW entry" of each pull request (#116, #129), as
 | Finding | Severity | Status | PR |
 |---|---|---|---|
 | Export ignores section walls | Medium | Fixed | #116 |
-| Admin lifts own walls via invite | Medium | Open (network session) | — |
+| Admin lifts own walls via invite | Medium | Fixed (hardened by #120) | #113 |
 | Rollback, save or promote widens tool grants | Medium | Fixed | #116 |
 | fm_purge_business executable by client roles | Medium (critical if Data API on) | Fixed | #101 |
 | Delegated approval reused after withdrawal | Medium | Fixed | #116 |
@@ -207,7 +207,7 @@ Folded in from the "SECURITY_REVIEW entry" of each pull request (#116, #129), as
 | Digest recipients not registered as untrusted | Medium | Fixed | #116 |
 | Inbox note remote images / links | Medium | Fixed | #116 |
 | Supabase redirect wildcard | Medium | Fixed in file; dashboard step pending | #116 |
-| Follow sign-ups spend the mail cap | Medium | Open (Turnstile PR after #93) | — |
+| Follow sign-ups spend the mail cap | Medium | Fixed: Turnstile on Follow, and confirmations on their own daily counts | #119 |
 
 ### The untrusted-content scan (#129)
 
