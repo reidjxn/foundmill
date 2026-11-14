@@ -10,8 +10,8 @@
  * readers, close Redis and the database pool, exit 0, within SHUTDOWN_TIMEOUT_MS (docs/DEPLOY.md §3). The browser
  * client lives in `./client` (`@foundmill/stream/client`) and pulls in none of this.
  */
-import { createServiceDb, closeDb, keepPoolWarm, type PoolWarmer } from "@foundmill/db";
-import { admittedBy, loadEnv, parseSignupAllowlist, servicePort } from "@foundmill/shared";
+import { createServiceDb, closeDb, keepPoolWarm, repos, type PoolWarmer } from "@foundmill/db";
+import { liveChannelAdmit, loadEnv, servicePort } from "@foundmill/shared";
 import { createLogger } from "@foundmill/shared/logger";
 import { onShutdown } from "@foundmill/shared/shutdown";
 import { installTelemetry } from "@foundmill/shared/telemetry";
@@ -82,12 +82,12 @@ export async function main(): Promise<void> {
   keys = auth.keepKeysFresh?.({ onError: (err) => log.warn({ err: (err as Error)?.message }, "fetching Supabase's signing keys failed; retrying in 5 minutes") }) ?? null;
 
   if (lifecycle.stopping) return;
-  // The api's invite list (SIGNUP_ALLOWLIST): an account it does not name gets no socket either.
-  const allowlist = parseSignupAllowlist(env.SIGNUP_ALLOWLIST);
+  // The api's rule for who is admitted (the invite list, or an admission it recorded): no socket for anyone else.
+  const admit = liveChannelAdmit(env, auth.devUserId, (userId) => repos.admissions.has(db, userId));
   server = createStreamServer({
     redis: client,
     auth,
-    admit: (user) => admittedBy(allowlist, user, auth.devUserId),
+    admit,
     authorizer: createCachedAuthorizer(createRepoAuthorizer(db, { log })),
     log,
     options: {

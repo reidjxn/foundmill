@@ -353,12 +353,12 @@ export const inboxRepo = {
    */
   /**
    * True once a founder opened a note an agent wrote: the first-week checklist's "read a note from an agent"
-   * (docs/UX_AUDIT_AND_PLAN.md §6.2). Only a read receipt (0048) by an owner or admin of the business counts, never an
+   * (docs/UX_AUDIT_AND_PLAN.md §6.2). Only a read receipt (0048) by an owner, a cofounder or an admin of the business counts, never an
    * example viewer's. A note's state does not: a sign-off approved from the Product tab answers its note unopened, and
    * the Chief of Staff reads and answers notes on vacation (review F38). One id at most is loaded.
    */
   async anyAgentNoteOpened(db: Executor, businessId: string): Promise<boolean> {
-    const openedByFounder = sql`exists (select 1 from ${inboxItemReads} join ${memberships} on ${memberships.businessId} = ${inboxItemReads.businessId} and ${memberships.userId} = ${inboxItemReads.userId} where ${inboxItemReads.inboxItemId} = ${inboxItems.id} and ${memberships.role} in ('owner', 'admin') and ${memberships.source} <> 'example')`;
+    const openedByFounder = sql`exists (select 1 from ${inboxItemReads} join ${memberships} on ${memberships.businessId} = ${inboxItemReads.businessId} and ${memberships.userId} = ${inboxItemReads.userId} where ${inboxItemReads.inboxItemId} = ${inboxItems.id} and ${memberships.role} in ('owner', 'cofounder', 'admin') and ${memberships.source} <> 'example')`;
     const rows = await db
       .select({ id: inboxItems.id })
       .from(inboxItems)

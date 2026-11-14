@@ -7,6 +7,7 @@
  * saved while the orchestrator was down begins as soon as it is back. It asks once per business per browser session,
  * not on every Home visit (audit WEB-3).
  */
+import { WRITE_ROLES } from "@foundmill/shared/constants";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
 import { useEffect } from "react";
@@ -16,7 +17,7 @@ import { useTRPC } from "@/lib/trpc-react";
 import { useBusiness } from "@/components/shell/business-context";
 
 /** Roles that may start work; the API refuses the nudge for the rest. */
-const CAN_ENSURE = new Set(["owner", "admin", "member"]);
+const CAN_ENSURE = new Set<string>(WRITE_ROLES);
 
 /** Businesses this page already asked about (or is asking about); sessionStorage carries it across reloads of the tab. */
 const ensured = new Set<string>();

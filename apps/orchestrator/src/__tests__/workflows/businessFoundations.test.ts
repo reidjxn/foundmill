@@ -19,9 +19,15 @@ const CHUNKS = [["Problem", "Customers"], ["Features", "Pricing"]];
 
 type Mode = "ok" | "unavailable" | "raw" | "stale" | "flaky";
 
-function acts(opts: { plan?: Mode; batch?: Mode; apply?: "ok" | "throws"; page?: "ok" | "throws" } = {}) {
-  const calls = { page: 0, plan: 0, order: [] as string[], sections: [] as string[], roadmap: 0, apply: [] as Record<string, unknown>[], fail: [] as string[] };
+function acts(opts: { plan?: Mode; batch?: Mode; apply?: "ok" | "throws"; page?: "ok" | "throws"; secondRead?: "ok" | "throws" } = {}) {
+  const calls = { page: 0, plan: 0, order: [] as string[], sections: [] as string[], roadmap: 0, apply: [] as Record<string, unknown>[], fail: [] as string[], secondRead: [] as string[] };
   const a: Partial<Activities> = {
+    async secondReadDocument({ kind, version }) {
+      calls.secondRead.push(`${kind}:${version}`);
+      calls.order.push("secondRead");
+      if (opts.secondRead === "throws") throw new Error("the model is down");
+      return { status: "reviewed" as const, issues: 2, reviewerAgentId: "33333333-3333-4333-8333-333333333333", inboxItem: true, revisionTaskId: null };
+    },
     async draftProjectPage() {
       calls.page++;
       calls.order.push("page");
@@ -50,6 +56,7 @@ function acts(opts: { plan?: Mode; batch?: Mode; apply?: "ok" | "throws"; page?:
     },
     async applyFoundations({ model }) {
       calls.apply.push(model);
+      calls.order.push("apply");
       if (opts.apply === "throws") throw ApplicationFailure.create({ message: "database gone", nonRetryable: true });
       return { applied: true, inboxItemId: "11111111-1111-4111-8111-111111111111" };
     },
@@ -70,6 +77,20 @@ describe("businessFoundations workflow (staged)", () => {
     expect(m.calls).toMatchObject({ plan: 1, sections: expect.arrayContaining(["Problem+Customers", "Features+Pricing"]), roadmap: 1, fail: [] });
     expect(m.calls.sections).toHaveLength(2);
     expect(m.calls.apply).toEqual([{ route: "foundations", model: "claude-opus-5-5", mode: "mock", costMinor: 8, costLabel: "Estimate", repaired: false, runner: "temporal", staged: true, calls: 4 }]);
+  });
+
+  it("a different agent reads the drafts once they are written; a failed read leaves the foundations ready", async () => {
+    const m = acts();
+    expect(await run(m, 20)).toMatchObject({ status: "ready" });
+    expect(m.calls.secondRead).toEqual(["foundations:20"]);
+    expect(m.calls.order.slice(-2)).toEqual(["apply", "secondRead"]);
+    const failing = acts({ secondRead: "throws" });
+    expect(await run(failing, 21)).toEqual({ status: "ready", inboxItemId: "11111111-1111-4111-8111-111111111111", error: null });
+    expect(failing.calls.secondRead).toEqual(["foundations:21"]);
+    // Nothing written, nothing read.
+    const stale = acts({ plan: "stale" });
+    await run(stale, 22);
+    expect(stale.calls.secondRead).toEqual([]);
   });
 
   it("drafts the project page first, before the plan (package 1.2); its cost stays out of the foundations summary", async () => {

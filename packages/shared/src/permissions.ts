@@ -2,7 +2,7 @@
  * Per-section staff permissions (BUILD §11.9): one definition for every service that enforces them (apps/api's
  * procedures, apps/collab's spec blocks, the Inbox's redaction). Zod-free, so a browser bundle may import it.
  */
-import { CHANNEL_KEYS, WRITE_ROLES, type MembershipRole, type PlanActionType } from "./constants";
+import { CHANNEL_KEYS, isOwnerRole, WRITE_ROLES, type MembershipRole, type PlanActionType } from "./constants";
 
 /** Sections a membership can be restricted on: module keys plus fixed surfaces. */
 export const SECTIONS = ["product", "development", "distribution", "finance", "team", "legal", "inbox", "crm", "settings", "billing", "live"] as const;
@@ -15,10 +15,40 @@ export interface SectionMembership {
   sectionPermissions: Record<string, SectionAccess>;
 }
 
-/** Effective permission of a membership on a section: owner is never restricted; viewers/advisors read only. */
+/**
+ * What a collaborator may open (THESIS_REVIEW package 3.3): read and write Product (with Development, the Product
+ * area's other half) and Customers (Distribution and the contacts); read the plan's notes (the Inbox) and the Team;
+ * nothing of Money (Finance, Legal, Billing), Settings or the network (`live`). These are the most a collaborator gets:
+ * a membership's own section permissions can narrow them, never widen them. The Plan area has no section of its own:
+ * its roadmap is a Product tab, so a collaborator who writes Product can edit the roadmap too.
+ */
+export const COLLABORATOR_SECTIONS: Readonly<Record<Section, SectionAccess>> = Object.freeze({
+  product: "write",
+  development: "write",
+  distribution: "write",
+  crm: "write",
+  inbox: "read",
+  team: "read",
+  finance: "none",
+  legal: "none",
+  billing: "none",
+  settings: "none",
+  live: "none",
+});
+
+const ACCESS_RANK: Readonly<Record<SectionAccess, number>> = { none: 0, read: 1, write: 2 };
+
+/**
+ * Effective permission of a membership on a section: an owner's standing (an owner or a cofounder) is never restricted;
+ * a collaborator never goes past `COLLABORATOR_SECTIONS`; viewers and advisors read only.
+ */
 export function effectivePermission(membership: SectionMembership, section: Section): SectionAccess {
-  if (membership.role === "owner") return "write";
+  if (isOwnerRole(membership.role)) return "write";
   const explicit = membership.sectionPermissions[section];
+  if (membership.role === "collaborator") {
+    const cap = COLLABORATOR_SECTIONS[section];
+    return explicit && ACCESS_RANK[explicit] < ACCESS_RANK[cap] ? explicit : cap;
+  }
   if (explicit) return explicit;
   return WRITE_ROLES.includes(membership.role) ? "write" : "read";
 }

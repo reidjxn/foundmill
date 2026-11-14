@@ -31,6 +31,10 @@
  *   GET|POST /mail/notify/off?t=  The link in Foundmill's own email to a person (packages 1.5 and 5.1): the same
  *                           pattern; the token (`notifyOffToken`) names the person by id and the kind of email, and a
  *                           valid one turns that kind off in their preferences.
+ *   GET|POST /mail/invitations/off?t=  "Don't send me invitations", the link in every invitation email (and its
+ *                           List-Unsubscribe): the same pattern; the token (`invitationsOffToken`) names the address by
+ *                           its suppression hash, and a valid one suppresses that hash platform-wide, so no invitation
+ *                           (and no project's mail) reaches it again.
  *
  * Whatever suppresses an address for a project here (an unsubscribe link, one-click, a reply asking to stop, a bounce, a
  * drop, a spam report) also withdraws the project's consent records for that address (`withdrawn_at`), so the person no
@@ -39,10 +43,10 @@
  * With PLATFORM_MAIL_DOMAIN unset every route answers 404, as if it did not exist. Bodies are capped before they are read
  * (app.ts: PLATFORM_MAIL_EVENTS_MAX_BYTES, PLATFORM_MAIL_INBOUND_MAX_BYTES).
  */
-import { DEV_PLATFORM_MAIL_SECRET, PLATFORM_NOTIFY_OFF_PATH, readNotifyOffToken, followConfirmNonceHash, platformMailSenderName, readFollowConfirmToken, inboundSenderVerified, normaliseInboundMail, normalisePlatformMailEvents, PLATFORM_MAIL_FOOTER_MARKERS, platformInboundLocalParts, readInboundMail, readPlatformUnsubscribeToken, safeEqual, stableHash, suppressionHashOfEmail, verifySendgridSignature, withinTolerance, type SgEvent } from "@foundmill/connectors";
+import { DEV_PLATFORM_MAIL_SECRET, PLATFORM_INVITATIONS_OFF_PATH, PLATFORM_NOTIFY_OFF_PATH, readInvitationsOffToken, readNotifyOffToken, followConfirmNonceHash, platformMailSenderName, readFollowConfirmToken, inboundSenderVerified, normaliseInboundMail, normalisePlatformMailEvents, PLATFORM_MAIL_FOOTER_MARKERS, platformInboundLocalParts, readInboundMail, readPlatformUnsubscribeToken, safeEqual, stableHash, suppressionHashOfEmail, verifySendgridSignature, withinTolerance, type SgEvent } from "@foundmill/connectors";
 import { APP_NAME, tierShowsBuiltOnMark } from "@foundmill/config";
 import { repos, awardFirstFollowerMilestone } from "@foundmill/db";
-import { FOLLOW_CONFIRM_PAGE, NOTIFY_OFF_PAGE, notifyOffBody, PLATFORM_MAIL_SECRET_MIN_LENGTH, UNSUBSCRIBE_CONFIRM_BODY, UNSUBSCRIBE_CONFIRM_BUTTON, UNSUBSCRIBE_CONFIRM_TITLE, UNSUBSCRIBE_DONE_BODY, UNSUBSCRIBE_INVALID_BODY, builtOnWords } from "@foundmill/shared";
+import { FOLLOW_CONFIRM_PAGE, INVITATIONS_OFF_PAGE, NOTIFY_OFF_PAGE, notifyOffBody, PLATFORM_MAIL_SECRET_MIN_LENGTH, UNSUBSCRIBE_CONFIRM_BODY, UNSUBSCRIBE_CONFIRM_BUTTON, UNSUBSCRIBE_CONFIRM_TITLE, UNSUBSCRIBE_DONE_BODY, UNSUBSCRIBE_INVALID_BODY, builtOnWords } from "@foundmill/shared";
 import { ingestPlatformEvents, writeEventRow } from "./ingest";
 import { nonceKey } from "./nonce-store";
 import type { IngestDeps } from "./types";
@@ -267,6 +271,30 @@ export async function handleNotifyOff(deps: Deps, req: Request): Promise<Unsubsc
     deps.log.warn({ kind: named.kind, err: (e as Error).name }, "notify email not turned off");
   }
   return { status: 200, html: notifyOffPage(NOTIFY_OFF_PAGE.done) };
+}
+
+/** The page behind "Don't send me invitations" (the same look as the unsubscribe page). */
+export function invitationsOffPage(body: string, form?: { token: string }): string {
+  return mailPage(INVITATIONS_OFF_PAGE.title, body, form ? { action: `${PLATFORM_INVITATIONS_OFF_PATH}?t=${encodeURIComponent(form.token)}`, button: INVITATIONS_OFF_PAGE.button } : undefined);
+}
+
+/**
+ * `GET|POST /mail/invitations/off?t=`: "Don't send me invitations" from an invitation email, and its one-click POST (RFC
+ * 8058). The token (`invitationsOffToken`, signed by the gateway under its own label) names the address by its
+ * suppression hash only; a valid one suppresses that hash platform-wide (`suppressEverywhere`), which the gateway checks
+ * before every invitation email. GET shows a button (link scanners open links); only the POST changes anything.
+ * Idempotent. Nothing here knows or logs the address or its hash.
+ */
+export async function handleInvitationsOff(deps: Deps, req: Request): Promise<UnsubscribeResult> {
+  if (!deps.platformMail?.domain) return { status: 404, html: invitationsOffPage(INVITATIONS_OFF_PAGE.invalid) };
+  const secret = signingSecretFor(deps);
+  const token = new URL(req.url).searchParams.get("t") ?? "";
+  const named = secret ? readInvitationsOffToken(secret, token) : null;
+  if (!named) return { status: 400, html: invitationsOffPage(INVITATIONS_OFF_PAGE.invalid) };
+  if (req.method === "GET") return { status: 200, html: invitationsOffPage(INVITATIONS_OFF_PAGE.body, { token }) };
+  const written = await repos.channels.suppressEverywhere(deps.db, { emailHash: named.emailHash, reason: "asked for no invitations", source: "invitation_link" });
+  deps.log.info({ written }, "invitations stopped for an address from its link");
+  return { status: 200, html: invitationsOffPage(INVITATIONS_OFF_PAGE.done) };
 }
 
 /** The project's name as the confirmation email showed it (never one that reads as Foundmill's own). */
