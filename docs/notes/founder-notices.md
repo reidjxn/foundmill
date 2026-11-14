@@ -1,6 +1,6 @@
 # Founder notices and the former founder's cancel (security review P2-3)
 
-Branch `claude/founder-notices`, on `claude/waitlist-invitations` (migrations 0091–0096 there, after main's 0090). One migration here, **0097** (written as 0094, renumbered on Nov 13, 2026 when #120 took 0091–0096). Reworked in place after the second and third security reviews (same day): it has not been merged anywhere.
+Branch `claude/founder-notices`, after #120 (migrations 0091–0096, now on main). One migration here, **0097** (written as 0094, renumbered on Nov 13, 2026 when #120 took 0091–0096). Reworked in place after the second and third security reviews (same day): it has not been merged anywhere.
 
 ## The problem
 
@@ -68,13 +68,13 @@ Someone with founder standing (an owner or a cofounder) could lower another foun
 - **"/home"** is not one route here: the signed-in front door is Today, the dashboards are Home, and someone with no project left lands on /new. The card is on all three (it renders nothing while there is no project to keep).
 - **The base branch moves**: `team.ts` changes are kept to a few lines (the limit, the names and the demotion read before the transactions). At the merge of #120 its locked re-reads and the grant rule were taken as they are; the actor's limit on lowering a founder now sits after every access check (the editor's fresh row, the lock on the person's row, `assertWithinGrantorAccess`), so a change refused for access never spends one.
 
-## Tests (verbatim totals, Nov 13, 2026, after the narrow verification's fixes)
+## Tests (verbatim totals, Nov 14, 2026, after the bounds check's fixes and main merged in: #120 squashed, #117, #121, #123)
 
 - `pnpm -w turbo typecheck` (run alone): Tasks: 25 successful, 25 total
-- eslint on the files changed against #120: no errors, no warnings
-- packages/db: Test Files 99 passed | 1 skipped (100); Tests 2459 passed | 18 skipped (2477)
-- apps/api: Test Files 143 passed (143); Tests 1325 passed | 9 skipped (1334)
-- apps/gateway: Test Files 37 passed (37); Tests 387 passed (387)
+- eslint on the files changed against main: no errors, no warnings
+- packages/db: Test Files 99 passed | 1 skipped (100); Tests 2462 passed | 18 skipped (2480)
+- apps/api: Test Files 144 passed (144); Tests 1330 passed | 9 skipped (1339)
+- apps/gateway: Test Files 37 passed (37); Tests 389 passed (389)
 - packages/shared: Test Files 62 passed (62); Tests 853 passed (853)
 - apps/web: Test Files 179 passed (179); Tests 1431 passed (1431)
 - packages/dugout: Test Files 123 passed (123); Tests 1265 passed (1265)
