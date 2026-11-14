@@ -29,6 +29,7 @@ import { productResearchPlanPrompt } from "./product-research";
 import { goalProposalPrompt } from "./goal-proposal";
 import { projectPagePrompt } from "./project-page";
 import { postDraftPrompt } from "./post-draft";
+import { showcaseScriptPrompt } from "./showcase-script";
 import { teamCallTurnPrompt, teamCallWrapUpPrompt } from "./team-call";
 
 export * from "./template";
@@ -101,6 +102,7 @@ export const PROMPT_LIST = [
   teamCallTurnPrompt,
   teamCallWrapUpPrompt,
   postDraftPrompt,
+  showcaseScriptPrompt,
 ] as const;
 
 export type PromptKey = (typeof PROMPT_LIST)[number]["key"];
