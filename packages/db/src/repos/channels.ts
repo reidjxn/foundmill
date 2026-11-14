@@ -8,7 +8,7 @@
  * blended CPA the screen labels "Estimate".
  */
 import { createHash } from "node:crypto";
-import { CHANNEL_KEYS, CHANNEL_LINES, CHANNEL_META, type ChannelKey, type ChannelLine } from "@foundmill/shared";
+import { CHANNEL_KEYS, CHANNEL_LINES, CHANNEL_META, HARD_SUPPRESSION_REASONS, type ChannelKey, type ChannelLine } from "@foundmill/shared";
 import { and, asc, desc, eq, inArray, isNotNull, isNull, notInArray, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import { businesses, CHANNEL_METRIC_SOURCES, channelMetrics, channels, SUPPRESSION_SCOPES, suppressionList, type Channel, type ChannelMetric, type SuppressionEntry } from "../schema";
@@ -486,6 +486,20 @@ export const channelsRepo = {
       .select({ id: suppressionList.id })
       .from(suppressionList)
       .where(and(or(eq(suppressionList.businessId, businessId), eq(suppressionList.scope, "platform")), or(...checks)))
+      .limit(1);
+    return rows.length > 0;
+  },
+
+  /**
+   * Whether an address hash carries a hard suppression (a bounce or a spam report, `HARD_SUPPRESSION_REASONS`), platform
+   * wide or for this business. The founder notices (security review P2-3) stop only for this: an unsubscribe from a
+   * project's mail or "Don't send me invitations" does not hold them.
+   */
+  async isHardSuppressed(db: Executor, businessId: string, emailHash: string): Promise<boolean> {
+    const rows = await db
+      .select({ id: suppressionList.id })
+      .from(suppressionList)
+      .where(and(or(eq(suppressionList.businessId, businessId), eq(suppressionList.scope, "platform")), eq(suppressionList.emailHash, emailHash), inArray(suppressionList.reason, [...HARD_SUPPRESSION_REASONS])))
       .limit(1);
     return rows.length > 0;
   },

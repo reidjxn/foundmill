@@ -183,6 +183,16 @@ describe("account events and the walls", () => {
     expect(viewAccountEvent(e, USER_A.toUpperCase())).toBe(seenJson);
   });
 
+  it("a founder notice: the person emailed reads their own on their own channel, nobody else, and no business stream", () => {
+    const payload = { notice: "removed", businessId: fixtureId("business"), notificationId: fixtureId("notification"), offersCancel: true, simulated: true };
+    const mine = accountEntry(USER_A, { type: "founder_notice.sent", payload });
+    expect(JSON.parse(viewAccountEvent(mine, USER_A)!)).toEqual({ id: mine.fields.id, userId: USER_A, type: "founder_notice.sent", occurredAt: "2026-11-12T09:00:00.000Z", payload });
+    expect(viewAccountEvent(mine, USER_A)).not.toContain("internal-actor-name");
+    expect(viewAccountEvent(mine, USER_B)).toBeNull();
+    expect(viewAccountEvent({ ...mine, stream: `ae:${USER_B}` }, USER_B)).toBeNull();
+    expect(Object.keys(EVENT_WALLS)).not.toContain("founder_notice.sent");
+  });
+
   it("a sign-up a page brought: each of the two people gets their own row on their own channel, and never the other's", () => {
     // The new person is USER_A, the person credited USER_B; one row each, the same public address in both.
     const payload = { sourceKind: "project_page", sourceRef: "bread-by-bike" };

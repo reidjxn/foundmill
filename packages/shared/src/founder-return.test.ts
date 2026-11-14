@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { DEFAULT_EMAIL_NOTIFICATION_PREFS, EMAIL_NOTIFICATION_KINDS, LIMITED_EMAIL_KINDS } from "./constants";
+import { ACCOUNT_SAFETY_EMAIL_KINDS, DEFAULT_EMAIL_NOTIFICATION_PREFS, EMAIL_NOTIFICATION_KINDS, LIMITED_EMAIL_KINDS } from "./constants";
 import { FOUNDER_NOTIFICATION_KINDS, notificationLinkParams, oneClickOption } from "./founder-notifications";
 import { EMAIL_NOTIFICATION_HINTS, EMAIL_NOTIFICATION_LABELS, NOTIFY_HOLDING_WAIT_MS, NOTIFY_PER_PERSON_PER_DAY, NOTIFY_WAIT_MS } from "./notify-email";
 import { addDaysToKey, founderActivation, founderHabit, isPresent, PRESENCE, startsNewSession } from "./founder-return";
@@ -49,8 +49,9 @@ describe("founderHabit", () => {
 });
 
 describe("founder notifications on the platform's one sender (founder, 2026-11-12)", () => {
-  it("are the platform's kinds, every one on until turned off", () => {
-    expect(FOUNDER_NOTIFICATION_KINDS).toBe(EMAIL_NOTIFICATION_KINDS);
+  it("are the platform's kinds and the account-safety notice, every switch on until turned off", () => {
+    expect([...FOUNDER_NOTIFICATION_KINDS]).toEqual([...EMAIL_NOTIFICATION_KINDS, ...ACCOUNT_SAFETY_EMAIL_KINDS]);
+    expect(Object.keys(DEFAULT_EMAIL_NOTIFICATION_PREFS)).not.toContain("founder_notice");
     expect(Object.values(DEFAULT_EMAIL_NOTIFICATION_PREFS).every(Boolean)).toBe(true);
     expect(Object.keys(DEFAULT_EMAIL_NOTIFICATION_PREFS).sort()).toEqual([...EMAIL_NOTIFICATION_KINDS].sort());
   });

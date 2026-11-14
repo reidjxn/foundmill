@@ -14,12 +14,17 @@
  *   nightly `businessDeletionSweep` deletes a business whose latest request is past its date and was not canceled
  *   (`repos.businesses.deletionsDue`, 0028 `fm_purge_business`). The request needs a fresh authentication
  *   (`authenticatedAt` from the token's `amr`).
+ * - Both tell the founders by email once they commit (services/founder-notices.ts, security review P2-3): every other
+ *   founder, and a former founder for the request (someone else demoted or removed them within 30 days before it, or after it), who may cancel it as a former
+ *   founder from the email's link or the card on their home (`cancelDeletionAsFormerFounder`). The 7-day grace from the
+ *   request is also the last day such a founder may cancel it, so the purge waits for nothing more. The person who asked gets a receipt.
  */
 import { APP_NAME } from "@foundmill/config";
 import { BUSINESS_DELETION_CANCEL_ACTION, BUSINESS_DELETION_DELAY_DAYS, BUSINESS_DELETION_REQUEST_ACTION, EXPORT_EXCLUDED_TABLES, EXPORT_SECTIONS, EXPORT_TABLES, portableValue, repos, type Business, type Executor, type ExportSection, type InboxItem, type PortableRow } from "@foundmill/db";
 import { AppError, ForbiddenError, ValidationError } from "@foundmill/shared";
 import type { BusinessContext } from "../trpc";
 import { audit, effectivePermission } from "../trpc";
+import { refundingOnFailure, takeFounderChange, tellFoundersQuietly } from "./founder-notices";
 import { stopAllAgents, type StopAllResult } from "./killswitch";
 
 export const EXPORT_FORMAT = "foundmill-export/2" as const;
@@ -317,9 +322,12 @@ export async function requestDeletion(ctx: BusinessContext, input: RequestDeleti
   if (existing.status === "scheduled") {
     return { deletion: existing, reauth: { required: true, satisfied, authenticatedAt: authenticatedAt?.toISOString() ?? null, windowMinutes: REAUTH_WINDOW_MS / 60_000 }, copy: deletionCopy(ctx.business, existing.scheduledFor!), inboxItem: null };
   }
+  // One person asks for a deletion at most so often a day in a project (second review, P1-1); a cancel is never limited.
+  const refund = { current: await takeFounderChange(ctx, "request") };
   const scheduledFor = new Date(now.getTime() + DELETION_DELAY_DAYS * DAY_MS).toISOString();
   const copy = deletionCopy(ctx.business, scheduledFor);
-  const inboxItem = await ctx.rls(async (tx) => {
+  // Given back when the request's transaction fails (final review, P3): a request that was not made costs nothing.
+  const { item: inboxItem, auditId } = await refundingOnFailure(refund, () => ctx.rls(async (tx) => {
     const chief = await repos.agents.chiefOfStaff(tx, ctx.businessId);
     // The warning is made first so the request on the audit chain can name it: cancelling settles exactly this item.
     const item = chief
@@ -330,9 +338,12 @@ export async function requestDeletion(ctx: BusinessContext, input: RequestDeleti
           { fromUserId: ctx.userId },
         )
       : null;
-    await audit(tx, ctx, { action: DELETION_REQUEST_ACTION, target: { kind: "business", id: ctx.businessId }, details: { requestedAt: now.toISOString(), scheduledFor, delayDays: DELETION_DELAY_DAYS, reauthenticatedAt: authenticatedAt!.toISOString(), inboxItemId: item?.id ?? null } });
-    return item;
-  });
+    const entry = await audit(tx, ctx, { action: DELETION_REQUEST_ACTION, target: { kind: "business", id: ctx.businessId }, details: { requestedAt: now.toISOString(), scheduledFor, delayDays: DELETION_DELAY_DAYS, reauthenticatedAt: authenticatedAt!.toISOString(), inboxItemId: item?.id ?? null } });
+    return { item, auditId: entry.id };
+  }));
+  // Every other founder, and every former founder for this request (with the one-click cancel), hears
+  // it by email (security review P2-3). The Inbox warning above is the project's note; a founder on their own gets no email.
+  await tellFoundersQuietly(ctx, { businessId: ctx.businessId, auditId, notice: "deletion_requested", actorUserId: ctx.userId, now });
   return { deletion: await deletionState(ctx), reauth: { required: true, satisfied, authenticatedAt: authenticatedAt!.toISOString(), windowMinutes: REAUTH_WINDOW_MS / 60_000 }, copy, inboxItem };
 }
 
@@ -346,11 +357,11 @@ export async function cancelDeletion(ctx: BusinessContext): Promise<DeletionStat
   if (existing.status !== "scheduled") return existing;
   const request = (await repos.audit.list(ctx.db, ctx.businessId, { action: DELETION_REQUEST_ACTION, limit: 1 })).items[0];
   const warningId = (request?.details as { inboxItemId?: string | null } | undefined)?.inboxItemId ?? null;
-  await ctx.rls(async (tx) => {
-    await audit(tx, ctx, { action: DELETION_CANCEL_ACTION, target: { kind: "business", id: ctx.businessId }, details: { cancelledAt: new Date().toISOString(), hadBeenScheduledFor: existing.scheduledFor } });
+  const auditId = await ctx.rls(async (tx) => {
+    const entry = await audit(tx, ctx, { action: DELETION_CANCEL_ACTION, target: { kind: "business", id: ctx.businessId }, details: { cancelledAt: new Date().toISOString(), hadBeenScheduledFor: existing.scheduledFor } });
     if (warningId) await repos.inbox.archive(tx, ctx.businessId, warningId).catch(() => undefined);
     const chief = await repos.agents.chiefOfStaff(tx, ctx.businessId);
-    if (!chief) return;
+    if (!chief) return entry.id;
     await repos.inbox.createItem(
       tx,
       ctx.businessId,
@@ -368,6 +379,9 @@ export async function cancelDeletion(ctx: BusinessContext): Promise<DeletionStat
       },
       { fromUserId: ctx.userId, state: "unread" },
     );
+    return entry.id;
   });
+  // The other founders, and those someone else took out lately (who were told of the request), hear it was canceled.
+  await tellFoundersQuietly(ctx, { businessId: ctx.businessId, auditId, notice: "deletion_canceled", actorUserId: ctx.userId });
   return deletionState(ctx);
 }
