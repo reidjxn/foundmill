@@ -66,6 +66,12 @@ const asAllow = (r: CallResponse): AllowResponse => {
   expect(r.outcome, JSON.stringify(r).slice(0, 300)).toBe("allow");
   return r as AllowResponse;
 };
+/**
+ * The time bound: strict on a developer's machine, wider on a loaded CI runner (as packages/policy's evaluate test does).
+ * Either way it catches what this file guards against: the old quadratic address scan took 11 s for 94 KB, and minutes
+ * for these 4 MB.
+ */
+const BUDGET_MS = process.env.CI ? 5_000 : 1_000;
 const timed = async <T>(fn: () => Promise<T>): Promise<{ ms: number; out: T }> => {
   const started = performance.now();
   const out = await fn();
@@ -77,7 +83,7 @@ describe("a 4 MB untrusted media result", () => {
     // The session also holds an outbound tool, so it never reads third-party content raw.
     const token = await g.token({ sessionId: await g.newSession(), allowedTools: [`${KEY}:fetch_media`, `${TEST_CONNECTOR}:send_message`] });
     const { ms, out } = await timed(() => g.client.call(token, { connector: KEY, tool: "fetch_media", args: {} }));
-    expect(ms).toBeLessThan(1000);
+    expect(ms).toBeLessThan(BUDGET_MS);
     const envelope = asAllow(out).result.data as { quarantined?: boolean; content: unknown };
     expect(envelope.quarantined).toBe(true);
     expect(JSON.stringify(envelope)).not.toContain("AAAAAAAAAAAAAAAA");
@@ -92,7 +98,7 @@ describe("a 4 MB untrusted media result", () => {
   it("reaches the platform token as it came in well under a second", async () => {
     const token = await g.token({ sessionId: null, allowedTools: [`${KEY}:fetch_media`] });
     const { ms, out } = await timed(() => g.client.call(token, { connector: KEY, tool: "fetch_media", args: {} }));
-    expect(ms).toBeLessThan(1000);
+    expect(ms).toBeLessThan(BUDGET_MS);
     const envelope = asAllow(out).result.data as { quarantined?: boolean; content: { base64: string } };
     expect(envelope.quarantined).toBeUndefined();
     expect(envelope.content.base64.length).toBe(FOUR_MB);
