@@ -6,7 +6,7 @@
  * then demotes the offending mentions to plain text with `stripInvalidMentions` so no unknown id reaches render.
  */
 import { lookupByName } from "./manifest";
-import { findMalformedMarkup, formatEntityMarkup, parseEntityMarkup, serializeSegments } from "./markup";
+import { findMalformedMarkup, formatEntityMarkup, parseEntityMarkup, serializeSegments, validateMarkup } from "./markup";
 import type { Manifest, ValidationResult } from "./types";
 
 /** Only one re-ask per note. */
@@ -118,7 +118,27 @@ export function buildReask(validation: ValidationResult, manifest: Manifest, opt
  * parentheses, as `formatEntityMarkup` does with `]`): it can be a name someone outside the business chose (a customer's
  * name at checkout), and it must stay text in the note, never an image or a link.
  */
+/**
+ * The final fallback: text that always validates. One pass can join the words around a removed token into a new
+ * mention (`[[[[ent:x]]ent:<id>|Name]]` loses `[[ent:x]]` and leaves `[[ent:<id>|Name]]`), so passes repeat until the
+ * text validates or stops changing; every pass that changes the text makes it shorter, so this ends. Anything still
+ * invalid after that loses every remaining `[[ent:` opening.
+ */
 export function stripInvalidMentions(text: string, manifest: Manifest): string {
+  let out = text;
+  for (let pass = 0; pass < STRIP_PASSES; pass++) {
+    const next = stripOnce(out, manifest);
+    if (validateMarkup(next, manifest).valid) return next;
+    if (next === out) break;
+    out = next;
+  }
+  return stripOnce(out.split("[[ent:").join(""), manifest);
+}
+
+/** At most this many passes; real text needs one, a nested splice two or three. */
+const STRIP_PASSES = 8;
+
+function stripOnce(text: string, manifest: Manifest): string {
   const segments = parseEntityMarkup(text).map((seg) => {
     if (seg.kind !== "entity") return seg;
     const entity = manifest.get(seg.id);
@@ -145,7 +165,8 @@ export function stripInvalidMentions(text: string, manifest: Manifest): string {
     const close = span.indexOf("]]");
     const lineEnd = span.indexOf("\n");
     const stop = close !== -1 ? close : lineEnd !== -1 ? lineEnd : span.length;
-    const display = span.slice(id.length + 1, stop).trim();
+    // trimStart only: a space before the next mention or word stays (`x [[ent:abc| [[ent:<id>|Ana]]` keeps `x [[…`).
+    const display = span.slice(id.length + 1, stop).trimStart();
     const rest = close !== -1 ? bad.end : bad.index + stop;
     out = out.slice(0, bad.index) + inertDisplay(display) + out.slice(rest);
   }
