@@ -602,8 +602,8 @@ test.describe("inbox", () => {
       // The reading pane shows this row's note before anything is checked: the header of the note before it is visible too.
       await expect(page.getByTestId("inbox-item")).toHaveAttribute("data-item-id", id!, { timeout: LONG });
       await expect(page.getByTestId("inbox-item-header")).toBeVisible({ timeout: LONG });
-      const strip = page.getByTestId("status-strip");
-      if (await strip.count()) await expect(strip).not.toContainText(/\b\d{4}-\d{2}\b/);
+      // The strip can unmount on a re-render, so this counts strips showing a raw ISO month (none, whether or not one is shown).
+      await expect(page.getByTestId("status-strip").filter({ hasText: /\b\d{4}-\d{2}\b/ })).toHaveCount(0);
       if ((await page.getByTestId("inbox-item").getAttribute("data-type")) === "human_message") await expect(page.getByTestId("inbox-item-header")).not.toContainText(/\bYO\b/);
     }
   });
