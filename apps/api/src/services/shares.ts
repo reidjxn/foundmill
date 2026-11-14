@@ -19,14 +19,16 @@
  *   anything that is not recorded, the answer is `{ recorded: false }` and never an error: the web calls this after the
  *   share itself and does not wait on it.
  * - A showcase post (the house's post of a video every founder approved, 0105) is refused unless the showcase gate
- *   passes (services/showcase.ts `showcaseShareGate`) and the network is one the founders were shown: that refusal is
- *   an error, so the share control says why.
+ *   passes (services/showcase.ts `showcaseShareGate`) and the press names a network the founders were shown (never a
+ *   copy or the device's sheet). A refused press is still recorded first, and one after a withdrawal tells the house
+ *   where to take it down from; the refusal is an error, so the share control says why. The Creative tab awaits
+ *   `showcase.shareCheck` before it opens anything for such a post.
  */
 import { repos } from "@foundmill/db";
 import { ForbiddenError, MESSAGE_APPS, POST_NETWORKS, ValidationError, WRITE_ROLES, hasSectionAccess, type Section, type ShareDestination, type ShareOpenTarget, type ShareSubjectKind } from "@foundmill/shared";
 import { audit, type BusinessContext } from "../trpc";
 import { writeEventRow } from "./events";
-import { showcaseShareError, showcaseShareGate } from "./showcase";
+import { noteLateShowcaseShare, showcaseShareGate, showcaseShareProblem } from "./showcase";
 import type { WindowLimit } from "./rate-limit";
 
 /** The section each kind of shared thing belongs to: Plan › Milestones reads Distribution's journey, the page is Product's, a drafted post is Distribution's. */
@@ -65,8 +67,15 @@ export async function recordShareOpened(ctx: BusinessContext, input: ShareOpened
   if (ctx.business.isDemo || (ctx.membership as { source?: string }).source === "example") return { recorded: false };
   if (input.kind === "draft" && input.refId) {
     const gate = await showcaseShareGate(ctx.db, ctx.businessId, input.refId, new Date());
-    if (gate?.refusal) throw showcaseShareError(gate.refusal);
-    if (gate && input.network !== null && !(gate.request.preview.networks as readonly string[]).includes(input.network)) throw new ForbiddenError("The founders approved this video for other networks only.");
+    const problem = gate ? showcaseShareProblem(gate, input.network) : null;
+    if (gate && problem) {
+      // Review finding 1: the web reports a share after the network's window opened, so a refused share may have gone
+      // out all the same. It is recorded first (the takedown note lists it), and a share of a video that was already
+      // withdrawn tells the house at once where to take it down from by hand. Then the press is refused.
+      await writeEventRow(ctx.db, { businessId: ctx.businessId, type: "share.opened", actor: { kind: "user", id: ctx.userId }, payload: { network: input.network, kind: input.kind, refId: input.refId, target: input.target } });
+      await noteLateShowcaseShare(ctx.db, ctx.businessId, gate.request, input.network);
+      throw problem;
+    }
   }
   const taken = await ctx.limits.take([{ key: shareOpenedLimitKey(ctx.userId), rule: SHARE_OPENED_LIMIT }]);
   if (!taken.ok) return { recorded: false };

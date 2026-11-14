@@ -226,4 +226,18 @@ describe("SharePost", () => {
     fireEvent.click(close[close.length - 1]!);
     expect(onOpenChange).toHaveBeenCalledWith(false);
   });
+
+  it("only: a showcase video is offered on its approved networks only, with its words fixed and nothing without a network", async () => {
+    vi.stubGlobal("navigator", { ...navigator, share: vi.fn().mockResolvedValue(undefined) });
+    panel({ draft: page, only: ["x", "linkedin"] });
+    await waitFor(() => expect(document.querySelector("[data-share-network]")).toBeTruthy());
+    const offered = [...document.querySelectorAll("[data-share-network]")].map((el) => el.getAttribute("data-share-network"));
+    expect(new Set(offered)).toEqual(new Set(["x", "linkedin"]));
+    // No device sheet, no plain copy of the words or the link, no message apps: each would go somewhere nobody can name.
+    expect(document.querySelector("[data-share-device]")).toBeNull();
+    expect(document.querySelector("[data-share-copy-text]")).toBeNull();
+    expect(document.querySelector("[data-share-copy-link]")).toBeNull();
+    expect(document.querySelector("[data-share-message]")).toBeNull();
+    expect(textarea().readOnly).toBe(true);
+  });
 });

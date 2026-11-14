@@ -235,7 +235,7 @@ describe("the answers: one founder's no, withdrawal or departure overrides the o
     // The house opened a share of the draft on a network the founders were shown.
     expect(await house().share.opened({ businessId: HOUSE_BUSINESS_ID, kind: "draft", refId: approved.assetId, network: "instagram", target: "tap" })).toEqual({ recorded: true });
     // Not on a network they were not shown.
-    expect(await code(house().share.opened({ businessId: HOUSE_BUSINESS_ID, kind: "draft", refId: approved.assetId, network: "reddit", target: "tap" }))).toBe("forbidden");
+    expect(await code(house().share.opened({ businessId: HOUSE_BUSINESS_ID, kind: "draft", refId: approved.assetId, network: "reddit", target: "tap" }))).toBe("showcase_share_network");
     await p.cofounder.showcase.withdrawMine({ businessId: p.id, consentId: b.consentId });
     const row = await requestRow(req.id);
     expect(row).toMatchObject({ state: "withdrawn", withdrawReason: "founder_withdrew" });
@@ -368,6 +368,47 @@ describe("review findings 2, 3, 5, 8 and 10: spend, approvals, links, leaving an
     expect(runway.calls.find((c) => c.tool === "generate_video_from_image")?.args).toMatchObject({ model: VIDEO_MODELS.showcase_clip });
     const source = readFileSync(fileURLToPath(new URL("../services/showcase.ts", import.meta.url)), "utf8");
     expect(source).not.toMatch(/["'`]gen[0-9][\w.]*["'`]/);
+  });
+});
+
+describe("review finding 1: a showcase share is checked before anything opens, and every press is on record", () => {
+  async function approvedPost(name: string) {
+    const p = await project(name, { cofounder: true });
+    const req = await askedFor(p);
+    await p.owner.showcase.answer({ businessId: p.id, consentId: (await askOf(p.owner, p.id, p.ownerId)).consentId, answer: "yes" });
+    const b = await askOf(p.cofounder, p.id, p.cofounderId);
+    await p.cofounder.showcase.answer({ businessId: p.id, consentId: b.consentId, answer: "yes" });
+    return { p, req, b, assetId: (await requestRow(req.id)).assetId! };
+  }
+  const sharesOf = async (assetId: string) => (await repos.events.outboxPending(hz.db, HOUSE_BUSINESS_ID)).filter((o) => o.event.type === "share.opened" && (o.event.payload as { refId?: string }).refId === assetId).map((o) => (o.event.payload as { network: string | null }).network);
+  const takeDownNotes = async () => ((await hz.db.execute(sql`select body_md from inbox_items where business_id = ${HOUSE_BUSINESS_ID} and subject like 'Take the video about%' order by created_at`)) as unknown as { rows: { body_md: string }[] }).rows.map((r) => r.body_md);
+
+  it("showcase.shareCheck answers before anything opens: the networks while it may be shared, a refusal after a withdrawal", async () => {
+    const { p, b, assetId } = await approvedPost("Checked");
+    expect(await house().showcase.shareCheck({ businessId: HOUSE_BUSINESS_ID, assetId })).toEqual({ showcase: true, ok: true, message: null, networks: ["instagram", "tiktok", "x", "linkedin"] });
+    await p.cofounder.showcase.withdrawMine({ businessId: p.id, consentId: b.consentId });
+    expect(await house().showcase.shareCheck({ businessId: HOUSE_BUSINESS_ID, assetId })).toMatchObject({ showcase: true, ok: false, message: expect.stringMatching(/not approved/) });
+    // Not a showcase post: shared as any other.
+    expect(await house().showcase.shareCheck({ businessId: HOUSE_BUSINESS_ID, assetId: p.milestoneId })).toEqual({ showcase: false, ok: true, message: null, networks: [] });
+  });
+
+  it("a copy or the device's sheet (no network) is refused, yet recorded and named in the takedown note", async () => {
+    const { p, b, assetId } = await approvedPost("Copied");
+    expect(await code(house().share.opened({ businessId: HOUSE_BUSINESS_ID, kind: "draft", refId: assetId, network: null, target: "copy" }))).toBe("showcase_share_network");
+    expect(await sharesOf(assetId)).toEqual([null]);
+    await p.cofounder.showcase.withdrawMine({ businessId: p.id, consentId: b.consentId });
+    expect((await takeDownNotes()).at(-1)).toMatch(/a copy or the device's own share sheet/);
+  });
+
+  it("a share pressed after the withdrawal is recorded, refused, and the house is told at once where to take it down", async () => {
+    const { p, b, assetId } = await approvedPost("Late");
+    await p.cofounder.showcase.withdrawMine({ businessId: p.id, consentId: b.consentId });
+    const notesBefore = (await takeDownNotes()).length;
+    expect(await code(house().share.opened({ businessId: HOUSE_BUSINESS_ID, kind: "draft", refId: assetId, network: "tiktok", target: "tap" }))).toBe("showcase_share_refused");
+    expect(await sharesOf(assetId)).toEqual(["tiktok"]);
+    const notes = await takeDownNotes();
+    expect(notes.length).toBe(notesBefore + 1);
+    expect(notes.at(-1)).toMatch(/tiktok/);
   });
 });
 

@@ -8,14 +8,16 @@
  */
 import { SHOWCASE_ANSWERS } from "@foundmill/shared";
 import { z } from "zod";
-import { answerAsk, getSetting, listCandidates, listRequests, myAsk, requestShowcase, setSetting, withdrawByHouse, withdrawMine } from "../services/showcase";
-import { Id, businessProcedure, router } from "../trpc";
+import { answerAsk, checkShowcaseShare, getSetting, listCandidates, listRequests, myAsk, requestShowcase, setSetting, withdrawByHouse, withdrawMine } from "../services/showcase";
+import { Id, businessProcedure, router, sectionRead } from "../trpc";
 
 export const showcaseRouter = router({
   candidates: businessProcedure.query(({ ctx }) => listCandidates(ctx)),
   list: businessProcedure.query(({ ctx }) => listRequests(ctx)),
   request: businessProcedure.input(z.object({ subjectBusinessId: Id })).mutation(({ ctx, input }) => requestShowcase(ctx, input)),
   withdraw: businessProcedure.input(z.object({ requestId: Id })).mutation(({ ctx, input }) => withdrawByHouse(ctx, input)),
+  /** The house's Creative tab awaits this before it opens anything for a showcase post (any member who can read Distribution). */
+  shareCheck: sectionRead("distribution").input(z.object({ assetId: Id })).mutation(({ ctx, input }) => checkShowcaseShare(ctx, input)),
   ask: businessProcedure.input(z.object({ consentId: Id.nullish(), inboxItemId: Id.nullish() })).query(({ ctx, input }) => myAsk(ctx, input)),
   answer: businessProcedure.input(z.object({ consentId: Id, answer: z.enum(SHOWCASE_ANSWERS) })).mutation(({ ctx, input }) => answerAsk(ctx, input)),
   withdrawMine: businessProcedure.input(z.object({ consentId: Id })).mutation(({ ctx, input }) => withdrawMine(ctx, input)),

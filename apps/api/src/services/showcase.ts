@@ -45,6 +45,7 @@ import {
   SHOWCASE_ASK_TTL_MS,
   SHOWCASE_CONSENT_KEY,
   SHOWCASE_NETWORKS,
+  SHOWCASE_SHARE_NETWORK_WORDS,
   SHOWCASE_SHARE_REFUSAL_WORDS,
   cardTallImagePath,
   isOwnerRole,
@@ -807,6 +808,39 @@ export async function showcaseShareGate(db: Executor, houseId: string, assetId: 
 /** The refusal as an error a share control shows. */
 export function showcaseShareError(refusal: ShowcaseShareRefusal): AppError {
   return new AppError("showcase_share_refused", SHOWCASE_SHARE_REFUSAL_WORDS[refusal], 409);
+}
+
+/**
+ * Why this press on a showcase post may not share it (review finding 1): the gate's refusal, or a share with no network
+ * (a copy, the device's sheet: it would go somewhere nobody could name to take it down from) or on a network the
+ * founders were not shown. Null when it may.
+ */
+export function showcaseShareProblem(gate: { request: ShowcaseRequest; refusal: ShowcaseShareRefusal | null }, network: string | null): AppError | null {
+  if (gate.refusal) return showcaseShareError(gate.refusal);
+  if (network === null) return new AppError("showcase_share_network", SHOWCASE_SHARE_NETWORK_WORDS.none, 409);
+  if (!(gate.request.preview.networks as readonly string[]).includes(network)) return new AppError("showcase_share_network", SHOWCASE_SHARE_NETWORK_WORDS.other, 409);
+  return null;
+}
+
+/**
+ * A showcase share was pressed after its request ended (a founder withdrew, the approval lapsed...): the share is on
+ * record, and the house is told at once where to take it down from by hand, because the withdrawal's own note was
+ * written before this share existed.
+ */
+export async function noteLateShowcaseShare(db: Executor, houseId: string, request: ShowcaseRequest, network: string | null): Promise<void> {
+  if (isShowcaseOpen(request.state)) return;
+  await repos.showcase.createHouseNote(db, houseId, { subject: WORDS.removeByHand(request.preview.projectName), bodyMd: WORDS.removeByHandBody(network ?? SHOWCASE_SHARE_NETWORK_WORDS.unnamed) });
+}
+
+/**
+ * `showcase.shareCheck` (the house's Creative tab, before it opens anything for a showcase post): whether it may be
+ * shared now, and on which networks. The web awaits it and opens nothing on a refusal. Not a showcase post: `showcase`
+ * false, and the tab shares it as any other post.
+ */
+export async function checkShowcaseShare(ctx: BusinessContext, input: { assetId: string }): Promise<{ showcase: boolean; ok: boolean; message: string | null; networks: string[] }> {
+  const gate = await showcaseShareGate(ctx.db, ctx.businessId, input.assetId, nowOf({}));
+  if (!gate) return { showcase: false, ok: true, message: null, networks: [] };
+  return { showcase: true, ok: gate.refusal === null, message: gate.refusal ? SHOWCASE_SHARE_REFUSAL_WORDS[gate.refusal] : null, networks: [...gate.request.preview.networks] };
 }
 
 /**

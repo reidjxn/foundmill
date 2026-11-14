@@ -324,6 +324,14 @@ export function showcaseWords(appName: string) {
 }
 
 /** The plain words for a refused share of a showcase post. */
+/** A showcase share without a network (a copy, the device's own sheet) or on a network the founders were not shown. */
+export const SHOWCASE_SHARE_NETWORK_WORDS = {
+  none: "A showcase video is shared only on a network its founders approved, never copied or sent from the device's own sheet.",
+  other: "The founders approved this video for other networks only.",
+  /** How a share without a network is named in the note to take it down by hand. */
+  unnamed: "a copy or the device's own share sheet",
+} as const;
+
 export const SHOWCASE_SHARE_REFUSAL_WORDS: Readonly<Record<ShowcaseShareRefusal, string>> = {
   not_approved: "This video is not approved by every founder, so it cannot be shared.",
   approval_lapsed: "The approval for this video ran out. Ask the founders again.",

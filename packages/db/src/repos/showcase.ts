@@ -10,7 +10,7 @@
  * - `currentOwnerIds`: who has an owner's standing in the project now (owners and cofounders; never an example
  *   membership or one that has ended). Every settlement and every share compares the yes against this list.
  */
-import { OWNER_ROLES, SHOWCASE_MILESTONE_KEYS, teamPostRef, teamPostTitle, type ShowcaseAnswer, type ShowcaseConsentDecision, type ShowcaseMilestoneKey, type ShowcasePreview, type ShowcaseRequestState, type ShowcaseWithdrawReason } from "@foundmill/shared";
+import { OWNER_ROLES, SHOWCASE_MILESTONE_KEYS, SHOWCASE_SHARE_NETWORK_WORDS, teamPostRef, teamPostTitle, type ShowcaseAnswer, type ShowcaseConsentDecision, type ShowcaseMilestoneKey, type ShowcasePreview, type ShowcaseRequestState, type ShowcaseWithdrawReason } from "@foundmill/shared";
 import { and, asc, desc, eq, inArray, isNull, ne, sql } from "drizzle-orm";
 import { agents, assets, businesses, channels, events, inboxItems, memberships, milestones, projectPages, publicProjectMilestones, publicProjectPages, showcaseConsents, showcaseRequests, type Asset, type InboxItem, type NewShowcaseConsent, type NewShowcaseRequest, type ShowcaseConsent, type ShowcaseMedia, type ShowcaseRequest } from "../schema";
 import { membershipNotEnded } from "./memberships";
@@ -268,7 +268,8 @@ export const showcaseRepo = {
       .select({ network: sql<string | null>`${events.payload} ->> 'network'` })
       .from(events)
       .where(and(eq(events.businessId, houseId), eq(events.type, "share.opened"), sql`${events.payload} ->> 'kind' = 'draft'`, sql`${events.payload} ->> 'refId' = ${assetId}`));
-    return [...new Set(rows.map((r) => r.network).filter((n): n is string => !!n))].sort();
+    // A share with no network (a copy, the device's own sheet) is named as such: it went somewhere all the same.
+    return [...new Set(rows.map((r) => r.network ?? SHOWCASE_SHARE_NETWORK_WORDS.unnamed))].sort();
   },
 
   /** Whether every milestone named is still shown in public at `slug`. */
