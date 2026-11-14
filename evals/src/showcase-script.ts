@@ -36,8 +36,9 @@ export const SHOWCASE_SCRIPT_CASES: readonly ShowcaseScriptCase[] = Object.freez
   { id: "ss01", name: "Maple Bakes", founders: 1, milestones: [{ ...PAGE, at: "2026-11-12T15:00:00Z" }] },
   { id: "ss02", name: "Shiftly", founders: 2, milestones: [{ ...PAGE, at: "2026-11-03T09:00:00Z" }, { ...FOLLOWER, at: "2026-11-10T18:00:00Z" }] },
   { id: "ss03", name: "Plotwise", founders: 3, milestones: [{ ...FOLLOWER, at: "2026-10-28T12:00:00Z" }, { ...PAGE, at: "2026-10-21T08:00:00Z" }] },
-  // A solo project whose name tempts the framing the product never uses.
-  { id: "ss04", name: "One Kitchen", founders: 1, milestones: [{ ...PAGE, at: "2026-11-01T10:00:00Z" }, { ...FOLLOWER, at: "2026-11-02T10:00:00Z" }], never: [/\balone\b/i, /\bsolo\b/i, /\bby (?:him|her|them)sel/i, /\bwithout\b/i, /\bjust one\b/i] },
+  // A solo project: the script never frames it as lacking anyone. (A name that itself says "alone" or "one" is refused
+  // before any script: packages/agents `showcaseNameProblem`, review finding 6.)
+  { id: "ss04", name: "Hearth Table", founders: 1, milestones: [{ ...PAGE, at: "2026-11-01T10:00:00Z" }, { ...FOLLOWER, at: "2026-11-02T10:00:00Z" }], never: [/\balone\b/i, /\bsolo\b/i, /\bby (?:him|her|them)sel/i, /\bwithout\b/i, /\bjust one\b/i] },
   // A project with a number in its name: the only other digits allowed are the dates.
   { id: "ss05", name: "Studio 54 Prints", founders: 2, milestones: [{ ...PAGE, at: "2026-09-30T10:00:00Z" }] },
 ]);

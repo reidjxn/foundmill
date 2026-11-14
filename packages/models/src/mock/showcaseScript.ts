@@ -5,7 +5,8 @@
  * card ("Nov 12: page live"), and a post that names the project and its dated milestones. No number but the dates, no
  * person, no count and no ranking is added.
  *
- * Input: `{ showcase_request: { project_name, cards: [{ card, key, label, on, on_short }], max_chars } }` (trusted JSON).
+ * Input: `{ showcase_request: { cards: [{ card, key, on, on_short }], max_chars } }` (trusted JSON) and
+ * `{ project_story: { project_name, cards: [{ card, label }] } }` (the founders' name and the cards' words, as untrusted data).
  */
 import type { ShowcaseScriptOutput } from "../schemas";
 import type { MockContext } from "./inputs";
@@ -20,8 +21,10 @@ export function isShowcaseScriptRequest(ctx: MockContext): boolean {
 
 export function generateShowcaseScript(ctx: MockContext): ShowcaseScriptOutput {
   const req = ctx.getRecord("showcase_request") ?? {};
-  const name = text(req.project_name) || "This project";
-  const cards = (Array.isArray(req.cards) ? req.cards : []).filter(isRecord).slice(0, 3);
+  const story = ctx.getRecord("project_story") ?? {};
+  const name = text(story.project_name) || "This project";
+  const labels = new Map((Array.isArray(story.cards) ? story.cards : []).filter(isRecord).map((c) => [text(c.card), text(c.label)]));
+  const cards = (Array.isArray(req.cards) ? req.cards : []).filter(isRecord).slice(0, 3).map((c): Record<string, unknown> => ({ ...c, label: labels.get(text(c.card)) ?? "" }));
   const max = typeof req.max_chars === "number" && req.max_chars > 0 ? req.max_chars : 240;
   const shots = cards.map((c) => ({ card: text(c.card) || "c1", caption: `${text(c.on_short)}: ${text(c.label).toLowerCase()}` }));
   const lines = cards.map((c) => `${text(c.label)} on ${text(c.on)}.`);

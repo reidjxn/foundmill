@@ -18,7 +18,7 @@ import type { CompleteResult, ModelClient, UsageAttribution } from "@foundmill/m
 import { ShowcaseScriptOutput } from "@foundmill/models/schemas";
 import { SHOWCASE_MAX_SHOTS, SHOWCASE_POST_MAX, type ShowcaseMilestoneKey } from "@foundmill/shared";
 import { buildSystemPrompt } from "./club-rules";
-import { inertJson } from "./foundations";
+import { inertJson, untrustedBlock } from "./foundations";
 import { POST_DRAFT_CHANNEL, POST_SUBTEXT_PATTERNS, POST_VOCAB_PATTERNS } from "./post-draft";
 import { showcaseScriptPrompt } from "./prompts/showcase-script";
 import { getChannelTemplate } from "./registry";
@@ -105,8 +105,11 @@ export interface ShowcaseScriptRequest {
 
 /** The house rules and the social agent's instructions, then the script prompt; the facts as trusted JSON. */
 export function buildShowcaseScriptRequest(facts: ShowcaseScriptFacts, options: { retry?: ShowcaseScriptRefusal | null } = {}): ShowcaseScriptRequest {
-  const trusted = { showcase_request: { project_name: facts.projectName, cards: facts.cards.map((c) => ({ card: c.card, key: c.key, label: c.label, on: c.on, on_short: c.onShort })), max_chars: facts.maxChars } };
-  const parts = ["```json\n" + inertJson(trusted) + "\n```"];
+  // The platform's own facts (the card codes, the keys, the dates, the length) as trusted JSON; the project's name and
+  // the cards' words as untrusted data (review finding 6): the founders chose the name, so it is data, never an instruction.
+  const trusted = { showcase_request: { cards: facts.cards.map((c) => ({ card: c.card, key: c.key, on: c.on, on_short: c.onShort })), max_chars: facts.maxChars } };
+  const story = { project_story: { project_name: facts.projectName, cards: facts.cards.map((c) => ({ card: c.card, label: c.label })) } };
+  const parts = ["```json\n" + inertJson(trusted) + "\n```", untrustedBlock("project_story", story)];
   if (options.retry) parts.push(SHOWCASE_SCRIPT_RETRY_NOTES[options.retry]);
   parts.push("Write the script now.");
   return {
@@ -141,10 +144,14 @@ const CLAIM_RE = /\b(?:customers?|clients?|users?|subscribers?|sign-?ups?|orders
 const URL_RE = /\b(?:https?:\/\/|www\.)\S+|\b[a-z0-9-]+\.(?:com|net|org|io|ai|app|co|dev|xyz)\b|[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+\.[A-Za-z]{2,}|(?:^|\s)@[A-Za-z0-9_]{2,}|#[\p{L}\p{N}_]+/iu;
 const MARKUP_RE = /\*\*|__|`|<\/?[a-z][^>]*>|\[\[|\]\(|!|\p{Extended_Pictographic}/u;
 
-/** Removes what the facts allow: the project's name, every card's label and both forms of every date. */
-function withoutFacts(text: string, facts: ShowcaseScriptFacts): string {
+/**
+ * Removes what the facts allow: every card's label (words the platform builds from the milestone's key), both forms of
+ * every date and, unless `keepName`, the project's name. The framing checks (lack, people, ranking, work, banned terms)
+ * keep the name (review finding 6): a name the founders typed is checked like any other words.
+ */
+function withoutFacts(text: string, facts: ShowcaseScriptFacts, keepName = false): string {
   let out = text;
-  const allowed = [facts.projectName, ...facts.cards.flatMap((c) => [c.on, c.onShort, c.label])].filter(Boolean).sort((a, b) => b.length - a.length);
+  const allowed = [...(keepName ? [] : [facts.projectName]), ...facts.cards.flatMap((c) => [c.on, c.onShort, c.label])].filter(Boolean).sort((a, b) => b.length - a.length);
   for (const a of allowed) out = out.replace(new RegExp(escape(a), "gi"), " ");
   return out;
 }
@@ -158,9 +165,29 @@ const POST_WORDS = new Set(
 
 const words = (s: string): string[] => (s.toLowerCase().match(/\p{L}[\p{L}'’-]*/gu) ?? []).map((w) => w.replace(/['’]s$/, ""));
 
+/** The framing a showcase never carries, in `text` (the name included): work, lack, people, rankings, banned terms. */
+function framingProblem(text: string, rest: string): ShowcaseScriptRefusal | null {
+  if (POST_SUBTEXT_PATTERNS.some((re) => (text.match(new RegExp(re.source, re.flags)) ?? []).length > 0) || WORK_RE.test(rest)) return "work";
+  if (LACK_RE.test(rest)) return "lack";
+  if (PEOPLE_RE.test(rest)) return "people";
+  if (RANKING_RE.test(rest)) return "ranking";
+  if (POST_VOCAB_PATTERNS.some((re) => (rest.match(new RegExp(re.source, re.flags)) ?? []).length > 0)) return "banned";
+  return null;
+}
+
+/**
+ * Whether the project's name itself carries framing a showcase never says ("Solo Bakes", "Top Shop"). Such a project is
+ * not featured: whatever the script writes, the name would say it for it.
+ */
+export function showcaseNameProblem(name: string): ShowcaseScriptRefusal | null {
+  return framingProblem(name, name);
+}
+
 /** Why a script cannot be used, or null when it can. Pure. */
 export function checkShowcaseScript(script: { shots: readonly { card: string; caption: string }[]; post: string }, facts: ShowcaseScriptFacts): ShowcaseScriptRefusal | null {
   const post = script.post.replace(/\s+/g, " ").trim();
+  const named = showcaseNameProblem(facts.projectName);
+  if (named) return named;
   if (!script.shots.length || script.shots.length > SHOWCASE_MAX_SHOTS || post.length < 12 || !/\p{L}{2,}/u.test(post)) return "limits";
   const seen = new Set<string>();
   for (const s of script.shots) {
@@ -182,11 +209,8 @@ export function checkShowcaseScript(script: { shots: readonly { card: string; ca
     // A digit outside a date (and outside the project's own name).
     if (/\d/.test(rest)) return "digit";
     if (new RegExp(`\\b(?:${MONTHS})\\b`).test(rest)) return "unknown_fact";
-    if (POST_SUBTEXT_PATTERNS.some((re) => (text.match(new RegExp(re.source, re.flags)) ?? []).length > 0) || WORK_RE.test(rest)) return "work";
-    if (LACK_RE.test(rest)) return "lack";
-    if (PEOPLE_RE.test(rest)) return "people";
-    if (RANKING_RE.test(rest)) return "ranking";
-    if (POST_VOCAB_PATTERNS.some((re) => (rest.match(new RegExp(re.source, re.flags)) ?? []).length > 0)) return "banned";
+    const framing = framingProblem(text, withoutFacts(text, facts, true));
+    if (framing) return framing;
     if (CLAIM_RE.test(rest)) return "unknown_fact";
   }
   // Facts only: past the name, the labels and the dates, a caption and a post carry only the plain words of a sentence.
