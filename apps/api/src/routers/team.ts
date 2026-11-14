@@ -6,6 +6,7 @@ import { ADMIN_ROLES, DECISION_TYPES, DEFAULT_AGENT_STYLE, ForbiddenError, hasSe
 import { z } from "zod";
 import { pendingApprovals, resolveApproval } from "../services/approvals";
 import { assertWithinGrantorAccess } from "../services/grants";
+import { afterPeopleChange } from "../services/showcase";
 import { modelLimited } from "../services/model-limits";
 import { ensurePortraits } from "../services/personas";
 import { archivePlaybook, compilePlaybookText, createPlaybook, setPlaybookEnabled, toPlaybookView, updatePlaybook } from "../services/playbooks";
@@ -275,7 +276,8 @@ export const teamRouter = router({
     role: staffAdmin
       .input(z.object({ userId: Id, role: z.enum(MEMBERSHIP_ROLES).optional(), sectionPermissions: SectionPermissions.optional(), expiresAt: z.coerce.date().nullable().optional() }))
       .mutation(({ ctx, input }) =>
-        ctx.rls(async (tx) => {
+        // A founder's role changed: a showcase ask about the project is checked again (services/showcase.ts).
+        afterPeopleChange(ctx, ctx.rls(async (tx) => {
           if (input.userId === ctx.userId) throw new ValidationError("You cannot change your own role or section permissions; another owner or admin can");
           // Judged on fresh rows, not on the request's: the business's people changes take turns (the owner lock, as
           // `setRole` and `remove` take it), the editor's own row is re-read under a share lock and the person's under an
@@ -304,10 +306,10 @@ export const teamRouter = router({
           // apps/stream re-checks the member's open subscriptions at once, under the new walls.
           await emit(tx, ctx, { type: "membership.changed", payload: { userId: input.userId, change: "updated" } });
           return membership;
-        }),
+        })),
       ),
     remove: staffAdmin.input(z.object({ userId: Id })).mutation(({ ctx, input }) =>
-      ctx.rls(async (tx) => {
+      afterPeopleChange(ctx, ctx.rls(async (tx) => {
         if (input.userId === ctx.userId) throw new ValidationError("Leave the business from Settings instead of removing yourself");
         const target = await repos.memberships.get(tx, ctx.businessId, input.userId);
         // An owner's standing is stepped down first (an owner or a cofounder changes the role), then removed.
@@ -317,7 +319,7 @@ export const teamRouter = router({
         // apps/stream closes the removed person's open subscriptions to this business at once.
         if (target) await emit(tx, ctx, { type: "membership.changed", payload: { userId: input.userId, change: "removed" } });
         return { removed: true };
-      }),
+      })),
     ),
   }),
 

@@ -245,6 +245,27 @@ export function showcaseShareRefusal(f: ShowcaseShareFacts, now: Date): Showcase
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
+// The founder's note
+// ---------------------------------------------------------------------------------------------------------------------
+
+/** The `decision` of a founder's own ask in Needs you: answered from the note (showcase.answer), never by the plan compiler. */
+export const SHOWCASE_CONSENT_KEY = "showcase_consent";
+
+export interface ShowcaseConsentDecision {
+  key: typeof SHOWCASE_CONSENT_KEY;
+  requestId: string;
+  consentId: string;
+  options: [];
+}
+
+export function isShowcaseConsentDecision(decision: unknown): decision is ShowcaseConsentDecision {
+  return !!decision && typeof decision === "object" && (decision as { key?: unknown }).key === SHOWCASE_CONSENT_KEY && typeof (decision as { consentId?: unknown }).consentId === "string";
+}
+
+/** The refusal when the generic Inbox answer is tried on an ask (`appCode: "showcase_answer_here"`). */
+export const SHOWCASE_ANSWER_HERE_MESSAGE = "Answer this from the note itself: watch the video, then say yes or no.";
+
+// ---------------------------------------------------------------------------------------------------------------------
 // Words
 // ---------------------------------------------------------------------------------------------------------------------
 

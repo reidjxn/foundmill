@@ -20,7 +20,7 @@
  */
 import { classifyFounderText } from "@foundmill/agents";
 import { approvalOutcomeOf, closeApprovalItem, repos, type Approval, type DbTx, type Decision, type InboxItem, type PlanWithActions } from "@foundmill/db";
-import { ONE_CLICK_ACTION_TYPES, ValidationError, endSentence, hasSectionAccess, isPageReadyDecision, type SectionMembership } from "@foundmill/shared";
+import { AppError, ONE_CLICK_ACTION_TYPES, SHOWCASE_ANSWER_HERE_MESSAGE, ValidationError, endSentence, hasSectionAccess, isPageReadyDecision, isShowcaseConsentDecision, type SectionMembership } from "@foundmill/shared";
 import type { BusinessContext } from "../trpc";
 import { audit, emit } from "../trpc";
 import { assertApprovalAccess, deliverApprovalAnswer, recordApprovalAnswer, type ApprovalAnswer } from "./approvals";
@@ -129,6 +129,8 @@ export async function decideInboxItem(ctx: BusinessContext, input: DecideItemInp
   if (goal) return decideGoalItem(ctx, item, goal, { chosenOption, freeText });
   // The Product lead's "Your project's page is ready" (package 1.3): Check it and publish, or Later; decided in-process.
   if (isPageReadyDecision(item.decision) && item.fromAgentId) return decidePageNote(ctx, item, { chosenOption, freeText });
+  // A founder's own showcase ask (0105) is answered from the note (showcase.answer), never by the plan compiler.
+  if (isShowcaseConsentDecision(item.decision)) throw new AppError("showcase_answer_here", SHOWCASE_ANSWER_HERE_MESSAGE, 409);
   if (freeText && !chosenOption && decision.free_text === false) throw new ValidationError("This decision takes one of its options. Pick one, or talk it through with the agent first.", { route: "conversation", itemId: item.id });
   const options = decision.options ?? [];
   const option = chosenOption ? options.find((o) => o.id === chosenOption) : undefined;

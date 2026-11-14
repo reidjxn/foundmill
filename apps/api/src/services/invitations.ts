@@ -62,6 +62,7 @@ import { audit, emit, type BusinessContext } from "../trpc";
 import { admitThroughInvitation, rememberAdmitted } from "./access";
 import { assertWithinGrantorAccess, withinGrantorAccess } from "./grants";
 import { callerLimitKey } from "./pages";
+import { queueShowcaseCheck } from "./showcase";
 import { takeOrThrow, type RateLimitStore } from "./rate-limit";
 
 /** An admin whose own access is narrower than what the invitation's role opens (services/grants.ts). */
@@ -314,6 +315,8 @@ export async function acceptInvitation(ctx: Pick<Context, "db" | "env" | "limits
   });
   if (result.already || !result.row) return { businessId, already: true };
   rememberAdmitted(userId);
+  // A new cofounder was never asked: a showcase ask about the project is checked again (and withdrawn).
+  if (result.row.role === "cofounder") queueShowcaseCheck(ctx, businessId);
   // The inviter hears it, through the one sender and within their own limits; a refusal changes nothing here.
   if (result.row.invitedByUserId) {
     try {

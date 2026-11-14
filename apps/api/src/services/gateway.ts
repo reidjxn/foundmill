@@ -251,6 +251,29 @@ export interface GatewayTurnstileResult {
 /** The bot check waits at most this long (the gateway gives Cloudflare 5 s). */
 export const TURNSTILE_CLIENT_TIMEOUT_MS = 7_000;
 
+/**
+ * One tool call through the gateway's generic path (`POST /v1/session-tokens`, then `POST /v1/call`), for work the api
+ * runs for a business outside any agent session: the showcase video's clips on the house business (connector `runway`).
+ * The connector is named by its key and the tool by its name, so nothing here imports a connector's code; the gateway
+ * runs the policy, the founder's own key, the approval in Needs you and the audit, as for any agent's call.
+ */
+export interface GatewayToolCallRequest {
+  businessId: string;
+  /** The agent the call is made as (its grants and its state are checked at mint). */
+  agentId: string;
+  connector: string;
+  tool: string;
+  args: Record<string, unknown>;
+  context?: { amountMinor?: number; currency?: string };
+}
+
+/** The gateway's policy outcome, as it answered. A transport or request error throws instead. */
+export type GatewayToolCallOutcome =
+  | { outcome: "allow"; result: { ok: boolean; data?: unknown; error?: { code?: string; message?: string }; simulated?: true; notice?: string }; auditId: string }
+  | { outcome: "ask"; approvalId: string; reasons: string[] }
+  | { outcome: "deny"; reasons: string[]; approvalId?: string }
+  | { outcome: "rate_limited"; reasons: string[]; retryAfterSeconds: number };
+
 /** A follow confirmation waits at most this long: the visitor's form is waiting on it. */
 export const CONFIRM_FOLLOW_TIMEOUT_MS = 10_000;
 
@@ -303,6 +326,8 @@ export interface ApiGatewayClient {
   streamSpeech?(input: GatewaySynthesizeSpeechRequest, signal?: AbortSignal): Promise<Response>;
   /** The idea box's bot check (apps/gateway turnstile.ts). Optional so test doubles need not carry it; the HTTP client always does. */
   verifyTurnstile?(input: GatewayTurnstileRequest): Promise<GatewayTurnstileResult>;
+  /** One tool call on the gateway's generic path (`GatewayToolCallRequest`). Optional so test doubles need not carry it. */
+  toolCall?(input: GatewayToolCallRequest): Promise<GatewayToolCallOutcome>;
 }
 
 export interface CreateApiGatewayClientOptions {
@@ -386,5 +411,22 @@ export function createApiGatewayClient(opts: CreateApiGatewayClientOptions): Api
     transcribeSpeech: (input) => post<GatewayTranscript>("/v1/speech/transcribe", input, Math.max(timeoutMs, TRANSCRIBE_CLIENT_TIMEOUT_MS)),
     validateKey: (businessId, apiKey) => post<GatewayKeyValidation>("/v1/keys/validate", { businessId, apiKey }),
     registryLookup: (input) => post<GatewayRegistryLookup>("/v1/registry/lookup", input),
+    toolCall: async (input) => {
+      const { token } = await post<{ token: string }>("/v1/session-tokens", { businessId: input.businessId, agentId: input.agentId, sessionId: null, allowedTools: [`${input.connector}:${input.tool}`], ttlSeconds: 120 });
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), timeoutMs);
+      let res: Response;
+      try {
+        res = await fetchImpl(`${baseUrl}/v1/call`, { method: "POST", headers: { "content-type": "application/json", accept: "application/json", authorization: `Bearer ${token}` }, body: JSON.stringify({ connector: input.connector, tool: input.tool, args: input.args, context: input.context ?? {} }), signal: controller.signal });
+      } catch (e) {
+        throw new AppError("gateway_unreachable", `The gateway did not answer: ${(e as Error).message}`, 503);
+      } finally {
+        clearTimeout(timer);
+      }
+      const parsed = (await res.json().catch(() => null)) as (GatewayToolCallOutcome & { error?: { code?: string; message?: string } }) | null;
+      // A policy outcome comes with its own status (403 deny, 429 rate limited) and is an answer, not an error.
+      if (parsed && typeof (parsed as { outcome?: unknown }).outcome === "string") return parsed;
+      throw new AppError(parsed?.error?.code ?? "gateway_error", parsed?.error?.message ?? `The gateway answered ${res.status}`, res.status >= 400 && res.status < 600 ? res.status : 502);
+    },
   };
 }

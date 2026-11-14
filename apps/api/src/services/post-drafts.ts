@@ -32,6 +32,7 @@ import { channelFactsFor } from "./channel-availability";
 import { writeEventRow } from "./events";
 import type { ApiLogger } from "./log";
 import { WORKFLOWS, workflowIds, type TemporalService } from "./temporal";
+import { showcaseShareDraft } from "./showcase";
 import { ungated } from "./tx-gate";
 
 export interface PostDraftDeps {
@@ -138,6 +139,14 @@ export async function teamPostShares(tx: Executor, scope: { businessId: string; 
   const published = pageRow?.published ?? null;
   const page = pageRow && published ? { origin: scope.appUrl, slug: pageRow.slug, projectName: scope.businessName, pitch: published.pitch } : null;
   const shown = page ? await repos.teamPosts.shownMilestoneIds(tx, scope.businessId, posts.filter((p) => p.ref.trigger === "milestone_shown").map((p) => p.ref.refId)) : new Set<string>();
-  for (const { asset, ref } of posts) out.set(asset.id, teamPostShareDraft({ text: asset.body ?? "", ref, page, cardShown: shown.has(ref.refId) }));
+  for (const { asset, ref } of posts) {
+    // A showcase post (the house's, 0105) is offered only while its gate passes, with the words and link the founders approved.
+    if (ref.trigger === "showcase_approved") {
+      const draft = await showcaseShareDraft(tx, scope.businessId, asset.id, new Date());
+      if (draft) out.set(asset.id, draft);
+      continue;
+    }
+    out.set(asset.id, teamPostShareDraft({ text: asset.body ?? "", ref, page, cardShown: shown.has(ref.refId) }));
+  }
   return out;
 }

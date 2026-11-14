@@ -65,6 +65,7 @@ import { audit, emit, type BusinessContext } from "../trpc";
 import type { Context } from "../context";
 import { answerNote } from "./answer-note";
 import type { DecideItemResult } from "./decide";
+import { queueShowcaseCheck } from "./showcase";
 import { queuePostDraft } from "./post-drafts";
 import { takeOrThrow } from "./rate-limit";
 
@@ -263,6 +264,8 @@ export async function unpublishPage(ctx: BusinessContext): Promise<PageView> {
     await audit(tx, ctx, { action: "page.unpublished", target: { kind: "project_page", id: row.id }, details: { slug: row.slug, url } });
     return viewOf(tx, ctx, row);
   });
+  // The page is private now: a showcase ask about the project is withdrawn (services/showcase.ts).
+  if (view) queueShowcaseCheck(ctx, ctx.businessId);
   return view ?? pageView(ctx);
 }
 

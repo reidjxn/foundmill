@@ -10,9 +10,9 @@
  * - `currentOwnerIds`: who has an owner's standing in the project now (owners and cofounders; never an example
  *   membership or one that has ended). Every settlement and every share compares the yes against this list.
  */
-import { OWNER_ROLES, SHOWCASE_MILESTONE_KEYS, type ShowcaseAnswer, type ShowcasePreview, type ShowcaseRequestState, type ShowcaseWithdrawReason } from "@foundmill/shared";
+import { OWNER_ROLES, SHOWCASE_MILESTONE_KEYS, teamPostRef, teamPostTitle, type ShowcaseAnswer, type ShowcaseConsentDecision, type ShowcaseMilestoneKey, type ShowcasePreview, type ShowcaseRequestState, type ShowcaseWithdrawReason } from "@foundmill/shared";
 import { and, asc, desc, eq, inArray, isNull, ne, sql } from "drizzle-orm";
-import { businesses, inboxItems, memberships, milestones, projectPages, publicProjectMilestones, publicProjectPages, showcaseConsents, showcaseRequests, type NewShowcaseConsent, type NewShowcaseRequest, type ShowcaseConsent, type ShowcaseMedia, type ShowcaseRequest } from "../schema";
+import { agents, assets, businesses, channels, events, inboxItems, memberships, milestones, projectPages, publicProjectMilestones, publicProjectPages, showcaseConsents, showcaseRequests, type Asset, type InboxItem, type NewShowcaseConsent, type NewShowcaseRequest, type ShowcaseConsent, type ShowcaseMedia, type ShowcaseRequest } from "../schema";
 import { membershipNotEnded } from "./memberships";
 import { maybeOne, type Executor } from "./_shared";
 
@@ -152,6 +152,17 @@ export const showcaseRepo = {
     return maybeOne(await db.select().from(showcaseConsents).where(and(eq(showcaseConsents.requestId, values.requestId), eq(showcaseConsents.userId, values.userId))).limit(1))!;
   },
 
+  /** Ties a founder's row to their own note in Needs you. */
+  async linkNote(db: Executor, consentId: string, inboxItemId: string): Promise<void> {
+    await db.update(showcaseConsents).set({ inboxItemId }).where(eq(showcaseConsents.id, consentId));
+  },
+
+  /** Keeps every copy of the preview in step with the request's (fresh clip addresses only: the hash does not change). */
+  async refreshPreview(db: Executor, requestId: string, preview: ShowcasePreview, media: ShowcaseMedia): Promise<void> {
+    await db.update(showcaseRequests).set({ preview, media }).where(eq(showcaseRequests.id, requestId));
+    await db.update(showcaseConsents).set({ preview }).where(eq(showcaseConsents.requestId, requestId));
+  },
+
   async consentsOf(db: Executor, requestId: string): Promise<ShowcaseConsent[]> {
     return db.select().from(showcaseConsents).where(eq(showcaseConsents.requestId, requestId)).orderBy(asc(showcaseConsents.createdAt));
   },
@@ -195,5 +206,76 @@ export const showcaseRepo = {
       .update(inboxItems)
       .set({ state, ...(state === "archived" ? { archivedAt: sql`now()` } : {}) })
       .where(and(eq(inboxItems.businessId, businessId), eq(inboxItems.id, inboxItemId), inArray(inboxItems.state, ["unread", "read", "answered"])));
+  },
+
+  /** A founder's own ask in the project's Needs you: a decision note for that person only (0105 `for_user_id`). */
+  async createNote(db: Executor, businessId: string, input: { forUserId: string; subject: string; bodyMd: string; decision: ShowcaseConsentDecision }): Promise<InboxItem> {
+    const [row] = await db.insert(inboxItems).values({ businessId, type: "decision", subject: input.subject, bodyMd: input.bodyMd, decision: input.decision as unknown as Record<string, unknown>, forUserId: input.forUserId }).returning();
+    return row!;
+  },
+
+  /** A note to the house's people (not an ask): what to take down by hand. */
+  async createHouseNote(db: Executor, houseId: string, input: { subject: string; bodyMd: string }): Promise<InboxItem> {
+    const [row] = await db.insert(inboxItems).values({ businessId: houseId, type: "warning", subject: input.subject, bodyMd: input.bodyMd }).returning();
+    return row!;
+  },
+
+  /** The house's social agent (the channel's owner), or null. The script and the clips are made as it. */
+  async socialAgentId(db: Executor, houseId: string): Promise<string | null> {
+    const row = maybeOne(
+      await db
+        .select({ id: agents.id })
+        .from(channels)
+        .innerJoin(agents, and(eq(agents.businessId, channels.businessId), eq(agents.id, channels.ownerAgentId)))
+        .where(and(eq(channels.businessId, houseId), eq(channels.channelKey, "social"), isNull(agents.archivedAt)))
+        .limit(1),
+    );
+    return row?.id ?? null;
+  },
+
+  /** The house's draft post of an approved video: a team post with the trigger `showcase_approved`. */
+  async createDraftPost(db: Executor, houseId: string, input: { requestId: string; subject: ShowcaseMilestoneKey; text: string; agentId: string | null }): Promise<Asset> {
+    const ref = { trigger: "showcase_approved" as const, subject: input.subject, refId: input.requestId };
+    const [row] = await db.insert(assets).values({ businessId: houseId, kind: "post", title: teamPostTitle(ref), contentRef: teamPostRef(ref), body: input.text, approvalState: "draft", authoredByAgentId: input.agentId }).returning();
+    return row!;
+  },
+
+  /** Sets the house's draft aside (a withdrawal): it is never offered again. */
+  async rejectDraft(db: Executor, houseId: string, assetId: string): Promise<void> {
+    await db.update(assets).set({ approvalState: "rejected", archivedAt: sql`now()` }).where(and(eq(assets.businessId, houseId), eq(assets.id, assetId)));
+  },
+
+  async draft(db: Executor, houseId: string, assetId: string): Promise<Asset | null> {
+    return maybeOne(await db.select().from(assets).where(and(eq(assets.businessId, houseId), eq(assets.id, assetId))).limit(1));
+  },
+
+  /** The networks a share of the house's draft was opened on (`share.opened`), for the note to take it down by hand. */
+  async sharedOn(db: Executor, houseId: string, assetId: string): Promise<string[]> {
+    const rows = await db
+      .select({ network: sql<string | null>`${events.payload} ->> 'network'` })
+      .from(events)
+      .where(and(eq(events.businessId, houseId), eq(events.type, "share.opened"), sql`${events.payload} ->> 'kind' = 'draft'`, sql`${events.payload} ->> 'refId' = ${assetId}`));
+    return [...new Set(rows.map((r) => r.network).filter((n): n is string => !!n))].sort();
+  },
+
+  /** Whether every milestone named is still shown in public at `slug`. */
+  async milestonesShown(db: Executor, slug: string, milestoneIds: readonly string[]): Promise<boolean> {
+    if (milestoneIds.length === 0) return false;
+    const rows = await db.select({ id: publicProjectMilestones.id }).from(publicProjectMilestones).where(and(eq(publicProjectMilestones.slug, slug), inArray(publicProjectMilestones.id, [...milestoneIds])));
+    return new Set(rows.map((r) => r.id)).size === new Set(milestoneIds).size;
+  },
+
+  /** Whether the page at `slug` is public now (the public view lists it). */
+  async pagePublic(db: Executor, slug: string): Promise<boolean> {
+    return (await db.select({ slug: publicProjectPages.slug }).from(publicProjectPages).where(eq(publicProjectPages.slug, slug)).limit(1)).length > 0;
+  },
+
+  /** The project's own setting, or null when its founders have not chosen. */
+  async mayAskSetting(db: Executor, businessId: string): Promise<boolean | null> {
+    return maybeOne(await db.select({ v: businesses.showcaseMayAsk }).from(businesses).where(eq(businesses.id, businessId)).limit(1))?.v ?? null;
+  },
+
+  async setMayAsk(db: Executor, businessId: string, value: boolean): Promise<void> {
+    await db.update(businesses).set({ showcaseMayAsk: value }).where(eq(businesses.id, businessId));
   },
 };
