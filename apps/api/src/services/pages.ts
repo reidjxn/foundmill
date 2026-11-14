@@ -48,6 +48,8 @@ import {
   WRITE_ROLES,
   hasSectionAccess,
   pageContentProblems,
+  isAdminRole,
+  limitAddress,
   pageSlugProblem,
   pageUrl,
   readPageContent,
@@ -111,7 +113,7 @@ export const PAGE_PUBLISH_ROLE_MESSAGE = "Only an owner or an admin can publish 
 const sampleRefusal = () => new AppError("page_sample_business", PAGE_SAMPLE_MESSAGE, 409);
 
 const canEditPage = (ctx: BusinessContext): boolean => WRITE_ROLES.includes(ctx.role) && hasSectionAccess(ctx.membership, "product", "write");
-const canPublishPage = (ctx: BusinessContext): boolean => (ctx.role === "owner" || ctx.role === "admin") && hasSectionAccess(ctx.membership, "product", "write");
+const canPublishPage = (ctx: BusinessContext): boolean => isAdminRole(ctx.role) && hasSectionAccess(ctx.membership, "product", "write");
 
 /**
  * The address a first save uses: the business's own slug made into a page address, with a short suffix of the business
@@ -429,9 +431,13 @@ export function followAddressKey(env: Pick<Env, "SESSION_TOKEN_SECRET">, kind: "
   return createHmac("sha256", secret).update(`${FOLLOW_KEY_LABEL}\n${kind}\n${value.trim().toLowerCase()}`).digest("base64url");
 }
 
-/** A per-caller rate-limit key for `scope` (`public-page`, `public-person`, `page-follow`): the caller's address, keyed. */
+/**
+ * A per-caller rate-limit key for `scope` (`public-page`, `public-person`, `page-follow`, the milestone cards,
+ * `invite-read`, `invite-decline`): the caller's address, keyed. An IPv6 caller counts by their /64 (`limitAddress`,
+ * second security review P2-2), so the addresses of one subscriber's block share one window.
+ */
 export function callerLimitKey(env: Pick<Env, "SESSION_TOKEN_SECRET">, scope: string, address: string): string {
-  return `${scope}:caller:${followAddressKey(env, "caller", address)}`;
+  return `${scope}:caller:${followAddressKey(env, "caller", limitAddress(address))}`;
 }
 
 export const followLimitKeys = {

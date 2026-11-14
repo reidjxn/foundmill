@@ -11,8 +11,8 @@
  * A handle a person leaves stays theirs for `PERSON_HANDLE_HOLD_DAYS` (`person_handle_releases`, written by the table's
  * triggers): `handleTaken` counts it as taken for everyone else, and the database refuses it the same way.
  */
-import { ConflictError, NotFoundError, PERSON_HANDLE_HOLD_DAYS, PERSON_HANDLE_TAKEN, PersonHandle, PersonProfileContent, readPersonProfile, type PersonProfileContent as ProfileContent } from "@foundmill/shared";
-import { and, desc, eq, isNull, ne, sql } from "drizzle-orm";
+import { ConflictError, NotFoundError, OWNER_ROLES, PERSON_HANDLE_HOLD_DAYS, PERSON_HANDLE_TAKEN, PersonHandle, PersonProfileContent, readPersonProfile, type PersonProfileContent as ProfileContent } from "@foundmill/shared";
+import { and, desc, eq, inArray, isNull, ne, sql } from "drizzle-orm";
 import { z } from "zod";
 import { founderProfiles, memberships, personHandleReleases, projectPages, publicPersonProfiles, publicProjectPages, type FounderProfile, type PublicPersonProject } from "../schema";
 import { Id, maybeOne, parseInput, uniqueViolation, type Executor } from "./_shared";
@@ -164,7 +164,7 @@ export const personProfilesRepo = {
       .select({ slug: publicProjectPages.slug, name: publicProjectPages.name, published: publicProjectPages.published })
       .from(publicProjectPages)
       .innerJoin(projectPages, eq(projectPages.slug, publicProjectPages.slug))
-      .innerJoin(memberships, and(eq(memberships.businessId, projectPages.businessId), eq(memberships.userId, id), eq(memberships.role, "owner")))
+      .innerJoin(memberships, and(eq(memberships.businessId, projectPages.businessId), eq(memberships.userId, id), inArray(memberships.role, [...OWNER_ROLES])))
       .where(sql`${publicProjectPages.published}->'showFounders' = 'true'::jsonb`)
       .orderBy(desc(publicProjectPages.publishedAt), publicProjectPages.slug);
     return rows.map((r) => ({ slug: r.slug, name: r.name, pitch: typeof r.published?.pitch === "string" ? r.published.pitch : "" }));

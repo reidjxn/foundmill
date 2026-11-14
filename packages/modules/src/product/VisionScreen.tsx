@@ -7,6 +7,7 @@
  * sections as they land (marked Drafting) and fills in the rest when they are ready. Owners and admins can import a
  * plan they already wrote (a vision, a specification and a roadmap in one Markdown file) from the first panel.
  */
+import { isAdminRole } from "@foundmill/shared/constants";
 import { useMemo, useState } from "react";
 import { BookOpen, FileUp, Lock, Map as MapIcon } from "lucide-react";
 import { Button, Chip, EmptyState, Explainer, Panel, StatusPill, Term, formatNumber, formatRelative, useFormatters } from "@foundmill/dugout";
@@ -54,7 +55,7 @@ export function VisionScreen({ businessId }: ModuleScreenProps) {
   // Import a plan: owners and admins who may change the product (the api refuses everyone else).
   const canWrite = useCanWrite("product");
   const business = useWidgetQuery<{ role?: string }>("business.get", {});
-  const canImport = canWrite && (business.data?.role === "owner" || business.data?.role === "admin");
+  const canImport = canWrite && isAdminRole(business.data?.role);
   const [importing, setImporting] = useState(false);
   const importButton = canImport ? (
     <Button size="sm" icon={FileUp} onClick={() => setImporting(true)} data-testid="plan-import-open">

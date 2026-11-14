@@ -36,7 +36,7 @@
  * in any account event. Because each idempotency key is built from the row's own id, the events can be written from
  * the rows later, and a repeat writes nothing.
  */
-import { repos, type Attribution, type Db } from "@foundmill/db";
+import { repos, type Attribution, type AttributionSource, type Db, type DbTx } from "@foundmill/db";
 import { AccountEventParseError, AccountRuleError, writeAccountEvents, type WriteAccountEventInput } from "@foundmill/events";
 import { parseVia } from "@foundmill/shared/via";
 import type { ApiLogger } from "./log";
@@ -82,10 +82,46 @@ const skipReason = (err: unknown): string => (err instanceof AccountRuleError ? 
 export async function recordSignupAttribution(deps: AttributionDeps, userId: string, via: unknown): Promise<void> {
   const ref = parseVia(via);
   if (!ref) return;
+  await recordAttribution(deps, userId, (tx) => repos.attributions.resolve(tx, ref));
+}
+
+/**
+ * An accepted invitation is the strongest reference there is (docs/NETWORK.md L4): when the new person accepted one
+ * before their profile was created, the person who invited them is credited. There is no reference kind for an
+ * invitation yet (a new `via` kind is a change of its own), so the row names the public thing the inviter can be
+ * credited through, in this order, by the public views alone as for any reference:
+ *   1. the invited project's public page (`project_page`, its slug), with the inviter as the person credited (not the
+ *      page's longest-standing owner, who is who a page brings by default);
+ *   2. else the inviter's own public profile (`person_profile`, their handle);
+ *   3. else nothing: an invitation to a project with no live page from a person with no public profile records no
+ *      attribution, and the cookie's reference (the next step) is used if there is one.
+ * The first accepted invitation counts; the invitation's own record stays the place that says who invited whom.
+ */
+export async function recordInvitationAttribution(deps: AttributionDeps, userId: string): Promise<void> {
+  const invitation = await repos.invitations.firstAcceptedBy(deps.db, userId);
+  const inviter = invitation?.invitedByUserId ?? null;
+  if (!invitation || !inviter || inviter === userId) return;
+  await recordAttribution(deps, userId, async (tx) => {
+    const page = await repos.pages.get(tx, invitation.businessId);
+    if (page?.slug) {
+      const source = await repos.attributions.resolve(tx, { kind: "project_page", ref: page.slug });
+      if (source && source.businessId === invitation.businessId) return { ...source, referrerUserId: inviter };
+    }
+    const handle = (await repos.founders.get(tx, inviter))?.handle;
+    if (handle) {
+      const source = await repos.attributions.resolve(tx, { kind: "person_profile", ref: handle });
+      if (source && source.referrerUserId === inviter) return source;
+    }
+    return null;
+  });
+}
+
+/** The row and its events, once per account, from whatever `pick` resolves (null: nothing to record). Never throws. */
+async function recordAttribution(deps: AttributionDeps, userId: string, pick: (tx: DbTx) => Promise<AttributionSource | null>): Promise<void> {
   try {
     await deps.db.transaction(async (tx) => {
       if (await repos.attributions.forUser(tx, userId)) return;
-      const source = await repos.attributions.resolve(tx, ref);
+      const source = await pick(tx);
       if (!source || source.referrerUserId === userId) return;
       // Null when the account already has a row (another save got there first, and wrote the events with it).
       const row = await repos.attributions.record(tx, userId, source);

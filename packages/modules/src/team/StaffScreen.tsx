@@ -1,14 +1,15 @@
 "use client";
 /**
- * Team › Staff (BUILD §6.3, §11.9): the humans of the business (Owner, Admin, Member, Viewer, Advisor) with their
- * per-section permissions and the decision types they approve. Invite, change role or permissions, remove
- * (team.humans.invite / role / remove). Humans are CRM entities: a member with an entity id links to its profile.
+ * Team › People (BUILD §6.3, §11.9; the tab's slug stays `staff`): the project's people (Owner, Cofounder, Admin, Member, Collaborator, Viewer,
+ * Advisor) with their per-section permissions and the decision types they approve. Change role or permissions, remove
+ * (team.humans.role / remove). Inviting someone is Settings › People's alone (`invitation.create`; THESIS_REVIEW 3.1:
+ * the silent add by email or account id is gone, and the solo guard keeps the control in one place). Humans are CRM
+ * entities: a member with an entity id links to its profile.
  */
 import { useEffect, useId, useMemo, useState } from "react";
-import { ExternalLink, ShieldCheck, UserRoundMinus, UserRoundPlus, Users } from "lucide-react";
-import { Avatar, Button, Chip, DataTable, Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, EmptyState, EntityLink, Field, Input, Panel, SimpleSelect, formatRelative, type DataTableColumn, type RowAction, type SavedView } from "@foundmill/dugout";
-import { APP_NAME } from "@foundmill/config";
-import { MEMBERSHIP_ROLES, type MembershipRole } from "@foundmill/shared/constants";
+import { ExternalLink, ShieldCheck, UserRoundMinus, Users } from "lucide-react";
+import { Avatar, Button, Chip, DataTable, Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, EntityLink, Field, Panel, SimpleSelect, formatRelative, type DataTableColumn, type RowAction, type SavedView } from "@foundmill/dugout";
+import { isAdminRole, isOwnerRole, MEMBERSHIP_ROLES, type MembershipRole } from "@foundmill/shared/constants";
 import { useWidgetData, useWidgetQuery } from "@foundmill/widgets/data";
 import { useSavedViews } from "@foundmill/widgets/shared/saved-views";
 import { fitColumns, fitToGrow, plural, type ColumnFit } from "../fit";
@@ -35,8 +36,8 @@ export interface StaffRow {
 export const STAFF_VIEWS: SavedView[] = [
   // Simple (UX plan §7.10): who they are, their role, what they can open and what they approve; first while guidance is on.
   { id: SIMPLE_VIEW_ID, name: "Simple", builtIn: true, columns: ["name", "role", "sections", "approves"], sort: [{ id: "role", desc: false }], filters: [] },
-  { id: "all", name: "All staff", builtIn: true, columns: ["name", "role", "sections", "approves", "joined"], sort: [{ id: "role", desc: false }], filters: [] },
-  { id: "admins", name: "Owners and admins", builtIn: true, columns: ["name", "role", "sections", "approves"], sort: [{ id: "role", desc: false }], filters: [{ id: "role-admins", field: "role", op: "in", value: ["owner", "admin"] }] },
+  { id: "all", name: "Everyone", builtIn: true, columns: ["name", "role", "sections", "approves", "joined"], sort: [{ id: "role", desc: false }], filters: [] },
+  { id: "admins", name: "Founders and admins", builtIn: true, columns: ["name", "role", "sections", "approves"], sort: [{ id: "role", desc: false }], filters: [{ id: "role-admins", field: "role", op: "in", value: ["owner", "cofounder", "admin"] }] },
   { id: "approvers", name: "Approvers", builtIn: true, columns: ["name", "role", "approves"], sort: [{ id: "approves", desc: true }], filters: [{ id: "approves-any", field: "approves", op: "gt", value: 0 }] },
 ];
 
@@ -51,16 +52,17 @@ export const STAFF_FIT: Record<string, ColumnFit> = {
 
 const ROW_PX = 28;
 
-const ROLE_ORDER: Record<MembershipRole, number> = { owner: 0, admin: 1, member: 2, advisor: 3, viewer: 4 };
-const INVITABLE_ROLES = MEMBERSHIP_ROLES.filter((r) => r !== "owner");
+const ROLE_ORDER: Record<MembershipRole, number> = { owner: 0, cofounder: 1, admin: 2, member: 3, collaborator: 4, advisor: 5, viewer: 6 };
+/** The roles someone without an owner's standing may give: never an owner's or a cofounder's (team.humans.role, 0092). */
+const INVITABLE_ROLES = MEMBERSHIP_ROLES.filter((r) => !isOwnerRole(r));
 
 /**
- * Why the viewer may not change this member's role and permissions (team.humans.role, 0026_membership_guards), or null:
- * nobody edits their own row, and only an owner changes an owner's.
+ * Why the viewer may not change this member's role and permissions (team.humans.role, 0026_membership_guards, 0092), or
+ * null: nobody edits their own row, and only an owner or a cofounder changes an owner's or a cofounder's.
  */
 export function roleLockReason(row: Pick<StaffRow, "isMe" | "role">, viewerRole: MembershipRole | null): string | null {
   if (row.isMe) return "You cannot change your own role or permissions; another owner or admin can.";
-  if (row.role === "owner" && viewerRole !== "owner") return "Only an owner can change an owner's role or permissions.";
+  if (isOwnerRole(row.role) && !isOwnerRole(viewerRole)) return "Only an owner or a cofounder can change an owner's or a cofounder's role or permissions.";
   return null;
 }
 const PERMISSION_OPTIONS: { value: SectionPermission; label: string }[] = [
@@ -85,20 +87,6 @@ export function toStaffRows(members: readonly MembershipRow[] | undefined, respo
       return { id: m.userId, userId: m.userId, name: memberName(m, me), role: m.role, roleLabel: ROLE_LABELS[m.role], writes: perms.write, reads: perms.read, none: perms.none, approves, joinedAt: m.createdAt ? new Date(m.createdAt).toISOString() : null, isMe: me.userId === m.userId, membership: m };
     })
     .sort((a, b) => ROLE_ORDER[a.role] - ROLE_ORDER[b.role] || a.name.localeCompare(b.name));
-}
-
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-
-/**
- * What Invite sends (the same api as Settings › Members, `team.humans.invite`, which takes the sign-in email or the
- * account ID): the account ID when one is typed, else the email, or null while neither is valid.
- */
-export function inviteTarget(email: string, accountId: string): { userId: string; email?: string } | { email: string } | null {
-  const id = accountId.trim();
-  const mail = email.trim();
-  if (id) return UUID.test(id) ? { userId: id, ...(EMAIL.test(mail) ? { email: mail } : {}) } : null;
-  return EMAIL.test(mail) ? { email: mail } : null;
 }
 
 /* ---------- Dialogs ---------- */
@@ -135,78 +123,6 @@ function PermissionGrid({ id, value, onChange, disabled }: PermissionGridProps) 
   );
 }
 
-export interface InviteDialogProps {
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-  onInvited: (membership: MembershipRow) => void;
-}
-
-/**
- * Invite by the email the person signs in with, or by their account ID as the fallback (C18: one flow, email first,
- * the same `team.humans.invite` Settings › Members uses). No invitation email is sent: the person already has an account.
- */
-export function InviteDialog({ open, onOpenChange, onInvited }: InviteDialogProps) {
-  const id = useId();
-  const action = useAction();
-  const [userId, setUserId] = useState("");
-  const [email, setEmail] = useState("");
-  const [role, setRole] = useState<MembershipRole>("member");
-  const [perms, setPerms] = useState<Record<string, SectionPermission>>({});
-  useEffect(() => {
-    if (open) {
-      setUserId("");
-      setEmail("");
-      setRole("member");
-      setPerms({});
-      action.clearError();
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- reset per opening
-  }, [open]);
-  const target = inviteTarget(email, userId);
-  const badEmail = email.trim().length > 0 && !EMAIL.test(email.trim());
-  const badId = userId.trim().length > 0 && !UUID.test(userId.trim());
-  const confirm = async () => {
-    if (!target) return;
-    const m = await action.run<MembershipRow>("team.humans.invite", { ...target, role, sectionPermissions: perms }, { key: "invite" });
-    if (m) {
-      onInvited(m);
-      onOpenChange(false);
-    }
-  };
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      {/* Wide enough for the two columns of section permissions with "Role default" in full. */}
-      <DialogContent size="lg" aria-describedby={`${id}-desc`} data-testid="invite-dialog">
-        <DialogHeader>
-          <DialogTitle>Invite staff</DialogTitle>
-          <DialogDescription id={`${id}-desc`}>Someone who already has a {APP_NAME} account joins this business with a role and, where needed, per-section permissions. They sign in with their own email; no invitation email is sent. Ownership is never granted by invitation: an owner grants it from Role and permissions.</DialogDescription>
-        </DialogHeader>
-        <DialogBody className="flex flex-col gap-3">
-          <Field htmlFor={`${id}-email`} label="Sign-in email" hint="The email they sign in to their account with." error={badEmail ? "That is not an email address." : undefined}>
-            <Input id={`${id}-email`} type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="name@company.com" aria-invalid={badEmail} />
-          </Field>
-          <Field htmlFor={`${id}-user`} label="Or add by account ID" hint="Shown on their founder profile and in Settings › Preferences." error={badId ? "That is not an account ID; it has 36 letters, digits and dashes." : undefined}>
-            <Input id={`${id}-user`} value={userId} onChange={(e) => setUserId(e.target.value)} placeholder="00000000-0000-…" className="font-mono text-mono" aria-invalid={badId} />
-          </Field>
-          <Field htmlFor={`${id}-role`} label="Role" required>
-            <SimpleSelect id={`${id}-role`} aria-label="Role" options={INVITABLE_ROLES.map((r) => ({ value: r, label: ROLE_LABELS[r] }))} value={role} onValueChange={(v) => setRole(v as MembershipRole)} />
-          </Field>
-          <PermissionGrid id={id} value={perms} onChange={setPerms} />
-          <InlineError error={action.error} />
-        </DialogBody>
-        <DialogFooter>
-          <Button variant="ghost" onClick={() => onOpenChange(false)}>
-            Cancel
-          </Button>
-          <Button variant="primary" icon={UserRoundPlus} disabled={!target} loading={action.pending !== null} onClick={() => void confirm()} data-testid="invite-confirm">
-            Invite
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  );
-}
-
 export interface RoleDialogProps {
   row: StaffRow | null;
   /** The signed-in person's role here (null while unknown): only an owner sees Owner in the list. */
@@ -233,7 +149,7 @@ export function RoleDialog({ row, viewerRole, onOpenChange, onSaved }: RoleDialo
     // eslint-disable-next-line react-hooks/exhaustive-deps -- reset per member
   }, [row?.userId]);
   const locked = row ? roleLockReason(row, viewerRole) : null;
-  const roleOptions = viewerRole === "owner" ? MEMBERSHIP_ROLES : INVITABLE_ROLES;
+  const roleOptions = isOwnerRole(viewerRole) ? MEMBERSHIP_ROLES : INVITABLE_ROLES;
   const confirm = async () => {
     if (!row || locked) return;
     const input: Record<string, unknown> = { userId: row.userId, sectionPermissions: perms };
@@ -249,7 +165,7 @@ export function RoleDialog({ row, viewerRole, onOpenChange, onSaved }: RoleDialo
       <DialogContent size="lg" aria-describedby={`${id}-desc`} data-testid="role-dialog">
         <DialogHeader>
           <DialogTitle>Role and permissions for {row?.name}</DialogTitle>
-          <DialogDescription id={`${id}-desc`}>{locked ?? (row?.role === "owner" ? "A business always keeps at least one owner; changes are logged." : "Changes apply on the member's next request and are logged.")}</DialogDescription>
+          <DialogDescription id={`${id}-desc`}>{locked ?? (isOwnerRole(row?.role) ? "A business always keeps at least one owner or cofounder; changes are logged." : "Changes apply on the member's next request and are logged.")}</DialogDescription>
         </DialogHeader>
         <DialogBody className="flex flex-col gap-3">
           <Field htmlFor={`${id}-role`} label="Role">
@@ -280,7 +196,7 @@ export interface RemoveDialogProps {
 export function RemoveDialog({ row, onOpenChange, onRemoved }: RemoveDialogProps) {
   const id = useId();
   const action = useAction();
-  const blocked = row ? (row.isMe ? "Leave the business from Settings instead of removing yourself." : row.role === "owner" ? "The owner cannot be removed." : null) : null;
+  const blocked = row ? (row.isMe ? "Leave the business from Settings instead of removing yourself." : row.role === "owner" ? "The owner cannot be removed." : row.role === "cofounder" ? "A cofounder cannot be removed; change their role first." : null) : null;
   const confirm = async () => {
     if (!row) return;
     const r = await action.run("team.humans.remove", { userId: row.userId }, { key: `remove:${row.userId}` });
@@ -326,15 +242,13 @@ export function StaffScreen({ businessId }: ModuleScreenProps) {
   // Saved per person, business and table (audit #204): they come back after a reload.
   const defaultViewId = useDefaultViewId("all");
   const savedViews = useSavedViews("team.staff", STAFF_VIEWS, { defaultViewId });
-  const [invite, setInvite] = useState(false);
   const [edit, setEdit] = useState<StaffRow | null>(null);
   const [remove, setRemove] = useState<StaffRow | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const myRole = rows.find((r) => r.isMe)?.role ?? null;
-  const canAdmin = myRole === "owner" || myRole === "admin" || !me.userId;
+  const canAdmin = isAdminRole(myRole) || !me.userId;
   // Each column at its minimum; the table shares the spare width by STAFF_FIT's weights itself (DataTable `meta.grow`).
   const sizes = useMemo(() => fitColumns(null, STAFF_FIT, []), []);
-  const onlyMe = rows.length > 0 && rows.every((r) => r.isMe);
 
   const columns = useMemo<DataTableColumn<StaffRow>[]>(
     () => fitToGrow<StaffRow>([
@@ -356,7 +270,7 @@ export function StaffScreen({ businessId }: ModuleScreenProps) {
           </span>
         ),
       },
-      { id: "role", accessorKey: "role", header: "Role", size: sizes.role, cell: ({ row }) => <Chip tone={row.original.role === "owner" ? "kit" : row.original.role === "admin" ? "info" : "neutral"}>{row.original.roleLabel}</Chip>, meta: { filter: "select", filterOptions: MEMBERSHIP_ROLES.map((r) => ({ value: r, label: ROLE_LABELS[r] })) }, sortingFn: (a, b) => ROLE_ORDER[a.original.role] - ROLE_ORDER[b.original.role] },
+      { id: "role", accessorKey: "role", header: "Role", size: sizes.role, cell: ({ row }) => <Chip tone={isOwnerRole(row.original.role) ? "kit" : row.original.role === "admin" ? "info" : "neutral"}>{row.original.roleLabel}</Chip>, meta: { filter: "select", filterOptions: MEMBERSHIP_ROLES.map((r) => ({ value: r, label: ROLE_LABELS[r] })) }, sortingFn: (a, b) => ROLE_ORDER[a.original.role] - ROLE_ORDER[b.original.role] },
       {
         id: "sections",
         accessorFn: (r) => sectionOverrides(r).map((a) => `${a.section} · ${a.word}`).join(", "),
@@ -388,7 +302,7 @@ export function StaffScreen({ businessId }: ModuleScreenProps) {
   const rowActions = (row: StaffRow): RowAction<StaffRow>[] => [
     { id: "profile", label: "Open profile", icon: ExternalLink, disabled: !row.membership.entityId, onSelect: () => row.membership.entityId && navigate(`/b/${businessId}/crm/${row.membership.entityId}/overview`) },
     { id: "role", label: "Role and permissions…", icon: ShieldCheck, separatorBefore: true, disabled: !canAdmin || roleLockReason(row, myRole) !== null, onSelect: () => setEdit(row) },
-    { id: "remove", label: "Remove", icon: UserRoundMinus, variant: "danger", disabled: row.isMe || row.role === "owner", onSelect: () => setRemove(row) },
+    { id: "remove", label: "Remove", icon: UserRoundMinus, variant: "danger", disabled: row.isMe || isOwnerRole(row.role), onSelect: () => setRemove(row) },
   ];
 
   const refetch = () => {
@@ -400,23 +314,18 @@ export function StaffScreen({ businessId }: ModuleScreenProps) {
     <Screen name="team/staff">
       <Panel
         span={12}
-        title="Staff"
+        title="People"
         flush
         loading={humans.isLoading && !humans.data}
         error={humans.error ? humans.error.message : undefined}
         onRetry={refetch}
-        empty={humans.data && rows.length === 0 ? { icon: Users, title: "Only you so far", children: "Staff are the humans of the business: co-founders, advisors, contractors. Each gets a role, section permissions and can approve decision types.", action: { label: "Invite staff", icon: UserRoundPlus, onClick: () => setInvite(true) } } : undefined}
+        empty={humans.data && rows.length === 0 ? { icon: Users, title: "No one to show", children: "The people of the project appear here with their role and what they can open." } : undefined}
         meta={
           rows.length ? (
             <span data-testid="staff-summary">
               {plural(rows.length, "person", "people")} · {rows.filter((r) => r.approves.length).length} approving
             </span>
           ) : undefined
-        }
-        actions={
-          <Button size="sm" icon={UserRoundPlus} onClick={() => setInvite(true)} disabled={!canAdmin} title={canAdmin ? undefined : "Only owners and admins invite staff"}>
-            Invite
-          </Button>
         }
         footer={
           <span className="flex flex-wrap items-center gap-x-3 gap-y-1">
@@ -431,23 +340,10 @@ export function StaffScreen({ businessId }: ModuleScreenProps) {
       >
         <div className="min-w-0">
           {/* The table is as tall as its rows (up to the window), so one person is not a screen of empty rows. */}
-          <DataTable<StaffRow> aria-label="Staff" data={rows} columns={columns} {...savedViews} defaultViewId={defaultViewId} rowActions={rowActions} onRowOpen={(row) => setEdit(row)} height={Math.min(typeof window === "undefined" ? 480 : Math.max(320, window.innerHeight - 264), Math.max(1, rows.length) * ROW_PX + 42)} exportFileName="staff" className="border-0" />
+          <DataTable<StaffRow> aria-label="People" data={rows} columns={columns} {...savedViews} defaultViewId={defaultViewId} rowActions={rowActions} onRowOpen={(row) => setEdit(row)} height={Math.min(typeof window === "undefined" ? 480 : Math.max(320, window.innerHeight - 264), Math.max(1, rows.length) * ROW_PX + 42)} exportFileName="staff" className="border-0" />
         </div>
-        {onlyMe ? (
-          <EmptyState icon={Users} title="Only you so far" tone="kit" className="border-t border-line-faint" action={canAdmin ? { label: "Invite staff", icon: UserRoundPlus, onClick: () => setInvite(true) } : undefined}>
-            Staff are the humans of the business: co-founders, advisors, contractors. Each gets a role and section permissions, and can approve decision types.
-          </EmptyState>
-        ) : null}
       </Panel>
 
-      <InviteDialog
-        open={invite}
-        onOpenChange={setInvite}
-        onInvited={(m) => {
-          setNotice(`${memberName(m, me)} invited as ${ROLE_LABELS[m.role]}.`);
-          refetch();
-        }}
-      />
       <RoleDialog
         row={edit}
         viewerRole={myRole}

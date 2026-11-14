@@ -60,6 +60,8 @@ describe("founder notifications on the platform's one sender (founder, 2026-11-1
     expect(NOTIFY_PER_PERSON_PER_DAY).toBe(3);
     expect(LIMITED_EMAIL_KINDS).not.toContain("daily_brief");
     expect(LIMITED_EMAIL_KINDS).not.toContain("weekly_review");
+    // The note that someone a person invited joined answers what they did: it never uses up their three a day.
+    expect(LIMITED_EMAIL_KINDS).not.toContain("invitation_accepted");
   });
   it("label every kind in US English", () => {
     for (const k of EMAIL_NOTIFICATION_KINDS) {

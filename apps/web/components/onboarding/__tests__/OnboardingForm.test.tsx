@@ -341,7 +341,7 @@ describe("OnboardingForm (BUILD §11.1 founder profile; UX plan §7.3 two passes
     const disclosure = screen.getByTestId("profile-account-id");
     expect(disclosure.tagName).toBe("DETAILS");
     expect(disclosure.querySelector("summary")?.textContent).toContain(
-      "For a co-founder joining you",
+      "Your account ID",
     );
     expect(disclosure.hasAttribute("open")).toBe(false);
     expect(screen.getByTestId("account-id").textContent).toContain(ACCOUNT);
