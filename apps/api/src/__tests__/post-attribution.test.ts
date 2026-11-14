@@ -26,6 +26,8 @@ let hz: ApiHarness;
 beforeAll(async () => {
   hz = await createApiHarness({ prefix: "postattr" });
   hz.deps.gateway.confirmFollow = async () => ({ sent: true, simulated: true });
+  // The page's bot check (#119) passes the widget's token, as in page-follow.test.ts.
+  hz.deps.gateway.verifyTurnstile = async (input) => (input.token === TURNSTILE_TOKEN ? { ok: true, reason: "ok", simulated: false } : { ok: false, reason: "invalid", simulated: false });
 }, 120_000);
 afterAll(() => hz?.close());
 beforeEach(() => hz.limits.reset());
@@ -54,7 +56,8 @@ const anon = () => hz.caller(null);
 const linkRow = async (code: string) => (await hz.db.select().from(postLinks).where(eq(postLinks.code, code)))[0]!;
 const visitEvents = async (businessId: string) => (await repos.events.outboxPending(hz.db, businessId)).filter((o) => o.event.type === "visit.attributed").map((o) => o.event);
 const consentOf = async (businessId: string) => (await hz.db.select().from(contactConsents).where(eq(contactConsents.businessId, businessId)))[0]!;
-const follow = (slug: string, email: string, post: string | null) => anon().publicPage.follow({ slug, email, consent: true, website: "", post });
+const TURNSTILE_TOKEN = "a-token-from-the-widget";
+const follow = (slug: string, email: string, post: string | null) => anon().publicPage.follow({ slug, email, consent: true, website: "", turnstile: TURNSTILE_TOKEN, post });
 
 describe("the share panel's links", () => {
   it("carry the post's own code for each network, one via each, and the general code for a copied link", async () => {
