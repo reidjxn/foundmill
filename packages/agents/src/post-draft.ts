@@ -107,6 +107,12 @@ export interface PostDraftFacts {
   };
   /** The most characters the post may have beside its link. */
   maxChars: number;
+  /**
+   * What the project's earlier posts led to in the last 7 days, counted from real outcomes (packages/db
+   * `postAttributions.weekSummary`: at most three lines; none in a quiet week). Data for the agent, never words for the
+   * post: the check reads none of it, so a figure from here is refused as one the facts do not give.
+   */
+  learned: string[];
 }
 
 export interface PostDraftFactsInput {
@@ -121,6 +127,8 @@ export interface PostDraftFactsInput {
   timeZone?: string | null;
   /** The link the code will attach, for the length the post may have. */
   link: string | undefined;
+  /** What earlier posts led to (`PostDraftFacts.learned`). */
+  learned?: readonly string[];
 }
 
 const usDate = (at: Date, timeZone?: string | null): string => {
@@ -150,6 +158,7 @@ export function postDraftFacts(input: PostDraftFactsInput): PostDraftFacts {
     page: { pitch: input.page.pitch, about: input.page.about, forWhom: input.page.forWhom, stage: input.page.stage },
     fact: { trigger: input.trigger, subject: input.subject, label: TEAM_POST_SUBJECT_LABELS[input.subject], sentence: postFactSentence(input.trigger, input.subject, on), on },
     maxChars: teamPostTextBudget(input.link),
+    learned: (input.learned ?? []).slice(0, 3).map((l) => l.replace(/\s+/g, " ").trim().slice(0, 300)),
   };
 }
 
@@ -191,7 +200,16 @@ export interface PostDraftRequest {
  * page draft. A retry adds one line naming the rule the last answer broke.
  */
 export function buildPostDraftRequest(facts: PostDraftFacts, options: { retry?: PostDraftRefusal | null } = {}): PostDraftRequest {
-  const trusted = { post_request: { project_name: facts.projectName, fact: { trigger: facts.fact.trigger, subject: facts.fact.subject, label: facts.fact.label, sentence: facts.fact.sentence, on: facts.fact.on }, max_chars: facts.maxChars } };
+  const trusted = {
+    post_request: {
+      project_name: facts.projectName,
+      fact: { trigger: facts.fact.trigger, subject: facts.fact.subject, label: facts.fact.label, sentence: facts.fact.sentence, on: facts.fact.on },
+      max_chars: facts.maxChars,
+      // Counted outcomes of earlier posts, for the agent to learn from (which kind of post and place worked). Never to
+      // be repeated: a post states no count, and the check refuses one.
+      ...(facts.learned.length ? { earlier_posts_led_to: facts.learned } : {}),
+    },
+  };
   const parts = ["```json\n" + inertJson(trusted) + "\n```", untrustedBlock("project_page", { project_page: { pitch: facts.page.pitch, about: facts.page.about, for_whom: facts.page.forWhom, stage: facts.page.stage } })];
   if (options.retry) parts.push(POST_DRAFT_RETRY_NOTES[options.retry]);
   parts.push("Draft the post now.");

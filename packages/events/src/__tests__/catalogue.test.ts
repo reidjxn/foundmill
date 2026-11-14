@@ -356,6 +356,57 @@ describe("event catalogue", () => {
     expect(decl.doc).not.toMatch(/the north star counts it/i);
   });
 
+  it("quiz.approved, quiz.published, quiz.unpublished: a founder's own press on the page quiz; ids and its shape, never the words or a count", () => {
+    for (const type of ["quiz.approved", "quiz.published", "quiz.unpublished"] as const) {
+      const decl = EVENTS[type];
+      expect(decl.scope).toBe("business");
+      expect(decl.narratable).toBe(false);
+      expect([...decl.consumers]).toEqual(["stream", "metrics"]);
+      expect(EVENT_TYPES.indexOf(type)).toBeGreaterThan(EVENT_TYPES.indexOf("post.drafted"));
+      const fixture = EVENT_FIXTURES[type];
+      expect(parsePayload(type, fixture)).toEqual(fixture);
+      // A type's name, a question or a count of visitors never travels in the event.
+      const extra = parsePayload(type, { ...fixture, types: [{ name: "Cafe owners" }], counts: { t1: 12 }, question: "Who is it for?" });
+      expect(Object.keys(extra).sort()).toEqual(Object.keys(fixture).sort());
+      const bad = (patch: Record<string, unknown>) => () => parsePayload(type, { ...fixture, ...patch });
+      expect(bad({ quizId: "not-an-id" })).toThrow(ValidationError);
+      expect(bad({ version: 0 })).toThrow(ValidationError);
+      expect(bad({ typeCount: 1 })).toThrow(ValidationError);
+      expect(bad({ typeCount: 5 })).toThrow(ValidationError);
+      expect(bad({ questionCount: 9 })).toThrow(ValidationError);
+      // Turning a quiz on is not an outside result: nobody outside did anything yet.
+      expect(decl.doc).not.toMatch(/the north star counts it/i);
+    }
+    expect(() => parsePayload("quiz.published", { ...EVENT_FIXTURES["quiz.published"], slug: undefined })).toThrow(ValidationError);
+  });
+
+  it("visit.attributed and post.outcome_attributed: ids, the network and the kind only; never narrated, never counted", () => {
+    for (const type of ["visit.attributed", "post.outcome_attributed"] as const) {
+      const decl = EVENTS[type];
+      expect(decl.scope, type).toBe("business");
+      expect(decl.narratable, type).toBe(false);
+      expect(isPersonAddressedEvent(type), type).toBe(false);
+      expect(decl.doc, type).not.toMatch(/the north star counts it/i);
+      expect(EVENT_TYPES.indexOf(type), type).toBeGreaterThan(EVENT_TYPES.indexOf("post.drafted"));
+    }
+    expect([...EVENTS["visit.attributed"].consumers]).toEqual(["metrics"]);
+    const visit = EVENT_FIXTURES["visit.attributed"];
+    expect(parsePayload("visit.attributed", visit)).toEqual(visit);
+    // Nothing about the visitor fits: an address, a device, a person or the code are dropped.
+    expect(Object.keys(parsePayload("visit.attributed", { ...visit, ip: "203.0.113.9", userAgent: "x", code: "k3m7qa2xpw", entityId: fixtureId("entity") })).sort()).toEqual(["assetId", "linkId", "network"]);
+    expect(parsePayload("visit.attributed", { ...visit, network: null })).toEqual({ ...visit, network: null });
+    const outcome = EVENT_FIXTURES["post.outcome_attributed"];
+    expect(parsePayload("post.outcome_attributed", outcome)).toEqual(outcome);
+    for (const outcomeKind of ["follow", "reply", "payment"] as const) expect(parsePayload("post.outcome_attributed", { ...outcome, outcomeKind }).outcomeKind).toBe(outcomeKind);
+    // Never the person, an address or an amount.
+    expect(Object.keys(parsePayload("post.outcome_attributed", { ...outcome, entityId: fixtureId("entity"), amount: { amountMinor: 100, currency: "USD" }, email: "a@b.example" })).sort()).toEqual(["assetId", "linkId", "network", "outcomeEventId", "outcomeKind"]);
+    const bad = (type: "visit.attributed" | "post.outcome_attributed", base: Record<string, unknown>, patch: Record<string, unknown>) => () => parsePayload(type, { ...base, ...patch });
+    expect(bad("visit.attributed", visit, { network: "myspace" })).toThrow(ValidationError);
+    expect(bad("visit.attributed", visit, { linkId: "k3m7qa2xpw" })).toThrow(ValidationError);
+    expect(bad("post.outcome_attributed", outcome, { outcomeKind: "visit" })).toThrow(ValidationError);
+    expect(bad("post.outcome_attributed", outcome, { outcomeEventId: undefined })).toThrow(ValidationError);
+  });
+
   it("entityIds default to [] and narrated to false on the envelope", () => {
     const wire = toWire(fixtureEvent("cycle.started")) as Record<string, unknown>;
     delete wire.entityIds;

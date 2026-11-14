@@ -46,7 +46,7 @@ describe("email from Foundmill to a person (gateway)", () => {
   });
 
   /** A member with a profile and a note from the agent that has waited 26 hours. */
-  async function person(over: { role?: "owner" | "admin" | "member" | "viewer"; source?: "invite" | "example"; sectionPermissions?: Record<string, "read" | "write" | "none">; subject?: string; entityIds?: string[]; hoursAgo?: number; blocksContinue?: boolean; type?: "decision" | "customer_won" } = {}) {
+  async function person(over: { role?: "owner" | "admin" | "member" | "viewer" | "cofounder" | "collaborator"; source?: "invite" | "example"; sectionPermissions?: Record<string, "read" | "write" | "none">; subject?: string; entityIds?: string[]; hoursAgo?: number; blocksContinue?: boolean; type?: "decision" | "customer_won" } = {}) {
     n += 1;
     const userId = await g.h.createUser(`Person${n}@Example.com`);
     await repos.founders.upsert(g.db, userId, { displayName: `Maya ${n}` });
@@ -358,5 +358,56 @@ describe("email from Foundmill to a person (gateway)", () => {
     // Off in the person's preferences: never sent, recorded as such.
     expect((await ask({ userId: off.userId, kind: "daily_brief", businessId: g.businessId, data: { day } })).body.reason).toBe("turned_off");
     expect(sentTo(off.email)).toHaveLength(0);
+  });
+
+  it("a follow a shared post brought says which post in What worked; one it did not keeps its own cause; the CRM wall hides both", async () => {
+    const p = await person();
+    const walled = await person({ role: "member", sectionPermissions: { crm: "none" } });
+    const at = new Date(Date.now() - 2 * HOURS);
+    const followedBy = { kind: "system", id: "public-page" };
+    const [credited, plain] = await g.h.db
+      .insert(s.events)
+      .values([1, 2].map((i) => ({ businessId: g.businessId, type: "page.followed", occurredAt: at, actor: followedBy, payload: { pageId: null, entityId: crypto.randomUUID(), consentId: crypto.randomUUID(), i } })))
+      .returning({ id: s.events.id });
+    // The first follow was credited to a team post shared on X (item 8); the second came straight to the page.
+    const [asset] = await g.h.db.insert(s.assets).values({ businessId: g.businessId, kind: "post", title: "A post", body: "Gateway Test Club has a page now." }).returning();
+    const links = await repos.postLinks.mint(g.db, g.businessId, asset!.id);
+    const x = links.find((l) => l.network === "x")!;
+    await g.h.db.insert(s.postAttributions).values({ businessId: g.businessId, linkId: x.id, assetId: asset!.id, network: "x", outcomeKind: "follow", outcomeEventId: credited!.id, originId: crypto.randomUUID(), outcomeAt: at });
+    expect(plain).toBeTruthy();
+    const day = new Date().toISOString().slice(0, 10);
+    expect((await ask({ userId: p.userId, kind: "daily_brief", businessId: g.businessId, data: { day } })).body).toMatchObject({ sent: true });
+    const text = sentTo(p.email)[0]!.text;
+    const credit = text.split("\n").filter((l) => l.includes("A person chose to follow your project"));
+    expect(credit).toHaveLength(2);
+    expect(credit.filter((l) => /from your post on X, [A-Z][a-z]{2} \d{1,2}\b/.test(l))).toHaveLength(1);
+    expect(credit.filter((l) => l.includes("they signed up on your public page and confirmed by email"))).toHaveLength(1);
+    // A member walled from Customers sees neither follow, and so no post either.
+    await ask({ userId: walled.userId, kind: "daily_brief", businessId: g.businessId, data: { day } });
+    for (const m of sentTo(walled.email)) expect(m.text).not.toMatch(/chose to follow|from your post/);
+  });
+
+  it("under #120's roles a collaborator's brief names the post of a follow but never shows a payment, credited or not", async () => {
+    const collaborator = await person({ role: "collaborator", sectionPermissions: { finance: "write" } });
+    const cofounder = await person({ role: "cofounder" });
+    const at = new Date(Date.now() - HOURS);
+    const [paid] = await g.h.db
+      .insert(s.events)
+      .values({ businessId: g.businessId, type: "payment.received", occurredAt: at, actor: { kind: "webhook", id: "stripe" }, payload: { conversionId: crypto.randomUUID(), amount: { amountMinor: 3_100, currency: "USD" }, firstPayment: false } })
+      .returning({ id: s.events.id });
+    const [asset] = await g.h.db.insert(s.assets).values({ businessId: g.businessId, kind: "post", title: "A post", body: "Gateway Test Club has a page now." }).returning();
+    const threads = (await repos.postLinks.mint(g.db, g.businessId, asset!.id)).find((l) => l.network === "threads")!;
+    await g.h.db.insert(s.postAttributions).values({ businessId: g.businessId, linkId: threads.id, assetId: asset!.id, network: "threads", outcomeKind: "payment", outcomeEventId: paid!.id, originId: paid!.id, outcomeAt: at });
+    const day = new Date().toISOString().slice(0, 10);
+    // The cofounder (an owner's standing) sees the payment and the post it came through.
+    expect((await ask({ userId: cofounder.userId, kind: "daily_brief", businessId: g.businessId, data: { day } })).body).toMatchObject({ sent: true });
+    expect(sentTo(cofounder.email)[0]!.text).toMatch(/A payment came in: \$31\.00.*from your post on Threads/);
+    // The collaborator reads Customers and no Money: follows (with their post) yes, the payment and its post never.
+    expect((await ask({ userId: collaborator.userId, kind: "daily_brief", businessId: g.businessId, data: { day } })).body).toMatchObject({ sent: true });
+    expect(sentTo(collaborator.email)).toHaveLength(1);
+    for (const m of sentTo(collaborator.email)) {
+      expect(m.text).not.toMatch(/\$31\.00|payment came in|Threads/);
+      expect(m.text).toMatch(/from your post on X/);
+    }
   });
 });

@@ -14,6 +14,7 @@ export { CONVERSATION_CASES, type ConversationCase } from "./conversation/cases"
 export { CONVERSATION_PASS_THRESHOLD, checkConversationReply, checkShippedReply, handOffActions, runConversationCase, summariseConversation, type ConversationCaseResult, type ConversationSuiteSummary } from "./conversation/run";
 export { FOUNDER_TITLE_CORPUS, founderTitlesSystemPrompt, runFounderTitlesCase, summariseFounderTitles, type FounderTitleCase, type FounderTitleCaseResult, type FounderTitlesRunResult, type FounderTitlesSummary } from "./founder-strings";
 export { PROJECT_PAGE_CASES, projectPageInputs, projectPageProblems, runProjectPageCase, type ProjectPageCase, type ProjectPageCaseResult } from "./project-page";
+export { PAGE_QUIZ_CASES, pageQuizEvalProblems, pageQuizTexts, runPageQuizCase, type PageQuizCase, type PageQuizCaseResult } from "./page-quiz";
 export { SECOND_READ_CASES, SECOND_READ_INJECTION_PAGE, caseFactChecker, injectionFactChecker, runSecondReadCase, runSecondReadInjectionCase, secondReadProblems, type SecondReadCase, type SecondReadCaseResult, type SecondReadInjectionResult } from "./second-read";
 export { SHOWCASE_ADVERSARIAL_OUTPUTS, SHOWCASE_SCRIPT_CASES, judgeShowcaseScript, runShowcaseScriptCase, showcaseEvalFacts, showcaseScriptProblems, type ShowcaseScriptCase, type ShowcaseScriptCaseResult } from "./showcase-script";
 export { POST_DRAFT_CASES, POST_DRAFT_EVAL_LINK, postDraftEvalFacts, postDraftProblems, runPostDraftCase, type PostDraftCase, type PostDraftCaseResult } from "./post-draft";

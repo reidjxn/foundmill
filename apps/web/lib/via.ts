@@ -10,7 +10,7 @@
  *
  * No imports beyond the shared module: proxy.ts runs this on every request.
  */
-import { VIA_COOKIE, VIA_MAX_AGE_SECONDS, formatVia, parseVia } from "@foundmill/shared/via";
+import { VIA_COOKIE, VIA_MAX_AGE_SECONDS, VIA_POST_COOKIE, VIA_POST_MAX_AGE_SECONDS, formatVia, isPostCode, parseVia } from "@foundmill/shared/via";
 
 /**
  * The value to remember for this request, or null to leave everything as it is: the `via` parameter when it is a
@@ -31,4 +31,27 @@ export function viaCookie(value: string, secure: boolean) {
 export function viaToHandOver(cookieValue: string | null | undefined): string | null {
   const ref = parseVia(cookieValue);
   return ref ? formatVia(ref) : null;
+}
+
+/*
+ * A shared post's code (item 8, `s.<code>`): besides `fm_via` (first touch, untouched), the last post code a visitor
+ * arrived with is kept in `fm_post` for 7 days, and a new one replaces it (last touch). It holds the public code and
+ * nothing else. The Follow form's Server Action reads it and hands it to `publicPage.follow`, which keeps it only for
+ * the project's own visited link; the pay button will read it the same way once the payment link ships.
+ */
+
+/** The post code to remember for this request, or null: the `via` parameter when it names a shared post. */
+export function postToRemember(param: string | null | undefined): string | null {
+  const ref = parseVia(param);
+  return ref?.kind === "post" ? ref.ref : null;
+}
+
+/** The cookie that remembers the last post code. httpOnly and lax like `fm_via`; 7 days. */
+export function postCookie(code: string, secure: boolean) {
+  return { name: VIA_POST_COOKIE, value: code, httpOnly: true, sameSite: "lax" as const, secure, path: "/", maxAge: VIA_POST_MAX_AGE_SECONDS };
+}
+
+/** The post code the Follow form hands to the api: the cookie's, when it is one; else null. */
+export function postToHandOver(cookieValue: string | null | undefined): string | null {
+  return isPostCode(cookieValue) ? cookieValue : null;
 }

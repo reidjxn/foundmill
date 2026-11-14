@@ -141,6 +141,10 @@ export const EVENT_WALLS = {
   // The team drafted a post for the founder to share by tap: ids and the trigger's kind, never the words. The Creative
   // tab and Today follow it.
   "post.drafted": { sections: ["distribution"] },
+  // The page quiz approved, turned on or off (0105): ids and its shape, never the words. The Public page tab follows.
+  "quiz.approved": { sections: ["product"] },
+  "quiz.published": { sections: ["product"] },
+  "quiz.unpublished": { sections: ["product"] },
   // Invitations to the project: the People tab (Settings, under the Team section).
   "invitation.sent": { sections: ["team"] },
   "invitation.accepted": { sections: ["team"] },
@@ -153,6 +157,13 @@ export const EVENT_WALLS = {
   "showcase.withdrawn": { sections: ["distribution"] },
   "showcase.asked": { sections: ["settings"] },
   "showcase.settled": { sections: ["settings"] },
+  // A shared post's link was opened for the first time, and a real outcome credited to a post (item 8): ids only, never
+  // narrated, never counted toward the north star. Visits stay private, so the first is filed with the metrics-only
+  // events; the second goes live only to someone who reads all of what a credited outcome can be (a follower or a reply is
+  // the CRM's, a payment Finance's), so its type is never one a collaborator reads (0099's list, which leaves out a type
+  // whose outcomes are not all readable). The Creative tab's line itself comes from the api, under the same walls per kind.
+  "visit.attributed": { sections: ["settings"] },
+  "post.outcome_attributed": { sections: ["distribution", "crm", "finance"] },
 } as const satisfies { readonly [K in BusinessEventType]: EventWall };
 
 /** What one reader may see of business events: their walls (sections they may not read at all). */

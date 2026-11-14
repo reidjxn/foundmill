@@ -6,7 +6,7 @@ import { LONG, commitThrowaway, dismissCoachmarks, settled, toast } from "./help
  * Nov 12, 2026: "a post the social channel agent wrote"), on the mock model. A throwaway project publishes its page
  * with the social channel off the board: nothing is drafted. The founder puts social on the Channel Board, and a
  * drafted post appears on Customers › Creative, written by the team, with Share: every "opens ready to post" link
- * carries the post's words and the page's address with `via`. Today shows one quiet line to it. "Not this one" sets it
+ * carries the post's words and the page's address with the post's own code for that network (`via=s.<code>`). Today shows one quiet line to it. "Not this one" sets it
  * aside: off the tab and off Today. A milestone shown on the page then gets its own post, pointing to its card; once a
  * share is opened for it, it stops waiting and Today's line goes. The links are checked as links and never followed:
  * nothing here opens a real network, and nothing says a post was posted. Stack and commands: e2e/README.md.
@@ -21,19 +21,35 @@ const TAP = [
 
 const openLink = (panel: Locator, network: string) => panel.locator(`a[data-share-open="${network}"]`);
 
-/** Every "opens ready to post" link carries the whole text (never shortened) and the link, on the network's own host. */
-async function expectTapLinks(panel: Locator, text: string, link: string): Promise<void> {
+/** A post's link: the address it points to, with the post's own code for one network or for a copied link (item 8). */
+const POST_CODE_LINK = (address: string) => new RegExp(`^${address.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\?via=s\\.[a-z2-7]{10}$`);
+
+/**
+ * Every "opens ready to post" link carries the whole text (never shortened) and the link, on the network's own host.
+ * Each network's link is the address with that network's own code (`via=s.<code>`), a different one from the copied
+ * link's: what comes back through a post is known for the post and the place it was shared.
+ */
+async function expectTapLinks(panel: Locator, text: string, address: string): Promise<void> {
+  const seen = new Set<string>([(await panel.locator("[data-share-link]").innerText()).trim()]);
   for (const t of TAP) {
     const a = openLink(panel, t.network);
     await expect(a).toHaveAttribute("target", "_blank");
     const url = new URL((await a.getAttribute("href"))!);
     expect(url.protocol + url.host, t.network).toBe(`https:${t.host}`);
+    let link: string;
     if (t.linkParam) {
       expect(url.searchParams.get("text"), t.network).toBe(text);
-      expect(url.searchParams.get(t.linkParam), t.network).toBe(link);
-    } else expect(url.searchParams.get("text"), t.network).toBe(`${text}\n\n${link}`);
+      link = url.searchParams.get(t.linkParam)!;
+    } else {
+      const all = url.searchParams.get("text")!;
+      expect(all.startsWith(`${text}\n\n`), t.network).toBe(true);
+      link = all.slice(text.length + 2);
+    }
+    expect(link, t.network).toMatch(POST_CODE_LINK(address));
+    seen.add(link);
     await expect(panel.locator(`[data-share-count="${t.network}"]`)).not.toContainText("shortened");
   }
+  expect(seen.size, "one code per network and one for the copied link").toBe(TAP.length + 1);
 }
 
 async function publishPage(page: Page, bid: string): Promise<string> {
@@ -130,7 +146,7 @@ test.describe("posts the team drafts to share by tap", () => {
     const pageAddress = await publishPage(page, bid);
     const origin = new URL(pageAddress).origin;
     const slug = new URL(pageAddress).pathname.replace("/p/", "");
-    const pageLink = `${origin}/p/${slug}?via=p.${slug}`;
+    const pageAddressOnly = `${origin}/p/${slug}`;
     await openCreative(page, bid);
     await expect(page.locator("article[data-team-post]")).toHaveCount(0);
     await openToday(page, bid);
@@ -159,11 +175,11 @@ test.describe("posts the team drafts to share by tap", () => {
     await expect(panel).toBeVisible({ timeout: LONG });
     await expect(panel.getByRole("heading", { name: "Share this post" })).toBeVisible();
     await expect(panel.getByRole("textbox", { name: "Text" })).toHaveValue(text);
-    await expect(panel.locator("[data-share-link]")).toHaveText(pageLink);
-    await expectTapLinks(panel, text, pageLink);
+    await expect(panel.locator("[data-share-link]")).toHaveText(POST_CODE_LINK(pageAddressOnly));
+    await expectTapLinks(panel, text, pageAddressOnly);
     // The founder may change the words; every network follows, and the link stays.
     await panel.getByRole("textbox", { name: "Text" }).fill("We fix bikes where they stand. Our page is up.");
-    await expectTapLinks(panel, "We fix bikes where they stand. Our page is up.", pageLink);
+    await expectTapLinks(panel, "We fix bikes where they stand. Our page is up.", pageAddressOnly);
     await expect(panel.locator("[data-share-honest]")).toContainText("posts nothing for you");
     await expect(panel).not.toContainText(/\b(posted|published)\b/i);
     // No video tools connected on the founder's own key: the post is text only, and the panel says so.
@@ -210,7 +226,6 @@ test.describe("posts the team drafts to share by tap", () => {
     await expect(toast(page, "Card link copied")).toBeVisible({ timeout: LONG });
     const cardAddress = await page.evaluate(() => navigator.clipboard.readText());
     expect(cardAddress).toMatch(/\/m\/[0-9a-f-]{36}$/);
-    const cardLink = `${cardAddress}?via=p.${slug}`;
 
     const second = (await teamPosts(page, bid, 1)).first();
     const milestoneText = `${name} reached a milestone: Page live. ${PITCH}.`;
@@ -221,8 +236,9 @@ test.describe("posts the team drafts to share by tap", () => {
     await teamPosts(page, bid, 1);
     await second.getByRole("button", { name: "Share: A post about your milestone: Page live" }).click();
     await expect(panel).toBeVisible({ timeout: LONG });
-    await expect(panel.locator("[data-share-link]")).toHaveText(cardLink);
-    await expectTapLinks(panel, milestoneText, cardLink);
+    await expect(panel.locator("[data-share-link]")).toHaveText(POST_CODE_LINK(cardAddress));
+    await expectTapLinks(panel, milestoneText, cardAddress);
+    const cardLink = (await panel.locator("[data-share-link]").innerText()).trim();
     // Copying the link is a share that was opened: recorded as that, and the post stops waiting. Nothing is posted.
     await panel.getByRole("button", { name: "Copy link" }).click();
     await expect(panel.locator("[data-share-said]")).toHaveText("Link copied");
@@ -240,5 +256,54 @@ test.describe("posts the team drafts to share by tap", () => {
     // The board still says what social is: the founder's to post, never a channel that was launched for them.
     await openBoard(page, bid);
     await expect(page.getByTestId("board-by-tap").locator('[data-channel="social"]')).toContainText("You post each one with one press: the text and link are filled in for you.");
+  });
+
+  /*
+   * What a shared post led to (item 8): a stranger opens the post's X link signed out, at phone width; the page sends
+   * one visit beacon and remembers the post's code (`fm_post`, httpOnly); the stranger follows. This stack runs no
+   * ingest, so the confirmation email's link cannot be used here and the follow stays pending, which is the honest
+   * state: the Creative tab says nothing under the post (outcomes only, never a visit, never a zero). The confirmation
+   * crediting the follow and the line it brings are apps/ingest `post-outcomes.test.ts`, apps/api
+   * `post-attribution.test.ts` and packages/modules `team-posts.test.tsx`.
+   */
+  test("a stranger opens a shared post's link and follows; the post says nothing until a real outcome is confirmed", async ({ page, browser }) => {
+    test.setTimeout(420_000);
+    const name = `Code Bikes ${Date.now().toString(36)}`;
+    const bid = await commitThrowaway(page, name);
+    await setSocialOnBoard(page, bid, true);
+    const pageAddress = await publishPage(page, bid);
+    const post = (await teamPosts(page, bid, 1)).first();
+    await post.getByRole("button", { name: "Share: A post about your page going live" }).click();
+    const panel = page.getByTestId("share-post");
+    await expect(panel).toBeVisible({ timeout: LONG });
+    const x = new URL((await openLink(panel, "x").getAttribute("href"))!).searchParams.get("url")!;
+    expect(x).toMatch(POST_CODE_LINK(pageAddress));
+    const code = new URL(x).searchParams.get("via")!.slice(2);
+    await panel.getByRole("button", { name: "Close" }).last().click();
+
+    const context = await browser.newContext({ viewport: { width: 390, height: 844 } });
+    try {
+      const stranger = await context.newPage();
+      const beacon = stranger.waitForRequest((r) => r.method() === "POST" && r.url().includes("publicPage.visited"), { timeout: LONG });
+      const local = new URL(x);
+      await stranger.goto(`${local.pathname}${local.search}`);
+      expect((await beacon).postData() ?? "").toContain(`s.${code}`);
+      expect((await context.cookies()).find((c) => c.name === "fm_post")).toMatchObject({ value: code, httpOnly: true, sameSite: "Lax" });
+      const form = stranger.locator("form[data-project-follow]");
+      await expect(form).toBeVisible({ timeout: LONG });
+      await form.getByLabel("Your email").fill(`code-follower-${Date.now().toString(36)}@example.com`);
+      await form.getByRole("checkbox").check();
+      await form.getByRole("button", { name: "Follow" }).click();
+      await expect(stranger.locator("[data-project-follow='done']").getByRole("status")).toHaveText(/^Check your email to confirm\./, { timeout: LONG });
+      // Nothing on the page counts visits or follows.
+      await expect(stranger.locator("body")).not.toContainText(/\bvisits?\b|\bvisitors?\b/i);
+    } finally {
+      await context.close();
+    }
+
+    // The founder: the follow is not confirmed, so nothing is credited and the post says nothing.
+    const again = (await teamPosts(page, bid, 1)).first();
+    await expect(again.getByTestId("post-outcomes")).toHaveCount(0);
+    await expect(again).not.toContainText(/\bvisits?\b|Led to/);
   });
 });

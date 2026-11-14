@@ -472,7 +472,8 @@ async function briefExtrasFor(
   const week = q.now.getTime() - 7 * DAY_MS;
   const since = new Date(q.weekly ? week : facts.lastBriefAt ? Math.max(facts.lastBriefAt.getTime(), week) : q.now.getTime() - DAY_MS);
   const can = (section: Parameters<typeof hasSectionAccess>[1] | null) => section === null || hasSectionAccess(q.membership, section, "read");
-  const outcomes = realOutcomes(facts.events, since, q.now).filter((o) => can(OUTCOME_SECTION[o.kind]));
+  // A credited follow, reply or payment carries the shared post it came through (item 8), behind the outcome's own wall.
+  const outcomes = realOutcomes(facts.events, since, q.now, facts.viaPosts).filter((o) => can(OUTCOME_SECTION[o.kind]));
   const agentNames = Object.fromEntries(facts.agents.map((a) => [a.id, agentLabel(a, q.prefs.anthropomorphicAgents, q.prefs.agentStyle)]));
   return {
     since,

@@ -12,6 +12,7 @@
  */
 import { CHANNEL_KEYS } from "@foundmill/shared";
 import type { AnyPgColumn, PgTable } from "drizzle-orm/pg-core";
+import { newPostCode } from "../../repos/post-attributions";
 import * as s from "../../schema";
 import type { BusinessFixture } from "./fixtures";
 
@@ -127,6 +128,13 @@ export const TENANT_TABLES: TenantTableSpec[] = [
   spec("merge_log", s.mergeLog, "member", (f) => ({ keptId: f.entityId, mergedId: crypto.randomUUID() })),
   // 0079 what a contact agreed to (a follower of the public page): written by the api's service connection only
   spec("contact_consents", s.contactConsents, "service", (f) => ({ entityId: f.entityId, purpose: "email", source: "page", sourceRef: uniq("page"), consentText: "I agree to get email from Alpha about this project. I can unsubscribe at any time." })),
+  // 0106 what a shared team post led to: written by the services only (members read; the triggers keep each row to its business)
+  spec("post_links", s.postLinks, "service", (f) => ({ assetId: take(f.postAssetIds, "post_links"), network: null, code: newPostCode() })),
+  spec("post_attributions", s.postAttributions, "service", (f) => {
+    const link = f.postLinks.pop();
+    if (!link) throw new Error("post_attributions sample: fixture pool exhausted");
+    return { linkId: link.id, assetId: link.assetId, network: link.network, outcomeKind: "follow", outcomeEventId: crypto.randomUUID(), originId: crypto.randomUUID(), outcomeAt: new Date() };
+  }),
   // 0009 finance
   spec("accounts", s.accounts, "admin", () => ({ provider: "mock_bank", externalId: uniq("acct"), name: "Ops" })),
   spec("transactions", s.transactions, "member", (f) => ({ accountId: f.accountId, externalId: uniq("tx"), bookedAt: new Date(), amountMinor: -1200 })),
@@ -247,6 +255,10 @@ export const NON_TENANT_TABLES = [
   "founder_notifications",
   // 0088: who or what brought a new person (user-owned, service role only); rls/attributions.test.ts.
   "attributions",
+  // 0105: the page quiz, one row per business (the generated suite inserts a second; clients never insert), and its
+  // anonymous counts, written by services only; covered by rls/page-quizzes.test.ts.
+  "page_quizzes",
+  "page_quiz_counts",
   // 0091: admissions (user-owned, service role only) and invitations (business-scoped, but its token hash and address
   // are not readable by a client, so the generic suite cannot select them); both in rls/invitations.test.ts.
   "account_admissions",

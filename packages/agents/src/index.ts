@@ -107,3 +107,5 @@ export {
   type TeamCallFinalAction,
   type FinalisedTeamCallWrapUp,
 } from "./prompts";
+export * from "./page-quiz";
+export * from "./page-quiz-personal";

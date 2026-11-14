@@ -40,6 +40,9 @@ export const EXPORT_TABLES: Readonly<Record<string, ExportTableSpec>> = {
   product_signoffs: t(s.productSignoffs, "product"),
   goals: t(s.goals, "product"),
   project_pages: t(s.projectPages, "product"),
+  // 0105: the page quiz and its anonymous counts per result (numbers only, nothing about any visitor).
+  page_quizzes: t(s.pageQuizzes, "product"),
+  page_quiz_counts: t(s.pageQuizCounts, "product"),
   change_proposals: t(s.changeProposals, "product"),
   proposal_hunks: t(s.proposalHunks, "product"),
   roadmap_items: t(s.roadmapItems, "product"),
@@ -85,6 +88,7 @@ export const EXPORT_TABLES: Readonly<Record<string, ExportTableSpec>> = {
   journeys: t(s.journeys, "distribution"),
   chapter_titles: t(s.chapterTitles, "distribution"),
   milestones: t(s.milestones, "distribution"),
+  post_links: t(s.postLinks, "distribution"),
   // crm
   entities: t(s.entities, "crm"),
   entity_roles: t(s.entityRoles, "crm"),
@@ -101,6 +105,11 @@ export const EXPORT_TABLES: Readonly<Record<string, ExportTableSpec>> = {
   forecasts: t(s.forecasts, "finance"),
   securities: t(s.securities, "finance"),
   cap_table_entries: t(s.capTableEntries, "finance"),
+  // What a shared post led to (0106): ids, the network and the kind only, never a person or an amount. It holds payment
+  // credits, so it is filed under the strictest wall of what it holds (security review, Nov 14, 2026): nobody without
+  // Finance exports a payment credit. Its follows and replies are the CRM's too, and a Finance reader of this archive
+  // reads the CRM as well (Export everything needs read access to every section).
+  post_attributions: t(s.postAttributions, "finance"),
   // billing
   usage_ledger: t(s.usageLedger, "billing"),
   credit_balances: t(s.creditBalances, "billing"),

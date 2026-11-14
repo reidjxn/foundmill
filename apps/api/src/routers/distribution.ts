@@ -7,6 +7,7 @@ import { z } from "zod";
 import { assertChannelMayLaunch, assertChannelMayRun, channelRowsFor, FOUNDER_POSTS_CHANNEL, runnableChannels } from "../services/channel-availability";
 import { DISTRIBUTION_NOT_STARTED } from "../services/engines";
 import { queuePostDraft, teamPostShares } from "../services/post-drafts";
+import { postOutcomeCounts } from "../services/post-attribution";
 import { postMediaToolStatus } from "../services/post-media";
 import { assertAgentsRunning } from "../services/stop-guard";
 import { WORKFLOWS, workflowIds } from "../services/temporal";
@@ -199,7 +200,9 @@ export const distributionRouter = router({
     /**
      * Every asset on the Creative tab. A post the team wrote for the founder to share by tap (a team post, packages/shared
      * `team-posts.ts`) also carries `sharePost`: the words with the link and the picture the code attaches, ready for
-     * the share panel. Null for every other asset. A team post the founder set aside ("Not this one") is not listed again:
+     * the share panel. Null for every other asset. A team post that led to a real outcome also carries `postOutcomes`
+     * (item 8): the counted follows and replies when the reader reads the CRM, payments when they read Finance; null
+     * when it led to nothing the reader may see. Visits are never in it. A team post the founder set aside ("Not this one") is not listed again:
      * the row stays (with its audit trail), the offer does not.
      */
     list: read.input(z.object({ campaignId: Id.optional(), approvalState: z.enum(["draft", "pending", "approved", "rejected"]).optional() })).query(async ({ ctx, input }) => {
@@ -209,7 +212,8 @@ export const distributionRouter = router({
       return ctx.rls(async (tx) => {
         const rows = (await repos.campaigns.listAssets(tx, ctx.businessId, input ?? {})).filter((row) => !(row.approvalState === "rejected" && isTeamPost(row)));
         const shares = await teamPostShares(tx, { businessId: ctx.businessId, businessName: ctx.business.name, isDemo: ctx.business.isDemo, appUrl: ctx.env.APP_URL, media: { env: ctx.env, tools } }, rows);
-        return rows.map((row) => ({ ...row, sharePost: shares.get(row.id) ?? null }));
+        const outcomes = await postOutcomeCounts(tx, { businessId: ctx.businessId, membership: ctx.membership }, [...shares.keys()]);
+        return rows.map((row) => ({ ...row, sharePost: shares.get(row.id) ?? null, postOutcomes: outcomes.get(row.id) ?? null }));
       });
     }),
     approve: write.input(z.object({ assetId: Id })).mutation(({ ctx, input }) => setAssetApproval(ctx, input.assetId, "approved")),

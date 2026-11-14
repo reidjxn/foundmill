@@ -16,12 +16,19 @@
  * - `publicPage.follow`: anyone; signs up to follow a published page whose "Follow" form is on (services/pages.ts
  *   `followPage`, double opt-in: a pending record and one confirmation email). The same `{ ok: true }` whether the
  *   address was new, already following, suppressed or the hidden field was filled. A Turnstile token is checked (through
- *   the gateway) before anything is recorded or sent; without a valid one the answer is `follow_unverified`.
+ *   the gateway) before anything is recorded or sent; without a valid one the answer is `follow_unverified`. `post` is
+ *   the last post code the visitor arrived with (item 8): the follow keeps that post's link only when it is the
+ *   project's own, not simulated and visited, and the follow is credited to the post once the person confirms.
+ * - `publicPage.visited`: anyone; the public page's beacon after it loaded, with the address's `via`. The first visit of
+ *   a shared post's link stamps it (services/post-attribution.ts); a member's own visit and anything else change
+ *   nothing. Always `{ ok: true }`. Visits are never counted or shown.
  */
 import { FOLLOW_EMAIL_MAX, PAGE_ABOUT_MAX, PAGE_FOR_WHOM_MAX, PAGE_PITCH_MAX, PAGE_SLUG_MAX, PAGE_STAGES } from "@foundmill/shared";
+import { VIA_MAX_LENGTH } from "@foundmill/shared/via";
 import { z } from "zod";
 import { publicCardById, publicStoryBySlug } from "../services/milestones";
 import { followPage, pageView, publicIndexNowKeyFile, publicPageBySlug, publishPage, savePageDraft, setPageSlug, unpublishPage } from "../services/pages";
+import { recordPostVisit } from "../services/post-attribution";
 import { publicProcedure, router, sectionAdmin, sectionRead, sectionWrite } from "../trpc";
 
 const read = sectionRead("product");
@@ -59,7 +66,10 @@ export const publicPageRouter = router({
         consent: z.boolean(),
         website: z.string().max(500).nullish(),
         turnstile: z.string().max(4096).nullish(),
+        /** The last post code the visitor arrived with (the web's `fm_post` cookie), or nothing. A hint, never trusted. */
+        post: z.string().max(40).nullish(),
       }),
     )
     .mutation(({ ctx, input }) => followPage(ctx, input)),
+  visited: publicProcedure.input(z.object({ via: z.string().max(VIA_MAX_LENGTH * 2) })).mutation(({ ctx, input }) => recordPostVisit(ctx, input)),
 });

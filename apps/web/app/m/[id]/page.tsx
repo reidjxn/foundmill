@@ -8,6 +8,8 @@
  *
  * A milestone about a customer is its words and its date only: nothing the api returns here can name the customer.
  * The foot's "Built on" line follows the project's plan and who is looking, as on the project's page and its story.
+ * A team post about a shown milestone links here with its own code (`?via=s.<code>`, item 8), so the card sends the
+ * same visit beacon as the project's page (components/public/PostVisitBeacon.tsx); nothing on the card changes.
  */
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
@@ -16,6 +18,7 @@ import { MilestoneCard } from "@foundmill/dugout";
 import { pagePath } from "@foundmill/shared/project-page";
 import { cardDescription, cardTitle, storyPath } from "@foundmill/shared/project-story";
 import { withVia } from "@foundmill/shared/via";
+import { PostVisitBeacon } from "@/components/public/PostVisitBeacon";
 import { getServerAuth } from "@/lib/auth/server";
 import { formatDate } from "@/lib/format";
 import { publicMilestoneCard } from "@/lib/public-page.server";
@@ -49,18 +52,21 @@ export default async function MilestoneCardRoute({ params }: Props) {
   const member = card.mark ? (await getServerAuth().catch(() => null)) !== null : false;
   const mark = !card.mark ? "none" : member ? "member" : "visitor";
   return (
-    <MilestoneCard
-      name={card.name}
-      label={card.milestone.label}
-      milestoneKey={card.milestone.key}
-      achievedAt={card.milestone.achievedAt}
-      brandPrimary={card.brandPrimary}
-      brandSecondary={card.brandSecondary}
-      logo={card.logo}
-      pageHref={pagePath(card.slug)}
-      storyHref={storyPath(card.slug)}
-      mark={mark}
-      startHref={withVia("/", { kind: "project_page", ref: card.slug })}
-    />
+    <>
+      <PostVisitBeacon />
+      <MilestoneCard
+        name={card.name}
+        label={card.milestone.label}
+        milestoneKey={card.milestone.key}
+        achievedAt={card.milestone.achievedAt}
+        brandPrimary={card.brandPrimary}
+        brandSecondary={card.brandSecondary}
+        logo={card.logo}
+        pageHref={pagePath(card.slug)}
+        storyHref={storyPath(card.slug)}
+        mark={mark}
+        startHref={withVia("/", { kind: "project_page", ref: card.slug })}
+      />
+    </>
   );
 }

@@ -60,6 +60,8 @@ const publish = async (b: Project, content: ProjectPageContent = page()) => {
 };
 const posts = async (b: Project) => (await b.owner.distribution.assets.list({ businessId: b.id })).filter((a) => parseTeamPostRef(a.contentRef));
 const drafted = async (businessId: string) => (await repos.events.outboxPending(hz.db, businessId)).filter((o) => o.event.type === "post.drafted").map((o) => ({ actor: o.event.actor, payload: o.event.payload as Record<string, unknown> }));
+/** An address with a post's own code as its one `via` (item 8). */
+const codeLink = (address: string) => new RegExp(`^${address.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\?via=s\\.[a-z2-7]{10}$`);
 const pageLive = async (businessId: string) => (await repos.journeys.listMilestones(hz.db, businessId)).find((m) => (m.ref as { trophyKey?: string } | null)?.trophyKey === "page_live")!;
 
 describe("when a draft is written", () => {
@@ -73,11 +75,14 @@ describe("when a draft is written", () => {
     expect(post).toMatchObject({ kind: "post", campaignId: null, approvalState: "draft", authoredByAgentId: b.agentId, title: "A post about your page going live", contentRef: `post-draft:page_published:page_live:${pageRow.id}` });
     // The mock model's draft, from the project's name and the page's own line.
     expect(post!.body).toBe(`${b.name} has a page now. Candles that smell like a walk in the woods.`);
-    // The link and the picture are attached by code: the page's address with its `via`.
-    expect(post!.sharePost).toMatchObject({ text: post!.body, link: `${published.page.url}?via=p.${published.page.slug}`, image: { url: `${published.page.url}/opengraph-image` } });
+    // The link and the picture are attached by code: the page's address with the post's own code (item 8), one per
+    // network and one for a copied link.
+    expect(post!.sharePost).toMatchObject({ text: post!.body, link: expect.stringMatching(codeLink(published.page.url)), image: { url: `${published.page.url}/opengraph-image` } });
     for (const t of shareTargets(post!.sharePost!).filter((t) => t.kind === "tap")) {
       expect(t.shortened, t.network).toBe(false);
-      expect(decodeURIComponent(t.href!), t.network).toContain(`via=p.${published.page.slug}`);
+      expect(t.link, t.network).toMatch(codeLink(published.page.url));
+      expect(t.link, t.network).not.toBe(post!.sharePost!.link);
+      expect(decodeURIComponent(t.href!), t.network).not.toContain("via=p.");
     }
     // The event: ids and the kind of trigger, by the agent, never the words.
     const events = await drafted(b.id);
@@ -167,10 +172,10 @@ describe("when a draft is written", () => {
     const card = all.find((a) => a.contentRef === `post-draft:milestone_shown:page_live:${milestone.id}`)!;
     expect(card).toMatchObject({ approvalState: "draft", title: "A post about your milestone: Page live" });
     expect(card.body).toBe(`${b.name} reached a milestone: Page live. Candles that smell like a walk in the woods.`);
-    expect(card.sharePost).toMatchObject({ link: `${shown.url}?via=p.${published.page.slug}`, image: { url: `${shown.url}/opengraph-image` } });
+    expect(card.sharePost).toMatchObject({ link: expect.stringMatching(codeLink(shown.url)), image: { url: `${shown.url}/opengraph-image` } });
     // Hidden again, its card answers not found, so the post points to the page instead.
     await b.owner.journey.hideMilestone({ businessId: b.id, milestoneId: milestone.id });
-    expect((await posts(b)).find((a) => a.id === card.id)!.sharePost!.link).toBe(`${published.page.url}?via=p.${published.page.slug}`);
+    expect((await posts(b)).find((a) => a.id === card.id)!.sharePost!.link).toMatch(codeLink(published.page.url));
     await show();
     expect(await posts(b)).toHaveLength(2);
     expect(await drafted(b.id)).toHaveLength(2);

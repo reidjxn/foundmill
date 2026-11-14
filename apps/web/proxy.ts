@@ -9,7 +9,8 @@
  * Attribution (docs/NETWORK.md §5; lib/via.ts): every address accepts `?via=<reference>`. The first reference a
  * visitor arrives with is kept in the httpOnly `fm_via` cookie, on whatever this request is answered with (the page, a
  * redirect or a rewrite); a visitor who already carries one keeps it, and a value that is not a reference changes
- * nothing. No database write and no API call: the api records it once, when the visitor becomes a person.
+ * nothing. No database write and no API call: the api records it once, when the visitor becomes a person. A shared
+ * post's code (`s.<code>`, item 8) is also kept in `fm_post` as the last touch (a newer one replaces it), for the Follow form.
  */
 import { VIA_COOKIE, VIA_PARAM } from "@foundmill/shared/via";
 import { NextResponse, type NextRequest } from "next/server";
@@ -17,12 +18,16 @@ import { LAST_BUSINESS_COOKIE } from "@/lib/auth/constants";
 import { decideRedirect } from "@/lib/auth/redirects";
 import { isDevLike } from "@/lib/env";
 import { updateSession } from "@/lib/supabase/middleware";
-import { viaCookie, viaToRemember } from "@/lib/via";
+import { postCookie, postToRemember, viaCookie, viaToRemember } from "@/lib/via";
 
 export async function proxy(request: NextRequest) {
   const answer = await route(request);
-  const via = viaToRemember({ param: request.nextUrl.searchParams.get(VIA_PARAM), existing: request.cookies.get(VIA_COOKIE)?.value });
+  const param = request.nextUrl.searchParams.get(VIA_PARAM);
+  const via = viaToRemember({ param, existing: request.cookies.get(VIA_COOKIE)?.value });
   if (via) answer.cookies.set(viaCookie(via, !isDevLike()));
+  // A shared post's code is also kept as the last touch (`fm_post`, 7 days): a newer one replaces it; `fm_via` is untouched.
+  const post = postToRemember(param);
+  if (post) answer.cookies.set(postCookie(post, !isDevLike()));
   return answer;
 }
 

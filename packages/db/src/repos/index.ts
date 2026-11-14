@@ -23,6 +23,7 @@ import { foundationsRepo } from "./foundations";
 import { foundersRepo } from "./founders";
 import { goalsRepo } from "./goals";
 import { pagesRepo } from "./pages";
+import { pageQuizzesRepo } from "./page-quizzes";
 import { personProfilesRepo } from "./person-profiles";
 import { mailRepo } from "./mail";
 import { postalAddressRepo } from "./postal-address";
@@ -64,6 +65,7 @@ import { notifyFactsRepo } from "./notify-facts";
 import { attributionsRepo } from "./attributions";
 import { teamPostsRepo } from "./team-posts";
 import { postMediaRepo } from "./post-media";
+import { postAttributionsRepo, postLinksRepo } from "./post-attributions";
 import { ideaDraftsRepo, waitlistRepo } from "./idea-drafts";
 import { admissionsRepo, invitationsRepo } from "./people";
 import { showcaseRepo } from "./showcase";
@@ -82,6 +84,7 @@ export const repos = {
   productSignoffs: productSignoffsRepo,
   goals: goalsRepo,
   pages: pagesRepo,
+  pageQuizzes: pageQuizzesRepo,
   personProfiles: personProfilesRepo,
   projectMail: mailRepo,
   postalAddress: postalAddressRepo,
@@ -138,6 +141,8 @@ export const repos = {
   invitations: invitationsRepo,
   showcase: showcaseRepo,
   adults: adultsRepo,
+  postLinks: postLinksRepo,
+  postAttributions: postAttributionsRepo,
   founderDepartures: founderDeparturesRepo,
   founderCancelLinks: founderCancelLinksRepo,
 } as const;
@@ -166,6 +171,7 @@ export * from "./foundations";
 export * from "./founders";
 export * from "./goals";
 export * from "./pages";
+export * from "./page-quizzes";
 export * from "./person-profiles";
 export * from "./mail";
 export * from "./notify-email";
@@ -206,6 +212,7 @@ export * from "./notifications";
 export * from "./notify-facts";
 export * from "./account-events";
 export * from "./attributions";
+export * from "./post-attributions";
 export * from "./team-posts";
 export * from "./post-media";
 export * from "./people";

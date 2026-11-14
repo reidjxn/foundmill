@@ -1,6 +1,6 @@
 /** 0002 — founder profiles, businesses, ideas (+ the businessId() helper every business-scoped table uses); 0022 — account preferences; 0025 — the business currency. */
 import { AGENT_STOP_REASONS, AGENT_STYLES, ARCHETYPES, AUTOPILOT_CADENCES, AUTOPILOT_PAUSE_REASONS, BUSINESS_MODES, DATA_REGIONS, DATE_FORMAT_PREFERENCES, DEVICE_PLATFORMS, FUNDING_SOURCES, GAME_MODES, GUIDANCE_MODES, MODEL_BILLING, PERSON_LOOKING_FOR, PLAN_TIERS, PUSH_PROVIDERS, TEXT_SIZES, TIME_FORMAT_PREFERENCES, VISIBILITY, type EmailNotificationPrefs, type NotificationPrefs } from "@foundmill/shared";
-import { VIA_KINDS } from "@foundmill/shared/via";
+import { ATTRIBUTION_VIA_KINDS } from "@foundmill/shared/via";
 import { sql } from "drizzle-orm";
 import { boolean, char, index, integer, jsonb, numeric, pgTable, pgView, text, uniqueIndex, uuid, type AnyPgColumn } from "drizzle-orm/pg-core";
 import { authUsers } from "drizzle-orm/supabase";
@@ -304,7 +304,7 @@ export const attributions = pgTable(
   {
     id: id(),
     userId: uuid("user_id").notNull().unique("attributions_user_id_key").references(() => authUsers.id, { onDelete: "cascade" }),
-    sourceKind: text("source_kind", { enum: VIA_KINDS }).notNull(),
+    sourceKind: text("source_kind", { enum: ATTRIBUTION_VIA_KINDS }).notNull(),
     /** The slug or handle as it arrived. */
     sourceRef: text("source_ref").notNull(),
     sourceBusinessId: uuid("source_business_id").references(() => businesses.id, { onDelete: "set null" }),

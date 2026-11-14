@@ -652,6 +652,20 @@
       "when": 1796136840000,
       "tag": "0104_funding_source",
       "breakpoints": true
+    },
+    {
+      "idx": 93,
+      "version": "7",
+      "when": 1796137440000,
+      "tag": "0105_page_quizzes",
+      "breakpoints": true
+    },
+    {
+      "idx": 94,
+      "version": "7",
+      "when": 1796138040000,
+      "tag": "0106_post_attributions",
+      "breakpoints": true
     }
   ]
 }
