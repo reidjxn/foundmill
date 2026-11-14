@@ -58,7 +58,7 @@ const Env = z.object({
   /** apps/gateway: the OneSignal app id and REST API key behind the `onesignal` connector (push to the mobile app's phones, docs/mobile). */
   ONESIGNAL_APP_ID: z.string().optional(),
   ONESIGNAL_API_KEY: z.string().optional(),
-  /** apps/gateway: Cloudflare Turnstile's secret key for the idea box's bot check (docs/IDEA_BOX.md). Unset on staging or production, the idea box drafts nothing. */
+  /** apps/gateway: Cloudflare Turnstile's secret key for the bot check of the idea box (docs/IDEA_BOX.md) and of a public page's Follow form. Unset on staging or production, the idea box drafts nothing and pages take no followers. */
   TURNSTILE_SECRET_KEY: z.string().optional(),
   /** apps/api: the Domain of the idea box's cookie (`fm_idea`), so the web app reads it too: `foundmill.com` in production. Unset: a host-only cookie (local stacks). */
   IDEA_COOKIE_DOMAIN: z.string().regex(/^[a-z0-9.-]{3,253}$/).optional(),
@@ -124,6 +124,28 @@ const Env = z.object({
    * room; and they wait while the projects' mail has used more than 75% of that ceiling.
    */
   PLATFORM_NOTIFY_DAILY_CEILING: z.coerce.number().int().min(1).max(1_000_000).default(1_000),
+  /**
+   * Every ordinary founder notice together in a UTC day (`pn:safety:day`; security review P2-3): enforced, apart from
+   * PLATFORM_NOTIFY_DAILY_CEILING. 0 (or an empty value, which reads as 0) is refused at boot: it would silence every
+   * ordinary founder notice; unset it for the default.
+   */
+  PLATFORM_SAFETY_DAILY_CEILING: z.coerce
+    .number()
+    .int()
+    .min(1, { message: "PLATFORM_SAFETY_DAILY_CEILING must be 1 or more (0, or an empty value, would refuse every founder notice); unset it for the default of 5,000" })
+    .max(1_000_000)
+    .default(5_000),
+  /**
+   * The circuit breaker over every essential founder notice together in a UTC day (`pn:safety:reserved:day`; final
+   * review): a warning at half, an error at the ceiling, and past it each person gets one folded email for the day. 0 (or
+   * an empty value) is refused at boot, as above.
+   */
+  PLATFORM_SAFETY_RESERVED_DAILY_CEILING: z.coerce
+    .number()
+    .int()
+    .min(1, { message: "PLATFORM_SAFETY_RESERVED_DAILY_CEILING must be 1 or more (0, or an empty value, would fold every essential founder notice); unset it for the default of 20,000" })
+    .max(10_000_000)
+    .default(20_000),
   /** gateway + ingest: signs the custom args on every send and the unsubscribe links, so a delivery event or an unsubscribe is bound to its project. 32+ random bytes. */
   PLATFORM_MAIL_SIGNING_SECRET: z.string().optional(),
   /** ingest: the token the platform's Inbound Parse URL carries as `?token=` (`/mail/inbound`). Never the businesses' SENDGRID_INBOUND_TOKEN. */

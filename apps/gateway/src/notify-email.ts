@@ -136,7 +136,9 @@ export const NotifyEmailRequest = z
   );
 export type NotifyEmailRequest = z.infer<typeof NotifyEmailRequest>;
 
-export type NotifyEmailResponse = { sent: true; simulated: boolean; eventId: string | null } | { sent: false; reason: NotifyEmailNotSent; message: string };
+export type NotifyEmailResponse =
+  | { sent: true; simulated: boolean; eventId: string | null; /** A founder notice: whether the email that went carried a one-click cancel. */ offersCancel?: boolean }
+  | { sent: false; reason: NotifyEmailNotSent; message: string };
 
 /** Counter keys, in fixed UTC-day windows: per person and project, and per person. */
 export const notifyProjectDayKey = (userId: string, businessId: string): string => `pn:${userId}:${businessId}:day`;

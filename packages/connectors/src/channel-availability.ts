@@ -28,7 +28,8 @@ export const CHANNEL_ACTING_TOOLS: Readonly<Record<ChannelKey, readonly string[]
   seo: ["github:commit_files"],
   geo: ["github:commit_files"],
   content: [],
-  social: [],
+  // The founder's own Buffer when connected: the team queues each post (the founder approves it first). Until then the founder posts by tap.
+  social: ["buffer:queue_post"],
   paid_ads: [],
   influencer: [],
   affiliate: [],
@@ -98,7 +99,7 @@ export function channelAvailabilities(facts: ChannelAvailabilityFacts): Record<C
  * The display names of the connectors `CHANNEL_ACTING_TOOLS` names, for the sentence a founder reads ("connect SendGrid
  * in Settings › Integrations"). The unit test holds each to its connector's own `displayName`.
  */
-export const ACTING_CONNECTOR_NAMES: Readonly<Record<string, string>> = Object.freeze({ sendgrid: "SendGrid", github: "GitHub", resend: "Resend", platform_mail: "Email from your project" });
+export const ACTING_CONNECTOR_NAMES: Readonly<Record<string, string>> = Object.freeze({ sendgrid: "SendGrid", github: "GitHub", resend: "Resend", buffer: "Buffer", platform_mail: "Email from your project" });
 
 /** A channel's availability with its founder sentence (null when available): what the api sends with each channel. */
 export function channelAvailabilityRow(channelKey: ChannelKey, facts: ChannelAvailabilityFacts): ChannelAvailabilityRow {

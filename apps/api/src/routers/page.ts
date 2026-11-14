@@ -15,9 +15,10 @@
  *   null for anything not public. Showing and hiding are `journey.showMilestone` / `journey.hideMilestone`.
  * - `publicPage.follow`: anyone; signs up to follow a published page whose "Follow" form is on (services/pages.ts
  *   `followPage`, double opt-in: a pending record and one confirmation email). The same `{ ok: true }` whether the
- *   address was new, already following, suppressed or the hidden field was filled. `post` is the last post code the
- *   visitor arrived with (item 8): the follow keeps that post's link only when it is the project's own, not simulated
- *   and visited, and the follow is credited to the post once the person confirms.
+ *   address was new, already following, suppressed or the hidden field was filled. A Turnstile token is checked (through
+ *   the gateway) before anything is recorded or sent; without a valid one the answer is `follow_unverified`. `post` is
+ *   the last post code the visitor arrived with (item 8): the follow keeps that post's link only when it is the
+ *   project's own, not simulated and visited, and the follow is credited to the post once the person confirms.
  * - `publicPage.visited`: anyone; the public page's beacon after it loaded, with the address's `via`. The first visit of
  *   a shared post's link stamps it (services/post-attribution.ts); a member's own visit and anything else change
  *   nothing. Always `{ ok: true }`. Visits are never counted or shown.
@@ -64,6 +65,7 @@ export const publicPageRouter = router({
         email: z.string().max(FOLLOW_EMAIL_MAX * 2),
         consent: z.boolean(),
         website: z.string().max(500).nullish(),
+        turnstile: z.string().max(4096).nullish(),
         /** The last post code the visitor arrived with (the web's `fm_post` cookie), or nothing. A hint, never trusted. */
         post: z.string().max(40).nullish(),
       }),

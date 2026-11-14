@@ -60,6 +60,11 @@ export const THIRD_PARTY_CONNECTOR_KEYS = [
   "vercel",
   "posthog",
   "resend",
+  // Generated video and voiceover on the founder's own keys (founder, 2026-11-13). `elevenlabs_voice` is not the platform's
+  // `elevenlabs` (Team call speech, service-only): it is the founder's own ElevenLabs account.
+  "runway",
+  "elevenlabs_voice",
+  "buffer",
 ] as const;
 
 export const CONNECTOR_KEYS = [...PLATFORM_CONNECTOR_KEYS, ...THIRD_PARTY_CONNECTOR_KEYS] as const;

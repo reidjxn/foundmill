@@ -249,4 +249,18 @@ describe("workspaces", () => {
     const outsider = await r.as(r.B.ownerId, (tx) => repos.workspaces.latest(tx, businessId, taskId));
     expect(outsider).toBeNull();
   });
+
+  it("stores screenshots outside any snapshot, once per content and within the quota (design check, item 13)", async () => {
+    const { businessId } = r.A;
+    const shots = [text("png-one"), text("png-two"), text("png-one")];
+    const shas = await r.svc((tx) => repos.workspaces.putBlobs(tx, businessId, shots));
+    expect(shas).toEqual([sha("png-one"), sha("png-two"), sha("png-one")]);
+    const rows = await r.db.select({ sha: workspaceBlobs.sha256 }).from(workspaceBlobs).where(and(eq(workspaceBlobs.businessId, businessId), eq(workspaceBlobs.sha256, sha("png-one"))));
+    expect(rows).toHaveLength(1);
+    // Past the quota (or empty) a content is not stored, and says so with null.
+    expect(await r.svc((tx) => repos.workspaces.putBlobs(tx, businessId, [text("png-three"), new Uint8Array()], { quotaBytes: 1 }))).toEqual([null, null]);
+    // Another business does not see them.
+    const other = await r.db.select({ sha: workspaceBlobs.sha256 }).from(workspaceBlobs).where(and(eq(workspaceBlobs.businessId, r.B.businessId), eq(workspaceBlobs.sha256, sha("png-two"))));
+    expect(other).toHaveLength(0);
+  });
 });

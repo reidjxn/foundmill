@@ -39,11 +39,14 @@ import { createGeminiConnector } from "./connectors/gemini";
 import { createPerplexityConnector } from "./connectors/perplexity";
 import { createSerpapiConnector } from "./connectors/serpapi";
 import { createFirecrawlConnector } from "./connectors/firecrawl";
+import { createElevenlabsVoiceConnector } from "./connectors/elevenlabs_voice";
+import { createRunwayConnector } from "./connectors/runway";
 import { createIndexNowConnector } from "./connectors/indexnow";
 import { createApolloConnector } from "./connectors/apollo";
 import { createVercelConnector } from "./connectors/vercel";
 import { createPosthogConnector } from "./connectors/posthog";
 import { createResendConnector } from "./connectors/resend";
+import { createBufferConnector } from "./connectors/buffer";
 
 export type ConnectorFactory = (options?: LiveConnectorOptions) => Connector;
 
@@ -88,6 +91,12 @@ export const CONNECTOR_FACTORIES: Readonly<Record<string, ConnectorFactory>> = O
   vercel: createVercelConnector,
   posthog: createPosthogConnector,
   resend: createResendConnector,
+  // Generated video and voiceover for ready-to-post kits, on the founder's own keys (founder, 2026-11-13). `elevenlabs_voice`
+  // is not the platform's `elevenlabs` (Team call speech): it never reads the platform key.
+  runway: createRunwayConnector,
+  elevenlabs_voice: createElevenlabsVoiceConnector,
+  // Posts queued in the founder's own Buffer account, which publishes them on the networks the founder connected there.
+  buffer: createBufferConnector,
 });
 
 export const CONNECTOR_KEYS = Object.freeze(Object.keys(CONNECTOR_FACTORIES));

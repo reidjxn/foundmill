@@ -600,7 +600,14 @@
     {
       "idx": 85,
       "version": "7",
-      "when": 1796132640000,
+      "when": 1796133180000,
+      "tag": "0097_founder_departures",
+      "breakpoints": true
+    },
+    {
+      "idx": 86,
+      "version": "7",
+      "when": 1796133780000,
       "tag": "0102_post_attributions",
       "breakpoints": true
     }

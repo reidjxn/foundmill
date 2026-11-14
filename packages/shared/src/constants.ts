@@ -438,7 +438,7 @@ export type DecisionType = (typeof DECISION_TYPES)[number];
 export const EVENT_TYPES = [
   "idea.committed", "spec.proposal_created", "spec.version_published",
   "source.added", "source.scored",
-  "task.started", "task.progressed", "task.completed", "task.blocked",
+  "task.started", "task.progressed", "task.completed", "task.blocked", "task.design_checked",
   "pr.merged", "deploy.succeeded",
   "lead.created", "lead.replied", "campaign.launched", "channel.threshold_breached",
   "signup.created", "activation.reached", "payment.received", "customer.converted",
@@ -473,6 +473,7 @@ export const EVENT_TYPES = [
   "post.drafted",
   "invitation.sent", "invitation.accepted", "invitation.declined",
   "visit.attributed", "post.outcome_attributed",
+  "founder_notice.sent",
 ] as const;
 export type EventType = (typeof EVENT_TYPES)[number];
 
@@ -518,7 +519,7 @@ export const isPersonAddressedEvent = (type: string | null | undefined): boolean
  */
 export const EVENT_SCOPES = ["business", "account"] as const;
 export type EventScope = (typeof EVENT_SCOPES)[number];
-export const ACCOUNT_EVENT_TYPES = ["profile.published", "profile.unpublished", "signup.attributed", "referral.arrived"] as const satisfies readonly EventType[];
+export const ACCOUNT_EVENT_TYPES = ["profile.published", "profile.unpublished", "signup.attributed", "referral.arrived", "founder_notice.sent"] as const satisfies readonly EventType[];
 export type AccountEventType = (typeof ACCOUNT_EVENT_TYPES)[number];
 /** Every event type that belongs to a project: all of `EVENT_TYPES` but the account-scoped ones. */
 export type BusinessEventType = Exclude<EventType, AccountEventType>;
@@ -626,6 +627,54 @@ export const LIMITED_EMAIL_KINDS: readonly EmailNotificationKind[] = ["decision_
  */
 export const ADDRESS_EMAIL_KINDS = ["invitation"] as const;
 export type AddressEmailKind = (typeof ADDRESS_EMAIL_KINDS)[number];
+/**
+ * Account-safety notices (security review P2-3, Nov 13, 2026): Foundmill's email to the founders of a project when its
+ * founders change or its deletion is asked for or canceled. Classed apart from both lists above, like the security mail
+ * of any service: nobody holds a switch for it, the pause does not hold it, no daily limit, no project outreach room and
+ * no "Don't send me invitations" stops it; only a hard suppression of the address (a bounce or a spam report) does.
+ * Never sent to the person who did the thing.
+ */
+export const ACCOUNT_SAFETY_EMAIL_KINDS = ["founder_notice"] as const;
+export type AccountSafetyEmailKind = (typeof ACCOUNT_SAFETY_EMAIL_KINDS)[number];
+/** What a founder notice is about: a founder's role went below a founder's, a founder was removed, deletion asked for or canceled. */
+export const FOUNDER_NOTICES = ["role_changed", "removed", "deletion_requested", "deletion_canceled"] as const;
+export type FounderNotice = (typeof FOUNDER_NOTICES)[number];
+/**
+ * A former founder (security review P2-3, second review): someone whose founder's standing someone else took away
+ * (demoted or removed) within this long before a deletion request, or at any time after it, hears about that request
+ * and may cancel it until its scheduled day, from Foundmill's email or the card on their home. Counted from the request,
+ * never from the departure alone, so waiting does not wear the right away.
+ */
+export const FORMER_FOUNDER_LOOKBACK_MS = 30 * 86_400_000;
+/**
+ * The limits on founder notices and on the steps that send them (security review P2-3, second, third and final reviews):
+ *   - `perRecipientHour` / `perRecipientDay`: ordinary founder notices one person gets about one project; above either,
+ *     one "more changes" email for the window and nothing more until it ends (`folded` on the record);
+ *   - `perProjectDay`: every ordinary founder notice about one project in a UTC day (`pn:safety:project:<id>:day`), under
+ *     the platform's ceiling;
+ *   - `safetyCeilingDefault`: every ordinary founder notice together in a UTC day (`pn:safety:day`,
+ *     PLATFORM_SAFETY_DAILY_CEILING), enforced, and apart from the ceiling of every other email to people (`pn:all:day`);
+ *   - essential notices (`isEssentialFounderNotice`) skip those three and are bounded on their own:
+ *     `essentialPerRecipientDay` a day per person across every project (`pn:safety:essential:<user>:day`), and every
+ *     essential notice together under `reservedCeilingDefault` a day (`pn:safety:reserved:day`,
+ *     PLATFORM_SAFETY_RESERVED_DAILY_CEILING), a circuit breaker; past either, until the end of the UTC day, one email per
+ *     deletion that person may cancel (with its link) and one for none;
+ *   - `formerPerRequest`: beyond a request's 30-day window, the most recent people taken out that one deletion request
+ *     (or its cancel) emails; the former founders for the request itself are never capped;
+ *   - past the breaker, `perRequestPastBreakerDay` (3) emails per person a day for a deletion of their own, then the one
+ *     fold that carries the latest cancel; and a hard stop at `reservedHardFactor` (2) times the reserved ceiling, past
+ *     which an essential notice is recorded and not sent (the card on the person's home still shows a deletion they may
+ *     cancel), so the day's essential mail has a fixed ceiling whatever the number of accounts;
+ *   - `actorPerDay`: how many times one person may lower a founder's role, or ask for a deletion, in one project in a
+ *     day, and `actorPerDayAll`: both together, across every project, in a day;
+ *   - `projectRequestsPerDay` (3) and `projectLowersPerDay` (10): deletion requests, and founders' roles lowered, in one
+ *     project in a day, whoever asks (verification of the final review: per-actor limits alone let each extra account
+ *     add its own).
+ */
+export const FOUNDER_NOTICE_LIMITS = { perRecipientHour: 10, perRecipientDay: 30, perProjectDay: 500, safetyCeilingDefault: 5_000, essentialPerRecipientDay: 10, reservedCeilingDefault: 20_000, reservedHardFactor: 2, perRequestPastBreakerDay: 3, formerPerRequest: 50, actorPerDay: 5, actorPerDayAll: 10, projectRequestsPerDay: 3, projectLowersPerDay: 10 } as const;
+/** How a founder's standing ended (`founder_departures.how`, 0097): by another founder's change, by removal, or by their own. */
+export const FOUNDER_DEPARTURE_KINDS = ["demoted", "removed", "left"] as const;
+export type FounderDepartureKind = (typeof FOUNDER_DEPARTURE_KINDS)[number];
 
 /** The account's type size (`account_preferences.text_size`, 0064): comfortable grows body and small text; the structure keeps its sizes. */
 export const TEXT_SIZES = ["standard", "comfortable"] as const;

@@ -55,6 +55,7 @@ import { useShellChrome } from "@/components/shell/chrome";
 import { ErrorPanel } from "@/components/shell/ErrorPanel";
 import { NotFoundPanel, RefreshFailedNotice, isMissing, loadFailed, refreshFailed } from "@/components/shell/QueryStates";
 import { ScreenSkeleton } from "@/components/shell/ScreenSkeleton";
+import { FormerProjects } from "./FormerProjects";
 import { HomeAutopilot } from "./HomeAutopilot";
 import { HomeTour } from "./HomeTour";
 import { GoalEnsure, HomeBlockers, HomeFoundations } from "./lead";
@@ -254,6 +255,7 @@ export function HomeScreen({ dashboardId: routeId }: HomeScreenProps) {
   // while it loads they mount out of sight, so their answers are in the cache when they take their place above the grid.
   const lead = (
     <>
+      <FormerProjects className="flex flex-col gap-gutter" />
       <HomeBlockers />
       <GoalEnsure />
       <HomeFoundations />
