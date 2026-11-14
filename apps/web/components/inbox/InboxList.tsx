@@ -125,6 +125,7 @@ export function InboxList({ rows, selectedId, onSelect, onPrefetch, loading, has
               type="button"
               role="option"
               aria-selected={selected}
+              data-item-id={row.id}
               aria-posinset={index + 1}
               aria-setsize={setSize}
               onClick={() => onSelect(row.id)}

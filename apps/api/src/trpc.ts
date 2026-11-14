@@ -59,7 +59,7 @@ const t = initTRPC.context<Context>().create({
         ...shape.data,
         ...(hide ? { stack: undefined } : {}),
         appCode: cause instanceof AppError ? cause.code : undefined,
-        details: cause instanceof AppError ? cause.details : cause instanceof ZodError ? cause.issues : undefined,
+        details: cause instanceof AppError ? cause.details : cause instanceof ZodError ? boundedIssues(cause.issues) : undefined,
       },
     };
   },
@@ -71,6 +71,26 @@ export const createCallerFactory = t.createCallerFactory;
 export const middleware = t.middleware;
 
 // --- error mapping ---------------------------------------------------------------------------------------------------
+
+/**
+ * What an invalid input's error carries, bounded whatever the input (GHSA-mrhx-c7xc-m3w5): a huge input must not come
+ * back as a huge error. The first `ISSUES_SHOWN` issues, each message cut to `ISSUE_MESSAGE_MAX` characters and any list of
+ * unknown keys to `ISSUE_KEYS_SHOWN`; the rest is counted, not listed.
+ */
+const ISSUES_SHOWN = 20;
+const ISSUE_MESSAGE_MAX = 200;
+const ISSUE_KEYS_SHOWN = 20;
+const clip = (text: string) => (text.length > ISSUE_MESSAGE_MAX ? `${text.slice(0, ISSUE_MESSAGE_MAX - 1)}…` : text);
+export function boundedIssues(issues: readonly ZodError["issues"][number][]): unknown[] {
+  return issues.slice(0, ISSUES_SHOWN).map((issue) => {
+    const keys = (issue as { keys?: unknown }).keys;
+    return { ...issue, message: clip(issue.message), path: issue.path.slice(0, 10), ...(Array.isArray(keys) ? { keys: keys.slice(0, ISSUE_KEYS_SHOWN) } : {}) };
+  });
+}
+export function issueSummary(issues: readonly ZodError["issues"][number][]): string {
+  const shown = issues.slice(0, 10).map((i) => `${i.path.slice(0, 10).join(".") || "(root)"}: ${clip(i.message)}`).join("; ");
+  return issues.length > 10 ? `${shown}; and ${issues.length - 10} more` : shown;
+}
 
 const CODE_BY_APP_CODE: Record<string, TRPC_ERROR_CODE_KEY> = {
   not_found: "NOT_FOUND",
@@ -137,7 +157,7 @@ export function toTRPCError(err: unknown): TRPCError {
     return new TRPCError({ code: "PAYMENT_REQUIRED", message: billing.message, cause: billing });
   }
   if (cause instanceof ZodError) {
-    return new TRPCError({ code: "BAD_REQUEST", message: cause.issues.map((i) => `${i.path.join(".") || "(root)"}: ${i.message}`).join("; "), cause });
+    return new TRPCError({ code: "BAD_REQUEST", message: issueSummary(cause.issues), cause });
   }
   // A foreign-key violation is the caller's doing, not a server fault, and must not echo the failed statement. tRPC has
   // already wrapped a thrown database error as INTERNAL_SERVER_ERROR by the time it gets here; a code we set on purpose
