@@ -276,6 +276,7 @@ export type ShowcaseNameProblem = (typeof SHOWCASE_NAME_PROBLEMS)[number];
  */
 export function showcaseNameSafety(name: string): ShowcaseNameProblem | null {
   if (name.length > SHOWCASE_NAME_MAX) return "too_long";
+  // eslint-disable-next-line no-control-regex -- the point is to find control characters
   if (/[\u0000-\u001f\u007f-\u009f\u200b-\u200f\u202a-\u202e\u2060-\u2069\ufeff]/u.test(name)) return "control";
   if (/[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+/.test(name)) return "email";
   if (/\b(?:https?:\/\/|www\.)|\b[a-z0-9-]+\.(?:com|net|org|io|ai|app|co|dev|xyz|me|shop|store|site|online|uk|us|eu)\b/i.test(name)) return "url";
