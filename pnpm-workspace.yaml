@@ -220,5 +220,10 @@ minimumReleaseAgeExclude:
   - typescript-eslint@8.71.1
   - vite@8.3.3
 
+# Security fixes for packages pinned deep in the tree. dompurify: monaco-editor (the design system's code editor) pins
+# 3.4.15, inside GHSA advisories fixed in 3.4.17 (a critical SAFE_FOR_TEMPLATES bypass among them; pnpm audit, Nov 14).
+overrides:
+  dompurify: 3.4.17
+
 patchedDependencies:
   postgres@3.4.9: patches/postgres@3.4.9.patch
