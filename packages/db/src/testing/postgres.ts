@@ -26,7 +26,7 @@ import type { PGlite } from "@electric-sql/pglite";
 import { sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/postgres-js";
 import postgres, { type Sql } from "postgres";
-import { withRls, type Db, type RlsRole } from "../client";
+import { withDateParams, withRls, type Db, type RlsRole } from "../client";
 import { readMigrations } from "../migrations";
 import { PGLITE_BOOTSTRAP_SQL, rewriteForMissingVector } from "../pglite";
 import * as schema from "../schema";
@@ -154,7 +154,8 @@ export async function createRealPostgresTestDb(url: string, options: CreateTestD
       applied.push(m.tag);
     }
 
-    const db = bridgeRowsShape(drizzle({ client, schema }));
+    // As `createDb` does: a `Date` in a raw `sql` template goes as its ISO string.
+    const db = bridgeRowsShape(withDateParams(client, drizzle({ client, schema })));
     const makeRunner = (ctx: { userId: string; role: RlsRole }): Runner => ({
       run: (fn) => withRls(db as unknown as Db, ctx, fn).catch((err: unknown) => Promise.reject(unwrapDbError(err))),
       execute: async <T extends Record<string, unknown>>(query: Parameters<Runner["execute"]>[0]) =>
