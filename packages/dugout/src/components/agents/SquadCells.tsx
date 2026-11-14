@@ -6,7 +6,7 @@
  * them into DataTable column definitions.
  */
 import type { HTMLAttributes, ReactNode } from "react";
-import { Bot, Calendar, Code2, Cpu, CreditCard, FileText, HardDrive, Mail, PenLine, Search, ShoppingBag, Wrench } from "lucide-react";
+import { Bot, Calendar, Clapperboard, Code2, Cpu, CreditCard, FileText, HardDrive, Mail, Mic, PenLine, Search, ShoppingBag, Wrench } from "lucide-react";
 import type { AgentStatus, ModelKey } from "@foundmill/shared";
 import { cn } from "../../lib/cn";
 import { formatMoney, formatNumber, formatRelative } from "../../lib/format";
@@ -171,6 +171,8 @@ export const TOOL_ICONS: Record<string, { icon: IconComponent; label: string }> 
   vercel: { icon: Code2, label: "Vercel" },
   posthog: { icon: Search, label: "PostHog" },
   resend: { icon: Mail, label: "Resend" },
+  runway: { icon: Clapperboard, label: "Runway" },
+  elevenlabs_voice: { icon: Mic, label: "ElevenLabs" },
   buffer: { icon: PenLine, label: "Buffer" },
 };
 

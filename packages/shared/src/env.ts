@@ -58,7 +58,7 @@ const Env = z.object({
   /** apps/gateway: the OneSignal app id and REST API key behind the `onesignal` connector (push to the mobile app's phones, docs/mobile). */
   ONESIGNAL_APP_ID: z.string().optional(),
   ONESIGNAL_API_KEY: z.string().optional(),
-  /** apps/gateway: Cloudflare Turnstile's secret key for the idea box's bot check (docs/IDEA_BOX.md). Unset on staging or production, the idea box drafts nothing. */
+  /** apps/gateway: Cloudflare Turnstile's secret key for the bot check of the idea box (docs/IDEA_BOX.md) and of a public page's Follow form. Unset on staging or production, the idea box drafts nothing and pages take no followers. */
   TURNSTILE_SECRET_KEY: z.string().optional(),
   /** apps/api: the Domain of the idea box's cookie (`fm_idea`), so the web app reads it too: `foundmill.com` in production. Unset: a host-only cookie (local stacks). */
   IDEA_COOKIE_DOMAIN: z.string().regex(/^[a-z0-9.-]{3,253}$/).optional(),

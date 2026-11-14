@@ -36,6 +36,8 @@ const BRANDS: Record<string, string> = {
   serpapi: "SerpApi",
   indexnow: "IndexNow",
   posthog: "PostHog",
+  runway: "Runway",
+  elevenlabs_voice: "ElevenLabs",
   buffer: "Buffer",
   dropbox_sign: "Dropbox Sign",
   google_drive: "Google Drive",

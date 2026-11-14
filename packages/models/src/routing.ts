@@ -49,6 +49,8 @@ export const SPEECH_MODELS = {
   call_speech: "eleven_flash_v2_5",
   /** What the founder said on a call, transcribed. */
   call_transcription: "scribe_v3",
+  /** A voiceover for a short post video, on the founder's own ElevenLabs key (the `elevenlabs_voice` connector). Multilingual v2: $0.08 per 1,000 characters on the API prices (Nov 13, 2026), 10,000 characters a request. */
+  post_voiceover: "eleven_multilingual_v2",
 } as const;
 export type SpeechModelKey = keyof typeof SPEECH_MODELS;
 

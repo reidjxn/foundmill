@@ -143,7 +143,9 @@ describe("team.agents (W19)", () => {
     const hired = (await owner.team.agents.list({ businessId })).agents.find((x) => x.id === agent.id)!;
     const version = await repos.agents.getVersion(hz.db, businessId, hired.currentVersionId!);
     expect(hired.tools).toEqual(version.tools);
-    expect(hired.tools.map((t) => t.connectorKey)).toEqual(["platform", "quarantine", "buffer"]);
+    // The social template also grants the two media connectors on the founder's own key (built, so they resolve):
+    // they ask first and say "not connected" until the founder connects them. Buffer (queue posts on the founder's own Buffer) likewise.
+    expect(hired.tools.map((t) => t.connectorKey)).toEqual(["platform", "quarantine", "runway", "elevenlabs_voice", "buffer"]);
   });
 
   it("team.agents.list rates each agent on the one /20 scale (`rating20`, one decimal) and keeps the deprecated /10 `rating` for one release", async () => {

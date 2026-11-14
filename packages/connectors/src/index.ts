@@ -41,6 +41,8 @@ export { createGeminiConnector, geminiMock, GEMINI_KEY } from "./connectors/gemi
 export { createPerplexityConnector, perplexityMock, PERPLEXITY_KEY } from "./connectors/perplexity";
 export { createSerpapiConnector, serpapiMock, SERPAPI_KEY } from "./connectors/serpapi";
 export { createFirecrawlConnector, firecrawlMock, FIRECRAWL_KEY } from "./connectors/firecrawl";
+export { createRunwayConnector, runwayMock, RUNWAY_KEY } from "./connectors/runway";
+export { createElevenlabsVoiceConnector, elevenlabsVoiceMock, ELEVENLABS_VOICE_KEY } from "./connectors/elevenlabs_voice";
 export { createIndexNowConnector, indexNowMock, INDEXNOW_KEY } from "./connectors/indexnow";
 export { createApolloConnector, apolloMock, APOLLO_KEY } from "./connectors/apollo";
 export { createVercelConnector, vercelMock, VERCEL_KEY } from "./connectors/vercel";
