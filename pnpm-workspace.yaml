@@ -19,7 +19,7 @@ catalog:
   "@types/react-dom": 19.3.0
   typescript: 5.9.3
   "@types/node": 26.6.4
-  zod: 4.6.5
+  zod: 4.6.7
   superjson: 2.2.6
   nanoid: 6.0.2
   date-fns: 4.4.0
@@ -224,6 +224,8 @@ minimumReleaseAgeExclude:
 # 3.4.15, inside GHSA advisories fixed in 3.4.17 (a critical SAFE_FOR_TEMPLATES bypass among them; pnpm audit, Nov 14).
 overrides:
   dompurify: 3.4.17
+  # zod: every copy at 4.6.7 (GHSA-mrhx-c7xc-m3w5); eslint-plugin-react-hooks pulled in 4.6.5, which scanners keep flagging.
+  zod: 4.6.7
 
 patchedDependencies:
   postgres@3.4.9: patches/postgres@3.4.9.patch
