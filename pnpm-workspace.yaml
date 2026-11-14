@@ -19,7 +19,7 @@ catalog:
   "@types/react-dom": 19.3.0
   typescript: 5.9.3
   "@types/node": 26.6.4
-  zod: 4.6.5
+  zod: 4.6.7
   superjson: 2.2.6
   nanoid: 6.0.2
   date-fns: 4.4.0

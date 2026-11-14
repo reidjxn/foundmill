@@ -9,6 +9,8 @@
 import { interactions, repos } from "@foundmill/db";
 import { PAGE_QUIZ_MIN_CUSTOMERS, type PageQuizDefinition, type ProjectPageContent } from "@foundmill/shared";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { z } from "zod";
+import { AnswersInput } from "../routers/page-quiz";
 import { answerPublicQuiz, PUBLIC_QUIZ_LIMITS, publicQuizLimitKeys } from "../services/page-quiz";
 import { createApiHarness, type ApiHarness } from "./harness";
 
@@ -236,5 +238,27 @@ describe("pageQuiz: security review fixes (Nov 13, 2026)", () => {
     await b.owner.page.publish({ businessId: b.id, content: page({ followForm: false }) });
     await expect(b.owner.pageQuiz.setLive({ businessId: b.id, on: true })).rejects.toThrow(/no Follow form/);
     expect((await repos.pageQuizzes.get(hz.db, b.id))?.status).toBe("approved");
+  });
+});
+
+describe("pageQuiz: a signed-out answer cannot make zod build an issue per key (GHSA-mrhx-c7xc-m3w5)", () => {
+  it("a 2 MB body of junk keys is one issue, refused at once; one answer per question still parses", () => {
+    const junk = Object.fromEntries(Array.from({ length: 200_000 }, (_, i) => [`k${i}`, 1]));
+    const started = performance.now();
+    const refused = AnswersInput.safeParse(junk);
+    expect(refused.success).toBe(false);
+    expect(refused.error!.issues).toHaveLength(1);
+    expect(performance.now() - started).toBeLessThan(process.env.CI ? 2_500 : 500);
+    // q5 or a long value is still refused, as by the record before.
+    expect(AnswersInput.safeParse({ q5: "a1" }).success).toBe(false);
+    expect(AnswersInput.safeParse({ q1: "a1234" }).success).toBe(false);
+    expect(AnswersInput.parse({ q1: "a1", q3: "a2" })).toEqual({ q1: "a1", q3: "a2" });
+    expect(AnswersInput.parse({})).toEqual({});
+  });
+
+  it("zod stops at an array's length limit (4.6.6 and later): the upgrade is in force", () => {
+    const refused = z.array(z.string()).max(50).safeParse(new Array(500_000).fill(1));
+    expect(refused.success).toBe(false);
+    expect(refused.error!.issues).toHaveLength(1);
   });
 });

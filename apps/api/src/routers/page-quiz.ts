@@ -30,7 +30,14 @@ export const pageQuizRouter = router({
 });
 
 /** Question key → answer key, as many as the quiz has (an incomplete set scores as unanswered). */
-const AnswersInput = z.record(z.string().regex(/^q[1-4]$/), z.string().max(4)).refine((v) => Object.keys(v).length <= PAGE_QUIZ_QUESTION_KEYS.length);
+/**
+ * A visitor's answers, at most one per question (`q1`..`q4`). A strict object, not a record: signed out, anyone can send
+ * this, and a record checks its every key and value before any size rule, so a 2 MB body of junk keys made zod build an
+ * issue object per key (hundreds of MB; GHSA-mrhx-c7xc-m3w5). Unknown keys are now one issue in all.
+ */
+export const AnswersInput = z
+  .strictObject(Object.fromEntries(PAGE_QUIZ_QUESTION_KEYS.map((key) => [key, z.string().max(4).optional()])) as Record<(typeof PAGE_QUIZ_QUESTION_KEYS)[number], z.ZodOptional<z.ZodString>>)
+  .transform((answers) => Object.fromEntries(Object.entries(answers).filter((entry): entry is [string, string] => typeof entry[1] === "string")));
 
 export const publicQuizRouter = router({
   bySlug: publicProcedure.input(z.object({ slug: z.string().max(PAGE_SLUG_MAX * 2) })).query(({ ctx, input }) => publicQuizBySlug(ctx, input.slug)),
