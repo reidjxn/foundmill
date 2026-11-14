@@ -133,6 +133,8 @@ test.describe("invitations", () => {
     await signInAs(page, randomUUID(), path);
     await expect(page.getByTestId("invitation")).toHaveAttribute("data-state", "pending", { timeout: LONG });
     const note = page.locator("[data-invitation-note]");
+    // A new account confirms it is 18 or older on the invitation (0104); the address is still checked first.
+    await page.getByTestId("invitation-adult").getByRole("checkbox", { name: "I am 18 or older" }).check();
     await page.getByTestId("invitation-accept").click();
     await expect(note).toHaveText("Sign in with the address this invitation was sent to.", { timeout: LONG });
     await expect(page.getByText(/no longer works/)).toHaveCount(0);
@@ -153,9 +155,19 @@ test.describe("invitations", () => {
     const page = await context.newPage();
     await signInAs(page, invitee, path);
     await expect(page.getByTestId("invitation")).toHaveAttribute("data-state", "pending", { timeout: LONG });
+    // Joining is for people 18 or older: Accept waits for the box, which is asked once (0104).
+    const adult = page.getByTestId("invitation-adult");
     await page.getByTestId("invitation-accept").click();
-    // Into the project; a new person first meets their profile (the project's layout asks for it).
+    await expect(adult).toContainText("Confirm that you are 18 or older to accept.");
+    await expect(page).toHaveURL(new RegExp(`${path}$`));
+    await adult.getByRole("checkbox", { name: "I am 18 or older" }).check();
+    await page.getByTestId("invitation-accept").click();
+    // Into the project; a new person first meets their profile (the project's layout asks for it), without the box again.
     await page.waitForURL(new RegExp(`/b/${bid}/|/onboarding`), { timeout: LONG });
+    if (/\/onboarding/.test(page.url())) {
+      await expect(page.getByTestId("onboarding-form")).toBeVisible({ timeout: LONG });
+      await expect(page.getByTestId("profile-adult")).toHaveCount(0);
+    }
     await expect(page.getByTestId("on-waitlist")).toHaveCount(0);
     await expect(page.getByTestId("not-invited")).toHaveCount(0);
     // The link is used up.

@@ -13,6 +13,8 @@
  *     deployment that is invite-only the invitation is itself the admission (`invitation.accept` needs a signed-in,
  *     confirmed address and nothing else);
  *   - signed in: Accept (`invitation.accept`, then the project) or Not now (nothing happens); "Decline" says no for good.
+ *     A person whose "I am 18 or older" is not on record yet (`founder.adult.get`) ticks it above Accept, which sends it
+ *     with the accept (0104); one who confirmed already is never shown the box.
  * Opening the page changes nothing: a mail scanner that follows the link accepts nothing.
  */
 import { useMutation, useQuery } from "@tanstack/react-query";
@@ -20,7 +22,7 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { Check, RotateCw } from "lucide-react";
 import { APP_NAME } from "@foundmill/config";
-import { Button, InvitationCard, type InvitationCardState } from "@foundmill/dugout";
+import { AdultCheck, Button, InvitationCard, type InvitationCardState } from "@foundmill/dugout";
 import { routes } from "@foundmill/widgets/shared/routes";
 import { BrandFrame } from "@/components/shell/BrandFrame";
 import { invitationReadFailure, signInThenBackTo } from "@/lib/people";
@@ -34,19 +36,31 @@ export interface InvitationScreenProps {
   signedIn: boolean;
   /** Tests and stories: what the api answered, instead of asking it. */
   preview?: InvitationPreview;
+  /** Tests and stories: whether "I am 18 or older" is on record, instead of asking `founder.adult.get`. */
+  adultConfirmed?: boolean;
 }
 
 /** The public read, straight to the api (no bearer: `invitation.byToken` is public). */
 let direct: ApiClient | null = null;
 const directApi = (): ApiClient => (direct ??= createApiClient({ getToken: () => null, url: apiTrpcUrl() }));
 
-export function InvitationScreen({ token, signedIn, preview: given }: InvitationScreenProps) {
+/** Under the box on an invitation: asked once, for the whole of the product. */
+export const INVITATION_ADULT_HINT = "You confirm this once.";
+/** Accept pressed with the box empty. */
+export const INVITATION_ADULT_NEEDED = "Confirm that you are 18 or older to accept.";
+
+export function InvitationScreen({ token, signedIn, preview: given, adultConfirmed }: InvitationScreenProps) {
   const trpc = useTRPC();
   const router = useRouter();
   const [declined, setDeclined] = useState(false);
   const read = useQuery({ queryKey: ["invitation.byToken", token], queryFn: () => directApi().invitation.byToken.query({ token }), enabled: given === undefined, retry: false, staleTime: Infinity, refetchOnWindowFocus: false });
   const accept = useMutation(trpc.invitation.accept.mutationOptions({ onSuccess: (r) => router.push(routes.today(r.businessId)) }));
   const decline = useMutation(trpc.invitation.decline.mutationOptions({ onSuccess: () => setDeclined(true) }));
+  // 18 or older (0104): joining a project needs it on record, asked here once when it is not.
+  const adultQ = useQuery(trpc.founder.adult.get.queryOptions(undefined, { enabled: signedIn && adultConfirmed === undefined, retry: false, staleTime: Infinity }));
+  const [adult, setAdult] = useState(false);
+  const [adultMissing, setAdultMissing] = useState(false);
+  const askAdult = signedIn && (adultConfirmed ?? adultQ.data?.confirmed) === false;
   const preview: InvitationPreview | null = given ?? read.data ?? null;
   const readState: InvitationCardState = preview ? preview.state : read.isError ? invitationReadFailure(read.error) : "checking";
   const state: InvitationCardState = declined ? "declined" : accept.isSuccess ? "accepted" : readState;
@@ -64,7 +78,20 @@ export function InvitationScreen({ token, signedIn, preview: given }: Invitation
       </Button>
     ) : signedIn ? (
       <>
-        <Button variant="primary" size="lg" className="min-h-tap" icon={Check} loading={accept.isPending} onClick={() => accept.mutate({ token })} data-testid="invitation-accept">
+        {askAdult ? <AdultCheck checked={adult} onCheckedChange={(v) => (setAdult(v), setAdultMissing(false))} hint={INVITATION_ADULT_HINT} error={adultMissing ? INVITATION_ADULT_NEEDED : undefined} className="w-full basis-full" data-testid="invitation-adult" /> : null}
+        <Button
+          variant="primary"
+          size="lg"
+          className="min-h-tap"
+          icon={Check}
+          loading={accept.isPending}
+          disabled={adultQ.isPending && adultConfirmed === undefined}
+          onClick={() => {
+            if (askAdult && !adult) setAdultMissing(true);
+            else accept.mutate(askAdult ? { token, confirmAdult: true } : { token });
+          }}
+          data-testid="invitation-accept"
+        >
           Accept
         </Button>
         <Button asChild variant="ghost" size="lg" className="min-h-tap">

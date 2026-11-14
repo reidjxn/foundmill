@@ -1,6 +1,6 @@
 import { expect, test, type APIRequestContext, type Page, type PlaywrightWorkerArgs } from "@playwright/test";
 import { E2E_EXAMPLE_VIEWER_ID } from "../playwright.config";
-import { API_URL, LONG, NORTHWIND_BUSINESS_ID, devApi, openBusiness, settled, signIn, signInAs } from "./helpers";
+import { API_URL, LONG, NORTHWIND_BUSINESS_ID, confirmAdultOnForm, devApi, openBusiness, settled, signIn, signInAs } from "./helpers";
 
 /**
  * The example business (docs/UX_AUDIT_AND_PLAN.md §10 Phase 3, §12 item 5; migration 0065): a signed-in founder opens
@@ -90,7 +90,8 @@ async function signInAsExampleViewer(page: Page): Promise<void> {
     await page.getByLabel("First-time founder").check();
     await page.getByLabel("Full time").check();
     // The first pass is enough to complete the profile (§7.3 two passes): "Add detail" (budget, markets, constraints,
-    // risk) stays closed and optional.
+    // risk) stays closed and optional. A new account confirms it is 18 or older here, once (0104).
+    await confirmAdultOnForm(page);
     await page.getByTestId("profile-submit-bottom").click();
     await expect(page).toHaveURL(/\/new$/, { timeout: LONG });
   }

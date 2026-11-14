@@ -5,6 +5,10 @@
  * For a new founder it also reads the httpOnly `fm_via` cookie (who or what brought them; lib/via.ts) and hands its
  * reference to the form, which sends it with the save that creates the profile. The cookie stays out of reach of the
  * page's scripts; a founder who already has a profile is handed nothing.
+ *
+ * 18 or older (0104): a new founder ticks "I am 18 or older" on the form, sent with the save that creates the profile;
+ * a founder with a profile and no confirmation on record sees one step instead (components/onboarding/AdultStep.tsx),
+ * which works from 390 px.
  */
 import { VIA_COOKIE } from "@foundmill/shared/via";
 import type { Metadata } from "next";
@@ -24,5 +28,5 @@ export default async function OnboardingPage() {
   if (result.kind === "unreachable") return <ApiErrorPage error={result.error} email={result.email} />;
   const { viewer } = result;
   const via = viewer.profile ? null : viaToHandOver((await cookies()).get(VIA_COOKIE)?.value);
-  return <OnboardingScreen profile={viewer.profile} email={viewer.email} accountId={viewer.userId} via={via} />;
+  return <OnboardingScreen profile={viewer.profile} email={viewer.email} accountId={viewer.userId} via={via} adultConfirmed={viewer.adultConfirmed} />;
 }

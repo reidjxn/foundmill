@@ -57,9 +57,9 @@ async function LiveShell({ children }: { children: ReactNode }) {
   } catch (err) {
     return <ApiErrorPage error={err} email={server.auth.email} />;
   }
-  // AC-11.1.1: no app screen before the founder profile exists.
+  // AC-11.1.1: no app screen before the founder profile exists, and the person's "I am 18 or older" is on record (0104).
   const founder = profile.profile;
-  if (!founder) redirect("/onboarding");
+  if (!founder || !profile.adultConfirmed) redirect("/onboarding");
 
   const current = pickCurrentBusiness(lastBusinessId, profile.businesses);
   if (!current) {
