@@ -15,7 +15,7 @@ The Temporal worker: business cycles, Autopilot and Automated mode, agent sessio
 - Database through `repos` only (`fm/no-raw-db`); events through the outbox; env through `loadEnv()`. Everything works with `INTEGRATIONS_MODE=mock` and `MODEL_MODE=mock` (mock sessions replay recordings in a `packages/sandbox` replay sandbox).
 
 ## Read when needed
-- docs/ARCHITECTURE.md §10 Orchestrator (lines 168–205: workers, each workflow, keys, signals, ids, dispatch guard, the schedules table, channel engines), §19 Foundations on the first open (307–317). Lines are very long: read a range or grep.
+- docs/ARCHITECTURE.md §10 Orchestrator (workers, each workflow, keys, signals, ids, dispatch guard, the schedules table, channel engines), §19 Foundations on the first open. Lines are very long: grep for the section heading and read only that section, never the whole file.
 - docs/BUILD.md §9.3 Running an agent session, §9.4 Temporal workflows, §9.6 Business modes, §9.7 Memory and context, §10.2–10.4 keys, rate limits, cost controls.
 - Decisions: `node scripts/decisions-index.mjs Temporal` (add words such as `autopilot`, `session`, `pause`), then read only the printed range.
 

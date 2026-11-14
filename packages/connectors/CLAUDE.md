@@ -14,7 +14,7 @@ Owns the connector contract, the registry, the grants resolver, channel availabi
 - Keys never live in fixtures, env files or logs.
 
 ## Read when needed
-- docs/ARCHITECTURE.md §8 Connectors (lines 127–145: folder layout, mocks, platform mail, grants, channel availability, built-ins, founder's-own-key connectors, typed reads), §9 Gateway (146–167). Lines are very long: read a range or grep.
+- docs/ARCHITECTURE.md §8 Connectors (folder layout, mocks, platform mail, grants, channel availability, built-ins, founder's-own-key connectors, typed reads), §9 Gateway. Lines are very long: grep for the section heading and read only that section, never the whole file.
 - docs/BUILD.md §13.1 Connector contract, §13.2 Catalog by phase, §13.3 Mock mode, §9.5 Tool gateway and policy engine.
 - Decisions: `node scripts/decisions-index.mjs own key connector` or `node scripts/decisions-index.mjs webhook`, then read only the printed range.
 - Skill: `new-connector` (copy the newest connector of the same auth kind).

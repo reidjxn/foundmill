@@ -14,7 +14,7 @@ The built-in module screens (product, development, distribution, finance, team, 
 - A simulated result is shown as simulated, never as done.
 
 ## Read when needed
-- docs/ARCHITECTURE.md §18 Widget and module data contract (lines 303–306), §14 Web (246–268; department screens at 251), §20 Date and time formats (318–345). Lines are very long: read a range or grep.
+- docs/ARCHITECTURE.md §18 Widget and module data contract , §14 Web (department screens at 251), §20 Date and time formats. Lines are very long: grep for the section heading and read only that section, never the whole file.
 - docs/BUILD.md §6.1 Modules vs departments, §6.3 Default department tabs (its tab names predate the vocabulary rules: use the CLAUDE.md table), and the module's §11 section (§11.5 Product to §11.11 Legal).
 - docs/DESIGN.md §8 Component anatomy, §9 Screen notes.
 - Decisions: `node scripts/decisions-index.mjs module` plus the screen's words (`node scripts/decisions-index.mjs roadmap module`), then read only the printed range.

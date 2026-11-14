@@ -13,7 +13,7 @@ Webhook receivers (Stripe, SendGrid, GitHub, Shopify, ...): verify, normalize to
 - Simulated results never count as real outcomes. Database through `repos` only (`fm/no-raw-db`); env through `loadEnv()`.
 
 ## Read when needed
-- docs/ARCHITECTURE.md §1 (line 13, the app's scope), §8 Connectors (lines 127–145: webhook mounts at 132, the platform mail endpoints at 133), §5 Events (83–106), §17 Staging (294–301). Lines are very long: read a range or grep.
+- docs/ARCHITECTURE.md §1 (the app's scope), §8 Connectors (the webhook mounts and the platform mail endpoints), §5 Events, §17 Staging. Lines are very long: grep for the section heading and read only that section, never the whole file.
 - docs/BUILD.md §13.1 Connector contract (`webhooks`), §13.3 Mock mode, §8.1 Event catalog, §11.4 Customer Journey ("Triggers"), §14 Security and compliance checklist.
 - Decisions: `node scripts/decisions-index.mjs webhook` (add a vendor name to narrow), then read only the printed range.
 

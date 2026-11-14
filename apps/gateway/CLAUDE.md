@@ -14,7 +14,7 @@ The only process that holds vendor secrets and the only place a vendor API is ca
 - Never let agent code move money, sign, accept terms, file with the founder's identity, delete permanently or change security settings (hard gates, root CLAUDE.md).
 
 ## Read when needed
-- docs/ARCHITECTURE.md §9 Gateway (lines 146–167: every route and its order of checks), §8 Connectors (127–145), §7 Policy (119–126). Lines are very long: read a range or grep.
+- docs/ARCHITECTURE.md §9 Gateway (every route and its order of checks), §8 Connectors, §7 Policy. Lines are very long: grep for the section heading and read only that section, never the whole file.
 - docs/BUILD.md §9.5 Tool gateway and policy engine, §9.8 Prompt-injection defense, §10.2 Bring-your-own key, §2.2 Hard gates, §14 Security and compliance checklist.
 - Decisions: `node scripts/decisions-index.mjs gateway untrusted` or `node scripts/decisions-index.mjs own key`, then read only the printed range. docs/SECURITY_REVIEW.md for SEC-n ids.
 

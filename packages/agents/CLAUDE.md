@@ -13,7 +13,7 @@ Owns the agent templates, the prompt templates (BUILD §12), skill definitions, 
 - Departments are labels over modules: never hard-code a department name.
 
 ## Read when needed
-- docs/ARCHITECTURE.md §8 (lines 127–145; grants at line 136), §6 Models (107–118, the team call and conversation request builders), §19 Foundations (307–317, the staged drafting). Lines are very long: read a range or grep.
+- docs/ARCHITECTURE.md §8 Connectors (grants), §6 Models (the team call and conversation request builders), §19 Foundations (the staged drafting). Lines are very long: grep for the section heading and read only that section, never the whole file.
 - docs/BUILD.md §9.1 (agent team structure), §9.2 Agent configuration, §9.8 Prompt-injection defense, §11.10 Agent profiles and training, §12 Core prompt templates (§12.1 is the house rules).
 - Decisions: `node scripts/decisions-index.mjs grants` or `node scripts/decisions-index.mjs house rules`, then read only the printed range.
 - Skill: `new-agent-template`.

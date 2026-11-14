@@ -9,11 +9,12 @@ Owns the event catalog (Zod, business-scoped and account-scoped types), the tran
 - The two-person rule: an account payload names another person only by something already public (a handle), never by account id, email or a private field. Closed objects of plain fields; UUIDs only under `recordIds`.
 - Errors say which rule and how deep, never a key or a value of the payload.
 - Names follow `noun.verb_past` like their neighbors (`post.drafted`).
+- **Who may read a business event:** every business type has a wall in `apps/stream/src/walls.ts` (the sections it is filed under). A collaborator reads a type only when every section it can be filed under is one a collaborator reads, and the database holds the same list in `fm_collaborator_event_types()` (0099). A new type a collaborator may read is added there by a `create or replace` in your own migration, with the whole list; a type whose sections depend on its payload is listed only when every outcome is readable. `apps/stream` `collaborator-event-types.test.ts` and packages/db `rls/events-collaborator.test.ts` fail until the two agree.
 - Consumers are at-least-once: de-duplicate on the event `id`. A simulated result (`simulated: true`) is never a real outcome for the north star.
 - Stream keys: `ev:{businessId}` (business), `as:{sessionId}` (agent session), `u:{userId}` (content-free LIVE signals), `ae:{userId}` (account events). Keep them apart.
 
 ## Read when needed
-- docs/ARCHITECTURE.md §5 Events (lines 83–106; "Account events" from line 94), §4 Database (63–82) for `account_events` and the outbox tables. Lines are very long: read a range or grep.
+- docs/ARCHITECTURE.md §5 Events (its "Account events" part), §4 Database for `account_events` and the outbox tables. Lines are very long: grep for the section heading and read only that section, never the whole file.
 - docs/BUILD.md §8.1 Event catalog, §8.2 Streams.
 - Decisions: `node scripts/decisions-index.mjs outbox` or `node scripts/decisions-index.mjs account events`, then read only the printed range.
 - Skill: `new-event`.

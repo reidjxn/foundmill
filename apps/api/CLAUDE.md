@@ -15,7 +15,7 @@ Hono + tRPC: auth context (Supabase JWT), membership and section checks, RLS-sco
 - Copy a person can read (error messages, sentences) is US English, plain words, no football terms.
 
 ## Read when needed
-- docs/ARCHITECTURE.md §13 API (lines 218–245: boot, context, the transaction gate, section walls, model usage, routers, JWT, and each feature's contract), §4 Database (63–82), §3 Modes and environment (53–61). Lines are very long: read a range or grep for the router name.
+- docs/ARCHITECTURE.md §13 API (boot, context, the transaction gate, section walls, model usage, routers, JWT, and each feature's contract), §4 Database, §3 Modes and environment. Lines are very long: read a range or grep for the router name.
 - docs/BUILD.md §8.3 tRPC routers, §11.9 Team module (section permissions), §10.5 Pricing and billing, and the §11 feature section you are changing.
 - Decisions: `node scripts/decisions-index.mjs tRPC` or the feature's own words (`node scripts/decisions-index.mjs page publish`), then read only the printed range.
 

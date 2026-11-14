@@ -13,7 +13,7 @@ Owns model routing (the only place model ids live), the Anthropic client with it
 - Env comes from `loadEnv()` (`packages/shared/src/env.ts`), never `process.env` directly.
 
 ## Read when needed
-- docs/ARCHITECTURE.md §6 Models (lines 107–118). Lines are very long: read the range or grep.
+- docs/ARCHITECTURE.md §6 Models . Lines are very long: read the range or grep.
 - docs/BUILD.md §10.1 Routing, §10.2 Bring-your-own key, §10.3 Rate-limit-aware scheduling, §10.4 Cost controls.
 - Decisions: `node scripts/decisions-index.mjs routing` or `node scripts/decisions-index.mjs effort`, then read only the printed range.
 

@@ -13,7 +13,7 @@ The Inbox Composer service: narrates events into Inbox notes, the Refresh buffer
 - Works with `MODEL_MODE=mock`.
 
 ## Read when needed
-- docs/ARCHITECTURE.md §11 Composer (lines 206–213), §5 Events (83–106) for which events are narrated. Lines are very long: read a range or grep.
+- docs/ARCHITECTURE.md §11 Composer , §5 Events for which events are narrated. Lines are very long: grep for the section heading and read only that section, never the whole file.
 - docs/BUILD.md §11.3 Inbox (the note schema, Refresh, the linking pipeline), §11.4 Customer Journey (Customer Update), §12.2 Inbox Composer prompt.
 - Decisions: `node scripts/decisions-index.mjs composer` (add words such as `refresh`, `narrate`), then read only the printed range.
 

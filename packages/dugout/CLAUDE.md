@@ -14,8 +14,8 @@ The design system: `tokens.css`, `fonts.css`, `dugout.css`, every UI component, 
 - No third-party game's names, art, skins, fonts or icons (the brands listed in the root CLAUDE.md "Never"): reproduce the layout grammar only.
 
 ## Read when needed
-- docs/DESIGN.md (all UI follows it): §2 Non-negotiables (line 17), §3–§7 surfaces, type, color, spacing, motion, §8 Component anatomy (167), §9 Screen notes (265), §9a–§9e public pages, §10 Writing in the interface (371).
-- docs/ARCHITECTURE.md §14 Web (lines 246–268), §18 Widget and module data contract (303–306), §20 Date and time formats (318–345). Lines are very long: read a range or grep.
+- docs/DESIGN.md (all UI follows it): §2 Non-negotiables, §3–§7 surfaces, type, color, spacing, motion, §8 Component anatomy, §9 Screen notes, §9a–§9e public pages, §10 Writing in the interface.
+- docs/ARCHITECTURE.md §14 Web , §18 Widget and module data contract, §20 Date and time formats. Lines are very long: grep for the section heading and read only that section, never the whole file.
 - docs/BUILD.md §5 Design system (§5.1 Tokens, §5.2 Typography, §5.3 Shell layout, §5.4 Core components, §5.5 Keyboard).
 - Decisions: `node scripts/decisions-index.mjs Storybook` or `node scripts/decisions-index.mjs tokens`, then read only the printed range.
 
