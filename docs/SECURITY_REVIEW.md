@@ -192,7 +192,7 @@ New since Oct 7:
 
 ## Audit fixes, Nov 13 – 14, 2026
 
-Folded in from the "SECURITY_REVIEW entry" of each pull request (#116, #129), as written. #131 and #132 carry no such entry; their rows below are taken from their descriptions ("What it fixes", "Not closed here", "Left open").
+Folded in from the "SECURITY_REVIEW entry" of each pull request (#116, #129), as written. #131 and #132 carry no such entry; their rows below are taken from their descriptions, with severities given by the #131/#132 session.
 
 ### The Nov 13 audit (#116)
 
@@ -218,18 +218,22 @@ Folded in from the "SECURITY_REVIEW entry" of each pull request (#116, #129), as
 
 ### A collaborator's reads of the event log (#131)
 
-| Finding | Status | PR |
-|---|---|---|
-| A collaborator's own RLS connection could select every event in the business (since 0092 a collaborator holds 'member' in every `has_role` check), including `payment.received` with its amount, `bank.balance_updated`, `runway.threshold_crossed`, `filing.due`, `contract.signed`, `credential.expiring` and the Settings-only metrics | Fixed in 0099: `events_select` admits a collaborator only to the types on `fm_collaborator_event_types()`, a collaborator's writes are held to the same list, and `outbox` follows its event | #131 |
-| Finance fields inside events a collaborator can read; `conversions.amount_minor`; `journey_daily` revenue and spend; `inbox_items` payloads | Open after #131 (follow-ups) | #132 |
+Severities from the #131/#132 session (Nov 14, 2026), on this document's scale.
+
+| Finding | Severity | Status | PR |
+|---|---|---|---|
+| `events` collaborator walls (0099): a signed-in collaborator (whom the founders must invite: it needs a role) could read event payloads from sections their role walls off, both from the stream and straight from `events`. A gap in a documented control (the collaborator walls), not a cross-tenant read. | P2 | Fixed in 0099: `events_select` admits a collaborator only to the types on `fm_collaborator_event_types()`, a collaborator's writes are held to the same list, and `outbox` follows its event | #131 |
+| 0099 cannot hide one field of an `events` row a collaborator reads directly | P3 | Open: defense in depth only, the api (`eventAsSeenBy`) and the stream cut those fields | — |
 
 <!-- Begin: entries from pull requests still open when this was drafted (Nov 14, 2026): #132. Re-check against its final body and migration number. -->
 
 ### Collaborators and Finance figures (#132)
 
-| Finding | Status | PR |
-|---|---|---|
-| The four Finance leaks #131 left open for collaborators (Finance fields inside readable events, `conversions.amount_minor`, `journey_daily` revenue and spend, `inbox_items`) | Fixed: the api cuts the same fields as the stream (`EVENT_WALLS` in @foundmill/shared, `eventAsSeenBy`); migration 0107 (placeholder number) gives a collaborator `conversions` only through `member_conversions` (amount null) and `journey_daily` without spend and revenue; `inbox_items` keeps the api's redaction as its wall | #132 |
-| Agents' AI cost (wages) on the Team table, the agent profile, recruitment and the hire catalog; free text that may quote money (Customer Update commentary, stored chapter titles, the design-check result); the department metrics' own section walls | Open | — |
+| Finding | Severity | Status | PR |
+|---|---|---|---|
+| Collaborator Finance fields (0107): with the same prerequisite, a collaborator could read Finance figures through api procedures (cycle cost, revenue goals, approval amounts, Ribbon money, CRM payment amounts, Inbox note cost) and through `conversions` and `journey_daily` | P2 | Fixed: the api cuts the same fields as the stream (`EVENT_WALLS` in @foundmill/shared, `eventAsSeenBy`); migration 0107 (placeholder number) gives a collaborator `conversions` only through `member_conversions` (amount null) and `journey_daily` without spend and revenue; `inbox_items` keeps the api's redaction as its wall | #132 |
+| Agents' AI cost (wages) on the Team screens, the profile, recruitment and the hire catalog: a platform-usage figure, not the business's revenue or a customer's money, shown in a section the collaborator may read | P3 | Open | — |
+| Free text that may quote money (Customer Update commentary, stored chapter titles, design-check results): a figure appears only when an agent or a person writes one; it cannot be walled per field, and the api masks known money patterns | P3 | Open | — |
+| The department metrics' own section walls: after 0107 their raw SQL on `conversions` returns nothing for a collaborator, so a revenue metric reads empty rather than leaking; what is left is a missing wall, a hardening issue, not an exposure | P3 | Open | — |
 
 <!-- End: entries from pull requests still open when this was drafted. -->
