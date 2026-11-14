@@ -20,8 +20,16 @@
  * each trophy at most once per business, whoever writes first. Rows awarded before 2026-11-11 under the old
  * trailing-30-day-payments rule (`ref.basis: "trailing_30_day_revenue"`) are never rewritten: the definition applies to
  * trophies reached from now on.
+ *
+ * The two early milestones (docs/NETWORK.md F3; docs/THESIS_REVIEW.md package 5.3) are not counters. Each is one real
+ * event, awarded in the transaction that records it: "Page live" where the page is first published (apps/api
+ * `publishPage`, `awardPageLiveMilestone`, at the page's `published_at`) and "First follower" where the first person
+ * confirms (apps/ingest `/mail/confirm`, `awardFirstFollowerMilestone`, at the confirmation). `ref` holds the key and
+ * the id of the row that verifies it (the page; the consent record), never an address or anything else about a person.
+ * `catchUpMilestones` gives both to a project that reached them before they existed, with the original date, and never
+ * to a sample business. No event is written for an award, here or for the customer and revenue milestones.
  */
-import { detectTrophies, ENTERPRISE_CONTRACT_MIN_MINOR, TROPHIES, type Milestone as TrophyMilestone, type TrophyCounters, type TrophyKey } from "@foundmill/journey";
+import { detectTrophies, ENTERPRISE_CONTRACT_MIN_MINOR, TROPHIES, TROPHY_BY_KEY, type Milestone as TrophyMilestone, type TrophyCounters, type TrophyKey } from "@foundmill/journey";
 import { MONTHLY_REVENUE_MONTHS, monthlyRevenueFromCategories, monthlyRevenueMinor, monthlyRevenueWindow, revenueIsRecurring } from "@foundmill/shared";
 import { pnlTotals } from "@foundmill/shared/pnl";
 import { repos } from "./repos";
@@ -152,17 +160,69 @@ export async function awardRevenueMilestones(db: Executor, businessId: string, o
   return store(db, businessId, found, options.visibility);
 }
 
+/** One early milestone, once per business (the unique trophy key): the row, or null when the business already holds it. */
+function awardEventMilestone(db: Executor, businessId: string, key: "page_live" | "first_follower", at: Date, verifiedBy: Record<string, string>): Promise<Milestone | null> {
+  const t = TROPHY_BY_KEY[key];
+  return repos.journeys.awardMilestone(db, businessId, { kind: t.kind, label: t.label(""), achievedAt: at, ref: { trophyKey: t.key, ...verifiedBy } });
+}
+
+/**
+ * "Page live": the project's public page went live at `at` (the page's `published_at`). Called in the transaction that
+ * publishes the page; publishing changes later, or putting the page back up, awards nothing new. Idempotent.
+ */
+export function awardPageLiveMilestone(db: Executor, businessId: string, input: { pageId: string; at: Date }): Promise<Milestone | null> {
+  return awardEventMilestone(db, businessId, "page_live", input.at, { pageId: input.pageId });
+}
+
+/**
+ * "First follower": the first person confirmed, from the link in their own inbox, that they follow the project. Called
+ * in the transaction that confirms a follower; every later follower awards nothing. `consentId` names the consent
+ * record, never the person or their address. Idempotent.
+ */
+export function awardFirstFollowerMilestone(db: Executor, businessId: string, input: { consentId: string; at: Date }): Promise<Milestone | null> {
+  return awardEventMilestone(db, businessId, "first_follower", input.at, { consentId: input.consentId });
+}
+
+/**
+ * The early milestones a project reached before they existed (or that a writer missed): "Page live" at the date its
+ * page last went live (kept when a page is taken down: it did go live), "First follower" at its first confirmation.
+ * Nothing for a sample business: its page and followers are not real outcomes.
+ */
+async function catchUpEventMilestones(db: Executor, businessId: string, held: ReadonlySet<TrophyKey>, until: Date): Promise<Milestone[]> {
+  if (held.has("page_live") && held.has("first_follower")) return [];
+  const business = await repos.businesses.get(db, businessId, { includeArchived: true });
+  if (business.isDemo) return [];
+  const out: Milestone[] = [];
+  if (!held.has("page_live")) {
+    const page = await repos.pages.get(db, businessId);
+    if (page?.publishedAt && page.publishedAt <= until) {
+      const row = await awardPageLiveMilestone(db, businessId, { pageId: page.id, at: page.publishedAt });
+      if (row) out.push(row);
+    }
+  }
+  if (!held.has("first_follower")) {
+    const first = await repos.followers.firstConfirmed(db, businessId);
+    if (first && first.confirmedAt <= until) {
+      const row = await awardFirstFollowerMilestone(db, businessId, { consentId: first.consentId, at: first.confirmedAt });
+      if (row) out.push(row);
+    }
+  }
+  return out;
+}
+
 /**
  * Replays every payment up to `until` (default now) in order and awards each customer or enterprise trophy the business
  * reached but does not hold, at the payment that reached it; then the revenue trophies from the months
- * (`awardRevenueMilestones`). The nightly sweep's step; idempotent.
+ * (`awardRevenueMilestones`); and first the two early milestones (`catchUpEventMilestones`). The nightly sweep's step;
+ * idempotent.
  */
 export async function catchUpMilestones(db: Executor, businessId: string, options: { until?: Date } = {}): Promise<Milestone[]> {
   const until = options.until ?? new Date();
   const awarded = new Set((await repos.journeys.awardedTrophyKeys(db, businessId)) as TrophyKey[]);
   if (awarded.size >= TROPHIES.length) return [];
+  const early = await catchUpEventMilestones(db, businessId, awarded, until);
   const found: TrophyMilestone[] = [];
-  if (TROPHIES.some((t) => t.metric !== "mrrMinor" && !awarded.has(t.key))) {
+  if (TROPHIES.some((t) => (t.metric === "customers" || t.metric === "enterpriseContracts") && !awarded.has(t.key))) {
     const payments: PaymentRow[] = (await repos.journeys.paymentsUntil(db, businessId, until)).map((r) => ({ id: r.id, entityId: r.entityId, amountMinor: Number(r.amountMinor), currency: r.currency, occurredAt: new Date(r.occurredAt), firstPayment: r.firstPayment }));
     let customers = 0;
     let enterpriseContracts = 0;
@@ -178,5 +238,5 @@ export async function catchUpMilestones(db: Executor, businessId: string, option
     }
   }
   const inserted = await store(db, businessId, found);
-  return [...inserted, ...(await awardRevenueMilestones(db, businessId, { until }))];
+  return [...early, ...inserted, ...(await awardRevenueMilestones(db, businessId, { until }))];
 }

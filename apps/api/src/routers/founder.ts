@@ -18,16 +18,23 @@
  * service role so a token follows the latest sign-in on a phone (packages/db repos/devices.ts); the rest run as the user.
  * founder.publicProfile.get/update/publish/unpublish (0080, package 2.3): the person's own public profile at /u/<handle>,
  * and publicPerson.byHandle, its signed-out read (services/person-profile.ts).
+ * founder.profile.update also takes `via` (0088, docs/NETWORK.md §5): who or what brought the person, recorded once on
+ * the save that creates the profile (services/attribution.ts), and `ideaDraftToken`, which no step reads yet. Both go
+ * to `onPersonCreated` (services/person-created.ts), the one place that runs what happens once when a person's profile
+ * is first created.
  */
 import { freeDisplayName, liveModeOpen } from "@foundmill/config";
 import { AccountPreferencesPatch, EmailPrefsPatch, RegisterDeviceInput, UnregisterDeviceInput, repos, withRls, FounderProfileInput, FounderProfilePatch, SaveTableViewsInput, TableViewsScope, type AccountPreferencesView, type Db, type DbTx, type GuidancePrefs, type NotificationPreferences } from "@foundmill/db";
 import { FOUNDER_RETURN_VIA, GUIDANCE_OFF_SOURCES, PAGE_SLUG_MAX, PERSON_ABOUT_MAX, PERSON_HEADLINE_MAX, PERSON_LOOKING_FOR, PERSON_PLACE_MAX, PERSON_TAGS_MAX, PERSON_TAG_MAX } from "@foundmill/shared";
+import { VIA_MAX_LENGTH } from "@foundmill/shared/via";
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
+import { IDEA_DRAFT_TOKEN_MAX_LENGTH, onPersonCreated } from "../services/person-created";
 import { writeEventRow } from "../services/events";
 import { getPublicProfile, publicPersonByHandle, publishPublicProfile, unpublishPublicProfile, updateFounderProfile, updatePublicProfile } from "../services/person-profile";
 import { protectedProcedure, publicProcedure, router } from "../trpc";
 import { founderBusinessesRouter } from "./founder-businesses";
+import { cancelDeletionAsFormerFounder, formerProjectCards } from "../services/founder-notices";
 
 /** Runs fn as the signed-in user, so Postgres RLS holds every row it touches to that user. */
 function asUser<T>(ctx: { db: Db; userId: string; email?: string | null }, fn: (tx: DbTx) => Promise<T>): Promise<T> {
@@ -85,6 +92,17 @@ export const PublicProfileInput = z.object({
   }),
 });
 
+/**
+ * founder.profile.update: the profile's fields, and two values for the steps that run once when the profile is first
+ * created (services/person-created.ts). Neither is a field of the profile, both are read only on the save that creates
+ * it, and neither changes the answer:
+ *   - `via`, the reference the person first arrived with (@foundmill/shared/via; the web hands over its cookie), for
+ *     services/attribution.ts;
+ *   - `ideaDraftToken`, the token of an idea drafted before sign-up: bounded, accepted and passed through. No step
+ *     reads it yet (the step that claims the draft is added with that feature). A secret: never logged.
+ */
+export const FounderProfileUpdateInput = FounderProfilePatch.extend({ via: z.string().max(VIA_MAX_LENGTH).optional(), ideaDraftToken: z.string().max(IDEA_DRAFT_TOKEN_MAX_LENGTH).optional() });
+
 /** publicPerson.byHandle: anyone, signed in or not; the view `public_person_profiles` only; null when not public. */
 export const publicPersonRouter = router({
   byHandle: publicProcedure.input(z.object({ handle: z.string().max(PAGE_SLUG_MAX * 2) })).query(({ ctx, input }) => publicPersonByHandle(ctx, input.handle)),
@@ -102,6 +120,18 @@ export type PresencePingInput = z.input<typeof PresencePingInput>;
 
 export const founderRouter = router({
   businesses: founderBusinessesRouter,
+  /**
+   * founder.formerProjects.list/cancel (security review P2-3): the card on the home of a former founder for the deletion
+   * that waits (someone else demoted or removed them within 30 days before the request, or after it). `list` names each
+   * such project with the request, the day it is due and the last moment they may cancel (that day); `cancel` cancels
+   * that request, if it is still the one waiting, as them (an audit entry of theirs, every
+   * founder told) and restores nothing else. Both on the service connection for the signed-in person's own id: they can
+   * no longer read the project's rows themselves.
+   */
+  formerProjects: router({
+    list: protectedProcedure.query(({ ctx }) => formerProjectCards(ctx.db, ctx.userId)),
+    cancel: protectedProcedure.input(z.object({ businessId: z.guid(), requestId: z.guid() })).mutation(({ ctx, input }) => cancelDeletionAsFormerFounder(ctx, { businessId: input.businessId, userId: ctx.userId, requestId: input.requestId, via: "home" })),
+  }),
   /**
    * founder.presence.ping: the signed-in person is in this business now. Runs as them (RLS: their own row, a business
    * they belong to). The first ping of a session (the first ever, or after 30 minutes away) writes
@@ -145,14 +175,19 @@ export const founderRouter = router({
      * A new display name the public can read (the public profile is public, or a published project page names the
      * person as a founder) is screened first, like the profile's own text, and refused with its sentence when held
      * (services/person-profile.ts `updateFounderProfile`).
+     * `via` (who or what brought the person) is recorded once, on the save that creates the profile, when it names a
+     * public project page or a public person profile; the answer is the same whether it did, and a later save ignores it
+     * (services/attribution.ts). It and `ideaDraftToken` go to `onPersonCreated` on that save only: each step there
+     * runs in its own transaction and its own try/catch, so none can fail this save or change its answer.
      */
-    update: protectedProcedure.input(FounderProfilePatch).mutation(async ({ ctx, input }) => {
+    update: protectedProcedure.input(FounderProfileUpdateInput).mutation(async ({ ctx, input: { via, ideaDraftToken, ...input } }) => {
       const existing = await repos.founders.get(ctx.db, ctx.userId);
       if (existing) return { ...(await updateFounderProfile(ctx, input)), guidanceTurnedOff: false };
       const created = FounderProfileInput.parse({ displayName: input.displayName ?? freeDisplayName(ctx.email?.split("@")[0]), ...input });
       const profile = await repos.founders.upsert(ctx.db, ctx.userId, created);
       const guidanceTurnedOff = guidanceOffByDefault(profile.experience);
       if (guidanceTurnedOff) await asUser(ctx, (tx) => repos.preferences.update(tx, ctx.userId, { guidance: "off", builderView: true }));
+      await onPersonCreated(ctx, ctx.userId, { via, ideaDraftToken });
       return { ...profile, guidanceTurnedOff };
     }),
   }),

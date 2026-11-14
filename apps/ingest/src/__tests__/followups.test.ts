@@ -53,6 +53,24 @@ function recorder(): Recorder {
 const buildWith = (r: Recorder) => hz.build({ followups: createFollowups({ db: hz.db, composer: r.composer, workflows: r.workflows, log: silentLogger }) });
 const deliverTo = (app: ReturnType<typeof buildWith>["app"], req: Request) => app.fetch(req);
 
+describe("after the first follower confirms", () => {
+  it("starts the post draft workflow for the business, with one id per business, and nothing about the person", async () => {
+    const r = recorder();
+    const followups = createFollowups({ db: hz.db, composer: r.composer, workflows: r.workflows, log: silentLogger });
+    followups.firstFollower(hz.A.businessId);
+    await followups.idle();
+    expect(r.workflows.calls).toEqual([{ type: "postDraft", workflowId: `post-draft:${hz.A.businessId}:first_follower`, args: [{ businessId: hz.A.businessId, trigger: { kind: "first_follower" } }] }]);
+    expect(r.composer.calls).toEqual([]);
+  });
+
+  it("an orchestrator that does not answer changes nothing and throws nothing", async () => {
+    const down: WorkflowStarter = { start: async (_type, options) => ({ started: false, workflowId: options.workflowId, reason: "temporal unreachable" }), close: async () => undefined };
+    const followups = createFollowups({ db: hz.db, composer: null, workflows: down, log: silentLogger });
+    followups.firstFollower(hz.A.businessId);
+    await expect(followups.idle()).resolves.toBeUndefined();
+  });
+});
+
 describe("after a payment commits", () => {
   it("narrates the customer won within the delivery's follow-up, starts journeyBuild and the matching playbooks", async () => {
     const r = recorder();

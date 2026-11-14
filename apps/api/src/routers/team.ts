@@ -1,17 +1,19 @@
 /** team.agents.* / team.humans.* / team.responsibilities.* (BUILD §11.9; AC-11.9.2 responsibilities route approvals). */
 import { TEMPLATE_KEYS, getTemplate, hasTemplate, listTemplates } from "@foundmill/agents";
 import { CREDITS_CURRENCY } from "@foundmill/config";
-import { SectionPermissions, assertSeatAvailable, repos, type AgentRosterActivity } from "@foundmill/db";
-import { ConflictError, DECISION_TYPES, DEFAULT_AGENT_STYLE, ForbiddenError, MEMBERSHIP_ROLES, NotFoundError, ValidationError, agentTier, characterFor, leadAgentIds } from "@foundmill/shared";
+import { SectionPermissions, membershipEnded, repos, type AgentRosterActivity } from "@foundmill/db";
+import { ADMIN_ROLES, DECISION_TYPES, DEFAULT_AGENT_STYLE, ForbiddenError, hasSectionAccess, isOwnerRole, MEMBERSHIP_ROLES, NotFoundError, ValidationError, agentTier, characterFor, leadAgentIds } from "@foundmill/shared";
 import { z } from "zod";
 import { pendingApprovals, resolveApproval } from "../services/approvals";
+import { founderChangeNote, noticeNames, recentlyLowered, refundingOnFailure, takeFounderChange, tellFoundersQuietly, type FounderChangeRefund } from "../services/founder-notices";
+import { assertWithinGrantorAccess } from "../services/grants";
 import { modelLimited } from "../services/model-limits";
 import { ensurePortraits } from "../services/personas";
 import { archivePlaybook, compilePlaybookText, createPlaybook, setPlaybookEnabled, toPlaybookView, updatePlaybook } from "../services/playbooks";
 import { SkillChoice, SkillFileUpload, attachSkills, libraryView, resolveSkillChoice, uploadPreview } from "../services/skills";
 import { hireFromTemplate, shownToolGrants } from "../services/squad";
 import { SIGNALS, workflowIds } from "../services/temporal";
-import { Id, adminProcedure, audit, businessProcedure, emit, router, sectionAdmin, sectionRead, sectionWrite, writeProcedure } from "../trpc";
+import { Id, audit, businessProcedure, emit, router, sectionAdmin, sectionRead, sectionWrite, writeProcedure } from "../trpc";
 
 const read = sectionRead("team");
 const write = sectionWrite("team");
@@ -262,61 +264,87 @@ export const teamRouter = router({
         return members.map((m) => (m.displayName === null && m.userId === ctx.userId && me?.displayName ? { ...m, displayName: me.displayName } : m));
       }),
     ),
+    // Adding someone is an invitation they accept (`invitation.create` / `accept`, routers/people.ts; THESIS_REVIEW
+    // package 3.1): the silent add by email or account id (`team.humans.invite`) was removed with it.
     /**
-     * Add someone who already has an account, by their account ID (shown on their founder profile and in Settings ›
-     * Preferences) or by the email they sign in with, resolved here to their account. No email is sent: invitation
-     * emails do not exist yet. Adds a new member only: an existing member (the owner included) is never overwritten
-     * (409; use `role`).
+     * Role, section permissions and (a collaborator's only) the date access ends, of another member. Nobody edits their
+     * own; only someone with an owner's standing (an owner or a cofounder, THESIS_REVIEW 3.3) changes such a row or
+     * grants that standing; the last owner or cofounder keeps it (the same rules hold in RLS, 0026 and 0092). Someone
+     * without that standing gives no more than their own access (`assertWithinGrantorAccess`; the api's rule alone, as
+     * the section walls are: no policy reads section permissions).
      */
-    invite: staffAdmin
-      .input(z.object({ userId: Id.optional(), role: z.enum(MEMBERSHIP_ROLES).default("member"), sectionPermissions: SectionPermissions.default({}), email: z.string().trim().email().max(320).optional() }).refine((v) => v.userId || v.email, "Give the person's account ID or the email they sign in with"))
+    role: staffAdmin
+      .input(z.object({ userId: Id, role: z.enum(MEMBERSHIP_ROLES).optional(), sectionPermissions: SectionPermissions.optional(), expiresAt: z.coerce.date().nullable().optional() }))
       .mutation(async ({ ctx, input }) => {
-        if (input.role === "owner") throw new ValidationError("Ownership is granted by an owner from Role and permissions, not by invitation");
-        // auth.users holds no business's rows: the email is looked up on the service connection.
-        const userId = input.userId ?? (await repos.founders.userIdByEmail(ctx.db, input.email!));
-        if (!userId) throw new ValidationError("No account signs in with that email yet. Ask them to sign in once, then add them by email or by the account ID on their profile.");
-        return ctx.rls(async (tx) => {
-          if (await repos.memberships.get(tx, ctx.businessId, userId)) throw new ConflictError("That person is already a member of this business; change their role instead", { userId });
-          // People are free on every plan (no limit today); the check stays for a limit that might return.
-          await assertSeatAvailable(tx, ctx.business);
-          const membership = await repos.memberships.add(tx, ctx.businessId, { userId, role: input.role, sectionPermissions: input.sectionPermissions });
-          await audit(tx, ctx, { action: "team.humans.invite", target: { kind: "membership", id: membership.id }, details: { userId, role: input.role, by: input.userId ? "account_id" : "email" } });
-          // Open tabs refetch the staff list; apps/stream re-checks this person's subscriptions.
-          await emit(tx, ctx, { type: "membership.changed", payload: { userId, change: "added" } });
-          return membership;
-        });
+        const names = await noticeNames(ctx.db, ctx.userId, input.userId);
+        // The founder change taken below is given back when the transaction fails after it (final review, P3).
+        const refund: { current: FounderChangeRefund | null } = { current: null };
+        const changed = await refundingOnFailure(refund, () => ctx.rls(async (tx) => {
+          if (input.userId === ctx.userId) throw new ValidationError("You cannot change your own role or section permissions; another owner or admin can");
+          // Judged on fresh rows, not on the request's: the business's people changes take turns (the owner lock, as
+          // `setRole` and `remove` take it), the editor's own row is re-read under a share lock and the person's under an
+          // update lock, so an owner lowering this editor at the same moment is either seen here or waits for it.
+          await repos.memberships.lockOwners(tx, ctx.businessId);
+          const editor = await repos.memberships.getMineForShare(tx, ctx.businessId, ctx.userId);
+          if (!editor || !ADMIN_ROLES.includes(editor.role) || !hasSectionAccess(editor, "team", "write")) throw new ForbiddenError("You can no longer change people's access in this business");
+          const locked = await repos.memberships.getForUpdate(tx, ctx.businessId, input.userId);
+          let membership = locked ?? (await repos.memberships.get(tx, ctx.businessId, input.userId));
+          if (!membership) throw new ValidationError("Not a member of this business");
+          const fromRole = membership.role;
+          if (!isOwnerRole(editor.role) && isOwnerRole(membership.role)) throw new ForbiddenError("Only an owner or a cofounder can change an owner's or a cofounder's role or permissions");
+          if (!isOwnerRole(editor.role) && input.role && isOwnerRole(input.role)) throw new ForbiddenError("Only an owner or a cofounder can make someone an owner or a cofounder");
+          // RLS let the row be read but not locked: it is not this editor's to change.
+          if (!locked) throw new ForbiddenError("You cannot change this person's access");
+          // Nor past the editor's own access: no section above their own level on it and no role above theirs (an
+          // owner's standing is not limited); narrowing and lowering stay free (services/grants.ts). A collaborator whose
+          // access ended has none now, so a new date gives everything the row holds and is judged as a grant.
+          assertWithinGrantorAccess(editor, { role: input.role ?? membership.role, sectionPermissions: input.sectionPermissions ?? membership.sectionPermissions }, membershipEnded(membership) ? null : membership);
+          // One person lowers a founder's role at most so often a day in a project (second review, P1-1).
+          if (isOwnerRole(fromRole) && input.role && !isOwnerRole(input.role)) refund.current = await takeFounderChange(ctx, "lower");
+          if (input.role) membership = await repos.memberships.setRole(tx, ctx.businessId, input.userId, input.role);
+          if (input.sectionPermissions) membership = await repos.memberships.setSectionPermissions(tx, ctx.businessId, input.userId, input.sectionPermissions);
+          if (input.expiresAt !== undefined) {
+            if (input.expiresAt && input.expiresAt.getTime() <= Date.now()) throw new ValidationError("Choose a date after today, or remove the person instead");
+            membership = await repos.memberships.setExpiry(tx, ctx.businessId, input.userId, input.expiresAt);
+          }
+          // `userId` and `fromRole` let the gateway read a founder notice from this entry (security review P2-3).
+          const entry = await audit(tx, ctx, { action: "team.humans.role", target: { kind: "membership", id: membership.id }, details: { userId: input.userId, fromRole, role: input.role ?? null, sections: input.sectionPermissions ? Object.keys(input.sectionPermissions) : [], ...(input.expiresAt !== undefined ? { expiresAt: input.expiresAt?.toISOString() ?? null } : {}) } });
+          // apps/stream re-checks the member's open subscriptions at once, under the new walls.
+          await emit(tx, ctx, { type: "membership.changed", payload: { userId: input.userId, change: "updated" } });
+          // A founder's standing taken away: the Inbox tells the other founders (never only the one who did it).
+          const lowered = isOwnerRole(fromRole) && !isOwnerRole(membership.role);
+          if (lowered) await founderChangeNote(tx, { names, businessId: ctx.businessId, actorUserId: ctx.userId, subjectUserId: input.userId, notice: "role_changed", fromRole, toRole: membership.role, timeZone: ctx.business.timeZone });
+          return { membership, auditId: entry.id, lowered };
+        }));
+        // Every founder and the person themselves hear it by email, once the change has committed.
+        if (changed.lowered) await tellFoundersQuietly(ctx, { businessId: ctx.businessId, auditId: changed.auditId, notice: "role_changed", actorUserId: ctx.userId, subjectUserId: input.userId });
+        return changed.membership;
       }),
     /**
-     * Role and section permissions of another member. Nobody edits their own; only an owner changes an owner's row or
-     * grants ownership; the last owner keeps the role (the same rules hold in RLS, 0026_membership_guards).
+     * Removes a member. A founder is stepped down first (their role changed), then removed; a person whose founder's
+     * standing someone else took away in the last 30 days counts as a founder removed (security review P2-3): the entry
+     * names the role they had (`formerRole`), the other founders get an Inbox note, and every founder and the person
+     * removed are emailed.
      */
-    role: staffAdmin.input(z.object({ userId: Id, role: z.enum(MEMBERSHIP_ROLES).optional(), sectionPermissions: SectionPermissions.optional() })).mutation(({ ctx, input }) =>
-      ctx.rls(async (tx) => {
-        if (input.userId === ctx.userId) throw new ValidationError("You cannot change your own role or section permissions; another owner or admin can");
-        let membership = await repos.memberships.get(tx, ctx.businessId, input.userId);
-        if (!membership) throw new ValidationError("Not a member of this business");
-        if (ctx.role !== "owner" && membership.role === "owner") throw new ForbiddenError("Only an owner can change an owner's role or permissions");
-        if (ctx.role !== "owner" && input.role === "owner") throw new ForbiddenError("Only an owner can grant ownership");
-        if (input.role) membership = await repos.memberships.setRole(tx, ctx.businessId, input.userId, input.role);
-        if (input.sectionPermissions) membership = await repos.memberships.setSectionPermissions(tx, ctx.businessId, input.userId, input.sectionPermissions);
-        await audit(tx, ctx, { action: "team.humans.role", target: { kind: "membership", id: membership.id }, details: { role: input.role ?? null, sections: input.sectionPermissions ? Object.keys(input.sectionPermissions) : [] } });
-        // apps/stream re-checks the member's open subscriptions at once, under the new walls.
-        await emit(tx, ctx, { type: "membership.changed", payload: { userId: input.userId, change: "updated" } });
-        return membership;
-      }),
-    ),
-    remove: staffAdmin.input(z.object({ userId: Id })).mutation(({ ctx, input }) =>
-      ctx.rls(async (tx) => {
+    remove: staffAdmin.input(z.object({ userId: Id })).mutation(async ({ ctx, input }) => {
+      const [names, lowered] = await Promise.all([noticeNames(ctx.db, ctx.userId, input.userId), recentlyLowered(ctx.db, ctx.businessId, input.userId)]);
+      const removed = await ctx.rls(async (tx) => {
         if (input.userId === ctx.userId) throw new ValidationError("Leave the business from Settings instead of removing yourself");
         const target = await repos.memberships.get(tx, ctx.businessId, input.userId);
-        if (target?.role === "owner") throw new ValidationError("The owner cannot be removed");
+        // An owner's standing is stepped down first (an owner or a cofounder changes the role), then removed.
+        if (target && isOwnerRole(target.role)) throw new ValidationError(target.role === "cofounder" ? "A cofounder cannot be removed; another founder changes their role first" : "The owner cannot be removed");
+        const lately = target ? lowered : null;
         await repos.memberships.remove(tx, ctx.businessId, input.userId);
-        await audit(tx, ctx, { action: "team.humans.remove", target: { kind: "membership", id: input.userId } });
+        // `userId`, the role and the founder's role they had lately let the gateway read a founder notice from this entry.
+        const entry = await audit(tx, ctx, { action: "team.humans.remove", target: { kind: "membership", id: input.userId }, details: { userId: input.userId, role: target?.role ?? null, ...(lately ? { formerRole: lately } : {}) } });
         // apps/stream closes the removed person's open subscriptions to this business at once.
         if (target) await emit(tx, ctx, { type: "membership.changed", payload: { userId: input.userId, change: "removed" } });
-        return { removed: true };
-      }),
-    ),
+        if (lately) await founderChangeNote(tx, { names, businessId: ctx.businessId, actorUserId: ctx.userId, subjectUserId: input.userId, notice: "removed", fromRole: lately, timeZone: ctx.business.timeZone });
+        return { auditId: entry.id, wasFounder: lately !== null };
+      });
+      if (removed.wasFounder) await tellFoundersQuietly(ctx, { businessId: ctx.businessId, auditId: removed.auditId, notice: "removed", actorUserId: ctx.userId, subjectUserId: input.userId });
+      return { removed: true };
+    }),
   }),
 
   responsibilities: router({
@@ -350,7 +378,8 @@ export const teamRouter = router({
           const agent = await repos.agents.get(tx, ctx.businessId, input.handler.id);
           if (agent.archivedAt) throw new ValidationError(`${agent.name} has left the team`);
         }
-        if (input.handler.kind === "user" && input.handler.id && !(await repos.memberships.get(tx, ctx.businessId, input.handler.id))) throw new ValidationError("Handler is not a member");
+        // One of the project's people now: a collaborator whose access ended is not (0092).
+        if (input.handler.kind === "user" && input.handler.id && !(await repos.memberships.getActive(tx, ctx.businessId, input.handler.id))) throw new ValidationError("Handler is not a member");
         const departments = await repos.departments.list(tx, ctx.businessId);
         const targets = input.departmentId ? departments.filter((d) => d.id === input.departmentId) : departments;
         // A department outside the business, archived or hidden since the page loaded: say so, never "saved" for nothing.

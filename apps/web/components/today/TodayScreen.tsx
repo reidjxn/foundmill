@@ -12,6 +12,9 @@
  * 3a. The public page (`today.get` › `pageReady`): one quiet line to Product › Public page while the project has no
  *     page live (never for a sample business) and the Product lead's "Your project's page is ready" note is not open:
  *     while it is, the note is in Needs you and its one tap, Check it and publish, opens the Public page tab.
+ * 3b. A post to share (`today.get` › `postsReady`): one quiet line to the post on Customers › Creative while a post the
+ *     team wrote for the founder to share by tap waits (never for a sample business). It goes when the post is shared
+ *     or set aside. An offer, never a chore: it is not in Needs you.
  * 4. Health: Cash, Runway and Customers this week are the status strip's own tiles over the same reads
  *    (`finance.overview`, `journey.ribbon`), so they always match Details; then the week's spend, never added across
  *    currencies (AI usage in US dollars, channel spend in the business's currency; one figure for a dollar business).
@@ -23,7 +26,7 @@ import { PAGE_READY_NOTE } from "@foundmill/shared/project-page";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
 import { useCallback, useMemo, useState } from "react";
-import { FirstWeekTimeline, GoalPanel, NeedsYouList, PageGrid, Panel, PublicPageNote, SinceLastVisit, StatusStrip, StreakStrip, Term, WeekPlan, formatDateTime, useAgentPersona, useDateFormat, useToast, type MetricTileProps, type NeedsYouRow } from "@foundmill/dugout";
+import { FirstWeekTimeline, GoalPanel, NeedsYouList, PageGrid, Panel, PostReadyNote, PublicPageNote, SinceLastVisit, StatusStrip, StreakStrip, Term, WeekPlan, formatDateTime, useAgentPersona, useDateFormat, useToast, type MetricTileProps, type NeedsYouRow } from "@foundmill/dugout";
 import { cashTile, customersWeekTile, moduleHref, moduleTabHref, routes, runwayTile, spendWeekTiles, unavailableTile, type StatusTile } from "@foundmill/widgets";
 import type { FinanceOverview, RibbonResponse } from "@foundmill/widgets/shared/types";
 import { useGlossary, useToday } from "@foundmill/widgets/data";
@@ -37,6 +40,7 @@ import { useBusinessLive } from "@/lib/stream-status";
 import { GoalEnsure, HomeBlockers, HomeFoundations } from "@/components/home/lead";
 import { formatMoney } from "@/lib/format";
 import { needsYouHref, sinceLastVisitLines, streakStripProps, toNeedsYouRows, toPanelGoal, toPanelProposal } from "./today-view";
+import { FormerProjects } from "@/components/home/FormerProjects";
 
 /** The reads a Today answer changes. */
 const AFTER_ANSWER = ["inbox", "today", "goal", "plan", "business", "product", "dev"] as const;
@@ -181,6 +185,7 @@ export function TodayScreen() {
   const firstWeek = todayQ.data?.firstWeek ?? null;
   return (
     <div className="flex min-h-full flex-col gap-gutter p-gutter" data-testid="today-screen">
+      <FormerProjects className="flex flex-col gap-gutter" />
       <HomeBlockers />
       <GoalEnsure />
       <HomeFoundations />
@@ -213,6 +218,7 @@ export function TodayScreen() {
           onRetry={() => void todayQ.refetch()}
         />
         {todayQ.data?.pageReady ? <PublicPageNote span={12} href={moduleTabHref(businessId, departments, "product", "public-page")} /> : null}
+        {todayQ.data?.postsReady ? <PostReadyNote span={12} waiting={todayQ.data.postsReady.count} href={`${moduleTabHref(businessId, departments, "distribution", "creative")}?asset=${todayQ.data.postsReady.assetId}`} /> : null}
         <WeekPlan
           span={12}
           done={week?.done ?? []}

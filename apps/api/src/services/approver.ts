@@ -8,14 +8,14 @@
  */
 import { repos, type Approval, type Department, type Executor } from "@foundmill/db";
 import type { ConnectorRegistry } from "@foundmill/connectors";
-import { DECISION_TYPES, ForbiddenError, type DecisionType, type MembershipRole } from "@foundmill/shared";
+import { ADMIN_ROLES as SHARED_ADMIN_ROLES, DECISION_TYPES, ForbiddenError, type DecisionType, type MembershipRole } from "@foundmill/shared";
 
 export interface Decider {
   userId: string;
   role: MembershipRole;
 }
 
-const ADMIN_ROLES: readonly MembershipRole[] = ["owner", "admin"];
+const ADMIN_ROLES: readonly MembershipRole[] = SHARED_ADMIN_ROLES;
 
 /** The user handlers each department names, per decision type (`departments.approvers`; malformed rows are ignored). */
 export function userHandlers(department: Pick<Department, "approvers">): Map<DecisionType, string> {

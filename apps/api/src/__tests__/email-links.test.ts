@@ -86,7 +86,7 @@ describe("email.action and section permissions", () => {
     await hz.h.pg.query(`update memberships set section_permissions = '{"inbox":"read"}'::jsonb where business_id = $1 and user_id = $2`, [hz.A.businessId, hz.A.adminId]);
     const note = await decisionNote("Walled admin");
     const r = await anon.email.action.get({ token: await mint(note.id, { userId: hz.A.adminId }) });
-    expect(r).toEqual({ state: "unavailable", businessName: null, subject: null, optionLabel: null, consequence: null, businessId: null, itemId: null });
+    expect(r).toEqual({ kind: "answer", state: "unavailable", businessName: null, subject: null, optionLabel: null, consequence: null, businessId: null, itemId: null, scheduledFor: null, until: null });
   });
 });
 

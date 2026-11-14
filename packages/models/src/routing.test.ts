@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ALWAYS_THINKS, IMAGE_MODELS, LOW_EFFORT_MAX_TOKENS, MODELS, MODEL_CAPABILITIES, PLAIN_MAX_TOKENS, ROUTES, THINKING_MAX_TOKENS, lowCreditsModel, maxTokensFor, resolveModel, type RouteKey } from "./routing";
+import { ALWAYS_THINKS, IMAGE_MODELS, LOW_EFFORT_MAX_TOKENS, MODELS, MODEL_CAPABILITIES, PLAIN_MAX_TOKENS, ROUTES, THINKING_MAX_TOKENS, lowCreditsModel, maxTokensFor, resolveModel, routeAcceptsImages, type RouteKey } from "./routing";
 
 describe("routing (BUILD §10.1)", () => {
   it("MODELS and ROUTES are exactly the spec table", () => {
@@ -12,6 +12,7 @@ describe("routing (BUILD §10.1)", () => {
       leadRecommendation: { model: "opus", lowCredits: "keep", effort: "low", maxTokens: 16_000 },
       planner: { model: "opus", lowCredits: "sonnet", effort: "low", maxTokens: 16_000 },
       codeReview: { model: "opus", lowCredits: "keep", maxTokens: 16_000 },
+      documentReview: { model: "opus", lowCredits: "keep", maxTokens: 16_000 },
       ideation: { model: "opus", lowCredits: "keep", effort: "low", speed: "fast", maxTokens: 8_000 },
       ideationSlate: { model: "opus", lowCredits: "keep", effort: "low", speed: "fast", maxTokens: 8_000 },
       logoDesigner: { model: "opus", lowCredits: "sonnet", effort: "low", speed: "fast", maxTokens: 8_000 },
@@ -33,6 +34,7 @@ describe("routing (BUILD §10.1)", () => {
       projectPage: { model: "sonnet", lowCredits: "keep", effort: "low", maxTokens: 8_000 },
       teamCallTurn: { model: "sonnet", lowCredits: "keep", effort: "low", maxTokens: 8_000 },
       teamCallWrapUp: { model: "opus", lowCredits: "keep", effort: "low", maxTokens: 8_000 },
+      designReview: { model: "opus", lowCredits: "keep", effort: "low", vision: true, maxTokens: 8_000 },
     });
   });
 
@@ -42,6 +44,11 @@ describe("routing (BUILD §10.1)", () => {
 
   it("the project page route (package 1.2) is Sonnet at low effort, not locked", () => {
     expect(resolveModel("projectPage")).toMatchObject({ route: "projectPage", modelKey: "sonnet", modelId: MODELS.sonnet, effort: "low", locked: false, maxTokens: LOW_EFFORT_MAX_TOKENS });
+  });
+
+  it("only the design review route carries images (item 13)", () => {
+    expect((Object.keys(ROUTES) as (keyof typeof ROUTES)[]).filter(routeAcceptsImages)).toEqual(["designReview"]);
+    expect(resolveModel("designReview")).toMatchObject({ modelKey: "opus", effort: "low", locked: false });
   });
 
   it("resolves the default model for a route", () => {

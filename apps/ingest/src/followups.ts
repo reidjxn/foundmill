@@ -13,6 +13,10 @@
  *    (`engine:{channelId}`) and the training runs left queued while the team was stopped (`training:{runId}`, a model
  *    change's retests).
  *
+ * 5. The project's first confirmed follower (`/mail/confirm`, platform-mail.ts) starts `postDraft`
+ *    (`post-draft:{businessId}:first_follower`): the social agent may draft a post about it for the founder to share by
+ *    tap. Nothing is published or measured by it.
+ *
  * None of it holds the vendor's acknowledgement: `dispatch` schedules the work and returns. Failures are logged, never
  * thrown; Temporal ids are deterministic, so a retried delivery cannot start the same work twice. `idle()` lets graceful
  * shutdown (and tests) wait for what is in flight.
@@ -46,6 +50,12 @@ export interface IngestFollowups {
   dispatch(result: IngestResult): void;
   /** A paid top-up lifted the business's credits stop: restarts its engines and queued training runs. Never throws. */
   resumed(businessId: string): void;
+  /**
+   * The project's first follower confirmed (`page.followed`, with "First follower" recorded in the same transaction):
+   * starts the orchestrator's `postDraft`, where the social agent may draft a post about it for the founder to share by
+   * tap. Whether one is written is the workflow's to decide (the channel on the board, the caps). Never throws.
+   */
+  firstFollower(businessId: string): void;
   /** Resolves once everything dispatched so far has settled. */
   idle(): Promise<void>;
 }
@@ -136,6 +146,11 @@ export function createFollowups(deps: FollowupDeps): IngestFollowups {
     else if (results.length > 0) deps.log.info({ businessId, engines: engines.length, training: training.length }, "engines and queued training restarted after the top-up");
   }
 
+  async function firstFollowerPost(businessId: string): Promise<void> {
+    const started = await deps.workflows.start(INGEST_WORKFLOWS.postDraft, { workflowId: ingestWorkflowIds.postDraft(businessId, "first_follower"), args: [{ businessId, trigger: { kind: "first_follower" } }] });
+    if (!started.started) deps.log.info({ businessId, reason: started.reason }, "postDraft not started after the first follower; no post is drafted for it");
+  }
+
   const track = (work: Promise<void>, what: string) => {
     const p: Promise<void> = work
       .catch((e: unknown) => deps.log.error({ err: (e as Error).message }, `${what} failed`))
@@ -153,6 +168,9 @@ export function createFollowups(deps: FollowupDeps): IngestFollowups {
     resumed(businessId) {
       track(restartAfterResume(businessId), "restart after the top-up");
     },
+    firstFollower(businessId) {
+      track(firstFollowerPost(businessId), "post draft after the first follower");
+    },
     async idle() {
       while (pending.size > 0) await Promise.allSettled([...pending]);
     },
@@ -160,4 +178,4 @@ export function createFollowups(deps: FollowupDeps): IngestFollowups {
 }
 
 /** Does nothing (tools and tests that do not exercise follow-ups). */
-export const noFollowups: IngestFollowups = { dispatch() {}, resumed() {}, async idle() {} };
+export const noFollowups: IngestFollowups = { dispatch() {}, resumed() {}, firstFollower() {}, async idle() {} };

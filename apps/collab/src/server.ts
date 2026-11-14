@@ -19,7 +19,7 @@
  */
 import { APP_NAME } from "@foundmill/config";
 import { repos, type Db, type SpecBlock } from "@foundmill/db";
-import { AppError, NotFoundError, hasSectionAccess, type Section } from "@foundmill/shared";
+import { AppError, NotFoundError, hasSectionAccess, WRITE_ROLES as SHARED_WRITE_ROLES, type Section } from "@foundmill/shared";
 import { Server, type Hocuspocus, type onAuthenticatePayload, type onChangePayload, type onLoadDocumentPayload, type onRequestPayload, type onStoreDocumentPayload, type ServerConfiguration } from "@hocuspocus/server";
 import { createHash } from "node:crypto";
 import type { IncomingMessage, ServerResponse } from "node:http";
@@ -29,7 +29,8 @@ import { DEFAULT_FRAGMENT, fragmentToPmDoc, InvalidProseMirrorJsonError, parsePm
 import { createSpecBlockStore, type Author, type SpecBlockStore } from "./store";
 
 export const COLLAB_SERVICE = "collab" as const;
-export const WRITE_ROLES = ["owner", "admin", "member"] as const;
+/** The roles that may edit (the shared list: an owner, a cofounder, an admin, a member, a collaborator; THESIS_REVIEW 3.3). */
+export const WRITE_ROLES = SHARED_WRITE_ROLES;
 /** The section whose permissions govern spec blocks (staff walled from Product neither read nor edit them). */
 export const SPEC_SECTION: Section = "product";
 
@@ -61,7 +62,7 @@ export interface CollabServerDeps {
    * Whether a signed-in person may use the app at all (`SIGNUP_ALLOWLIST`, the same list apps/api checks on every
    * request); one it refuses is denied like a non-member. Absent: everyone who signs in.
    */
-  admit?: (user: { userId: string; email: string | null }) => boolean;
+  admit?: (user: { userId: string; email: string | null }) => boolean | Promise<boolean>;
 }
 
 export interface CollabServerOptions {
@@ -195,7 +196,7 @@ export function createCollabServer(deps: CollabServerDeps, options: CollabServer
     const block = await store.getBlock(name.businessId, name.specBlockId);
     if (block.archivedAt) throw new NotFoundError("spec block", name.specBlockId);
     if (principal.kind === "user") {
-      if (deps.admit && !deps.admit(principal)) throw new CollabDenied("not-invited", `user ${principal.userId} is not on the invite list`);
+      if (deps.admit && !(await deps.admit(principal))) throw new CollabDenied("not-invited", `user ${principal.userId} is not on the invite list`);
       const { membership, business } = await repos.memberships.access(deps.db, name.businessId, principal.userId);
       if (!membership) throw new CollabDenied("not-a-member", `user ${principal.userId} is not a member of business ${name.businessId}`);
       // An archived business is closed to its members everywhere else too (apps/api answers NOT_FOUND).

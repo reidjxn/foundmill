@@ -111,6 +111,15 @@ export function tierIncludedCreditPlaces(tier: TierKey): number | null {
   return typeof places === "number" ? places : null;
 }
 
+/**
+ * Whether a project on `tier` carries the small "Built on Foundmill" mark on what its visitors see (docs/NETWORK.md F2;
+ * founder, 2026-11-12): the free plan does, and a paid plan removes it completely, from the page, the line after a
+ * follow, the confirmation email and page, and the share image.
+ */
+export function tierShowsBuiltOnMark(tier: TierKey): boolean {
+  return tier === "free";
+}
+
 /** The higher of two tiers. */
 export function higherTier(a: TierKey, b: TierKey): TierKey {
   return TIER_ORDER.indexOf(a) >= TIER_ORDER.indexOf(b) ? a : b;

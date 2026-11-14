@@ -18,8 +18,8 @@ describe("event scope", () => {
     expect(new Set(EVENT_TYPES).size).toBe(EVENT_TYPES.length);
   });
 
-  it("the account-scoped types are the two profile events, each in the one list", () => {
-    expect([...ACCOUNT_EVENT_TYPES]).toEqual(["profile.published", "profile.unpublished"]);
+  it("the account-scoped types are the two profile events and the two attribution events, each in the one list", () => {
+    expect([...ACCOUNT_EVENT_TYPES]).toEqual(["profile.published", "profile.unpublished", "signup.attributed", "referral.arrived", "founder_notice.sent"]);
     // Where they sit in the list is not pinned: every team appends its types at the end, of either scope.
     for (const type of ACCOUNT_EVENT_TYPES) expect(EVENT_TYPES as readonly string[]).toContain(type);
   });
@@ -27,7 +27,12 @@ describe("event scope", () => {
   it("isAccountEventType answers for any text, and is a different rule from person-addressed", () => {
     expect(isAccountEventType("profile.published")).toBe(true);
     expect(isAccountEventType("profile.unpublished")).toBe(true);
-    for (const other of ["page.published", "payment.received", "profile", "profile.published ", "PROFILE.PUBLISHED", "", null, undefined]) expect(isAccountEventType(other), String(other)).toBe(false);
+    // A sign-up a page brought is a fact about the new person, and about the person credited: never a project's.
+    expect(isAccountEventType("signup.attributed")).toBe(true);
+    expect(isAccountEventType("referral.arrived")).toBe(true);
+    expect(isAccountEventType("founder_notice.sent")).toBe(true);
+    expect(eventScopeOf("signup.attributed")).toBe("account");
+    for (const other of ["page.published", "payment.received", "signup.created", "referral.credited", "profile", "profile.published ", "PROFILE.PUBLISHED", "", null, undefined]) expect(isAccountEventType(other), String(other)).toBe(false);
     // A person-addressed type is a business-scoped type that is never written; an account-scoped type has a store of its own.
     for (const type of PERSON_ADDRESSED_EVENT_TYPES) expect(isAccountEventType(type), type).toBe(false);
     for (const type of ACCOUNT_EVENT_TYPES) expect(isPersonAddressedEvent(type), type).toBe(false);

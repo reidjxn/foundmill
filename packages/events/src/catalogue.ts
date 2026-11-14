@@ -24,6 +24,7 @@ import {
   BusinessMode,
   ChannelKey,
   CONTINUE_RUN_END_REASONS,
+  DesignCheckResult,
   ConversationAuthorKind,
   ConversationSubjectKind,
   ConversionKind,
@@ -40,7 +41,14 @@ import {
   Money,
   NOTIFICATION_KINDS,
   EMAIL_NOTIFICATION_KINDS,
+  FOUNDER_NOTICES,
+  INVITATION_ROLES,
   PUSH_PROVIDERS,
+  SHARE_DESTINATIONS,
+  SHARE_OPEN_TARGETS,
+  SHARE_SUBJECT_KINDS,
+  TEAM_POST_SUBJECTS,
+  TEAM_POST_TRIGGERS,
   SIGNOFF_KINDS,
   Severity,
   SkillGroup,
@@ -55,6 +63,7 @@ import {
   type EventScope,
   type EventType as EventTypeT,
 } from "@foundmill/shared";
+import { VIA_KINDS } from "@foundmill/shared/via";
 import { assertAccountPayloadSchema } from "./account-payload";
 
 // ---------------------------------------------------------------------------------------------------
@@ -400,6 +409,22 @@ const taskBlocked = declareEvent(
   {
     doc: "A task cannot continue: waiting on approval, a dependency, a credential, budget, a rate limit, a detected loop or a failure. Narrated as a warning (or decision when an approval is needed).",
     consumers: ["composer", "metrics", "health", "playbooks"],
+  },
+);
+
+const taskDesignChecked = declareEvent(
+  "task.design_checked",
+  z.object({
+    ...TaskRef,
+    assigneeAgentId: Id,
+    sessionId: Id.nullable().default(null),
+    /** What the check did and found (packages/shared `DesignCheckResult`): reviewed, not seen (and why), or simulated. */
+    result: DesignCheckResult,
+  }),
+  {
+    doc: "The design check of a code agent's UI change (item 13): screenshots of the changed pages at desktop and 390 px, a separate reviewer's ranked fixes, and whether the author was asked to apply them. `not_seen` and `simulated` say no screenshot exists. Attached to the change's approval; never blocks it.",
+    consumers: ["stream"],
+    narratable: false,
   },
 );
 
@@ -1832,6 +1857,128 @@ const notifyEmailSent = declareEvent(
 );
 
 // ---------------------------------------------------------------------------------------------------
+// Milestones a founder chooses to show (0089; docs/NETWORK.md F2 "the story", F3 "cards")
+// ---------------------------------------------------------------------------------------------------
+
+/** What both events carry: the milestone, which one it is, and the addresses it is (or was) shown at. */
+const ShownMilestoneFacts = z.object({
+  milestoneId: Id,
+  /** The milestone's key (`TROPHY_KEYS` in @foundmill/journey): "page_live", "first_follower", "customer_1", ... */
+  key: z.string().min(1).max(60),
+  /** The project page's address under /p/: the story is `/p/<slug>/story`. */
+  slug: z.string().min(3).max(40),
+  /** The card's full public URL (`/m/<milestoneId>`). */
+  url: z.string().url().max(2048),
+});
+
+const milestoneShown = declareEvent("milestone.shown", ShownMilestoneFacts, {
+  doc: "An owner or an admin chose to show a reached milestone on the project's page: from this moment it is a line of the project's story and anyone can open its card at `url`, while the page is public. The founder's own press, each time (nothing becomes public on its own). Not an outside result in itself (the north star does not count it: the milestone's own event already was one); never narrated.",
+  consumers: ["stream", "metrics"],
+  narratable: false,
+});
+
+const milestoneHidden = declareEvent("milestone.hidden", ShownMilestoneFacts, {
+  doc: "An owner or an admin took a shown milestone off the project's page: it leaves the story and `url` answers not found from now on. The milestone itself stays reached. Never narrated.",
+  consumers: ["stream", "metrics"],
+  narratable: false,
+});
+
+// ---------------------------------------------------------------------------------------------------
+// Tap-to-post (docs/NETWORK.md F3; docs/DECISIONS.md 2026-11-12)
+// ---------------------------------------------------------------------------------------------------
+
+const shareOpened = declareEvent(
+  "share.opened",
+  z.object({
+    /** Where: a network or a messaging app. Null for the device's own share sheet and for a plain copy of the link or the text. */
+    network: z.enum(SHARE_DESTINATIONS).nullable(),
+    /** What was shared: a milestone's card, the project's page, or a drafted post. */
+    kind: z.enum(SHARE_SUBJECT_KINDS),
+    /** The milestone's id, the page's id, or the asset's id of a post the team drafted to be shared; null for any other drafted post. */
+    refId: Id.nullable(),
+    /** How: a network's window opened ready to post (`tap`) or with the link only, something copied, a message, or the device's sheet. */
+    target: z.enum(SHARE_OPEN_TARGETS),
+  }),
+  {
+    // North star (CLAUDE.md, founder 2026-11-11; DECISIONS 2026-11-12 "Honesty, unchanged"): pressing a share control
+    // opens a window in someone else's product. Whether the founder then pressed Post there is not known here, so this
+    // is not an outside result and the north star does not count it. A visit that comes back through the shared link
+    // (its `via` reference) is what would count, and that is a different event.
+    doc: "A member pressed a share control in the console: a network's own share window opened with the text and the link filled in, or with the link only, or the text or the link was copied, or a message app or the device's own share sheet opened. Recorded as a share that was opened and nothing more: whether anything was then posted is not known, so nothing calls this posted or published, it is not an outside result and the north star does not count it. Ids and names of controls only, never the words of the post. Metrics only; never narrated.",
+    consumers: ["metrics"],
+    narratable: false,
+  },
+);
+
+const postDrafted = declareEvent(
+  "post.drafted",
+  z.object({
+    /** The draft: an `assets` row (kind `post`, no campaign) on the Creative tab. */
+    assetId: Id,
+    /** What made the team write it (`TEAM_POST_TRIGGERS`). */
+    trigger: z.enum(TEAM_POST_TRIGGERS),
+    /** What it is about (`TEAM_POST_SUBJECTS`): the page going live, or the first follower. */
+    subject: z.enum(TEAM_POST_SUBJECTS),
+    /** The social channel's agent that wrote it; null when the channel has none. */
+    agentId: Id.nullable(),
+  }),
+  {
+    // North star (CLAUDE.md, founder 2026-11-11): words waiting in the console are not an outside action or result. A
+    // draft is an offer; whether it is ever shared is the founder's press (`share.opened`), and that is not counted either.
+    doc: "The social channel's agent drafted a post for the founder to share by tap, after a real thing happened to the project (its page went live, a founder showed a milestone on the page, its first follower confirmed): the draft waits on the Creative tab with its Share control, and Today shows one quiet line. Nothing was launched, scheduled, published or measured, so this is not an outside action or result. Ids and the kind of trigger only, never the words of the post. Never narrated: no note, no email and no push (an offer, never a chore); apps/stream pushes it so the Creative tab and Today follow.",
+    consumers: ["stream", "metrics"],
+    narratable: false,
+  },
+);
+
+// ---------------------------------------------------------------------------------------------------
+// Invitations to a project (0091; docs/NETWORK.md F5, THESIS_REVIEW package 3.1)
+// ---------------------------------------------------------------------------------------------------
+
+const InvitationRoleEnum = z.enum(INVITATION_ROLES);
+
+const invitationSent = declareEvent(
+  "invitation.sent",
+  z.object({
+    /** The invitation (0091 `invitations`): never its token, and never the address it was sent to. */
+    invitationId: Id,
+    role: InvitationRoleEnum,
+    /** Whether Foundmill emailed the link to an address the inviter typed (else the inviter shares the link themselves). */
+    emailed: z.boolean(),
+  }),
+  {
+    doc: "An owner, a cofounder or an admin of the project made an invitation for someone to join it as a cofounder or a collaborator (`invitation.create`, Settings › People). The link was shown to them once; when they typed an address, Foundmill was asked to email it there. Not an outside result of the project's own work. Never narrated: the People tab lists the invitation; apps/stream pushes it so that tab follows.",
+    consumers: ["stream", "metrics"],
+    narratable: false,
+  },
+);
+
+const invitationAccepted = declareEvent(
+  "invitation.accepted",
+  z.object({
+    invitationId: Id,
+    role: InvitationRoleEnum,
+    /** The person who accepted and is now one of the project's people (the membership row carries their access). */
+    userId: Id,
+  }),
+  {
+    doc: "The person an invitation was for signed in and accepted it (`invitation.accept`): they joined the project as a cofounder or a collaborator, once (the invitation is used up). The person who invited them is emailed within their limits (`invitation_accepted`). Written beside `membership.changed`. Not narrated: People shows them at once; apps/stream pushes it.",
+    consumers: ["stream", "metrics"],
+    narratable: false,
+  },
+);
+
+const invitationDeclined = declareEvent(
+  "invitation.declined",
+  z.object({ invitationId: Id, role: InvitationRoleEnum }),
+  {
+    doc: "The person an invitation was for said no to it from its page (`invitation.decline`): the link stops working. Nothing about who they are is kept. Not narrated, and nobody is emailed about it.",
+    consumers: ["stream", "metrics"],
+    narratable: false,
+  },
+);
+
+// ---------------------------------------------------------------------------------------------------
 // Account events: a person's own public profile (0080; account-scoped, docs/ARCHITECTURE.md §5 "Account events")
 // ---------------------------------------------------------------------------------------------------
 
@@ -1849,6 +1996,73 @@ const profilePublished = declareAccountEvent("profile.published", ProfileFacts, 
 const profileUnpublished = declareAccountEvent("profile.unpublished", ProfileFacts, {
   doc: "The person took their own public profile down: /u/<handle> answers not found from now on (everything they wrote is kept). Written once per change from public to private, in the same transaction, to the person's own account events. The payload is the handle and nothing else.",
   consumers: ["stream"],
+});
+
+// ---------------------------------------------------------------------------------------------------
+// Account events: who or what brought a new person (0088 `attributions`; docs/NETWORK.md §5, §11; account-scoped)
+// ---------------------------------------------------------------------------------------------------
+
+// One sign-up that a public address brought is a fact about two people, so it is two rows (the two-person rule,
+// docs/ARCHITECTURE.md §5): `signup.attributed` in the new person's account events and, when someone is credited,
+// `referral.arrived` in theirs. Both are written by apps/api `services/attribution.ts` in the transaction that inserts
+// the `attributions` row. That row, which only the services read, is where the two accounts and the source project are
+// held together by id; neither payload carries any of the three.
+
+/** What the reference named, by its public address and nothing else. The same two fields for both readers. */
+const AttributionSource = z.strictObject({
+  /** A project's public page or a person's public profile (`VIA_KINDS`). */
+  sourceKind: z.enum(VIA_KINDS),
+  /**
+   * The slug or handle as it arrived (3 to 40 lowercase letters, digits and hyphens). Public: it was in an address. An
+   * address shaped like an id (32 letters a to f and digits in a row) is refused when the event is written, like any
+   * id-shaped text in an account event; the `attributions` row is then the only record.
+   */
+  sourceRef: z.string().regex(/^[a-z0-9][a-z0-9-]{1,38}[a-z0-9]$/),
+});
+
+const signupAttributed = declareAccountEvent("signup.attributed", AttributionSource, {
+  doc: "For the new person: you arrived through this public page or profile. Written once per account, to the new person's own account events, when their profile is first created after they arrived with a `?via=` reference that resolved to a public project page or a public person profile; never for a reference that did not resolve or that named the person themselves. The payload is the kind and the address as it arrived (the address the person themselves opened) and nothing else: not the project's id, and not who is credited (a page need not name its founders). How the growth loops are measured.",
+  consumers: ["metrics"],
+});
+
+// Whether `referral.arrived` can tell its reader who signed up. It carries nothing of the new person: no id, no handle
+// (they have none yet), no name, no email address, no count, no ordinal and no time of its own. What is left is the
+// fact and the row's own time (`occurred_at`, `created_at`, and the moment it reaches `ae:`), which is the moment of
+// the sign-up. So a person who gave their address to one person only learns that this person signed up, and when. That
+// is what "someone arrived through your page" says, and it cannot be taken out without not writing the event; it does
+// not let the reader find the account, because nothing here can be looked up. The exact time is the one thing that
+// could later be matched with something the new person does in public (a profile that goes public minutes after).
+// Nothing is built here to blur it: rounding `occurred_at` would change nothing while `created_at` and live delivery
+// say the same, and holding the row back is delay machinery that belongs with the credit for bringing people (a pass
+// that writes these rows late and in groups). Until that is decided the rule is: nothing is ever added to this payload
+// that narrows who it was.
+const referralArrived = declareAccountEvent("referral.arrived", AttributionSource, {
+  doc: "For the person credited: someone signed up through your page or profile. Written once per sign-up, to the credited person's own account events (a project page's longest-standing owner, or a profile's own person), in the same transaction as the new person's `signup.attributed`; not written when nobody is credited. The payload is the kind and the address, the reader's own public address, and nothing else: it never says who signed up (no id, no handle, no name, no email address, no count and no time beyond the event's own). A reader who gave that address to one person only still learns that this person signed up, and when: that is the fact itself, and nothing here lets them find the account. Nothing may be added to this payload that narrows who it was. How credit for bringing someone is later paid; nothing is paid from it yet.",
+  consumers: ["metrics"],
+});
+
+// A founder notice (security review P2-3, Nov 13, 2026) goes to every founder of a project and to the person it happened
+// to, who may be out of the project by then (removed). So the fact that Foundmill emailed them is theirs, not the
+// project's: one account event per person emailed, never a `notify.email_sent` in a project the reader may no longer
+// belong to. The payload names the project by its record id and nobody by an account: not who did it, not whom it was
+// about (the reader learns those from the email itself).
+const FounderNoticeFacts = z.strictObject({
+  /** What the email was about: a founder's role lowered, a founder removed, deletion asked for or canceled. */
+  notice: z.enum(FOUNDER_NOTICES),
+  /** The project it was about (the id of a record; the reader was, or is, one of its founders). */
+  businessId: z.uuid(),
+  /** The `founder_notifications` row that holds the words (readable by this person while they are a member). */
+  notificationId: z.uuid(),
+  /** The email carried the one-click link that cancels the project's deletion (a founder removed or demoted recently). */
+  offersCancel: z.boolean(),
+  /** Sent on the mock: nothing left for real. */
+  simulated: z.boolean(),
+});
+
+const founderNoticeSent = declareAccountEvent("founder_notice.sent", FounderNoticeFacts, {
+  doc: "For the person emailed: Foundmill sent you a founder notice (a founder's role went below a founder's, a founder was removed, the project's deletion was asked for or canceled). Written by the gateway's `/v1/notify/email` after each such email, once per notice and person (idempotency key `founder_notice:<audit entry id>`), to the reader's own account events: a current founder's, the affected person's, or a former founder's for a deletion request (someone else demoted or removed them within 30 days before it, or after it), or the receipt to the person who asked for a deletion. The payload is the notice, the project's and the record's ids, whether it offered the one-click cancel, and `simulated`; never who did it or whom it was about, never the address. Not an outcome of any project.",
+  consumers: ["stream"],
+  recordIds: ["businessId", "notificationId"],
 });
 
 // ---------------------------------------------------------------------------------------------------
@@ -1870,6 +2084,7 @@ export const EVENTS = {
   "task.progressed": taskProgressed,
   "task.completed": taskCompleted,
   "task.blocked": taskBlocked,
+  "task.design_checked": taskDesignChecked,
   "pr.merged": prMerged,
   "deploy.succeeded": deploySucceeded,
   "lead.created": leadCreated,
@@ -1933,6 +2148,16 @@ export const EVENTS = {
   "founder.session_started": founderSessionStarted,
   "profile.published": profilePublished,
   "profile.unpublished": profileUnpublished,
+  "signup.attributed": signupAttributed,
+  "milestone.shown": milestoneShown,
+  "milestone.hidden": milestoneHidden,
+  "share.opened": shareOpened,
+  "referral.arrived": referralArrived,
+  "founder_notice.sent": founderNoticeSent,
+  "post.drafted": postDrafted,
+  "invitation.sent": invitationSent,
+  "invitation.accepted": invitationAccepted,
+  "invitation.declined": invitationDeclined,
 } as const satisfies { readonly [K in EventTypeT]: EventDeclaration<K, z.ZodType, EventScopeOf<K>> };
 
 export type EventsRegistry = typeof EVENTS;

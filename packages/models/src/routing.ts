@@ -49,6 +49,8 @@ export const SPEECH_MODELS = {
   call_speech: "eleven_flash_v2_5",
   /** What the founder said on a call, transcribed. */
   call_transcription: "scribe_v3",
+  /** A voiceover for a short post video, on the founder's own ElevenLabs key (the `elevenlabs_voice` connector). Multilingual v2: $0.08 per 1,000 characters on the API prices (Nov 13, 2026), 10,000 characters a request. */
+  post_voiceover: "eleven_multilingual_v2",
 } as const;
 export type SpeechModelKey = keyof typeof SPEECH_MODELS;
 
@@ -127,6 +129,8 @@ export interface RouteDefinition {
   speed?: Extract<Speed, "fast">;
   /** `max_tokens` when the request sends none: the reply plus the thinking at the route's effort (header). */
   maxTokens: number;
+  /** The route may send images with a message (`ChatMessage.images`); the client refuses images on any other route. */
+  vision?: boolean;
 }
 
 export const ROUTES = {
@@ -141,6 +145,11 @@ export const ROUTES = {
   leadRecommendation: { model: "opus", lowCredits: "keep", effort: "low", maxTokens: THINKING_MAX_TOKENS },
   planner: { model: "opus", lowCredits: "sonnet", effort: "low", maxTokens: THINKING_MAX_TOKENS },
   codeReview: { model: "opus", lowCredits: "keep", maxTokens: THINKING_MAX_TOKENS },
+  // The second read of a long document an agent drafted (the specification, the roadmap, policies, a pitch): a different
+  // agent checks it for inconsistencies, unsupported claims, unlabeled figures and claims that need a source. Nobody
+  // waits on it, so Opus at the default effort; the cost is bounded by the caller (packages/agents second-read.ts: two
+  // rounds at most, the document cut to a fixed size, a few claims fact-checked), never by this budget.
+  documentReview: { model: "opus", lowCredits: "keep", maxTokens: THINKING_MAX_TOKENS },
   // Concept cards, compare and the card Q&A (Ideation Studio): first drafts the founder waits on.
   ideation: { model: "opus", lowCredits: "keep", effort: "low", speed: "fast", maxTokens: LOW_EFFORT_MAX_TOKENS },
   // A short slate of names and angles drafted before the cards are written in parallel (audit P2).
@@ -174,6 +183,9 @@ export const ROUTES = {
   // (a pitch, a few paragraphs, who it is for) that mostly keeps the founder's text, on the path before the vision.
   // Sonnet at low effort writes it in seconds and holds to "keep their words, invent nothing"; Opus would add cost and
   // wait for no gain on a page this short. Any failure falls back to the deterministic starter draft.
+  // Also the posts the social agent drafts for the founder to share by tap (docs/NETWORK.md F3, F7; packages/agents
+  // `post-draft.ts`): the same kind of work (one or two sentences of public copy from the page's own words, nothing
+  // invented), so it shares the route and its settings and is told apart in the usage ledger by its kind (`post_draft`).
   projectPage: { model: "sonnet", lowCredits: "keep", effort: "low", maxTokens: LOW_EFFORT_MAX_TOKENS },
   // Team call (docs/TEAM_CALL.md §4): the next one to four spoken turns of a call. The founder is listening and waiting,
   // so Sonnet at low effort, like a reply at the desk; turns are short spoken sentences.
@@ -181,8 +193,17 @@ export const ROUTES = {
   // The call's summary and its action items as typed plan actions, written once when the call ends: Opus, which the
   // plan compiler also uses, because a wrong action files real work.
   teamCallWrapUp: { model: "opus", lowCredits: "keep", effort: "low", maxTokens: LOW_EFFORT_MAX_TOKENS },
+  // The design check (item 13): a separate reviewer looks at the screenshots of the pages a code agent changed in a
+  // founder's project (desktop and 390 px) and returns a short ranked list of fixes. The only route that carries images;
+  // Opus for taste, at low effort because it runs inside the agent's session, before the acceptance tests.
+  designReview: { model: "opus", lowCredits: "keep", effort: "low", vision: true, maxTokens: LOW_EFFORT_MAX_TOKENS },
 } as const satisfies Record<string, RouteDefinition>;
 export type RouteKey = keyof typeof ROUTES;
+
+/** Whether a route may send images (`RouteDefinition.vision`). */
+export function routeAcceptsImages(route: RouteKey): boolean {
+  return (ROUTES[route] as RouteDefinition).vision === true;
+}
 
 export type RouteResolution = {
   route: RouteKey;

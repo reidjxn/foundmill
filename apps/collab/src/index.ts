@@ -6,8 +6,8 @@
  * COLLAB_PORT) on host "::" with a 0.0.0.0
  * fallback → graceful shutdown flushes pending stores before closing.
  */
-import { closeDb, createServiceDb, watchPoolOrExit } from "@foundmill/db";
-import { admittedBy, loadEnv, parseSignupAllowlist, servicePort } from "@foundmill/shared";
+import { closeDb, createServiceDb, repos, watchPoolOrExit } from "@foundmill/db";
+import { liveChannelAdmit, loadEnv, servicePort } from "@foundmill/shared";
 import { createLogger } from "@foundmill/shared/logger";
 import { createCollabAuthenticator } from "./auth";
 import { prepareDb } from "./db-boot";
@@ -42,9 +42,9 @@ export async function main(): Promise<void> {
   });
   const keys = auth.keepKeysFresh?.({ onError: (err) => log.warn({ err: (err as Error)?.message }, "fetching Supabase's signing keys failed; retrying in 5 minutes") });
   if (!env.SESSION_TOKEN_SECRET) log.warn({}, "SESSION_TOKEN_SECRET is not set; agents cannot connect to the collab server");
-  // The api's invite list (SIGNUP_ALLOWLIST): a person it does not name opens no spec block either.
-  const allowlist = parseSignupAllowlist(env.SIGNUP_ALLOWLIST);
-  const server = createCollabServer({ db, auth, log, dbReady: () => readiness.ok, admit: (user) => admittedBy(allowlist, user, auth.devUserId) });
+  // The api's rule for who is admitted (the invite list, or an admission it recorded): nobody else opens a spec block.
+  const admit = liveChannelAdmit(env, auth.devUserId, (userId) => repos.admissions.has(db, userId));
+  const server = createCollabServer({ db, auth, log, dbReady: () => readiness.ok, admit });
   await server.listen(servicePort(env, "COLLAB_PORT"));
   log.info({ db: readiness.ok, driver: readiness.driver }, "collab ready");
 

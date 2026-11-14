@@ -127,6 +127,26 @@ export const EVENT_FIXTURES: { readonly [K in EventType]: EventPayloadInput<K> }
     approvalId: fixtureId("approval"),
     occurrence: 1,
   },
+  "task.design_checked": {
+    taskId: fixtureId("task"),
+    kind: "code",
+    title: "Checkout: add travel-size variant",
+    assigneeAgentId: FIXTURE_AGENT_ID,
+    sessionId: fixtureId("session"),
+    result: {
+      status: "reviewed",
+      reason: null,
+      pages: ["/products/hydra-serum"],
+      fixes: [{ rank: 1, page: "/products/hydra-serum", viewport: "phone", element: "the size picker (main > fieldset)", problem: "The page is 520 px wide at 390 px, so it scrolls sideways on a phone.", fix: "Stack the three sizes in one column below 640 px.", principle: "responsive", severity: "high" }],
+      unreadable: [],
+      before: [
+        { id: "before-1-desktop", page: "/products/hydra-serum", viewport: "desktop", width: 1440, height: 900, cut: false, sha256: "a".repeat(64) },
+        { id: "before-1-phone", page: "/products/hydra-serum", viewport: "phone", width: 390, height: 1688, cut: false, sha256: "b".repeat(64) },
+      ],
+      after: [{ id: "after-1-phone", page: "/products/hydra-serum", viewport: "phone", width: 390, height: 1688, cut: false, sha256: "c".repeat(64) }],
+      fixesAsked: true,
+    },
+  },
   "pr.merged": {
     taskId: fixtureId("task"),
     repo: "northwind/shop",
@@ -553,9 +573,21 @@ export const EVENT_FIXTURES: { readonly [K in EventType]: EventPayloadInput<K> }
   "notify.email_sent": { kind: "decision_waiting", userId: fixtureId("user"), inboxItemId: fixtureId("inbox"), messageId: "14c5d75ce93.dfd.64b469.filter0001.16648.5515E0B88.1", simulated: false, notificationId: fixtureId("notification"), offersAnswer: false },
   "push.sent": { kind: "decision", sourceEventId: fixtureId("event-source"), sourceEventType: "inbox.item_created", recipients: 2, devices: 3, provider: "onesignal", mode: "mock", providerMessageIds: [fixtureId("push-1")] },
   "founder.session_started": { via: "email", notificationId: fixtureId("notification"), minutesAway: 720, sessions: 3 },
+  "milestone.shown": { milestoneId: fixtureId("milestone"), key: "page_live", slug: "northwind-skincare", url: `https://foundmill.example/m/${fixtureId("milestone")}` },
+  "milestone.hidden": { milestoneId: fixtureId("milestone"), key: "page_live", slug: "northwind-skincare", url: `https://foundmill.example/m/${fixtureId("milestone")}` },
+  "share.opened": { network: "x", kind: "milestone", refId: fixtureId("milestone"), target: "tap" },
+  "post.drafted": { assetId: fixtureId("asset-post"), trigger: "page_published", subject: "page_live", agentId: FIXTURE_AGENT_ID },
+  "invitation.sent": { invitationId: fixtureId("invitation"), role: "collaborator", emailed: false },
+  "invitation.accepted": { invitationId: fixtureId("invitation"), role: "cofounder", userId: fixtureId("user") },
+  "invitation.declined": { invitationId: fixtureId("invitation"), role: "collaborator" },
   // Account-scoped (a person's own): written with `accountFixtureInput`, never with `fixtureInput`.
   "profile.published": { handle: "maya-okafor" },
   "profile.unpublished": { handle: "maya-okafor" },
+  // One sign-up, two people, two rows: the new person's and the credited person's. A public address and nothing else.
+  "signup.attributed": { sourceKind: "project_page", sourceRef: "northwind-skincare" },
+  "referral.arrived": { sourceKind: "person_profile", sourceRef: "maya-okafor" },
+  // A founder notice for the person emailed: the notice and the project's and the record's ids, nobody's account.
+  "founder_notice.sent": { notice: "removed", businessId: fixtureId("business"), notificationId: fixtureId("notification"), offersCancel: true, simulated: true },
 };
 
 /** A valid `WriteEventInput` for the given business-scoped type, with the fixture payload and envelope. */

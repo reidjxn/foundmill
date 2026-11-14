@@ -257,7 +257,13 @@ export const JourneyDailyRow = z.object({
 });
 export type JourneyDailyRow = z.infer<typeof JourneyDailyRow>;
 
+/**
+ * The milestones the platform records itself, in the order they are listed everywhere. The two early ones come first
+ * (docs/NETWORK.md F3; docs/THESIS_REVIEW.md package 5.3): the project's page going live and its first confirmed
+ * follower, each a real outside result the platform saw happen.
+ */
 export const TROPHY_KEYS = [
+  "page_live", "first_follower",
   "customer_1", "customer_10", "customer_100", "customer_1000",
   "mrr_1k", "mrr_10k", "mrr_100k",
   "first_enterprise_contract",

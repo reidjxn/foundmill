@@ -537,7 +537,77 @@
     {
       "idx": 76,
       "version": "7",
-      "when": 1796129340000,
+      "when": 1796128560000,
+      "tag": "0088_attributions",
+      "breakpoints": true
+    },
+    {
+      "idx": 77,
+      "version": "7",
+      "when": 1796128620000,
+      "tag": "0089_public_milestones",
+      "breakpoints": true
+    },
+    {
+      "idx": 78,
+      "version": "7",
+      "when": 1796128680000,
+      "tag": "0090_page_dates_recorded",
+      "breakpoints": true
+    },
+    {
+      "idx": 79,
+      "version": "7",
+      "when": 1796129580000,
+      "tag": "0091_invitations",
+      "breakpoints": true
+    },
+    {
+      "idx": 80,
+      "version": "7",
+      "when": 1796130180000,
+      "tag": "0092_people_roles",
+      "breakpoints": true
+    },
+    {
+      "idx": 81,
+      "version": "7",
+      "when": 1796130780000,
+      "tag": "0093_admission_cutover",
+      "breakpoints": true
+    },
+    {
+      "idx": 82,
+      "version": "7",
+      "when": 1796131380000,
+      "tag": "0094_collaborator_reads",
+      "breakpoints": true
+    },
+    {
+      "idx": 83,
+      "version": "7",
+      "when": 1796131980000,
+      "tag": "0095_collaborator_money_legal",
+      "breakpoints": true
+    },
+    {
+      "idx": 84,
+      "version": "7",
+      "when": 1796132580000,
+      "tag": "0096_membership_grant_guards",
+      "breakpoints": true
+    },
+    {
+      "idx": 85,
+      "version": "7",
+      "when": 1796133180000,
+      "tag": "0097_founder_departures",
+      "breakpoints": true
+    },
+    {
+      "idx": 86,
+      "version": "7",
+      "when": 1796133780000,
       "tag": "0100_funding_source",
       "breakpoints": true
     }

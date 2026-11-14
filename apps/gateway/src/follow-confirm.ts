@@ -13,7 +13,10 @@
  *      and carrying the nonce the api just reserved (so the api cannot be made to mail an address it did not record);
  *   3. the suppression list (the business's and the platform's);
  *   4. the project's address (`project_mail`) and that Foundmill has not paused it;
- *   5. the project's daily cap and the deployment's ceiling, the same counts as every other send from the address.
+ *   5. the follow confirmations' own day for the project and their own ceiling for the deployment
+ *      (`FOLLOW_CONFIRM_DAILY_CAP` on `pm:<id>:follow`, `FOLLOW_CONFIRM_DAILY_CEILING` on `pm:all:follow`): never the
+ *      project's mail day or the outbound ceiling, so signups, which anyone can make, never use up the email the
+ *      founders and their team send (security audit 2026-11-13, finding 10).
  *
  * It does not step aside for the founder's own SendGrid (that is for the team's mail; this one is the platform's). Every
  * "not sent" is an answer (`sent: false` with a reason), never an error, so the api leaves the record pending and the
@@ -21,9 +24,9 @@
  * consent id and a prefix of the address hash, never the address.
  */
 import { z } from "zod";
-import { APP_NAME } from "@foundmill/config";
+import { APP_NAME, tierShowsBuiltOnMark } from "@foundmill/config";
 import { repos } from "@foundmill/db";
-import { FOLLOW_CONFIRM_EMAIL, FOLLOW_CONFIRM_TTL_MS, mockResultsAllowed, PLATFORM_MAIL_SECRET_MIN_LENGTH, platformMailAddress } from "@foundmill/shared";
+import { builtOnWords, FOLLOW_CONFIRM_EMAIL, FOLLOW_CONFIRM_TTL_MS, mockResultsAllowed, PLATFORM_MAIL_SECRET_MIN_LENGTH, platformMailAddress } from "@foundmill/shared";
 import {
   DEV_PLATFORM_MAIL_SECRET,
   followConfirmNonceHash,
@@ -41,7 +44,7 @@ import {
 } from "@foundmill/connectors";
 import { randomUUID } from "node:crypto";
 import { modeFor, vendorRefusedOutright, type GatewayDeps } from "./pipeline";
-import { PLATFORM_MAIL_POLICY, takePlatformMailDay } from "./platform-mail";
+import { FOLLOW_CONFIRM_CEILING_KEY, FOLLOW_CONFIRM_DAILY_CAP, FOLLOW_CONFIRM_DAILY_CEILING, followConfirmDayKey, PLATFORM_MAIL_POLICY, takePlatformMailDay } from "./platform-mail";
 
 export const CONFIRM_FOLLOW_ROUTE = "/v1/platform-mail/confirm-follow";
 
@@ -97,8 +100,15 @@ export async function sendFollowConfirmation(deps: GatewayDeps, input: ConfirmFo
   const row = await repos.projectMail.ensure(deps.db, input.businessId);
   if (row.status !== "active") return notSent("paused");
 
-  // 5. The same day and ceiling as every message from the address.
-  const counted = await takePlatformMailDay(deps, { businessId: input.businessId, cap: row.dailyCap ?? config.dailyCap, ceiling: config.ceiling, devStack, now: now.getTime() });
+  // 5. The confirmations' own day and ceiling, never the project's mail day or the outbound ceiling.
+  const counted = await takePlatformMailDay(deps, {
+    businessId: input.businessId,
+    cap: config.followCap ?? FOLLOW_CONFIRM_DAILY_CAP,
+    ceiling: config.followCeiling ?? FOLLOW_CONFIRM_DAILY_CEILING,
+    devStack,
+    now: now.getTime(),
+    keys: { project: followConfirmDayKey(input.businessId), all: FOLLOW_CONFIRM_CEILING_KEY },
+  });
   if (!counted.ok) return notSent(POLICY_REASON[counted.policyId] ?? "store");
 
   const messageRef = randomUUID();
@@ -122,7 +132,7 @@ export async function sendFollowConfirmation(deps: GatewayDeps, input: ConfirmFo
   const connector = deps.registry.get(PLATFORM_MAIL_KEY, mode);
   let result;
   try {
-    result = await connector.callTool("send_mail", { to: { email }, subject: FOLLOW_CONFIRM_EMAIL.subject(projectName), text: FOLLOW_CONFIRM_EMAIL.text(projectName, APP_NAME, link) }, ctx);
+    result = await connector.callTool("send_mail", { to: { email }, subject: FOLLOW_CONFIRM_EMAIL.subject(projectName), text: FOLLOW_CONFIRM_EMAIL.text(projectName, APP_NAME, link, tierShowsBuiltOnMark(business.planTier) ? builtOnWords(APP_NAME).foot(projectName) : null) }, ctx);
   } catch (e) {
     if (isConfigError(e)) {
       await counted.release();

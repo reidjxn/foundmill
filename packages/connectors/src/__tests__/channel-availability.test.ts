@@ -1,9 +1,11 @@
 /**
  * Which channels can really act (founder, 2026-11-11). The acting-tools table must name only tools a connector serves
  * (and never a route-only or service-only one, which no agent holds), the channels without a publisher are pinned here
- * so adding one is a deliberate edit, and `channelAvailability` answers each of its four reasons.
+ * so adding one is a deliberate edit, and `channelAvailability` answers each of its five reasons. The fifth, `by_tap`
+ * (founder, 2026-11-12), is the social channel's alone: available with no connector because the founder posts each draft
+ * with one press, never a channel the team runs, and second to `acts`.
  */
-import { CHANNEL_KEYS, type ChannelKey } from "@foundmill/shared";
+import { CHANNEL_BY_TAP_SENTENCE, CHANNEL_KEYS, CHANNELS_SHARED_BY_TAP, TAP_POST_NETWORKS, channelEngineMayRun, channelMayRun, channelTeamRuns, type ChannelKey } from "@foundmill/shared";
 import { describe, expect, it } from "vitest";
 import { createAllConnectors, createBuiltinConnectors } from "../catalogue";
 import { ACTING_CONNECTOR_NAMES, CHANNEL_ACTING_TOOLS, channelAvailabilities, channelAvailability, channelAvailabilityFacts, channelAvailabilityRows, channelRefusal, everyChannelAvailable, firstChannelToOpen, type ChannelAvailabilityFacts } from "../channel-availability";
@@ -51,8 +53,9 @@ describe("CHANNEL_ACTING_TOOLS", () => {
     expect(CHANNEL_ACTING_TOOLS.email_automation).toEqual(["sendgrid:send_mail", "platform_mail:send_mail", "resend:send_mail"]);
     expect(CHANNEL_ACTING_TOOLS.seo).toEqual(["github:commit_files"]);
     expect(CHANNEL_ACTING_TOOLS.geo).toEqual(["github:commit_files"]);
-    expect(acting).toEqual(["email_automation", "seo", "geo"]);
-    expect(empty).toEqual(["lead_generation", "content", "social", "paid_ads", "influencer", "affiliate", "direct_mail", "print", "broadcast", "outdoor", "pr", "events"]);
+    expect(CHANNEL_ACTING_TOOLS.social).toEqual(["buffer:queue_post"]);
+    expect(acting).toEqual(["email_automation", "seo", "geo", "social"]);
+    expect(empty).toEqual(["lead_generation", "content", "paid_ads", "influencer", "affiliate", "direct_mail", "print", "broadcast", "outdoor", "pr", "events"]);
   });
 });
 
@@ -62,12 +65,61 @@ describe("channelAvailability", () => {
   it("simulated_allowed: every channel is available where simulated results are allowed", () => {
     const all = channelAvailabilities(facts({ mockResultsAllowed: true }));
     expect(Object.keys(all)).toHaveLength(15);
-    for (const key of CHANNEL_KEYS) expect(all[key], key).toEqual({ available: true, reason: "simulated_allowed" });
+    // A channel the founder can also post by tap says so there too (the Board shows its sentence on a development stack).
+    for (const key of CHANNEL_KEYS) expect(all[key], key).toEqual(key === "social" ? { available: true, reason: "simulated_allowed", byTap: true } : { available: true, reason: "simulated_allowed" });
   });
 
   it("no_publisher: a channel with no acting tool is not available, whatever is connected", () => {
-    expect(channelAvailability("social", facts({ liveConnectors: "all", connectedConnectors: ["sendgrid", "github"] }))).toEqual({ available: false, reason: "no_publisher" });
+    expect(channelAvailability("content", facts({ liveConnectors: "all", connectedConnectors: ["sendgrid", "github"] }))).toEqual({ available: false, reason: "no_publisher" });
     expect(channelAvailability("print", facts())).toEqual({ available: false, reason: "no_publisher" });
+  });
+
+  it("by_tap: the social channel is available with no connector, because the founder posts each one with one press", () => {
+    // The constant list of channels and at least one network that opens ready to post: both, or nothing.
+    expect(CHANNELS_SHARED_BY_TAP).toEqual(["social"]);
+    expect(TAP_POST_NETWORKS.length).toBeGreaterThan(0);
+    const social = channelAvailability("social", facts());
+    expect(social).toEqual({ available: true, reason: "by_tap", byTap: true });
+    // Whatever else is connected changes nothing while no publishing tool is listed for it.
+    expect(channelAvailability("social", facts({ liveConnectors: "all", connectedConnectors: ["sendgrid", "github"] }))).toEqual({ available: true, reason: "by_tap", byTap: true });
+    // No other channel is by tap.
+    const all = channelAvailabilities(facts());
+    expect(CHANNEL_KEYS.filter((k) => all[k].reason === "by_tap")).toEqual(["social"]);
+    expect(CHANNEL_KEYS.filter((k) => all[k].byTap)).toEqual(["social"]);
+    // On the board, and never a channel the team runs: no engine, nothing launched or measured.
+    expect(channelMayRun(social, false)).toBe(true);
+    expect(channelTeamRuns(social)).toBe(false);
+    expect(channelEngineMayRun(social, false)).toBe(false);
+    // Offline tracking is the founder's own choice and runs as before.
+    expect(channelEngineMayRun(social, true)).toBe(true);
+    expect(channelAvailabilityRows(facts()).social.sentence).toBe(CHANNEL_BY_TAP_SENTENCE);
+  });
+
+  it("acts comes before by_tap: once a publishing connector is connected the team posts; listed and not connected, it stays by tap", () => {
+    const table = { ...CHANNEL_ACTING_TOOLS, social: ["github:commit_files"] } as Record<ChannelKey, readonly string[]>;
+    const acting = channelAvailability("social", facts({ liveConnectors: ["github"], connectedConnectors: ["github"] }), table);
+    expect(acting).toEqual({ available: true, reason: "acts" });
+    expect(channelTeamRuns(acting)).toBe(true);
+    expect(channelEngineMayRun(acting, false)).toBe(true);
+    // The connector exists and is not connected: the founder still posts by tap, and is not told to connect anything.
+    expect(channelAvailability("social", facts({ liveConnectors: ["github"] }), table)).toEqual({ available: true, reason: "by_tap", byTap: true });
+    expect(channelAvailability("social", facts(), table)).toEqual({ available: true, reason: "by_tap", byTap: true });
+  });
+
+  it("the founder's own Buffer: social stays by tap until Buffer is live and connected, then the team posts (the founder approves each post)", () => {
+    // Not connected, or connected but not live on this deployment: by tap, and nothing is asked of the founder.
+    expect(channelAvailability("social", facts({ liveConnectors: ["buffer"] }))).toEqual({ available: true, reason: "by_tap", byTap: true });
+    expect(channelAvailability("social", facts({ connectedConnectors: ["buffer"] }))).toEqual({ available: true, reason: "by_tap", byTap: true });
+    // Live and connected: the connector acts, and the founder's press is no longer how it goes out.
+    for (const live of [["buffer"], "all"] as const) {
+      const acting = channelAvailability("social", facts({ liveConnectors: live, connectedConnectors: ["buffer"] }));
+      expect(acting).toEqual({ available: true, reason: "acts" });
+      expect(channelTeamRuns(acting)).toBe(true);
+      expect(channelEngineMayRun(acting, false)).toBe(true);
+    }
+    expect(channelAvailabilityRows(facts({ liveConnectors: ["buffer"], connectedConnectors: ["buffer"] })).social.sentence).toBeNull();
+    // Another channel's connector does not open social.
+    expect(channelAvailability("social", facts({ liveConnectors: "all", connectedConnectors: ["resend", "github"] }))).toEqual({ available: true, reason: "by_tap", byTap: true });
   });
 
   it("not_connected: the connector is mock here, or the business has not connected it", () => {
@@ -119,9 +171,9 @@ describe("channelAvailability", () => {
   });
 
   it("any one of several acting tools is enough", () => {
-    const table = { ...CHANNEL_ACTING_TOOLS, social: ["sendgrid:send_mail", "github:commit_files"] } as Record<ChannelKey, readonly string[]>;
-    expect(channelAvailability("social", facts({ liveConnectors: ["github"], connectedConnectors: ["github"] }), table)).toEqual({ available: true, reason: "acts" });
-    expect(channelAvailability("social", facts({ liveConnectors: ["github"] }), table)).toEqual({ available: false, reason: "not_connected", connectorKey: "github", connectable: true });
+    const table = { ...CHANNEL_ACTING_TOOLS, content: ["sendgrid:send_mail", "github:commit_files"] } as Record<ChannelKey, readonly string[]>;
+    expect(channelAvailability("content", facts({ liveConnectors: ["github"], connectedConnectors: ["github"] }), table)).toEqual({ available: true, reason: "acts" });
+    expect(channelAvailability("content", facts({ liveConnectors: ["github"] }), table)).toEqual({ available: false, reason: "not_connected", connectorKey: "github", connectable: true });
   });
 });
 
@@ -156,9 +208,10 @@ describe("channelAvailabilityFacts", () => {
   it("rows carry the founder's sentence, the refusal names the channel, and what opens first is the founder's own step or nothing", () => {
     const env = { APP_ENV: "staging", INTEGRATIONS_MODE: "mock", LIVE_CONNECTORS: "" } as const;
     const rows = channelAvailabilityRows(channelAvailabilityFacts(env, { isDemo: false }, []));
-    expect(rows.social).toEqual({ available: false, reason: "no_publisher", sentence: "Not available yet: the team cannot publish here yet." });
+    expect(rows.content).toEqual({ available: false, reason: "no_publisher", sentence: "Not available yet: the team cannot publish here yet." });
+    expect(rows.social).toEqual({ available: true, reason: "by_tap", byTap: true, sentence: "You post each one with one press: the text and link are filled in for you." });
     expect(rows.email_automation).toEqual({ available: false, reason: "not_connected", connectorKey: "sendgrid", connectable: false, sentence: "Not available yet: SendGrid is not switched on for your project yet. Nothing is waiting on you." });
-    expect(channelRefusal("social", rows.social)).toBe("Social media is not available yet: the team cannot publish there yet.");
+    expect(channelRefusal("content", rows.content)).toBe("Content marketing is not available yet: the team cannot publish there yet.");
     expect(firstChannelToOpen(rows)).toBeNull();
 
     const withGithub = channelAvailabilityRows(channelAvailabilityFacts({ ...env, LIVE_CONNECTORS: "github" }, { isDemo: false }, []));
@@ -169,14 +222,20 @@ describe("channelAvailabilityFacts", () => {
     const withSending = channelAvailabilityRows(channelAvailabilityFacts({ ...env, LIVE_CONNECTORS: "github,sendgrid" }, { isDemo: false }, []));
     expect(firstChannelToOpen(withSending)).toEqual({ label: "Email automation", connectorName: "SendGrid", connectable: true });
     const sample = channelAvailabilityRows(channelAvailabilityFacts(env, { isDemo: true }, []));
-    expect(Object.values(sample).every((r) => r.available && r.sentence === null)).toBe(true);
+    // Every channel runs for a sample business; the one the founder can also post by tap says so, the rest say nothing.
+    expect(Object.values(sample).every((r) => r.available)).toBe(true);
+    expect(CHANNEL_KEYS.filter((k) => sample[k].sentence !== null)).toEqual(["social"]);
+    expect(sample.social).toEqual({ available: true, reason: "simulated_allowed", byTap: true, sentence: CHANNEL_BY_TAP_SENTENCE });
   });
 
-  it("production as documented (mock integrations, GitHub live): a person's project gets SEO and GEO once GitHub is connected, and nothing else", () => {
+  it("production as documented (mock integrations, GitHub live): a person's project gets SEO and GEO once GitHub is connected, social by tap from the start, and nothing else", () => {
     const env = { APP_ENV: "staging", INTEGRATIONS_MODE: "mock", LIVE_CONNECTORS: "github,domains" } as const;
     const before = channelAvailabilities(channelAvailabilityFacts(env, { isDemo: false }, []));
-    expect(CHANNEL_KEYS.filter((k) => before[k].available)).toEqual([]);
+    expect(CHANNEL_KEYS.filter((k) => before[k].available)).toEqual(["social"]);
+    // Nothing the team can run yet: the founder's own posting is not a channel that runs on its own.
+    expect(CHANNEL_KEYS.filter((k) => channelTeamRuns(before[k]))).toEqual([]);
     const after = channelAvailabilities(channelAvailabilityFacts(env, { isDemo: false }, [{ connectorKey: "github", status: "connected" }]));
-    expect(CHANNEL_KEYS.filter((k) => after[k].available)).toEqual(["seo", "geo"]);
+    expect(CHANNEL_KEYS.filter((k) => after[k].available)).toEqual(["seo", "geo", "social"]);
+    expect(CHANNEL_KEYS.filter((k) => channelTeamRuns(after[k]))).toEqual(["seo", "geo"]);
   });
 });

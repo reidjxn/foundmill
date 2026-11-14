@@ -14,6 +14,9 @@ export * from "./schemas";
 export * from "./planParams";
 // Team call (docs/TEAM_CALL.md §4): not through ./schemas, which this module imports `PlanAction` from.
 export * from "./team-call-schema";
+// The design check's reviewer (item 13): route `designReview`, the only route that carries images.
+export * from "./design-review-schema";
+export { assertImagesAllowed, countImages, withoutImageData, ImageNotAllowedError, MAX_IMAGES_PER_REQUEST, MAX_IMAGE_BASE64_CHARS, IMAGE_TOKEN_ESTIMATE } from "./images";
 export {
   createModelClient,
   effectiveModelMode,

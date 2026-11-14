@@ -33,6 +33,17 @@ describe("QuickReplies", () => {
     );
   });
 
+  it("every reply, Write and Send reach the 44 px tap target on a phone (phone-today.spec.ts)", async () => {
+    render(
+      <QuickReplies replies={REPLIES} onChoose={() => {}} onSend={() => {}} agentName="Juno" />,
+    );
+    for (const b of numbered()) expect(b.className).toContain("in-data-[phone]:min-h-tap");
+    const write = screen.getByRole("button", { name: "Write" });
+    expect(write.className).toContain("in-data-[phone]:min-h-tap");
+    await userEvent.click(write);
+    expect(screen.getByRole("button", { name: "Send" }).className).toContain("in-data-[phone]:min-h-tap");
+  });
+
   it("draws a reply's description as a small second line under the label, and nothing extra without one", () => {
     const replies: QuickReplyItem[] = [
       { id: "go_with", label: "Go with: Place the order", kind: "choose_option", recommended: true, description: "This answers the note" },

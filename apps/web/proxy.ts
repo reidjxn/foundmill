@@ -5,13 +5,29 @@
  * straight to that business's Home, with no API call; one without it is served /start, which picks; a signed-out visitor
  * gets the prerendered landing page. The founder-profile gate for /b/* (AC-11.1.1) runs server-side in
  * app/b/[bid]/layout.tsx and app/start/page.tsx with the API's `founder.profile.get`.
+ *
+ * Attribution (docs/NETWORK.md §5; lib/via.ts): every address accepts `?via=<reference>`. The first reference a
+ * visitor arrives with is kept in the httpOnly `fm_via` cookie, on whatever this request is answered with (the page, a
+ * redirect or a rewrite); a visitor who already carries one keeps it, and a value that is not a reference changes
+ * nothing. No database write and no API call: the api records it once, when the visitor becomes a person.
  */
+import { VIA_COOKIE, VIA_PARAM } from "@foundmill/shared/via";
 import { NextResponse, type NextRequest } from "next/server";
 import { LAST_BUSINESS_COOKIE } from "@/lib/auth/constants";
 import { decideRedirect } from "@/lib/auth/redirects";
+import { isDevLike } from "@/lib/env";
 import { updateSession } from "@/lib/supabase/middleware";
+import { viaCookie, viaToRemember } from "@/lib/via";
 
 export async function proxy(request: NextRequest) {
+  const answer = await route(request);
+  const via = viaToRemember({ param: request.nextUrl.searchParams.get(VIA_PARAM), existing: request.cookies.get(VIA_COOKIE)?.value });
+  if (via) answer.cookies.set(viaCookie(via, !isDevLike()));
+  return answer;
+}
+
+/** The session refresh and the redirect rules: what the request is answered with. */
+async function route(request: NextRequest): Promise<NextResponse> {
   const { response, authenticated } = await updateSession(request);
   const decision = decideRedirect({ pathname: request.nextUrl.pathname, search: request.nextUrl.search, authenticated, lastBusinessId: request.cookies.get(LAST_BUSINESS_COOKIE)?.value });
   if (decision.kind === "next") return response;

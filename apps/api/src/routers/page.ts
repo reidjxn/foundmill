@@ -10,12 +10,17 @@
  *   (`/p/<slug>/<key>.txt`), or null.
  * - `publicPage.bySlug`: anyone, signed in or not; the view `public_project_pages` only; null for an unknown address
  *   or a page that is not public.
+ * - `publicPage.storyBySlug`, `publicPage.cardById`: anyone; the milestones the founders chose to show (the view
+ *   `public_project_milestones` only, services/milestones.ts): the project's story oldest first, and one card by its id;
+ *   null for anything not public. Showing and hiding are `journey.showMilestone` / `journey.hideMilestone`.
  * - `publicPage.follow`: anyone; signs up to follow a published page whose "Follow" form is on (services/pages.ts
  *   `followPage`, double opt-in: a pending record and one confirmation email). The same `{ ok: true }` whether the
- *   address was new, already following, suppressed or the hidden field was filled.
+ *   address was new, already following, suppressed or the hidden field was filled. A Turnstile token is checked (through
+ *   the gateway) before anything is recorded or sent; without a valid one the answer is `follow_unverified`.
  */
 import { FOLLOW_EMAIL_MAX, PAGE_ABOUT_MAX, PAGE_FOR_WHOM_MAX, PAGE_PITCH_MAX, PAGE_SLUG_MAX, PAGE_STAGES } from "@foundmill/shared";
 import { z } from "zod";
+import { publicCardById, publicStoryBySlug } from "../services/milestones";
 import { followPage, pageView, publicIndexNowKeyFile, publicPageBySlug, publishPage, savePageDraft, setPageSlug, unpublishPage } from "../services/pages";
 import { publicProcedure, router, sectionAdmin, sectionRead, sectionWrite } from "../trpc";
 
@@ -43,6 +48,8 @@ export const pageRouter = router({
 
 export const publicPageRouter = router({
   bySlug: publicProcedure.input(z.object({ slug: z.string().max(PAGE_SLUG_MAX * 2) })).query(({ ctx, input }) => publicPageBySlug(ctx, input.slug)),
+  storyBySlug: publicProcedure.input(z.object({ slug: z.string().max(PAGE_SLUG_MAX * 2) })).query(({ ctx, input }) => publicStoryBySlug(ctx, input.slug)),
+  cardById: publicProcedure.input(z.object({ id: z.string().max(80) })).query(({ ctx, input }) => publicCardById(ctx, input.id)),
   indexNowKeyFile: publicProcedure.input(z.object({ slug: z.string().max(PAGE_SLUG_MAX * 2), key: z.string().max(128) })).query(({ ctx, input }) => publicIndexNowKeyFile(ctx, input)),
   follow: publicProcedure
     .input(
@@ -51,6 +58,7 @@ export const publicPageRouter = router({
         email: z.string().max(FOLLOW_EMAIL_MAX * 2),
         consent: z.boolean(),
         website: z.string().max(500).nullish(),
+        turnstile: z.string().max(4096).nullish(),
       }),
     )
     .mutation(({ ctx, input }) => followPage(ctx, input)),

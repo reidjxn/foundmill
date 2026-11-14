@@ -6,6 +6,7 @@
  * founder. Background helpers are not nodes (Leads first, 2026-11-08): one line under the chart says they run and
  * opens their read-only list. Selecting a node shows its facts and opens the profile.
  */
+import { isOwnerRole } from "@foundmill/shared/constants";
 import { useMemo, useState } from "react";
 import { ExternalLink, Network, UserRoundPlus } from "lucide-react";
 import { Avatar, useAgentPersona, Button, DeptChip, EntityLink, HierarchyChart, KeyValueList, ModelChip, Panel, ProvenanceChip, Switch, Term, formatMoney, layoutHierarchy, type HierarchyKind, type HierarchyNode } from "@foundmill/dugout";
@@ -33,13 +34,15 @@ export function hierarchyKind(agent: AgentRow, departments?: readonly Department
  * whoever is looking at it. Null until the staff list has loaded.
  */
 export function founderOf(staff: readonly MembershipRow[] | undefined): MembershipRow | null {
-  const owners = (staff ?? []).filter((m) => m.role === "owner");
+  // The owner who started it; when none is left, the longest-standing cofounder (equal standing, THESIS_REVIEW 3.3).
+  const started = (staff ?? []).filter((m) => m.role === "owner");
+  const owners = started.length ? started : (staff ?? []).filter((m) => isOwnerRole(m.role));
   return owners.slice().sort((a, b) => Date.parse(String(a.createdAt ?? "")) - Date.parse(String(b.createdAt ?? "")) || a.userId.localeCompare(b.userId))[0] ?? null;
 }
 
 /**
  * Chart nodes. The root is the business's founder (`founder`, the owner), labeled "You" only for that person; a
- * co-founder or staff member looking at it sees the founder there and themselves among the staff. Parents come from
+ * cofounder or anyone else looking at it sees the founder there and themselves among the staff. Parents come from
  * `teamTree`: explicit `lineManagerId` when it points at a live, visible agent; otherwise the first department's lead
  * (not for the lead itself), else the Chief of Staff, else the founder. Background helpers are left out. Staff
  * (humans) hang under the founder when `includeStaff` is on.

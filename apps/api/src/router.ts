@@ -24,7 +24,9 @@ import { legalRouter } from "./routers/legal";
 import { liveRouter } from "./routers/live";
 import { pageRouter, publicPageRouter } from "./routers/page";
 import { productRouter } from "./routers/product";
+import { shareRouter } from "./routers/share";
 import { teamRouter } from "./routers/team";
+import { invitationRouter } from "./routers/people";
 import { todayRouter } from "./routers/today";
 import { chiefOfStaffRouter } from "./routers/chief-of-staff";
 import { conversationRouter } from "./routers/conversation";
@@ -49,6 +51,8 @@ export const appRouter = router({
   goal: goalRouter,
   page: pageRouter,
   publicPage: publicPageRouter,
+  // Tap-to-post: a pressed share control, recorded as a share that was opened (services/shares.ts).
+  share: shareRouter,
   publicPerson: publicPersonRouter,
   today: todayRouter,
   ideaBox: ideaBoxRouter,
@@ -58,6 +62,8 @@ export const appRouter = router({
   distribution: distributionRouter,
   finance: financeRouter,
   team: teamRouter,
+  // The way in: invitations to a project (routers/people.ts).
+  invitation: invitationRouter,
   // agent.conversation.* (the agent's desk) sits beside agent.profile/training/model/autonomy/negotiation.
   agent: mergeRouters(agentRouter, router({ conversation: conversationRouter, speechAccent: speechAccentRouter })),
   teamCall: teamCallRouter,

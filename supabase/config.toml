@@ -3,13 +3,13 @@ project_id = "sdruubitufjqibsjyxlc"
 
 [auth]
 site_url = "https://foundmill.com"
+# Production's sign-in callbacks only (docs/DEPLOY.md §4). Supabase sends the sign-in code to whatever address this list
+# matches, so preview deployments (*.vercel.app) and http://localhost:3000 are never listed here: they belong in a
+# separate development Supabase project. `**` after `callback` because the callback's `next` may carry a `.` or `/`.
+# scripts/supabase-config.test.mjs holds this list to exactly these entries.
 additional_redirect_urls = [
-  "https://foundmill.com/**",
-  "https://www.foundmill.com/**",
-  "https://foundmill.vercel.app/**",
-  "https://foundmill.vercel.app/**",
-  "https://*-fm-2f083c2b.vercel.app/**",
-  "http://localhost:3000/**",
+  "https://foundmill.com/auth/callback**",
+  "https://www.foundmill.com/auth/callback**",
   # The mobile companion app (docs/mobile): a magic link tapped on the phone opens the app on its own scheme.
   "foundmill://auth/callback",
 ]

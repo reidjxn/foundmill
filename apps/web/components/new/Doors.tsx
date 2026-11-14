@@ -24,6 +24,7 @@ import { useTRPC } from "@/lib/trpc-react";
 import { ArchivedBusinesses } from "./ArchivedBusinesses";
 import { StudioFrame } from "./StudioFrame";
 import { commitHref, num, toConcept } from "./ideate/concepts";
+import { FormerProjects } from "@/components/home/FormerProjects";
 
 /** What the example door needs from `business.example.get` (null: no example on this deployment, no door). */
 export interface ExampleDoor {
@@ -222,6 +223,7 @@ export function Doors({ viewer, profileLine, experience, businessCount, backTo, 
         ) : null
       }
     >
+      <FormerProjects className="mb-gutter flex flex-col gap-gutter" />
       <div className={exampleDoor ? "grid grid-cols-3 gap-gutter" : "grid grid-cols-2 gap-gutter"} data-testid="doors" data-doors={exampleDoor ? 3 : 2}>
         {DOORS.map((d) => (
           <DoorCard

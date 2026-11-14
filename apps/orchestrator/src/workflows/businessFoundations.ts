@@ -15,6 +15,9 @@
  * code replays on this one, so the staged path sits behind `patched(FOUNDATIONS_STAGED_PATCH)`: a history recorded
  * without the marker keeps the old single-call path (`legacyBusinessFoundations`) to the end; every new run records the
  * marker and drafts in stages.
+ *
+ * Once written, the drafts get a second read by a different agent (`secondReadDocument`, behind
+ * `patched(FOUNDATIONS_SECOND_READ_PATCH)`); the row is already ready, so it never holds the founder up.
  */
 import { ActivityFailure, ApplicationFailure, patched, proxyActivities } from "@temporalio/workflow";
 import type { Activities, BusinessFoundationsInput, BusinessFoundationsResult, FoundationsStepUsage } from "../activities";
@@ -26,6 +29,11 @@ export const FOUNDATIONS_STAGED_PATCH = "foundations-staged";
  * step; every new run records the marker. Never rename it: recorded histories carry it.
  */
 export const FOUNDATIONS_PAGE_PATCH = "foundations-project-page";
+/**
+ * The patch id of the second read after the drafts are written (activities/second-read.ts). A run recorded before it
+ * replays without the step; every new run records the marker. Never rename it: recorded histories carry it.
+ */
+export const FOUNDATIONS_SECOND_READ_PATCH = "foundations-second-read";
 
 /**
  * The plan: one short call (low effort). The activity heartbeats while it waits, so a lost worker is noticed within a
@@ -39,6 +47,11 @@ const writeStepActs = proxyActivities<Activities>({ startToCloseTimeout: "4 minu
  * when the model fails, so a retry is only for a lost worker or a database error, and it is retried once.
  */
 const pageActs = proxyActivities<Activities>({ startToCloseTimeout: "2 minutes", heartbeatTimeout: "1 minute", retry: { maximumAttempts: 2, initialInterval: "5 seconds", backoffCoefficient: 2 } });
+/**
+ * The second read: at most two model calls and a few web lookups, best effort, after the foundations are written, so it
+ * is tried once and never changes the outcome the founder sees.
+ */
+const secondReadActs = proxyActivities<Activities>({ startToCloseTimeout: "8 minutes", retry: { maximumAttempts: 1 } });
 /** Database writes: short and retried. */
 const writeActs = proxyActivities<Activities>({ startToCloseTimeout: "2 minutes", retry: { maximumAttempts: 5, initialInterval: "2 seconds", backoffCoefficient: 2 } });
 
@@ -103,6 +116,15 @@ export async function businessFoundations(input: BusinessFoundationsInput): Prom
   const model = { route: "foundations", model: usage.model, mode: usage.mode, costMinor: usage.costMinor, costLabel: "Estimate", repaired: usage.repaired, runner: "temporal", staged: true, calls: usage.calls };
   try {
     const applied = await writeActs.applyFoundations({ ...input, model });
+    // A different agent from the author reads what was drafted; its issues reach the founder and the author. The
+    // foundations are already ready: nothing here can fail them.
+    if (applied.applied && patched(FOUNDATIONS_SECOND_READ_PATCH)) {
+      try {
+        await secondReadActs.secondReadDocument({ businessId: input.businessId, kind: "foundations", version: String(input.attempt) });
+      } catch {
+        // No second read this time.
+      }
+    }
     return { status: applied.applied ? "ready" : "skipped", inboxItemId: applied.inboxItemId, error: null };
   } catch {
     return fail(FOUNDATIONS_SAVE_FAILED);

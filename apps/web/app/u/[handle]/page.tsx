@@ -47,7 +47,6 @@ export default async function PublicPersonRoute({ params }: Props) {
       lookingFor={person.lookingFor}
       place={person.place}
       projects={person.projects.map((p) => ({ slug: p.slug, name: p.name, pitch: p.pitch, href: p.path }))}
-      homeHref="/"
     />
   );
 }

@@ -17,7 +17,7 @@
  *   POST /v1/push/send             service JWT (api) → one push notification to registered phones of the mobile app (push.ts)
  *   POST /v1/turnstile/verify              service JWT (api) → the idea box's bot check (turnstile.ts)
  *   POST /v1/platform-mail/confirm-follow  service JWT (api) → the one email asking a page signup to confirm (follow-confirm.ts)
- *   POST /v1/notify/email          service JWT (api, orchestrator) → one email from Foundmill to one of its users about their own project (notify-email.ts)
+ *   POST /v1/notify/email          service JWT (api, orchestrator) → one email from Foundmill to one of its users about their own project (notify-email.ts; an invitation: notify-address-email.ts; a founder notice: notify-founder-notice.ts)
  *   POST /v1/call                  session JWT → the pipeline (allow / ask / deny / rate_limited)
  *   POST /v1/github/archive        session JWT → the Code-tab repository's tarball for a code session's checkout (archive.ts)
  *   POST /v1/github/repository     service JWT (api) → a repository's id and visibility, before it is chosen on the Code tab (code-repository.ts)
@@ -43,6 +43,8 @@ import { MAX_TRANSCRIBE_BODY_BYTES, SPEECH_STREAM_ROUTE, SPEECH_SYNTHESIZE_ROUTE
 import { CONFIRM_FOLLOW_ROUTE, ConfirmFollowRequest, sendFollowConfirmation } from "./follow-confirm";
 import { TURNSTILE_ROUTE, TurnstileVerifyRequest, verifyTurnstile } from "./turnstile";
 import { NOTIFY_EMAIL_ROUTE, NotifyEmailRequest, sendNotifyEmail } from "./notify-email";
+import { AddressEmailRequest, isAddressEmailKind, sendAddressEmail } from "./notify-address-email";
+import { FounderNoticeRequest, isAccountSafetyKind, sendFounderNotice } from "./notify-founder-notice";
 import { handleMcpRequest } from "./mcp";
 import { ARCHIVE_ROUTE, ArchiveRequest, routeOnlyCall, serveArchive } from "./archive";
 import { checkRepository, REPOSITORY_CHECK_ROUTE, RepositoryCheckRequest } from "./code-repository";
@@ -255,7 +257,22 @@ export function createGatewayApp(deps: GatewayDeps, options: GatewayAppOptions):
     await next();
   });
   app.post(NOTIFY_EMAIL_ROUTE, async (c) => {
-    const parsed = NotifyEmailRequest.safeParse(await c.req.json().catch(() => null));
+    const body: unknown = await c.req.json().catch(() => null);
+    // The same sender to an address rather than an account (an invitation): the api's only.
+    if (isAddressEmailKind((body as { kind?: unknown } | null)?.kind)) {
+      if (c.var.service.svc !== "api") throw new GatewayError("forbidden_service", "Only the api asks for an email to an address", 403);
+      const parsed = AddressEmailRequest.safeParse(body);
+      if (!parsed.success) throw new GatewayError("validation", "Send a kind of email and the ids (and the token) that kind needs", 400);
+      return c.json(await sendAddressEmail(deps, parsed.data, c.var.service.svc));
+    }
+    // An account-safety notice (a founder's role lowered, a founder removed, deletion asked for or canceled): the api's only.
+    if (isAccountSafetyKind((body as { kind?: unknown } | null)?.kind)) {
+      if (c.var.service.svc !== "api") throw new GatewayError("forbidden_service", "Only the api asks for a founder notice", 403);
+      const notice = FounderNoticeRequest.safeParse(body);
+      if (!notice.success) throw new GatewayError("validation", "Send a user id, the kind, a business id and the audit entry's id", 400);
+      return c.json(await sendFounderNotice(deps, notice.data, c.var.service.svc));
+    }
+    const parsed = NotifyEmailRequest.safeParse(body);
     if (!parsed.success) throw new GatewayError("validation", "Send a user id, a kind of email, a business id and the ids that kind needs", 400);
     return c.json(await sendNotifyEmail(deps, parsed.data, c.var.service.svc));
   });

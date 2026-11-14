@@ -101,7 +101,8 @@ export function createPushNotifier(deps: PushNotifierDeps, options: { now?: () =
     if (!isPushEventType(event.type)) return { status: "skipped", reason: "not_a_push_event" };
     if (!remember(event.id)) return { status: "skipped", reason: "duplicate" };
     const businessId = event.businessId;
-    const members = await repos.memberships.list(deps.db, businessId);
+    // The project's people now: a collaborator whose access ended gets nothing on their phone (0092).
+    const members = await repos.memberships.list(deps.db, businessId, { activeOnly: true });
     if (members.length === 0) return { status: "skipped", reason: "no_members" };
     const devicesByUser = await repos.devices.forUsers(deps.db, members.map((m) => m.userId));
     if (devicesByUser.size === 0) return { status: "skipped", reason: "no_devices" };

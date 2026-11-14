@@ -13,7 +13,7 @@
  *      and test: the signing secret, an https INGEST_PUBLIC_URL and an https APP_URL); a mock send only where simulated
  *      results are allowed (`mockResultsAllowed`), never for a person's project on staging or production;
  *   2. the business: live and not a sample (`is_demo`): nobody is emailed about a sample;
- *   3. the person: a member of it, not through an example membership, who can read the Inbox;
+ *   3. the person: a member of it now (not through an example membership, not one that has ended), who can read the Inbox;
  *   4. their own switch for this kind (`account_preferences.notifications.email`, the one preference), on, and their
  *      emails not paused (`emails_paused_at`, the pause link);
  *   5. what it is about, by kind. A waiting decision: this business's, still needing an answer, unopened by the person
@@ -22,7 +22,7 @@
  *      they are: `present`), otherwise a day (`NOTIFY_WAIT_MS`); no older than the lookback, and never emailed to this
  *      person before (`notify.email_sent`, the Redis marker `pn:item:<user>:<item>`). The other kinds: a project that
  *      has started (`loadNotifyFacts`), the win, milestone, run or credits note named, within the day's lookback; a
- *      brief with news. Every kind once (`founder_notifications`' dedupe key `<kind>:<id or day>`);
+ *      brief with news (item 10: four sections, its What worked real outcomes only, `briefExtrasFor`). Every kind once (`founder_notifications`' dedupe key `<kind>:<id or day>`);
  *   6. their address, from `auth.users` (never from the request);
  *   7. the counts, in Redis shared by every replica: one email a day per person and project, three a day per person
  *      across every kind and project (the morning brief and weekly review count toward neither: `LIMITED_EMAIL_KINDS`),
@@ -44,11 +44,12 @@
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { APP_NAME } from "@foundmill/config";
-import { loadNotifyFacts, notifyEmailDayKey, repos } from "@foundmill/db";
+import { loadBriefFacts, loadNotifyFacts, notifyEmailDayKey, repos } from "@foundmill/db";
 import { inboxWalls, isWalled, noteAsSeenBy } from "@foundmill/db/inbox-redaction";
 import {
   addDaysToKey,
   agentLabel,
+  BOOKED_SECTION,
   briefIsEmpty,
   briefStats,
   CREDITS_SUBJECTS,
@@ -59,6 +60,7 @@ import {
   ENTITY_MARKUP_RE,
   FOUNDER_NOTIFICATION_LIMITS,
   hasSectionAccess,
+  invitationAcceptedEmail,
   LIMITED_EMAIL_KINDS,
   mockResultsAllowed,
   NOTIFY_EMAIL_REFUSALS,
@@ -70,13 +72,17 @@ import {
   NOTIFY_PER_PROJECT_PER_DAY,
   NOTIFY_WAIT_MS,
   oneClickOption,
+  OUTCOME_SECTION,
   PLATFORM_MAIL_SECRET_MIN_LENGTH,
   platformMailAddress,
+  realOutcomes,
   retentionEmail,
   runTasksDone,
   vacationDayKeys,
+  type BriefExtras,
   type BusinessNotifyFacts,
   type EmailNotificationKind,
+  type InvitationRole,
   type NotifyEmailNotSent,
   type NotifyEmailText,
   type NotifyItemLike,
@@ -105,6 +111,7 @@ export const NotifyEmailRequest = z
       milestoneId: z.guid().optional(),
       runId: z.guid().optional(),
       day: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+      invitationId: z.guid().optional(),
     }),
   })
   .refine(
@@ -121,13 +128,17 @@ export const NotifyEmailRequest = z
         case "daily_brief":
         case "weekly_review":
           return !!data.day;
+        case "invitation_accepted":
+          return !!data.invitationId;
       }
     },
     { message: "the ids this kind needs are missing" },
   );
 export type NotifyEmailRequest = z.infer<typeof NotifyEmailRequest>;
 
-export type NotifyEmailResponse = { sent: true; simulated: boolean; eventId: string | null } | { sent: false; reason: NotifyEmailNotSent; message: string };
+export type NotifyEmailResponse =
+  | { sent: true; simulated: boolean; eventId: string | null; /** A founder notice: whether the email that went carried a one-click cancel. */ offersCancel?: boolean }
+  | { sent: false; reason: NotifyEmailNotSent; message: string };
 
 /** Counter keys, in fixed UTC-day windows: per person and project, and per person. */
 export const notifyProjectDayKey = (userId: string, businessId: string): string => `pn:${userId}:${businessId}:day`;
@@ -142,7 +153,8 @@ const NIL_ID = "00000000-0000-0000-0000-000000000000";
 /** What one kind's own checks found: the words' inputs, the record's dedupe key and the notes it is about. */
 type Subject =
   | { kind: "decision_waiting"; item: { id: string; subject: string; fromAgentId: string | null; blocksContinue: boolean; createdAt: Date }; dedupeKey: string; inboxItemIds: string[]; waiting: NotifyItemLike[] }
-  | { kind: "retention"; plan: RetentionEmailPlan; dedupeKey: string; inboxItemIds: string[]; waiting: NotifyItemLike[] };
+  | { kind: "retention"; plan: RetentionEmailPlan; dedupeKey: string; inboxItemIds: string[]; waiting: NotifyItemLike[] }
+  | { kind: "invitation_accepted"; role: InvitationRole; personName: string | null; dedupeKey: string; inboxItemIds: string[]; waiting: NotifyItemLike[] };
 
 /** The email with each token replaced by a placeholder, for the stored copy (founder_notifications keeps no live link). */
 export function redactLinks(email: { text: string; html: string }, tokens: readonly (string | null | undefined)[]): { text: string; html: string } {
@@ -161,7 +173,7 @@ export async function sendNotifyEmail(deps: GatewayDeps, input: NotifyEmailReque
   const now = deps.now?.() ?? new Date();
   const config = deps.platformMail;
   const { userId, businessId, kind } = input;
-  const ref = input.data.inboxItemId ?? input.data.milestoneId ?? input.data.runId ?? input.data.day ?? "";
+  const ref = input.data.inboxItemId ?? input.data.milestoneId ?? input.data.runId ?? input.data.day ?? input.data.invitationId ?? "";
   const notSent = (reason: NotifyEmailNotSent): NotifyEmailResponse => {
     deps.log.info({ businessId, userId, kind, reason }, "notify email not sent");
     return { sent: false, reason, message: NOTIFY_EMAIL_REFUSALS[reason] };
@@ -182,8 +194,8 @@ export async function sendNotifyEmail(deps: GatewayDeps, input: NotifyEmailReque
   if (business.isDemo) return notSent("sample");
   if (mode === "mock" && deps.appEnv !== undefined && !mockResultsAllowed(deps.appEnv, business.isDemo)) return notSent("simulated");
 
-  // 3. A member (not an example visitor) who can read the Inbox.
-  const membership = await repos.memberships.get(deps.db, businessId, userId).catch(() => null);
+  // 3. A member (not an example visitor, not a collaborator whose access ended) who can read the Inbox.
+  const membership = await repos.memberships.getActive(deps.db, businessId, userId).catch(() => null);
   if (!membership || membership.source === "example" || !hasSectionAccess(membership, "inbox", "read")) return notSent("not_member");
 
   // 4. Their own switch for this kind, and every email not paused (one preference: `notifications.email`).
@@ -193,9 +205,16 @@ export async function sendNotifyEmail(deps: GatewayDeps, input: NotifyEmailReque
   if (extra.emailsPausedAt) return notSent("paused");
 
   // 5. What the email is about, read again here, by kind.
-  const facts: BusinessNotifyFacts | null = kind === "decision_waiting" ? null : await loadNotifyFacts(deps.db, businessId, now);
+  const facts: BusinessNotifyFacts | null = kind === "decision_waiting" || kind === "invitation_accepted" ? null : await loadNotifyFacts(deps.db, businessId, now);
   let subject: Subject;
-  if (kind === "decision_waiting") {
+  if (kind === "invitation_accepted") {
+    // The invitation this person made, in this business, accepted within the day's lookback; the person who joined by
+    // the name on their profile, if they have one yet. A project need not have started (people join before).
+    const invitation = await repos.invitations.get(deps.db, businessId, input.data.invitationId!);
+    if (!invitation || invitation.state !== "accepted" || invitation.invitedByUserId !== userId || !invitation.acceptedAt || now.getTime() - invitation.acceptedAt.getTime() > FOUNDER_NOTIFICATION_LIMITS.lookbackMs) return notSent("not_waiting");
+    const joined = invitation.acceptedByUserId ? await repos.founders.get(deps.db, invitation.acceptedByUserId).catch(() => null) : null;
+    subject = { kind: "invitation_accepted", role: invitation.role, personName: joined?.displayName?.trim() || null, dedupeKey: `invitation_accepted:${invitation.id}`, inboxItemIds: [], waiting: [] };
+  } else if (kind === "decision_waiting") {
     const inboxItemId = input.data.inboxItemId!;
     const item = await repos.notifyEmail.stillWaiting(deps.db, businessId, inboxItemId, userId);
     if (!item) return notSent("not_waiting");
@@ -222,9 +241,17 @@ export async function sendNotifyEmail(deps: GatewayDeps, input: NotifyEmailReque
     // A project that has not started (no commit yet) gets no brief, win or milestone email; a waiting note still does.
     if (!facts) return notSent("not_started");
     const recent = (at: Date) => now.getTime() - at.getTime() <= FOUNDER_NOTIFICATION_LIMITS.lookbackMs;
-    const plan = retentionPlanOf(kind, input.data, facts, userId, recent);
+    const plan = retentionPlanOf(kind as Exclude<EmailNotificationKind, "decision_waiting" | "invitation_accepted">, input.data, facts, userId, recent);
     if (!plan) return notSent("not_waiting");
-    if ((plan.kind === "daily_brief" || plan.kind === "weekly_review") && briefIsEmpty(plan.stats, plan.waiting)) return notSent("nothing_new");
+    if (plan.kind === "daily_brief" || plan.kind === "weekly_review") {
+      // Today's brief already went out: its window now starts at it, so say so before reading the window.
+      if (await repos.notifications.exists(deps.db, businessId, userId, `${kind}:${ref}`)) return notSent("already_sent");
+      // The four sections (item 10): real outcomes, what's booked and what's next, as this person may see them.
+      const brief = await briefExtrasFor(deps, { businessId, userId, membership, prefs, timeZone: extra.timeZone ?? business.timeZone, weekly: plan.kind === "weekly_review", now });
+      plan.stats = briefStats(facts, brief.since);
+      plan.extras = brief.extras;
+      if (briefIsEmpty(plan.stats, plan.waiting, plan.extras, now)) return notSent("nothing_new");
+    }
     const itemIds = plan.kind === "win" || plan.kind === "credits" ? [plan.item.id] : plan.kind === "milestone" ? (plan.itemId ? [plan.itemId] : []) : plan.waiting.slice(0, 5).map((i) => i.id);
     subject = { kind: "retention", plan, dedupeKey: `${kind}:${ref}`, inboxItemIds: itemIds, waiting: plan.kind === "run_finished" || plan.kind === "daily_brief" || plan.kind === "weekly_review" ? plan.waiting : [] };
   }
@@ -295,7 +322,9 @@ export async function sendNotifyEmail(deps: GatewayDeps, input: NotifyEmailReque
   const profile = await repos.founders.get(deps.db, userId).catch(() => null);
   const withVia = (url: string) => `${url}${url.includes("?") ? "&" : "?"}via=email&n=${notificationId}`;
   let words: NotifyEmailText;
-  if (subject.kind === "decision_waiting") {
+  if (subject.kind === "invitation_accepted") {
+    words = invitationAcceptedEmail({ appName: APP_NAME, recipientName: profile?.displayName ?? null, personName: subject.personName, projectName: business.name, role: subject.role, link: withVia(`${appUrl}/b/${businessId}/settings/members`), offLink: offUrl, pauseLink });
+  } else if (subject.kind === "decision_waiting") {
     const item = subject.item;
     const agent = item.fromAgentId ? await repos.agents.get(deps.db, businessId, item.fromAgentId).catch(() => null) : null;
     const agentName = agent ? agentLabel({ name: agent.name, role: agent.role, personaKey: agent.personaKey, agentType: agent.agentType, layer: agent.layer }, prefs.anthropomorphicAgents, prefs.agentStyle) : null;
@@ -326,6 +355,7 @@ export async function sendNotifyEmail(deps: GatewayDeps, input: NotifyEmailReque
       pauseLink,
       hideSubjects,
       streak,
+      now,
       oneClick: answer && answerLink ? { itemId: answer.item.id, label: answer.option.label, consequence: answer.option.consequence, url: answerLink } : null,
     });
   }
@@ -370,7 +400,7 @@ export async function sendNotifyEmail(deps: GatewayDeps, input: NotifyEmailReque
   await repos.notifications.markSent(deps.db, businessId, notificationId, { mode, providerMessageId: messageId, at: now });
   // The note the email was about, when it was about one (never the waiting notes a brief lists: those can still get
   // their own email).
-  const aboutItemId = subject.kind === "decision_waiting" ? subject.item.id : subject.plan.kind === "win" || subject.plan.kind === "credits" ? subject.plan.item.id : subject.plan.kind === "milestone" ? subject.plan.itemId : null;
+  const aboutItemId = subject.kind === "invitation_accepted" ? null : subject.kind === "decision_waiting" ? subject.item.id : subject.plan.kind === "win" || subject.plan.kind === "credits" ? subject.plan.item.id : subject.plan.kind === "milestone" ? subject.plan.itemId : null;
   let eventId: string | null = null;
   try {
     const event = await deps.db.transaction((tx) =>
@@ -392,7 +422,7 @@ export async function sendNotifyEmail(deps: GatewayDeps, input: NotifyEmailReque
 }
 
 /** The retention kind's plan from the facts the gateway read itself; null when what the ids name is not there (or too old). */
-function retentionPlanOf(kind: Exclude<EmailNotificationKind, "decision_waiting">, data: NotifyEmailRequest["data"], facts: BusinessNotifyFacts, userId: string, recent: (at: Date) => boolean): RetentionEmailPlan | null {
+function retentionPlanOf(kind: Exclude<EmailNotificationKind, "decision_waiting" | "invitation_accepted">, data: NotifyEmailRequest["data"], facts: BusinessNotifyFacts, userId: string, recent: (at: Date) => boolean): RetentionEmailPlan | null {
   switch (kind) {
     case "win": {
       const item = facts.recentItems.find((i) => i.id === data.inboxItemId && i.type === "customer_won");
@@ -421,6 +451,35 @@ function retentionPlanOf(kind: Exclude<EmailNotificationKind, "decision_waiting"
       return { kind, day: data.day!, stats: briefStats(facts, since), waiting: facts.openDecisions };
     }
   }
+}
+
+/**
+ * The brief's window and its extra sections for one person (item 10, Nov 13, 2026). The window starts at this person's
+ * last brief from this business (a day back when there is none, a week at most; a week for the weekly review). What
+ * worked is the real outcomes only (`realOutcomes`: nothing simulated), each kind behind the wall of the section it
+ * belongs to (`OUTCOME_SECTION`), booked facts behind theirs (`BOOKED_SECTION`), What's next only with Development read.
+ */
+async function briefExtrasFor(
+  deps: GatewayDeps,
+  q: { businessId: string; userId: string; membership: Parameters<typeof hasSectionAccess>[0]; prefs: { anthropomorphicAgents: boolean; agentStyle: Parameters<typeof agentLabel>[2] }; timeZone: string | null; weekly: boolean; now: Date },
+): Promise<{ since: Date; extras: BriefExtras }> {
+  const facts = await loadBriefFacts(deps.db, q.businessId, q.userId, q.now);
+  const week = q.now.getTime() - 7 * DAY_MS;
+  const since = new Date(q.weekly ? week : facts.lastBriefAt ? Math.max(facts.lastBriefAt.getTime(), week) : q.now.getTime() - DAY_MS);
+  const can = (section: Parameters<typeof hasSectionAccess>[1] | null) => section === null || hasSectionAccess(q.membership, section, "read");
+  const outcomes = realOutcomes(facts.events, since, q.now).filter((o) => can(OUTCOME_SECTION[o.kind]));
+  const agentNames = Object.fromEntries(facts.agents.map((a) => [a.id, agentLabel(a, q.prefs.anthropomorphicAgents, q.prefs.agentStyle)]));
+  return {
+    since,
+    extras: {
+      outcomes,
+      booked: facts.booked.filter((b) => can(BOOKED_SECTION[b.kind])),
+      next: can("development") ? { running: facts.running, queued: facts.queued, autopilotNextAt: facts.autopilotNextAt, stopped: facts.stopped } : null,
+      timeZone: q.timeZone,
+      agentNames,
+      recipientUserId: q.userId,
+    },
+  };
 }
 
 /** The first waiting note a one-click answer may answer (`oneClickOption`), for someone who may answer in the Inbox. */
