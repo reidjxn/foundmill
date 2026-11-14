@@ -11,7 +11,7 @@ const meta = {
     docs: {
       description: {
         component:
-          "“Follow {name}” on a project's public page: an email field, a required consent box, a hidden field for programs that fill in every field, and “Follow”. After a signup, one line and nothing else. Server-safe; apps/web passes a Server Action and the state it returns, so it works without JavaScript. Every control is at least 44 px tall.",
+          "“Follow {name}” on a project's public page: an email field, a required consent box, a hidden field for programs that fill in every field, and “Follow”, with the bot check's disclosure under it (“Protected by Cloudflare Turnstile (privacy)”, on every plan). After a signup, one line and nothing else. Server-safe; apps/web passes a Server Action and the state it returns, so it works without JavaScript. Every control is at least 44 px tall.",
       },
     },
   },
@@ -27,6 +27,8 @@ const Phone: Decorator = (Story) => (
 );
 
 export const Empty390: Story = { name: "390 px", decorators: [Phone] };
+/** The bot check's disclosure under the button, the same on every plan; apps/web also passes the widget's box. */
+export const BotCheck390: Story = { name: "390 px · the bot check's line", decorators: [Phone], args: { widgetRef: () => undefined } };
 export const Sending390: Story = { name: "390 px · sending", decorators: [Phone], args: { pending: true } };
 export const EmailError390: Story = { name: "390 px · the address is not usable", decorators: [Phone], args: { state: { status: "error", field: "email", message: FOLLOW_ERRORS.email, email: "maya@" } } };
 export const ConsentError390: Story = { name: "390 px · the box is not ticked", decorators: [Phone], args: { state: { status: "error", field: "consent", message: FOLLOW_ERRORS.consent, email: "maya@example.com" } } };

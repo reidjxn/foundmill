@@ -15,7 +15,8 @@
  *   null for anything not public. Showing and hiding are `journey.showMilestone` / `journey.hideMilestone`.
  * - `publicPage.follow`: anyone; signs up to follow a published page whose "Follow" form is on (services/pages.ts
  *   `followPage`, double opt-in: a pending record and one confirmation email). The same `{ ok: true }` whether the
- *   address was new, already following, suppressed or the hidden field was filled.
+ *   address was new, already following, suppressed or the hidden field was filled. A Turnstile token is checked (through
+ *   the gateway) before anything is recorded or sent; without a valid one the answer is `follow_unverified`.
  */
 import { FOLLOW_EMAIL_MAX, PAGE_ABOUT_MAX, PAGE_FOR_WHOM_MAX, PAGE_PITCH_MAX, PAGE_SLUG_MAX, PAGE_STAGES } from "@foundmill/shared";
 import { z } from "zod";
@@ -57,6 +58,7 @@ export const publicPageRouter = router({
         email: z.string().max(FOLLOW_EMAIL_MAX * 2),
         consent: z.boolean(),
         website: z.string().max(500).nullish(),
+        turnstile: z.string().max(4096).nullish(),
       }),
     )
     .mutation(({ ctx, input }) => followPage(ctx, input)),

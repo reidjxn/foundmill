@@ -336,8 +336,18 @@ export function followWords(name: string) {
     done: `Check your email to confirm. ${n} will only write to you after you do.`,
     /** The label of the hidden field people never see (programs that fill in every field fill it in). */
     trap: "Leave this empty",
+    /**
+     * The bot check's disclosure under the button, on every plan (a legal disclosure, not the "Built on" mark): the
+     * line, then "(privacy)" linking Cloudflare's Turnstile Privacy Addendum (`TURNSTILE_PRIVACY_URL`).
+     */
+    botCheck: "Protected by Cloudflare Turnstile",
+    botCheckLink: "privacy",
+    botCheckLinkLabel: "Cloudflare Turnstile privacy policy (opens in a new tab)",
   } as const;
 }
+
+/** Cloudflare's Turnstile Privacy Addendum, which a site using Turnstile in Invisible mode must link. */
+export const TURNSTILE_PRIVACY_URL = "https://www.cloudflare.com/turnstile-privacy-policy/";
 
 /** Why a signup did not go through, in the visitor's words. */
 export const FOLLOW_ERRORS = {
@@ -346,7 +356,13 @@ export const FOLLOW_ERRORS = {
   busy: "A lot of people are signing up right now. Try again in a few minutes.",
   closed: "This project is not taking new followers right now.",
   failed: "That did not go through, so you are not following yet. Try again in a moment.",
+  /** The bot check (Turnstile) did not pass, or could not run in this browser (no JavaScript). */
+  unverified: "We could not check this browser, so you are not following yet. Reload the page and try again.",
+  /** The bot check could not be reached: nothing is recorded or sent until it can be. */
+  unavailable: "Following is paused for a moment, so you are not following yet. Try again in a few minutes.",
 } as const;
+/** The action the page's Turnstile widget runs with; the gateway checks Cloudflare reports the same. */
+export const FOLLOW_TURNSTILE_ACTION = "page_follow";
 export type FollowErrorKind = keyof typeof FOLLOW_ERRORS;
 
 const EMAIL_SHAPE = /^[^\s@<>()[\]\\,;:"]+@[^\s@<>()[\]\\,;:"]+\.[^\s@<>()[\]\\,;:"]{2,}$/;
