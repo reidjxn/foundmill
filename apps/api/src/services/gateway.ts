@@ -214,15 +214,32 @@ export interface GatewayConfirmFollowRequest {
 export type GatewayConfirmFollowResult = { sent: true; simulated: boolean } | { sent: false; reason: string };
 
 /** One email from Foundmill to one of its users (apps/gateway notify-email.ts `NotifyEmailRequest`): ids only. */
-export interface GatewayNotifyEmailRequest {
-  userId: string;
-  kind: EmailNotificationKind;
-  businessId: string;
-  data: { inboxItemId: string };
-}
+export type GatewayNotifyEmailRequest =
+  | {
+      userId: string;
+      kind: EmailNotificationKind;
+      businessId: string;
+      /** A note for every kind the api asks for but `invitation_accepted`, which names the invitation that was accepted. */
+      data: { inboxItemId: string; invitationId?: undefined; auditId?: undefined } | { invitationId: string; inboxItemId?: undefined; auditId?: undefined };
+    }
+  | {
+      userId: string;
+      /** An account-safety notice (security review P2-3; apps/gateway notify-founder-notice.ts): the audit entry it is about. */
+      kind: "founder_notice";
+      businessId: string;
+      /** The one-click cancel this person's email carries, minted by the api (only its hash is stored). */
+      data: { auditId: string; cancelToken?: string; inboxItemId?: undefined; invitationId?: undefined };
+    };
+
+/**
+ * The same sender's email to an address rather than an account (`ADDRESS_EMAIL_KINDS`: an invitation): the gateway
+ * reads the address from the invitation. Its link carries the one-time token only the api saw; it is sent here, and the
+ * gateway checks it against the invitation's hash before it builds the link.
+ */
+export type GatewayAddressEmailRequest = { kind: "invitation"; data: { invitationId: string; token: string } };
 
 /** Sent (on the mock: simulated), or not, with the gateway's reason and a plain sentence; never an error for "not sent". */
-export type GatewayNotifyEmailResult = { sent: true; simulated: boolean; eventId: string | null } | { sent: false; reason: string; message: string };
+export type GatewayNotifyEmailResult = { sent: true; simulated: boolean; eventId: string | null; /** A founder notice: whether the email that went carried a one-click cancel. */ offersCancel?: boolean } | { sent: false; reason: string; message: string };
 
 /** A Turnstile token to check for the idea box (apps/gateway turnstile.ts `TurnstileVerifyRequest`). */
 export interface GatewayTurnstileRequest {
@@ -277,6 +294,8 @@ export interface ApiGatewayClient {
    * re-checks the person, the note and the day's counts, builds the words and sends; the api's notify pass asks.
    */
   notifyEmail(input: GatewayNotifyEmailRequest): Promise<GatewayNotifyEmailResult>;
+  /** The same sender (`POST /v1/notify/email`) to an address rather than an account: an invitation. Absent (test doubles): not sent. */
+  addressEmail?(input: GatewayAddressEmailRequest): Promise<GatewayNotifyEmailResult>;
   /**
    * One agent turn spoken in a speech accent (Team call). Asked only when `elevenlabs` runs live; the gateway checks the
    * accent (400 `unknown_speech_accent`), the words (1 to 600 characters) and the business's day of spoken characters
@@ -371,6 +390,7 @@ export function createApiGatewayClient(opts: CreateApiGatewayClientOptions): Api
     confirmFollow: (input) => post<GatewayConfirmFollowResult>("/v1/platform-mail/confirm-follow", input, Math.min(timeoutMs, CONFIRM_FOLLOW_TIMEOUT_MS)),
     verifyTurnstile: (input) => post<GatewayTurnstileResult>("/v1/turnstile/verify", input, Math.min(timeoutMs, TURNSTILE_CLIENT_TIMEOUT_MS)),
     notifyEmail: (input) => post<GatewayNotifyEmailResult>("/v1/notify/email", input, Math.min(timeoutMs, CONFIRM_FOLLOW_TIMEOUT_MS)),
+    addressEmail: (input) => post<GatewayNotifyEmailResult>("/v1/notify/email", input, Math.min(timeoutMs, CONFIRM_FOLLOW_TIMEOUT_MS)),
     synthesizeSpeech: (input) => post<GatewaySpeech>("/v1/speech/synthesize", input, Math.max(timeoutMs, SPEECH_CLIENT_TIMEOUT_MS)),
     transcribeSpeech: (input) => post<GatewayTranscript>("/v1/speech/transcribe", input, Math.max(timeoutMs, TRANSCRIBE_CLIENT_TIMEOUT_MS)),
     validateKey: (businessId, apiKey) => post<GatewayKeyValidation>("/v1/keys/validate", { businessId, apiKey }),

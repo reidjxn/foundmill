@@ -40,6 +40,7 @@ import { writeEventRow } from "./events";
 import { decodeJobId, importSourceRow, importStatus, localJobAt, validateConfigs, type ImportStatus, type ScoutingReport } from "./import";
 import type { ApiLogger } from "./log";
 import { WORKFLOWS, workflowIds, type TemporalService } from "./temporal";
+import { ungated } from "./tx-gate";
 
 export interface FoundationsDeps {
   db: Db;
@@ -199,7 +200,9 @@ async function startClaimed(deps: FoundationsDeps, row: BusinessFoundationsRow):
   }
   deps.log.info({ businessId: row.businessId, attempt: row.attempt, reason: started.reason }, "foundations: Temporal did not answer; drafting in the api");
   const updated = await repos.foundations.setRunner(deps.db, row.businessId, row.attempt, { runner: "local", workflowId: null });
-  const run = runFoundationsLocally(deps, row.businessId, row.attempt).finally(() => inFlight.delete(run));
+  // The drafting outlives the request that started it: it runs on the database itself, not on the request's gated
+  // view, which refuses new transactions once the browser has closed the request (tx-gate.ts, #95).
+  const run = runFoundationsLocally({ ...deps, db: ungated(deps.db) }, row.businessId, row.attempt).finally(() => inFlight.delete(run));
   inFlight.add(run);
   return { view: foundationsView(updated ?? row), started: true };
 }

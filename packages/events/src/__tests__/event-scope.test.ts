@@ -41,8 +41,8 @@ describe("event scope", () => {
     expect(eventTypesOfScope("business").length + eventTypesOfScope("account").length).toBe(EVENT_TYPES.length);
   });
 
-  it("the account-scoped types are the two profile events and the two attribution events, each in the vocabulary", () => {
-    expect([...ACCOUNT_EVENT_TYPES]).toEqual(["profile.published", "profile.unpublished", "signup.attributed", "referral.arrived"]);
+  it("the account-scoped types are the two profile events, the two attribution events and the founder notice, each in the vocabulary", () => {
+    expect([...ACCOUNT_EVENT_TYPES]).toEqual(["profile.published", "profile.unpublished", "signup.attributed", "referral.arrived", "founder_notice.sent"]);
     // Where they sit in the vocabulary is not pinned: every team appends its types at the end, of either scope.
     for (const type of ACCOUNT_EVENT_TYPES) expect(EVENT_TYPES as readonly string[]).toContain(type);
     for (const type of ACCOUNT_EVENT_TYPES) {
@@ -50,7 +50,7 @@ describe("event scope", () => {
       expect(decl.scope).toBe("account");
       // The Composer writes a project's Inbox: a person's own fact is never narrated there.
       expect(decl.narratable).toBe(false);
-      expect(decl.recordIds).toEqual([]);
+      expect(decl.recordIds).toEqual(type === "founder_notice.sent" ? ["businessId", "notificationId"] : []);
     }
     for (const type of ["profile.published", "profile.unpublished"] as const) {
       expect(EVENTS[type].consumers).toEqual(["stream"]);

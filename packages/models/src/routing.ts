@@ -49,6 +49,8 @@ export const SPEECH_MODELS = {
   call_speech: "eleven_flash_v2_5",
   /** What the founder said on a call, transcribed. */
   call_transcription: "scribe_v3",
+  /** A voiceover for a short post video, on the founder's own ElevenLabs key (the `elevenlabs_voice` connector). Multilingual v2: $0.08 per 1,000 characters on the API prices (Nov 13, 2026), 10,000 characters a request. */
+  post_voiceover: "eleven_multilingual_v2",
 } as const;
 export type SpeechModelKey = keyof typeof SPEECH_MODELS;
 
@@ -108,6 +110,8 @@ export interface RouteDefinition {
   speed?: Extract<Speed, "fast">;
   /** `max_tokens` when the request sends none: the reply plus the thinking at the route's effort (header). */
   maxTokens: number;
+  /** The route may send images with a message (`ChatMessage.images`); the client refuses images on any other route. */
+  vision?: boolean;
 }
 
 export const ROUTES = {
@@ -122,6 +126,11 @@ export const ROUTES = {
   leadRecommendation: { model: "opus", effort: "low", maxTokens: THINKING_MAX_TOKENS },
   planner: { model: "opus", effort: "low", maxTokens: THINKING_MAX_TOKENS },
   codeReview: { model: "opus", maxTokens: THINKING_MAX_TOKENS },
+  // The second read of a long document an agent drafted (the specification, the roadmap, policies, a pitch): a different
+  // agent checks it for inconsistencies, unsupported claims, unlabeled figures and claims that need a source. Nobody
+  // waits on it, so Opus at the default effort; the cost is bounded by the caller (packages/agents second-read.ts: two
+  // rounds at most, the document cut to a fixed size, a few claims fact-checked), never by this budget.
+  documentReview: { model: "opus", maxTokens: THINKING_MAX_TOKENS },
   // Concept cards, compare and the card Q&A (Ideation Studio): first drafts the founder waits on.
   ideation: { model: "opus", effort: "low", speed: "fast", maxTokens: LOW_EFFORT_MAX_TOKENS },
   // A short slate of names and angles drafted before the cards are written in parallel (audit P2).
@@ -165,8 +174,17 @@ export const ROUTES = {
   // The call's summary and its action items as typed plan actions, written once when the call ends: Opus, which the
   // plan compiler also uses, because a wrong action files real work.
   teamCallWrapUp: { model: "opus", effort: "low", maxTokens: LOW_EFFORT_MAX_TOKENS },
+  // The design check (item 13): a separate reviewer looks at the screenshots of the pages a code agent changed in a
+  // founder's project (desktop and 390 px) and returns a short ranked list of fixes. The only route that carries images;
+  // Opus for taste, at low effort because it runs inside the agent's session, before the acceptance tests.
+  designReview: { model: "opus", effort: "low", vision: true, maxTokens: LOW_EFFORT_MAX_TOKENS },
 } as const satisfies Record<string, RouteDefinition>;
 export type RouteKey = keyof typeof ROUTES;
+
+/** Whether a route may send images (`RouteDefinition.vision`). */
+export function routeAcceptsImages(route: RouteKey): boolean {
+  return (ROUTES[route] as RouteDefinition).vision === true;
+}
 
 export type RouteResolution = {
   route: RouteKey;

@@ -37,6 +37,7 @@ export const ROUTE_KEYS = [
   "leadRecommendation",
   "planner",
   "codeReview",
+  "documentReview",
   "ideation",
   "ideationSlate",
   "logoDesigner",
@@ -58,6 +59,7 @@ export const ROUTE_KEYS = [
   "projectPage",
   "teamCallTurn",
   "teamCallWrapUp",
+  "designReview",
 ] as const;
 export const RouteKey = z.enum(ROUTE_KEYS);
 export type RouteKey = (typeof ROUTE_KEYS)[number];
@@ -76,6 +78,7 @@ export const ROUTE_DEFAULT_MODEL: Record<RouteKey, ModelKey> = {
   leadRecommendation: "opus",
   planner: "opus",
   codeReview: "opus",
+  documentReview: "opus",
   ideation: "opus",
   ideationSlate: "opus",
   logoDesigner: "opus",
@@ -97,6 +100,7 @@ export const ROUTE_DEFAULT_MODEL: Record<RouteKey, ModelKey> = {
   projectPage: "sonnet",
   teamCallTurn: "sonnet",
   teamCallWrapUp: "opus",
+  designReview: "opus",
 };
 
 // ---------------------------------------------------------------------------------------------------------------------

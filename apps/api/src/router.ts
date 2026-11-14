@@ -27,6 +27,7 @@ import { pageQuizRouter, publicQuizRouter } from "./routers/page-quiz";
 import { productRouter } from "./routers/product";
 import { shareRouter } from "./routers/share";
 import { teamRouter } from "./routers/team";
+import { invitationRouter } from "./routers/people";
 import { todayRouter } from "./routers/today";
 import { chiefOfStaffRouter } from "./routers/chief-of-staff";
 import { conversationRouter } from "./routers/conversation";
@@ -65,6 +66,8 @@ export const appRouter = router({
   distribution: distributionRouter,
   finance: financeRouter,
   team: teamRouter,
+  // The way in: invitations to a project (routers/people.ts).
+  invitation: invitationRouter,
   // agent.conversation.* (the agent's desk) sits beside agent.profile/training/model/autonomy/negotiation.
   agent: mergeRouters(agentRouter, router({ conversation: conversationRouter, speechAccent: speechAccentRouter })),
   teamCall: teamCallRouter,

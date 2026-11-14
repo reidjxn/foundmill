@@ -75,6 +75,7 @@ export const CRAFT_SKILLS: Record<string, CatalogueEntry> = {
   accessibility: { name: "Accessibility", description: "Delivers keyboard, focus, contrast and screen-reader support on every interaction." },
   state_management: { name: "State management", description: "Keeps one source of truth per piece of state and predictable updates." },
   layout_precision: { name: "Layout precision", description: "Gets spacing, alignment and type scale right at 1440 px and 1280 px." },
+  design_principles: { name: "Design principles", description: "Builds screens with clear hierarchy, one spacing and type scale, readable contrast, restrained color, real content, every state and layouts that work at 390 px and on desktop." },
   data_pipelines: { name: "Data pipelines", description: "Builds idempotent, replay-safe data flows that handle duplicates and late events." },
   data_quality: { name: "Data quality", description: "Adds checks and fixtures that catch wrong, missing or duplicate data before it is shown." },
   sql_analytics: { name: "SQL analytics", description: "Writes correct, business-scoped, read-only analytical queries with documented definitions." },

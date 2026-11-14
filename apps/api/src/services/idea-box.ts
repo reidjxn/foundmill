@@ -13,7 +13,7 @@ import { createHash, randomBytes } from "node:crypto";
 import { buildIdeaBoxCardRequest, IDEATION_CARD_MAX_TOKENS, IDEATION_CARD_ROUTE } from "@foundmill/agents";
 import { IDEA_DRAFT_SWEEP_BATCH, repos, type IdeaDraftRow } from "@foundmill/db";
 import { IdeaAttribute, isModelBillingError, meter, ModelOutputError, resolveModel, streamStructured, type ConceptCard, type ModelClient } from "@foundmill/models";
-import { IDEA_BOX_ERRORS, IdeaBoxDraftRequest, IdeaToken, type IdeaBoxCard, type IdeaBoxErrorCode, type IdeaBoxEvent, type IdeaBoxPartialCard } from "@foundmill/shared";
+import { IDEA_BOX_ERRORS, IdeaBoxDraftRequest, IdeaToken, limitAddress, type IdeaBoxCard, type IdeaBoxErrorCode, type IdeaBoxEvent, type IdeaBoxPartialCard } from "@foundmill/shared";
 import type { Env } from "@foundmill/shared";
 import { ideaFromCard } from "./ideation";
 import { callerLimitKey } from "./pages";
@@ -52,20 +52,11 @@ export function ideaBoxDailyCards(ceilingCents: number): number {
 }
 
 /**
- * The address a per-address window counts (security review P2-2): an IPv4-mapped IPv6 address as its IPv4, any other
- * IPv6 address as its /64 (one subscriber's block), IPv4 as it is.
+ * The address a per-address window counts (security review P2-2): @foundmill/shared's `limitAddress`, the one copy
+ * (an IPv4-mapped IPv6 address as its IPv4, any other IPv6 address as its /64, IPv4 as it is). Re-exported for the
+ * idea box's tests.
  */
-export function limitAddress(address: string): string {
-  const a = address.trim().toLowerCase().replace(/^\[|\]$/g, "").replace(/%.*$/, "");
-  const mapped = /^(?:0{0,4}:){0,5}(?:0{0,4}:)?ffff:(\d{1,3}(?:\.\d{1,3}){3})$/.exec(a) ?? /^::ffff:(\d{1,3}(?:\.\d{1,3}){3})$/.exec(a);
-  if (mapped) return mapped[1]!;
-  if (!a.includes(":")) return a;
-  const [head = "", tail = ""] = a.split("::");
-  const left = head ? head.split(":") : [];
-  const right = tail ? tail.split(":") : [];
-  const groups = a.includes("::") ? [...left, ...Array(Math.max(0, 8 - left.length - right.length)).fill("0"), ...right] : left;
-  return `${groups.slice(0, 4).map((g) => (g || "0").replace(/^0+(?=.)/, "")).join(":")}::/64`;
-}
+export { limitAddress };
 
 /** A new browser or claim token: 32 random bytes, base64url (43 characters). */
 export const newIdeaToken = (): string => randomBytes(32).toString("base64url");

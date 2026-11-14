@@ -85,7 +85,7 @@ export const CODING_COMMON_RULES: string[] = [
   "When the task's last run failed its acceptance tests, the blocked reason on the task names the failing tests or the setup line: fix what it names. Never block the task on the sandbox, memory or the test setup, which the platform owns; report what the run said and keep working.",
   "Ask before schema changes, auth changes or anything touching payments; business-scoped tables need business_id, a row-level security policy and a cross-tenant test in the same change.",
   "Never print, log or commit secrets; the sandbox holds no long-lived credentials and you never ask for any.",
-  "Match the design system (design-system components and tokens only) for any UI; desktop only, 1280 px minimum.",
+  "Match the project's own design system (its components and tokens) for any UI and follow the Design principles skill: every page you change works at 390 px and at desktop width.",
   "Keep changes small and reviewable; when a nudge arrives (Focus on tests, Simplify, Hurry up), change course within the current step and say so in the task log.",
 ];
 

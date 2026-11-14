@@ -44,6 +44,8 @@ export interface BusinessAllowanceOptions {
 
 /** How many businesses `userId` owns (unarchived) against what their highest tier allows. */
 export async function businessAllowance(db: Executor, userId: string, options: BusinessAllowanceOptions = {}): Promise<BusinessAllowance> {
+  // The projects the person started (`owner`), not the ones they joined as a cofounder: people are free on every plan,
+  // so joining someone's project never uses up a person's own allowance (CLAUDE.md, founder 2026-11-11).
   const owned = (await repos.businesses.listForUser(db, userId)).filter((b) => b.role === "owner");
   let tier: TierKey = "free";
   let planBusinessId: string | null = null;

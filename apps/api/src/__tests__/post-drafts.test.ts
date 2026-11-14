@@ -16,6 +16,8 @@ import { TEAM_POST_WORDS, parseTeamPostRef, shareTargets, type ProjectPageConten
 import { sql } from "drizzle-orm";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { postDraftRunsInProcess, requestPostDraft, settlePostDraftRuns, type PostDraftDeps } from "../services/post-drafts";
+import { createCaller } from "../router";
+import { createTransactionGate } from "../services/tx-gate";
 import { WORKFLOWS, createTemporalService, workflowIds, type TemporalClientLike } from "../services/temporal";
 import { silentLog } from "../services/log";
 import { createApiHarness, type ApiHarness } from "./harness";
@@ -254,6 +256,33 @@ describe("where it runs", () => {
     expect(postDraftRunsInProcess({ APP_ENV: "test" })).toBe(true);
     expect(postDraftRunsInProcess({ APP_ENV: "staging" })).toBe(false);
     expect(postDraftRunsInProcess({ APP_ENV: "production" })).toBe(false);
+  });
+
+  it("a draft asked for by a request is written even when the client closes that request first (the Board's toggle, then a reload)", async () => {
+    // A request's `ctx.db` is the transaction gate's view, which starts no transaction once the client has closed the
+    // request. The draft is never waited on, so it outlives the request: here the founder (or the e2e spec) reloads the
+    // Board while the post is being written. The channel is saved; the post must still be.
+    const b = await project("Reload");
+    await publish(b);
+    const closed = new AbortController();
+    const models = Object.create(hz.deps.models, {
+      complete: {
+        value: (req: { scope?: string }) => {
+          if (req.scope?.startsWith("post-draft:")) closed.abort();
+          return (hz.deps.models.complete as (r: unknown) => Promise<unknown>)(req);
+        },
+      },
+    }) as typeof hz.deps.models;
+    const gate = createTransactionGate({ total: 4, perRequest: 2 });
+    const request = createCaller({ ...hz.deps, models, db: gate.forRequest(hz.db, closed.signal), txGate: gate }, { userId: b.ownerId });
+    await request.distribution.channels.enable({ businessId: b.id, channelKey: "social" });
+    await settlePostDraftRuns();
+    expect(closed.signal.aborted).toBe(true);
+    expect((await repos.channels.getByKey(hz.db, b.id, "social"))!.enabled).toBe(true);
+    const [post, ...more] = await posts(b);
+    expect(more).toEqual([]);
+    expect(post!.body).toContain("has a page now");
+    expect(await drafted(b.id)).toHaveLength(1);
   });
 
   it("staging and production never draft on the api: when the orchestrator does not answer, nothing is written", async () => {

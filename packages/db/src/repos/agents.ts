@@ -188,8 +188,8 @@ export async function personaContext(db: Executor, businessId: string): Promise<
        where a.persona_key is not null and a.archived_at is null and a.business_id <> ${businessId}::uuid
          and a.business_id in (
            select o.business_id from memberships o
-            where o.role = 'owner'
-              and o.user_id in (select m.user_id from memberships m where m.business_id = ${businessId}::uuid and m.role = 'owner'))`),
+            where o.role in ('owner', 'cofounder')
+              and o.user_id in (select m.user_id from memberships m where m.business_id = ${businessId}::uuid and m.role in ('owner', 'cofounder')))`),
   );
   const of = (kind: "taken" | "live" | "avoid") => rows.filter((r) => r.kind === kind).map((r) => r.key);
   return { taken: of("taken"), live: of("live"), avoid: of("avoid") };

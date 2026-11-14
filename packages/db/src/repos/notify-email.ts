@@ -13,6 +13,7 @@ import { LIMITED_EMAIL_KINDS, type EmailNotificationKind } from "@foundmill/shar
 import { approvals, businesses, events, inboxItems, memberships, productSignoffs, type Membership } from "../schema";
 import { RESPOND_TYPES } from "./inbox";
 import type { Executor } from "./_shared";
+import { membershipNotEnded } from "./memberships";
 
 /** A note that asks the person for something: it holds Continue, is a decision, or is a warning with a choice to make. */
 const needsAnswer = and(
@@ -48,7 +49,8 @@ export const notifyEmailRepo = {
       .select({ businessId: inboxItems.businessId, inboxItemId: inboxItems.id, createdAt: inboxItems.createdAt, userId: memberships.userId, role: memberships.role, sectionPermissions: memberships.sectionPermissions })
       .from(inboxItems)
       .innerJoin(businesses, and(eq(businesses.id, inboxItems.businessId), eq(businesses.isDemo, false), isNull(businesses.archivedAt)))
-      .innerJoin(memberships, and(eq(memberships.businessId, inboxItems.businessId), ne(memberships.source, "example")))
+      // A membership that has ended (0092: a collaborator's date passed) is told nothing.
+      .innerJoin(memberships, and(eq(memberships.businessId, inboxItems.businessId), ne(memberships.source, "example"), membershipNotEnded))
       .where(
         and(
           needsAnswer,

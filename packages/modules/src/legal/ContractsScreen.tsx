@@ -4,6 +4,7 @@
  * verbs, a new-contract form, and the selected contract's detail with its obligations. Signing is founder-only:
  * the only signing control is a link-out to the e-signature envelope, and recording a signature needs owner/admin.
  */
+import { isAdminRole } from "@foundmill/shared/constants";
 import { useId, useMemo, useState } from "react";
 import { ArrowRight, Ban, CheckCircle2, ExternalLink, FileSignature, FileText, Plus, UserRound } from "lucide-react";
 import { Button, Chip, ConsequenceLine, DataTable, EntityLink, Field, Input, KeyValueList, MiniTable, MoneyInput, Panel, SimpleSelect, useFormatters, type DataTableColumn, type RowAction, type SavedView } from "@foundmill/dugout";
@@ -123,7 +124,7 @@ export function ContractsScreen({ businessId }: ModuleScreenProps) {
   const selected = useMemo(() => (selectedId ? ({ ...(rows.find((r) => r.id === selectedId) ?? {}), ...(detail.data ?? {}) } as ContractRow | undefined) : undefined), [rows, selectedId, detail.data]);
   const selectedRow = selected && selected.id ? selected : undefined;
   const obligations = useMemo(() => readObligations(selectedRow?.obligations, now), [selectedRow, now]);
-  const isAdmin = business.data ? business.data.role === "owner" || business.data.role === "admin" : false;
+  const isAdmin = business.data ? isAdminRole(business.data.role) : false;
   const empty = !list.isLoading && !list.error && rows.length === 0;
 
   const setStatus = async (contract: ContractRow, status: ContractStatus, opts: { provider?: string } = {}) => {

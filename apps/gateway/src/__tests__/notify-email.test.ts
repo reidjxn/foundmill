@@ -225,6 +225,20 @@ describe("email from Foundmill to a person (gateway)", () => {
     for (const p of [off, opened, walled, visitor, fresh, stranger]) expect(sentTo(p.email)).toHaveLength(0);
   });
 
+  it("never to a collaborator whose access has ended (0092), though one whose date is ahead is told", async () => {
+    const ended = await person({ role: "member" });
+    await g.h.pg.query("update memberships set role = 'collaborator', expires_at = now() - interval '1 hour' where business_id = $1 and user_id = $2", [g.businessId, ended.userId]);
+    expect((await ask(about(ended))).body.reason).toBe("not_member");
+    expect(sentTo(ended.email)).toHaveLength(0);
+    // The api's pass does not even list them (repos.notifyEmail.waitingAnswers).
+    const waiting = await repos.notifyEmail.waitingAnswers(g.db, { olderThan: new Date(), since: new Date(Date.now() - 7 * 24 * HOURS) });
+    expect(waiting.some((w) => w.userId === ended.userId)).toBe(false);
+    const current = await person({ role: "member" });
+    await g.h.pg.query("update memberships set role = 'collaborator', expires_at = now() + interval '7 days' where business_id = $1 and user_id = $2", [g.businessId, current.userId]);
+    expect((await repos.notifyEmail.waitingAnswers(g.db, { olderThan: new Date(), since: new Date(Date.now() - 7 * 24 * HOURS) })).some((w) => w.userId === current.userId)).toBe(true);
+    expect((await ask(about(current))).body.sent).toBe(true);
+  });
+
   it("never about a sample business", async () => {
     const p = await person();
     await g.h.pg.query("update businesses set is_demo = true where id = $1", [g.businessId]);

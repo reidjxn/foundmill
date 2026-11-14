@@ -289,6 +289,36 @@ export const CodeReviewOutput = z.object({
 export type CodeReviewOutput = z.infer<typeof CodeReviewOutput>;
 
 // ---------------------------------------------------------------------------------------------------------------------
+// Document second read (packages/agents second-read.ts): a different agent checks a long document an agent drafted
+// ---------------------------------------------------------------------------------------------------------------------
+
+export const DOCUMENT_ISSUE_KINDS = ["inconsistency", "unsupported_claim", "unlabeled_figure", "needs_source", "factual_error"] as const;
+/** What a fact-check found: `supported` needs a real (never a simulated) source; anything not looked up is `not_checked`. */
+export const DOCUMENT_CHECK_STATES = ["not_checked", "supported", "contradicted", "unverifiable"] as const;
+
+export const DocumentReviewIssue = z.object({
+  kind: z.enum(DOCUMENT_ISSUE_KINDS),
+  severity: Severity,
+  /** The section's id as the prompt gave it ("document" when the issue is about the whole). */
+  location: z.string().min(1).max(120),
+  /** The words the issue is about, copied from the document. */
+  quote: z.string().max(400),
+  detail: z.string().min(1).max(600),
+  /** The smallest change that fixes it, never a rewrite of the section. */
+  suggestion: z.string().max(400),
+  check: z.enum(DOCUMENT_CHECK_STATES),
+  /** The source ids from the prompt the check relied on. */
+  sourceIds: z.array(z.string().max(80)).max(6),
+});
+export type DocumentReviewIssue = z.infer<typeof DocumentReviewIssue>;
+
+export const DocumentReviewOutput = z.object({
+  summary: z.string().min(1).max(600),
+  issues: z.array(DocumentReviewIssue).max(20),
+});
+export type DocumentReviewOutput = z.infer<typeof DocumentReviewOutput>;
+
+// ---------------------------------------------------------------------------------------------------------------------
 // Skill grader (BUILD §12.5 "Return JSON {score, lines:[{criterion, score, reason}]}")
 // ---------------------------------------------------------------------------------------------------------------------
 

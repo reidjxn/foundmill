@@ -7,7 +7,7 @@ import { AgentInstructions, CUSTOM_SKILL_TEST_COUNT, CustomSkillTestsOutput, HOU
 import { CREDITS_CURRENCY, LIMITS } from "@foundmill/config";
 import { UpdateAgentInput, periodOf, repos, type Agent, type AgentVersion, type Executor } from "@foundmill/db";
 import { MODELS, meter, resolveModel, type RouteKey } from "@foundmill/models";
-import { ConflictError, ForbiddenError, MODEL_KEYS, ValidationError, type ModelKey } from "@foundmill/shared";
+import { ConflictError, ForbiddenError, isAdminRole as isAdminMembershipRole, MODEL_KEYS, ValidationError, type ModelKey } from "@foundmill/shared";
 import { z } from "zod";
 import { modelLimited } from "../services/model-limits";
 import { changeAgentModels, routeOf, startModelRetests } from "../services/agent-model";
@@ -24,7 +24,7 @@ const write = sectionWrite("team");
  * is an owner's or admin's call, like the business's mode (SEC-7): a member trains and edits, but never raises caps.
  */
 const admin = sectionAdmin("team");
-const isAdminRole = (ctx: Pick<BusinessContext, "role">) => ctx.role === "owner" || ctx.role === "admin";
+const isAdminRole = (ctx: Pick<BusinessContext, "role">) => isAdminMembershipRole(ctx.role);
 
 export const ApplyScope = z.enum(["agent", "type", "all"]);
 const Tools = z.array(z.object({ connectorKey: z.string().min(1), tools: z.array(z.string().min(1)).min(1) }));

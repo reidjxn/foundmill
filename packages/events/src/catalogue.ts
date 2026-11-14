@@ -24,6 +24,7 @@ import {
   BusinessMode,
   ChannelKey,
   CONTINUE_RUN_END_REASONS,
+  DesignCheckResult,
   ConversationAuthorKind,
   ConversationSubjectKind,
   ConversionKind,
@@ -40,6 +41,8 @@ import {
   Money,
   NOTIFICATION_KINDS,
   EMAIL_NOTIFICATION_KINDS,
+  FOUNDER_NOTICES,
+  INVITATION_ROLES,
   PUSH_PROVIDERS,
   SHARE_DESTINATIONS,
   SHARE_OPEN_TARGETS,
@@ -406,6 +409,22 @@ const taskBlocked = declareEvent(
   {
     doc: "A task cannot continue: waiting on approval, a dependency, a credential, budget, a rate limit, a detected loop or a failure. Narrated as a warning (or decision when an approval is needed).",
     consumers: ["composer", "metrics", "health", "playbooks"],
+  },
+);
+
+const taskDesignChecked = declareEvent(
+  "task.design_checked",
+  z.object({
+    ...TaskRef,
+    assigneeAgentId: Id,
+    sessionId: Id.nullable().default(null),
+    /** What the check did and found (packages/shared `DesignCheckResult`): reviewed, not seen (and why), or simulated. */
+    result: DesignCheckResult,
+  }),
+  {
+    doc: "The design check of a code agent's UI change (item 13): screenshots of the changed pages at desktop and 390 px, a separate reviewer's ranked fixes, and whether the author was asked to apply them. `not_seen` and `simulated` say no screenshot exists. Attached to the change's approval; never blocks it.",
+    consumers: ["stream"],
+    narratable: false,
   },
 );
 
@@ -1944,6 +1963,53 @@ const postDrafted = declareEvent(
 );
 
 // ---------------------------------------------------------------------------------------------------
+// Invitations to a project (0091; docs/NETWORK.md F5, THESIS_REVIEW package 3.1)
+// ---------------------------------------------------------------------------------------------------
+
+const InvitationRoleEnum = z.enum(INVITATION_ROLES);
+
+const invitationSent = declareEvent(
+  "invitation.sent",
+  z.object({
+    /** The invitation (0091 `invitations`): never its token, and never the address it was sent to. */
+    invitationId: Id,
+    role: InvitationRoleEnum,
+    /** Whether Foundmill emailed the link to an address the inviter typed (else the inviter shares the link themselves). */
+    emailed: z.boolean(),
+  }),
+  {
+    doc: "An owner, a cofounder or an admin of the project made an invitation for someone to join it as a cofounder or a collaborator (`invitation.create`, Settings › People). The link was shown to them once; when they typed an address, Foundmill was asked to email it there. Not an outside result of the project's own work. Never narrated: the People tab lists the invitation; apps/stream pushes it so that tab follows.",
+    consumers: ["stream", "metrics"],
+    narratable: false,
+  },
+);
+
+const invitationAccepted = declareEvent(
+  "invitation.accepted",
+  z.object({
+    invitationId: Id,
+    role: InvitationRoleEnum,
+    /** The person who accepted and is now one of the project's people (the membership row carries their access). */
+    userId: Id,
+  }),
+  {
+    doc: "The person an invitation was for signed in and accepted it (`invitation.accept`): they joined the project as a cofounder or a collaborator, once (the invitation is used up). The person who invited them is emailed within their limits (`invitation_accepted`). Written beside `membership.changed`. Not narrated: People shows them at once; apps/stream pushes it.",
+    consumers: ["stream", "metrics"],
+    narratable: false,
+  },
+);
+
+const invitationDeclined = declareEvent(
+  "invitation.declined",
+  z.object({ invitationId: Id, role: InvitationRoleEnum }),
+  {
+    doc: "The person an invitation was for said no to it from its page (`invitation.decline`): the link stops working. Nothing about who they are is kept. Not narrated, and nobody is emailed about it.",
+    consumers: ["stream", "metrics"],
+    narratable: false,
+  },
+);
+
+// ---------------------------------------------------------------------------------------------------
 // Account events: a person's own public profile (0080; account-scoped, docs/ARCHITECTURE.md §5 "Account events")
 // ---------------------------------------------------------------------------------------------------
 
@@ -2006,6 +2072,30 @@ const referralArrived = declareAccountEvent("referral.arrived", AttributionSourc
   consumers: ["metrics"],
 });
 
+// A founder notice (security review P2-3, Nov 13, 2026) goes to every founder of a project and to the person it happened
+// to, who may be out of the project by then (removed). So the fact that Foundmill emailed them is theirs, not the
+// project's: one account event per person emailed, never a `notify.email_sent` in a project the reader may no longer
+// belong to. The payload names the project by its record id and nobody by an account: not who did it, not whom it was
+// about (the reader learns those from the email itself).
+const FounderNoticeFacts = z.strictObject({
+  /** What the email was about: a founder's role lowered, a founder removed, deletion asked for or canceled. */
+  notice: z.enum(FOUNDER_NOTICES),
+  /** The project it was about (the id of a record; the reader was, or is, one of its founders). */
+  businessId: z.uuid(),
+  /** The `founder_notifications` row that holds the words (readable by this person while they are a member). */
+  notificationId: z.uuid(),
+  /** The email carried the one-click link that cancels the project's deletion (a founder removed or demoted recently). */
+  offersCancel: z.boolean(),
+  /** Sent on the mock: nothing left for real. */
+  simulated: z.boolean(),
+});
+
+const founderNoticeSent = declareAccountEvent("founder_notice.sent", FounderNoticeFacts, {
+  doc: "For the person emailed: Foundmill sent you a founder notice (a founder's role went below a founder's, a founder was removed, the project's deletion was asked for or canceled). Written by the gateway's `/v1/notify/email` after each such email, once per notice and person (idempotency key `founder_notice:<audit entry id>`), to the reader's own account events: a current founder's, the affected person's, or a former founder's for a deletion request (someone else demoted or removed them within 30 days before it, or after it), or the receipt to the person who asked for a deletion. The payload is the notice, the project's and the record's ids, whether it offered the one-click cancel, and `simulated`; never who did it or whom it was about, never the address. Not an outcome of any project.",
+  consumers: ["stream"],
+  recordIds: ["businessId", "notificationId"],
+});
+
 // ---------------------------------------------------------------------------------------------------
 // Registry
 // ---------------------------------------------------------------------------------------------------
@@ -2025,6 +2115,7 @@ export const EVENTS = {
   "task.progressed": taskProgressed,
   "task.completed": taskCompleted,
   "task.blocked": taskBlocked,
+  "task.design_checked": taskDesignChecked,
   "pr.merged": prMerged,
   "deploy.succeeded": deploySucceeded,
   "lead.created": leadCreated,
@@ -2093,10 +2184,14 @@ export const EVENTS = {
   "milestone.hidden": milestoneHidden,
   "share.opened": shareOpened,
   "referral.arrived": referralArrived,
+  "founder_notice.sent": founderNoticeSent,
   "post.drafted": postDrafted,
   "quiz.approved": quizApproved,
   "quiz.published": quizPublished,
   "quiz.unpublished": quizUnpublished,
+  "invitation.sent": invitationSent,
+  "invitation.accepted": invitationAccepted,
+  "invitation.declined": invitationDeclined,
 } as const satisfies { readonly [K in EventTypeT]: EventDeclaration<K, z.ZodType, EventScopeOf<K>> };
 
 export type EventsRegistry = typeof EVENTS;

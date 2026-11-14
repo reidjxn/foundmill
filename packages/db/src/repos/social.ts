@@ -8,7 +8,7 @@
  * view only selects LIVE businesses (0012), so the visibility rule is enforced in SQL, not here.
  */
 import { RESERVED_NAME_MESSAGE, isReservedName } from "@foundmill/config";
-import { AppError, ForbiddenError, NotFoundError, ValidationError, VISIBILITY } from "@foundmill/shared";
+import { AppError, ForbiddenError, NotFoundError, OWNER_ROLES, ValidationError, VISIBILITY } from "@foundmill/shared";
 import { and, asc, desc, eq, inArray, isNotNull, isNull, ne, or, sql, type AnyColumn, type SQL } from "drizzle-orm";
 import { authUsers } from "drizzle-orm/supabase";
 import { z } from "zod";
@@ -19,6 +19,7 @@ import {
   type POST_REPORT_RESOLUTIONS, type PostReport, type PostScreening, type PublicProfile,
 } from "../schema";
 import { Id, JsonObject, one, PageInput, parseInput, rowsOf, sqlState, timeKeyset, toPage, type Executor, type Page } from "./_shared";
+import { membershipNotEnded } from "./memberships";
 
 export const CreateCommunityInput = z.object({
   name: z.string().trim().min(1).max(120),
@@ -713,20 +714,20 @@ export const socialRepo = {
         .select({ businessId: businesses.id, name: businesses.name, slug: businesses.slug, kitPrimary: businesses.kitPrimary, kitSecondary: businesses.kitSecondary, archetype: businesses.archetype, gameMode: businesses.gameMode })
         .from(businesses)
         .innerJoin(memberships, eq(memberships.businessId, businesses.id))
-        // An example membership is a walk-through, not the viewer's business (0065).
-        .where(and(eq(memberships.userId, viewerId), ne(memberships.source, "example"), inArray(businesses.id, businessIds), isNull(businesses.archivedAt)));
+        // An example membership is a walk-through, not the viewer's business (0065); an ended one is not theirs any more.
+        .where(and(eq(memberships.userId, viewerId), ne(memberships.source, "example"), membershipNotEnded, inArray(businesses.id, businessIds), isNull(businesses.archivedAt)));
       for (const b of own) cards.set(b.businessId, { businessId: b.businessId, name: b.name, slug: b.slug, kitPrimary: b.kitPrimary, kitSecondary: b.kitSecondary, archetype: b.archetype, live: b.gameMode === "live" });
     }
     return { users, businesses: [...cards.values()] };
   },
 
-  /** The owner of a listed business: the person a request to connect with the business reaches. Null when it is not listed. */
+  /** The owner of a listed business (the longest-standing owner or cofounder): the person a request to connect with the business reaches. Null when it is not listed. */
   async listedBusinessOwner(db: Executor, businessId: string): Promise<string | null> {
     const rows = await db
       .select({ userId: memberships.userId })
       .from(memberships)
       .innerJoin(businesses, eq(businesses.id, memberships.businessId))
-      .where(and(eq(memberships.businessId, businessId), eq(memberships.role, "owner"), ne(memberships.source, "example"), publicBusiness))
+      .where(and(eq(memberships.businessId, businessId), inArray(memberships.role, [...OWNER_ROLES]), ne(memberships.source, "example"), publicBusiness))
       .orderBy(asc(memberships.createdAt))
       .limit(1);
     return rows[0]?.userId ?? null;
