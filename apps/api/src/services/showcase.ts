@@ -310,9 +310,13 @@ export async function endShowcase(deps: ShowcaseDeps, requestId: string, state: 
     await repos.showcase.deleteMedia(tx, request.id, now);
     await writeEventRow(tx, { businessId: houseId, type: "showcase.withdrawn", actor: SYSTEM, payload: { requestId: request.id, subjectBusinessId: request.subjectBusinessId, reason } });
     if (request.askedAt) await writeEventRow(tx, { businessId: request.subjectBusinessId, type: "showcase.settled", actor: SYSTEM, payload: { requestId: request.id, state } });
+    // A real clip made on Runway stays in the house's Runway account: there is no delete tool yet, so the note says so.
+    const clipMade = (request.media.clips ?? []).some((c) => c.taskId && !c.simulated);
     if (sharedOn.length) {
       const networks = sharedOn.join(", ");
-      await repos.showcase.createHouseNote(tx, houseId, { subject: WORDS.removeByHand(request.preview.projectName), bodyMd: WORDS.removeByHandBody(networks) });
+      await repos.showcase.createHouseNote(tx, houseId, { subject: WORDS.removeByHand(request.preview.projectName), bodyMd: clipMade ? `${WORDS.removeByHandBody(networks)} ${WORDS.clipStays}` : WORDS.removeByHandBody(networks) });
+    } else if (clipMade) {
+      await repos.showcase.createHouseNote(tx, houseId, { subject: WORDS.notPosted(request.preview.projectName), bodyMd: WORDS.clipStays });
     }
     return true;
   });

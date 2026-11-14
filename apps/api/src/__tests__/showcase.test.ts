@@ -10,9 +10,11 @@
  *   - a withdrawal sets the draft aside, deletes the media and tells the house where a share was opened;
  *   - no event carries a founder's answer.
  */
-import { HOUSE_BUSINESS_ID } from "@foundmill/config";
+import { APP_NAME, HOUSE_BUSINESS_ID } from "@foundmill/config";
 import { repos } from "@foundmill/db";
-import { SHOWCASE_APPROVAL_TTL_MS, type ProjectPageContent } from "@foundmill/shared";
+import { SHOWCASE_APPROVAL_TTL_MS, showcaseWords, type ProjectPageContent } from "@foundmill/shared";
+
+const WORDS = showcaseWords(APP_NAME);
 import { sql } from "drizzle-orm";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
@@ -262,7 +264,26 @@ describe("the answers: one founder's no, withdrawal or departure overrides the o
     expect((await repos.showcase.draft(hz.db, HOUSE_BUSINESS_ID, approved.assetId!))!.approvalState).toBe("rejected");
     const takeDown = (await hz.db.execute(sql`select subject, body_md from inbox_items where business_id = ${HOUSE_BUSINESS_ID} and subject like 'Take the video about%'`)) as unknown as { rows: { subject: string; body_md: string }[] };
     expect(takeDown.rows.at(-1)?.body_md).toMatch(/instagram/);
+    // The clip made on Runway stays in the house's Runway account: no delete tool yet, so the note says so.
+    expect(takeDown.rows.at(-1)?.body_md).toContain(WORDS.clipStays);
     expect(await code(house().share.opened({ businessId: HOUSE_BUSINESS_ID, kind: "draft", refId: approved.assetId, network: "instagram", target: "tap" }))).toBe("showcase_share_refused");
+  });
+
+  it("a video ended before any share: the house is told only that the clip stays in its Runway account; a simulated one tells nothing", async () => {
+    const notesAbout = async (name: string) => ((await hz.db.execute(sql`select subject, body_md from inbox_items where business_id = ${HOUSE_BUSINESS_ID} and subject like ${`The video about ${name}%`}`)) as unknown as { rows: { subject: string; body_md: string }[] }).rows;
+    const p = await project("Unshared");
+    await askedFor(p);
+    const a = await askOf(p.owner, p.id, p.ownerId);
+    await p.owner.showcase.answer({ businessId: p.id, consentId: a.consentId, answer: "no" });
+    expect(await notesAbout("Unshared")).toEqual([{ subject: expect.stringMatching(/^The video about Unshared.* was not posted$/), body_md: WORDS.clipStays }]);
+    expect(WORDS.clipStays).toBe(`The generated clip stays in ${APP_NAME}'s Runway account until it's deleted there by hand.`);
+
+    runway.mode = "simulated";
+    const q = await project("Never Made");
+    const req = await askedFor(q);
+    await house().showcase.withdraw({ businessId: HOUSE_BUSINESS_ID, requestId: req.id });
+    expect((await requestRow(req.id)).state).toBe("withdrawn");
+    expect(await notesAbout("Never Made")).toEqual([]);
   });
 
   it("review finding 9: a founder who joins after the yes is asked on the same request, and approves it with their yes", async () => {

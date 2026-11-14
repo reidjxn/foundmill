@@ -346,6 +346,12 @@ export function showcaseWords(appName: string) {
     /** For the house owner, when a withdrawn video's share had been opened. */
     removeByHand: (projectName: string) => `Take the video about ${projectName.replace(/\s+/g, " ").trim()} down by hand`,
     removeByHandBody: (networks: string) => `Its founders withdrew it, but a share of it was opened on ${networks}. Remove the post there by hand: it cannot be pulled back from here.`,
+    /**
+     * For the house owner, when a withdrawn video's clips were made on Runway: they stay in the house's Runway account
+     * (the runway connector has no delete tool yet). This sentence and nothing more.
+     */
+    notPosted: (projectName: string) => `The video about ${projectName.replace(/\s+/g, " ").trim()} was not posted`,
+    clipStays: `The generated clip stays in ${appName}'s Runway account until it's deleted there by hand.`,
     /** Refusals. */
     onlyFounders: "Only the project's founders answer this.",
     closed: "This ask is closed.",
