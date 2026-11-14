@@ -29,10 +29,11 @@ import { FOUNDER_RETURN_VIA, GUIDANCE_OFF_SOURCES, PAGE_SLUG_MAX, PERSON_ABOUT_M
 import { VIA_MAX_LENGTH } from "@foundmill/shared/via";
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
+import { adultConfirmedAt, adultUnconfirmed, recordAdultConfirmation } from "../services/adults";
 import { IDEA_DRAFT_TOKEN_MAX_LENGTH, onPersonCreated } from "../services/person-created";
 import { writeEventRow } from "../services/events";
 import { getPublicProfile, publicPersonByHandle, publishPublicProfile, unpublishPublicProfile, updateFounderProfile, updatePublicProfile } from "../services/person-profile";
-import { protectedProcedure, publicProcedure, router } from "../trpc";
+import { protectedProcedure, publicProcedure, router, signedInProcedure } from "../trpc";
 import { founderBusinessesRouter } from "./founder-businesses";
 
 /** Runs fn as the signed-in user, so Postgres RLS holds every row it touches to that user. */
@@ -100,7 +101,12 @@ export const PublicProfileInput = z.object({
  *   - `ideaDraftToken`, the token of an idea drafted before sign-up: bounded, accepted and passed through. No step
  *     reads it yet (the step that claims the draft is added with that feature). A secret: never logged.
  */
-export const FounderProfileUpdateInput = FounderProfilePatch.extend({ via: z.string().max(VIA_MAX_LENGTH).optional(), ideaDraftToken: z.string().max(IDEA_DRAFT_TOKEN_MAX_LENGTH).optional() });
+export const FounderProfileUpdateInput = FounderProfilePatch.extend({
+  via: z.string().max(VIA_MAX_LENGTH).optional(),
+  ideaDraftToken: z.string().max(IDEA_DRAFT_TOKEN_MAX_LENGTH).optional(),
+  /** "I am 18 or older", ticked on the screen that creates the profile (services/adults.ts); read on that save only. */
+  confirmAdult: z.literal(true).optional(),
+});
 
 /** publicPerson.byHandle: anyone, signed in or not; the view `public_person_profiles` only; null when not public. */
 export const publicPersonRouter = router({
@@ -148,10 +154,12 @@ export const founderRouter = router({
   profile: router({
     get: protectedProcedure.query(async ({ ctx }) => {
       // The profile, the memberships and the open businesses in one statement: one round trip on one pooled connection.
-      const { profile, memberships, businesses } = await repos.founders.account(ctx.db, ctx.userId);
+      const [{ profile, memberships, businesses }, adultAt] = await Promise.all([repos.founders.account(ctx.db, ctx.userId), adultConfirmedAt(ctx.db, ctx.userId)]);
       // `features.liveMode`: whether LIVE is open here (the commit screen offers Live only then). `userId` is the account ID
-      // a co-founder is added by (Settings › Members); the founder can always read their own.
-      return { userId: ctx.userId, profile, complete: profile !== null, email: ctx.email, memberships, businesses, features: { liveMode: liveModeOpen(ctx.env) } };
+      // a co-founder is added by (Settings › Members); the founder can always read their own. `complete`: the profile
+      // exists; `adultConfirmed`: the person confirmed they are 18 or older (0104). A client goes on past sign-up only
+      // with both, and asks for the confirmation once when it is missing (`founder.adult.confirm`).
+      return { userId: ctx.userId, profile, complete: profile !== null, adultConfirmed: adultAt !== null, email: ctx.email, memberships, businesses, features: { liveMode: liveModeOpen(ctx.env) } };
     }),
     /**
      * Creates the profile on the first save, updates it after. `guidanceTurnedOff` is true only on the save that created
@@ -167,15 +175,35 @@ export const founderRouter = router({
      * (services/attribution.ts). It and `ideaDraftToken` go to `onPersonCreated` on that save only: each step there
      * runs in its own transaction and its own try/catch, so none can fail this save or change its answer.
      */
-    update: protectedProcedure.input(FounderProfileUpdateInput).mutation(async ({ ctx, input: { via, ideaDraftToken, ...input } }) => {
+    update: protectedProcedure.input(FounderProfileUpdateInput).mutation(async ({ ctx, input: { via, ideaDraftToken, confirmAdult, ...input } }) => {
       const existing = await repos.founders.get(ctx.db, ctx.userId);
       if (existing) return { ...(await updateFounderProfile(ctx, input)), guidanceTurnedOff: false };
+      // 18 or older, for the whole product (services/adults.ts): a new account creates its profile only with the box
+      // ticked on this save, or an earlier confirmation (an invitation's accept, the network). The step records it.
+      if (confirmAdult !== true && !(await adultConfirmedAt(ctx.db, ctx.userId))) throw adultUnconfirmed();
       const created = FounderProfileInput.parse({ displayName: input.displayName ?? freeDisplayName(ctx.email?.split("@")[0]), ...input });
       const profile = await repos.founders.upsert(ctx.db, ctx.userId, created);
       const guidanceTurnedOff = guidanceOffByDefault(profile.experience);
       if (guidanceTurnedOff) await asUser(ctx, (tx) => repos.preferences.update(tx, ctx.userId, { guidance: "off", builderView: true }));
-      await onPersonCreated(ctx, ctx.userId, { via, ideaDraftToken });
+      await onPersonCreated(ctx, ctx.userId, { via, ideaDraftToken, confirmAdult });
       return { ...profile, guidanceTurnedOff };
+    }),
+  }),
+  /**
+   * founder.adult.get/confirm: "I am 18 or older", for the whole product (0104, services/adults.ts). Signed in with a
+   * confirmed address, admitted or not (`signedInProcedure`), so an invitee is asked before accepting and the phone app
+   * can ask before anything else. `confirm` is for a person whose account has no confirmation yet (here before this
+   * record existed, or a profile save whose step did not finish): the first confirmation stands, and a second call
+   * writes nothing and answers the first time. The database sets the time.
+   */
+  adult: router({
+    get: signedInProcedure.query(async ({ ctx }) => {
+      const at = await adultConfirmedAt(ctx.db, ctx.userId);
+      return { confirmed: at !== null, confirmedAt: at?.toISOString() ?? null };
+    }),
+    confirm: signedInProcedure.input(z.object({ confirm: z.literal(true) })).mutation(async ({ ctx }) => {
+      const { confirmedAt } = await recordAdultConfirmation(ctx.db, ctx.userId);
+      return { confirmed: true as const, confirmedAt: confirmedAt.toISOString() };
     }),
   }),
   preferences: router({

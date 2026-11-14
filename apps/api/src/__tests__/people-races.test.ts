@@ -142,7 +142,7 @@ describe.skipIf(!onPostgres)("on a real Postgres", () => {
       const OPEN = { SIGNUP_OPEN: "1", SIGNUP_DAILY_CEILING: ceiling, SIGNUP_ALLOWLIST: inviter.email };
       const [tokenA, tokenB] = [await collaboratorLink(inviter.userId), await collaboratorLink(inviter.userId)];
       const [a, b] = [await person("past-ceiling-a"), await person("past-ceiling-b")];
-      const answers = await releasedTogether([() => refusal(callerIn(OPEN, a).invitation.accept({ token: tokenA })), () => refusal(callerIn(OPEN, b).invitation.accept({ token: tokenB }))]);
+      const answers = await releasedTogether([() => refusal(callerIn(OPEN, a).invitation.accept({ confirmAdult: true, token: tokenA })), () => refusal(callerIn(OPEN, b).invitation.accept({ confirmAdult: true, token: tokenB }))]);
       expect(answers.filter((x) => x === null)).toHaveLength(1);
       expect(answers.filter((x) => x?.appCode === "on_waitlist" && x.reason === "ceiling")).toHaveLength(1);
       const admitted = [await repos.admissions.has(hz.db, a.userId), await repos.admissions.has(hz.db, b.userId)];
@@ -159,12 +159,12 @@ describe.skipIf(!onPostgres)("on a real Postgres", () => {
       await repos.memberships.add(hz.db, hz.B.businessId, { userId: inviter.userId, role: "admin" });
       const INVITE_ONLY = { SIGNUP_ALLOWLIST: inviter.email };
       for (let i = 1; i < INVITATION_ADMISSIONS_PER_INVITER_PER_DAY; i++) {
-        expect(await callerIn(INVITE_ONLY, await person("cap-earlier")).invitation.accept({ token: await collaboratorLink(inviter.userId, hz.B.businessId) })).toMatchObject({ already: false });
+        expect(await callerIn(INVITE_ONLY, await person("cap-earlier")).invitation.accept({ confirmAdult: true, token: await collaboratorLink(inviter.userId, hz.B.businessId) })).toMatchObject({ already: false });
       }
       expect(await repos.admissions.admittedByInviterSince(hz.db, inviter.userId, todayStart())).toBe(INVITATION_ADMISSIONS_PER_INVITER_PER_DAY - 1);
       const [tokenA, tokenB] = [await collaboratorLink(inviter.userId, hz.B.businessId), await collaboratorLink(inviter.userId, hz.B.businessId)];
       const [a, b] = [await person("cap-a"), await person("cap-b")];
-      const answers = await releasedTogether([() => refusal(callerIn(INVITE_ONLY, a).invitation.accept({ token: tokenA })), () => refusal(callerIn(INVITE_ONLY, b).invitation.accept({ token: tokenB }))]);
+      const answers = await releasedTogether([() => refusal(callerIn(INVITE_ONLY, a).invitation.accept({ confirmAdult: true, token: tokenA })), () => refusal(callerIn(INVITE_ONLY, b).invitation.accept({ confirmAdult: true, token: tokenB }))]);
       expect(answers.filter((x) => x === null)).toHaveLength(1);
       expect(answers.filter((x) => x?.code === "TOO_MANY_REQUESTS" && x.appCode === "invitation_admissions_limit")).toHaveLength(1);
       expect(await repos.admissions.admittedByInviterSince(hz.db, inviter.userId, todayStart())).toBe(INVITATION_ADMISSIONS_PER_INVITER_PER_DAY);
@@ -186,7 +186,7 @@ describe.skipIf(!onPostgres)("on a real Postgres", () => {
       await pause.hasUpdated;
       // The accept reads the inviter before its transaction (still an admin: the demotion has not committed), then
       // waits for the inviter's row, locked by the demotion.
-      const accept = refusal(hz.caller(invitee).invitation.accept({ token }));
+      const accept = refusal(hz.caller(invitee).invitation.accept({ confirmAdult: true, token }));
       try {
         await until("the accept to wait for the inviter's row", waitingForAnyLock, 1);
       } finally {

@@ -80,26 +80,26 @@ afterAll(() => hz?.close());
 describe("founder.profile.update records who or what brought a new person", () => {
   it("a project's public page: the business and its longest-standing owner", async () => {
     const p = await newcomer();
-    await p.me.founder.profile.update({ ...answer, via: "p.bread-by-bike" });
+    await p.me.founder.profile.update({ confirmAdult: true, ...answer, via: "p.bread-by-bike" });
     expect(await repos.attributions.forUser(hz.db, p.userId)).toMatchObject({ userId: p.userId, sourceKind: "project_page", sourceRef: "bread-by-bike", sourceBusinessId: hz.A.businessId, referrerUserId: hz.A.ownerId });
   });
 
   it("a person's public profile: that person, and no business", async () => {
     const p = await newcomer();
-    await p.me.founder.profile.update({ ...answer, via: "u.sam-lee" });
+    await p.me.founder.profile.update({ confirmAdult: true, ...answer, via: "u.sam-lee" });
     expect(await repos.attributions.forUser(hz.db, p.userId)).toMatchObject({ sourceKind: "person_profile", sourceRef: "sam-lee", sourceBusinessId: null, referrerUserId: sam });
   });
 
   it("no reference, nothing recorded", async () => {
     const p = await newcomer();
-    await p.me.founder.profile.update(answer);
+    await p.me.founder.profile.update({ ...answer, confirmAdult: true });
     expect(await repos.attributions.forUser(hz.db, p.userId)).toBeNull();
   });
 
   it("a value that is not a reference is ignored without an error", async () => {
     for (const via of ["", "bread-by-bike", "x.bread-by-bike", "p.", "p.Bread-By-Bike", "p.bread by bike", "p.-bread", "u.sam_lee", "p.bread-by-bike?x=1", "p.x'; drop table attributions; --"]) {
       const p = await newcomer();
-      await p.me.founder.profile.update({ ...answer, via });
+      await p.me.founder.profile.update({ confirmAdult: true, ...answer, via });
       expect(await repos.attributions.forUser(hz.db, p.userId), via).toBeNull();
     }
   });
@@ -110,7 +110,7 @@ describe("founder.profile.update records who or what brought a new person", () =
     await repos.personProfiles.save(hz.db, priv, { handle: "pat-private", content: person() });
     for (const via of ["p.no-such-page", "u.no-such-person", "p.still-a-draft", "u.pat-private", "u.bread-by-bike", "p.sam-lee"]) {
       const p = await newcomer();
-      await p.me.founder.profile.update({ ...answer, via });
+      await p.me.founder.profile.update({ confirmAdult: true, ...answer, via });
       expect(await repos.attributions.forUser(hz.db, p.userId), via).toBeNull();
     }
   });
@@ -119,7 +119,7 @@ describe("founder.profile.update records who or what brought a new person", () =
     await hz.db.execute(sql`update businesses set is_demo = true where id = ${hz.A.businessId}`);
     try {
       const p = await newcomer();
-      await p.me.founder.profile.update({ ...answer, via: "p.bread-by-bike" });
+      await p.me.founder.profile.update({ confirmAdult: true, ...answer, via: "p.bread-by-bike" });
       expect(await repos.attributions.forUser(hz.db, p.userId)).toBeNull();
     } finally {
       await hz.db.execute(sql`update businesses set is_demo = false where id = ${hz.A.businessId}`);
@@ -130,28 +130,28 @@ describe("founder.profile.update records who or what brought a new person", () =
     // The fixture's owner has a business and a published page, and no profile yet.
     const owner = hz.caller({ userId: hz.A.ownerId, email: "attribution-a-owner@test.local" });
     const before = await accountCounts();
-    await owner.founder.profile.update({ ...answer, via: "p.bread-by-bike" });
+    await owner.founder.profile.update({ confirmAdult: true, ...answer, via: "p.bread-by-bike" });
     expect(await repos.attributions.forUser(hz.db, hz.A.ownerId)).toBeNull();
     // And no account event: not for the owner as a new person, not for the owner as the person credited.
     expect(await accountCounts()).toEqual(before);
     // Another member of the same project was brought by it, and its first owner is credited.
     const member = hz.caller({ userId: hz.A.memberId, email: "attribution-a-member@test.local" });
-    await member.founder.profile.update({ ...answer, via: "p.bread-by-bike" });
+    await member.founder.profile.update({ confirmAdult: true, ...answer, via: "p.bread-by-bike" });
     expect(await repos.attributions.forUser(hz.db, hz.A.memberId)).toMatchObject({ sourceBusinessId: hz.A.businessId, referrerUserId: hz.A.ownerId });
   });
 
   it("only once: a later save ignores a reference, and an account that already has one keeps it", async () => {
     // Created with no reference: a later save that carries one records nothing (the profile already exists).
     const late = await newcomer();
-    await late.me.founder.profile.update(answer);
-    await late.me.founder.profile.update({ displayName: "Later", via: "p.bread-by-bike" });
+    await late.me.founder.profile.update({ ...answer, confirmAdult: true });
+    await late.me.founder.profile.update({ confirmAdult: true, displayName: "Later", via: "p.bread-by-bike" });
     expect(await repos.attributions.forUser(hz.db, late.userId)).toBeNull();
 
     // Created through the page: a later save naming a person changes nothing.
     const first = await newcomer();
-    await first.me.founder.profile.update({ ...answer, via: "p.bread-by-bike" });
+    await first.me.founder.profile.update({ confirmAdult: true, ...answer, via: "p.bread-by-bike" });
     const recorded = await repos.attributions.forUser(hz.db, first.userId);
-    const edited = await first.me.founder.profile.update({ displayName: "Renamed", via: "u.sam-lee" });
+    const edited = await first.me.founder.profile.update({ confirmAdult: true, displayName: "Renamed", via: "u.sam-lee" });
     expect(edited).toMatchObject({ displayName: "Renamed" });
     expect(edited).not.toHaveProperty("via");
     expect(await repos.attributions.forUser(hz.db, first.userId)).toEqual(recorded);
@@ -159,7 +159,7 @@ describe("founder.profile.update records who or what brought a new person", () =
     // An account that somehow has an attribution before its profile keeps the first.
     const early = await newcomer();
     await repos.attributions.record(hz.db, early.userId, { kind: "person_profile", ref: "sam-lee", businessId: null, referrerUserId: sam });
-    await early.me.founder.profile.update({ ...answer, via: "p.bread-by-bike" });
+    await early.me.founder.profile.update({ confirmAdult: true, ...answer, via: "p.bread-by-bike" });
     expect(await repos.attributions.forUser(hz.db, early.userId)).toMatchObject({ sourceKind: "person_profile", sourceRef: "sam-lee" });
     expect((await rows<{ n: number }>(sql`select count(*)::int as n from attributions where user_id = ${early.userId}`))[0]!.n).toBe(1);
   });
@@ -168,7 +168,7 @@ describe("founder.profile.update records who or what brought a new person", () =
     const answers: Record<string, unknown>[] = [];
     for (const via of [undefined, "", "not a reference", "p.no-such-page", "u.no-such-person", "p.still-a-draft", "p.bread-by-bike", "u.sam-lee"]) {
       const p = await newcomer();
-      answers.push(comparable(await p.me.founder.profile.update({ ...answer, ...(via === undefined ? {} : { via }) })));
+      answers.push(comparable(await p.me.founder.profile.update({ confirmAdult: true, ...answer, ...(via === undefined ? {} : { via }) })));
     }
     for (const other of answers.slice(1)) expect(other).toEqual(answers[0]);
     expect(answers[0]).toMatchObject({ displayName: "Newcomer", guidanceTurnedOff: false });
@@ -177,14 +177,14 @@ describe("founder.profile.update records who or what brought a new person", () =
 
   it("the input is bounded: a value longer than any reference is refused before anything is read", async () => {
     const p = await newcomer();
-    expect(await code(p.me.founder.profile.update({ ...answer, via: `p.${"a".repeat(VIA_MAX_LENGTH)}` }))).toBe("BAD_REQUEST");
+    expect(await code(p.me.founder.profile.update({ confirmAdult: true, ...answer, via: `p.${"a".repeat(VIA_MAX_LENGTH)}` }))).toBe("BAD_REQUEST");
     // The longest reference there can be is accepted (and names nothing here).
-    await p.me.founder.profile.update({ ...answer, via: `p.${"a".repeat(VIA_MAX_LENGTH - 2)}` });
+    await p.me.founder.profile.update({ confirmAdult: true, ...answer, via: `p.${"a".repeat(VIA_MAX_LENGTH - 2)}` });
     expect(await repos.attributions.forUser(hz.db, p.userId)).toBeNull();
   });
 
   it("signed out is refused", async () => {
-    expect(await code(hz.caller(null).founder.profile.update({ ...answer, via: "p.bread-by-bike" }))).toBe("UNAUTHORIZED");
+    expect(await code(hz.caller(null).founder.profile.update({ confirmAdult: true, ...answer, via: "p.bread-by-bike" }))).toBe("UNAUTHORIZED");
   });
 });
 
@@ -218,7 +218,7 @@ describe("signup.attributed and referral.arrived", () => {
     const business = await eventCounts();
     const account = await accountCounts();
     const p = await newcomer();
-    await p.me.founder.profile.update({ ...answer, via: "p.bread-by-bike" });
+    await p.me.founder.profile.update({ confirmAdult: true, ...answer, via: "p.bread-by-bike" });
     const { row, keys, mine, theirs } = await eventsOf(p.userId, hz.A.ownerId);
     expect(row).toMatchObject({ sourceKind: "project_page", sourceRef: "bread-by-bike", sourceBusinessId: hz.A.businessId, referrerUserId: hz.A.ownerId });
 
@@ -246,7 +246,7 @@ describe("signup.attributed and referral.arrived", () => {
   it("a person's profile: one row for the new person and one for that person", async () => {
     const account = await accountCounts();
     const p = await newcomer();
-    await p.me.founder.profile.update({ ...answer, via: "u.sam-lee" });
+    await p.me.founder.profile.update({ confirmAdult: true, ...answer, via: "u.sam-lee" });
     const { row, keys, mine, theirs } = await eventsOf(p.userId, sam);
     expect(row).toMatchObject({ sourceKind: "person_profile", sourceRef: "sam-lee", sourceBusinessId: null, referrerUserId: sam });
     expect(await accountEvents(p.userId)).toHaveLength(1);
@@ -258,9 +258,9 @@ describe("signup.attributed and referral.arrived", () => {
   it("nothing reaches a business's `events` or `outbox`, for a page or for a person, and no writer can put either type there", async () => {
     const before = await eventCounts();
     const viaPage = await newcomer();
-    await viaPage.me.founder.profile.update({ ...answer, via: "p.bread-by-bike" });
+    await viaPage.me.founder.profile.update({ confirmAdult: true, ...answer, via: "p.bread-by-bike" });
     const viaPerson = await newcomer();
-    await viaPerson.me.founder.profile.update({ ...answer, via: "u.sam-lee" });
+    await viaPerson.me.founder.profile.update({ confirmAdult: true, ...answer, via: "u.sam-lee" });
     expect(await attributionEventsOf(viaPage.userId)).toHaveLength(1);
     expect(await attributionEventsOf(viaPerson.userId)).toHaveLength(1);
     expect(await eventCounts()).toEqual(before);
@@ -284,7 +284,7 @@ describe("signup.attributed and referral.arrived", () => {
   it("the credited person's row says nothing about who signed up: no id in any spelling, no name, no address, no time of its own", async () => {
     const p = await newcomer();
     const email = `attribution-${n}@test.local`;
-    await p.me.founder.profile.update({ ...answer, displayName: "Zed Quillfeather", via: "u.sam-lee" });
+    await p.me.founder.profile.update({ confirmAdult: true, ...answer, displayName: "Zed Quillfeather", via: "u.sam-lee" });
     const { row, keys, mine, theirs } = await eventsOf(p.userId, sam);
     expect(theirs).toHaveLength(1);
     // Every column of the row and of its queue row, the ones the person cannot read included.
@@ -315,7 +315,7 @@ describe("signup.attributed and referral.arrived", () => {
 
   it("the new person's row names the address they opened, never the project by id or the person credited", async () => {
     const p = await newcomer();
-    await p.me.founder.profile.update({ ...answer, via: "p.bread-by-bike" });
+    await p.me.founder.profile.update({ confirmAdult: true, ...answer, via: "p.bread-by-bike" });
     const { mine } = await eventsOf(p.userId, hz.A.ownerId);
     const [stored] = await rows<{ event: string; queue: string }>(sql`
       select to_jsonb(e)::text as event, (select to_jsonb(o)::text from account_outbox o where o.event_id = e.id) as queue from account_events e where e.id = ${mine[0]!.id}::uuid`);
@@ -327,7 +327,7 @@ describe("signup.attributed and referral.arrived", () => {
 
   it("nobody but its own person reads either row: not the other of the two, not the project's people, not a stranger, not a visitor", async () => {
     const p = await newcomer();
-    await p.me.founder.profile.update({ ...answer, via: "p.bread-by-bike" });
+    await p.me.founder.profile.update({ confirmAdult: true, ...answer, via: "p.bread-by-bike" });
     const stranger = await newcomer();
     const { mine, theirs } = await eventsOf(p.userId, hz.A.ownerId);
     const mineId = mine[0]!.id;
@@ -369,7 +369,7 @@ describe("signup.attributed and referral.arrived", () => {
     const before = await accountCounts();
     for (const via of [undefined, "", "not a reference", "p.no-such-page", "u.no-such-person", "p.still-a-draft", "u.bread-by-bike", "p.sam-lee"]) {
       const p = await newcomer();
-      await p.me.founder.profile.update({ ...answer, ...(via === undefined ? {} : { via }) });
+      await p.me.founder.profile.update({ confirmAdult: true, ...answer, ...(via === undefined ? {} : { via }) });
       expect(await repos.attributions.forUser(hz.db, p.userId), String(via)).toBeNull();
       expect(await accountEvents(p.userId), String(via)).toEqual([]);
     }
@@ -388,19 +388,19 @@ describe("signup.attributed and referral.arrived", () => {
   it("writes nothing a second time: a later save, a second reference, a repeat, and an account that already has its row", async () => {
     // Created with no reference: a later save that carries one writes nothing.
     const late = await newcomer();
-    await late.me.founder.profile.update(answer);
+    await late.me.founder.profile.update({ ...answer, confirmAdult: true });
     const before = await accountCounts();
-    await late.me.founder.profile.update({ displayName: "Later", via: "p.bread-by-bike" });
+    await late.me.founder.profile.update({ confirmAdult: true, displayName: "Later", via: "p.bread-by-bike" });
     expect(await accountEvents(late.userId)).toEqual([]);
     expect(await accountCounts()).toEqual(before);
 
     // Created through the page: two rows, once. A later save naming a person, and the service called again, add none.
     const first = await newcomer();
-    await first.me.founder.profile.update({ ...answer, via: "p.bread-by-bike" });
+    await first.me.founder.profile.update({ confirmAdult: true, ...answer, via: "p.bread-by-bike" });
     const after = await accountCounts();
     expect(after).toEqual({ events: before.events + 2, queued: before.queued + 2 });
     const samBefore = (await accountEvents(sam)).length;
-    await first.me.founder.profile.update({ displayName: "Renamed", via: "u.sam-lee" });
+    await first.me.founder.profile.update({ confirmAdult: true, displayName: "Renamed", via: "u.sam-lee" });
     const { lines, log } = capture();
     await recordSignupAttribution({ db: hz.db, log }, first.userId, "u.sam-lee");
     await recordSignupAttribution({ db: hz.db, log }, first.userId, "p.bread-by-bike");
@@ -412,7 +412,7 @@ describe("signup.attributed and referral.arrived", () => {
     // An account whose row is already there: the first stays and no event is written for the later reference.
     const early = await newcomer();
     await repos.attributions.record(hz.db, early.userId, { kind: "person_profile", ref: "sam-lee", businessId: null, referrerUserId: sam });
-    await early.me.founder.profile.update({ ...answer, via: "p.bread-by-bike" });
+    await early.me.founder.profile.update({ confirmAdult: true, ...answer, via: "p.bread-by-bike" });
     expect(await accountEvents(early.userId)).toEqual([]);
     expect(await accountCounts()).toEqual(after);
 
@@ -447,7 +447,7 @@ describe("signup.attributed and referral.arrived", () => {
 
   it("the events can be written again from the row, and a repeat writes nothing", async () => {
     const p = await newcomer();
-    await p.me.founder.profile.update({ ...answer, via: "u.sam-lee" });
+    await p.me.founder.profile.update({ confirmAdult: true, ...answer, via: "u.sam-lee" });
     const { row, mine, theirs } = await eventsOf(p.userId, sam);
     const before = await accountCounts();
     const ids = await hz.db.transaction((tx) => writeAccountEvents(tx, attributionEvents(row)));
@@ -473,7 +473,7 @@ describe("signup.attributed and referral.arrived", () => {
       for (const said of [address, hz.B.ownerId, hz.B.businessId]) expect(lines[0], said).not.toContain(said);
       // Through the save itself: it answers as ever, and the row is there.
       const q = await newcomer();
-      expect(await q.me.founder.profile.update({ ...answer, via: `p.${address}` })).toMatchObject({ displayName: "Newcomer" });
+      expect(await q.me.founder.profile.update({ confirmAdult: true, ...answer, via: `p.${address}` })).toMatchObject({ displayName: "Newcomer" });
       expect(await repos.attributions.forUser(hz.db, q.userId)).toMatchObject({ sourceRef: address });
       expect(await accountEvents(q.userId)).toEqual([]);
       expect(await accountCounts()).toEqual(before);

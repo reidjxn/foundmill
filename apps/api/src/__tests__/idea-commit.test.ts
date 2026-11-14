@@ -17,7 +17,7 @@ describe("idea.commit (AC-11.1.6, AC-11.1.7)", () => {
   it("creates the full structure with default mode assisted and starts the first cycle", async () => {
     const userId = await hz.h.createUser("founder@test.local");
     const caller = hz.caller({ userId, email: "founder@test.local" });
-    await caller.founder.profile.update({ displayName: "Reid", experience: "first-time", skills: { engineering: 14, sales: 8 }, targetMarkets: ["EU"], riskAppetite: "medium" });
+    await caller.founder.profile.update({ confirmAdult: true, displayName: "Reid", experience: "first-time", skills: { engineering: 14, sales: 8 }, targetMarkets: ["EU"], riskAppetite: "medium" });
 
     const generated = await caller.idea.generate({ prompt: "bookkeeping for freelancers in the EU" });
     expect(generated.ideas.length).toBeGreaterThanOrEqual(6);
@@ -124,7 +124,7 @@ describe("idea.commit (AC-11.1.6, AC-11.1.7)", () => {
   it("Take charge twice (a double click, a second tab, a retry) builds one business and answers both with it", async () => {
     const userId = await hz.h.createUser("twice@test.local");
     const caller = hz.caller({ userId, email: "twice@test.local" });
-    await caller.founder.profile.update({ displayName: "Twice", experience: "first-time", skills: { engineering: 10 }, targetMarkets: ["US"], riskAppetite: "low" });
+    await caller.founder.profile.update({ confirmAdult: true, displayName: "Twice", experience: "first-time", skills: { engineering: 10 }, targetMarkets: ["US"], riskAppetite: "low" });
     const idea = (await caller.idea.generate({ prompt: "invoicing for dog walkers" })).ideas[0]!;
     const input = { ideaId: idea.id, name: "Twice Walks", archetype: "b2b_saas" as const, gameMode: "personal" as const };
 
@@ -157,14 +157,14 @@ describe("idea.commit (AC-11.1.6, AC-11.1.7)", () => {
     // Another founder cannot reach the business through the idea.
     const otherId = await hz.h.createUser("other-twice@test.local");
     const other = hz.caller({ userId: otherId, email: "other-twice@test.local" });
-    await other.founder.profile.update({ displayName: "Other", experience: "first-time", skills: { engineering: 10 }, targetMarkets: ["US"], riskAppetite: "low" });
+    await other.founder.profile.update({ confirmAdult: true, displayName: "Other", experience: "first-time", skills: { engineering: 10 }, targetMarkets: ["US"], riskAppetite: "low" });
     await expect(other.idea.commit(input)).rejects.toThrow(/not found/);
   });
 
   it("starts on the free tier with this month's included credits in US dollars, keeps the spend cap, and takes charge of a second business on the free plan: no business limit; the second starts with nothing included (one credit pool a month per founder, SEC2 S6)", async () => {
     const userId = await hz.h.createUser("tier@test.local");
     const caller = hz.caller({ userId, email: "tier@test.local" });
-    await caller.founder.profile.update({ displayName: "Ada", experience: "first-time", skills: { engineering: 10 }, targetMarkets: ["US"], riskAppetite: "low" });
+    await caller.founder.profile.update({ confirmAdult: true, displayName: "Ada", experience: "first-time", skills: { engineering: 10 }, targetMarkets: ["US"], riskAppetite: "low" });
     const generated = await caller.idea.generate({ prompt: "invoicing for dog groomers" });
     const [first, second] = generated.ideas;
 
@@ -198,7 +198,7 @@ describe("idea.commit (AC-11.1.6, AC-11.1.7)", () => {
     // double click built two businesses. Only a claim that does not trust an earlier read stops it.
     const userId = await hz.h.createUser("stale@test.local");
     const caller = hz.caller({ userId, email: "stale@test.local" });
-    await caller.founder.profile.update({ displayName: "Stale", experience: "first-time", skills: { engineering: 10 }, targetMarkets: ["US"], riskAppetite: "low" });
+    await caller.founder.profile.update({ confirmAdult: true, displayName: "Stale", experience: "first-time", skills: { engineering: 10 }, targetMarkets: ["US"], riskAppetite: "low" });
     const idea = (await caller.idea.generate({ prompt: "rota planning for small kitchens" })).ideas[0]!;
     const input = { ideaId: idea.id, name: "Stale Rota", archetype: "b2b_saas" as const, gameMode: "personal" as const };
     const uncommitted = await repos.ideas.get(hz.db, userId, idea.id);
@@ -220,10 +220,11 @@ describe("idea.commit (AC-11.1.6, AC-11.1.7)", () => {
     expect(temporal.starts.filter((s) => s.type === "businessCycle" && s.workflowId === `cycle:${first.business.id}:1`)).toHaveLength(1);
   });
 
-  it("starting LIVE needs the 18+ attestation (the network is for adults only); Personal asks for nothing (audit GLS2F-09)", async () => {
+  it("starting LIVE needs the 18+ attestation (the network is for adults only) from a person here before sign-up asked (audit GLS2F-09)", async () => {
     const userId = await hz.h.createUser("adult@test.local");
     const caller = hz.caller({ userId, email: "adult@test.local" });
-    await caller.founder.profile.update({ displayName: "Ana", experience: "first-time", skills: { sales: 10 }, targetMarkets: ["US"], riskAppetite: "low" });
+    // A profile from before 0104: no confirmation on record.
+    await repos.founders.upsert(hz.db, userId, { displayName: "Ana", experience: "first-time", skills: { sales: 10 }, targetMarkets: ["US"], riskAppetite: "low" });
     const [idea] = (await caller.idea.generate({ prompt: "bookkeeping for tattoo studios" })).ideas;
     await expect(caller.idea.commit({ ideaId: idea!.id, name: "Adult Co", archetype: "b2b_saas", gameMode: "live" })).rejects.toMatchObject({ code: "FORBIDDEN" });
     await expect(caller.idea.commit({ ideaId: idea!.id, name: "Adult Co", archetype: "b2b_saas", gameMode: "live", confirmAdult: false })).rejects.toMatchObject({ code: "FORBIDDEN" });
@@ -232,6 +233,29 @@ describe("idea.commit (AC-11.1.6, AC-11.1.7)", () => {
     expect(result.business.gameMode).toBe("live");
     // The attestation is on the audit chain next to the commit.
     expect((await repos.audit.list(hz.db, result.business.id, { action: "idea.commit", limit: 1 })).items[0]?.details).toMatchObject({ gameMode: "live", confirmedAdult: true });
+  });
+
+  it("a person who confirmed 18+ at sign-up starts LIVE without being asked again", async () => {
+    const userId = await hz.h.createUser("adult-signup@test.local");
+    const caller = hz.caller({ userId, email: "adult-signup@test.local" });
+    await caller.founder.profile.update({ confirmAdult: true, displayName: "Bea", experience: "first-time", skills: { sales: 10 }, targetMarkets: ["US"], riskAppetite: "low" });
+    const confirmedAt = await repos.adults.confirmedAt(hz.db, userId);
+    const [idea] = (await caller.idea.generate({ prompt: "bookkeeping for tattoo studios" })).ideas;
+    const result = await caller.idea.commit({ ideaId: idea!.id, name: "Bea Co", archetype: "b2b_saas", gameMode: "live" });
+    expect(result.business.gameMode).toBe("live");
+    // The one confirmation stands: nothing new was written.
+    expect(await repos.adults.confirmedAt(hz.db, userId)).toEqual(confirmedAt);
+  });
+
+  it("a person with no 18+ confirmation on record cannot start a Personal project either", async () => {
+    const userId = await hz.h.createUser("adult-personal@test.local");
+    const caller = hz.caller({ userId, email: "adult-personal@test.local" });
+    await repos.founders.upsert(hz.db, userId, { displayName: "Cam", experience: "first-time", skills: { sales: 10 }, targetMarkets: ["US"], riskAppetite: "low" });
+    const [idea] = (await caller.idea.generate({ prompt: "bookkeeping for tattoo studios" })).ideas;
+    await expect(caller.idea.commit({ ideaId: idea!.id, name: "Cam Co", archetype: "b2b_saas" })).rejects.toMatchObject({ code: "FORBIDDEN", cause: { code: "adult_unconfirmed" } });
+    expect((await repos.businesses.listForUser(hz.db, userId)).length).toBe(0);
+    expect((await caller.idea.commit({ ideaId: idea!.id, name: "Cam Co", archetype: "b2b_saas", confirmAdult: true })).business.gameMode).toBe("personal");
+    expect(await repos.adults.confirmedAt(hz.db, userId)).not.toBeNull();
   });
 
   it("preview lists what an archetype seeds, labelled Estimate", async () => {
@@ -266,7 +290,7 @@ describe("idea.commit (AC-11.1.6, AC-11.1.7)", () => {
   it("a Door A business starts with the concept card's citations as sources, labeled Estimate (audit FR-24)", async () => {
     const userId = await hz.h.createUser("commit-sources@test.local");
     const caller = hz.caller({ userId, email: "commit-sources@test.local" });
-    await caller.founder.profile.update({ displayName: "Sam", experience: "operator", skills: {}, targetMarkets: ["US"], riskAppetite: "low" });
+    await caller.founder.profile.update({ confirmAdult: true, displayName: "Sam", experience: "operator", skills: {}, targetMarkets: ["US"], riskAppetite: "low" });
     const idea = await repos.ideas.create(hz.db, userId, {
       title: "Citewell",
       pitch: "Citations for clinics.",
@@ -300,7 +324,7 @@ describe("idea.commit (AC-11.1.6, AC-11.1.7)", () => {
   it("refuses a currency code Intl cannot format before anything is created (audit ARB-15)", async () => {
     const userId = await hz.h.createUser("currency@test.local");
     const caller = hz.caller({ userId, email: "currency@test.local" });
-    await caller.founder.profile.update({ displayName: "Cur", experience: "first-time", skills: { engineering: 14 }, targetMarkets: ["EU"], riskAppetite: "medium" });
+    await caller.founder.profile.update({ confirmAdult: true, displayName: "Cur", experience: "first-time", skills: { engineering: 14 }, targetMarkets: ["EU"], riskAppetite: "medium" });
     const { ideas } = await caller.idea.generate({ prompt: "invoicing for freelancers" });
     const idea = ideas[0]!;
     const before = (await repos.memberships.listForUser(hz.db, userId)).length;
@@ -320,7 +344,7 @@ describe("the business currency (0025)", () => {
   it("is the founder's at commit, stored on the business, read by every business amount, and changed in Settings by owners and admins", async () => {
     const userId = await hz.h.createUser("dollars@test.local");
     const caller = hz.caller({ userId, email: "dollars@test.local" });
-    await caller.founder.profile.update({ displayName: "Dana", experience: "operator", currency: "USD", targetMarkets: ["US"], riskAppetite: "medium" });
+    await caller.founder.profile.update({ confirmAdult: true, displayName: "Dana", experience: "operator", currency: "USD", targetMarkets: ["US"], riskAppetite: "medium" });
     const generated = await caller.idea.generate({ prompt: "invoicing for contractors in the US" });
     // The Commit screen sends no currency here: the founder's profile currency is the business's.
     const result = await caller.idea.commit({ ideaId: generated.ideas[0]!.id, name: "Dollar Books", archetype: "b2b_saas", gameMode: "personal" });
@@ -358,7 +382,7 @@ describe("the business currency (0025)", () => {
   it("is not the column default: a pound founder gets pounds, and a currency chosen on the Commit screen wins over the profile's", async () => {
     const userId = await hz.h.createUser("pounds@test.local");
     const caller = hz.caller({ userId, email: "pounds@test.local" });
-    await caller.founder.profile.update({ displayName: "Priya", experience: "operator", currency: "GBP", targetMarkets: ["UK"], riskAppetite: "medium" });
+    await caller.founder.profile.update({ confirmAdult: true, displayName: "Priya", experience: "operator", currency: "GBP", targetMarkets: ["UK"], riskAppetite: "medium" });
     const generated = await caller.idea.generate({ prompt: "payroll for small UK shops" });
     const fromProfile = await caller.idea.commit({ ideaId: generated.ideas[0]!.id, name: "Pound Books", archetype: "b2b_saas", gameMode: "personal" });
     expect(fromProfile.business.currency).toBe("GBP");
@@ -369,7 +393,7 @@ describe("the business currency (0025)", () => {
     // Another founder (the free plan holds one business each) picks the currency on the Commit screen.
     const otherId = await hz.h.createUser("kronor@test.local");
     const other = hz.caller({ userId: otherId, email: "kronor@test.local" });
-    await other.founder.profile.update({ displayName: "Sven", experience: "operator", currency: "GBP", targetMarkets: ["SE"], riskAppetite: "medium" });
+    await other.founder.profile.update({ confirmAdult: true, displayName: "Sven", experience: "operator", currency: "GBP", targetMarkets: ["SE"], riskAppetite: "medium" });
     const otherIdeas = await other.idea.generate({ prompt: "payroll for small Swedish shops" });
     const chosen = await other.idea.commit({ ideaId: otherIdeas.ideas[0]!.id, name: "Krona Books", archetype: "b2b_saas", gameMode: "personal", currency: "sek" });
     expect(chosen.business.currency).toBe("SEK");

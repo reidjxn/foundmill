@@ -205,7 +205,7 @@ describe("team.humans and team.responsibilities (W19)", () => {
     expect("invite" in (owner.team.humans as Record<string, unknown>)).toBe(false);
     // A cofounder invitation names the person's address, and only the account signed in with it accepts.
     const { link } = await owner.invitation.create({ businessId, role: "cofounder", email: "cofounder-w19@test.local" });
-    expect(await hz.caller({ userId: newcomer, email: "cofounder-w19@test.local" }).invitation.accept({ token: link.split("/i/")[1]! })).toEqual({ businessId, already: false });
+    expect(await hz.caller({ userId: newcomer, email: "cofounder-w19@test.local" }).invitation.accept({ confirmAdult: true, token: link.split("/i/")[1]! })).toEqual({ businessId, already: false });
     expect(await repos.memberships.get(hz.db, businessId, newcomer)).toMatchObject({ role: "cofounder", sectionPermissions: {} });
     // founder.profile.get tells a person their own account ID.
     expect((await hz.caller({ userId: newcomer }).founder.profile.get()).userId).toBe(newcomer);
